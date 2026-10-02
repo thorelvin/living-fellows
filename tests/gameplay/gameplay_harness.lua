@@ -12473,6 +12473,51 @@ check(arrivedAttempted and arrivedAccepted and not farCurtain.open
         and SurvivorCompanion.Downtime.peek(farCurtainActor).curtainTask == nil,
     "the reserved curtain is closed only after the companion physically arrives")
 
+-- A path request can be accepted repeatedly without moving the actor. The
+-- failed task must abandon this curtain for a while instead of selecting it
+-- again at the next decision interval.
+farCurtain.open = true
+farCurtainActor.square, farCurtainActor.worldX, farCurtainActor.worldY =
+    farActorSquare, nil, nil
+worldHour = 22
+clock = clock + 120001
+local originalCurtainRequestAny = SurvivorCompanion.Navigation.requestAny
+local curtainApproachCalls = 0
+SurvivorCompanion.Navigation.requestAny = function(_, targets, _, intent)
+    curtainApproachCalls = curtainApproachCalls + 1
+    check(#targets > 0 and intent.environmentalTask == "curtain"
+            and intent.requireSameSquare == true,
+        "curtain uses actual accessible interaction squares")
+    return true, "moving"
+end
+local stalledAttempted, stalledAccepted, stalledReason =
+    SurvivorCompanion.Downtime.considerCurtain(farCurtainActor,
+        { threatCount = 0, immediateCount = 0 }, clock)
+check(stalledAttempted and stalledAccepted and stalledReason == "approaching_curtain"
+        and farCurtain.open,
+    "curtain task keeps its target state while approach is pending")
+local stalledDeadline = SurvivorCompanion.Downtime.peek(farCurtainActor)
+    .curtainTask.expiresAt
+local expiredAttempted, expiredAccepted, expiredReason =
+    SurvivorCompanion.Downtime.considerCurtain(farCurtainActor,
+        { threatCount = 0, immediateCount = 0 }, stalledDeadline)
+check(expiredAttempted and not expiredAccepted
+        and expiredReason == "curtain_approach_timeout"
+        and SurvivorCompanion.Downtime.peek(farCurtainActor).curtainTask == nil,
+    "an accepted but stalled curtain approach expires cleanly")
+local retryAttempted = SurvivorCompanion.Downtime.considerCurtain(farCurtainActor,
+    { threatCount = 0, immediateCount = 0 }, stalledDeadline + 12001)
+check(not retryAttempted and curtainApproachCalls == 1,
+    "the same unreachable curtain is not selected again immediately")
+local laterAttempted, laterAccepted = SurvivorCompanion.Downtime.considerCurtain(
+    farCurtainActor, { threatCount = 0, immediateCount = 0 },
+    stalledDeadline + 120001)
+check(laterAttempted and laterAccepted and curtainApproachCalls == 2,
+    "a curtain may be reconsidered after its failure cooldown")
+SurvivorCompanion.Downtime.cancel(farCurtainActor, "fixture_done")
+SurvivorCompanion.Navigation.requestAny = originalCurtainRequestAny
+worldHour = 12
+
 local noOpCurtainSquare = squares[squareKey(-5, 7, 0)]
 noOpCurtainSquare.room = { name = "bedroom" }
 local noOpCurtain = { __class = "IsoCurtain", square = noOpCurtainSquare, open = true, noopToggle = true }

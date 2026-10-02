@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.26.16 - Movement and interaction playtest
+
+- Native path movement now faces its current waypoint and cannot reuse an old manual steering direction, which could make a companion moonwalk while looking southeast.
+- Leaving a chair holds its seat position through the handoff into the native get-up animation and stops residual seat-entry movement first.
+- Curtain downtime approaches an accessible interaction square and cools down a curtain after a stalled or failed attempt, avoiding repeated approaches to the same unreachable target.
+- Core and gameplay regressions cover these changes. The chair exit and path-facing animations still need visual confirmation in a live playtest.
+
 ## 0.26.15 - Medical and stair recovery playtest
 
 - Companions now offer wound treatment only when they can perform it, and helpers pinned by nearby threats do not repeatedly choose an unsafe rescue. Failed treatment reports its specific blocker instead of a generic no-action result.

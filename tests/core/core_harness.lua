@@ -2144,6 +2144,11 @@ check(leftSeat == false and leavingReason == "standing_from_furniture"
         and seat.occupied == true and actor.lastVariable == "forceGetUp",
     "leaving furniture requests native getup while retaining the seat geometry")
 actor.sitting = false
+actor.actionContextName = "idle" -- one-frame gap between seated and getup states
+local handoffGetup, handoffReason = SC.NativeActions.leaveSeating(actor)
+check(handoffGetup == false and handoffReason == "standing_from_furniture"
+        and actor.seatObject == seat and seat.occupied == true,
+    "furniture exit retains chair height during the native getup handoff")
 actor.actionContextName = "getup"
 local midGetup, midReason = SC.NativeActions.leaveSeating(actor)
 check(midGetup == false and midReason == "standing_from_furniture"
@@ -2219,6 +2224,10 @@ check(sweepWait == false and sweepWaitReason == "standing_from_furniture"
         and actor.sitting == true and actor.seatObject == seat,
     "room sweep waits for furniture getup before moving")
 actor.sitting = false
+actor.actionContextName = "getup"
+local sweepGetup = SC.Actor.setMovement(actor, "walk", { action = "room_sweep" })
+check(sweepGetup == false and actor.seatObject == seat,
+    "room sweep waits through the furniture getup animation")
 actor.actionContextName = "idle"
 local sweepOk, sweepReason = SC.Actor.setMovement(actor, "walk", { action = "room_sweep" })
 check(sweepOk and sweepReason == "room_sweep_facing_started" and actor.forwardY > 0.9

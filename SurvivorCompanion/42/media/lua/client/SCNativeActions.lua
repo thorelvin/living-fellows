@@ -426,11 +426,13 @@ local function leaveFurniture(actor)
         local sittingOk, sitting = invoke(actor, "isSittingOnFurniture")
         local contextOk, context = invoke(actor, "getCurrentActionContextStateName")
         context = contextOk and string.lower(tostring(context or "")) or ""
-        -- The sit state clears its flag when it enters getup, before the getup
-        -- clip has carried the actor back to the floor. Keep the seat reference
-        -- and its height/translation until that native transition completes.
+        if context == "getup" then leaving.sawGetup = true end
+        -- The sit state can clear its flag one update before the getup state
+        -- enters. Releasing the chair in that gap makes the actor drop to the
+        -- floor and then play the stand-up clip from the wrong height.
         if (sittingOk and sitting == true) or context == "sitonfurniture"
-            or context == "getup" then
+            or context == "getup"
+            or (not leaving.sawGetup and nowMs() - leaving.requestedAt < 1250) then
             return false, "standing_from_furniture"
         end
         leavingFurniture[actor] = nil
@@ -439,17 +441,29 @@ local function leaveFurniture(actor)
         return true, "stood_from_furniture"
     end
     local record = activeFurnitureActions[actor]
-    if record and cancelSeatingRecord then cancelSeatingRecord(actor, record) end
-    activeFurnitureActions[actor] = nil
     local sittingOk, sitting = invoke(actor, "isSittingOnFurniture")
-    if sittingOk and sitting == true then
+    local contextOk, context = invoke(actor, "getCurrentActionContextStateName")
+    context = contextOk and string.lower(tostring(context or "")) or ""
+    if (sittingOk and sitting == true) or context == "sitonfurniture"
+        or context == "getup" then
         local objectOk, object = invoke(actor, "getSitOnFurnitureObject")
         leavingFurniture[actor] = {
             object = objectOk and object or record and record.object,
+            requestedAt = nowMs(),
+            sawGetup = context == "getup",
         }
-        invoke(actor, "setVariable", "forceGetUp", true)
+        -- Stop any leftover seat-entry locomotion before asking the native
+        -- furniture state to stand. Its own getup action owns root motion.
+        if context ~= "getup" then
+            actions.stopDirect(actor, { preservePosture = true })
+            invoke(actor, "setVariable", "forceGetUp", true)
+        end
+        if record and cancelSeatingRecord then cancelSeatingRecord(actor, record) end
+        activeFurnitureActions[actor] = nil
         return false, "standing_from_furniture"
     end
+    if record and cancelSeatingRecord then cancelSeatingRecord(actor, record) end
+    activeFurnitureActions[actor] = nil
     if record and record.object then invoke(record.object, "setSatChair", false) end
     invoke(actor, "setSitOnFurnitureObject", nil)
     return true, record and "furniture_entry_cancelled" or "already_standing"
@@ -3965,6 +3979,7 @@ function actions.releaseActor(actor)
     activeFinal[actor] = nil
     activeVisual[actor] = nil
     activeFurnitureActions[actor] = nil
+    leavingFurniture[actor] = nil
     activeBedActions[actor] = nil
     activeGroundActions[actor] = nil
     pacingStates[actor] = nil

@@ -106,6 +106,27 @@ public final class SCIsoCompanionControlTest {
         require("ready".equals(actor.getCompanionPathStatus()) && actor.isPlayerMoving()
                         && !behavior.hasStartedMoving(),
                 "ready path cannot bootstrap animation before first deferred movement");
+        var applyMovementFacing = SCNativeCompanion.class
+                .getDeclaredMethod("applyBridgeMovementFacing");
+        applyMovementFacing.setAccessible(true);
+        var manualX = SCNativeCompanion.class.getDeclaredField("bridgeMoveX");
+        var manualY = SCNativeCompanion.class.getDeclaredField("bridgeMoveY");
+        manualX.setAccessible(true);
+        manualY.setAccessible(true);
+        manualX.setFloat(actor, 0.707f);
+        manualY.setFloat(actor, 0.707f);
+        actor.setForwardDirection(0.0f, 1.0f);
+        applyMovementFacing.invoke(actor);
+        require(Math.abs(actor.getForwardDirection().x) < 0.01f
+                        && actor.getForwardDirection().y > 0.99f,
+                "ready path without a waypoint inherited stale southeast manual facing");
+        behavior.pathNextIsSet = true;
+        behavior.pathNextX = actor.getX() - 2.0f;
+        behavior.pathNextY = actor.getY();
+        applyMovementFacing.invoke(actor);
+        require(actor.getForwardDirection().x < -0.99f
+                        && Math.abs(actor.getForwardDirection().y) < 0.01f,
+                "native path did not turn the model toward its current waypoint");
         var stopping = behavior.getClass().getDeclaredField("stopping");
         stopping.setAccessible(true);
         stopping.setBoolean(behavior, true);
@@ -113,6 +134,11 @@ public final class SCIsoCompanionControlTest {
         require("stopping".equals(actor.getCompanionPathStatus()) && !actor.isPlayerMoving()
                         && actor.hasPendingMovement(),
                 "stopping path must drain walk animation without losing native completion ownership");
+        actor.setForwardDirection(0.0f, 1.0f);
+        applyMovementFacing.invoke(actor);
+        require(Math.abs(actor.getForwardDirection().x) < 0.01f
+                        && actor.getForwardDirection().y > 0.99f,
+                "stopping path reused stale manual facing during its animation tail");
         behavior.pathNextIsSet = true;
         behavior.cancel();
         reconcile.invoke(actor);

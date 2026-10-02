@@ -221,7 +221,19 @@ local function sameBuilding(actorSquare, candidateSquare)
         and actorBuilding == candidateBuilding
 end
 
-local function nearbyCurtain(actor, desiredOpen)
+local function curtainCooling(state, object, now)
+    local expiry = state.curtainRetryAt and state.curtainRetryAt[object]
+    return expiry ~= nil and now < expiry
+end
+
+local function coolCurtain(state, object, now, failed)
+    if not object then return end
+    state.curtainRetryAt = state.curtainRetryAt or setmetatable({}, { __mode = "k" })
+    local cooldown = tonumber(U().config("curtainCooldownMs")) or 45000
+    state.curtainRetryAt[object] = now + (failed and math.max(120000, cooldown) or cooldown)
+end
+
+local function nearbyCurtain(actor, desiredOpen, state, now)
     local utility = U()
     local x, y, z = utility.position(actor)
     if not x then return nil end
@@ -246,7 +258,8 @@ local function nearbyCurtain(actor, desiredOpen)
                         utility.squareObjects(square, function(object)
                             inspected = inspected + 1
                             if inspected > objectBudget then return false end
-                            if isCurtain(object) and objectOpen(object) ~= desiredOpen then
+                            if isCurtain(object) and objectOpen(object) ~= desiredOpen
+                                and not curtainCooling(state, object, now) then
                                 found = object
                                 return false
                             end
@@ -272,10 +285,14 @@ end
 local function processCurtainTask(actor, state, commands, snapshot, now)
     local task = state.curtainTask
     if not task then return false, false, "no_curtain_task" end
-    if dangerPresent(snapshot, actor, now) or (commands.commandSerial or 0) ~= task.commandSerial
-        or now >= (task.expiresAt or 0) then
+    if dangerPresent(snapshot, actor, now) or (commands.commandSerial or 0) ~= task.commandSerial then
         clearCurtainTask(actor, state)
         return true, false, "curtain_task_cancelled"
+    end
+    if now >= (task.expiresAt or 0) then
+        coolCurtain(state, task.object, now, true)
+        clearCurtainTask(actor, state)
+        return true, false, "curtain_approach_timeout"
     end
     local square = U().squareOf(task.object)
     if not square or not isCurtain(task.object) then
@@ -290,21 +307,36 @@ local function processCurtainTask(actor, state, commands, snapshot, now)
         clearCurtainTask(actor, state)
         return true, false, "curtain_reserved"
     end
-    if U().distance(actor, square) > 1.75 then
-        if not SC.Navigation or type(SC.Navigation.request) ~= "function" then
+    local access, targets = U().directInteractionAccess(actor, task.object)
+    if not access then
+        if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
             clearCurtainTask(actor, state)
             return true, false, "navigation_unavailable"
         end
+        -- A curtain's own square can be the only usable indoor side of its
+        -- window. Other candidates must pass Navigation's direct-access edge
+        -- check, so the actor never stops across a wall from the curtain.
+        if U().isSquareFree(square) and sameBuilding(U().squareOf(actor), square) then
+            targets[#targets + 1] = square
+        end
+        if #targets == 0 then
+            coolCurtain(state, task.object, now, true)
+            clearCurtainTask(actor, state)
+            return true, false, "curtain_no_access_square"
+        end
         local mode = commands.combatDoctrine == "stealth" and "sneak" or "walk"
-        local accepted, reason = SC.Navigation.request(actor, square, mode, {
+        local accepted, reason = SC.Navigation.requestAny(actor, targets, mode, {
             action = "approach_interaction",
-            targetSquare = square,
             object = task.object,
             environmentalTask = "curtain",
+            requireSameSquare = true,
+            nativeNearest = true,
         })
-        if not accepted then
+        if not accepted or reason == "arrived" then
+            coolCurtain(state, task.object, now, true)
             clearCurtainTask(actor, state)
-            return true, false, reason or "curtain_approach_rejected"
+            return true, false, reason == "arrived" and "curtain_access_mismatch"
+                or reason or "curtain_approach_rejected"
         end
         return true, true, "approaching_curtain"
     end
@@ -314,6 +346,7 @@ local function processCurtainTask(actor, state, commands, snapshot, now)
     end
     local accepted, reason = SC.Navigation.interact(actor, task.object,
         task.desiredOpen and "open_curtain" or "close_curtain")
+    coolCurtain(state, task.object, now, not accepted)
     clearCurtainTask(actor, state)
     if not accepted then return true, false, reason or "curtain_interaction_rejected" end
     return true, true, task.desiredOpen and "curtain_opened" or "curtain_closed"
@@ -363,7 +396,7 @@ function Downtime.considerCurtain(actor, snapshot, current, player)
         desiredOpen = true
     end
     if desiredOpen == nil then return false, false, "curtain_not_useful" end
-    local curtain, curtainSquare = nearbyCurtain(actor, desiredOpen)
+    local curtain, curtainSquare = nearbyCurtain(actor, desiredOpen, state, now)
     if not curtain then return false, false, "no_curtain_change" end
     if not reserve(curtain, actor, now) then
         return true, false, "curtain_reserved"

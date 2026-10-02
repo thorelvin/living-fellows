@@ -2273,14 +2273,31 @@ public final class SCNativeCompanion extends IsoPlayer {
     }
 
     /**
-     * Non-tactical manual locomotion faces its travel vector, just like keyboard
-     * movement for a local player. Reassert it after the action graph advances:
-     * that graph can otherwise restore the previous backward-strafe or combat
-     * angle even though {@link #applyCompanionAim()} correctly yielded ownership.
+     * Reassert the movement owner's facing after the player action graph advances.
+     * The non-local player lacks the local input update that ordinarily turns a
+     * path follower; otherwise a previous idle/combat direction can remain on
+     * the model while PathFindBehavior2 moves it sideways or backward.
      */
     private void applyBridgeMovementFacing() {
         if (nativeOwnsBody()) return;
         boolean attackOwnsFacing = isAttackStarted() || isPerformingAttackAnimation();
+        if (bridgePathActive && bridgePathRouteReady && !bridgePathStopping
+                && !bridgeTacticalMovement && !attackOwnsFacing) {
+            PathFindBehavior2 behavior = getPathFindBehavior2();
+            if (behavior != null && behavior.pathNextIsSet) {
+                float dx = behavior.pathNextX - getX();
+                float dy = behavior.pathNextY - getY();
+                float length = (float) Math.sqrt(dx * dx + dy * dy);
+                if (Float.isFinite(length) && length > 0.05f) {
+                    setForwardDirection(dx / length, dy / length);
+                    return;
+                }
+            }
+        }
+        // An active path never inherits bridgeMoveX/Y: those are the last
+        // manual steering request and may still point southeast from an old
+        // follow/combat step when the new route has no waypoint yet.
+        if (bridgePathActive) return;
         if (!shouldBridgeMovementOwnFacing(isBridgeLocomotionActive(),
                 bridgeTacticalMovement, attackOwnsFacing)) {
             return;
