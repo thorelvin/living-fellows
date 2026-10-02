@@ -251,6 +251,13 @@ local function rescueNeed(actor, player, snapshot)
         performance.record("decision.rescue", nil,
             math.max(0, performance.preciseNowMs() - started))
     end
+    -- A casualty is not an actionable rescue for a helper with no dressing or
+    -- splint. Otherwise medical wins repeatedly and treat() can only refuse it.
+    if target ~= nil and SC.Medical
+        and type(SC.Medical.canTreatPatient) == "function" then
+        local ready = SC.Medical.canTreatPatient(actor, target)
+        if ready ~= true then return 0, nil end
+    end
     return score, target
 end
 
@@ -415,12 +422,16 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
     end
     -- Untreated bleeding: no chores until the wound is dressed.
     local bleeding = (tonumber(assessment.bleedingCount) or 0) > 0
+    local selfMedicalNeed = actionableMedical(actor, assessment, true)
+    local selfCareBlocked = selfMedicalNeed and SC.Medical
+        and type(SC.Medical.selfCareBlocker) == "function"
+        and SC.Medical.selfCareBlocker(actor) or nil
     if SC.Medical and type(SC.Medical.isReceivingCare) == "function"
         and SC.Medical.isReceivingCare(actor, current) then
         -- The player is bandaging this companion: hold still for it.
         add("medical", 150, true, { mode = "receiving_care" })
     end
-    if actionableMedical(actor, assessment, true)
+    if selfMedicalNeed and (assessment.downed == true or selfCareBlocked == nil)
         and (assessment.needsSplint ~= true
             or (tonumber(assessment.bleedingCount) or 0) > 0
             or assessment.critical and assessment.needsBandageChange
@@ -440,11 +451,12 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
     -- leader and asks for a bandage. When self-care fails the decision falls
     -- back to this instead of scavenging or washing while it bleeds out.
     if bleeding and commands.recruited and player
-        and SC.Medical and type(SC.Medical.selfCareBlocker) == "function"
-        and SC.Medical.selfCareBlocker(actor) ~= nil then
+        and selfCareBlocked ~= nil then
         add("follow", 90, false, { mode = "seek_care" })
     end
-    if (snapshot.immediateCount or 0) == 0 then
+    if (snapshot.immediateCount or 0) == 0
+        and (not SC.Medical or type(SC.Medical.canRescueNow) ~= "function"
+            or SC.Medical.canRescueNow(actor, snapshot)) then
         local rescue, rescueTarget = rescueNeed(actor, player, snapshot)
         if rescue > 0 then
             -- Rescue medicine is a distinct decision identity from self-medicine (and

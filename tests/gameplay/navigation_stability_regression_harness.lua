@@ -604,6 +604,27 @@ end
 -- carries which route the request took, what the engine did with its lease,
 -- and where the companion was ultimately trying to get to.
 do
+    local upstairsGoal = { x = 6, y = 0, z = 1 }
+    local fallback = {}
+    N.noteMultiLevelFailure(fallback, upstairsGoal)
+    local first, changed = N._stairFallbackGoalForTests(actor, fallback,
+        upstairsGoal, 1000)
+    check(first == upstairsGoal and not changed,
+        "one native cross-floor failure still permits the engine's direct route")
+    local originalStage = N.stairTransitionTarget
+    N.stairTransitionTarget = function(plan)
+        plan.descent = { key = "stair-a" }
+        return { x = 2, y = 0, z = 0 }
+    end
+    N.noteMultiLevelFailure(fallback, upstairsGoal)
+    local staged, adjusted = N._stairFallbackGoalForTests(actor, fallback,
+        upstairsGoal, 1200)
+    N.stairTransitionTarget = originalStage
+    check(staged == square(2, 0) and adjusted and fallback.stairTransition
+            and fallback.stairTransition.descent.key == "stair-a",
+        "repeated cross-floor failures stage a verified same-floor stair entry")
+end
+do
     local captured
     local realDiagnostic = U.diagnostic
     U.diagnostic = function(subsystem, _, message)

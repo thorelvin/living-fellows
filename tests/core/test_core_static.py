@@ -301,8 +301,10 @@ require("SC.Personality.adjustDecision(commands.personalityProfile" in decision
 require("function actions.cancelWork" in native and "ISTimedActionQueue.clear" in native
         and "restoreWorkInventory" in native,
         "native work cancellation and equipment restoration contract is missing")
-require("leaveFurniture" in native and 'setSittingOnFurniture", false' in native,
-        "physical actions do not clear native furniture-sitting state")
+require("leaveFurniture" in native and '"forceGetUp", true' in native
+        and 'context == "getup"' in native
+        and '"setSitOnFurnitureObject", nil' in native,
+        "physical actions must wait for native getup before releasing furniture")
 
 vitals = (SHARED / "SCVitals.lua").read_text(encoding="utf-8")
 require("setRequired" in vitals and "native vitals did not retain" in vitals,

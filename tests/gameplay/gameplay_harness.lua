@@ -12526,6 +12526,8 @@ do
     -- rescue instead of being blocked as the same kind).
     local savedAssess = SurvivorCompanion.Medical.assess
     local savedCachedAssess = SurvivorCompanion.Medical.assessCached
+    local savedSelfCareBlocker = SurvivorCompanion.Medical.selfCareBlocker
+    local savedCanTreatPatient = SurvivorCompanion.Medical.canTreatPatient
     local rescuePatient = { __rescuePatient = true }
     local function assessRescuePatient(target)
         if target == rescuePatient then
@@ -12535,6 +12537,8 @@ do
     end
     SurvivorCompanion.Medical.assess = assessRescuePatient
     SurvivorCompanion.Medical.assessCached = assessRescuePatient
+    SurvivorCompanion.Medical.selfCareBlocker = function() return nil end
+    SurvivorCompanion.Medical.canTreatPatient = function() return true, "ready" end
     local identityCandidates = SurvivorCompanion.Decision._evaluateForTests(
         fellow, rescuePatient,
         { threats = {}, threatCount = 0, immediateCount = 0, allies = {} },
@@ -12542,6 +12546,8 @@ do
         { downed = true, health = 8, wounds = {} }, {}, {}, 1000)
     SurvivorCompanion.Medical.assess = savedAssess
     SurvivorCompanion.Medical.assessCached = savedCachedAssess
+    SurvivorCompanion.Medical.selfCareBlocker = savedSelfCareBlocker
+    SurvivorCompanion.Medical.canTreatPatient = savedCanTreatPatient
     local selfKey, rescueKey, medicalCount = nil, nil, 0
     for _, candidate in ipairs(identityCandidates) do
         if candidate.kind == "medical" then
@@ -13448,9 +13454,14 @@ function SurvivorCompanion.__testDecisionNativeSwingLease()
         "terminal medical state precedes the native combat lease")
     priorityFighter.body.infected, priorityFighter.body.infectionLevel = false, 0
     local oldMedicalUpdate = SC.Medical.update
+    local oldSelfCareBlocker = SC.Medical.selfCareBlocker
     SC.Medical.update = function(value, ...)
         if value == priorityFighter then return true, "medical_priority_probe" end
         return oldMedicalUpdate(value, ...)
+    end
+    SC.Medical.selfCareBlocker = function(value)
+        if value == priorityFighter then return nil end
+        return oldSelfCareBlocker(value)
     end
     priorityFighter.body.parts = { bodyPart({ name = "ForeArm_R", isBleeding = true }) }
     for _, health in ipairs({ 25, 10 }) do
@@ -13465,6 +13476,7 @@ function SurvivorCompanion.__testDecisionNativeSwingLease()
             "actionable critical medicine precedes the native swing lease at health " .. tostring(health))
     end
     SC.Medical.update = oldMedicalUpdate
+    SC.Medical.selfCareBlocker = oldSelfCareBlocker
     SC.Combat.reset(priorityFighter)
     SC.Decision.reset(priorityFighter)
     registry[priorityFighter.id] = nil
@@ -18521,11 +18533,15 @@ end)()
     local bleedingKinds = kinds({ alive = true, health = 60, bleedingCount = 1,
         needsBandage = true, wounds = {} })
     local healthyKinds = kinds({ alive = true, health = 100, bleedingCount = 0, wounds = {} })
+    medical.selfCareBlocker = function() return nil end
+    local suppliedKinds = kinds({ alive = true, health = 60, bleedingCount = 1,
+        needsBandage = true, wounds = {} })
     medical.selfCareBlocker = savedBlocker
-    check(bleedingKinds["follow:seek_care"] == true and bleedingKinds["medical:"] == true
+    check(bleedingKinds["follow:seek_care"] == true and not bleedingKinds["medical:"]
             and not bleedingKinds["scavenge:"] and not bleedingKinds["downtime:"]
+            and suppliedKinds["medical:"] == true
             and healthyKinds["scavenge:"] == true and not healthyKinds["follow:seek_care"],
-        "a bleeding companion without a bandage gives up chores and stays with the leader")
+        "a bleeding companion without a dressing seeks care instead of retrying unavailable medicine")
     local summary = medical.deathSummary(patient)
     check(type(summary) == "string" and string.find(summary, "died health=", 1, true) == 1,
         "a companion's death is summarised with its wounds for the log")

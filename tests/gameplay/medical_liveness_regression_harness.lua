@@ -80,8 +80,15 @@ local function rescueCount(player, allies)
 end
 check(rescueCount(dead, { { actor = corpse }, { actor = terminal } }) == 0,
     "decision emergency scoring cannot select dead player, dead ally, or terminal patient")
+local savedCanTreatPatient = M.canTreatPatient
+M.canTreatPatient = function() return true, "ready" end
 check(rescueCount(living) == 1, "decision rescue priority still selects living bleeding player")
 check(rescueCount(dead, { { actor = living } }) == 1, "dead player cannot mask a living ally's rescue")
+snapshot.threatCount = 2
+check(rescueCount(living) == 0,
+    "a helper pinned by a crowd does not select a rescue it cannot perform")
+snapshot.threatCount = 0
+M.canTreatPatient = savedCanTreatPatient
 
 -- Death during a real staged treatment releases its owner and supplies.
 local savedNative, savedSupervisor, savedMove, savedStop = SC.NativeActions, SC.ActionSupervisor, U.move, U.stop
@@ -271,6 +278,7 @@ do
     SC.Combat = nil
 
     local criticalDirty, cleanRuntime = patient(19, { part(true, false, 0) }), quietRuntime()
+    criticalDirty.inventory.items = { { getFullType = function() return "Base.Bandage" end } }
     local oldTreat, treatedPatient = M.treat, nil
     M.treat = function(_, target) treatedPatient = target return true, "replace_actual_bandage" end
     local replaced = M.update(criticalDirty, leader, cleanRuntime)

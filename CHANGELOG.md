@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.26.15 - Medical and stair recovery playtest
+
+- Companions now offer wound treatment only when they can perform it, and helpers pinned by nearby threats do not repeatedly choose an unsafe rescue. Failed treatment reports its specific blocker instead of a generic no-action result.
+- After repeated native cross-floor path failures, followers survey loaded stairs and approach a verified entrance before asking the game engine to cross floors. Expedition leaders use the same stair survey.
+- Scheduled save staging has a longer bounded allowance for loaded companions and logs its phase and progress when a capture still times out. The previous complete save remains intact on an abort.
+- Gameplay, navigation, core, release-sync, and installer regression checks cover the changes. A live playtest is still needed to confirm treatment, stair traversal, and scheduled saving in the reported save.
+
 ## 0.26.14 - Blueprints and a ten-point review
 
 - Base construction is planned with a placement cursor. Drag a run of wall, place a door or floor, or plan a wooden barricade on a window or door; planned work shows as a blueprint ghost that companions build in stages. Right-click a blueprint to build that segment yourself, retry a blocked one, or cancel it. The Base view can hide the blueprints.

@@ -164,6 +164,7 @@ try {
 
         $expeditionRestartFiles = @(
             (Join-Path $Client 'SCExpeditionRoute.lua'),
+            (Join-Path $Client 'SCStairTransition.lua'),
             (Join-Path $Client 'SCExpeditionPrototype.lua'),
             (Join-Path $TestRoot 'expedition_restart_harness.lua')
         )
@@ -213,6 +214,7 @@ try {
             (Join-Path $Client 'SCNavTraffic.lua'),
             (Join-Path $Client 'SCNavTraversal.lua'),
             (Join-Path $Client 'SCWorkRoutes.lua'),
+            (Join-Path $Client 'SCStairTransition.lua'),
             (Join-Path $Client 'SCNavigation.lua'),
             (Join-Path $TestRoot 'navigation_traversal_regression_harness.lua')
         )

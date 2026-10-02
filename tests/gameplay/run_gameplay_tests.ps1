@@ -51,6 +51,7 @@ $LuaFiles += @(
     'SCZombieFacts.lua',
     'SCSenses.lua',
     'SCWorkRoutes.lua',
+    'SCStairTransition.lua',
     'SCNavigation.lua',
     'SCPositioning.lua',
     'SCCombat.lua',

@@ -153,9 +153,11 @@ local valueData = {
     -- by the delay. Seven companions kept deferring pulses by a few hundred
     -- milliseconds that a one-second grace never credited, so every scheduled
     -- save expired. The hard cap measured from the request still bounds a job.
-    persistenceCaptureDeadlineMs = 20000,
-    persistenceCapturePerActorMs = 3000,
-    persistenceCaptureHardDeadlineMs = 120000,
+    -- Capture advances in 0.75 ms background slices. Five loaded companions
+    -- could not finish within the old 35-second wall allowance in normal play.
+    persistenceCaptureDeadlineMs = 60000,
+    persistenceCapturePerActorMs = 8000,
+    persistenceCaptureHardDeadlineMs = 180000,
     persistencePulseGapGraceMs = 100,
     persistenceActorRetryLimit = 2,
     persistenceSnapshotRestartLimit = 4,

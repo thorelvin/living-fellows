@@ -1489,6 +1489,10 @@ local function rescueViable(helper, snapshot)
     return true
 end
 
+function Medical.canRescueNow(actor, snapshot)
+    return rescueViable(actor, snapshot)
+end
+
 -- Self-bandaging is low priority: the companion must not stop to patch itself in
 -- active combat. Only allow it when at least semi-safe -- nothing attacking in
 -- melee range and not pinned by a crowd with no way out -- so it fights or
@@ -1578,6 +1582,17 @@ local function treatmentCapability(helper, patient, options)
         visualAction = options.visualAction,
         available = true,
     }
+end
+
+function Medical.canTreatPatient(helper, patient)
+    local active = treatmentState[helper]
+    if active and active.patient == patient then return true, "treatment_active" end
+    if not U().isValidActor(helper) or not U().isValidActor(patient) then
+        return false, "invalid_patient"
+    end
+    local capability, reason = treatmentCapability(helper, patient, {})
+    return capability ~= nil and capability.available == true,
+        reason or (capability and "ready" or "no_treatable_wound")
 end
 
 function Medical.canReplaceDirtyBandage(actor)
@@ -1949,8 +1964,8 @@ end
 -- (it carries a bandage, or clothing it can tear into one).
 function Medical.selfCareBlocker(actor)
     if not U().isValidActor(actor) then return "invalid_actor" end
-    local capability, reason = treatmentCapability(actor, actor, {})
-    if type(capability) == "table" and capability.available == true then return nil end
+    local ready, reason = Medical.canTreatPatient(actor, actor)
+    if ready then return nil end
     return reason or "no_bandage"
 end
 
@@ -2128,9 +2143,14 @@ function Medical.update(actor, player, runtime)
     end
 
     local snapshot = rootRuntime.senses and rootRuntime.senses.current or rootRuntime.snapshot
-    if Medical.hasActionableNeed(actor, assessment, false) and bandageSemiSafe(actor, snapshot) then
+    local treatmentFailure
+    local selfNeedsCare = Medical.hasActionableNeed(actor, assessment, false)
+    if selfNeedsCare and bandageSemiSafe(actor, snapshot) then
         local ok, reason = Medical.treat(actor, actor, rootRuntime)
         if ok then return true, reason end
+        treatmentFailure = reason
+    elseif selfNeedsCare then
+        treatmentFailure = "unsafe_self_care"
     end
 
     local explicitTarget = rootRuntime.rescueTarget
@@ -2143,6 +2163,9 @@ function Medical.update(actor, player, runtime)
     if candidate and rescueViable(actor, snapshot) then
         local ok, reason = Medical.treat(actor, candidate, rootRuntime)
         if ok then return true, reason end
+        treatmentFailure = treatmentFailure or reason
+    elseif candidate then
+        treatmentFailure = treatmentFailure or "unsafe_rescue"
     end
     -- Quiet-time wound care, also offered by the decision outside downtime:
     -- dress a wound that stopped bleeding undressed or change a soiled
@@ -2153,8 +2176,9 @@ function Medical.update(actor, player, runtime)
         and bandageSemiSafe(actor, snapshot) then
         local ok, reason = Medical.replaceDirtyBandage(actor)
         if ok then return true, reason end
+        treatmentFailure = treatmentFailure or reason
     end
-    return false, "no_medical_action"
+    return false, treatmentFailure or "no_medical_action"
 end
 
 function Medical.replaceDirtyBandage(actor)

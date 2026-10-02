@@ -8,6 +8,7 @@ if not SC.Performance and type(require) == "function" then pcall(require, "SCPer
 if not SC.PathSearch and type(require) == "function" then pcall(require, "SCPathSearch") end
 if not SC.NavTraffic and type(require) == "function" then pcall(require, "SCNavTraffic") end
 if not SC.NavTraversal and type(require) == "function" then pcall(require, "SCNavTraversal") end
+if not SC.StairTransition and type(require) == "function" then pcall(require, "SCStairTransition") end
 if not SC.WorkRoutes and type(require) == "function" then pcall(require, "SCWorkRoutes") end
 
 SC.Navigation = SC.Navigation or {}
@@ -5607,6 +5608,8 @@ local function scheduleNativeRetry(state, goalSquare, reason, now)
 end
 Navigation._scheduleNativeRetryForRequest = scheduleNativeRetry
 
+Navigation.stairTransitionTarget = SC.StairTransition.target
+
 local function requestMultiLevelPath(actor, state, sourceSquare, goalSquare,
         requestIntent, now, service, token)
     if not differentFloor(sourceSquare, goalSquare) then return nil end
@@ -5910,11 +5913,62 @@ function Navigation._breakRestartedNativeLease(actor, state, now)
     if state.nativeRestartRecoveryDue ~= true then return false end
     state.nativeRestartRecoveryDue = nil
     state.nativeNoMotionSince, state.nativeNoMotionStarts = now, 0
+    if state.nativeLease and state.nativeLease.affordance == "multi_level" then
+        Navigation.noteMultiLevelFailure(state, state.nativeLease.ultimateGoal)
+    end
     if state.nativeLease then clearMovementTransients(actor, state) end
     state.nativeRecoveryDue = true
     state.lastMovementReason = "native_path_restart_stalled"
     return true
 end
+
+function Navigation.noteMultiLevelFailure(state, goalSquare)
+    local transition = state.stairTransition and state.stairTransition.descent
+    if transition then
+        state.stairTransition.lastStalledTarget = transition.key
+        return
+    end
+    local gx, gy, gz = U().position(goalSquare)
+    if gx == nil then return end
+    local prior = state.multiLevelFailedGoal
+    if prior == nil or prior.z ~= math.floor(gz or 0)
+        or (prior.x - gx)^2 + (prior.y - gy)^2 > 144 then
+        state.multiLevelFailureCount = 0
+    end
+    state.multiLevelFailedGoal = { x = gx, y = gy, z = math.floor(gz or 0) }
+    state.multiLevelFailureCount = (state.multiLevelFailureCount or 0) + 1
+end
+
+function Navigation.stairFallbackGoal(actor, state, goalSquare, now)
+    local gx, gy, gz = U().position(goalSquare)
+    local _, _, az = U().position(actor)
+    if gx == nil or az == nil then return goalSquare, false end
+    if math.floor(az) == math.floor(gz or 0) then
+        state.multiLevelFailureCount = nil
+        state.multiLevelFailedGoal = nil
+        state.stairTransition = nil
+        return goalSquare, false
+    end
+    local prior = state.multiLevelFailedGoal
+    if prior and (prior.z ~= math.floor(gz or 0)
+        or (prior.x - gx)^2 + (prior.y - gy)^2 > 144) then
+        state.multiLevelFailureCount = nil
+        state.stairTransition = nil
+        return goalSquare, false
+    end
+    if (state.multiLevelFailureCount or 0) < 2 then
+        return goalSquare, false
+    end
+    state.stairTransition = state.stairTransition or {}
+    local point, reason = Navigation.stairTransitionTarget(
+        state.stairTransition, actor,
+        { x = math.floor(gx), y = math.floor(gy), z = math.floor(gz) }, now)
+    if point == nil then return nil, true, reason or "planning" end
+    local selected = targetSquare(point)
+    if selected == nil then return goalSquare, false end
+    return selected, not sameSquare(selected, goalSquare), "stair_fallback"
+end
+Navigation._stairFallbackGoalForTests = Navigation.stairFallbackGoal
 
 function Navigation.request(actor, target, movementMode, intent)
     local utility = U()
@@ -5929,6 +5983,11 @@ function Navigation.request(actor, target, movementMode, intent)
 
     local now = utility.nowMs()
     local state = stateFor(actor)
+    local stairGoal, stairAdjusted, stairReason =
+        SC.Navigation.stairFallbackGoal(actor, state, goalSquare, now)
+    if stairGoal == nil then return true, stairReason or "planning_stair_transition" end
+    goalSquare = stairGoal
+    goalAdjusted = goalAdjusted == true or stairAdjusted == true
     state.approachRequestSerial = (state.approachRequestSerial or 0) + 1
     state.lastApproachRequest = {
         serial = state.approachRequestSerial,
@@ -6151,9 +6210,14 @@ function Navigation.request(actor, target, movementMode, intent)
         end
     end
     SC.Navigation._breakRestartedNativeLease(actor, state, now)
+    local failedMultiLevel = state.nativeLease ~= nil
+        and state.nativeLease.affordance == "multi_level"
     local leaseState, leaseStatus = maintainNativeLease(actor, state, goalSquare, now)
     if leaseState == "active" then return true, leaseStatus or "native_path_owned" end
     if leaseState == "failed" then
+        if failedMultiLevel then
+            SC.Navigation.noteMultiLevelFailure(state, goalSquare)
+        end
         local fromSquare = state.lastAttemptFrom or sourceSquare
         local toSquare = state.lastAttemptTo or goalSquare
         rememberFailure(actor, state, fromSquare, toSquare,

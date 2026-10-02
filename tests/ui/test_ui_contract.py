@@ -1413,9 +1413,13 @@ class UIStaticContractTests(unittest.TestCase):
         language_directories = sorted(path.name for path in TRANSLATE.iterdir() if path.is_dir())
         self.assertEqual(language_directories, ["EN"])
         references = set(re.findall(r'\"(UI_SC_[A-Za-z0-9_]+)\"', self.all_source))
-        dynamic_prefixes = {"UI_SC_State_", "UI_SC_Action_Distance", "UI_SC_VehicleStatus_"}
+        dynamic_prefixes = {"UI_SC_State_", "UI_SC_Action_Distance",
+                            "UI_SC_VehicleStatus_", "UI_SC_Base_Reason_"}
         references = {key for key in references if key not in dynamic_prefixes}
         self.assertFalse(references - en_keys, f"untranslated UI keys: {sorted(references - en_keys)}")
+        for reason in ("last_base_area", "base_area_in_use",
+                       "work_order_uses_zone", "production_order_uses_zone"):
+            self.assertIn(f"UI_SC_Base_Reason_{reason}", en_keys)
         for distance in (1, 2, 3, 5, 8):
             self.assertIn(f"UI_SC_Action_Distance{distance}", en_keys)
         self.assertEqual(en_data["UI_SC_Value_Health"], "%1%%")

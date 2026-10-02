@@ -1592,8 +1592,13 @@ local function abortScheduledSave(job, reason, current)
     scheduledSave = nil
     scheduledSaveRetryAt = current + math.max(100,
         tonumber(SC.Config.get("persistenceRetryDelayMs")) or 5000)
+    local detail = tostring(reason) .. " phase=" .. tostring(job and job.phase)
+        .. " index=" .. tostring(job and job.index)
+        .. " copying=" .. tostring(job and job.copyJob ~= nil)
+        .. " elapsedMs=" .. tostring(math.max(0,
+            current - (tonumber(job and job.startedAt) or current)))
     SC.Diagnostics.report("persistence", nil,
-        "scheduled save staging aborted; prior complete document retained", reason)
+        "scheduled save staging aborted; prior complete document retained", detail)
     return "failed", reason
 end
 
@@ -1615,11 +1620,11 @@ local function scheduledRecordsAndAllowance()
         end
     end
     local hard = math.max(250,
-        tonumber(SC.Config.get("persistenceCaptureHardDeadlineMs")) or 120000)
+        tonumber(SC.Config.get("persistenceCaptureHardDeadlineMs")) or 180000)
     local allowance = math.min(hard,
-        math.max(250, tonumber(SC.Config.get("persistenceCaptureDeadlineMs")) or 20000)
+        math.max(250, tonumber(SC.Config.get("persistenceCaptureDeadlineMs")) or 60000)
             + tracked * math.max(0,
-                tonumber(SC.Config.get("persistenceCapturePerActorMs")) or 3000))
+                tonumber(SC.Config.get("persistenceCapturePerActorMs")) or 8000))
     return records, tracked, allowance, hard
 end
 
