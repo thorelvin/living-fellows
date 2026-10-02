@@ -3409,7 +3409,7 @@ function BaseLife.abandon()
         -- their restored job up on the next ordinary work pass.
         document, operationsCache = before, nil
         bumpWorkConsistencyRevision()
-        return false, reason
+        return false, reason or "base_abandon_cancel_failed"
     end
     local function orderIds(owner)
         local ids = {}

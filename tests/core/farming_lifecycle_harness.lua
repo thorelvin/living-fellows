@@ -126,6 +126,9 @@ local harvest = F.job("harvest", 1, 1, {
 FarmWork.update(actor, {}, harvest, {})
 check(F.native[actor] and F.native[actor].active == true,
     "harvest starts without borrowed supply")
+local canLeave, leaveReason = FarmWork.canCancelActor(actor)
+check(canLeave == false and leaveReason == "farm_recovery_pending",
+    "camp preflight retains the reason for a worker with an active harvest")
 local cancelled = FarmWork.cancelJob(harvest.id, "test_cancel")
 check(cancelled == true and F.nativeCancels == 1 and F.native[actor] == nil,
     "harvest cancellation verifies the native action is stopped")

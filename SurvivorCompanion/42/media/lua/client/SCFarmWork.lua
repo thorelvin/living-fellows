@@ -1758,7 +1758,8 @@ end
 
 function FarmWork.canCancelActor(actor)
     local state = states[actor]
-    return state == nil or FarmWork.canCancelJob(state.jobId)
+    if state == nil then return true end
+    return FarmWork.canCancelJob(state.jobId)
 end
 
 function FarmWork.cancelJob(jobId, reason)
