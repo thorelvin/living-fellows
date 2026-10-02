@@ -3264,26 +3264,36 @@ end
 
 local function tacticalStep(actor, state, sourceSquare, nextSquare, afterSquare, kind, intent, now)
     local utility = U()
+    local urgent = intent.urgent == true
     -- An approach to an enemy is time-sensitive, but crossing a one-person
-    -- fence or doorway is not an escape. Keep the choke reservation so several
-    -- attackers do not enter the same source tile and climb over each other.
-    local urgent = intent.urgent == true and intent.action ~= "combat_approach"
+    -- fence or doorway is not an escape. It keeps the choke reservation so
+    -- several attackers do not enter the same source tile and climb over each
+    -- other; the stair, landing and blind-corner pauses stay skipped for it.
+    local reserveChoke = not urgent or intent.action == "combat_approach"
     local fence = kind == "fence"
     local stair = kind == "stairs" or kind == "slope"
         or squareHasStairs(sourceSquare) or squareHasStairs(nextSquare)
         or squareHasSlope(sourceSquare) or squareHasSlope(nextSquare)
     local choke = stair or kind == "door" or kind == "fence"
     local chokeAccepted, chokeOwner = true, nil
-    if choke and not urgent then
+    if choke and reserveChoke then
         chokeAccepted, chokeOwner = reserveChokeCorridor(
             sourceSquare, nextSquare, afterSquare, actor, state, intent, now)
     end
-    if choke and not urgent and not chokeAccepted then
-        if intent.action == "combat_approach" then
+    if choke and reserveChoke and not chokeAccepted then
+        -- A queued fighter steps aside only after the same wait as any other
+        -- right-of-way yield. Each sidestep replans, so yielding every tick
+        -- left two fighters at one doorway jittering back and forth.
+        if intent.action == "combat_approach"
+            and now - (state.chokeQueueSince or now)
+                >= (utility.config("navigationYieldMs") or 900) then
+            local priorBlocker = state.yieldBlocker
             state.yieldBlocker = chokeOwner
             if lateralYield(actor, state, sourceSquare, nextSquare, intent, now) then
+                state.chokeQueueSince = now
                 return nil, "yielding_combat_choke"
             end
+            state.yieldBlocker = priorBlocker
         end
         if not stopAndObserve(actor, nextSquare, intent) then
             return false, "choke_reservation_stop_rejected"
@@ -5939,11 +5949,17 @@ function Navigation.noteMultiLevelFailure(state, goalSquare)
     state.multiLevelFailureCount = (state.multiLevelFailureCount or 0) + 1
 end
 
-function Navigation.stairFallbackGoal(actor, state, goalSquare, now)
+function Navigation.stairFallbackGoal(actor, state, goalSquare, now, intent)
     local gx, gy, gz = U().position(goalSquare)
     local _, _, az = U().position(actor)
     if gx == nil or az == nil then return goalSquare, false end
     if math.floor(az) == math.floor(gz or 0) then
+        local crossing = SC.StairTransition.crossingInProgress(
+            state.stairTransition, actor)
+        local onSlope = crossing ~= nil and targetSquare(crossing) or nil
+        if onSlope ~= nil then
+            return onSlope, not sameSquare(onSlope, goalSquare), "stair_fallback"
+        end
         state.multiLevelFailureCount = nil
         state.multiLevelFailedGoal = nil
         state.stairTransition = nil
@@ -5962,8 +5978,20 @@ function Navigation.stairFallbackGoal(actor, state, goalSquare, now)
     state.stairTransition = state.stairTransition or {}
     local point, reason = Navigation.stairTransitionTarget(
         state.stairTransition, actor,
-        { x = math.floor(gx), y = math.floor(gy), z = math.floor(gz) }, now)
-    if point == nil then return nil, true, reason or "planning" end
+        { x = math.floor(gx), y = math.floor(gy), z = math.floor(gz) }, now,
+        -- A follower's stair approach has no expedition leg to report a
+        -- stall, so the survey drops a stair whose leg stops closing.
+        { legStallMs = U().config("navigationStairLegStallMs") or 20000 })
+    if point == nil then
+        -- A survey spans several requests. An escape or a rush cannot stand
+        -- still for it: the engine's own cross-floor route keeps it moving
+        -- while later requests finish the survey.
+        if type(intent) == "table"
+            and (intent.urgent == true or intent.survivalCritical == true) then
+            return goalSquare, false
+        end
+        return nil, true, reason or "planning"
+    end
     local selected = targetSquare(point)
     if selected == nil then return goalSquare, false end
     return selected, not sameSquare(selected, goalSquare), "stair_fallback"
@@ -5984,7 +6012,7 @@ function Navigation.request(actor, target, movementMode, intent)
     local now = utility.nowMs()
     local state = stateFor(actor)
     local stairGoal, stairAdjusted, stairReason =
-        SC.Navigation.stairFallbackGoal(actor, state, goalSquare, now)
+        SC.Navigation.stairFallbackGoal(actor, state, goalSquare, now, intent)
     if stairGoal == nil then return true, stairReason or "planning_stair_transition" end
     goalSquare = stairGoal
     goalAdjusted = goalAdjusted == true or stairAdjusted == true

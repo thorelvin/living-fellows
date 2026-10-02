@@ -12607,6 +12607,75 @@ do
         "self-medicine and rescue-medicine share a kind but are distinct decision keys (review 2.4)")
 end
 
+do
+    -- The most urgent casualty may need something this helper does not carry.
+    -- A critical player who needs a splint must not hide an ally whose
+    -- bleeding the helper can dress, and a tie keeps the player first.
+    local savedAssess = SurvivorCompanion.Medical.assess
+    local savedCachedAssess = SurvivorCompanion.Medical.assessCached
+    local savedSelfCareBlocker = SurvivorCompanion.Medical.selfCareBlocker
+    local savedCanTreatPatient = SurvivorCompanion.Medical.canTreatPatient
+    local function patient(id)
+        local value = { data = { SC_Id = id } }
+        function value:getModData() return self.data end
+        function value:isDead() return false end
+        return value
+    end
+    local critical, bleeding, scratched = patient("rescue-critical"),
+        patient("rescue-bleeding"), patient("rescue-scratched")
+    local function assessPatients(target)
+        if target == critical then
+            return { health = 30, critical = true, downed = true, needsSplint = true,
+                unsplintedFractures = 1, bleedingCount = 1, wounds = {} }
+        elseif target == bleeding then
+            return { health = 70, bleedingCount = 1, wounds = {} }
+        elseif target == scratched then
+            return { health = 90, openWounds = 1, wounds = {} }
+        end
+        return { health = 100, wounds = {} }
+    end
+    local treatable = {}
+    SurvivorCompanion.Medical.assess = assessPatients
+    SurvivorCompanion.Medical.assessCached = assessPatients
+    SurvivorCompanion.Medical.selfCareBlocker = function() return nil end
+    SurvivorCompanion.Medical.canTreatPatient = function(_, target)
+        if treatable[target] then return true, "ready" end
+        return false, "no_supplies"
+    end
+    local function rescueTargetId(player, allies)
+        local candidates = SurvivorCompanion.Decision._evaluateForTests(
+            fellow, player,
+            { threats = {}, threatCount = 0, immediateCount = 0, allies = allies },
+            { recruited = true },
+            { health = 100, wounds = {} }, {}, {}, 1000)
+        for _, candidate in ipairs(candidates) do
+            if candidate.kind == "medical" and candidate.detail
+                and candidate.detail.rescue then
+                return candidate.detail.targetId or "none"
+            end
+        end
+        return nil
+    end
+    treatable = { [bleeding] = true, [scratched] = true }
+    local passedOver = rescueTargetId(critical,
+        { { actor = scratched }, { actor = bleeding } })
+    treatable = { [critical] = true, [bleeding] = true }
+    local mostUrgent = rescueTargetId(critical, { { actor = bleeding } })
+    treatable = {}
+    local nobody = rescueTargetId(critical, { { actor = bleeding } })
+    SurvivorCompanion.Medical.assess = savedAssess
+    SurvivorCompanion.Medical.assessCached = savedCachedAssess
+    SurvivorCompanion.Medical.selfCareBlocker = savedSelfCareBlocker
+    SurvivorCompanion.Medical.canTreatPatient = savedCanTreatPatient
+    check(passedOver == "rescue-bleeding",
+        "rescue moves on to the most urgent casualty this helper can treat: "
+            .. tostring(passedOver))
+    check(mostUrgent == "rescue-critical",
+        "the most urgent treatable casualty still comes first: " .. tostring(mostUrgent))
+    check(nobody == nil,
+        "a helper with nothing to treat anybody with offers no rescue")
+end
+
 function SurvivorCompanion.__testSharedThreatAlert()
     local alertListener = actor("sc-alert-listener", 0, 3, {})
     local alertTestPlayer = actor("alert-test-player", 0, 4,
@@ -14901,6 +14970,11 @@ local areaStarted = BaseLife.beginZone("area", cell:getGridSquare(1, 1, 0))
 local areaFinished, removableArea = BaseLife.finishZone(
     cell:getGridSquare(2, 2, 0), "Temporary extension")
 local areaRemoved = areaFinished and BaseLife.removeZone(removableArea.id)
+local zonesBeforeCheck = #BaseLife.active().zones
+local lastAreaRemovable, lastAreaCheck = BaseLife.canRemoveZone(protectedArea.id)
+check(lastAreaRemovable == false and lastAreaCheck == "last_base_area"
+        and #BaseLife.active().zones == zonesBeforeCheck,
+    "the removal check names the protected last boundary without changing the camp")
 local lastAreaRemoved, lastAreaReason = BaseLife.removeZone(protectedArea.id)
 check(areaStarted and areaFinished and areaRemoved
         and not lastAreaRemoved and lastAreaReason == "last_base_area",
@@ -14921,6 +14995,16 @@ do
         cell:getGridSquare(extensionX, 2, 0))
     if addedWork then addedWork, workZone = BaseLife.finishZone(
         cell:getGridSquare(extensionX + 1, 3, 0), "Edge workshop") end
+    -- The context menu asks this before offering removal, so it must know
+    -- every rule removeZone enforces, not just the last camp boundary.
+    local extensionRemovable, extensionCheck = false, "missing_extension"
+    if extension then
+        extensionRemovable, extensionCheck = BaseLife.canRemoveZone(extension.id)
+    end
+    check(extensionRemovable == false and extensionCheck == "base_area_in_use"
+            and workZone ~= nil and BaseLife.canRemoveZone(workZone.id) == true,
+        "the removal check refuses an area other zones depend on: "
+            .. tostring(extensionCheck))
     local removedInUse, inUseReason = false, "missing_extension"
     if extension then removedInUse, inUseReason = BaseLife.removeZone(extension.id) end
     local cleaned = workZone and BaseLife.removeZone(workZone.id)

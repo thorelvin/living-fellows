@@ -420,7 +420,9 @@ function actions.lowerWeaponForNavigation(actor)
     return setWeaponReady(actor, false)
 end
 
-local function leaveFurniture(actor)
+-- restObject is the cot or bed of a furniture-pose rest, which stands up
+-- through this same getup and holds its seat the same way.
+local function leaveFurniture(actor, restObject)
     local leaving = leavingFurniture[actor]
     if leaving then
         local sittingOk, sitting = invoke(actor, "isSittingOnFurniture")
@@ -430,17 +432,33 @@ local function leaveFurniture(actor)
         -- The sit state can clear its flag one update before the getup state
         -- enters. Releasing the chair in that gap makes the actor drop to the
         -- floor and then play the stand-up clip from the wrong height.
-        if (sittingOk and sitting == true) or context == "sitonfurniture"
+        local holding = (sittingOk and sitting == true) or context == "sitonfurniture"
             or context == "getup"
-            or (not leaving.sawGetup and nowMs() - leaving.requestedAt < 1250) then
+            or (not leaving.sawGetup and nowMs() - leaving.requestedAt < 1250)
+        -- Every gameplay action, attacking and fleeing included, waits on this
+        -- getup. If the stock clip never starts (interrupted, or the chair is
+        -- gone) or never ends, clear the native seat directly instead.
+        local overdue = nowMs() - leaving.requestedAt
+            >= (leaving.sawGetup and 6000 or 2500)
+        if holding and not overdue then
             return false, "standing_from_furniture"
         end
         leavingFurniture[actor] = nil
         if leaving.object then invoke(leaving.object, "setSatChair", false) end
+        if holding then
+            invoke(actor, "setSittingOnFurniture", false)
+            invoke(actor, "setSitOnFurnitureObject", nil)
+            local verifyOk, after = invoke(actor, "isSittingOnFurniture")
+            if not verifyOk or after == true then
+                return false, "native furniture-sitting state could not be cleared"
+            end
+            return true, "forced_stand_from_furniture"
+        end
         invoke(actor, "setSitOnFurnitureObject", nil)
         return true, "stood_from_furniture"
     end
     local record = activeFurnitureActions[actor]
+    local seatObject = record and record.object or restObject
     local sittingOk, sitting = invoke(actor, "isSittingOnFurniture")
     local contextOk, context = invoke(actor, "getCurrentActionContextStateName")
     context = contextOk and string.lower(tostring(context or "")) or ""
@@ -448,7 +466,7 @@ local function leaveFurniture(actor)
         or context == "getup" then
         local objectOk, object = invoke(actor, "getSitOnFurnitureObject")
         leavingFurniture[actor] = {
-            object = objectOk and object or record and record.object,
+            object = objectOk and object or seatObject,
             requestedAt = nowMs(),
             sawGetup = context == "getup",
         }
@@ -464,7 +482,7 @@ local function leaveFurniture(actor)
     end
     if record and cancelSeatingRecord then cancelSeatingRecord(actor, record) end
     activeFurnitureActions[actor] = nil
-    if record and record.object then invoke(record.object, "setSatChair", false) end
+    if seatObject then invoke(seatObject, "setSatChair", false) end
     invoke(actor, "setSitOnFurnitureObject", nil)
     return true, record and "furniture_entry_cancelled" or "already_standing"
 end
@@ -502,12 +520,14 @@ end
 local function leaveSeating(actor)
     local bedRecord = activeBedActions[actor]
     if bedRecord and cancelSeatingRecord then cancelSeatingRecord(actor, bedRecord) end
-    if bedRecord and bedRecord.pose == "furniture" and bedRecord.object then
-        invoke(bedRecord.object, "setSatChair", false)
-    end
     activeBedActions[actor] = nil
+    -- A cot taken in the furniture pose stands through the chair's getup.
+    -- Releasing its seat or furniture object first drops the companion to
+    -- the floor before the stand-up clip plays.
+    local restObject = bedRecord and bedRecord.pose == "furniture"
+        and bedRecord.object or nil
     local onBedOk, onBed = invoke(actor, "isOnBed")
-    if bedRecord ~= nil or (onBedOk and onBed == true) then
+    if (bedRecord ~= nil and restObject == nil) or (onBedOk and onBed == true) then
         -- Clear both the animation request and the native posture. The stock bed
         -- action is unbounded (-1) while it waits for OnBedStarted, so leaving
         -- only the Lua queue entry behind strands the actor in PlayerOnBedState.
@@ -519,7 +539,7 @@ local function leaveSeating(actor)
         local verifyOk, stillOnBed = invoke(actor, "isOnBed")
         if verifyOk and stillOnBed == true then return false, "standing_from_bed" end
     end
-    local standing, reason = leaveFurniture(actor)
+    local standing, reason = leaveFurniture(actor, restObject)
     if not standing then return false, reason end
     if groundSeatState(actor) then
         local requested, standReason = requestGroundSeat(actor, false)

@@ -654,21 +654,74 @@ do
         if x == 240 and y == 1 then return south end
         return nil
     end
+    local oldStop = U.stop
+    U.stop = function() return true end
     local first, second = actor(), actor()
     first.x, first.y, first.square = 240.5, 0.5, source
     second.x, second.y, second.square = 240.4, 0.5, source
     local approach = { action = "combat_approach", urgent = true, snapshot = {} }
     local firstAccepted = N._tacticalStepForTests(first, { openedDoors = {} },
         source, crossing, after, "fence", approach, current)
+    local secondState = { openedDoors = {} }
     local secondAccepted, secondStatus = N._tacticalStepForTests(second,
-        { openedDoors = {} }, source, crossing, after, "fence",
-        approach, current)
+        secondState, source, crossing, after, "fence", approach, current)
     check(firstAccepted == true and secondAccepted == nil
-            and secondStatus == "yielding_combat_choke"
+            and secondStatus == "holding_choke_queue"
+            and second.lastIntent.action ~= "right_of_way_yield"
+            and secondState.yieldBlocker == nil,
+        "urgent combat approaches queue at a fence, the waiting fighter holding first: "
+            .. tostring(secondStatus))
+    current = current + 900
+    second.lastIntent = nil
+    local yielded, yieldStatus = N._tacticalStepForTests(second,
+        secondState, source, crossing, after, "fence", approach, current)
+    check(yielded == nil and yieldStatus == "yielding_combat_choke"
             and second.lastIntent.action == "right_of_way_yield",
-        "urgent combat approaches queue at a fence and move the waiting fighter aside")
+        "after the right-of-way wait the queued fighter moves aside")
+    current = current + 100
+    second.lastIntent = nil
+    local again, againStatus = N._tacticalStepForTests(second,
+        secondState, source, crossing, after, "fence", approach, current)
+    check(again == nil and againStatus == "holding_choke_queue"
+            and second.lastIntent.action ~= "right_of_way_yield",
+        "the next sidestep waits again instead of jittering every tick: "
+            .. tostring(againStatus))
     SC.NavTraffic.reset()
-    SC.Topology.barrierBetween, U.gridSquare = oldBarrier, oldGrid
+    SC.Topology.barrierBetween, U.gridSquare, U.stop = oldBarrier, oldGrid, oldStop
+end
+do
+    -- The choke reservation is the only tactical pause a combat rush keeps.
+    -- Stopping at every stair landing and blind corner left a companion
+    -- rushing to a zombie on the player standing still on the way.
+    local oldCanSee, oldStop = U.canSee, U.stop
+    U.canSee = function() return false end
+    U.stop = function() return true end
+    local rush = { action = "combat_approach", urgent = true, snapshot = {} }
+    local stairFoot, stairStep, stairTop = square(250, 0), square(251, 0), square(252, 0)
+    local rusher = actor()
+    rusher.x, rusher.y, rusher.square = 250.5, 0.5, stairFoot
+    local stairAccepted, stairStatus = N._tacticalStepForTests(rusher,
+        { openedDoors = {} }, stairFoot, stairStep, stairTop, "stairs", rush, current)
+    check(stairAccepted == true and stairStatus == "tactical_stair",
+        "a combat rush takes a free stair without the landing pause: "
+            .. tostring(stairStatus))
+    local corner, turn, around = square(260, 0), square(261, 0), square(261, 1)
+    rusher.x, rusher.square = 260.5, corner
+    local cornerAccepted, cornerStatus = N._tacticalStepForTests(rusher,
+        { openedDoors = {} }, corner, turn, around, nil, rush, current)
+    check(cornerAccepted == true and cornerStatus == "tactical_corner",
+        "a combat rush rounds a blind corner without the corner pause: "
+            .. tostring(cornerStatus))
+    local walker = actor()
+    walker.x, walker.y, walker.square = 270.5, 0.5, square(270, 0)
+    local walk = { action = "follow_formation", snapshot = {} }
+    local walkAccepted, walkStatus = N._tacticalStepForTests(walker,
+        { openedDoors = {} }, walker.square, square(271, 0), square(272, 0),
+        "stairs", walk, current)
+    check(walkAccepted == nil and walkStatus == "checking_stair_landing",
+        "an ordinary walk still checks the stair landing: " .. tostring(walkStatus))
+    SC.NavTraffic.reset()
+    U.canSee, U.stop = oldCanSee, oldStop
 end
 for _, goal in ipairs({ square(1, 0), square(-1, 0), square(0, 1), square(0, -1) }) do
     mover.x, mover.y = goal.x ~= 0 and 0.5 or 0.75, goal.y ~= 0 and 0.5 or 0.75

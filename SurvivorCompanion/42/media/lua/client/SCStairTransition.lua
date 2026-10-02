@@ -67,22 +67,91 @@ local function chooseLoadedStair(lx, ly, lowerZ, rejected, scan)
     return nil, false, scan
 end
 
-local function stairDistance(actor, point)
-    local x, y, z = U().position(actor)
-    if x == nil or y == nil or z == nil
-        or math.floor(z) ~= point.z then return math.huge end
-    return math.sqrt((x - point.x)^2 + (y - point.y)^2)
+-- Navigation decides arrival against a tile's centre (U.targetPosition) with
+-- radii up to 1.0, so a stair stage is reached on the same terms. Measuring
+-- to the tile's corner left a follower arriving from the east or south
+-- "arrived" for Navigation but never at the stair, re-sent to the same tile.
+local APPROACH_REACH_DISTANCE = 1.1
+-- A completed survey that found no stair stays valid for this origin until
+-- the actor has moved away or the world has had time to load more of it.
+local NO_STAIR_REUSE_TILES = 4
+local NO_STAIR_REUSE_MS = 30000
+-- An opted-in caller rejects a stair whose current leg stops shrinking. A
+-- gap between calls counts for at most the step cap, so a companion paused
+-- by combat or a hold is not charged for the time it was not trying.
+local LEG_PROGRESS_TILES = 0.5
+local LEG_STALL_STEP_CAP_MS = 2000
+
+local function centreDistance(actor, point)
+    local x, y = U().position(actor)
+    if x == nil or y == nil then return math.huge end
+    return math.sqrt((x - point.x - 0.5)^2 + (y - point.y - 0.5)^2)
 end
 
-function StairTransition.target(plan, actor, routeTarget, now)
+local function stairDistance(actor, point)
+    local _, _, z = U().position(actor)
+    if z == nil or math.floor(z) ~= point.z then return math.huge end
+    return centreDistance(actor, point)
+end
+
+-- Descending reports the lower floor from the first step down, and an upper
+-- storey reports its own floor before the next flight. While the height is
+-- still fractional the engine owns the body on the slope: replacing its
+-- target there cancels the native crossing midway.
+function StairTransition.crossingInProgress(plan, actor)
+    local transition = type(plan) == "table" and plan.descent or nil
+    if type(transition) ~= "table" or transition.crossing == nil then return nil end
+    local _, _, z = U().position(actor)
+    if z == nil or math.floor(z) ~= transition.toZ
+        or math.abs(z - transition.toZ) <= 0.05 then return nil end
+    return transition.crossing
+end
+
+local function rejectTransition(plan, transition, now)
+    local rejected = plan.descentRejected or {}
+    if transition.key ~= nil then rejected[transition.key] = true end
+    plan.descentRejected = rejected
+    plan.descent, plan.descentScan = nil, nil
+    plan.descentRetryAt = now
+end
+
+local function legStalled(transition, actor, leg, now, stallMs)
+    local distance = centreDistance(actor, leg)
+    local watch = transition.legWatch
+    if type(watch) ~= "table" or watch.leg ~= leg then
+        transition.legWatch = { leg = leg, best = distance, stalledMs = 0, seenAt = now }
+        return false
+    end
+    if distance <= watch.best - LEG_PROGRESS_TILES then
+        watch.best, watch.stalledMs = distance, 0
+    else
+        watch.stalledMs = watch.stalledMs
+            + math.max(0, math.min(now - watch.seenAt, LEG_STALL_STEP_CAP_MS))
+    end
+    watch.seenAt = now
+    return watch.stalledMs >= stallMs
+end
+
+local function noStairNearby(plan, lx, ly, lowerZ, now)
+    local empty = plan.noStair
+    if type(empty) ~= "table" or empty.lowerZ ~= lowerZ
+        or now >= empty.expiresAt then return false end
+    return (lx - empty.x)^2 + (ly - empty.y)^2
+        <= NO_STAIR_REUSE_TILES * NO_STAIR_REUSE_TILES
+end
+
+-- options.legStallMs opts a caller into rejecting a stair whose approach or
+-- crossing leg makes no progress for that long. Expedition legs report their
+-- own stalls through plan.lastStalledTarget instead.
+function StairTransition.target(plan, actor, routeTarget, now, options)
     local lx, ly, lz = U().position(actor)
     if lx == nil or ly == nil or lz == nil then return routeTarget end
+    local crossing = StairTransition.crossingInProgress(plan, actor)
+    if crossing ~= nil then return crossing end
     local floor = math.floor(lz)
     if floor == routeTarget.z then
-        local crossing = plan.descent and plan.descent.crossing
-        if crossing ~= nil and plan.descent.toZ == routeTarget.z
-            and math.abs(lz - routeTarget.z) > 0.05 then return crossing end
         plan.descentRejected, plan.descentRetryAt, plan.descentScan = nil, nil, nil
+        plan.noStair = nil
         return routeTarget
     end
     local transition = plan.descent
@@ -106,12 +175,11 @@ function StairTransition.target(plan, actor, routeTarget, now)
     end
     if type(transition) == "table" and plan.lastStalledTarget ~= nil
         and plan.lastStalledTarget ~= transition.stallAtSelection then
-        local rejected = plan.descentRejected or {}
-        if transition.key ~= nil then rejected[transition.key] = true end
-        plan.descentRejected = rejected
-        plan.descent, plan.descentScan = nil, nil
-        plan.descentRetryAt = now
+        rejectTransition(plan, transition, now)
         transition = nil
+    end
+    if transition == nil and noStairNearby(plan, lx, ly, lowerZ, now) then
+        return routeTarget
     end
     if transition == nil and now >= (plan.descentRetryAt or 0) then
         local complete
@@ -133,12 +201,22 @@ function StairTransition.target(plan, actor, routeTarget, now)
         end
         plan.descent = transition
         plan.descentRetryAt = transition == nil and now + 3000 or nil
+        plan.noStair = transition == nil and {
+            x = lx, y = ly, lowerZ = lowerZ,
+            expiresAt = now + NO_STAIR_REUSE_MS,
+        } or nil
     end
     if type(transition) ~= "table" then return routeTarget end
     if not transition.approachReached
-        and stairDistance(actor, transition.approach) <= 0.75 then
+        and stairDistance(actor, transition.approach) <= APPROACH_REACH_DISTANCE then
         transition.approachReached = true
     end
-    return transition.approachReached and transition.crossing
+    local leg = transition.approachReached and transition.crossing
         or transition.approach
+    local stallMs = type(options) == "table" and tonumber(options.legStallMs) or nil
+    if stallMs ~= nil and legStalled(transition, actor, leg, now, stallMs) then
+        rejectTransition(plan, transition, now)
+        return nil, "planning"
+    end
+    return leg
 end

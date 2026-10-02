@@ -2,6 +2,20 @@
 
 # Changelog
 
+## 0.26.17 - Review fixes for stairs, seats and rescue
+
+- A follower that reaches the foot of the stairs picked by the stair fallback now climbs them. Arrival at the stairs was measured to the tile's corner while navigation stops at its centre, so a follower arriving from the east or south was sent back to the same tile again and again.
+- Stairs a follower cannot reach, for example behind a wall or a locked door, are dropped after twenty seconds of trying without getting closer, and the next loaded staircase is tried. Time a companion spends fighting or holding does not count.
+- With no stairs in reach, the stair survey is not repeated every three seconds from the same spot. Fleeing and other urgent moves to another floor keep moving while a survey is still running.
+- A companion coming down the stairs keeps its route until it is off the slope. The original goal used to take over as soon as its height rounded down to the lower floor, which cancelled the route halfway down.
+- If the game's stand-up animation has not started after 2.5 seconds, or has not finished after 6, the companion is stood up directly. Before, every action waited for that animation indefinitely, including attacking and fleeing.
+- Getting up from a cot or other one-tile bed holds the seat through the stand-up animation, as chairs already did. The bed path released the seat first and dropped the companion to the floor.
+- Rescue picks the most urgent casualty the helper can actually treat. A critical player who needs a splint the helper does not carry no longer hides an ally whose bleeding it can dress.
+- Companions rushing to a fight no longer pause at stair landings and blind corners. They still take turns at doors, fences and stairs, and a fighter waiting for one steps aside only after the usual 0.9-second wait, so two fighters no longer jitter back and forth in one doorway.
+- The base menu offers to remove a zone only when the removal would succeed. Otherwise it says why: other zones depend on that area, or work is planned in it. A removal that is going to be refused no longer cancels the zone's farm jobs first.
+- Decisions check whether a companion can treat someone at most once a second per patient, instead of a full body check and inventory search every time. The 0.26.16 window-opening fix is now protected against game API errors, and the API signature test covers the method that lets companions follow the game's own timed paths.
+- Navigation, core, gameplay and UI regressions cover each change, and each new test was confirmed to fail with its fix reverted. The stair, stand-up and doorway changes still need confirming in a live playtest.
+
 ## 0.26.16 - Movement and interaction playtest
 
 - Native path movement now faces its current waypoint and cannot reuse an old manual steering direction, which could make a companion moonwalk while looking southeast.

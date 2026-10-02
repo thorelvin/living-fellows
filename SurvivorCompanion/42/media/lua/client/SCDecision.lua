@@ -182,7 +182,7 @@ local function rescueNeed(actor, player, snapshot)
     local performance = SC.Performance
     local started = performance and type(performance.preciseNowMs) == "function"
         and performance.preciseNowMs() or nil
-    local score, target = 0, nil
+    local candidates = {}
     local function livingPatient(patient, assessment)
         if SC.Medical and type(SC.Medical.isLivingPatient) == "function" then
             return SC.Medical.isLivingPatient(patient, assessment)
@@ -211,7 +211,9 @@ local function rescueNeed(actor, player, snapshot)
                 + (assessment.openWounds or 0) * 14
                 + (assessment.downed and 45 or 0)
                 + splintCount * 28) or 0
-            if playerScore > 0 then score, target = playerScore, player end
+            if playerScore > 0 then
+                candidates[#candidates + 1] = { score = playerScore, target = player }
+            end
         end
     end
     if snapshot and type(snapshot.allies) == "table" then
@@ -241,8 +243,8 @@ local function rescueNeed(actor, player, snapshot)
                 if livingPatient(ally.actor, assessment)
                     and (actionableMedical(ally.actor, assessment, false)
                         or (tonumber(assessment.openWounds) or 0) > 0)
-                    and allyScore > score then
-                    score, target = allyScore, ally.actor
+                    and allyScore > 0 then
+                    candidates[#candidates + 1] = { score = allyScore, target = ally.actor }
                 end
             end
         end
@@ -253,12 +255,22 @@ local function rescueNeed(actor, player, snapshot)
     end
     -- A casualty is not an actionable rescue for a helper with no dressing or
     -- splint. Otherwise medical wins repeatedly and treat() can only refuse it.
-    if target ~= nil and SC.Medical
-        and type(SC.Medical.canTreatPatient) == "function" then
-        local ready = SC.Medical.canTreatPatient(actor, target)
-        if ready ~= true then return 0, nil end
+    -- The most urgent patient this helper can actually treat wins: a critical
+    -- player who needs a splint it lacks must not hide a bleeding ally it can
+    -- dress. Ties keep the player first, then the snapshot's ally order.
+    for index, candidate in ipairs(candidates) do candidate.order = index end
+    table.sort(candidates, function(a, b)
+        if a.score ~= b.score then return a.score > b.score end
+        return a.order < b.order
+    end)
+    local canTreat = SC.Medical and type(SC.Medical.canTreatPatient) == "function"
+        and SC.Medical.canTreatPatient or nil
+    for _, candidate in ipairs(candidates) do
+        if canTreat == nil or canTreat(actor, candidate.target) == true then
+            return candidate.score, candidate.target
+        end
     end
-    return score, target
+    return 0, nil
 end
 
 -- A noise nobody here made, loud enough and recent enough to be worth a word.

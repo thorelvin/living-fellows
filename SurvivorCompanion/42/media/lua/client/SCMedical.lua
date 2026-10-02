@@ -20,6 +20,10 @@ local assessmentCache = {}
 -- Treatment itself always searches afresh before taking the item.
 local splintPresence = setmetatable({}, { __mode = "k" })
 local SPLINT_PRESENCE_MS = 1000
+-- helper -> patient -> { at, ready, reason } for decision reads of
+-- canTreatPatient; cleared with the patient or helper it describes.
+local treatReadiness = setmetatable({}, { __mode = "k" })
+local TREAT_READINESS_MS = 1000
 local bodyFactsScratch = {}
 local treatmentSpeechAt = setmetatable({}, { __mode = "k" })
 
@@ -325,6 +329,8 @@ function Medical.invalidate(character)
     if character ~= nil then
         assessmentCache[character] = nil
         splintPresence[character] = nil
+        treatReadiness[character] = nil
+        for _, byPatient in pairs(treatReadiness) do byPatient[character] = nil end
     end
 end
 
@@ -953,6 +959,7 @@ local function commitBandage(patient, assessment, wound, bandage, inventory,
             end
         end
     end
+    if helper ~= nil then treatReadiness[helper] = nil end
     return true, "bandaged"
 end
 
@@ -1303,6 +1310,7 @@ local function commitSplint(helper, state, wound)
         return false, "splint_consume_failed"
     end
     splintPresence[helper] = nil
+    treatReadiness[helper] = nil
     utility.call(wound.part, "setSplintItem", utility.itemType(state.bandage))
     if type(syncBodyPart) == "function" then
         pcall(syncBodyPart, wound.part, 0x430000000)
@@ -1584,15 +1592,31 @@ local function treatmentCapability(helper, patient, options)
     }
 end
 
+-- Decisions ask this every beat, for themselves and for each casualty, and
+-- every answer is a fresh body assessment plus bandage, splint and clothing
+-- searches. Treatment re-reads the capability itself, so a decision acting on
+-- an answer up to a second old costs one refused treat() at most.
 function Medical.canTreatPatient(helper, patient)
     local active = treatmentState[helper]
     if active and active.patient == patient then return true, "treatment_active" end
     if not U().isValidActor(helper) or not U().isValidActor(patient) then
         return false, "invalid_patient"
     end
+    local now = U().nowMs()
+    local byPatient = treatReadiness[helper]
+    local cached = byPatient and byPatient[patient]
+    if cached and now >= cached.at and now - cached.at < TREAT_READINESS_MS then
+        return cached.ready, cached.reason
+    end
     local capability, reason = treatmentCapability(helper, patient, {})
-    return capability ~= nil and capability.available == true,
-        reason or (capability and "ready" or "no_treatable_wound")
+    local ready = capability ~= nil and capability.available == true
+    reason = reason or (capability and "ready" or "no_treatable_wound")
+    if byPatient == nil then
+        byPatient = setmetatable({}, { __mode = "k" })
+        treatReadiness[helper] = byPatient
+    end
+    byPatient[patient] = { at = now, ready = ready, reason = reason }
+    return ready, reason
 end
 
 function Medical.canReplaceDirtyBandage(actor)
@@ -2235,6 +2259,7 @@ function Medical.reset(actor)
         return Medical.releaseActor(actor)
     else
         assessmentCache = {}
+        treatReadiness = setmetatable({}, { __mode = "k" })
         for subject in pairs(receivingCare) do receivingCare[subject] = nil end
         for subject in pairs(helpRequestedAt) do helpRequestedAt[subject] = nil end
         local helpers = {}

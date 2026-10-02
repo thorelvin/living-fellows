@@ -90,6 +90,34 @@ check(rescueCount(living) == 0,
 snapshot.threatCount = 0
 M.canTreatPatient = savedCanTreatPatient
 
+-- Decisions read treatment readiness every beat, for themselves and each
+-- casualty, and each fresh read is a body assessment plus bandage, splint and
+-- clothing searches. An answer is reused for a second unless invalidated.
+do
+    local savedAssess, savedNow, assessments, clock = M.assess, U.nowMs, 0, 50000
+    M.assess = function(...)
+        assessments = assessments + 1
+        return savedAssess(...)
+    end
+    U.nowMs = function() return clock end
+    local bleeder = patient(60, { part(false, true) })
+    local firstReady, firstReason = M.canTreatPatient(helper, bleeder)
+    local firstCount = assessments
+    local againReady, againReason = M.canTreatPatient(helper, bleeder)
+    check(firstCount >= 1 and assessments == firstCount
+            and againReady == firstReady and againReason == firstReason,
+        "a second decision read within a second reuses the readiness answer: "
+            .. tostring(firstCount) .. "/" .. tostring(assessments))
+    clock = clock + 1000
+    M.canTreatPatient(helper, bleeder)
+    local expiredCount = assessments
+    check(expiredCount > firstCount, "the readiness answer expires after a second")
+    M.invalidate(bleeder)
+    M.canTreatPatient(helper, bleeder)
+    check(assessments > expiredCount, "an invalidated patient is read fresh")
+    U.nowMs, M.assess = savedNow, savedAssess
+end
+
 -- Death during a real staged treatment releases its owner and supplies.
 local savedNative, savedSupervisor, savedMove, savedStop = SC.NativeActions, SC.ActionSupervisor, U.move, U.stop
 SC.ActionSupervisor = nil

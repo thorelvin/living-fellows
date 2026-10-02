@@ -933,23 +933,35 @@ public final class SCNativeCompanion extends IsoPlayer {
         // window otherwise stays shut and navigation repeats the same action.
         // Capture the state's exact target before super dispatches the event;
         // apply its stock ToggleWindow effect only if vanilla left it closed.
+        // Both halves are guarded like every other bridge hook: a changed
+        // state or window API must cost one window, not the event dispatch
+        // that the rest of this animation update depends on.
         IsoWindow openedWindow = null;
         if (!bridgeDisabled && event != null
-                && "WindowOpenSuccess".equalsIgnoreCase(event.eventName)
-                && getVariableBoolean("bOpenWindow")) {
-            var machine = getStateMachine();
-            if (machine != null) {
-                boolean opening = machine.getCurrent() == OpenWindowState.instance();
-                for (int index = 0; !opening && index < machine.getSubStateCount(); index++) {
-                    opening = machine.getSubStateAt(index) == OpenWindowState.instance();
+                && "WindowOpenSuccess".equalsIgnoreCase(event.eventName)) {
+            try {
+                var machine = getVariableBoolean("bOpenWindow") ? getStateMachine() : null;
+                if (machine != null) {
+                    boolean opening = machine.getCurrent() == OpenWindowState.instance();
+                    for (int index = 0; !opening && index < machine.getSubStateCount(); index++) {
+                        opening = machine.getSubStateAt(index) == OpenWindowState.instance();
+                    }
+                    if (opening) openedWindow = get(OpenWindowState.WINDOW);
                 }
-                if (opening) openedWindow = get(OpenWindowState.WINDOW);
+            } catch (RuntimeException | LinkageError ignored) {
+                openedWindow = null;
             }
         }
         super.OnAnimEvent(layer, track, event);
-        if (openedWindow != null && openedWindow.getObjectIndex() != -1
-                && !openedWindow.IsOpen()) {
-            openedWindow.ToggleWindow(this);
+        if (openedWindow != null) {
+            try {
+                if (openedWindow.getObjectIndex() != -1 && !openedWindow.IsOpen()) {
+                    openedWindow.ToggleWindow(this);
+                }
+            } catch (RuntimeException | LinkageError ignored) {
+                // The stock success effect is best-effort; navigation verifies
+                // the window state and replans if it is still shut.
+            }
         }
         if (event == null) return;
         if ("AttackCollisionCheck".equals(event.eventName)) {

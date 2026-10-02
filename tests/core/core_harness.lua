@@ -2160,6 +2160,83 @@ local finishedGetup = SC.NativeActions.leaveSeating(actor)
 check(finishedGetup and actor.seatObject == nil and seat.occupied == false,
     "completed furniture getup releases the seat and occupancy")
 
+-- Every gameplay action waits on the furniture getup, attacks and escapes
+-- included, so a stock clip that never starts cannot keep a companion seated.
+local function takeSeat(object, action)
+    lastFurniturePath = nil
+    local ok, reason = SC.Actor.setMovement(actor, "walk", { action = action, object = object })
+    check(ok and lastFurniturePath ~= nil,
+        "a furniture rest starts for the getup checks: " .. tostring(reason))
+    lastFurniturePath:completePath()
+    local passive = ISTimedActionQueue.getTimedActionQueue(actor).current
+    if passive then ISBaseTimedAction.perform(passive) end
+    actor.actionContextName = "sitonfurniture"
+end
+takeSeat(seat, "sit")
+local stuckStart = SC_TEST_CLOCK
+local stuckWait, stuckWaitReason = SC.NativeActions.leaveSeating(actor)
+SC_TEST_CLOCK = stuckStart + 2000
+local stillWaiting, stillWaitingReason = SC.NativeActions.leaveSeating(actor)
+check(stuckWait == false and stuckWaitReason == "standing_from_furniture"
+        and stillWaiting == false and stillWaitingReason == "standing_from_furniture"
+        and actor.sitting == true and seat.occupied == true,
+    "a getup that has not started yet is given time before anything is forced")
+SC_TEST_CLOCK = stuckStart + 2500
+local forcedUp, forcedReason = SC.NativeActions.leaveSeating(actor)
+check(forcedUp == true and forcedReason == "forced_stand_from_furniture"
+        and actor.sitting == false and actor.seatObject == nil
+        and seat.occupied == false
+        and SC.NativeActions.seatingStatus(actor) == "standing",
+    "a getup that never starts is replaced by a direct stand: "
+        .. tostring(forcedUp) .. " " .. tostring(forcedReason))
+-- The engine leaves the seated state on its next update; the fixture has no
+-- state machine, so complete that transition here.
+actor.actionContextName = "idle"
+takeSeat(seat, "sit")
+local hungStart = SC_TEST_CLOCK
+SC.NativeActions.leaveSeating(actor)
+actor.sitting = false
+actor.actionContextName = "getup"
+SC_TEST_CLOCK = hungStart + 5000
+local hungWait = SC.NativeActions.leaveSeating(actor)
+SC_TEST_CLOCK = hungStart + 6000
+local hungUp, hungReason = SC.NativeActions.leaveSeating(actor)
+check(hungWait == false and hungUp == true
+        and hungReason == "forced_stand_from_furniture"
+        and actor.seatObject == nil and seat.occupied == false,
+    "a getup clip that never finishes is bounded as well")
+actor.actionContextName = "idle"
+
+-- A cot without a two-tile bed grid rests in the furniture pose, and stands
+-- through the same getup as a chair: its seat stays held until that ends.
+local cot = { x = 30, y = 30, z = 0, occupied = false }
+function cot:setSatChair(value) self.occupied = value == true end
+local cotOk, cotReason = SC.Actor.setMovement(actor, "walk", {
+    action = "rest_bed", object = cot,
+})
+check(cotOk and cotReason == "getting_on_bed" and lastFurniturePath ~= nil,
+    "a cot uses the stock furniture-rest path: " .. tostring(cotReason))
+lastFurniturePath:completePath()
+check(actor.sitting == true and actor.seatObject == cot and cot.occupied == true
+        and SC.NativeActions.bedStatus(actor) == "entered",
+    "the cot is entered in the furniture pose")
+actor.actionContextName = "sitonfurniture"
+local cotLeave, cotLeaveReason = SC.NativeActions.leaveSeating(actor)
+check(cotLeave == false and cotLeaveReason == "standing_from_furniture"
+        and actor.seatObject == cot and cot.occupied == true
+        and actor.lastVariable == "forceGetUp",
+    "leaving a cot keeps its seat and furniture object while the getup starts: seat="
+        .. tostring(actor.seatObject == cot) .. " occupied=" .. tostring(cot.occupied))
+actor.sitting = false
+actor.actionContextName = "getup"
+local cotMid = SC.NativeActions.leaveSeating(actor)
+check(cotMid == false and actor.seatObject == cot and cot.occupied == true,
+    "the cot keeps its seat through the getup clip")
+actor.actionContextName = "idle"
+local cotDone = SC.NativeActions.leaveSeating(actor)
+check(cotDone == true and actor.seatObject == nil and cot.occupied == false,
+    "the cot is released once the companion is standing")
+
 local fallbackOk = SC.Actor.setMovement(actor, "walk", { action = "sit", object = seat })
 check(fallbackOk and lastFurniturePath ~= nil,
     "a second furniture attempt starts before testing the blocked-seat fallback")

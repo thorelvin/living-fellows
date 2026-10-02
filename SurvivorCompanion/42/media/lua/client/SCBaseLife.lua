@@ -1154,20 +1154,14 @@ function BaseLife.finishZone(square, name)
     return true, zone
 end
 
-function BaseLife.removeZone(id)
+-- Every rule that refuses a removal, checked without changing anything. The
+-- context menu offers removal only when this passes, so a confirmed removal
+-- does not then fail on a rule the menu did not know about.
+function BaseLife.canRemoveZone(id)
     local base = activeBase()
     local zone, index
     if base then zone, index = findById(base.zones, id) end
     if not index then return false, "unknown_zone" end
-    if zone.kind == "farm" and SC.FarmWork and type(SC.FarmWork.cancelZone) == "function" then
-        local okay, reason = SC.FarmWork.cancelZone(id)
-        if okay ~= true then return false, reason or "farm_recovery_pending" end
-        for jobIndex = #base.jobs, 1, -1 do
-            local job = base.jobs[jobIndex]
-            if job.type == "farm" and type(job.target) == "table"
-                and job.target.zoneId == id then table.remove(base.jobs, jobIndex) end
-        end
-    end
     for _, order in ipairs(base.work and base.work.orders or {}) do
         if order.zoneId == id and order.state ~= "completed" and order.state ~= "cancelled" then
             return false, "work_order_uses_zone"
@@ -1207,6 +1201,25 @@ function BaseLife.removeZone(id)
             if pointZone and not BaseLife.zoneInsideAreaUnion(pointZone, remaining) then
                 return false, "base_area_in_use"
             end
+        end
+    end
+    return true
+end
+
+function BaseLife.removeZone(id)
+    -- Refuse before the farm hand-off below: a removal that is going to be
+    -- refused must not cancel the zone's farm jobs first.
+    local removable, refusal = BaseLife.canRemoveZone(id)
+    if removable ~= true then return false, refusal end
+    local base = activeBase()
+    local zone, index = findById(base.zones, id)
+    if zone.kind == "farm" and SC.FarmWork and type(SC.FarmWork.cancelZone) == "function" then
+        local okay, reason = SC.FarmWork.cancelZone(id)
+        if okay ~= true then return false, reason or "farm_recovery_pending" end
+        for jobIndex = #base.jobs, 1, -1 do
+            local job = base.jobs[jobIndex]
+            if job.type == "farm" and type(job.target) == "table"
+                and job.target.zoneId == id then table.remove(base.jobs, jobIndex) end
         end
     end
     table.remove(base.zones, index)

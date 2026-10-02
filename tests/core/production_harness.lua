@@ -451,6 +451,9 @@ do
     end
     check(job ~= nil and job.target.orderId == order.id and job.assignedId == ctx.id,
         "the production job targets its order and worker")
+    local removable, removableReason = SC.BaseLife.canRemoveZone(ctx.burial.id)
+    check(removable == false and removableReason == "production_order_uses_zone",
+        "the removal check the context menu asks also sees the order")
     local removed, removeReason = SC.BaseLife.removeZone(ctx.burial.id)
     check(removed == false and removeReason == "production_order_uses_zone",
         "an active production order pins its zone")

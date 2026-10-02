@@ -640,17 +640,24 @@ local function addBaseMenu(context, square, containerTarget, barricadeTarget, pl
     menu:addOption(text(layoutShown and "UI_SC_Base_Visual_Hide" or "UI_SC_Base_Visual_Show"),
         nil, toggleBaseLayout, player)
     if layoutShown then
-        local areaCount = 0
-        local base = SC.BaseLife.active()
-        for _, zone in ipairs(base and base.zones or {}) do
-            if zone.kind == "area" then areaCount = areaCount + 1 end
-        end
+        -- Ask BaseLife for every refusal rule, not only the last boundary: a
+        -- zone pinned by an order or holding other zones would otherwise
+        -- offer an option that fails after its confirmation.
         for _, zone in ipairs(zonesAtSquare(square)) do
-            if zone.kind == "area" and areaCount <= 1 then
+            local name = zone.name or zone.kind or zone.id
+            local removable, refusal = SC.BaseLife.canRemoveZone(zone.id)
+            if removable == true then
+                menu:addOption(text("UI_SC_Base_RemoveZone", name),
+                    nil, removeZoneFromContext, zone, player)
+            elseif refusal == "last_base_area" then
                 addUnavailableOption(menu, text("UI_SC_Base_LastAreaMenu"))
             else
-                menu:addOption(text("UI_SC_Base_RemoveZone", zone.name or zone.kind or zone.id),
-                    nil, removeZoneFromContext, zone, player)
+                addUnavailableOption(menu, text(refusal == "base_area_in_use"
+                        and "UI_SC_Base_AreaInUseMenu"
+                    or (refusal == "work_order_uses_zone"
+                        or refusal == "production_order_uses_zone")
+                        and "UI_SC_Base_ZoneBusyMenu"
+                    or "UI_SC_Base_ZoneLockedMenu", name))
             end
         end
     end

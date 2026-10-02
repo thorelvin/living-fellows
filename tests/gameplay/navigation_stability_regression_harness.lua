@@ -624,6 +624,158 @@ do
             and fallback.stairTransition.descent.key == "stair-a",
         "repeated cross-floor failures stage a verified same-floor stair entry")
 end
+
+-- The stair fallback follows the same rules as Navigation itself. Each case
+-- below reproduces a follower stalled by the survey that was meant to help it.
+do
+    local T = SC.StairTransition
+    local savedX, savedY, savedZ = actor.x, actor.y, actor.z
+    local savedHasStairs = SC.Topology.squareHasStairs
+    SC.Topology.squareHasStairs = function() return false end
+    local function ascent(key)
+        local exit, landing = { x = 10, y = 0, z = 0 }, { x = 14, y = 0, z = 1 }
+        return { key = key, lowerZ = 0, fromZ = 0, toZ = 1, exit = exit,
+            landing = landing, approach = exit, crossing = landing }
+    end
+
+    -- Navigation arrives within its radius of a tile's centre. A follower
+    -- stopped half a tile east of the stair approach is more than a tile
+    -- from that tile's corner, and used to be re-sent to the same tile.
+    local upstairs = { x = 20, y = 0, z = 1 }
+    for _, arrival in ipairs({ { 11.0, 0.5 }, { 10.5, 1.05 }, { 11.5, 0.5 } }) do
+        local plan = { descent = ascent("east") }
+        actor.x, actor.y, actor.z = arrival[1], arrival[2], 0
+        local staged = T.target(plan, actor, upstairs, 1000)
+        check(staged == plan.descent.crossing and plan.descent.approachReached == true,
+            "a follower Navigation considers arrived at the stair approach starts the climb from "
+                .. tostring(arrival[1]) .. "," .. tostring(arrival[2]))
+    end
+    local distant = { descent = ascent("east") }
+    actor.x, actor.y = 13.0, 0.5
+    check(T.target(distant, actor, upstairs, 1000) == distant.descent.approach,
+        "a follower still walking toward the stair keeps its approach")
+
+    -- Descending reports the lower floor from the first step down. The
+    -- native crossing must keep the companion until it has left the slope.
+    local exit, top = { x = 10, y = 0, z = 0 }, { x = 14, y = 0, z = 1 }
+    local descending = {
+        multiLevelFailureCount = 2, multiLevelFailedGoal = { x = 2, y = 0, z = 0 },
+        stairTransition = { descent = { key = "down", lowerZ = 0, fromZ = 1, toZ = 0,
+            exit = exit, landing = top, approach = top, crossing = exit,
+            approachReached = true } },
+    }
+    local downstairs = square(2, 0)
+    actor.x, actor.y, actor.z = 12.5, 0.5, 0.9
+    local onSlope, slopeAdjusted, slopeReason =
+        N._stairFallbackGoalForTests(actor, descending, downstairs, 2000)
+    check(onSlope == square(10, 0) and slopeAdjusted and slopeReason == "stair_fallback"
+            and descending.stairTransition ~= nil,
+        "a companion halfway down the stairs keeps the native crossing: "
+            .. tostring(onSlope and U.squareKey(onSlope)))
+    actor.x, actor.z = 10.5, 0
+    local settled, settledAdjusted =
+        N._stairFallbackGoalForTests(actor, descending, downstairs, 2100)
+    check(settled == downstairs and not settledAdjusted
+            and descending.stairTransition == nil,
+        "the original goal returns once the companion stands on the goal floor")
+    local upper = { descent = { key = "upper", lowerZ = 1, fromZ = 2, toZ = 1,
+        exit = { x = 10, y = 0, z = 1 }, landing = { x = 14, y = 0, z = 2 },
+        approach = { x = 14, y = 0, z = 2 }, crossing = { x = 10, y = 0, z = 1 },
+        approachReached = true } }
+    actor.x, actor.z = 12.5, 1.5
+    local upperCrossing = upper.descent.crossing
+    check(T.target(upper, actor, { x = 2, y = 0, z = 0 }, 2200) == upperCrossing
+            and upper.descent ~= nil,
+        "an intermediate storey does not start the next flight from the slope")
+
+    -- A stair behind a wall or a locked door never fails the cross-floor
+    -- route, because the follower never reaches it. The approach itself has
+    -- to stop closing for twenty seconds of trying before the stair is dropped.
+    local function walledState(key)
+        return { multiLevelFailureCount = 2,
+            multiLevelFailedGoal = { x = 20, y = 0, z = 1 },
+            stairTransition = { descent = ascent(key) } }
+    end
+    actor.x, actor.y, actor.z = 0.5, 0.5, 0
+    local walled = walledState("walled")
+    local startedAt, rejectedAt = 10000, nil
+    for call = 0, 60 do
+        local now = startedAt + call * 500
+        local goal, _, reason = N._stairFallbackGoalForTests(actor, walled, upstairs, now)
+        if goal == nil then
+            rejectedAt = now
+            check(reason == "planning", "a dropped stair returns to the survey")
+            break
+        end
+        check(goal == square(10, 0), "the walled stair is approached until it is dropped")
+    end
+    check(rejectedAt ~= nil and rejectedAt - startedAt >= 20000
+            and walled.stairTransition.descent == nil
+            and walled.stairTransition.descentRejected.walled == true,
+        "an unreachable stair approach is rejected after twenty seconds without progress: "
+            .. tostring(rejectedAt and rejectedAt - startedAt))
+    local paused = walledState("paused")
+    N._stairFallbackGoalForTests(actor, paused, upstairs, 50000)
+    for step = 1, 9 do
+        N._stairFallbackGoalForTests(actor, paused, upstairs, 50000 + step * 500)
+    end
+    N._stairFallbackGoalForTests(actor, paused, upstairs, 120000)
+    check(paused.stairTransition.descent ~= nil
+            and paused.stairTransition.descentRejected == nil,
+        "a minute spent in combat or a hold is not charged against the stair")
+    local walking = walledState("walking")
+    for step = 0, 30 do
+        actor.x = 0.5 + step * 0.3
+        N._stairFallbackGoalForTests(actor, walking, upstairs, 60000 + step * 1000)
+    end
+    check(walking.stairTransition.descent ~= nil
+            and walking.stairTransition.descentRejected == nil,
+        "a slow but steady approach keeps its stair")
+
+    -- With no stair in reach, the completed empty survey stands for this
+    -- spot. Each fresh survey holds an ordinary request for about forty calls.
+    local empty = {}
+    actor.x, actor.y, actor.z = 50.5, 0.5, 0
+    local calls, point, reason = 0, nil, nil
+    repeat
+        calls = calls + 1
+        point, reason = T.target(empty, actor, upstairs, 20000 + calls)
+    until reason ~= "planning" or calls > 100
+    check(point == upstairs and calls <= 41,
+        "the first survey completes without a stair: calls=" .. tostring(calls))
+    local surveyed = 20000 + calls
+    local again, againReason = T.target(empty, actor, upstairs, surveyed + 3500)
+    check(again == upstairs and againReason == nil,
+        "an empty survey is not repeated every three seconds at the same spot")
+    actor.x = 52.5
+    local nearby, nearbyReason = T.target(empty, actor, upstairs, surveyed + 13000)
+    check(nearby == upstairs and nearbyReason == nil,
+        "a couple of tiles from the empty survey still uses it")
+    actor.x = 56.5
+    local _, movedReason = T.target(empty, actor, upstairs, surveyed + 16000)
+    check(movedReason == "planning", "a companion that has moved on surveys the new area")
+    actor.x = 50.5
+    local _, expiredReason = T.target(empty, actor, upstairs, surveyed + 31000)
+    check(expiredReason == "planning", "an empty survey expires after thirty seconds")
+
+    -- An escape or a rush to another floor cannot wait for those calls.
+    local fleeing = { multiLevelFailureCount = 2,
+        multiLevelFailedGoal = { x = 20, y = 0, z = 1 } }
+    local fleeGoal, fleeAdjusted = N._stairFallbackGoalForTests(actor, fleeing,
+        upstairs, 40000, { action = "flee", urgent = true })
+    check(fleeGoal == upstairs and not fleeAdjusted
+            and fleeing.stairTransition.descentScan ~= nil,
+        "an urgent request keeps moving while its survey advances")
+    local calm = { multiLevelFailureCount = 2,
+        multiLevelFailedGoal = { x = 20, y = 0, z = 1 } }
+    local calmGoal, _, calmReason = N._stairFallbackGoalForTests(actor, calm,
+        upstairs, 40000, { action = "follow_formation" })
+    check(calmGoal == nil and calmReason == "planning",
+        "an ordinary follow request still waits for the survey")
+
+    SC.Topology.squareHasStairs = savedHasStairs
+    actor.x, actor.y, actor.z = savedX, savedY, savedZ
+end
 do
     local captured
     local realDiagnostic = U.diagnostic

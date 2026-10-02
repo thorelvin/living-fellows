@@ -273,6 +273,13 @@ public final class SCNativeApiSignatureTest {
                         && method(stateMachine, "getSubStateCount").getReturnType() == int.class
                         && method(stateMachine, "getSubStateAt", int.class).getReturnType() == state,
                 "native window success event effect contract changed");
+        // The bridge adopts a vanilla timed path (furniture, bed entry) by
+        // scanning the action stack for one that pathfinds. If either method
+        // moves, that adoption silently stops and the companion animates in place.
+        require(method(baseAction, "isPathfinding").getReturnType() == boolean.class
+                        && java.util.List.class.isAssignableFrom(
+                                method(character, "getCharacterActions").getReturnType()),
+                "native timed-path adoption contract changed");
         require(method(character, "get", stateParam).getReturnType() == Object.class
                         && method(character, "set", stateParam, Object.class).getReturnType() == void.class
                         && swipeState.getField("ATTACKED").getType() == stateParam
@@ -910,6 +917,7 @@ public final class SCNativeApiSignatureTest {
                 + " reflection-contract=true cleanup-retry=true"
                 + " reaction-states=" + reactionStates.length + " movement-owner=true"
                  + " attack-continuation=true outgoing-receipts=true door-guard=true swing-sound=true aim-steadying=true"
-                 + " camera-offset=true local-save-id=true window-success=true");
+                 + " camera-offset=true local-save-id=true window-success=true"
+                 + " timed-path=true");
     }
 }

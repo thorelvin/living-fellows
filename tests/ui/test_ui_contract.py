@@ -1276,6 +1276,10 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn("zonesAtSquare(square)", base)
 
         self.assertIn("UI_SC_Base_RemoveZone", base)
+        # Removal is offered only when BaseLife would accept it, so a
+        # confirmed removal cannot fail on a rule the menu did not know.
+        self.assertIn("SC.BaseLife.canRemoveZone(zone.id)", base)
+        self.assertNotIn("areaCount", base)
         remove = lua_function(
             self.context, "local function removeZoneFromContext(_, zone, player)"
         )
@@ -1290,7 +1294,9 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn("SC.BaseLife.lockZoneEndpoint(clickSquare)", fill)
         translations = json.loads(read(TRANSLATE / "EN" / "UI.json"))
         for key in ("UI_SC_Base_Visual_Legend", "UI_SC_Base_Visual_Empty",
-                    "UI_SC_Base_Visual_Shown", "UI_SC_Base_Visual_Hidden"):
+                    "UI_SC_Base_Visual_Shown", "UI_SC_Base_Visual_Hidden",
+                    "UI_SC_Base_LastAreaMenu", "UI_SC_Base_AreaInUseMenu",
+                    "UI_SC_Base_ZoneBusyMenu", "UI_SC_Base_ZoneLockedMenu"):
             self.assertIn(key, translations)
 
     def test_peek_is_a_hold_binding_for_the_selected_roster_actor(self) -> None:
