@@ -3588,6 +3588,28 @@ local function nearbyRestoreSquare(origin)
 end
 persistence._nearbyRestoreSquareForTests = nearbyRestoreSquare
 
+-- A posted recruit keeps its native actor while the player is away. When the
+-- old chunk returns, choose a freshly loaded square at the last position that
+-- passed the native health contract; the old square reference may be stale.
+function persistence.loadedRecoverySquare(record)
+    local runtime = type(record) == "table" and record.runtime or nil
+    local position = type(runtime) == "table" and copiedPosition(runtime.lastStablePosition)
+        or nil
+    if position == nil and type(runtime) == "table"
+        and type(runtime.lastStableSnapshot) == "table" then
+        position = copiedPosition(runtime.lastStableSnapshot.position)
+    end
+    if position == nil then return nil, "no_verified_position" end
+    local origin = SC.GameplayUtil and SC.GameplayUtil.gridSquare(
+        position.x, position.y, position.z) or nil
+    if origin == nil then return nil, "saved_square_unloaded" end
+    local candidate = nearbyRestoreSquare(origin)
+    if restoreSquareUsable(candidate) ~= true then
+        return nil, "no_safe_loaded_recovery_square"
+    end
+    return candidate, "last_verified_position"
+end
+
 local function squareFor(record)
     if type(getCell) ~= "function" then return nil end
     local ok, cell = pcall(getCell)

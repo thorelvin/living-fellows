@@ -21,6 +21,8 @@ local lastReportAt = {}
 
 local REFRESH_MILLIS = 400
 local VIEW_DISTANCE = 48
+local COMPANION_NAME_COLOR = { r = 0.84, g = 0.92, b = 1.00 }
+local SELECTED_COMPANION_NAME_COLOR = { r = 0.99, g = 0.86, b = 0.46 }
 
 local ZONE_COLORS = {
     area = { r = 0.92, g = 0.92, b = 0.86 },
@@ -580,6 +582,7 @@ local function renderCompanionLabels(occupied)
     end
     local ok, records = pcall(SC.Registry.records)
     if not ok or type(records) ~= "table" then return 0 end
+    local selectedId = SC.UI and SC.UI.instance and SC.UI.instance.selectedId or nil
     local drawn = 0
     for index = 0, 3 do
         local subject
@@ -596,8 +599,10 @@ local function renderCompanionLabels(occupied)
                 if row then
                     local sx, sy = companionNamePosition(
                         row.actor, row.x, row.y, row.z, index)
+                    local color = record.id == selectedId
+                        and SELECTED_COMPANION_NAME_COLOR or COMPANION_NAME_COLOR
                     if sx and drawScreenLabel(row.name, sx, sy,
-                        { r = 0.84, g = 0.92, b = 1.00 }, occupied,
+                        color, occupied,
                         row.alpha, -1, viewport) then
                         drawn = drawn + 1
                     end

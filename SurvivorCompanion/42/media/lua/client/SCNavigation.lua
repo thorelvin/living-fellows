@@ -4156,7 +4156,7 @@ function Navigation.combatVector(actor, target, kind, snapshot)
         tonumber(utility.config("combatSteeringProbeDistance")) or 0.45)
     local sourceSquare = utility.squareOf(actor)
     local nativeProbeAvailable = utility.hasMethod(actor, "isCompanionMovementClear")
-    local best, bestCost, barrier
+    local best, bestCost, barrier, safeFenceLanding
     local threats = type(snapshot) == "table" and snapshot.threats or nil
     local threatFacts
     if type(threats) == "table" then
@@ -4213,7 +4213,8 @@ function Navigation.combatVector(actor, target, kind, snapshot)
             math.floor(ax) + (dx > 0.35 and 1 or dx < -0.35 and -1 or 0),
             math.floor(ay) + (dy > 0.35 and 1 or dy < -0.35 and -1 or 0),
             az or 0)
-        if clear and sourceSquare and neighbour
+        if (clear or (kind == "approach" and index == 1))
+            and sourceSquare and neighbour
             and not sameSquare(sourceSquare, neighbour) then
             local affordance = Navigation.edgeAffordance(sourceSquare, neighbour)
             local affordanceKind = type(affordance) == "table" and affordance.kind or nil
@@ -4224,6 +4225,35 @@ function Navigation.combatVector(actor, target, kind, snapshot)
                 if affordanceKind == "fence" or affordanceKind == "window"
                     or affordanceKind == "window_frame" or affordanceKind == "door" then
                     barrier = barrier or affordanceKind
+                end
+                -- The direct route may meet a fence while an angled micro-step
+                -- is clear. Repeating that side-step makes fighters pace along
+                -- the rail forever. When the far side is empty and the zombie
+                -- is well beyond it, hand the landing tile to Navigation's
+                -- existing native climb owner instead.
+                local nx, ny = utility.position(neighbour)
+                if index == 1 and kind == "approach" and affordanceKind == "fence"
+                    and nx ~= nil and ny ~= nil
+                    and math.abs(math.floor(ax) - math.floor(nx))
+                        + math.abs(math.floor(ay) - math.floor(ny)) == 1
+                    and utility.isSquareFree(neighbour)
+                    and select(1, utility.movingBlocker(neighbour, actor,
+                        { swept = true })) == nil then
+                    local lx, ly = math.floor(nx) + 0.5, math.floor(ny) + 0.5
+                    local landingClear = (tx - lx)^2 + (ty - ly)^2 >= 2.5^2
+                    if landingClear and type(threats) == "table" then
+                        for _, threat in ipairs(threats) do
+                            local other = threat and threat.actor
+                            if other and not utility.isDead(other) then
+                                local ox, oy = utility.position(other)
+                                if ox and (ox - lx)^2 + (oy - ly)^2 < 2.25^2 then
+                                    landingClear = false
+                                    break
+                                end
+                            end
+                        end
+                    end
+                    if landingClear then safeFenceLanding = neighbour end
                 end
             end
         end
@@ -4260,6 +4290,9 @@ function Navigation.combatVector(actor, target, kind, snapshot)
             best, bestCost = { x = dx, y = dy, index = index }, danger
             if threats == nil or (index == 1 and bestCost <= 0.001) then break end
         end
+    end
+    if safeFenceLanding then
+        return nil, nil, false, "barrier:fence", safeFenceLanding
     end
     if best then
         if best.index > 1 then

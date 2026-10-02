@@ -1739,6 +1739,28 @@ function FarmWork.cancelActor(actor, reason)
     return true, reason or "farm_cancelled"
 end
 
+-- Cancellation can reconcile a harvest, return borrowed supplies, and recover
+-- output receipts. Those effects cannot be rolled back after another job
+-- refuses a zone removal or camp abandonment. Refuse the whole operation
+-- before it starts while any such obligation is still live.
+function FarmWork.canCancelJob(jobId)
+    for _, state in pairs(states) do
+        if state.jobId == jobId and (state.work or state.borrowed
+            or state.collectingHarvest or (state.outputs and #state.outputs > 0)) then
+            return false, "farm_recovery_pending"
+        end
+    end
+    if #SC.BaseLife.farmReceipts(jobId, false) > 0 then
+        return false, "farm_recovery_pending"
+    end
+    return true
+end
+
+function FarmWork.canCancelActor(actor)
+    local state = states[actor]
+    return state == nil or FarmWork.canCancelJob(state.jobId)
+end
+
 function FarmWork.cancelJob(jobId, reason)
     for actor, state in pairs(states) do
         if state.jobId == jobId then
@@ -1752,6 +1774,7 @@ end
 
 function FarmWork.cancelZone(zoneId)
     local base = SC.BaseLife.active()
+    local planned = {}
     for _, job in ipairs(base and base.jobs or {}) do
         if job.type == "farm" and type(job.target) == "table" and job.target.zoneId == zoneId then
             local replacement
@@ -1759,13 +1782,22 @@ function FarmWork.cancelZone(zoneId)
                 if zone.id ~= zoneId and zoneContains(zone,
                     job.target.x, job.target.y, job.target.z) then replacement = zone break end
             end
-            if replacement then
-                job.target.zoneId = replacement.id
-            else
-                local okay, reason = FarmWork.cancelJob(job.id, "farm_zone_removed")
-                if okay ~= true then return false, reason end
-            end
+            local ready, refusal = FarmWork.canCancelJob(job.id)
+            if ready ~= true then return false, refusal end
+            planned[#planned + 1] = { job = job, replacement = replacement }
         end
+    end
+    -- Cancellation is checked for every affected job before the first job is
+    -- changed. Reassignment happens last, so a refusal cannot leave a job
+    -- pointing at another zone while its original zone remains installed.
+    for _, plan in ipairs(planned) do
+        if not plan.replacement then
+            local okay, reason = FarmWork.cancelJob(plan.job.id, "farm_zone_removed")
+            if okay ~= true then return false, reason end
+        end
+    end
+    for _, plan in ipairs(planned) do
+        if plan.replacement then plan.job.target.zoneId = plan.replacement.id end
     end
     return true
 end

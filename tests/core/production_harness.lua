@@ -637,6 +637,36 @@ end
 
 do
     local ctx = setup()
+    ctx.actor.inventory:AddItem(makeItem("Base.Axe", {
+        tags = { choptree = true }, treeDamage = 5,
+    }))
+    local treeSquare = sq(3, 2)
+    makeTree(treeSquare, 10)
+    start(ctx, { operation = "fell_trees", zoneId = ctx.lumber.id,
+        requested = 1, settings = { haulLogs = false } })
+    local originalTargets, originalRequestAny =
+        SC.Navigation.interactionTargets, SC.Navigation.requestAny
+    local offered, approachIntent
+    SC.Navigation.interactionTargets = function() return { treeSquare } end
+    SC.Navigation.requestAny = function(actor, targets, mode, intent)
+        offered = targets
+        approachIntent = intent
+        return originalRequestAny(actor, targets, mode, intent)
+    end
+    local handled, reason = tick(ctx)
+    SC.Navigation.interactionTargets = originalTargets
+    SC.Navigation.requestAny = originalRequestAny
+    check(handled and reason == "production_chop_started"
+            and type(offered) == "table" and #offered > 0
+            and offered[1] ~= treeSquare,
+        "woodcutting approaches a free neighboring tile when the interaction helper offers the trunk")
+    check(approachIntent and approachIntent.requireSameSquare == true
+            and approachIntent.arrivalDistance <= 0.3,
+        "work approach cannot finish at the edge of an adjacent tile")
+end
+
+do
+    local ctx = setup()
     local axe = makeItem("Base.Axe", { tags = { choptree = true }, twoHanded = true, treeDamage = 5 })
     ctx.actor.inventory:AddItem(axe)
     local tree = makeTree(sq(3, 2), 10, { logs = 2 })
@@ -2327,6 +2357,35 @@ do
         if liveJobs[index] == manual then table.remove(liveJobs, index) end
     end
 
+    local originalCanCancel = SC.BaseWork.canCancelActor
+    SC.BaseWork.canCancelActor = function() return false, "production_reconciliation_pending" end
+    local held, holdReason = SC.BaseLife.abandon()
+    SC.BaseWork.canCancelActor = originalCanCancel
+    check(held == false and holdReason == "production_reconciliation_pending"
+            and SC.BaseLife.active() ~= nil
+            and SC.BaseLife.productionOrder(order.id).state ~= "cancelled",
+        "a busy worker refuses abandonment before any order is cancelled")
+
+    local lateJob = { id = "job:abandon-late", type = "farm", state = "pending",
+        target = { zoneId = ctx.burial.id } }
+    SC.BaseLife.active().jobs[#SC.BaseLife.active().jobs + 1] = lateJob
+    local originalCancelJob = SC.BaseLife.cancelJob
+    SC.BaseLife.cancelJob = function(id)
+        if id == lateJob.id then return false, "injected_late_refusal" end
+        return originalCancelJob(id)
+    end
+    local rolledBack, rollbackReason = SC.BaseLife.abandon()
+    SC.BaseLife.cancelJob = originalCancelJob
+    check(rolledBack == false and rollbackReason == "injected_late_refusal"
+            and SC.BaseLife.active() ~= nil
+            and SC.BaseLife.productionOrder(order.id).state ~= "cancelled"
+            and SC.BaseLife.job(lateJob.id) ~= nil,
+        "an unexpected late refusal restores the camp and earlier order state")
+    local restoredJobs = SC.BaseLife.active().jobs
+    for index = #restoredJobs, 1, -1 do
+        if restoredJobs[index].id == lateJob.id then table.remove(restoredJobs, index) end
+    end
+
     local abandoned, gone = SC.BaseLife.abandon()
     local cancelled
     for _, row in ipairs(gone and gone.production and gone.production.orders or {}) do
@@ -2355,6 +2414,32 @@ do
             and SC.BaseLife.active().id == newBase.id,
         "the moved camp saves and restores without the abandoned one: "
             .. tostring(restored) .. "/" .. tostring(restoreReason))
+end
+
+do
+    local ctx = setup()
+    local zone = { id = "zone:farm-rollback", kind = "farm",
+        x1 = 1, y1 = 2, x2 = 1, y2 = 2, z = 0 }
+    ctx.base.zones[#ctx.base.zones + 1] = zone
+    local job = { id = "job:farm-rollback", type = "farm", state = "pending",
+        target = { zoneId = zone.id, x = 1, y = 2, z = 0 } }
+    ctx.base.jobs[#ctx.base.jobs + 1] = job
+    local originalFarmWork = SC.FarmWork
+    SC.FarmWork = { cancelZone = function()
+        job.target.zoneId = "zone:other"
+        return false, "farm_recovery_pending"
+    end }
+    local removed, refusal = SC.BaseLife.removeZone(zone.id)
+    SC.FarmWork = originalFarmWork
+    local restoredJob = SC.BaseLife.job(job.id)
+    local zonePresent = false
+    for _, candidate in ipairs(SC.BaseLife.active().zones) do
+        if candidate.id == zone.id then zonePresent = true end
+    end
+    check(removed == false and refusal == "farm_recovery_pending"
+            and restoredJob ~= nil and restoredJob.target.zoneId == zone.id
+            and zonePresent,
+        "an unexpected farm-zone cancellation refusal restores job and zone state")
 end
 
 print("PRODUCTION_HARNESS_PASS checks=" .. tostring(checks))

@@ -23,14 +23,20 @@ assert(fixture.labels[2].x == 321 - fixture.companion.renderOffsetX / fixture.zo
             - 14 - fixture.config.companionNameLabelOffsetY
         and fixture.nameCoordsCall == nil,
     "companion names must project through the player's explicit camera")
+assert(fixture.labels[2].red == 0.84 and fixture.labels[2].green == 0.92,
+    "unselected companion names must keep their usual blue color")
 fixture.labels = {}
 
 fixture.splitScreen = true
+SurvivorCompanion.UI = { instance = { selectedId = "sc-addy" } }
 Events.OnPreUIDraw.callback()
 assert(#fixture.labels == 4 and fixture.labels[2].x == 318
         and fixture.labels[4].x == 1278
         and fixture.labels[2].y == fixture.labels[4].y,
     "each split-screen view must anchor the same companion over its own camera")
+assert(fixture.labels[2].red == 0.99 and fixture.labels[2].green == 0.86
+        and fixture.labels[4].red == 0.99 and fixture.labels[4].green == 0.86,
+    "the roster-selected companion's overhead name must be gold in each view")
 fixture.labels = {}
 fixture.cameraShift[0] = 1000
 Events.OnPreUIDraw.callback()
@@ -45,6 +51,7 @@ fixture.otherCompanion = setmetatable({ x = 13, y = 11, z = 0,
     { __index = fixture.companion })
 fixture.records[2] = { id = "sc-beth", actor = fixture.otherCompanion,
     recruited = true, identity = { forename = "Beth" }, runtime = {} }
+SurvivorCompanion.UI.instance.selectedId = "sc-beth"
 fixture.labels = {}
 Events.OnPreUIDraw.callback()
 assert(#fixture.labels == 6 and fixture.labels[2].value == "Addy"
@@ -52,10 +59,14 @@ assert(#fixture.labels == 6 and fixture.labels[2].value == "Addy"
         and fixture.labels[6].value == "Beth"
         and fixture.labels[6].x > 960,
     "a companion leading the second view sees teammates' names there, not her own")
+assert(fixture.labels[2].red == 0.84 and fixture.labels[4].red == 0.99
+        and fixture.labels[6].red == 0.99,
+    "changing roster selection must return the old name to blue and turn the new one gold")
 fixture.records[2] = nil
 fixture.otherCompanion = nil
 fixture.secondPlayer = originalSecondPlayer
 fixture.splitScreen = false
+SurvivorCompanion.UI = nil
 fixture.labels = {}
 
 Events.OnRenderTick.callback()

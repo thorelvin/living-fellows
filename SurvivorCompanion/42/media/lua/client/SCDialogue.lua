@@ -180,6 +180,17 @@ local pools = {
         low = { "The fog decides how far the world goes today.",
             "You can hear how empty it is. Nobody warns you about the quiet." },
     },
+    ["danger.sitting"] = {
+        common = {
+            "Walker sitting against the wall. Watch it.",
+            "That one is sitting. It's still alive.",
+            "Seated zombie ahead. Keep your distance.",
+            "One of them is sitting there. Don't pass it.",
+            "Sitting walker. I'll deal with it.",
+        },
+        cautious = { "That seated one may lunge. Give it room." },
+        practical = { "Sitting zombie spotted. Treat it as a live contact." },
+    },
     ["danger.zombie"] = {
         common = {
             "Zombie! Watch out!", "Dead ahead!", "Contact! Zombie!",

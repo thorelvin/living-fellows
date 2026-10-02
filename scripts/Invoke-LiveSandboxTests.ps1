@@ -20,6 +20,8 @@ param(
     [string]$BaseLayoutScreenshot = '',
     [switch]$BaseLayoutOnly,
     [switch]$FurniturePoseOnly,
+    [switch]$WoodcutterOnly,
+    [switch]$PostedStreamOnly,
     [switch]$PathingOnly,
     [switch]$PlaceMetadataOnly,
     [switch]$SplitScreenOnly,
@@ -894,6 +896,8 @@ $config = @(
     ('capture_base_layout=' + $captureBaseLayout.ToString().ToLowerInvariant()),
     ('base_layout_only=' + $BaseLayoutOnly.IsPresent.ToString().ToLowerInvariant()),
     ('furniture_pose_only=' + $FurniturePoseOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('woodcutter_only=' + $WoodcutterOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('posted_stream_only=' + $PostedStreamOnly.IsPresent.ToString().ToLowerInvariant()),
     ('internal_timeout_ms=' + (($TimeoutSeconds - 15) * 1000))
 ) -join [Environment]::NewLine
 [System.IO.File]::WriteAllText((Join-Path $SandboxLua 'config.ini'),

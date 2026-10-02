@@ -463,7 +463,8 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
     -- leader and asks for a bandage. When self-care fails the decision falls
     -- back to this instead of scavenging or washing while it bleeds out.
     if bleeding and commands.recruited and player
-        and selfCareBlocked ~= nil then
+        and selfCareBlocked ~= nil
+        and selfCareBlocked ~= "patient_already_treated" then
         add("follow", 90, false, { mode = "seek_care" })
     end
     if (snapshot.immediateCount or 0) == 0
@@ -2087,34 +2088,58 @@ local function warnAboutThreat(actor, snapshot, commands, state, current)
     if SC.Dialogue and type(SC.Dialogue.threatTopic) == "function" then
         dangerTopic, band, bandRank = SC.Dialogue.threatTopic("danger", count)
     end
+    -- Sitting wall zombies are live contacts, even if their floor flag is set.
+    -- Call out the unusual posture once when a visible one is nearby.
+    local sittingThreat
+    for _, candidate in ipairs(snapshot.threats or {}) do
+        if candidate.posture == "sitting" and candidate.visible == true
+            and (tonumber(candidate.distanceSq) or math.huge) <= 64 then
+            sittingThreat = candidate
+            break
+        end
+    end
+    if sittingThreat then
+        dangerTopic = "danger.sitting"
+        threat = sittingThreat.actor
+    end
+    local sittingFresh = sittingThreat ~= nil
+        and state.lastSittingZombie ~= threat
+        and current - (state.lastSittingWarningAt or -math.huge) >= 30000
     local escalated = bandRank > (tonumber(state.lastThreatBandRank) or 0)
     -- The senses ranking can swap the first entry between nearby zombies every
     -- perception tick. Cool down the warning category, not the object identity;
     -- otherwise each swap restarts the same freeze hand signal and looks like an
     -- endless raised-hand loop. A genuinely higher danger band still bypasses it.
-    if current < (state.nextThreatWarningAt or 0) and not escalated then return end
+    if current < (state.nextThreatWarningAt or 0) and not escalated
+        and not sittingFresh then return end
     -- Once this actor has acknowledged a continuous visible-threat episode,
     -- elapsed cooldown alone must not make the same pack feel newly discovered.
     -- A higher band still gets one immediate escalation warning; ordinary
     -- warnings resume only after the configured threat-free reset window.
-    if state.lastThreatBandRank ~= nil and not escalated then return end
+    if state.lastThreatBandRank ~= nil and not escalated
+        and not sittingFresh then return end
     local immediate = tonumber(snapshot.immediateCount) or #(snapshot.immediateAttackers or {})
     state.lastWarnedThreat = threat
     state.lastThreatBand = band
     state.lastThreatBandRank = bandRank
     state.nextThreatWarningAt = current + (U().config("threatWarningCooldownMs") or 30000)
+    if sittingFresh then
+        state.lastSittingZombie = threat
+        state.lastSittingWarningAt = current
+    end
     -- Immediate contact is resolved in the same decision by Combat. Reserving
     -- the overhead line lets the more useful Engage or Fall back bark describe
     -- the action instead of first showing a generic warning and then replacing
     -- it. Distant contacts retain the existing hand signal or warning.
-    if immediate > 0 then return end
+    if immediate > 0 and not sittingFresh then return end
     if current - lastGroupThreatWarningAt
         < (U().config("threatWarningGroupCooldownMs") or 10000)
-        and not (escalated and band == "horde") then return end
+        and not (escalated and band == "horde") and not sittingFresh then return end
     lastGroupThreatWarningAt = current
     local player = snapshot.player and snapshot.player.actor or nil
     local threatDistance = threat and U().distance(actor, threat) or 0
     local quietSignal = immediate == 0
+        and sittingThreat == nil
         and threatDistance > (U().config("dangerSignalImmediateRadius") or 4)
         and threatDistance <= (U().config("dangerSignalMaxThreatDistance") or 12)
         and player ~= nil
@@ -2190,6 +2215,7 @@ local function warnAboutThreat(actor, snapshot, commands, state, current)
     end
     return quietSignal
 end
+Decision._warnAboutThreatForTests = warnAboutThreat
 
 local function warnAboutHeardThreat(actor, snapshot, state, current)
     local visibleCount = tonumber(snapshot.threatCount) or #(snapshot.threats or {})

@@ -408,6 +408,25 @@ check(supervisorHealth.active == 0 and supervisorHealth.reservations == 0
         and supervisorHealth.invariantViolations == 0,
     "actor release removes retired history while health retains live retry evidence")
 
+local chairActor = testActor("chair-pose")
+local chair = assert(Supervisor.begin(chairActor, {
+    owner = "downtime", action = "sit", ignoreRetry = true,
+    poseMaximumDisplacement = 0.5,
+    onCancel = function() return true end,
+}))
+check(Supervisor.transition(chair, "approaching") == true
+        and Supervisor.transition(chair, "animating") == true
+        and Supervisor.transition(chair, "waiting") == true,
+    "chair rest enters the protected waiting pose")
+chairActor.x = chairActor.x + 0.30
+Supervisor.update(chairActor)
+check(Supervisor.isCurrent(chair),
+    "native chair settling must not cancel a seated companion")
+chairActor.x = chairActor.x + 0.30
+Supervisor.update(chairActor)
+check(not Supervisor.isCurrent(chair),
+    "real movement away from the chair still cancels the protected pose")
+
 do
     local preemptActor = testActor("supervisor-preemption-reentrancy")
     local rejectOnce = true

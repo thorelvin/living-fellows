@@ -2081,6 +2081,11 @@ local function beginSupervisedActivity(actor, state, activity)
             or activity.kind,
         priority = service.Priority.DOWNTIME,
         interruptible = true, requiresVisual = false,
+        -- Vanilla furniture rest can shift the actor about 0.3 tile after it
+        -- reports a seated pose. Keep the generic 0.25-tile invariant for
+        -- other work, but allow that final cushion alignment here.
+        poseMaximumDisplacement = (activity.kind == "sit"
+            or activity.kind == "rest_bed") and 0.5 or nil,
         deadlines = activity.deadlines,
         allowedActions = {
             [activity.kind] = true,
@@ -2902,19 +2907,25 @@ function Downtime.update(actor, player, runtime, desiredKind)
         end
         if (furniture or floorRest) and state.active.actionAccepted == true
             and state.active.furnitureEntered ~= true then
-            local entryState = "none"
+            local entryState, poseStartedAt = "none", nil
             if state.active.kind == "rest_bed" and SC.NativeActions
                 and type(SC.NativeActions.bedStatus) == "function" then
-                entryState = SC.NativeActions.bedStatus(actor)
+                entryState, poseStartedAt = SC.NativeActions.bedStatus(actor)
             elseif state.active.kind == "sit" and SC.NativeActions
                 and type(SC.NativeActions.furnitureStatus) == "function" then
-                entryState = SC.NativeActions.furnitureStatus(actor)
+                entryState, poseStartedAt = SC.NativeActions.furnitureStatus(actor)
             elseif floorRest and SC.NativeActions
                 and type(SC.NativeActions.groundStatus) == "function" then
                 entryState = SC.NativeActions.groundStatus(actor)
             elseif floorRest then
                 local seated, seatedOk = utility.call(actor, "isSitOnGround")
                 entryState = seatedOk and seated == true and "entered" or "entering"
+            end
+            -- Native approach and the final sit/get-on-bed clip are separate
+            -- phases. Give the final clip its own entry window once it begins.
+            if tonumber(poseStartedAt)
+                and tonumber(poseStartedAt) > (tonumber(state.active.entryStartedAt) or 0) then
+                state.active.entryStartedAt = tonumber(poseStartedAt)
             end
             if entryState == "entered" then
                 state.active.furnitureEntered = true

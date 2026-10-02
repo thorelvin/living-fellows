@@ -110,6 +110,7 @@ local function actionList()
     local list = { values = {} }
     function list:add(value) self.values[#self.values + 1] = value end
     function list:size() return #self.values end
+    function list:get(index) return self.values[index + 1] end
     function list:contains(value)
         for _, candidate in ipairs(self.values) do if candidate == value then return true end end
         return false
@@ -1955,6 +1956,8 @@ function actor:openWindow(value)
     self.openingWindow = true
 end
 function actor:getVariableBoolean(name)
+    if name == "SitOnFurnitureStarted" then return self.furniturePoseStarted == true end
+    if name == "OnBedStarted" then return self.bedPoseStarted == true end
     return name == "bOpenWindow" and self.openingWindow == true
 end
 function actor:smashWindow(value) value.smashed = true end
@@ -2089,6 +2092,7 @@ function ISRestAction:new(character, object, useAnimations)
         if self.bed and self.bed.setSatChair then self.bed:setSatChair(true) end
         self.character:setSitOnFurnitureObject(self.bed)
         self.character:setSittingOnFurniture(true)
+        self.character.furniturePoseStarted = false
         self.character:reportEvent("EventSitOnFurniture")
     end
     return value
@@ -2100,6 +2104,7 @@ function ISGetOnBedAction:new(character, object)
     function value:start()
         self.character:setSitOnFurnitureObject(self.bed)
         self.character:setOnBed(true)
+        self.character.bedPoseStarted = false
         self.character:reportEvent("EventGetOnBed")
     end
     return value
@@ -2131,8 +2136,23 @@ check(sitOk and sitReason == "taking_seat" and lastFurniturePath ~= nil
 lastFurniturePath:completePath()
 check(actor.sitting == true and actor.seatObject == seat and seat.occupied == true
         and actor.lastEvent == "EventSitOnFurniture"
-        and SC.NativeActions.furnitureStatus(actor) == "entered",
-    "stock furniture-rest action enters and verifies the seat pose")
+        and SC.NativeActions.furnitureStatus(actor) == "entering",
+    "the sit-down animation is not treated as a settled protected pose")
+local poseWaitAt = SC_TEST_CLOCK
+SC_TEST_CLOCK = poseWaitAt + 1000
+actor.px = actor:getX() + 0.1
+check(SC.NativeActions.furnitureStatus(actor) == "entering",
+    "root movement resets the furniture pose's stillness timer")
+SC_TEST_CLOCK = poseWaitAt + 2499
+check(SC.NativeActions.furnitureStatus(actor) == "entering",
+    "a missing sit-end event does not protect a moving pose early")
+SC_TEST_CLOCK = poseWaitAt + 2501
+check(SC.NativeActions.furnitureStatus(actor) == "entered",
+    "a settled furniture pose recovers when the animation event is missed")
+actor.px = nil
+actor.furniturePoseStarted = true -- the stock animation emits this at clip end
+check(SC.NativeActions.furnitureStatus(actor) == "entered",
+    "completed stock furniture animation verifies the seated pose")
 local passiveSeatAction = ISTimedActionQueue.getTimedActionQueue(actor).current
 if passiveSeatAction then ISBaseTimedAction.perform(passiveSeatAction) end
 check(SC.NativeActions.activityStatus(actor) == "none"
@@ -2218,8 +2238,11 @@ check(cotOk and cotReason == "getting_on_bed" and lastFurniturePath ~= nil,
     "a cot uses the stock furniture-rest path: " .. tostring(cotReason))
 lastFurniturePath:completePath()
 check(actor.sitting == true and actor.seatObject == cot and cot.occupied == true
-        and SC.NativeActions.bedStatus(actor) == "entered",
-    "the cot is entered in the furniture pose")
+        and SC.NativeActions.bedStatus(actor) == "entering",
+    "a cot's furniture pose waits for the sit-down animation")
+actor.furniturePoseStarted = true
+check(SC.NativeActions.bedStatus(actor) == "entered",
+    "the cot is entered after its furniture animation completes")
 actor.actionContextName = "sitonfurniture"
 local cotLeave, cotLeaveReason = SC.NativeActions.leaveSeating(actor)
 check(cotLeave == false and cotLeaveReason == "standing_from_furniture"
@@ -2254,29 +2277,68 @@ function bedGrid:getSpriteGridPosY() return 1 end
 function bedGrid:getSpriteGridPosX() return 1 end
 local bedSprite = {}
 function bedSprite:getSpriteGrid() return bedGrid end
-local bed = { x = 20, y = 20, z = 0 }
+local bed = { x = 20, y = 20, z = 0, occupied = false }
 function bed:getX() return self.x end
 function bed:getY() return self.y end
 function bed:getZ() return self.z end
 function bed:getSprite() return bedSprite end
+function bed:setSatChair(value) self.occupied = value == true end
 local bedOk, bedReason = SC.Actor.setMovement(actor, "walk", {
     action = "rest_bed", object = bed,
 })
 check(bedOk and bedReason == "getting_on_bed"
-        and type(lastNearestLocations) == "table" and #lastNearestLocations == 15
-        and actor.onBed ~= true,
-    "bed rest queues the vanilla five-position entry path before its animation: ok="
-        .. tostring(bedOk) .. " reason=" .. tostring(bedReason) .. " locations="
-        .. tostring(type(lastNearestLocations) == "table" and #lastNearestLocations or "none")
-        .. " onBed=" .. tostring(actor.onBed))
-ISTimedActionQueue.getTimedActionQueue(actor).current:completePath()
-check(actor.onBed == true and actor.seatObject == bed
-        and actor.lastEvent == "EventGetOnBed"
+        and lastFurniturePath ~= nil
+        and lastFurniturePath.anySpriteGridObject == true
+        and actor.onBed ~= true and actor.sitting ~= true,
+    "two-tile bed rest uses the player's native Rest furniture path")
+lastFurniturePath:completePath()
+check(actor.sitting == true and actor.seatObject == bed and bed.occupied == true
+        and actor.lastEvent == "EventSitOnFurniture"
+        and SC.NativeActions.bedStatus(actor) == "entering",
+    "bed rest enters the furniture pose rather than Get On Bed")
+actor.furniturePoseStarted = true
+check(SC.NativeActions.bedStatus(actor) == "entered",
+    "the stock furniture end event settles the bed rest pose")
+actor.actionContextName = "sitonfurniture"
+local bedLeave, bedLeaveReason = SC.NativeActions.leaveSeating(actor)
+check(bedLeave == false and bedLeaveReason == "standing_from_furniture"
+        and actor.seatObject == bed and bed.occupied == true,
+    "leaving the bed holds its seat until the getup clip")
+actor.sitting = false
+actor.actionContextName = "getup"
+check(SC.NativeActions.leaveSeating(actor) == false,
+    "bed getup keeps the native furniture owner while animating")
+actor.actionContextName = "idle"
+check(SC.NativeActions.leaveSeating(actor) == true
+        and actor.seatObject == nil and bed.occupied == false,
+    "bed getup releases the seat and permits movement")
+
+-- A blocked bed path uses the stock Rest fallback and releases its native
+-- queue action before the companion starts another activity.
+local failedBedStarted = SC.Actor.setMovement(actor, "walk", {
+    action = "rest_bed", object = bed,
+})
+local failedBedPath = ISTimedActionQueue.getTimedActionQueue(actor).current
+if failedBedPath then failedBedPath:failPath() end
+check(failedBedStarted and actor.groundSitting == true
         and SC.NativeActions.bedStatus(actor) == "entered",
-    "bed-rest path hands off to the stock get-on-bed action")
-check(SC.NativeActions.leaveSeating(actor) and actor.onBed == false
-        and actor.seatObject == nil,
-    "leaving a bed clears the native bed posture and owned queue actions")
+    "blocked bed Rest path falls back to a grounded pose")
+local floorLeave, floorLeaveReason = SC.NativeActions.leaveSeating(actor)
+check(floorLeave == false and floorLeaveReason == "standing_from_ground"
+        and actor.groundSitting == false,
+    "failed bed path releases the floor rest pose without stranding native work")
+actor.turning = false
+local movedAfterBedFailure = SC.Actor.setMovement(actor, "walk", {
+    action = "move", dx = 1, dy = 0,
+})
+if not movedAfterBedFailure and actor.turning == true then
+    actor.turning = false
+    movedAfterBedFailure = SC.Actor.setMovement(actor, "walk", {
+        action = "move", dx = 1, dy = 0,
+    })
+end
+check(movedAfterBedFailure == true,
+    "ordinary movement resumes after a blocked bed rest path")
 
 local groundSitOk, groundSitReason = SC.Actor.setMovement(actor, "walk", {
     action = "sit_ground", reason = "bounded_shutdown_test",

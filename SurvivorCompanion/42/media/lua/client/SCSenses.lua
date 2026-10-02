@@ -140,11 +140,12 @@ local function threatRecord(actor, player, zombie, actorSquare)
         posture = posture,
         grounded = posture == "crawler" or posture == "downed",
         -- Transitional compatibility for older combat/debug consumers.
-        prone = posture ~= "standing",
+        prone = posture == "crawler" or posture == "downed",
         playerDistanceSq = playerDistanceSq,
         score = score,
     }
 end
+Senses._threatRecordForTests = threatRecord
 
 local function immediateThreat(record, immediateRadiusSq)
     return threatSets().isImmediate(record, immediateRadiusSq,

@@ -2193,6 +2193,34 @@ for index = #stealthCrawler.square.moving, 1, -1 do
     end
 end
 
+do
+local seatedZombie = zombie(3, 2, { onFloor = true })
+function seatedZombie:isSitAgainstWall() return true end
+seatedZombie.animVariables.issitting = true
+local seatedFacts = SurvivorCompanion.ZombieFacts.get(seatedZombie)
+check(seatedFacts.posture == "sitting" and seatedFacts.gone == false,
+    "a wall-sitting zombie remains live and is not classified as a floor finisher")
+local seatedThreat = SurvivorCompanion.Senses._threatRecordForTests(
+    fellow, player, seatedZombie, fellow.square)
+check(seatedThreat ~= nil and seatedThreat.posture == "sitting"
+        and seatedThreat.grounded == false and seatedThreat.prone == false,
+    "perception exposes a visible sitting zombie as an upright combat target")
+if seatedThreat then
+    local warningState = {}
+    SurvivorCompanion.Decision._warnAboutThreatForTests(fellow, {
+        threats = { seatedThreat }, threatCount = 1, immediateCount = 0,
+        player = { actor = player, danger = 1 },
+    }, { recruited = true }, warningState, clock)
+    check(SurvivorCompanion.Dialogue.lastSpokenTopic(fellow) == "danger.sitting",
+        "a visible sitting zombie gets a specific spoken warning")
+end
+for index = #seatedZombie.square.moving, 1, -1 do
+    if seatedZombie.square.moving[index] == seatedZombie then
+        table.remove(seatedZombie.square.moving, index)
+    end
+end
+end
+
 (function()
     local lockActor = actor("sc-target-lock-senses", 50, 50, {})
     local lockedZombie = zombie(53, 50, { target = lockActor, attacking = false })
@@ -3814,6 +3842,84 @@ check(not accepted and vehicleState.lastBlocker.type == "vehicle"
 SurvivorCompanion.Navigation.reset(vehicleActor)
 vehicleActor.square.vehicleContainer = nil
 registry[vehicleActor.id] = nil
+end
+
+do
+local fighter = actor("sc-combat-fence-crossing", 5, 4, {})
+local farZombie = zombie(10, 4, {})
+local from, landing = fighter.square, cell:getGridSquare(6, 4, 0)
+local oldHoppable, oldFence = from.isHoppableTo, from.getHoppableTo
+local rail = { isTallHoppable = function() return false end }
+function from:isHoppableTo(other) return other == landing end
+function from:getHoppableTo(other) return other == landing and rail or nil end
+local picture = { threats = { { actor = farZombie, distanceSq = 25 } }, allies = {} }
+local vx, vy, _, reason, crossing = SurvivorCompanion.Navigation.combatVector(
+    fighter, farZombie, "approach", picture)
+check(vx == nil and vy == nil and reason == "barrier:fence"
+        and crossing == landing,
+    "combat routes a safe direct fence crossing even when sideways micro-steps are clear")
+function fighter:isCompanionMovementClear(toX, toY)
+    return toY ~= nil and math.abs(toY - self:getY()) > 0.05
+end
+local _, _, _, blockedProbeReason, blockedProbeLanding =
+    SurvivorCompanion.Navigation.combatVector(fighter, farZombie, "approach", picture)
+check(blockedProbeReason == "barrier:fence" and blockedProbeLanding == landing,
+    "native clearance rejection does not hide the direct climbable fence")
+fighter.isCompanionMovementClear = nil
+local bat = item("Base.BaseballBat", "Weapon", { damage = 1.1, range = 1.5 })
+fighter.inventory = inventory({ bat })
+fighter.primary = bat
+local _, _, batWeapon = SurvivorCompanion.Combat.meleeRange(fighter, bat)
+batWeapon.equipped = true
+local actions = SurvivorCompanion.Combat._actionUtilitiesForTests(
+    fighter, nil, picture,
+    { actor = farZombie, distanceSq = 25, visible = true, obstructed = false,
+        bearing = "front", score = 60 },
+    batWeapon, fighter.inventory, { combatDoctrine = "weapons_free" })
+local routedApproach
+for _, action in ipairs(actions) do
+    if action.kind == "approach" then routedApproach = action break end
+end
+check(routedApproach and routedApproach.requiresRoute == true
+        and routedApproach.routeSquare == landing,
+    "combat action keeps the selected fence landing for route execution")
+fighter.worldX = 5.94
+check(SurvivorCompanion.GameplayUtil.arrived(fighter, landing, {
+        targetKind = "square", distance = 0.6 }) == true,
+    "the normal arrival radius can falsely complete a fence landing before crossing")
+local climbed, climbReason = SurvivorCompanion.Navigation.request(fighter, crossing, "walk", {
+    action = "combat_approach", target = farZombie, snapshot = picture, urgent = true,
+    arrivalDistance = 0.2,
+})
+check(climbed and fighter.lastIntent and fighter.lastIntent.action == "fence_approach",
+    "combat aligns beside the fence instead of declaring arrival on the near side")
+fighter.worldX = fighter.lastIntent.targetPosition.x
+climbed, climbReason = SurvivorCompanion.Navigation.request(fighter, crossing, "walk", {
+    action = "combat_approach", target = farZombie, snapshot = picture, urgent = true,
+    arrivalDistance = 0.2,
+})
+check(climbed and fighter.lastIntent and fighter.lastIntent.action == "climb_fence",
+    "distant combat target uses the normal native climb at the selected fence landing: "
+        .. tostring(climbed) .. "/" .. tostring(climbReason) .. "/"
+        .. tostring(fighter.lastIntent and fighter.lastIntent.action))
+local landingZombie = zombie(6, 4, {})
+picture.threats[#picture.threats + 1] = { actor = landingZombie, distanceSq = 1 }
+local _, _, _, _, unsafeLanding = SurvivorCompanion.Navigation.combatVector(
+    fighter, farZombie, "approach", picture)
+check(unsafeLanding ~= landing,
+    "combat does not force a fence landing occupied by another zombie")
+for index = #landingZombie.square.moving, 1, -1 do
+    if landingZombie.square.moving[index] == landingZombie then
+        table.remove(landingZombie.square.moving, index)
+    end
+end
+from.isHoppableTo, from.getHoppableTo = oldHoppable, oldFence
+SurvivorCompanion.Navigation.reset(fighter)
+for index = #farZombie.square.moving, 1, -1 do
+    if farZombie.square.moving[index] == farZombie then
+        table.remove(farZombie.square.moving, index)
+    end
+end
 end
 
 do
@@ -8526,6 +8632,88 @@ end
 
 do
 local overrunBat = item("Base.Axe", "Weapon", { damage = 1.5, range = 1.5 })
+local plank = item("Base.Plank", "Weapon", {
+    damage = 0.6, range = 1.3, minRange = 0.61,
+    weight = 3, swing = 4, twoHanded = true,
+})
+local plankActor = actor("sc-plank-combat", -8, -9, {
+    inventory = inventory({ plank }), endurance = 0.5,
+})
+plankActor.primary = plank
+local _, _, plankWeapon = SurvivorCompanion.Combat.meleeRange(plankActor, plank)
+plankWeapon.equipped = true
+local plankZed = zombie(-7, -9, {})
+local plankSnapshot = {
+    threats = { { actor = plankZed, distanceSq = 1, visible = true } },
+    immediateCount = 1, closeImmediateCount = 1, closeThreatCount = 1,
+    occupiedThreatSectors = 1, directionalPressure = 0,
+    escapeSquares = { { square = cell:getGridSquare(-8, -8, 0), danger = 0 } },
+    allies = {}, player = { available = false },
+}
+local plankRisk = SurvivorCompanion.Combat.assessOverrun(plankActor,
+    plankSnapshot, plankWeapon, { combatMode = "defensive" })
+check(plankWeapon and plankWeapon.type == "Base.Plank"
+        and plankWeapon.staminaCost < 4 and plankRisk.staminaCritical == false
+        and plankRisk.overrun == false,
+    "a usable plank does not create a false one-zombie stamina overrun")
+local lastStand, lastStandAction = SurvivorCompanion.Combat._executeLastStandForTests(
+    plankActor, nil, plankSnapshot, plankSnapshot.threats[1], plankWeapon)
+check(lastStand and lastStandAction == "last_stand_melee"
+        and plankActor.lastIntent.action == "attack_melee",
+    "a pinned companion swings its equipped plank when retreat cannot move: "
+        .. tostring(lastStand) .. "/" .. tostring(lastStandAction) .. "/"
+        .. tostring(plankActor.lastIntent and plankActor.lastIntent.action))
+local unarmedLastStand, unarmedAction = SurvivorCompanion.Combat._executeLastStandForTests(
+    plankActor, nil, plankSnapshot, plankSnapshot.threats[1], nil)
+check(unarmedLastStand and unarmedAction == "last_stand_shove"
+        and plankActor.lastIntent.action == "shove",
+    "a pinned unarmed companion shoves instead of remaining still")
+plankActor.rejectActions = { corner_escape = true, combat_retreat = true }
+plankSnapshot.escapeSquares = {}
+plankSnapshot.directionalPressure = 8
+plankSnapshot.encircled = true
+local cornerHandled, cornerAction = SurvivorCompanion.Combat.update(plankActor, nil, {
+    snapshot = plankSnapshot,
+})
+check(cornerHandled and cornerAction == "last_stand_melee"
+        and plankActor.lastIntent.action == "attack_melee",
+    "a failed corner escape falls through to the equipped plank swing")
+plankActor.rejectActions = nil
+SurvivorCompanion.Combat.reset(plankActor)
+local firstCorner, firstCornerAction = SurvivorCompanion.Combat.update(plankActor, nil, {
+    snapshot = plankSnapshot,
+})
+local cornerProbe = SurvivorCompanion.Combat.peek(plankActor).cornerEscapeProbe
+check(firstCorner and firstCornerAction == "overrun_retreat"
+        and cornerProbe ~= nil,
+    "an accepted corner escape records a bounded movement probe")
+if cornerProbe then cornerProbe.at = clock - 700 end
+local stalledCorner, stalledCornerAction = SurvivorCompanion.Combat.update(
+    plankActor, nil, { snapshot = plankSnapshot })
+check(stalledCorner and stalledCornerAction == "last_stand_melee"
+        and plankActor.lastIntent.action == "attack_melee",
+    "an accepted corner escape with no translation switches to a plank swing")
+plankZed.onFloor = true
+function plankZed:isSitAgainstWall() return true end
+local seatedActions = SurvivorCompanion.Combat._actionUtilitiesForTests(
+    plankActor, nil, plankSnapshot,
+    { actor = plankZed, distanceSq = 1, visible = true, obstructed = false,
+        bearing = "front", score = 90 },
+    plankWeapon, plankActor.inventory, { combatDoctrine = "weapons_free" },
+    plankRisk.readiness)
+local seatedMelee, seatedStomp = false, false
+for _, action in ipairs(seatedActions) do
+    if action.kind == "melee" then seatedMelee = true end
+    if action.kind == "stomp" then seatedStomp = true end
+end
+check(seatedMelee and not seatedStomp,
+    "a sitting zombie offers a normal weapon swing even when native floor contact is true")
+plankZed.dead = true
+for index = #plankZed.square.moving, 1, -1 do
+    if plankZed.square.moving[index] == plankZed then
+        table.remove(plankZed.square.moving, index)
+    end
+end
 local overrunActor = actor("sc-overrun", -4, -5, { inventory = inventory({ overrunBat }) })
 overrunActor.primary = overrunBat
 registry[overrunActor.id] = overrunActor
@@ -12342,7 +12530,8 @@ for index, fixture in ipairs(fixtures) do
     local owner = SurvivorCompanion.ActionSupervisor.current(user)
     check(started == true and state.active == activity and activity.actionAccepted == true
             and user.lastIntent and user.lastIntent.action == fixture.expected
-            and owner == activity.supervisorToken and owner.owner == "downtime",
+            and owner == activity.supervisorToken and owner.owner == "downtime"
+            and owner.poseMaximumDisplacement == 0.5,
         fixture.label .. " fixture dispatches its supervised native " .. fixture.expected
             .. " action: " .. tostring(startReason))
     local cancelled = SurvivorCompanion.ActionSupervisor.cancel(
@@ -13883,6 +14072,7 @@ check(signalHandled and signalReason == "threat_signal"
         or SurvivorCompanion.Dialogue.lastSpokenTopic(signalActor) == "recognition.local"),
     "visible distant danger faces the exact zombie and displays a silent freeze or recognition signal")
 local signalMovementCalls = signalActor.movementCalls
+local initialSignalTopic = SurvivorCompanion.Dialogue.lastSpokenTopic(signalActor)
 clock = clock + 100
 local signalHeld, signalHeldReason = SurvivorCompanion.Decision.update(
     signalActor, signalPlayer, signalRuntime)
@@ -13902,7 +14092,7 @@ signalRuntime.snapshot = {
 SurvivorCompanion.Decision.update(signalActor, signalPlayer, signalRuntime)
 signalRuntime.snapshot = signalSnapshot
 check(signalActor.lastEmote == nil
-        and SurvivorCompanion.Dialogue.lastSpokenTopic(signalActor) == "signal.one",
+        and SurvivorCompanion.Dialogue.lastSpokenTopic(signalActor) == initialSignalTopic,
     "a different top-ranked zombie cannot restart the same warning hand signal during cooldown")
 SurvivorCompanion.Downtime.reset(signalActor)
 SurvivorCompanion.Locomotion.reset(signalActor)
@@ -22944,6 +23134,32 @@ end)()
     M.claimPatient(helperOne, hurtA, clock)
     check(M.treatmentAvailable(helperTwo, hurtA, clock) == false,
         "a held casualty is not available to another helper")
+    local eligible, reason = M.canTreatPatient(hurtA, hurtA)
+    check(eligible == false and reason == "patient_already_treated",
+        "a claimed companion cannot keep selecting refused self-care")
+    local nearby = {
+        threats = { { actor = zombie(43, 46, {}), distanceSq = 9,
+            visible = true, obstructed = false } },
+        threatCount = 1, closeThreatCount = 1, immediateCount = 0,
+        immediateAttackers = {}, escapeSquares = { cell:getGridSquare(40, 45, 0) },
+        allies = {}, pressure = 0.35,
+        player = { danger = 0, immediateThreats = 0 },
+    }
+    check(M.canTreatNow(hurtA, nearby) == false,
+        "self-bandaging waits when a nearby zombie has not yet swung")
+    local candidates = SurvivorCompanion.Decision._evaluateForTests(
+        hurtA, player, nearby,
+        { recruited = true, order = "follow", combatDoctrine = "close_defense",
+            followDistance = 3 },
+        { alive = true, health = 57, critical = false, bleedingCount = 1,
+            needsBandage = true, wounds = {} }, {}, {}, clock)
+    local seekCare = false
+    for _, candidate in ipairs(candidates) do
+        if candidate.kind == "follow" and type(candidate.detail) == "table"
+            and candidate.detail.mode == "seek_care" then seekCare = true end
+    end
+    check(candidates[1] and candidates[1].kind == "combat" and not seekCare,
+        "Jesse's claimed wound cannot outrank close defense")
     check(M.treatmentAvailable(helperOne, hurtA, clock) == true,
         "the holder may carry on with their own patient")
     check(M.treatmentAvailable(helperTwo, helperTwo, clock) == true,

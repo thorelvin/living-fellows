@@ -1137,7 +1137,9 @@ local function freeAdjacent(square, actor, avoid)
         { -1, -1 }, { 1, -1 }, { -1, 1 }, { 1, 1 },
     }) do
         local candidate = U().gridSquare(x + offset[1], y + offset[2], z)
-        if candidate and U().isSquareFree(candidate) and not avoided(candidate, avoid) then
+        local tree = candidate and select(1, invoke(candidate, "getTree")) or nil
+        if candidate and tree == nil and U().isSquareFree(candidate)
+            and not avoided(candidate, avoid) then
             local distance = U().distance(actor, candidate)
             if bestDistance == nil or distance < bestDistance then
                 best, bestDistance = candidate, distance
@@ -1163,9 +1165,6 @@ end
 -- an area in the reach band (reach) may also cross the bounded band around
 -- it. A worker dragging a body asks for a route without climbs or stairs.
 local function approachSquare(actor, square, action, avoid, reach, dragging)
-    if adjacentTo(actor, square) and not avoided(actor, avoid) then
-        return "arrived", "production_in_range"
-    end
     if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
         return "failed", "navigation_unavailable"
     end
@@ -1173,22 +1172,36 @@ local function approachSquare(actor, square, action, avoid, reach, dragging)
         and SC.Navigation.interactionTargets(actor, square) or {}
     local targets = {}
     for _, target in ipairs(type(offered) == "table" and offered or {}) do
-        if not avoided(target, avoid) then targets[#targets + 1] = target end
+        -- Navigation's generic interaction helper may offer the object's own
+        -- square when all neighboring squares look blocked. A tree or grave
+        -- pit is never a valid work position, even if isSquareFree says yes.
+        local standingTree = select(1, invoke(target, "getTree"))
+        if not U().sameSquare(target, square) and standingTree == nil
+            and not avoided(target, avoid) then
+            targets[#targets + 1] = target
+        end
     end
     if #targets == 0 then
         local free = freeAdjacent(square, actor, avoid)
         targets = free and { free } or {}
     end
     if #targets == 0 then return "failed", "production_approach_missing" end
-    local accepted, reason = SC.Navigation.requestAny(actor, targets, "walk", {
-        action = action, targetSquare = square, arrivalDistance = 0.8, workCampOnly = true,
+    local accepted, reason, reached = SC.Navigation.requestAny(actor, targets, "walk", {
+        action = action, targetSquare = square, arrivalDistance = 0.3,
+        requireSameSquare = true, workCampOnly = true,
         workReach = reach == true, draggingBody = dragging == true or nil,
     })
     if accepted ~= true then
         if transientRejection(reason) then return "pending", reason end
         return "failed", reason or "production_approach_failed"
     end
-    if adjacentTo(actor, square) then return "arrived", "production_in_range" end
+    -- Tile adjacency alone is not arrival: the actor can be at the edge of
+    -- that tile while Navigation still owns an approach around vegetation.
+    -- Starting a work animation there cuts off the retained movement route.
+    if adjacentTo(actor, square) and reached ~= nil
+        and U().sameSquare(actor, reached) then
+        return "arrived", "production_in_range"
+    end
     return "pending", reason or "production_approaching"
 end
 
@@ -4099,6 +4112,16 @@ function Production.retryOrder(orderId)
         if string.sub(key, 1, #tostring(orderId) + 1) == tostring(orderId) .. ":" then
             scans[key] = nil
         end
+    end
+    return true
+end
+
+function Production.canCancelActor(actor)
+    local state = actor and actorStates[actor] or nil
+    local data = actor and U().modData(actor) or nil
+    local receipt = type(data) == "table" and data[Production.SAW_RECEIPT] or nil
+    if (state and state.work) or type(receipt) == "table" then
+        return false, "production_reconciliation_pending"
     end
     return true
 end

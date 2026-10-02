@@ -916,6 +916,7 @@ function Supervisor.begin(actor, spec)
         requiresVisual = spec.requiresVisual == true,
         visualVerified = spec.visualVerified == true,
         protectedPose = spec.protectedPose == true,
+        poseMaximumDisplacement = tonumber(spec.poseMaximumDisplacement),
         onCancel = spec.onCancel,
         cancelVerified = spec.cancelVerified,
         deadlines = type(spec.deadlines) == "table" and spec.deadlines or nil,
@@ -1151,7 +1152,8 @@ function Supervisor.update(actor)
     end
     if token.protectedPose and token.poseOrigin then
         local displacement = distanceFrom(actor, token.poseOrigin)
-        local maximum = tonumber(config("actionPoseMaximumDisplacement", 0.25)) or 0.25
+        local maximum = token.poseMaximumDisplacement
+            or tonumber(config("actionPoseMaximumDisplacement", 0.25)) or 0.25
         if displacement > maximum and token.poseViolation ~= true then
             token.poseViolation = true
             if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then

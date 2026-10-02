@@ -29,6 +29,10 @@ local function compute(zombie)
     local floor = square and select(3, utility.position(square)) or nil
     local crawling = truthyCall(zombie, "isCrawling")
         or truthyCall(zombie, "getVariableBoolean", "bCrawling")
+    -- Build 42's wall-sitting animation can also report floor contact. It is
+    -- still an upright melee target, not a prone target for a floor finisher.
+    local sitting = truthyCall(zombie, "isSitAgainstWall")
+        or truthyCall(zombie, "getVariableBoolean", "issitting")
     local onFloor = not crawling and
         (truthyCall(zombie, "isOnFloor") or truthyCall(zombie, "isProne"))
     local attacking = truthyCall(zombie, "isAttacking")
@@ -50,7 +54,8 @@ local function compute(zombie)
     return {
         zombie = true, gone = false, x = x, y = y, z = z,
         square = square, floor = floor,
-        posture = crawling and "crawler" or onFloor and "downed" or "standing",
+        posture = sitting and "sitting" or crawling and "crawler"
+            or onFloor and "downed" or "standing",
         attacking = attacking == true,
         climbing = climbing == true,
         target = select(1, utility.call(zombie, "getTarget")),

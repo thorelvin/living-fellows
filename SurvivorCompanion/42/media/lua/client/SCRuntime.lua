@@ -531,6 +531,37 @@ local function isRecoverablePlacementFailure(reason)
 end
 runtime._isRecoverablePlacementFailureForTests = isRecoverablePlacementFailure
 
+local function postedRecoveryNearby(record, px, py)
+    local state = type(record) == "table" and record.runtime or nil
+    local stable = type(state) == "table" and state.lastStablePosition or nil
+    if type(stable) ~= "table" and type(state) == "table"
+        and type(state.lastStableSnapshot) == "table" then
+        stable = state.lastStableSnapshot.position
+    end
+    local sx = type(stable) == "table" and tonumber(stable.x) or nil
+    local sy = type(stable) == "table" and tonumber(stable.y) or nil
+    return px ~= nil and py ~= nil and sx ~= nil and sy ~= nil
+        and (px - sx) ^ 2 + (py - sy) ^ 2 <= 30 * 30
+end
+runtime._postedRecoveryNearbyForTests = postedRecoveryNearby
+
+local function followerRecoverySquare(record, currentPlayer)
+    local px, py = SC.GameplayUtil.position(currentPlayer)
+    if postedRecoveryNearby(record, px, py) then
+        -- A follower resting in the next room can briefly lose native square
+        -- membership. Restore near its last verified position, not beside the
+        -- player in another room. If that position is unavailable, retry later.
+        local persistence = SC.Persistence
+        if persistence and type(persistence.loadedRecoverySquare) == "function" then
+            local square = persistence.loadedRecoverySquare(record)
+            return square, square and "last_verified_position" or "deferred_nearby"
+        end
+        return nil, "deferred_nearby"
+    end
+    return recoverySquare(currentPlayer), "catch_up"
+end
+runtime._followerRecoverySquareForTests = followerRecoverySquare
+
 local function finishNativeDeath(record)
     local retired, retireReason = SC.Actor.retireDead(record.actor)
     if retired and SC.Factions and type(SC.Factions.memberDied) == "function" then
@@ -705,35 +736,60 @@ local function vitalsTask(current)
             return
         elseif not healthy and state.recruited == true then
             local currentPlayer = player()
-            -- Only a following companion catches up to the player. A posted
-            -- companion (stay, guard, base duty, or working) must never be yanked
-            -- across the map when the player walks out of range and its chunk
-            -- unloads: keep its registry record intact and let it reload in place
-            -- when the player returns to its area, exactly like the vehicle case.
+            -- Only a following companion catches up to the player. Posted
+            -- companions stay at their last verified position while the player
+            -- is away, then reattach the same native actor when that area loads.
             if state.order ~= "follow" and state.order ~= "regroup" then
                 record.runtime.nativeSquareMissingAt = current
                 record.runtime.postedRecoveryDeferred = true
-                return
+                local px, py = SC.GameplayUtil.position(currentPlayer)
+                if postedRecoveryNearby(record, px, py)
+                    and SC.Persistence
+                    and type(SC.Persistence.loadedRecoverySquare) == "function" then
+                    local square = SC.Persistence.loadedRecoverySquare(record)
+                    local recovered, recoverReason = square
+                        and SC.Actor.recover(record.actor, square)
+                    if recovered == true then
+                        healthy, healthReason = SC.Actor.validateNative(record.actor)
+                        if healthy then
+                            record.runtime.nativeSquareMissingAt = nil
+                            record.runtime.postedRecoveryDeferred = nil
+                            print("[SurvivorCompanion][recovery] posted companion restored in place actor="
+                                .. tostring(record.id))
+                        end
+                    elseif square ~= nil then
+                        SC.Diagnostics.report("actor-provider", record.id,
+                            "posted companion in-place recovery deferred", recoverReason)
+                    end
+                end
+                if healthy then
+                    record.runtime.postedRecoveryDeferred = nil
+                else
+                    return
+                end
             end
             record.runtime.postedRecoveryDeferred = nil
-            local playerVehicleOk, playerVehicle = invoke(currentPlayer, "getVehicle")
-            if playerVehicleOk and playerVehicle ~= nil then
-                -- A follower that missed boarding may unload while the player
-                -- drives away. Keep its registry record intact and recover it
-                -- only after the player exits instead of teleporting it into a
-                -- moving vehicle's collision path.
-                record.runtime.nativeSquareMissingAt = current
-                record.runtime.vehicleRecoveryDeferred = true
-                return
-            end
-            local square = recoverySquare(player())
-            local recovered = square and SC.Actor.recover(record.actor, square)
-            if recovered == true then
-                healthy, healthReason = SC.Actor.validateNative(record.actor)
-                if healthy then
-                    record.runtime.nativeSquareMissingAt = nil
-                    record.runtime.vehicleRecoveryDeferred = nil
-                    print("[SurvivorCompanion][recovery] recruited companion rejoined the loaded world.")
+            if not healthy then
+                local playerVehicleOk, playerVehicle = invoke(currentPlayer, "getVehicle")
+                if playerVehicleOk and playerVehicle ~= nil then
+                    -- A follower that missed boarding may unload while the player
+                    -- drives away. Keep its registry record intact and recover it
+                    -- only after the player exits instead of teleporting it into a
+                    -- moving vehicle's collision path.
+                    record.runtime.nativeSquareMissingAt = current
+                    record.runtime.vehicleRecoveryDeferred = true
+                    return
+                end
+                local square, recoveryKind = followerRecoverySquare(record, currentPlayer)
+                local recovered = square and SC.Actor.recover(record.actor, square)
+                if recovered == true then
+                    healthy, healthReason = SC.Actor.validateNative(record.actor)
+                    if healthy then
+                        record.runtime.nativeSquareMissingAt = nil
+                        record.runtime.vehicleRecoveryDeferred = nil
+                        print("[SurvivorCompanion][recovery] recruited companion rejoined actor="
+                            .. tostring(record.id) .. " placement=" .. tostring(recoveryKind))
+                    end
                 end
             end
         elseif not healthy and debugProtected then

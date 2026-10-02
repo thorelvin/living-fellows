@@ -25,7 +25,6 @@ require "TimedActions/ISTakeWaterAction"
 require "TimedActions/ISWearClothing"
 require "Vehicles/TimedActions/ISPathFindAction"
 require "TimedActions/ISRestAction"
-require "TimedActions/ISGetOnBedAction"
 require "Farming/ISUI/ISFarmingMenu"
 require "Farming/TimedActions/ISPlowAction"
 require "Farming/TimedActions/ISSeedActionNew"
@@ -519,9 +518,9 @@ end
 
 local function leaveSeating(actor)
     local bedRecord = activeBedActions[actor]
-    if bedRecord and cancelSeatingRecord then cancelSeatingRecord(actor, bedRecord) end
+    if bedRecord and cancelSeatingRecord then cancelSeatingRecord(actor, bedRecord, true) end
     activeBedActions[actor] = nil
-    -- A cot taken in the furniture pose stands through the chair's getup.
+    -- A bed or cot taken in the furniture pose stands through the chair's getup.
     -- Releasing its seat or furniture object first drops the companion to
     -- the floor before the stand-up clip plays.
     local restObject = bedRecord and bedRecord.pose == "furniture"
@@ -1372,7 +1371,7 @@ cancelOwnedTimedAction = function(queue, timedAction)
     end
 end
 
-cancelSeatingRecord = function(actor, record)
+cancelSeatingRecord = function(actor, record, finishNative)
     if type(record) ~= "table" then return end
     local queue = type(ISTimedActionQueue) == "table"
         and type(ISTimedActionQueue.getTimedActionQueue) == "function"
@@ -1381,6 +1380,49 @@ cancelSeatingRecord = function(actor, record)
         and record.actions or { record.timedAction }
     for _, timedAction in ipairs(actionsToCancel) do
         cancelOwnedTimedAction(queue, timedAction)
+    end
+    if finishNative ~= true then return end
+    -- forceStop marks a BaseAction for removal on the engine's next action
+    -- update. A failed bed entry can leave that update stranded after its Lua
+    -- queue has already been removed. Use the stock native stop only when the
+    -- remaining native actions are exactly the bed actions we just cancelled.
+    -- A foreign action in either queue must keep its own cancellation contract.
+    local luaQueueEmpty = type(queue) == "table" and queue.current == nil
+        and type(queue.queue) == "table" and #queue.queue == 0
+    local listOk, list = invoke(actor, "getCharacterActions")
+    if not listOk or list == nil then return end
+    local sizeOk, size = invoke(list, "size")
+    if not sizeOk or tonumber(size) == nil or size <= 0 then return end
+    local ownedNative, allOwned = {}, true
+    for index = 0, size - 1 do
+        local itemOk, nativeAction = invoke(list, "get", index)
+        if not itemOk then return end
+        local owned = false
+        for _, timedAction in ipairs(actionsToCancel) do
+            if timedAction.action ~= nil and timedAction.action == nativeAction then
+                owned = true
+                break
+            end
+        end
+        if owned then
+            ownedNative[#ownedNative + 1] = nativeAction
+        else
+            allOwned = false
+        end
+    end
+    if #ownedNative == 0 then return end
+    if allOwned and luaQueueEmpty then
+        invoke(actor, "StopAllActionQueue")
+        return
+    end
+    -- A separate mod can enqueue an action while the bed is failing. In that
+    -- case remove only our stopped BaseActions, leaving its native/Lua queues
+    -- intact. The bed's pathfinding is no longer a valid movement owner.
+    local pathOk, behavior = invoke(actor, "getPathFindBehavior2")
+    if pathOk and behavior then invoke(behavior, "cancel") end
+    invoke(actor, "setPath2", nil)
+    for _, nativeAction in ipairs(ownedNative) do
+        invoke(list, "remove", nativeAction)
     end
 end
 
@@ -1567,13 +1609,6 @@ local function furniturePathFailed(actor, record)
     fallbackSeatingToGround(actor, record, "furniture_path_failed", false)
 end
 
-local function bedPathFailed(actor, record)
-    if type(record) ~= "table" then return end
-    record.failed = true
-    record.cancelled = true
-    cancelSeatingRecord(actor, record)
-end
-
 local boundSeatingTurn
 
 local function furniturePathComplete(actor, pathAction, record)
@@ -1609,8 +1644,8 @@ local function furniturePathComplete(actor, pathAction, record)
 end
 
 -- Companion actors can remain in shouldBeTurning() after reaching the exact
--- SeatingManager entry point.  Vanilla waits without a bound in both
--- ISRestAction and ISGetOnBedAction, which left the timed action alive until
+-- SeatingManager entry point. Vanilla ISRestAction can wait without a bound,
+-- leaving the timed action alive until
 -- SCDowntime's outer twelve-second watchdog fired.  Keep vanilla's alignment
 -- attempt, but let the action start after a short bounded turn settle.  The
 -- action's own start() applies the final seated/bed facing before requesting
@@ -1679,152 +1714,11 @@ local function startFurnitureRest(actor, object, registry, actionName)
     return true, actionName == "rest_bed" and "getting_on_bed" or "taking_seat"
 end
 
-local function objectHasBedFlag(object)
-    if object == nil or type(IsoFlagType) ~= "table" or IsoFlagType.bed == nil then
-        return false
-    end
-    local propertiesOk, properties = invoke(object, "getProperties")
-    if not propertiesOk or properties == nil then
-        local spriteOk, sprite = invoke(object, "getSprite")
-        if spriteOk and sprite then propertiesOk, properties = invoke(sprite, "getProperties") end
-    end
-    local flaggedOk, flagged = invoke(properties, "has", IsoFlagType.bed)
-    return flaggedOk and flagged == true
-end
-
-local function adjacentBedObject(bed, direction)
-    local squareOk, square = invoke(bed, "getSquare")
-    if not squareOk or square == nil then return nil end
-    local adjacentOk, adjacent = invoke(square, "getAdjacentSquare", direction)
-    if not adjacentOk or adjacent == nil then return nil end
-    local objectsOk, objects = invoke(adjacent, "getObjects")
-    if not objectsOk or objects == nil then return nil end
-    for index = 0, nativeListSize(objects) - 1 do
-        local candidate = nativeListGet(objects, index)
-        if objectHasBedFlag(candidate) then return candidate end
-    end
-    return nil
-end
-
-local function bedEntryPlan(requestedBed)
-    if type(SeatingManager) ~= "table" or type(SeatingManager.getInstance) ~= "function"
-        or type(ISPathFindAction) ~= "table"
-        or type(ISPathFindAction.pathToNearest) ~= "function" then
-        return nil, nil
-    end
-    local managerOk, manager = pcall(SeatingManager.getInstance)
-    if not managerOk or manager == nil then return nil, nil end
-    local facingOk, facing = invoke(manager, "getFacingDirection", requestedBed)
-    if not facingOk or (facing ~= "N" and facing ~= "S"
-        and facing ~= "W" and facing ~= "E") then return nil, nil end
-    local spriteOk, sprite = invoke(requestedBed, "getSprite")
-    local grid, gridOk = nil, false
-    if spriteOk then gridOk, grid = invoke(sprite, "getSpriteGrid") end
-    if not gridOk or grid == nil then return nil, nil end
-
-    local bed = requestedBed
-    if facing == "N" or facing == "S" then
-        local gridYOk, gridY = invoke(grid, "getSpriteGridPosY", sprite)
-        if gridYOk and ((facing == "N" and tonumber(gridY) == 0)
-            or (facing == "S" and tonumber(gridY) == 1)) then
-            local other = adjacentBedObject(bed,
-                facing == "N" and IsoDirections.S or IsoDirections.N)
-            if other then bed = other end
-        end
-    else
-        local gridXOk, gridX = invoke(grid, "getSpriteGridPosX", sprite)
-        if gridXOk and ((facing == "W" and tonumber(gridX) == 0)
-            or (facing == "E" and tonumber(gridX) == 1)) then
-            local other = adjacentBedObject(bed,
-                facing == "W" and IsoDirections.E or IsoDirections.W)
-            if other then bed = other end
-        end
-    end
-
-    local xOk, x = invoke(bed, "getX")
-    local yOk, y = invoke(bed, "getY")
-    local zOk, z = invoke(bed, "getZ")
-    if not xOk or not yOk or not zOk then return nil, nil end
-    x, y, z = tonumber(x), tonumber(y), tonumber(z)
-    if x == nil or y == nil or z == nil then return nil, nil end
-    local overlap, locations = 0.3, {}
-    local function add(px, py)
-        locations[#locations + 1] = px
-        locations[#locations + 1] = py
-        locations[#locations + 1] = z
-    end
-    if facing == "N" then
-        add(x - overlap, y + 0.5); add(x + 1.0 + overlap, y + 0.5)
-        add(x - overlap, y - 0.5); add(x + 1.0 + overlap, y - 0.5)
-        add(x + 0.5, y - 1.0 - overlap)
-    elseif facing == "S" then
-        add(x - overlap, y + 0.5); add(x + 1.0 + overlap, y + 0.5)
-        add(x - overlap, y + 1.5); add(x + 1.0 + overlap, y + 1.5)
-        add(x + 0.5, y + 2.0 + overlap)
-    elseif facing == "W" then
-        add(x + 0.5, y - overlap); add(x + 0.5, y + 1.0 + overlap)
-        add(x - 0.5, y - overlap); add(x - 0.5, y + 1.0 + overlap)
-        add(x - 1.0 - overlap, y + 0.5)
-    else
-        add(x + 0.5, y - overlap); add(x + 0.5, y + 1.0 + overlap)
-        add(x + 1.5, y - overlap); add(x + 1.5, y + 1.0 + overlap)
-        add(x + 2.0 + overlap, y + 0.5)
-    end
-    return bed, locations
-end
-
+-- Resting on a bed uses the stock furniture path from the player's
+-- Rest context-menu command. Get On Bed is a different pose and its entry
+-- locations can leave a non-local companion beside the mattress.
 local function startBedRest(actor, object)
-    if type(ISGetOnBedAction) ~= "table" or type(ISGetOnBedAction.new) ~= "function" then
-        return false, "native bed-rest action is unavailable"
-    end
-    local bed, locations = bedEntryPlan(object)
-    if bed == nil or locations == nil then
-        -- Cots and modded one-tile beds often have valid SeatingManager data but
-        -- no vanilla two-tile bed grid. Use the stock furniture-rest path for
-        -- those instead of starting the get-on-bed animation from open air.
-        return startFurnitureRest(actor, object, activeBedActions, "rest_bed")
-    end
-    local queue, queueReason = emptyTimedActionQueue(actor)
-    if not queue then return false, queueReason end
-    local pathCreated, pathAction = pcall(ISPathFindAction.pathToNearest,
-        ISPathFindAction, actor, locations)
-    if not pathCreated or pathAction == nil then
-        return false, pathCreated and "bed path action was not created" or tostring(pathAction)
-    end
-    local bedCreated, bedAction = pcall(ISGetOnBedAction.new, ISGetOnBedAction, actor, bed)
-    if not bedCreated or bedAction == nil then
-        return false, bedCreated and "bed-rest action was not created" or tostring(bedAction)
-    end
-    boundSeatingTurn(bedAction)
-    local record = {
-        timedAction = bedAction,
-        actions = { pathAction, bedAction },
-        bed = bed,
-        object = bed,
-        pose = "bed",
-        startedAt = nowMs(),
-    }
-    if type(pathAction.setOnFail) == "function" then
-        pathAction:setOnFail(bedPathFailed, actor, record)
-    end
-    activeBedActions[actor] = record
-    local pathQueued, pathFailure = pcall(ISTimedActionQueue.add, pathAction)
-    if not pathQueued then
-        activeBedActions[actor] = nil
-        return false, tostring(pathFailure)
-    end
-    local bedQueued, bedFailure = pcall(ISTimedActionQueue.add, bedAction)
-    if not bedQueued then
-        cancelSeatingRecord(actor, record)
-        activeBedActions[actor] = nil
-        return false, tostring(bedFailure)
-    end
-    if not trackedActionIsActive(actor, record) then
-        cancelSeatingRecord(actor, record)
-        activeBedActions[actor] = nil
-        return false, "native bed-rest actions were not retained"
-    end
-    return true, "getting_on_bed"
+    return startFurnitureRest(actor, object, activeBedActions, "rest_bed")
 end
 
 local function moveItemToRoot(actor, item)
@@ -3686,6 +3580,13 @@ function actions.activityStatus(actor)
     end
 
     local bed = activeBedActions[actor]
+    if bed and bed.failed == true then
+        -- Keep ownership through the failure handoff. Dropping this record
+        -- before downtime releases it leaves its native action classified
+        -- as an unowned, indefinitely blocking "unfinished action".
+        leaveSeating(actor)
+        bed = nil
+    end
     if bed then
         local onBedOk, onBed = invoke(actor, "isOnBed")
         local sittingOk, sitting = invoke(actor, "isSittingOnFurniture")
@@ -3694,7 +3595,7 @@ function actions.activityStatus(actor)
         end
         if not (onBedOk and onBed == true)
             and not (bed.pose == "furniture" and sittingOk and sitting == true) then
-            activeBedActions[actor] = nil
+            leaveSeating(actor)
         end
     end
 
@@ -4270,20 +4171,50 @@ function actions.leaveSeating(actor)
     return leaveSeating(actor)
 end
 
+local function seatingPoseSettled(actor, record, startedVariable)
+    -- PlayerSitOnFurnitureState sets isSittingOnFurniture on entry, while the
+    -- sit-down clip still moves the actor toward the cushion. Beds likewise
+    -- set isOnBed before GetOnBed finishes. Prefer the stock end event, but
+    -- accept a pose that has stayed still long enough if that event was missed.
+    if record == nil then return true end
+    local current = nowMs()
+    record.poseStartedAt = tonumber(record.poseStartedAt) or current
+    local checked, started = invoke(actor, "getVariableBoolean", startedVariable)
+    if checked and started == true then return true end
+    local xOk, x = invoke(actor, "getX")
+    local yOk, y = invoke(actor, "getY")
+    if not xOk or not yOk or tonumber(x) == nil or tonumber(y) == nil then
+        return false
+    end
+    x, y = tonumber(x), tonumber(y)
+    if record.poseX == nil or math.abs(x - record.poseX) > 0.025
+        or math.abs(y - record.poseY) > 0.025 then
+        record.poseX, record.poseY, record.poseStillAt = x, y, current
+        return false
+    end
+    return current - record.poseStartedAt >= 1500
+        and current - (tonumber(record.poseStillAt) or current) >= 1500
+end
+
 function actions.bedStatus(actor)
     if actor == nil then return "none" end
-    local onBedOk, onBed = invoke(actor, "isOnBed")
-    if onBedOk and onBed == true then return "entered" end
     local record = activeBedActions[actor]
+    local onBedOk, onBed = invoke(actor, "isOnBed")
+    if onBedOk and onBed == true then
+        if record and record.failed == true then return "failed", record.startedAt end
+        return seatingPoseSettled(actor, record, "OnBedStarted")
+            and "entered" or "entering", record and record.poseStartedAt
+    end
     local sittingOk, sitting = invoke(actor, "isSittingOnFurniture")
     if record and record.pose == "furniture" and sittingOk and sitting == true then
-        return "entered", record.startedAt
+        if record.failed == true then return "failed", record.startedAt end
+        return seatingPoseSettled(actor, record, "SitOnFurnitureStarted")
+            and "entered" or "entering", record.poseStartedAt
     end
     if record and record.fallbackGround == true then
         if groundSeatState(actor) then return "entered", record.startedAt end
         local ground = activeGroundActions[actor]
         if ground and ground.leaving ~= true then return "entering", record.startedAt end
-        activeBedActions[actor] = nil
         return "failed", record.startedAt
     end
     if record and record.failed ~= true and trackedActionIsActive(actor, record) then
@@ -4293,20 +4224,23 @@ function actions.bedStatus(actor)
                 "furniture_path_timeout", true) then
                 return groundSeatState(actor) and "entered" or "entering", record.startedAt
             end
-            activeBedActions[actor] = nil
             return "failed", record.startedAt
         end
         return "entering", record.startedAt
     end
-    if record then activeBedActions[actor] = nil return "failed", record.startedAt end
+    if record then return "failed", record.startedAt end
     return "none"
 end
 
 function actions.furnitureStatus(actor)
     if actor == nil then return "none" end
     local sittingOk, sitting = invoke(actor, "isSittingOnFurniture")
-    if sittingOk and sitting == true then return "entered" end
     local record = activeFurnitureActions[actor]
+    if sittingOk and sitting == true then
+        if record and record.failed == true then return "failed", record.startedAt end
+        return seatingPoseSettled(actor, record, "SitOnFurnitureStarted")
+            and "entered" or "entering", record and record.poseStartedAt
+    end
     if record and record.fallbackGround == true then
         if groundSeatState(actor) then return "entered", record.startedAt end
         local ground = activeGroundActions[actor]

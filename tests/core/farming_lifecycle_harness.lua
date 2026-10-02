@@ -241,6 +241,23 @@ FarmWork.cancelZone(originalZone)
 check(F.base.jobs[1].target.zoneId ~= originalZone,
     "removing one overlapping zone rehomes the still-valid plot job")
 
+fresh()
+F.base.zones = {
+    { id = "zone:area", kind = "area", x1 = 0, y1 = 0, x2 = 3, y2 = 3, z = 0 },
+    { id = "zone:farm-a", kind = "farm", x1 = 1, y1 = 1, x2 = 2, y2 = 1, z = 0 },
+    { id = "zone:farm-b", kind = "farm", x1 = 1, y1 = 1, x2 = 1, y2 = 1, z = 0 },
+}
+local movable = F.job("water", 1, 1, { zoneId = "zone:farm-a" })
+local blocked = F.job("water", 2, 1, { zoneId = "zone:farm-a" })
+F.receipts[#F.receipts + 1] = {
+    id = "receipt:blocked-zone", jobId = blocked.id, phase = "recovery",
+}
+local removed, removeReason = FarmWork.cancelZone("zone:farm-a")
+check(removed == false and removeReason == "farm_recovery_pending"
+        and movable.target.zoneId == "zone:farm-a"
+        and blocked.target.zoneId == "zone:farm-a",
+    "a later farm recovery refusal leaves every earlier job on its original zone")
+
 -- LF-09: destructive harvest rechecks the live seed-preservation condition.
 fresh()
 farming_vegetableconf.props.Tomato.growBack = nil

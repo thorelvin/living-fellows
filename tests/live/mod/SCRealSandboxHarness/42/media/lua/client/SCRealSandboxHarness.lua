@@ -13300,6 +13300,207 @@ function Harness.probeFurniturePose(current)
     end
 end
 
+-- Observe the saved woodcutter in an isolated copy of the player's world.
+-- A successful job must reach native chopping from a non-tree approach tile.
+function Harness.probeWoodcutter(current)
+    if current - Harness.phaseStartedAt < 4000 then return end
+    local SC = SurvivorCompanion
+    local U = SC.GameplayUtil
+    if not Harness.woodActor then
+        for _, record in ipairs(SC.Registry.records() or {}) do
+            local actor = record.actor
+            local name = actor and tostring(U.nameOf(actor) or "") or ""
+            local resident = SC.BaseLife.resident(record.id)
+            if actor and string.find(string.lower(name), "sarah", 1, true)
+                and resident and resident.role == "woodcutter" then
+                Harness.woodActor, Harness.woodId = actor, record.id
+                Harness.woodName = name
+                Harness.woodStartX, Harness.woodStartY = position(actor)
+                Harness.woodStartFelled = SC.BaseLife.productionCounters().treesFelled or 0
+                result("PASS", "woodcutter_loaded", name .. " id=" .. tostring(record.id)
+                    .. " duty=" .. tostring(resident.duty))
+                break
+            end
+        end
+        if not Harness.woodActor and current - Harness.phaseStartedAt > 12000 then
+            result("FAIL", "woodcutter_loaded", "Sarah with woodcutter role was not restored in the cloned save")
+            setPhase("finish", current)
+        end
+        return
+    end
+    local actor = Harness.woodActor
+    if current >= (Harness.woodNextTraceAt or 0) then
+        Harness.woodNextTraceAt = current + 1000
+        local x, y, z = position(actor)
+        local nav = SC.Navigation.status(actor) or {}
+        local job = SC.BaseLife.jobFor(Harness.woodId)
+        local orderId = job and type(job.target) == "table" and job.target.orderId or nil
+        local order = orderId and SC.BaseLife.productionOrder(orderId) or nil
+        local phase = orderId and SC.Production.workerPhase(orderId, Harness.woodId) or nil
+        local kind = SC.NativeActions.workKind(actor)
+        local counters = SC.BaseLife.productionCounters()
+        if x and Harness.woodLastX and
+            math.abs(x - Harness.woodLastX) + math.abs(y - Harness.woodLastY) > 0.04 then
+            Harness.woodMovingSamples = (Harness.woodMovingSamples or 0) + 1
+            Harness.woodLastMotionAt = current
+        end
+        Harness.woodLastMotionAt = Harness.woodLastMotionAt or current
+        Harness.woodLastX, Harness.woodLastY = x, y
+        if kind == "chop_tree" then Harness.woodChopSeen = true end
+        if phase == "approaching" then Harness.woodApproachSeen = true end
+        local square = actor:getCurrentSquare()
+        if kind == "chop_tree" and square and square:getTree() then
+            Harness.woodChoppedOnTreeTile = true
+        end
+        print("SC_REAL_SANDBOX|WOODCUTTER_TRACE|name=" .. tostring(Harness.woodName)
+            .. " x=" .. tostring(x) .. " y=" .. tostring(y) .. " z=" .. tostring(z)
+            .. " job=" .. tostring(job and job.type) .. "/" .. tostring(job and job.state)
+            .. " order=" .. tostring(order and order.kind) .. "/" .. tostring(order and order.state)
+            .. " phase=" .. tostring(phase) .. " work=" .. tostring(kind)
+            .. " nav=" .. tostring(nav.phase) .. "/" .. tostring(nav.action)
+            .. "/" .. tostring(nav.terminalReason)
+            .. " goal=" .. tostring(nav.target)
+            .. " path=" .. tostring(nav.pathReason) .. "/" .. tostring(nav.pathFailureClass)
+            .. " blocker=" .. tostring(nav.blockerType) .. "/" .. tostring(nav.blockerSquare)
+            .. " nodes=" .. tostring(nav.expandedNodes)
+            .. " state=" .. tostring(actor:getCurrentActionContextStateName())
+            .. " felled=" .. tostring(counters.treesFelled))
+        if phase == "approaching" and kind ~= "chop_tree"
+            and (Harness.woodMovingSamples or 0) > 0 and not Harness.woodStallImage
+            and current - Harness.woodLastMotionAt > 7000 then
+            Harness.woodStallImage = tostring(Harness.config.run_id) .. "-woodcutter-stall"
+            pcall(function() getCore():TakeFullScreenshot(Harness.woodStallImage) end)
+        end
+        if (counters.treesFelled or 0) > Harness.woodStartFelled then
+            check("woodcutter_chop", Harness.woodChopSeen == true
+                and Harness.woodChoppedOnTreeTile ~= true,
+                "native chop=" .. tostring(Harness.woodChopSeen)
+                    .. " tree tile=" .. tostring(Harness.woodChoppedOnTreeTile)
+                    .. " moving samples=" .. tostring(Harness.woodMovingSamples or 0)
+                    .. " felled=" .. tostring(counters.treesFelled))
+            setPhase("finish", current)
+            return
+        end
+    end
+    if current - Harness.phaseStartedAt > 65000 then
+        result("FAIL", "woodcutter_chop", "no tree felled in 65s; approaching="
+            .. tostring(Harness.woodApproachSeen) .. " native chop="
+            .. tostring(Harness.woodChopSeen) .. " moving samples="
+            .. tostring(Harness.woodMovingSamples or 0))
+        setPhase("finish", current)
+    end
+end
+
+function Harness.probePostedStream(current)
+    if current - Harness.phaseStartedAt < 7000 then return end
+    local SC, U = SurvivorCompanion, SurvivorCompanion.GameplayUtil
+    for _, record in ipairs(SC.Registry.records() or {}) do
+        local actor = record.actor
+        local name = actor and tostring(U.nameOf(actor) or "") or ""
+        if string.find(string.lower(name), "sarah", 1, true) then
+            local x, y, z = position(actor)
+            local healthy, reason = SC.Actor.validateNative(actor)
+            local square = U.call(actor, "getCurrentSquare")
+            local renderSquare = U.call(actor, "getSquare")
+            local loadedSquare = x and U.gridSquare(x, y, z) or nil
+            local world = U.call(actor, "isExistInTheWorld")
+            local scheduled = U.call(actor, "isScheduled")
+            local model = U.call(actor, "isAddedToModelManager")
+            local activeModel = U.call(actor, "hasActiveModel")
+            local px, py, pz = position(Harness.player)
+            local stable = type(record.runtime) == "table"
+                and record.runtime.lastStablePosition or nil
+            result("PASS", "posted_stream_snapshot", "name=" .. name
+                .. " order=" .. tostring(record.order)
+                .. " pos=" .. tostring(x) .. "," .. tostring(y) .. "," .. tostring(z)
+                .. " player=" .. tostring(px) .. "," .. tostring(py) .. "," .. tostring(pz)
+                .. " healthy=" .. tostring(healthy) .. "/" .. tostring(reason)
+                .. " square=" .. tostring(square ~= nil)
+                .. " current=" .. tostring(square == loadedSquare)
+                .. " renderSquare=" .. tostring(renderSquare == square)
+                .. " world=" .. tostring(world) .. " scheduled=" .. tostring(scheduled)
+                .. " model=" .. tostring(model) .. " activeModel=" .. tostring(activeModel)
+                .. " stable=" .. tostring(stable and stable.x) .. ","
+                    .. tostring(stable and stable.y))
+            Harness.postedActor = actor
+            Harness.postedHomeX, Harness.postedHomeY, Harness.postedHomeZ = px, py, pz
+            local moved, moveReason = pcall(function()
+                Harness.player:teleportTo(px + 256, py, pz)
+            end)
+            if not check("posted_stream_depart", moved, moveReason) then
+                setPhase("finish", current)
+                return
+            end
+            setPhase("posted_stream_far", current)
+            return
+        end
+    end
+    result("FAIL", "posted_stream_snapshot", "Sarah was not restored in the cloned save")
+    setPhase("finish", current)
+end
+
+function Harness.probePostedStreamFar(current)
+    if current - Harness.phaseStartedAt < 14000 then return end
+    local SC, U = SurvivorCompanion, SurvivorCompanion.GameplayUtil
+    local actor = Harness.postedActor
+    local px, py = position(Harness.player)
+    local ax, ay = position(actor)
+    local square = U.call(actor, "getCurrentSquare")
+    local loaded = ax and U.gridSquare(ax, ay, 0) or nil
+    result("PASS", "posted_stream_far_state", "player=" .. tostring(px)
+        .. "," .. tostring(py) .. " actor=" .. tostring(ax) .. "," .. tostring(ay)
+        .. " square=" .. tostring(square ~= nil)
+        .. " loaded=" .. tostring(loaded ~= nil)
+        .. " world=" .. tostring(U.call(actor, "isExistInTheWorld"))
+        .. " scheduled=" .. tostring(U.call(actor, "isScheduled"))
+        .. " model=" .. tostring(U.call(actor, "isAddedToModelManager")))
+    local moved, moveReason = pcall(function()
+        Harness.player:teleportTo(Harness.postedHomeX,
+            Harness.postedHomeY, Harness.postedHomeZ)
+    end)
+    if not check("posted_stream_return", moved, moveReason) then
+        setPhase("finish", current)
+        return
+    end
+    setPhase("posted_stream_return_wait", current)
+end
+
+function Harness.probePostedStreamReturn(current)
+    if current - Harness.phaseStartedAt < 15000 then return end
+    local SC, U = SurvivorCompanion, SurvivorCompanion.GameplayUtil
+    local actor = Harness.postedActor
+    local x, y, z = position(actor)
+    local px, py = position(Harness.player)
+    local healthy, reason = SC.Actor.validateNative(actor)
+    local square = U.call(actor, "getCurrentSquare")
+    local loaded = x and U.gridSquare(x, y, z) or nil
+    local world = U.call(actor, "isExistInTheWorld")
+    local scheduled = U.call(actor, "isScheduled")
+    local model = U.call(actor, "isAddedToModelManager")
+    local activeModel = U.call(actor, "hasActiveModel")
+    local id = SC.Registry.idOf(actor)
+    local record = id and SC.Registry.byId(id) or nil
+    local sameActor = record ~= nil and record.actor == actor
+    check("posted_stream_visible_after_return", healthy == true
+        and square ~= nil and square == loaded and world == true
+        and scheduled == true and model == true and activeModel == true
+        and sameActor == true,
+        "player=" .. tostring(px) .. "," .. tostring(py)
+            .. " actor=" .. tostring(x) .. "," .. tostring(y)
+            .. " healthy=" .. tostring(healthy) .. "/" .. tostring(reason)
+            .. " current=" .. tostring(square == loaded)
+            .. " world=" .. tostring(world) .. " scheduled=" .. tostring(scheduled)
+            .. " model=" .. tostring(model) .. " activeModel=" .. tostring(activeModel)
+            .. " sameActor=" .. tostring(sameActor))
+    local imageName = tostring(Harness.config.run_id) .. "-sarah-after-return"
+    local pictured, imageReason = pcall(function()
+        getCore():TakeFullScreenshot(imageName)
+    end)
+    check("posted_stream_return_screenshot", pictured,
+        imageName .. " " .. tostring(imageReason))
+    setPhase("finish", current)
+end
+
 function Harness.nearestContainer(x, y, z, radius)
     local U = SurvivorCompanion.GameplayUtil
     local best, bestDistance
@@ -14040,6 +14241,14 @@ local function tick()
     elseif Harness.phase == "furniture_pose_spawn" or Harness.phase == "furniture_pose_entry"
         or Harness.phase == "furniture_pose_exit" then
         Harness.probeFurniturePose(current)
+    elseif Harness.phase == "woodcutter_probe" then
+        Harness.probeWoodcutter(current)
+    elseif Harness.phase == "posted_stream_probe" then
+        Harness.probePostedStream(current)
+    elseif Harness.phase == "posted_stream_far" then
+        Harness.probePostedStreamFar(current)
+    elseif Harness.phase == "posted_stream_return_wait" then
+        Harness.probePostedStreamReturn(current)
     elseif Harness.phase == "finish" then
         finish()
     end
@@ -14193,6 +14402,10 @@ local function onGameStart()
         setPhase("base_layout_begin", Harness.startedAt)
     elseif Harness.config.furniture_pose_only == "true" then
         setPhase("furniture_pose_begin", Harness.startedAt)
+    elseif Harness.config.woodcutter_only == "true" then
+        setPhase("woodcutter_probe", Harness.startedAt)
+    elseif Harness.config.posted_stream_only == "true" then
+        setPhase("posted_stream_probe", Harness.startedAt)
     elseif Harness.config.faction_map_only == "true" then
         setPhase("faction_begin", Harness.startedAt)
     else

@@ -188,6 +188,35 @@ do
     check(not placementFailure("native companion occupied a local-player slot"),
         "a non-placement native contract failure still uses the ordinary health gate")
 
+    local postedNearby = SC.Runtime._postedRecoveryNearbyForTests
+    local posted = { runtime = { lastStablePosition = { x = 100, y = 200, z = 0 } } }
+    check(postedNearby(posted, 105, 206) == true
+            and postedNearby(posted, 131, 200) == false
+            and postedNearby({ runtime = {} }, 100, 200) == false,
+        "posted recovery reattaches only when the player returns near a verified position")
+    posted.runtime.lastStablePosition = nil
+    posted.runtime.lastStableSnapshot = { position = { x = 100, y = 200, z = 0 } }
+    check(postedNearby(posted, 100, 200) == true,
+        "an earlier verified snapshot can anchor posted recovery")
+
+    local oldGameplayUtil = SC.GameplayUtil
+    SC.GameplayUtil = SC.GameplayUtil or {}
+    local oldPosition = SC.GameplayUtil.position
+    local oldLoadedSquare = SC.Persistence.loadedRecoverySquare
+    local bedroomSquare = {}
+    SC.GameplayUtil.position = function() return 105, 206, 0 end
+    SC.Persistence.loadedRecoverySquare = function() return bedroomSquare end
+    local chosen, placement = SC.Runtime._followerRecoverySquareForTests(posted, {})
+    check(chosen == bedroomSquare and placement == "last_verified_position",
+        "a follower missing its square beside the player recovers in its own room")
+    SC.Persistence.loadedRecoverySquare = function() return nil end
+    chosen, placement = SC.Runtime._followerRecoverySquareForTests(posted, {})
+    check(chosen == nil and placement == "deferred_nearby",
+        "an unavailable nearby bedroom waits instead of teleporting to the player")
+    SC.GameplayUtil.position = oldPosition
+    SC.GameplayUtil = oldGameplayUtil
+    SC.Persistence.loadedRecoverySquare = oldLoadedSquare
+
     local repairSchedule = SC.Runtime._repairNativeScheduleForTests
     local ghost = { scheduled = false, repairs = 0 }
     function ghost:isScheduled() return self.scheduled end

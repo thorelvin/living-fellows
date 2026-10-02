@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.26.20 - Camp cancellation safety and companion playtest fixes
+
+- Abandoning a camp checks farm recovery, active worker actions and reserved builds before cancelling its first order. An unexpected later refusal restores the camp's orders, jobs and residents. Farm-zone removal plans every affected job before changing one and restores camp state if cancellation still refuses.
+- Companions use the game's ordinary Rest path for beds. Furniture poses wait for the sit animation to settle, failed bed actions release their native owner, and nearby world recovery keeps companions at their last safe position instead of jumping to the player.
+- Companion combat now recognises downed zombies, handles safer fence approaches, and attempts a last-stand attack or shove when a corner escape fails. Base woodcutting reaches its work tile, and posted companions reattach when their area loads again.
+- The selected companion gets a gold overhead name. Core, gameplay and live-harness regressions cover the playtest fixes; bed pose and combat behavior still need a live visual recheck.
+
 ## 0.26.19 - Camp talk in the work zones
 
 - Camp conversations now count the camp's logging, farm, burial and pyre areas as camp, not only the camp boundary. Two calm companions standing in the logging area now chat like residents at the core. Followers count too, as they already did inside the camp boundary.

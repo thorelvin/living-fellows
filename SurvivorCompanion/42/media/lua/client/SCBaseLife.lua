@@ -1214,8 +1214,17 @@ function BaseLife.removeZone(id)
     local base = activeBase()
     local zone, index = findById(base.zones, id)
     if zone.kind == "farm" and SC.FarmWork and type(SC.FarmWork.cancelZone) == "function" then
+        local before, copyReason = stableCopy(ensure(), 24, { count = 65536 })
+        if before == nil then return false, copyReason or "base_snapshot_failed" end
         local okay, reason = SC.FarmWork.cancelZone(id)
-        if okay ~= true then return false, reason or "farm_recovery_pending" end
+        if okay ~= true then
+            -- FarmWork preflights every affected job, but keep the public
+            -- removal atomic if a cancellation unexpectedly refuses after
+            -- another job was already touched.
+            document, operationsCache = before, nil
+            bumpWorkConsistencyRevision()
+            return false, reason or "farm_recovery_pending"
+        end
         for jobIndex = #base.jobs, 1, -1 do
             local job = base.jobs[jobIndex]
             if job.type == "farm" and type(job.target) == "table"
@@ -3345,6 +3354,63 @@ function BaseLife.abandon()
     for _, job in ipairs(base.jobs) do
         if job.state == "manual" then return false, "player_build_in_progress" end
     end
+    -- All cancellation refusals that can be read without changing the world
+    -- must be settled before the first order or job is cancelled. In
+    -- particular, an unfinished farm receipt must not strand a half-abandoned
+    -- camp after earlier production orders have already stopped.
+    if #BaseLife.farmReceipts(nil, false) > 0 then
+        return false, "farm_recovery_pending"
+    end
+    if SC.FarmWork and type(SC.FarmWork.canCancelJob) == "function" then
+        for _, job in ipairs(base.jobs) do
+            if job.type == "farm" then
+                local ready, reason = SC.FarmWork.canCancelJob(job.id)
+                if ready ~= true then return false, reason end
+            end
+        end
+    end
+    local checkedWorkers = {}
+    local function checkWorkers(workers)
+        for _, id in ipairs(workers or {}) do
+            if not checkedWorkers[id] then
+                checkedWorkers[id] = true
+                local actor = U().resolveActor(id)
+                if actor and SC.BaseWork
+                    and type(SC.BaseWork.canCancelActor) == "function" then
+                    local ready, reason = SC.BaseWork.canCancelActor(actor)
+                    if ready ~= true then return false, reason end
+                end
+            end
+        end
+        return true
+    end
+    for _, owner in ipairs({ productionFor(base), workFor(base) }) do
+        for _, order in ipairs(owner and owner.orders or {}) do
+            if not orderIsTerminal(order) then
+                local ready, reason = checkWorkers(order.workers)
+                if ready ~= true then return false, reason end
+            end
+        end
+    end
+    for _, job in ipairs(base.jobs) do
+        if job.type == "build" and job.reservedBy ~= nil then
+            if not SC.BaseWork or type(SC.BaseWork.canCancelJob) ~= "function" then
+                return false, "base_work_cancel_unavailable"
+            end
+            local ready, reason = SC.BaseWork.canCancelJob(job.id, job.reservedBy)
+            if ready ~= true then return false, reason end
+        end
+    end
+    local before, copyReason = stableCopy(state, 24, { count = 65536 })
+    if before == nil then return false, copyReason or "base_snapshot_failed" end
+    local function abort(reason)
+        -- An unexpected cancellation refusal restores the camp's orders,
+        -- jobs and residents. Workers whose action already stopped can pick
+        -- their restored job up on the next ordinary work pass.
+        document, operationsCache = before, nil
+        bumpWorkConsistencyRevision()
+        return false, reason
+    end
     local function orderIds(owner)
         local ids = {}
         for _, order in ipairs(owner and owner.orders or {}) do
@@ -3355,13 +3421,13 @@ function BaseLife.abandon()
     for _, id in ipairs(orderIds(productionFor(base))) do
         if productionOrderIn(base, id) then
             local okay, reason = BaseLife.cancelProductionOrder(id)
-            if okay ~= true then return false, reason end
+            if okay ~= true then return abort(reason) end
         end
     end
     for _, id in ipairs(orderIds(workFor(base))) do
         if workOrderIn(base, id) then
             local okay, reason = BaseLife.cancelGatherOrder(id)
-            if okay ~= true then return false, reason end
+            if okay ~= true then return abort(reason) end
         end
     end
     local jobIds = {}
@@ -3373,7 +3439,7 @@ function BaseLife.abandon()
             table.remove(base.jobs, index)
         elseif job and job.state ~= "completed" and job.state ~= "cancelled" then
             local okay, reason = BaseLife.cancelJob(id)
-            if okay ~= true then return false, reason end
+            if okay ~= true then return abort(reason) end
         end
     end
     local leaving = {}

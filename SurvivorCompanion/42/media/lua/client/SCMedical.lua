@@ -1511,6 +1511,9 @@ local function bandageSemiSafe(helper, snapshot)
     if type(snapshot) ~= "table" then return true end
     local immediate = tonumber(snapshot.immediateCount) or #(snapshot.immediateAttackers or {})
     if immediate >= 1 then return false end
+    -- A zombie inside the close-defense radius deserves a fight or retreat,
+    -- even if it has not begun its melee animation yet.
+    if (tonumber(snapshot.closeThreatCount) or 0) > 0 then return false end
     local threats = tonumber(snapshot.threatCount) or #(snapshot.threats or {})
     local escapeCount = #(snapshot.escapeSquares or {})
     if threats >= 1 and escapeCount == 0 then return false end
@@ -1603,6 +1606,13 @@ function Medical.canTreatPatient(helper, patient)
         return false, "invalid_patient"
     end
     local now = U().nowMs()
+    -- A fresh supply check cannot make this helper eligible while somebody
+    -- else owns the patient. Self-care must not win Decision repeatedly when
+    -- an ally has already claimed this companion's wound.
+    local holder = Medical.treatmentHolder and Medical.treatmentHolder(patient, now)
+    if holder ~= nil and holder ~= helper then
+        return false, "patient_already_treated"
+    end
     local byPatient = treatReadiness[helper]
     local cached = byPatient and byPatient[patient]
     if cached and now >= cached.at and now - cached.at < TREAT_READINESS_MS then
