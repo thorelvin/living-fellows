@@ -4116,16 +4116,6 @@ function Production.retryOrder(orderId)
     return true
 end
 
-function Production.canCancelActor(actor)
-    local state = actor and actorStates[actor] or nil
-    local data = actor and U().modData(actor) or nil
-    local receipt = type(data) == "table" and data[Production.SAW_RECEIPT] or nil
-    if (state and state.work) or type(receipt) == "table" then
-        return false, "production_reconciliation_pending"
-    end
-    return true
-end
-
 function Production.cancelActor(actor, reason)
     local state = actor and actorStates[actor] or nil
     local receipt = actor and U().modData(actor) or nil

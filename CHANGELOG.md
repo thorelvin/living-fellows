@@ -2,6 +2,16 @@
 
 # Changelog
 
+## 0.26.22 - Abandoning a working camp
+
+- A camp can be abandoned while its residents are working. 0.26.20 refused whenever a worker was in the middle of an action, which in a busy camp was nearly always. Each order's own cancel step stops that work again, as it did before.
+- Farm work no longer blocks abandoning. A farmer's action stops, and produce or supplies it was carrying for the camp stay with it, since there is no camp storage left to return them to. A farm record whose carrier has died or no longer exists is written off after two minutes, so it cannot block the camp or its farm zone forever.
+- If a cancel still refuses partway through, the camp is kept and you can try again. The work already stopped stays stopped, instead of 0.26.20's partial restore, which could leave an order marked as running while its work had already been dropped.
+- Removing a farm zone waits only for jobs that will actually be cancelled. A busy job that just moves to an overlapping farm zone keeps going.
+- Camp refusals are shown as sentences, and an unexpected one is shown in readable words instead of an internal code.
+- The sitting-zombie warning is said once per zombie by one companion and follows the usual party warning cooldown. It no longer interrupts close combat or replaces a crowd or horde warning.
+- Core, gameplay and UI regressions cover each change, and each new test was confirmed to fail with its change reverted.
+
 ## 0.26.21 - Reading where they rest
 
 - A companion who finishes resting on a bed, cot or the floor with a book or its diary to hand stays where it is and reads or writes there, the same way it already did after sitting down on a chair. Without one it gets up as before, so a tired companion's rest is unchanged. Books on the camp shelf still need the companion to stand up and fetch them.

@@ -2206,13 +2206,63 @@ check(seatedThreat ~= nil and seatedThreat.posture == "sitting"
         and seatedThreat.grounded == false and seatedThreat.prone == false,
     "perception exposes a visible sitting zombie as an upright combat target")
 if seatedThreat then
-    local warningState = {}
-    SurvivorCompanion.Decision._warnAboutThreatForTests(fellow, {
-        threats = { seatedThreat }, threatCount = 1, immediateCount = 0,
-        player = { actor = player, danger = 1 },
-    }, { recruited = true }, warningState, clock)
-    check(SurvivorCompanion.Dialogue.lastSpokenTopic(fellow) == "danger.sitting",
+    -- One companion names a sitting zombie once. The party warning cooldown
+    -- still applies, close contact is left to combat's own bark, and a horde
+    -- coming into view keeps its own warning.
+    local D = SurvivorCompanion.Decision
+    local savedGroupAt, savedSitting = D._threatWarningMemoryForTests(nil, nil)
+    local function warn(speaker, threats, count, immediate, state, at)
+        D._warnAboutThreatForTests(speaker, {
+            threats = threats, threatCount = count, immediateCount = immediate,
+            player = { actor = player, danger = 1 },
+        }, { recruited = true }, state, at)
+        return SurvivorCompanion.Dialogue.lastSpokenTopic(speaker)
+    end
+    local nearby = { seatedThreat }
+    local firstTopic = warn(fellow, nearby, 1, 0, {}, clock)
+    check(firstTopic == "danger.sitting",
         "a visible sitting zombie gets a specific spoken warning")
+    local otherSeated = zombie(5, 2, { onFloor = true })
+    function otherSeated:isSitAgainstWall() return true end
+    otherSeated.animVariables.issitting = true
+    local otherThreat = SurvivorCompanion.Senses._threatRecordForTests(
+        fellow, player, otherSeated, fellow.square)
+    local second = actor("sc-sitting-second", 3, 1, {})
+    local secondTopic = warn(second, { otherThreat }, 1, 0, {}, clock)
+    check(otherThreat ~= nil and secondTopic == nil,
+        "a second companion does not call out another sitting zombie in the same moment: "
+            .. tostring(secondTopic))
+    local laterTopic = warn(second, nearby, 1, 0, {}, clock + 10001)
+    check(laterTopic ~= "danger.sitting",
+        "the same sitting zombie is named once for the whole party: "
+            .. tostring(laterTopic))
+    D._threatWarningMemoryForTests(nil, nil)
+    local contact = actor("sc-sitting-contact", 3, 3, {})
+    local contactTopic = warn(contact, nearby, 1, 1, {}, clock + 20002)
+    check(contactTopic == nil,
+        "in close contact the sitting callout yields to combat: " .. tostring(contactTopic))
+    D._threatWarningMemoryForTests(nil, nil)
+    local lookout = actor("sc-sitting-horde", 4, 3, {})
+    local horde = { seatedThreat }
+    for _ = 2, 12 do horde[#horde + 1] = seatedThreat end
+    local hordeTopic = warn(lookout, horde, 12, 0, { lastThreatBandRank = 1 },
+        clock + 30003)
+    local expectedHorde = SurvivorCompanion.Dialogue.threatTopic("danger", 12)
+    check(hordeTopic == expectedHorde and hordeTopic ~= "danger.sitting",
+        "a horde coming into view keeps its own warning: " .. tostring(hordeTopic))
+    D._threatWarningMemoryForTests(savedGroupAt, savedSitting)
+    for index = #otherSeated.square.moving, 1, -1 do
+        if otherSeated.square.moving[index] == otherSeated then
+            table.remove(otherSeated.square.moving, index)
+        end
+    end
+    for _, extra in ipairs({ second, contact, lookout }) do
+        local moving = extra.square and extra.square.moving or {}
+        for index = #moving, 1, -1 do
+            if moving[index] == extra then table.remove(moving, index) end
+        end
+        registry[extra.id] = nil
+    end
 end
 for index = #seatedZombie.square.moving, 1, -1 do
     if seatedZombie.square.moving[index] == seatedZombie then

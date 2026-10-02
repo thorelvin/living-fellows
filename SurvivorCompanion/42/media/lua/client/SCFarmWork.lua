@@ -745,6 +745,32 @@ local function receiptActivelyOwned(receipt)
     return false
 end
 
+-- receipt id -> when its carrier was first found missing or dead. A carrier
+-- that is only unloaded keeps its registry record and is never counted.
+local carrierLostSince = {}
+
+-- A receipt whose carrier no longer exists can never be returned: the produce
+-- or borrowed supply went with that companion. Once the loss has lasted long
+-- enough to rule out load ordering, settle the receipt so it cannot block
+-- the farm zone or the camp forever.
+local function settleLostCarrier(receipt, now)
+    local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(receipt.actorId) or nil
+    local actor = type(record) == "table" and (record.actor or record) or nil
+    local lost = record == nil or (actor ~= nil and U().isDead(actor))
+    if not lost then
+        carrierLostSince[receipt.id] = nil
+        return false
+    end
+    carrierLostSince[receipt.id] = carrierLostSince[receipt.id] or now
+    if now - carrierLostSince[receipt.id] < config("farmCarrierLostMs", 120000) then
+        return false
+    end
+    carrierLostSince[receipt.id] = nil
+    SC.BaseLife.updateFarmReceipt(receipt.id, { phase = "consumed", blocker = "carrier_lost" })
+    return true
+end
+FarmWork._settleLostCarrierForTests = settleLostCarrier
+
 local function recoverPending(limit)
     local receipts = SC.BaseLife and SC.BaseLife.farmReceipts
         and SC.BaseLife.farmReceipts(nil, false) or {}
@@ -760,7 +786,8 @@ local function recoverPending(limit)
         local receipt = receipts[cursor]
         cursor = cursor % #receipts + 1
         inspected = inspected + 1
-        if not receiptActivelyOwned(receipt) then
+        if not receiptActivelyOwned(receipt)
+            and not settleLostCarrier(receipt, U().nowMs()) then
         local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(receipt.actorId) or nil
         local actor = type(record) == "table" and (record.actor or record) or nil
         local inventory = actor and U().inventory(actor) or nil
@@ -1773,6 +1800,39 @@ function FarmWork.cancelJob(jobId, reason)
     return #receipts == 0, #receipts == 0 and "farm_job_cancelled" or "farm_recovery_pending"
 end
 
+-- Abandoning the camp ends every farm obligation at once. What can still be
+-- settled is settled first (a finished harvest is recorded, borrowed supplies
+-- go back while camp storage still exists); then the farmer's action stops and
+-- anything it still carries becomes its own, unmarked, since no camp storage
+-- remains. The receipts themselves are removed with the camp.
+function FarmWork.releaseForAbandon(reason)
+    reason = reason or "camp_abandoned"
+    local actors = {}
+    for actor in pairs(states) do actors[#actors + 1] = actor end
+    for _, actor in ipairs(actors) do
+        pcall(FarmWork.cancelActor, actor, reason)
+        local kind = SC.NativeActions and type(SC.NativeActions.workKind) == "function"
+            and SC.NativeActions.workKind(actor) or nil
+        if type(kind) == "string" and string.sub(kind, 1, 5) == "farm_" then
+            local stopped, stopReason = SC.NativeActions.cancelWork(actor, reason)
+            if stopped ~= true then return false, stopReason or "farm_action_stop_failed" end
+        end
+        states[actor] = nil
+    end
+    for _, receipt in ipairs(SC.BaseLife and SC.BaseLife.farmReceipts
+        and SC.BaseLife.farmReceipts(nil, false) or {}) do
+        local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(receipt.actorId) or nil
+        local actor = type(record) == "table" and (record.actor or record) or nil
+        local inventory = actor and U().inventory(actor) or nil
+        for _, item in ipairs(inventory and U().inventoryItems(inventory, 256) or {}) do
+            if marker(item) == receipt.id then unmark(item, receipt.id) end
+        end
+        carrierLostSince[receipt.id] = nil
+    end
+    noteOwnershipMutation()
+    return true
+end
+
 function FarmWork.cancelZone(zoneId)
     local base = SC.BaseLife.active()
     local planned = {}
@@ -1783,8 +1843,12 @@ function FarmWork.cancelZone(zoneId)
                 if zone.id ~= zoneId and zoneContains(zone,
                     job.target.x, job.target.y, job.target.z) then replacement = zone break end
             end
-            local ready, refusal = FarmWork.canCancelJob(job.id)
-            if ready ~= true then return false, refusal end
+            -- A job that only moves to an overlapping zone keeps its farmer
+            -- working; only a job that will be cancelled must be free to stop.
+            if not replacement then
+                local ready, refusal = FarmWork.canCancelJob(job.id)
+                if ready ~= true then return false, refusal end
+            end
             planned[#planned + 1] = { job = job, replacement = replacement }
         end
     end
@@ -1833,6 +1897,7 @@ function FarmWork.reset(actor)
         scanState, knownPlots = {}, {}
         supplyScans, seedScans, knownBase = {}, {}, nil
         lastFarmSpeechAt = -math.huge
+        carrierLostSince = {}
     end
 end
 

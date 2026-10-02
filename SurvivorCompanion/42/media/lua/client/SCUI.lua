@@ -345,8 +345,10 @@ function UI.text(key, ...)
     return key
 end
 
+-- Camp refusals are shown as sentences. A code without its own sentence is
+-- humanized rather than printed raw, so no internal reason reaches the player.
 function UI.baseFailureReason(reason)
-    if type(reason) ~= "string" then return tostring(reason) end
+    if type(reason) ~= "string" then return UI.humanize(tostring(reason)) end
     local known = {
         last_base_area = true,
         base_area_in_use = true,
@@ -355,9 +357,15 @@ function UI.baseFailureReason(reason)
         player_build_in_progress = true,
         farm_recovery_pending = true,
         base_missing = true,
+        base_abandon_cancel_failed = true,
+        farm_release_failed = true,
+        farm_action_stop_failed = true,
+        build_action_cancel_failed = true,
+        base_work_cancel_unavailable = true,
+        production_interrupt_failed = true,
     }
     return known[reason] and UI.text("UI_SC_Base_Reason_" .. reason)
-        or reason
+        or UI.humanize(reason)
 end
 
 function UI.fontHeight(font, override)

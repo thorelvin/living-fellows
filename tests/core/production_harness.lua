@@ -2357,34 +2357,25 @@ do
         if liveJobs[index] == manual then table.remove(liveJobs, index) end
     end
 
-    local originalCanCancel = SC.BaseWork.canCancelActor
-    SC.BaseWork.canCancelActor = function() return false, "production_reconciliation_pending" end
-    local held, holdReason = SC.BaseLife.abandon()
-    SC.BaseWork.canCancelActor = originalCanCancel
-    check(held == false and holdReason == "production_reconciliation_pending"
-            and SC.BaseLife.active() ~= nil
-            and SC.BaseLife.productionOrder(order.id).state ~= "cancelled",
-        "a busy worker refuses abandonment before any order is cancelled")
-
-    local lateJob = { id = "job:abandon-late", type = "farm", state = "pending",
-        target = { zoneId = ctx.burial.id } }
+    -- A cancel that still refuses keeps the camp. Work already stopped stays
+    -- stopped: each system settled its own records, and restoring only the
+    -- camp's would mark orders running whose runtime was dropped. A retry
+    -- finishes once the refusal clears.
+    local lateJob = { id = "job:abandon-late", type = "maintain", state = "pending",
+        target = { x = 0, y = 0, z = 0 } }
     SC.BaseLife.active().jobs[#SC.BaseLife.active().jobs + 1] = lateJob
     local originalCancelJob = SC.BaseLife.cancelJob
     SC.BaseLife.cancelJob = function(id)
         if id == lateJob.id then return false, "injected_late_refusal" end
         return originalCancelJob(id)
     end
-    local rolledBack, rollbackReason = SC.BaseLife.abandon()
+    local refusedLate, lateReason = SC.BaseLife.abandon()
     SC.BaseLife.cancelJob = originalCancelJob
-    check(rolledBack == false and rollbackReason == "injected_late_refusal"
+    check(refusedLate == false and lateReason == "injected_late_refusal"
             and SC.BaseLife.active() ~= nil
-            and SC.BaseLife.productionOrder(order.id).state ~= "cancelled"
+            and SC.BaseLife.productionOrder(order.id).state == "cancelled"
             and SC.BaseLife.job(lateJob.id) ~= nil,
-        "an unexpected late refusal restores the camp and earlier order state")
-    local restoredJobs = SC.BaseLife.active().jobs
-    for index = #restoredJobs, 1, -1 do
-        if restoredJobs[index].id == lateJob.id then table.remove(restoredJobs, index) end
-    end
+        "a late refusal keeps the camp without reviving the work it already stopped")
 
     local abandoned, gone = SC.BaseLife.abandon()
     local cancelled
@@ -2416,30 +2407,64 @@ do
             .. tostring(restored) .. "/" .. tostring(restoreReason))
 end
 
+-- A worker busy on a camp order does not block abandoning: the order's own
+-- cancel path stops the chop, the way it always has.
 do
     local ctx = setup()
-    local zone = { id = "zone:farm-rollback", kind = "farm",
-        x1 = 1, y1 = 2, x2 = 1, y2 = 2, z = 0 }
-    ctx.base.zones[#ctx.base.zones + 1] = zone
-    local job = { id = "job:farm-rollback", type = "farm", state = "pending",
-        target = { zoneId = zone.id, x = 1, y = 2, z = 0 } }
-    ctx.base.jobs[#ctx.base.jobs + 1] = job
-    local originalFarmWork = SC.FarmWork
-    SC.FarmWork = { cancelZone = function()
-        job.target.zoneId = "zone:other"
-        return false, "farm_recovery_pending"
-    end }
-    local removed, refusal = SC.BaseLife.removeZone(zone.id)
-    SC.FarmWork = originalFarmWork
-    local restoredJob = SC.BaseLife.job(job.id)
-    local zonePresent = false
-    for _, candidate in ipairs(SC.BaseLife.active().zones) do
-        if candidate.id == zone.id then zonePresent = true end
+    local axe = makeItem("Base.Axe", { tags = { choptree = true }, treeDamage = 20 })
+    ctx.actor.inventory:AddItem(axe)
+    makeTree(sq(3, 2), 20)
+    local order = start(ctx, { operation = "fell_trees", zoneId = ctx.lumber.id,
+        requested = 1, settings = { haulLogs = false } })
+    tick(ctx)
+    local chopping = current(ctx.actor) ~= nil
+    local abandoned, gone = SC.BaseLife.abandon()
+    local cancelled
+    for _, row in ipairs(gone and gone.production and gone.production.orders or {}) do
+        if row.id == order.id then cancelled = row.state == "cancelled" end
     end
-    check(removed == false and refusal == "farm_recovery_pending"
-            and restoredJob ~= nil and restoredJob.target.zoneId == zone.id
-            and zonePresent,
-        "an unexpected farm-zone cancellation refusal restores job and zone state")
+    check(chopping and abandoned == true and SC.BaseLife.active() == nil
+            and cancelled == true and current(ctx.actor) == nil,
+        "a worker in the middle of a chop does not block abandoning the camp: "
+            .. tostring(abandoned) .. "/" .. tostring(gone))
+end
+
+-- An unfinished farm receipt, even one whose carrier is gone, does not block
+-- abandoning: the receipts go with the camp.
+do
+    setup()
+    local allocated = SC.BaseLife.allocateFarmReceipt({
+        kind = "output", actorId = "sc-gone-forever", jobId = "job:none",
+        itemType = "Base.Carrot", destinationCategory = "food",
+    })
+    local abandoned, reason = SC.BaseLife.abandon()
+    check(allocated == true and abandoned == true and SC.BaseLife.active() == nil,
+        "an unfinished farm receipt does not block abandoning: " .. tostring(reason))
+end
+
+-- A farm job whose harvest is still being put away goes with the camp too.
+do
+    local ctx = setup()
+    local farmJob = { id = "job:abandon-farm", type = "farm", state = "pending",
+        target = { zoneId = ctx.lumber.id, x = 2, y = 2, z = 0 } }
+    ctx.base.jobs[#ctx.base.jobs + 1] = farmJob
+    local allocated = SC.BaseLife.allocateFarmReceipt({
+        kind = "output", actorId = ctx.id, jobId = farmJob.id,
+        itemType = "Base.Tomato", destinationCategory = "food",
+    })
+    -- FarmWork's own job cancel refuses while that receipt is live; abandoning
+    -- releases the farmer and drops the job instead of asking it.
+    local savedFarmWork = SC.FarmWork
+    SC.FarmWork = {
+        releaseForAbandon = function() return true end,
+        cancelJob = function() return false, "farm_recovery_pending" end,
+        zoneRemoved = function() return true end,
+    }
+    local abandoned, reason = SC.BaseLife.abandon()
+    SC.FarmWork = savedFarmWork
+    check(allocated == true and abandoned == true and SC.BaseLife.active() == nil,
+        "a farm job with a harvest still being put away does not block abandoning: "
+            .. tostring(reason))
 end
 
 print("PRODUCTION_HARNESS_PASS checks=" .. tostring(checks))

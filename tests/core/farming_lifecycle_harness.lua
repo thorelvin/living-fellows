@@ -261,6 +261,30 @@ check(removed == false and removeReason == "farm_recovery_pending"
         and blocked.target.zoneId == "zone:farm-a",
     "a later farm recovery refusal leaves every earlier job on its original zone")
 
+-- A busy job that only moves to an overlapping zone keeps its farmer working
+-- and does not block removing the zone it leaves.
+fresh()
+F.base.zones = {
+    { id = "zone:area", kind = "area", x1 = 0, y1 = 0, x2 = 3, y2 = 3, z = 0 },
+    { id = "zone:farm-a", kind = "farm", x1 = 1, y1 = 1, x2 = 2, y2 = 1, z = 0 },
+    { id = "zone:farm-b", kind = "farm", x1 = 1, y1 = 1, x2 = 1, y2 = 1, z = 0 },
+}
+actor = F.actor("worker-a", 0, 1)
+F.square(1, 1, F.plant())
+F.addStorage("storage:food", "food", {})
+local busyMovable = F.job("harvest", 1, 1, {
+    id = "job:busy-movable", zoneId = "zone:farm-a", actorId = actor.id,
+    cropType = "Tomato",
+})
+FarmWork.update(actor, {}, busyMovable, {})
+local busyBefore = F.native[actor] and F.native[actor].active == true
+local idleCancelled = F.job("water", 2, 1, { zoneId = "zone:farm-a" })
+local movedOk, movedReason = FarmWork.cancelZone("zone:farm-a")
+check(busyBefore and movedOk == true and busyMovable.target.zoneId == "zone:farm-b"
+        and F.native[actor] ~= nil,
+    "a busy job that only moves zones does not block removing the old zone: "
+        .. tostring(movedOk) .. "/" .. tostring(movedReason))
+
 -- LF-09: destructive harvest rechecks the live seed-preservation condition.
 fresh()
 farming_vegetableconf.props.Tomato.growBack = nil
@@ -628,5 +652,55 @@ check(F.completedJobs == 1 and #F.receipts == 2
         and harvest.target.harvestStarted == nil
         and F.revision > revisionWithCheckpoint,
     "partial receipt allocation resumes, deposits every output, then clears the checkpoint")
+
+-- Abandoning the camp releases a farmer's obligations instead of waiting on
+-- them: its action stops and the harvest it carries becomes its own, since no
+-- camp storage remains to deliver it to.
+fresh()
+actor = F.actor("worker-a", 0, 1)
+plant = F.plant()
+local releaseSquare = F.square(1, 1, plant)
+F.addStorage("storage:food", "food", {})
+local releaseJob = F.job("harvest", 1, 1, {
+    id = "job:release-harvest", actorId = actor.id, cropType = "Tomato",
+})
+FarmWork.update(actor, {}, releaseJob, {})
+local carriedTomato = F.item("Base.Tomato", 32, { category = "Food" })
+actor.inventory:AddItem(carriedTomato)
+F.native[actor].active = false
+releaseSquare.plant = nil
+local released, releaseReason = FarmWork.releaseForAbandon("camp_abandoned")
+check(released == true and F.native[actor] == nil
+        and carriedTomato.modData.LF_FarmReceiptId == nil
+        and FarmWork.canCancelActor(actor) == true,
+    "abandoning the camp stops the farmer and leaves its carried harvest unmarked: "
+        .. tostring(released) .. "/" .. tostring(releaseReason))
+
+-- A receipt whose carrier no longer exists can never be returned. After a
+-- grace period that rules out load ordering it is settled as lost, so it no
+-- longer blocks its farm zone or the camp. An unloaded carrier never counts.
+fresh()
+local lostReceipt = { id = "farm-receipt:lost", jobId = "job:lost",
+    actorId = "sc-gone-for-good", kind = "output", phase = "recovery" }
+F.receipts[#F.receipts + 1] = lostReceipt
+local lostAt = F.clock
+local early = FarmWork._settleLostCarrierForTests(lostReceipt, lostAt)
+local almost = FarmWork._settleLostCarrierForTests(lostReceipt, lostAt + 119000)
+check(early == false and almost == false and lostReceipt.phase == "recovery"
+        and FarmWork.canCancelJob("job:lost") == false,
+    "a missing carrier's receipt is kept through the grace period")
+local settledLost = FarmWork._settleLostCarrierForTests(lostReceipt, lostAt + 120000)
+check(settledLost == true and lostReceipt.phase == "consumed"
+        and lostReceipt.blocker == "carrier_lost"
+        and FarmWork.canCancelJob("job:lost") == true,
+    "after the grace period a missing carrier's receipt is settled as lost")
+local away = F.actor("worker-away", 5, 5)
+local awayReceipt = { id = "farm-receipt:away", jobId = "job:away",
+    actorId = away.id, kind = "output", phase = "recovery" }
+F.receipts[#F.receipts + 1] = awayReceipt
+FarmWork._settleLostCarrierForTests(awayReceipt, lostAt)
+check(FarmWork._settleLostCarrierForTests(awayReceipt, lostAt + 600000) == false
+        and awayReceipt.phase == "recovery",
+    "a carrier that is only out of reach keeps its receipt")
 
 print("FARMING_LIFECYCLE_PASS checks=" .. tostring(checks))

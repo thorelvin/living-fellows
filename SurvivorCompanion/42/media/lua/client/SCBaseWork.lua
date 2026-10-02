@@ -1357,32 +1357,6 @@ function BaseWork.auditMaintenance(player)
     return false, "maintenance_not_due"
 end
 
-function BaseWork.canCancelActor(actor)
-    local state = states[actor]
-    if state and (state.action or state.cargo or state.transfer) then
-        return false, "base_work_cancel_pending"
-    end
-    if SC.Production and type(SC.Production.canCancelActor) == "function" then
-        local ready, reason = SC.Production.canCancelActor(actor)
-        if ready ~= true then return false, reason end
-    end
-    if SC.FarmWork and type(SC.FarmWork.canCancelActor) == "function" then
-        local ready, reason = SC.FarmWork.canCancelActor(actor)
-        if ready ~= true then return false, reason end
-    end
-    return true
-end
-
-function BaseWork.canCancelJob(jobId, ownerId)
-    if ownerId == nil then return true end
-    local actor = U().resolveActor(ownerId)
-    local state = actor and states[actor] or nil
-    if not state or state.jobId ~= jobId then
-        return false, "build_owner_state_missing"
-    end
-    return BaseWork.canCancelActor(actor)
-end
-
 function BaseWork.cancel(actor, reason)
     local state = states[actor]
     if SC.GatherWork and type(SC.GatherWork.cancelActor) == "function" then

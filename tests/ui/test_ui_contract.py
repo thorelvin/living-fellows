@@ -1335,6 +1335,21 @@ class UIStaticContractTests(unittest.TestCase):
                     "UI_SC_Base_Reason_base_missing"):
             self.assertIn(key, translations)
 
+    def test_camp_refusals_never_show_internal_reason_codes(self) -> None:
+        # A camp refusal is a sentence. A code without one is humanized, and
+        # every reason an abandonment can return has its own sentence.
+        reason = lua_function(self.ui, "function UI.baseFailureReason(reason)")
+        self.assertIn("UI.humanize(reason)", reason)
+        self.assertNotIn("or reason" + chr(10), reason)
+        translations = json.loads(read(TRANSLATE / "EN" / "UI.json"))
+        for code in ("player_build_in_progress", "farm_recovery_pending",
+                     "base_missing", "base_abandon_cancel_failed",
+                     "farm_release_failed", "farm_action_stop_failed",
+                     "build_action_cancel_failed", "base_work_cancel_unavailable",
+                     "production_interrupt_failed"):
+            self.assertIn('%s = true' % code, reason)
+            self.assertIn("UI_SC_Base_Reason_" + code, translations)
+
     def test_peek_is_a_hold_binding_for_the_selected_roster_actor(self) -> None:
         self.assertIn(
             'UI.PEEK_HOTKEY_ACTION = "Hold to peek through selected companion"',
