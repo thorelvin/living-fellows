@@ -22,6 +22,7 @@ STANDALONE-NATIVE-BRIDGE.txt
 
 # Local playtest material must never be committed
 /offline-playtest/
+/docs/screenshots/
 /live-sandbox-runs/
 /Saves/
 /cache/
