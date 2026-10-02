@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.26.23 - Care for the patient
+
+- A companion bandaging another person now faces and reaches toward the patient, using the game's own treatment pose. Self-care keeps the bandage animation; splinting also faces the patient.
+- A completed treatment records the patient, body part, remaining bleeding, fracture and splint state, and health in the game log. This makes it possible to tell whether a companion dressed a bleeding fractured leg before splinting it. Dressing stops bleeding but does not itself brace the fracture or restore lost health.
+- Excited, disappointed and gross scavenging reactions each have twice as many authored lines, with the same personality and mood variations.
+- Core and gameplay regressions cover patient-facing animations and the order of bandaging and splinting a bleeding fracture.
+
 ## 0.26.22 - Abandoning a working camp
 
 - A camp can be abandoned while its residents are working. 0.26.20 refused whenever a worker was in the middle of an action, which in a busy camp was nearly always. Each order's own cancel step stops that work again, as it did before.

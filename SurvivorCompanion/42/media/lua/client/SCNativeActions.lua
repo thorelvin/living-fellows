@@ -1307,16 +1307,26 @@ local function visualActionClass()
             value.readType = "book"
             value.reading = true
         end
-        if actionName == "kneel_treat" or actionName == "replace_bandage" then
-            -- Tending one's own wound faces nobody: facing oneself is a zero
-            -- vector that turns the companion on the spot every tick.
-            value.faceTarget = intent.patient ~= character and intent.patient or nil
-            if type(ISHealthPanel) == "table" and type(ISHealthPanel.getBandageType) == "function"
-                and intent.bodyPart ~= nil then
-                local ok, bandageType = pcall(ISHealthPanel.getBandageType, intent.bodyPart)
-                if ok then value.bandageType = bandageType end
+        if actionName == "kneel_treat" or actionName == "replace_bandage"
+            or actionName == "apply_splint" then
+            -- Vanilla ISApplyBandage and ISSplint reach toward another patient
+            -- with Loot/Mid. Bandage is the actor's self-care pose and visibly
+            -- dresses the helper's own body when used for a rescue.
+            local treatingOther = intent.patient ~= nil and intent.patient ~= character
+            value.faceTarget = treatingOther and intent.patient or nil
+            if treatingOther and actionName ~= "apply_splint" then
+                value.animation = "Loot"
+                value.animationEnum = false
+                value.event = "EventLootItem"
+                value.lootPosition = "Mid"
+            elseif not treatingOther and actionName ~= "apply_splint" then
+                if type(ISHealthPanel) == "table" and type(ISHealthPanel.getBandageType) == "function"
+                    and intent.bodyPart ~= nil then
+                    local ok, bandageType = pcall(ISHealthPanel.getBandageType, intent.bodyPart)
+                    if ok then value.bandageType = bandageType end
+                end
+                value.bandageType = value.bandageType or "LeftLeg"
             end
-            value.bandageType = value.bandageType or "LeftLeg"
         end
         if actionName == "study_corpse" or actionName == "pay_respects" then
             value.faceTarget = intent.object

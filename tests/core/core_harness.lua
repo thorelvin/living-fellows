@@ -2777,16 +2777,32 @@ do
     local selfOk = SC.Actor.setMovement(actor, "walk", { action = "kneel_treat", patient = actor })
     local selfAction = ISTimedActionQueue.getTimedActionQueue(actor).current
     local selfFacing = selfAction and selfAction.faceTarget
+    local selfAnimation, selfEvent = actor.lastAnimation, actor.lastEvent
     SC.NativeActions.cancelVisual(actor, "test_self_treatment")
     ISTimedActionQueue.queues[actor] = nil
     local other = { x = 1, y = 1, z = 0 }
     local otherOk = SC.Actor.setMovement(actor, "walk", { action = "kneel_treat", patient = other })
     local otherAction = ISTimedActionQueue.getTimedActionQueue(actor).current
     local otherFacing = otherAction and otherAction.faceTarget
+    local otherAnimation, otherEvent = actor.lastAnimation, actor.lastEvent
+    local otherPosition = actor.lastAnimVariable
     SC.NativeActions.cancelVisual(actor, "test_rescue_treatment")
     ISTimedActionQueue.queues[actor] = nil
     check(selfOk and selfAction ~= nil and selfFacing == nil and otherOk and otherFacing == other,
         "a companion dressing its own wound faces nobody, and tending another faces the patient")
+    check(selfAnimation == CharacterActionAnims.Bandage and selfEvent == "EventBandage"
+            and otherAnimation == "Loot" and otherEvent == "EventLootItem"
+            and otherPosition.key == "LootPosition" and otherPosition.value == "Mid",
+        "companion rescue uses vanilla's other-patient reach, not a self-bandage pose")
+    local splintOk = SC.Actor.setMovement(actor, "walk", {
+        action = "apply_splint", patient = other,
+    })
+    local splintAction = ISTimedActionQueue.getTimedActionQueue(actor).current
+    check(splintOk and splintAction and splintAction.faceTarget == other
+            and actor.lastAnimation == "Loot" and actor.lastEvent == "EventLootItem",
+        "applying a splint also faces the patient with the vanilla reach pose")
+    SC.NativeActions.cancelVisual(actor, "test_remote_splint")
+    ISTimedActionQueue.queues[actor] = nil
 end
 local barricadeOk, barricadeReason = SC.Actor.setMovement(actor, "walk", {
     action = "barricade", object = barricadeObject,

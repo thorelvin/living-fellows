@@ -1375,6 +1375,20 @@ local function finishTreatment(helper, state)
         end
         return false, "verification_failed"
     end
+    -- Record the actual patient result once per completed treatment. In
+    -- particular, a dressing on a fractured part does not replace a splint.
+    -- The old log recorded only failures, making that distinction invisible
+    -- after a live rescue.
+    if type(print) == "function" then
+        print("[SurvivorCompanion/medical-treatment] helper=" .. tostring(U().idOf(helper))
+            .. " patient=" .. tostring(U().idOf(state.patient))
+            .. " action=" .. (state.splintOnly and "splint" or "bandage")
+            .. " part=" .. tostring(verifiedWound.name)
+            .. " bleeding=" .. tostring(verifiedWound.bleeding == true)
+            .. " fractured=" .. tostring(verifiedWound.fractured == true)
+            .. " splinted=" .. tostring(verifiedWound.splinted == true)
+            .. " health=" .. tostring(math.floor(tonumber(verifiedAssessment.health) or 0)))
+    end
     Medical.releasePatient(helper)
     treatmentState[helper] = nil
     if SC.NativeActions and type(SC.NativeActions.noteResult) == "function" then

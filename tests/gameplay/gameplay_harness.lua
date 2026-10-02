@@ -10791,7 +10791,7 @@ check(stagedFinished and stagedFinishReason == "looted" and stagedClears == 1
         and stagedCompleted.last and stagedCompleted.last.event == "completed"
         and SurvivorCompanion.Dialogue.lastSpokenTopic(stagedLootActor)
             == "scavenge.loot.excited"
-        and string.find(tostring(stagedLootActor.lastSpeech), "a canned chili", 1, true)
+        and string.find(string.lower(tostring(stagedLootActor.lastSpeech)), "a canned chili", 1, true)
             ~= nil,
     "completed rummage commits once, releases ownership, then names the verified pickup")
 SurvivorCompanion.NativeActions = nil
@@ -23632,6 +23632,46 @@ check(string.find(
         "a completed splint animation consumes one splint and braces the leg")
     check(not SurvivorCompanion.Medical.hasSplint(medic),
         "a used splint stops counting at once, even inside the scan cache window")
+
+    -- A fall can leave the same leg both bleeding and fractured. Dressing the
+    -- bleeding wound first must not make the fracture appear treated; the next
+    -- care action must still select the carried splint.
+    local mixedLeg = bodyPart({ name = "LowerLeg_R", fracture = 30,
+        isBleeding = true })
+    function mixedLeg:getSplintFactor() return self.splintFactor or 0 end
+    function mixedLeg:setSplint(enabled, factor)
+        self.splintFactor = enabled and factor or 0
+    end
+    function mixedLeg:setSplintItem(value) self.splintItem = value end
+    local mixedPatient = actor("sc-player-fall-injury", 10, 6, {
+        body = bodyDamage(64, { mixedLeg }),
+    })
+    local mixedMedic = actor("sc-fall-injury-medic", 9, 6, {
+        inventory = inventory({ item("Base.Bandage", "Medical"),
+            item("Base.Splint", "Medical") }),
+    })
+    local firstCare = SurvivorCompanion.Medical.treat(mixedMedic, mixedPatient,
+        { snapshot = { threats = {}, immediateCount = 0 } })
+    check(firstCare and visuals[mixedMedic]
+            and visuals[mixedMedic].action == "kneel_treat",
+        "a bleeding fracture selects a dressing before a splint")
+    visuals[mixedMedic].status = "completed"
+    local dressed, dressReason = SurvivorCompanion.Medical.treat(
+        mixedMedic, mixedPatient, {})
+    check(dressed and dressReason == "bandaged" and mixedLeg.isBandaged
+            and not mixedLeg.isBleeding and mixedLeg:getSplintFactor() == 0
+            and mixedPatient.body.health == 64,
+        "bandaging stops bleeding but does not splint the leg or restore health")
+    local secondCare = SurvivorCompanion.Medical.treat(mixedMedic, mixedPatient,
+        { snapshot = { threats = {}, immediateCount = 0 } })
+    check(secondCare and visuals[mixedMedic]
+            and visuals[mixedMedic].action == "apply_splint",
+        "the next care action still selects a splint for the dressed fracture")
+    visuals[mixedMedic].status = "completed"
+    local braced, braceReason = SurvivorCompanion.Medical.treat(
+        mixedMedic, mixedPatient, {})
+    check(braced and braceReason == "splinted" and mixedLeg:getSplintFactor() > 0,
+        "the follow-up action braces the fractured leg")
 
     -- Decision scoring asks about a helper's splint once per injured ally on
     -- every pass; one recursive inventory scan serves that whole pass.
