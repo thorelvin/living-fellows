@@ -1163,9 +1163,18 @@ local function greetingPulse(player, records, current)
     return false, "no_new_survivor_nearby"
 end
 
+-- The camp boundary plus the work zones in its reach band (logging, farm,
+-- burial ground, pyre). Residents and followers spend camp time there too,
+-- and the boundary alone left the logging area silent.
 local function atCamp(actor)
-    return SC.BaseLife and type(SC.BaseLife.isInside) == "function"
-        and SC.BaseLife.isInside(actor) == true
+    local life = SC.BaseLife
+    if not life or type(life.isInside) ~= "function" then return false end
+    if life.isInside(actor) == true then return true end
+    local reach = type(life.REACH_ZONE_KINDS) == "table" and life.REACH_ZONE_KINDS or {}
+    for kind in pairs(reach) do
+        if life.isInside(actor, kind) == true then return true end
+    end
+    return false
 end
 
 local function campConversationPulse(player, records, current)

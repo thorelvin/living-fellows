@@ -2,6 +2,11 @@
 
 # Changelog
 
+## 0.26.19 - Camp talk in the work zones
+
+- Camp conversations now count the camp's logging, farm, burial and pyre areas as camp, not only the camp boundary. Two calm companions standing in the logging area now chat like residents at the core. Followers count too, as they already did inside the camp boundary.
+- A gameplay regression covers two followers in the logging area, and it was confirmed to fail with the change reverted.
+
 ## 0.26.18 - Moving camp, recruits that scavenge, and talk on the road
 
 - A camp can now be abandoned and set up somewhere else. **Abandon camp** is in the camp's right-click menu and at the end of **More → Base**, and always asks first. Running camp orders and jobs are cancelled through their usual paths, residents leave duty and stay where they stand, and the camp's zones, storage marks and plans are removed. Buildings and stored items stay in the world. While you are building something yourself, the camp is kept until you finish or release it.

@@ -19676,9 +19676,34 @@ end)()
             and dialogue.lastSpokenTopic(camperA) == "banter.camp.open"
             and dialogue.lastSpokenTopic(camperB) == "banter.camp.reply",
         "two settled camp residents start a bounded face-to-face conversation without waiting for the player to idle")
+    -- Followers count as camp company, and the camp includes the work zones
+    -- in its reach band: two followers standing in the logging area talk
+    -- like residents at the core.
+    banter.reset()
+    local loggerA = recruit("sc-banter-logger-a", 2, 5)
+    local loggerB = recruit("sc-banter-logger-b", 3, 5)
+    SurvivorCompanion.Commands.peek(loggerA).order = "follow"
+    SurvivorCompanion.Commands.peek(loggerB).order = "follow"
+    baseLife.isInside = function(value, kind)
+        return kind == "lumber" and (value == loggerA or value == loggerB)
+    end
+    local loggerRecords = {
+        { actor = loggerA, runtime = { snapshot = calmSnapshot } },
+        { actor = loggerB, runtime = { snapshot = calmSnapshot } },
+    }
+    clock = campAt + 200000
+    local loggersTalk, loggersTopic = banter.update(player, loggerRecords, clock)
+    clock = campAt + 203000
+    local loggersReply, loggersReplyTopic = banter.update(player, loggerRecords, clock)
+    check(loggersTalk == true and loggersTopic == "banter.camp.open"
+            and loggersReply == true and loggersReplyTopic == "banter.camp.reply",
+        "two followers standing in the camp's logging area hold a camp conversation: "
+            .. tostring(loggersTalk) .. "/" .. tostring(loggersTopic))
     baseLife.isInside = savedInside
     SurvivorCompanion.Positioning.reset(camperA)
     SurvivorCompanion.Positioning.reset(camperB)
+    SurvivorCompanion.Positioning.reset(loggerA)
+    SurvivorCompanion.Positioning.reset(loggerB)
 
     -- Part II: native environmental state creates speech and diary evidence,
     -- never relationship stress or a hidden gameplay decision.
