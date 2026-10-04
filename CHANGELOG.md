@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 0.26.24 - Camp floors and companions who speak up
+
+- A complete staircase inside the camp now extends the camp to the connected floor above or below, including stairs you build later once their tiles are loaded. The new area follows the camp rectangle and only covers tiles with a real floor. Remove it to stop the extension on that floor, or draw your own.
+- Residents use marked storage on another camp floor, including from a standing tile just outside its boundary. A woodcutter can carry logs from a lumber area outside camp up or down the stairs to that storage. Body dragging still avoids stairs.
+- Companions busy with something (reading, eating, base work, looting, treating someone) or pausing between actions now still call out a zombie they see, a walker they hear or a noise worth a word, and their "I know that one" recognition lines. When a quiet hand signal would have been the right warning, a busy companion stays quiet instead of shouting.
+- A pinned companion always cries for help. The rationed last words sometimes refused, during their cooldown or for a survivor you have not recruited, and the companion then said nothing. The ordinary plea now covers those cases.
+- A source check now fails the build if any voice line pool can no longer be spoken. Every other pool was confirmed reachable.
+- Core, gameplay and static regressions cover the changes. The new voice tests were confirmed to fail with their fix reverted.
+
 ## 0.26.23 - Care for the patient
 
 - A companion bandaging another person now faces and reaches toward the patient, using the game's own treatment pose. Self-care keeps the bandage animation; splinting also faces the patient.
