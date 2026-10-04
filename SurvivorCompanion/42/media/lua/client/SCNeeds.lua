@@ -447,6 +447,10 @@ function Needs.update(actor, player, runtime)
         end
     end
 
+    -- Thirst comes first, but no water must never stop a companion eating.
+    -- Returning here left one that was thirsty and hungry starving beside its
+    -- own food whenever no clean water (or no reachable sink) was in range.
+    local thirstReason
     if assessment.thirsty then
         local safeWater = consumable(isSafeWaterItem)
         local water = firstInventoryItem(actor, safeWater)
@@ -457,10 +461,15 @@ function Needs.update(actor, player, runtime)
         local source = state.waterSource
         if source and not validWaterSource(source) then source, state.waterSource = nil, nil end
         if not source then source = findWaterSource(actor, state) state.waterSource = source end
-        if source then return drinkWorldSource(actor, source, snapshot, state) end
-        local fetched, fetchReason = fetchFromCamp(actor, "needs_water", safeWater, snapshot)
-        if fetched then return true, fetchReason end
-        return false, "clean_water_unavailable"
+        if source then
+            local accepted, reason = drinkWorldSource(actor, source, snapshot, state)
+            if accepted == true or not assessment.hungry then return accepted, reason end
+            thirstReason = reason or "water_source_unreachable"
+        else
+            local fetched, fetchReason = fetchFromCamp(actor, "needs_water", safeWater, snapshot)
+            if fetched then return true, fetchReason end
+            thirstReason = "clean_water_unavailable"
+        end
     end
 
     if assessment.hungry then
@@ -469,9 +478,9 @@ function Needs.update(actor, player, runtime)
         if food then return eat(actor, food, assessment.hunger) end
         local fetched, fetchReason = fetchFromCamp(actor, "needs_food", safeFood, snapshot)
         if fetched then return true, fetchReason end
-        return false, "safe_food_unavailable"
+        return false, thirstReason or "safe_food_unavailable"
     end
-    return false, "needs_satisfied"
+    return false, thirstReason or "needs_satisfied"
 end
 
 function Needs.cancel(actor, reason)

@@ -930,9 +930,10 @@ end
 local stairDirections = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
 
 -- Match the native wooden-stair layout: a lower exit, three stair squares,
--- then a free upper landing one tile beyond the top stair.
+-- then a free upper landing one tile beyond the top stair. Floors -2..15 are
+-- the ones a camp records (see autoFloorDisabled), so basement stairs count.
 local function stairConnection(exitX, exitY, lowerZ, dx, dy)
-    if lowerZ < 0 or lowerZ >= 15 or SC.Topology == nil then return nil end
+    if lowerZ < -2 or lowerZ >= 15 or SC.Topology == nil then return nil end
     local exit = U().gridSquare(exitX, exitY, lowerZ)
     local landingX, landingY = exitX + dx * 4, exitY + dy * 4
     local landing = U().gridSquare(landingX, landingY, lowerZ + 1)
@@ -1407,9 +1408,10 @@ local function scanCampStair(base, zone, x, y)
             end
         end
     end
-    if zone.z > 0 and hasFloor(square, zone.z) then
+    if zone.z > -2 and hasFloor(square, zone.z) then
         -- The landing is the upper floor's first solid tile. This also finds
-        -- a staircase below a camp whose core is on an upper floor.
+        -- a staircase below a camp whose core is on an upper floor, and the
+        -- cellar stairs below a ground-floor camp.
         for _, direction in ipairs(stairDirections) do
             local dx, dy = direction[1], direction[2]
             local last = utility.gridSquare(x - dx, y - dy, zone.z - 1)

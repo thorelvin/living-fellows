@@ -6563,6 +6563,29 @@ check(not SurvivorCompanion.Commands.issue(commandReject.id, "board_vehicle", { 
 check(not SurvivorCompanion.Commands.issue(commandReject.id, "dismiss", nil, player)
     and SurvivorCompanion.Commands.peek(commandReject).recruited,
     "rejected dismissal restores recruited state exactly")
+do
+    -- Dismissing a companion on base duty stops its base job first, and a job
+    -- that refuses to stop keeps the companion, as leaving base duty would.
+    local savedBaseWork = SurvivorCompanion.BaseWork
+    local cancelReasons, refuseCancel = {}, true
+    SurvivorCompanion.BaseWork = { cancel = function(_, reason)
+        cancelReasons[#cancelReasons + 1] = reason
+        if refuseCancel then return false, "build_action_active" end
+        return true
+    end }
+    local worker = actor("sc-dismiss-worker", -6, 1, {})
+    registry[worker.id] = worker
+    worker.modData.SC_Order = "base_duty"
+    local kept = not SurvivorCompanion.Commands.issue(worker.id, "dismiss", nil, player)
+        and SurvivorCompanion.Commands.peek(worker).recruited
+    refuseCancel = false
+    check(kept and SurvivorCompanion.Commands.issue(worker.id, "dismiss", nil, player)
+            and not SurvivorCompanion.Commands.peek(worker).recruited
+            and #cancelReasons == 2 and cancelReasons[2] == "dismissed",
+        "dismissing a companion on base duty stops its base job first")
+    SurvivorCompanion.BaseWork = savedBaseWork
+    registry[worker.id] = nil
+end
 local livePlayerVehicle = { id = "test-player-vehicle" }
 player.vehicle = livePlayerVehicle
 check(SurvivorCompanion.Commands.issue(fellow.id, "board_vehicle", nil, player)
@@ -14067,6 +14090,35 @@ check(SurvivorCompanion.Needs.update(eater, player, {
     and eater.lastIntent.item == meal,
     "hungry companion selects a safe carried meal through a native eat intent")
 
+-- Thirst comes first, but no clean water must not stop a companion eating:
+-- one both thirsty and hungry ate nothing while no water could be had.
+do
+    local dryMeal = item("Base.DryMeal", "Food", { hungerChange = -0.35 })
+    local dryFluid = { amount = 0.72 }
+    function dryFluid:isEmpty() return false end
+    function dryFluid:getAmount() return self.amount end
+    function dryFluid:contains(kind) return kind == Fluid.TaintedWater or kind == Fluid.Water end
+    local dryBottle = item("Base.TaintedBottle", "Item", { fluidContainer = dryFluid })
+    local parched = actor("sc-needs-parched", 30, 26,
+        { inventory = inventory({ dryBottle, dryMeal }) })
+    parched.hunger, parched.thirst = 0.72, 0.70
+    registry[parched.id] = parched
+    local savedSupply = SurvivorCompanion.Encounter.takePlayerSupply
+    SurvivorCompanion.Encounter.takePlayerSupply = function()
+        return "unavailable", "fixture_no_camp_supply"
+    end
+    local ate, ateReason = SurvivorCompanion.Needs.update(parched, player, {
+        snapshot = { threats = {}, threatCount = 0, immediateCount = 0, pressure = 0 },
+    })
+    SurvivorCompanion.Encounter.takePlayerSupply = savedSupply
+    check(ate and parched.lastIntent and parched.lastIntent.action == "eat_food"
+            and parched.lastIntent.item == dryMeal,
+        "a thirsty, hungry companion with no clean water still eats its food: "
+            .. tostring(ateReason))
+    SurvivorCompanion.Needs.reset(parched)
+    registry[parched.id] = nil
+end
+
 local cleanFluid = { amount = 0.72 }
 function cleanFluid:isEmpty() return self.amount <= 0 end
 function cleanFluid:getAmount() return self.amount end
@@ -14942,6 +14994,43 @@ do
         "a camp above existing stairs generates the connected lower area")
     for _, square in ipairs(lowerStairs) do square.HasStairs = nil end
     void.hasFloor = nil
+    getWorld = previousWorld
+    BaseLife.reset()
+    BaseLife.create(campSquare, "Test Camp")
+end
+do
+    -- A basement is a floor too: stairs down from a ground-floor camp link the
+    -- cellar below, and a camp made in the cellar links the ground floor above.
+    local previousWorld = getWorld
+    getWorld = function()
+        return { getMetaGrid = function()
+            return { getBuildingAt = function() return nil end }
+        end }
+    end
+    local cellarStairs = {
+        cell:getGridSquare(3, 2, -1),
+        cell:getGridSquare(4, 2, -1),
+        cell:getGridSquare(5, 2, -1),
+    }
+    local cellarExit = cell:getGridSquare(2, 2, -1)
+    local groundLanding = cell:getGridSquare(6, 2, 0)
+    for _, square in ipairs(cellarStairs) do
+        function square:HasStairs() return true end
+    end
+    for _ = 1, 60 do BaseLife.autoExtendFloors(24) end
+    local cellar = BaseLife.active().zones[2]
+    check(cellar and cellar.autoStair and cellar.z == -1
+            and BaseLife.isInside(cellarExit)
+            and BaseLife.allowsFloorTransit(groundLanding, cellarExit),
+        "a ground-floor camp above basement stairs generates the cellar area")
+    BaseLife.reset()
+    BaseLife.create(cellarExit, "Cellar Camp")
+    for _ = 1, 60 do BaseLife.autoExtendFloors(24) end
+    check(#BaseLife.active().zones == 2
+            and BaseLife.isInside(groundLanding)
+            and BaseLife.allowsFloorTransit(cellarExit, groundLanding),
+        "a camp in a basement generates the ground floor at the top of its stairs")
+    for _, square in ipairs(cellarStairs) do square.HasStairs = nil end
     getWorld = previousWorld
     BaseLife.reset()
     BaseLife.create(campSquare, "Test Camp")
@@ -17647,6 +17736,31 @@ do
         { { type = "Base.Hammer", count = 1 } }, false)
     check(not waterReady and not foodReady and not toolReady,
         "delivery selection rejects empty water, rotten food, and broken required tools")
+end
+do
+    local function bottle(fullType, contents)
+        local fluid = { amount = 0.8, capacity = 1 }
+        function fluid:getAmount() return self.amount end
+        function fluid:getCapacity() return self.capacity end
+        function fluid:isEmpty() return false end
+        function fluid:contains(kind) return contents[kind] == true end
+        return item(fullType, "Item", { fluidContainer = fluid })
+    end
+    local taintedBottle = bottle("Base.WaterBottle",
+        { [Fluid.TaintedWater] = true, [Fluid.Water] = true })
+    local cleanBottle = bottle("Base.WaterBottle", { [Fluid.Water] = true })
+    local taintedCarrier = actor("sc-tainted-delivery", 1, 1, {
+        inventory = inventory({ taintedBottle }),
+    })
+    local cleanCarrier = actor("sc-clean-delivery", 1, 1, {
+        inventory = inventory({ cleanBottle }),
+    })
+    local _, taintedReady = Trade.previewRequirements(taintedCarrier,
+        { { category = "water", count = 1 } }, false)
+    local _, cleanReady = Trade.previewRequirements(cleanCarrier,
+        { { category = "water", count = 1 } }, false)
+    check(not taintedReady and cleanReady,
+        "a water delivery accepts clean water and refuses a bottle of tainted water")
 end
 do
     local originalInventory = residentOne.inventory

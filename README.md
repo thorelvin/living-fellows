@@ -12,7 +12,7 @@ Persistent companions, survivor households, and living bases for Project Zomboid
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.21.0-red.svg)](#requirements)
-[![Release](https://img.shields.io/badge/release-0.26.24-blue.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-0.26.25-blue.svg)](CHANGELOG.md)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 
 Living Fellows turns the survivors you meet into persistent people. They can join you, fight and travel with you, help run a base, and make their own survival decisions. Companions are native human actors with real inventories, injuries, skills, and permanent death.
@@ -140,7 +140,7 @@ Right-click the world for the **Living Fellows** menu. The selected companion ge
 
 For private local playtests, launch with `scripts/Start-LocalPlaytest.ps1`. It selects the installed local build ahead of older staged Workshop copies that share the same mod ID.
 
-Use a disposable save for this 0.26.24 playtest. Assign one to four companions to a squad on **Squad**, then open **Expeditions**. Choose its leader, Scout or Search, a location within 200 tiles (32 per page), how to travel, time before turning home, and combat style. Search also lets you request a supply type and quantity, including **Everything useful** for supplies across categories. Review the plan and select **Send squad**. The actual leader appears in a second local view while the team moves; the remaining members follow that leader.
+Use a disposable save for this 0.26.25 playtest. Assign one to four companions to a squad on **Squad**, then open **Expeditions**. Choose its leader, Scout or Search, a location within 200 tiles (32 per page), how to travel, time before turning home, and combat style. Search also lets you request a supply type and quantity, including **Everything useful** for supplies across categories. Review the plan and select **Send squad**. The actual leader appears in a second local view while the team moves; the remaining members follow that leader.
 
 **Follow roads** is the default: the squad walks the map's streets and plans a fresh road route home. A building far from any mapped street is reached by leaving the streets as close to it as possible and walking up to 100 tiles off-road; the review names any long off-road stretch. If the leader sees a group of more than three zombies per living squad member on the road ahead, the squad plans around it, or turns home when no connected detour exists on the way out. **Head straight for target** takes the direct course and turns home if no path out is found for 30 seconds.
 
@@ -212,7 +212,7 @@ A page is never rewritten, and nothing is written after the author dies. The boo
 
 Zones include the camp boundary, work area, lumber area, farm area, burial ground, pyre, rest, social, guard, rally, and quarantine areas. Every zone lies inside the camp except lumber areas, farm areas, burial grounds, and pyres, which may also lie up to 30 tiles beyond the camp boundary. A pyre is at most nine tiles and must pass a fire-safety check when you draw it.
 
-**Floors and stairs.** A complete staircase inside the camp area automatically extends the camp boundary to the connected floor, above or below. This also happens after you build stairs, once the stair and landing tiles are loaded. The generated area follows the current camp rectangle and admits only tiles with a real floor; use **Show base layout** to inspect it. You can remove the generated area to stop this automatic extension on that floor, or draw your own area there. Mark upper-floor storage normally so residents can use it. A woodcutter can work in a marked lumber area outside camp, then use the stairs to carry logs to storage on a connected floor.
+**Floors and stairs.** A complete staircase inside the camp area automatically extends the camp boundary to the connected floor, above or below, including a basement. This also happens after you build stairs, once the stair and landing tiles are loaded. The generated area follows the current camp rectangle and admits only tiles with a real floor; use **Show base layout** to inspect it. You can remove the generated area to stop this automatic extension on that floor, or draw your own area there. Mark upper-floor storage normally so residents can use it. A woodcutter can work in a marked lumber area outside camp, then use the stairs to carry logs to storage on a connected floor.
 
 Residents on base duty sort storage, repair gear, craft supplies, keep watch, patrol, maintain barricades, and build queued construction. They put spare carried literature into nearby Books & magazines storage even when they are not overloaded, but keep it if no library is marked. During a quiet spell they can borrow an unread book or magazine from that storage, read it, and put that exact item back; storage reserves, private diaries, favourites and other protected belongings are left alone. Immediate danger interrupts reading and returns a borrowed book. Giving Stay or Guard inside the camp area also puts a companion on base duty. A guard on shift keeps watch around its post instead of taking general chores.
 

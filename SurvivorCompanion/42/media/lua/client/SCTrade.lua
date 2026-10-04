@@ -305,6 +305,24 @@ local function positiveRemainingUses(item)
     return not inspected
 end
 
+-- Tainted or poisoned water is not drinking water. A household asking for
+-- water must not accept a bottle of it as the clean water it asked for.
+local function unsafeWater(item, fluid)
+    local itemTaintedOk, itemTainted = invoke(item, "isTaintedWater")
+    if itemTaintedOk and itemTainted == true then return true end
+    if fluid == nil then return false end
+    local poisonOk, poisonous = invoke(fluid, "isPoisonous")
+    if poisonOk and poisonous == true then return true end
+    local taintedOk, tainted = invoke(fluid, "isTainted")
+    if taintedOk and tainted == true then return true end
+    local constantOk, taintedWater = pcall(function() return Fluid and Fluid.TaintedWater end)
+    if constantOk and taintedWater ~= nil then
+        local containsOk, contains = invoke(fluid, "contains", taintedWater)
+        if containsOk and contains == true then return true end
+    end
+    return false
+end
+
 local function suitableForRequirement(item, requirement)
     local category = itemCategory(item)
     local brokenOk, broken = invoke(item, "isBroken")
@@ -329,6 +347,7 @@ local function suitableForRequirement(item, requirement)
                 return false, "empty_or_unsafe_water"
             end
         end
+        if unsafeWater(item, fluidOk and fluid or nil) then return false, "empty_or_unsafe_water" end
     end
     if category == "medicine" or requirementHasCategory(requirement, "medicine") then
         if not positiveRemainingUses(item) then return false, "exhausted" end

@@ -1518,6 +1518,55 @@ actor.healthyJogDistanceForTest = actor.px - 0.5
 check(moved and moveReason == "moving" and actor.running == true and actor.px > 0.5,
     "direct-native adapter starts and verifies normalized movement")
 do
+    -- Dismissal is a player order: the short pause between actions or a routine
+    -- job holding the actor must not swallow it, while combat keeps its claim.
+    -- The farewell walk is real native movement, so it needs a direction.
+    local recruit = setmetatable({
+        __owned = true, __class = "IsoPlayer", data = {},
+        square = { x = 2, y = 2, z = 0 }, px = 2.5, py = 2.5,
+        characterActions = actionList(),
+    }, { __index = actor })
+    local record = SC.Registry.register(recruit, { id = "sc-dismiss-recruit", recruited = false })
+    check(record ~= nil and SC.Commands.issue(record.id, "recruit", nil, manifestPlayer)
+            and SC.Commands.issue(record.id, "dismiss", nil, manifestPlayer)
+            and SC.Commands.peek(recruit).recruited == false,
+        "a dismissed companion is given a direction to walk away in")
+    check(SC.Commands.issue(record.id, "recruit", nil, manifestPlayer)
+            and SC.NativeActions.beginPacing(recruit, "core_dismiss_pause",
+                { minimumMs = 60000, maximumMs = 60000 })
+            and SC.NativeActions.pacingStatus(recruit) == true,
+        "dismissal fixture pauses the recruit between actions")
+    check(SC.Commands.issue(record.id, "dismiss", nil, manifestPlayer)
+            and SC.Commands.peek(recruit).recruited == false
+            and SC.NativeActions.pacingStatus(recruit) == false,
+        "a companion pausing between actions can still be dismissed")
+    local jobCancelled = false
+    check(SC.Commands.issue(record.id, "recruit", nil, manifestPlayer)
+            and SC.ActionSupervisor.begin(recruit, {
+                owner = "scavenge", action = "loot_container", targetKey = "container:dismiss",
+                priority = SC.ActionSupervisor.Priority.WORK, interruptible = true,
+                onCancel = function(_, reason) jobCancelled = true return true, reason end,
+            }) ~= nil,
+        "dismissal fixture gives the recruit a routine job")
+    check(SC.Commands.issue(record.id, "dismiss", nil, manifestPlayer)
+            and SC.Commands.peek(recruit).recruited == false
+            and jobCancelled and SC.ActionSupervisor.current(recruit) == nil,
+        "a companion busy with a routine job is released and dismissed")
+    local combat = SC.Commands.issue(record.id, "recruit", nil, manifestPlayer)
+        and SC.ActionSupervisor.begin(recruit, {
+            owner = "combat", action = "escape", targetKey = "threat:dismiss",
+            priority = SC.ActionSupervisor.Priority.SURVIVAL, interruptible = true,
+        })
+    check(combat ~= nil and combat ~= false
+            and not SC.Commands.issue(record.id, "dismiss", nil, manifestPlayer)
+            and SC.Commands.peek(recruit).recruited == true
+            and SC.ActionSupervisor.current(recruit) == combat,
+        "a companion fighting for its life keeps its claim over a dismissal")
+    if combat then SC.ActionSupervisor.complete(combat, "test_done") end
+    SC.NativeActions.stopDirect(recruit)
+    SC.Registry.unregister(recruit)
+end
+do
 actor.px, actor.py, actor.footInjury, actor.limpSpeedScale = 0.5, 0.5, true, 0.55
 local limpMoved, limpReason = SC.Actor.setMovement(
     actor, "jog", { action = "move", dx = 1, dy = 0 })

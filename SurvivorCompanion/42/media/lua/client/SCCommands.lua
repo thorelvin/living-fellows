@@ -1462,7 +1462,7 @@ local function handleRecruit(actor, entry, state, payload, player)
     return true, "recruited"
 end
 
-local function handleDismiss(actor, entry, state)
+local function handleDismiss(actor, entry, state, payload, player)
     if SC.FactionRecruitment and type(SC.FactionRecruitment.originForActor) == "function" then
         local origin = SC.FactionRecruitment.originForActor(U().idOf(actor))
         if origin and origin.status == "trial"
@@ -1470,7 +1470,38 @@ local function handleDismiss(actor, entry, state)
             return SC.FactionRecruitment.returnNow(origin.factionId, nil, true)
         end
     end
-    if not U().move(actor, "walk", { action = "leave_group", dismissed = true }) then
+    -- A dismissal is the player's order, so it ends the companion's own pause,
+    -- base job and activity first. The walk away below is ordinary movement,
+    -- and the native layer refuses that to a companion pausing between actions
+    -- or busy with something, so the order used to fail whenever it came at
+    -- one of those moments. Combat, survival and unknown native actions keep
+    -- their claim and the dismissal is refused as before.
+    if state.order == "base_duty" and SC.BaseWork and type(SC.BaseWork.cancel) == "function" then
+        local ok, cancelled, reason = pcall(SC.BaseWork.cancel, actor, "dismissed")
+        if not ok or cancelled ~= true then
+            return false, "dismiss_rejected:" .. tostring(reason or cancelled)
+        end
+    end
+    local native = SC.NativeActions
+    if native and type(native.cancelPacing) == "function" then
+        pcall(native.cancelPacing, actor, "dismissed")
+    end
+    if native and type(native.interruptOwnedActivity) == "function" then
+        local ok, interrupted, reason = pcall(native.interruptOwnedActivity, actor, "dismissed")
+        if not ok or interrupted ~= true then
+            return false, "dismiss_rejected:" .. tostring(reason or interrupted)
+        end
+    end
+    local supervisor = SC.ActionSupervisor
+    if supervisor and type(supervisor.current) == "function"
+        and type(supervisor.cancel) == "function" and supervisor.current(actor) ~= nil then
+        local cancelled, reason = supervisor.cancel(actor, "dismissed",
+            supervisor.Priority and supervisor.Priority.PLAYER or 400, false)
+        if cancelled ~= true then return false, "dismiss_rejected:" .. tostring(reason) end
+    end
+    -- The farewell walk heads away from the player. Native movement needs a
+    -- direction or a target, and without one it refused every dismissal.
+    if not U().move(actor, "walk", { action = "leave_group", dismissed = true, awayFrom = player }) then
         return false, "dismiss_rejected"
     end
     state.recruited = false

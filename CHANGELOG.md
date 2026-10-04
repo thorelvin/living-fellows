@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 0.26.25 - Dismissal, basements and clean water
+
+- Dismissing a companion now works. Its farewell walk was sent without a direction, so the mod's movement layer refused it and the dismissal failed with it. The companion now walks away from you.
+- A dismissal is a player order: it ends the companion's short pause between actions, its own activity such as eating or reading, and any routine job, then lets it go. A companion on base duty stops its base job first, as leaving base duty does. A companion fighting or escaping for its life keeps its claim, and the dismissal is refused until that is over.
+- A thirsty and hungry companion with no clean water in reach now eats its food. It used to wait for water first and could starve beside its own meal.
+- A household asking for water no longer accepts a bottle of tainted or poisoned water as the clean water it asked for.
+- Camp floors include basements. Stairs down from a ground-floor camp extend the camp to the cellar, and a camp made in a basement extends to the ground floor at the top of its stairs.
+- Core and gameplay regressions cover each fix, and each new test was confirmed to fail with its fix reverted.
+
 ## 0.26.24 - Camp floors and companions who speak up
 
 - A complete staircase inside the camp now extends the camp to the connected floor above or below, including stairs you build later once their tiles are loaded. The new area follows the camp rectangle and only covers tiles with a real floor. Remove it to stop the extension on that floor, or draw your own.
