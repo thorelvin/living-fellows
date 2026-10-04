@@ -2071,7 +2071,11 @@ local function candidateDue(actor, candidate, current)
     return U().isDue(actor, "decision_" .. candidate.kind, candidateInterval(candidate), current)
 end
 
-local function warnAboutThreat(actor, snapshot, commands, state, current)
+-- speechOnly: the companion is busy with an owned activity or a pause, so the
+-- silent hand signal (which moves and holds it) is not available. When that
+-- signal would have been the right warning, a busy companion stays quiet
+-- instead of shouting, leaving the episode for when it is free.
+local function warnAboutThreat(actor, snapshot, commands, state, current, speechOnly)
     local count = tonumber(snapshot.threatCount) or #(snapshot.threats or {})
     if count <= 0 then
         if state.threatClearAt == nil then state.threatClearAt = current end
@@ -2125,6 +2129,17 @@ local function warnAboutThreat(actor, snapshot, commands, state, current)
     -- warnings resume only after the configured threat-free reset window.
     if state.lastThreatBandRank ~= nil and not escalated
         and not sittingFresh then return end
+    local player = snapshot.player and snapshot.player.actor or nil
+    local threatDistance = threat and U().distance(actor, threat) or 0
+    local quietPreferred = immediate == 0
+        and not sittingFresh
+        and threatDistance > (U().config("dangerSignalImmediateRadius") or 4)
+        and threatDistance <= (U().config("dangerSignalMaxThreatDistance") or 12)
+        and player ~= nil
+        and U().distance(actor, player) <= (U().config("dangerSignalMaxDistance") or 10)
+        and U().canSee(player, actor)
+        and (tonumber(snapshot.player and snapshot.player.danger) or 0) <= 0
+    if speechOnly == true and quietPreferred then return end
     state.lastWarnedThreat = threat
     state.lastThreatBand = band
     state.lastThreatBandRank = bandRank
@@ -2142,16 +2157,7 @@ local function warnAboutThreat(actor, snapshot, commands, state, current)
         lastSittingCallout = threat
         state.lastSittingWarningAt = current
     end
-    local player = snapshot.player and snapshot.player.actor or nil
-    local threatDistance = threat and U().distance(actor, threat) or 0
-    local quietSignal = immediate == 0
-        and not sittingFresh
-        and threatDistance > (U().config("dangerSignalImmediateRadius") or 4)
-        and threatDistance <= (U().config("dangerSignalMaxThreatDistance") or 12)
-        and player ~= nil
-        and U().distance(actor, player) <= (U().config("dangerSignalMaxDistance") or 10)
-        and U().canSee(player, actor)
-        and (tonumber(snapshot.player and snapshot.player.danger) or 0) <= 0
+    local quietSignal = quietPreferred
     local recognitionCandidate = count == 1 and threat and SC.Quirks
         and type(SC.Quirks.recognitionCandidate) == "function"
         and SC.Quirks.recognitionCandidate(actor, threat, snapshot, commands, current) or nil
@@ -2634,7 +2640,17 @@ function Decision.update(actor, player, runtime, roundTimestamp)
 
     local held, heldReason = holdOwnedActivityOrPacing(
         actor, player, snapshot, assessment, needs, commands, state, current, rootRuntime)
-    if held then return true, heldReason end
+    if held then
+        -- Callouts are speech only. A companion busy with an owned activity
+        -- (reading, eating, base work, looting, treatment) or pausing between
+        -- actions still names a zombie it sees, a walker it hears or a noise
+        -- worth a word. Returning before them left every busy companion
+        -- silent; only the silent hand signal waits until it is free.
+        warnAboutThreat(actor, snapshot, commands, state, current, true)
+        warnAboutHeardThreat(actor, snapshot, state, current)
+        Decision.remarkOnNoise(actor, snapshot, state, current)
+        return true, heldReason
+    end
 
     local vehicleHandled, vehicleReason = enforceVehicleExitPolicy(actor, player, commands)
     if vehicleHandled ~= nil then

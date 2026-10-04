@@ -7886,6 +7886,62 @@ check(pacedDecision and pacedReason == "thinking" and pacingPathCalls == 0
         and pacingActor.stopped,
     "human pacing suppresses repeated path requests while preserving a stopped thinking pose")
 
+-- Callouts are speech only, so a companion pausing between actions (or busy
+-- with any owned activity) still names a zombie it sees.
+do
+    local pausedSpeaker = actor("sc-pacing-speaker", 43, 40)
+    pacingRecords[pausedSpeaker] = {
+        commandSerial = SurvivorCompanion.Commands.peek(pausedSpeaker).commandSerial,
+        untilAt = clock + 1200, shouldLook = false, stopped = false,
+        source = "verified_test",
+    }
+    local pausedZombie = zombie(49, 40, {})
+    local D = SurvivorCompanion.Decision
+    local savedGroupAt, savedSitting = D._threatWarningMemoryForTests(nil, nil)
+    local pausedDecision, pausedReason = D.update(pausedSpeaker, pacingLeader, {
+        snapshot = {
+            threats = { { actor = pausedZombie, visible = true, distanceSq = 36 } },
+            immediateAttackers = {}, threatCount = 1, immediateCount = 0, pressure = 0,
+            escapeSquares = { cell:getGridSquare(42, 41, 0), cell:getGridSquare(44, 41, 0) },
+            allies = {}, player = { danger = 0 },
+        },
+    })
+    D._threatWarningMemoryForTests(savedGroupAt, savedSitting)
+    local pausedTopic = SurvivorCompanion.Dialogue.lastSpokenTopic(pausedSpeaker)
+    check(pausedDecision and pausedReason == "thinking"
+            and pausedTopic == SurvivorCompanion.Dialogue.threatTopic("danger", 1),
+        "a companion pausing between actions still calls out a zombie it sees: "
+            .. tostring(pausedReason) .. "/" .. tostring(pausedTopic))
+    -- When the silent hand signal would have been the right warning (the
+    -- leader close, visible and safe), a busy companion stays quiet rather
+    -- than shouting, and leaves the episode for when it is free.
+    local quietSpeaker = actor("sc-pacing-quiet", 42, 41)
+    pacingRecords[quietSpeaker] = {
+        commandSerial = SurvivorCompanion.Commands.peek(quietSpeaker).commandSerial,
+        untilAt = clock + 1200, shouldLook = false, stopped = false,
+        source = "verified_test",
+    }
+    D._threatWarningMemoryForTests(nil, nil)
+    local quietState = {}
+    D._warnAboutThreatForTests(quietSpeaker, {
+        threats = { { actor = pausedZombie, visible = true, distanceSq = 49 } },
+        threatCount = 1, immediateCount = 0,
+        player = { actor = pacingLeader, danger = 0 },
+    }, { recruited = true }, quietState, clock, true)
+    D._threatWarningMemoryForTests(savedGroupAt, savedSitting)
+    check(SurvivorCompanion.Dialogue.lastSpokenTopic(quietSpeaker) == nil
+            and quietState.lastThreatBandRank == nil,
+        "a busy companion keeps a silent-signal warning for when it is free")
+    for _, extra in ipairs({ pausedSpeaker, quietSpeaker, pausedZombie }) do
+        local moving = extra.square and extra.square.moving or {}
+        for index = #moving, 1, -1 do
+            if moving[index] == extra then table.remove(moving, index) end
+        end
+    end
+    pacingRecords[quietSpeaker] = nil
+    D.reset(pausedSpeaker)
+end
+
 SurvivorCompanion.Medical.reset(stagedMedic)
 SurvivorCompanion.Medical.reset(interruptedMedic)
 SurvivorCompanion.Medical.reset(stagedRagMedic)
@@ -16218,6 +16274,33 @@ do
             and pinnedDetail.relationshipTier == "family" and pinnedDetail.poolSize >= 28
             and not pinnedAgain and pinnedReason == "pinned_words_on_cooldown",
         "a pinned companion uses relationship-specific pleas without repeating every combat tick")
+    -- Last words are rationed; the ordinary plea covers the pins they skip,
+    -- including a survivor who is not recruited, so nobody is pinned silently.
+    local grabBark = SurvivorCompanion.ZombieAttack._grabBarkForTests
+    clock = clock + 1
+    grabBark(fellow, nil, "pinned")
+    local repeatTopic = Dialogue.lastSpokenTopic(fellow)
+    local stranger = actor("sc-pinned-stranger", 9, 9, { recruited = false })
+    stranger.modData.SC_Recruited = false
+    registry[stranger.id] = stranger
+    -- The real Actor.isCompanion accepts every registered survivor; this
+    -- harness's stand-in only accepts recruits.
+    local savedIsCompanion = SurvivorCompanion.Actor.isCompanion
+    SurvivorCompanion.Actor.isCompanion = function(value)
+        return value == stranger or savedIsCompanion(value)
+    end
+    grabBark(stranger, nil, "pinned")
+    SurvivorCompanion.Actor.isCompanion = savedIsCompanion
+    local strangerTopic = Dialogue.lastSpokenTopic(stranger)
+    registry[stranger.id] = nil
+    for index = #stranger.square.moving, 1, -1 do
+        if stranger.square.moving[index] == stranger then
+            table.remove(stranger.square.moving, index)
+        end
+    end
+    check(repeatTopic == "grab.pinned" and strangerTopic == "grab.pinned",
+        "a pin inside the last-words cooldown, or of a stranger, still gets a plea: "
+            .. tostring(repeatTopic) .. "/" .. tostring(strangerTopic))
 
     Dialogue.reset(fellow)
     fellow.body.health, fellow.body.infected, fellow.body.infectionLevel = 10, false, 0

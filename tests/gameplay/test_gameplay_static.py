@@ -197,6 +197,38 @@ def require(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
+DIALOGUE_TOPIC = r"[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+"
+
+
+def dialogue_pools_reachable() -> None:
+    """Every voice pool must be reachable: named literally by its caller, built
+    from a "prefix." .. value, or a threat band of a threatTopic family. A pool
+    that only its own definition names is dead voice work."""
+    key_re = re.compile(r'^\s*\[\s*"(' + DIALOGUE_TOPIC + r')"\s*\]\s*=\s*\{', re.M)
+    register_re = re.compile(r'Dialogue\.register\(\s*"(' + DIALOGUE_TOPIC + r')"')
+    literal_re = re.compile(r'"(' + DIALOGUE_TOPIC + r')"')
+    dynamic_re = re.compile(r'"([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)*\.)"\s*\.\.')
+    band_re = re.compile(r'(?:threatTopic|countedCombatTopic)\(\s*"([a-z][a-z0-9_.]*)"')
+    defined: set[str] = set()
+    used: set[str] = set()
+    prefixes: set[str] = set()
+    for path in sorted(list(CLIENT.glob("*.lua")) + list(SHARED.glob("*.lua"))):
+        text = path.read_text(encoding="utf-8")
+        defined.update(m.group(1) for m in key_re.finditer(text))
+        defined.update(m.group(1) for m in register_re.finditer(text))
+        prefixes.update(m.group(1) for m in dynamic_re.finditer(text))
+        prefixes.update(m.group(1) + "." for m in band_re.finditer(text))
+        for line in text.splitlines():
+            if key_re.match(line):
+                continue
+            used.update(m.group(1) for m in literal_re.finditer(line))
+    unreachable = sorted(topic for topic in defined
+                         if topic not in used
+                         and not any(topic.startswith(prefix) for prefix in prefixes))
+    require(not unreachable,
+            "voice pools no code can speak: " + ", ".join(unreachable))
+
+
 def main() -> int:
     sources: dict[str, str] = {}
     for name in OWNED:
@@ -1012,6 +1044,8 @@ def main() -> int:
             and downtime_source.index("SC.Diary.noteDowntime")
             > downtime_source.index('failureReasons[activity.kind] or "downtime_commit_failed"'),
             "only a completed, verified downtime activity may reach a diary")
+
+    dialogue_pools_reachable()
 
     print(
         f"Static gameplay contracts PASS: {CHECKS} assertions, "

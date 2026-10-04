@@ -475,9 +475,13 @@ local function grabBark(actor, topic, lastWordsCircumstance)
     if not SC.Dialogue or type(SC.Dialogue.say) ~= "function" then return end
     local now = (U() and U().nowMs()) or 0
     local spoken
+    -- Last words are rationed (a cooldown, recruits only). The ordinary plea
+    -- covers every other pin, so a pinned survivor is never left silent.
+    if lastWordsCircumstance == "pinned" then topic = topic or "grab.pinned" end
     if lastWordsCircumstance and type(SC.Dialogue.sayLastWords) == "function" then
         spoken = SC.Dialogue.sayLastWords(actor, lastWordsCircumstance)
-    else
+    end
+    if spoken ~= true and topic ~= nil then
         spoken = SC.Dialogue.say(actor, topic, nil, nil,
             { recentLimit = 3, salt = tostring(now) })
     end
@@ -490,6 +494,7 @@ local function grabBark(actor, topic, lastWordsCircumstance)
     end
     if type(addSound) == "function" then pcall(addSound, actor, x, y, z, radius, 10) end
 end
+ZombieAttack._grabBarkForTests = grabBark
 
 -- Zombies pile onto and pull down an overwhelmed companion, just as they grab a
 -- surrounded player. When enough are attacking it at once, roll (against the
