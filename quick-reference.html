@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quick Reference — Living Fellows</title>
+<style>
+/* Palette: field-paper ash, olive drab, dusk amber and rust, drawn from the
+   Living Fellows banner. Every colour lives here so a later edition can
+   retint the manual in one place. */
+:root {
+  --paper:      #e2e0d0;
+  --paper-2:    #d4d3bd;
+  --paper-3:    #dad9c6;
+  --ink:        #1b1d17;
+  --olive-900:  #232c16;
+  --olive-800:  #33421f;
+  --olive-700:  #44542a;
+  --olive-600:  #5a6a3a;
+  --khaki:      #b4b08a;
+  --khaki-2:    #c6c3a2;
+  --amber:      #b8741a;
+  --amber-2:    #d79a3a;
+  --rust:       #8e3b16;
+  --muted:      #6d6a50;
+  --th-bg:      #3d4a26;
+  --th-ink:     #efe9d2;
+  --night:      #1d1b17;
+  --tip:        #4d6b2e;  --tip-bg:   #cfd8bc;
+  --warn:       #9b2116;  --warn-bg:  #e2cdc4;
+  --howto:      #33566e;  --howto-bg: #cdd7da;
+  --also:       #5d6b4a;  --also-bg:  #d5dbc8;
+  --check:      #93670f;  --check-bg: #e3d8b6;
+  --heard:      #3b2a12;  --heard-bg: #d9d1b9;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: Georgia, 'Book Antiqua', 'Palatino Linotype', Palatino, serif;
+  font-size: 17px;
+  line-height: 1.82;
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 2rem 2.5rem 4rem;
+}
+
+a { color: var(--rust); }
+
+/* ── Pixel icons from the game, kept crisp ── */
+img.ico, img.ico-sm, img.ico-lg, .kit img {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  vertical-align: middle;
+}
+img.ico    { height: 30px; width: auto; margin-right: 0.45rem; position: relative; top: -2px; }
+img.ico-sm { height: 24px; width: auto; margin-right: 0.35rem; position: relative; top: -1px; }
+img.ico-lg { height: 52px; width: auto; display: block; margin: 0 auto 0.4rem; }
+/* Moodle symbols are drawn for the game's coloured circle; give them one. */
+img.moodle { height: 28px; width: 28px; padding: 2px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #c2623f, #8e3320); box-shadow: 0 0 0 1px #5e2014; }
+
+/* ── Cover ── */
+#cover {
+  text-align: center;
+  padding: 1.2rem 0 2.6rem;
+  border-bottom: 2px solid var(--amber);
+  margin-bottom: 3rem;
+}
+#cover .banner {
+  background: var(--night);
+  border: 1px solid #000;
+  border-radius: 3px;
+  padding: 6px;
+  box-shadow: 0 3px 14px rgba(20, 18, 10, 0.35);
+  margin-bottom: 1.8rem;
+}
+#cover .banner img { display: block; width: 100%; height: auto; border-radius: 2px; }
+#cover .kit { display: flex; justify-content: center; flex-wrap: wrap; gap: 0.55rem; margin-bottom: 1.1rem; }
+#cover .kit img { height: 38px; width: auto; padding: 4px; background: var(--paper-2); border: 1px solid var(--khaki); border-radius: 3px; }
+#cover h1 { font-size: 2.9rem; letter-spacing: 0.08em; color: var(--olive-900); margin-bottom: 0.4rem; font-weight: normal; text-transform: uppercase; }
+#cover .subtitle { font-size: 1.1rem; color: var(--olive-700); font-style: italic; margin-bottom: 0.4rem; }
+#cover .divider { color: var(--amber); font-size: 1rem; letter-spacing: 0.5em; margin: 0.8rem 0; }
+#cover .edition { font-size: 0.8rem; color: var(--muted); letter-spacing: 0.18em; text-transform: uppercase; }
+#cover .version  { font-size: 0.78rem; color: var(--amber); font-style: italic; margin-top: 0.3rem; }
+
+/* ── Table of Contents ── */
+#toc { background: var(--paper-2); border: 1px solid var(--khaki); border-radius: 3px; padding: 1.6rem 2rem; margin-bottom: 3rem; }
+#toc h2 { color: var(--olive-800); margin-bottom: 1rem; font-size: 1.15rem; font-weight: bold; letter-spacing: 0.04em; }
+#toc > ol { padding-left: 1.2rem; }
+#toc > ol > li { margin-top: 0.6rem; font-weight: bold; color: var(--olive-800); font-size: 0.97rem; }
+#toc > ol > li > ol { margin-top: 0.2rem; padding-left: 1.3rem; }
+#toc > ol > li > ol > li { font-weight: normal; color: var(--olive-600); font-size: 0.845rem; margin-top: 0.12rem; list-style-type: none; }
+#toc > ol > li > ol > li::before { content: "· "; color: var(--amber); }
+#toc a { color: inherit; text-decoration: none; }
+#toc a:hover { color: var(--rust); text-decoration: underline; }
+.toc-stage { font-size: 0.68rem; color: var(--muted); font-weight: normal; font-style: italic; margin-left: 0.4rem; }
+
+/* ── Part dividers ── */
+.part-header { text-align: center; margin: 3.5rem 0 2rem; padding: 1.8rem; border-top: 1px solid var(--khaki); border-bottom: 1px solid var(--khaki); background: var(--paper-2); }
+.part-label { font-size: 0.72rem; letter-spacing: 0.28em; text-transform: uppercase; color: var(--muted); }
+.part-header h2 { font-size: 1.8rem; color: var(--olive-900); margin-top: 0.4rem; font-weight: normal; }
+.part-desc { font-style: italic; color: var(--olive-600); margin-top: 0.5rem; font-size: 0.92rem; }
+
+/* ── Chapter headings ── */
+h2.chapter { font-size: 1.5rem; color: var(--olive-800); margin-top: 2.8rem; margin-bottom: 0.8rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--khaki); font-weight: normal; }
+.ch-meta { font-size: 0.76rem; color: var(--muted); font-weight: normal; font-style: italic; margin-left: 0.6rem; }
+h3 { font-size: 1.1rem; color: var(--olive-700); margin-top: 1.6rem; margin-bottom: 0.5rem; font-weight: bold; }
+h4 { font-size: 0.98rem; color: var(--olive-600); margin-top: 1.2rem; margin-bottom: 0.4rem; font-style: italic; font-weight: normal; }
+
+/* ── Stage badges ── */
+.stage { display: inline-block; font-size: 0.66rem; font-weight: bold; padding: 0.1em 0.5em; border-radius: 2px; vertical-align: middle; margin-left: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.stage-early { background: #d6e3c4; color: #2f4d18; border: 1px solid #a6bd88; }
+.stage-mid   { background: #cfdbe0; color: #1f4256; border: 1px solid #98b3bf; }
+.stage-late  { background: #eddcb6; color: #6b4708; border: 1px solid #cfb47a; }
+.stage-end   { background: #ecd0c6; color: #7a1a0c; border: 1px solid #d3a495; }
+
+/* ── Body text ── */
+p { margin-bottom: 0.9rem; }
+
+/* ── Overheard: a companion's own words, quoted from the mod ── */
+.lore-pull { font-family: 'Courier New', Courier, monospace; color: var(--heard); border-left: 3px solid var(--amber); padding: 0.6rem 1.2rem; margin: 1.3rem 0 1rem; font-size: 0.9rem; background: var(--heard-bg); }
+.lore-pull::before { content: "Overheard — "; font-family: Georgia, serif; font-style: italic; font-weight: bold; color: var(--amber); }
+.lore-pull .who { display: block; font-family: Georgia, serif; font-style: italic; font-size: 0.78rem; color: var(--muted); margin-top: 0.2rem; }
+
+/* ── Callouts ── */
+.callout { border-left: 3px solid; padding: 0.7rem 1.1rem; margin: 1.2rem 0; border-radius: 0 3px 3px 0; font-size: 0.91rem; }
+.callout-tip    { border-color: var(--tip);   background: var(--tip-bg); }
+.callout-warn   { border-color: var(--warn);  background: var(--warn-bg); }
+.callout-recipe { border-color: var(--howto); background: var(--howto-bg); }
+.callout-also   { border-color: var(--also);  background: var(--also-bg); font-size: 0.86rem; color: #3a4a2c; }
+.callout-check  { border-color: var(--check); background: var(--check-bg); }
+
+.callout-tip::before    { content: "Note — "; font-weight: bold; color: var(--tip); }
+.callout-warn::before   { content: "Take care — "; font-weight: bold; color: var(--warn); }
+.callout-recipe::before { content: "How to — "; font-weight: bold; color: var(--howto); }
+.callout-also::before   { content: "See also — "; font-weight: bold; color: var(--also); }
+.callout-check::before  { content: "Checklist — "; font-weight: bold; color: var(--check); }
+
+/* ── Plates: pictures from the game ── */
+figure.plate { margin: 1.6rem 0; padding: 6px; background: var(--paper-3); border: 1px solid var(--khaki); border-radius: 3px; box-shadow: 0 2px 8px rgba(30, 30, 15, 0.18); }
+figure.plate img { display: block; width: 100%; height: auto; border-radius: 2px; }
+figure.plate.narrow { max-width: 420px; margin-left: auto; margin-right: auto; }
+figure.plate figcaption { font-size: 0.8rem; font-style: italic; color: var(--olive-600); padding: 0.45rem 0.3rem 0.1rem; line-height: 1.5; }
+.plate-no { font-style: normal; font-weight: bold; letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.7rem; color: var(--amber); margin-right: 0.4rem; }
+.credit { color: var(--muted); font-size: 0.72rem; margin-left: 0.3rem; }
+
+/* ── Tables ── */
+table { width: 100%; border-collapse: collapse; margin: 1.2rem 0; font-size: 0.87rem; }
+th { background: var(--th-bg); color: var(--th-ink); font-weight: bold; padding: 0.5rem 0.7rem; text-align: left; border-bottom: 2px solid var(--olive-900); }
+td { padding: 0.4rem 0.7rem; border-bottom: 1px solid var(--khaki-2); vertical-align: top; }
+tr:nth-child(even) td { background: var(--paper-3); }
+td.icon-cell { width: 44px; text-align: center; vertical-align: middle; }
+.tbl-power { color: var(--rust); font-weight: bold; }
+.tbl-item  { color: var(--olive-700); font-family: 'Courier New', monospace; font-size: 0.83em; }
+.tbl-note  { color: var(--muted); font-style: italic; font-size: 0.85em; }
+
+/* ── Lists ── */
+ul, ol { padding-left: 1.6rem; margin-bottom: 0.9rem; }
+li { margin-bottom: 0.3rem; }
+
+/* ── Checklist ── */
+.checklist { list-style: none; padding-left: 0.3rem; }
+.checklist li { padding: 0.22rem 0 0.22rem 1.8rem; position: relative; color: #2c2a16; font-size: 0.9rem; }
+.checklist li::before { content: "☐"; position: absolute; left: 0; color: var(--amber); }
+
+/* ── Step list ── */
+.steps { counter-reset: step-counter; list-style: none; padding-left: 0; }
+.steps li { counter-increment: step-counter; padding: 0.4rem 0 0.4rem 2.5rem; position: relative; margin-bottom: 0.4rem; }
+.steps li::before { content: counter(step-counter); position: absolute; left: 0; top: 0.3rem; width: 1.65rem; height: 1.65rem; background: var(--th-bg); border: 1px solid var(--olive-900); border-radius: 50%; text-align: center; line-height: 1.55rem; font-size: 0.78rem; color: var(--th-ink); font-weight: bold; }
+
+/* ── Two-column ── */
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; margin: 1rem 0; }
+.two-col > div { padding: 0.8rem 1rem; border: 1px solid var(--khaki); border-radius: 3px; background: var(--paper-3); }
+.two-col h4 { margin-top: 0; color: var(--olive-800); }
+
+/* ── Inline code / items / keys ── */
+code { font-family: 'Courier New', Courier, monospace; font-size: 0.84em; background: var(--paper-2); color: var(--olive-800); padding: 0.1em 0.4em; border-radius: 2px; overflow-wrap: anywhere; }
+.item { font-family: 'Courier New', Courier, monospace; font-size: 0.84em; background: var(--paper-2); color: var(--olive-800); padding: 0.1em 0.4em; border-radius: 2px; }
+kbd { font-family: 'Courier New', Courier, monospace; font-size: 0.82em; background: #f1eedf; color: var(--olive-900); border: 1px solid var(--khaki); border-bottom-width: 2px; border-radius: 3px; padding: 0.05em 0.45em; white-space: nowrap; }
+.menu { font-weight: bold; color: var(--olive-800); }
+
+/* ── HR ── */
+hr { border: none; border-top: 1px solid var(--khaki-2); margin: 2rem 0; }
+
+/* ── Appendix label ── */
+.appendix-label { font-size: 0.72rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.3rem; margin-top: 2.5rem; }
+
+/* ── Footer ── */
+.page-footer { text-align: center; color: var(--muted); font-size: 0.82rem; margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--khaki-2); font-style: italic; }
+
+/* ── Back-to-Contents ── */
+#totop { position: fixed; bottom: 1.2rem; right: 1.2rem; background: var(--th-bg); color: var(--th-ink); border: 1px solid var(--olive-900); border-radius: 3px; padding: 0.45rem 0.75rem; font-size: 0.76rem; letter-spacing: 0.06em; text-decoration: none; box-shadow: 0 1px 5px rgba(20,20,8,0.35); z-index: 50; }
+#totop:hover { background: var(--amber); color: var(--night); }
+a.ch-top { float: right; font-size: 0.66rem; font-weight: normal; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); text-decoration: none; margin-top: 0.7rem; }
+a.ch-top:hover { color: var(--rust); text-decoration: underline; }
+
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+.language-switcher { position: fixed; top: 1rem; right: 1rem; z-index: 80; font-family: Georgia, 'Book Antiqua', 'Palatino Linotype', Palatino, serif; }
+.language-switcher__toggle { display: flex; align-items: center; justify-content: center; width: 2.55rem; height: 2.55rem; background: var(--th-bg); color: var(--th-ink); border: 1px solid var(--olive-900); border-radius: 50%; box-shadow: 0 1px 5px rgba(20,20,8,0.35); cursor: pointer; font-size: 1.35rem; line-height: 1; list-style: none; user-select: none; }
+.language-switcher__toggle::marker { content: ""; }
+.language-switcher__toggle::-webkit-details-marker { display: none; }
+.language-switcher__toggle:hover,
+.language-switcher__toggle:focus-visible,
+.language-switcher[open] .language-switcher__toggle { background: var(--amber); color: var(--night); outline: none; }
+.language-switcher__menu { position: absolute; top: calc(100% + 0.45rem); right: 0; min-width: 10.5rem; padding: 0.35rem; background: var(--paper-2); border: 1px solid var(--olive-700); border-radius: 3px; box-shadow: 0 4px 12px rgba(20,20,8,0.32); }
+.language-switcher__option { display: flex; align-items: center; gap: 0.55rem; width: 100%; border: 0; border-radius: 2px; background: transparent; color: var(--ink); cursor: pointer; font: inherit; font-size: 0.82rem; line-height: 1.25; padding: 0.45rem 0.55rem; text-align: left; }
+.language-switcher__option:hover,
+.language-switcher__option:focus-visible,
+.language-switcher__option.is-selected { background: var(--check-bg); outline: none; }
+.language-switcher__option:disabled { color: #6d6a58; cursor: not-allowed; opacity: 0.72; }
+.language-switcher__flag { width: 1.6rem; text-align: center; font-size: 1.1rem; line-height: 1; }
+.language-switcher__status { margin-left: auto; font-size: 0.68rem; font-style: italic; }
+
+/* ── Quick reference card ── */
+.card-intro { font-size: 0.86rem; color: var(--olive-600); font-style: italic; }
+.card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin: 1rem 0; }
+.card { border: 1px solid var(--khaki); border-top: 3px solid var(--olive-700); background: var(--paper-3); border-radius: 3px; padding: 0.55rem 0.75rem 0.6rem; font-size: 0.8rem; line-height: 1.45; break-inside: avoid; min-width: 0; }
+.card h4 { margin: 0 0 0.35rem; font-style: normal; font-weight: bold; font-size: 0.78rem; color: var(--olive-800); text-transform: uppercase; letter-spacing: 0.08em; border-bottom: 1px solid var(--khaki); padding-bottom: 0.2rem; display: flex; align-items: center; gap: 0.35rem; }
+.card h4 img { height: 20px; width: auto; image-rendering: pixelated; }
+.card table { font-size: 0.76rem; margin: 0.25rem 0 0; }
+.card th, .card td { padding: 0.12rem 0.35rem; }
+.card ul, .card ol { padding-left: 1.05rem; margin: 0; }
+.card li { margin: 0 0 0.12rem; }
+.card p { margin: 0.2rem 0 0; }
+.card img.ico-sm { height: 18px; margin-right: 0.2rem; }
+.card kbd { font-size: 0.74rem; }
+.card-wide { grid-column: 1 / -1; }
+.k { white-space: nowrap; font-weight: bold; color: var(--olive-900); }
+
+@media (max-width: 640px) {
+  body { padding: 3.2rem 1rem 3rem; }
+  table { display: block; max-width: 100%; overflow-x: auto; }
+  .two-col { grid-template-columns: minmax(0, 1fr); }
+  .two-col > div { min-width: 0; }
+  .language-switcher { top: 0.65rem; right: 0.65rem; }
+  #cover h1 { font-size: 2.1rem; }
+  #cover .kit img { height: 30px; }
+  .card-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ── Print ── */
+@media print {
+  #totop, .language-switcher, a.ch-top { display: none; }
+  body { background: white; color: #111; font-size: 11pt; padding: 1.5cm; max-width: none; }
+  #cover h1 { color: #333; }
+  #toc, .part-header, .two-col > div, figure.plate { background: #f9f9f9; box-shadow: none; }
+  .callout-tip, .callout-warn, .callout-recipe, .callout-also, .callout-check, .lore-pull { background: #f5f5f5; }
+  th { background: #e8e4d8; color: #111; }
+  code, .item, kbd { background: #f0f0f0; color: #111; }
+  figure.plate { break-inside: avoid; }
+  
+  .card { background: #fafafa; font-size: 7.4pt; line-height: 1.32; padding: 0.18cm 0.28cm 0.2cm; }
+  .card h4 { font-size: 7.4pt; margin-bottom: 0.08cm; }
+  .card h4 img { height: 14px; }
+  .card table { font-size: 7pt; }
+  .card img.ico-sm { height: 13px; }
+  .card-grid { grid-template-columns: 1fr 1fr; gap: 0.22cm; margin: 0.2cm 0; }
+  #appF { margin-top: 0; font-size: 13pt; }
+  .card-intro { margin-bottom: 0.1cm; }
+}
+</style>
+</head>
+<body>
+<!-- CARD START -->
+<p class="appendix-label">Living Fellows · Release 0.26.25</p>
+<h2 class="chapter" id="appF">Quick Reference Card</h2>
+<p class="card-intro">The Field Manual on two printed pages. Each panel names the manual chapter with the detail. <a href="quick-reference.html">Open the printable card on its own page.</a></p>
+
+<div class="card-grid">
+
+<div class="card">
+<h4><img src="https://pzwiki.net/w/images/7/7f/KeyRing.png" alt="">Keys</h4>
+<table>
+  <tr><td><kbd>Home</kbd></td><td>Open or close the panel; <strong>LF</strong> when collapsed</td></tr>
+  <tr><td><kbd>[</kbd> held</td><td>Peek at the selected companion</td></tr>
+  <tr><td><kbd>]</kbd> held</td><td>Steer them toward the cursor</td></tr>
+  <tr><td><kbd>End</kbd></td><td>Show or hide the base layout</td></tr>
+  <tr><td>Rotate building</td><td>The game's key; turns a blueprint</td></tr>
+  <tr><td>Right-click</td><td>A companion: Talk, Watch, quick orders, Assign objective. The world: the <span class="k">Living Fellows</span> menu.</td></tr>
+</table>
+<p class="tbl-note">Ch 3, Appendix A</p>
+</div>
+
+<div class="card">
+<h4><img src="https://pzwiki.net/w/images/3/31/Radio.png" alt="">Orders</h4>
+<ul>
+  <li><span class="k">Follow · Stay · Guard</span>. Inside camp, Stay or Guard means base duty.</li>
+  <li><span class="k">Regroup · Retreat</span> are emergencies.</li>
+  <li><span class="k">Focus on this zombie</span>; twice within 4 s is a <em>push</em>. <span class="k">Leave this zombie alone</span> lasts 12 s.</li>
+  <li>Follow distance: close, 2, 3, 5 or 8 tiles. Movement: Copy player, Walk, Sneak, Run.</li>
+  <li>New recruits: Follow, Copy player, Ride with player, Scavenge when safe.</li>
+  <li><span class="k">Dismiss</span> is confirmed by name; it waits only for a fight for their life or an action that can't be stopped.</li>
+</ul>
+<p class="tbl-note">Ch 4</p>
+</div>
+
+<div class="card">
+<h4><img src="https://pzwiki.net/w/images/4/40/BaseballBat.png" alt="">Rules of engagement</h4>
+<table>
+  <tr><td class="k">Stealth</td><td>Avoid contact; quiet force; hand signals; never shoots from a vehicle</td></tr>
+  <tr><td class="k">Close Defense</td><td>Clear threats near the team; no chasing</td></tr>
+  <tr><td class="k">Ranged Support</td><td>Firearms at distance; may fire from a car window at safe speed</td></tr>
+  <tr><td class="k">Weapons Free</td><td>Engage visible threats; brief pursuit</td></tr>
+  <tr><td class="k">Hold fire</td><td>Blocks ordinary shots under any doctrine</td></tr>
+</table>
+<p class="tbl-note">Ch 6. A refusal always says why.</p>
+</div>
+
+<div class="card">
+<h4><img src="https://pzwiki.net/w/images/1/18/Whistle.png" alt="">Squads and signals</h4>
+<ul>
+  <li><span class="k">Whistle</span>: every follower regroups, seen or not. Loud: about 24 tiles, and zombies hear it.</li>
+  <li><span class="k">Hand signs</span> are silent and need sight: follow, hold, regroup, follow cautiously (sneak and scavenge), move out, fall back, cease fire, fire.</li>
+  <li>Groups <span class="k">Alpha · Bravo · Charlie</span> with group orders; a group is an expedition squad.</li>
+</ul>
+<p class="tbl-note">Ch 5b</p>
+</div>
+
+<div class="card">
+<h4><img src="https://pzwiki.net/w/images/0/07/Teabag.png" alt="">Talk</h4>
+<table>
+  <tr><td class="k">Check in</td><td>What are you doing? · How are you? · Do you need anything? · What are you hoping for?</td></tr>
+  <tr><td class="k">Get to know</td><td>Talk about memories · Tell me about yourself · What do you think? · How are we doing?</td></tr>
+  <tr><td class="k">Support</td><td><em>Reassure them</em>: stress −12, morale +8, bond +1, every 2 min when needed. <em>You did well</em>: bond +3, morale +6, once per moment.</td></tr>
+</table>
+<p class="tbl-note">Ch 9b</p>
+</div>
+
+<div class="card">
+<h4><img src="https://pzwiki.net/w/images/7/71/Locket.png" alt="">Trust</h4>
+<p><span class="k">Score</span> = trust × 0.55 + bond × 0.45: Cautious &lt;10 · Ally 10 · Trusted 30 · Close 55 · Family 80.</p>
+<p><span class="k">Builds when close</span> (8 tiles, same floor): patched up +5 trust / +4 bond · eating or drinking +3/+2 · escaping together +2/+4 · danger to you passing +2/+5.</p>
+<p><span class="k">Their past opens</span> at trust 10 past · 25 home · 40 value · 55 fear · 70 habit · 80 keepsake.</p>
+<p class="tbl-note">Ch 9d</p>
+</div>
+
+<div class="card">
+<h4><img src="https://pzwiki.net/w/images/0/0c/Bandage.png" alt="">Needs and medicine</h4>
+<table>
+  <tr><th></th><th>Noticed</th><th>Serious</th><th>Urgent</th></tr>
+  <tr><td><img class="ico-sm moodle" src="https://pzwiki.net/w/images/f/fd/Moodle_Icon_Thirsty.png" alt="">Thirst</td><td>48%</td><td>62%</td><td>75%</td></tr>
+  <tr><td><img class="ico-sm moodle" src="https://pzwiki.net/w/images/d/d3/Moodle_Icon_Hungry.png" alt="">Hunger</td><td>55%</td><td>70%</td><td>82%</td></tr>
+  <tr><td><img class="ico-sm moodle" src="https://pzwiki.net/w/images/2/2b/Moodle_Icon_Tired.png" alt="">Tired</td><td>50%</td><td>68%</td><td>82%</td></tr>
+</table>
+<ul>
+  <li>Clean water only; they eat if no water is in reach.</li>
+  <li>They treat you when it's safe: bleeding first, then wounds, then splints.</li>
+  <li><span class="k">A bite</span>: conceal, confess or leave; the group votes; you decide. Mercy waits for your authorization.</li>
+</ul>
+<p class="tbl-note">Ch 8</p>
+</div>
+
+<div class="card">
+<h4><img src="https://pzwiki.net/w/images/8/81/Hammer.png" alt="">Setting up camp</h4>
+<ol>
+  <li>Right-click → <span class="k">Living Fellows → Base life → Set camp core here</span> (seven tiles each way).</li>
+  <li><span class="k">Start zone here</span>, right-click the far corner, <span class="k">Finish zone here</span>.</li>
+  <li><span class="k">Mark storage as...</span>: food, water, medical, tools, construction, and more.</li>
+  <li><span class="k">More → Base</span>: give each resident a base job.</li>
+</ol>
+<p>Lumber, farm, burial and pyre areas may lie 30 tiles out. Stairs extend the camp up or down, basements included. Blueprints: <span class="k">Queue construction</span>.</p>
+<p class="tbl-note">Ch 11–13</p>
+</div>
+
+<div class="card">
+<h4><img src="https://pzwiki.net/w/images/4/45/WoodAxe.png" alt="">Base jobs</h4>
+<table>
+  <tr><td class="k">Woodcutter</td><td>Lumber area, axe, storage for logs</td></tr>
+  <tr><td class="k">Carpenter</td><td>Logs, a saw, a second container for planks</td></tr>
+  <tr><td class="k">Gravekeeper</td><td>Burial ground and shovel, or a pyre, lighter and petrol</td></tr>
+  <tr><td class="k">Farmer</td><td>Farm area over existing plots; farming supplies</td></tr>
+  <tr><td class="k">Maintainer</td><td>Barricades marked for upkeep</td></tr>
+</table>
+<p>No new trees or bodies outside camp from 21:00 to 06:00.</p>
+<p class="tbl-note">Ch 14, 15, 16</p>
+</div>
+
+<div class="card">
+<h4><img src="https://pzwiki.net/w/images/c/c7/Clipboard.png" alt="">Running the camp</h4>
+<p><span class="k">Stock per resident</span>: food 3 · water 2 · medical 1 · construction 2 · ammunition 6 per guard.</p>
+<p><span class="k">Roles needed</span>: guard and builder (Carpenter) at 2 residents · medic at 3 · quartermaster at 4 · farmer with a farm area.</p>
+<p><span class="k">Defence</span>: Rotating watch · Role based · All hands. <span class="k">Workload</span>: Essential · Balanced · Continuous.</p>
+<p class="tbl-note">Ch 14b</p>
+</div>
+
+<div class="card">
+<h4><img src="https://pzwiki.net/w/images/c/c1/Padlock.png" alt="">Households</h4>
+<p><span class="k">Standing</span>: Hostile ≤ −60 · Wary &lt; 0 (new ones start at −20) · Tolerated 0–39 · Trusted 40+.</p>
+<p><span class="k">Offences</span>: trespass −12 · aiming −28 · theft −40 · barricade −45 · damage −55 · murder −100, never forgiven.</p>
+<p><span class="k">Help</span>: a delivered request +30 and opens barter · a broken promise −12 · recruit after 2 kept promises, a field trial of 6+ hours, then a decision.</p>
+<p class="tbl-note">Ch 18, 18b</p>
+</div>
+
+<div class="card">
+<h4><img src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Expeditions <span class="stage stage-end" style="margin-left:auto">Experimental</span></h4>
+<ol>
+  <li>Put 1–4 companions in a group on <span class="k">Squad</span>.</li>
+  <li><span class="k">Expeditions</span>: leader, Scout or Search, a place within 200 tiles, route, 1/2/4/8 h, combat style.</li>
+  <li><span class="k">Send squad</span>, on a disposable save.</li>
+</ol>
+<p><span class="k">Recall</span>: powered walkie-talkies on you and the leader, same channel → right-click your radio → <em>Return immediately</em>.</p>
+<p class="tbl-note">Ch 17</p>
+</div>
+
+<div class="card card-wide">
+<h4><img src="https://pzwiki.net/w/images/4/46/Toolbox.png" alt="">When something's wrong</h4>
+<table>
+  <tr><td class="k">Panel missing</td><td>Press <kbd>Home</kbd>, look for <strong>LF</strong>, check the mod is enabled for the save (and ZombieBuddy, on Workshop)</td></tr>
+  <tr><td class="k">A moving shadow</td><td>The bridge failed: <span class="k">More → Support</span>, copy the report, and stop playing that save</td></tr>
+  <tr><td class="k">Stuck</td><td>Wait a moment, then <strong>Regroup</strong>; note what's in the way</td></tr>
+  <tr><td class="k">Ignoring you</td><td>Read <em>Last action problem</em> on Status</td></tr>
+  <tr><td class="k">Reporting</td><td>Support report, <code>console.txt</code>, <code>logs.zip</code>, and a screenshot or video</td></tr>
+</table>
+<p class="tbl-note">Appendix C, D</p>
+</div>
+
+</div>
+<div class="page-footer">Quick Reference — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 &nbsp;·&nbsp; Icons: PZwiki; game art © The Indie Stone<br><a href="index.html">The full Field Manual</a> &nbsp;·&nbsp; <a href="https://github.com/thorelvin/living-fellows">Living Fellows on GitHub</a></div>
+</body>
+</html>

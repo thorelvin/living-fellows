@@ -1,0 +1,2270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Field Manual — Living Fellows</title>
+<style>
+/* Palette: field-paper ash, olive drab, dusk amber and rust, drawn from the
+   Living Fellows banner. Every colour lives here so a later edition can
+   retint the manual in one place. */
+:root {
+  --paper:      #e2e0d0;
+  --paper-2:    #d4d3bd;
+  --paper-3:    #dad9c6;
+  --ink:        #1b1d17;
+  --olive-900:  #232c16;
+  --olive-800:  #33421f;
+  --olive-700:  #44542a;
+  --olive-600:  #5a6a3a;
+  --khaki:      #b4b08a;
+  --khaki-2:    #c6c3a2;
+  --amber:      #b8741a;
+  --amber-2:    #d79a3a;
+  --rust:       #8e3b16;
+  --muted:      #6d6a50;
+  --th-bg:      #3d4a26;
+  --th-ink:     #efe9d2;
+  --night:      #1d1b17;
+  --tip:        #4d6b2e;  --tip-bg:   #cfd8bc;
+  --warn:       #9b2116;  --warn-bg:  #e2cdc4;
+  --howto:      #33566e;  --howto-bg: #cdd7da;
+  --also:       #5d6b4a;  --also-bg:  #d5dbc8;
+  --check:      #93670f;  --check-bg: #e3d8b6;
+  --heard:      #3b2a12;  --heard-bg: #d9d1b9;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: Georgia, 'Book Antiqua', 'Palatino Linotype', Palatino, serif;
+  font-size: 17px;
+  line-height: 1.82;
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 2rem 2.5rem 4rem;
+}
+
+a { color: var(--rust); }
+
+/* ── Pixel icons from the game, kept crisp ── */
+img.ico, img.ico-sm, img.ico-lg, .kit img {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  vertical-align: middle;
+}
+img.ico    { height: 30px; width: auto; margin-right: 0.45rem; position: relative; top: -2px; }
+img.ico-sm { height: 24px; width: auto; margin-right: 0.35rem; position: relative; top: -1px; }
+img.ico-lg { height: 52px; width: auto; display: block; margin: 0 auto 0.4rem; }
+/* Moodle symbols are drawn for the game's coloured circle; give them one. */
+img.moodle { height: 28px; width: 28px; padding: 2px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #c2623f, #8e3320); box-shadow: 0 0 0 1px #5e2014; }
+
+/* ── Cover ── */
+#cover {
+  text-align: center;
+  padding: 1.2rem 0 2.6rem;
+  border-bottom: 2px solid var(--amber);
+  margin-bottom: 3rem;
+}
+#cover .banner {
+  background: var(--night);
+  border: 1px solid #000;
+  border-radius: 3px;
+  padding: 6px;
+  box-shadow: 0 3px 14px rgba(20, 18, 10, 0.35);
+  margin-bottom: 1.8rem;
+}
+#cover .banner img { display: block; width: 100%; height: auto; border-radius: 2px; }
+#cover .kit { display: flex; justify-content: center; flex-wrap: wrap; gap: 0.55rem; margin-bottom: 1.1rem; }
+#cover .kit img { height: 38px; width: auto; padding: 4px; background: var(--paper-2); border: 1px solid var(--khaki); border-radius: 3px; }
+#cover h1 { font-size: 2.9rem; letter-spacing: 0.08em; color: var(--olive-900); margin-bottom: 0.4rem; font-weight: normal; text-transform: uppercase; }
+#cover .subtitle { font-size: 1.1rem; color: var(--olive-700); font-style: italic; margin-bottom: 0.4rem; }
+#cover .divider { color: var(--amber); font-size: 1rem; letter-spacing: 0.5em; margin: 0.8rem 0; }
+#cover .edition { font-size: 0.8rem; color: var(--muted); letter-spacing: 0.18em; text-transform: uppercase; }
+#cover .version  { font-size: 0.78rem; color: var(--amber); font-style: italic; margin-top: 0.3rem; }
+
+/* ── Table of Contents ── */
+#toc { background: var(--paper-2); border: 1px solid var(--khaki); border-radius: 3px; padding: 1.6rem 2rem; margin-bottom: 3rem; }
+#toc h2 { color: var(--olive-800); margin-bottom: 1rem; font-size: 1.15rem; font-weight: bold; letter-spacing: 0.04em; }
+#toc > ol { padding-left: 1.2rem; }
+#toc > ol > li { margin-top: 0.6rem; font-weight: bold; color: var(--olive-800); font-size: 0.97rem; }
+#toc > ol > li > ol { margin-top: 0.2rem; padding-left: 1.3rem; }
+#toc > ol > li > ol > li { font-weight: normal; color: var(--olive-600); font-size: 0.845rem; margin-top: 0.12rem; list-style-type: none; }
+#toc > ol > li > ol > li::before { content: "· "; color: var(--amber); }
+#toc a { color: inherit; text-decoration: none; }
+#toc a:hover { color: var(--rust); text-decoration: underline; }
+.toc-stage { font-size: 0.68rem; color: var(--muted); font-weight: normal; font-style: italic; margin-left: 0.4rem; }
+
+/* ── Part dividers ── */
+.part-header { text-align: center; margin: 3.5rem 0 2rem; padding: 1.8rem; border-top: 1px solid var(--khaki); border-bottom: 1px solid var(--khaki); background: var(--paper-2); }
+.part-label { font-size: 0.72rem; letter-spacing: 0.28em; text-transform: uppercase; color: var(--muted); }
+.part-header h2 { font-size: 1.8rem; color: var(--olive-900); margin-top: 0.4rem; font-weight: normal; }
+.part-desc { font-style: italic; color: var(--olive-600); margin-top: 0.5rem; font-size: 0.92rem; }
+
+/* ── Chapter headings ── */
+h2.chapter { font-size: 1.5rem; color: var(--olive-800); margin-top: 2.8rem; margin-bottom: 0.8rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--khaki); font-weight: normal; }
+.ch-meta { font-size: 0.76rem; color: var(--muted); font-weight: normal; font-style: italic; margin-left: 0.6rem; }
+h3 { font-size: 1.1rem; color: var(--olive-700); margin-top: 1.6rem; margin-bottom: 0.5rem; font-weight: bold; }
+h4 { font-size: 0.98rem; color: var(--olive-600); margin-top: 1.2rem; margin-bottom: 0.4rem; font-style: italic; font-weight: normal; }
+
+/* ── Stage badges ── */
+.stage { display: inline-block; font-size: 0.66rem; font-weight: bold; padding: 0.1em 0.5em; border-radius: 2px; vertical-align: middle; margin-left: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.stage-early { background: #d6e3c4; color: #2f4d18; border: 1px solid #a6bd88; }
+.stage-mid   { background: #cfdbe0; color: #1f4256; border: 1px solid #98b3bf; }
+.stage-late  { background: #eddcb6; color: #6b4708; border: 1px solid #cfb47a; }
+.stage-end   { background: #ecd0c6; color: #7a1a0c; border: 1px solid #d3a495; }
+
+/* ── Body text ── */
+p { margin-bottom: 0.9rem; }
+
+/* ── Overheard: a companion's own words, quoted from the mod ── */
+.lore-pull { font-family: 'Courier New', Courier, monospace; color: var(--heard); border-left: 3px solid var(--amber); padding: 0.6rem 1.2rem; margin: 1.3rem 0 1rem; font-size: 0.9rem; background: var(--heard-bg); }
+.lore-pull::before { content: "Overheard — "; font-family: Georgia, serif; font-style: italic; font-weight: bold; color: var(--amber); }
+.lore-pull .who { display: block; font-family: Georgia, serif; font-style: italic; font-size: 0.78rem; color: var(--muted); margin-top: 0.2rem; }
+
+/* ── Callouts ── */
+.callout { border-left: 3px solid; padding: 0.7rem 1.1rem; margin: 1.2rem 0; border-radius: 0 3px 3px 0; font-size: 0.91rem; }
+.callout-tip    { border-color: var(--tip);   background: var(--tip-bg); }
+.callout-warn   { border-color: var(--warn);  background: var(--warn-bg); }
+.callout-recipe { border-color: var(--howto); background: var(--howto-bg); }
+.callout-also   { border-color: var(--also);  background: var(--also-bg); font-size: 0.86rem; color: #3a4a2c; }
+.callout-check  { border-color: var(--check); background: var(--check-bg); }
+
+.callout-tip::before    { content: "Note — "; font-weight: bold; color: var(--tip); }
+.callout-warn::before   { content: "Take care — "; font-weight: bold; color: var(--warn); }
+.callout-recipe::before { content: "How to — "; font-weight: bold; color: var(--howto); }
+.callout-also::before   { content: "See also — "; font-weight: bold; color: var(--also); }
+.callout-check::before  { content: "Checklist — "; font-weight: bold; color: var(--check); }
+
+/* ── Plates: pictures from the game ── */
+figure.plate { margin: 1.6rem 0; padding: 6px; background: var(--paper-3); border: 1px solid var(--khaki); border-radius: 3px; box-shadow: 0 2px 8px rgba(30, 30, 15, 0.18); }
+figure.plate img { display: block; width: 100%; height: auto; border-radius: 2px; }
+figure.plate.narrow { max-width: 420px; margin-left: auto; margin-right: auto; }
+figure.plate figcaption { font-size: 0.8rem; font-style: italic; color: var(--olive-600); padding: 0.45rem 0.3rem 0.1rem; line-height: 1.5; }
+.plate-no { font-style: normal; font-weight: bold; letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.7rem; color: var(--amber); margin-right: 0.4rem; }
+.credit { color: var(--muted); font-size: 0.72rem; margin-left: 0.3rem; }
+
+/* ── Tables ── */
+table { width: 100%; border-collapse: collapse; margin: 1.2rem 0; font-size: 0.87rem; }
+th { background: var(--th-bg); color: var(--th-ink); font-weight: bold; padding: 0.5rem 0.7rem; text-align: left; border-bottom: 2px solid var(--olive-900); }
+td { padding: 0.4rem 0.7rem; border-bottom: 1px solid var(--khaki-2); vertical-align: top; }
+tr:nth-child(even) td { background: var(--paper-3); }
+td.icon-cell { width: 44px; text-align: center; vertical-align: middle; }
+.tbl-power { color: var(--rust); font-weight: bold; }
+.tbl-item  { color: var(--olive-700); font-family: 'Courier New', monospace; font-size: 0.83em; }
+.tbl-note  { color: var(--muted); font-style: italic; font-size: 0.85em; }
+
+/* ── Lists ── */
+ul, ol { padding-left: 1.6rem; margin-bottom: 0.9rem; }
+li { margin-bottom: 0.3rem; }
+
+/* ── Checklist ── */
+.checklist { list-style: none; padding-left: 0.3rem; }
+.checklist li { padding: 0.22rem 0 0.22rem 1.8rem; position: relative; color: #2c2a16; font-size: 0.9rem; }
+.checklist li::before { content: "☐"; position: absolute; left: 0; color: var(--amber); }
+
+/* ── Step list ── */
+.steps { counter-reset: step-counter; list-style: none; padding-left: 0; }
+.steps li { counter-increment: step-counter; padding: 0.4rem 0 0.4rem 2.5rem; position: relative; margin-bottom: 0.4rem; }
+.steps li::before { content: counter(step-counter); position: absolute; left: 0; top: 0.3rem; width: 1.65rem; height: 1.65rem; background: var(--th-bg); border: 1px solid var(--olive-900); border-radius: 50%; text-align: center; line-height: 1.55rem; font-size: 0.78rem; color: var(--th-ink); font-weight: bold; }
+
+/* ── Two-column ── */
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; margin: 1rem 0; }
+.two-col > div { padding: 0.8rem 1rem; border: 1px solid var(--khaki); border-radius: 3px; background: var(--paper-3); }
+.two-col h4 { margin-top: 0; color: var(--olive-800); }
+
+/* ── Inline code / items / keys ── */
+code { font-family: 'Courier New', Courier, monospace; font-size: 0.84em; background: var(--paper-2); color: var(--olive-800); padding: 0.1em 0.4em; border-radius: 2px; overflow-wrap: anywhere; }
+.item { font-family: 'Courier New', Courier, monospace; font-size: 0.84em; background: var(--paper-2); color: var(--olive-800); padding: 0.1em 0.4em; border-radius: 2px; }
+kbd { font-family: 'Courier New', Courier, monospace; font-size: 0.82em; background: #f1eedf; color: var(--olive-900); border: 1px solid var(--khaki); border-bottom-width: 2px; border-radius: 3px; padding: 0.05em 0.45em; white-space: nowrap; }
+.menu { font-weight: bold; color: var(--olive-800); }
+
+/* ── HR ── */
+hr { border: none; border-top: 1px solid var(--khaki-2); margin: 2rem 0; }
+
+/* ── Appendix label ── */
+.appendix-label { font-size: 0.72rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.3rem; margin-top: 2.5rem; }
+
+/* ── Footer ── */
+.page-footer { text-align: center; color: var(--muted); font-size: 0.82rem; margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--khaki-2); font-style: italic; }
+
+/* ── Back-to-Contents ── */
+#totop { position: fixed; bottom: 1.2rem; right: 1.2rem; background: var(--th-bg); color: var(--th-ink); border: 1px solid var(--olive-900); border-radius: 3px; padding: 0.45rem 0.75rem; font-size: 0.76rem; letter-spacing: 0.06em; text-decoration: none; box-shadow: 0 1px 5px rgba(20,20,8,0.35); z-index: 50; }
+#totop:hover { background: var(--amber); color: var(--night); }
+a.ch-top { float: right; font-size: 0.66rem; font-weight: normal; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); text-decoration: none; margin-top: 0.7rem; }
+a.ch-top:hover { color: var(--rust); text-decoration: underline; }
+
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+.language-switcher { position: fixed; top: 1rem; right: 1rem; z-index: 80; font-family: Georgia, 'Book Antiqua', 'Palatino Linotype', Palatino, serif; }
+.language-switcher__toggle { display: flex; align-items: center; justify-content: center; width: 2.55rem; height: 2.55rem; background: var(--th-bg); color: var(--th-ink); border: 1px solid var(--olive-900); border-radius: 50%; box-shadow: 0 1px 5px rgba(20,20,8,0.35); cursor: pointer; font-size: 1.35rem; line-height: 1; list-style: none; user-select: none; }
+.language-switcher__toggle::marker { content: ""; }
+.language-switcher__toggle::-webkit-details-marker { display: none; }
+.language-switcher__toggle:hover,
+.language-switcher__toggle:focus-visible,
+.language-switcher[open] .language-switcher__toggle { background: var(--amber); color: var(--night); outline: none; }
+.language-switcher__menu { position: absolute; top: calc(100% + 0.45rem); right: 0; min-width: 10.5rem; padding: 0.35rem; background: var(--paper-2); border: 1px solid var(--olive-700); border-radius: 3px; box-shadow: 0 4px 12px rgba(20,20,8,0.32); }
+.language-switcher__option { display: flex; align-items: center; gap: 0.55rem; width: 100%; border: 0; border-radius: 2px; background: transparent; color: var(--ink); cursor: pointer; font: inherit; font-size: 0.82rem; line-height: 1.25; padding: 0.45rem 0.55rem; text-align: left; }
+.language-switcher__option:hover,
+.language-switcher__option:focus-visible,
+.language-switcher__option.is-selected { background: var(--check-bg); outline: none; }
+.language-switcher__option:disabled { color: #6d6a58; cursor: not-allowed; opacity: 0.72; }
+.language-switcher__flag { width: 1.6rem; text-align: center; font-size: 1.1rem; line-height: 1; }
+.language-switcher__status { margin-left: auto; font-size: 0.68rem; font-style: italic; }
+
+/* ── Quick reference card ── */
+.card-intro { font-size: 0.86rem; color: var(--olive-600); font-style: italic; }
+.card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin: 1rem 0; }
+.card { border: 1px solid var(--khaki); border-top: 3px solid var(--olive-700); background: var(--paper-3); border-radius: 3px; padding: 0.55rem 0.75rem 0.6rem; font-size: 0.8rem; line-height: 1.45; break-inside: avoid; min-width: 0; }
+.card h4 { margin: 0 0 0.35rem; font-style: normal; font-weight: bold; font-size: 0.78rem; color: var(--olive-800); text-transform: uppercase; letter-spacing: 0.08em; border-bottom: 1px solid var(--khaki); padding-bottom: 0.2rem; display: flex; align-items: center; gap: 0.35rem; }
+.card h4 img { height: 20px; width: auto; image-rendering: pixelated; }
+.card table { font-size: 0.76rem; margin: 0.25rem 0 0; }
+.card th, .card td { padding: 0.12rem 0.35rem; }
+.card ul, .card ol { padding-left: 1.05rem; margin: 0; }
+.card li { margin: 0 0 0.12rem; }
+.card p { margin: 0.2rem 0 0; }
+.card img.ico-sm { height: 18px; margin-right: 0.2rem; }
+.card kbd { font-size: 0.74rem; }
+.card-wide { grid-column: 1 / -1; }
+.k { white-space: nowrap; font-weight: bold; color: var(--olive-900); }
+
+@media (max-width: 640px) {
+  body { padding: 3.2rem 1rem 3rem; }
+  table { display: block; max-width: 100%; overflow-x: auto; }
+  .two-col { grid-template-columns: minmax(0, 1fr); }
+  .two-col > div { min-width: 0; }
+  .language-switcher { top: 0.65rem; right: 0.65rem; }
+  #cover h1 { font-size: 2.1rem; }
+  #cover .kit img { height: 30px; }
+  .card-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ── Print ── */
+@media print {
+  #totop, .language-switcher, a.ch-top { display: none; }
+  body { background: white; color: #111; font-size: 11pt; padding: 1.5cm; max-width: none; }
+  #cover h1 { color: #333; }
+  #toc, .part-header, .two-col > div, figure.plate { background: #f9f9f9; box-shadow: none; }
+  .callout-tip, .callout-warn, .callout-recipe, .callout-also, .callout-check, .lore-pull { background: #f5f5f5; }
+  th { background: #e8e4d8; color: #111; }
+  code, .item, kbd { background: #f0f0f0; color: #111; }
+  figure.plate { break-inside: avoid; }
+  #appF { break-before: page; }
+  .card { background: #fafafa; font-size: 7.4pt; line-height: 1.32; padding: 0.18cm 0.28cm 0.2cm; }
+  .card h4 { font-size: 7.4pt; margin-bottom: 0.08cm; }
+  .card h4 img { height: 14px; }
+  .card table { font-size: 7pt; }
+  .card img.ico-sm { height: 13px; }
+  .card-grid { grid-template-columns: 1fr 1fr; gap: 0.22cm; margin: 0.2cm 0; }
+  #appF { margin-top: 0; font-size: 13pt; }
+  .card-intro { margin-bottom: 0.1cm; }
+}
+</style>
+</head>
+<body>
+
+<a href="#toc" id="totop" title="Back to Contents">☰ Contents</a>
+
+<details class="language-switcher" data-language-picker>
+  <summary class="language-switcher__toggle" data-language-toggle aria-haspopup="listbox" aria-expanded="false" aria-label="Language: English. Select language" title="Language: English">
+    <span class="language-switcher__flag" data-language-current-flag aria-hidden="true">&#127468;&#127463;</span>
+    <span class="sr-only" data-language-current-label>English</span>
+  </summary>
+  <div class="language-switcher__menu" role="listbox" aria-label="Language">
+    <button class="language-switcher__option is-selected" type="button" data-language-option="en" role="option" aria-selected="true">
+      <span class="language-switcher__flag" aria-hidden="true">&#127468;&#127463;</span>
+      <span>English</span>
+    </button>
+    <button class="language-switcher__option" type="button" role="option" aria-selected="false" aria-disabled="true" disabled>
+      <span class="language-switcher__flag" aria-hidden="true">&#127475;&#127476;</span>
+      <span>Norsk</span>
+      <span class="language-switcher__status">planned</span>
+    </button>
+    <button class="language-switcher__option" type="button" role="option" aria-selected="false" aria-disabled="true" disabled>
+      <span class="language-switcher__flag" aria-hidden="true">&#127465;&#127466;</span>
+      <span>Deutsch</span>
+      <span class="language-switcher__status">planned</span>
+    </button>
+    <button class="language-switcher__option" type="button" role="option" aria-selected="false" aria-disabled="true" disabled>
+      <span class="language-switcher__flag" aria-hidden="true">&#127467;&#127479;</span>
+      <span>Français</span>
+      <span class="language-switcher__status">planned</span>
+    </button>
+    <button class="language-switcher__option" type="button" role="option" aria-selected="false" aria-disabled="true" disabled>
+      <span class="language-switcher__flag" aria-hidden="true">&#127466;&#127480;</span>
+      <span>Español</span>
+      <span class="language-switcher__status">planned</span>
+    </button>
+  </div>
+</details>
+
+<!-- COVER -->
+<div id="cover">
+  <div class="banner"><img src="assets/lf_banner.jpg" alt="Living Fellows: four armed survivors walk a dusk street as zombies approach. You won't die... alone."></div>
+  <div class="kit" aria-hidden="true">
+    <img src="https://pzwiki.net/w/images/8/81/Hammer.png" alt=""><img src="https://pzwiki.net/w/images/4/45/WoodAxe.png" alt=""><img src="https://pzwiki.net/w/images/0/0c/Bandage.png" alt=""><img src="https://pzwiki.net/w/images/1/14/WaterBottle.png" alt=""><img src="https://pzwiki.net/w/images/9/9f/Beans.png" alt=""><img src="https://pzwiki.net/w/images/6/61/Shotgun.png" alt=""><img src="https://pzwiki.net/w/images/4/43/Map.png" alt=""><img src="https://pzwiki.net/w/images/3/31/Radio.png" alt=""><img src="https://pzwiki.net/w/images/4/4d/Flashlight.png" alt="">
+  </div>
+  <h1>Field Manual</h1>
+  <p class="subtitle">A Complete Guide to Living with the Fellows of Knox County</p>
+  <p class="divider">· · · ✚ · · ·</p>
+  <p class="edition">Living Fellows — Project Zomboid Build 42.21.0 Edition</p>
+  <p class="version">Release 0.26.25 — First Edition, Third Printing — You won't die... alone.</p>
+</div>
+
+<div class="callout callout-tip" style="margin-bottom:2.5rem;">
+<strong>What changed in this release</strong> — the latest work from 0.26.24 and 0.26.25:
+<ul style="margin-top:0.5rem;margin-bottom:0;">
+  <li><a href="#dismissing"><strong>Dismissing a companion</strong></a> works. The farewell walk used to be sent without a direction and was always refused, so the dismissal failed with it. A dismissed companion now walks away from you. A dismissal ends its pause, its own activity and any routine job. A companion fighting for its life, or partway through something that can't safely be stopped, finishes that first.</li>
+  <li><a href="#ch12"><strong>Camp floors</strong></a> follow your stairs. A complete staircase inside the camp extends the camp to the connected floor above or below, including a basement, and a woodcutter can carry logs up or down to storage there.</li>
+  <li><a href="#ch8">A thirsty and hungry companion</a> with no clean water in reach now eats its food instead of waiting for water first.</li>
+  <li><a href="#ch18">A household asking for water</a> no longer accepts a bottle of tainted or poisoned water.</li>
+  <li><a href="#ch6">Busy companions speak up.</a> A companion reading, eating, working or pausing between actions still calls out a zombie it sees, and a pinned companion always cries for help.</li>
+</ul>
+</div>
+
+<div class="callout callout-tip" style="margin-bottom:2.5rem;">
+<strong>About this manual</strong> — it covers what the companion panel does not explain: how the fellows think, what they need from you, and the rules they follow when nobody is giving orders. Everything here describes release 0.26.25. Living Fellows is a <strong>public playtest</strong>: back up important saves, and send logs when something goes wrong (<a href="#appD">Appendix D</a>). The mod itself lives at <a href="https://github.com/thorelvin/living-fellows">github.com/thorelvin/living-fellows</a>. The <em>Overheard</em> quotes are real lines from the mod's own voice pools. Later printings added <a href="#ch3b">Status and Loadout</a>, <a href="#ch5b">squads and signals</a>, <a href="#ch5c">vehicles</a>, every line of the <a href="#ch9b">Talk menu</a>, <a href="#ch9c">who companions are</a>, <a href="#ch9d">how trust is earned</a>, <a href="#ch9e">downtime</a>, <a href="#ch9f">stress, joy and boredom</a>, <a href="#ch8">infection crises</a>, <a href="#ch14b">running the camp</a>, <a href="#ch17">expedition radio calls</a>, household <a href="#ch18b">contracts, quests and recruitment</a>, and the <a href="#appC">Support page</a>.
+</div>
+
+<!-- TABLE OF CONTENTS -->
+<div id="toc">
+  <h2>✚ Contents</h2>
+  <ol>
+    <li><a href="#part1">Part I — First Steps</a> <span class="toc-stage">Day One</span>
+      <ol>
+        <li><a href="#ch1">Ch 1: Before You Begin</a></li>
+        <li><a href="#ch2">Ch 2: The First Five Minutes</a></li>
+        <li><a href="#ch3">Ch 3: The Companion Panel</a></li>
+        <li><a href="#ch3b">Ch 3b: Status and Loadout</a></li>
+        <li><a href="#ch4">Ch 4: Giving Orders</a></li>
+        <li><a href="#ch_week">Your First Week at a Glance</a></li>
+      </ol>
+    </li>
+    <li><a href="#part2">Part II — Life on the Road</a> <span class="toc-stage">Settling In</span>
+      <ol>
+        <li><a href="#ch5">Ch 5: Moving Together</a></li>
+        <li><a href="#ch5b">Ch 5b: Squads and Signals</a></li>
+        <li><a href="#ch5c">Ch 5c: Riding Together</a></li>
+        <li><a href="#ch6">Ch 6: Combat and the Rules of Engagement</a></li>
+        <li><a href="#ch7">Ch 7: Scavenging and Gear</a></li>
+        <li><a href="#ch8">Ch 8: Needs, Medicine and Death</a></li>
+        <li><a href="#ch9">Ch 9: Voices, Moods and Bonds</a></li>
+        <li><a href="#ch9b">Ch 9b: Talking with the Fellows</a></li>
+        <li><a href="#ch9c">Ch 9c: Who They Are</a></li>
+        <li><a href="#ch9d">Ch 9d: Trust, Bonds and Goals</a></li>
+        <li><a href="#ch9e">Ch 9e: Downtime and Quiet Hours</a></li>
+        <li><a href="#ch9f">Ch 9f: Stress, Joy and Boredom</a></li>
+        <li><a href="#ch10">Ch 10: Private Diaries</a></li>
+      </ol>
+    </li>
+    <li><a href="#part3">Part III — The Living Base</a> <span class="toc-stage">Camp Life</span>
+      <ol>
+        <li><a href="#ch11">Ch 11: Setting Up Camp</a></li>
+        <li><a href="#ch12">Ch 12: Floors, Stairs and Basements</a></li>
+        <li><a href="#ch13">Ch 13: Building from Blueprints</a></li>
+        <li><a href="#ch14">Ch 14: Base Duty and Jobs</a></li>
+        <li><a href="#ch14b">Ch 14b: Running the Camp</a></li>
+        <li><a href="#ch15">Ch 15: Farming</a></li>
+        <li><a href="#ch16">Ch 16: Laying the Dead to Rest</a></li>
+      </ol>
+    </li>
+    <li><a href="#part4">Part IV — Beyond the Fence</a> <span class="toc-stage">Experimental &amp; Strangers</span>
+      <ol>
+        <li><a href="#ch17">Ch 17: Expeditions</a></li>
+        <li><a href="#ch18">Ch 18: Households, Trade and Bandits</a></li>
+        <li><a href="#ch18b">Ch 18b: Contracts, Quests and Recruitment</a></li>
+      </ol>
+    </li>
+    <li><a href="#appendices">Appendices</a>
+      <ol>
+        <li><a href="#appA">A: Keys and Menus</a></li>
+        <li><a href="#appB">B: Sandbox Options</a></li>
+        <li><a href="#appC">C: Troubleshooting</a></li>
+        <li><a href="#appD">D: Reporting a Problem</a></li>
+        <li><a href="#appE">E: Picture Credits</a></li>
+        <li><a href="#appF">F: Quick Reference Card</a></li>
+      </ol>
+    </li>
+  </ol>
+</div>
+
+<!-- ═══ PART I ═══ -->
+<div class="part-header" id="part1">
+  <img class="ico-lg" src="https://pzwiki.net/w/images/b/b1/Backpack.png" alt="">
+  <p class="part-label">Part I</p>
+  <h2>First Steps</h2>
+  <p class="part-desc">Nobody hands you a manual when the world ends. Here is one anyway: how to install the fellows, find the first of them, and tell them what you need.</p>
+</div>
+
+<div class="callout callout-check">
+<strong>Before you proceed</strong> — the short version of the next four chapters:
+<ul class="checklist" style="margin-top:0.6rem;margin-bottom:0;">
+  <li>Install exactly one copy of Living Fellows: Workshop with ZombieBuddy, or the standalone <code>Install.bat</code></li>
+  <li>Back up your save folder before the first long session</li>
+  <li>Load a single-player save and press <kbd>Home</kbd> to open the companion panel</li>
+  <li>Find a survivor, select them in the panel, and press <span class="menu">Recruit</span></li>
+  <li>Pick a main order on <span class="menu">Orders</span>; new recruits start on Follow</li>
+  <li>Try <kbd>[</kbd> to peek through their eyes and <kbd>]</kbd> to steer them</li>
+  <li>If anything looks wrong, open <span class="menu">More → Support</span> and copy its report</li>
+</ul>
+</div>
+
+<!-- CH 1 -->
+<h2 class="chapter" id="ch1"><img class="ico" src="https://pzwiki.net/w/images/4/46/Toolbox.png" alt="">Chapter 1: Before You Begin<span class="stage stage-early">Day One</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>Living Fellows turns the survivors you meet into persistent people. They are native human actors with real inventories, injuries, skills and permanent death, and they make their own survival decisions when you are not giving orders. That depth needs a small native bridge beside the usual Lua, which is why installing it takes one step more than an ordinary mod.</p>
+
+<p>The mod targets <strong>Project Zomboid Build 42.21.0</strong> and is <strong>single-player only</strong>. Multiplayer and user-added split-screen players are refused. The one exception is the experimental expedition, which may briefly put its own companion leader in a second local view to load the mission area.</p>
+
+<h3>Two Ways In</h3>
+<table>
+  <tr><th>Method</th><th>What you need</th><th>Best for</th></tr>
+  <tr><td><strong>Steam Workshop</strong></td><td>Project Zomboid 42.21.0 and <strong>ZombieBuddy 2.3.3 or newer</strong>, including its one-time loader setup</td><td>Automatic Living Fellows updates once ZombieBuddy is installed</td></tr>
+  <tr><td><strong><code>Install.bat</code></strong></td><td>Windows and Project Zomboid 42.21.0</td><td>Everyone else: no ZombieBuddy, no Workshop account needed</td></tr>
+</table>
+
+<div class="callout callout-warn">Use <strong>only one copy</strong>. The Workshop and standalone editions share the mod ID <code>SurvivorCompanion</code>, and two copies fight over which one loads. If you switch methods, remove the old copy first.</div>
+
+<div class="two-col">
+<div>
+<h4>From the Steam Workshop</h4>
+<ol class="steps">
+  <li>Close Project Zomboid.</li>
+  <li>Subscribe to <strong>ZombieBuddy 2.3.3 or newer</strong> and run its one-time loader installation. Subscribing alone does not install its Java loader.</li>
+  <li>Subscribe to <strong>Living Fellows</strong>.</li>
+  <li>Start the game, open <span class="menu">Mods</span>, and enable both.</li>
+  <li>For an existing save, use <span class="menu">More... → Choose Mods</span> and enable both for that save.</li>
+</ol>
+</div>
+<div>
+<h4>With <code>Install.bat</code></h4>
+<ol class="steps">
+  <li>Download the <code>STANDALONE-WINDOWS</code> ZIP from the project's Releases page.</li>
+  <li>Extract the whole ZIP to a normal folder. Don't run it from inside the ZIP viewer.</li>
+  <li>Close Project Zomboid.</li>
+  <li>Double-click <strong>Install.bat</strong>.</li>
+  <li>Start the game and enable <strong>Living Fellows</strong> for your save.</li>
+</ol>
+</div>
+</div>
+
+<p>ZombieBuddy loads approved Java mods outside the game's Lua sandbox. Review its installation preview, and approve Living Fellows only if you trust the repository and the Workshop item.</p>
+
+<p>The standalone installer finds Steam on its own. If Windows refuses access to the game folder, run it as Administrator. For a game in another Steam library, point it there:</p>
+
+<div class="callout callout-recipe">
+<strong>Another Steam library:</strong> <code>.\Install.bat -GameRoot "D:\SteamLibrary\steamapps\common\ProjectZomboid"</code>
+</div>
+
+<p>It installs the mod under <code>%USERPROFILE%\Zomboid\mods\SurvivorCompanion</code>, keeps its bridge under <code>%LOCALAPPDATA%\LivingFellows</code>, and backs up <code>ProjectZomboid64.json</code> before changing it. It never edits <code>projectzomboid.jar</code>. <strong>Uninstall.bat</strong>, run from the same folder, removes everything and restores the original launcher settings.</p>
+
+<h3>Back Up Your Save</h3>
+<p>Companions, households, relationships, contracts, bases and production orders are saved with the world, so they outlive your character. That also means the mod is woven into the save. Before installing or updating:</p>
+<ol class="steps">
+  <li>Close the game.</li>
+  <li>Copy your save folder from <code>%USERPROFILE%\Zomboid\Saves</code> somewhere safe.</li>
+  <li>Keep at least one backup from before your first Living Fellows session.</li>
+</ol>
+<div class="callout callout-warn">Don't remove the mod from an important save without a backup.</div>
+
+<!-- CH 2 -->
+<h2 class="chapter" id="ch2"><img class="ico" src="https://pzwiki.net/w/images/7/7f/KeyRing.png" alt="">Chapter 2: The First Five Minutes<span class="stage stage-early">Day One</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>Knox County was never crowded, and it is less crowded now. The people who are left keep to themselves. None of them falls in behind you because you happened to walk past; every one of them has to be asked.</p>
+
+<figure class="plate">
+  <img loading="lazy" decoding="async" src="https://pzwiki.net/w/images/a/a5/Muldraugh.png" alt="An aerial view of Muldraugh: a long main road through a grid of suburban streets and forest.">
+  <figcaption><span class="plate-no">Plate 1</span> Muldraugh from above. Somewhere in streets like these, someone else is still alive. <span class="credit">Image: PZwiki</span></figcaption>
+</figure>
+
+<ol class="steps">
+  <li>Load a single-player save.</li>
+  <li>Press <kbd>Home</kbd> to open the companion panel, or click the small <strong>LF</strong> launcher when the panel is collapsed.</li>
+  <li>Explore until you meet a survivor. Survivors never join automatically.</li>
+  <li>Select the survivor in the panel and press <span class="menu">Recruit</span> when it is offered.</li>
+  <li>Open <span class="menu">Orders</span> and pick a main order.</li>
+  <li>Hold <kbd>[</kbd> (Left bracket) to peek through the selected companion's position; let go to return to your character. Or right-click a nearby companion and choose <span class="menu">Watch</span> for a view that stays.</li>
+  <li>Hold <kbd>]</kbd> (Right bracket) to steer that companion toward the cursor; let go to hand them back to their own judgement.</li>
+  <li>If something looks wrong, open <span class="menu">More → Support</span> for runtime health and a copyable report.</li>
+</ol>
+
+<div class="lore-pull">All right. I'll come with you.<span class="who">— a new recruit</span></div>
+
+<h3>What a New Recruit Starts With</h3>
+<table>
+  <tr><th>Setting</th><th>Starts as</th><th>Where to change it</th></tr>
+  <tr><td>Main order</td><td><strong>Follow</strong></td><td>Orders</td></tr>
+  <tr><td>Movement</td><td><strong>Copy player</strong>: walks, sneaks and runs when you do</td><td>Orders</td></tr>
+  <tr><td>Ride with player</td><td><strong>On</strong>: takes a free passenger seat in your vehicle</td><td>Orders</td></tr>
+  <tr><td>Scavenge when safe</td><td><strong>On</strong>: searches nearby containers when things are quiet</td><td>Orders</td></tr>
+  <tr><td>Rules of engagement</td><td>The <strong>team doctrine</strong> you have set; later recruits inherit it</td><td>Orders</td></tr>
+</table>
+
+<p>Each survivor arrives with a profession, a trait, a personality, a history, a keepsake, a preferred camp role and a personal goal. You can read most of it in <span class="menu">More → Journal</span>. A team holds up to 16 companions by default; the sandbox page sets the limit (<a href="#appB">Appendix B</a>).</p>
+
+<!-- CH 3 -->
+<h2 class="chapter" id="ch3"><img class="ico" src="https://pzwiki.net/w/images/9/95/Notebook.png" alt="">Chapter 3: The Companion Panel<span class="stage stage-early">Day One</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>The panel is translucent so the world stays visible behind it. Dock it left or right, collapse it to the <strong>LF</strong> launcher, or toggle it with <kbd>Home</kbd>. The key can be rebound under Living Fellows in the game's key bindings, and the background opacity is a sandbox option.</p>
+
+<table>
+  <tr><th>Tab</th><th>What lives there</th></tr>
+  <tr><td><strong>Status</strong></td><td>Health and needs, current action, order, distance, and a relationship summary</td></tr>
+  <tr><td><strong>Orders</strong></td><td>Direct orders, movement and follow distance, combat doctrine, scavenging</td></tr>
+  <tr><td><strong>Squad</strong></td><td>Group assignment, group orders, movement and fire signals</td></tr>
+  <tr><td><strong>Expeditions</strong></td><td>The experimental squad mission planner and active mission status</td></tr>
+  <tr><td><strong>Loadout</strong></td><td>Wounds and treatment, inventory, weapon and carry policy, vehicle status</td></tr>
+  <tr><td><strong>More</strong></td><td><strong>Base</strong> (camp operations), <strong>Factions</strong> (households, trade, standing), <strong>Journal</strong> (history, relationships, memories, goals) and <strong>Support</strong> (runtime health)</td></tr>
+</table>
+
+<h3>Talking</h3>
+<p>Use the <span class="menu">Talk</span> button above the tabs, or right-click a nearby companion and choose <span class="menu">Talk to [name]</span>. Pick a topic and a line, and the companion walks into speaking distance before it answers. The talk view keeps recent dialogue and says so when something interrupts. Every line you can choose, and what it does, is in <a href="#ch9b">Chapter 9b</a>. The same right-click menu offers Follow, Stay, Regroup and Retreat, and a link to the full Orders panel.</p>
+
+<div class="lore-pull">Doing fine. Tell me what comes next.<span class="who">— a companion asked how they are</span></div>
+
+<h3>Peek and Watch</h3>
+<p>Select a companion in the roster and hold <kbd>[</kbd> to ease the camera toward them; let go to ease home. For mouse-only play, right-click a nearby companion and choose <span class="menu">Watch</span>; while watching, right-click anywhere and choose <span class="menu">Stop watching</span>. Both work with the panel collapsed, on the same floor within 16 tiles, and alongside the game's right-click aim lean.</p>
+
+<div class="callout callout-warn">Peek and Watch move only the camera. Your character keeps moving normally and is just as vulnerable. Don't watch a companion's fight while you stand in a street full of your own trouble.</div>
+
+<h3>Steer</h3>
+<p>Hold <kbd>]</kbd> (separately rebindable) and point at loaded ground to walk the selected companion toward the cursor. Hold Peek and Steer together for a scout-and-direct view. Steering goes through the same action supervisor as work and survival: it can interrupt lower-priority activity, can't pull a companion out of a protected native action, and gives way at once to a combat rescue or survival movement. Let go of the key and the companion's own judgement resumes.</p>
+
+<h3>On-Screen Helpers</h3>
+<ul>
+  <li><strong>First-name labels</strong> above companions you can see (a sandbox option).</li>
+  <li><strong>Minimap markers</strong> for your companions.</li>
+  <li><strong>The base layout overlay</strong>, toggled with <kbd>End</kbd> (<a href="#ch11">Chapter 11</a>).</li>
+  <li><strong>The Support page</strong> under <span class="menu">More → Support</span>: runtime health, leaked-action counters, and a report you can copy into a bug report.</li>
+</ul>
+
+<!-- CH 3b -->
+<h2 class="chapter" id="ch3b"><img class="ico" src="https://pzwiki.net/w/images/b/b1/Backpack.png" alt="">Chapter 3b: Status and Loadout<span class="stage stage-early">Day One</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>Two tabs answer most questions about one companion: <span class="menu">Status</span> says what they are doing and how they are, and <span class="menu">Loadout</span> says what they carry and what hurts.</p>
+
+<h3>Status</h3>
+<table>
+  <tr><th>Block</th><th>Lines</th></tr>
+  <tr><td><strong>Status</strong></td><td>Name, health, hunger and thirst; the <strong>current action</strong> and the <strong>last action problem</strong>, if something just failed; order, intent and distance from you</td></tr>
+  <tr><td><strong>At a glance</strong></td><td>Mood and relationship tier; their current need; a recent memory; grief, if they are mourning; any promise they're expecting you to keep; and any stress response they're going through right now</td></tr>
+</table>
+<div class="callout callout-tip"><strong>Last action problem</strong> is the line to read when a companion seems to ignore you. It names what stopped them, such as a blocked path or a missing tool.</div>
+
+<h3>A Companion's Request</h3>
+<p>Now and then a bored companion asks for something at the top of Status, most often <em>"We should plan another supply run."</em> (<a href="#ch9f">Chapter 9f</a>). Four answers are offered: <strong>We will go soon</strong>, <strong>Come with me now</strong>, <strong>Not now</strong> and <strong>We cannot spare the risk</strong>.</p>
+
+<h3>Loadout</h3>
+<table>
+  <tr><th>Section</th><th>What's there</th></tr>
+  <tr><td><strong>Gear</strong></td><td>Equipped weapon and weapon preference; supplies (bandages or rags, food, water); rounds of ammunition; carry load, and whether overload is allowed</td></tr>
+  <tr><td><strong>Weapon priority</strong></td><td>Best available, prefer melee, prefer firearms, or quiet weapons</td></tr>
+  <tr><td><strong>Carry policy</strong></td><td>Allow or prevent overload</td></tr>
+  <tr><td><strong>Vehicle</strong></td><td>On foot, approaching a vehicle, in a vehicle, or waiting for a safe exit, with their assigned seat (<a href="#ch5c">Chapter 5c</a>)</td></tr>
+  <tr><td><strong>Health</strong></td><td>Every wound by body part: scratched, cut, deep wound, burned, fractured, bitten, bleeding, infected, bandaged or a dirty bandage</td></tr>
+  <tr><td><strong>Health actions</strong></td><td>Open their health panel, bandage them yourself, or open their inventory</td></tr>
+</table>
+
+<div class="callout callout-warn">Opening a companion's <strong>inventory</strong> holds them where they stand until you close it: downtime, scavenging, base work and any walk are cancelled, so nothing moves out from under your hands. They pick up their order again when the window closes.</div>
+
+<table>
+  <tr><th></th><th>Wound state</th><th>What to do</th></tr>
+  <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/6/65/Moodle_Icon_Bleeding.png" alt=""></td><td><strong>Bleeding</strong></td><td>Bandage now; it comes first</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/3/39/Moodle_Icon_Injured.png" alt=""></td><td><strong>Fractured</strong></td><td>A splint, once the bleeding is dressed</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/0c/Bandage.png" alt=""></td><td><strong>Dirty bandage</strong></td><td>Change it; they will in downtime if they carry a clean one</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/3/3e/Moodle_Icon_Zombie.png" alt=""></td><td><strong>Bitten</strong></td><td>See <a href="#ch8">Chapter 8</a></td></tr>
+</table>
+
+<!-- CH 4 -->
+<h2 class="chapter" id="ch4"><img class="ico" src="https://pzwiki.net/w/images/3/31/Radio.png" alt="">Chapter 4: Giving Orders<span class="stage stage-early">Day One</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>An order tells a companion what you want, not how to move every limb. Between orders, they look after themselves: they eat, rest, read, repair, scavenge and keep watch, and they fight or flee when they must. A good order sets the frame and lets them fill it in.</p>
+
+<h3>The Main Order</h3>
+<table>
+  <tr><th>Order</th><th>What it means</th></tr>
+  <tr><td><strong>Follow</strong></td><td>Keep formation behind you at the chosen follow distance. When you stop, followers hold formation for a few seconds before they start downtime or scavenging nearby.</td></tr>
+  <tr><td><strong>Stay</strong></td><td>Hold this place. Inside your camp area, Stay puts the companion on <a href="#ch14">base duty</a> instead.</td></tr>
+  <tr><td><strong>Guard</strong></td><td>Patrol around an anchor. Inside the camp, Guard makes them a base guard watching the square you picked.</td></tr>
+  <tr><td class="tbl-power">Regroup</td><td>Emergency: come back to me now.</td></tr>
+  <tr><td class="tbl-power">Retreat</td><td>Emergency: break contact and fall back.</td></tr>
+</table>
+
+<h3>World Orders</h3>
+<p>Right-click the world for the <span class="menu">Living Fellows</span> menu. The selected companion gets <span class="menu">Move here</span> plus one action for whatever you clicked: open or close a door, barricade, remove a barricade, dismantle, or <span class="menu">Check room</span> for an indoor room. Target actions, care, squad signals, base work and households sit in submenus.</p>
+<ul>
+  <li><span class="menu">Target actions → Guard here</span> anchors the selected companion to that square.</li>
+  <li><span class="menu">Focus on this zombie</span> makes them strongly prefer it. <span class="menu">Leave this zombie alone</span> lowers its priority for twelve seconds.</li>
+  <li>Focus the same zombie again within four seconds to <strong>push</strong> the order.</li>
+</ul>
+
+<div class="callout callout-warn">A companion is not a remote-controlled gun. Doctrine, Hold Fire, line of sight, safe attack choice and overrun judgement all still apply, and a companion may refuse a bad instruction rather than obey it blindly. A <strong>push</strong> costs that companion morale and stress, works better when trust and bond are high, never overrides a missing escape route or missing support, and is remembered differently if it succeeds or gets them hurt.</div>
+
+<h3>Assigned Objectives</h3>
+<p>Right-click a recruited companion and choose <span class="menu">Assign objective</span> to set a concrete priority: medical supplies, reading material, gear, shelter, or a proper meal. Their own personal goal is kept and comes back once your objective is met (<a href="#ch9d">Chapter 9d</a>).</p>
+
+<h3>Standing Settings</h3>
+<table>
+  <tr><th>Setting</th><th>Choices</th><th>Notes</th></tr>
+  <tr><td>Follow distance</td><td>Stay close, 2, 3, 5 or 8 tiles</td><td class="tbl-note">Formation slots, not a single queue</td></tr>
+  <tr><td>Movement</td><td>Copy player, Walk, Sneak, Run</td><td class="tbl-note">Escapes and combat can override it</td></tr>
+  <tr><td>Scavenging</td><td>On or off</td><td class="tbl-note">On for new recruits</td></tr>
+  <tr><td>Weapon priority</td><td>Best available, Melee, Firearms, Quiet weapons</td><td class="tbl-note">What they reach for first</td></tr>
+  <tr><td>Rules of engagement</td><td>Stealth, Close Defense, Ranged Support, Weapons Free</td><td class="tbl-note">One companion or the whole team; see <a href="#ch6">Chapter 6</a></td></tr>
+  <tr><td>Hold fire</td><td>On or off</td><td class="tbl-note">Blocks ordinary shots whatever the doctrine allows</td></tr>
+  <tr><td>Ride with player</td><td>On or off</td><td class="tbl-note">Takes free passenger seats and gets out with you; extra followers wait safely on foot</td></tr>
+  <tr><td>Allow overload</td><td>On or off</td><td class="tbl-note">Carry past the normal limit, up to a cap</td></tr>
+</table>
+
+<div class="callout callout-tip">There is no manual Idle or Craft selector. In downtime, companions choose safe reading, rest, repair, crafting and other available activities from their needs, personality, goals and what they did recently.</div>
+
+<h3 id="dismissing">Dismissing a Companion</h3>
+<p>Dismissal asks for confirmation by name, from the Squad view or the context menu, so a changed roster selection can't send the wrong person away. Confirm, and the companion leaves the group and walks away from you. Their base duty and work end with it.</p>
+
+<p>A dismissal is a player order, and it outranks routine life. A companion pausing between actions, eating, reading or busy with a camp job stops and goes. Two things still come first. A companion fighting or escaping for its life keeps its claim, and so does one partway through an action that can't safely be stopped, such as the game's own timed actions or work that is committing its result. The dismissal is refused until that is over; try again a moment later.</p>
+
+<div class="lore-pull">Then this is goodbye. Stay alive.<span class="who">— a dismissed companion</span></div>
+
+<!-- First week -->
+<h2 class="chapter" id="ch_week"><img class="ico" src="https://pzwiki.net/w/images/e/ea/Pencil.png" alt="">Your First Week at a Glance <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>There is no right order to any of this, but a first week with the fellows tends to run like this:</p>
+
+<table>
+  <tr><th>When</th><th>Do this</th><th>Read</th></tr>
+  <tr><td>Day 1</td><td>Recruit one survivor; set the team doctrine; let them scavenge while you loot</td><td><a href="#ch2">Ch 2</a>, <a href="#ch6">Ch 6</a></td></tr>
+  <tr><td>Day 1–2</td><td>Keep clean water and food where they can reach it; let them bandage you</td><td><a href="#ch8">Ch 8</a></td></tr>
+  <tr><td>Day 2–3</td><td>Set a camp core; mark food, water, medical and tool storage</td><td><a href="#ch11">Ch 11</a></td></tr>
+  <tr><td>Day 3–4</td><td>Give one companion a base job; plan a wall or barricade</td><td><a href="#ch13">Ch 13</a>, <a href="#ch14">Ch 14</a></td></tr>
+  <tr><td>Day 4+</td><td>Watch for households, and for bandit camps, which appear from day four</td><td><a href="#ch18">Ch 18</a></td></tr>
+  <tr><td>When ready</td><td>On a disposable save, try sending a squad on an expedition</td><td><a href="#ch17">Ch 17</a></td></tr>
+</table>
+
+<!-- ═══ PART II ═══ -->
+<div class="part-header" id="part2">
+  <img class="ico-lg" src="https://pzwiki.net/w/images/6/61/Shotgun.png" alt="">
+  <p class="part-label">Part II</p>
+  <h2>Life on the Road</h2>
+  <p class="part-desc">The county is the same county, only quieter and hungrier. These chapters cover how the fellows walk it with you: how they move, fight, forage, heal, talk, and remember.</p>
+</div>
+
+<!-- CH 5 -->
+<h2 class="chapter" id="ch5"><img class="ico" src="https://pzwiki.net/w/images/4/4d/Flashlight.png" alt="">Chapter 5: Moving Together<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>Followers keep formation slots instead of stacking on your heels. Each fireteam has a shape: a close fighter at point, firearm support in the middle, and a cautious survivor at the rear. When the street narrows they file through doors, windows, fences and stairs one at a time, then spread out again on the other side.</p>
+
+<table>
+  <tr><th>Fireteam role</th><th>Where they stand</th><th>Who fits it</th></tr>
+  <tr><td><strong>Point</strong></td><td>Front rank</td><td>A close fighter</td></tr>
+  <tr><td><strong>Assault</strong></td><td>Front rank beside point, then out on the flanks</td><td>The other close fighters</td></tr>
+  <tr><td><strong>Ranged support</strong></td><td>The rank behind, alternating sides</td><td>Anyone who can shoot</td></tr>
+  <tr><td><strong>Rear guard</strong></td><td>Behind the group</td><td>A cautious survivor who watches the way you came</td></tr>
+</table>
+
+<p>On the move they check blind corners, climb fences and walls with the player's own actions, route around vehicles, furniture and crowds, and remember the way back outside. When danger closes in they back off or strafe on safe ground, and they turn and run when they are overrun.</p>
+
+<h3>What They Can See</h3>
+<p>In clear conditions a companion spots zombies up to <strong>24 tiles</strong> away, but each one has to see the target for itself. Walls, closed doors and other floors block sight. Noise behind a wall produces only an uncertain warning, never a confident callout.</p>
+
+<h3>Stairs</h3>
+<p>Stairs are the hardest ground a companion walks. If a follower can't cross floors by the direct path, it surveys the loaded stairs nearby, walks to a verified entrance and climbs from there. A staircase it can't reach, behind a wall or a locked door, is dropped after twenty seconds of trying without getting closer, and the next loaded staircase is tried. Time spent fighting or holding position doesn't count against those twenty seconds.</p>
+
+<h3>Vehicles</h3>
+<p>With <strong>Ride with player</strong> on, companions take free passenger seats and get out when you do. When the car is full, the extra followers wait safely on foot. No one leaves a moving vehicle: getting out waits until it has stopped. Seats, statuses and shooting from a car are in <a href="#ch5c">Chapter 5c</a>.</p>
+
+<div class="callout callout-also">If a companion seems stuck, give it a moment to recover on its own, then use <strong>Regroup</strong>. <a href="#appC">Appendix C</a> says what to note for a report if it stays stuck.</div>
+
+<!-- CH 5b -->
+<h2 class="chapter" id="ch5b"><img class="ico" src="https://pzwiki.net/w/images/1/18/Whistle.png" alt="">Chapter 5b: Squads and Signals<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>One companion follows your voice. Six need a system. The <span class="menu">Squad</span> tab splits the team into groups, gives each group its orders, and lets you steer everyone at once with a whistle or a hand sign.</p>
+
+<h3>Groups</h3>
+<p>Select a companion and choose a <strong>Group</strong>: None, <strong>Alpha</strong>, <strong>Bravo</strong> or <strong>Charlie</strong>. The same tab shows the companion's place in the fireteam, for example <em>CQB role: Point — column 1 of 4</em> (<a href="#ch5">Chapter 5</a>). A group is also the squad you send on an <a href="#ch17">expedition</a>.</p>
+
+<p>The <strong>Group orders</strong> apply to everyone in the selected companion's group:</p>
+<table>
+  <tr><th>Group order</th><th>Same as</th></tr>
+  <tr><td>Group: follow me</td><td>Follow, for the whole group</td></tr>
+  <tr><td>Group: stay here</td><td>Stay</td></tr>
+  <tr><td>Group: guard this area</td><td>Guard</td></tr>
+  <tr><td class="tbl-power">Group: regroup</td><td>Regroup (emergency)</td></tr>
+  <tr><td class="tbl-power">Group: retreat</td><td>Retreat (emergency)</td></tr>
+</table>
+
+<div class="callout callout-tip">Rules of engagement have their own whole-team button: <span class="menu">Apply to whole squad</span> on Orders sets one doctrine for everyone, including recruits who join later.</div>
+
+<h3>The Whistle and the Hand Signs</h3>
+<p>Signals are given by <strong>your character</strong>, in the world: you whistle or make the gesture, and companions answer. The difference is who hears it. The <strong>whistle</strong> reaches every companion on Follow, seen or not, but it is loud: it carries about 24 tiles, and zombies hear it too. A <strong>hand sign</strong> is silent, but only companions who can <strong>see you</strong> respond. Each one that obeys answers with an OK sign of its own.</p>
+
+<table>
+  <tr><th></th><th>Signal</th><th>What they do</th></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/1/18/Whistle.png" alt=""></td><td><strong>Whistle: regroup followers</strong></td><td>Regroup</td></tr>
+  <tr><td></td><td>Hand sign: follow</td><td>Follow</td></tr>
+  <tr><td></td><td>Hand sign: hold</td><td>Stay</td></tr>
+  <tr><td></td><td>Hand sign: regroup</td><td>Regroup</td></tr>
+  <tr><td></td><td>Hand sign: follow cautiously</td><td>Follow, with movement set to <strong>Sneak</strong> and scavenging switched on</td></tr>
+  <tr><td></td><td>Hand sign: move out</td><td>Follow</td></tr>
+  <tr><td></td><td>Hand sign: fall back to me</td><td>Retreat</td></tr>
+  <tr><td></td><td class="tbl-power">Hand sign: cease fire</td><td>Hold fire on</td></tr>
+  <tr><td></td><td class="tbl-power">Hand sign: fire</td><td>Hold fire off</td></tr>
+</table>
+
+<p>The Squad tab lists every signal under <strong>Squad movement signals</strong> and <strong>Squad fire signals</strong>. The quickest ones (whistle, hold, fall back, cease fire and fire) are also in the world right-click menu under <span class="menu">Living Fellows → Squad</span>.</p>
+
+<div class="callout callout-warn">A hand sign is silent but needs a line of sight; the whistle needs neither, but every walker within earshot hears it as well. In a quiet house full of sleeping dead, signal by hand. Out in the open with a follower out of sight, whistle, and be ready for company.</div>
+
+<h3>Follow Distance</h3>
+<p>Orders offers five follow distances: <strong>Stay close</strong>, <strong>2</strong>, <strong>3</strong>, <strong>5</strong> or <strong>8 tiles</strong>. Close spacing suits buildings and doorways; wide spacing suits open roads, where a long column is less likely to bunch up behind you at a fence.</p>
+
+<!-- CH 5c -->
+<h2 class="chapter" id="ch5c"><img class="ico" src="https://pzwiki.net/w/images/7/7c/Wrench.png" alt="">Chapter 5c: Riding Together<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>With <strong>Ride with the player when a seat is available</strong> switched on (it is, for every new recruit), followers climb into your vehicle when you drive off and get out when you do. Seats are planned, not scrambled for: each rider is assigned a free passenger seat, and the plan is rebuilt if someone else takes a seat first.</p>
+
+<table>
+  <tr><th>Vehicle status</th><th>Meaning</th></tr>
+  <tr><td><strong>On foot</strong></td><td>Not riding</td></tr>
+  <tr><td><strong>Approaching vehicle</strong></td><td>Walking to an assigned seat. Loadout shows which seat, how many of the passenger seats are assigned, and how many companions are waiting.</td></tr>
+  <tr><td><strong>In vehicle</strong></td><td>Seated</td></tr>
+  <tr><td><strong>Waiting for safe exit</strong></td><td>Wants out, but the vehicle is still moving</td></tr>
+</table>
+
+<div class="callout callout-tip">When the car is full, Loadout says so (<em>Vehicle full … waiting safely</em>) and the extra followers wait on foot instead of chasing the car. Come back for them, or let them walk.</div>
+
+<h3>Getting Out</h3>
+<p>Nobody steps out of a moving vehicle. A companion who needs out waits until it stops; then <span class="menu">Exit vehicle now</span> appears on Loadout and in the companion's right-click menu if you want them out before you.</p>
+
+<h3>Shooting from a Vehicle</h3>
+<table>
+  <tr><th>Doctrine</th><th>From a passenger seat</th></tr>
+  <tr><td>Stealth</td><td>Never shoots</td></tr>
+  <tr><td>Close Defense</td><td>Doesn't shoot</td></tr>
+  <tr><td>Ranged Support</td><td>May fire through an open or broken window, at a safe speed</td></tr>
+  <tr><td>Weapons Free</td><td>Engages, but vehicle safety checks still apply</td></tr>
+</table>
+<p class="tbl-note">Expedition squads always travel on foot.</p>
+
+<!-- CH 6 -->
+<h2 class="chapter" id="ch6"><img class="ico" src="https://pzwiki.net/w/images/4/40/BaseballBat.png" alt="">Chapter 6: Combat and the Rules of Engagement<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>Companions fight with the game's own attack animations and weapon timings. Before every swing or shot they weigh their wounds, stamina, panic, pain, morale, skill and weapon condition against the support around them and the routes out. They split targets, avoid friendly fire, shove when it is safe, finish zombies on the ground, and cover a retreat.</p>
+
+<figure class="plate">
+  <img loading="lazy" decoding="async" src="https://pzwiki.net/w/images/7/73/Idle_Zombie_Horde.png" alt="A crowd of zombies standing in the front yard of a white house beside a parked station wagon.">
+  <figcaption><span class="plate-no">Plate 2</span> More than a fair fight. A companion counts what it sees, and a yard like this one calls for a way out, not a stand. <span class="credit">Image: PZwiki</span></figcaption>
+</figure>
+
+<h3>The Four Doctrines</h3>
+<p>The Rules of Engagement are set on <span class="menu">Orders</span>, for one companion or the whole team. A team doctrine applies to every recruited companion, including recruits who join later. Friendly-fire and survival checks stay active under all four.</p>
+
+<table>
+  <tr><th>Doctrine</th><th>What it asks of them</th><th>From a vehicle</th></tr>
+  <tr><td class="tbl-power">Stealth</td><td>Avoid contact. Defend only against an active attack, using quiet force whenever possible. Warnings become silent hand signals when they can.</td><td>Never shoots</td></tr>
+  <tr><td class="tbl-power">Close Defense</td><td>Remove threats close to the team without chasing distant zombies. Use the best available weapon.</td><td>Doesn't shoot</td></tr>
+  <tr><td class="tbl-power">Ranged Support</td><td>Prefer firearms, keep distance, conserve fire, and support the team.</td><td>May fire through an open or broken window at a safe speed</td></tr>
+  <tr><td class="tbl-power">Weapons Free</td><td>Engage visible nearby threats with the best weapon, and pursue briefly.</td><td>Vehicle safety checks still apply</td></tr>
+</table>
+
+<div class="callout callout-tip"><strong>Hold fire</strong> sits on top of any doctrine and blocks ordinary shots, whatever the doctrine would allow. Gunfire is loud in Knox County, and loud draws a crowd.</div>
+
+<h3>When They Say No</h3>
+<p>A companion who decides a fight is too dangerous says why. It names the reason that actually decided it, such as exhaustion, encirclement, wounds, bad footing, no escape, or an empty weapon, instead of refusing in silence or shouting a generic retreat.</p>
+
+
+<table>
+  <tr><th>The reason that decided it</th><th>What you'll hear</th></tr>
+  <tr><td>Out of stamina</td><td><em>"I've got nothing left. Not yet."</em></td></tr>
+  <tr><td>Badly hurt</td><td><em>"I'm in no state for this."</em></td></tr>
+  <tr><td>Rattled inside</td><td><em>"I'm not steady enough for this. Not right now."</em></td></tr>
+  <tr><td>No weapon</td><td><em>"I've got nothing to fight with. I'm not going in."</em></td></tr>
+  <tr><td>Weapon about to break</td><td><em>"My axe is about done. You want this?"</em></td></tr>
+  <tr><td>Out of ammunition</td><td><em>"I'm dry. Give me a second."</em></td></tr>
+  <tr><td>Too many close by</td><td><em>"That's three of them. I'm not going in there."</em></td></tr>
+  <tr><td>Crowded at arm's length</td><td><em>"More close than I can handle. I'm backing off."</em></td></tr>
+  <tr><td>Pressure from one side</td><td><em>"Too much coming from that side. I'm pulling back."</em></td></tr>
+  <tr><td>Threats from several sides</td><td><em>"They're coming from three sides. I'm falling back."</em></td></tr>
+  <tr><td>Surrounded</td><td><em>"They're all round me. I'm coming back."</em></td></tr>
+  <tr><td>No way out</td><td><em>"No way out of that room. Not doing it."</em></td></tr>
+  <tr><td>The way out is worse</td><td><em>"That way out is worse than staying put. I'm not committing."</em></td></tr>
+  <tr><td>Bad footing</td><td><em>"I can't get my feet under me. I'm backing off."</em></td></tr>
+  <tr><td>Too cramped indoors</td><td><em>"Not in here. Too tight."</em></td></tr>
+  <tr><td>Everything adds up badly</td><td><em>"This is turning bad. I'm pulling back."</em></td></tr>
+</table>
+<p class="tbl-note">One line per reason shown; each reason has several, in every voice. A refusal gets first claim on a companion's chance to speak, so you hear it before small talk.</p>
+
+<h3>Calling It Out</h3>
+<p>Each companion calls out the zombies it sees, the walkers it hears and the noises worth a word, and the size of the call grows with the threat, from one walker to a horde. That holds even while it is busy reading, eating, working or pausing between actions. Combat calls make real noise. Under <strong>Stealth</strong>, a companion uses a silent hand signal when it can, and a busy one keeps a quiet warning to itself rather than shouting it.</p>
+
+<p>Shared barks are remembered across the squad, so three companions in one room won't echo the same line. The kill lines run deep, and a brave companion may allow itself some gallows humour after a confirmed kill, but only once the encounter is genuinely clear.</p>
+
+<div class="lore-pull">Single walker, up ahead.<span class="who">— a companion on watch</span></div>
+
+<h3>Bites and Pins</h3>
+<p>Zombies hunt companions the way they hunt you. Bites can infect and turn them. A swarm can pull a companion to the ground and pin it there unless you thin the pile in time. A pinned companion always cries for help.</p>
+
+<div class="callout callout-warn">A pinned companion is a race against the bites. Clear the zombies on top of them first; pulling at the edges of the pile buys nothing. If they get up, they'll thank you. If they don't, <a href="#ch8">Chapter 8</a> covers what comes next.</div>
+
+<h3>Distractions</h3>
+<p>A companion who finds itself surrounded may yell a deadpan fake distraction at the zombies. It doesn't work on them. It sometimes works on morale.</p>
+
+<!-- CH 7 -->
+<h2 class="chapter" id="ch7"><img class="ico" src="https://pzwiki.net/w/images/c/c0/Crowbar.png" alt="">Chapter 7: Scavenging and Gear<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>A scavenger chooses a container from the outside, the way you would: how far away it is, and what room it stands in. It doesn't know what is inside until it opens it. Once it has, it keeps taking what it needs from that container rather than walking to the next one for one more item. Every transfer plays the rummage animation through and is checked. Empty containers are skipped for a while.</p>
+
+<figure class="plate">
+  <img loading="lazy" decoding="async" src="assets/lf_screenshot-scavenging.jpg" alt="A companion standing in a blood-smeared house says: I found Bra - Strapless. Eww, I got some of it on my hands.">
+  <figcaption><span class="plate-no">Plate 3</span> A scavenger reports what it pulled off a body, in its own voice. <span class="credit">Image: Living Fellows</span></figcaption>
+</figure>
+
+<h3>Always Worth Carrying Home</h3>
+<p>Some things run short at every camp, so whoever is short of what, scavengers always carry these home: <img class="ico-sm" src="https://pzwiki.net/w/images/5/50/Nails.png" alt=""><strong>nails</strong>, <img class="ico-sm" src="https://pzwiki.net/w/images/0/0d/Plank.png" alt=""><strong>planks</strong>, and <img class="ico-sm" src="https://pzwiki.net/w/images/6/6b/Thread.png" alt=""><strong>thread</strong>, <img class="ico-sm" src="https://pzwiki.net/w/images/9/93/DuctTape.png" alt=""><strong>tape</strong>, scrap and <img class="ico-sm" src="https://pzwiki.net/w/images/6/6d/Battery.png" alt=""><strong>batteries</strong>. Walls, barricades and repairs all start with them.</p>
+
+<p>Scavengers also search containers you have already opened, so a house you went through first is still worth their time.</p>
+
+<div class="lore-pull">Ha! A box of nails. Now that's a find.<span class="who">— a happy scavenger</span></div>
+
+<h3>Inside the Camp</h3>
+<p>Inside your base it works the other way round. Companions use the storage you have marked, of any category, for scavenging and for meals, down to any reserve you set, and leave every unmarked container to you. <strong>Memorial</strong> storage keeps its keepsakes. See <a href="#ch11">Chapter 11</a> for marking storage.</p>
+
+<h3>Gear and Upkeep</h3>
+<ul>
+  <li>Companions use backpacks, keep supplies suited to their role, and drop dead weight outside combat.</li>
+  <li>They loot dead zombies when it is safe, and upgrade their clothing and armour.</li>
+  <li>They wash themselves and their gear near clean water. In downtime they wash dirty dressings for reuse and make splints from clean strips and wood.</li>
+  <li>After dark, and in an unlit room at any hour, a companion carrying a <img class="ico-sm" src="https://pzwiki.net/w/images/4/4d/Flashlight.png" alt="">flashlight holds it in its off hand and switches it on. It puts it out when there is light again, and swaps in a spare battery when the torch runs flat. A two-handed weapon leaves no hand for a torch.</li>
+</ul>
+
+<figure class="plate">
+  <img loading="lazy" decoding="async" src="https://pzwiki.net/w/images/8/89/Spiffos_Muldraugh.png" alt="A Spiffo's fast food restaurant with a fenced parking lot.">
+  <figcaption><span class="plate-no">Plate 4</span> The Spiffo's in Muldraugh. The first time the party walks into one, somebody will have something to say about it. <span class="credit">Image: PZwiki</span></figcaption>
+</figure>
+
+<h3>Studying the Dead</h3>
+<p>Now and then, when a spot has been quiet for a while, a companion crouches over a dead zombie nearby and talks through what it sees: the clothes, what the infection did to the person, and what Knox Knews and the radio said back in July 1993. Each does it in its own voice: a quiet word, a civil-defence joke, something about Kentucky. Doctors, nurses, police and other hands-on professions are more curious. Cautious companions keep their distance, a badly stressed one never looks, and each body gets one look.</p>
+
+<div class="lore-pull">Kentucky kept its gold at Fort Knox. Should have guarded the other Knox instead.<span class="who">— a companion studying the dead</span></div>
+
+<p>Sometimes a companion stops at a body for a different reason. It crouches and says a few quiet words. If the dead carried a keepsake such as a photo or a locket, it mentions it and leaves it where it lies. Caring companions do this most, and more often right after a fight. A friend nearby may say something back.</p>
+
+<!-- CH 8 -->
+<h2 class="chapter" id="ch8"><img class="ico" src="https://pzwiki.net/w/images/0/0c/Bandage.png" alt="">Chapter 8: Needs, Medicine and Death<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>Companions get hungry, thirsty and tired on the game's own needs. By default hunger and thirst rise at <strong>half</strong> the player's rate; the sandbox page can set anything from off to twice the player's rate. They eat, drink, fetch from camp storage, and look after themselves, but they can only use what the world gives them.</p>
+
+<h3>When They Speak Up</h3>
+<p>A companion says something once when a need crosses a threshold, and again only if it gets worse. It waits out danger and the usual speech cooldowns, and can raise the same need again only after it has improved and come back. Asking about their status in Talk still gets a direct answer.</p>
+
+<table>
+  <tr><th></th><th>Need</th><th>Noticed</th><th>Serious</th><th>Urgent</th></tr>
+  <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/f/fd/Moodle_Icon_Thirsty.png" alt=""></td><td><strong>Thirst</strong></td><td>48%</td><td>62%</td><td>75%</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/d/d3/Moodle_Icon_Hungry.png" alt=""></td><td><strong>Hunger</strong></td><td>55%</td><td>70%</td><td>82%</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/2/2b/Moodle_Icon_Tired.png" alt=""></td><td><strong>Tiredness</strong></td><td>50%</td><td>68%</td><td>82%</td></tr>
+</table>
+<p class="tbl-note">Percentages are of the game's own need scale, as the mod reads it.</p>
+
+<div class="lore-pull">My stomach is reminding me it exists.<span class="who">— a companion getting hungry</span></div>
+
+<h3>Water and Food</h3>
+<p>A companion drinks only <strong>clean</strong> water: a carried bottle, a safe source nearby such as a working sink, or water fetched from camp storage. Tainted or poisoned water is not drunk. Thirst comes first, but no water never stops a companion eating. One that is thirsty and hungry with no clean water in reach eats its food and keeps looking for water.</p>
+
+<div class="callout callout-tip">Mark a <strong>Water</strong> and a <strong>Food</strong> container at camp (<a href="#ch11">Chapter 11</a>). A companion who can't find either nearby will fetch from them.</div>
+
+<figure class="plate">
+  <img loading="lazy" decoding="async" src="https://pzwiki.net/w/images/8/86/Cortman_Medical.png" alt="Cortman Medical: a brick clinic and a large brick house behind iron fences.">
+  <figcaption><span class="plate-no">Plate 5</span> Cortman Medical in Muldraugh. Bandages are easier to find than the people who knew how to use them; now some of those people walk with you. <span class="credit">Image: PZwiki</span></figcaption>
+</figure>
+
+<h3>Wounds and Treatment</h3>
+<ul>
+  <li>Companions tear cloth into bandages, or use a dirty rag when nothing clean is left, and treat their own wounds.</li>
+  <li>When it is safe they approach and treat <strong>you</strong>: your bleeding wounds first, then other treatable wounds and unsplinted limbs, with the game's own first-aid animations. A splint is used up only after the animation and your body state both succeed.</li>
+  <li>If you start bandaging or splinting yourself, they step back at once and leave your supplies alone.</li>
+  <li>They treat each other. A rescuer picks the most urgent casualty it can actually treat, so a patient who needs a splint the helper doesn't carry won't hide another who is bleeding.</li>
+  <li>A helper pinned down by nearby threats doesn't keep choosing an unsafe rescue, and a failed treatment says what stopped it.</li>
+</ul>
+
+<table>
+  <tr><th></th><th>Supply</th><th>Use</th></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/0c/Bandage.png" alt=""></td><td><strong>Bandage</strong></td><td>Stops bleeding on a cut, scratch or bite</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/d/d2/Sheet.png" alt=""></td><td><strong>Sheets and clothing</strong></td><td>Torn into strips when bandages run out</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/a/a9/Splint.png" alt=""></td><td><strong>Splint</strong></td><td>Braces a fracture; made in downtime from clean strips and wood</td></tr>
+</table>
+
+<div class="lore-pull">Just a scratch. Hold still anyway.<span class="who">— a companion with a bandage</span></div>
+
+<h3>Bites and the Knox Infection</h3>
+<p>A bite changes everything, and the fellows know it. A known bite can lead to <strong>concealment, confession, quarantine, exile, or a farewell</strong>. Those who learn of it walk over and talk it through face to face. A bitten companion may first confide in the one it trusts most, which might be you, and a protective friend might keep the secret for a while.</p>
+
+
+<h3>When Someone Is Bitten</h3>
+<p>A bitten companion makes the first choice: to <strong>conceal</strong> the bite, to <strong>confess</strong> it, or to <strong>leave on its own</strong> before anyone has to decide. Which it picks depends on who it is. Once others know, the camp has an <strong>infection crisis</strong>, listed in <span class="menu">More → Base → Infection crises</span> with the bitten companion's name, the stage of the crisis and how far the infection has gone.</p>
+
+<p>Everyone who knows for certain weighs in, each by temperament: protective, compassionate, pragmatic, fearful or authoritarian. How far the fever has spread matters too. While the infection is under about half, the group leans toward watching and quarantine; past about four-fifths, toward exile or mercy. Without a marked <strong>Quarantine area</strong> (<a href="#ch11">Chapter 11</a>), quarantine is hard to argue for. When their deliberation runs out, the companions decide among themselves. You can choose before that, or overrule them after, and your choice stands until an irreversible act has been authorized.</p>
+
+<table>
+  <tr><th>Your option</th><th>What follows</th></tr>
+  <tr><td><strong>Argue for watch and wait</strong></td><td>They stay among you, watched, and take no base jobs</td></tr>
+  <tr><td><strong>Argue for quarantine</strong></td><td>They walk to the quarantine area and stay there, and take no base jobs</td></tr>
+  <tr><td><strong>Order exile</strong></td><td>They walk out of the camp and are not allowed back</td></tr>
+  <tr><td class="tbl-power">Propose mercy killing</td><td>Only once the bite is confirmed to you. A companion who knows carries it out, and only after your final authorization, which a short safety delay holds back</td></tr>
+  <tr><td><strong>End crisis and return to normal duty</strong></td><td>Lifts the restriction and gives them their ordinary duties back</td></tr>
+</table>
+
+<div class="callout callout-warn">Mercy, and a bitten companion's own choice to sacrifice itself, both wait for <strong>your</strong> final authorization. Nothing irreversible happens without it.</div>
+
+<h3>Death</h3>
+<p>Death is permanent, and it follows the game's own rules for corpses and reanimation. A dying companion may have last words, shaped by how it is dying and how close you were. A diary keeper's book stays with the body (<a href="#ch10">Chapter 10</a>), and a fallen companion found by the gravekeeper gets a grave with a cross and its name (<a href="#ch16">Chapter 16</a>).</p>
+
+<figure class="plate">
+  <img loading="lazy" decoding="async" src="https://pzwiki.net/w/images/e/ea/ZedFeast.jpg" alt="A zombie crouched over a body in tall grass.">
+  <figcaption><span class="plate-no">Plate 6</span> What waits for anyone left behind. <span class="credit">Image: PZwiki</span></figcaption>
+</figure>
+
+<div class="lore-pull">I'm sorry. My body gave up before I did.<span class="who">— last words</span></div>
+
+<!-- CH 9 -->
+<h2 class="chapter" id="ch9"><img class="ico" src="https://pzwiki.net/w/images/5/56/Rubberducky.png" alt="">Chapter 9: Voices, Moods and Bonds<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>Every survivor has a profession, a trait, a personality, a history, a keepsake, a preferred camp role and a personal goal (<a href="#ch9c">Chapter 9c</a>). Trust, bonds, morale, stress, memories, grief and relationships all persist (<a href="#ch9d">Chapter 9d</a>), and what they say reacts to what actually happened.</p>
+
+<h3>Four Voices</h3>
+<p>Each companion speaks in one of four voices. The voice colours every pool of lines, from a warning to a joke at camp.</p>
+<table>
+  <tr><th>Voice</th><th>How it sounds</th></tr>
+  <tr><td><strong>Brave</strong></td><td>Wants to be out front. Sharp gallows humour, once a fight is truly over.</td></tr>
+  <tr><td><strong>Cautious</strong></td><td>Counts the exits, keeps its distance from the dead, checks behind you twice.</td></tr>
+  <tr><td><strong>Caring</strong></td><td>Asks how you are holding up, and is the most likely to stop and say a few words over the dead.</td></tr>
+  <tr><td><strong>Practical</strong></td><td>Counts supplies and headcounts; thinks in routes and loads.</td></tr>
+</table>
+
+<h3>Moods</h3>
+<p>On top of the voice sits a speaking mood: <strong>stressed</strong> at stress 65 or more, <strong>low</strong> at morale 28 or less, <strong>hopeful</strong> at morale 72 or more, and otherwise <strong>steady</strong>. (The Journal shows a finer mood of its own, <a href="#ch9d">Chapter 9d</a>.) <strong>Steady</strong> companions answer routine work and waiting with dry understatement. <strong>Low</strong> spirits colour rain, fog, dawn and dusk with sparse observations. <strong>Hopeful</strong> survivors read abandoned notices and familiar buildings with an obsolete civil-defence confidence. <strong>Stressed</strong> companions have short, sharp lines of their own.</p>
+
+<p>Stress can show as venting, pacing, arguments, withdrawal or a breakdown; good morale gives small boosts. Native stress and panic can show in what they say: a companion may react to a frightening sound that did not affect you, talk through the onset or end of a panic, or ask for cigarettes when a smoker's withdrawal rises. A deaf survivor doesn't react to sounds it can't hear. All of this is flavour: it never changes a decision. Danger interrupts all of it.</p>
+
+<h3>Talk Around the Fire, and on the Road</h3>
+<ul>
+  <li><strong>At camp</strong>, two idle companions may turn toward each other for a short exchange. Followers count, and so does anyone standing in the camp's logging, farm, burial or pyre areas.</li>
+  <li><strong>On the road</strong>, one nearby follower says something about every two minutes while you walk.</li>
+  <li><strong>Standing still</strong> for a few minutes earns a joke.</li>
+  <li><strong>Busy hands</strong>: a companion at work or in downtime makes the odd remark.</li>
+  <li><strong>New places</strong>: the first walk into a notable building, such as a police station, church, bar, hospital or gun store, earns a remark. Former police officers, doctors, nurses and others have lines of their own for places like their old workplaces.</li>
+  <li><strong>Strangers</strong>: a companion who meets a calm, non-hostile survivor says hello and gives them room to answer.</li>
+</ul>
+<p>Conversation is spaced out so it never becomes a chorus, and danger interrupts it.</p>
+
+<div class="lore-pull">Knox County never looked this empty on a weekday.<span class="who">— a follower, walking</span></div>
+
+<h3>Tall Tales</h3>
+<p>Companions remember their best fights. Four kills in one fight, or a kill after being pulled down, becomes a story. The companion tells it later, when things are calm at the base or you have stood still for a minute. Every retelling grows the numbers and the title, from "that thing at the gas station" to "the Legend of the Gas Station". A companion who was there may correct it. The teller never backs down.</p>
+
+<h3>Body Language</h3>
+<p>Companions yawn late at night, and the yawn spreads to whoever stands nearby. They stretch after sitting and first thing in the morning at base, sneeze in dusty storerooms and cough in the cold. They stay seated while reading or writing, prefer usable furniture when tired, and can rest on the floor when no seat or bed is free. A companion who rests on a bed, cot or the floor with a book or its diary to hand reads or writes there before getting up. Athletic companions do a short morning workout at base, and others sometimes join them. All of it is animation only, with no sound and no effect on stats.</p>
+
+<!-- CH 9b -->
+<h2 class="chapter" id="ch9b"><img class="ico" src="https://pzwiki.net/w/images/0/07/Teabag.png" alt="">Chapter 9b: Talking with the Fellows<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>Every word in the Talk view is a real conversation. You choose what to say, the companion walks over until it is close enough to speak, and then it answers in its own voice from what is true right now: its body, its mood, its memories of you. Some answers only tell you something. Others change how they feel.</p>
+
+<div class="callout callout-recipe">
+<strong>Start a conversation:</strong> press <span class="menu">Talk</span> above the panel tabs and choose a companion, or right-click a nearby companion and choose <span class="menu">Talk to [name]</span>. Pick a section, then a line. <em>Recent words</em> keeps the last few exchanges.
+</div>
+
+<h3>Check In</h3>
+<table>
+  <tr><th>You say</th><th>What you get</th></tr>
+  <tr><td><strong>What are you doing?</strong></td><td>Their current activity in plain words: "bandaging a wound", "searching a container", "changing equipment".</td></tr>
+  <tr><td><strong>How are you?</strong></td><td>An honest answer. Grief comes first ("I am not all right yet"), then their most pressing need, then nerves. Only a companion with nothing wrong gives you a ready answer in its own voice.</td></tr>
+  <tr><td><strong>Do you need anything?</strong></td><td>The single most pressing need, checked in this order: Knox symptoms; wounds or health under 45%; water (thirst 62% or more); food (hunger 62% or more); safety (stress 60 or more); bandages, if they carry none; ammunition, if they have none and prefer firearms.</td></tr>
+  <tr><td><strong>What are you hoping for?</strong></td><td>Their current goal (<a href="#ch9d">Chapter 9d</a>). Below trust 10 a companion keeps it to itself. Once told, the goal shows in the Journal.</td></tr>
+</table>
+
+<div class="lore-pull">Water, if we can spare it. I am getting very thirsty.<span class="who">— "Do you need anything?"</span></div>
+
+<h3>Get to Know</h3>
+<table>
+  <tr><th>You say</th><th>What you get</th></tr>
+  <tr><td><strong>Talk about memories</strong></td><td>Their most recent memory of the two of you, such as the time you stayed close while they were patched up. If that memory is a friend's death, they talk about the friend.</td></tr>
+  <tr><td><strong>Tell me about yourself</strong></td><td>One more detail of their life before, each time you ask, as far as their trust allows: occupation, past, home, what they value, what they fear, a habit, and finally their keepsake. Each new detail adds a point of bond. When trust runs out: <em>"Maybe another time. Some things are still hard to talk about."</em></td></tr>
+  <tr><td><strong>What do you think?</strong></td><td>Their view of the current situation. Danger or high stress comes first; then their guard post, or their scavenging; otherwise their personality's take on how the two of you should operate.</td></tr>
+  <tr><td><strong>How are we doing?</strong></td><td>Where you stand, in words that match their relationship tier. Recruited companions only.</td></tr>
+</table>
+
+<div class="lore-pull">I don't agree with every call, but I trust you to make one.<span class="who">— "How are we doing?", at Trusted</span></div>
+
+<h3>Support</h3>
+<p>Support lines change how a companion feels, and only work on recruited companions.</p>
+<table>
+  <tr><th>You say</th><th>When it works</th><th>Effect</th></tr>
+  <tr><td><strong>Reassure them</strong></td><td>When they need it. A companion with stress under 30 and morale over 60 tells you to save the speech. Once every two minutes; sooner, and they ask for a minute to breathe.</td><td>Stress −12, morale +8, bond +1</td></tr>
+  <tr><td><strong>You did well</strong></td><td>When there is something to praise: a recent moment of them helping you, getting out of danger together, pulling the danger off you, or useful work done. Each moment can be praised once.</td><td>Bond +3, morale +6</td></tr>
+</table>
+
+<div class="lore-pull">That helped more than I expected.<span class="who">— after "Reassure them"</span></div>
+
+<h3>When a Conversation Fails</h3>
+<table>
+  <tr><th>You'll see</th><th>Why</th></tr>
+  <tr><td>Danger interrupted the conversation.</td><td>A threat took priority</td></tr>
+  <tr><td>An order interrupted the conversation.</td><td>You gave an order mid-conversation</td></tr>
+  <tr><td>Move to the same floor to talk.</td><td>Speech doesn't carry through floors</td></tr>
+  <tr><td>There is no clear place to stand and talk.</td><td>No reachable spot next to you</td></tr>
+  <tr><td>We couldn't get close enough to talk.</td><td>They tried and couldn't reach you in time</td></tr>
+  <tr><td>This companion is on an expedition. Use the radio for orders.</td><td>See <a href="#ch17">Chapter 17</a></td></tr>
+</table>
+
+<div class="callout callout-tip">You can talk to a survivor before recruiting them. Check In and Get to Know work on strangers, which is a fair way to learn who you are inviting. <span class="menu">How are we doing?</span> and the Support lines wait until they've joined. Household representatives have their own conversation (<a href="#ch18">Chapter 18</a>).</div>
+
+<!-- CH 9c -->
+<h2 class="chapter" id="ch9c"><img class="ico" src="https://pzwiki.net/w/images/c/c7/Clipboard.png" alt="">Chapter 9c: Who They Are<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>Every survivor is rolled once, when you first meet them, and stays that person through every save and reload: the same trade, the same nerves, the same habit of humming while they work. Two pages show what you know about them: <span class="menu">More → Character</span> for the body and skills, and <span class="menu">More → Journal</span> for the person.</p>
+
+<h3>The Character Page</h3>
+<table>
+  <tr><th>Section</th><th>What it shows</th></tr>
+  <tr><td><strong>Who They Are</strong></td><td>Trade (profession), aptitude (background trait) and preferred camp role</td></tr>
+  <tr><td><strong>Ability Scores</strong></td><td>Strength, Fitness, Nimble and Sprinting, as the game's own skill levels. Each is rolled once, spread around what the profession would start with, so two carpenters are not the same person.</td></tr>
+  <tr><td><strong>Traits</strong></td><td>The game traits they carry</td></tr>
+  <tr><td><strong>Learned Skills</strong></td><td>Every other skill they have above zero</td></tr>
+</table>
+
+<h3>Four Measures of a Person</h3>
+<p>Personality is four scores from 0 to 100: <strong>Courage</strong>, <strong>Caution</strong>, <strong>Compassion</strong> and <strong>Practicality</strong>. One of them is always strong. Profession and background trait nudge the rest. The highest of the four becomes their <strong>voice</strong>, Brave, Cautious, Caring or Practical (<a href="#ch9">Chapter 9</a>), and the scores lean their decisions:</p>
+<table>
+  <tr><th>Measure</th><th>Leans them toward</th></tr>
+  <tr><td><strong>Courage</strong></td><td>Taking fights, holding longer before retreating</td></tr>
+  <tr><td><strong>Caution</strong></td><td>Retreating sooner, tactical alerts, keeping exits; less rummaging indoors</td></tr>
+  <tr><td><strong>Compassion</strong></td><td>Medical help and rescues</td></tr>
+  <tr><td><strong>Practicality</strong></td><td>Scavenging and useful downtime work</td></tr>
+</table>
+<div class="callout callout-tip">A lean is only a lean. Personality shifts a decision by a few points; it never invents an escape route, and it never makes a companion walk into a fight the tactical judgement calls hopeless.</div>
+
+<h3>Professions</h3>
+<p>The 25 professions are the game's own, with the game's starting skill boosts. Each points toward a <strong>natural camp role</strong> (Builder is the Carpenter job, <a href="#ch14">Chapter 14</a>) and offers a short list of background traits; a companion gets one of them.</p>
+<table>
+  <tr><th>Profession</th><th>Natural role</th><th>Possible background traits</th></tr>
+  <tr><td>Burglar</td><td>Generalist</td><td>Dextrous, Graceful, Jogger, Keen Hearing</td></tr>
+  <tr><td>Burger Flipper</td><td>Quartermaster</td><td>Organized, Dextrous, Fast Learner</td></tr>
+  <tr><td>Carpenter</td><td>Builder</td><td>Handy, Organized, Outdoorsman</td></tr>
+  <tr><td>Chef</td><td>Quartermaster</td><td>Organized, Dextrous, Gardener</td></tr>
+  <tr><td>Construction Worker</td><td>Builder</td><td>Handy, Organized, Stout</td></tr>
+  <tr><td>Doctor</td><td>Medic</td><td>First Aider, Organized, Fast Learner</td></tr>
+  <tr><td>Electrician</td><td>Builder</td><td>Handy, Organized, Tinkerer</td></tr>
+  <tr><td>Engineer</td><td>Builder</td><td>Tinkerer, Organized, Fast Learner</td></tr>
+  <tr><td>Farmer</td><td>Farmer</td><td>Gardener, Outdoorsman, Organized</td></tr>
+  <tr><td>Fire Officer</td><td>Guard</td><td>Brave, First Aider, Jogger, Stout</td></tr>
+  <tr><td>Fisherman</td><td>Quartermaster</td><td>Angler, Outdoorsman, Patient Reader</td></tr>
+  <tr><td>Fitness Instructor</td><td>Generalist</td><td>Jogger, Graceful, Organized</td></tr>
+  <tr><td>Lumberjack</td><td>Builder</td><td>Outdoorsman, Handy, Stout, Hiker</td></tr>
+  <tr><td>Mechanic</td><td>Builder</td><td>Handy, Organized, Tinkerer</td></tr>
+  <tr><td>Metalworker</td><td>Builder</td><td>Handy, Organized, Stout</td></tr>
+  <tr><td>Nurse</td><td>Medic</td><td>First Aider, Organized, Graceful</td></tr>
+  <tr><td>Park Ranger</td><td>Generalist</td><td>Outdoorsman, Hiker, Keen Hearing, First Aider</td></tr>
+  <tr><td>Police Officer</td><td>Guard</td><td>Keen Hearing, Brave, Organized, Jogger</td></tr>
+  <tr><td>Rancher</td><td>Quartermaster</td><td>Outdoorsman, Stout, Organized</td></tr>
+  <tr><td>Repairman</td><td>Builder</td><td>Handy, Tinkerer, Organized</td></tr>
+  <tr><td>Security Guard</td><td>Guard</td><td>Keen Hearing, Jogger, Organized</td></tr>
+  <tr><td>Blacksmith</td><td>Builder</td><td>Handy, Stout, Organized</td></tr>
+  <tr><td>Tailor</td><td>Quartermaster</td><td>Sewer, Organized, Dextrous</td></tr>
+  <tr><td>Unemployed</td><td>Generalist</td><td>Any of Jogger, First Aider, Handy, Organized, Outdoorsman, Fast Learner, Gardener, Keen Hearing</td></tr>
+  <tr><td>Veteran</td><td>Guard</td><td>Organized, Keen Hearing, First Aider, Hiker</td></tr>
+</table>
+<p>A profession also colours what they choose to do: which goals they pick, which camp jobs they drift toward, how they read a fight. Former police, doctors, nurses and others have lines of their own for places like their old workplaces.</p>
+
+<h3>Background Traits</h3>
+<table>
+  <tr><th>Trait</th><th>Effect on the person</th></tr>
+  <tr><td><strong>Angler</strong></td><td>Cautious and practical; scavenges a little more</td></tr>
+  <tr><td><strong>Brave</strong></td><td>Much more courage, less caution; fights more, retreats later</td></tr>
+  <tr><td><strong>Dextrous</strong></td><td>Practical; repairs and crafts a little more in downtime</td></tr>
+  <tr><td><strong>Fast Learner</strong></td><td>Practical; busier in downtime</td></tr>
+  <tr><td><strong>First Aider</strong></td><td>Compassionate and careful; more medical help; +1 First Aid</td></tr>
+  <tr><td><strong>Gardener</strong></td><td>Compassionate and practical; scavenges a little more</td></tr>
+  <tr><td><strong>Graceful</strong></td><td>Cautious; moves more tactically and retreats sooner</td></tr>
+  <tr><td><strong>Handy</strong></td><td>Practical; repairs and crafts in downtime; +1 Carpentry, +1 Maintenance</td></tr>
+  <tr><td><strong>Hiker</strong></td><td>A little braver and more careful; scavenges and retreats a little more</td></tr>
+  <tr><td><strong>Jogger</strong></td><td>Retreats readily and moves tactically; +1 Sprinting</td></tr>
+  <tr><td><strong>Keen Hearing</strong></td><td>Cautious; more tactical alertness</td></tr>
+  <tr><td><strong>Organized</strong></td><td>Careful and practical; sorts and hauls at camp</td></tr>
+  <tr><td><strong>Outdoorsman</strong></td><td>Bolder, and still careful; scavenges more and retreats a little sooner</td></tr>
+  <tr><td><strong>Patient Reader</strong></td><td>Reads more in downtime</td></tr>
+  <tr><td><strong>Sewer</strong></td><td>Repairs and crafts in downtime; +1 Tailoring</td></tr>
+  <tr><td><strong>Stout</strong></td><td>Courageous; fights a little more; +1 Strength</td></tr>
+  <tr><td><strong>Tinkerer</strong></td><td>Practical; repairs and crafts in downtime</td></tr>
+</table>
+
+<h3>A Life Before</h3>
+<p>Beyond the trade, every survivor has a past they tell you a piece at a time (<a href="#ch9d">Chapter 9d</a>): a short history, a home town, something they value, something they fear, and a habit.</p>
+<div class="two-col">
+<div>
+<h4>Home and values</h4>
+<ul>
+  <li><strong>Home:</strong> Muldraugh, Rosewood, Riverside, West Point, Louisville or Brandenburg</li>
+  <li><strong>Value:</strong> honesty, loyalty, kindness, self-reliance, community or courage</li>
+</ul>
+</div>
+<div>
+<h4>Fears and habits</h4>
+<ul>
+  <li><strong>Fear:</strong> being alone, turning, fire, tight spaces, letting people down, or the dark</li>
+  <li><strong>Habit:</strong> checks exits, counts supplies, hums, keeps notes, makes tea, or cleans tools</li>
+</ul>
+</div>
+</div>
+
+<h3>Keepsakes and Rituals</h3>
+<p>Every survivor carries a <img class="ico-sm" src="https://pzwiki.net/w/images/7/71/Locket.png" alt="">keepsake, something personal they won't explain until they trust you. If it is ever lost, getting it back becomes their goal.</p>
+<p>Some companions also keep a small, harmless <strong>personal ritual</strong>, and the Journal shows it once you've noticed it, with how often they've done it:</p>
+<table>
+  <tr><th>Ritual</th><th></th></tr>
+  <tr><td>Salutes Spiffo signs</td><td class="tbl-note">A smart salute to the raccoon</td></tr>
+  <tr><td>Blesses Kentucky bourbon</td><td class="tbl-note">Even when there's none to pour</td></tr>
+  <tr><td>Apologizes to mannequins</td><td class="tbl-note">Just in case</td></tr>
+  <tr><td>Reports to garden-gnome command</td><td class="tbl-note">Chain of command is chain of command</td></tr>
+  <tr><td>Gives the old team a pep talk</td><td class="tbl-note">Season's not over</td></tr>
+  <tr><td><img class="ico-sm" src="https://pzwiki.net/w/images/5/56/Rubberducky.png" alt="">Worships the Rubber Duck</td><td class="tbl-note">The duck is a relic, and its keeper notices if it goes missing</td></tr>
+</table>
+<p>A ritual may surface at a graveside too, where a gravekeeper with the habit closes the grave its own way.</p>
+
+<h3>The Journal</h3>
+<table>
+  <tr><th>Section</th><th>What it holds</th></tr>
+  <tr><td><strong>Who they are</strong></td><td>Profession, background trait, natural role, personality and its four scores, and whatever of their past they've told you</td></tr>
+  <tr><td><strong>How they feel</strong></td><td>Relationship tier, mood, and the reasons behind them</td></tr>
+  <tr><td><strong>What they want</strong></td><td>Their goal and its progress, once they've told you</td></tr>
+  <tr><td><strong>What they keep</strong></td><td>Their keepsake and where it is</td></tr>
+  <tr><td><strong>Personal ritual</strong></td><td>Ritual, stage, times completed, and any relic</td></tr>
+  <tr><td><strong>What you have been through</strong></td><td>Memories of you together</td></tr>
+  <tr><td><strong>Care and shared life</strong></td><td>Counts of treatments, meals, rescues and personal goals reached</td></tr>
+</table>
+
+<!-- CH 9d -->
+<h2 class="chapter" id="ch9d"><img class="ico" src="https://pzwiki.net/w/images/7/71/Locket.png" alt="">Chapter 9d: Trust, Bonds and Goals<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>A companion's feelings about you rest on two numbers, each from 0 to 100. <strong>Trust</strong> is whether they believe you'll do right by them. <strong>Bond</strong> is how much they care. Beside them run <strong>morale</strong> (55 to start) and <strong>stress</strong> (12 to start). None of it is shown as a bar; you hear it in how they talk and read it in the Journal.</p>
+
+<h3>The Five Tiers</h3>
+<p>The relationship tier comes from a score that weighs trust slightly above bond: <code>trust × 0.55 + bond × 0.45</code>.</p>
+<table>
+  <tr><th>Score</th><th>Tier</th><th>Ask "How are we doing?" and you might hear</th></tr>
+  <tr><td>under 10</td><td><strong>Cautious</strong></td><td><em>"I am still getting to know you. Give me time."</em></td></tr>
+  <tr><td>10+</td><td><strong>Ally</strong></td><td><em>"We work well together. Trust takes time, but we are getting there."</em></td></tr>
+  <tr><td>30+</td><td><strong>Trusted</strong></td><td><em>"We have been through enough that I know you will be there."</em></td></tr>
+  <tr><td>55+</td><td><strong>Close</strong></td><td><em>"I trust you with my life. That is not something I say lightly."</em></td></tr>
+  <tr><td>80+</td><td><strong>Family</strong></td><td><em>"You are family to me now. I am not walking away."</em></td></tr>
+</table>
+
+<h3>What Builds It</h3>
+<p>Almost everything that counts happens <strong>close</strong>: within 8 tiles, on the same floor. Each moment is noticed on its own, with a short wait before the same kind counts again.</p>
+<table>
+  <tr><th>The moment</th><th>Trust</th><th>Bond</th><th>Morale</th><th>Stress</th><th>Counts again after</th></tr>
+  <tr><td>They join you</td><td>+4</td><td>+2</td><td>+3</td><td></td><td class="tbl-note">once</td></tr>
+  <tr><td>They are patched up while you're close</td><td>+5</td><td>+4</td><td>+4</td><td>−8</td><td class="tbl-note">90 seconds</td></tr>
+  <tr><td>They eat while you're close</td><td>+3</td><td>+2</td><td>+3</td><td>−2</td><td class="tbl-note">90 seconds</td></tr>
+  <tr><td>They drink while you're close</td><td>+3</td><td>+2</td><td>+2</td><td>−2</td><td class="tbl-note">90 seconds</td></tr>
+  <tr><td>You get out of danger together</td><td>+2</td><td>+4</td><td>+3</td><td>−5</td><td class="tbl-note">3 minutes</td></tr>
+  <tr><td>The danger on you passes with them beside you</td><td>+2</td><td>+5</td><td>+4</td><td>−3</td><td class="tbl-note">3 minutes</td></tr>
+  <tr><td>You are treated with them beside you</td><td></td><td>+3</td><td>+3</td><td></td><td class="tbl-note">2 minutes</td></tr>
+  <tr><td>They get hurt beside you</td><td></td><td>+1</td><td>−3</td><td>+8</td><td class="tbl-note">2 minutes</td></tr>
+  <tr><td>They tell you something new about themselves</td><td></td><td>+1</td><td></td><td></td><td class="tbl-note">each detail</td></tr>
+  <tr><td>"Reassure them"</td><td></td><td>+1</td><td>+8</td><td>−12</td><td class="tbl-note">2 minutes</td></tr>
+  <tr><td>"You did well"</td><td></td><td>+3</td><td>+6</td><td></td><td class="tbl-note">each moment once</td></tr>
+  <tr><td>A goal of theirs is reached</td><td></td><td>+1 if they'd told you</td><td>+4</td><td></td><td class="tbl-note">each goal</td></tr>
+</table>
+
+<div class="callout callout-tip">The cheapest trust in Knox County is a shared meal. Feed them, give them water, patch them up, and stay close while you do it. Hours spent near each other are counted too, and the Journal names it: <em>"You have survived together for a while."</em></div>
+
+<div class="callout callout-warn">A <strong>push</strong> (focusing the same zombie twice, <a href="#ch4">Chapter 4</a>) is remembered three ways: as being pushed into a fight, as being pushed and getting everyone through, or as being pushed and getting hurt. A higher relationship score gives a push more room; below a score of 25 it adds nothing at all.</div>
+
+<h3>Trust Opens the Past</h3>
+<p>"Tell me about yourself" gives one new detail each time, but only as far as their <strong>trust</strong> (not the tier score) allows:</p>
+<table>
+  <tr><th>Detail</th><th>Needs trust</th></tr>
+  <tr><td>Occupation</td><td>any</td></tr>
+  <tr><td>Past</td><td>10</td></tr>
+  <tr><td>Home</td><td>25</td></tr>
+  <tr><td>What they value</td><td>40</td></tr>
+  <tr><td>What they fear</td><td>55</td></tr>
+  <tr><td>A habit</td><td>70</td></tr>
+  <tr><td><img class="ico-sm" src="https://pzwiki.net/w/images/7/71/Locket.png" alt="">Their keepsake</td><td>80</td></tr>
+</table>
+<p>Their current goal opens up earlier: from trust 10, they'll tell you when you ask what they're hoping for.</p>
+
+<h3>Mood in the Journal</h3>
+<table>
+  <tr><th>Mood</th><th>When</th></tr>
+  <tr><td><strong>Shaken</strong></td><td>Stress 72 or more</td></tr>
+  <tr><td><strong>Low</strong></td><td>Morale 25 or less</td></tr>
+  <tr><td><strong>Uneasy</strong></td><td>Stress 42 or more</td></tr>
+  <tr><td><strong>Loyal</strong></td><td>Bond 70 or more</td></tr>
+  <tr><td><strong>Hopeful</strong></td><td>Morale 72 or more</td></tr>
+  <tr><td><strong>Steady</strong></td><td>None of the above</td></tr>
+</table>
+<p class="tbl-note">Checked top to bottom: a loyal companion who is also shaken shows as shaken.</p>
+
+<h3>Personal Goals</h3>
+<p>Each companion chases one goal of its own at a time, picked from six by personality and profession: compassion leans toward medicine and meals, caution toward reading, practicality toward gear and shelter, and a nurse, cook or carpenter leans toward their trade. They avoid repeating a goal they've just finished, and a lost keepsake always comes first.</p>
+<table>
+  <tr><th></th><th>Goal</th><th>Done when</th></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/0c/Bandage.png" alt=""></td><td><strong>Keep clean bandages ready</strong></td><td>They carry two clean bandages</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/f/f3/Book.png" alt=""></td><td><strong>Find something worth reading</strong></td><td>They carry something they haven't read yet</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/7/7c/Wrench.png" alt=""></td><td><strong>Put our gear in order</strong></td><td>They carry a weapon in at least 80% condition, or finish a repair</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/1/12/Barricade.png" alt=""></td><td><strong>Improve this shelter</strong></td><td>They finish barricade work</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/5/54/Pot.png" alt=""></td><td><strong>Share a proper meal</strong></td><td>They eat with you close by</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/7/71/Locket.png" alt=""></td><td><strong>Recover the personal keepsake</strong></td><td>The keepsake is back in their pocket</td></tr>
+</table>
+<p>A finished goal lifts morale, adds bond if they'd told you about it, and is followed by a breather of about six in-game hours before the next.</p>
+
+<div class="lore-pull">A real meal together would remind me what we are surviving for.<span class="who">— a companion asked what they're hoping for</span></div>
+
+<h3>Assigned Objectives</h3>
+<p>Right-click a recruited companion and choose <span class="menu">Assign objective</span> to set one of the first five goals yourself. An objective they've already fulfilled isn't offered, since it would complete at once for nothing. Their own goal is set aside, not lost: it comes back when your objective is done.</p>
+
+<!-- CH 9e -->
+<h2 class="chapter" id="ch9e"><img class="ico" src="https://pzwiki.net/w/images/f/f3/Book.png" alt="">Chapter 9e: Downtime and Quiet Hours<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>When nothing needs doing and nothing is coming, a companion finds something to do. There is no selector for it: they choose from their needs, personality, goals and what they did last, and any danger ends it at once.</p>
+
+<table>
+  <tr><th></th><th>Activity</th><th>When and how</th></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/f/f3/Book.png" alt=""></td><td><strong>Reading</strong></td><td>Something they carry, or an unread book borrowed from the camp library and put back afterwards. They stay seated to read, and read in bed after a rest if a book is to hand.</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/e/ea/Pencil.png" alt=""></td><td><strong>Writing</strong></td><td>Diary keepers write an entry in a quiet, safe moment (<a href="#ch10">Chapter 10</a>)</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/4/46/Toolbox.png" alt=""></td><td><strong>Repairs</strong></td><td>Damaged gear they carry. Handy, Tinkerer, Sewer and Dextrous companions do more of it.</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/0c/Bandage.png" alt=""></td><td><strong>Changing a dressing</strong></td><td>A dirty bandage swapped for a clean one; the used one goes back in their pack</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/a/a9/Splint.png" alt=""></td><td><strong>Making splints</strong></td><td>From a clean rag and wood, while they carry fewer than two</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/0e/SheetRope.png" alt=""></td><td><strong>Making sheet rope</strong></td><td>For climbing out of windows</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/5/52/Bucket.png" alt=""></td><td><strong>Washing</strong></td><td>Themselves, their gear, and dirty dressings for reuse, at reachable clean water. Protected items are left alone, and a washed dressing keeps its custom name and favourite mark.</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/2/2b/Moodle_Icon_Tired.png" alt=""></td><td><strong>Rest</strong></td><td>A bed or cot, a usable chair, or the floor when no seat or bed is free</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/d/d2/Sheet.png" alt=""></td><td><strong>Curtains</strong></td><td>Indoors, curtains get closed at night (20:00–06:00). By day a companion now and then opens or closes one; a companion on Stealth, sneaking or holding fire only ever closes them.</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/f/f0/Moodle_Icon_Endurance.png" alt=""></td><td><strong>Exercise</strong></td><td>Athletic companions work out at base in the morning, and others sometimes join them (<a href="#ch9">Chapter 9</a>)</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/8/86/Moodle_Icon_Dead.png" alt=""></td><td><strong>The dead</strong></td><td>Studying a body, or paying respects to one (<a href="#ch7">Chapter 7</a>)</td></tr>
+</table>
+
+<div class="callout callout-tip">At camp, downtime also follows the base policies (<a href="#ch14b">Chapter 14b</a>): <strong>Allow safe routines and downtime</strong> switches it on or off for residents, and the <strong>Continuous useful work</strong> workload adds extra routines on top.</div>
+
+<!-- CH 9f -->
+<h2 class="chapter" id="ch9f"><img class="ico" src="https://pzwiki.net/w/images/1/1f/Cigarette.png" alt="">Chapter 9f: Stress, Joy and Boredom<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>Under the voice and the mood runs a quieter ledger: what a companion is <em>thinking about</em>. Some thoughts come from how they are right now, others from what just happened, and together they push stress and morale up and down.</p>
+
+<h3>What Weighs on Them</h3>
+<table>
+  <tr><th>Standing condition</th><th>Starts to weigh when</th></tr>
+  <tr><td>Injuries</td><td>Health under 80%</td></tr>
+  <tr><td>Hunger</td><td>Hunger over 40%</td></tr>
+  <tr><td>Thirst</td><td>Thirst over 35%</td></tr>
+  <tr><td>The load</td><td>Carrying over 85% of their capacity</td></tr>
+  <tr><td>The dead too close</td><td>Any threat in sight</td></tr>
+  <tr><td>Tension in the group</td><td>Bad feeling between two companions</td></tr>
+  <tr><td>Boredom</td><td>Waiting without a purpose (below)</td></tr>
+</table>
+
+<table>
+  <tr><th>Something that happened</th><th>Stress</th><th>Morale</th></tr>
+  <tr><td>Being hurt beside you</td><td>+18</td><td>−6</td></tr>
+  <tr><td>Watching someone get hurt</td><td>+14</td><td>−5</td></tr>
+  <tr><td>A physical fight between companions</td><td>+18</td><td>−8</td></tr>
+  <tr><td>An argument</td><td>+10</td><td>−4</td></tr>
+  <tr><td>A promised supply run that never happened</td><td>+14</td><td>−8</td></tr>
+  <tr><td>A supply run that went badly</td><td>+12</td><td>−5</td></tr>
+  <tr><td>Useful work done</td><td>−1</td><td>+3</td></tr>
+  <tr><td>Pulling someone out of danger</td><td>−4</td><td>+7</td></tr>
+  <tr><td>Someone's good mood lifting the room</td><td>−5</td><td>+8</td></tr>
+  <tr><td>Getting out of danger together</td><td>−8</td><td>+8</td></tr>
+  <tr><td>A supply run that brought everyone home</td><td>−8</td><td>+9</td></tr>
+  <tr><td>Someone taking the time to steady them</td><td>−10</td><td>+6</td></tr>
+  <tr><td>Making up after a quarrel</td><td>−10</td><td>+6</td></tr>
+</table>
+
+<h3>Under Pressure</h3>
+<p>When stress builds too far, each companion reacts in its own fixed way, set by its strongest personality measure. All of it plays out in the world, and danger stops it.</p>
+<table>
+  <tr><th>Stress response</th><th>Typical of</th><th>What you see</th></tr>
+  <tr><td><strong>Venter</strong></td><td>The compassionate</td><td>Lets it out loud, and may smash an empty glass bottle against a wall</td></tr>
+  <tr><td><strong>Confronter</strong></td><td>The courageous</td><td>Picks an argument with a nearby companion it already has bad feeling with; with nobody to argue with, it vents instead</td></tr>
+  <tr><td><strong>Withdrawer</strong></td><td>The cautious</td><td>Goes somewhere quiet to be alone</td></tr>
+  <tr><td><strong>Restless</strong></td><td>The practical</td><td>Hits the furniture, or paces it off</td></tr>
+  <tr><td><strong>Shutdown</strong></td><td>An uncommon few</td><td>Stops, somewhere quiet, until it passes</td></tr>
+</table>
+<div class="lore-pull">I need a few quiet minutes.<span class="who">— a withdrawer, under strain</span></div>
+
+<h3>Positive Momentum</h3>
+<p>Good days show too. When things go well, a companion gets a spell of momentum, again in its own fixed style:</p>
+<table>
+  <tr><th>Momentum</th><th>Effect while it lasts</th></tr>
+  <tr><td><strong>Rallying</strong></td><td>Lifts the morale of companions within 8 tiles</td></tr>
+  <tr><td><strong>Caretaker</strong></td><td>Lifts those nearby, and leans harder into medical help</td></tr>
+  <tr><td><strong>Organizer</strong></td><td>Leans into hauling, sorting and camp work</td></tr>
+  <tr><td><strong>Focused</strong></td><td>Works about 15% faster at downtime and camp work</td></tr>
+  <tr><td><strong>Bold</strong></td><td>Leans into scavenging and meeting strangers; only the very brave</td></tr>
+</table>
+<div class="lore-pull">My head is clear today. Put me to work.<span class="who">— a focused companion</span></div>
+
+<h3>Boredom and the Supply Run</h3>
+<p>Boredom grows while a companion waits with nothing to do and nothing threatening, and drains away when they're busy. Once it passes 45, it starts to weigh on them. A bored companion may then ask, from the top of Status, for a supply run, if two days have passed since the last one or supplies are low, and never more than once a day.</p>
+<p>A <strong>supply run</strong>, as far as the camp is concerned, is leaving the camp with companions and coming back at least half an hour later. It counts as a bad run if anyone came home noticeably more hurt than they left.</p>
+<table>
+  <tr><th>Your answer</th><th>What follows</th></tr>
+  <tr><td><strong>We will go soon</strong></td><td>Trust +1, and they now expect a run within a day</td></tr>
+  <tr><td><strong>Come with me now</strong></td><td>Trust +2; they switch to Follow and expect a run within a day</td></tr>
+  <tr><td><strong>Not now</strong></td><td>A sore thought for twelve hours: stress +4, morale −2</td></tr>
+  <tr><td><strong>We cannot spare the risk</strong></td><td>A milder thought for eight hours; practical companions take it best</td></tr>
+</table>
+<div class="callout callout-warn">A promise is a promise. Keep the run, and they feel it (stress −8, morale +10). Let the day pass without one, and that weighs too (stress +14, morale −8).</div>
+<div class="lore-pull">When are we making the next supply run?<span class="who">— a bored companion</span></div>
+
+<!-- CH 10 -->
+<h2 class="chapter" id="ch10"><img class="ico" src="https://pzwiki.net/w/images/f/f3/Book.png" alt="">Chapter 10: Private Diaries<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>Some companions keep a diary. When a companion joins, the game decides once whether they are a diary keeper, about one in three by default, and remembers that choice. A keeper carries a <img class="ico-sm" src="https://pzwiki.net/w/images/f/f3/Book.png" alt="">book named after them, plus a <img class="ico-sm" src="https://pzwiki.net/w/images/e/ea/Pencil.png" alt="">pencil if they had nothing to write with. Now and then, in a quiet safe moment, they open the book for a few seconds and write a short entry: at most once a day, usually every day or two.</p>
+
+<h3>What Goes in the Book</h3>
+<p>Every entry is about something that really happened to that companion, and a companion only writes what it could know.</p>
+<div class="two-col">
+<div>
+<h4>The body and the fever</h4>
+<ul>
+  <li>Joining you</li>
+  <li>A scratch, cut, burn, fracture or bite on their own body</li>
+  <li>Being bandaged, credited to whoever actually did it</li>
+  <li>A hidden bite, a confession, a worsening fever, the group's decision</li>
+  <li>Learning that someone else was bitten</li>
+</ul>
+</div>
+<div>
+<h4>Everyday life, funny and grim</h4>
+<ul>
+  <li>The first police station, or the first Spiffo's</li>
+  <li>A zombie they studied in a Santa suit</li>
+  <li>A fight story, with the real count, not the retold one</li>
+  <li>Praise, pep talks, workouts, repairs, planks sawn</li>
+  <li>Arguments, breakdowns, burials, burning bodies, a mercy decision</li>
+</ul>
+</div>
+</div>
+
+<p>A hidden infection stays out of the book until they feel the fever. Each keeper has a voice of their own (plain and guarded, warm, blunt, or wry and watchful), and a later entry may quote an earlier page when their view of you has really changed. If an entry is interrupted, nothing is written.</p>
+
+<h3>Reading One</h3>
+<p>Right-click the book and choose <span class="menu">Read</span>. Reading a living companion's diary asks you to confirm first, because it is private. Reading gives no experience or reward. A book holds 60 entries.</p>
+
+<div class="callout callout-tip">A page is never rewritten, and nothing is written after the author dies. The book stays with them: on the body, in a bag, or wherever they left it. Diaries can be turned off, and the keeper chance changed, on the sandbox page; turning them off never removes a book or its pages.</div>
+
+<!-- ═══ PART III ═══ -->
+<div class="part-header" id="part3">
+  <img class="ico-lg" src="https://pzwiki.net/w/images/c/c2/Generator.png" alt="">
+  <p class="part-label">Part III</p>
+  <h2>The Living Base</h2>
+  <p class="part-desc">A house is four walls. A camp is the people inside them, the work they share, and the rules that keep them alive while you are out. Here is how to give the fellows a home.</p>
+</div>
+
+<!-- CH 11 -->
+<h2 class="chapter" id="ch11"><img class="ico" src="https://pzwiki.net/w/images/8/81/Hammer.png" alt="">Chapter 11: Setting Up Camp<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>Everything at camp starts from one tile: the camp core. Choose it inside the place you mean to hold, because the camp boundary grows out from it, seven tiles in every direction to begin with.</p>
+
+<figure class="plate">
+  <img loading="lazy" decoding="async" src="https://pzwiki.net/w/images/3/3e/IsolatedHouse_Muldraugh.png" alt="A small house inside a tall wooden fence, surrounded by trees.">
+  <figcaption><span class="plate-no">Plate 7</span> An isolated house outside Muldraugh: one door, one fence, trees close enough to cut. Good bones for a camp. <span class="credit">Image: PZwiki</span></figcaption>
+</figure>
+
+<div class="callout callout-recipe">
+<strong>Set the camp core:</strong> right-click the ground tile and choose <span class="menu">Living Fellows → Base life → Set camp core here</span>.
+</div>
+
+<h3>Drawing Zones</h3>
+<ol class="steps">
+  <li>Right-click the first corner tile and choose <span class="menu">Start zone here</span>, then the kind of zone.</li>
+  <li>Move the mouse to preview the rectangle.</li>
+  <li>Right-click the final corner tile. That locks the rectangle, so the preview won't shift while you move through the menu.</li>
+  <li>Choose <span class="menu">Finish zone here</span>. Your character's position is never used.</li>
+</ol>
+
+<table>
+  <tr><th>Zone</th><th>What it is for</th><th>Where it may lie</th></tr>
+  <tr><td><strong>Camp boundary</strong></td><td>The camp itself; also added on its own to connected floors (<a href="#ch12">Ch 12</a>)</td><td>Around the camp core; more can be drawn inside the camp or on a connected floor</td></tr>
+  <tr><td><strong>Work area</strong></td><td>General camp work</td><td>Inside the camp</td></tr>
+  <tr><td><strong>Rest area</strong></td><td>Where residents rest</td><td>Inside the camp</td></tr>
+  <tr><td><strong>Social area</strong></td><td>Where residents gather</td><td>Inside the camp</td></tr>
+  <tr><td><strong>Guard area</strong></td><td>Where guards keep watch</td><td>Inside the camp</td></tr>
+  <tr><td><strong>Rally area</strong></td><td>Where the camp gathers</td><td>Inside the camp</td></tr>
+  <tr><td><strong>Quarantine area</strong></td><td>Somewhere to keep a bitten companion apart</td><td>Inside the camp</td></tr>
+  <tr><td><img class="ico-sm" src="https://pzwiki.net/w/images/4/45/WoodAxe.png" alt=""><strong>Lumber area</strong></td><td>Standing trees for the woodcutter</td><td>Up to 30 tiles beyond the boundary</td></tr>
+  <tr><td><img class="ico-sm" src="https://pzwiki.net/w/images/8/87/Hoe.png" alt=""><strong>Farm area</strong></td><td>Existing plots for the farmer</td><td>Up to 30 tiles beyond the boundary</td></tr>
+  <tr><td><img class="ico-sm" src="https://pzwiki.net/w/images/7/77/Shovel.png" alt=""><strong>Burial ground</strong></td><td>Graves</td><td>Up to 30 tiles beyond the boundary</td></tr>
+  <tr><td><img class="ico-sm" src="https://pzwiki.net/w/images/0/01/Campfire.png" alt=""><strong>Pyre (burn site)</strong></td><td>Burning the dead; at most nine tiles, and it must pass a fire-safety check when drawn</td><td>Up to 30 tiles beyond the boundary</td></tr>
+</table>
+
+<h3>Seeing the Layout</h3>
+<p>Press <kbd>End</kbd> (rebindable under Options, Key bindings, Living Fellows), or use the right-click menu or the button in the Base tab, to show the base layout. Each zone gets a see-through floor tint and outline in its colour, registered storage gets a tile and outline in its category colour, and a legend lists what is on screen. With the layout showing, right-click a zone to remove it. A zone that is still needed says why instead.</p>
+
+<h3>Marking Storage</h3>
+<p>Right-click a container inside the camp, choose <span class="menu">Mark storage as...</span> and pick a category. Companions help themselves from marked storage and leave unmarked containers to you. You can give each marked container a reserve, and companions leave that many items in it (<a href="#ch14b">Chapter 14b</a>).</p>
+
+<table>
+  <tr><th></th><th>Category</th><th>What goes in it</th></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/9/9f/Beans.png" alt=""></td><td><strong>Food</strong></td><td>Meals and supplies to eat</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/1/14/WaterBottle.png" alt=""></td><td><strong>Water</strong></td><td>Clean drinking water</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/0c/Bandage.png" alt=""></td><td><strong>Medical</strong></td><td>Bandages, splints, disinfectant</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/4/46/Toolbox.png" alt=""></td><td><strong>Tools</strong></td><td>Hammers, saws, axes, shovels</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/0d/Plank.png" alt=""></td><td><strong>Construction</strong></td><td>Planks, nails, logs</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/d/d2/Sheet.png" alt=""></td><td><strong>Crafting</strong></td><td>Materials for repairs and crafting</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/f/f3/Book.png" alt=""></td><td><strong>Books &amp; magazines</strong></td><td>The camp library (<a href="#ch14">Ch 14</a>)</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/0c/Machete.png" alt=""></td><td><strong>Weapons</strong></td><td>Spare weapons</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/6/61/Shotgun.png" alt=""></td><td><strong>Ammunition</strong></td><td>Rounds and magazines</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/b/b1/Backpack.png" alt=""></td><td><strong>General source</strong></td><td>Anything the camp may draw from</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/2/2d/Logs.png" alt=""></td><td><strong>Work output</strong></td><td>Where finished work goes, such as a carpenter's planks</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/4/48/Whiskey.png" alt=""></td><td><strong>Memorial</strong></td><td>Keepsakes of the dead; companions leave them be</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/9/96/WateringCan.png" alt=""></td><td><strong>Farming supplies</strong></td><td>Seed, tools, compost, water cans, crop treatments</td></tr>
+</table>
+
+<div class="callout callout-tip">Residents may use marked storage on another camp floor, and may stand just outside the boundary to reach it. Assign residents, roles and policies in <span class="menu">More → Base</span>.</div>
+
+<div class="lore-pull">Quiet minute. How are you doing, friend?<span class="who">— a resident at camp</span></div>
+
+<h3>Abandoning a Camp</h3>
+<p>To move, choose <span class="menu">Abandon camp</span> from the camp's right-click menu or at the end of <span class="menu">More → Base</span>, confirm, and set a new camp core. Running camp work is stopped. Anything a companion was carrying for the camp stays with it, and residents leave duty and stay where they stand. The camp's zones, storage marks and plans are removed; buildings and stored items stay in the world.</p>
+<div class="callout callout-warn">While you are building something yourself, the camp is kept until you finish or release that build. If a job refuses to stop partway through, the camp is kept and you can try again; the work already stopped stays stopped.</div>
+
+<!-- CH 12 -->
+<h2 class="chapter" id="ch12"><img class="ico" src="https://pzwiki.net/w/images/0/0e/SheetRope.png" alt="">Chapter 12: Floors, Stairs and Basements<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>A camp is not flat. A complete staircase inside the camp area automatically extends the camp to the connected floor, <strong>above or below, including a basement</strong>. You don't have to draw anything: once the stair and its landing tiles are loaded, the next floor joins the camp.</p>
+
+<ul>
+  <li>This also happens after you <strong>build</strong> stairs, once the stair and landing tiles are loaded.</li>
+  <li>The generated area follows the current camp rectangle and covers only tiles with a real floor. Use <kbd>End</kbd> to inspect it.</li>
+  <li>A camp made in a basement extends up to the ground floor at the top of its stairs, and a ground-floor camp extends down into the cellar.</li>
+  <li>Residents use marked storage on a connected floor normally. Mark upper-floor storage the same way as any other.</li>
+  <li>A woodcutter can work a lumber area outside camp and carry logs up or down the stairs to storage on a connected floor.</li>
+</ul>
+
+<div class="callout callout-tip">Remove a generated floor area and the stair survey won't recreate it; that floor stays off until you draw an area there yourself. Over a part of the camp in the same building, you can also draw your own area on a floor with no verified staircase.</div>
+
+<div class="callout callout-warn">A resident dragging a body takes no stairs, fences or windows. Put the burial ground or pyre on the same level as the dead, or carry those bodies yourself.</div>
+
+<!-- CH 13 -->
+<h2 class="chapter" id="ch13"><img class="ico" src="https://pzwiki.net/w/images/0/0d/Plank.png" alt="">Chapter 13: Building from Blueprints<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>Companions build what you plan. Planned work appears as a <strong>blueprint ghost</strong>, and residents on duty build it in stages with materials from camp storage.</p>
+
+<div class="callout callout-recipe">
+<strong>Plan construction:</strong> inside the camp, right-click the ground and choose <span class="menu">Living Fellows → Base life → Queue construction</span>, then the piece: Wooden wall frame, Wooden wall, Wooden floor, Wooden door frame or Wooden door. A placement cursor appears. Drag to lay a run of wall, and turn the piece with the game's own <strong>Rotate building</strong> key before you place it.
+</div>
+
+<div class="callout callout-recipe">
+<strong>Plan a barricade:</strong> inside the camp, right-click a window or door and choose <span class="menu">Plan wooden barricade</span>. <span class="menu">Maintain this barricade</span> instead adds it to the maintainer's list (<a href="#ch14">Ch 14</a>).
+</div>
+
+<h3>Managing a Plan</h3>
+<p>Right-click a planned tile and open the plan's submenu:</p>
+<table>
+  <tr><th>Option</th><th>What it does</th></tr>
+  <tr><td><strong>Build this segment</strong></td><td>You build that piece yourself, with your own materials</td></tr>
+  <tr><td><strong>Retry this plan</strong></td><td>Offered when a plan is blocked; puts it back in the queue</td></tr>
+  <tr><td><strong>Cancel this plan</strong></td><td>Removes it</td></tr>
+</table>
+<p>The Base view can show or hide the blueprints.</p>
+
+<h3>What the Work Needs</h3>
+<p>Builders draw tools and materials from camp storage, so mark a <strong>Construction</strong> and a <strong>Tools</strong> container. A companion sent to build, barricade or take a barricade down without the right tool or material says exactly what is missing:</p>
+<table>
+  <tr><th></th><th>Missing</th><th>What they'll tell you</th></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/8/81/Hammer.png" alt=""></td><td>Hammer</td><td><em>"I need an unbroken hammer."</em></td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/0d/Plank.png" alt=""></td><td>Planks</td><td><em>"I need a plank."</em></td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/5/50/Nails.png" alt=""></td><td>Nails</td><td><em>"I need two nails."</em></td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/4/46/Handsaw.png" alt=""></td><td>Saw</td><td><em>"I need an unbroken saw."</em></td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/1/1d/Screwdriver.png" alt=""></td><td>Screwdriver</td><td><em>"I need an unbroken screwdriver."</em></td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/c/c0/Crowbar.png" alt=""></td><td>Pry tool</td><td><em>"I need a tool that can remove barricades."</em></td></tr>
+</table>
+
+<h3>When a Plan Is Refused</h3>
+<table>
+  <tr><th>You'll see</th><th>Why</th></tr>
+  <tr><td>Set up a camp first.</td><td>There is no camp core yet</td></tr>
+  <tr><td>That is outside the camp.</td><td>Blueprints go inside the camp boundary</td></tr>
+  <tr><td>That spot is too far away to plan.</td><td>The tile isn't loaded</td></tr>
+  <tr><td>Something is in the way there.</td><td>The tile is blocked</td></tr>
+  <tr><td>Construction is already planned there.</td><td>A plan already covers that tile</td></tr>
+  <tr><td>The camp job list is full.</td><td>Let the queue shrink first</td></tr>
+  <tr><td>Close it first.</td><td>A barricade needs a closed window or door</td></tr>
+</table>
+
+<!-- CH 14 -->
+<h2 class="chapter" id="ch14"><img class="ico" src="https://pzwiki.net/w/images/4/45/WoodAxe.png" alt="">Chapter 14: Base Duty and Jobs<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>A companion on <strong>base duty</strong> lives at the camp and works for it. Give Stay or Guard inside the camp area, or choose a job in <span class="menu">More → Base</span>, and they are on duty. Residents sort storage, repair gear, craft supplies, keep watch, patrol, maintain barricades, and build queued construction. A guard on shift keeps watch around its post instead of taking general chores.</p>
+
+<h3>Jobs Are Roles</h3>
+<p>A resident's base job is its camp role. Each companion arrives with a <strong>natural role</strong> from its profession (Generalist, Guard, Builder, Quartermaster, Medic or Farmer), and the job you choose replaces it. The job list adds three more: Woodcutter, Gravekeeper and Maintainer. The <strong>Carpenter</strong> job is the Builder role.</p>
+
+<h3>Choosing a Base Job</h3>
+<p>Select a companion in <span class="menu">More → Base</span> and pick one job from the dropdown near the top. That puts them on base duty; <span class="menu">No base job (follow me)</span> brings them back. The job survives a save and reload. You don't set quantities, areas, destinations or workers for each order: the marked areas and storage tell them where, and the scheduler gives them time between survival and other work.</p>
+
+<table>
+  <tr><th></th><th>Base job</th><th>You need</th><th>What happens</th></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/4/45/WoodAxe.png" alt=""></td><td><strong>Woodcutter</strong></td><td>A lumber area, an axe, and marked construction, general or output storage</td><td>Scans a few loaded tiles at a time, chops one standing tree with the game's own action, and hauls the logs to storage. Makes small logging orders when stored logs are low.</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/4/46/Handsaw.png" alt=""></td><td><strong>Carpenter</strong></td><td>Logs in marked storage, a saw, and a second marked container for planks</td><td>Takes one log, saws it into three planks with the vanilla recipe, and stores them. Finished output is recovered after a pause or reload.</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/7/77/Shovel.png" alt=""></td><td><strong>Gravekeeper</strong></td><td>A burial ground and shovel, or a safe pyre with lighter and petrol</td><td>Finds a body in the camp or lumber areas, drags it to the burial ground or pyre, then buries or burns it (<a href="#ch16">Ch 16</a>).</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/8/87/Hoe.png" alt=""></td><td><strong>Farmer</strong></td><td>A farm area over existing plots and marked farming supplies</td><td>Waters, tends and harvests what the field audit finds (<a href="#ch15">Ch 15</a>).</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/8/81/Hammer.png" alt=""></td><td><strong>Maintainer</strong></td><td>Marked maintenance targets</td><td>Repairs damaged barricades that need planks.</td></tr>
+</table>
+<p>Quartermasters, medics, guards and generalists use the ordinary base chores. How much of that work they take on, and who keeps watch, is set by the base policies (<a href="#ch14b">Chapter 14b</a>).</p>
+
+<div class="lore-pull">Three planks from one log. The math still works.<span class="who">— a carpenter</span></div>
+
+<h3>Safety Rules for Camp Work</h3>
+<ul>
+  <li><strong>Chopping is loud.</strong> No tree is started while danger is visible nearby, winded residents rest, and a chop that gets stuck is abandoned after three minutes.</li>
+  <li><strong>Nights outside.</strong> Beyond the camp boundary, residents start no new tree and fetch no body at night (21:00–06:00).</li>
+  <li><strong>Loot is yours.</strong> Bodies still carrying items are left for you to loot.</li>
+  <li><strong>Dragging.</strong> A resident dragging a body takes no fences, windows or stairs, and drops it at once when danger shows up. The body stays where it fell.</li>
+  <li><strong>Blocked work</strong> shows its reason and tries again on its own.</li>
+</ul>
+
+<h3>The Camp Library</h3>
+<p>Residents put spare carried books and magazines into nearby <strong>Books &amp; magazines</strong> storage, even when they aren't overloaded, and keep them if no library is marked. In a quiet spell they may borrow an unread book or magazine, read it, and put that exact item back. Storage reserves, private diaries, favourites and other protected belongings are left alone. Immediate danger interrupts reading and returns a borrowed book.</p>
+
+<!-- CH 14b -->
+<h2 class="chapter" id="ch14b"><img class="ico" src="https://pzwiki.net/w/images/c/c7/Clipboard.png" alt="">Chapter 14b: Running the Camp<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p><span class="menu">More → Base</span> is the camp's ledger. It reads top to bottom like a morning report: how the camp stands, what it's short of, who's on watch, and what work is waiting.</p>
+
+<h3>Camp Status</h3>
+<p>The first lines sum the camp up: its name, zones, marked stores, residents and how many are on duty; then jobs pending, active and blocked; then a <strong>readiness</strong> percentage, the stock lines and any alerts. If some marked storage is outside the loaded world, the view says so, and its contents aren't counted.</p>
+
+<h4>Stock targets</h4>
+<p>The camp measures five stocks against targets that grow with the camp:</p>
+<table>
+  <tr><th></th><th>Stock</th><th>Target</th></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/9/9f/Beans.png" alt=""></td><td>Food</td><td>3 per resident</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/1/14/WaterBottle.png" alt=""></td><td>Water</td><td>2 per resident</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/0c/Bandage.png" alt=""></td><td>Medical</td><td>1 per resident</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/0d/Plank.png" alt=""></td><td>Construction</td><td>2 per resident</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/6/61/Shotgun.png" alt=""></td><td>Ammunition</td><td>6 per guard</td></tr>
+</table>
+<p>Each line reads <em>Ready</em>, <em>Low</em> or <em>Unconfigured</em>. Unconfigured means no storage of that category is marked at all.</p>
+
+<h4>Operational readiness</h4>
+<p>Readiness averages two things: how full each stock is against its target, and whether the roles a camp of this size needs are covered.</p>
+<table>
+  <tr><th>Role</th><th>Needed once the camp has</th></tr>
+  <tr><td>Guard</td><td>2 residents</td></tr>
+  <tr><td>Builder (the Carpenter job)</td><td>2 residents</td></tr>
+  <tr><td>Medic</td><td>3 residents</td></tr>
+  <tr><td>Quartermaster</td><td>4 residents</td></tr>
+  <tr><td>Farmer</td><td>A marked farm area</td></tr>
+</table>
+
+<div class="callout callout-check">
+<strong>The alerts to clear</strong> — the camp names what's missing:
+<ul class="checklist" style="margin-top:0.6rem;margin-bottom:0;">
+  <li>No food, water, medical, construction or ammunition storage is marked</li>
+  <li>A stock is below its target</li>
+  <li>No companion covers a needed role</li>
+  <li>No rest zone is marked (any residents), or no guard zone (two or more)</li>
+  <li>With a farm area: no farming supplies storage, or no food storage for the harvest</li>
+</ul>
+</div>
+
+<h3>Base Policies</h3>
+<table>
+  <tr><th>Defence policy</th><th>Who keeps watch</th></tr>
+  <tr><td><strong>Rotating watch</strong> (default)</td><td>One guard at a time, taking turns every few minutes. With no guards, the turn passes between everyone on duty.</td></tr>
+  <tr><td><strong>Role based</strong></td><td>Every resident with the Guard role patrols at once</td></tr>
+  <tr><td><strong>All hands</strong></td><td>Every available resident watches</td></tr>
+</table>
+
+<table>
+  <tr><th>Workload policy</th><th>What residents take on</th></tr>
+  <tr><td><strong>Essential work only</strong></td><td>No automatic sorting and no extra routines; medical care, farming and barricade upkeep still run</td></tr>
+  <tr><td><strong>Balanced maintenance</strong> (default)</td><td>Sorting and maintenance, without the extra routines</td></tr>
+  <tr><td><strong>Continuous useful work</strong></td><td>All of that, plus safe routines whenever someone is free</td></tr>
+</table>
+
+<p>Two switches sit beside them. <strong>Allow safe routines and downtime</strong> turns residents' downtime and routines on or off. <strong>Automatically maintain and sort the base</strong> covers sorting and barricade maintenance; with it off, only a resident with the <strong>Maintainer</strong> job still repairs barricades.</p>
+
+<h3>Staffing and Shifts</h3>
+<p>Every resident is listed with their job and state: <em>on watch</em>, <em>available</em> or <em>off duty</em>. Select one to set their base job or start base duty (<a href="#ch14">Chapter 14</a>).</p>
+
+<h3>The Work Queue</h3>
+<p>Each job shows its kind, its state and its worker. A blocked job says what it's <strong>blocked by</strong> and retries on its own; you can also <span class="menu">Retry blocked job</span> or <span class="menu">Cancel job</span> yourself, with a confirmation.</p>
+
+<h3>Zones, Storage and Maintenance</h3>
+<ul>
+  <li><strong>Zone management</strong> lists every zone with its corners and floor. Removing one asks first and never deletes anything in the world. The last camp boundary is protected; add another before removing it.</li>
+  <li><strong>Storage management</strong> lets you change a container's category, set its <strong>reserve</strong> (0, 1, 2, 5 or 10 items that companions won't take), or unmark it. Its items stay where they are.</li>
+  <li><strong>Maintenance targets</strong> are the barricades you've marked for upkeep. Each can be enabled, disabled or removed.</li>
+</ul>
+
+<div class="callout callout-tip">Older saves may still show <strong>Gather materials</strong> orders, for logs or planks from a work or lumber area. Residents finish the ones already there, and the view shows each worker's phase, from seeking material to depositing it.</div>
+
+<!-- CH 15 -->
+<h2 class="chapter" id="ch15"><img class="ico" src="https://pzwiki.net/w/images/9/96/WateringCan.png" alt="">Chapter 15: Farming<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>Draw one or more <strong>Farm areas</strong> over existing vanilla plots. Companions never turn untouched ground into fields; dig the plots first, and they will keep them. A bounded audit rotates across every marked farm area and queues the most urgent work it finds, with ties broken in a stable order.</p>
+
+<table>
+  <tr><th></th><th>Rule</th><th>Detail</th></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/8/87/Hoe.png" alt=""></td><td><strong>Who tends</strong></td><td>Any resident on duty; the <strong>Farmer</strong> role is preferred and completes farm actions <strong>40% faster</strong>. Real Farming skill still sets the yield, and disease treatment needs Farming 3.</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/a/a3/Carrots.png" alt=""></td><td><strong>Seed</strong></td><td>Enough seed is kept for every plot that doesn't regrow, plus two spares. If the reserve is short, they wait for a seed stage.</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/5/52/Bucket.png" alt=""></td><td><strong>Fertiliser</strong></td><td>Compost, not chemical fertiliser.</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/9/96/WateringCan.png" alt=""></td><td><strong>Water</strong></td><td>From the camp or the active farm area. Rain or tainted water first; clean water only in an emergency.</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/b/bd/Rake.png" alt=""></td><td><strong>Hours</strong></td><td>Routine work is daylight only. A remote farm area gets no travel or work at night; a plot inside the camp may still be harvested or emergency-watered.</td></tr>
+</table>
+
+<p>Residents borrow and return exact supplies, and route crops and seeds to marked storage. Mark a <strong>Farming supplies</strong> container for seed, tools, compost, water cans and crop treatments. Farmers comment now and then when preparing ground, sowing, watering, harvesting, treating or losing a crop, or finding the tools unusable. Those remarks never hold up the work.</p>
+
+<!-- CH 16 -->
+<h2 class="chapter" id="ch16"><img class="ico" src="https://pzwiki.net/w/images/7/77/Shovel.png" alt="">Chapter 16: Laying the Dead to Rest<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>The dead pile up around any camp worth holding. A <strong>Gravekeeper</strong> looks for bodies inside the camp and lumber areas and carries them to a marked burial ground or a safe pyre. Burial digs and fills a grave as needed.</p>
+
+<h3>The Burial Ground</h3>
+<p>Every closed grave gets a few words: a short prayer or a line of bleak gallows humour, depending on who holds the shovel, and a salute. Sometimes a friend nearby adds an "Amen".</p>
+
+<div class="lore-pull">May the ground hold you better than the world did.<span class="who">— a gravekeeper's prayer</span></div>
+<div class="lore-pull">Please remain calm and horizontal.<span class="who">— a gravekeeper with a darker sense of humour</span></div>
+
+<h3>The Pyre</h3>
+<p>A <img class="ico-sm" src="https://pzwiki.net/w/images/0/01/Campfire.png" alt="">pyre needs a lighter and petrol, and fire is real. Lighting one may earn a "Burn, baby, burn!" or "Disco inferno!", and a burned-out pyre gets its own prayer or gallows line.</p>
+
+<div class="callout callout-warn">A pyre must be outdoors on open ground, away from buildings, stored goods, trees, vehicles and loose items. Nothing is lit in the rain unless you allow it, and nobody else may stand close to the body being lit. If fire appears beyond the pyre, every worker stops and the order waits for your <strong>Retry</strong>.</div>
+
+<h3>One of Our Own</h3>
+<p>A fallen companion found by the gravekeeper gets a grave of their own, always with a cross, and the grave keeps their name. Their grave closes with their name instead of a joke. Fallen companions are never burned. A body whose identity is uncertain is treated as a stranger, and your own body is never touched.</p>
+
+<div class="lore-pull">Here's to you. I'd pour one out, but Kentucky's rationing.<span class="who">— a bourbon blessing</span></div>
+
+<!-- ═══ PART IV ═══ -->
+<div class="part-header" id="part4">
+  <img class="ico-lg" src="https://pzwiki.net/w/images/1/1d/Tent.png" alt="">
+  <p class="part-label">Part IV</p>
+  <h2>Beyond the Fence</h2>
+  <p class="part-desc">Past the camp there are roads, other people, and the long walk home. Some of it is still being tested; all of it is worth knowing before you send anyone out.</p>
+</div>
+
+<!-- CH 17 -->
+<h2 class="chapter" id="ch17"><img class="ico" src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Chapter 17: Expeditions<span class="stage stage-end">Experimental</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<div class="callout callout-warn">Expeditions are an <strong>incomplete playtest feature</strong>. Use a disposable save. Departure from the Riverside gas station has intermittently stalled on a native path. A four-member road mission to a site 180 tiles away and back has passed in a cloned test save, but a live detour along a real alternate road has not been confirmed yet.</div>
+
+<p>An expedition sends a squad out on its own while you stay behind. The squad's actual leader appears in a second local view while the team moves, and the other members follow that leader.</p>
+
+<figure class="plate narrow">
+  <img loading="lazy" decoding="async" src="https://pzwiki.net/w/images/a/aa/Pzmap_01_public_paper.png" alt="A creased paper tourist map of Muldraugh, KY, population 3566, with a numbered legend of stores, police, motel and school.">
+  <figcaption><span class="plate-no">Plate 8</span> A paper map of Muldraugh. The planner offers real places within 200 tiles; this is the kind of town it sends them into. <span class="credit">Image: PZwiki</span></figcaption>
+</figure>
+
+<h3>Planning a Trip</h3>
+<ol class="steps">
+  <li>On <span class="menu">Squad</span>, assign one to four companions to a squad.</li>
+  <li>Open <span class="menu">Expeditions</span> and choose the squad's <strong>leader</strong>.</li>
+  <li>Choose the mission: <strong>Scout</strong> or <strong>Search</strong>. Search also lets you request a supply type and quantity, including <strong>Everything useful</strong> for supplies across categories.</li>
+  <li>Choose a location within 200 tiles (32 per page).</li>
+  <li>Choose how to travel, how long before they turn home, and the combat style.</li>
+  <li>Review the plan and select <span class="menu">Send squad</span>.</li>
+</ol>
+
+<div class="lore-pull">Kentucky's still out there. Let's see what it kept.<span class="who">— a squad heading out</span></div>
+
+<h3>Mission Options</h3>
+<table>
+  <tr><th>Option</th><th>Choices</th></tr>
+  <tr><td><strong>Squad</strong></td><td>A group from the Squad tab, one to four companions</td></tr>
+  <tr><td><strong>Team leader</strong></td><td>The member who gets the second view and leads the column</td></tr>
+  <tr><td><strong>Task</strong></td><td>Scout the location, or Search for supplies</td></tr>
+  <tr><td><strong>Supplies</strong> (Search)</td><td>Food, Water, Medicine, Ammunition, Tools, Clothing, or Everything useful, and how many items</td></tr>
+  <tr><td><strong>Target location</strong></td><td>A building within 200 tiles, 32 to a page; refresh the list as you move</td></tr>
+  <tr><td><strong>Travel route</strong></td><td>Follow roads, or Head straight for target</td></tr>
+  <tr><td><strong>Time before turning home</strong></td><td>1, 2, 4 or 8 game hours</td></tr>
+  <tr><td><strong>Combat style</strong></td><td>Stealth, Close Defense, or Aggressive (weapons free)</td></tr>
+</table>
+<p>A place marked <em>Map location; the building has not been confirmed from inside</em> comes from map data rather than a visit. The sandbox option <strong>Expedition destination choices</strong> can limit the list to buildings whose interiors you've seen (<a href="#appB">Appendix B</a>). The review shows the route length and which roads it takes, and warns about any long stretch off-road at the start or end. Street junctions stay provisional until the leader sees the ground.</p>
+
+<div class="two-col">
+<div>
+<h4><img class="ico-sm" src="https://pzwiki.net/w/images/4/4d/Flashlight.png" alt="">Scout</h4>
+<p>The leader gets within about ten tiles of the place, waits a few seconds with nothing close by, and records what it can see. Scouting needs a clear look, not a foot on the doorstep, so a fence or a crowded approach doesn't stop it. Then the squad heads home.</p>
+</div>
+<div>
+<h4><img class="ico-sm" src="https://pzwiki.net/w/images/b/b1/Backpack.png" alt="">Search</h4>
+<p>The squad has to get inside the building itself. It looks for what you asked for, then plans a fresh route home. From an upper floor or a basement it comes down one staircase at a time.</p>
+</div>
+</div>
+
+<h3>Two Ways to Travel</h3>
+<div class="two-col">
+<div>
+<h4>Follow roads (default)</h4>
+<p>The squad walks the map's streets and plans a fresh road route home. A building far from any mapped street is reached by leaving the streets as close to it as possible and walking up to 100 tiles off-road; the review names any long off-road stretch.</p>
+</div>
+<div>
+<h4>Head straight for target</h4>
+<p>The squad takes the direct course. If no path out is found for 30 seconds, it turns home.</p>
+</div>
+</div>
+
+<figure class="plate">
+  <img loading="lazy" decoding="async" src="https://pzwiki.net/w/images/e/e8/DecomposingGroup.jpg" alt="Four zombies shambling along a two-lane road.">
+  <figcaption><span class="plate-no">Plate 9</span> Trouble on the road. A group bigger than three zombies for each living squad member makes the leader plan around it, or turn home if there is no connected detour on the way out. <span class="credit">Image: PZwiki</span></figcaption>
+</figure>
+
+
+<h3>While They're Away</h3>
+<p>Once the squad is out of sight, the panel stops guessing: <em>Away. Current progress is unknown until you see the team or hear a report.</em> If you both carry working walkie-talkies, the leader calls in when something goes wrong.</p>
+<table>
+  <tr><th>The call</th><th>What it means</th><th>Your answers</th></tr>
+  <tr><td><strong>Blocked route</strong></td><td>The leader reports a blocked route near a map point, and says whether the team is waiting for orders, looking for shelter, inside a house waiting for you, or holding position</td><td><span class="menu">Tell squad: return</span>, <span class="menu">push on</span> or <span class="menu">hold position</span>, from an equipped walkie-talkie</td></tr>
+  <tr><td><strong>Sheltered</strong></td><td>The squad has taken shelter inside a house at a map point</td><td>Go and meet them there</td></tr>
+</table>
+<div class="callout callout-warn">If the squad hears your recall but can find no safe way back, it says so and waits for backup. Go and get them; they won't walk into a death trap because you told them to.</div>
+<div class="callout callout-tip">If a call shows <em>No radio receipt</em>, check that both radios are powered, equipped and on the same channel. Standing within three tiles of the leader also counts as no receipt; step further away.</div>
+
+<h3>Calling Them Home</h3>
+<p>The team can leave without radios. To order an immediate return while they are away:</p>
+<ol class="steps">
+  <li>Equip a powered walkie-talkie on your character and on the squad leader.</li>
+  <li>Tune both to the same channel.</li>
+  <li>Right-click your equipped radio and choose <span class="menu">Return immediately</span>.</li>
+</ol>
+<div class="callout callout-tip">The order needs a <strong>received transmission</strong>. While the squad is out of sight, the panel doesn't present its position or health as live facts.</div>
+
+<p>The time you choose decides when the team turns home; it doesn't promise when they arrive. A returning Search squad finishes its trip once everyone has reached you, including when you're standing on a staircase. An intact squad says one of twenty homecoming lines once its leader view is released.</p>
+
+<div class="lore-pull">Kentucky tried its best. We came back anyway.<span class="who">— a squad back home</span></div>
+
+<!-- CH 18 -->
+<h2 class="chapter" id="ch18"><img class="ico" src="https://pzwiki.net/w/images/c/c1/Padlock.png" alt="">Chapter 18: Households, Trade and Bandits<span class="stage stage-end">Strangers</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>Not everyone left alive wants to join you. Households of one to three survivors occupy real houses, barricade them, warn strangers off, and defend their ground. They remember theft, damage, help and murder, and they treat you accordingly. What you learn about each appears in <span class="menu">More → Factions</span>: its name, location and nearest street, standing, members, character, supplies, routine and any crisis it is going through.</p>
+
+<p>New households start appearing from day seven: a daily chance (8% by default) once a week has passed since the last, 35 to 90 tiles from you and well apart from one another, up to three by default. The sandbox page sets the chance and the cap (<a href="#appB">Appendix B</a>).</p>
+
+<div class="lore-pull">Stop there. We don't trust strangers.<span class="who">— a household, at about 18 tiles</span></div>
+
+<h3>Approaching a Household</h3>
+<p>A household warns you twice: once at about 18 tiles, and again, more sharply, at about 10. Walking on past that is trespass. Pointing a weapon at them is worse. Don't take anything from a container on their ground: the household notices, and the theft is pinned on the exact item that went into your pockets.</p>
+
+<h3>Standing</h3>
+<p>Each household holds you somewhere between −100 and +100. A new household starts <strong>Wary</strong>, at −20.</p>
+<table>
+  <tr><th>Standing</th><th>Reputation</th></tr>
+  <tr><td class="tbl-power">Hostile</td><td>−60 or lower, or forever after a murder</td></tr>
+  <tr><td><strong>Wary</strong></td><td>below 0</td></tr>
+  <tr><td><strong>Tolerated</strong></td><td>0 to 39</td></tr>
+  <tr><td><strong>Trusted</strong></td><td>40 or more</td></tr>
+</table>
+
+<table>
+  <tr><th>What you did</th><th>Standing</th><th>Forgiven after</th></tr>
+  <tr><td>Trespass</td><td>−12</td><td>3 days, with restitution</td></tr>
+  <tr><td>Aiming a weapon at them</td><td>−28</td><td>7 days, with restitution</td></tr>
+  <tr><td>Theft</td><td>−40</td><td>7 days, with restitution worth twice the offence</td></tr>
+  <tr><td>Breaking their barricade</td><td>−45</td><td>7 days, with restitution</td></tr>
+  <tr><td>Damage</td><td>−55</td><td>7 days, with restitution worth twice the offence</td></tr>
+  <tr><td class="tbl-power">Murder</td><td>−100</td><td><strong>Never.</strong> The household stays hostile.</td></tr>
+  <tr><td>Breaking a promise</td><td>−12</td><td class="tbl-note">See <a href="#ch18b">Chapter 18b</a></td></tr>
+  <tr><td>Delivering what they asked for</td><td>+30</td><td class="tbl-note">Also unlocks barter</td></tr>
+</table>
+
+<h3>Restitution</h3>
+<p>Once the waiting time has passed, the household's page shows the value of goods it wants for every unforgiven offence together. Select items worth at least that much and choose <span class="menu">Offer selected items as restitution</span>. Relations reopen, at Wary.</p>
+<div class="lore-pull">Leave the restitution where we can see it.<span class="who">— a household, waiting to be paid</span></div>
+
+<h3>Talking to the Representative</h3>
+<p>Each household sends a representative to the entrance to talk. Meet them there, then ask:</p>
+<ul>
+  <li>how the household is doing, and what they need;</li>
+  <li>about the people living there, what they'll trade, and local dangers;</li>
+  <li>for rumours, or whether they've heard anything useful.</li>
+</ul>
+<p>Rumours point 45 to 120 tiles away, to a supply cache, a horde, a water source or a shelter. They are honest but imperfect; the page counts how many of the household's rumours you've heard. You can also <span class="menu">Speak privately with the resident</span>, up close, away from the others.</p>
+
+<h3>Access and Safe Rest</h3>
+<p>Ask for permission to enter, with your weapon lowered; aim at them and you'll be told to put it down first. A household lets you in as a <strong>guest for twelve hours</strong> if you are <strong>Trusted</strong>, or <strong>Tolerated</strong> and either have kept a promise to them or are dealing with an unusually open household. <strong>Safe rest</strong> inside comes only after you've kept at least one promise.</p>
+<p>Sometimes one resident objects while the others invite you. You can respect the objection, which they remember kindly, or ask the household to honour its invitation.</p>
+
+<h3>Barter</h3>
+<p>A household opens barter after you have delivered what it asked for. Trading needs you within six tiles of them, in sight, with no danger nearby. You choose what to offer from your unprotected items and what you want from their surplus; the quote shows what you offer against what they require, and a short offer comes back with an explicit counteroffer. The exchange happens all at once or not at all.</p>
+<ul>
+  <li>Goods are valued by contents and condition. Broken tools, rotten food and empty bottles are worth little, and heavy junk earns no premium.</li>
+  <li>Requested goods must be fit for use: clean water, not tainted or poisoned; food that isn't rotten or burnt; tools that aren't broken.</li>
+  <li>Every household holds some reserves back, and some categories aren't for sale at all. A Militarized household won't part with weapons or ammunition.</li>
+</ul>
+
+<figure class="plate">
+  <img loading="lazy" decoding="async" src="https://pzwiki.net/w/images/a/a3/ConvenienceStore_Muldraugh.png" alt="A small brick convenience store with an OPEN sign beside an empty parking lot.">
+  <figcaption><span class="plate-no">Plate 10</span> Still open, in a sense. Shops are empty now; trade happens between people. <span class="credit">Image: PZwiki</span></figcaption>
+</figure>
+
+<h3>Six Kinds of Household</h3>
+<table>
+  <tr><th>Character</th><th>What that means</th></tr>
+  <tr><td><strong>Paranoid</strong></td><td>Very cautious and closed; slow to share</td></tr>
+  <tr><td><strong>Generous</strong></td><td>Open-handed and welcoming</td></tr>
+  <tr><td><strong>Militarized</strong></td><td>Disciplined and guarded; keeps its weapons and ammunition</td></tr>
+  <tr><td><strong>Desperate</strong></td><td>Hard-pressed, stingy and loosely held together</td></tr>
+  <tr><td><strong>Isolationist</strong></td><td>Wants to be left alone above all</td></tr>
+  <tr><td><strong>Resourceful</strong></td><td>Organized and fairly open</td></tr>
+</table>
+<p>Households live their own lives. Their members are family, friends, partners, strangers or rivals to one another. A household can fall into a supply collapse, an illness or an internal dispute, and it mourns its dead. Several households also hear of each other, and the Factions page passes on their news.</p>
+
+<h3>Bandits</h3>
+<p>Bandit camps are rare and always hostile. They appear from day four, at most one by default (up to three), 55 to 90 tiles from you, with at least ten days between new camps. Bandits guard their camp and patrol around it every couple of hours. They challenge first, need line of sight to target you, chase up to about 24 tiles, and fight zombies too. They never trade and never recruit.</p>
+<div class="lore-pull">Hold it. Leave now and you keep what you have.<span class="who">— a bandit</span></div>
+
+<!-- CH 18b -->
+<h2 class="chapter" id="ch18b"><img class="ico" src="https://pzwiki.net/w/images/b/b2/Paper.png" alt="">Chapter 18b: Contracts, Quests and Recruitment<span class="stage stage-end">Strangers</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>A household doesn't hand out trust. You earn it one promise at a time, and every promise is written down: kept, broken, or kept badly.</p>
+
+<h3>Making a Promise</h3>
+<ol class="steps">
+  <li>Ask the representative what they need. They won't take a promise from someone who hasn't asked.</li>
+  <li>Read the offer on the household's page: its title and terms.</li>
+  <li>Choose <span class="menu">Promise to help</span>. You have <strong>48 hours</strong>.</li>
+  <li>Choose <span class="menu">Deliver help or report the area secure</span> when you've done it.</li>
+</ol>
+
+<table>
+  <tr><th></th><th>Kind</th><th>What they ask</th></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/9/9f/Beans.png" alt=""></td><td><strong>Supply</strong></td><td>A delivery of goods; the page counts what you have against what's required</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/00/Antibiotics.png" alt=""></td><td><strong>Medical</strong></td><td>A delivery of medicine</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/4/40/BaseballBat.png" alt=""></td><td><strong>Local threat</strong></td><td>Secure an area near their house: a set number of confirmed kills there, with no threats left. The area has to be loaded to check.</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/a/a1/Briefcase.png" alt=""></td><td><strong>Quest: retrieve an item</strong></td><td>Bring back something from a house 28 to 85 tiles away</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/6/61/Shotgun.png" alt=""></td><td><strong>Quest: clear a horde</strong></td><td>Destroy a group of 8 to 14 zombies at a marked place</td></tr>
+</table>
+
+<h3>When a Promise Is Kept</h3>
+<p>Keeping a promise makes you a guest for twelve hours, and the household counts it toward your record. Not every ending is clean:</p>
+<ul>
+  <li><strong>A diverted delivery:</strong> a resident hid part of what you brought, and tension inside the household rises.</li>
+  <li><strong>A rival's objection:</strong> one resident objects to your being invited in (<a href="#ch18">Chapter 18</a>).</li>
+  <li><strong>An unpaid reward:</strong> the household couldn't honour its full promise, and now owes you. Its page shows the debt.</li>
+</ul>
+
+<h3>When a Promise Is Broken</h3>
+<p>If you can't keep it, say so: <span class="menu">Admit that you cannot keep the promise</span>, then press again within eight seconds to confirm. A broken promise costs 12 standing, closes their door to you, and is remembered. The household offers nothing new for 24 hours.</p>
+<div class="callout callout-warn">The page keeps score: promises completed, promises broken, and events remembered. A household that has watched you break your word reads every new offer through that.</div>
+
+<h3>Quests</h3>
+<p>A quest opens in its own window: a short account of the job, the <strong>objective</strong>, the location and coordinates, and the rewards. Accept or decline. Accepted quests are marked on the world map. Come back when the objective is done and choose <strong>COMPLETE QUEST</strong>.</p>
+<div class="two-col">
+<div>
+<h4>Things they want back</h4>
+<ul>
+  <li>a sealed medical case</li>
+  <li>a family photograph</li>
+  <li>a survivor ledger</li>
+  <li>a sealed military dispatch</li>
+  <li>a marked evacuation map</li>
+  <li>a recorded message</li>
+</ul>
+</div>
+<div>
+<h4>Choose one reward</h4>
+<ul>
+  <li><img class="ico-sm" src="https://pzwiki.net/w/images/0/0c/Bandage.png" alt=""><strong>Medical cache:</strong> 2 bandages, disinfectant</li>
+  <li><img class="ico-sm" src="https://pzwiki.net/w/images/1/14/WaterBottle.png" alt=""><strong>Travel supplies:</strong> a water bottle, 2 cans of food</li>
+  <li><img class="ico-sm" src="https://pzwiki.net/w/images/8/81/Hammer.png" alt=""><strong>Repair kit:</strong> a hammer, a box of nails</li>
+  <li><img class="ico-sm" src="https://pzwiki.net/w/images/4/45/WoodAxe.png" alt=""><strong>Field tools:</strong> a hand axe, a lighter</li>
+</ul>
+</div>
+</div>
+<p>You can pick the reward when you accept, or after the work is done. Rewards are set aside for you when you accept, and released again if you give up.</p>
+
+<h3>Recruiting from a Household</h3>
+<p>Eventually one resident may try out as your companion. It takes a separate conversation and a real field trial, not a purchase.</p>
+<ol class="steps">
+  <li>Keep at least <strong>two</strong> promises to the household, while residents are at home.</li>
+  <li>Choose <span class="menu">Ask whether anyone would consider a field trial</span>. If someone would, they are named.</li>
+  <li>Choose <span class="menu">Invite the named survivor on a field trial</span>. They travel with you as a companion on trial.</li>
+  <li>After at least <strong>six hours</strong> together, choose <span class="menu">Ask for a decision</span>.</li>
+</ol>
+
+<p>What they decide comes from the whole trial: how many promises you've kept, your standing with the household, the hours you spent together, how they came to trust you and feel about you, and how you looked after them, from treatments and meals to rescues. Family and close ties back home pull the other way, and a household's leader is the hardest to win.</p>
+
+<table>
+  <tr><th>Answer</th><th>Then</th></tr>
+  <tr><td><strong>Join</strong></td><td>They become your permanent companion</td></tr>
+  <tr><td><strong>More time</strong></td><td>Once only: ask again in 12 hours</td></tr>
+  <tr><td><strong>Return</strong></td><td>They go home. The household will reconsider after 72 hours.</td></tr>
+</table>
+
+<div class="lore-pull">The trial is over. I want to remain with your group.<span class="who">— a recruit at the end of a field trial</span></div>
+
+<div class="callout callout-tip">A trial runs for about a day, a little longer if they ask for more time. You can end it early with <span class="menu">End the trial and let them return home</span>, and dismissing a trial recruit sends them home the same way. Treat the trial like the real thing: feed them, patch them up, and keep them out of bad fights.</div>
+
+<!-- ═══ APPENDICES ═══ -->
+<div class="part-header" id="appendices">
+  <img class="ico-lg" src="https://pzwiki.net/w/images/9/95/Notebook.png" alt="">
+  <p class="part-label">Appendices</p>
+  <h2>Reference</h2>
+  <p class="part-desc">Keys, options, and what to do when the fellows misbehave.</p>
+</div>
+
+<p class="appendix-label">Appendix A</p>
+<h2 class="chapter" id="appA">Keys and Menus <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+<table>
+  <tr><th>Key or menu</th><th>Does</th><th>Notes</th></tr>
+  <tr><td><kbd>Home</kbd></td><td>Open or close the companion panel</td><td class="tbl-note">Rebindable under Living Fellows</td></tr>
+  <tr><td><kbd>[</kbd> held</td><td>Peek: ease the camera to the selected companion</td><td class="tbl-note">Same floor, within 16 tiles</td></tr>
+  <tr><td><kbd>]</kbd> held</td><td>Steer the selected companion toward the cursor</td><td class="tbl-note">Yields to combat rescue and survival</td></tr>
+  <tr><td><kbd>End</kbd></td><td>Show or hide the base layout</td><td class="tbl-note">Rebindable under Options, Key bindings, Living Fellows</td></tr>
+  <tr><td>Game's Rotate building key</td><td>Turn a blueprint before you place it</td><td class="tbl-note">The game's own binding</td></tr>
+  <tr><td>Right-click a companion</td><td>Talk to [name], Watch, Follow, Stay, Regroup, Retreat, Assign objective</td><td class="tbl-note"></td></tr>
+  <tr><td>Right-click the world</td><td><span class="menu">Living Fellows</span>: Move here, object actions, target actions, care, squad signals, base life, households</td><td class="tbl-note"></td></tr>
+  <tr><td>Right-click the world → Living Fellows → Squad</td><td>Whistle, Hold, Fall back, Cease fire, Fire</td><td class="tbl-note">Hand signs need line of sight (<a href="#ch5b">Ch 5b</a>)</td></tr>
+  <tr><td>Right-click your radio</td><td>Return immediately (expeditions)</td><td class="tbl-note">Needs a received transmission</td></tr>
+</table>
+
+<p class="appendix-label">Appendix B</p>
+<h2 class="chapter" id="appB">Sandbox Options <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+<p>The <strong>Living Fellows</strong> sandbox page controls:</p>
+<table>
+  <tr><th>Option</th><th>Range</th><th>Default</th><th>Effect</th></tr>
+  <tr><td>Spawn independent survivors</td><td>on / off</td><td>on</td><td>Whether new independent survivors appear</td></tr>
+  <tr><td>Independent survivor frequency</td><td>Very rare, Rare, Normal, Frequent</td><td>Normal</td><td>The minimum real-time gap between encounters</td></tr>
+  <tr><td>Maximum active companions</td><td>1–16</td><td>16</td><td>Limit for new recruits and encounters</td></tr>
+  <tr><td>Companion hunger and thirst rate</td><td>0–2</td><td>0.5</td><td>0 turns it off; 1 matches the player</td></tr>
+  <tr><td>Spawn new survivor households</td><td>on / off</td><td>on</td><td>Whether new households appear</td></tr>
+  <tr><td>Household daily spawn chance</td><td>0–100%</td><td>8%</td><td>Checked on an eligible day</td></tr>
+  <tr><td>Maximum new households</td><td>0–12</td><td>3</td><td>Stops new households at this count</td></tr>
+  <tr><td>Spawn bandit camps</td><td>on / off</td><td>on</td><td>Whether bandit camps appear, from day four</td></tr>
+  <tr><td>Bandit camp daily spawn chance</td><td>0–100%</td><td>4%</td><td>Checked once per eligible day; ten days between camps</td></tr>
+  <tr><td>Maximum bandit camps</td><td>0–3</td><td>1</td><td>Stops new camps at this count</td></tr>
+  <tr><td>Companion menu opacity</td><td>0.25–0.85</td><td>0.66</td><td>Panel background opacity</td></tr>
+  <tr><td>Show companion first names</td><td>on / off</td><td>on</td><td>Name labels above recruited companions you can see; never through walls</td></tr>
+  <tr><td>Companions keep private diaries</td><td>on / off</td><td>on</td><td>Whether some companions write diaries</td></tr>
+  <tr><td>Diary keeper chance</td><td>0–100%</td><td>35%</td><td>Decided once per companion</td></tr>
+  <tr><td>Expedition destination choices</td><td>All nearby, Known places only</td><td>All nearby</td><td>All nearby includes buildings from map data you haven't visited; Known places only lists buildings whose interiors you've seen</td></tr>
+</table>
+<div class="callout callout-tip">Lowering a limit never deletes companions, households or camps already in the save. Turning diaries off never removes a book or its pages.</div>
+
+<p class="appendix-label">Appendix C</p>
+<h2 class="chapter" id="appC">Troubleshooting <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<h3>The panel is missing</h3>
+<p>Press <kbd>Home</kbd> once, then look for the small <strong>LF</strong> launcher at the edge of the screen. Confirm Living Fellows is enabled for the current save. Workshop players also need ZombieBuddy enabled and current. Standalone players should rerun <code>Install.bat</code> after a game update and check <span class="menu">More → Support</span>.</p>
+
+<h3>A companion is only a moving shadow</h3>
+<p>The native actor bridge didn't load, or failed its health check. Open <span class="menu">More → Support</span> and copy its report.</p>
+<div class="callout callout-warn">Don't continue a valuable save until companions render correctly.</div>
+
+<h3>A companion is stuck</h3>
+<p>Wait a moment for automatic recovery, then use <strong>Regroup</strong>. If it stays stuck, note what is in the way (door, gate, fence, vehicle, stairs or furniture) and the current order and movement setting, and send the Support report, logs, and a screenshot or short video.</p>
+
+<h3>Workshop and standalone copies conflict</h3>
+<p>Remove one copy. Keep only one <code>SurvivorCompanion</code> mod folder, restart the game, and enable the remaining copy for the save.</p>
+
+<h3>Standalone uninstall can't restore the launcher</h3>
+<p>Close Project Zomboid and rerun <code>Uninstall.bat</code> from the same release folder. Its backup lives under <code>%LOCALAPPDATA%\LivingFellows</code>; don't delete that folder until the uninstall succeeds.</p>
+
+<h3>Mods that may conflict</h3>
+<p>Mods that replace player actor construction, animation ownership, pathfinding, vehicle passenger state, UI key bindings, or the same launcher <code>mainClass</code> may conflict. If another mod uses <kbd>Home</kbd>, <kbd>[</kbd> or <kbd>]</kbd>, rebind them under Living Fellows.</p>
+
+
+<h3>Reading the Support Page</h3>
+<p><span class="menu">More → Support</span> is the first place to look when something is wrong, and the report it copies is the most useful thing to attach to a bug report.</p>
+<table>
+  <tr><th>Line</th><th>What a healthy game shows</th></tr>
+  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.25</td></tr>
+  <tr><td>Game build / supported build</td><td>42.21.0 on both sides</td></tr>
+  <tr><td>Runtime active</td><td>Yes. If not, <strong>Runtime disabled reason</strong> says why.</td></tr>
+  <tr><td>Native bridge status, actor provider, bridge protocol</td><td>The bridge is ready, and its protocol matches the expected one. A mismatch means an old or mixed install.</td></tr>
+  <tr><td>Suggested action</td><td>Read this first; it names the fix it can see</td></tr>
+  <tr><td>Companions / households</td><td>How many of each are in the world</td></tr>
+  <tr><td>Scheduler tasks / exceptions / deferred frames</td><td>Exceptions near zero</td></tr>
+  <tr><td>Reports / open circuits / recoveries</td><td>No open circuits. An open circuit is a subsystem that failed and was switched off to protect the save.</td></tr>
+  <tr><td>Active actions / reservations / leaked / retrying</td><td>Leaked at 0</td></tr>
+</table>
+<div class="two-col">
+<div>
+<h4>Support actions</h4>
+<ul>
+  <li><strong>Copy support report</strong>: everything above, ready to paste</li>
+  <li><strong>Recheck native bridge</strong>: tests the bridge again</li>
+  <li><strong>Retry failed subsystems</strong>: closes failed circuits and rechecks the bridge</li>
+</ul>
+</div>
+<div>
+<h4>When to stop playing</h4>
+<p>If the bridge isn't ready, or companions render as moving shadows, stop before you lose anything valuable. Copy the report and send it with your logs (<a href="#appD">Appendix D</a>).</p>
+</div>
+</div>
+
+<p class="appendix-label">Appendix D</p>
+<h2 class="chapter" id="appD">Reporting a Problem <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+<p>Use the bug report form on the project's GitHub page. Include:</p>
+<ul class="checklist">
+  <li>Living Fellows version and installation method</li>
+  <li>The exact Project Zomboid version</li>
+  <li>New or existing save</li>
+  <li>Other enabled mods</li>
+  <li>What you expected and what happened</li>
+  <li>Steps to reproduce, if known</li>
+  <li>Screenshots or a short video for visual or pathing problems</li>
+  <li>The relevant logs, and the <span class="menu">More → Support</span> report</li>
+</ul>
+<div class="callout callout-recipe"><strong>Where the logs are on Windows:</strong> <code>%USERPROFILE%\Zomboid\console.txt</code> and <code>%USERPROFILE%\Zomboid\logs.zip</code>. Remove server addresses, usernames, chat and other personal information before posting logs publicly.</div>
+
+<p class="appendix-label">Appendix E</p>
+<h2 class="chapter" id="appE">Picture Credits <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+<p>Item and moodle icons and Plates 1, 2, 4–10 come from <strong>PZwiki</strong>, the Project Zomboid community wiki (pzwiki.net). The game art shown in them belongs to <strong>The Indie Stone</strong>. The cover banner and Plate 3 are Living Fellows project art.</p>
+<table>
+  <tr><th>Plate</th><th>Subject</th><th>Source file</th></tr>
+  <tr><td>1</td><td>Muldraugh from above</td><td class="tbl-item">Muldraugh.png</td></tr>
+  <tr><td>2</td><td>A yard full of zombies</td><td class="tbl-item">Idle_Zombie_Horde.png</td></tr>
+  <tr><td>3</td><td>A scavenger's report</td><td class="tbl-item">Living Fellows screenshot</td></tr>
+  <tr><td>4</td><td>Spiffo's, Muldraugh</td><td class="tbl-item">Spiffos_Muldraugh.png</td></tr>
+  <tr><td>5</td><td>Cortman Medical</td><td class="tbl-item">Cortman_Medical.png</td></tr>
+  <tr><td>6</td><td>A zombie at a body</td><td class="tbl-item">ZedFeast.jpg</td></tr>
+  <tr><td>7</td><td>An isolated house</td><td class="tbl-item">IsolatedHouse_Muldraugh.png</td></tr>
+  <tr><td>8</td><td>Muldraugh paper map</td><td class="tbl-item">Pzmap_01_public_paper.png</td></tr>
+  <tr><td>9</td><td>Zombies on the road</td><td class="tbl-item">DecomposingGroup.jpg</td></tr>
+  <tr><td>10</td><td>Convenience store</td><td class="tbl-item">ConvenienceStore_Muldraugh.png</td></tr>
+</table>
+<p class="tbl-note">Living Fellows is an unofficial mod, not affiliated with or endorsed by The Indie Stone.</p>
+
+
+<!-- CARD START -->
+<p class="appendix-label">Appendix F</p>
+<h2 class="chapter" id="appF">Quick Reference Card <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+<p class="card-intro">The whole manual on two printed pages. Each panel points to the chapter with the detail. <a href="quick-reference.html">Open the printable card on its own page.</a></p>
+
+<div class="card-grid">
+
+<div class="card">
+<h4><img src="https://pzwiki.net/w/images/7/7f/KeyRing.png" alt="">Keys</h4>
+<table>
+  <tr><td><kbd>Home</kbd></td><td>Open or close the panel; <strong>LF</strong> when collapsed</td></tr>
+  <tr><td><kbd>[</kbd> held</td><td>Peek at the selected companion</td></tr>
+  <tr><td><kbd>]</kbd> held</td><td>Steer them toward the cursor</td></tr>
+  <tr><td><kbd>End</kbd></td><td>Show or hide the base layout</td></tr>
+  <tr><td>Rotate building</td><td>The game's key; turns a blueprint</td></tr>
+  <tr><td>Right-click</td><td>A companion: Talk, Watch, quick orders, Assign objective. The world: the <span class="k">Living Fellows</span> menu.</td></tr>
+</table>
+<p class="tbl-note">Ch 3, Appendix A</p>
+</div>
+
+<div class="card">
+<h4><img src="https://pzwiki.net/w/images/3/31/Radio.png" alt="">Orders</h4>
+<ul>
+  <li><span class="k">Follow · Stay · Guard</span>. Inside camp, Stay or Guard means base duty.</li>
+  <li><span class="k">Regroup · Retreat</span> are emergencies.</li>
+  <li><span class="k">Focus on this zombie</span>; twice within 4 s is a <em>push</em>. <span class="k">Leave this zombie alone</span> lasts 12 s.</li>
+  <li>Follow distance: close, 2, 3, 5 or 8 tiles. Movement: Copy player, Walk, Sneak, Run.</li>
+  <li>New recruits: Follow, Copy player, Ride with player, Scavenge when safe.</li>
+  <li><span class="k">Dismiss</span> is confirmed by name; it waits only for a fight for their life or an action that can't be stopped.</li>
+</ul>
+<p class="tbl-note">Ch 4</p>
+</div>
+
+<div class="card">
+<h4><img src="https://pzwiki.net/w/images/4/40/BaseballBat.png" alt="">Rules of engagement</h4>
+<table>
+  <tr><td class="k">Stealth</td><td>Avoid contact; quiet force; hand signals; never shoots from a vehicle</td></tr>
+  <tr><td class="k">Close Defense</td><td>Clear threats near the team; no chasing</td></tr>
+  <tr><td class="k">Ranged Support</td><td>Firearms at distance; may fire from a car window at safe speed</td></tr>
+  <tr><td class="k">Weapons Free</td><td>Engage visible threats; brief pursuit</td></tr>
+  <tr><td class="k">Hold fire</td><td>Blocks ordinary shots under any doctrine</td></tr>
+</table>
+<p class="tbl-note">Ch 6. A refusal always says why.</p>
+</div>
+
+<div class="card">
+<h4><img src="https://pzwiki.net/w/images/1/18/Whistle.png" alt="">Squads and signals</h4>
+<ul>
+  <li><span class="k">Whistle</span>: every follower regroups, seen or not. Loud: about 24 tiles, and zombies hear it.</li>
+  <li><span class="k">Hand signs</span> are silent and need sight: follow, hold, regroup, follow cautiously (sneak and scavenge), move out, fall back, cease fire, fire.</li>
+  <li>Groups <span class="k">Alpha · Bravo · Charlie</span> with group orders; a group is an expedition squad.</li>
+</ul>
+<p class="tbl-note">Ch 5b</p>
+</div>
+
+<div class="card">
+<h4><img src="https://pzwiki.net/w/images/0/07/Teabag.png" alt="">Talk</h4>
+<table>
+  <tr><td class="k">Check in</td><td>What are you doing? · How are you? · Do you need anything? · What are you hoping for?</td></tr>
+  <tr><td class="k">Get to know</td><td>Talk about memories · Tell me about yourself · What do you think? · How are we doing?</td></tr>
+  <tr><td class="k">Support</td><td><em>Reassure them</em>: stress −12, morale +8, bond +1, every 2 min when needed. <em>You did well</em>: bond +3, morale +6, once per moment.</td></tr>
+</table>
+<p class="tbl-note">Ch 9b</p>
+</div>
+
+<div class="card">
+<h4><img src="https://pzwiki.net/w/images/7/71/Locket.png" alt="">Trust</h4>
+<p><span class="k">Score</span> = trust × 0.55 + bond × 0.45: Cautious &lt;10 · Ally 10 · Trusted 30 · Close 55 · Family 80.</p>
+<p><span class="k">Builds when close</span> (8 tiles, same floor): patched up +5 trust / +4 bond · eating or drinking +3/+2 · escaping together +2/+4 · danger to you passing +2/+5.</p>
+<p><span class="k">Their past opens</span> at trust 10 past · 25 home · 40 value · 55 fear · 70 habit · 80 keepsake.</p>
+<p class="tbl-note">Ch 9d</p>
+</div>
+
+<div class="card">
+<h4><img src="https://pzwiki.net/w/images/0/0c/Bandage.png" alt="">Needs and medicine</h4>
+<table>
+  <tr><th></th><th>Noticed</th><th>Serious</th><th>Urgent</th></tr>
+  <tr><td><img class="ico-sm moodle" src="https://pzwiki.net/w/images/f/fd/Moodle_Icon_Thirsty.png" alt="">Thirst</td><td>48%</td><td>62%</td><td>75%</td></tr>
+  <tr><td><img class="ico-sm moodle" src="https://pzwiki.net/w/images/d/d3/Moodle_Icon_Hungry.png" alt="">Hunger</td><td>55%</td><td>70%</td><td>82%</td></tr>
+  <tr><td><img class="ico-sm moodle" src="https://pzwiki.net/w/images/2/2b/Moodle_Icon_Tired.png" alt="">Tired</td><td>50%</td><td>68%</td><td>82%</td></tr>
+</table>
+<ul>
+  <li>Clean water only; they eat if no water is in reach.</li>
+  <li>They treat you when it's safe: bleeding first, then wounds, then splints.</li>
+  <li><span class="k">A bite</span>: conceal, confess or leave; the group votes; you decide. Mercy waits for your authorization.</li>
+</ul>
+<p class="tbl-note">Ch 8</p>
+</div>
+
+<div class="card">
+<h4><img src="https://pzwiki.net/w/images/8/81/Hammer.png" alt="">Setting up camp</h4>
+<ol>
+  <li>Right-click → <span class="k">Living Fellows → Base life → Set camp core here</span> (seven tiles each way).</li>
+  <li><span class="k">Start zone here</span>, right-click the far corner, <span class="k">Finish zone here</span>.</li>
+  <li><span class="k">Mark storage as...</span>: food, water, medical, tools, construction, and more.</li>
+  <li><span class="k">More → Base</span>: give each resident a base job.</li>
+</ol>
+<p>Lumber, farm, burial and pyre areas may lie 30 tiles out. Stairs extend the camp up or down, basements included. Blueprints: <span class="k">Queue construction</span>.</p>
+<p class="tbl-note">Ch 11–13</p>
+</div>
+
+<div class="card">
+<h4><img src="https://pzwiki.net/w/images/4/45/WoodAxe.png" alt="">Base jobs</h4>
+<table>
+  <tr><td class="k">Woodcutter</td><td>Lumber area, axe, storage for logs</td></tr>
+  <tr><td class="k">Carpenter</td><td>Logs, a saw, a second container for planks</td></tr>
+  <tr><td class="k">Gravekeeper</td><td>Burial ground and shovel, or a pyre, lighter and petrol</td></tr>
+  <tr><td class="k">Farmer</td><td>Farm area over existing plots; farming supplies</td></tr>
+  <tr><td class="k">Maintainer</td><td>Barricades marked for upkeep</td></tr>
+</table>
+<p>No new trees or bodies outside camp from 21:00 to 06:00.</p>
+<p class="tbl-note">Ch 14, 15, 16</p>
+</div>
+
+<div class="card">
+<h4><img src="https://pzwiki.net/w/images/c/c7/Clipboard.png" alt="">Running the camp</h4>
+<p><span class="k">Stock per resident</span>: food 3 · water 2 · medical 1 · construction 2 · ammunition 6 per guard.</p>
+<p><span class="k">Roles needed</span>: guard and builder (Carpenter) at 2 residents · medic at 3 · quartermaster at 4 · farmer with a farm area.</p>
+<p><span class="k">Defence</span>: Rotating watch · Role based · All hands. <span class="k">Workload</span>: Essential · Balanced · Continuous.</p>
+<p class="tbl-note">Ch 14b</p>
+</div>
+
+<div class="card">
+<h4><img src="https://pzwiki.net/w/images/c/c1/Padlock.png" alt="">Households</h4>
+<p><span class="k">Standing</span>: Hostile ≤ −60 · Wary &lt; 0 (new ones start at −20) · Tolerated 0–39 · Trusted 40+.</p>
+<p><span class="k">Offences</span>: trespass −12 · aiming −28 · theft −40 · barricade −45 · damage −55 · murder −100, never forgiven.</p>
+<p><span class="k">Help</span>: a delivered request +30 and opens barter · a broken promise −12 · recruit after 2 kept promises, a field trial of 6+ hours, then a decision.</p>
+<p class="tbl-note">Ch 18, 18b</p>
+</div>
+
+<div class="card">
+<h4><img src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Expeditions <span class="stage stage-end" style="margin-left:auto">Experimental</span></h4>
+<ol>
+  <li>Put 1–4 companions in a group on <span class="k">Squad</span>.</li>
+  <li><span class="k">Expeditions</span>: leader, Scout or Search, a place within 200 tiles, route, 1/2/4/8 h, combat style.</li>
+  <li><span class="k">Send squad</span>, on a disposable save.</li>
+</ol>
+<p><span class="k">Recall</span>: powered walkie-talkies on you and the leader, same channel → right-click your radio → <em>Return immediately</em>.</p>
+<p class="tbl-note">Ch 17</p>
+</div>
+
+<div class="card card-wide">
+<h4><img src="https://pzwiki.net/w/images/4/46/Toolbox.png" alt="">When something's wrong</h4>
+<table>
+  <tr><td class="k">Panel missing</td><td>Press <kbd>Home</kbd>, look for <strong>LF</strong>, check the mod is enabled for the save (and ZombieBuddy, on Workshop)</td></tr>
+  <tr><td class="k">A moving shadow</td><td>The bridge failed: <span class="k">More → Support</span>, copy the report, and stop playing that save</td></tr>
+  <tr><td class="k">Stuck</td><td>Wait a moment, then <strong>Regroup</strong>; note what's in the way</td></tr>
+  <tr><td class="k">Ignoring you</td><td>Read <em>Last action problem</em> on Status</td></tr>
+  <tr><td class="k">Reporting</td><td>Support report, <code>console.txt</code>, <code>logs.zip</code>, and a screenshot or video</td></tr>
+</table>
+<p class="tbl-note">Appendix C, D</p>
+</div>
+
+</div>
+<!-- CARD END -->
+
+<div class="page-footer">
+  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.25 &nbsp;·&nbsp; First Edition, Third Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
+</div>
+<script>
+(function () {
+  const storageKey = "living-fellows-manual-language";
+  const languages = {
+    en: { flag: "\u{1F1EC}\u{1F1E7}", name: "English", lang: "en" }
+  };
+  const picker = document.querySelector("[data-language-picker]");
+  if (!picker) {
+    return;
+  }
+  const currentFlag = picker.querySelector("[data-language-current-flag]");
+  const currentLabel = picker.querySelector("[data-language-current-label]");
+  const currentToggle = picker.querySelector("[data-language-toggle]");
+  const options = Array.from(picker.querySelectorAll("[data-language-option]"));
+
+  function storeLanguage(code) {
+    try {
+      localStorage.setItem(storageKey, code);
+    } catch {
+      return;
+    }
+  }
+
+  function loadLanguage() {
+    try {
+      return localStorage.getItem(storageKey) || "en";
+    } catch {
+      return "en";
+    }
+  }
+
+  function setLanguage(code) {
+    const selectedCode = languages[code] ? code : "en";
+    const language = languages[selectedCode];
+    picker.dataset.selectedLanguage = selectedCode;
+    currentFlag.textContent = language.flag;
+    currentLabel.textContent = language.name;
+    currentToggle.setAttribute("aria-label", "Language: " + language.name + ". Select language");
+    currentToggle.setAttribute("title", "Language: " + language.name);
+    document.documentElement.lang = language.lang;
+    options.forEach(function (option) {
+      const isSelected = option.dataset.languageOption === selectedCode;
+      option.classList.toggle("is-selected", isSelected);
+      option.setAttribute("aria-selected", isSelected ? "true" : "false");
+    });
+    storeLanguage(selectedCode);
+    window.dispatchEvent(new CustomEvent("livingfellows:languagechange", {
+      detail: { language: selectedCode }
+    }));
+  }
+
+  setLanguage(loadLanguage());
+  picker.addEventListener("toggle", function () {
+    currentToggle.setAttribute("aria-expanded", picker.open ? "true" : "false");
+  });
+  options.forEach(function (option) {
+    option.addEventListener("click", function () {
+      setLanguage(option.dataset.languageOption);
+      picker.removeAttribute("open");
+    });
+  });
+  document.addEventListener("click", function (event) {
+    if (!picker.contains(event.target)) {
+      picker.removeAttribute("open");
+    }
+  });
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") {
+      picker.removeAttribute("open");
+    }
+  });
+}());
+</script>
+
+</body>
+</html>
