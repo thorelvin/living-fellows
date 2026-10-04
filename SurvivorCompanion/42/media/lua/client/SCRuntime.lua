@@ -1162,6 +1162,7 @@ end
 -- placed or re-seated actor is fully registered at once.
 local scheduleRepairAt = -math.huge
 local scheduleRepairKey = nil
+local campFloorSurveyAt = -math.huge
 local function scheduleRepairRosterKey()
     if type(SC.Registry) ~= "table"
         or type(SC.Registry.version) ~= "function" then return 0 end
@@ -1196,6 +1197,11 @@ local function productionTickCore(current, tickStarted)
     end
     if SC.Steering and type(SC.Steering.update) == "function" then
         pcall(SC.Steering.update)
+    end
+    if now - campFloorSurveyAt >= 100
+        and SC.BaseLife and type(SC.BaseLife.autoExtendFloors) == "function" then
+        campFloorSurveyAt = now
+        pcall(SC.BaseLife.autoExtendFloors, 12)
     end
     local schedulerStarted = preciseNowMs()
     if SC.Performance and type(SC.Performance.record) == "function" then

@@ -392,7 +392,8 @@ local function approach(actor, target, action, order)
     local accepted, reason, reached = SC.Navigation.requestAny(actor, approaches, "walk", {
         action = action, targetSquare = targetSquare,
         object = target, requireSameSquare = true, workCampOnly = true,
-        workReach = lumberOrder(order),
+        workReach = lumberOrder(order)
+            or action == "move_to_gather_destination",
     })
     if accepted ~= true then return "failed", reason or "gather_approach_failed" end
     if reason == "arrived" and reached ~= nil and U().sameSquare(actor, reached) then

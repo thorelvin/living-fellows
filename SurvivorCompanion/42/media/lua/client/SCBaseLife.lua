@@ -5,6 +5,7 @@ local SC = SurvivorCompanion
 if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGameplayUtil") end
 if not SC.StableValue and type(require) == "function" then pcall(require, "SCStableValue") end
 if not SC.BaseObjectRef and type(require) == "function" then pcall(require, "SCBaseObjectRef") end
+if not SC.Topology and type(require) == "function" then pcall(require, "SCTopology") end
 
 SC.BaseLife = SC.BaseLife or {}
 local BaseLife = SC.BaseLife
@@ -137,6 +138,8 @@ local autonomousBodyScan
 local autonomousWorkerCursor = 0
 local autonomousRetryAt = {}
 local workConsistencyRevision = 0
+local autoFloorScan
+local autoFloorLinks = {}
 
 local DEFENSE_POLICIES = { rotation = true, role_based = true, all_hands = true }
 local WORKLOAD_POLICIES = { essential = true, balanced = true, continuous = true }
@@ -301,6 +304,9 @@ local function normalizeZone(source)
         name = cleanText(source.name, source.kind, 48),
         x1 = math.min(a.x, b.x), y1 = math.min(a.y, b.y),
         x2 = math.max(a.x, b.x), y2 = math.max(a.y, b.y), z = a.z,
+        autoStair = source.kind == "area" and source.autoStair == true,
+        autoStairFromZ = source.kind == "area" and source.autoStair == true
+            and integer(source.autoStairFromZ, a.z) or nil,
         createdAt = math.max(0, finite(source.createdAt, 0)),
     }
 end
@@ -726,6 +732,7 @@ local function normalizeBase(source)
     local result = {
         id = source.id, name = cleanText(source.name, "Main Camp", 48), core = core,
         zones = {}, storages = {}, maintenanceTargets = {}, jobs = {}, completed = {},
+        autoFloorDisabled = {},
         work = emptyWork(), production = emptyProduction(), farm = emptyFarm(),
         settings = {
             defense = DEFENSE_POLICIES[settings.defense] and settings.defense or "rotation",
@@ -737,6 +744,16 @@ local function normalizeBase(source)
         },
         createdAt = math.max(0, finite(source.createdAt, 0)),
     }
+    local disabledCount = 0
+    for floor, disabled in pairs(type(source.autoFloorDisabled) == "table"
+        and source.autoFloorDisabled or {}) do
+        if type(floor) == "string" and string.match(floor, "^%-?%d+$")
+            and tonumber(floor) >= -2 and tonumber(floor) <= 15
+            and disabled == true and disabledCount < 24 then
+            result.autoFloorDisabled[floor] = true
+            disabledCount = disabledCount + 1
+        end
+    end
     local maximumZones = U() and U().config("baseMaxZones") or 24
     for _, row in ipairs(type(source.zones) == "table" and source.zones or {}) do
         local zone = normalizeZone(row)
@@ -900,9 +917,43 @@ local function sameMapBuilding(first, second)
     return true
 end
 
--- Context-menu access to another floor of the same building. An area on that
--- floor is still drawn explicitly by the player; this only makes the first
--- corner available before that floor has any camp zones.
+local function hasFloor(square, z)
+    if square == nil then return false end
+    if SC.Topology and SC.Topology.squareHasStairs(square) then return true end
+    local solid, checked = U().call(square, "TreatAsSolidFloor")
+    if checked then return solid == true end
+    local floorObject, found = U().call(square, "getFloor")
+    if found then return floorObject ~= nil or z <= 0 end
+    return z <= 0
+end
+
+local stairDirections = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
+
+-- Match the native wooden-stair layout: a lower exit, three stair squares,
+-- then a free upper landing one tile beyond the top stair.
+local function stairConnection(exitX, exitY, lowerZ, dx, dy)
+    if lowerZ < 0 or lowerZ >= 15 or SC.Topology == nil then return nil end
+    local exit = U().gridSquare(exitX, exitY, lowerZ)
+    local landingX, landingY = exitX + dx * 4, exitY + dy * 4
+    local landing = U().gridSquare(landingX, landingY, lowerZ + 1)
+    if not exit or not landing or not U().isSquareFree(exit)
+        or not U().isSquareFree(landing) or not hasFloor(landing, lowerZ + 1) then
+        return nil
+    end
+    for step = 1, 3 do
+        local stair = U().gridSquare(exitX + dx * step,
+            exitY + dy * step, lowerZ)
+        if not stair or not SC.Topology.squareHasStairs(stair) then return nil end
+    end
+    return {
+        lowerZ = lowerZ,
+        exit = { x = exitX, y = exitY, z = lowerZ },
+        landing = { x = landingX, y = landingY, z = lowerZ + 1 },
+    }
+end
+
+-- Context-menu access for a manually drawn area when a floor has no verified
+-- staircase. The automatic stair survey handles connected floors separately.
 function BaseLife.mayExtendAreaToFloor(value)
     local point, base = position(value), activeBase()
     if point == nil or base == nil then return false end
@@ -918,15 +969,39 @@ function BaseLife.mayExtendAreaToFloor(value)
     return false
 end
 
--- Native stairs own the geometry. Their camp-work handoff is allowed only
--- between designated floors of one building. Native lease maintenance checks
--- each newly occupied square against camp admission while the route runs.
-function BaseLife.allowsFloorTransit(source, destination)
+-- Native stairs own the geometry. Explicit reach work may cross floors while
+-- both endpoints stay within the bounded work band around designated areas.
+-- Native lease maintenance checks every newly occupied square along the route.
+function BaseLife.allowsFloorTransit(source, destination, intent)
     local first, last = position(source), position(destination)
-    return first ~= nil and last ~= nil and first.z ~= last.z
-        and BaseLife.isInside(first) == true
-        and BaseLife.isInside(last) == true
-        and sameMapBuilding(first, last)
+    if first == nil or last == nil or first.z == last.z then return false end
+    local firstInside, lastInside = BaseLife.isInside(first) == true,
+        BaseLife.isInside(last) == true
+    if not (firstInside and lastInside) then
+        if type(intent) ~= "table" or intent.workReach ~= true
+            or not BaseLife.admitsWork(first, intent)
+            or not BaseLife.admitsWork(last, intent) then return false end
+    end
+    if sameMapBuilding(first, last) then return true end
+    -- Player-built stairs can lack a metagrid building identity. A verified
+    -- stair connection still admits native movement, whose occupied squares
+    -- are checked against the camp boundary throughout the route.
+    local base = activeBase()
+    for floor = math.min(first.z, last.z), math.max(first.z, last.z) - 1 do
+        local linked = autoFloorLinks[tostring(floor)] == true
+        if not linked then
+            for _, zone in ipairs(base.zones) do
+                if zone.kind == "area" and zone.autoStair == true
+                    and math.min(zone.z, zone.autoStairFromZ or zone.z) == floor
+                    and math.max(zone.z, zone.autoStairFromZ or zone.z) == floor + 1 then
+                    linked = true
+                    break
+                end
+            end
+        end
+        if not linked then return false end
+    end
+    return true
 end
 
 -- Prove rectangle containment against the union of all camp-area rectangles.
@@ -1048,6 +1123,19 @@ function BaseLife.withinWorkReach(value)
     return false
 end
 
+-- A marked container can sit on the camp edge with its usable standing tile
+-- just outside the area. Keep the current job alive for that final interaction.
+function BaseLife.atStorageAccess(value)
+    local point, base = position(value), activeBase()
+    if not point or not base then return false end
+    for _, storage in ipairs(base.storages) do
+        if storage.z == point.z
+            and math.abs(storage.x - point.x) <= 1
+            and math.abs(storage.y - point.y) <= 1 then return true end
+    end
+    return false
+end
+
 -- Navigation admission for camp work: ordinary work stays inside the camp
 -- area, while jobs tied to a reach zone may also use the bounded band.
 function BaseLife.admitsWork(value, intent)
@@ -1083,6 +1171,7 @@ function BaseLife.create(square, name)
         x2 = point.x + radius, y2 = point.y + radius, z = point.z, createdAt = now(),
     })
     state.bases[id], state.activeBaseId = base, id
+    autoFloorScan, autoFloorLinks = nil, {}
     return true, base
 end
 
@@ -1150,6 +1239,10 @@ function BaseLife.finishZone(square, name)
         return false, "zone_outside_base_area"
     end
     base.zones[#base.zones + 1] = zone
+    if zone.kind == "area" then
+        base.autoFloorDisabled[tostring(zone.z)] = nil
+        autoFloorScan = nil
+    end
     draftZone = nil
     return true, zone
 end
@@ -1225,6 +1318,12 @@ function BaseLife.removeZone(id)
         end
     end
     table.remove(base.zones, index)
+    if zone.kind == "area" then
+        if zone.autoStair == true then
+            base.autoFloorDisabled[tostring(zone.z)] = true
+        end
+        autoFloorScan, autoFloorLinks = nil, {}
+    end
     if zone.kind == "farm" and SC.FarmWork
         and type(SC.FarmWork.zoneRemoved) == "function" then
         SC.FarmWork.zoneRemoved(id)
@@ -1241,9 +1340,127 @@ function BaseLife.isInside(value, kind)
     if not point or not base then return false end
     local wanted = kind or "area"
     for _, zone in ipairs(base.zones) do
-        if zone.kind == wanted and zoneContains(zone, point) then return true, zone end
+        if zone.kind == wanted and zoneContains(zone, point)
+            and (zone.autoStair ~= true or wanted ~= "area"
+                or hasFloor(U().gridSquare(point.x, point.y, point.z), point.z)) then
+            return true, zone
+        end
     end
     return false
+end
+
+local function stairPathInside(connection)
+    local lowerZ = connection.lowerZ
+    if not BaseLife.isInside(connection.exit) then return false end
+    local dx = (connection.landing.x - connection.exit.x) / 4
+    local dy = (connection.landing.y - connection.exit.y) / 4
+    for step = 1, 3 do
+        if not BaseLife.isInside({ x = connection.exit.x + dx * step,
+            y = connection.exit.y + dy * step, z = lowerZ }) then return false end
+    end
+    return BaseLife.isInside(connection.landing) == true
+end
+
+local function extendCampToStairFloor(base, sourceZone, connection)
+    local target = sourceZone.z == connection.lowerZ
+        and connection.landing or connection.exit
+    local targetZ = target.z
+    if math.abs(sourceZone.z - targetZ) ~= 1 then return false end
+    if not BaseLife.isInside(target) then
+        if base.autoFloorDisabled[tostring(targetZ)] == true then return false end
+        local maximum = U().config("baseMaxZones") or 24
+        if #base.zones >= maximum then return false end
+        local area = normalizeZone({
+            id = nextId("nextZoneSerial", "zone:"), kind = "area",
+            name = "Camp stair floor",
+            x1 = math.min(sourceZone.x1, target.x),
+            y1 = math.min(sourceZone.y1, target.y),
+            x2 = math.max(sourceZone.x2, target.x),
+            y2 = math.max(sourceZone.y2, target.y), z = targetZ,
+            autoStair = true, autoStairFromZ = sourceZone.z,
+            createdAt = now(),
+        })
+        base.zones[#base.zones + 1] = area
+    end
+    if stairPathInside(connection) then
+        autoFloorLinks[tostring(connection.lowerZ)] = true
+        return true
+    end
+    return false
+end
+
+local function scanCampStair(base, zone, x, y)
+    local utility = U()
+    local square = utility.gridSquare(x, y, zone.z)
+    if not square or SC.Topology == nil then return end
+    if SC.Topology.squareHasStairs(square) then
+        -- A marked area can cover any of the three lower stair tiles.
+        for _, direction in ipairs(stairDirections) do
+            local dx, dy = direction[1], direction[2]
+            for step = 1, 3 do
+                local connection = stairConnection(x - dx * step,
+                    y - dy * step, zone.z, dx, dy)
+                if connection and BaseLife.isInside(connection.exit) then
+                    extendCampToStairFloor(base, zone, connection)
+                    return
+                end
+            end
+        end
+    end
+    if zone.z > 0 and hasFloor(square, zone.z) then
+        -- The landing is the upper floor's first solid tile. This also finds
+        -- a staircase below a camp whose core is on an upper floor.
+        for _, direction in ipairs(stairDirections) do
+            local dx, dy = direction[1], direction[2]
+            local last = utility.gridSquare(x - dx, y - dy, zone.z - 1)
+            if last and SC.Topology.squareHasStairs(last) then
+                local connection = stairConnection(x - dx * 4,
+                    y - dy * 4, zone.z - 1, dx, dy)
+                if connection then
+                    extendCampToStairFloor(base, zone, connection)
+                    return
+                end
+            end
+        end
+    end
+end
+
+-- A bounded rolling survey also sees staircases built after camp creation.
+-- It reads only loaded squares and adds no area until all stair pieces and the
+-- landing are present. The runtime calls this with a small per-pulse budget.
+function BaseLife.autoExtendFloors(budget)
+    local base = activeBase()
+    if not base then return 0 end
+    local steps = integer(budget, 12, 1, 24)
+    local scan = autoFloorScan
+    if not scan or scan.baseId ~= base.id then
+        scan = { baseId = base.id, zoneIndex = 1 }
+        autoFloorScan = scan
+    end
+    local checked = 0
+    while checked < steps do
+        local zone = base.zones[scan.zoneIndex]
+        if not zone then
+            scan.zoneIndex, scan.x, scan.y = 1, nil, nil
+            zone = base.zones[1]
+        end
+        if not zone then break end
+        if zone.kind ~= "area" then
+            scan.zoneIndex, scan.x, scan.y = scan.zoneIndex + 1, nil, nil
+        else
+            scan.x, scan.y = scan.x or zone.x1, scan.y or zone.y1
+            scanCampStair(base, zone, scan.x, scan.y)
+            checked = checked + 1
+            scan.x = scan.x + 1
+            if scan.x > zone.x2 then
+                scan.x, scan.y = zone.x1, scan.y + 1
+            end
+            if scan.y > zone.y2 then
+                scan.zoneIndex, scan.x, scan.y = scan.zoneIndex + 1, nil, nil
+            end
+        end
+    end
+    return checked
 end
 
 function BaseLife.zoneCenter(kind)
@@ -4362,6 +4579,7 @@ function BaseLife.restore(source)
         document, draftZone, operationsCache = emptyDocument(), nil, nil
         autonomousTreeScan, autonomousBodyScan = nil, nil
         autonomousWorkerCursor, autonomousRetryAt = 0, {}
+        autoFloorScan, autoFloorLinks = nil, {}
         return true, document
     end
     local stable, reason = stableCopy(source, 24, { count = 65536 })
@@ -4376,6 +4594,7 @@ function BaseLife.restore(source)
     draftZone, operationsCache = nil, nil
     autonomousTreeScan, autonomousBodyScan = nil, nil
     autonomousWorkerCursor, autonomousRetryAt = 0, {}
+    autoFloorScan, autoFloorLinks = nil, {}
     bumpWorkConsistencyRevision()
     return true, document
 end
@@ -4384,6 +4603,7 @@ function BaseLife.reset()
     document, draftZone, operationsCache = emptyDocument(), nil, nil
     autonomousTreeScan, autonomousBodyScan = nil, nil
     autonomousWorkerCursor, autonomousRetryAt = 0, {}
+    autoFloorScan, autoFloorLinks = nil, {}
     bumpWorkConsistencyRevision()
 end
 

@@ -1266,7 +1266,7 @@ local function depositCargo(actor, order, state, item, runtime)
         local accepted, reason = SC.Navigation.requestAny(actor, targets, "walk", {
             action = "move_to_base_storage", targetSquare = U().squareOf(object),
             object = object, arrivalDistance = 0.35, requireSameSquare = true,
-            continuousApproach = true,
+            continuousApproach = true, workCampOnly = true, workReach = true,
         })
         if accepted ~= true then return blockOrder(order, reason or "production_storage_unreachable") end
         return true, reason or "production_moving_to_storage"

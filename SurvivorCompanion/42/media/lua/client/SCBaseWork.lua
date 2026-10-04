@@ -38,6 +38,14 @@ local function U()
     return SC.GameplayUtil
 end
 
+-- Marked storage and guard routes use the camp floor admission. Storage may
+-- require a standing tile just outside the drawn boundary, within work reach.
+local function workRoute(intent, allowReach)
+    intent.workCampOnly = true
+    intent.workReach = allowReach == true
+    return intent
+end
+
 local function now()
     return U().nowMs()
 end
@@ -323,11 +331,11 @@ local function transferFromStorage(actor, state, storage, container, item)
         end
         -- Only (handled, reason): a third navigation value would be read as
         -- the terminal flag and block the job on every approach.
-        local approached, approachReason = SC.Navigation.requestAny(actor, targets, "walk", {
+        local approached, approachReason = SC.Navigation.requestAny(actor, targets, "walk", workRoute({
             action = "move_to_base_storage", targetSquare = U().squareOf(object),
             object = object, arrivalDistance = 0.35, requireSameSquare = true,
             continuousApproach = true,
-        })
+        }, true))
         return approached == true, approachReason
     end
     if state.visualAt ~= nil then
@@ -418,11 +426,11 @@ local function transferToStorage(actor, state, storage, container, item, require
         if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
             return false, "navigation_unavailable"
         end
-        local approached, approachReason = SC.Navigation.requestAny(actor, targets, "walk", {
+        local approached, approachReason = SC.Navigation.requestAny(actor, targets, "walk", workRoute({
             action = "move_to_base_storage", targetSquare = U().squareOf(object),
             object = object, arrivalDistance = 0.35, requireSameSquare = true,
             continuousApproach = true,
-        })
+        }, true))
         return approached == true, approachReason
     end
     if state.visualAt ~= nil then
@@ -942,11 +950,11 @@ local function updateTransfer(actor, state, job)
         if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
             return false, "navigation_unavailable", true
         end
-        local approached, approachReason = SC.Navigation.requestAny(actor, targets, "walk", {
+        local approached, approachReason = SC.Navigation.requestAny(actor, targets, "walk", workRoute({
             action = "move_to_base_storage", targetSquare = U().squareOf(object),
             object = object, arrivalDistance = 0.35, requireSameSquare = true,
             continuousApproach = true,
-        })
+        }, true))
         return approached == true, approachReason
     end
     if not U().inventoryContains(U().inventory(actor), transfer.item) then
@@ -1087,17 +1095,25 @@ local function guardRoutine(actor, state)
         return false, "guard_holding"
     end
     local offsets = { { 0, 0 }, { 2, 0 }, { 0, 2 }, { -2, 0 }, { 0, -2 } }
-    state.patrolIndex = (state.patrolIndex % #offsets) + 1
-    local offset = offsets[state.patrolIndex]
-    local target = U().gridSquare(center.x + offset[1], center.y + offset[2], center.z)
+    local target
+    for _ = 1, #offsets do
+        state.patrolIndex = (state.patrolIndex % #offsets) + 1
+        local offset = offsets[state.patrolIndex]
+        local candidate = U().gridSquare(center.x + offset[1],
+            center.y + offset[2], center.z)
+        if candidate and SC.BaseLife.isInside(candidate) then
+            target = candidate
+            break
+        end
+    end
     state.nextRoutineAt = now() + (U().config("baseGuardPatrolIntervalMs") or 30000)
     if not target then return false, "guard_target_unloaded" end
     if not SC.Navigation or type(SC.Navigation.request) ~= "function" then
         return false, "navigation_unavailable"
     end
-    return SC.Navigation.request(actor, target, "walk", {
+    return SC.Navigation.request(actor, target, "walk", workRoute({
         action = "base_guard_patrol", targetSquare = target,
-    })
+    }))
 end
 
 function BaseWork.update(actor, player, runtime)
@@ -1112,8 +1128,13 @@ function BaseWork.update(actor, player, runtime)
         local reachable = type(SC.BaseLife.withinWorkReach) == "function"
             and SC.BaseLife.withinWorkReach(actor) == true
         if reachable and not job then job = select(1, SC.BaseLife.claimJob(id)) end
-        if not (reachable and job and type(SC.BaseLife.jobAllowsWorkReach) == "function"
-            and SC.BaseLife.jobAllowsWorkReach(job) == true) then
+        local workingOutside = reachable and job
+            and type(SC.BaseLife.jobAllowsWorkReach) == "function"
+            and SC.BaseLife.jobAllowsWorkReach(job) == true
+        local storageAccess = reachable and job
+            and type(SC.BaseLife.atStorageAccess) == "function"
+            and SC.BaseLife.atStorageAccess(actor) == true
+        if not workingOutside and not storageAccess then
             local target = SC.BaseLife.zoneCenter("rally") or SC.BaseLife.active().core
             local square = U().loadedSquare(target)
             if not square then return false, "base_unloaded" end

@@ -5658,16 +5658,17 @@ local function requestMultiLevelPath(actor, state, sourceSquare, goalSquare,
     if not differentFloor(sourceSquare, goalSquare) then return nil end
     -- This runs before the planar planner's options exist, and it hands the
     -- whole vertical move either to a stock rope climb or to an opaque engine
-    -- route. Corpse dragging cannot use it. Camp work may use it only between
-    -- designated areas of one building; the lease checks occupied squares as
-    -- the native path moves between floors.
+    -- route. Corpse dragging cannot use it. Camp work may use it between
+    -- designated areas or from a bounded lumber reach area to camp storage;
+    -- the lease checks occupied squares as the native path moves.
     if type(requestIntent) == "table" then
         if requestIntent.draggingBody == true then
             return true, false, "path_blocked:cross_floor_dragging"
         end
         if requestIntent.workCampOnly == true and not (SC.BaseLife
             and type(SC.BaseLife.allowsFloorTransit) == "function"
-            and SC.BaseLife.allowsFloorTransit(sourceSquare, goalSquare)) then
+            and SC.BaseLife.allowsFloorTransit(sourceSquare, goalSquare,
+                requestIntent)) then
             return true, false, "path_blocked:cross_floor_work_area"
         end
     end

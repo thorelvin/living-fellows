@@ -14821,6 +14821,75 @@ do
     if upperArea then BaseLife.removeZone(upperArea.id) end
     getWorld = previousWorld
 end
+do
+    local previousWorld = getWorld
+    getWorld = function()
+        return { getMetaGrid = function()
+            return { getBuildingAt = function() return nil end }
+        end }
+    end
+    local lowerStairs = {
+        cell:getGridSquare(3, 2, 0),
+        cell:getGridSquare(4, 2, 0),
+        cell:getGridSquare(5, 2, 0),
+    }
+    local landing = cell:getGridSquare(6, 2, 1)
+    local void = cell:getGridSquare(7, 2, 1)
+    void.hasFloor = false
+    for _ = 1, 30 do BaseLife.autoExtendFloors(24) end
+    check(#BaseLife.active().zones == 1,
+        "a camp does not invent an upper area without a complete staircase")
+    for _, square in ipairs(lowerStairs) do
+        function square:HasStairs() return true end
+    end
+    for _ = 1, 60 do BaseLife.autoExtendFloors(24) end
+    local generated = BaseLife.active().zones[2]
+    check(generated and generated.autoStair and generated.z == 1
+            and BaseLife.isInside(landing) and not BaseLife.isInside(void)
+            and BaseLife.allowsFloorTransit(campSquare, landing),
+        "a later-built stair generates an upper camp area on real floor tiles")
+    local lumber = cell:getGridSquare(20, 2, 0)
+    local farOutside = cell:getGridSquare(45, 2, 0)
+    local upperOutside = cell:getGridSquare(20, 2, 1)
+    check(not BaseLife.isInside(lumber) and BaseLife.withinWorkReach(lumber)
+            and BaseLife.allowsFloorTransit(lumber, landing,
+                { workReach = true })
+            and BaseLife.allowsFloorTransit(landing, lumber,
+                { workReach = true })
+            and not BaseLife.allowsFloorTransit(lumber, landing)
+            and not BaseLife.allowsFloorTransit(farOutside, landing,
+                { workReach = true })
+            and BaseLife.allowsFloorTransit(lumber, upperOutside,
+                { workReach = true })
+            and not BaseLife.allowsFloorTransit(lumber,
+                cell:getGridSquare(45, 2, 1), { workReach = true }),
+        "lumber hauling may use stairs to camp storage, but cannot leave the reach band")
+    local saved = BaseLife.export()
+    check(BaseLife.restore(saved) and BaseLife.isInside(landing)
+            and BaseLife.allowsFloorTransit(campSquare, landing),
+        "the stair-linked area and floor admission survive save and load")
+    generated = BaseLife.active().zones[2]
+    check(BaseLife.removeZone(generated.id),
+        "the player can remove an automatically generated floor area")
+    for _ = 1, 60 do BaseLife.autoExtendFloors(24) end
+    local removed = BaseLife.export()
+    check(#BaseLife.active().zones == 1 and BaseLife.restore(removed)
+            and BaseLife.active().autoFloorDisabled["1"] == true,
+        "removing an automatic area prevents the stair survey from recreating it")
+
+    BaseLife.reset()
+    BaseLife.create(landing, "Upper Camp")
+    for _ = 1, 60 do BaseLife.autoExtendFloors(24) end
+    check(#BaseLife.active().zones == 2
+            and BaseLife.isInside(campSquare)
+            and BaseLife.allowsFloorTransit(landing, campSquare),
+        "a camp above existing stairs generates the connected lower area")
+    for _, square in ipairs(lowerStairs) do square.HasStairs = nil end
+    void.hasFloor = nil
+    getWorld = previousWorld
+    BaseLife.reset()
+    BaseLife.create(campSquare, "Test Camp")
+end
 local endpointStarted = BaseLife.beginZone("work", campSquare)
 local endpointLocked = endpointStarted
     and BaseLife.lockZoneEndpoint(cell:getGridSquare(4, 5, 0))
@@ -22453,16 +22522,21 @@ end)()
     local baseLife = SurvivorCompanion.BaseLife
     local previousTransit = baseLife.allowsFloorTransit
     local previousAdmission = baseLife.admitsWork
-    baseLife.allowsFloorTransit = function() return true end
+    local reachForwarded = false
+    baseLife.allowsFloorTransit = function(_, _, intent)
+        reachForwarded = intent and intent.workReach == true
+        return reachForwarded
+    end
     baseLife.admitsWork = function(square) return square ~= nil
         and square:getX() ~= 25 end
     local state = {}
     local admitted, started, status = multi(upstairsActor, state,
         upstairsActor.square, upstairs,
-        { workCampOnly = true, mode = "walk" }, 1000)
+        { workCampOnly = true, workReach = true, mode = "walk" }, 1000)
     check(admitted and started and status == "multi_level_path"
-            and state.nativeLease and state.nativeLease.workCampOnly,
-        "approved camp work owns a native stair path")
+            and reachForwarded and state.nativeLease
+            and state.nativeLease.workCampOnly and state.nativeLease.workReach,
+        "approved lumber hauling forwards reach admission to native stair movement")
     upstairsActor.square = cell:getGridSquare(25, 48, 0)
     local leaseState, leaseReason =
         SurvivorCompanion.Navigation._maintainNativeLeaseForTests(

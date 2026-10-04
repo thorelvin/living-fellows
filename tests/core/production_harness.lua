@@ -915,6 +915,47 @@ end
 
 do
     local ctx = setup()
+    for x = 0, 2 do
+        for y = -2, 0 do makeSquare(x, y, 1) end
+    end
+    local upper = squares[squareKey(1, -1, 1)]
+    check(SC.BaseLife.beginZone("area", upper),
+        "an upper camp floor can be marked for storage")
+    check(SC.BaseLife.finishZone(squares[squareKey(2, 0, 1)], "Upper storage"),
+        "the upper camp storage area is saved")
+    local owner = makeStorage(upper)
+    local registered, storage = SC.BaseLife.registerStorage(owner, "tools")
+    check(registered, "upper-floor storage can be registered")
+    local edgeAccess = squares[squareKey(0, -1, 1)]
+    check(not SC.BaseLife.isInside(edgeAccess)
+            and SC.BaseLife.atStorageAccess(edgeAccess),
+        "a standing tile just outside upper storage remains a valid job approach")
+    local axe = owner.container:AddItem(makeItem("Base.Axe",
+        { tags = { choptree = true } }))
+    local intents = {}
+    local originalRequestAny = SC.Navigation.requestAny
+    SC.Navigation.requestAny = function(_, _, _, intent)
+        intents[#intents + 1] = intent
+        return true, "fixture_path_started"
+    end
+    local approached = SC.BaseWork.withdrawFromStorage(ctx.actor, {}, storage,
+        owner.container, axe)
+    check(approached and intents[1] and intents[1].workCampOnly == true
+            and intents[1].workReach == true,
+        "base supply trips across floors admit an edge access tile")
+    local outside = makeSquare(20, 0, 0)
+    ctx.actor.square, ctx.actor.x, ctx.actor.y, ctx.actor.z =
+        outside, 20, 0, 0
+    approached = SC.BaseWork.withdrawFromStorage(ctx.actor, {}, storage,
+        owner.container, axe)
+    check(approached and intents[2] and intents[2].workCampOnly == true
+            and intents[2].workReach == true,
+        "a worker outside camp retains reach admission when fetching upstairs")
+    SC.Navigation.requestAny = originalRequestAny
+end
+
+do
+    local ctx = setup()
     local outside = outsideLumber(ctx)
     check(SC.BaseLife.beginZone("lumber", sq(38, 0)) == true, "a far lumber draft begins")
     local far, farReason = SC.BaseLife.finishZone(sq(41, 1), "Too far")
