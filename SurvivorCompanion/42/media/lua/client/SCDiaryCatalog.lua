@@ -585,6 +585,16 @@ local packets = {
         },
     },
     {
+        id = "crisis_self.bleach", scene = "crisis_self", ideaId = "my_own_ending",
+        shape = "decision_note", voiceWeights = ALL,
+        requires = { "crisis.outcome.bleach" },
+        asserts = "The writer accepted the offered bottle as their own choice.",
+        variants = {
+            { id = "a", text = "They offered me the bottle. I said yes.\n\nI want them to remember that they asked, and that the answer was mine." },
+            { id = "b", text = "There are things none of us should have to choose. This one is still mine.\n\nI asked them to stay nearby." },
+        },
+    },
+    {
         id = "crisis_self.self_sacrifice", scene = "crisis_self", ideaId = "my_choice",
         shape = "decision_note", voiceWeights = ALL,
         requires = { "crisis.outcome.self_sacrifice" },

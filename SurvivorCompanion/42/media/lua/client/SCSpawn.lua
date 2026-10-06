@@ -5,6 +5,7 @@ require "SCCall"
 require "SCConfig"
 require "SCRegistry"
 require "SCDiagnostics"
+require "SCGameplayUtil"
 
 local SC = SurvivorCompanion
 SC.Spawn = SC.Spawn or {}
@@ -304,12 +305,9 @@ local function safeSquare(square, player, requireUnseen)
                 local sizeOk, size = invoke(list, "size")
                 for index = 0, (sizeOk and math.min(tonumber(size) or 0, 16) or 0) - 1 do
                     local getOk, value = invoke(list, "get", index)
-                    if getOk and type(instanceof) == "function" then
-                        local typeOk, zombie = pcall(instanceof, value, "IsoZombie")
-                        if typeOk and zombie == true then
-                            zombies = zombies + 1
-                            if zombies > SC.Config.get("spawnMaxNearbyZombies") then return false end
-                        end
+                    if getOk and SC.GameplayUtil.isZombie(value) then
+                        zombies = zombies + 1
+                        if zombies > SC.Config.get("spawnMaxNearbyZombies") then return false end
                     end
                 end
             end

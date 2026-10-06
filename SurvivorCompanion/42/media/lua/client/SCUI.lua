@@ -32,13 +32,15 @@ UI.HOTKEY_ACTION = "Toggle Living Fellows panel"
 UI.DEFAULT_HOTKEY = Keyboard.KEY_HOME
 -- Shows or hides the base layout overlay: zone tints and registered storage.
 UI.LAYOUT_HOTKEY_ACTION = "Toggle Living Fellows base layout"
-UI.DEFAULT_LAYOUT_HOTKEY = Keyboard.KEY_END
+UI.DEFAULT_LAYOUT_HOTKEY = Keyboard.KEY_INSERT
 -- Hold rather than toggle: the local player remains active and vulnerable
 -- while the camera borrows the selected companion's position.
 UI.PEEK_HOTKEY_ACTION = "Hold to peek through selected companion"
-UI.DEFAULT_PEEK_HOTKEY = Keyboard.KEY_LBRACKET
+UI.DEFAULT_PEEK_HOTKEY = Keyboard.KEY_NUMPAD1
+UI.WATCH_HOTKEY_ACTION = "Toggle watch selected companion"
+UI.DEFAULT_WATCH_HOTKEY = Keyboard.KEY_NUMPAD2
 UI.STEER_HOTKEY_ACTION = "Hold to steer selected companion"
-UI.DEFAULT_STEER_HOTKEY = Keyboard.KEY_RBRACKET
+UI.DEFAULT_STEER_HOTKEY = Keyboard.KEY_NUMPAD3
 UI.MENU_OPEN_SOUND = "UIVehicleMenuOpen"
 UI.MENU_CLOSE_SOUND = "UIVehicleMenuClose"
 UI.instance = UI.instance or nil
@@ -48,13 +50,14 @@ UI._gameStarted = UI._gameStarted or false
 
 local function registerHotkey()
     if type(keyBinding) ~= "table" then return false end
-    local categoryFound, panelFound, layoutFound, peekFound, steerFound =
-        false, false, false, false, false
+    local categoryFound, panelFound, layoutFound, peekFound, watchFound, steerFound =
+        false, false, false, false, false, false
     for _, binding in ipairs(keyBinding) do
         if binding.value == "[Living Fellows]" then categoryFound = true end
         if binding.value == UI.HOTKEY_ACTION then panelFound = true end
         if binding.value == UI.LAYOUT_HOTKEY_ACTION then layoutFound = true end
         if binding.value == UI.PEEK_HOTKEY_ACTION then peekFound = true end
+        if binding.value == UI.WATCH_HOTKEY_ACTION then watchFound = true end
         if binding.value == UI.STEER_HOTKEY_ACTION then steerFound = true end
     end
     if not categoryFound then
@@ -76,6 +79,12 @@ local function registerHotkey()
         table.insert(keyBinding, {
             value = UI.PEEK_HOTKEY_ACTION,
             key = UI.DEFAULT_PEEK_HOTKEY,
+        })
+    end
+    if not watchFound then
+        table.insert(keyBinding, {
+            value = UI.WATCH_HOTKEY_ACTION,
+            key = UI.DEFAULT_WATCH_HOTKEY,
         })
     end
     if not steerFound then
@@ -193,6 +202,8 @@ local BASE_JOB_ROLES = {
     { id = "woodcutter", key = "UI_SC_Base_JobRole_woodcutter" },
     { id = "builder", key = "UI_SC_Base_JobRole_builder" },
     { id = "farmer", key = "UI_SC_Base_JobRole_farmer" },
+    { id = "chef", key = "UI_SC_Base_JobRole_chef" },
+    { id = "angler", key = "UI_SC_Base_JobRole_angler" },
     { id = "corpsekeeper", key = "UI_SC_Base_JobRole_corpsekeeper" },
     { id = "maintainer", key = "UI_SC_Base_JobRole_maintainer" },
     { id = "quartermaster", key = "UI_SC_Base_JobRole_quartermaster" },
@@ -300,6 +311,13 @@ function UI.peekHotkey()
     local configured = core and safeMethod(core, "getKey", UI.PEEK_HOTKEY_ACTION) or nil
     if configured ~= nil and tonumber(configured) ~= nil then return tonumber(configured) end
     return UI.DEFAULT_PEEK_HOTKEY
+end
+
+function UI.watchHotkey()
+    local core = getCore and getCore() or nil
+    local configured = core and safeMethod(core, "getKey", UI.WATCH_HOTKEY_ACTION) or nil
+    if configured ~= nil and tonumber(configured) ~= nil then return tonumber(configured) end
+    return UI.DEFAULT_WATCH_HOTKEY
 end
 
 function UI.steerHotkey()
@@ -417,10 +435,44 @@ function UI.humanize(value)
 end
 
 local function playerForUI()
+    if type(getSpecificPlayer) == "function" then
+        local player = getSpecificPlayer(0)
+        if player ~= nil then return player end
+    end
     if getPlayer then
         return getPlayer()
     end
     return nil
+end
+
+function UI.toggleWatch(player)
+    local view = SC.ViewControl
+    if not view or type(view.watch) ~= "function"
+        or type(view.stopWatching) ~= "function"
+        or type(view.status) ~= "function" then return false, "watch_unavailable" end
+    local subject = player or playerForUI()
+    local status = view.status()
+    if status and status.watching == true then
+        local stopped, reason = view.stopWatching()
+        if stopped and subject then
+            safeMethod(subject, "setHaloNote", UI.text("UI_SC_Watch_Stopped"))
+        end
+        return stopped, reason
+    end
+    local row = UI.instance and UI.instance.selectedRow or nil
+    if not row or not row.actor then
+        if subject then
+            safeMethod(subject, "setHaloNote", UI.text("UI_SC_Watch_NoSelection"))
+        end
+        return false, "no_selection"
+    end
+    local watched, reason = view.watch(row.id, row.actor)
+    if subject then
+        safeMethod(subject, "setHaloNote", watched == true
+            and UI.text("UI_SC_Watch_Started", row.name)
+            or UI.text("UI_SC_Watch_Failed", tostring(reason or "unavailable")))
+    end
+    return watched, reason
 end
 
 local function configuredOpacity(multiplier, minimum, maximum)
@@ -568,6 +620,8 @@ local function baseDetailSignature()
             unloadedStores = operations.unloadedStores,
         },
         visuals = visuals,
+        baseWatch = SC.BaseWatch and SC.BaseWatch.describe
+            and SC.BaseWatch.describe() or nil,
     }, 6, { count = 480 }, {})
 end
 
@@ -648,6 +702,7 @@ local function copySummary(row, summary)
     row.combatStance = summary.combatStance or summary.combatMode
         or summary.combat_mode or row.combatStance
     if summary.holdFire ~= nil then row.holdFire = summary.holdFire end
+    if summary.followFanOut ~= nil then row.followFanOut = summary.followFanOut end
     row.weaponPriority = summary.weaponPriority or summary.weapon_priority or row.weaponPriority
     row.equippedWeapon = summary.equippedWeapon or summary.equipped_weapon or row.equippedWeapon
     row.followDistance = summary.followDistance or summary.follow_distance
@@ -850,6 +905,7 @@ local function fitText(font, textValue, maximumWidth)
     end
     return value .. suffix
 end
+UI.fitText = fitText
 
 function UI.wrapText(font, textValue, maximumWidth)
     local value = tostring(textValue or "")
@@ -961,6 +1017,7 @@ local RECRUITED_COMMANDS = {
     set_combat_doctrine = true,
     set_weapon_priority = true,
     set_hold_fire = true,
+    set_follow_fan_out = true,
     hold_fire = true,
     fire_at_will = true,
     move_to = true,
@@ -1272,6 +1329,7 @@ local function onBooleanCommand(target, index, selected, command, payloadKey, ti
     local previous = row and row[tickBox.scRowField] == true or false
     local payload = {}
     payload[payloadKey] = selected == true
+    if tickBox.scScope then payload.scope = tickBox.scScope end
     local accepted = onCommandButton(target, {
         scCommand = command,
         scPayload = payload,
@@ -1399,22 +1457,31 @@ local function onCrisisButton(target, button)
         ok, accepted, reason = pcall(SC.InfectionCrisis.choose, button.scCrisisId,
             button.scOutcome)
     end
+    local crisisFailure = {
+        bleach_declined = "UI_SC_Base_BleachDeclined",
+        bleach_missing = "UI_SC_Base_BleachMissing",
+        bleach_transfer_failed = "UI_SC_Base_BleachTransferFailed",
+        bleach_only_when_turning = "UI_SC_Base_BleachTooEarly",
+        native_bleach_drink_unavailable = "UI_SC_Base_BleachUnavailable",
+    }
     setButtonFeedback(target,
         ok and accepted == true
             and UI.text("UI_SC_CommandAcceptedDetail", buttonFeedbackLabel(button))
-            or UI.text("UI_SC_Base_ActionFailed", tostring(reason or accepted)),
+            or (crisisFailure[reason] and UI.text(crisisFailure[reason])
+                or UI.text("UI_SC_Base_ActionFailed", tostring(reason or accepted))),
         ok and accepted == true)
     UI.refresh()
 end
 
-local function onBaseToggle(target, index, selected, policyKey, tickBox)
+local function onBaseToggle(target, button)
     if not SC.BaseLife or type(SC.BaseLife.setPolicy) ~= "function" then return end
-    local ok, accepted, reason = pcall(SC.BaseLife.setPolicy, policyKey, selected == true)
-    if not ok or accepted ~= true then
-        if tickBox and type(tickBox.setSelected) == "function" then
-            tickBox:setSelected(index, selected ~= true)
-        end
+    if SC.BaseWatch and SC.BaseWatch.isRemote(playerForUI()) then
+        setButtonFeedback(target, UI.text("UI_SC_BaseWatch_RadioOnly"), false)
+        return
     end
+    local policyKey = button and button.scPolicyKey
+    local selected = button and button.scSelected ~= true
+    local ok, accepted, reason = pcall(SC.BaseLife.setPolicy, policyKey, selected == true)
     setButtonFeedback(target, ok and accepted == true
         and UI.text("UI_SC_Base_PolicyUpdated")
         or UI.text("UI_SC_Base_ActionFailed", tostring(reason or accepted)),
@@ -1424,6 +1491,12 @@ end
 
 local function runBaseManagementAction(target, action, payload)
     if not SC.BaseLife then return false end
+    if SC.BaseWatch and SC.BaseWatch.isRemote(playerForUI())
+        and action ~= "toggle_visuals" and action ~= "focus_zone"
+        and action ~= "focus_storage" and action ~= "toggle_blueprints" then
+        setButtonFeedback(target, UI.text("UI_SC_BaseWatch_RadioOnly"), false)
+        return false
+    end
     payload = type(payload) == "table" and payload or {}
     local method, arguments
     if action == "remove_zone" then
@@ -1559,6 +1632,11 @@ local function onBasePolicySelector(target, combo)
     local option = combo:getOptionData(combo.selected)
     if type(option) ~= "table" or option.value == combo.scValue then return end
     local previous = combo.scValue
+    if SC.BaseWatch and SC.BaseWatch.isRemote(playerForUI()) then
+        selectComboValue(combo, previous)
+        setButtonFeedback(target, UI.text("UI_SC_BaseWatch_RadioOnly"), false)
+        return
+    end
     local ok, accepted, reason = pcall(SC.BaseLife.setPolicy,
         combo.scPolicyKey, option.value)
     if ok and accepted == true then
@@ -1698,15 +1776,7 @@ function UI.locateDebugFactionHouse(factionId)
 end
 
 local function questTextLines(value, maximumWidth, font)
-    local result, line = {}, ""
-    for word in string.gmatch(tostring(value or ""), "%S+") do
-        local candidate = line == "" and word or line .. " " .. word
-        if line ~= "" and UI.textWidth(font or UIFont.Small, candidate) > maximumWidth then
-            result[#result + 1], line = line, word
-        else line = candidate end
-    end
-    if line ~= "" then result[#result + 1] = line end
-    return result
+    return UI.wrapText(font or UIFont.Small, value, maximumWidth)
 end
 
 local function playUISound(soundName)
@@ -1728,6 +1798,7 @@ local function playUISound(soundName)
     return soundName ~= "UIActivateButton" and direct("UIActivateButton") or false
 end
 
+local SCUIClippedScrollPanel
 local SCUIQuestDialog = ISPanel:derive("SCUIQuestDialog")
 
 function SCUIQuestDialog:new(factionId, mode, contract)
@@ -1745,6 +1816,46 @@ end
 function SCUIQuestDialog:createChildren()
     ISPanel.createChildren(self)
     local buttonY, buttonHeight = self:getHeight() - 46, 30
+    local metrics = UI.layoutMetrics()
+    local bodyHeight = self:getHeight() - (self.mode == "offer" and 145 or 245)
+    local body = SCUIClippedScrollPanel:new(16, 48,
+        self:getWidth() - 32, math.max(60, bodyHeight))
+    body:initialise()
+    body:instantiate()
+    body:setScrollChildren(true)
+    body:addScrollBars(false)
+    self:addChild(body)
+    self.bodyPanel = body
+    local y = 4
+    local textWidth = math.max(80, body:getWidth() - 24)
+    local function addLine(value, red, green, blue)
+        for _, line in ipairs(questTextLines(value, textWidth, UIFont.Small)) do
+            local label = ISLabel:new(6, y, metrics.fontHeight, line,
+                red, green, blue, 1, UIFont.Small, true)
+            label:initialise()
+            label.tooltip = tostring(value or "")
+            body:addChild(label)
+            y = y + metrics.infoLineHeight
+        end
+    end
+    addLine(self.contract.narrative or UI.text("UI_SC_Quest_DefaultNarrative"),
+        0.88, 0.88, 0.84)
+    y = y + 10
+    addLine(UI.text("UI_SC_Quest_Objective"), 0.94, 0.73, 0.28)
+    addLine(self.contract.objective or UI.text("UI_SC_Quest_TargetPreparing"),
+        0.92, 0.92, 0.90)
+    y = y + 8
+    local location = self.contract.location or {}
+    addLine(UI.text("UI_SC_Quest_Location", tostring(location.address
+        or UI.text("UI_SC_Quest_TargetPreparing"))), 0.72, 0.84, 0.91)
+    addLine(UI.text("UI_SC_Quest_Coordinates",
+        tostring(location.coordinates or "-")), 0.64, 0.67, 0.64)
+    y = y + 10
+    if self.mode == "offer" then
+        addLine(UI.text("UI_SC_Quest_ChooseRewardLater"), 0.88, 0.78, 0.49)
+    end
+    body:setScrollWidth(body:getWidth())
+    body:setScrollHeight(math.max(body:getHeight(), y + 8))
     if self.mode == "offer" then
         self.acceptButton = ISButton:new(self:getWidth() - 250, buttonY, 112, buttonHeight,
             UI.text("UI_SC_Quest_Accept"), self, SCUIQuestDialog.onButton)
@@ -1762,12 +1873,15 @@ function SCUIQuestDialog:createChildren()
         local choices = self.contract.rewardChoices or {}
         for index = 1, 2 do
             local choice = choices[index] or {}
+            local fullTitle = tostring(choice.title or ("Reward " .. tostring(index)))
             local button = ISButton:new(22 + (index - 1) * math.floor((self:getWidth() - 54) / 2),
-                self:getHeight() - 116, math.floor((self:getWidth() - 62) / 2), 38,
-                tostring(choice.title or ("Reward " .. tostring(index))), self,
+                self:getHeight() - 146, math.floor((self:getWidth() - 62) / 2), 38,
+                fitText(UIFont.Small, fullTitle,
+                    math.floor((self:getWidth() - 62) / 2) - 16), self,
                 SCUIQuestDialog.onButton)
             button.scQuestAction, button.scRewardChoice = "select_reward", index
             button:initialise()
+            button.tooltip = fullTitle
             self:addChild(button)
             self["rewardButton" .. tostring(index)] = button
         end
@@ -1823,46 +1937,28 @@ function SCUIQuestDialog:prerender()
     ISPanel.prerender(self)
     self:drawRect(0, 0, self:getWidth(), self:getHeight(), 0.96, 0.08, 0.09, 0.08)
     self:drawRectBorder(0, 0, self:getWidth(), self:getHeight(), 0.95, 0.63, 0.57, 0.38)
-    self:drawText(tostring(self.contract.title or UI.text("UI_SC_Quest_Title")), 22, 18,
+    self:drawText(fitText(UIFont.Medium,
+        tostring(self.contract.title or UI.text("UI_SC_Quest_Title")),
+        self:getWidth() - 44), 22, 18,
         0.96, 0.90, 0.70, 1, UIFont.Medium)
-    local y, textWidth = 58, self:getWidth() - 44
-    local body = self.contract.narrative or UI.text("UI_SC_Quest_DefaultNarrative")
-    for _, line in ipairs(questTextLines(body, textWidth, UIFont.Small)) do
-        self:drawText(line, 22, y, 0.88, 0.88, 0.84, 1, UIFont.Small); y = y + 18
-    end
-    y = y + 10
-    self:drawText(UI.text("UI_SC_Quest_Objective"), 22, y, 0.94, 0.73, 0.28, 1, UIFont.Small)
-    y = y + 20
-    for _, line in ipairs(questTextLines(self.contract.objective
-        or UI.text("UI_SC_Quest_TargetPreparing"), textWidth, UIFont.Small)) do
-        self:drawText(line, 22, y, 0.92, 0.92, 0.90, 1, UIFont.Small); y = y + 18
-    end
-    local location = self.contract.location or {}
-    y = y + 8
-    self:drawText(UI.text("UI_SC_Quest_Location", tostring(location.address
-        or UI.text("UI_SC_Quest_TargetPreparing"))), 22, y, 0.72, 0.84, 0.91, 1, UIFont.Small)
-    y = y + 20
-    self:drawText(UI.text("UI_SC_Quest_Coordinates", tostring(location.coordinates or "-")),
-        22, y, 0.64, 0.67, 0.64, 1, UIFont.Small)
-    if self.mode == "offer" then
-        y = y + 30
-        self:drawText(UI.text("UI_SC_Quest_ChooseRewardLater"), 22, y,
-            0.88, 0.78, 0.49, 1, UIFont.Small)
-    else
-        y = y + 28
-        self:drawText(UI.text("UI_SC_Quest_SelectReward"), 22, y,
-            0.94, 0.73, 0.28, 1, UIFont.Small)
+    if self.mode ~= "offer" then
+        self:drawText(UI.text("UI_SC_Quest_SelectReward"), 22,
+            self:getHeight() - 177, 0.94, 0.73, 0.28, 1, UIFont.Small)
         local choices = self.contract.rewardChoices or {}
         for index = 1, 2 do
             local choice = choices[index] or {}
-            self:drawText(tostring(choice.description or ""),
+            self:drawText(fitText(UIFont.Small,
+                tostring(choice.description or ""),
+                math.floor((self:getWidth() - 62) / 2) - 16),
                 28 + (index - 1) * math.floor((self:getWidth() - 54) / 2),
-                self:getHeight() - 73, self.selectedReward == index and 0.98 or 0.70,
+                self:getHeight() - 101, self.selectedReward == index and 0.98 or 0.70,
                 self.selectedReward == index and 0.87 or 0.72, 0.48, 1, UIFont.Small)
         end
     end
     if self.feedback then
-        self:drawText(self.feedback, 22, self:getHeight() - 40, 0.96, 0.38, 0.32, 1, UIFont.Small)
+        self:drawText(fitText(UIFont.Small, self.feedback,
+            self:getWidth() - 44), 22, self:getHeight() - 74,
+            0.96, 0.38, 0.32, 1, UIFont.Small)
     end
 end
 
@@ -2175,7 +2271,22 @@ end
 
 local SCUIDetail = ISPanel:derive("SCUIDetail")
 
-local SCUIClippedScrollPanel = ISPanel:derive("SCUIClippedScrollPanel")
+SCUIClippedScrollPanel = ISPanel:derive("SCUIClippedScrollPanel")
+
+-- Vanilla tick boxes put their tooltips directly in UIManager. Removing a
+-- scrolling detail panel does not remove those separate tooltip windows, so a
+-- base status refresh can leave a policy tooltip over unrelated rows.
+local function dismissChildTooltips(element)
+    for _, child in ipairs(element.childrenInOrder or {}) do
+        dismissChildTooltips(child)
+    end
+    local tooltip = element.tooltipUI
+    if tooltip and tooltip.getIsVisible and tooltip:getIsVisible() then
+        tooltip:setVisible(false)
+        tooltip:removeFromUIManager()
+    end
+    element.tooltipUI = nil
+end
 
 function SCUIClippedScrollPanel:new(x, y, width, height)
     local object = ISPanel.new(self, x, y, width, height)
@@ -2267,11 +2378,18 @@ end
 function SCUIDetail:addSection(panel, y, labelKey)
     local metrics = self.metrics or UI.layoutMetrics()
     local textValue = UI.text(labelKey)
-    local label = ISLabel:new(8, y, metrics.fontHeight, textValue, 0.79, 0.73, 0.48, 1, UIFont.Small, true)
-    label:initialise()
-    panel:addChild(label)
-    panel.scContentWidth = math.max(panel.scContentWidth or panel:getWidth(), UI.textWidth(UIFont.Small, textValue) + 24)
-    return y + metrics.sectionHeight
+    local lines = UI.wrapText(UIFont.Small, textValue,
+        math.max(80, panel:getWidth() - 32))
+    for _, line in ipairs(lines) do
+        local label = ISLabel:new(8, y, metrics.fontHeight, line,
+            0.79, 0.73, 0.48, 1, UIFont.Small, true)
+        label:initialise()
+        label.tooltip = textValue
+        panel:addChild(label)
+        y = y + metrics.infoLineHeight
+    end
+    panel.scContentWidth = panel:getWidth()
+    return y + 5
 end
 
 function SCUIDetail:addCommand(panel, y, labelKey, command, payload)
@@ -2323,11 +2441,12 @@ function SCUIDetail:addBooleanCommand(panel, y, labelKey, command, rowField, sel
     tickBox:setSelected(1, selected == true)
     tickBox.scLabel = fullLabel
     tickBox.scRowField = rowField
+    tickBox.scScope = command == "set_follow_fan_out" and "team" or nil
     tickBox.scOptionLabel = visibleLabel
     tickBox.scAvailabilityCommand = command
     local row = self.root and self.root.selectedRow or nil
     local enabled, reasonKey, reasonArgument = UI.commandAvailability(row, command,
-        { enabled = selected == true })
+        { enabled = selected == true, scope = tickBox.scScope })
     if not enabled then
         tickBox:disableOption(visibleLabel, true)
         tickBox.tooltip = reasonArgument ~= nil and UI.text(reasonKey, reasonArgument)
@@ -2369,7 +2488,8 @@ function SCUIDetail:addCommandSelector(panel, y, labelKey, currentValue, options
         local optionLabel = UI.text(option.key)
         local optionCommand = option.command or command
         local optionPayload = option.payload
-        combo:addOptionWithData(optionLabel, {
+        combo:addOptionWithData(fitText(UIFont.Small, optionLabel,
+            math.max(40, availableWidth - 28)), {
             value = option.id,
             label = optionLabel,
             command = optionCommand,
@@ -2380,7 +2500,8 @@ function SCUIDetail:addCommandSelector(panel, y, labelKey, currentValue, options
     end
     if not selected and currentValue ~= nil then
         local currentLabel = UI.text("UI_SC_Select_Current", UI.stateText(currentValue))
-        combo:addOptionWithData(currentLabel, {
+        combo:addOptionWithData(fitText(UIFont.Small, currentLabel,
+            math.max(40, availableWidth - 28)), {
             value = currentValue, label = currentLabel, command = nil,
         }, currentLabel)
         combo.selected = #(combo.options or {})
@@ -2445,7 +2566,8 @@ function SCUIDetail:refreshValues()
             local selected = row and row[control.scRowField] == true or false
             control:setSelected(1, selected)
             local enabled, reasonKey, reasonArgument = UI.commandAvailability(
-                row, control.scAvailabilityCommand, { enabled = selected })
+                row, control.scAvailabilityCommand,
+                { enabled = selected, scope = control.scScope })
             if type(control.disableOption) == "function" and control.scOptionLabel then
                 control:disableOption(control.scOptionLabel, enabled ~= true)
             end
@@ -2483,7 +2605,8 @@ function SCUIDetail:addDoctrineSelector(panel, y, doctrine)
         a = configuredOpacity(1.18, 0.48, 0.9) }
     combo.scDoctrine = doctrine
     for index, option in ipairs(COMBAT_DOCTRINES) do
-        combo:addOptionWithData(UI.text(option.key), option.id,
+        combo:addOptionWithData(fitText(UIFont.Small, UI.text(option.key),
+            math.max(40, availableWidth - 28)), option.id,
             UI.text(option.key .. "_Tooltip"))
         if option.id == doctrine then combo.selected = index end
     end
@@ -2542,17 +2665,22 @@ function SCUIDetail:addBaseToggle(panel, y, labelKey, policyKey, selected)
     local metrics = self.metrics or UI.layoutMetrics()
     local width = math.max(100, panel:getWidth() - 28)
     local label = UI.text(labelKey)
-    local tick = ISTickBox:new(12, y, width, math.max(18, metrics.fontHeight), "",
-        self, onBaseToggle, policyKey)
-    tick:initialise()
-    tick.background = false
-    tick:addOption(fitText(UIFont.Small, label,
-        math.max(40, width - metrics.fontHeight - 14)), policyKey)
-    tick:setSelected(1, selected == true)
-    tick.tooltip = label
-    panel:addChild(tick)
+    -- A native tick box keeps its tooltip in UIManager while this long Base
+    -- page rebuilds and scrolls. Put the wrapped policy name on its own line
+    -- and use a normal button for the state so neither can cover stock rows.
+    y = self:addInformationLine(panel, y, "UI_SC_Info_Message", label)
+    local stateLabel = UI.text(selected == true
+        and "UI_SC_Value_On" or "UI_SC_Value_Off")
+    local button = ISButton:new(8, y, width, metrics.buttonHeight,
+        (selected == true and "[x] " or "[ ] ") .. stateLabel,
+        self, onBaseToggle)
+    button:initialise()
+    makeButtonTranslucent(button)
+    button.scPolicyKey = policyKey
+    button.scSelected = selected == true
+    panel:addChild(button)
     panel.scContentWidth = panel:getWidth()
-    return y + math.max(metrics.buttonHeight, tick:getHeight()) + 4
+    return y + metrics.buttonHeight + 8
 end
 
 function SCUIDetail:addBasePolicySelector(panel, y, labelKey, policyKey, current, options)
@@ -2569,13 +2697,162 @@ function SCUIDetail:addBasePolicySelector(panel, y, labelKey, policyKey, current
     combo.scPolicyKey, combo.scValue = policyKey, current
     for index, option in ipairs(options or {}) do
         local label = UI.text(option.key)
-        combo:addOptionWithData(label, { value = option.id }, label)
+        combo:addOptionWithData(fitText(UIFont.Small, label,
+            math.max(40, width - 28)), { value = option.id }, label)
         if option.id == current then combo.selected = index end
     end
     combo.tooltip = UI.text(labelKey)
     panel:addChild(combo)
     panel.scContentWidth = panel:getWidth()
     return y + metrics.buttonHeight + 4
+end
+
+local function onBaseWatchLeaderChanged(target, combo)
+    if combo == nil or combo.selected == nil then return end
+    local option = combo:getOptionData(combo.selected)
+    if type(option) == "table" then target.baseWatchLeaderId = option.id end
+end
+
+local function onBaseWatchButton(target, button)
+    local watch = SC.BaseWatch
+    if watch == nil then return end
+    local action = button.scBaseWatchAction
+    local ok, accepted, reason = pcall(function()
+        if action == "start" then
+            return watch.start(target.baseWatchLeaderId)
+        elseif action == "cancel" then
+            return watch.cancelBeforeDeparture()
+        elseif action == "status" then
+            return watch.sendRadio(playerForUI(), "status")
+        elseif action == "defense" then
+            return watch.sendRadio(playerForUI(), "defense",
+                button.scBaseWatchValue)
+        end
+        return false, "unsupported_base_watch_action"
+    end)
+    local messages = {
+        base_watch_started = "UI_SC_BaseWatch_Started",
+        base_watch_finished = "UI_SC_BaseWatch_Finished",
+        base_watch_leader_unavailable = "UI_SC_BaseWatch_NoLeader",
+        player_not_at_base = "UI_SC_BaseWatch_PlayerAtBase",
+        expedition_uses_companion_view = "UI_SC_BaseWatch_ViewBusy",
+        companion_view_in_use = "UI_SC_BaseWatch_ViewBusy",
+        base_watch_return_not_ready = "UI_SC_BaseWatch_Joining",
+        base_watch_radio_no_ack = "UI_SC_BaseWatch_NoAck",
+        base_watch_report_not_received = "UI_SC_BaseWatch_NoAck",
+        base_watch_radio_unavailable = "UI_SC_BaseWatch_RadioUnavailable",
+    }
+    local message = messages[reason] and UI.text(messages[reason])
+        or (ok and accepted == true and type(reason) == "string"
+            and string.sub(reason, 1, 11) ~= "base_watch_" and reason)
+        or (ok and accepted == true and UI.text("UI_SC_BaseWatch_Accepted"))
+        or UI.text("UI_SC_Base_ActionFailed", tostring(reason or accepted))
+    setButtonFeedback(target, message, ok and accepted == true)
+    UI.refresh()
+end
+
+function SCUIDetail:addBaseWatchAction(panel, y, labelKey, action, value)
+    local metrics = self.metrics or UI.layoutMetrics()
+    local width = math.max(100, panel:getWidth() - 28)
+    local label = UI.text(labelKey)
+    local button = ISButton:new(8, y, width, metrics.buttonHeight,
+        fitText(UIFont.Small, label, math.max(40, width - 16)), self,
+        onBaseWatchButton)
+    button:initialise()
+    makeButtonTranslucent(button)
+    button.scBaseWatchAction = action
+    button.scBaseWatchValue = value
+    button.tooltip = label
+    panel:addChild(button)
+    panel.scContentWidth = panel:getWidth()
+    return y + metrics.buttonHeight + 4
+end
+
+function SCUIDetail:buildBaseWatch(panel, y)
+    local watch = SC.BaseWatch
+    if watch == nil then return y end
+    y = self:addSection(panel, y + 4, "UI_SC_BaseWatch_Section")
+    local view = watch.describe()
+    if view then
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+            UI.text("UI_SC_BaseWatch_Active", view.leaderName))
+        if view.restoring then
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                UI.text("UI_SC_BaseWatch_Restoring"))
+        elseif view.joining then
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                UI.text("UI_SC_BaseWatch_Joining"))
+        elseif view.coverageLost then
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                UI.text("UI_SC_BaseWatch_CoverageLost"))
+        elseif view.departed then
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                UI.text("UI_SC_BaseWatch_ReturnHint"))
+        else
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                UI.text("UI_SC_BaseWatch_DepartHint"))
+            if not view.joining then
+                y = self:addBaseWatchAction(panel, y,
+                    "UI_SC_BaseWatch_Cancel", "cancel")
+            end
+        end
+        if view.technicalIssue and not view.restoring then
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                UI.text("UI_SC_BaseWatch_Technical", view.technicalIssue))
+        end
+        if view.lastReport then
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                view.lastReport)
+        end
+        if watch.isRemote(playerForUI()) then
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                watch.radioAvailable(playerForUI())
+                    and UI.text("UI_SC_BaseWatch_RadioReady")
+                    or UI.text("UI_SC_BaseWatch_RadioUnavailable"))
+            y = self:addBaseWatchAction(panel, y,
+                "UI_SC_BaseWatch_Status", "status")
+            for _, policy in ipairs({
+                { "rotation", "UI_SC_Base_Defense_rotation" },
+                { "role_based", "UI_SC_Base_Defense_role_based" },
+                { "all_hands", "UI_SC_Base_Defense_all_hands" },
+            }) do
+                y = self:addBaseWatchAction(panel, y, policy[2],
+                    "defense", policy[1])
+            end
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                UI.text("UI_SC_BaseWatch_RadioOnly"))
+        end
+        return y
+    end
+    local candidates = watch.candidates()
+    if #candidates == 0 then
+        return self:addInformationLine(panel, y, "UI_SC_Info_Message",
+            UI.text("UI_SC_BaseWatch_NoLeader"))
+    end
+    local selected = false
+    for _, candidate in ipairs(candidates) do
+        if candidate.id == self.baseWatchLeaderId then selected = true break end
+    end
+    if not selected then self.baseWatchLeaderId = candidates[1].id end
+    local metrics = self.metrics or UI.layoutMetrics()
+    local combo = ISComboBox:new(8, y,
+        math.max(100, panel:getWidth() - 28), metrics.buttonHeight,
+        self, onBaseWatchLeaderChanged)
+    combo:initialise()
+    combo:instantiate()
+    for index, candidate in ipairs(candidates) do
+        combo:addOptionWithData(fitText(UIFont.Small, candidate.name,
+            math.max(40, combo:getWidth() - 28)), { id = candidate.id },
+            candidate.name)
+        if candidate.id == self.baseWatchLeaderId then combo.selected = index end
+    end
+    combo.tooltip = UI.text("UI_SC_BaseWatch_Select")
+    panel:addChild(combo)
+    y = y + metrics.buttonHeight + 4
+    y = self:addBaseWatchAction(panel, y,
+        "UI_SC_BaseWatch_Start", "start")
+    return self:addInformationLine(panel, y, "UI_SC_Info_Message",
+        UI.text("UI_SC_BaseWatch_NoRadioHint"))
 end
 
 function SCUIDetail:buildProductionSection(panel, y, base, row)
@@ -2638,12 +2915,16 @@ function SCUIDetail:addBaseRecordSelector(panel, y, labelKey, current, options,
     local selected = false
     for index, option in ipairs(options or {}) do
         local label = UI.text(option.key)
-        combo:addOptionWithData(UI.text(labelKey, label), { value = option.id }, label)
+        local fullLabel = UI.text(labelKey, label)
+        combo:addOptionWithData(fitText(UIFont.Small, fullLabel,
+            math.max(40, width - 28)), { value = option.id }, fullLabel)
         if option.id == current then combo.selected, selected = index, true end
     end
     if not selected then
         local label = tostring(current)
-        combo:addOptionWithData(UI.text(labelKey, label), { value = current }, label)
+        local fullLabel = UI.text(labelKey, label)
+        combo:addOptionWithData(fitText(UIFont.Small, fullLabel,
+            math.max(40, width - 28)), { value = current }, fullLabel)
         combo.selected = #(combo.options or {})
     end
     combo.tooltip = UI.text(labelKey, UI.stateText(current))
@@ -2733,10 +3014,13 @@ end
 function SCUIDetail:addTalkLink(panel, y)
     local metrics = self.metrics or UI.layoutMetrics()
     local title = UI.text("UI_SC_Talk_Open")
-    local button = ISButton:new(8, y, math.max(100, panel:getWidth() - 28),
-        metrics.buttonHeight, title, self, onTalkLinkButton)
+    local width = math.max(100, panel:getWidth() - 28)
+    local button = ISButton:new(8, y, width,
+        metrics.buttonHeight, fitText(UIFont.Small, title,
+            math.max(40, width - 16)), self, onTalkLinkButton)
     button:initialise()
     makeButtonTranslucent(button)
+    button.tooltip = title
     panel:addChild(button)
     return y + metrics.buttonHeight + 4
 end
@@ -2831,11 +3115,15 @@ function SCUIDetail:buildTalk(panel, row)
                 tostring(speaker) .. ": " .. tostring(line.text))
         end
     end
-    local orders = ISButton:new(8, y + 4, math.max(100, panel:getWidth() - 28),
-        metrics.buttonHeight, UI.text("UI_SC_Talk_OpenOrders"), self,
+    local ordersTitle = UI.text("UI_SC_Talk_OpenOrders")
+    local ordersWidth = math.max(100, panel:getWidth() - 28)
+    local orders = ISButton:new(8, y + 4, ordersWidth,
+        metrics.buttonHeight, fitText(UIFont.Small, ordersTitle,
+            math.max(40, ordersWidth - 16)), self,
         onTalkOrdersButton)
     orders:initialise()
     makeButtonTranslucent(orders)
+    orders.tooltip = ordersTitle
     panel:addChild(orders)
     y = y + metrics.buttonHeight + 8
     return y
@@ -2960,6 +3248,9 @@ function SCUIDetail:buildOrders(panel)
         end)
     y = self:addBooleanCommand(panel, y, "UI_SC_Toggle_HoldFire",
         "set_hold_fire", "holdFire", row and row.holdFire == true)
+    y = self:addBooleanCommand(panel, y, "UI_SC_Toggle_FollowFanOut",
+        "set_follow_fan_out", "followFanOut",
+        row and row.followFanOut == true)
     y = self:addInformationLine(panel, y, "UI_SC_Orders_TargetHint",
         UI.text("UI_SC_Orders_TargetHintValue"))
     y = self:addSection(panel, y + 4, "UI_SC_Section_WorkAutonomy")
@@ -3071,10 +3362,13 @@ function SCUIDetail:addMoreNavigation(panel, y, titleKey)
     local metrics = self.metrics or UI.layoutMetrics()
     local width = math.max(100, panel:getWidth() - 28)
     local title = UI.text(titleKey)
+    local breadcrumbText = UI.text("UI_SC_More_Breadcrumb", title)
     local breadcrumb = ISLabel:new(8, y, metrics.fontHeight,
-        UI.text("UI_SC_More_Breadcrumb", title), 0.79, 0.73, 0.48, 1,
+        fitText(UIFont.Small, breadcrumbText, math.max(40, width - 16)),
+        0.79, 0.73, 0.48, 1,
         UIFont.Small, true)
     breadcrumb:initialise()
+    breadcrumb.tooltip = breadcrumbText
     panel:addChild(breadcrumb)
     y = y + metrics.sectionHeight
     local label = UI.text("UI_SC_More_Back")
@@ -3135,6 +3429,12 @@ end
 function SCUIDetail:buildBase(panel, row)
     local y = self:addMoreNavigation(panel, 7, "UI_SC_Tab_Base")
     local base = SC.BaseLife and SC.BaseLife.summary and SC.BaseLife.summary() or { configured = false }
+    local crises = SC.InfectionCrisis and SC.InfectionCrisis.summary
+        and SC.InfectionCrisis.summary() or { rows = {} }
+    local crisisByResident = {}
+    for _, crisis in ipairs(crises.rows or {}) do
+        if crisis.subjectId then crisisByResident[crisis.subjectId] = crisis end
+    end
     y = self:addSection(panel, y, "UI_SC_Base_Section_Status")
     if not base.configured then
         y = self:addInformationLine(panel, y, "UI_SC_Info_Message", UI.text("UI_SC_Base_NotConfigured"))
@@ -3142,6 +3442,7 @@ function SCUIDetail:buildBase(panel, row)
         y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
             UI.text("UI_SC_Base_Summary", base.name or "Main Camp", base.zones or 0,
                 base.storages or 0, base.residents or 0, base.duty or 0))
+        y = self:buildBaseWatch(panel, y)
         local visualStatus = SC.BaseVisuals and type(SC.BaseVisuals.status) == "function"
             and SC.BaseVisuals.status() or { enabled = false }
         y = self:addBaseManagementAction(panel, y,
@@ -3153,6 +3454,33 @@ function SCUIDetail:buildBase(panel, row)
         local jobs = base.jobs or {}
         y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
             UI.text("UI_SC_Base_Jobs", jobs.pending or 0, jobs.active or 0, jobs.blocked or 0))
+        -- A job that kept failing no longer retries on its own. List it with
+        -- the reason and give the player the Retry and Cancel it waits for.
+        local stalled, residentNames = {}, {}
+        for _, residentRow in ipairs(base.residentRows or {}) do
+            residentNames[residentRow.id] = residentRow.name
+        end
+        for _, job in ipairs(base.rows or {}) do
+            if job.parked == true then stalled[#stalled + 1] = job end
+        end
+        if #stalled > 0 then
+            y = self:addSection(panel, y + 4, "UI_SC_Base_Section_Stalled")
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                UI.text("UI_SC_Base_StalledHint"))
+            for _, job in ipairs(stalled) do
+                local kind = UI.humanize(job.kind or job.type)
+                local worker = job.assignedId and residentNames[job.assignedId]
+                y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                    UI.text("UI_SC_Base_StalledRow",
+                        worker and (kind .. " (" .. worker .. ")") or kind,
+                        UI.humanize(job.blocker or "blocked")))
+                y = self:addBaseManagementAction(panel, y,
+                    UI.text("UI_SC_Base_RetryJob", kind), "retry_job", { id = job.id })
+                y = self:addBaseManagementAction(panel, y,
+                    UI.text("UI_SC_Base_CancelJob", kind), "cancel_job", { id = job.id },
+                    UI.text("UI_SC_Base_CancelJobConfirm", kind))
+            end
+        end
         y = self:addBaseManagementAction(panel, y,
             UI.text(SC.BaseLife.blueprintsVisible()
                 and "UI_SC_Base_Blueprint_Hide" or "UI_SC_Base_Blueprint_Show"),
@@ -3193,6 +3521,12 @@ function SCUIDetail:buildBase(panel, row)
                 BASE_JOB_ROLES, "set_base_role", "role")
             y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
                 UI.text("UI_SC_Base_JobRoleHint"))
+            local restriction = SC.BaseLife and SC.BaseLife.restriction
+                and SC.BaseLife.restriction(row.id) or nil
+            if restriction then
+                y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                    UI.text("UI_SC_Base_WorkRestricted", UI.humanize(restriction)))
+            end
         else
             y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
                 UI.text("UI_SC_NoSelection"))
@@ -3209,10 +3543,12 @@ function SCUIDetail:buildBase(panel, row)
             y = self:addInformationLine(panel, y, "UI_SC_Base_Stock",
                 UI.text("UI_SC_Base_StockValue", UI.humanize(stock.category),
                     stock.count, stock.target, stock.status))
+            y = y + 3
         end
         for alertIndex = 1, math.min(5, #(operations.alerts or {})) do
             y = self:addInformationLine(panel, y, "UI_SC_Base_Alert",
                 operations.alerts[alertIndex])
+            y = y + 3
         end
         y = self:addSection(panel, y + 4, "UI_SC_Base_Section_Policies")
         local policies = operations.policies or {}
@@ -3228,6 +3564,8 @@ function SCUIDetail:buildBase(panel, row)
                 { id = "balanced", key = "UI_SC_Base_Workload_balanced" },
                 { id = "continuous", key = "UI_SC_Base_Workload_continuous" },
             })
+        y = self:addBaseToggle(panel, y, "UI_SC_Base_WorkOutsideAtNight",
+            "workOutsideAtNight", policies.workOutsideAtNight == true)
         y = self:addBaseToggle(panel, y, "UI_SC_Base_RoutineToggle", "routines",
             policies.routines ~= false)
         y = self:addBaseToggle(panel, y, "UI_SC_Base_MaintenanceToggle", "autoMaintenance",
@@ -3237,10 +3575,18 @@ function SCUIDetail:buildBase(panel, row)
             y = self:addInformationLine(panel, y, "UI_SC_Base_StaffingRow",
                 UI.text("UI_SC_Base_StaffingValue", residentRow.name,
                     UI.text("UI_SC_Base_JobRole_" .. residentRow.role),
-                    residentRow.guarding and UI.text("UI_SC_Base_StateGuard")
+                    residentRow.restriction
+                        and UI.text("UI_SC_Base_StateRestricted",
+                            UI.humanize(residentRow.restriction))
+                        or residentRow.guarding and UI.text("UI_SC_Base_StateGuard")
                         or residentRow.job and UI.humanize(residentRow.job)
                         or residentRow.duty and UI.text("UI_SC_Base_StateAvailable")
                         or UI.text("UI_SC_Base_StateOffDuty")))
+            local crisis = crisisByResident[residentRow.id]
+            if residentRow.restriction and crisis and not crisis.finalAuthorized then
+                y = self:addCrisisAction(panel, y, "UI_SC_Base_ReleaseCrisis",
+                    crisis.id, nil, "release")
+            end
         end
         y = self:buildProductionSection(panel, y, base, row)
         y = self:addSection(panel, y + 4, "UI_SC_Base_Section_Zones")
@@ -3322,34 +3668,46 @@ function SCUIDetail:buildBase(panel, row)
                 base.name or "Main Camp"))
     end
     y = self:addSection(panel, y + 4, "UI_SC_Base_Section_Crisis")
-    local crises = SC.InfectionCrisis and SC.InfectionCrisis.summary
-        and SC.InfectionCrisis.summary() or { rows = {} }
     if #crises.rows == 0 then
         y = self:addInformationLine(panel, y, "UI_SC_Info_Message", UI.text("UI_SC_Base_NoCrisis"))
     else
         for _, crisis in ipairs(crises.rows) do
-            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
-                UI.text("UI_SC_Base_CrisisRow", crisis.subjectName or crisis.subjectId,
-                    UI.humanize(crisis.phase),
-                    tostring(math.floor(tonumber(crisis.infectionLevel) or 0)),
-                    UI.humanize(crisis.outcome or crisis.strategy)))
+            if crisis.knownToViewer then
+                y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                    UI.text("UI_SC_Base_CrisisRow", crisis.subjectName or crisis.subjectId,
+                        UI.humanize(crisis.phase),
+                        tostring(math.floor(tonumber(crisis.infectionLevel) or 0)),
+                        UI.humanize(crisis.outcome or crisis.strategy)))
+            else
+                y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                    UI.text("UI_SC_Base_RestrictedCrisisRow",
+                        crisis.subjectName or crisis.subjectId,
+                        UI.humanize(crisis.restriction)))
+            end
             -- A resolved crisis keeps its outcome buttons. The companions vote
             -- for themselves once deliberation expires, and hiding the buttons
             -- at that moment left the player with no way to overrule them --
             -- and no way to end a quarantine or exile that was already running.
             if crisis.phase ~= "terminal" and not crisis.finalAuthorized then
-                for _, outcome in ipairs({ "watch", "quarantine", "exile", "mercy" }) do
-                    if outcome ~= "mercy" or not crisis.subjectIsPlayer then
-                        y = self:addCrisisAction(panel, y, "UI_SC_Base_Outcome_" .. outcome,
-                            crisis.id, outcome, "choose")
+                if crisis.knownToViewer then
+                    for _, outcome in ipairs({ "watch", "quarantine", "exile", "mercy", "bleach" }) do
+                        if (outcome ~= "mercy" and outcome ~= "bleach"
+                            or not crisis.subjectIsPlayer)
+                            and (outcome ~= "bleach" or (crisis.infectionLevel or 0) >= 90) then
+                            y = self:addCrisisAction(panel, y, "UI_SC_Base_Outcome_" .. outcome,
+                                crisis.id, outcome, "choose")
+                        end
                     end
                 end
                 y = self:addCrisisAction(panel, y, "UI_SC_Base_ReleaseCrisis",
                     crisis.id, nil, "release")
             end
-            if (crisis.outcome == "mercy" or crisis.outcome == "self_sacrifice")
+            if (crisis.outcome == "mercy" or crisis.outcome == "self_sacrifice"
+                or crisis.outcome == "bleach")
                 and crisis.phase == "resolved" and not crisis.finalAuthorized then
-                y = self:addCrisisAction(panel, y, "UI_SC_Base_AuthorizeFinal",
+                y = self:addCrisisAction(panel, y,
+                    crisis.outcome == "bleach" and "UI_SC_Base_AuthorizeBleach"
+                        or "UI_SC_Base_AuthorizeFinal",
                     crisis.id, crisis.outcome, "authorize")
             end
         end
@@ -4339,6 +4697,8 @@ function SCUIDetail:rebuild(preserveScroll)
     end
     self.infoBindings = {}
     if self.content then
+        self.content:setVisible(false)
+        dismissChildTooltips(self.content)
         self:removeChild(self.content)
         self.content = nil
     end
@@ -4568,6 +4928,15 @@ function SCUIRoot:applyLayout()
     while tabColumns > 1 and math.floor(detailWidth / tabColumns) < maximumTabLabelWidth do
         tabColumns = tabColumns - 1
     end
+    -- At minimum window height and large UI fonts, a one-column tab stack
+    -- leaves almost no scrollable detail. Shorten tab captions to keep room.
+    local minimumDetailHeight = (5 * metrics.infoLineHeight)
+        + (12 + 2 * metrics.infoLineHeight) + 14
+    local tabBudget = math.max(tabHeight,
+        height - tabTop - 10 - minimumDetailHeight)
+    local affordableRows = math.max(1, math.floor(tabBudget / tabHeight))
+    tabColumns = math.min(3, math.max(tabColumns,
+        math.ceil(#self.tabButtons / affordableRows)))
     local tabRows = math.ceil(#self.tabButtons / tabColumns)
     local tabWidth = math.floor(detailWidth / tabColumns)
     local collapseWidth = math.max(82, UI.textWidth(UIFont.Small, UI.text("UI_SC_Collapse")) + 18)
@@ -4602,10 +4971,16 @@ function SCUIRoot:applyLayout()
     for index, button in ipairs(self.tabButtons) do
         local column = (index - 1) % tabColumns
         local row = math.floor((index - 1) / tabColumns)
+        local buttonWidth = column == tabColumns - 1
+            and detailWidth - (column * tabWidth) or tabWidth
+        local title = UI.text(TAB_KEYS[button.scTab])
         button:setX(detailX + (column * tabWidth))
         button:setY(tabTop + (row * tabHeight))
-        button:setWidth(column == tabColumns - 1 and detailWidth - (column * tabWidth) or tabWidth)
+        button:setWidth(buttonWidth)
         button:setHeight(tabHeight)
+        button:setTitle(fitText(UIFont.Small, title,
+            math.max(24, buttonWidth - 12)))
+        button.tooltip = title
     end
     local detailY = tabTop + (tabRows * tabHeight) + 3
     self.detail:setX(detailX)
@@ -5405,6 +5780,7 @@ function UI.onKeyPressed(key)
     local bound = core and safeMethod(core, "getKey", UI.HOTKEY_ACTION) or nil
     if tonumber(bound) and tonumber(bound) > 0 then configured = tonumber(bound) end
     if tonumber(key) == configured then UI.toggle() return end
+    if tonumber(key) == UI.watchHotkey() then UI.toggleWatch() return end
     local layout = UI.DEFAULT_LAYOUT_HOTKEY
     local layoutBound = core and safeMethod(core, "getKey", UI.LAYOUT_HOTKEY_ACTION) or nil
     if tonumber(layoutBound) and tonumber(layoutBound) > 0 then layout = tonumber(layoutBound) end

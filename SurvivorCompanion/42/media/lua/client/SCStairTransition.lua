@@ -94,16 +94,16 @@ local function stairDistance(actor, point)
     return centreDistance(actor, point)
 end
 
--- Descending reports the lower floor from the first step down, and an upper
--- storey reports its own floor before the next flight. While the height is
--- still fractional the engine owns the body on the slope: replacing its
--- target there cancels the native crossing midway.
+-- While the height is fractional, the engine owns the body on either slope.
+-- Replacing its target there cancels the native crossing midway.
 function StairTransition.crossingInProgress(plan, actor)
     local transition = type(plan) == "table" and plan.descent or nil
     if type(transition) ~= "table" or transition.crossing == nil then return nil end
     local _, _, z = U().position(actor)
-    if z == nil or math.floor(z) ~= transition.toZ
-        or math.abs(z - transition.toZ) <= 0.05 then return nil end
+    if z == nil or transition.fromZ == nil or transition.toZ == nil then return nil end
+    local lower, upper = math.min(transition.fromZ, transition.toZ),
+        math.max(transition.fromZ, transition.toZ)
+    if z <= lower + 0.05 or z >= upper - 0.05 then return nil end
     return transition.crossing
 end
 
@@ -150,13 +150,31 @@ function StairTransition.target(plan, actor, routeTarget, now, options)
     if crossing ~= nil then return crossing end
     local floor = math.floor(lz)
     if floor == routeTarget.z then
+        local transition = type(plan.descent) == "table" and plan.descent or nil
+        local landing = transition and transition.crossing or nil
+        if landing ~= nil and transition.toZ == floor then
+            if stairDistance(actor, landing) <= APPROACH_REACH_DISTANCE then
+                transition.crossingReached = true
+            elseif transition.crossingReached ~= true then
+                return landing
+            end
+        end
+        -- The leader may resume the ground route from the landing while the
+        -- squad tail is still on the stairs. Retain the completed crossing
+        -- briefly so cohesion recognizes both floors until the leader clears
+        -- the landing; ordinary solo movement then drops this stale context.
+        if landing ~= nil and transition.toZ == floor
+            and centreDistance(actor, landing) <= 3 then
+            return routeTarget
+        end
+        plan.descent = nil
         plan.descentRejected, plan.descentRetryAt, plan.descentScan = nil, nil, nil
         plan.noStair = nil
         return routeTarget
     end
     local transition = plan.descent
     if type(transition) == "table" and floor == transition.toZ then
-        if stairDistance(actor, transition.crossing) > 4 then
+        if stairDistance(actor, transition.crossing) > APPROACH_REACH_DISTANCE then
             return transition.crossing
         end
         plan.descent, plan.descentRejected = nil, nil

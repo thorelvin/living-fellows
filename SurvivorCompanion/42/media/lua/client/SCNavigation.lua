@@ -1163,6 +1163,21 @@ local function passableEdge(fromSquare, toSquare, vegetationScale, options)
     end
     local topology = SC.Topology and type(SC.Topology.classifyEdge) == "function"
         and SC.Topology.classifyEdge(options.actor, fromSquare, toSquare, options) or nil
+    -- A flat route must not enter a staircase as a shortcut. The tread lifts
+    -- the actor off this floor, even when both IsoGridSquares report the same
+    -- integer Z. Cross-floor travel belongs to the native 3D path above.
+    -- Someone already on a tread may still walk out of it.
+    local fromStair = squareHasStairs(fromSquare) or squareHasSlope(fromSquare)
+    local toStair = squareHasStairs(toSquare) or squareHasSlope(toSquare)
+    if not fromStair and (toStair or topology and (topology.affordance == "stairs"
+            or topology.affordance == "slope")) then
+        if options.draggingBody == true then
+            local kind = topology and topology.affordance
+                or (squareHasStairs(toSquare) and "stairs" or "slope")
+            return false, math.huge, "drag_" .. tostring(kind)
+        end
+        return false, math.huge, "planar_stair_entry"
+    end
     local baseCost
     if topology ~= nil then
         if topology.traversable ~= true then
@@ -4395,6 +4410,12 @@ local function beginNativeLease(state, targets, fromSquare, toSquare, ultimateGo
 end
 Navigation._beginNativeLeaseForTests = beginNativeLease
 
+function Navigation._betweenFloorHeights(actor)
+    local _, _, z = U().position(actor)
+    return type(z) == "number"
+        and math.abs(z - math.floor(z + 0.5)) > 0.05
+end
+
 local function nativeLeaseArrival(actor, lease)
     local arrival = lease and lease.arrivalDistance
         or U().config("navigationArrivalDistance") or 0.6
@@ -4406,6 +4427,16 @@ local function nativeLeaseArrival(actor, lease)
         -- tile boundary. At a door that is too early: stopping PathFindBehavior2
         -- there leaves half the collision capsule in the leaf and the next pulse
         -- walks back to retry. Require continuous clearance through the door plane.
+        if reached and (lease.affordance == "multi_level"
+            or lease.affordance == "stairs" or lease.affordance == "slope"
+            or lease.affordance == "stair_recovery") then
+            local _, _, actorZ = U().position(actor)
+            local _, _, targetZ = U().position(target)
+            if actorZ == nil or targetZ == nil
+                or math.abs(actorZ - math.floor(targetZ)) > 0.05 then
+                reached = false
+            end
+        end
         if reached and lease.affordance == "door"
             and not actorClearOfDoorway(actor, lease) then reached = false end
         if reached then
@@ -4577,6 +4608,9 @@ local function maintainNativeLease(actor, state, goalSquare, now)
     local goalMoved = lease.ultimateGoalKey and squareKey(goalSquare) ~= lease.ultimateGoalKey
         and lease.ultimateGoal and U().distance(lease.ultimateGoal, goalSquare)
             >= goalResetDistance(lease)
+    -- A work selector may change goals while the engine is carrying the body
+    -- between floors. Apply that change after the crossing reaches a landing.
+    if goalMoved and Navigation._betweenFloorHeights(actor) then goalMoved = false end
     if goalMoved and not usefulMovingGoalDuringStart(actor, lease, goalSquare, now) then
         state.nativeLeaseEndReason = "native_goal_changed"
         -- Cancelling only the Lua lease leaves PathFindBehavior2 running toward
@@ -4639,7 +4673,10 @@ local function maintainNativeLease(actor, state, goalSquare, now)
     local currentKey = squareKey(currentSquare)
     if lease.affordance == "multi_level" and lease.workCampOnly
         and currentKey ~= lease.progressSquareKey
-        and not SC.Navigation._workSquareAdmitted(currentSquare, lease) then
+        and not SC.Navigation._workSquareAdmitted(currentSquare, lease)
+        and not (SC.BaseLife and type(SC.BaseLife.admitsStairTransit) == "function"
+            and SC.BaseLife.admitsStairTransit(currentSquare, lease))
+        and not Navigation._betweenFloorHeights(actor) then
         if SC.NativeActions and type(SC.NativeActions.stopDirect) == "function" then
             pcall(SC.NativeActions.stopDirect, actor, { preservePosture = true })
         end
@@ -4688,6 +4725,7 @@ local function maintainNativeLease(actor, state, goalSquare, now)
             state.lastAttemptTo = nextSquare
             if lease.affordance == "multi_level" and currentSquare
                 and nextKey ~= currentKey
+                and not Navigation._betweenFloorHeights(actor)
                 and (squareHasStairs(currentSquare) or squareHasStairs(nextSquare)
                     or differentFloor(currentSquare, nextSquare)) then
                 local accepted, passageStatus = ensureGroupPassage(actor, state,
@@ -4913,6 +4951,54 @@ local function maintainNativeLease(actor, state, goalSquare, now)
 end
 Navigation._maintainNativeLeaseForTests = maintainNativeLease
 Navigation._nativeLeaseArrivalForTests = nativeLeaseArrival
+
+-- Work and scavenge can pick a new target while the body is halfway up a
+-- staircase. Its occupied grid square has already changed floors, but its
+-- actual height has not. Keep the engine's current crossing until the body
+-- reaches a floor; an orphaned crossing gets a short native route off the
+-- slope instead of a planar MoveForward step.
+function Navigation._retainStairCrossingForRequest(actor, state, goalSquare,
+        movementMode, intent, now)
+    local lease = state.nativeLease
+    if not Navigation._betweenFloorHeights(actor) then
+        if lease and lease.affordance == "stair_recovery" then
+            if SC.NativeActions and type(SC.NativeActions.stopDirect) == "function" then
+                pcall(SC.NativeActions.stopDirect, actor, { preservePosture = true })
+            end
+            state.nativeLease = nil
+            state.path, state.pathSearch, state.pathGoalSquare = nil, nil, nil
+            state.pathIndex, state.nextRepathAt = 1, 0
+            state.lastProgressAt = now
+        end
+        return nil
+    end
+    local crossingGoal = lease and lease.ultimateGoal or goalSquare
+    if lease then
+        local phase, reason = maintainNativeLease(actor, state, crossingGoal, now)
+        if phase == "active" then return true, reason or "native_stair_crossing" end
+    end
+    local sourceSquare = U().squareOf(actor)
+    if not sourceSquare or not crossingGoal then
+        return false, "stair_recovery_square_unavailable"
+    end
+    local recoveryIntent = type(intent) == "table" and U().copyShallow(intent) or {}
+    recoveryIntent.action = "stair_recovery"
+    recoveryIntent.targetSquare = crossingGoal
+    recoveryIntent.nextSquare = crossingGoal
+    recoveryIntent.enginePath = true
+    recoveryIntent.multiLevelPath = true
+    recoveryIntent.nativeAffordance = "stair_recovery"
+    recoveryIntent.weaponReady = false
+    local moved, reason = U().move(actor, movementMode or "walk", recoveryIntent)
+    if not moved then return false, reason or "stair_recovery_path_rejected" end
+    state.path, state.pathSearch, state.pathGoalSquare = nil, nil, nil
+    state.pathIndex = 1
+    state.lastAttemptFrom, state.lastAttemptTo = sourceSquare, crossingGoal
+    beginNativeLease(state, { crossingGoal }, sourceSquare, crossingGoal,
+        crossingGoal, now, "stair_recovery", false, false,
+        "stair_recovery", actor, recoveryIntent)
+    return true, "native_stair_recovery"
+end
 
 local function classifyMovementBlocker(actor, fromSquare, toSquare, movementReason)
     local utility = U()
@@ -5988,11 +6074,14 @@ function Navigation.stairFallbackGoal(actor, state, goalSquare, now, intent)
     local _, _, az = U().position(actor)
     if gx == nil or az == nil then return goalSquare, false end
     if math.floor(az) == math.floor(gz or 0) then
-        local crossing = SC.StairTransition.crossingInProgress(
-            state.stairTransition, actor)
-        local onSlope = crossing ~= nil and targetSquare(crossing) or nil
-        if onSlope ~= nil then
-            return onSlope, not sameSquare(onSlope, goalSquare), "stair_fallback"
+        if state.stairTransition and state.stairTransition.descent then
+            local crossing = SC.StairTransition.target(state.stairTransition,
+                actor, { x = math.floor(gx), y = math.floor(gy),
+                    z = math.floor(gz) }, now)
+            local landing = crossing ~= nil and targetSquare(crossing) or nil
+            if landing ~= nil and not sameSquare(landing, goalSquare) then
+                return landing, true, "stair_fallback"
+            end
         end
         state.multiLevelFailureCount = nil
         state.multiLevelFailedGoal = nil
@@ -6045,6 +6134,10 @@ function Navigation.request(actor, target, movementMode, intent)
 
     local now = utility.nowMs()
     local state = stateFor(actor)
+    local crossingAccepted, crossingReason =
+        SC.Navigation._retainStairCrossingForRequest(
+            actor, state, goalSquare, movementMode, intent, now)
+    if crossingAccepted ~= nil then return crossingAccepted, crossingReason end
     local stairGoal, stairAdjusted, stairReason =
         SC.Navigation.stairFallbackGoal(actor, state, goalSquare, now, intent)
     if stairGoal == nil then return true, stairReason or "planning_stair_transition" end
@@ -6123,6 +6216,17 @@ function Navigation.request(actor, target, movementMode, intent)
         distance = tonumber(requestIntent.arrivalDistance)
             or utility.config("navigationArrivalDistance") or 0.6,
     })
+    -- The ordinary arrival radius includes a small vertical tolerance. On a
+    -- staircase that can fire while the body is still above/below the landing,
+    -- and stopDirect then makes the companion fall back down the stairs.
+    if reachedGoal then
+        local _, _, actorZ = utility.position(actor)
+        local _, _, goalZ = utility.position(goalSquare)
+        if actorZ == nil or goalZ == nil
+            or math.abs(actorZ - math.floor(goalZ)) > 0.05 then
+            reachedGoal = false
+        end
+    end
     if reachedGoal and state.nativeLease and state.nativeLease.affordance == "door"
         and not actorClearOfDoorway(actor, state.nativeLease) then reachedGoal = false end
     if reachedGoal then

@@ -13,7 +13,7 @@ local Crisis = SC.InfectionCrisis
 Crisis.VERSION = 1
 Crisis.OUTCOMES = {
     watch = true, quarantine = true, exile = true, mercy = true,
-    self_exile = true, self_sacrifice = true,
+    bleach = true, self_exile = true, self_sacrifice = true,
 }
 
 local document
@@ -378,6 +378,86 @@ end
 -- Conversation timing that does not need saving: when each bystander set
 -- off to walk over, and when the next voice in a crisis may speak.
 local walks, turns, fearNext = {}, {}, {}
+local lateBedVoices = setmetatable({}, { __mode = "k" })
+
+local function stopLateBedVoice(actor, state)
+    local handle = state and tonumber(state.soundHandle) or nil
+    if handle and handle > 0 then
+        U().call(actor, "stopOrTriggerSound", handle)
+    end
+    if state then state.soundHandle, state.stopAt = nil, nil end
+end
+
+local function settledBedRest(actor, utility)
+    local onBed, bedKnown = utility.call(actor, "isOnBed")
+    if bedKnown and onBed == true then return true end
+    -- Companions normally rest on beds through the player's furniture-sitting
+    -- action. Only a verified rest_bed activity and its native bed record count;
+    -- a chair or a ground fallback must not produce a bed-only voice.
+    local downtime = SC.Downtime and type(SC.Downtime.peek) == "function"
+        and SC.Downtime.peek(actor) or nil
+    local activity = downtime and downtime.active or nil
+    if not activity or activity.kind ~= "rest_bed"
+        or activity.furnitureEntered ~= true then return false end
+    local sitting, sittingKnown = utility.call(actor, "isSittingOnFurniture")
+    if not sittingKnown or sitting ~= true then return false end
+    if not SC.NativeActions or type(SC.NativeActions.bedStatus) ~= "function" then
+        return false
+    end
+    return SC.NativeActions.bedStatus(actor) == "entered"
+end
+
+-- The player animation graph already blends walking into a heavy limp via
+-- WalkInjury. The native companion combines this cue with real foot injuries;
+-- the sound runs only while a living, Knox-infected companion is on a bed.
+function Crisis.updateLateSymptoms(actor, medical, current)
+    if actor == nil or type(medical) ~= "table" then return false, "no_assessment" end
+    local utility = U()
+    current = finite(current, now())
+    local progress = medical.knoxInfected == true and medical.alive ~= false
+        and finite(medical.infectionLevel, 0) or 0
+    local gait = progress >= 90 and math.min(0.75, 0.55 + (progress - 90) * 0.02) or 0
+    utility.call(actor, "setCompanionInfectionGait", gait)
+
+    local state = lateBedVoices[actor]
+    if gait <= 0 then
+        if state then
+            stopLateBedVoice(actor, state)
+            lateBedVoices[actor] = nil
+        end
+        return false, "not_late_knox"
+    end
+    if not state then
+        state = {}
+        lateBedVoices[actor] = state
+    end
+    if state.soundHandle and current >= (state.stopAt or 0) then
+        stopLateBedVoice(actor, state)
+    end
+    local moving = select(1, utility.call(actor, "isMoving"))
+    if moving == true or not settledBedRest(actor, utility) then
+        stopLateBedVoice(actor, state)
+        state.nextAt = math.max(state.nextAt or 0, current + 5000)
+        return true, "late_gait"
+    end
+    if not state.nextAt then state.nextAt = current + 5000 end
+    if current < state.nextAt then return true, "bed_voice_wait" end
+
+    local hash = math.abs(tonumber(utility.stableHash(
+        tostring(utility.idOf(actor) or "companion") .. ":bed:"
+            .. tostring(math.floor(current / 1000)))) or 0)
+    local female = select(1, utility.call(actor, "isFemale")) == true
+    local sound = (female and "FemaleZombieVoice" or "MaleZombieVoice")
+        .. ({ "A", "B", "C" })[hash % 3 + 1]
+    local handle, played = utility.call(actor, "playSound", sound)
+    state.nextAt = current + 30000 + hash % 15000
+    handle = played and tonumber(handle) or nil
+    if handle and handle > 0 then
+        state.soundHandle, state.stopAt = handle, current + 1700
+        return true, "bed_voice_played"
+    end
+    return true, "bed_voice_unavailable"
+end
 
 local function say(actor, topic, fallback, arguments)
     if SC.Dialogue and type(SC.Dialogue.say) == "function" then
@@ -700,6 +780,7 @@ local function applyOutcome(crisis, subject, outcome, player)
     local restriction = nil
     if outcome == "watch" then restriction = "watch"
     elseif outcome == "quarantine" then restriction = "quarantine"
+    elseif outcome == "bleach" then restriction = "watch"
     -- Exile is a standing verdict, not a walk. Without a durable mark the
     -- companion simply resumed the follow order it still held and walked back
     -- to the player the moment the departure route finished. The order itself
@@ -708,7 +789,8 @@ local function applyOutcome(crisis, subject, outcome, player)
     if SC.BaseLife and type(SC.BaseLife.setRestriction) == "function" then
         SC.BaseLife.setRestriction(crisis.subjectId, restriction)
     end
-    if outcome == "self_exile" or outcome == "exile" or outcome == "self_sacrifice" then
+    if outcome == "self_exile" or outcome == "exile" or outcome == "self_sacrifice"
+        or outcome == "bleach" then
         createNote(subject, crisis, outcome)
     end
     if outcome ~= "watch" then preserveKeepsake(crisis, subject, player) end
@@ -1091,6 +1173,25 @@ local function updateResolvedActor(actor, id, crisis, subject)
         end
         return false, "native_final_action_unavailable"
     end
+    if outcome == "bleach" then
+        if now() < crisis.irreversibleAfter or crisis.finalAuthorized ~= true then
+            return true, "final_outcome_awaiting_authorization"
+        end
+        local native = SC.NativeActions
+        if not native or type(native.performCrisisBleach) ~= "function" then
+            return false, "native_bleach_drink_unavailable"
+        end
+        local item = type(native.findCrisisBleach) == "function"
+            and native.findCrisisBleach(actor) or nil
+        local ok, reason = native.performCrisisBleach(actor, item)
+        if ok and reason == "bleach_consumed" then
+            completeOutcome(crisis, reason)
+        end
+        if ok and U().isDead(subject or actor) then
+            enterTerminal(crisis, "bleach_poisoning")
+        end
+        return ok == true, reason
+    end
     return true, "watched"
 end
 Crisis._updateResolvedActorForTests = updateResolvedActor
@@ -1206,6 +1307,7 @@ function Crisis.pulse(player, current)
         local id = actorId(actor, player)
         local medical = assess(actor)
         if id and medical then
+            if actor ~= player then Crisis.updateLateSymptoms(actor, medical, current) end
             seen[id] = true
             local prior = ensure().observations[id] or { bites = 0, infected = false }
             local crisis = activeForSubject(id)
@@ -1258,6 +1360,7 @@ end
 -- executor acts. A crisis whose subject died or turned asks nothing.
 local actingOutcomes = {
     quarantine = true, exile = true, self_exile = true, mercy = true, self_sacrifice = true,
+    bleach = true,
 }
 
 local function intentPriority(crisis, id, actor, player, snapshot)
@@ -1344,10 +1447,20 @@ function Crisis.authorize(crisisId, outcome)
     local crisis = ensure().crises[crisisId]
     if not crisis or crisis.phase ~= "resolved" then return false, "crisis_not_resolved" end
     if outcome ~= nil and crisis.outcome ~= outcome then return false, "outcome_mismatch" end
-    if crisis.outcome ~= "mercy" and crisis.outcome ~= "self_sacrifice" then
+    if crisis.outcome ~= "mercy" and crisis.outcome ~= "self_sacrifice"
+        and crisis.outcome ~= "bleach" then
         return false, "outcome_not_irreversible"
     end
     if now() < crisis.irreversibleAfter then return false, "safety_delay_active" end
+    if crisis.outcome == "bleach" then
+        local subject = resolveActor(crisis.subjectId,
+            type(getPlayer) == "function" and getPlayer() or nil)
+        if not subject or not SC.NativeActions
+            or type(SC.NativeActions.findCrisisBleach) ~= "function"
+            or not SC.NativeActions.findCrisisBleach(subject) then
+            return false, "bleach_missing"
+        end
+    end
     crisis.finalAuthorized, crisis.finalAuthorizedAt = true, now()
     history("final_authorized", { crisisId = crisis.id, outcome = crisis.outcome })
     return true, crisis
@@ -1368,7 +1481,8 @@ function Crisis.choose(crisisId, outcome)
         return false, "final_action_already_authorized"
     end
     if not Crisis.OUTCOMES[outcome] then return false, "invalid_outcome" end
-    if outcome == "mercy" and isPlayerSubject(crisis.subjectId) then
+    if (outcome == "mercy" or outcome == "bleach")
+        and isPlayerSubject(crisis.subjectId) then
         return false, "player_final_outcome_is_never_automated"
     end
     local player = type(getPlayer) == "function" and getPlayer() or nil
@@ -1378,13 +1492,45 @@ function Crisis.choose(crisisId, outcome)
             and (not knowledge or knowledge.knowledge == "unaware") then
             return false, "crisis_not_known_to_player"
         end
-        if outcome == "mercy" and crisis.subjectId ~= actorId(player, player)
+        if (outcome == "mercy" or outcome == "bleach")
+            and crisis.subjectId ~= actorId(player, player)
             and knowledge.knowledge ~= "confirmed" then
             return false, "bite_not_confirmed"
         end
     end
     local subject = resolveActor(crisis.subjectId, player)
     if not subject then return false, "crisis_subject_unavailable" end
+    if outcome == "bleach" then
+        if (crisis.infectionLevel or 0) < 90 then
+            return false, "bleach_only_when_turning"
+        end
+        local native = SC.NativeActions
+        if not native or type(native.findCrisisBleach) ~= "function" then
+            return false, "native_bleach_drink_unavailable"
+        end
+        local item = native.findCrisisBleach(subject)
+        local fromPlayer = false
+        if not item and player and U().distance(player, subject) <= 3 then
+            item = native.findCrisisBleach(player)
+            fromPlayer = item ~= nil
+        end
+        if not item then return false, "bleach_missing" end
+        if profileChoice(subject, crisis.subjectId,
+            { "accept", "accept", "accept", "decline" }, "bleach-consent") == "decline" then
+            say(subject, "crisis.bleach.decline", "No. I want another way.")
+            history("bleach_declined", {
+                crisisId = crisis.id, subjectId = crisis.subjectId,
+            })
+            return false, "bleach_declined"
+        end
+        if fromPlayer then
+            local source = select(1, U().call(item, "getContainer"))
+            if not source or not U().transferItem(source, U().inventory(subject), item) then
+                return false, "bleach_transfer_failed"
+            end
+        end
+        say(subject, "crisis.bleach.accept", "All right. Let me do it myself.")
+    end
     if outcome == "mercy" and not crisis.executorId then
         for id, member in pairs(crisis.participants) do
             if id ~= crisis.subjectId and member.knowledge == "confirmed" then
@@ -1408,6 +1554,15 @@ function Crisis.release(crisisId, reason)
     if not crisis then return false, "unknown_crisis" end
     if crisis.phase == "terminal" then return false, "crisis_already_terminal" end
     if crisis.phase == "closed" then return true, crisis end
+    if crisis.outcome == "bleach" and SC.NativeActions
+        and type(SC.NativeActions.resetFinal) == "function" then
+        local subject = resolveActor(crisis.subjectId,
+            type(getPlayer) == "function" and getPlayer() or nil)
+        if subject then
+            local cleared, clearReason = SC.NativeActions.resetFinal(subject)
+            if cleared ~= true then return false, clearReason end
+        end
+    end
     crisis.phase, crisis.outcome = "closed", nil
     clearAuthorization(crisis)
     crisis.executorId = nil
@@ -1439,8 +1594,17 @@ function Crisis.summary(viewer)
         history = documentCopy(ensure().history, 4) or {} }
     for _, crisis in pairs(ensure().crises) do
         local knowledge = viewerId and crisis.participants[viewerId] or nil
-        local visible = viewer == nil or crisis.subjectId == viewerId
+        local knownToViewer = viewer == nil or crisis.subjectId == viewerId
             or (knowledge and knowledge.knowledge ~= "unaware")
+        -- A private self-exile is still visible in camp staffing. Without a
+        -- matching crisis row there is no way to recall that resident, even
+        -- though the restriction keeps refusing their work orders.
+        local restriction = SC.BaseLife and type(SC.BaseLife.restriction) == "function"
+            and SC.BaseLife.restriction(crisis.subjectId) or nil
+        local visibleForRestriction = restriction ~= nil and SC.BaseLife
+            and type(SC.BaseLife.resident) == "function"
+            and SC.BaseLife.resident(crisis.subjectId) ~= nil
+        local visible = knownToViewer or visibleForRestriction
         -- A resolved crisis -- the subject died/turned ("terminal") or its fate was
         -- decided ("closed") -- is no longer an ongoing crisis and must not linger in
         -- the active list (playtest: dead companions still shown under infection
@@ -1453,6 +1617,7 @@ function Crisis.summary(viewer)
                 phase = crisis.phase,
                 strategy = crisis.strategy, outcome = crisis.outcome,
                 infectionLevel = crisis.infectionLevel, finalAuthorized = crisis.finalAuthorized == true,
+                knownToViewer = knownToViewer == true, restriction = restriction,
             }
         end
     end
@@ -1492,7 +1657,8 @@ local function normalize(source)
             crisis.artifacts = type(crisis.artifacts) == "table" and crisis.artifacts or {}
             crisis.finalAuthorized = crisis.finalAuthorized == true
                 and crisis.phase == "resolved"
-                and (crisis.outcome == "mercy" or crisis.outcome == "self_sacrifice")
+                and (crisis.outcome == "mercy" or crisis.outcome == "self_sacrifice"
+                    or crisis.outcome == "bleach")
             -- Additive, normalized: a completion stamp only means anything on a
             -- resolved crisis, and a non-finite one is dropped rather than
             -- restored as a value the phase checks cannot compare.
@@ -1547,7 +1713,8 @@ local function validateCrisis(crisis, id, path)
         return restoreFailure(path .. ".finalAuthorized", "expected boolean")
     end
     if crisis.finalAuthorized and (crisis.phase ~= "resolved"
-        or (crisis.outcome ~= "mercy" and crisis.outcome ~= "self_sacrifice")) then
+        or (crisis.outcome ~= "mercy" and crisis.outcome ~= "self_sacrifice"
+            and crisis.outcome ~= "bleach")) then
         return restoreFailure(path .. ".finalAuthorized", "authorization is inconsistent with outcome")
     end
     if crisis.outcomeCompletedAt ~= nil and not finiteNumber(crisis.outcomeCompletedAt) then
@@ -1700,6 +1867,8 @@ function Crisis.restore(source)
     return true, document
 end
 function Crisis.reset()
+    for actor, state in pairs(lateBedVoices) do stopLateBedVoice(actor, state) end
+    lateBedVoices = setmetatable({}, { __mode = "k" })
     document = emptyDocument()
     walks, turns, fearNext = {}, {}, {}
     scanCursor, characterTokens = 0, setmetatable({}, { __mode = "k" })

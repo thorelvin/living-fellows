@@ -23,6 +23,7 @@ require "SCBaseLife"
 require "SCWorkTransport"
 require "SCGatherWork"
 require "SCFarmWork"
+require "SCChefWork"
 require "SCBaseWork"
 require "SCInfectionCrisis"
 require "SCLifeEvents"
@@ -32,6 +33,7 @@ require "SCAutonomy"
 require "SCCommands"
 require "SCExpeditionRoute"
 require "SCExpeditionPrototype"
+require "SCBaseWatch"
 require "SCFactionRecruitment"
 
 local SC = SurvivorCompanion
@@ -89,7 +91,8 @@ end
 
 local function player()
     -- Split screen may make getPlayer() return the companion in slot 1.
-    if SC.ExpeditionPrototype and SC.ExpeditionPrototype.current()
+    if ((SC.ExpeditionPrototype and SC.ExpeditionPrototype.current())
+        or (SC.BaseWatch and SC.BaseWatch.current()))
         and type(getSpecificPlayer) == "function" then
         local ok, primary = pcall(getSpecificPlayer, 0)
         if ok and primary ~= nil then return primary end
@@ -351,6 +354,7 @@ end
 -- gated behind it.
 local function decisionTaskCore(current, budgetRemaining)
     if SC.ExpeditionPrototype then SC.ExpeditionPrototype.pulse() end
+    if SC.BaseWatch then SC.BaseWatch.pulse() end
     local startedAt = preciseNowMs()
     local records = SC.Registry.snapshot()
     local total = #records
@@ -372,6 +376,9 @@ local function decisionTaskCore(current, budgetRemaining)
         local anchor = SC.ExpeditionPrototype
             and SC.ExpeditionPrototype.contextFor(record.actor, currentPlayer)
             or currentPlayer
+        if SC.BaseWatch then
+            anchor = SC.BaseWatch.contextFor(record.actor, anchor)
+        end
         serviceRecord(record, current, anchor)
         local elapsed = math.max(0, preciseNowMs() - serviceStartedAt)
         -- A decision beat is not preemptible. Retain a decaying high-water
@@ -1189,6 +1196,11 @@ local function productionTickCore(current, tickStarted)
     if SC.ZombieAttack and type(SC.ZombieAttack.sustainPulse) == "function" then
         pcall(SC.ZombieAttack.sustainPulse, now)
     end
+    -- A native bobber advances every frame, while the decision lane only runs
+    -- every few hundred milliseconds. Keep it on this central tick hook.
+    if SC.Fishing and type(SC.Fishing.onTick) == "function" then
+        SC.Fishing.onTick()
+    end
     -- Peek is direct player input and must remain frame-smooth even when the AI
     -- scheduler yields under load. It only polls one key and writes one bounded
     -- camera offset while active or returning to the player.
@@ -1283,14 +1295,38 @@ end
 -- purpose. Adding the button in the "buttonsAdded" phase puts the companion
 -- in the list before the selection is resolved, so the pane keeps it, the
 -- button is clickable, and drag-and-drop behaves like any other container.
+local selectedBeforeContainerRefresh = setmetatable({}, { __mode = "k" })
 local function refreshInventoryContainers(page, phase)
-    if phase ~= "buttonsAdded" then return end
     if type(page) ~= "table" or page.onCharacter == true then return end
-    if type(page.addContainerButton) ~= "function" then return end
     local bridge = SC.UIBridge
     if type(bridge) ~= "table" or type(bridge.borrowedInventory) ~= "function" then return end
     local container, actor = bridge.borrowedInventory(page)
-    if container == nil then return end
+    if phase == "begin" then
+        selectedBeforeContainerRefresh[page] = container ~= nil
+            and page.inventoryPane ~= nil
+            and page.inventoryPane.inventory == container and container or nil
+        return
+    end
+    if phase == "end" then
+        local selected = selectedBeforeContainerRefresh[page]
+        selectedBeforeContainerRefresh[page] = nil
+        if selected == nil or selected ~= container or page.inventoryPane == nil
+            or page.inventoryPane.inventory == selected
+            or type(page.setNewContainer) ~= "function" then return end
+        for _, button in ipairs(page.backpacks or {}) do
+            if button.inventory == selected then
+                -- Vanilla prefers the first loot button whenever the rebuilt
+                -- list grew from one entry. That silently changes a borrowed
+                -- companion inventory to Ground; preserve the selection that
+                -- was active when this refresh began.
+                page:setNewContainer(selected)
+                return
+            end
+        end
+        return
+    end
+    if phase ~= "buttonsAdded" or container == nil
+        or type(page.addContainerButton) ~= "function" then return end
     if type(page.backpacks) == "table" then
         for _, button in ipairs(page.backpacks) do
             if type(button) == "table" and button.inventory == container then return end
@@ -1300,7 +1336,16 @@ local function refreshInventoryContainers(page, phase)
     if type(bridge.borrowedInventoryLabel) == "function" then
         label = bridge.borrowedInventoryLabel(actor) or label
     end
-    page:addContainerButton(container, nil, label, label)
+    -- A companion's root inventory normally has the same type as a corpse,
+    -- which makes vanilla choose its dead-person icon. Pass the stock schoolbag
+    -- texture explicitly; addContainerButton accepts it as a Texture and keeps
+    -- the companion's name as the button tooltip.
+    local icon
+    if type(getTexture) == "function" then
+        local found, texture = pcall(getTexture, "Item_Backpack_Black")
+        if found then icon = texture end
+    end
+    page:addContainerButton(container, icon, label, label)
 end
 
 -- The event boundary. A throwing handler here would break the player's whole
@@ -1503,6 +1548,9 @@ local function rollbackStartup(reason)
 end
 
 function runtime.start()
+    if SC.TVWatching and type(SC.TVWatching.install) == "function" then
+        SC.TVWatching.install()
+    end
     -- OnGameStart can be delivered more than once for the same loaded world.
     -- Once this runtime owns its scheduler and tick, startup is a read-only
     -- status query: tearing down here would dispose active native actors.
@@ -1674,6 +1722,16 @@ function runtime.reset(detach)
                     .. tostring(rollbackReason))
         end
     end
+    if SC.BaseWatch and type(SC.BaseWatch.prepareReset) == "function" then
+        local called, prepared, prepareReason = pcall(SC.BaseWatch.prepareReset)
+        if not called or prepared ~= true then
+            local restored, rollbackReason = restoreInfrastructure()
+            return false, "base watch reset preflight failed: "
+                .. tostring(called and prepareReason or prepared)
+                .. (restored and "" or "; infrastructure rollback failed: "
+                    .. tostring(rollbackReason))
+        end
+    end
 
     -- Cancel deferred restore tickets while retaining their records. The
     -- persistence module clears those records only after native teardown is
@@ -1758,6 +1816,7 @@ function runtime.reset(detach)
     resetModule("view control", SC.ViewControl, "reset")
     resetModule("steering", SC.Steering, "reset")
     resetModule("base work", SC.BaseWork, "reset")
+    resetModule("fishing", SC.Fishing, "reset")
     resetModule("base life", SC.BaseLife, "reset")
     resetModule("infection crisis", SC.InfectionCrisis, "reset")
     resetModule("autonomy", SC.Autonomy, "reset")
@@ -1767,6 +1826,8 @@ function runtime.reset(detach)
     resetModule("diary", SC.Diary, "reset")
     resetModule("life events", SC.LifeEvents, "reset")
     resetModule("expedition", SC.ExpeditionPrototype, "reset")
+    resetModule("base watch", SC.BaseWatch, "reset")
+    resetModule("companion view", SC.ViewSession, "reset")
 
     local schedulerReset = false
     if #resetFailures == 0 then
@@ -1897,7 +1958,10 @@ function runtime.onMainMenuEnter()
     local expedition = SC.ExpeditionPrototype
     local hasExpeditionState = expedition ~= nil
         and (expedition.current() ~= nil or expedition.export() ~= nil)
-    if hasExpeditionState then
+    local baseWatch = SC.BaseWatch
+    local hasBaseWatchState = baseWatch ~= nil
+        and (baseWatch.current() ~= nil or baseWatch.export() ~= nil)
+    if hasExpeditionState or hasBaseWatchState then
         local saved, saveReason = runtime.save()
         if not saved then return false, "expedition menu save failed: "
             .. tostring(saveReason) end

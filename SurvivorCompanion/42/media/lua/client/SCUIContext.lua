@@ -3,6 +3,7 @@
 require "ISUI/ISContextMenu"
 require "SCInteraction"
 require "SCConstructionPlanner"
+require "SCGameplayUtil"
 
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
@@ -156,6 +157,15 @@ end
 
 local function addCommand(menu, labelKey, id, command, payload, player)
     return menu:addOption(text(labelKey), nil, issueFromContext, id, command, payload, player)
+end
+
+local function addChefOrder(menu, row, player)
+    local base = SC.BaseLife
+    local resident = base and type(base.resident) == "function" and base.resident(row.id)
+    if resident and resident.role == "chef" and resident.duty == true
+        and base.active() and base.isInside(player) then
+        addCommand(menu, "UI_SC_Action_CookMeal", row.id, "cook_meal", nil, player)
+    end
 end
 
 local function addCategory(menu, labelKey)
@@ -447,9 +457,7 @@ local function findTarget(worldObjects, player)
             containerTarget = object
         end
         if not combatTarget then
-            local zombie = SC.GameplayUtil and type(SC.GameplayUtil.isZombie) == "function"
-                and SC.GameplayUtil.isZombie(object)
-                or (instanceof and instanceof(object, "IsoZombie"))
+            local zombie = SC.GameplayUtil.isZombie(object)
             local gone = SC.GameplayUtil and type(SC.GameplayUtil.isGoneTarget) == "function"
                 and SC.GameplayUtil.isGoneTarget(object) or false
             if zombie == true and gone ~= true then combatTarget = object end
@@ -499,6 +507,12 @@ end
 
 local function baseAction(target, action, payload, player)
     if not SC.BaseLife then return end
+    if SC.BaseWatch and SC.BaseWatch.isRemote
+        and SC.BaseWatch.isRemote(type(getSpecificPlayer) == "function"
+            and getSpecificPlayer(0) or player) then
+        safeMethod(player, "setHaloNote", text("UI_SC_BaseWatch_RadioOnly"))
+        return
+    end
     local ok, result
     if action == "create" then ok, result = SC.BaseLife.create(payload.square, "Main Camp")
     elseif action == "zone_begin" then ok, result = SC.BaseLife.beginZone(payload.kind, payload.square)
@@ -546,16 +560,34 @@ local function planNote(player, message)
 end
 
 local function startConstruction(_, kind, player)
+    if SC.BaseWatch and SC.BaseWatch.isRemote
+        and SC.BaseWatch.isRemote(type(getSpecificPlayer) == "function"
+            and getSpecificPlayer(0) or player) then
+        planNote(player, text("UI_SC_BaseWatch_RadioOnly"))
+        return
+    end
     local okay, reason = SC.ConstructionPlanner.start(kind, player)
     if not okay then planNote(player, SC.ConstructionPlanner.reasonText(reason)) end
 end
 
 local function startBarricadePlan(_, object, player)
+    if SC.BaseWatch and SC.BaseWatch.isRemote
+        and SC.BaseWatch.isRemote(type(getSpecificPlayer) == "function"
+            and getSpecificPlayer(0) or player) then
+        planNote(player, text("UI_SC_BaseWatch_RadioOnly"))
+        return
+    end
     local okay, reason = SC.ConstructionPlanner.startBarricade(object, player)
     if not okay then planNote(player, SC.ConstructionPlanner.reasonText(reason)) end
 end
 
 local function buildBlueprint(_, id, player)
+    if SC.BaseWatch and SC.BaseWatch.isRemote
+        and SC.BaseWatch.isRemote(type(getSpecificPlayer) == "function"
+            and getSpecificPlayer(0) or player) then
+        planNote(player, text("UI_SC_BaseWatch_RadioOnly"))
+        return
+    end
     local okay, reason = SC.ConstructionPlanner.buildSegment(player, id)
     planNote(player, okay and reason ~= "already_built"
         and text("UI_SC_Base_Blueprint_PlayerStarted")
@@ -563,6 +595,12 @@ local function buildBlueprint(_, id, player)
 end
 
 local function manageBlueprint(_, action, id, player)
+    if SC.BaseWatch and SC.BaseWatch.isRemote
+        and SC.BaseWatch.isRemote(type(getSpecificPlayer) == "function"
+            and getSpecificPlayer(0) or player) then
+        planNote(player, text("UI_SC_BaseWatch_RadioOnly"))
+        return
+    end
     local method = action == "retry" and SC.BaseLife.retryJob or SC.BaseLife.cancelJob
     local okay, reason = method(id)
     planNote(player, okay and text("UI_SC_Base_ActionAccepted")
@@ -658,6 +696,12 @@ local function addBaseMenu(context, square, containerTarget, barricadeTarget, pl
         and SC.BaseVisuals.status().enabled == true
     menu:addOption(text(layoutShown and "UI_SC_Base_Visual_Hide" or "UI_SC_Base_Visual_Show"),
         nil, toggleBaseLayout, player)
+    if SC.BaseWatch and SC.BaseWatch.isRemote
+        and SC.BaseWatch.isRemote(type(getSpecificPlayer) == "function"
+            and getSpecificPlayer(0) or player) then
+        addUnavailableOption(menu, text("UI_SC_BaseWatch_RadioOnly"))
+        return true
+    end
     menu:addOption(text("UI_SC_Base_Abandon"), nil, abandonBaseFromContext, player)
     if layoutShown then
         -- Ask BaseLife for every refusal rule, not only the last boundary: a
@@ -696,10 +740,10 @@ local function addBaseMenu(context, square, containerTarget, barricadeTarget, pl
         -- the bounded reach band around the camp.
         local upstairsArea = type(SC.BaseLife.mayExtendAreaToFloor) == "function"
             and SC.BaseLife.mayExtendAreaToFloor(square) == true
-        local kinds = inside and { "area", "work", "lumber", "farm", "burial", "pyre", "rest",
+        local kinds = inside and { "area", "work", "lumber", "farm", "fishing", "burial", "pyre", "rest",
             "social", "guard", "rally", "quarantine" }
             or upstairsArea and { "area" }
-            or { "lumber", "farm", "burial", "pyre" }
+            or { "lumber", "farm", "fishing", "burial", "pyre" }
         for _, kind in ipairs(kinds) do
             zoneMenu:addOption(text("UI_SC_Base_Zone_" .. kind), nil, baseAction, "zone_begin",
                 { square = square, kind = kind }, player)
@@ -1076,6 +1120,7 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
         context:addOption(text("UI_SC_Talk_To", clickedCompanion.name),
             nil, openTalkFromContext, clickedCompanion)
         if clickedCompanion.recruited == true then
+            addChefOrder(context, clickedCompanion, player)
             for _, action in ipairs(SC.Interaction.quickOrders) do
                 addInteractionShortcut(context, clickedCompanion, action, player)
             end
@@ -1107,6 +1152,7 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
             "UI_SC_Context_SelectedCompanion", selected.name)
         addWatchControl(selectedMenu, selected, player)
         addOrdersShortcut(selectedMenu, selected, player)
+        addChefOrder(selectedMenu, selected, player)
         selectedMenu:addOption(text("UI_SC_Talk_Open"), nil,
             openTalkFromContext, selected)
         addObjectiveAssignments(selectedMenu, selected, player)
@@ -1133,6 +1179,7 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
             otherMenu:addSubMenu(companionOption, companionMenu)
             addWatchControl(companionMenu, row, player)
             addOrdersShortcut(companionMenu, row, player)
+            addChefOrder(companionMenu, row, player)
             companionMenu:addOption(text("UI_SC_Talk_Open"), nil,
                 openTalkFromContext, row)
             addObjectiveAssignments(companionMenu, row, player)

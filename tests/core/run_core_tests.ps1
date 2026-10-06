@@ -163,12 +163,23 @@ try {
         Add-ScJvmStep 'view-control' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $viewControlFiles 'Companion Peek camera-control harness failed.'
 
         $expeditionRestartFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Client 'SCViewSession.lua'),
             (Join-Path $Client 'SCExpeditionRoute.lua'),
             (Join-Path $Client 'SCStairTransition.lua'),
             (Join-Path $Client 'SCExpeditionPrototype.lua'),
             (Join-Path $TestRoot 'expedition_restart_harness.lua')
         )
         Add-ScJvmStep 'expedition-restart' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $expeditionRestartFiles 'Expedition restart and casualty-return harness failed.'
+
+        $baseWatchFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Client 'SCViewSession.lua'),
+            (Join-Path $Client 'SCBaseWatch.lua'),
+            (Join-Path $TestRoot 'base_watch_harness.lua')
+        )
+        Add-ScJvmStep 'base-watch' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $baseWatchFiles 'Base Watch local-view, radio, and reload harness failed.'
 
         $expeditionPlacesFiles = @(
             (Join-Path $Shared 'SCNamespace.lua'),

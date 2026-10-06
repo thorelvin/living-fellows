@@ -34,6 +34,7 @@ local ZONE_COLORS = {
     quarantine = { r = 0.70, g = 0.22, b = 0.92 },
     lumber = { r = 0.36, g = 0.72, b = 0.20 },
     farm = { r = 0.48, g = 0.88, b = 0.16 },
+    fishing = { r = 0.12, g = 0.70, b = 0.92 },
     burial = { r = 0.62, g = 0.66, b = 0.78 },
     pyre = { r = 1.00, g = 0.42, b = 0.10 },
 }
@@ -273,6 +274,42 @@ local function fillArea(row, color, alpha)
     return false
 end
 
+-- Build recipe ghost sprites do not always survive outside the placement
+-- cursor. Keep a world-space guide for each queued segment so the plan stays
+-- visible until the job is built or cancelled, even if its sprite is absent.
+local function renderConstructionGuide(row, color, alpha)
+    local x, y, z = tonumber(row.x), tonumber(row.y), tonumber(row.z)
+    if not x or not y or not z then return false end
+    local tile = { x1 = x, y1 = y, x2 = x, y2 = y, z = z }
+    if row.kind == "floor" then
+        local filled = fillArea(tile, color, math.max(0.28, alpha * 0.7))
+        return renderRectangle(tile, color, 3, math.max(0.85, alpha)) or filled
+    end
+    if type(renderIsoLine) ~= "function" then
+        return fillArea(tile, color, math.max(0.24, alpha * 0.5))
+    end
+    local face = tonumber(row.face) or 1
+    local x1, y1, x2, y2 = x, y, x, y + 1
+    if face == 2 then
+        x2, y2 = x + 1, y
+    elseif face == 3 then
+        x1, x2, y2 = x + 1, x + 1, y + 1
+    elseif face == 4 then
+        y1, x2, y2 = y + 1, x + 1, y + 1
+    end
+    local strength = math.max(0.85, alpha)
+    renderIsoLine(x1, y1, z, x2, y2, z, 4,
+        color.r, color.g, color.b, strength)
+    -- The upright outline identifies a wall rather than another floor tile.
+    pcall(renderIsoLine, x1, y1, z + 1, x2, y2, z + 1, 2,
+        color.r, color.g, color.b, strength)
+    pcall(renderIsoLine, x1, y1, z, x1, y1, z + 1, 2,
+        color.r, color.g, color.b, strength)
+    pcall(renderIsoLine, x2, y2, z, x2, y2, z + 1, 2,
+        color.r, color.g, color.b, strength)
+    return true
+end
+
 local function storageTile(record)
     local x, y, z = tonumber(record.x), tonumber(record.y), tonumber(record.z)
     if x == nil or y == nil or z == nil then return nil end
@@ -345,6 +382,8 @@ local function currentDraft()
     return ok and draft or nil
 end
 
+local reportFailure
+
 function Visuals.renderWorld()
     local draft = currentDraft()
     refreshConstruction(false)
@@ -357,12 +396,28 @@ function Visuals.renderWorld()
                 or { r = 0.24, g = 0.70, b = 1.00 }
             local alpha = enabled and 0.58 or 0.35
             if row.type == "barricade" then
-                SC.ConstructionPlanner.renderBarricadeGhost(row, color, alpha)
+                local okay, rendered = pcall(
+                    SC.ConstructionPlanner.renderBarricadeGhost, row, color, alpha)
+                if not okay or rendered ~= true then
+                    reportFailure("base-visuals-barricade",
+                        okay and tostring(row.id) .. ": sprite unavailable" or rendered)
+                end
             else
                 local stages = type(row.stages) == "table" and row.stages or {}
                 local recipe = stages[#stages] or row.recipeId
-                SC.ConstructionPlanner.renderBuildGhost(recipe, row.face,
+                local okay, rendered = pcall(
+                    SC.ConstructionPlanner.renderBuildGhost, recipe, row.face,
                     row.x, row.y, row.z, color, alpha)
+                local guideOkay, guideRendered = pcall(
+                    renderConstructionGuide, row, color, alpha)
+                if not okay then
+                    reportFailure("base-visuals-build", rendered)
+                end
+                if not guideOkay or guideRendered ~= true then
+                    reportFailure("base-visuals-build-guide",
+                        guideOkay and tostring(row.id) .. ": guide unavailable"
+                            or guideRendered)
+                end
             end
         end
     end
@@ -613,7 +668,7 @@ local function renderCompanionLabels(occupied)
     return drawn
 end
 
-local LEGEND_ZONES = { "area", "work", "lumber", "farm", "burial", "pyre", "rest", "social",
+local LEGEND_ZONES = { "area", "work", "lumber", "farm", "fishing", "burial", "pyre", "rest", "social",
     "guard", "rally", "quarantine" }
 local LEGEND_STORAGE = { "food", "water", "medical", "tools", "construction", "crafting",
     "literature", "weapons", "ammunition", "general", "output", "memorial", "farming" }
@@ -700,7 +755,7 @@ function Visuals.renderLabels()
     return true
 end
 
-local function reportFailure(system, detail)
+reportFailure = function(system, detail)
     local current = now()
     if current - (lastReportAt[system] or -10000) < 5000 then return end
     lastReportAt[system] = current

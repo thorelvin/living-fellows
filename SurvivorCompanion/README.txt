@@ -1,4 +1,7 @@
-Living Fellows 0.26.25 - public playtest
+Living Fellows 0.26.28 - public playtest
+
+This build adds camp Base Watch, fishing and Chef jobs, longer companion rest,
+shoreline fishing targets, and a construction placement fix.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added
@@ -23,9 +26,9 @@ GETTING STARTED
   nearby location, task, time to turn home and combat style. Departure needs
   no radio; remote Return immediately needs powered, equipped walkie-talkies
   on the player and leader, tuned to the same channel.
-- Hold Left bracket to peek through the selected companion and Right bracket
-  to steer them toward the mouse; both keys are rebindable. Right-click a
-  nearby companion to Watch, and right-click again to Stop watching.
+- Hold keypad 1 to peek through the selected companion, press keypad 2 to
+  toggle Watch, and hold keypad 3 to steer them toward the mouse. All three
+  keys are rebindable. Watch and Stop watching are also in the right-click menu.
 - Right-click the world for the Living Fellows menu: move here, doors,
   barricades, room checks, squad signals and base work.
 - More > Support shows runtime health and a copyable diagnostic report.

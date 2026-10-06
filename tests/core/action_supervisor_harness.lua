@@ -21,6 +21,15 @@ end
 
 Supervisor.reset(nil, "fixture")
 local actor = testActor("supervisor-a")
+local exitingChair = testActor("chair-exit-without-seat-flag")
+function exitingChair:isSittingOnFurniture() return false end
+function exitingChair:getCurrentActionContextStateName() return self.context end
+exitingChair.context = "SitOnFurniture"
+check(SC.NativeActions.seatingStatus(exitingChair) == "furniture",
+    "a failed chair entry still counts as seated until its native pose exits")
+exitingChair.context = "Idle"
+check(SC.NativeActions.seatingStatus(exitingChair) == "standing",
+    "the same actor becomes movable once the chair pose exits")
 local cancelled = 0
 local work = assert(Supervisor.begin(actor, {
     owner = "scavenge", action = "loot_container", targetKey = "container:1",

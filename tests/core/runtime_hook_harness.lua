@@ -152,6 +152,12 @@ SC.Runtime.reset(true)
     end
     local borrowedFor = nil
     local savedBridge = SC.UIBridge
+    local savedGetTexture = getTexture
+    local backpackIcon = {}
+    getTexture = function(key)
+        check(key == "Item_Backpack_Black", "companion uses the stock backpack icon")
+        return backpackIcon
+    end
     SC.UIBridge = {
         borrowedInventory = function(page)
             if borrowedFor ~= nil and page ~= borrowedFor then return nil end
@@ -167,7 +173,8 @@ SC.Runtime.reset(true)
     local function lootPage()
         local page = { onCharacter = false, backpacks = { { inventory = otherInventory } } }
         function page:addContainerButton(inventory, texture, name, tooltip)
-            local button = { inventory = inventory, name = name, tooltip = tooltip }
+            local button = { inventory = inventory, texture = texture,
+                name = name, tooltip = tooltip }
             self.backpacks[#self.backpacks + 1] = button
             return button
         end
@@ -177,8 +184,28 @@ SC.Runtime.reset(true)
     local page = lootPage()
     SC_RUNTIME_FIXTURE.fireRefresh(page, "buttonsAdded")
     check(#page.backpacks == 2 and page.backpacks[2].inventory == companionInventory
-            and page.backpacks[2].name == "Sam Vance",
+            and page.backpacks[2].name == "Sam Vance"
+            and page.backpacks[2].texture == backpackIcon,
         "the companion whose inventory is open is put back into the rebuilt container list")
+
+    local rebuilding = lootPage()
+    rebuilding.inventoryPane = { inventory = companionInventory }
+    function rebuilding:setNewContainer(inventory)
+        self.inventoryPane.inventory = inventory
+        self.inventory = inventory
+    end
+    SC_RUNTIME_FIXTURE.fireRefresh(rebuilding, "begin")
+    SC_RUNTIME_FIXTURE.fireRefresh(rebuilding, "buttonsAdded")
+    rebuilding.inventoryPane.inventory = otherInventory -- vanilla's one-to-two fallback
+    SC_RUNTIME_FIXTURE.fireRefresh(rebuilding, "end")
+    check(rebuilding.inventoryPane.inventory == companionInventory,
+        "a refresh keeps the open companion selected when vanilla falls back to Ground")
+
+    rebuilding.inventoryPane.inventory = otherInventory -- deliberate player selection
+    SC_RUNTIME_FIXTURE.fireRefresh(rebuilding, "begin")
+    SC_RUNTIME_FIXTURE.fireRefresh(rebuilding, "end")
+    check(rebuilding.inventoryPane.inventory == otherInventory,
+        "a deliberate selection of another container is not overridden")
 
     -- Only in the phase that runs before the selection is resolved, and never
     -- twice for one rebuild.
@@ -211,6 +238,7 @@ SC.Runtime.reset(true)
         "a failing companion-container hook does not escape into the inventory window")
 
     SC.UIBridge = savedBridge
+    getTexture = savedGetTexture
     SC.Runtime.reset(true)
     check(SC_RUNTIME_FIXTURE.refreshCount() == 0,
         "resetting the runtime gives the inventory-refresh event back")

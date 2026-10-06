@@ -2,6 +2,56 @@
 
 # Changelog
 
+## 0.26.28 - Shoreline expedition and construction fix
+
+- Fishing expeditions now list confirmed loaded fishing banks instead of buildings. The selected bank is rechecked before departure and used as the route destination.
+- Only the fishing leader needs a rod and bait to depart. Equipped teammates can also fish; ungeared teammates stay with the squad.
+- Floor and wall planning now pass Build 42 the native container list it requires. Companion construction uses the same corrected list type, removing the repeated placement errors seen in the playtest log.
+- Taking a meal out of the oven or campfire before the Chef collects it now closes that cooking job. The job used to retry the missing pot forever and refuse every cancel, which kept the Chef on duty, blocked role changes and stopped the camp from being abandoned.
+- A Chef who cannot reach a supply, fridge or stove now reports the job as blocked instead of counting the attempt as progress.
+- A worker carrying sorted items returns them to their marked storage after the area has reloaded. Until the next game load, cancelling that job, leaving duty and the night pause used to be refused.
+- Companions reading skill-book volumes 2 to 5 get that volume's vanilla XP multiplier. Volumes 2 and 3 used a later volume's value, and volumes 4 and 5 gave none.
+- A stray hit while zombies or hostiles are on a companion draws a complaint, not a strike. Strikes fade after six game hours without another hit, so occasional accidents no longer add up to hostility.
+- The camp check-in activity has its spoken description again, which the source gate requires.
+- A blocked base job used to retry every ten seconds forever. It now waits twice as long after each failure, up to ten minutes. After six failures in a row it stops and appears under **Stalled jobs** in the Base view with its reason and Retry and Cancel buttons. Gathering and production jobs keep their order's own controls.
+- Base Watch keeps working when the game refuses to keep a dead resident's corpse loaded. That corpse is saved like any other, the Base tab shows a warning, and a dead leader is still replaced. The watch used to stop every update there, so it could never end.
+- A tired angler goes to bed before fishing again. With outdoor work allowed at night, anglers used to fish around the clock.
+- When a companion's strikes fade, the follow distance you had set before the second hit comes back, unless you have changed it since.
+- Paging through the fishing-bank list on the expedition planner reuses one shoreline scan; **Refresh** scans again.
+- Gameplay, core, UI and source regressions cover each fix, and each new test was confirmed to fail with its fix reverted.
+
+## 0.26.27 - Camp life playtest
+
+- Base Watch can place an indoor base-duty companion in the second local view while the player travels, keeping nearby camp work loaded. The watched resident can be replaced if they leave or die; remote status and defense changes require a confirmed radio exchange.
+- Anglers can fish from a marked camp area or on a fishing expedition. Native catches and fish sent to marked Food storage are covered by the gameplay harness; bank positioning and catches still merit a live playtest.
+- Chefs can prepare salads, sandwiches, soups, stews, stir fry and pasta from real camp ingredients and tools, cook hot dishes on an oven or lit campfire, and store safe food in a powered camp fridge. A one-time **Cook me a meal** order delivers a dish to the player. The focused native recipe probe passed; full cooking and fridge delivery still need a live playtest.
+- Tired residents can choose a bed before claiming another base job. They sleep for several game hours with gradual fatigue recovery; chair sitting now varies from 25 to 85 game minutes. Danger and new orders can interrupt rest.
+- The Base tab gives policy toggles separate wrapped labels and On/Off buttons, shortens stock rows, and hides an old scroll panel before rebuilding it to prevent overlapping controls and tooltips.
+- Camp, bed, stair and follower recovery paths received further fixes for failed furniture actions, stranded movement and stale restrictions. Automated regressions cover these paths; visually check furniture and stairs in a disposable save.
+
+## 0.26.26 - Project A-Life coexistence playtest
+
+- Camp work now pauses outdoors from 21:00 to 06:00 by default; workers head indoors and resume queued work in daylight. Base > Policies has a Work outside at night override. New saves and older saves both start with it off.
+- Camp downtime can include window watching, gear checks, squad radio checks, tidying marked storage, cleaning blood with the game's native action, and towel-based weather recovery. Window watchers open closed curtains and wait for a free spot.
+- Companions can watch a powered, audible TV during downtime, choosing a seat that faces the screen or standing in view. Skill shows and VHS lines award their normal XP and recipes to each actual viewer, and learned lines stay learned across saves.
+- Companions borrow books from marked storage, read by chapter at camp or while travelling, keep progress across saves, and discuss books with one another. Eligible skill books advance their native reading multiplier.
+- Blocked workers can approach the player to report a missing tool. Marked storage scans and verified deposits are improved, and a woodcutter can collect a dropped log from its walkable square.
+- Player-led teams can opt into the expedition-style open-ground fan-out formation under combat orders. Narrow passages retain the trail formation.
+- Repeated player attacks on a companion produce warnings, memories, distance, and eventually hostility. A badly hurt player can receive one ceasefire; attacking after it restarts the fight.
+- Added companion Peek, Watch, and Steer controls on rebindable keypad 1, 2, and 3. Watch also appears in the companion context menu.
+- Turning companions at 90% Knox progress can be offered bleach as an optional crisis outcome; they may refuse. Drinking uses a real carried item and native action.
+- Build 42.21 construction recipe lookup is corrected so valid plans can be placed. The More menu removes obsolete tooltips on refresh.
+- Near the end of Knox infection, companions develop a worsening shamble from 90% onward and occasionally groan while resting on a bed. The symptoms use verified Knox progress, preserving real injury animation and staying quiet for other illnesses.
+- Companions have more to say during routine work, while following the player, and when engaging one or two zombies. New lines mix Kentucky references with dry post-apocalypse humor and add stressed, low and hopeful banter variants.
+- Living Project A-Life NPCs use zombie-shaped game objects. LF now recognizes A-Life's ownership marker, so those NPCs are excluded from LF zombie threats, zombie combat targets, spawn danger counts and zombie context actions, while still blocking movement as people.
+- LF leaves an ordinary zombie's target alone while A-Life's horde controller holds it, then resumes normal targeting after release.
+- Nearby A-Life NPCs enter LF's neutral protected-person snapshot immediately, so companions avoid firing through them. They do not join LF's party, faction, combat support or relationship memories; dead, unloaded and stale contacts leave the list. Outside bystanders have their own bounded protection slots, so the LF ally limit cannot hide one farther down a firing lane.
+- When A-Life's relationship API reports an NPC hostile to the player, a visible NPC becomes a human combat threat to recruited companions and leaves the protected firing lane. A direct native attack target is a fallback; ordinary A-Life combat activity does not imply hostility. A truce clears the threat, and the combat delegate rechecks stance before acting.
+- Recognize A-Life's alternate actor ownership marker as well. When A-Life and LF hostiles are both visible, companions choose the closer human threat; a stale A-Life contact loses priority as soon as its truce is observed.
+- A shell generation mismatch cannot borrow an older A-Life actor's hostile stance.
+- Hostility checks use A-Life's in-memory actor lookup when available, avoiding a copied actor record on every combat decision.
+- Gameplay and UI harnesses cover the classification and targeting paths. Test coexistence on a disposable save with both mods enabled; interactions between their separate native combat controllers still need an in-game check.
+
 ## 0.26.25 - Dismissal, basements and clean water
 
 - Dismissing a companion now works. Its farewell walk was sent without a direction, so the mod's movement layer refused it and the dismissal failed with it. The companion now walks away from you.

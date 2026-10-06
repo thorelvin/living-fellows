@@ -292,6 +292,39 @@ public final class SCSplitScreenProbe {
         return successor;
     }
 
+    /** Keep the watched area loaded when a living base leader must retreat. */
+    public static SCNativeCompanion handoffLiving(SCNativeCompanion successor) {
+        SCNativeCompanion previous = leader;
+        IsoPlayer[] slots = IsoPlayer.players;
+        IsoPlayer primary = slots == null || slots.length != 4 ? null : slots[0];
+        if (previous == null || previous.isDead() || successor == null
+                || successor == previous || !SCBridge.isCompanion(successor)
+                || !successor.isBridgeHealthy() || successor.isDead()
+                || successor.getCurrentSquare() == null || primary == null
+                || IsoPlayer.numPlayers != 2 || slots[1] != previous
+                || slots[2] != null || slots[3] != null
+                || previous.getZ() != successor.getZ()
+                || Math.abs(previous.getX() - successor.getX()) > 16.0f
+                || Math.abs(previous.getY() - successor.getY()) > 16.0f
+                || (previous.sqlId != -1 && previous.sqlId == primary.sqlId)
+                || (successor.sqlId != -1 && successor.sqlId == primary.sqlId)
+                || (successor.sqlId >= 2 && successor.sqlId != previous.sqlId)) {
+            throw new IllegalStateException("living companion view handoff is unavailable");
+        }
+        // LF persists the former leader as a companion. Only slot 1 may retain
+        // the game's local-player row; otherwise a later native save can grow
+        // duplicate local rows when this view changes hands repeatedly.
+        int slotSqlId = previous.sqlId;
+        previous.unmarkCoopLeaderForProbe();
+        previous.sqlId = -1;
+        successor.sqlId = slotSqlId;
+        successor.markCoopLeaderForProbe();
+        leader = successor;
+        slots[1] = successor;
+        IsoPlayer.setInstance(primary);
+        return successor;
+    }
+
     /** Replace the temporary remote loader with the exact restored LF actor. */
     public static boolean replaceColdProbeWithRestoredLeader(
             SCNativeCompanion restored, int savedSlotSqlId) {

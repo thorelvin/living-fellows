@@ -191,16 +191,21 @@ SC.Navigation = {
         end
         return { square }
     end,
-    requestAny = function(actor, candidates)
+    requestAny = function(actor, candidates, _, intent)
         if rejectNavigation then return false, "fixture_unreachable" end
         local candidate = candidates and candidates[1]
         local target = SC.GameplayUtil.squareOf(candidate) or candidate
-        if target and SC.GameplayUtil.sameSquare(actor, target) then
+        if target and (intent and intent.requireSameSquare == false
+            and SC.GameplayUtil.arrived(actor, target, {
+                targetKind = "square", distance = intent.arrivalDistance,
+            }) or (not intent or intent.requireSameSquare ~= false)
+            and SC.GameplayUtil.sameSquare(actor, target)) then
             return true, "arrived", target
         end
         if not target then return false, "fixture_target_missing" end
         navigationStarts = navigationStarts + 1
-        actor.square, actor.x, actor.y, actor.z = target, target.x, target.y, target.z
+        actor.square, actor.x, actor.y, actor.z =
+            target, target.x + 0.5, target.y + 0.5, target.z
         return true, "fixture_path_started", target
     end,
 }
@@ -272,6 +277,21 @@ end
 
 -- G01/G03/G18: the production dispatcher moves one exact floor log into the
 -- registered storage, never counts existing stock, and leaves unrelated gear.
+do
+    local ctx = setup("logs", 1)
+    local log = makeItem("Base.Log")
+    putOnGround(ctx.source, log)
+    local receipt = reserveCandidate(ctx, ctx.actor, log)
+    -- Crossing into the log's tile is not yet close enough to pick it up.
+    ctx.actor.square, ctx.actor.x, ctx.actor.y = ctx.source, 0.02, 1.02
+    local startsBefore = navigationStarts
+    local handled, reason = SC.GatherWork.update(ctx.actor, {}, ctx.base.jobs[1])
+    check(handled == true and reason == "fixture_path_started"
+            and navigationStarts == startsBefore + 1
+            and receipt.phase == "selected" and #ctx.source.worldItems == 1,
+        "ground pickup walks to the log instead of looting from the edge of its tile")
+end
+
 do
     local ctx = setup("logs", 1)
     local stock = makeItem("Base.Log")

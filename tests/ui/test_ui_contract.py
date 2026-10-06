@@ -110,6 +110,16 @@ def model_layout(
     columns = 3
     while columns > 1 and detail_width // columns < maximum_label_width:
         columns -= 1
+    minimum_detail_height = (
+        5 * metrics["info_line_height"]
+        + (12 + 2 * metrics["info_line_height"]) + 14
+    )
+    tab_budget = max(metrics["tab_height"],
+                     height - (metrics["header_height"] + 1) - 10
+                     - minimum_detail_height)
+    affordable_rows = max(1, tab_budget // metrics["tab_height"])
+    columns = min(3, max(columns,
+                         (len(tab_labels) + affordable_rows - 1) // affordable_rows))
     rows = (len(tab_labels) + columns - 1) // columns
     tab_top = metrics["header_height"] + 1
     detail_y = tab_top + rows * metrics["tab_height"] + 3
@@ -245,11 +255,11 @@ class UISizingTests(unittest.TestCase):
         en_data = json.loads(read(TRANSLATE / "EN" / "UI.json"))
         labels = [
             en_data[f"UI_SC_Tab_{name}"]
-            for name in ("Status", "Orders", "Squad", "Loadout", "More")
+            for name in ("Status", "Orders", "Squad", "Expeditions", "Loadout", "More")
         ]
         layout = model_layout(410, 600, 14, 7, labels)
         content_height = orders_content_height(14)
-        self.assertEqual(layout["detail_height"], 501)
+        self.assertEqual(layout["detail_height"], 475)
         self.assertGreaterEqual(content_height, 670)
         self.assertLessEqual(content_height, 710)
         self.assertGreater(content_height, layout["detail_height"])
@@ -259,7 +269,7 @@ class UISizingTests(unittest.TestCase):
         en_data = json.loads(read(TRANSLATE / "EN" / "UI.json"))
         tab_labels = [
             en_data[f"UI_SC_Tab_{name}"]
-            for name in ("Status", "Orders", "Squad", "Loadout", "More")
+            for name in ("Status", "Orders", "Squad", "Expeditions", "Loadout", "More")
         ]
         action_labels = [
             value
@@ -286,6 +296,16 @@ class UISizingTests(unittest.TestCase):
                         self.assertLessEqual(button_width + 8, content_width)
                         self.assertEqual(content_width, layout["detail_width"])
                     self.assertGreater(orders_content_height(font_height), layout["detail_height"])
+
+    def test_large_font_tabs_leave_a_usable_detail_view_at_minimum_height(self) -> None:
+        en_data = json.loads(read(TRANSLATE / "EN" / "UI.json"))
+        labels = [en_data[f"UI_SC_Tab_{name}"] for name in (
+            "Status", "Orders", "Squad", "Expeditions", "Loadout", "More")]
+        layout = model_layout(380, 360, 24, 12, labels)
+        self.assertEqual(layout["tab_rows"], 2)
+        self.assertGreaterEqual(layout["detail_height"], 220)
+        self.assertGreaterEqual(layout["detail_height"]
+                                - (12 + 2 * layout["info_line_height"]), 150)
 
 
 class UIStaticContractTests(unittest.TestCase):
@@ -466,8 +486,17 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn('"UI_SC_Base_JobRoleSelector"', base)
         self.assertIn('"set_base_role", "role"', base)
         self.assertIn('resident and resident.duty and resident.role or "off"', base)
-        self.assertNotIn('"retry_job"', base)
-        self.assertNotIn('"cancel_job"', base)
+        # The role-driven Base view has no per-job controls, except for a job
+        # that stopped retrying on its own and now waits for the player.
+        stalled = base[base.index("if #stalled > 0 then"):]
+        self.assertIn("job.parked == true", base)
+        self.assertIn("for _, job in ipairs(stalled) do", stalled)
+        self.assertNotIn("math.min(#stalled", stalled)
+        self.assertEqual(base.count('"retry_job"'), 1)
+        self.assertEqual(base.count('"cancel_job"'), 1)
+        self.assertIn('"retry_job"', stalled)
+        self.assertIn('"cancel_job"', stalled)
+        self.assertIn('"UI_SC_Base_CancelJobConfirm"', stalled)
         self.assertNotIn('for amount = 1, 100 do', self.ui)
         self.assertNotIn('"start_gather"', base)
         self.assertNotIn('"release_gather_cargo"', base)
@@ -652,6 +681,25 @@ class UIStaticContractTests(unittest.TestCase):
             "UI_SC_Quest_HordeProgress",
         }
         self.assertFalse(required - set(self.translations))
+
+    def test_quest_body_scrolls_clear_of_rewards_feedback_and_actions(self) -> None:
+        children = lua_function(self.ui, "function SCUIQuestDialog:createChildren()")
+        render = lua_function(self.ui, "function SCUIQuestDialog:prerender()")
+        self.assertIn("SCUIClippedScrollPanel:new", children)
+        self.assertIn("body:setScrollHeight", children)
+        self.assertIn("self.mode == \"offer\" and 145 or 245", children)
+        self.assertIn("self:getHeight() - 146", children)
+        self.assertIn("self:getHeight() - 101", render)
+        self.assertIn("self:getHeight() - 74", render)
+        for height in (328, 440):
+            offer_body_bottom = 48 + max(60, height - 145)
+            reward_body_bottom = 48 + max(60, height - 245)
+            self.assertLess(offer_body_bottom, height - 74)
+            self.assertLess(reward_body_bottom, height - 177)
+            self.assertLess(height - 177 + 24, height - 146)
+            self.assertLess(height - 146 + 38, height - 101)
+            self.assertLess(height - 101 + 24, height - 74)
+            self.assertLess(height - 74 + 24, height - 46)
 
     def test_household_entrance_context_opens_real_conversation(self) -> None:
         finder = lua_function(self.context, "local function talkableFactions(player)")
@@ -1261,7 +1309,7 @@ class UIStaticContractTests(unittest.TestCase):
 
     def test_base_layout_overlay_has_hotkey_and_context_toggle(self) -> None:
         self.assertIn('UI.LAYOUT_HOTKEY_ACTION = "Toggle Living Fellows base layout"', self.ui)
-        self.assertIn("UI.DEFAULT_LAYOUT_HOTKEY = Keyboard.KEY_END", self.ui)
+        self.assertIn("UI.DEFAULT_LAYOUT_HOTKEY = Keyboard.KEY_INSERT", self.ui)
         hotkey = lua_function(self.ui, "function UI.onKeyPressed(key)")
         self.assertIn("UI.LAYOUT_HOTKEY_ACTION", hotkey)
         self.assertIn("UI.toggleBaseLayout()", hotkey)
@@ -1355,7 +1403,7 @@ class UIStaticContractTests(unittest.TestCase):
             'UI.PEEK_HOTKEY_ACTION = "Hold to peek through selected companion"',
             self.ui,
         )
-        self.assertIn("UI.DEFAULT_PEEK_HOTKEY = Keyboard.KEY_LBRACKET", self.ui)
+        self.assertIn("UI.DEFAULT_PEEK_HOTKEY = Keyboard.KEY_NUMPAD1", self.ui)
         peek = lua_function(self.ui, "function UI.peekHotkey()")
         self.assertIn("configured ~= nil", peek)
         self.assertIn("return tonumber(configured)", peek)
@@ -1369,12 +1417,24 @@ class UIStaticContractTests(unittest.TestCase):
             'UI.STEER_HOTKEY_ACTION = "Hold to steer selected companion"',
             self.ui,
         )
-        self.assertIn("UI.DEFAULT_STEER_HOTKEY = Keyboard.KEY_RBRACKET", self.ui)
+        self.assertIn("UI.DEFAULT_STEER_HOTKEY = Keyboard.KEY_NUMPAD3", self.ui)
         steer = lua_function(self.ui, "function UI.steerHotkey()")
         self.assertIn("UI.STEER_HOTKEY_ACTION", steer)
         self.assertIn("configured ~= nil", steer)
         self.assertIn("return tonumber(configured)", steer)
         self.assertIn("return UI.DEFAULT_STEER_HOTKEY", steer)
+
+    def test_watch_toggles_with_keypad_two_and_returns_to_player(self) -> None:
+        self.assertIn('UI.WATCH_HOTKEY_ACTION = "Toggle watch selected companion"', self.ui)
+        self.assertIn("UI.DEFAULT_WATCH_HOTKEY = Keyboard.KEY_NUMPAD2", self.ui)
+        self.assertIn("UI.WATCH_HOTKEY_ACTION then watchFound = true", self.ui)
+        hotkey = lua_function(self.ui, "function UI.onKeyPressed(key)")
+        self.assertIn("UI.watchHotkey()", hotkey)
+        self.assertIn("UI.toggleWatch()", hotkey)
+        toggle = lua_function(self.ui, "function UI.toggleWatch(player)")
+        self.assertIn("view.watch(row.id, row.actor)", toggle)
+        self.assertIn("view.stopWatching()", toggle)
+        self.assertIn('UI.text("UI_SC_Watch_NoSelection")', toggle)
 
     def test_menu_toggle_uses_paired_vanilla_ui_sounds(self) -> None:
         self.assertIn('UI.MENU_OPEN_SOUND = "UIVehicleMenuOpen"', self.ui)
@@ -1439,7 +1499,7 @@ class UIStaticContractTests(unittest.TestCase):
         guard = None
         for index, line in enumerate(lines):
             if "for _, outcome in ipairs" in line and index > 0:
-                guard = lines[index - 1]
+                guard = "\n".join(lines[max(0, index - 3):index])
                 break
         self.assertIsNotNone(guard, "outcome buttons must come from one guard")
         self.assertNotIn(
@@ -1449,10 +1509,13 @@ class UIStaticContractTests(unittest.TestCase):
         )
         self.assertIn('crisis.phase ~= "terminal"', guard)
         self.assertIn("finalAuthorized", guard)
+        self.assertIn("crisis.knownToViewer", guard)
         # Only an explicit release clears the restriction: BaseLife refuses base
         # jobs under the watch restriction as well as under quarantine.
         self.assertIn("UI_SC_Base_ReleaseCrisis", panel)
         self.assertIn('"release"', panel)
+        self.assertIn("crisisByResident[residentRow.id]", panel)
+        self.assertIn("crisis.knownToViewer", panel)
         handler = lua_function(self.ui, "local function onCrisisButton(target, button)")
         self.assertIn("SC.InfectionCrisis.release", handler)
 

@@ -5,6 +5,7 @@ if type(require) == "function" then
     pcall(require, "SCWorkTransport")
     pcall(require, "SCGatherWork")
     pcall(require, "SCFarmWork")
+    pcall(require, "SCChefWork")
     pcall(require, "SCNativeList")
     pcall(require, "BuildingObjects/TimedActions/ISBuildAction")
     pcall(require, "TimedActions/ISTimedActionQueue")
@@ -21,17 +22,20 @@ SC.BaseWork = SC.BaseWork or {}
 local BaseWork = SC.BaseWork
 
 local states = setmetatable({}, { __mode = "k" })
+local storageItemCursors = setmetatable({}, { __mode = "k" })
 local maintenanceCursor = 1
 local auditPhase = 0
 local nextRoutineJobAt = 0
 local buildRecipeAliases = {
-    wall_frame = { "ES_Wood_Wallframe" },
-    wall = { "ES_Wood_WallLvl1", "ES_Wood_WallLvl2", "ES_Wood_WallLvl3" },
-    floor = { "ES_WoodFloorLvl1", "ES_WoodFloorLvl2", "ES_WoodFloorLvl3" },
-    door_frame = { "ES_Wood_DoorframeLvl1", "ES_Wood_DoorframeLvl2", "ES_Wood_DoorframeLvl3" },
-    door = { "ES_Wood_DoorLvl1", "ES_Wood_DoorLvl2", "ES_Wood_DoorLvl3" },
-    -- Burial markers are ordinary Build 42 buildable entities.
-    grave_marker = { "ES_WoodCross", "WoodCross", "ES_RuggedCross", "RuggedCross" },
+    -- GetAllBuildableEntities() exposes EntityScript:getName(), not the
+    -- UiConfig entityStyle IDs used by the crafting window.
+    wall_frame = { "WoodenWallFrame" },
+    wall = { "WoodenWallLvl1", "WoodenWallLvl2", "WoodenWallLvl3" },
+    floor = { "WoodFloorLvl1", "WoodFloorLvl2", "WoodFloorLvl3" },
+    door_frame = { "WoodDoorFrameLvl1", "WoodDoorFrameLvl2", "WoodDoorFrameLvl3" },
+    door = { "WoodenDoorLvl1", "WoodenDoorLvl2", "WoodenDoorLvl3" },
+    -- Burial markers use the same EntityScript names.
+    grave_marker = { "WoodCross", "RuggedCross" },
 }
 
 local function U()
@@ -66,6 +70,31 @@ local function stateFor(actor)
     return state
 end
 
+local function reportBlockedTool(actor, player, state, runtime)
+    if actor == player then return end
+    local pending = state.pendingToolRequest
+    if not pending or not SC.Dialogue
+        or type(SC.Dialogue.requestMissingTool) ~= "function" then return end
+    local job = SC.BaseLife and SC.BaseLife.job(pending.jobId) or nil
+    if not job or job.state == "completed" or job.state == "cancelled"
+        or now() - pending.createdAt > 600000 then
+        state.pendingToolRequest = nil
+        return
+    end
+    -- The worker may have found the tool on a retry. Only approach while the
+    -- job is still blocked for the same shortage.
+    if job.state ~= "blocked" or job.blocker ~= pending.reason then return end
+    local snapshot = type(runtime) == "table"
+        and (runtime.snapshot or (type(runtime.senses) == "table"
+            and runtime.senses.current)) or nil
+    SC.Dialogue.requestMissingTool(actor, player, pending.kind, snapshot, function()
+        if state.pendingToolRequest == pending then state.pendingToolRequest = nil end
+    end, function()
+        return state.pendingToolRequest == pending
+            and job.state == "blocked" and job.blocker == pending.reason
+    end)
+end
+
 local function actorId(actor)
     return U().idOf(actor)
 end
@@ -98,7 +127,9 @@ local function resolveRecipeName(info)
     local script, ok = invoke(info, "getScript")
     if not ok or not script then return nil end
     local name, nameOk = invoke(script, "getName")
-    return nameOk and tostring(name) or nil
+    if not nameOk or name == nil then return nil end
+    -- Some script wrappers qualify the module (Base.WoodenWallLvl1).
+    return tostring(name):match("[^%.]+$")
 end
 
 local recipeInfoCache = {}
@@ -271,6 +302,30 @@ local function sourceCategories(requirement)
     return { "construction", "crafting", "general" }
 end
 
+-- Keep work scans bounded, but rotate their starting position so supplies
+-- beyond the first budgeted items are eventually considered too.
+local function storageItemSlice(container)
+    local items, readable = U().call(container, "getItems")
+    if not readable then items = type(container) == "table" and container.items or nil end
+    local size = U().listSize(items)
+    if size == 0 then return {}, 0 end
+    local budget = math.max(1, math.floor(tonumber(U().config("campStorageItemBudget")) or 80))
+    local count = math.min(size, budget)
+    local start = (storageItemCursors[container] or 0) % size
+    local result = {}
+    for offset = 0, count - 1 do
+        local item = U().listGet(items, (start + offset) % size)
+        if item ~= nil then result[#result + 1] = item end
+    end
+    storageItemCursors[container] = (start + count) % size
+    return result, start
+end
+
+local function sourceItemAvailable(storage, itemType)
+    if SC.BaseLife.storageReserve(storage, itemType) == 0 then return true end
+    return SC.BaseLife.availableCountExact(storage, itemType) > 0
+end
+
 local function findSource(actor, requirement)
     -- Craft inputs are alternatives (for example any usable hammer), so an
     -- absent first type must not reject a later type already carried.
@@ -278,19 +333,26 @@ local function findSource(actor, requirement)
         local have = inventoryCount(actor, itemType)
         if have >= requirement.count then return false end
     end
+    -- One container window must be tested against every alternative. Advancing
+    -- its cursor once per type can alternate disjoint half-container windows
+    -- forever when the budget is half the container size.
+    local windows = {}
     for _, itemType in ipairs(requirement.types) do
         for _, category in ipairs(sourceCategories(requirement)) do
             for _, storage in ipairs(SC.BaseLife.storageRows(category, true)) do
-                if SC.BaseLife.availableCount(storage, itemType) > 0 then
-                    local container = SC.BaseLife.resolveContainer(storage)
-                    if container then
-                        for _, item in ipairs(U().inventoryItems(container,
-                            U().config("campStorageItemBudget") or 80)) do
-                            if U().itemType(item) == itemType
-                                and not (SC.PersonalItems and SC.PersonalItems.isProtected
-                                    and SC.PersonalItems.isProtected(item, actor, "base_build")) then
-                                return storage, container, item, itemType
-                            end
+                local container = SC.BaseLife.resolveContainer(storage)
+                if container then
+                    local items = windows[container]
+                    if items == nil then
+                        items = storageItemSlice(container)
+                        windows[container] = items
+                    end
+                    for _, item in ipairs(items) do
+                        if U().itemType(item) == itemType
+                            and sourceItemAvailable(storage, itemType)
+                            and not (SC.PersonalItems and SC.PersonalItems.isProtected
+                                and SC.PersonalItems.isProtected(item, actor, "base_build")) then
+                            return storage, container, item, itemType
                         end
                     end
                 end
@@ -299,9 +361,16 @@ local function findSource(actor, requirement)
     end
     return nil, nil, nil, requirement.types[1]
 end
+BaseWork._findSourceForTests = findSource
 
 local function withdrawalAllowed(storage, expectedContainer, item)
-    if type(storage) ~= "table" or storage.withdrawals == false then
+    if type(storage) ~= "table" or type(storage.id) ~= "string" then
+        return false, "base_storage_invalid"
+    end
+    if SC.BaseLife.storage(storage.id) ~= storage then
+        return false, "base_storage_changed"
+    end
+    if storage.withdrawals == false then
         return false, "base_storage_withdrawals_disabled"
     end
     local currentContainer = SC.BaseLife.resolveContainer(storage)
@@ -321,6 +390,12 @@ local function withdrawalAllowed(storage, expectedContainer, item)
 end
 
 local function transferFromStorage(actor, state, storage, container, item)
+    if type(storage) ~= "table" or SC.BaseLife.storage(storage.id) ~= storage then
+        return false, "base_storage_changed"
+    end
+    if storage.withdrawals == false then
+        return false, "base_storage_withdrawals_disabled"
+    end
     local object = SC.BaseLife.resolveObject(storage)
     if not object then return false, "base_storage_unloaded" end
     local atStorage, targets, accessReason = U().directInteractionAccess(actor, object)
@@ -408,6 +483,10 @@ end
 local function transferToStorage(actor, state, storage, container, item, requireDeposits)
     if U().inventoryContains(container, item) then return true, "base_supply_returned" end
     if type(storage) ~= "table" then return false, "base_storage_invalid" end
+    if requireDeposits == true then
+        local accepts, depositReason = SC.BaseLife.storageAcceptsDeposit(storage, container)
+        if accepts ~= true then return false, depositReason end
+    end
     local object = SC.BaseLife.resolveObject(storage)
     local currentContainer = SC.BaseLife.resolveContainer(storage)
     if not object or not currentContainer then return false, "base_storage_unloaded" end
@@ -707,11 +786,18 @@ end
 BaseWork._buildOutcomeForTests = buildOutcome
 
 local function startBuildAction(actor, state, job, info, square)
-    local entity = ISBuildIsoEntity:new(actor, info, tonumber(job.face) or 1, { U().inventory(actor) })
+    if not ArrayList or type(ArrayList.new) ~= "function" then
+        return false, "build_container_list_unavailable"
+    end
+    local containers = ArrayList.new()
+    containers:add(U().inventory(actor))
+    local entity = ISBuildIsoEntity:new(actor, info, tonumber(job.face) or 1, containers)
     if not entity then return false, "build_entity_creation_failed" end
     entity.nSprite = tonumber(job.face) or 1
-    local sprite = entity:getSprite()
-    if sprite == nil or entity:isValid(square) ~= true then return false, "build_target_invalid" end
+    -- The vanilla entity cursor uses getSprite() to set its facing, but its
+    -- inherited method may return nil: rendering/building uses getFace().
+    local sprite = entity:getSprite() or BaseWork.recipeSprite(job.recipeId, job.face)
+    if entity:isValid(square) ~= true then return false, "build_target_invalid" end
     local recipeInfo = select(1, invoke(info, "getRecipe"))
     local recipe = recipeInfo and select(1, invoke(recipeInfo, "getCraftRecipe")) or nil
     local duration = recipe and select(1, invoke(recipe, "getTime")) or 200
@@ -822,11 +908,10 @@ end
 local function destinationHasRoom(container, actor, item)
     if SC.WorkTransport and type(SC.WorkTransport.hasRoom) == "function" then
         local ok, room = pcall(SC.WorkTransport.hasRoom, container, actor, item)
-        if ok then return room ~= false end
+        if ok then return room == true end
     end
     local room, roomOk = U().call(container, "hasRoomFor", actor, item)
-    if roomOk then return room ~= false end
-    return true
+    return roomOk and room == true
 end
 
 -- Every registered destination that can actually take this exact item now.
@@ -835,8 +920,8 @@ local function destinationsFor(job, item, actor, sourceId)
     local category = type(job.target) == "table" and job.target.destinationCategory
         or classifyItem(item)
     local rows = {}
-    for _, destination in ipairs(SC.BaseLife.storageRows(category, false)) do
-        if destination.id ~= sourceId and destination.deposits ~= false then
+    for _, destination in ipairs(SC.BaseLife.depositStorageRows(category)) do
+        if destination.id ~= sourceId then
             local container = SC.BaseLife.resolveContainer(destination)
             if container and destinationHasRoom(container, actor, item) then
                 rows[#rows + 1] = { destination = destination, container = container }
@@ -852,12 +937,16 @@ local function findTransfer(job, actor)
     for _, source in ipairs(SC.BaseLife.storageRows(sourceCategory, true)) do
         local container = SC.BaseLife.resolveContainer(source)
         if container then
-            for _, item in ipairs(U().inventoryItems(container, 80)) do
-                if SC.BaseLife.availableCount(source, U().itemType(item)) > 0
-                    and not (SC.PersonalItems and SC.PersonalItems.isProtected
+            local items, scanStart = storageItemSlice(container)
+            for _, item in ipairs(items) do
+                local itemType = U().itemType(item)
+                if not (SC.PersonalItems and SC.PersonalItems.isProtected
                     and SC.PersonalItems.isProtected(item, actor, "base_haul")) then
                     local rows = destinationsFor(job, item, actor, source.id)
-                    if #rows > 0 then
+                    if #rows > 0 and sourceItemAvailable(source, itemType) then
+                        -- The audit also calls this selector. Leave its selected
+                        -- window ready for the worker's first execution tick.
+                        storageItemCursors[container] = scanStart
                         return source, container, rows[1].destination, rows[1].container, item
                     end
                 end
@@ -867,21 +956,80 @@ local function findTransfer(job, actor)
     return nil
 end
 
+local function cargoContainer(actor, cargo)
+    local root = U().inventory(actor)
+    if U().inventoryContains(root, cargo.item) then return root, "owned" end
+    if SC.PersonalItems and type(SC.PersonalItems.ownedBy) == "function" then
+        local owned = SC.PersonalItems.ownedBy(cargo.item, actor)
+        if owned == true then
+            local container = select(1, U().call(cargo.item, "getContainer"))
+            if container and U().inventoryContains(container, cargo.item) then
+                return container, "owned"
+            end
+            return nil, "unknown"
+        end
+        if owned == nil then return nil, "unknown" end
+    end
+    return nil, "absent"
+end
+
 -- Put carried cargo back where it came from, so a blocked job never leaves a
 -- worker quietly holding base stock.
 local function returnCargo(actor, cargo)
     if type(cargo) ~= "table" or cargo.item == nil then return true end
-    if not U().inventoryContains(U().inventory(actor), cargo.item) then return true end
-    local container = cargo.source and SC.BaseLife.resolveContainer(cargo.source)
-        or cargo.sourceContainer
-    if container == nil then return false end
-    local moved
-    if SC.WorkTransport and type(SC.WorkTransport.transferVerified) == "function" then
-        moved = SC.WorkTransport.transferVerified(U().inventory(actor), container, cargo.item, actor)
-    else
-        moved = U().transferItemVerified(U().inventory(actor), container, cargo.item)
+    local sourceInventory, ownership = cargoContainer(actor, cargo)
+    if ownership == "absent" then return true end
+    if ownership ~= "owned" then return false, "haul_cargo_owner_unknown" end
+    -- A marker removed while the worker was hauling must not cause a silent
+    -- transfer into an old container pointer that the player reclaimed.
+    local source = cargo.source
+    if type(source) ~= "table" or SC.BaseLife.storage(source.id) ~= source then
+        return false, "haul_source_marker_missing"
     end
-    return moved == true
+    -- The marker resolves through its persistent object id, so whatever it
+    -- resolves to now is still that storage. A chunk reload rebuilds the
+    -- object's ItemContainer; comparing against the pointer captured at
+    -- withdrawal refused that return for the rest of the session, and with it
+    -- every BaseWork.cancel (leaving duty, dismissal, the night pause). Only an
+    -- unloaded or containerless marker has to wait.
+    local container = SC.BaseLife.resolveContainer(source)
+    if container == nil then
+        return false, "haul_source_storage_changed"
+    end
+    local moved, reason
+    if SC.WorkTransport and type(SC.WorkTransport.transferVerified) == "function" then
+        moved, reason = SC.WorkTransport.transferVerified(
+            sourceInventory, container, cargo.item, actor)
+    else
+        moved, reason = U().transferItemVerified(sourceInventory, container, cargo.item)
+    end
+    return moved == true, moved and "haul_cargo_returned"
+        or reason or "haul_cargo_return_failed"
+end
+
+-- A marked source cannot be removed while a sorter holds its exact item.
+-- Destination markers remain editable; the worker can choose another one or
+-- return cargo to its still-registered source.
+function BaseWork.storageInUse(storageId)
+    for actor, state in pairs(states) do
+        local cargo = state.cargo
+        if type(cargo) == "table" and cargo.sourceId == storageId
+            and cargo.item ~= nil then
+            local _, ownership = cargoContainer(actor, cargo)
+            if ownership ~= "absent" then return true, "sort_cargo_uses_storage" end
+        end
+    end
+    return false
+end
+
+local function settleCargo(actor, state)
+    if type(state.cargo) ~= "table" then return true end
+    local called, returned, reason = pcall(returnCargo, actor, state.cargo)
+    if not called or returned ~= true then
+        return false, called and reason or "haul_cargo_return_failed"
+    end
+    state.cargo, state.transfer = nil, nil
+    return true
 end
 
 local function updateTransfer(actor, state, job)
@@ -889,7 +1037,14 @@ local function updateTransfer(actor, state, job)
     -- that before withdrawing anything else.
     if state.transfer == nil and type(state.cargo) == "table" then
         local cargo = state.cargo
-        if U().inventoryContains(U().inventory(actor), cargo.item) then
+        local sourceInventory, ownership = cargoContainer(actor, cargo)
+        if ownership == "unknown" then return false, "haul_cargo_owner_unknown", true end
+        if ownership == "owned" and sourceInventory ~= U().inventory(actor) then
+            local returned, reason = returnCargo(actor, cargo)
+            if returned then state.cargo = nil end
+            return false, returned and "haul_cargo_returned" or reason, true
+        end
+        if ownership == "owned" then
             local rows = destinationsFor(job, cargo.item, actor, cargo.sourceId)
             if #rows > 0 then
                 state.transfer = {
@@ -938,36 +1093,17 @@ local function updateTransfer(actor, state, job)
             item = transfer.item, source = transfer.source,
             sourceContainer = transfer.sourceContainer,
             sourceId = type(transfer.source) == "table" and transfer.source.id or nil,
+            jobId = job.id,
         }
-    end
-    local object = SC.BaseLife.resolveObject(transfer.destination)
-    if not object then return false, "destination_storage_unloaded", true end
-    local atStorage, targets, accessReason = U().directInteractionAccess(actor, object)
-    if atStorage ~= true then
-        if accessReason == "no_interaction_targets" then
-            return false, accessReason, true
-        end
-        if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
-            return false, "navigation_unavailable", true
-        end
-        local approached, approachReason = SC.Navigation.requestAny(actor, targets, "walk", workRoute({
-            action = "move_to_base_storage", targetSquare = U().squareOf(object),
-            object = object, arrivalDistance = 0.35, requireSameSquare = true,
-            continuousApproach = true,
-        }, true))
-        return approached == true, approachReason
     end
     if not U().inventoryContains(U().inventory(actor), transfer.item) then
         return false, "hauled_item_missing", true
     end
-    local moved, moveReason
-    if SC.WorkTransport and type(SC.WorkTransport.transferVerified) == "function" then
-        moved, moveReason = SC.WorkTransport.transferVerified(U().inventory(actor),
-            transfer.destinationContainer, transfer.item, actor)
-    else
-        moved, moveReason = U().transferItem(
-            U().inventory(actor), transfer.destinationContainer, transfer.item)
-    end
+    -- Sorting uses the same approach, visible interaction, capacity check,
+    -- marker revalidation and verified transfer as other camp deposits.
+    local moved, moveReason = transferToStorage(actor, state, transfer.destination,
+        transfer.destinationContainer, transfer.item, true)
+    if moved and moveReason ~= "base_supply_returned" then return true, moveReason end
     if not moved then
         -- A refused deposit is not the end of the cargo. Try another store
         -- that has room, and only then put the item back where it came from.
@@ -1101,7 +1237,10 @@ local function guardRoutine(actor, state)
         local offset = offsets[state.patrolIndex]
         local candidate = U().gridSquare(center.x + offset[1],
             center.y + offset[2], center.z)
-        if candidate and SC.BaseLife.isInside(candidate) then
+        if candidate and SC.BaseLife.isInside(candidate)
+            and (not SC.BaseLife.outdoorNightRestricted()
+                and not (SC.BaseWatch and SC.BaseWatch.isLeader(actor))
+                or SC.BaseLife.isOutdoorSquare(candidate) == false) then
             target = candidate
             break
         end
@@ -1116,21 +1255,195 @@ local function guardRoutine(actor, state)
     }))
 end
 
+local NIGHT_SHELTER_SCAN_BUDGET = 128
+local NIGHT_SHELTER_TARGET_LIMIT = 8
+
+local function indoorCampShelter(square)
+    return square and SC.BaseLife.isInside(square) == true
+        and SC.BaseLife.isOutdoorSquare(square) == false
+        and U().isSquareFree(square) == true
+end
+
+-- Large and multi-floor camps are surveyed over several updates. A failed
+-- search never falls back to an outdoor rally/core square.
+local function scanNightShelter(base, state)
+    local scan = state.nightShelterScan
+    if not scan or scan.baseId ~= base.id then
+        scan = { baseId = base.id, zoneIndex = 1 }
+        state.nightShelterScan = scan
+    end
+    local targets, checked = {}, 0
+    while checked < NIGHT_SHELTER_SCAN_BUDGET
+        and #targets < NIGHT_SHELTER_TARGET_LIMIT do
+        local zone = base.zones[scan.zoneIndex]
+        if not zone then
+            state.nightShelterScan = nil
+            return targets, true
+        end
+        if zone.kind ~= "area" then
+            scan.zoneIndex, scan.x, scan.y = scan.zoneIndex + 1, nil, nil
+        else
+            local x, y = scan.x or zone.x1, scan.y or zone.y1
+            local square = U().gridSquare(x, y, zone.z)
+            checked = checked + 1
+            scan.x, scan.y = x + 1, y
+            if scan.x > zone.x2 then scan.x, scan.y = zone.x1, y + 1 end
+            if scan.y > zone.y2 then
+                scan.zoneIndex, scan.x, scan.y = scan.zoneIndex + 1, nil, nil
+            end
+            if indoorCampShelter(square) then targets[#targets + 1] = square end
+        end
+    end
+    return targets, false
+end
+
+local function returnInsideAtNight(actor, state)
+    local base = SC.BaseLife.active()
+    if not base then return false, "base_missing" end
+    if SC.BaseLife.isOutdoorSquare(actor) == false then
+        return false, "already_inside_at_night"
+    end
+    if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
+        return false, "navigation_unavailable"
+    end
+    local cached = state.nightShelterBaseId == base.id
+        and now() < (state.nightShelterRefreshAt or 0)
+        and state.nightShelterTargets or nil
+    local targets = {}
+    if cached then
+        for _, square in ipairs(cached) do
+            if indoorCampShelter(square) then targets[#targets + 1] = square end
+        end
+    end
+    if #targets == 0 and not (cached and #cached == 0) then
+        local complete
+        targets, complete = scanNightShelter(base, state)
+        if #targets == 0 and not complete then
+            return false, "night_shelter_searching"
+        end
+        state.nightShelterBaseId = base.id
+        state.nightShelterTargets = targets
+        state.nightShelterRefreshAt = now() + 10000
+    end
+    if #targets == 0 then return false, "night_shelter_unavailable" end
+    local handled, reason = SC.Navigation.requestAny(actor, targets, "walk", {
+        action = "return_to_base", targetSquare = targets[1],
+        nightShelter = true,
+    })
+    return handled, reason
+end
+
+local function sleepBeforeNewJob(actor, player, runtime, job)
+    local resting = SC.Downtime and type(SC.Downtime.peek) == "function"
+        and SC.Downtime.peek(actor) or nil
+    if resting and resting.active and resting.active.kind == "rest_bed"
+        and type(SC.Downtime.update) == "function" then
+        return SC.Downtime.update(actor, player, runtime, "rest_bed")
+    end
+    if job or not SC.Downtime or type(SC.Downtime.canPerform) ~= "function"
+        or type(SC.Downtime.update) ~= "function"
+        or U().characterStatValue(actor, "FATIGUE", 0)
+            < (tonumber(U().config("needsFatigueThreshold")) or 0.50)
+        or SC.Downtime.canPerform(actor, "rest_bed") ~= true then
+        return nil
+    end
+    local handled, reason = SC.Downtime.update(actor, player, runtime, "rest_bed")
+    if handled == true or reason == "settling" or reason == "cooldown" then
+        return handled == true, reason or "bed_sleep"
+    end
+    return nil
+end
+
+BaseWork._sleepBeforeNewJobForTests = sleepBeforeNewJob
+
 function BaseWork.update(actor, player, runtime)
     local id, state = actorId(actor), stateFor(actor)
     local resident = SC.BaseLife and SC.BaseLife.resident(id) or nil
     if not resident or resident.duty ~= true then return false, "not_on_base_duty" end
     if not SC.BaseLife.active() then return false, "base_missing" end
+    -- A sleeper owns the bed through the whole rest, even after fatigue falls
+    -- below the threshold or the base scheduler offers another job.
+    local activeRest = SC.Downtime and type(SC.Downtime.peek) == "function"
+        and SC.Downtime.peek(actor) or nil
+    if activeRest and activeRest.active
+        and activeRest.active.kind == "rest_bed"
+        and type(SC.Downtime.update) == "function" then
+        return SC.Downtime.update(actor, player, runtime, "rest_bed")
+    end
+    reportBlockedTool(actor, player, state, runtime)
     local job = SC.BaseLife.jobFor(id)
+    if SC.BaseWatch and SC.BaseWatch.isLeader(actor) then
+        if job and SC.BaseLife.outdoorJob(job) then
+            local cancelled, reason = BaseWork.cancel(actor, "base_watch_indoor_duty")
+            if cancelled ~= true then return false, reason end
+            if job.reservedBy == id then
+                SC.BaseLife.releaseJob(job.id, id, "base_watch_indoor_duty")
+            end
+            state, job = stateFor(actor), nil
+        end
+        if SC.Fishing and SC.Fishing.active(actor) then
+            SC.Fishing.cancel(actor, "base_watch_indoor_duty")
+        end
+        if SC.BaseLife.isOutdoorSquare(actor) == true then
+            return returnInsideAtNight(actor, state)
+        end
+    end
+    if SC.BaseLife.outdoorNightRestricted() then
+        if SC.Fishing and SC.Fishing.active(actor) then
+            SC.Fishing.cancel(actor, "outdoor_night")
+        end
+        if job and job.type ~= "farm" and SC.BaseLife.outdoorJob(job) then
+            local cancelled, cancelReason = BaseWork.cancel(actor, "outdoor_night")
+            if cancelled ~= true then return false, cancelReason end
+            if job.reservedBy == id then
+                SC.BaseLife.releaseJob(job.id, id, "outdoor_night")
+            end
+            state, job = stateFor(actor), nil
+        end
+        local tendingHeat = job and job.type == "cook" and SC.ChefWork
+            and type(SC.ChefWork.mustTendHeat) == "function"
+            and SC.ChefWork.mustTendHeat(actor, job) == true
+        if (not job or job.type ~= "farm") and not tendingHeat
+            and SC.BaseLife.isOutdoorSquare(actor) == true then
+            return returnInsideAtNight(actor, state)
+        end
+    end
+    if not job and resident.role == "angler" and SC.Fishing
+        and type(SC.Fishing.update) == "function"
+        and not SC.BaseLife.outdoorNightRestricted() then
+        -- Fishing never runs out the way a job queue can, so a tired angler
+        -- sleeps first like any worker before new work. With outdoor night
+        -- work allowed it otherwise never went to bed.
+        local sleeping, sleepReason = sleepBeforeNewJob(actor, player, runtime, nil)
+        if sleeping ~= nil then
+            if SC.Fishing.active(actor) then SC.Fishing.cancel(actor, "angler_resting") end
+            return sleeping, sleepReason
+        end
+        local handled, reason = SC.Fishing.update(actor, "camp", nil, player,
+            type(runtime) == "table" and (runtime.snapshot
+                or (type(runtime.senses) == "table" and runtime.senses.current))
+                or nil)
+        if handled or (reason ~= "fishing_zone_missing"
+            and reason ~= "fishing_rod_missing"
+            and reason ~= "fishing_bait_missing"
+            and reason ~= "fishing_engine_cooldown"
+            and reason ~= "no_fishing_water") then
+            return handled, reason
+        end
+    elseif SC.Fishing and SC.Fishing.active(actor) then
+        SC.Fishing.cancel(actor, "camp_fishing_paused")
+    end
     if not SC.BaseLife.isInside(actor) then
         -- Lumber work may continue in the bounded reach band outside the
         -- camp; every other job walks back to the rally point first.
         local reachable = type(SC.BaseLife.withinWorkReach) == "function"
             and SC.BaseLife.withinWorkReach(actor) == true
         if reachable and not job then job = select(1, SC.BaseLife.claimJob(id)) end
-        local workingOutside = reachable and job
+        local workingOutside = reachable and ((job
             and type(SC.BaseLife.jobAllowsWorkReach) == "function"
-            and SC.BaseLife.jobAllowsWorkReach(job) == true
+            and SC.BaseLife.jobAllowsWorkReach(job) == true)
+            or (not job and resident.role == "angler"
+                and SC.BaseLife.zoneCenter("fishing") ~= nil))
         local storageAccess = reachable and job
             and type(SC.BaseLife.atStorageAccess) == "function"
             and SC.BaseLife.atStorageAccess(actor) == true
@@ -1146,14 +1459,46 @@ function BaseWork.update(actor, player, runtime)
             })
         end
     end
+    -- Finish a job already in hand, then let a tired resident sleep before
+    -- claiming another one. Otherwise the endless base queue always wins over
+    -- Downtime and beds are only used when there is no work at all.
+    local sleeping, sleepReason = sleepBeforeNewJob(actor, player, runtime, job)
+    if sleeping ~= nil then return sleeping, sleepReason end
     local activeGuard
     if type(SC.BaseLife.guardStatus) == "function" then
         activeGuard = select(1, SC.BaseLife.guardStatus(id, now())) == true
     else
         activeGuard = resident.role == "guard"
     end
+    -- A watched camp leader gets an occasional social pause between jobs.
+    -- Keep the visit in Downtime so its navigation, supervisor ownership and
+    -- danger cancellation follow the same rules as every quiet activity.
+    local visitState = SC.Downtime and type(SC.Downtime.peek) == "function"
+        and SC.Downtime.peek(actor) or nil
+    local activeVisit = visitState and visitState.active
+        and visitState.active.kind == "leader_check_in"
+    if job and activeVisit and type(SC.Downtime.cancel) == "function" then
+        SC.Downtime.cancel(actor, "base_job_assigned")
+    end
+    local base = SC.BaseLife.active()
+    if not job and not activeGuard and base and base.settings
+        and base.settings.routines ~= false
+        and SC.BaseWatch and SC.BaseWatch.isLeader(actor)
+        and SC.Downtime and type(SC.Downtime.canPerform) == "function"
+        and type(SC.Downtime.update) == "function"
+        and (activeVisit or SC.Downtime.canPerform(actor, "leader_check_in") == true) then
+        local handled, reason = SC.Downtime.update(actor, player, runtime,
+            "leader_check_in")
+        if handled or reason == "settling" or reason == "cooldown" then
+            return true, reason or "leader_check_in"
+        end
+    end
     -- A guard on shift keeps watch instead of wandering off to generic chores;
     -- only a job left for it by name pulls it away.
+    if not job and resident.role == "chef" and SC.ChefWork
+        and type(SC.ChefWork.ensureAutomaticJob) == "function" then
+        SC.ChefWork.ensureAutomaticJob(actor, resident)
+    end
     if not job and (not (activeGuard and resident.role == "guard") or namedJobWaiting(id)) then
         job = select(1, SC.BaseLife.claimJob(id))
     end
@@ -1197,13 +1542,42 @@ function BaseWork.update(actor, player, runtime)
         else
             handled, reason, terminal = SC.FarmWork.update(actor, state, job, runtime)
         end
+    elseif job.type == "cook" then
+        if not SC.ChefWork or type(SC.ChefWork.update) ~= "function" then
+            handled, reason, terminal = false, "chef_work_unavailable", true
+        else
+            local completed
+            handled, reason, terminal, completed = SC.ChefWork.update(actor, state, job, player)
+            if completed then
+                SC.BaseLife.completeJob(job.id, id, reason)
+                state.jobId = nil
+                return true, reason
+            end
+        end
     elseif job.type == "haul" or job.type == "sort" or job.type == "fetch" then
         handled, reason, terminal = updateTransfer(actor, state, job)
     else
         handled, reason, terminal = updateChore(actor, state, job, player, runtime)
     end
     if terminal then
-        SC.BaseLife.blockJob(job.id, id, reason, U().config("baseJobRetryMs") or 10000)
+        local uncertainChef = job.type == "cook" and (reason == "chef_restart_needs_recovery"
+            or string.find(tostring(reason or ""), "receipt", 1, true) ~= nil
+            or string.find(tostring(reason or ""), "outcome_unknown", 1, true) ~= nil
+            or string.find(tostring(reason or ""), "chef_native", 1, true) ~= nil
+            or reason == "chef_heating_receipt_missing")
+        local retryMs = uncertainChef
+            and 3600000 or (U().config("baseJobRetryMs") or 10000)
+        SC.BaseLife.blockJob(job.id, id, reason, retryMs)
+        if SC.Dialogue and type(SC.Dialogue.missingToolKind) == "function"
+            and type(SC.Dialogue.requestMissingTool) == "function" then
+            local tool = SC.Dialogue.missingToolKind(reason)
+            if tool then
+                state.pendingToolRequest = {
+                    jobId = job.id, reason = reason, kind = tool, createdAt = now(),
+                }
+                reportBlockedTool(actor, player, state, runtime)
+            end
+        end
         state.jobId, state.phase, state.action, state.transfer = nil, "idle", nil, nil
         -- A blocked job forgets its selection, never the cargo it still owns.
     elseif handled then
@@ -1257,7 +1631,7 @@ local function auditSorting(base)
     end
     local destinations = 0
     for category in pairs(SC.BaseLife.STORAGE_CATEGORIES) do
-        if category ~= "general" and #SC.BaseLife.storageRows(category, false) > 0 then
+        if category ~= "general" and #SC.BaseLife.depositStorageRows(category) > 0 then
             destinations = destinations + 1
         end
     end
@@ -1284,7 +1658,7 @@ local function auditRoutine(base)
     local summary = SC.BaseLife.summary()
     for _, desired in ipairs({ "craft_supply", "repair" }) do
         if not openJob(base, desired)
-            and (desired ~= "craft_supply" or #SC.BaseLife.storageRows("output", false) > 0) then
+            and (desired ~= "craft_supply" or #SC.BaseLife.depositStorageRows("output") > 0) then
             for _, resident in ipairs(summary.residentRows or {}) do
                 if resident.duty == true then
                     local record = SC.Registry and SC.Registry.byId
@@ -1380,6 +1754,20 @@ end
 
 function BaseWork.cancel(actor, reason)
     local state = states[actor]
+    -- Do this before releasing the job or cancelling another subsystem. A
+    -- failed exact return leaves the receipt, worker and lease intact.
+    if state then
+        local settled, cargoReason = settleCargo(actor, state)
+        if settled ~= true then return false, cargoReason end
+    end
+    if SC.ChefWork and type(SC.ChefWork.cancelActor) == "function" then
+        local cancelled, cancelReason = SC.ChefWork.cancelActor(actor,
+            reason or "base_work_cancelled")
+        if cancelled ~= true then return false, cancelReason end
+    end
+    if SC.Fishing and type(SC.Fishing.cancel) == "function" then
+        SC.Fishing.cancel(actor, reason or "base_work_cancelled")
+    end
     if SC.GatherWork and type(SC.GatherWork.cancelActor) == "function" then
         pcall(SC.GatherWork.cancelActor, actor, reason or "base_work_cancelled")
     end
@@ -1409,8 +1797,6 @@ function BaseWork.cancel(actor, reason)
         and type(SC.NativeActions.cancelVisual) == "function" then
         pcall(SC.NativeActions.cancelVisual, actor, reason or "base_work_cancelled")
     end
-    -- Cancellation must not quietly leave base stock in a worker's bag.
-    if type(state.cargo) == "table" then pcall(returnCargo, actor, state.cargo) end
     states[actor] = nil
     return true
 end
@@ -1420,14 +1806,42 @@ end
 function BaseWork.cancelJob(jobId, ownerId, reason)
     local actor = U().resolveActor(ownerId)
     local state = actor and states[actor] or nil
-    if not state or state.jobId ~= jobId then
-        return ownerId == nil, ownerId == nil and "build_not_started" or "build_owner_state_missing"
+    if ownerId == nil then
+        -- A terminal transfer keeps exact cargo after BaseLife releases its
+        -- lease. Find that receipt even though reservedBy is now nil.
+        for candidate, candidateState in pairs(states) do
+            if type(candidateState.cargo) == "table"
+                and candidateState.cargo.jobId == jobId then
+                actor, state = candidate, candidateState
+                break
+            end
+        end
+    end
+    if not state then
+        return ownerId == nil, ownerId == nil and "base_job_not_started"
+            or "base_job_owner_state_missing"
+    end
+    if state.jobId ~= jobId
+        and not (type(state.cargo) == "table" and state.cargo.jobId == jobId) then
+        return false, "base_job_owner_state_mismatch"
+    end
+    local settled, cargoReason = settleCargo(actor, state)
+    if settled ~= true then return false, cargoReason end
+    if state.jobId ~= jobId then
+        -- A later transfer may have claimed this worker while it was still
+        -- carrying the old job's item. Its selection can be rebuilt next tick.
+        if state.jobId == nil then states[actor] = nil end
+        return true, "base_job_cargo_returned"
     end
     local cancelled, cancelReason = cancelBuildAction(actor, state,
-        reason or "build_job_cancelled")
+        reason or "base_job_cancelled")
     if cancelled ~= true then return false, cancelReason end
-    state.jobId, state.requirementsReady, state.visualAt = nil, nil, nil
-    return true, "build_job_cancelled"
+    if state.visualAt ~= nil and SC.NativeActions
+        and type(SC.NativeActions.cancelVisual) == "function" then
+        pcall(SC.NativeActions.cancelVisual, actor, reason or "base_job_cancelled")
+    end
+    states[actor] = nil
+    return true, "base_job_cancelled"
 end
 
 -- An expired active lease is only reclaimable after the former worker has no
@@ -1437,7 +1851,8 @@ function BaseWork.reconcileExpiredJob(job, ownerId)
     if type(job) ~= "table" or type(ownerId) ~= "string" then
         return false, "expired_job_owner_missing"
     end
-    if job.type == "farm" or job.type == "gather_materials" or job.type == "production" then
+    if job.type == "farm" or job.type == "gather_materials" or job.type == "production"
+        or job.type == "cook" then
         return false, "expired_job_subsystem_owned"
     end
     local actor = U().resolveActor(ownerId)
@@ -1469,9 +1884,13 @@ end
 
 function BaseWork.reset(actor)
     if actor then
-        BaseWork.cancel(actor, "base_work_reset")
+        local cancelled, reason = BaseWork.cancel(actor, "base_work_reset")
+        if cancelled ~= true then return false, reason end
     else
-        for value, _ in pairs(states) do BaseWork.cancel(value, "base_work_reset") end
+        for value, _ in pairs(states) do
+            local cancelled, reason = BaseWork.cancel(value, "base_work_reset")
+            if cancelled ~= true then return false, reason end
+        end
         states = setmetatable({}, { __mode = "k" })
     end
     if SC.GatherWork and type(SC.GatherWork.reset) == "function" then
@@ -1483,10 +1902,15 @@ function BaseWork.reset(actor)
     if SC.FarmWork and type(SC.FarmWork.reset) == "function" then
         SC.FarmWork.reset(actor)
     end
+    if SC.ChefWork and type(SC.ChefWork.reset) == "function" then
+        SC.ChefWork.reset(actor)
+    end
     if SC.WorkTransport and type(SC.WorkTransport.reset) == "function" then
         SC.WorkTransport.reset(actor)
     end
     maintenanceCursor, auditPhase, nextRoutineJobAt = 1, 0, 0
+    if not actor then storageItemCursors = setmetatable({}, { __mode = "k" }) end
+    return true
 end
 
 -- Production supply trips reuse the exact storage withdrawal transaction

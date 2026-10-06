@@ -21,7 +21,9 @@ require "TimedActions/ISDropCorpseAction"
 require "TimedActions/ISBurnCorpseAction"
 require "TimedActions/ISEatFoodAction"
 require "TimedActions/ISDrinkFromBottle"
+require "TimedActions/ISDrinkFluidAction"
 require "TimedActions/ISTakeWaterAction"
+require "TimedActions/ISCleanBlood"
 require "TimedActions/ISWearClothing"
 require "Vehicles/TimedActions/ISPathFindAction"
 require "TimedActions/ISRestAction"
@@ -40,6 +42,30 @@ local actions = SC.NativeActions
 local activeWork = setmetatable({}, { __mode = "k" })
 local activeNeeds = setmetatable({}, { __mode = "k" })
 local activeFinal = setmetatable({}, { __mode = "k" })
+
+-- Keep the stock fluid consumption and drink animation. The completion mark
+-- distinguishes drinking from a cancelled queue entry when the crisis polls.
+local SCCrisisDrinkBleachAction
+local function crisisDrinkActionClass()
+    if SCCrisisDrinkBleachAction then return SCCrisisDrinkBleachAction end
+    if type(ISDrinkFluidAction) ~= "table"
+        or type(ISDrinkFluidAction.derive) ~= "function" then return nil end
+    local class = ISDrinkFluidAction:derive("SCCrisisDrinkBleachAction")
+    function class:isValidStart()
+        return self.fluidContainer ~= nil and not self.fluidContainer:isEmpty()
+    end
+    function class:complete()
+        local completed = ISDrinkFluidAction.complete(self)
+        self.scCompleted = completed ~= false
+        return completed
+    end
+    function class:stop()
+        self.scStopped = true
+        ISDrinkFluidAction.stop(self)
+    end
+    SCCrisisDrinkBleachAction = class
+    return class
+end
 local activeVisual = setmetatable({}, { __mode = "k" })
 local activeFurnitureActions = setmetatable({}, { __mode = "k" })
 local activeBedActions = setmetatable({}, { __mode = "k" })
@@ -80,6 +106,7 @@ local movementActions = {
     move_to_scavenge = true,
     move_to_camp_storage = true,
     move_to_base_storage = true,
+    move_to_clean_stain = true,
     move_to_base_build = true,
     base_guard_patrol = true,
     return_to_base = true,
@@ -136,6 +163,22 @@ local visualActionSpecs = {
     write_diary = { animation = "Read", animationEnum = true, event = "EventRead",
         secondaryItem = true, ticks = 360 },
     repair = { animation = "Craft", animationEnum = true, primaryItem = true, ticks = 180 },
+    -- A short inspection of the item already in hand. Downtime records only
+    -- the observed pause; this adapter never repairs or replaces equipment.
+    gear_check = { animation = "Craft", animationEnum = true,
+        primaryItem = true, ticks = 140 },
+    -- Inspect the real handheld radio. Downtime broadcasts the chosen check
+    -- line after this verified pose and never changes the channel here.
+    radio_check = { animation = "Craft", animationEnum = true,
+        primaryItem = true, ticks = 150 },
+    -- The visible shelf routine does not duplicate the base sorting job's
+    -- inventory transfers.
+    tidy_camp = { animation = "Loot", event = "EventLootItem",
+        lootPosition = "", ticks = 250, sound = "RummageInInventory" },
+    -- A short wipe-down while sheltered. Downtime commits one vanilla towel
+    -- use on completion when available; the game owns wetness and warmth.
+    weather_recovery = { animation = "WashFace", event = "EventWashClothing",
+        primaryItem = true, ticks = 400 },
     replace_bandage = { animation = "Bandage", animationEnum = true,
         event = "EventBandage", ticks = 100, sound = "FirstAidApplyBandage" },
     craft_supply = { animation = "Craft", animationEnum = true, ticks = 180 },
@@ -475,11 +518,15 @@ local function leaveFurniture(actor, restObject)
             actions.stopDirect(actor, { preservePosture = true })
             invoke(actor, "setVariable", "forceGetUp", true)
         end
-        if record and cancelSeatingRecord then cancelSeatingRecord(actor, record) end
+        if record and cancelSeatingRecord then
+            -- A failed entry may leave its BaseAction after the Lua queue is
+            -- gone. A normal seated exit keeps the stock get-up clip intact.
+            cancelSeatingRecord(actor, record, not (sittingOk and sitting == true))
+        end
         activeFurnitureActions[actor] = nil
         return false, "standing_from_furniture"
     end
-    if record and cancelSeatingRecord then cancelSeatingRecord(actor, record) end
+    if record and cancelSeatingRecord then cancelSeatingRecord(actor, record, true) end
     activeFurnitureActions[actor] = nil
     if seatObject then invoke(seatObject, "setSatChair", false) end
     invoke(actor, "setSitOnFurnitureObject", nil)
@@ -1393,9 +1440,9 @@ cancelSeatingRecord = function(actor, record, finishNative)
     end
     if finishNative ~= true then return end
     -- forceStop marks a BaseAction for removal on the engine's next action
-    -- update. A failed bed entry can leave that update stranded after its Lua
+    -- update. A failed bed or chair entry can leave that update stranded after its Lua
     -- queue has already been removed. Use the stock native stop only when the
-    -- remaining native actions are exactly the bed actions we just cancelled.
+    -- remaining native actions are exactly the seating actions we just cancelled.
     -- A foreign action in either queue must keep its own cancellation contract.
     local luaQueueEmpty = type(queue) == "table" and queue.current == nil
         and type(queue.queue) == "table" and #queue.queue == 0
@@ -1425,9 +1472,9 @@ cancelSeatingRecord = function(actor, record, finishNative)
         invoke(actor, "StopAllActionQueue")
         return
     end
-    -- A separate mod can enqueue an action while the bed is failing. In that
+    -- A separate mod can enqueue an action while seating is failing. In that
     -- case remove only our stopped BaseActions, leaving its native/Lua queues
-    -- intact. The bed's pathfinding is no longer a valid movement owner.
+    -- intact. The seat's pathfinding is no longer a valid movement owner.
     local pathOk, behavior = invoke(actor, "getPathFindBehavior2")
     if pathOk and behavior then invoke(behavior, "cancel") end
     invoke(actor, "setPath2", nil)
@@ -2079,6 +2126,31 @@ function actions.startFarm(actor, intent)
         end
     end
     return queueTrackedWork(actor, timedAction, record, "farm_" .. operation)
+end
+
+-- Stock Build 42 cleaning chooses its own wall/floor scrub pose and commits
+-- the bleach/cleaning-liquid cost and stain removal. Keep its native queue
+-- ownership and restore the companion's previous hand items afterward.
+function actions.startCleanBlood(actor, square, tool, cleaner)
+    if actor == nil or square == nil or tool == nil or cleaner == nil then
+        return false, "cleaning target and supplies are required"
+    end
+    if type(ISCleanBlood) ~= "table" or type(ISCleanBlood.new) ~= "function" then
+        return false, "native cleaning action is unavailable"
+    end
+    local twoHanded, checked = invoke(tool, "isTwoHandWeapon")
+    local secondary = checked and twoHanded == true and tool or cleaner
+    local record, prepareReason = prepareWorkInventory(actor,
+        { tool, cleaner }, tool, secondary)
+    if not record then return false, prepareReason end
+    local created, action = pcall(ISCleanBlood.new, ISCleanBlood,
+        actor, square, cleaner)
+    if not created or action == nil then
+        restoreWorkInventory(actor, record)
+        return false, created and "native cleaning action was not created"
+            or tostring(action)
+    end
+    return queueTrackedWork(actor, action, record, "clean_base")
 end
 
 local function removeBarricadeTool(actor, object)
@@ -3600,11 +3672,13 @@ function actions.activityStatus(actor)
     if bed then
         local onBedOk, onBed = invoke(actor, "isOnBed")
         local sittingOk, sitting = invoke(actor, "isSittingOnFurniture")
+        local asleepOk, asleep = invoke(actor, "isAsleep")
         if bed.failed ~= true and trackedActionIsActive(actor, bed) then
             return "active", "downtime", "rest_bed", bed.startedAt, bed
         end
         if not (onBedOk and onBed == true)
-            and not (bed.pose == "furniture" and sittingOk and sitting == true) then
+            and not (bed.pose == "furniture" and sittingOk and sitting == true)
+            and not (asleepOk and asleep == true) then
             leaveSeating(actor)
         end
     end
@@ -3615,6 +3689,11 @@ function actions.activityStatus(actor)
             return "active", "needs", needs.kind, needs.startedAt
         end
         return "result_pending", "needs", needs.kind, needs.startedAt
+    end
+    local final = activeFinal[actor]
+    if final and final.outcome == "bleach" and final.timedAction
+        and trackedActionIsActive(actor, final) then
+        return "active", "crisis", "drink_bleach", final.startedAt
     end
     local work = activeWork[actor]
     if work then
@@ -3737,6 +3816,7 @@ function actions.interruptOwnedActivity(actor, reason)
     if owner == "visual" then return actions.cancelVisual(actor, reason) end
     if owner == "needs" then return actions.cancelNeeds(actor, reason) end
     if owner == "work" then return actions.cancelWork(actor, reason) end
+    if owner == "crisis" then return actions.resetFinal(actor) end
     if owner == "downtime" then return leaveSeating(actor) end
     -- Never clear an unknown vanilla or third-party action. We did not acquire
     -- its resources and cannot safely invent its rollback contract.
@@ -3851,6 +3931,80 @@ end
 -- confirmed outcome, a safety delay and explicit authorization.  The bridge
 -- applies damage through the native BodyDamage model so vanilla owns death,
 -- corpse creation and possible reanimation.
+function actions.findCrisisBleach(actor)
+    local utility = SC.GameplayUtil
+    local bleach = Fluid and Fluid.Bleach or nil
+    if not actor or not utility or not bleach then return nil end
+    local items = utility.inventoryItemsDeep(utility.inventory(actor), 240, 12)
+    for _, item in ipairs(items) do
+        local fluid = select(1, utility.call(item, "getFluidContainer"))
+        local contains = fluid and select(1, utility.call(fluid, "contains", bleach))
+        local amount = fluid and select(1, utility.call(fluid, "getAmount"))
+        if contains == true and tonumber(amount) and tonumber(amount) >= 0.2 then
+            return item
+        end
+    end
+    return nil
+end
+
+function actions.performCrisisBleach(actor, item)
+    if not actor then return false, "crisis_subject_unavailable" end
+    local record = activeFinal[actor]
+    if record and record.outcome == "bleach" then
+        if record.timedAction.scCompleted == true then return true, "bleach_consumed" end
+        if record.timedAction.scStopped == true then
+            restoreNeedsItem(actor, record)
+            activeFinal[actor] = nil
+            return false, "bleach_drink_interrupted"
+        end
+        if trackedActionIsActive(actor, record) then return true, "bleach_drinking" end
+        restoreNeedsItem(actor, record)
+        activeFinal[actor] = nil
+        return false, "bleach_drink_interrupted"
+    end
+    if item == nil or actions.findCrisisBleach(actor) ~= item then
+        return false, "bleach_missing"
+    end
+    local class = crisisDrinkActionClass()
+    if not class or type(class.new) ~= "function" then
+        return false, "native_bleach_drink_unavailable"
+    end
+    local moved, originalContainer = moveItemToRoot(actor, item)
+    if not moved then return false, originalContainer end
+    local created, action = pcall(class.new, class, actor, item, 1)
+    if not created or not action then
+        restoreNeedsItem(actor, { item = item, originalContainer = originalContainer })
+        return false, "native_bleach_drink_unavailable"
+    end
+    local queue = type(ISTimedActionQueue) == "table"
+        and type(ISTimedActionQueue.getTimedActionQueue) == "function"
+        and ISTimedActionQueue.getTimedActionQueue(actor) or nil
+    if type(queue) ~= "table" or queue.current ~= nil
+        or type(queue.queue) ~= "table" or #queue.queue > 0 then
+        restoreNeedsItem(actor, { item = item, originalContainer = originalContainer })
+        return false, "actor_has_native_action"
+    end
+    local valid, accepted = pcall(action.isValid, action)
+    if not valid or accepted ~= true then
+        restoreNeedsItem(actor, { item = item, originalContainer = originalContainer })
+        return false, "native_bleach_drink_unavailable"
+    end
+    local queued = pcall(ISTimedActionQueue.add, action)
+    if not queued then
+        restoreNeedsItem(actor, { item = item, originalContainer = originalContainer })
+        return false, "native_bleach_drink_unavailable"
+    end
+    queue = ISTimedActionQueue.getTimedActionQueue(actor)
+    if type(queue) ~= "table" or queue.current ~= action then
+        removeRejectedVisual(queue, action)
+        restoreNeedsItem(actor, { item = item, originalContainer = originalContainer })
+        return false, "native_bleach_drink_unavailable"
+    end
+    activeFinal[actor] = { target = actor, outcome = "bleach", item = item,
+        originalContainer = originalContainer, timedAction = action, startedAt = nowMs() }
+    return true, "bleach_drinking"
+end
+
 function actions.performEndOfLife(actor, outcome, target)
     if outcome ~= "mercy" and outcome ~= "self_sacrifice" then
         return false, "unauthorized_final_outcome"
@@ -3895,8 +4049,24 @@ function actions.performEndOfLife(actor, outcome, target)
 end
 
 function actions.resetFinal(actor)
-    if actor ~= nil then activeFinal[actor] = nil
+    if actor ~= nil then
+        local record = activeFinal[actor]
+        if record and record.outcome == "bleach" and record.timedAction
+            and trackedActionIsActive(actor, record)
+            and type(ISTimedActionQueue) == "table"
+            and type(ISTimedActionQueue.getTimedActionQueue) == "function" then
+            cancelOwnedTimedAction(ISTimedActionQueue.getTimedActionQueue(actor),
+                record.timedAction)
+            if trackedActionIsActive(actor, record) then
+                return false, "crisis_drink_action_remained_queued"
+            end
+        end
+        if record and record.outcome == "bleach" then
+            restoreNeedsItem(actor, record)
+        end
+        activeFinal[actor] = nil
     else activeFinal = setmetatable({}, { __mode = "k" }) end
+    return true, "final_action_reset"
 end
 
 function actions.releaseActor(actor)
@@ -4255,7 +4425,6 @@ function actions.furnitureStatus(actor)
         if groundSeatState(actor) then return "entered", record.startedAt end
         local ground = activeGroundActions[actor]
         if ground and ground.leaving ~= true then return "entering", record.startedAt end
-        activeFurnitureActions[actor] = nil
         return "failed", record.startedAt
     end
     if record and record.failed ~= true and trackedActionIsActive(actor, record) then
@@ -4265,15 +4434,11 @@ function actions.furnitureStatus(actor)
                 "furniture_path_timeout", true) then
                 return groundSeatState(actor) and "entered" or "entering", record.startedAt
             end
-            activeFurnitureActions[actor] = nil
             return "failed", record.startedAt
         end
         return "entering", record.startedAt
     end
-    if record then
-        activeFurnitureActions[actor] = nil
-        return "failed", record.startedAt
-    end
+    if record then return "failed", record.startedAt end
     return "none"
 end
 
@@ -4301,6 +4466,15 @@ function actions.seatingStatus(actor)
     local sittingOk, sitting = invoke(actor, "isSittingOnFurniture")
     if sittingOk and sitting == true then return "furniture" end
     if groundSeatState(actor) then return "ground" end
+    -- A failed seat entry can clear isSittingOnFurniture before the animation
+    -- graph leaves SitOnFurniture. Navigation must still request get-up here;
+    -- otherwise its direct path request waits forever in furniture_state.
+    local contextOk, context = invoke(actor, "getCurrentActionContextStateName")
+    context = contextOk and string.lower(tostring(context or "")) or ""
+    if context == "sitonfurniture" or (context == "getup"
+        and (activeFurnitureActions[actor] or activeBedActions[actor])) then
+        return "furniture"
+    end
     return "standing"
 end
 

@@ -131,6 +131,30 @@ local POOLS = {
         caring = { "I am all right. You can lean on me too, you know." },
         practical = { "Fed, dry, and breathing. That is a good day now." },
     },
+    ["banter.shelter.open"] = {
+        common = {
+            "%1, did you hear anything outside?",
+            "This room is quiet enough to talk. How are you holding up, %1?",
+            "%1, remind me what we're doing after we get home.",
+            "You have been quiet, %1. Want some company?",
+            "We have a minute before moving on. What is on your mind, %1?",
+        },
+        cautious = { "%1, keep your voice low. I think this place is clear." },
+        caring = { "You look tired, %1. Talk to me." },
+        practical = { "%1, take a breath. We can check the next room together." },
+    },
+    ["banter.shelter.reply"] = {
+        common = {
+            "Nothing outside yet. I'll keep listening, %1.",
+            "I'm all right. It helps to hear another voice.",
+            "After this? A locked door, a hot meal, and an hour asleep.",
+            "Company sounds good. Just for a minute.",
+            "I was thinking about the people we left behind. Let's keep moving soon.",
+        },
+        cautious = { "Quiet so far. I'd still watch the windows." },
+        caring = { "I'm tired, but I'm glad you're here, %1." },
+        practical = { "One room at a time. We'll manage." },
+    },
     ["banter.meeting.hello"] = {
         common = {
             "Hey there. I am %1. We are not looking for trouble.",
@@ -398,12 +422,43 @@ local POOLS = {
             "No need to rush into a bad surprise.",
             "If we split up, keep your voice low and close.",
             "Funny how a room can feel crowded with nobody in it.",
+            "Remember, folks: idle hands get eaten.",
+            "Another productive day in scenic Knox County.",
+            "Nothing like routine to keep the screaming on the inside.",
+            "Mind the mess. Civilization left in a hurry.",
+            "Good news, no commute. Bad news, the reason why.",
+            "Maybe a radio's still promising help. Bless its heart.",
+            "If anybody asks, I'm on break. Have been since July.",
+            "Funny thing, the end of the world. Still got chores.",
+            "Keeping busy at the end of the world. Mama would be proud.",
+            "Dry county jokes hit different when clean water's scarce.",
+            "Folks round here used to wave at strangers. Now we count them.",
+            "Tobacco farmers knew the secret: keep your hands busy.",
+            "This used to count as a work party. Minus the potluck.",
+            "Hard to picture a Derby with nobody in the stands.",
+            "Kentucky weather never cared who was left to complain about it.",
+            "I'd trade every dollar in this county for cold sweet tea.",
         },
-        brave = { "I'm still here. Whatever comes through, we'll handle it." },
-        cautious = { "I keep checking the exits. Habit now." },
-        caring = { "You holding up? You don't have to answer right away." },
-        practical = { "We should count what we carry before moving on." },
-        steady = { "Nothing moving nearby. Let's keep it that way." },
+        brave = { "I'm still here. Whatever comes through, we'll handle it.",
+            "World ended and I'm still on shift. Figures.",
+            "Keep it coming. I've had worse jobs." },
+        cautious = { "I keep checking the exits. Habit now.",
+            "Work quiet when we can. Noise draws them like hogs to a bucket.",
+            "Every creak takes a year off my life." },
+        caring = { "You holding up? You don't have to answer right away.",
+            "Remember to drink some water when you can.",
+            "Take a breath if you need one. I'll keep going." },
+        practical = { "We should count what we carry before moving on.",
+            "Busy hands, full shelves. That's the whole plan.",
+            "We keep going, then we eat. That's the deal." },
+        steady = { "Nothing moving nearby. Let's keep it that way.",
+            "Quiet enough to hear myself think. Almost." },
+        stressed = { "Keep talking. The quiet's got teeth today.",
+            "I'm wound tight today. Work helps. A little." },
+        low = { "Some days I forget why we bother. Then I keep working anyway.",
+            "Used to think somebody would come for us. Now I just fix things." },
+        hopeful = { "Give it a year, maybe we'll have the only porch light in Kentucky.",
+            "Feels almost like an ordinary day. Don't tell anybody." },
     },
     -- Walking with the player. Followers have no owned task, so routine
     -- banter never picks them and the idle jokes wait for a long stop.
@@ -421,15 +476,46 @@ local POOLS = {
             "Walking together beats walking alone. Even now.",
             "Funny. I used to come this way for groceries.",
             "Keep going. I've got your back.",
+            "Lovely day for a walk through the end of everything.",
+            "Scenic route again? You spoil me.",
+            "Welcome to Knox County. Enjoy your stay. It's mandatory.",
+            "If a billboard still promises tomorrow, that's bold of it.",
+            "If the army's holding the county line, they're doing it real quiet.",
+            "Nobody's paying bills anymore. Silver lining, I reckon.",
+            "Walking the county like a census taker. Head count's way down.",
+            "We walk much farther, I'm calling it a pilgrimage.",
+            "I miss the smell of cut hay more than I expected.",
+            "If a horse looks out of a barn, I'm stopping to say hello.",
+            "Brandenburg roads could lead you to a church or a liquor store.",
+            "Ohio River's still out there, rolling along. Must be nice.",
+            "A Kentucky mile always was longer than it looks.",
+            "Roadside ditches never used to worry me. Funny how that changed.",
+            "They call it bluegrass country. Nobody told the dead.",
+            "I miss seeing people sit out on their porches.",
         },
         brave = { "Point the way. I'll handle whatever's on it.",
-            "I'd rather be out front, but fine. Lead on." },
+            "I'd rather be out front, but fine. Lead on.",
+            "Pick a direction. I'll make it work.",
+            "Keep moving. I'll cover our back." },
         cautious = { "Slow is fine. Slow is alive.",
-            "I keep checking behind us. Don't mind me." },
-        caring = { "Shout if you need a breather. I won't think less of you." },
-        practical = { "Let's not carry more than we can run with." },
+            "I keep checking behind us. Don't mind me.",
+            "Keep off open fields if we can. Nothing to hide behind there.",
+            "Stay off rotten porches. Worse things wait behind the doors." },
+        caring = { "Shout if you need a breather. I won't think less of you.",
+            "Say if you need a breather. We can take one.",
+            "Talk to me now and then. Helps me know you're all right." },
+        practical = { "Let's not carry more than we can run with.",
+            "Water towers and church steeples make decent landmarks.",
+            "Every mile out is a mile back. Pack for both." },
         steady = { "Same road, same rules. Eyes open.",
-            "Nothing behind us. I checked twice." },
+            "Nothing behind us. I checked twice.",
+            "Still with you. Long road ahead." },
+        stressed = { "Let's keep moving. Standing still makes my skin crawl.",
+            "Every shadow's got teeth today." },
+        low = { "Another road, another day. Hard to tell them apart.",
+            "Sometimes I wonder who'll walk these roads after us." },
+        hopeful = { "Somewhere out there's a town with the lights on. I'd bet my boots.",
+            "Keep this pace and we'll outlast the whole county." },
     },
     ["banter.idle.first"] = {
         common = {
@@ -1084,11 +1170,14 @@ local function faceConversation(first, second, action, firstEmote, secondEmote)
 end
 
 local function beginExchange(first, second, openTopic, replyTopic,
-        firstCommands, secondCommands, current, kind)
+        firstCommands, secondCommands, current, kind, faceToFace)
     if not speak(first, openTopic, firstCommands, { firstName(second) }, {
         salt = kind .. ":open:" .. pairKey(first, second) .. ":" .. tostring(current),
     }) then return false, "conversation_speech_rejected" end
-    faceConversation(first, second, kind, kind == "meeting" and "wave" or "yes", "yes")
+    if faceToFace ~= false then
+        faceConversation(first, second, kind,
+            kind == "meeting" and "wave" or "yes", "yes")
+    end
     party.exchange = {
         first = first, second = second, replyTopic = replyTopic,
         secondCommands = secondCommands, nextAt = current
@@ -1111,7 +1200,10 @@ local function exchangePulse(records, current)
     local secondRecord = recordForActor(records, exchange.second)
     if not firstRecord or not secondRecord or not calm(recordSnapshot(firstRecord))
         or not calm(recordSnapshot(secondRecord)) or U().isDead(exchange.first)
-        or U().isDead(exchange.second) then
+        or U().isDead(exchange.second)
+        or not U().sameFloor(exchange.first, exchange.second)
+        or U().distance(exchange.first, exchange.second)
+            > config("campConversationDistance", 8) then
         party.exchange = nil
         return false, "conversation_interrupted", false
     end
@@ -1177,6 +1269,35 @@ local function atCamp(actor)
     return false
 end
 
+local function shelteredTogether(first, second)
+    local firstSquare = U().squareOf(first)
+    local secondSquare = U().squareOf(second)
+    local firstRoom = firstSquare and select(1, U().call(firstSquare, "getRoom"))
+    local secondRoom = secondSquare and select(1, U().call(secondSquare, "getRoom"))
+    if firstRoom == nil or secondRoom == nil then return false end
+    local firstBuilding = select(1, U().call(firstRoom, "getBuilding"))
+    local secondBuilding = select(1, U().call(secondRoom, "getBuilding"))
+    return firstBuilding ~= nil and firstBuilding == secondBuilding
+end
+
+local quietAction = {
+    sit = true, rest_bed = true, rest_floor = true,
+    read = true, write_diary = true,
+    window_watch = true, tv_watch = true, gear_check = true, radio_check = true,
+    tidy_camp = true, weather_recovery = true, clean_base = true,
+}
+
+local function availableForQuietTalk(record, player, current, radius)
+    local commands = available(record, player, current, radius, true)
+    if not commands then return nil end
+    local supervisor = SC.ActionSupervisor
+    local token = supervisor and type(supervisor.current) == "function"
+        and supervisor.current(record.actor) or nil
+    if token ~= nil and (token.owner ~= "downtime"
+        or quietAction[token.action] ~= true) then return nil end
+    return commands, token == nil
+end
+
 local function campConversationPulse(player, records, current)
     if current - party.lastCampConversationAt
         < config("campConversationPartyCooldownMs", 60000) then
@@ -1187,13 +1308,17 @@ local function campConversationPulse(player, records, current)
     local actorCooldown = config("campConversationActorCooldownMs", 180000)
     local candidates = {}
     for _, record in ipairs(records or {}) do
-        local commands = available(record, player, current,
+        local commands, freeToFace = availableForQuietTalk(record, player, current,
             config("meetingGreetingPlayerDistance", 14))
         local moving, movingOk = record.actor and U().call(record.actor, "isMoving")
-        if commands and atCamp(record.actor) and not (movingOk and moving == true)
+        if commands and (atCamp(record.actor)
+            or select(1, U().call(U().squareOf(record.actor), "getRoom")) ~= nil)
+            and not (movingOk and moving == true)
             and current - (actorState(record.actor).lastCampTalkAt or -math.huge)
                 >= actorCooldown then
-            candidates[#candidates + 1] = { record = record, commands = commands }
+            candidates[#candidates + 1] = {
+                record = record, commands = commands, freeToFace = freeToFace,
+            }
         end
     end
     for firstIndex = 1, #candidates do
@@ -1202,13 +1327,32 @@ local function campConversationPulse(player, records, current)
             local firstActor, secondActor = first.record.actor, second.record.actor
             local key = pairKey(firstActor, secondActor)
             local prior = tonumber(party.campPairs[key]) or -math.huge
-            if U().sameFloor(firstActor, secondActor)
+            local campPair = atCamp(firstActor) and atCamp(secondActor)
+            if (campPair or shelteredTogether(firstActor, secondActor))
+                and U().sameFloor(firstActor, secondActor)
                 and U().distance(firstActor, secondActor) <= radius
                 and U().canSee(firstActor, secondActor)
                 and current - prior >= config("campConversationPairCooldownMs", 600000) then
+                local openTopic = campPair and "banter.camp.open"
+                    or "banter.shelter.open"
+                local replyTopic = campPair and "banter.camp.reply"
+                    or "banter.shelter.reply"
+                -- A carried library book gives a quiet pair something
+                -- concrete to discuss. Keep ordinary camp talk in rotation.
+                local bookConversation = SC.Downtime
+                    and type(SC.Downtime.hasBookToDiscuss) == "function"
+                    and (SC.Downtime.hasBookToDiscuss(firstActor)
+                        or SC.Downtime.hasBookToDiscuss(secondActor))
+                    and U().stableHash(key .. ":books:" .. tostring(math.floor(current / 60000)))
+                        % 3 == 0
+                if bookConversation then
+                    openTopic, replyTopic = "banter.books.open", "banter.books.reply"
+                end
                 local spoken, topic = beginExchange(firstActor, secondActor,
-                    "banter.camp.open", "banter.camp.reply",
-                    first.commands, second.commands, current, "camp")
+                    openTopic, replyTopic,
+                    first.commands, second.commands, current,
+                    campPair and "camp" or "shelter",
+                    first.freeToFace and second.freeToFace)
                 if spoken then
                     actorState(firstActor).lastCampTalkAt = current
                     actorState(secondActor).lastCampTalkAt = current

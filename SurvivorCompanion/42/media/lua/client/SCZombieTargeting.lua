@@ -51,6 +51,9 @@ function Targeting.consider(zombie, actor)
     if zombie == nil or U().isZombie(zombie) ~= true or U().isDead(zombie) then
         return false, "invalid_zombie"
     end
+    -- A-Life temporarily holds ordinary zombies while resolving its NPC
+    -- encounters. Do not repeatedly call spotted() against that lease.
+    if U().isALifeHordeHeld(zombie) then return false, "alife_horde_held" end
     local useless, uselessOk = U().call(zombie, "isUseless")
     if uselessOk and useless == true then return false, "zombie_is_useless" end
     local distance = U().distance(zombie, actor)

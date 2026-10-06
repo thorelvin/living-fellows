@@ -382,16 +382,30 @@ local function approach(actor, target, action, order)
         return "failed", "navigation_unavailable"
     end
     local targetSquare = U().squareOf(target) or target
-    if U().sameSquare(actor, targetSquare) then return "arrived", "gather_in_range" end
-    local approaches = SC.Navigation.interactionTargets(actor, target, {
-        requireDirectAccess = true,
-    })
+    local groundPickup = action == "move_to_gather_item"
+    local pickupOnSource = groundPickup and U().isSquareFree(targetSquare)
+    if groundPickup then
+        if pickupOnSource and U().sameSquare(actor, targetSquare)
+            and U().arrived(actor, targetSquare, {
+                targetKind = "square", distance = 0.45,
+            }) then return "arrived", "gather_in_range" end
+    elseif U().sameSquare(actor, targetSquare) then
+        return "arrived", "gather_in_range"
+    end
+    -- A dropped log is collected from its own square when it is walkable.
+    -- Adjacent tile membership can leave the actor too far away to pick it up.
+    local approaches = pickupOnSource and { targetSquare }
+        or SC.Navigation.interactionTargets(actor, target, {
+            requireDirectAccess = true,
+        })
     if type(approaches) ~= "table" or #approaches == 0 then
         return "failed", "no_interaction_targets"
     end
     local accepted, reason, reached = SC.Navigation.requestAny(actor, approaches, "walk", {
         action = action, targetSquare = targetSquare,
-        object = target, requireSameSquare = true, workCampOnly = true,
+        object = target, requireSameSquare = not pickupOnSource,
+        arrivalDistance = pickupOnSource and 0.45 or nil,
+        workCampOnly = true,
         workReach = lumberOrder(order)
             or action == "move_to_gather_destination",
     })

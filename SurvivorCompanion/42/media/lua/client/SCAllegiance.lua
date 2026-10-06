@@ -18,6 +18,8 @@ end
 function Allegiance.isHostile(facts)
     if type(facts) ~= "table" or facts.sourceExists ~= true
         or facts.targetExists ~= true or facts.same == true then return false end
+    if facts.externalHostile == true then return true end
+    if facts.playerConflictHostile == true then return true end
     local sourceAffiliation = facts.sourceAffiliation
     local targetAffiliation = facts.targetAffiliation
     if sourceAffiliation and facts.targetParty == true then
@@ -38,6 +40,7 @@ function Allegiance.relationship(facts)
     if type(facts) ~= "table" or facts.sourceExists ~= true
         or facts.targetExists ~= true then return "unknown" end
     if facts.same == true then return "self" end
+    if Allegiance.isHostile(facts) then return "hostile" end
     if facts.sourceParty == true and facts.targetParty == true then return "party_ally" end
     local sourceAffiliation = facts.sourceAffiliation
     local targetAffiliation = facts.targetAffiliation
@@ -45,7 +48,6 @@ function Allegiance.relationship(facts)
         and sourceAffiliation.factionId == targetAffiliation.factionId then
         return "faction_ally"
     end
-    if Allegiance.isHostile(facts) then return "hostile" end
     return "neutral"
 end
 

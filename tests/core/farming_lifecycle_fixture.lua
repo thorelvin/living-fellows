@@ -107,6 +107,7 @@ function F.square(x, y, plant)
     function value:getY() return self.y end
     function value:getZ() return self.z end
     function value:getObjects() return self.objects end
+    function value:isOutside() return self.outside ~= false end
     F.squares[tostring(x) .. ":" .. tostring(y) .. ":0"] = value
     return value
 end
@@ -176,6 +177,7 @@ function F.reset()
             { id = "zone:farm", kind = "farm", x1 = 1, y1 = 1, x2 = 1, y2 = 1, z = 0 },
         },
         jobs = {}, storages = F.storages, farm = { recoveryCursor = 1 },
+        settings = { workOutsideAtNight = false },
     }
 end
 
@@ -244,6 +246,8 @@ end } }
 
 SC.BaseLife = {
     active = function() return F.base end,
+    policies = function() return F.base.settings end,
+    isOutdoorSquare = function(square) return square and square:isOutside() or nil end,
     isInside = function(square)
         for _, zone in ipairs(F.base.zones) do
             if zone.kind == "area" and square and square.z == zone.z

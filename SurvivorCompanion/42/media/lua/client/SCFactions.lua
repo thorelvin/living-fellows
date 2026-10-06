@@ -26,6 +26,8 @@ local spawnEntry = nil
 local restored = false
 local observedContainers = setmetatable({}, { __mode = "k" })
 local recentPlayerAttacks = {}
+local recentCompanionHits = {}
+local PLAYER_CONFLICT_STOP_HEALTH = 25
 local hitHookInstalled = false
 local swingHookInstalled = false
 local fallbackRandomSequence = 0
@@ -1682,12 +1684,93 @@ local function observeContainerTransfers(current)
     end
 end
 
+local function noteCompanionHit(attacker, target, record)
+    if record.recruited ~= true or record.factionId ~= nil
+        or not SC.Commands or not SC.Relationship then return false end
+    local current = nowMs()
+    local prior = recentCompanionHits[record.id]
+    if prior and current - prior < 350 then return false end
+    recentCompanionHits[record.id] = current
+    local state = SC.Commands.peek(target)
+    if not state then return false end
+    SC.Relationship.initialize(target, state)
+    -- A stray swing or shot while the dead (or a hostile) are on the companion
+    -- is an accident in a melee, not an attack. It earns a complaint and no
+    -- strike, or a crowded fight would turn a loyal follower against the
+    -- player. Hits in a quiet moment count, and an open fight keeps counting.
+    if state.care.playerHostile ~= true
+        and state.care.playerCeasefire ~= true then
+        local runtime = type(record.runtime) == "table" and record.runtime or nil
+        local snapshot = runtime and (runtime.snapshot
+            or (type(runtime.senses) == "table" and runtime.senses.current)) or nil
+        if type(snapshot) == "table"
+            and ((tonumber(snapshot.threatCount)
+                    or (type(snapshot.threats) == "table" and #snapshot.threats) or 0) > 0
+                or (tonumber(snapshot.immediateCount) or 0) > 0
+                or snapshot.humanThreat ~= nil) then
+            if SC.Dialogue and type(SC.Dialogue.say) == "function" then
+                SC.Dialogue.say(target, "player_hit.warning")
+            end
+            return true
+        end
+    end
+    if type(SC.Relationship.coolPlayerStrikes) == "function" then
+        SC.Relationship.coolPlayerStrikes(state)
+    end
+    state.care.playerStrikeHour = worldAgeHours()
+    local hits = (tonumber(state.care.playerStrikes) or 0) + 1
+    local kind, topic = "player_hit_warning", "player_hit.warning"
+    if state.care.playerCeasefire == true then
+        state.care.playerHostile = true
+        state.care.playerFightToDeath = true
+        kind, topic = "player_hit_after_ceasefire", "player_hit.after_ceasefire"
+    elseif hits == 2 then
+        kind, topic = "player_hit_angered", "player_hit.angered"
+    elseif hits == 3 then
+        kind, topic = "player_hit_last_warning", "player_hit.last_warning"
+    elseif hits >= 4 then
+        if U().nativeHealth(attacker) > PLAYER_CONFLICT_STOP_HEALTH then
+            state.care.playerHostile = true
+            kind, topic = "player_hit_hostile", "player_hit.hostile"
+        else
+            kind, topic = "player_hit_angered", "player_hit.angered"
+        end
+    end
+    if hits >= 2 then
+        -- Keep the player's own setting so it returns when the strikes fade.
+        if state.care.followDistanceBeforeStrikes == nil then
+            state.care.followDistanceBeforeStrikes = state.followDistance
+        end
+        state.followDistance = 8
+    end
+    if hits >= 2 and SC.Medical and type(SC.Medical.peek) == "function"
+        and type(SC.Medical.cancel) == "function" then
+        local treatment = SC.Medical.peek(target)
+        if treatment and treatment.patient == attacker then
+            SC.Medical.cancel(target, "player_hit", true)
+        end
+    end
+    SC.Relationship.noteEvent(state, kind, {
+        counter = "playerStrikes", trust = hits == 1 and -5 or -12,
+        bond = hits == 1 and -2 or -6, stress = hits >= 4 and 20 or 10,
+    })
+    SC.Commands.persist(target)
+    if SC.Dialogue and type(SC.Dialogue.say) == "function" then
+        SC.Dialogue.say(target, topic)
+    end
+    return true
+end
+
 function Factions.onWeaponHitCharacter(attacker, target, weapon, damage)
     local currentPlayer = localPlayer()
     if attacker == nil or attacker ~= currentPlayer or target == nil then return end
     local id = U().idOf(target)
     local record = id and SC.Registry.byId(id) or nil
     if not record then return end
+    if record.recruited == true and record.factionId == nil then
+        noteCompanionHit(attacker, target, record)
+        return
+    end
     local factionId = record.factionId
     if type(factionId) ~= "string" and SC.FactionRecruitment
         and type(SC.FactionRecruitment.originForActor) == "function" then
@@ -1804,13 +1887,50 @@ local function isPlayerPartyMember(subject, player)
     return record ~= nil and record.recruited == true and record.factionId == nil
 end
 
+function Factions.playerConflictHostile(companion, player)
+    if companion == nil or player == nil or companion == player then return false end
+    local record = recordForSubject(companion)
+    if not record or record.recruited ~= true or record.factionId ~= nil
+        or not SC.Commands then return false end
+    local state = SC.Commands.peek(companion)
+    if not state or type(state.care) ~= "table"
+        or state.care.playerHostile ~= true then return false end
+    if state.care.playerFightToDeath == true
+        or U().nativeHealth(player) > PLAYER_CONFLICT_STOP_HEALTH then return true end
+    state.care.playerHostile = false
+    state.care.playerCeasefire = true
+    if SC.Relationship then
+        SC.Relationship.noteEvent(state, "player_hit_ceasefire", { stress = -5 })
+    end
+    SC.Commands.persist(companion)
+    U().stop(companion)
+    if SC.Dialogue and type(SC.Dialogue.say) == "function" then
+        SC.Dialogue.say(companion, "player_hit.ceasefire")
+    end
+    return false
+end
+
 local function allegianceFacts(source, target, player)
+    local sourceParty = isPlayerPartyMember(source, player)
+    local targetParty = isPlayerPartyMember(target, player)
+    local playerConflictHostile = (source == player and targetParty
+        and Factions.playerConflictHostile(target, player))
+        or (target == player and sourceParty
+            and Factions.playerConflictHostile(source, player)) or false
+    local externalHostile = false
+    if sourceParty and target ~= nil and U().isALifeNpc(target) then
+        externalHostile = U().isALifeHostileToParty(target, player, source)
+    elseif targetParty and source ~= nil and U().isALifeNpc(source) then
+        externalHostile = U().isALifeHostileToParty(source, player, target)
+    end
     return {
         sourceExists = source ~= nil,
         targetExists = target ~= nil,
         same = source ~= nil and source == target,
-        sourceParty = isPlayerPartyMember(source, player),
-        targetParty = isPlayerPartyMember(target, player),
+        sourceParty = sourceParty,
+        targetParty = targetParty,
+        externalHostile = externalHostile,
+        playerConflictHostile = playerConflictHostile,
         sourceAffiliation = Factions.affiliation(source),
         targetAffiliation = Factions.affiliation(target),
     }
@@ -1860,7 +1980,7 @@ function Factions.hostileTargetFor(actor, player)
             candidates[#candidates + 1] = candidate
         end
     end
-    if sourceAffiliation then
+    if sourceAffiliation or Factions.playerConflictHostile(actor, player) then
         addCandidate(player)
     end
     if (sourceAffiliation or isPlayerPartyMember(actor, player)) and SC.Registry
@@ -2989,6 +3109,7 @@ local function commitRestoredTransients()
     spawnQueue, spawnTicket, spawnEntry = {}, nil, nil
     observedContainers = setmetatable({}, { __mode = "k" })
     recentPlayerAttacks = {}
+    recentCompanionHits = {}
     fallbackRandomSequence = 0
     Factions._nextProductionAt = nil
 end
@@ -3188,6 +3309,7 @@ function Factions.reset()
     spawnQueue, spawnTicket, spawnEntry = {}, nil, nil
     observedContainers = setmetatable({}, { __mode = "k" })
     recentPlayerAttacks = {}
+    recentCompanionHits = {}
     fallbackRandomSequence = 0
     streetLookup = { api = nil, bridge = nil, retryAt = 0 }
     Factions._nextProductionAt = nil

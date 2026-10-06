@@ -196,6 +196,12 @@ local memoryText = {
     combat_push = { "IGUI_SC_Memory_CombatPush", "You pushed me to take a fight I did not want." },
     combat_push_succeeded = { "IGUI_SC_Memory_CombatPushSucceeded", "You pushed me, and I got us through it." },
     combat_push_injury = { "IGUI_SC_Memory_CombatPushInjury", "You pushed me into that fight, and I got hurt." },
+    player_hit_warning = { "IGUI_SC_Memory_PlayerHitWarning", "You hit me. I warned you to watch your swing." },
+    player_hit_angered = { "IGUI_SC_Memory_PlayerHitAngered", "You hit me again. I do not feel safe standing close to you." },
+    player_hit_last_warning = { "IGUI_SC_Memory_PlayerHitLastWarning", "You kept hitting me after I asked you to stop." },
+    player_hit_hostile = { "IGUI_SC_Memory_PlayerHitHostile", "You attacked me four times. I fought back." },
+    player_hit_ceasefire = { "IGUI_SC_Memory_PlayerHitCeasefire", "I stopped fighting when you were badly hurt, but I remember what happened." },
+    player_hit_after_ceasefire = { "IGUI_SC_Memory_PlayerHitAfterCeasefire", "I spared you, and you attacked me again. There will be no second ceasefire." },
 }
 
 function Relationship.memoryText(memory)
@@ -283,6 +289,40 @@ local function eventReady(runtime, kind, now, cooldown)
     return true
 end
 
+--- Strikes from the player cool off. A companion keeps its distance after a
+--- second hit, and a fourth in quick succession is an attack; but strikes that
+--- never expired turned months of stray swings into a permanent retreat and,
+--- eventually, a fight. After a quiet spell of game time the count clears.
+--- Open hostility and a ceasefire are left to the conflict rules.
+function Relationship.coolPlayerStrikes(state)
+    local care = type(state) == "table" and state.care or nil
+    if type(care) ~= "table" or (tonumber(care.playerStrikes) or 0) <= 0
+        or care.playerHostile == true or care.playerCeasefire == true then return false end
+    local hours
+    if type(getGameTime) == "function" then
+        local ok, gameTime = pcall(getGameTime)
+        local age, called
+        if ok and gameTime then age, called = U().call(gameTime, "getWorldAgeHours") end
+        hours = called and tonumber(age) or nil
+    end
+    if hours == nil then return false end
+    local last = tonumber(care.playerStrikeHour)
+    if last == nil or last > hours then
+        care.playerStrikeHour = hours
+        return true
+    end
+    if hours - last < (tonumber(U().config("playerStrikeMemoryGameHours")) or 6) then
+        return false
+    end
+    care.playerStrikes, care.playerStrikeHour = 0, nil
+    -- Undo only the distance the strikes imposed. A distance the player has
+    -- chosen since then stays.
+    local before = tonumber(care.followDistanceBeforeStrikes)
+    care.followDistanceBeforeStrikes = nil
+    if before and state.followDistance == 8 then state.followDistance = before end
+    return true
+end
+
 function Relationship.observe(actor, player, snapshot, state)
     if not actor or not player or type(state) ~= "table" then return false end
     Relationship.initialize(actor, state)
@@ -290,6 +330,7 @@ function Relationship.observe(actor, player, snapshot, state)
     local runtime = observations[actor]
     local interval = tonumber(U().config("relationshipObservationIntervalMs")) or 1000
     if runtime and now - (tonumber(runtime.sampledAt) or 0) < interval then return false end
+    local strikesCooled = Relationship.coolPlayerStrikes(state)
     local wounds, health = woundCount(actor)
     local playerWounds, playerHealth = woundCount(player)
     local hunger = U().characterStatValue(actor, "HUNGER", 0)
@@ -306,7 +347,8 @@ function Relationship.observe(actor, player, snapshot, state)
         return false
     end
 
-    local changed, meaningful, events = false, false, {}
+    -- A cleared grudge is saved straight away, like any relationship event.
+    local changed, meaningful, events = false, strikesCooled == true, {}
     local function observed(kind, changes)
         local memory = recordEvent(state, kind, changes)
         if memory then events[#events + 1] = memory end
@@ -514,9 +556,12 @@ local doingLabels = {
     exit_vehicle = "getting out of the vehicle",
     read = "reading",
     repair = "repairing equipment",
+    gear_check = "checking my gear",
+    window_watch = "watching the window",
+    tv_watch = "watching television",
     craft_supply = "making supplies",
     sit = "taking a short rest",
-    rest_bed = "resting on a bed",
+    rest_bed = "sleeping in a bed",
     wash = "washing up",
     follow_formation = "keeping formation",
     approach_vehicle = "reaching the passenger door",
@@ -537,6 +582,7 @@ local doingLabels = {
     bury_body = "burying someone",
     check_room = "checking a room",
     chop_tree = "chopping a tree",
+    clean_base = "cleaning the camp",
     climb_window = "climbing through a window",
     collision_recovery = "finding a clear step",
     combat_approach = "closing on a threat",
@@ -565,20 +611,27 @@ local doingLabels = {
     hide_indoors = "staying out of sight",
     idle = "keeping watch",
     investigate_sound = "checking a noise",
+    missing_tool = "asking for a tool",
     lateral_kite = "keeping distance from a threat",
     leave_base = "leaving camp",
     leave_group = "going my own way",
     move_to_base_build = "heading to the work site",
+    move_to_base_check_in = "checking in on someone at camp",
+    move_to_tv = "finding a place to watch television",
     move_to_base_storage = "heading to storage",
     move_to_camp_storage = "heading to storage",
+    move_to_clean_stain = "heading to a stain",
     move_to_corpse = "going to a body",
     move_to_farm_plot = "heading to the plot",
+    move_to_fishing_spot = "heading to the fishing bank",
     move_to_pyre_watch = "heading to the pyre",
     move_to_quarantine = "heading to quarantine",
     move_to_scavenge = "heading to supplies",
     move_to_seat = "finding a seat",
+    chef_serve_player = "bringing you a meal",
     move_to_treat = "going to treat someone",
     move_to_water_source = "heading to water",
+    move_to_window = "going to a window",
     none = "taking a breath",
     offscreen_safe_recovery = "getting clear of an obstacle",
     ordered_move = "moving as ordered",
@@ -600,6 +653,7 @@ local doingLabels = {
     shove = "pushing a threat back",
     sit_ground = "resting on the ground",
     stand_ground = "getting back up",
+    stair_recovery = "finding a safe way off the stairs",
     steer = "steering clear",
     stomp = "finishing a fallen threat",
     stress_bottle_smash = "venting my nerves",

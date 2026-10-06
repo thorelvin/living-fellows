@@ -173,7 +173,7 @@ for _, name in ipairs({
     "FactionBehavior", "ZombieTargeting", "ThreatSet", "PerceptionScan", "Locomotion", "Senses", "Topology", "PathSearch", "NavTraffic", "NavTraversal", "Allegiance", "Navigation",
     "Positioning", "Combat", "Medical", "Logistics", "Lighting", "Needs", "Downtime",
     "Personality", "PersonalItems", "Relationship", "Objectives", "Journal",
-    "BaseObjectRef", "BaseLife", "WorkTransport", "GatherWork", "FarmWork", "BaseWork", "Production",
+    "BaseObjectRef", "BaseLife", "WorkTransport", "GatherWork", "FarmWork", "Fishing", "BaseWork", "Production",
     "InfectionCrisis", "LifeEvents", "Community",
     "DiaryText", "DiaryCatalog", "DiaryItem", "Diary",
     "Quirks", "Autonomy", "Commands", "FactionRecruitment", "Decision", "Support", "ViewControl", "Steering",

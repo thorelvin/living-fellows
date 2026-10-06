@@ -424,9 +424,26 @@ local function relevantSounds(actor, runtimeSounds, now)
     return result
 end
 
-local function collectRelationships(actor, player)
+local ALIFE_CONTACT_MS = 5000
+local ALIFE_PROTECTED_LIMIT = 64
+
+local function rememberALifeNpc(state, actor, candidate, now, radiusSq)
     local U = util()
-    local allyCandidates, protectedCandidates = {}, {}
+    if not U.isALifeNpc(candidate) or U.isGoneTarget(candidate)
+        or not U.sameFloor(actor, candidate)
+        or U.distanceSq(actor, candidate) > radiusSq then return end
+    state.alifeNpcs = state.alifeNpcs or setmetatable({}, { __mode = "k" })
+    local previous = state.alifeNpcs[candidate]
+    if previous == nil or now - previous > ALIFE_CONTACT_MS then
+        state.alifeNpcsDirty = true
+    end
+    state.alifeNpcs[candidate] = now
+end
+
+local function collectRelationships(actor, player, alifeNpcs, now)
+    local U = util()
+    local allyCandidates, protectedCandidates, externalProtectedCandidates = {}, {}, {}
+    local externalThreat
     local limit = U.config("perceptionAllyLimit") or 16
     -- Registry order is stable by id, not by relevance. Inspect the complete
     -- loaded roster before applying the small snapshot cap; otherwise a few
@@ -465,12 +482,51 @@ local function collectRelationships(actor, player)
             end
         end
     end
+    -- A-Life NPCs are zombie-shaped objects outside LF's registry. Neutral
+    -- contacts stay protected; a visible party-hostile contact enters the
+    -- existing human combat lane without becoming an ordinary zombie.
+    for candidate, seenAt in pairs(alifeNpcs or {}) do
+        if type(seenAt) == "number" and type(now) == "number"
+            and now - seenAt <= ALIFE_CONTACT_MS
+            and U.isALifeNpc(candidate) and not U.isGoneTarget(candidate)
+            and U.sameFloor(actor, candidate)
+            and U.distanceSq(actor, candidate)
+                <= (U.config("perceptionRadius") or 24) ^ 2 then
+            local relationship = SC.Factions and type(SC.Factions.relationshipBetween) == "function"
+                and SC.Factions.relationshipBetween(actor, candidate, player) or "neutral"
+            local row = {
+                actor = candidate,
+                id = U.idOf(candidate),
+                square = U.squareOf(candidate),
+                distanceSq = U.distanceSq(actor, candidate),
+                health = U.nativeHealth(candidate),
+                relationship = relationship,
+            }
+            if relationship == "hostile" then
+                if U.canSee(actor, candidate)
+                    and (externalThreat == nil
+                        or row.distanceSq < externalThreat.distanceSq) then
+                    local x, y, z = U.position(candidate)
+                    externalThreat = { actor = candidate, id = row.id,
+                        x = x, y = y, z = z, square = row.square,
+                        distance = math.sqrt(row.distanceSq),
+                        distanceSq = row.distanceSq, visible = true,
+                        external = "project_alife" }
+                end
+            else
+                externalProtectedCandidates[#externalProtectedCandidates + 1] = row
+            end
+        else
+            alifeNpcs[candidate] = nil
+        end
+    end
     local function closestFirst(a, b)
         if a.distanceSq ~= b.distanceSq then return a.distanceSq < b.distanceSq end
         return tostring(a.id) < tostring(b.id)
     end
     table.sort(allyCandidates, closestFirst)
     table.sort(protectedCandidates, closestFirst)
+    table.sort(externalProtectedCandidates, closestFirst)
     local allies, protected = {}, {}
     for index = 1, math.min(limit, #allyCandidates) do
         allies[index] = allyCandidates[index]
@@ -478,7 +534,12 @@ local function collectRelationships(actor, player)
     for index = 1, math.min(limit, #protectedCandidates) do
         protected[index] = protectedCandidates[index]
     end
-    return allies, protected
+    -- The small LF roster cap must not hide a neutral bystander farther down
+    -- the firing lane. Keep external contacts bounded separately.
+    for index = 1, math.min(ALIFE_PROTECTED_LIMIT, #externalProtectedCandidates) do
+        protected[#protected + 1] = externalProtectedCandidates[index]
+    end
+    return allies, protected, externalThreat
 end
 
 Senses._collectRelationshipsForTests = collectRelationships
@@ -1080,6 +1141,9 @@ function Senses.snapshot(actor, player, runtime)
         U.config("perceptionNativeCandidatesPerSlice") or 64,
         durationNowMs() + (tonumber(U.config("perceptionNativeSliceMs")) or 0.75),
         durationNowMs)
+    for _, candidate in ipairs(nativeCandidates or {}) do
+        rememberALifeNpc(state, actor, candidate, now, radius * radius)
+    end
     local job = state.scanJob
     local invalid, invalidReason, rebaseDistance = scanJobInvalid(
         job, originX, originY, originZ, radius, squareBudget)
@@ -1123,6 +1187,7 @@ function Senses.snapshot(actor, player, runtime)
                 end
             end
             for _, movingObject in ipairs(movingObjects) do
+                rememberALifeNpc(state, actor, movingObject, now, radius * radius)
                 if #job.stealthThreats >= threatLimit then return false end
                 if not job.seen[movingObject] and isActiveZombie(movingObject) then
                     job.seen[movingObject] = true
@@ -1222,13 +1287,16 @@ function Senses.snapshot(actor, player, runtime)
         heardThreats[1] = remembered
     end
 
-    local relationshipsFresh = not state.allies
+    local relationshipsFresh = state.alifeNpcsDirty == true or not state.allies
         or now - (state.alliesAt or 0) > 250
-    local allies, protectedActors = state.allies, state.protectedActors
+    local allies, protectedActors, externalThreat =
+        state.allies, state.protectedActors, state.externalThreat
     if relationshipsFresh then
-        allies, protectedActors = collectRelationships(actor, player)
-        state.allies, state.protectedActors, state.alliesAt =
-            allies, protectedActors, now
+        allies, protectedActors, externalThreat = collectRelationships(actor, player,
+            state.alifeNpcs, now)
+        state.allies, state.protectedActors, state.externalThreat, state.alliesAt =
+            allies, protectedActors, externalThreat, now
+        state.alifeNpcsDirty = false
     end
     local actorRoom, actorRoomOk = U.call(actorSquare, "getRoom")
     local snapshot = {
@@ -1283,6 +1351,7 @@ function Senses.snapshot(actor, player, runtime)
         escapeProcessedNodes = escapeMeta.processed,
         allies = allies or {},
         protectedActors = protectedActors or {},
+        humanThreat = externalThreat,
         -- Follow downtime is permitted only after the actor has actually
         -- entered a room. This field was consumed by decisions but was not
         -- previously populated, so outdoor and indoor idle were indistinct.

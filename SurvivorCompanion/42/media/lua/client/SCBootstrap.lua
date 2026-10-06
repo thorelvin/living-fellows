@@ -56,6 +56,7 @@ require "SCEncounter"
 require "SCLogistics"
 require "SCLighting"
 require "SCNeeds"
+require "SCTVWatching"
 require "SCDowntime"
 require "SCPersonality"
 require "SCPersonalItems"
@@ -67,7 +68,10 @@ require "SCBaseVisuals"
 require "SCWorkTransport"
 require "SCGatherWork"
 require "SCFarmWork"
+require "SCFishing"
+require "SCChefWork"
 require "SCBaseWork"
+require "SCBaseWatch"
 require "SCProduction"
 require "SCInfectionCrisis"
 require "SCLifeEvents"
@@ -123,7 +127,7 @@ local requiredModules = {
     "Locomotion", "Senses", "Navigation", "Positioning", "Combat", "Medical", "Encounter",
     "Logistics", "Lighting", "Needs", "Downtime", "Personality", "PersonalItems", "Relationship",
     "Objectives", "Journal", "BaseLife", "BaseVisuals", "WorkTransport", "GatherWork",
-    "FarmWork", "BaseWork", "Production", "InfectionCrisis",
+    "FarmWork", "Fishing", "BaseWork", "Production", "InfectionCrisis",
     "LifeEvents", "Community", "DiaryText", "DiaryCatalog", "DiaryItem", "Diary",
     "Quirks", "Autonomy",
     "Commands", "FactionRecruitment", "Decision", "Support", "UI", "ViewControl", "Steering", "UIContext",

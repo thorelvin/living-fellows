@@ -14,7 +14,7 @@ BaseLife.VERSION = 1
 BaseLife.WORK_VERSION = 1
 BaseLife.ROLES = {
     generalist = true, guard = true, builder = true, quartermaster = true, medic = true,
-    farmer = true, woodcutter = true, corpsekeeper = true, maintainer = true,
+    farmer = true, angler = true, chef = true, woodcutter = true, corpsekeeper = true, maintainer = true,
 }
 -- Standing marks an infection crisis can leave on a survivor. All of them bar
 -- camp duty: watch and quarantine keep someone inside under supervision,
@@ -22,7 +22,7 @@ BaseLife.ROLES = {
 BaseLife.RESTRICTIONS = { watch = true, quarantine = true, exiled = true }
 BaseLife.ZONE_TYPES = {
     area = true, work = true, rest = true, social = true, guard = true,
-    rally = true, quarantine = true, lumber = true, farm = true,
+    rally = true, quarantine = true, lumber = true, farm = true, fishing = true,
     burial = true, pyre = true,
 }
 BaseLife.STORAGE_CATEGORIES = {
@@ -33,7 +33,7 @@ BaseLife.STORAGE_CATEGORIES = {
 BaseLife.JOB_TYPES = {
     haul = true, sort = true, fetch = true, repair = true, replace_bandage = true,
     craft_supply = true, barricade = true, maintain = true, build = true,
-    gather_materials = true, production = true, farm = true,
+    gather_materials = true, production = true, farm = true, cook = true,
 }
 BaseLife.GATHER_MATERIALS = {
     logs = "Base.Log",
@@ -87,6 +87,7 @@ BaseLife.PRODUCTION_OPERATIONS = {
             fromCamp = { kind = "boolean", default = true },
             fromLumber = { kind = "boolean", default = true },
             withBelongings = { kind = "boolean", default = false },
+            autoCorpsekeeper = { kind = "boolean", default = false },
             marker = { kind = "enum", values = { none = true, wood = true }, default = "none" },
             requireDry = { kind = "boolean", default = true },
         },
@@ -117,6 +118,8 @@ local roleAffinity = {
         craft_supply = 4, production = 4 },
     medic = { replace_bandage = 10, fetch = 5, haul = 1, production = 2 },
     farmer = { farm = 30, haul = 3, sort = 2, fetch = 3, production = 2 },
+    chef = { cook = 30, haul = 2, sort = 2, fetch = 2 },
+    angler = { haul = 3, sort = 2, fetch = 3, production = 1 },
     woodcutter = { production = 30, gather_materials = 8, haul = 3 },
     corpsekeeper = { production = 30, maintain = 2 },
     maintainer = { maintain = 30, barricade = 25, repair = 15, fetch = 4 },
@@ -737,6 +740,7 @@ local function normalizeBase(source)
         settings = {
             defense = DEFENSE_POLICIES[settings.defense] and settings.defense or "rotation",
             workload = WORKLOAD_POLICIES[settings.workload] and settings.workload or "balanced",
+            workOutsideAtNight = settings.workOutsideAtNight == true,
             routines = settings.routines ~= false,
             autoMaintenance = settings.autoMaintenance ~= false,
             blueprints = settings.blueprints ~= false,
@@ -1145,6 +1149,22 @@ function BaseLife.admitsWork(value, intent)
         and BaseLife.withinWorkReach(value) == true
 end
 
+-- A native cross-floor path can report an upper square directly above a lower
+-- stair tread before the actor reaches the solid landing. Auto-generated camp
+-- areas intentionally exclude that upper void from ordinary work. Admit it
+-- only as a transient route square when the tread below is inside the work
+-- boundary; callers have already validated both endpoints of the floor trip.
+function BaseLife.admitsStairTransit(value, intent)
+    local point = position(value)
+    if point == nil or SC.Topology == nil or type(intent) ~= "table"
+        or intent.affordance ~= "multi_level" or intent.workCampOnly ~= true
+        or not BaseLife.allowsFloorTransit(intent.fromSquare,
+            intent.ultimateGoal, intent) then return false end
+    local tread = U().gridSquare(point.x, point.y, point.z - 1)
+    return tread ~= nil and SC.Topology.squareHasStairs(tread) == true
+        and BaseLife.admitsWork(tread, intent) == true
+end
+
 local function findById(rows, id)
     for index, row in ipairs(rows or {}) do
         if row.id == id then return row, index end
@@ -1256,6 +1276,8 @@ function BaseLife.canRemoveZone(id)
     local zone, index
     if base then zone, index = findById(base.zones, id) end
     if not index then return false, "unknown_zone" end
+    if zone.kind == "area" and SC.BaseWatch and SC.BaseWatch.current
+        and SC.BaseWatch.current() then return false, "base_watch_active" end
     for _, order in ipairs(base.work and base.work.orders or {}) do
         if order.zoneId == id and order.state ~= "completed" and order.state ~= "cancelled" then
             return false, "work_order_uses_zone"
@@ -1538,6 +1560,10 @@ function BaseLife.removeStorage(id)
     local _, index
     if base then _, index = findById(base.storages, id) end
     if not index then return false, "unknown_storage" end
+    if SC.BaseWork and type(SC.BaseWork.storageInUse) == "function" then
+        local inUse, reason = SC.BaseWork.storageInUse(id)
+        if inUse then return false, reason or "sort_cargo_uses_storage" end
+    end
     for _, order in ipairs(base.work and base.work.orders or {}) do
         if order.destinationStorageId == id
             and order.state ~= "completed" and order.state ~= "cancelled" then
@@ -2359,7 +2385,8 @@ local function productionOrderIn(base, id)
 end
 
 -- Zone kinds that may lie in the bounded reach band around the camp.
-BaseLife.REACH_ZONE_KINDS = { lumber = true, farm = true, burial = true, pyre = true }
+BaseLife.REACH_ZONE_KINDS = { lumber = true, farm = true, fishing = true,
+    burial = true, pyre = true }
 
 local function productionZone(base, schema, id)
     local zone = findById(base and base.zones or {}, id)
@@ -2776,7 +2803,9 @@ local function autonomousProductionSpec(base, actorId, role)
         local destination = autonomousStorage(base, "construction", false)
             or autonomousStorage(base, "general", false)
             or autonomousStorage(base, "output", false)
-        if not destination or BaseLife.availableCount(destination, "Base.Log") >= 4 then
+        -- The role audit runs infrequently, so use the full marked container
+        -- here: logs beyond the routine scan budget still count as stock.
+        if not destination or BaseLife.availableCountExact(destination, "Base.Log") >= 4 then
             return nil
         end
         local zone = autonomousTreeWaiting(base)
@@ -2789,7 +2818,7 @@ local function autonomousProductionSpec(base, actorId, role)
         local source
         for _, storage in ipairs(base.storages or {}) do
             if storage.withdrawals ~= false and BaseLife.resolveContainer(storage)
-                and BaseLife.availableCount(storage, "Base.Log") > 0 then
+                and BaseLife.availableCountExact(storage, "Base.Log") > 0 then
                 source = storage break
             end
         end
@@ -2808,7 +2837,8 @@ local function autonomousProductionSpec(base, actorId, role)
                     return { operation = "collect_bodies", zoneId = zone.id,
                         requested = 1, workers = { actorId },
                         settings = { fromCamp = true, fromLumber = true,
-                            withBelongings = false, requireDry = true } }
+                            withBelongings = kind == "burial", requireDry = true,
+                            autoCorpsekeeper = true } }
                 end
             end
         end
@@ -2821,6 +2851,38 @@ end
 function BaseLife.auditRoleProduction()
     local base = activeBase()
     if not base then return false, "base_missing" end
+    -- Reconcile automatic orders with the current role before choosing new
+    -- work. Earlier corpsekeeper orders were not marked as automatic and used
+    -- the manual default, which excludes nearly every clothed corpse.
+    for _, order in ipairs(productionFor(base).orders or {}) do
+        local settings = order.settings
+        local workerId = type(order.workers) == "table" and order.workers[1] or nil
+        local resident = workerId and ensure().residents[workerId] or nil
+        local zone = findById(base.zones or {}, order.zoneId)
+        local legacyAuto = order.operation == "collect_bodies"
+            and not orderIsTerminal(order)
+            and tonumber(order.requested) == 1
+            and type(order.workers) == "table" and #order.workers == 1
+            and zone and zone.kind == "burial"
+            and resident and resident.baseId == base.id
+            and type(settings) == "table" and settings.autoCorpsekeeper ~= true
+            and settings.fromCamp == true and settings.fromLumber == true
+            and settings.withBelongings == false and settings.requireDry == true
+            and settings.marker == "none"
+        local taggedAuto = order.operation == "collect_bodies"
+            and not orderIsTerminal(order) and type(settings) == "table"
+            and settings.autoCorpsekeeper == true
+        if legacyAuto or taggedAuto then
+            if not resident or resident.baseId ~= base.id
+                or resident.role ~= "corpsekeeper" or resident.duty ~= true then
+                local cancelled, reason = BaseLife.cancelProductionOrder(order.id)
+                if not cancelled then return false, reason end
+            elseif legacyAuto then
+                settings.withBelongings, settings.autoCorpsekeeper = true, true
+                order.updatedAt = now()
+            end
+        end
+    end
     local workers = {}
     for id, resident in pairs(ensure().residents) do
         local record = SC.Registry and SC.Registry.byId
@@ -3278,10 +3340,23 @@ function BaseLife.constructionAt(value)
     local result = {}
     if not point or not base then return result end
     for _, job in ipairs(base.jobs) do
+        local target = job.target
         if (job.type == "build" or job.type == "barricade")
-            and type(job.target) == "table" and job.target.x == point.x
-            and job.target.y == point.y and job.target.z == point.z then
-            result[#result + 1] = job
+            and type(target) == "table" and target.z == point.z then
+            local same = target.x == point.x and target.y == point.y
+            local adjacent = false
+            if job.type == "build" and job.buildKind ~= "floor" then
+                local face = tonumber(job.face) or 1
+                adjacent = face == 1 and point.x == target.x - 1
+                        and point.y == target.y
+                    or face == 2 and point.x == target.x
+                        and point.y == target.y - 1
+                    or face == 3 and point.x == target.x + 1
+                        and point.y == target.y
+                    or face == 4 and point.x == target.x
+                        and point.y == target.y + 1
+            end
+            if same or adjacent then result[#result + 1] = job end
         end
     end
     return result
@@ -3385,7 +3460,60 @@ local function orderForJob(base, job)
     return nil
 end
 
+function BaseLife.outdoorNightRestricted()
+    local base = activeBase()
+    if not base or base.settings.workOutsideAtNight == true
+        or type(getGameTime) ~= "function" then return false end
+    local ok, gameTime = pcall(getGameTime)
+    if not ok or not gameTime then return false end
+    local hour, called = U().call(gameTime, "getTimeOfDay")
+    hour = called and tonumber(hour) or nil
+    if not hour then return false end
+    hour = hour % 24
+    return hour >= 21 or hour < 6
+end
+
+function BaseLife.isOutdoorSquare(subject)
+    local square = U().loadedSquare(subject)
+    if not square then return nil end
+    local outside, called = U().call(square, "isOutside")
+    if called then return outside == true end
+    local room, roomCalled = U().call(square, "getRoom")
+    if roomCalled then return room == nil end
+    return nil
+end
+
+function BaseLife.outdoorJob(job)
+    local base = activeBase()
+    if not base or type(job) ~= "table" then return false end
+    local target = type(job.target) == "table" and job.target or nil
+    if target and target.x ~= nil and target.y ~= nil then
+        local outside = BaseLife.isOutdoorSquare(target)
+        if outside ~= nil then return outside end
+    end
+    local order = orderOwnedJob(job) and orderForJob(base, job) or nil
+    local zoneId = target and target.zoneId or (order and order.zoneId)
+    local zone = zoneId and findById(base.zones, zoneId) or nil
+    if zone then
+        if zone.kind == "lumber" or zone.kind == "farm" or zone.kind == "fishing"
+            or zone.kind == "burial" or zone.kind == "pyre" then return true end
+        local center = { x = math.floor((zone.x1 + zone.x2) / 2),
+            y = math.floor((zone.y1 + zone.y2) / 2), z = zone.z }
+        return BaseLife.isOutdoorSquare(center) == true
+    end
+    return job.type == "farm"
+end
+
 local function jobScore(actorId, job)
+    if SC.BaseWatch and SC.BaseWatch.isLeaderId
+        and SC.BaseWatch.isLeaderId(actorId)
+        and BaseLife.outdoorJob(job) then return -math.huge end
+    if job.type == "cook" and (ensure().residents[actorId] or {}).role ~= "chef" then
+        return -math.huge
+    end
+    if BaseLife.outdoorNightRestricted() and BaseLife.outdoorJob(job) then
+        return -math.huge
+    end
     if orderOwnedJob(job) then
         local order = orderForJob(activeBase(), job)
         -- A blocked production order reopens itself once its job retry is
@@ -3460,7 +3588,8 @@ function BaseLife.claimJob(actorId)
             and job.leaseUntil <= current then
             releaseExpiredJob(job)
         end
-        if (job.state == "pending" or (job.state == "blocked" and job.retryAt <= current)) then
+        if job.state == "pending" or (job.state == "blocked" and job.retryAt <= current
+            and not BaseLife.jobParked(job)) then
             local score = jobScore(actorId, job)
             if bestScore == nil or score > bestScore
                 or (score == bestScore and tostring(job.id) < tostring(best.id)) then
@@ -3481,7 +3610,9 @@ function BaseLife.touchJob(id, actorId, state)
     if state ~= nil and state ~= "reserved" and state ~= "active" then return false, "invalid_job_state" end
     job.state = state or job.state
     job.leaseUntil = now() + (U().config("baseJobLeaseMs") or 45000)
-    job.updatedAt = now()
+    -- Recovery may leave a diagnostic blocker on an active lease. Once its
+    -- owner is updating the job again, that blocker is no longer current.
+    job.updatedAt, job.blocker = now(), nil
     return true, job
 end
 
@@ -3500,7 +3631,16 @@ function BaseLife.blockJob(id, actorId, reason, retryMs)
     job.state, job.reservedBy, job.leaseUntil = "blocked", nil, 0
     job.blocker = cleanText(reason, "blocked", 160)
     job.attempts, job.updatedAt = (job.attempts or 0) + 1, now()
-    job.retryAt = now() + math.max(1000, integer(retryMs, U().config("baseJobRetryMs") or 10000))
+    -- Each failure doubles the wait, up to the cap; a caller's longer delay
+    -- (a Chef receipt check) is its own cap. A parked job is skipped by
+    -- claimJob until the player retries or cancels it.
+    local delay = math.max(1000, integer(retryMs, U().config("baseJobRetryMs") or 10000))
+    local cap = math.max(delay, tonumber(U().config("baseJobRetryMaxMs")) or 600000)
+    job.retryAt = now() + math.min(cap, delay * 2 ^ math.min(job.attempts - 1, 16))
+    if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
+        SC.Diagnostics.report("base-job", job.id,
+            "blocked " .. tostring(job.type), job.blocker)
+    end
     return true, job
 end
 
@@ -3532,13 +3672,22 @@ function BaseLife.cancelJob(id)
         local okay, reason = SC.FarmWork.cancelJob(job.id, "farm_job_cancelled")
         if okay ~= true then return false, reason or "farm_recovery_pending" end
     end
-    if job.type == "build" and job.reservedBy ~= nil then
+    if job.type == "cook" then
+        if not SC.ChefWork or type(SC.ChefWork.cancelJob) ~= "function" then
+            return false, "chef_cancel_unavailable"
+        end
+        local okay, reason = SC.ChefWork.cancelJob(job, job.reservedBy)
+        if okay ~= true then return false, reason or "chef_recovery_pending" end
+    end
+    local transferJob = job.type == "haul" or job.type == "sort"
+        or job.type == "fetch"
+    if (job.type == "build" and job.reservedBy ~= nil) or transferJob then
         if not SC.BaseWork or type(SC.BaseWork.cancelJob) ~= "function" then
             return false, "base_work_cancel_unavailable"
         end
         local okay, reason = SC.BaseWork.cancelJob(job.id, job.reservedBy,
-            "build_job_cancelled")
-        if okay ~= true then return false, reason or "build_action_cancel_failed" end
+            "base_job_cancelled")
+        if okay ~= true then return false, reason or "base_job_cancel_failed" end
     end
     if job.type == "gather_materials" and type(job.target) == "table"
         and job.target.orderId then
@@ -3554,6 +3703,22 @@ function BaseLife.cancelJob(id)
     return true, job
 end
 
+local function cancelChefJobsFor(actorId)
+    local base = activeBase()
+    if not base then return true end
+    local ids = {}
+    for _, job in ipairs(base.jobs or {}) do
+        if job.type == "cook" and job.assignedId == actorId then
+            ids[#ids + 1] = job.id
+        end
+    end
+    for _, jobId in ipairs(ids) do
+        local okay, reason = BaseLife.cancelJob(jobId)
+        if okay ~= true then return false, reason end
+    end
+    return true
+end
+
 -- Leave the active camp so a new one can be set somewhere else. Running work
 -- is cancelled through each order's own path, residents leave duty, and the
 -- camp record goes with its zones, storages and blueprints. World objects,
@@ -3563,6 +3728,9 @@ end
 function BaseLife.abandon()
     local state, base = ensure(), activeBase()
     if not base then return false, "base_missing" end
+    if SC.BaseWatch and SC.BaseWatch.current and SC.BaseWatch.current() then
+        return false, "base_watch_active"
+    end
     for _, job in ipairs(base.jobs) do
         if job.state == "manual" then return false, "player_build_in_progress" end
     end
@@ -3647,15 +3815,34 @@ function BaseLife.retryJob(id)
     end
     if job.state ~= "blocked" then return false, "job_not_blocked" end
     job.state, job.retryAt, job.blocker = "pending", 0, nil
-    job.updatedAt = now()
+    job.attempts, job.updatedAt = 0, now()
     return true, job
+end
+
+-- Repeated failures stop the automatic retries; the job then waits for the
+-- player. Derived from the persisted attempt count, so it survives a reload.
+-- Gather and production jobs follow their order's own retry, pause and
+-- cancel controls instead.
+function BaseLife.jobParked(job)
+    return type(job) == "table" and job.state == "blocked"
+        and not orderOwnedJob(job)
+        and (tonumber(job.attempts) or 0)
+            >= (tonumber(U().config("baseJobParkAfterFailures")) or 6)
 end
 
 function BaseLife.assign(actorId, role, duty)
     local base = activeBase()
     if not base or type(actorId) ~= "string" then return false, "base_or_actor_missing" end
+    if duty == false and SC.BaseWatch and SC.BaseWatch.isLeaderId
+        and SC.BaseWatch.isLeaderId(actorId) then
+        return false, "base_watch_leader_on_duty"
+    end
     role = BaseLife.ROLES[role] and role or "generalist"
     local resident = ensure().residents[actorId] or {}
+    if resident.role == "chef" and (role ~= "chef" or duty == false) then
+        local okay, reason = cancelChefJobsFor(actorId)
+        if okay ~= true then return false, reason end
+    end
     resident.baseId, resident.role = base.id, role
     if duty ~= nil then resident.duty = duty == true end
     ensure().residents[actorId] = resident
@@ -3670,6 +3857,10 @@ function BaseLife.planResidentAssignment(actorId, role, duty)
     local base = activeBase()
     if not base or type(actorId) ~= "string" or actorId == "" then
         return nil, "base_or_actor_missing"
+    end
+    if duty ~= true and SC.BaseWatch and SC.BaseWatch.isLeaderId
+        and SC.BaseWatch.isLeaderId(actorId) then
+        return nil, "base_watch_leader_on_duty"
     end
     local resident = ensure().residents[actorId]
     if role == nil then
@@ -3702,7 +3893,15 @@ function BaseLife.applyResidentAssignment(plan)
         or not BaseLife.ROLES[plan.role] then return false, "invalid_resident_assignment" end
     local base = activeBase()
     if not base or base.id ~= plan.baseId then return false, "base_changed" end
+    if plan.duty ~= true and SC.BaseWatch and SC.BaseWatch.isLeaderId
+        and SC.BaseWatch.isLeaderId(plan.actorId) then
+        return false, "base_watch_leader_on_duty"
+    end
     local resident = ensure().residents[plan.actorId] or {}
+    if resident.role == "chef" and (plan.role ~= "chef" or plan.duty ~= true) then
+        local okay, reason = cancelChefJobsFor(plan.actorId)
+        if okay ~= true then return false, reason end
+    end
     resident.baseId, resident.role, resident.duty = plan.baseId, plan.role, plan.duty == true
     ensure().residents[plan.actorId] = resident
     return true, resident
@@ -3723,6 +3922,10 @@ function BaseLife.restoreResident(actorId, snapshot)
 end
 
 function BaseLife.setDuty(actorId, enabled)
+    if enabled ~= true and SC.BaseWatch and SC.BaseWatch.isLeaderId
+        and SC.BaseWatch.isLeaderId(actorId) then
+        return false, "base_watch_leader_on_duty"
+    end
     local resident = ensure().residents[actorId]
     if not resident then
         local role = "generalist"
@@ -3736,6 +3939,10 @@ function BaseLife.setDuty(actorId, enabled)
         end
         local ok, value = BaseLife.assign(actorId, role, enabled)
         return ok, value
+    end
+    if enabled ~= true and resident.role == "chef" then
+        local okay, reason = cancelChefJobsFor(actorId)
+        if okay ~= true then return false, reason end
     end
     if enabled ~= true and SC.WorkTransport
         and type(SC.WorkTransport.yieldActor) == "function" then
@@ -3775,7 +3982,8 @@ function BaseLife.setPolicy(key, value)
     elseif key == "workload" then
         if not WORKLOAD_POLICIES[value] then return false, "invalid_workload_policy" end
         base.settings.workload = value
-    elseif key == "routines" or key == "autoMaintenance" then
+    elseif key == "routines" or key == "autoMaintenance"
+        or key == "workOutsideAtNight" then
         if type(value) ~= "boolean" then return false, "invalid_boolean_policy" end
         base.settings[key] = value
     else
@@ -3895,10 +4103,10 @@ function BaseLife.auditOperations(force)
     if residents > 0 and not zones.rest then alerts[#alerts + 1] = "No rest zone is marked." end
     if residents >= 2 and not zones.guard then alerts[#alerts + 1] = "No guard zone is marked." end
     if zones.farm then
-        if #BaseLife.storageRows("farming", false) == 0 then
+        if #BaseLife.storageRows("farming", true) == 0 then
             alerts[#alerts + 1] = "No farming supplies storage is marked."
         end
-        if #BaseLife.storageRows("food", false) == 0 then
+        if #BaseLife.depositStorageRows("food") == 0 then
             alerts[#alerts + 1] = "No food storage is marked for farm harvests."
         end
     end
@@ -3960,6 +4168,7 @@ function BaseLife.summary()
             result.residentRows[#result.residentRows + 1] = {
                 id = id, name = name, role = resident.role, duty = resident.duty == true,
                 guarding = guarding == true, job = jobByActor[id],
+                restriction = ensure().restrictions[id],
             }
         end
     end
@@ -3980,6 +4189,7 @@ function BaseLife.summary()
                 result.rows[#result.rows + 1] = {
                     id = job.id, type = job.type, priority = job.priority, state = job.state,
                     reservedBy = job.reservedBy, blocker = job.blocker,
+                    assignedId = job.assignedId, parked = BaseLife.jobParked(job),
                     kind = job.buildKind, planId = job.planId, target = job.target,
                     stageIndex = job.stageIndex,
                     stageCount = type(job.stages) == "table" and #job.stages or 0,
@@ -4411,6 +4621,10 @@ local function validBaseSource(source, id, path)
     if type(source.settings.routines) ~= "boolean"
         or type(source.settings.autoMaintenance) ~= "boolean" then
         return restoreFailure(path .. ".settings", "policy flags must be boolean")
+    end
+    if source.settings.workOutsideAtNight ~= nil
+        and type(source.settings.workOutsideAtNight) ~= "boolean" then
+        return restoreFailure(path .. ".settings.workOutsideAtNight", "expected boolean")
     end
     if type(source.settings.stockTargets) ~= "table" then
         return restoreFailure(path .. ".settings.stockTargets", "expected target map")

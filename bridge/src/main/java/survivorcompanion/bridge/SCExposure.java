@@ -67,9 +67,21 @@ final class SCExposure {
         // stock Kahlua global.
         Class<?> attackType = Class.forName("zombie.AttackType", false, loader);
         Class<?> nativeRadio = Class.forName("zombie.radio.ZomboidRadio", false, loader);
+        // Fishing expeditions can choose mapped shore beyond loaded chunks.
+        // The stock map UI exposes UIWorldMap, but not the feature classes
+        // returned by getWorldMap()/getCell(). Expose those read-only data
+        // types so Lua can inspect water polygons through the minimap.
+        Class<?> worldMap = Class.forName("zombie.worldMap.WorldMap", false, loader);
+        Class<?> mapCell = Class.forName("zombie.worldMap.WorldMapCell", false, loader);
+        Class<?> mapFeature = Class.forName("zombie.worldMap.WorldMapFeature", false, loader);
+        Class<?> mapGeometry = Class.forName("zombie.worldMap.WorldMapGeometry", false, loader);
+        Class<?> mapPoints = Class.forName("zombie.worldMap.WorldMapPoints", false, loader);
+        Class<?> mapProperties = Class.forName("zombie.worldMap.WorldMapProperties", false, loader);
         for (Class<?> type : new Class<?>[] {
                 SCBridge.class, SCNativeCompanion.class,
-                SCSplitScreenProbe.class, attackType, nativeRadio }) {
+                SCSplitScreenProbe.class, attackType, nativeRadio,
+                worldMap, mapCell, mapFeature, mapGeometry,
+                mapPoints, mapProperties }) {
             setExposed.invoke(exposer, type);
             expose.invoke(exposer, type, environment);
         }

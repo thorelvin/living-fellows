@@ -167,6 +167,32 @@ check(expedition.followDistanceFor(follower) == 5,
 policyMission.scout.phase = "inbound"
 check(expedition.followDistanceFor(follower) == 2,
     "the return leg resumes close travel spacing")
+local caught = { id = "fish-1", modData = { fishing_FishSize = 18 } }
+function caught:getModData() return self.modData end
+function caught:getFullType() return "Base.SmallmouthBass" end
+local fishInventory = { caught }
+function leader:getInventory() return fishInventory end
+SC.GameplayUtil.inventoryContains = function(inventory, item)
+    return inventory == fishInventory and inventory[1] == item
+end
+SC.GameplayUtil.itemStableId = function(item)
+    return item == caught and item.id or nil
+end
+policyMission.scout = { phase = "searching",
+    destination = { x = 100, y = 100, z = 0 },
+    search = { request = { category = "fish", quantity = 2 },
+        acquisitions = {} } }
+check(expedition.testSearchFor(leader) == false
+        and expedition.fishingRequestFor(leader).remaining == 2
+        and expedition.fishingRequestFor(leader).catchRadius == 27,
+    "fishing mission keeps the squad out of container search")
+check(expedition.noteFishCaught(leader, caught, { x = 140, y = 100, z = 0 }) == false,
+    "fish from outside the destination search radius do not count")
+check(expedition.noteFishCaught(leader, caught, { x = 101, y = 100, z = 0 }) == true
+        and expedition.fishingRequestFor(leader).remaining == 1,
+    "an exact carried native fish advances the expedition quota")
+check(expedition.noteFishCaught(leader, caught, { x = 101, y = 100, z = 0 }) == false,
+    "the same caught fish cannot advance the quota twice")
 policyMission.scout = nil
 local exported = expedition.export()
 check(#exported.roster == 3 and #exported.survivors == 2
@@ -324,9 +350,9 @@ check(prepared == true and slot1 == nil and attachedRadioHook == nil
     "world exit releases only its view, UI and callback before actor disposal")
 check(expedition.prepareReset() == true,
     "retrying world exit does not release the slot twice")
-check(expedition.reset() == true and expedition.current() == nil
-        and expedition.export() == nil,
-    "completed runtime teardown forgets the old-world mission and slot")
+check(expedition.reset() == true and SC.ViewSession.reset() == true
+        and expedition.current() == nil and expedition.export() == nil,
+    "completed runtime teardown forgets the old-world mission and shared slot")
 check(radioHook("stale", "stale", 0, 0, 0, "stale", {}) == nil
         and expedition.radioCommandAuthorized(reserve, "set_move_mode", "walk", player) == false,
     "a late radio callback cannot revive a closed mission")
@@ -985,6 +1011,55 @@ check(expedition.pulse() == true
 check(expedition.finishAtPlayer(player) == true
         and expedition.lastDebrief().site.id == place.id,
     "the read-only debrief names the same selected site")
+local formerFishing = SC.Fishing
+local fishingReady = false
+SC.Fishing = {
+    bankCandidates = function(actor, radius, limit, offset)
+        check(actor == reserve and radius == 200 and limit == 32
+            and offset == 0, "fishing lists banks around the selected leader")
+        return { { id = "bank:80:25", anchor = { x = 80, y = 25, z = 0 },
+            kind = "fishing_bank", label = "Fishing bank 80, 25" } }, nil, 1
+    end,
+    bankById = function(actor, id)
+        if actor == reserve and id == "bank:80:25" then
+            return { anchor = { x = 80, y = 25, z = 0 } }
+        end
+        return nil, "fishing_bank_unavailable"
+    end,
+    checkGear = function(actor)
+        check(actor == reserve, "only the selected leader needs fishing gear")
+        return fishingReady, fishingReady and nil or "fishing_rod_missing"
+    end,
+    cancel = function() return true end,
+}
+local fishingChoices = expedition.fishingBankCandidates("delta", 1)
+check(#fishingChoices == 1 and fishingChoices[1].kind == "fishing_bank",
+    "fishing mission lists shore coordinates instead of building footprints")
+local promotedBeforeFishing = promotions
+local fishStarted, fishReason, missingName = expedition.startAtFishingBank(
+    { { id = "delta", actor = reserve, name = "Reserve" } }, "bank:80:25",
+    { request = { category = "fish", quantity = 1 } })
+check(not fishStarted and fishReason == "fishing_rod_missing"
+        and missingName == "Reserve" and promotions == promotedBeforeFishing,
+    "missing fishing gear prevents departure before second-player promotion")
+fishingReady = true
+check(expedition.fishingGearStatus({
+        { id = "delta", actor = reserve, name = "Reserve" },
+        { id = "gamma", actor = follower, name = "Follower" },
+    }) == true,
+    "ungeared escort does not block a geared fishing leader")
+fishStarted, newMission = expedition.startAtFishingBank(
+    { { id = "delta", actor = reserve, name = "Reserve" } }, "bank:80:25",
+    { request = { category = "fish", quantity = 1 } })
+check(fishStarted and newMission.scout.site == nil
+        and newMission.scout.destination.x == 80
+        and newMission.scout.destination.y == 25
+        and newMission.scout.search.request.category == "fish",
+    "fishing launch routes straight to the selected bank without a building")
+newMission.scout.phase = "awaiting_player"
+check(expedition.finishAtPlayer(player) == true,
+    "the shoreline expedition can close through normal debrief")
+SC.Fishing = formerFishing
 SC.ExpeditionPlaces.siteContainsPoint = function(siteId, x, y, z)
     return siteId == place.id and x >= 70 and x <= 90
         and y >= 10 and y <= 30 and z == 0
@@ -2079,6 +2154,10 @@ end)()
     check(nextPoint == ground and scout.descent.toZ == 0
             and scout.returnIndex == 3,
         "the ground trail resumes while retaining the squad stair exit")
+    traveller.x = 109.5
+    nextPoint = staged(scout, traveller, ground, 1350)
+    check(nextPoint == ground and scout.descent == nil,
+        "the completed stair context clears after the leader leaves the landing")
     scout = { returnIndex = 3 }
     traveller.x, traveller.z = 110.5, -1
     nextPoint = staged(

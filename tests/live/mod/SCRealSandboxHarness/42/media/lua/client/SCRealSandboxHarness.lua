@@ -1693,7 +1693,7 @@ function Harness.doorLanding(source, dx, dy)
 end
 
 function Harness.afterDoorCrossingPhase()
-    return Harness.config.pathing_only == "true" and "finish" or "awareness"
+    return Harness.config.pathing_only == "true" and "begin_stair_crossing" or "awareness"
 end
 
 function Harness.doorTrace(probe, current, status)
@@ -1928,6 +1928,157 @@ function Harness.runDoorCrossing(current)
     end
 end
 
+-- This uses a real loaded staircase in a disposable copy of the user's save.
+-- Change the work target while the native actor is physically between floors:
+-- the crossing must retain its path and reach the upper landing without a snap.
+function Harness.beginStairCrossing(current)
+    local SC, utility = SurvivorCompanion, SurvivorCompanion.GameplayUtil
+    local ax, ay, az = position(Harness.actor)
+    if ax == nil then
+        result("FAIL", "real_stair_crossing_target_change", "actor position unavailable")
+        setPhase("finish", current)
+        return
+    end
+    local cell, floor = getCell(), math.floor(az or 0)
+    local chosen, chosenDistance
+    for dx = -12, 12 do
+        for dy = -12, 12 do
+            local x, y = math.floor(ax) + dx, math.floor(ay) + dy
+            local entry = cell:getGridSquare(x, y, floor)
+            if entry and utility.isSquareFree(entry)
+                and not SC.Topology.squareHasStairs(entry)
+                and utility.movingBlocker(entry, Harness.actor) == nil then
+                for _, direction in ipairs({ { 1, 0 }, { -1, 0 },
+                        { 0, 1 }, { 0, -1 } }) do
+                    local sx, sy = direction[1], direction[2]
+                    local first = cell:getGridSquare(x + sx, y + sy, floor)
+                    local middle = cell:getGridSquare(x + sx * 2, y + sy * 2, floor)
+                    local last = cell:getGridSquare(x + sx * 3, y + sy * 3, floor)
+                    local landing = cell:getGridSquare(x + sx * 4, y + sy * 4, floor + 1)
+                    if first and middle and last and landing
+                        and SC.Topology.squareHasStairs(first)
+                        and SC.Topology.squareHasStairs(middle)
+                        and SC.Topology.squareHasStairs(last)
+                        and utility.isSquareFree(landing)
+                        and utility.movingBlocker(landing, Harness.actor) == nil then
+                        local distance = dx * dx + dy * dy
+                        if chosenDistance == nil or distance < chosenDistance then
+                            chosen = { entry = entry, landing = landing,
+                                x = x, y = y, z = floor }
+                            chosenDistance = distance
+                        end
+                    end
+                end
+            end
+        end
+    end
+    if not chosen then
+        skip("real_stair_crossing_target_change",
+            "no loaded clear three-tread staircase within 12 tiles")
+        setPhase("finish", current)
+        return
+    end
+    local recovered, reason = SC.Actor.recover(Harness.actor, chosen.entry)
+    if recovered ~= true then
+        result("FAIL", "real_stair_crossing_target_change",
+            "stair entry relocation failed: " .. clean(reason))
+        setPhase("finish", current)
+        return
+    end
+    SC.Navigation.reset(Harness.actor)
+    local token, controlReason = beginHarnessControl(
+        Harness.actor, "stair_crossing_probe", 30000)
+    if not token then
+        result("FAIL", "real_stair_crossing_target_change",
+            "control ownership rejected: " .. clean(controlReason))
+        setPhase("finish", current)
+        return
+    end
+    token.allowedMovementPhases.recovering = true
+    chosen.token = token
+    chosen.baseWork = SC.BaseLife and SC.BaseLife.allowsFloorTransit(
+        chosen.entry, chosen.landing, { workCampOnly = true }) == true
+    chosen.snapshot = SC.Senses.snapshot(Harness.actor, Harness.player, {})
+    chosen.startedAt = nowMs()
+    chosen.maxZ = floor
+    Harness.stairCrossing = chosen
+    setPhase("stair_crossing", nowMs())
+end
+
+function Harness.finishStairCrossing(status, detail, current)
+    local SC, probe = SurvivorCompanion, Harness.stairCrossing
+    SC.Navigation.reset(Harness.actor)
+    pcall(SC.Actor.stop, Harness.actor)
+    endHarnessControl(probe and probe.token, "stair_crossing_" .. status)
+    Harness.stairCrossing = nil
+    result(status, "real_stair_crossing_target_change", detail)
+    setPhase("finish", current)
+end
+
+function Harness.runStairCrossing(current)
+    local SC, probe = SurvivorCompanion, Harness.stairCrossing
+    local x, y, z = position(Harness.actor)
+    if x == nil or z == nil then
+        Harness.finishStairCrossing("FAIL", "actor position unavailable", current)
+        return
+    end
+    probe.maxZ = math.max(probe.maxZ, z)
+    local status, accepted
+    if not probe.changedTarget and z > probe.z + 0.20
+        and z < probe.z + 0.80 then
+        local other = getCell():getGridSquare(probe.x, probe.y, probe.z)
+        accepted, status = SC.Navigation.request(Harness.actor, other, "walk", {
+            action = "move_to_scavenge", snapshot = probe.snapshot,
+            supervisorToken = probe.token, workCampOnly = probe.baseWork,
+        })
+        local state = SC.Navigation.peek(Harness.actor) or {}
+        probe.changedTarget = true
+        probe.retained = accepted == true and state.nativeLease ~= nil
+            and state.nativeLease.ultimateGoal == probe.landing
+        probe.changeStatus = tostring(status)
+    else
+        accepted, status = SC.Navigation.request(Harness.actor, probe.landing, "walk", {
+            action = "move_to_base_work", snapshot = probe.snapshot,
+            supervisorToken = probe.token, workCampOnly = probe.baseWork,
+        })
+    end
+    if current >= (probe.nextTraceAt or 0) then
+        probe.nextTraceAt = current + 1000
+        print("SC_REAL_SANDBOX|STAIR_TRACE|pos="
+            .. string.format("%.2f,%.2f,%.2f", x, y, z)
+            .. " status=" .. tostring(status)
+            .. " accepted=" .. tostring(accepted)
+            .. " base_work=" .. tostring(probe.baseWork))
+    end
+    local lx, ly, lz = position(probe.landing)
+    if z >= (lz or probe.z + 1) - 0.05
+        and math.abs(x - lx - 0.5) <= 0.8
+        and math.abs(y - ly - 0.5) <= 0.8 then
+        probe.landedAt = probe.landedAt or current
+        if current - probe.landedAt >= 800 then
+            Harness.finishStairCrossing(
+                probe.changedTarget and probe.retained and "PASS" or "FAIL",
+                "landing=" .. tostring(lx) .. "," .. tostring(ly)
+                    .. "," .. tostring(lz)
+                    .. "; max_z=" .. string.format("%.2f", probe.maxZ)
+                    .. "; changed=" .. tostring(probe.changedTarget)
+                    .. "; retained=" .. tostring(probe.retained)
+                    .. "; change_status=" .. tostring(probe.changeStatus)
+                    .. "; base_work=" .. tostring(probe.baseWork), current)
+        end
+    else
+        probe.landedAt = nil
+    end
+    if current - probe.startedAt > 22000 then
+        Harness.finishStairCrossing("FAIL",
+            "timeout; pos=" .. string.format("%.2f,%.2f,%.2f", x, y, z)
+                .. "; max_z=" .. string.format("%.2f", probe.maxZ)
+                .. "; status=" .. tostring(status)
+                .. "; changed=" .. tostring(probe.changedTarget)
+                .. "; base_work=" .. tostring(probe.baseWork), current)
+    end
+end
+
 local function playerStillIsolated()
     local player = Harness.player
     local x, y, z = position(player)
@@ -2119,6 +2270,13 @@ function Harness.meleeFixtureDistance(weapon, actor)
 end
 
 function Harness.onMeleeWeaponHit(attacker, target, weapon, damage)
+    if Harness.config and Harness.config.project_alife_damage_probe == "true"
+        and attacker == Harness.actor and target == Harness.alifeTarget then
+        Harness.alifeHitCount = (Harness.alifeHitCount or 0) + 1
+        print("SC_REAL_SANDBOX|ALIFE_HIT|uid=" .. clean(Harness.alifeUid)
+            .. "|weapon=" .. clean(weapon and weapon:getFullType())
+            .. "|requested_damage=" .. tostring(damage))
+    end
     if attacker == Harness.player and Harness.performanceSample
         and Harness.performanceSample.encounter then
         Harness.performanceAllPlayerHits = (Harness.performanceAllPlayerHits or 0) + 1
@@ -2143,6 +2301,204 @@ function Harness.onMeleeWeaponHit(attacker, target, weapon, damage)
     -- OnWeaponHitCharacter is raised by native Hit before its damage calculation.
     -- Observe only; never replace the hit or manufacture a health change.
     print("SC_REAL_SANDBOX|MELEE_IMPACT|" .. Harness.combatImpactSnapshot)
+end
+
+-- The A-Life debug spawner queues a real owned shell. All mutations stay in the
+-- runner's cloned save; no synthetic hit or health assignment counts as damage.
+function Harness.probeALifeDamage(current)
+    local SC = SurvivorCompanion
+    local alife = type(ProjectALife) == "table" and ProjectALife or nil
+    if Harness.phase == "alife_wait" then
+        if current - Harness.phaseStartedAt < 2500 then return end
+        if not check("alife_runtime_loaded", alife ~= nil
+            and type(alife.DebugService) == "table"
+            and type(alife.DebugService.spawnEncounter) == "function"
+            and type(alife.ShellSimulation) == "table",
+            "debug spawn and shell simulation available") then
+            setPhase("finish", current); return
+        end
+        local square = safeSpawnSquare(Harness.player)
+        if not check("alife_companion_spawn_square", square ~= nil,
+            "loaded free square near observer") then
+            setPhase("finish", current); return
+        end
+        local ticket, reason = SC.Actor.beginSpawn(square, {
+            recruited = true, identity = { forename = "Harness", surname = "Alife",
+                gender = "man", outfit = "Generic01" },
+        })
+        if not check("alife_companion_spawn_requested", ticket ~= nil, reason) then
+            setPhase("finish", current); return
+        end
+        Harness.alifeSpawnTicket = ticket
+        setPhase("alife_companion_spawn", current)
+    elseif Harness.phase == "alife_companion_spawn" then
+        local actor, reason = SC.Actor.pollSpawn(Harness.alifeSpawnTicket)
+        if actor == nil then
+            if reason ~= "spawn_pending" or current - Harness.phaseStartedAt > 10000 then
+                result("FAIL", "alife_companion_spawn", reason)
+                setPhase("finish", current)
+            end
+            return
+        end
+        Harness.actor = actor
+        local control, controlReason = beginHarnessControl(actor, "alife_damage_probe", 30000)
+        if not check("alife_combat_control", control ~= nil, controlReason) then
+            setPhase("finish", current); return
+        end
+        Harness.alifeControl = control
+        local inventory = actor:getInventory()
+        local weapon = inventory and inventory:AddItem("Base.Katana") or nil
+        local equipped, equipReason = false, "weapon unavailable"
+        if weapon then
+            equipped, equipReason = SC.Actor.setMovement(actor, "walk", {
+                action = "equip_weapon", item = weapon, supervisorToken = control,
+            })
+        end
+        if not check("alife_melee_weapon_equipped", equipped == true, equipReason) then
+            setPhase("finish", current); return
+        end
+        Harness.alifeWeapon = weapon
+        pcall(function() actor:setPerkLevelDebug(Perks.LongBlade, 10) end)
+        local ax, ay, az = position(actor)
+        local dx, dy = findClearManualDirection(actor, 3)
+        if not check("alife_spawn_lane", dx ~= nil,
+            "clear lane from " .. tostring(ax) .. "," .. tostring(ay)) then
+            setPhase("finish", current); return
+        end
+        local sx, sy, sz = math.floor(ax + dx * 3), math.floor(ay + dy * 3),
+            math.floor(az or 0)
+        Harness.alifeSpawnX, Harness.alifeSpawnY, Harness.alifeSpawnZ = sx, sy, sz
+        Harness.alifeRequestId = "sc-damage:" .. tostring(current)
+        local accepted, reason, outcome = alife.DebugService.spawnEncounter(Harness.player, {
+            requestId = Harness.alifeRequestId, count = 1, mode = "roam",
+            x = sx, y = sy, z = sz, radius = 8, distance = 0,
+            playerKeepOut = 0, spawnDelayMs = 0, arrival = "instant",
+            slots = { { x = sx + 0.5, y = sy + 0.5, z = sz } },
+            hostileOverride = true, playerStance = "hostile",
+            stationary = true, persistent = true, health = 100,
+            damageOutput = 0,
+        }, true)
+        if not check("alife_hostile_spawn_queued", accepted == true,
+            tostring(reason) .. " accepted=" .. tostring(outcome and outcome.accepted)) then
+            setPhase("finish", current); return
+        end
+        setPhase("alife_shell_wait", current)
+    elseif Harness.phase == "alife_shell_wait" then
+        local list = getCell() and getCell():getZombieList()
+        if list then
+            for index = 0, list:size() - 1 do
+                local candidate = list:get(index)
+                local data = candidate and candidate:getModData()
+                local x, y, z = position(candidate)
+                if type(data) == "table" and data.ProjectALifeOwned == true
+                    and type(data.ProjectALifeUID) == "string"
+                    and x ~= nil and math.abs(x - Harness.alifeSpawnX) <= 2
+                    and math.abs(y - Harness.alifeSpawnY) <= 2
+                    and math.floor(z or 0) == Harness.alifeSpawnZ then
+                    Harness.alifeTarget = candidate
+                    Harness.alifeUid = data.ProjectALifeUID
+                    break
+                end
+            end
+        end
+        if Harness.alifeTarget == nil then
+            if current - Harness.phaseStartedAt > 16000 then
+                result("FAIL", "alife_shell_materialized",
+                    "expected near=" .. tostring(Harness.alifeSpawnX) .. ","
+                        .. tostring(Harness.alifeSpawnY)
+                        .. " zombie_list=" .. tostring(list and list:size()))
+                setPhase("finish", current)
+            end
+            return
+        end
+        local target = Harness.alifeTarget
+        local data = target:getModData()
+        Harness.alifeBefore = tonumber(alife.ShellSimulation.trueHealth(target))
+        Harness.alifeWoundsBefore = tonumber(data.ProjectALifeWounds) or 0
+        local hostile = SC.GameplayUtil.isALifeHostileToParty(target,
+            Harness.player, Harness.actor)
+        local record = alife.ActorRegistry and alife.ActorRegistry.peek(Harness.alifeUid)
+        local directHostile = record and alife.Relations
+            and alife.Relations.hostileToPlayer(record, Harness.player)
+        local exists, existsOk = SC.GameplayUtil.call(target, "isExistInTheWorld")
+        local grapple, grappleOk = SC.GameplayUtil.call(target,
+            "isReanimatedForGrappleOnly")
+        check("alife_hostility_flag", hostile == true,
+            "uid=" .. tostring(Harness.alifeUid)
+                .. " record=" .. tostring(record ~= nil)
+                .. " override=" .. tostring(record and record.memory
+                    and record.memory.hostileOverride)
+                .. " direct=" .. tostring(directHostile)
+                .. " is_npc=" .. tostring(SC.GameplayUtil.isALifeNpc(target))
+                .. " gone=" .. tostring(SC.GameplayUtil.isGoneTarget(target))
+                .. " exists=" .. tostring(exists) .. "/" .. tostring(existsOk)
+                .. " dead=" .. tostring(SC.GameplayUtil.isDead(target))
+                .. " proxy=" .. tostring(SC.GameplayUtil.isCorpseProxy(target))
+                .. " grapple=" .. tostring(grapple) .. "/" .. tostring(grappleOk)
+                .. " shell_generation=" .. tostring(data.ProjectALifeGeneration)
+                .. " record_generation=" .. tostring(record and record.generation)
+                .. " relations=" .. tostring(alife.Relations ~= nil)
+                .. " target=" .. tostring(target:getTarget()))
+        if not check("alife_shell_owned", data.ProjectALifeOwned == true
+            and Harness.alifeBefore > 0,
+            "uid=" .. tostring(Harness.alifeUid)
+                .. " health=" .. tostring(Harness.alifeBefore)
+                .. " generation=" .. tostring(data.ProjectALifeGeneration)) then
+            setPhase("finish", current); return
+        end
+        local distance, why = Harness.meleeFixtureDistance(Harness.alifeWeapon, Harness.actor)
+        local dx, dy
+        if distance then dx, dy = findClearManualDirection(Harness.actor, distance) end
+        if not check("alife_melee_lane", dx ~= nil, why) then
+            setPhase("finish", current); return
+        end
+        local ax, ay, az = position(Harness.actor)
+        Harness.alifeTargetX, Harness.alifeTargetY, Harness.alifeTargetZ =
+            ax + dx * distance, ay + dy * distance, az
+        Harness.alifeHitCount, Harness.alifeSwingCount = 0, 0
+        Harness.alifeNextSwing = current + 400
+        setPhase("alife_damage", current)
+    elseif Harness.phase == "alife_damage" then
+        local target = Harness.alifeTarget
+        local data = target and target:getModData()
+        local after = target and tonumber(alife.ShellSimulation.trueHealth(target))
+        local wounds = data and (tonumber(data.ProjectALifeWounds) or 0) or 0
+        local damaged = after ~= nil and after < Harness.alifeBefore - 0.0001
+        if damaged or current - Harness.phaseStartedAt > 18000 then
+            check("alife_native_damage", damaged and Harness.alifeHitCount > 0,
+                "uid=" .. tostring(Harness.alifeUid)
+                    .. " before=" .. tostring(Harness.alifeBefore)
+                    .. " after=" .. tostring(after)
+                    .. " wounds=" .. tostring(Harness.alifeWoundsBefore)
+                    .. "->" .. tostring(wounds)
+                    .. " hits=" .. tostring(Harness.alifeHitCount)
+                    .. " swings=" .. tostring(Harness.alifeSwingCount)
+                    .. " last_reject=" .. clean(Harness.alifeLastReject))
+            endHarnessControl(Harness.alifeControl, "alife_probe_complete")
+            Harness.alifeControl = nil
+            setPhase("finish", current)
+            return
+        end
+        pcall(function() target:setTarget(nil) end)
+        pcall(function() target:setX(Harness.alifeTargetX) end)
+        pcall(function() target:setY(Harness.alifeTargetY) end)
+        pcall(function() target:setZ(Harness.alifeTargetZ or 0) end)
+        pcall(function() target:setCurrentSquareFromPosition() end)
+        if current >= (Harness.alifeNextSwing or 0) then
+            local performing = select(1, SC.GameplayUtil.call(
+                Harness.actor, "isPerformingAttackAnimation"))
+            if performing ~= true then
+                local accepted, reason = SC.Actor.setMovement(Harness.actor, "walk", {
+                    action = "attack_melee", target = target,
+                    weapon = Harness.alifeWeapon, urgent = true, emergency = true,
+                    supervisorToken = Harness.alifeControl,
+                })
+                if accepted then Harness.alifeSwingCount = Harness.alifeSwingCount + 1
+                else Harness.alifeLastReject = reason end
+                Harness.alifeNextSwing = current + 700
+            end
+        end
+    end
 end
 
 local function cleanupCombat(current)
@@ -4951,6 +5307,11 @@ local function probeLeaderSlot(current)
         Harness.leaderRemoteY = math.floor(Harness.playerY)
             + (tonumber(Harness.config.leader_remote_offset_y) or 0)
         Harness.leaderRemoteZ = Harness.playerZ
+        if Harness.config.fishing_bank_probe == "true" then
+            Harness.leaderRemoteX, Harness.leaderRemoteY,
+                Harness.leaderRemoteZ = 6382, 5208, 0
+            SurvivorCompanion.Scheduler.unregister("decision")
+        end
         check("leader_remote_initially_unloaded",
             getWorld():getCell():getGridSquare(Harness.leaderRemoteX,
                 Harness.leaderRemoteY, Harness.leaderRemoteZ) == nil,
@@ -5175,6 +5536,10 @@ local function probeLeaderRemote(current)
     if Harness.team then Harness.remoteVitalsBefore = nativeFieldVitals(Harness.leader) end
     local valid, reason = SurvivorCompanion.Actor.validateNative(Harness.leader)
     check("remote_leader_native_actor_valid", valid == true, reason)
+    if Harness.config.fishing_bank_probe == "true" then
+        setPhase("fishing_find_bank", current)
+        return
+    end
     local ordered, orderReason = SurvivorCompanion.Commands.issue(
         Harness.leaderId, "stay", nil, Harness.player)
     check("ordinary_orders_cannot_control_remote_leader",
@@ -12596,6 +12961,216 @@ local function probeSplitScreenLoaded(current)
     setPhase("split_wait_capture", current)
 end
 
+function Harness.probeFishingBank(current)
+    local SC = SurvivorCompanion
+    local actor = Harness.leader or Harness.splitObserver
+    if Harness.phase == "fishing_find_bank" then
+        local cell, originX, originY = getWorld():getCell(),
+            Harness.leaderRemoteX or Harness.remoteX,
+            Harness.leaderRemoteY or Harness.remoteY
+        local best, bestScore, bestAbundance
+        local schools = FishSchoolManager and FishSchoolManager.getInstance
+            and FishSchoolManager.getInstance()
+        for x = originX - 35, originX + 35 do
+            for y = originY - 35, originY + 35 do
+                local square = cell:getGridSquare(x, y, 0)
+                local site = SC.Fishing._usableBankForTests(square)
+                if site then
+                    local distance = (x - originX)^2 + (y - originY)^2
+                    local read, value = schools and pcall(
+                        schools.getFishAbundance, schools,
+                        site.water.x, site.water.y)
+                    local abundance = read and tonumber(value) or 0
+                    local score = abundance * 10000 - distance
+                    if not bestScore or score > bestScore then
+                        best, bestScore, bestAbundance = site, score, abundance
+                    end
+                end
+            end
+        end
+        if not best then
+            if current - Harness.phaseStartedAt < 15000 then return end
+            result("FAIL", "fishing_river_bank_found",
+                "no loaded Riverside water bank within 35 tiles of "
+                    .. originX .. "," .. originY)
+            setPhase("finish", current)
+            return
+        end
+        Harness.fishingSite = best
+        result("PASS", "fishing_river_bank_found",
+            "bank=" .. best.bank.x .. "," .. best.bank.y
+                .. " water=" .. best.water.x .. "," .. best.water.y
+                .. " fish_abundance=" .. tostring(bestAbundance))
+        local rod = actor:getInventory():AddItem("Base.FishingRod")
+        Harness.fishingRod = rod
+        local baitType = Fishing and Fishing.lure and Fishing.lure.All
+            and (Fishing.lure.All["Base.Worm"] and "Base.Worm"
+                or next(Fishing.lure.All))
+        local bait = baitType and actor:getInventory():AddItem(baitType)
+        check("fishing_real_rod_and_bait", rod ~= nil and bait ~= nil,
+            "rod=" .. tostring(rod) .. " bait=" .. tostring(baitType))
+        if not rod or not bait then setPhase("finish", current) return end
+        if Harness.config.fishing_catch_probe == "true" then
+            for _ = 1, 8 do actor:getInventory():AddItem(baitType) end
+        end
+        -- Stage only the disposable split-screen actor. Navigation must place
+        -- it precisely on the chosen bank before any cast can begin.
+        local start, U = nil, SC.GameplayUtil
+        for distance = 4, 2, -1 do
+            local candidate = cell:getGridSquare(
+                best.bank.x - best.dx * distance,
+                best.bank.y - best.dy * distance, 0)
+            if candidate and U.isSquareFree(candidate)
+                and not SC.Topology.squareIsWater(candidate) then
+                start = candidate
+                break
+            end
+        end
+        if not start then
+            result("FAIL", "fishing_dry_approach_fixture",
+                "no dry approach behind bank")
+            setPhase("finish", current)
+            return
+        end
+        actor:teleportTo(start:getX() + 0.5, start:getY() + 0.5, 0)
+        Harness.fishingRequest = { destination = best.bank, remaining = 1 }
+        result("PASS", "fishing_dry_approach_fixture",
+            "start=" .. start:getX() .. "," .. start:getY()
+                .. " bank=" .. best.bank.x .. "," .. best.bank.y)
+        setPhase("fishing_approach", current)
+        return
+    end
+    if Harness.phase == "fishing_wait_capture" then
+        if fileExists(SPLIT_CAPTURED_FILE) then
+            result("PASS", Harness.config.fishing_catch_probe == "true"
+                and "fishing_catch_screenshot" or "fishing_bank_screenshot",
+                "rendered split-screen fishing view captured")
+            setPhase("finish", current)
+        elseif current - Harness.phaseStartedAt > 15000 then
+            result("FAIL", "fishing_bank_screenshot", "runner did not capture")
+            setPhase("finish", current)
+        end
+        return
+    end
+    if Harness.phase == "fishing_wait_catch" then
+        if current - Harness.phaseStartedAt > 180000 then
+            local state = SC.Fishing._stateForTests(actor)
+            result("FAIL", "fishing_native_fish_caught",
+                "timeout phase=" .. tostring(state and state.phase)
+                    .. " fish=" .. tostring(Harness.fishingCatchItem))
+            setPhase("finish", current)
+            return
+        end
+        if current - (Harness.fishingLastUpdate or 0) < 250 then return end
+        Harness.fishingLastUpdate = current
+        local ok, detail = SC.Fishing.update(actor, "expedition",
+            Harness.fishingRequest)
+        local state = SC.Fishing._stateForTests(actor)
+        if state and state.phase == "waiting" and state.bobber then
+            -- Only shorten the real Build 42 bobber's wait. Its native
+            -- attraction roll, fish selection, pickup and inventory remain live.
+            state.bobber.attractTimer = math.min(
+                tonumber(state.bobber.attractTimer) or 1, 1)
+            if not Harness.fishingBiteTimerAccelerated then
+                Harness.fishingBiteTimerAccelerated = true
+                result("PASS", "fishing_native_bite_timer_fixture",
+                    "native bobber wait shortened; fish generation unchanged")
+            end
+        end
+        if state and state.phase == "pickup" and state.catch then
+            if Harness.fishingCatchItem ~= state.catch then
+                Harness.fishingCatchItem = state.catch
+                Harness.fishingCatchTrash = state.isTrash == true
+                result("PASS", "fishing_native_bite",
+                    "native fish item=" .. tostring(state.catch:getFullType())
+                        .. " trash=" .. tostring(state.isTrash))
+            end
+        end
+        if detail == "fish_caught" then
+            local item = Harness.fishingCatchItem
+            local stored = item and SC.GameplayUtil.inventoryContains(
+                actor:getInventory(), item)
+            local size = item and tonumber(
+                item:getModData().fishing_FishSize)
+            if stored and size and size > 0
+                and Harness.fishingCatchTrash ~= true then
+                result("PASS", "fishing_native_fish_caught",
+                    "item=" .. tostring(item:getFullType())
+                        .. " native_id=" .. tostring(item:getID())
+                        .. " size_cm=" .. tostring(size)
+                        .. " in_companion_inventory=true")
+                writeSignal(SPLIT_READY_FILE, { "ready=true" })
+                setPhase("fishing_wait_capture", current)
+                return
+            end
+            result("PASS", "fishing_native_trash_landed",
+                "stored=" .. tostring(stored) .. " item="
+                    .. tostring(item and item:getFullType()))
+            Harness.fishingCatchItem, Harness.fishingCatchTrash = nil, nil
+        elseif not ok and detail ~= "scanning_water"
+            and detail ~= "waiting_for_bank" then
+            local hand = actor:getPrimaryHandItem()
+            local rod = Harness.fishingRod
+            result("FAIL", "fishing_native_fish_caught",
+                tostring(detail) .. " hand=" .. tostring(hand
+                    and hand:getFullType()) .. " rod_stored="
+                    .. tostring(rod and SC.GameplayUtil.inventoryContains(
+                        actor:getInventory(), rod)) .. " rod_tag="
+                    .. tostring(rod and SC.GameplayUtil.itemHasTag(
+                        rod, "FISHING_ROD")))
+            setPhase("finish", current)
+        end
+        return
+    end
+    if current - Harness.phaseStartedAt > 60000 then
+        local state = SC.Fishing._stateForTests(actor)
+        result("FAIL", "fishing_placed_and_cast",
+            "timeout phase=" .. tostring(state and state.phase)
+                .. " position=" .. tostring(actor:getX()) .. ","
+                .. tostring(actor:getY()))
+        setPhase("finish", current)
+        return
+    end
+    if current - (Harness.fishingLastUpdate or 0) < 250 then return end
+    Harness.fishingLastUpdate = current
+    local ok, detail = SC.Fishing.update(actor, "expedition",
+        Harness.fishingRequest)
+    local state = SC.Fishing._stateForTests(actor)
+    if state and state.phase == "waiting" and state.site then
+        local site = state.site
+        local bank = getWorld():getCell():getGridSquare(
+            site.bank.x, site.bank.y, 0)
+        local waterOne = getWorld():getCell():getGridSquare(
+            site.bank.x + site.dx, site.bank.y + site.dy, 0)
+        local waterTwo = getWorld():getCell():getGridSquare(
+            site.bank.x + 2 * site.dx, site.bank.y + 2 * site.dy, 0)
+        local ax, ay = actor:getX(), actor:getY()
+        check("fishing_player_on_dry_bank",
+            math.floor(ax) == site.bank.x
+                and math.floor(ay) == site.bank.y
+                and not SC.Topology.squareIsWater(bank),
+            "player=" .. tostring(ax) .. "," .. tostring(ay)
+                .. " bank=" .. site.bank.x .. "," .. site.bank.y)
+        check("fishing_cast_over_real_water",
+            SC.Topology.squareIsWater(waterOne)
+                and SC.Topology.squareIsWater(waterTwo),
+            "water=" .. site.water.x .. "," .. site.water.y)
+        result("PASS", "fishing_placed_and_cast",
+            "native bobber active at " .. site.water.x .. ","
+                .. site.water.y)
+        if Harness.config.fishing_catch_probe == "true" then
+            setPhase("fishing_wait_catch", current)
+        else
+            writeSignal(SPLIT_READY_FILE, { "ready=true" })
+            setPhase("fishing_wait_capture", current)
+        end
+    elseif not ok and detail ~= "scanning_water"
+        and detail ~= "waiting_for_bank" then
+        result("FAIL", "fishing_placed_and_cast", tostring(detail))
+        setPhase("finish", current)
+    end
+end
+
 local function remoteZombies()
     local matches = {}
     local list = getWorld():getCell():getZombieList()
@@ -13130,6 +13705,119 @@ end
 Harness.BASE_LAYOUT_READY_FILE = "SurvivorCompanionHarness/base-layout-ready.txt"
 Harness.BASE_LAYOUT_VISIBLE_FILE = "SurvivorCompanionHarness/base-layout-visible.txt"
 Harness.BASE_LAYOUT_CAPTURED_FILE = "SurvivorCompanionHarness/base-layout-captured.txt"
+Harness.COMPANION_INVENTORY_READY_FILE = "SurvivorCompanionHarness/companion-inventory-ready.txt"
+Harness.COMPANION_INVENTORY_CAPTURED_FILE = "SurvivorCompanionHarness/companion-inventory-captured.txt"
+
+function Harness.beginCompanionInventory(current)
+    -- Let the cloned save restore and the initial window sweep finish before
+    -- opening a real native companion's inventory in the player's loot pane.
+    if current - Harness.startedAt < 22000 then return end
+    local SC = SurvivorCompanion
+    local actor = Harness.inventoryActor
+    if actor == nil and Harness.inventoryTicket ~= nil then
+        local status
+        actor, status = SC.Actor.pollSpawn(Harness.inventoryTicket)
+        if actor == nil then
+            if status == "spawn_pending" and current - Harness.phaseStartedAt < 35000 then return end
+            result("FAIL", "companion_inventory_spawn", tostring(status))
+            setPhase("finish", current)
+            return
+        end
+        Harness.inventoryActor, Harness.inventoryTicket = actor, nil
+    end
+    if actor == nil then
+        for _, candidate in ipairs(SC.Registry.living()) do
+            if distance(candidate, Harness.player) <= SC.UIBridge.NEARBY_DISTANCE then
+                actor = candidate
+                break
+            end
+        end
+    end
+    if actor == nil then
+        local U = SC.GameplayUtil
+        local px, py, pz = position(Harness.player)
+        local square
+        if px ~= nil then
+            for radius = 1, 3 do
+                for dx = -radius, radius do
+                    for dy = -radius, radius do
+                        if math.max(math.abs(dx), math.abs(dy)) == radius then
+                            local candidate = U.gridSquare(math.floor(px + dx),
+                                math.floor(py + dy), math.floor(pz or 0))
+                            if candidate and U.isSquareFree(candidate) then
+                                square = candidate
+                                break
+                            end
+                        end
+                    end
+                    if square then break end
+                end
+                if square then break end
+            end
+        end
+        if not square then
+            result("FAIL", "companion_inventory_spawn", "no nearby free square")
+            setPhase("finish", current)
+            return
+        end
+        local ticket, reason = SC.Actor.beginSpawn(square, {
+            recruited = true,
+            identity = { forename = "Pack", surname = "Tester",
+                gender = "man", outfit = "Generic01" },
+        })
+        if not ticket then
+            result("FAIL", "companion_inventory_spawn", tostring(reason))
+            setPhase("finish", current)
+            return
+        end
+        Harness.inventoryTicket = ticket
+        return
+    end
+    Harness.inventoryActor = actor
+    SC.Scheduler.unregister("decision")
+    local opened, reason = SC.UIBridge.openInventory(actor, Harness.player)
+    if not check("companion_inventory_opened", opened == true,
+        tostring(reason) .. " distance=" .. tostring(distance(actor, Harness.player))) then
+        setPhase("finish", current)
+        return
+    end
+    local page = getPlayerLoot(Harness.player:getPlayerNum())
+    page:refreshBackpacks()
+    local button
+    for _, candidate in ipairs(page.backpacks or {}) do
+        if candidate.inventory == actor:getInventory() then button = candidate break end
+    end
+    local backpack = getTexture("Item_Backpack_Black")
+    check("companion_inventory_backpack_icon", button ~= nil and backpack ~= nil
+            and button.image == backpack
+            and page.inventoryPane.inventory == actor:getInventory(),
+        "button=" .. tostring(button ~= nil) .. " texture=" .. tostring(backpack ~= nil)
+            .. " image_matches=" .. tostring(button and button.image == backpack)
+            .. " selected=" .. tostring(page.inventoryPane.inventory == actor:getInventory()))
+    -- The saved Living Fellows panel sits over the loot-pane icon at this
+    -- resolution. Hide only that panel for a readable screenshot; closing it
+    -- would intentionally restore the player's previous loot container.
+    if SC.UI and SC.UI.instance then SC.UI.instance:setVisible(false) end
+    if not writeSignal(Harness.COMPANION_INVENTORY_READY_FILE, {
+        "actor=" .. SC.UIBridge.borrowedInventoryLabel(actor),
+        "button=" .. tostring(button ~= nil),
+    }) then
+        result("FAIL", "companion_inventory_capture", "ready signal failed")
+        setPhase("finish", current)
+        return
+    end
+    setPhase("companion_inventory_capture", current)
+end
+
+function Harness.probeCompanionInventory(current)
+    if fileExists(Harness.COMPANION_INVENTORY_CAPTURED_FILE) then
+        result("PASS", "companion_inventory_screenshot", "loot pane and backpack button captured")
+        setPhase("finish", current)
+    elseif current - Harness.phaseStartedAt > 15000 then
+        result("FAIL", "companion_inventory_screenshot", "runner capture timed out")
+        setPhase("finish", current)
+    end
+end
 
 -- A disposable high-seat fixture exercises the same native rest action as a
 -- player. Its SeatingManager height makes a premature getup look like a fall.
@@ -13632,6 +14320,407 @@ function Harness.probeBaseLayout(current)
     end
 end
 
+-- Focused native cooking probe. It uses a disposable cloned save and real
+-- timed actions; the Chef controller itself is covered by chef_harness.lua.
+function Harness.probeChefRecipes(current)
+    local SC = SurvivorCompanion
+    local inventory = Harness.player:getInventory()
+    local function itemOf(kind)
+        local items = inventory:getItems()
+        for index = 0, items:size() - 1 do
+            local item = items:get(index)
+            if item:getFullType() == kind then return item end
+        end
+        return nil
+    end
+    local function evolved(name)
+        local recipes = getEvolvedRecipes()
+        for index = 0, recipes:size() - 1 do
+            local recipe = recipes:get(index)
+            if recipe:getUntranslatedName() == name then return recipe end
+        end
+        return nil
+    end
+    local function listHas(list, item)
+        return list ~= nil and list:contains(item)
+    end
+    if Harness.phase == "chef_recipes_begin" then
+        if not check("chef_module_loaded", SC.ChefWork ~= nil,
+            "SCChefWork is available in the real client") then
+            setPhase("finish", current)
+            return
+        end
+        local stir, pasta, salad = evolved("Stir fry"), evolved("PastaPot"),
+            evolved("Salad")
+        Harness.chefStir, Harness.chefPasta = stir, pasta
+        if not check("chef_native_evolved_recipes",
+            stir ~= nil and pasta ~= nil and salad ~= nil,
+            "stir=" .. tostring(stir) .. " pasta=" .. tostring(pasta)
+                .. " salad=" .. tostring(salad)) then
+            setPhase("finish", current)
+            return
+        end
+        -- The cloned save's observer can be over its carry limit. Native
+        -- handcraft drops outputs on the floor in that case, obscuring the
+        -- recipe test; empty only this disposable observer inventory.
+        local oldItems = inventory:getItems()
+        local removed = oldItems:size()
+        for index = oldItems:size() - 1, 0, -1 do
+            inventory:Remove(oldItems:get(index))
+        end
+        print("SC_CHEF_FIXTURE_INVENTORY|removed=" .. tostring(removed)
+            .. "|weight=" .. tostring(inventory:getCapacityWeight())
+            .. "|capacity=" .. tostring(inventory:getEffectiveCapacity(Harness.player)))
+        local bowl = inventory:AddItem("Base.Bowl")
+        local ramen = inventory:AddItem("Base.Ramen")
+        local saladEligible = salad:getItemsCanBeUse(Harness.player, bowl, nil)
+        if not check("chef_salad_rejects_wrong_filling",
+            not listHas(saladEligible, ramen),
+            "native Salad excludes Base.Ramen despite its Food category") then
+            setPhase("finish", current)
+            return
+        end
+        local pan = inventory:AddItem("Base.Pan")
+        local potato = inventory:AddItem("Base.Potato")
+        local possible = stir:getItemsCanBeUse(Harness.player, pan, nil)
+        if not check("chef_stir_ingredient_accepted", listHas(possible, potato),
+            "native Stir fry accepts Base.Potato") then
+            setPhase("finish", current)
+            return
+        end
+        Harness.chefPanId = pan:getID()
+        ISTimedActionQueue.add(ISAddItemInRecipe:new(Harness.player, stir,
+            pan, potato))
+        setPhase("chef_stir_wait", current)
+        return
+    end
+    if Harness.phase == "chef_stir_wait" then
+        local dish = itemOf("Base.PanFriedVegetables")
+        if not dish then
+            if current - Harness.phaseStartedAt > 15000 then
+                result("FAIL", "chef_stir_native_result", "timed action did not produce stir fry")
+                setPhase("finish", current)
+            end
+            return
+        end
+        check("chef_stir_native_result", dish:getID() ~= Harness.chefPanId,
+            "native evolved action produced " .. tostring(dish:getFullType()))
+        check("chef_stir_uncooked_not_stock", SC.ChefWork.isPrepared(dish) == false,
+            "Chef rejects the uncooked native result")
+        dish:setCooked(true)
+        check("chef_stir_cooked_stock", SC.ChefWork.isPrepared(dish) == true,
+            "Chef accepts the cooked native result")
+        local cell = getWorld():getCell()
+        local origin = Harness.player:getCurrentSquare()
+        local nearest, nearestDistance
+        for radius = 0, 35 do
+            if nearest then break end
+            for x = origin:getX() - radius, origin:getX() + radius do
+                for y = origin:getY() - radius, origin:getY() + radius do
+                    if math.max(math.abs(x - origin:getX()),
+                        math.abs(y - origin:getY())) == radius then
+                        local square = cell:getGridSquare(x, y, origin:getZ())
+                        local objects = square and square:getObjects()
+                        if objects then
+                            for index = 0, objects:size() - 1 do
+                                local object = objects:get(index)
+                                local sprite = object and object:getSprite()
+                                local props = sprite and sprite:getProperties()
+                                if props and props:has("IsTable")
+                                    and props:has("Surface") then
+                                    nearest = square
+                                    Harness.chefSurfaceObject = object
+                                    nearestDistance = radius
+                                    break
+                                end
+                            end
+                        end
+                    end
+                    if nearest then break end
+                end
+                if nearest then break end
+            end
+        end
+        if not check("chef_craft_surface_nearby", nearest ~= nil,
+            "nearest craft table radius=" .. tostring(nearestDistance)
+                .. " origin=" .. tostring(origin:getX()) .. ","
+                .. tostring(origin:getY())) then
+            setPhase("finish", current)
+            return
+        end
+        Harness.player:teleportTo(nearest:getX() + 1, nearest:getY(),
+            nearest:getZ())
+        setPhase("chef_pasta_begin", current)
+        return
+    end
+    if Harness.phase == "chef_pasta_begin" then
+        if current - Harness.phaseStartedAt < 750 then return end
+        local pot = inventory:AddItem("Base.Pot")
+        local dry = inventory:AddItem("Base.Pasta")
+        local fluid = pot and pot:getFluidContainer()
+        if not check("chef_pasta_supplies", pot ~= nil and dry ~= nil
+            and fluid ~= nil and fluid:getCapacity() >= 1.5,
+            "dry pasta and a pot with at least 1.5 L capacity") then
+            setPhase("finish", current)
+            return
+        end
+        fluid:addFluid(FluidType.Water, 1.5)
+        local craft = getScriptManager():getCraftRecipe("PlacePastaInCookingPot2")
+        if not check("chef_pasta_native_craft", craft ~= nil,
+            "Build 42 dry-pasta pot recipe is present") then
+            setPhase("finish", current)
+            return
+        end
+        local containers = ArrayList.new()
+        containers:add(inventory)
+        local logic = HandcraftLogic.new(Harness.player, nil, nil)
+        local surface = logic:findCraftSurface(Harness.player, 2)
+        logic:setIsoObject(surface or Harness.chefSurfaceObject)
+        print("SC_CHEF_CRAFT_SURFACE|surface=" .. tostring(surface)
+            .. "|fallback=" .. tostring(Harness.chefSurfaceObject)
+            .. "|player=" .. tostring(Harness.player:getX()) .. ","
+            .. tostring(Harness.player:getY())
+            .. "|water=" .. tostring(fluid:getAmount()))
+        logic:setContainers(containers)
+        logic:setRecipeFromContextClick(craft, pot)
+        if not check("chef_pasta_native_requirements",
+            logic:canPerformCurrentRecipe() == true,
+            "native handcraft logic accepts the pot, water, and dry pasta") then
+            setPhase("finish", current)
+            return
+        end
+        Harness.chefPastaPotId = pot:getID()
+        local action = ISHandcraftAction.FromLogic(logic)
+        local originalStart, originalStop, originalPerform =
+            action.start, action.stop, action.performRecipe
+        action.start = function(self)
+            print("SC_CHEF_PASTA_ACTION|event=start|surface="
+                .. tostring(self.isoObject))
+            return originalStart(self)
+        end
+        action.stop = function(self)
+            print("SC_CHEF_PASTA_ACTION|event=stop|surface="
+                .. tostring(self.isoObject))
+            return originalStop(self)
+        end
+        action.performRecipe = function(self)
+            print("SC_CHEF_PASTA_ACTION|event=perform")
+            originalPerform(self)
+            local outputs = ArrayList.new()
+            self.logic:getCreatedOutputItems(outputs)
+            for index = 0, outputs:size() - 1 do
+                local output = outputs:get(index)
+                print("SC_CHEF_PASTA_ACTION|event=output|type="
+                    .. tostring(output:getFullType()) .. "|container="
+                    .. tostring(output:getContainer()))
+            end
+        end
+        ISTimedActionQueue.add(action)
+        setPhase("chef_pasta_prep_wait", current)
+        return
+    end
+    if Harness.phase == "chef_pasta_prep_wait" then
+        local wet = itemOf("Base.WaterPotPasta")
+        if not wet then
+            if current - Harness.phaseStartedAt > 15000 then
+                result("FAIL", "chef_pasta_native_base", "timed action did not prepare pasta")
+                setPhase("finish", current)
+            end
+            return
+        end
+        check("chef_pasta_native_base", wet:getID() ~= Harness.chefPastaPotId,
+            "native handcraft produced " .. tostring(wet:getFullType()))
+        local tomato = inventory:AddItem("Base.Tomato")
+        local preview = instanceItem("Base.WaterPotPasta")
+        local previewEligible = preview and Harness.chefPasta:getItemsCanBeUse(
+            Harness.player, preview, nil)
+        if not check("chef_pasta_preview_topping_accepted",
+            preview ~= nil and listHas(previewEligible, tomato),
+            "native PastaPot accepts tomato against a transient preview base") then
+            setPhase("finish", current)
+            return
+        end
+        local possible = Harness.chefPasta:getItemsCanBeUse(Harness.player, wet, nil)
+        if not check("chef_pasta_topping_accepted", listHas(possible, tomato),
+            "native PastaPot accepts Base.Tomato") then
+            setPhase("finish", current)
+            return
+        end
+        ISTimedActionQueue.add(ISAddItemInRecipe:new(Harness.player,
+            Harness.chefPasta, wet, tomato))
+        setPhase("chef_pasta_dish_wait", current)
+        return
+    end
+    if Harness.phase == "chef_pasta_dish_wait" then
+        local dish = itemOf("Base.PastaPot")
+        if not dish then
+            if current - Harness.phaseStartedAt > 15000 then
+                result("FAIL", "chef_pasta_native_result", "timed action did not assemble pasta")
+                setPhase("finish", current)
+            end
+            return
+        end
+        check("chef_pasta_native_result", dish:getFullType() == "Base.PastaPot",
+            "native evolved action assembled PastaPot")
+        check("chef_pasta_uncooked_not_stock", SC.ChefWork.isPrepared(dish) == false,
+            "Chef rejects the uncooked native result")
+        dish:setCooked(true)
+        check("chef_pasta_cooked_stock", SC.ChefWork.isPrepared(dish) == true,
+            "Chef accepts the cooked native result")
+        inventory:AddItem("Base.Bowl")
+        inventory:AddItem("Base.Bowl")
+        local craft = getScriptManager():getCraftRecipe("Make2Bowls")
+        local containers = ArrayList.new()
+        containers:add(inventory)
+        local logic = HandcraftLogic.new(Harness.player, nil, nil)
+        logic:setIsoObject(logic:findCraftSurface(Harness.player, 2)
+            or Harness.chefSurfaceObject)
+        logic:setContainers(containers)
+        logic:setRecipeFromContextClick(craft, dish)
+        if not check("chef_pasta_portion_requirements",
+            logic:canPerformCurrentRecipe() == true,
+            "native Make2Bowls accepts cooked PastaPot and two bowls") then
+            setPhase("finish", current)
+            return
+        end
+        ISTimedActionQueue.add(ISHandcraftAction.FromLogic(logic))
+        setPhase("chef_pasta_bowls_wait", current)
+        return
+    end
+    if Harness.phase == "chef_pasta_bowls_wait" then
+        local bowls, emptyPot = 0, false
+        local items = inventory:getItems()
+        for index = 0, items:size() - 1 do
+            local item = items:get(index)
+            if item:getFullType() == "Base.PastaBowl"
+                and SC.ChefWork.isPrepared(item) then bowls = bowls + 1 end
+            if item:getFullType() == "Base.Pot" then emptyPot = true end
+        end
+        if bowls < 2 or not emptyPot then
+            if current - Harness.phaseStartedAt > 15000 then
+                result("FAIL", "chef_pasta_native_portions",
+                    "bowls=" .. tostring(bowls) .. " pot=" .. tostring(emptyPot))
+                setPhase("finish", current)
+            end
+            return
+        end
+        check("chef_pasta_native_portions", bowls == 2 and emptyPot,
+            "native Make2Bowls made two safe portions and returned the pot")
+        setPhase("finish", current)
+    end
+end
+
+local UI_MENU_TABS = {
+    "status", "talk", "orders", "groups", "expeditions", "loadout",
+    "more", "base", "factions", "sheet", "journal", "support",
+}
+
+local function probeUIMenus(current)
+    local index = Harness.uiMenuIndex or 1
+    local tab = UI_MENU_TABS[index]
+    if tab == nil then setPhase("finish", current) return end
+    if Harness.phase == "ui_menu_capture" then
+        if current - Harness.phaseStartedAt < 500 then return end
+        local name = tostring(Harness.config.run_id) .. "-menu-" .. tab .. ".png"
+        local captured, reason = pcall(function()
+            getCore():TakeFullScreenshot(name)
+        end)
+        check("ui_menu_screenshot_" .. tab, captured, tostring(reason))
+        if tab == "base" and SurvivorCompanion.UI.instance
+            and SurvivorCompanion.UI.instance.detail then
+            local panel = SurvivorCompanion.UI.instance.detail.content
+            panel:setYScroll(-math.max(0,
+                panel:getScrollHeight() - panel:getHeight()))
+            setPhase("ui_menu_capture_bottom", current)
+            return
+        end
+        Harness.uiMenuIndex = index + 1
+        setPhase("ui_menu_probe", current)
+        return
+    end
+    if Harness.phase == "ui_menu_capture_bottom" then
+        if current - Harness.phaseStartedAt < 500 then return end
+        local name = tostring(Harness.config.run_id) .. "-menu-base-bottom.png"
+        local captured, reason = pcall(function()
+            getCore():TakeFullScreenshot(name)
+        end)
+        check("ui_menu_screenshot_base_bottom", captured, tostring(reason))
+        Harness.uiMenuIndex = index + 1
+        setPhase("ui_menu_probe", current)
+        return
+    end
+    local SC = SurvivorCompanion
+    if Harness.uiMenuCompanionId == nil then
+        for _, record in ipairs(SC.Registry.snapshot() or {}) do
+            if record.actor and record.recruited == true then
+                Harness.uiMenuCompanionId = record.id
+                break
+            end
+        end
+        -- Let the cloned save restore its roster before inspecting the
+        -- companion-specific Status and Talk menus.
+        if Harness.uiMenuCompanionId == nil
+            and current - Harness.phaseStartedAt < 10000 then return end
+    end
+    local opened, root = pcall(SC.UI.open, tab, Harness.uiMenuCompanionId)
+    if not check("ui_menu_open_" .. tab, opened and root ~= nil
+        and root.selectedTab == tab and root.detail ~= nil,
+        tostring(root)) then setPhase("finish", current) return end
+    local panel = root.detail.content
+    local valid = panel ~= nil and panel:getWidth() > 0
+        and panel:getHeight() > 0
+    if not check("ui_menu_viewport_" .. tab, valid,
+        "width=" .. tostring(panel and panel:getWidth())
+            .. " height=" .. tostring(panel and panel:getHeight())) then
+        setPhase("finish", current) return
+    end
+    local rectangles, collision, overflow = {}, nil, nil
+    for _, child in ipairs(panel.childrenInOrder or {}) do
+        if child ~= panel.vscroll then
+            local ok, x, y, width, height = pcall(function()
+                return child:getX(), child:getY(), child:getWidth(),
+                    child:getHeight()
+            end)
+            if ok and type(x) == "number" and type(y) == "number"
+                and type(width) == "number" and type(height) == "number"
+                and width > 0 and height > 0 then
+                if x < -1 or x + width > panel:getWidth() + 1 then
+                    overflow = tostring(x) .. "+" .. tostring(width)
+                        .. "/" .. tostring(panel:getWidth())
+                end
+                for _, previous in ipairs(rectangles) do
+                    local overlapX = math.min(x + width, previous.x + previous.width)
+                        - math.max(x, previous.x)
+                    local overlapY = math.min(y + height, previous.y + previous.height)
+                        - math.max(y, previous.y)
+                    if overlapX > 2 and overlapY > 2 then
+                        collision = tostring(previous.x) .. "," .. tostring(previous.y)
+                            .. " vs " .. tostring(x) .. "," .. tostring(y)
+                        break
+                    end
+                end
+                rectangles[#rectangles + 1] = {
+                    x = x, y = y, width = width, height = height,
+                }
+            end
+        end
+    end
+    local scrollHeight = tonumber(panel:getScrollHeight()) or 0
+    local lastBottom = 0
+    for _, rect in ipairs(rectangles) do
+        lastBottom = math.max(lastBottom, rect.y + rect.height)
+    end
+    check("ui_menu_no_overlap_" .. tab, collision == nil
+        and overflow == nil and scrollHeight + 1 >= lastBottom,
+        "children=" .. tostring(#rectangles)
+            .. " collision=" .. tostring(collision)
+            .. " overflow=" .. tostring(overflow)
+            .. " scroll=" .. tostring(scrollHeight)
+            .. " bottom=" .. tostring(lastBottom))
+    setPhase("ui_menu_capture", current)
+end
+Harness.probeUIMenus = probeUIMenus
+
 local function tick()
     if Harness.finished then return end
     local current = nowMs()
@@ -13700,7 +14789,15 @@ local function tick()
         Harness.measurePerformance(current)
     end
 
-    if Harness.phase == "place_metadata_probe" then
+    if Harness.phase == "ui_menu_probe" or Harness.phase == "ui_menu_capture"
+        or Harness.phase == "ui_menu_capture_bottom" then
+        Harness.probeUIMenus(current)
+    elseif string.find(tostring(Harness.phase), "chef_", 1, true) == 1 then
+        Harness.probeChefRecipes(current)
+    elseif Harness.phase == "alife_wait" or Harness.phase == "alife_companion_spawn"
+        or Harness.phase == "alife_shell_wait" or Harness.phase == "alife_damage" then
+        Harness.probeALifeDamage(current)
+    elseif Harness.phase == "place_metadata_probe" then
         local places = SurvivorCompanion.ExpeditionPlaces
         local world = type(getWorld) == "function" and getWorld() or nil
         local grid = world and world:getMetaGrid() or nil
@@ -14090,6 +15187,11 @@ local function tick()
         beginSplitScreenProbe(current)
     elseif Harness.phase == "split_wait_loaded" then
         probeSplitScreenLoaded(current)
+    elseif Harness.phase == "fishing_find_bank"
+        or Harness.phase == "fishing_approach"
+        or Harness.phase == "fishing_wait_catch"
+        or Harness.phase == "fishing_wait_capture" then
+        Harness.probeFishingBank(current)
     elseif Harness.phase == "split_wait_capture" then
         probeSplitScreenCapture(current)
     elseif Harness.phase == "split_observe" then
@@ -14202,6 +15304,10 @@ local function tick()
         Harness.beginDoorCrossing(current)
     elseif Harness.phase == "door_crossing" then
         Harness.runDoorCrossing(current)
+    elseif Harness.phase == "begin_stair_crossing" then
+        Harness.beginStairCrossing(current)
+    elseif Harness.phase == "stair_crossing" then
+        Harness.runStairCrossing(current)
     elseif Harness.phase == "awareness" then
         runAwareness(current)
     elseif Harness.phase == "restore_awareness" then
@@ -14236,6 +15342,10 @@ local function tick()
         Harness.beginBaseLayout(current)
     elseif Harness.phase == "base_layout_capture" then
         Harness.probeBaseLayout(current)
+    elseif Harness.phase == "companion_inventory_begin" then
+        Harness.beginCompanionInventory(current)
+    elseif Harness.phase == "companion_inventory_capture" then
+        Harness.probeCompanionInventory(current)
     elseif Harness.phase == "furniture_pose_begin" then
         Harness.beginFurniturePose(current)
     elseif Harness.phase == "furniture_pose_spawn" or Harness.phase == "furniture_pose_entry"
@@ -14386,7 +15496,13 @@ local function onGameStart()
         finish()
         return
     end
-    if Harness.config.team_corpse_streaming_reload_probe == "true" then
+    if Harness.config.ui_menu_probe == "true" then
+        setPhase("ui_menu_probe", Harness.startedAt)
+    elseif Harness.config.chef_recipes_probe == "true" then
+        setPhase("chef_recipes_begin", Harness.startedAt)
+    elseif Harness.config.project_alife_damage_probe == "true" then
+        setPhase("alife_wait", Harness.startedAt)
+    elseif Harness.config.team_corpse_streaming_reload_probe == "true" then
         setPhase("team_corpse_stream_restart_stage", Harness.startedAt)
     elseif Harness.config.place_metadata_only == "true" then
         setPhase("place_metadata_probe", Harness.startedAt)
@@ -14400,6 +15516,8 @@ local function onGameStart()
         setPhase("split_start", Harness.startedAt)
     elseif Harness.config.base_layout_only == "true" then
         setPhase("base_layout_begin", Harness.startedAt)
+    elseif Harness.config.companion_inventory_only == "true" then
+        setPhase("companion_inventory_begin", Harness.startedAt)
     elseif Harness.config.furniture_pose_only == "true" then
         setPhase("furniture_pose_begin", Harness.startedAt)
     elseif Harness.config.woodcutter_only == "true" then

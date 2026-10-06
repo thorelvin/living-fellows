@@ -196,27 +196,73 @@ getCell = function() return { getGridSquare = function(_, x, y, z)
     if x == 12 and y == 12 and z == 0 then return {} end
     return nil
 end } end
-local ghosts = 0
+local ghosts, barricadeGhosts = 0, 0
 SurvivorCompanion.ConstructionPlanner = {
     renderBuildGhost = function(recipe, face, x, y, z)
-        assert(recipe == "wood_wall" and face == 2
+        assert((recipe == "wood_wall" and face == 2
+                or recipe == "wood_floor" and face == 1)
             and x == 12 and y == 12 and z == 0)
         ghosts = ghosts + 1
+        return true
+    end,
+    renderBarricadeGhost = function(row, color, alpha)
+        assert(row.type == "barricade" and row.x == 12 and row.y == 12
+            and row.z == 0 and row.north == true and row.side == "opposite"
+            and color.r > 0 and alpha > 0)
+        barricadeGhosts = barricadeGhosts + 1
+        return true
     end,
 }
 fixture.summary.constructionRows = { {
+    id = "job:barricade", type = "barricade",
+    x = 12, y = 12, z = 0, north = true, side = "opposite",
+    state = "pending",
+}, {
     id = "job:blueprint", type = "build", kind = "wall",
     x = 12, y = 12, z = 0, face = 2,
     stages = { "wood_frame", "wood_wall" }, state = "pending",
+}, {
+    id = "job:floor", type = "build", kind = "floor",
+    x = 12, y = 12, z = 0, face = 1,
+    stages = { "wood_floor" }, state = "pending",
 } }
 fixture.summary.blueprints = true
 fixture.clock = fixture.clock + 500
+fixture.lines, fixture.fills = {}, {}
 Events.OnRenderTick.callback()
-assert(ghosts == 1, "queued construction must render outside Base Layout mode")
+assert(ghosts == 2 and barricadeGhosts == 1,
+    "queued builds and barricades must render outside Base Layout mode")
+assert(#fixture.lines == 8 and #fixture.fills == 1
+        and fixture.lines[1].x1 == 12 and fixture.lines[1].y1 == 12
+        and fixture.lines[1].x2 == 13 and fixture.lines[1].y2 == 12
+        and fixture.lines[2].z1 == 1 and fixture.lines[3].z2 == 1
+        and fixture.fills[1].x1 == 12 and fixture.fills[1].x2 == 13,
+    "wall plans need an upright edge and floor plans a filled tile after placement")
 fixture.summary.blueprints = false
 fixture.clock = fixture.clock + 500
+fixture.lines, fixture.fills = {}, {}
 Events.OnRenderTick.callback()
-assert(ghosts == 1, "hidden construction blueprints must stop rendering")
+assert(ghosts == 2 and barricadeGhosts == 1
+        and #fixture.lines == 0 and #fixture.fills == 0,
+    "hidden construction blueprints must stop rendering")
+assert(#fixture.reports == 0, "normal rendering must not emit diagnostics")
+fixture.summary.blueprints = true
+SurvivorCompanion.ConstructionPlanner.renderBarricadeGhost = function()
+    error("test sprite failure")
+end
+fixture.clock = fixture.clock + 500
+Events.OnRenderTick.callback()
+assert(ghosts == 4 and #fixture.reports == 1
+        and fixture.reports[1][1] == "base-visuals-barricade",
+    "one broken barricade ghost must not suppress the next build ghost")
+fixture.summary.constructionRows = {}
+Visuals.refresh()
+fixture.clock = fixture.clock + 500
+fixture.lines, fixture.fills = {}, {}
+Events.OnRenderTick.callback()
+assert(#fixture.lines == 0 and #fixture.fills == 0 and ghosts == 4,
+    "removing a saved plan must clear its persistent guide")
+fixture.reports = {}
 SurvivorCompanion.ConstructionPlanner = nil
 getCell = previousCell
 local removed, removeReason = Visuals.remove()

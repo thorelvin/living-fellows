@@ -148,6 +148,7 @@ public class IsoGameCharacter extends IsoMovingObject {
             Class<ComponentType> componentTypeClass) { return null; }
     public IAnimationVariableSlot setVariable(String key, float value) { return null; }
     public IAnimationVariableSlot setVariable(String key, boolean value) { return null; }
+    protected float getFootInjurySpeedModifier() { return 0.0f; }
     public boolean isMoving() { return false; }
     public void setMoving(boolean moving) {}
     public void setRunning(boolean running) {}

@@ -1021,8 +1021,9 @@ local valueData = {
     formationPredictionMs = 250,
     formationPredictionMaxDistance = 1.25,
     formationTargetHysteresisDistance = 1.1,
-    rearScanIntervalMs = 8500,
-    rearScanHoldMs = 550,
+    rearScanIntervalMs = 30000,
+    rearScanTravelTiles = 6,
+    rearScanHoldMs = 350,
     rearGuardRefreshMs = 2200,
     positioningReservationMs = 650,
     conversationPreferredDistance = 1.65,
@@ -1113,6 +1114,9 @@ local valueData = {
     logisticsFailureCooldownMs = 30000,
     logisticsFailureMaxCooldownMs = 600000,
     relationshipObservationIntervalMs = 1000,
+    -- Player hits fade after this many game hours without another one, so
+    -- occasional accidents cannot add up to hostility over weeks of play.
+    playerStrikeMemoryGameHours = 6,
     -- Living-survivor simulation uses world age for emotional time and the
     -- existing scheduler for CPU cadence. Major incidents are deliberately
     -- rare, causal and interruptible by every survival-critical decision.
@@ -1199,6 +1203,11 @@ local valueData = {
     baseHistoryLimit = 96,
     baseJobLeaseMs = 45000,
     baseJobRetryMs = 10000,
+    -- A blocked job retries after baseJobRetryMs, doubling per failure up to
+    -- the cap. After this many failures it waits for the player's Retry or
+    -- Cancel in the Base tab instead of looping on its own.
+    baseJobRetryMaxMs = 600000,
+    baseJobParkAfterFailures = 6,
     baseAuditIntervalMs = 2000,
     baseGuardPatrolIntervalMs = 30000,
     baseGuardShiftMs = 180000,

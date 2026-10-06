@@ -2101,8 +2101,14 @@ end
 local function rescueCandidate(actor, player, snapshot)
     local utility = U()
     local best, bestScore
+    local commands = SC.Commands and SC.Commands.peek and SC.Commands.peek(actor)
+    local care = commands and commands.care or nil
+    local avoidPlayer = type(care) == "table"
+        and ((tonumber(care.playerStrikes) or 0) >= 2
+            or care.playerCeasefire == true or care.playerHostile == true)
     local function consider(candidate, relationship)
         if not candidate or candidate == actor or not utility.isValidActor(candidate) then return end
+        if candidate == player and avoidPlayer then return end
         if Medical.playerSelfCareActive(candidate) then return end
         if relationship ~= nil and SC.Factions
             and type(SC.Factions.areAlliesBetween) == "function" then
@@ -2202,6 +2208,14 @@ function Medical.update(actor, player, runtime)
     end
 
     local explicitTarget = rootRuntime.rescueTarget
+    local commands = SC.Commands and SC.Commands.peek and SC.Commands.peek(actor)
+    local care = commands and commands.care or nil
+    if explicitTarget == player and type(care) == "table"
+        and ((tonumber(care.playerStrikes) or 0) >= 2
+            or care.playerCeasefire == true or care.playerHostile == true) then
+        explicitTarget = nil
+        rootRuntime.rescueTarget = nil
+    end
     local targetAssessment = explicitTarget
         and Medical.assessCached(explicitTarget, nil, 100) or nil
     local candidate = explicitTarget and (Medical.hasActionableNeed(

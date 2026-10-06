@@ -28,7 +28,7 @@ local labels = {
     find_something_to_read = { "IGUI_SC_Objective_Reading", "Find something worth reading" },
     put_gear_in_order = { "IGUI_SC_Objective_Gear", "Put our gear in order" },
     improve_shelter = { "IGUI_SC_Objective_Shelter", "Improve this shelter" },
-    share_a_proper_meal = { "IGUI_SC_Objective_Meal", "Share a proper meal" },
+    share_a_proper_meal = { "IGUI_SC_Objective_Meal", "Eat with company" },
     recover_keepsake = { "IGUI_SC_Objective_Keepsake", "Recover the personal keepsake" },
 }
 
@@ -37,7 +37,7 @@ local requests = {
     find_something_to_read = { "IGUI_SC_Objective_Request_Reading", "I would like to find something worth reading when things are quiet." },
     put_gear_in_order = { "IGUI_SC_Objective_Request_Gear", "I want to repair our worn gear before it fails us." },
     improve_shelter = { "IGUI_SC_Objective_Request_Shelter", "I want to make this place a little harder for the dead to enter." },
-    share_a_proper_meal = { "IGUI_SC_Objective_Request_Meal", "I miss sitting down for a proper meal with someone." },
+    share_a_proper_meal = { "IGUI_SC_Objective_Request_Meal", "Would you keep me company while I eat? Just for a few minutes." },
     recover_keepsake = { "IGUI_SC_Objective_Request_Keepsake", "I am missing something personal. I would like it back." },
 }
 

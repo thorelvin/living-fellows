@@ -96,6 +96,9 @@ public final class SCNativeCompanion extends IsoPlayer {
     private volatile IsoDeadBody bridgeCorpse;
     private volatile boolean bridgeCorpseListedAtCallback;
     private volatile boolean bridgeMoving;
+    // A dying but still human companion uses the player's supported limp blend.
+    // The native wound value remains authoritative when a real injury is worse.
+    private volatile float bridgeLateKnoxGait;
     private volatile boolean bridgeMoveRequested;
     private volatile boolean bridgePathActive;
     // review 3.1: reconcile a phantom-active path. Track whether the current path
@@ -2173,6 +2176,9 @@ public final class SCNativeCompanion extends IsoPlayer {
         float multiplier = GameTime.getInstance().getMultiplier();
         if (!Float.isFinite(multiplier) || multiplier <= 0.0f) return;
         float distance = bridgeMoveDistance;
+        // Native paths get their pace from the walk animation's root motion.
+        // Direct bridge steps need the matching reduction to avoid foot sliding.
+        distance *= lateKnoxDirectStepFactor(bridgeLateKnoxGait);
         // Before the arrival clamp, so a short final step into a hedge is
         // shortened by the same factor instead of overshooting the target.
         float terrain = getCompanionTerrainSpeedFactor();
@@ -2207,6 +2213,22 @@ public final class SCNativeCompanion extends IsoPlayer {
         // MoveForward/action variables may rotate a non-local player during the
         // same update. Leave the render-facing direction authoritative too.
         applyBridgeMovementFacing();
+    }
+
+    static float lateKnoxDirectStepFactor(float gait) {
+        return 1.0f - Math.max(0.0f, Math.min(0.75f, gait)) * 0.35f;
+    }
+
+    public boolean setCompanionInfectionGait(float gait) {
+        if (!Float.isFinite(gait) || gait < 0.0f || gait > 0.75f) return false;
+        bridgeLateKnoxGait = gait;
+        return true;
+    }
+
+    @Override
+    protected float getFootInjurySpeedModifier() {
+        float injury = super.getFootInjurySpeedModifier();
+        return Math.abs(injury) >= bridgeLateKnoxGait ? injury : bridgeLateKnoxGait;
     }
 
     /**

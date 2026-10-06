@@ -11,6 +11,7 @@ import java.util.List;
 import zombie.Lua.Event;
 import zombie.Lua.LuaEventManager;
 import zombie.characters.SurvivorDesc;
+import zombie.characters.IsoPlayer;
 import zombie.iso.IsoCell;
 
 /** Real-JAR safety control for the custom IsoPlayer-based companion prototype. */
@@ -30,6 +31,49 @@ public final class SCIsoCompanionControlTest {
 
     private static void require(boolean value, String message) {
         if (!value) throw new AssertionError(message);
+    }
+
+    private static void testLivingViewHandoff(IsoPlayer primary,
+            SCNativeCompanion first, SCNativeCompanion second) throws Exception {
+        var field = SCSplitScreenProbe.class.getDeclaredField("leader");
+        field.setAccessible(true);
+        Object priorLeader = field.get(null);
+        IsoPlayer[] slots = IsoPlayer.players;
+        IsoPlayer priorSlot = slots[1];
+        int priorCount = IsoPlayer.numPlayers;
+        int firstId = first.sqlId, secondId = second.sqlId;
+        try {
+            first.sqlId = 2;
+            second.sqlId = 3;
+            first.markCoopLeaderForProbe();
+            field.set(null, first);
+            slots[1] = first;
+            IsoPlayer.numPlayers = 2;
+            IsoPlayer.setInstance(primary);
+            boolean rejected = false;
+            try {
+                SCSplitScreenProbe.handoffLiving(second);
+            } catch (IllegalStateException expected) {
+                rejected = true;
+            }
+            require(rejected && slots[1] == first && first.sqlId == 2,
+                    "living handoff overwrote a distinct saved local-player row");
+            second.sqlId = -1;
+            require(SCSplitScreenProbe.handoffLiving(second) == second
+                            && slots[1] == second && first.sqlId == -1
+                            && second.sqlId == 2 && first.getPlayerNum() == 3
+                            && second.getPlayerNum() == 1,
+                    "living handoff did not transfer the one local view and SQL row");
+        } finally {
+            first.unmarkCoopLeaderForProbe();
+            second.unmarkCoopLeaderForProbe();
+            first.sqlId = firstId;
+            second.sqlId = secondId;
+            field.set(null, priorLeader);
+            slots[1] = priorSlot;
+            IsoPlayer.numPlayers = priorCount;
+            IsoPlayer.setInstance(primary);
+        }
     }
 
     private static void testRetainedMovementAndPathState(SCNativeCompanion actor) throws Exception {
@@ -1035,6 +1079,22 @@ public final class SCIsoCompanionControlTest {
                         < SCNativeCompanion.boundedMovementDistance(0.045f, 1.0f, 4.0f, 0.06f),
                 "a foliage-scaled walk step was no shorter than an open-ground step");
 
+        SCNativeCompanion infectedCompanion = (SCNativeCompanion) actor;
+        require(infectedCompanion.setCompanionInfectionGait(0.55f)
+                        && Math.abs(infectedCompanion.getFootInjurySpeedModifier()) >= 0.55f,
+                "late Knox did not select the native player's heavy-limp walk blend");
+        infectedCompanion.updateMovementRates();
+        require(Math.abs(((Number) variableFloat.invoke(actor,
+                        "WalkInjury", 0.0f)).floatValue()) >= 0.55f,
+                "late Knox did not reach the player's real WalkInjury animation scalar");
+        require(SCNativeCompanion.lateKnoxDirectStepFactor(0.55f) < 1.0f
+                        && SCNativeCompanion.lateKnoxDirectStepFactor(0.0f) == 1.0f,
+                "direct bridge steps did not follow the late Knox walk pace");
+        require(!infectedCompanion.setCompanionInfectionGait(Float.NaN)
+                        && !infectedCompanion.setCompanionInfectionGait(1.0f)
+                        && infectedCompanion.setCompanionInfectionGait(0.0f),
+                "invalid gait values were accepted or a healed gait could not clear");
+
         require(SCNativeCompanion.doorIsSoleObstruction(false, true),
                 "a step clear of everything but a door was not held");
         require(!SCNativeCompanion.doorIsSoleObstruction(true, true),
@@ -1158,6 +1218,8 @@ public final class SCIsoCompanionControlTest {
         require(SCBridge.getOwnedCount() == 2
                         && SCBridge.isCompanion(actor) && SCBridge.isCompanion(secondActor),
                 "bridge identity ownership did not retain two companions");
+        testLivingViewHandoff((IsoPlayer) localPlayer,
+                (SCNativeCompanion) actor, (SCNativeCompanion) secondActor);
         require((Boolean) playerClass.getMethod("getCoopPVP").invoke(null),
                 "owned NPCs did not enable the vanilla IsoPlayer hit gate");
         Class<?> movingObjectClass = Class.forName("zombie.iso.IsoMovingObject");

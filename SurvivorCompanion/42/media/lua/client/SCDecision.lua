@@ -180,7 +180,7 @@ local function actionableMedical(actor, assessment, allowRecovery)
             or (tonumber(assessment.dirtyBandages) or 0) > 0))
 end
 
-local function rescueNeed(actor, player, snapshot)
+local function rescueNeed(actor, player, snapshot, avoidPlayer)
     local performance = SC.Performance
     local started = performance and type(performance.preciseNowMs) == "function"
         and performance.preciseNowMs() or nil
@@ -194,7 +194,7 @@ local function rescueNeed(actor, player, snapshot)
             and assessment.terminalKnox ~= true
     end
     local assess = SC.Medical and (SC.Medical.assessCached or SC.Medical.assess)
-    if player and type(assess) == "function" then
+    if player and not avoidPlayer and type(assess) == "function" then
         local ok, assessment = pcall(assess, player, nil, 500)
         if ok and assessment and livingPatient(player, assessment)
             and (actionableMedical(player, assessment, false)
@@ -469,10 +469,13 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         and selfCareBlocked ~= "patient_already_treated" then
         add("follow", 90, false, { mode = "seek_care" })
     end
+    local care = type(commands.care) == "table" and commands.care or {}
+    local avoidsPlayer = (tonumber(care.playerStrikes) or 0) >= 2
+        or care.playerCeasefire == true or care.playerHostile == true
     if (snapshot.immediateCount or 0) == 0
         and (not SC.Medical or type(SC.Medical.canRescueNow) ~= "function"
             or SC.Medical.canRescueNow(actor, snapshot)) then
-        local rescue, rescueTarget = rescueNeed(actor, player, snapshot)
+        local rescue, rescueTarget = rescueNeed(actor, player, snapshot, avoidsPlayer)
         if rescue > 0 then
             -- Rescue medicine is a distinct decision identity from self-medicine (and
             -- from rescuing a different subject): carry the mode/target so hysteresis
@@ -488,6 +491,14 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
 
     local threatCount = snapshot.threatCount or #(snapshot.threats or {})
     local immediate = snapshot.immediateCount or #(snapshot.immediateAttackers or {})
+    -- After a second player hit, give the companion room even if its current
+    -- order is to work or stay. Immediate danger and urgent care still win.
+    if commands.recruited and player and (tonumber(care.playerStrikes) or 0) >= 2
+        and care.playerHostile ~= true and threatCount == 0 and immediate == 0
+        and (snapshot.humanThreat == nil)
+        and U().sameFloor(actor, player) and U().distance(actor, player) < 7 then
+        add("retreat", 125, true, { mode = "player_avoid" })
+    end
     if threatCount == 0 and SC.Positioning
         and type(SC.Positioning.activeConversation) == "function"
         and SC.Positioning.activeConversation(actor) then
@@ -648,9 +659,15 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         elseif commands.order == "follow" then
             local close = player and U().distance(actor, player)
                 <= math.max(3, (commands.followDistance or 3) + 1.5)
+            local passengerReading = threatCount == 0 and not bleeding
+                and SC.Downtime and type(SC.Downtime.canReadOnTrip) == "function"
+                and SC.Downtime.canReadOnTrip(actor, player)
             -- Indoor downtime only once the leader has settled: a follower
             -- still stepping into its slot keeps formation.
-            if commands.expeditionMoving then
+            if passengerReading then
+                add("downtime", 85, false)
+                add("follow", 22, false)
+            elseif commands.expeditionMoving then
                 add("follow", 82, false)
             elseif close and snapshot.indoors == true and not bleeding
                 and leaderSettled(actor, player, current) then
@@ -674,6 +691,12 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
             add("tactical", commands.order == "work" and 62 or 56, false)
         elseif commands.order == "base_duty" then
             if not bleeding then add("base_work", 58, false) end
+        end
+        if threatCount == 0 and not bleeding
+            and SC.ExpeditionPrototype
+            and type(SC.ExpeditionPrototype.fishingRequestFor) == "function" then
+            local request = SC.ExpeditionPrototype.fishingRequestFor(actor)
+            if request then add("fishing", 86, false, request) end
         end
         -- A companion with its own task (an expedition leader searching its
         -- site) keeps looting while combat has just judged every zombie in
@@ -1278,8 +1301,16 @@ local function finishWork(actor, player, state, reason)
     return true, reason or "work_finished"
 end
 
-local function reportWorkFailure(actor, reason)
+local function reportWorkFailure(actor, player, reason, snapshot)
     local lowered = string.lower(tostring(reason or ""))
+    if SC.Dialogue and type(SC.Dialogue.missingToolKind) == "function"
+        and type(SC.Dialogue.requestMissingTool) == "function" then
+        local tool = SC.Dialogue.missingToolKind(reason)
+        if tool then
+            SC.Dialogue.requestMissingTool(actor, player, tool, snapshot)
+            return
+        end
+    end
     local key, fallback, topic = "IGUI_SC_Work_Cannot", "I can't do that safely.", "work.cannot"
     if string.find(lowered, "hammer", 1, true) then
         key, fallback, topic = "IGUI_SC_Work_NeedHammer", "I need an unbroken hammer.", "work.hammer"
@@ -1372,7 +1403,7 @@ local function doWork(actor, player, commands, snapshot, state)
             transactional = true,
         })
         if not accepted then
-            reportWorkFailure(actor, rejectionReason)
+            reportWorkFailure(actor, player, rejectionReason, snapshot)
             return finishWork(actor, player, state, "remove_barricade_rejected")
         end
         state.workAction = {
@@ -1401,7 +1432,7 @@ local function doWork(actor, player, commands, snapshot, state)
             transactional = true,
         })
         if not accepted then
-            reportWorkFailure(actor, rejectionReason)
+            reportWorkFailure(actor, player, rejectionReason, snapshot)
             return finishWork(actor, player, state, "dismantle_rejected")
         end
         state.workAction = {
@@ -1463,7 +1494,7 @@ local function doWork(actor, player, commands, snapshot, state)
             actor, targetSquare, snapshot, commandMoveMode(commands, player))
         if not ready then
             if handled then return true, supplyReason or "gathering_build_supplies" end
-            reportWorkFailure(actor, supplyReason)
+            reportWorkFailure(actor, player, supplyReason, snapshot)
             return finishWork(actor, player, state, "build_supplies_unavailable")
         end
     end
@@ -1475,7 +1506,7 @@ local function doWork(actor, player, commands, snapshot, state)
         transactional = true,
     })
     if not accepted then
-        reportWorkFailure(actor, rejectionReason)
+        reportWorkFailure(actor, player, rejectionReason, snapshot)
         return finishWork(actor, player, state, "barricade_rejected")
     end
     state.workAction = {
@@ -1709,6 +1740,36 @@ local function doRetreat(actor, player, snapshot, commands)
     return accepted == true, accepted and "retreating" or "retreat_rejected"
 end
 
+local function doPlayerAvoid(actor, player, snapshot)
+    if not player or not SC.Navigation
+        or type(SC.Navigation.requestAny) ~= "function" then
+        return false, "player_avoid_unavailable"
+    end
+    local ax, ay, az = U().position(actor)
+    local px, py = U().position(player)
+    if not ax or not px then return false, "player_avoid_position_unavailable" end
+    local dx, dy = ax - px, ay - py
+    local length = math.sqrt(dx * dx + dy * dy)
+    if length < 0.25 then dx, dy, length = 1, 0, 1 end
+    local forwardX, forwardY = dx / length, dy / length
+    local candidates = {}
+    for _, depth in ipairs({ 5, 4, 3 }) do
+        for _, flank in ipairs({ 0, 2, -2 }) do
+            local square = U().gridSquare(ax + forwardX * depth - forwardY * flank,
+                ay + forwardY * depth + forwardX * flank, az)
+            if square and U().isSquareFree(square)
+                and U().distance(square, player) > length + 1 then
+                candidates[#candidates + 1] = square
+            end
+        end
+    end
+    if #candidates == 0 then return false, "player_avoid_no_space" end
+    return SC.Navigation.requestAny(actor, candidates, "walk", {
+        action = "ordered_move", snapshot = snapshot,
+        playerAvoidance = true, arrivalDistance = 0.85,
+    })
+end
+
 local function doSharedAlert(actor, candidate, state)
     local alert = candidate and candidate.detail or nil
     if type(alert) ~= "table" or type(alert.x) ~= "number" or type(alert.y) ~= "number" then
@@ -1807,6 +1868,14 @@ local function delegate(candidate, actor, player, rootRuntime, commands, snapsho
         return callSubsystem("base-work", actor, function()
             return SC.BaseWork.update(actor, player, rootRuntime)
         end)
+    elseif candidate.kind == "fishing" then
+        if not SC.Fishing or type(SC.Fishing.update) ~= "function" then
+            return false, "fishing_unavailable"
+        end
+        return callSubsystem("fishing", actor, function()
+            return SC.Fishing.update(actor, "expedition", candidate.detail,
+                player, rootRuntime.snapshot)
+        end)
     elseif candidate.kind == "infection_crisis" then
         if not SC.InfectionCrisis or type(SC.InfectionCrisis.updateActor) ~= "function" then
             return false, "infection_crisis_unavailable"
@@ -1830,7 +1899,13 @@ local function delegate(candidate, actor, player, rootRuntime, commands, snapsho
     elseif candidate.kind == "tactical" then
         return callSubsystem("navigation", actor, function() return doTactical(actor, player, rootRuntime, commands, snapshot, state) end)
     elseif candidate.kind == "retreat" then
-        return callSubsystem("navigation", actor, function() return doRetreat(actor, player, snapshot, commands) end)
+        return callSubsystem("navigation", actor, function()
+            if type(candidate.detail) == "table"
+                and candidate.detail.mode == "player_avoid" then
+                return doPlayerAvoid(actor, player, snapshot)
+            end
+            return doRetreat(actor, player, snapshot, commands)
+        end)
     elseif candidate.kind == "alert" then
         return callSubsystem("navigation", actor, function() return doSharedAlert(actor, candidate, state) end)
     elseif candidate.kind == "conversation" then
@@ -2046,6 +2121,8 @@ local function candidateInterval(candidate)
         return 250
     elseif candidate.kind == "base_work" then
         return 250
+    elseif candidate.kind == "fishing" then
+        return 250
     elseif candidate.kind == "logistics" then
         return U().config("logisticsUpdateIntervalMs") or 750
     elseif candidate.kind == "infection_crisis" then
@@ -2063,7 +2140,7 @@ end
 local retainedApproachKinds = {
     logistics = true, infection_crisis = true, encounter = true,
     scavenge = true, downtime = true, needs = true,
-    base_work = true, faction = true, purposeful_idle = true,
+    base_work = true, fishing = true, faction = true, purposeful_idle = true,
     joy_response = true, ritual = true,
 }
 
@@ -2519,6 +2596,24 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
 end
 Decision._holdOwnedActivityOrPacingForTests = holdOwnedActivityOrPacing
 
+local function chooseHumanThreat(actor, player, external, faction)
+    if external and external.external == "project_alife"
+        and not U().isALifeHostileToParty(external.actor, player, actor) then
+        external = nil
+    end
+    if external == nil then return faction end
+    if faction == nil then return external end
+    if external.visible ~= faction.visible then
+        return external.visible == true and external or faction
+    end
+    local externalDistance = tonumber(external.distance)
+        or U().distance(actor, external.actor or external)
+    local factionDistance = tonumber(faction.distance)
+        or U().distance(actor, faction.actor or faction)
+    return externalDistance <= factionDistance and external or faction
+end
+Decision._chooseHumanThreatForTests = chooseHumanThreat
+
 function Decision.update(actor, player, runtime, roundTimestamp)
     local utility = U()
     if not utility or not utility.isValidActor(actor) then return false, "invalid_actor" end
@@ -2564,7 +2659,9 @@ function Decision.update(actor, player, runtime, roundTimestamp)
     if commands.recruited and SC.FactionBehavior
         and type(SC.FactionBehavior.humanThreatFor) == "function" then
         local ok, humanThreat = pcall(SC.FactionBehavior.humanThreatFor, actor, player)
-        snapshot.humanThreat = ok and humanThreat or nil
+        local externalThreat = snapshot.humanThreat
+        snapshot.humanThreat = chooseHumanThreat(actor, player,
+            externalThreat, ok and humanThreat or nil)
     else
         snapshot.humanThreat = nil
     end
@@ -2755,7 +2852,20 @@ function Decision.update(actor, player, runtime, roundTimestamp)
     if previous == "base_work" and selected.kind ~= "base_work" and not recheck
         and (selected.kind == "combat" or selected.kind == "retreat" or selected.emergency)
         and SC.BaseWork and type(SC.BaseWork.cancel) == "function" then
-        SC.BaseWork.cancel(actor, "danger_preempted_base_work")
+        local called, cancelled, cancelReason = pcall(SC.BaseWork.cancel,
+            actor, "danger_preempted_base_work")
+        if not called or cancelled ~= true then
+            -- A Chef can own a native action or a hot vessel that cannot be
+            -- rolled back yet. Preserve its receipt and claim, but let urgent
+            -- combat/retreat take priority over tending the meal.
+            state.baseWorkEmergencyPending = called and cancelReason or cancelled
+        else
+            state.baseWorkEmergencyPending = nil
+        end
+    end
+    if previous == "fishing" and selected.kind ~= "fishing" and not recheck
+        and SC.Fishing and type(SC.Fishing.cancel) == "function" then
+        SC.Fishing.cancel(actor, "fishing_preempted")
     end
     if state.workAction and not recheck
         and (selected.kind ~= "tactical" or commands.order ~= "work") then

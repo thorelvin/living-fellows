@@ -526,7 +526,8 @@ local function rememberHumanThreat(actor, player, state)
     local memory = state.humanContact
     local memoryMs = tonumber(SC.Config.get("banditFactionLastSeenMs")) or 6000
     if type(memory) == "table" and current - (tonumber(memory.seenAt) or 0) <= memoryMs
-        and memory.actor and not U().isDead(memory.actor) then
+        and memory.actor and not U().isDead(memory.actor)
+        and SC.Factions.isHostileBetween(actor, memory.actor, player) then
         return {
             actor = memory.actor, id = memory.id, x = memory.x, y = memory.y,
             z = memory.z, seenAt = memory.seenAt, visible = false,
@@ -969,6 +970,16 @@ function Behavior.updateHumanCombat(actor, player, runtime, threat)
         return false, "human_threat_unavailable"
     end
     local state = stateFor(actor)
+    if U().isALifeNpc(threat.actor)
+        and not U().isALifeHostileToParty(threat.actor, player, actor) then
+        state.humanContact = nil
+        return false, "alife_hostility_ended"
+    end
+    if not SC.Factions or not SC.Factions.isHostileBetween(actor, threat.actor, player) then
+        state.humanContact = nil
+        U().stop(actor)
+        return false, "human_hostility_ended"
+    end
     if threat.visible ~= true then
         local handled, reason = moveToStaticPosition(actor, threat, "jog",
             "companion_search_hostile_last_seen")

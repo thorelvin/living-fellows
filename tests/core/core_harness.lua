@@ -2255,12 +2255,14 @@ local forcedUp, forcedReason = SC.NativeActions.leaveSeating(actor)
 check(forcedUp == true and forcedReason == "forced_stand_from_furniture"
         and actor.sitting == false and actor.seatObject == nil
         and seat.occupied == false
-        and SC.NativeActions.seatingStatus(actor) == "standing",
+        and SC.NativeActions.seatingStatus(actor) == "furniture",
     "a getup that never starts is replaced by a direct stand: "
         .. tostring(forcedUp) .. " " .. tostring(forcedReason))
 -- The engine leaves the seated state on its next update; the fixture has no
 -- state machine, so complete that transition here.
 actor.actionContextName = "idle"
+check(SC.NativeActions.seatingStatus(actor) == "standing",
+    "direct stand becomes navigable after the engine leaves the chair state")
 takeSeat(seat, "sit")
 local hungStart = SC_TEST_CLOCK
 SC.NativeActions.leaveSeating(actor)

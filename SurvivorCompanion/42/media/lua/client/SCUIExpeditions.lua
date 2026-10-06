@@ -88,7 +88,8 @@ local function onSelect(detail, combo)
     draft[combo.scField] = option.value
     draft.preview, draft.previewError = nil, nil
     if combo.scField == "group" then draft.leaderId = nil end
-    if combo.scField == "group" or combo.scField == "leaderId" then
+    if combo.scField == "group" or combo.scField == "leaderId"
+        or combo.scField == "kind" then
         draft.placesLoaded, draft.placeId = false, nil
         draft.placePage = 1
     end
@@ -99,13 +100,16 @@ end
 local function addSelector(detail, panel, y, titleKey, field, options)
     local metrics = detail.metrics or SC.UI.layoutMetrics()
     y = detail:addInformationLine(panel, y, "UI_SC_Info_Message", tr(titleKey))
-    local combo = ISComboBox:new(8, y, math.max(100, panel:getWidth() - 28),
+    local width = math.max(100, panel:getWidth() - 28)
+    local combo = ISComboBox:new(8, y, width,
         metrics.buttonHeight, detail, onSelect)
     combo:initialise()
     combo:instantiate()
     combo.scField = field
     for index, option in ipairs(options) do
-        combo:addOptionWithData(optionLabel(option), option)
+        local label = optionLabel(option)
+        combo:addOptionWithData(SC.UI.fitText(UIFont.Small, label,
+            math.max(40, width - 28)), option, label)
         if option.value == detail.expeditionDraft[field] then
             combo.selected = index
         end
@@ -116,11 +120,15 @@ end
 
 local function addButton(detail, panel, y, key, action)
     local metrics = detail.metrics or SC.UI.layoutMetrics()
-    local button = ISButton:new(8, y, math.max(100, panel:getWidth() - 28),
-        metrics.buttonHeight, tr(key), detail, Planner.onButton)
+    local width = math.max(100, panel:getWidth() - 28)
+    local title = tr(key)
+    local button = ISButton:new(8, y, width,
+        metrics.buttonHeight, SC.UI.fitText(UIFont.Small, title,
+            math.max(40, width - 16)), detail, Planner.onButton)
     button:initialise()
     button.backgroundColor = { r = 0.12, g = 0.13, b = 0.12, a = 0.78 }
     button.scExpeditionAction = action
+    button.tooltip = title
     panel:addChild(button)
     return y + metrics.buttonHeight + 7
 end
@@ -150,6 +158,16 @@ local function currentTeam(detail)
     return records
 end
 
+local function gearMessage(reason, name)
+    if reason == "fishing_rod_missing" then
+        return tr("UI_SC_Expedition_FishingRodMissing", name or "?")
+    end
+    if reason == "fishing_bait_missing" then
+        return tr("UI_SC_Expedition_FishingBaitMissing", name or "?")
+    end
+    return reason
+end
+
 local function dispatch(detail)
     local draft = detail.expeditionDraft
     if not selectedPlace(draft) then return false, "destination_changed" end
@@ -163,14 +181,22 @@ local function dispatch(detail)
     if not records then return false, reason end
     local options = { turnHomeAfterHours = draft.hours,
         doctrine = draft.style, travelMode = draft.travelMode }
-    if draft.kind == "search" then
-        options.request = { category = draft.category,
+    if draft.kind == "search" or draft.kind == "fish" then
+        options.request = { category = draft.kind == "fish" and "fish"
+                or draft.category,
             quantity = draft.quantity }
     end
-    local ok, accepted, result = pcall(expedition.startAtPlace, records,
-        draft.placeId, draft.kind, options)
+    local ok, accepted, result, memberName
+    if draft.kind == "fish" then
+        ok, accepted, result, memberName = pcall(expedition.startAtFishingBank,
+            records, draft.placeId, options)
+    else
+        ok, accepted, result = pcall(expedition.startAtPlace, records,
+            draft.placeId, draft.kind, options)
+    end
     if not ok or accepted ~= true then
-        return false, ok and result or tostring(accepted)
+        return false, ok and gearMessage(result, memberName)
+            or tostring(accepted)
     end
     return true
 end
@@ -185,11 +211,15 @@ function Planner.onButton(detail, button)
         elseif action == "previous_places" then
             draft.placePage = math.max(1, (draft.placePage or 1) - 1)
         end
-        local places, reason, total = SC.ExpeditionPrototype.placeCandidates(
-            draft.leaderId, draft.placePage or 1)
+        local candidates = draft.kind == "fish"
+            and SC.ExpeditionPrototype.fishingBankCandidates
+            or SC.ExpeditionPrototype.placeCandidates
+        -- Paging reuses the last shoreline scan; only Refresh asks for a new one.
+        local places, reason, total = candidates(
+            draft.leaderId, draft.placePage or 1, action == "refresh")
         if places and #places == 0 and (draft.placePage or 1) > 1 then
             draft.placePage = draft.placePage - 1
-            places, reason, total = SC.ExpeditionPrototype.placeCandidates(
+            places, reason, total = candidates(
                 draft.leaderId, draft.placePage)
         end
         draft.places = places or {}
@@ -200,11 +230,28 @@ function Planner.onButton(detail, button)
     elseif action == "review" then
         local team, reason = currentTeam(detail)
         if not team or not selectedPlace(draft) then
-            feedback(detail, tr("UI_SC_Expedition_Failed",
-                not team and reason or "destination_required"), false)
+            local message = not team and tr("UI_SC_Expedition_Failed", reason)
+                or draft.kind == "fish" and tr((draft.placesTotal or 0) == 0
+                    and "UI_SC_Expedition_NoFishingBanks"
+                    or "UI_SC_Expedition_SelectBankFirst")
+                or tr("UI_SC_Expedition_Failed", "destination_required")
+            feedback(detail, message, false)
+            detail:rebuild(true)
             return
         end
-        draft.preview, draft.previewError = SC.ExpeditionPrototype.previewAtPlace(
+        if draft.kind == "fish" then
+            local ready, gearReason, memberName =
+                SC.ExpeditionPrototype.fishingGearStatus(team)
+            if not ready then
+                feedback(detail, gearMessage(gearReason, memberName), false)
+                detail:rebuild(true)
+                return
+            end
+        end
+        local preview = draft.kind == "fish"
+            and SC.ExpeditionPrototype.previewAtFishingBank
+            or SC.ExpeditionPrototype.previewAtPlace
+        draft.preview, draft.previewError = preview(
             team[1], selectedPlace(draft), draft.travelMode)
         draft.review = true
     elseif action == "edit" then
@@ -261,6 +308,7 @@ function Planner.build(detail, panel)
     y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
         tr("UI_SC_Expedition_TestBuild"))
     if not expedition or not expedition.placeCandidates
+        or not expedition.fishingBankCandidates
         or SCSplitScreenProbe == nil then
         return detail:addInformationLine(panel, y, "UI_SC_Info_Message",
             tr("UI_SC_Expedition_Unavailable"))
@@ -274,7 +322,10 @@ function Planner.build(detail, panel)
         if not found then draft.leaderId = initialMembers[1].id end
     end
     if not draft.placesLoaded then
-        local places, reason, total = expedition.placeCandidates(
+        local candidates = draft.kind == "fish"
+            and expedition.fishingBankCandidates
+            or expedition.placeCandidates
+        local places, reason, total = candidates(
             draft.leaderId, draft.placePage or 1)
         draft.places, draft.placeError = places or {}, places and nil or reason
         draft.placesTotal = total or 0
@@ -297,7 +348,10 @@ function Planner.build(detail, panel)
                 leaderName, #team,
                 place and place.label or "?", draft.hours,
                 styleName))
-        if draft.kind == "search" then
+        if draft.kind == "fish" then
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                tr("UI_SC_Expedition_FishRequest", draft.quantity))
+        elseif draft.kind == "search" then
             local categoryName = draft.category
             for _, option in ipairs(CATEGORIES) do
                 if option.value == draft.category then
@@ -317,6 +371,9 @@ function Planner.build(detail, panel)
         if place and place.knowledge == "map_metadata_unconfirmed" then
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
                 tr("UI_SC_Expedition_MapUnconfirmed"))
+        elseif place and place.knowledge == "map_water_unconfirmed" then
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                tr("UI_SC_Expedition_FishingShoreUnconfirmed"))
         end
         if draft.preview then
             local itinerary = draft.preview.mode == "road"
@@ -374,10 +431,13 @@ function Planner.build(detail, panel)
     y = addSelector(detail, panel, y, "UI_SC_Expedition_Task", "kind", {
         { value = "scout", key = "UI_SC_Expedition_Scout" },
         { value = "search", key = "UI_SC_Expedition_Search" },
+        { value = "fish", key = "UI_SC_Expedition_Fish" },
     })
     if draft.kind == "search" then
         y = addSelector(detail, panel, y, "UI_SC_Expedition_Supplies",
             "category", CATEGORIES)
+    end
+    if draft.kind == "search" or draft.kind == "fish" then
         y = addSelector(detail, panel, y, "UI_SC_Expedition_Quantity",
             "quantity", QUANTITIES)
     end
@@ -387,18 +447,29 @@ function Planner.build(detail, panel)
         "style", STYLES)
     y = addSelector(detail, panel, y, "UI_SC_Expedition_Travel",
         "travelMode", TRAVEL)
-    local places = { { value = nil, key = "UI_SC_Expedition_SelectPlace" } }
+    local places = { { value = nil, key = draft.kind == "fish"
+        and "UI_SC_Expedition_SelectBank"
+        or "UI_SC_Expedition_SelectPlace" } }
     for _, place in ipairs(draft.places) do
         local suffix = place.street and (" - " .. place.street) or ""
         places[#places + 1] = { value = place.id,
             label = place.label .. suffix .. " (" .. tostring(place.distance or "?") .. " tiles)" }
     end
-    y = addSelector(detail, panel, y, "UI_SC_Expedition_Destination",
+    y = addSelector(detail, panel, y, draft.kind == "fish"
+        and "UI_SC_Expedition_FishingDestination"
+        or "UI_SC_Expedition_Destination",
         "placeId", places)
     local first = (#draft.places > 0) and ((draft.placePage or 1) - 1) * 32 + 1 or 0
     local last = first > 0 and first + #draft.places - 1 or 0
     y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
-        tr("UI_SC_Expedition_PlacePage", first, last, draft.placesTotal or 0))
+        tr(draft.kind == "fish" and "UI_SC_Expedition_BankPage"
+            or "UI_SC_Expedition_PlacePage", first, last,
+            draft.placesTotal or 0))
+    if draft.kind == "fish" and (draft.placesTotal or 0) == 0
+        and not draft.placeError then
+        y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+            tr("UI_SC_Expedition_NoFishingBanks"))
+    end
     if (draft.placePage or 1) > 1 then
         y = addButton(detail, panel, y, "UI_SC_Expedition_PreviousPlaces",
             "previous_places")
@@ -414,8 +485,14 @@ function Planner.build(detail, panel)
         and selectedPlace(draft).knowledge == "map_metadata_unconfirmed" then
         y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
             tr("UI_SC_Expedition_MapUnconfirmed"))
+    elseif selectedPlace(draft)
+        and selectedPlace(draft).knowledge == "map_water_unconfirmed" then
+        y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+            tr("UI_SC_Expedition_FishingShoreUnconfirmed"))
     end
-    y = addButton(detail, panel, y, "UI_SC_Expedition_Refresh", "refresh")
+    y = addButton(detail, panel, y, draft.kind == "fish"
+        and "UI_SC_Expedition_RefreshBanks"
+        or "UI_SC_Expedition_Refresh", "refresh")
     return addButton(detail, panel, y, "UI_SC_Expedition_Review", "review")
 end
 

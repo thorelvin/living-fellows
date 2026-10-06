@@ -1274,6 +1274,17 @@ function persistence.captureRecord(record, vehicleState)
     downtimeFacts, copyReason = copyList(downtime.facts,
         SC.Config.get("maxDowntimeFacts"), "$.downtime.facts")
     if copyReason ~= nil then return nil, copyReason end
+    -- Native companions are rebuilt on load. Keep the per-viewer TV/VHS line
+    -- ledger with the same saved actor so a replay cannot award its XP again.
+    local mediaLines
+    mediaLines, copyReason = copyList(downtime.mediaLines, 2048,
+        "$.downtime.mediaLines")
+    if copyReason ~= nil then return nil, copyReason end
+    for _, guid in ipairs(mediaLines) do
+        if type(guid) ~= "string" or #guid > 128 then
+            return nil, "invalid learned media line"
+        end
+    end
     local vehicleCopy
     vehicleCopy, copyReason = stableCopy(vehicleState, 4, 96, "$.vehicle")
     if copyReason ~= nil then return nil, copyReason end
@@ -1336,6 +1347,7 @@ function persistence.captureRecord(record, vehicleState)
         downtime = {
             lastCompleted = captureLastDowntime(downtime.lastCompleted),
             facts = downtimeFacts,
+            mediaLines = mediaLines,
         },
         vehicle = vehicleCopy,
     }
@@ -1387,8 +1399,10 @@ local function scheduledSubsystemDefinitions()
         { field = "community", owner = SC.Community, depth = 10, entries = 32768 },
         { field = "diaries", owner = SC.Diary, depth = 10, entries = 16384 },
         { field = "tradeRecovery", owner = SC.Trade, depth = 14, entries = 16384 },
+        { field = "viewSlot", owner = SC.ViewSession, depth = 2, entries = 16 },
         { field = "expedition", owner = SC.ExpeditionPrototype,
             depth = 8, entries = 1024 },
+        { field = "baseWatch", owner = SC.BaseWatch, depth = 3, entries = 32 },
     }
 end
 
@@ -3884,7 +3898,8 @@ function persistence.restore(player)
         factions = "factions", factionWorld = "faction-world", baseLife = "base-life",
         infectionCrisis = "infection-crisis", community = "community",
         diaries = "diary", tradeRecovery = "trade-recovery",
-        expedition = "expedition",
+        viewSlot = "companion-view", expedition = "expedition",
+        baseWatch = "base-watch",
     }
     for _, definition in ipairs(subsystemDefinitions) do
         local raw = candidateDocument[definition.field]

@@ -136,6 +136,11 @@ local function teamDoctrineForPlayer(player)
     return SC.Config and SC.Config.get("defaultCombatDoctrine") or "close_defense"
 end
 
+local function teamFollowFanOutForPlayer(player)
+    local data = rawModData(player)
+    return type(data) == "table" and data.SC_TeamFollowFanOut == true
+end
+
 -- A survivor joins the team scavenging when safe unless the configured
 -- default says otherwise. As a neutral it carried scavenge=false, and the
 -- registry default only fills a missing value, so joining has to apply it.
@@ -690,14 +695,56 @@ end
 
 local function setOrder(actor, entry, state, order, anchor)
     local id = U().idOf(actor)
-    if not groupStaging and state.order == "base_duty" and order ~= "base_duty" and SC.BaseLife
-        and type(SC.BaseLife.setDuty) == "function" then
-        pcall(SC.BaseLife.setDuty, id, false)
-        -- Leaving base duty must also cancel any in-flight base job (e.g. a queued
-        -- barricade), or it lingers blocked in a following companion's work queue
-        -- out in the field. setDuty releases the claim; this clears the queued action.
-        if SC.BaseWork and type(SC.BaseWork.cancel) == "function" then
-            pcall(SC.BaseWork.cancel, actor, "left_base_duty")
+    if not groupStaging and state.order == "base_duty" and order ~= "base_duty" then
+        if not SC.BaseLife or type(SC.BaseLife.setDuty) ~= "function"
+            or type(SC.BaseLife.snapshotResident) ~= "function"
+            or type(SC.BaseLife.restoreResident) ~= "function" then
+            return false, "base_duty_release_unavailable"
+        end
+        local residentSnapshot, snapshotReason = SC.BaseLife.snapshotResident(id)
+        if not residentSnapshot then return false, snapshotReason end
+        local resident = type(SC.BaseLife.resident) == "function"
+            and SC.BaseLife.resident(id) or nil
+        local function releaseDuty()
+            if not resident then return true end
+            local called, changed, reason = pcall(SC.BaseLife.setDuty, id, false)
+            if not called or changed ~= true then
+                return false, called and reason or changed
+            end
+            return true
+        end
+        local function cancelBaseWork()
+            if not SC.BaseWork or type(SC.BaseWork.cancel) ~= "function" then
+                return true
+            end
+            local called, cancelled, reason = pcall(SC.BaseWork.cancel,
+                actor, "left_base_duty")
+            if not called or cancelled ~= true then
+                return false, called and reason or cancelled
+            end
+            return true
+        end
+        if resident and resident.role == "chef" then
+            -- BaseLife cancels the Chef receipt through its job owner. Generic
+            -- BaseWork cancellation cannot do that while a native recipe has
+            -- committed, so it follows the accepted duty release.
+            local released, reason = releaseDuty()
+            if not released then return false, reason or "chef_duty_change_failed" end
+            local cancelled, cancelReason = cancelBaseWork()
+            if not cancelled then
+                SC.BaseLife.restoreResident(id, residentSnapshot)
+                return false, cancelReason or "base_work_cancel_failed"
+            end
+        else
+            -- Fail closed while a sorter still owns stock. Releasing resident
+            -- duty first would otherwise leave base_duty under duty=false.
+            local cancelled, cancelReason = cancelBaseWork()
+            if not cancelled then return false, cancelReason or "base_work_cancel_failed" end
+            local released, reason = releaseDuty()
+            if not released then
+                SC.BaseLife.restoreResident(id, residentSnapshot)
+                return false, reason or "base_duty_change_failed"
+            end
         end
     end
     clearWorkState(state)
@@ -772,6 +819,14 @@ local function handleSetBaseRole(actor, entry, state, payload)
     local assigned, reason = enterBaseDuty(actor, entry, state, role)
     if assigned ~= true then return false, reason end
     return true, "base_role_" .. role
+end
+
+local function handleCookMeal(actor, entry, state, payload, player)
+    if not SC.ChefWork or type(SC.ChefWork.requestMeal) ~= "function" then
+        return false, "chef_work_unavailable"
+    end
+    local queued, result = SC.ChefWork.requestMeal(actor, player)
+    return queued == true, queued and "chef_meal_requested" or result
 end
 
 local function handleWorkMode(actor, entry, state, payload)
@@ -1561,6 +1616,7 @@ local handlers = {
     guard = handleGuard,
     base_duty = handleBaseDuty,
     set_base_role = handleSetBaseRole,
+    cook_meal = handleCookMeal,
     regroup = handleRegroup,
     retreat = handleRetreat,
     set_follow_distance = handleFollowDistance,
@@ -1833,6 +1889,7 @@ function Commands.describe(companionId, player)
         combatMode = state.combatMode,
         combatDoctrine = state.combatDoctrine,
         holdFire = state.holdFire,
+        followFanOut = teamFollowFanOutForPlayer(player),
         followDistance = state.followDistance,
         scavenge = state.scavenge,
         scavengeStatus = scavengeStatus,
@@ -2044,6 +2101,10 @@ end
 local function issueOne(companionId, command, payload, player)
     local actor, entry, reason = resolve(companionId)
     if not actor then return false, reason end
+    if SC.BaseWatch and SC.BaseWatch.isRemoteResident
+        and SC.BaseWatch.isRemoteResident(actor, player) then
+        return false, "base_watch_radio_required"
+    end
     local radioAuthorized = SC.ExpeditionPrototype
         and SC.ExpeditionPrototype.radioCommandAuthorized(actor, command, payload, player)
     -- Test-build boundary: watching an AI leader in co-op slot 1 must not
@@ -2056,6 +2117,9 @@ local function issueOne(companionId, command, payload, player)
     if SCSplitScreenProbe ~= nil then
         local checked, isLeader = pcall(SCSplitScreenProbe.isLeader, actor)
         if checked and isLeader == true and not radioAuthorized then
+            if SC.BaseWatch and SC.BaseWatch.isLeader(actor) then
+                return false, "base_watch_leader_on_duty"
+            end
             return false, "expedition_leader_radio_required"
         end
     end
@@ -2213,6 +2277,10 @@ local function issueMemberSetAtomic(members, command, payload, player)
     for _, member in ipairs(members) do
         local actor, entry, reason = resolve(member.id)
         if not actor then return false, reason, {} end
+        if SC.BaseWatch and SC.BaseWatch.isRemoteResident
+            and SC.BaseWatch.isRemoteResident(actor, player) then
+            return false, "group_prevalidation:base_watch_radio_required", {}
+        end
         if SC.ExpeditionPrototype and SC.ExpeditionPrototype.isMember(actor) then
             return false, "group_prevalidation:expedition_leader_radio_required", {}
         end
@@ -2278,6 +2346,37 @@ local function issueMemberSetAtomic(members, command, payload, player)
         results[#results + 1] = { id = plan.id, ok = true, reason = reason }
     end
 
+    -- Staging deliberately skips duty changes. Check every Chef receipt before
+    -- persisting any member, then retain resident snapshots for commit rollback.
+    for _, plan in ipairs(plans) do
+        if plan.before.order == "base_duty" and plan.staged.order ~= "base_duty" then
+            plan.releaseDuty = true
+            if not SC.BaseLife or type(SC.BaseLife.setDuty) ~= "function"
+                or type(SC.BaseLife.snapshotResident) ~= "function" then
+                return false, "group_prevalidation:resident_duty_unavailable", results
+            end
+            local resident = type(SC.BaseLife.resident) == "function"
+                and SC.BaseLife.resident(plan.id) or nil
+            plan.residentPresent = resident ~= nil
+            if resident and resident.role == "chef" then
+                if not SC.ChefWork or type(SC.ChefWork.canLeaveDuty) ~= "function" then
+                    return false, "group_prevalidation:chef_work_unavailable", results
+                end
+                local called, allowed, reason = pcall(SC.ChefWork.canLeaveDuty,
+                    plan.id)
+                if not called or allowed ~= true then
+                    return false, "group_prevalidation:"
+                        .. tostring(called and reason or allowed), results
+                end
+            end
+            local snapshot, snapshotReason = SC.BaseLife.snapshotResident(plan.id)
+            if snapshot == nil then
+                return false, "group_prevalidation:" .. tostring(snapshotReason), results
+            end
+            plan.residentSnapshot = snapshot
+        end
+    end
+
     local function rollbackAll()
         for _, rollback in ipairs(plans) do
             states[rollback.actor] = rollback.before
@@ -2305,9 +2404,15 @@ local function issueMemberSetAtomic(members, command, payload, player)
     -- after every command state is durable, and restore both subsystems if an
     -- apply is rejected or throws.
     for index, plan in ipairs(plans) do
-        if plan.baseAssignment then
-            local called, applied, assignmentReason = pcall(
-                SC.BaseLife.applyResidentAssignment, plan.baseAssignment)
+        if plan.baseAssignment or (plan.releaseDuty and plan.residentPresent) then
+            local called, applied, assignmentReason
+            if plan.baseAssignment then
+                called, applied, assignmentReason = pcall(
+                    SC.BaseLife.applyResidentAssignment, plan.baseAssignment)
+            else
+                called, applied, assignmentReason = pcall(
+                    SC.BaseLife.setDuty, plan.id, false)
+            end
             if not called or applied ~= true then
                 rollbackAll()
                 results[index].ok = false
@@ -2319,14 +2424,19 @@ local function issueMemberSetAtomic(members, command, payload, player)
     for _, plan in ipairs(plans) do
         temporaryStaySuperseded(plan.actor, plan.staged)
     end
-    -- All members persisted; only now apply the cross-subsystem base-duty release.
-    -- Doing it inside the commit loop above meant a later member's write failure
-    -- rolled back command state and storage but left an earlier member's BaseLife
-    -- resident duty cleared -- order=base_duty with resident duty=false (R2-04).
-    if SC.BaseLife and type(SC.BaseLife.setDuty) == "function" then
-        for _, plan in ipairs(plans) do
-            if plan.before.order == "base_duty" and plan.staged.order ~= "base_duty" then
-                pcall(SC.BaseLife.setDuty, plan.id, false)
+    -- BaseLife and command state now agree. Clear each old base action after
+    -- the duty release has been accepted by its owner.
+    if SC.BaseWork and type(SC.BaseWork.cancel) == "function" then
+        for index, plan in ipairs(plans) do
+            if plan.releaseDuty then
+                local called, cancelled, reason = pcall(SC.BaseWork.cancel,
+                    plan.actor, "left_base_duty")
+                if not called or cancelled ~= true then
+                    rollbackAll()
+                    results[index].ok = false
+                    results[index].reason = called and reason or cancelled
+                    return false, "group_rollback:base_work_cancel_failed", results
+                end
             end
         end
     end
@@ -2373,6 +2483,17 @@ local function issueTeamDoctrine(payload, player)
     return true, doctrine, results
 end
 
+local function issueTeamFollowFanOut(payload, player)
+    local enabled = type(payload) == "table" and payload.enabled
+    if type(enabled) ~= "boolean" then return false, "invalid_boolean", {} end
+    local data = rawModData(player)
+    if type(data) ~= "table" then
+        return false, "player_mod_data_unavailable", {}
+    end
+    data.SC_TeamFollowFanOut = enabled
+    return true, enabled and "fan_out" or "follow_column", {}
+end
+
 local function issueGroupVehicle(group, command, payload, player)
     if type(group) ~= "string" or group == "" then return false, "invalid_group", {} end
     if command ~= "board_vehicle" and command ~= "exit_vehicle" then
@@ -2399,6 +2520,10 @@ local function issueGroupVehicle(group, command, payload, player)
     for _, member in ipairs(members) do
         local actor, entry, reason = resolve(member.id)
         if not actor then return false, reason, {} end
+        if SC.BaseWatch and SC.BaseWatch.isRemoteResident
+            and SC.BaseWatch.isRemoteResident(actor, player) then
+            return false, "group_prevalidation:base_watch_radio_required", {}
+        end
         if SC.ExpeditionPrototype and SC.ExpeditionPrototype.isMember(actor) then
             return false, "group_prevalidation:expedition_leader_radio_required", {}
         end
@@ -2435,10 +2560,12 @@ end
 
 function Commands.issue(companionId, command, payload, player)
     if type(payload) == "table" and payload.scope == "team" then
-        if command ~= "set_combat_doctrine" then
-            return false, "unsupported_team_command", {}
+        if command == "set_combat_doctrine" then
+            return issueTeamDoctrine(payload, player)
+        elseif command == "set_follow_fan_out" then
+            return issueTeamFollowFanOut(payload, player)
         end
-        return issueTeamDoctrine(payload, player)
+        return false, "unsupported_team_command", {}
     end
     if type(payload) == "table" and payload.scope == "group" then
         if command == "board_vehicle" or command == "exit_vehicle" then
@@ -2451,6 +2578,10 @@ end
 
 function Commands.teamCombatDoctrine(player)
     return teamDoctrineForPlayer(player)
+end
+
+function Commands.teamFollowFanOut(player)
+    return teamFollowFanOutForPlayer(player)
 end
 
 function Commands.setTeamCombatDoctrine(player, doctrine)

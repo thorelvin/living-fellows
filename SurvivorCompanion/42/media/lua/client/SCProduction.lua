@@ -60,6 +60,7 @@ local GALLOWS_CHANCE = { caring = 20, cautious = 35, practical = 50, brave = 50 
 local descriptors = {}
 local descriptorOrder = {}
 local actorStates = setmetatable({}, { __mode = "k" })
+local storageItemCursors = setmetatable({}, { __mode = "k" })
 local scans = {}
 local claims = {}
 local quotaReservations = {}
@@ -93,6 +94,28 @@ local function config(key, fallback)
     local value = U() and tonumber(U().config(key)) or nil
     if value == nil or value ~= value then return fallback end
     return value
+end
+
+local function storageItemSlice(container)
+    local items, readable = U().call(container, "getItems")
+    if not readable then items = type(container) == "table" and container.items or nil end
+    local size = U().listSize(items)
+    if size == 0 then return {} end
+    local budget = math.max(1, math.floor(config("campStorageItemBudget", 80)))
+    local count = math.min(size, budget)
+    local start = (storageItemCursors[container] or 0) % size
+    local result = {}
+    for offset = 0, count - 1 do
+        local item = U().listGet(items, (start + offset) % size)
+        if item ~= nil then result[#result + 1] = item end
+    end
+    storageItemCursors[container] = (start + count) % size
+    return result
+end
+
+local function sourceItemAvailable(storage, itemType)
+    if SC.BaseLife.storageReserve(storage, itemType) == 0 then return true end
+    return SC.BaseLife.availableCountExact(storage, itemType) > 0
 end
 
 local function actorId(actor)
@@ -441,7 +464,7 @@ local function threatNearby(actor, runtime)
     return false
 end
 
--- Outside the camp boundary, felling starts no new tree at night. Missing game
+-- Outdoor production starts no new work at night. Missing game
 -- time (headless tests, early boot) never invents a night.
 local function lumberNight()
     if type(getGameTime) ~= "function" then return false end
@@ -873,10 +896,9 @@ local function toolSource(actor, key)
         for _, storage in ipairs(SC.BaseLife.storageRows(category, true)) do
             local container = SC.BaseLife.resolveContainer(storage)
             if container then
-                for _, item in ipairs(U().inventoryItems(container,
-                    config("campStorageItemBudget", 80))) do
+                for _, item in ipairs(storageItemSlice(container)) do
                     if hasToolTag(item, key) and notBroken(item) and not protectedItem(item, actor)
-                        and SC.BaseLife.availableCount(storage, U().itemType(item)) > 0
+                        and sourceItemAvailable(storage, U().itemType(item))
                         and betterTool(item, bestItem, key) then
                         bestStorage, bestContainer, bestItem = storage, container, item
                     end
@@ -1128,7 +1150,7 @@ local function avoided(value, avoid)
     return false
 end
 
-local function freeAdjacent(square, actor, avoid)
+local function freeAdjacent(square, actor, avoid, cardinalOnly)
     local x, y, z = U().position(square)
     if x == nil then return nil end
     local best, bestDistance
@@ -1136,7 +1158,8 @@ local function freeAdjacent(square, actor, avoid)
         { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 },
         { -1, -1 }, { 1, -1 }, { -1, 1 }, { 1, 1 },
     }) do
-        local candidate = U().gridSquare(x + offset[1], y + offset[2], z)
+        local candidate = (not cardinalOnly or math.abs(offset[1]) + math.abs(offset[2]) == 1)
+            and U().gridSquare(x + offset[1], y + offset[2], z) or nil
         local tree = candidate and select(1, invoke(candidate, "getTree")) or nil
         if candidate and tree == nil and U().isSquareFree(candidate)
             and not avoided(candidate, avoid) then
@@ -1149,13 +1172,14 @@ local function freeAdjacent(square, actor, avoid)
     return best
 end
 
-local function adjacentTo(actor, square)
+local function adjacentTo(actor, square, cardinalOnly)
     local ax, ay, az = U().position(actor)
     local sx, sy, sz = U().position(square)
     if ax == nil or sx == nil then return false end
     if math.floor(az or 0) ~= math.floor(sz or 0) then return false end
     local dx = math.abs(math.floor(ax) - math.floor(sx))
     local dy = math.abs(math.floor(ay) - math.floor(sy))
+    if cardinalOnly then return dx + dy == 1 end
     return math.max(dx, dy) == 1
 end
 
@@ -1168,6 +1192,7 @@ local function approachSquare(actor, square, action, avoid, reach, dragging)
     if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
         return "failed", "navigation_unavailable"
     end
+    local treeWork = action == "move_to_production_tree"
     local offered = type(SC.Navigation.interactionTargets) == "function"
         and SC.Navigation.interactionTargets(actor, square) or {}
     local targets = {}
@@ -1176,19 +1201,25 @@ local function approachSquare(actor, square, action, avoid, reach, dragging)
         -- square when all neighboring squares look blocked. A tree or grave
         -- pit is never a valid work position, even if isSquareFree says yes.
         local standingTree = select(1, invoke(target, "getTree"))
+        local tx, ty = U().position(target)
+        local sx, sy = U().position(square)
+        local cardinal = tx ~= nil and sx ~= nil
+            and math.abs(math.floor(tx) - math.floor(sx))
+                + math.abs(math.floor(ty) - math.floor(sy)) == 1
         if not U().sameSquare(target, square) and standingTree == nil
+            and (not treeWork or cardinal)
             and not avoided(target, avoid) then
             targets[#targets + 1] = target
         end
     end
     if #targets == 0 then
-        local free = freeAdjacent(square, actor, avoid)
+        local free = freeAdjacent(square, actor, avoid, treeWork)
         targets = free and { free } or {}
     end
     if #targets == 0 then return "failed", "production_approach_missing" end
     local accepted, reason, reached = SC.Navigation.requestAny(actor, targets, "walk", {
-        action = action, targetSquare = square, arrivalDistance = 0.3,
-        requireSameSquare = true, workCampOnly = true,
+        action = action, targetSquare = square, arrivalDistance = treeWork and 0.45 or 0.3,
+        requireSameSquare = not treeWork, workCampOnly = true,
         workReach = reach == true, draggingBody = dragging == true or nil,
     })
     if accepted ~= true then
@@ -1198,7 +1229,7 @@ local function approachSquare(actor, square, action, avoid, reach, dragging)
     -- Tile adjacency alone is not arrival: the actor can be at the edge of
     -- that tile while Navigation still owns an approach around vegetation.
     -- Starting a work animation there cuts off the retained movement route.
-    if adjacentTo(actor, square) and reached ~= nil
+    if adjacentTo(actor, square, treeWork) and reached ~= nil
         and U().sameSquare(actor, reached) then
         return "arrived", "production_in_range"
     end
@@ -1510,7 +1541,8 @@ local function updateFell(actor, order, state, context)
     end
     local square = U().gridSquare(target.x, target.y, target.z)
     if not square then return false, "production_target_unloaded" end
-    if lumberNight() and SC.BaseLife.isInside(square) ~= true then
+    if lumberNight() and (SC.BaseLife.policies() or {}).workOutsideAtNight ~= true
+        and SC.BaseLife.isOutdoorSquare(square) == true then
         -- Not a failure: rewind so the same tree is found again at dawn.
         releaseClaim(target.key, context.actorId)
         state.target = nil
@@ -1591,11 +1623,9 @@ local function withdrawLog(actor, order, state)
     local log = state.pendingLog
     if log and U().inventoryContains(container, log) ~= true then log, state.pendingLog = nil, nil end
     if not log then
-        if SC.BaseLife.availableCount(storage, "Base.Log") <= 0 then
-            return blockOrder(order, "no_logs_in_storage")
-        end
-        for _, item in ipairs(U().inventoryItems(container, config("campStorageItemBudget", 80))) do
-            if U().itemType(item) == "Base.Log" and not protectedItem(item, actor) then
+        for _, item in ipairs(storageItemSlice(container)) do
+            if U().itemType(item) == "Base.Log" and not protectedItem(item, actor)
+                and sourceItemAvailable(storage, "Base.Log") then
                 log = item
                 break
             end
@@ -2097,8 +2127,6 @@ local function bodyEligible(body, order, actor)
     if fakeOk and fake == true then return false, "fake_dead" end
     local animal, animalOk = invoke(body, "isAnimal")
     if animalOk and animal == true then return false, "animal" end
-    local _, _, z = U().position(body)
-    if tonumber(z) ~= 0 then return false, "not_ground_level" end
     local status, count = bodyContentsStatus(body, actor)
     if count > 0 and (type(order.settings) ~= "table" or order.settings.withBelongings ~= true) then
         return false, "carries_items"
@@ -3130,10 +3158,9 @@ function Disposal.storageSupply(actor, kind)
     for _, storage in ipairs(SC.BaseLife.storageRows(nil, true)) do
         local container = SC.BaseLife.resolveContainer(storage)
         if container then
-            for _, item in ipairs(U().inventoryItems(container,
-                config("campStorageItemBudget", 80))) do
+            for _, item in ipairs(storageItemSlice(container)) do
                 if Disposal.supplyMatches(item, kind) and not protectedItem(item, actor)
-                    and SC.BaseLife.availableCount(storage, U().itemType(item)) > 0 then
+                    and sourceItemAvailable(storage, U().itemType(item)) then
                     return storage, container, item
                 end
             end
@@ -3607,7 +3634,8 @@ function Disposal.beginHaul(actor, order, state, context, zone)
             if terminal then return blockOrder(order, reason) end
             return true, reason
         end
-        if lumberNight() and SC.BaseLife.isInside(candidate.square) ~= true then
+        if lumberNight() and (SC.BaseLife.policies() or {}).workOutsideAtNight ~= true
+            and SC.BaseLife.isOutdoorSquare(candidate.square) == true then
             state.collect = nil
             return blockOrder(order, "lumber_night")
         end
@@ -4232,6 +4260,7 @@ function Production.reset(actor)
         if cancelled ~= true then return false, reason or "production_reset_failed" end
     end
     actorStates = setmetatable({}, { __mode = "k" })
+    storageItemCursors = setmetatable({}, { __mode = "k" })
     scans, claims, quotaReservations, phases, ceremonies, ceremonyOrder = {}, {}, {}, {}, {}, {}
     burialOutcomes, burialOutcomeOrder = {}, {}
     pendingAmen = nil

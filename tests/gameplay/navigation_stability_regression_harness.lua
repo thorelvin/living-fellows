@@ -9,7 +9,7 @@ end
 local grid = {}
 local function square(x, y, z)
     z = z or 0
-    if z ~= 0 or math.abs(x) > 300 or math.abs(y) > 8 then return nil end
+    if (z ~= 0 and z ~= 1) or math.abs(x) > 300 or math.abs(y) > 8 then return nil end
     local key = tostring(x) .. ":" .. tostring(y) .. ":" .. tostring(z)
     if grid[key] then return grid[key] end
     local value = { x = x, y = y, z = z, objects = {}, moving = {} }
@@ -678,6 +678,35 @@ do
     check(settled == downstairs and not settledAdjusted
             and descending.stairTransition == nil,
         "the original goal returns once the companion stands on the goal floor")
+    local ascending = { multiLevelFailureCount = 2,
+        multiLevelFailedGoal = { x = 20, y = 0, z = 1 },
+        stairTransition = { descent = ascent("up") } }
+    ascending.stairTransition.descent.approachReached = true
+    actor.x, actor.z = 12.5, 0.6
+    local upperGoal = { x = 20, y = 0, z = 1 }
+    local climbing, climbingAdjusted = N._stairFallbackGoalForTests(
+        actor, ascending, upperGoal, 2150)
+    check(climbing == square(14, 0, 1) and climbingAdjusted,
+        "ascending keeps the landing as its goal while on the slope")
+    actor.z = 1
+    local beforeLanding = N._stairFallbackGoalForTests(
+        actor, ascending, upperGoal, 2160)
+    check(beforeLanding == square(14, 0, 1)
+            and ascending.stairTransition.descent ~= nil,
+        "standing height alone does not redirect a climber before the landing")
+    actor.x = 14.5
+    local reachedLanding, landingAdjusted = N._stairFallbackGoalForTests(
+        actor, ascending, upperGoal, 2170)
+    check(reachedLanding == upperGoal and not landingAdjusted,
+        "the upstairs task resumes from the solid landing")
+    local arrivalLease = { targets = { square(14, 0, 1) },
+        affordance = "multi_level", arrivalDistance = 0.6 }
+    actor.z = 0.9
+    check(N._nativeLeaseArrivalForTests(actor, arrivalLease) == nil,
+        "the native path is not stopped inside the vertical arrival radius")
+    actor.z = 1
+    check(N._nativeLeaseArrivalForTests(actor, arrivalLease) == square(14, 0, 1),
+        "the native path may finish after reaching the upstairs landing")
     local upper = { descent = { key = "upper", lowerZ = 1, fromZ = 2, toZ = 1,
         exit = { x = 10, y = 0, z = 1 }, landing = { x = 14, y = 0, z = 2 },
         approach = { x = 14, y = 0, z = 2 }, crossing = { x = 10, y = 0, z = 1 },

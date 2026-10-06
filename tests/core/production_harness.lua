@@ -108,6 +108,8 @@ local function makeSquare(x, y, z)
     function square:getStaticMovingObjects() return self.staticMoving end
     function square:getTree() return self.tree end
     function square:isInARoom() return self.room == true end
+    function square:getRoom() return self.room == true and self or nil end
+    function square:isOutside() return self.room ~= true end
     function square:haveFire() return self.fire == true end
     function square:getFloor()
         local floor = { owner = self }
@@ -658,11 +660,13 @@ do
     SC.Navigation.requestAny = originalRequestAny
     check(handled and reason == "production_chop_started"
             and type(offered) == "table" and #offered > 0
-            and offered[1] ~= treeSquare,
-        "woodcutting approaches a free neighboring tile when the interaction helper offers the trunk")
-    check(approachIntent and approachIntent.requireSameSquare == true
-            and approachIntent.arrivalDistance <= 0.3,
-        "work approach cannot finish at the edge of an adjacent tile")
+            and offered[1] ~= treeSquare
+            and math.abs(offered[1].x - treeSquare.x)
+                + math.abs(offered[1].y - treeSquare.y) == 1,
+        "woodcutting approaches a cardinal side when the interaction helper offers the trunk")
+    check(approachIntent and approachIntent.requireSameSquare == false
+            and approachIntent.arrivalDistance <= 0.55,
+        "woodcutting keeps walking until centered beside the tree")
 end
 
 do
@@ -1061,9 +1065,21 @@ do
         function gameTime:getTimeOfDay() return hour end
         return gameTime
     end
-    local _, reason = tick(ctx)
+    local job
+    for _, candidate in ipairs(ctx.base.jobs) do
+        if candidate.type == "production" and candidate.target.orderId == order.id then
+            job = candidate
+            break
+        end
+    end
+    check(job ~= nil, "the night felling order has a worker job")
+    local _, reason = SC.Production.update(ctx.actor, {}, job, {})
     check(reason == "lumber_night" and SC.BaseLife.productionOrder(order.id).state == "blocked",
-        "outside the camp, felling starts no tree at night: " .. tostring(reason))
+        "production itself refuses to fell an outdoor tree at night: " .. tostring(reason))
+    tick(ctx)
+    check(SC.NativeActions.workKind(ctx.actor) == nil
+            and SC.BaseLife.productionCounters().treesFelled == 0,
+        "camp scheduling does not start outdoor felling at night")
     hour = 9
     tick(ctx, nil, nil, 31000)
     getGameTime = previousGameTime
@@ -1091,7 +1107,10 @@ do
     }
     ISBuildIsoEntity = {
         GetAllBuildableEntities = function() return { info } end,
-        new = function(_, actor)
+        new = function(_, actor, _, _, containers)
+            check(containers and containers.values
+                    and containers.values[1] == actor:getInventory(),
+                "companion construction supplies a native container list")
             local entity = {
                 character = actor, north = false,
                 buildPanelLogic = {
@@ -1851,10 +1870,10 @@ do
     local machete = ctx.actor.inventory:AddItem(makeItem("Base.Machete"))
     ctx.actor.primary = machete
     local grave, partner = createGrave(-2, -3, 0, false)
-    local victim = makeBody(sq(4, -4))
+    local victim = makeBody(sq(4, -4), { items = { "Base.RippedSheets" } })
     local order = start(ctx, {
         operation = "collect_bodies", zoneId = ctx.burial.id, requested = 1,
-        settings = { fromLumber = false },
+        settings = { fromLumber = false, withBelongings = true },
     })
     local intents = {}
     local originalRequestAny = SC.Navigation.requestAny
@@ -1914,6 +1933,34 @@ do
     check(done and SC.BaseLife.productionOrder(order.id).state == "completed"
         and grave.modData.filled == true,
         "the collection order completes after the grave closes and its shovel is returned")
+end
+
+do
+    local ctx = setup()
+    for x = 3, 5 do
+        for y = -5, -3 do makeSquare(x, y, 1) end
+    end
+    local upperSquare = squares[squareKey(4, -4, 1)]
+    ctx.base.zones[#ctx.base.zones + 1] = {
+        id = "zone:upper-corpse", kind = "area",
+        x1 = 3, y1 = -5, x2 = 5, y2 = -3, z = 1,
+    }
+    local upperBody = makeBody(upperSquare)
+    createGrave(-2, -3, 0, false)
+    start(ctx, {
+        operation = "collect_bodies", zoneId = ctx.burial.id, requested = 1,
+        settings = { fromCamp = true, fromLumber = false },
+    })
+    local grabbing, reason, attempts = false, nil, {}
+    for _ = 1, 10 do
+        local handled
+        handled, reason = tick(ctx)
+        attempts[#attempts + 1] = tostring(reason)
+        if reason == "production_grabbing" then grabbing = true break end
+    end
+    check(grabbing and current(ctx.actor).corpseBody == upperBody,
+        "body collection can reach a corpse on an upper camp floor: "
+            .. table.concat(attempts, ", "))
 end
 
 -- LF-38: cancellation may settle an already-finished corpse drop, but that
@@ -2359,15 +2406,45 @@ do
         "gravekeeper is a persistent base role")
     check(SC.BaseLife.auditRoleProduction() == false,
         "gravekeeper does not create an order without a body")
-    makeBody(sq(4, -4))
+    makeBody(sq(4, -4), { items = { "Base.RippedSheets" } })
     local created, order
     for _ = 1, 10 do
         created, order = SC.BaseLife.auditRoleProduction()
         if created == true then break end
     end
     check(created == true and order.operation == "collect_bodies"
-        and order.zoneId == ctx.burial.id and order.workers[1] == ctx.id,
-        "gravekeeper finds a body in bounded scans and chooses burial")
+        and order.zoneId == ctx.burial.id and order.workers[1] == ctx.id
+        and order.settings.withBelongings == true
+        and order.settings.autoCorpsekeeper == true,
+        "gravekeeper accepts ordinary belongings on a body and chooses burial")
+end
+
+do
+    local ctx = setup()
+    SC.BaseLife.assign(ctx.id, "corpsekeeper", true)
+    local legacy = start(ctx, {
+        operation = "collect_bodies", zoneId = ctx.burial.id, requested = 1,
+        settings = { fromCamp = true, fromLumber = true,
+            withBelongings = false, requireDry = true },
+    })
+    SC.BaseLife.auditRoleProduction()
+    check(legacy.settings.withBelongings == true
+        and legacy.settings.autoCorpsekeeper == true,
+        "existing autonomous gravekeeper orders become able to bury clothed bodies")
+end
+
+do
+    local ctx = setup()
+    SC.BaseLife.assign(ctx.id, "corpsekeeper", true)
+    local stale = start(ctx, {
+        operation = "collect_bodies", zoneId = ctx.burial.id, requested = 1,
+        settings = { fromCamp = true, fromLumber = true,
+            withBelongings = false, requireDry = true },
+    })
+    SC.BaseLife.assign(ctx.id, "chef", true)
+    SC.BaseLife.auditRoleProduction()
+    check(stale.state == "cancelled" and SC.BaseLife.jobFor(ctx.id) == nil,
+        "a stale automatic corpse order releases a worker who changed jobs")
 end
 
 -- ---------------------------------------------------------------------------

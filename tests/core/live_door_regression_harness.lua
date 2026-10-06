@@ -47,7 +47,8 @@ local candidate = H.doorCrossingCandidate(square(0, 0), square(1, 0))
 check(candidate and candidate.nearGoal.x == -1 and candidate.farGoal.x == 2
     and candidate.mx == 1 and candidate.dx == 1, "alternate setup preserves exact crossing plane and far-side goals")
 H.config.pathing_only = "true"
-check(H.afterDoorCrossingPhase() == "finish", "focused pathing mode ends after physical door probe")
+check(H.afterDoorCrossingPhase() == "begin_stair_crossing",
+    "focused pathing mode continues to the physical stair probe")
 H.config.pathing_only = nil
 check(H.afterDoorCrossingPhase() == "awareness", "normal full suite retains combat and faction phases")
 companion.x, companion.y, companion.z = 0.5, 0.5, 0

@@ -739,6 +739,15 @@ end
 
 local function isProtected(actor, item)
     if not actor or not item then return true end
+    local category = select(1, U().call(item, "getCategory"))
+    local fullType = U().itemType(item)
+    if tostring(category) == "Literature" or string.find(
+        string.lower(fullType), "book", 1, true) then
+        local data = select(1, U().call(item, "getModData"))
+        local loan = type(data) == "table" and data.SC_BookLoan or nil
+        if type(loan) == "table" and loan.finished ~= true
+            and loan.actorId == U().idOf(actor) then return true end
+    end
     if SC.PersonalItems and SC.PersonalItems.isProtected
         and SC.PersonalItems.isProtected(item, actor, "loadout") then return true end
     local favorite, favoriteOk = U().call(item, "isFavorite")
@@ -1415,6 +1424,13 @@ local function executeTransaction(actor, state)
         transaction.source, transaction.destination, transaction.item)
     markTransactionVerifying(transaction, { kind = transaction.kind })
     if transferred then
+        if transaction.kind == "deposit" then
+            local data = select(1, U().call(transaction.item, "getModData"))
+            if type(data) == "table" and type(data.SC_BookLoan) == "table"
+                and data.SC_BookLoan.finished == true then
+                data.SC_BookLoan = nil
+            end
+        end
         if SC.NativeActions and type(SC.NativeActions.noteResult) == "function" then
             SC.NativeActions.noteResult(actor, "logistics_" .. tostring(transaction.kind),
                 "completed")

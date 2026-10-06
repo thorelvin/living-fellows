@@ -39,6 +39,11 @@ local reasonKeys = {
     player_build_materials_or_target_invalid = "UI_SC_Base_Plan_PlayerMaterials",
     player_build_in_progress = "UI_SC_Base_Plan_PlayerBuilding",
     base_missing = "UI_SC_Base_Plan_NoCamp",
+    build_recipe_missing = "UI_SC_Base_Plan_RecipeMissing",
+    build_frame_recipe_missing = "UI_SC_Base_Plan_RecipeMissing",
+    build_preview_unavailable = "UI_SC_Base_Plan_PreviewUnavailable",
+    build_face_missing = "UI_SC_Base_Plan_PreviewUnavailable",
+    build_cursor_unavailable = "UI_SC_Base_Plan_PreviewUnavailable",
 }
 
 function Planner.reasonText(reason)
@@ -87,14 +92,22 @@ local function worldValid(recipeId, face, target, player, entities)
     local entity = entities[key]
     if not entity then
         local inventory = call(player, "getInventory")
+        if not inventory or not ArrayList or type(ArrayList.new) ~= "function" then
+            return false, "build_preview_unavailable"
+        end
+        local containers = ArrayList.new()
+        containers:add(inventory)
         local okay, created = pcall(ISBuildIsoEntity.new, ISBuildIsoEntity,
-            player, info, face, { inventory })
+            player, info, face, containers)
         if not okay or not created then return false, "build_preview_unavailable" end
         entity = created
         entity.player = player:getPlayerNum()
         entities[key] = entity
     end
     entity.previousStageObject = nil
+    -- Vanilla's placement checks read entity.north, which getSprite() sets.
+    -- getFace() alone does not initialize the orientation.
+    call(entity, "getSprite")
     local buildFace = call(entity, "getFace")
     if not buildFace then return false, "build_face_missing" end
     local width = tonumber(call(buildFace, "getWidth")) or 1
@@ -183,10 +196,19 @@ Planner.lineTargets = lineTargets
 local function cachedSprite(name)
     if type(name) ~= "string" or name == "" then return nil end
     if sprites[name] then return sprites[name] end
-    local sprite = type(getSprite) == "function" and getSprite(name) or nil
-    if not sprite and type(IsoSprite) == "table" and type(IsoSprite.new) == "function" then
-        sprite = IsoSprite.new()
-        if sprite then call(sprite, "LoadSingleTexture", name) end
+    local sprite
+    -- Native build previews load a private ghost sprite. A world sprite from
+    -- getSprite is only a fallback when this constructor is unavailable.
+    if IsoSprite and type(IsoSprite.new) == "function" then
+        local okay, created = pcall(IsoSprite.new)
+        if okay and created and type(created.LoadSingleTexture) == "function"
+            and pcall(created.LoadSingleTexture, created, name) then
+            sprite = created
+        end
+    end
+    if not sprite and type(getSprite) == "function" then
+        local okay, existing = pcall(getSprite, name)
+        if okay then sprite = existing end
     end
     sprites[name] = sprite
     return sprite
@@ -195,6 +217,7 @@ end
 function Planner.renderBuildGhost(recipeId, faceNumber, x, y, z, color, alpha)
     local face = SC.BaseWork and SC.BaseWork.recipeFace(recipeId, faceNumber) or nil
     if not face then return false end
+    local rendered = false
     local width = tonumber(call(face, "getWidth")) or 1
     local height = tonumber(call(face, "getHeight")) or 1
     local layers = tonumber(call(face, "getzLayers")) or 1
@@ -206,30 +229,33 @@ function Planner.renderBuildGhost(recipeId, faceNumber, x, y, z, color, alpha)
                 if sprite and type(sprite.RenderGhostTileColor) == "function" then
                     sprite:RenderGhostTileColor(x + xx, y + yy, z + zz,
                         color.r, color.g, color.b, alpha)
+                    rendered = true
                 end
             end
         end
     end
-    return true
+    return rendered
+end
+
+local function barricadeGhostTile(row)
+    local x, y, z = tonumber(row.x), tonumber(row.y), tonumber(row.z)
+    if not x or not y or not z then return nil end
+    -- Vanilla BarricadePlanks uses W/N on the object's square. For E/S its
+    -- build action starts on the west/north adjacent square, then advances
+    -- by +1 to find the door in BuildRecipeCode.barricade.OnIsValidPlanks.
+    if row.north == false then
+        return row.side == "opposite" and "carpentry_01_0" or "carpentry_01_8",
+            row.side == "opposite" and x - 1 or x, y, z
+    end
+    return row.side == "opposite" and "carpentry_01_1" or "carpentry_01_9",
+        x, row.side == "opposite" and y - 1 or y, z
 end
 
 function Planner.renderBarricadeGhost(row, color, alpha)
-    if type(renderIsoLine) ~= "function" then return false end
-    local x, y, z = tonumber(row.x), tonumber(row.y), tonumber(row.z)
-    if not x or not y or not z then return false end
-    local offset = row.side == "opposite" and -0.18 or 0.18
-    for index = 0, 2 do
-        local shift = (index - 1) * 0.09
-        if row.north == false then
-            renderIsoLine(x + 0.5 + offset + shift, y + 0.18, z,
-                x + 0.5 + offset + shift, y + 0.82, z, 2,
-                color.r, color.g, color.b, alpha)
-        else
-            renderIsoLine(x + 0.18, y + 0.5 + offset + shift, z,
-                x + 0.82, y + 0.5 + offset + shift, z, 2,
-                color.r, color.g, color.b, alpha)
-        end
-    end
+    local name, x, y, z = barricadeGhostTile(row)
+    local sprite = cachedSprite(name)
+    if not sprite or type(sprite.RenderGhostTileColor) ~= "function" then return false end
+    sprite:RenderGhostTileColor(x, y, z, color.r, color.g, color.b, alpha)
     return true
 end
 
@@ -264,9 +290,12 @@ local function cursorClass()
         end
     end
     function Cursor:getSprite()
-        if self.kind == "barricade" then return "carpentry_02_56" end
-        local kind = self.kind == "barricade" and "wall_frame" or self.kind
-        local recipe = SC.BaseWork.recipeForKind(kind)
+        if self.kind == "barricade" then
+            local name = barricadeGhostTile({ x = 0, y = 0, z = 0,
+                side = self.side, north = call(self.object, "getNorth") == true })
+            return name
+        end
+        local recipe = SC.BaseWork.recipeForKind(self.kind)
         return recipe and SC.BaseWork.recipeSprite(recipe, self.nSprite) or nil
     end
     function Cursor:preview(square, force)
@@ -343,7 +372,10 @@ local function cursorClass()
         local color = valid and { r = 0.24, g = 0.70, b = 1.00 }
             or { r = 1.00, g = 0.16, b = 0.12 }
         if self.kind == "barricade" then
-            Planner.renderBarricadeGhost({ x = x, y = y, z = z,
+            local target = call(self.object, "getSquare")
+            Planner.renderBarricadeGhost({
+                x = call(target, "getX"), y = call(target, "getY"),
+                z = call(target, "getZ"),
                 side = self.side, north = call(self.object, "getNorth") == true },
                 color, 0.85)
         else
@@ -437,7 +469,14 @@ function Planner.buildSegment(player, jobId)
     local containers = type(ISInventoryPaneContextMenu) == "table"
         and type(ISInventoryPaneContextMenu.getContainers) == "function"
         and ISInventoryPaneContextMenu.getContainers(player)
-        or { player:getInventory() }
+        or nil
+    if not containers then
+        if not ArrayList or type(ArrayList.new) ~= "function" then
+            return false, "player_build_unavailable"
+        end
+        containers = ArrayList.new()
+        containers:add(player:getInventory())
+    end
     local entity = ISBuildIsoEntity:new(player, info, job.face, containers)
     if entity then entity.player = player:getPlayerNum() end
     if not entity or entity:isValid(square) ~= true then

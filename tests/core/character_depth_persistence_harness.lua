@@ -1384,7 +1384,10 @@ local downtimeActor = makeActor(square)
 local downtimeRecord = SC.Registry.register(downtimeActor, {
     id = "sc-downtime-record", recruited = true,
     identity = { forename = "Nia", surname = "Cole", gender = "female" },
-    state = { downtime = { lastCompleted = { kind = "read", label = "Read a book", at = 1234 } } },
+    state = { downtime = {
+        lastCompleted = { kind = "read", label = "Read a book", at = 1234 },
+        mediaLines = { "vhs-carpentry-line-1", "tv-cooking-line-2" },
+    } },
 })
 check(downtimeRecord ~= nil and type(downtimeRecord.state.downtime.lastCompleted) == "table"
         and downtimeRecord.state.downtime.lastCompleted.kind == "read"
@@ -1396,6 +1399,9 @@ check(capturedDowntime ~= nil and type(capturedDowntime.downtime.lastCompleted) 
         and capturedDowntime.downtime.lastCompleted.label == "Read a book"
         and capturedDowntime.downtime.lastCompleted.at == 1234,
     "save capture keeps the structured last-downtime fact instead of stringifying the table")
+check(capturedDowntime.downtime.mediaLines[1] == "vhs-carpentry-line-1"
+        and capturedDowntime.downtime.mediaLines[2] == "tv-cooking-line-2",
+    "save capture keeps learned TV and VHS lines for each restored companion")
 SC.Registry.unregister(downtimeActor)
 
 local legacyActor = makeActor(square)

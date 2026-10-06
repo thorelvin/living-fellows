@@ -808,7 +808,7 @@ local function recoverPending(limit)
                     local candidate = SC.BaseLife.resolveContainer(row)
                     local room = candidate and (not SC.WorkTransport
                         or not SC.WorkTransport.hasRoom
-                        or SC.WorkTransport.hasRoom(candidate, actor, item) ~= false)
+                        or SC.WorkTransport.hasRoom(candidate, actor, item) == true)
                     if room then storage, container = row, candidate break end
                 end
             end
@@ -1244,7 +1244,7 @@ local function depositOutputs(actor, baseState, state)
     for _, row in ipairs(rows) do
         local candidate = SC.BaseLife.resolveContainer(row)
         local room = candidate and (not SC.WorkTransport or not SC.WorkTransport.hasRoom
-            or SC.WorkTransport.hasRoom(candidate, actor, output.item) ~= false)
+            or SC.WorkTransport.hasRoom(candidate, actor, output.item) == true)
         if room then storage, container = row, candidate break end
     end
     if not storage then return false, "farm_output_storage_missing", true end
@@ -1515,8 +1515,9 @@ function FarmWork.update(actor, baseState, job, runtime)
     local square = U().gridSquare(target.x, target.y, target.z)
     if not square then return false, "farm_target_unloaded", true end
     local state = stateFor(actor, job)
-    if SC.BaseLife.isInside(square) ~= true and not daylight() then
-        -- Do not begin or continue remote farm work after dark. If the native
+    if SC.BaseLife.isOutdoorSquare(square) == true and not daylight()
+        and (SC.BaseLife.policies() or {}).workOutsideAtNight ~= true then
+        -- Do not begin or continue outdoor farm work after dark. If the native
         -- action has just completed, reconcile it first so harvest output is
         -- not orphaned. Otherwise cancel it and let the ordinary return stage
         -- bring exact borrowed stock/output back into camp.

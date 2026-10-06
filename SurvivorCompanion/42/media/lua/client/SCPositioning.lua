@@ -789,11 +789,12 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
     local stairRejoin = type(descent) == "table"
         and pz <= descent.lowerZ + 0.2
         and followerZ ~= nil and followerZ > descent.lowerZ + 0.2
-    local clearOpenFormation = utility.sameFloor(actor, leader)
+    local fanOut = missionLeader or commands.followFanOut == true
+        or SC.Commands and type(SC.Commands.teamFollowFanOut) == "function"
+            and SC.Commands.teamFollowFanOut(leader) == true
+    local clearOpenFormation = fanOut and utility.sameFloor(actor, leader)
         and distanceToLeader <= (tonumber(
             utility.config("formationOpenInterceptDistance")) or 14)
-        and (utility.canSee(actor, leader)
-            or utility.canSee(actor, utility.squareOf(leader)))
     if road and road.column == true then clearOpenFormation = false end
     -- The road geometry already establishes a common, wide corridor. Two
     -- members on the same straight segment may use flank slots even when the
@@ -806,17 +807,29 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
             <= road.width * 0.5
         and lineDistance(px, py, road.first, road.last)
             <= road.width * 0.5
-    if sharedRoad and utility.sameFloor(actor, leader)
+    if fanOut and sharedRoad and not (road and road.column == true)
+        and utility.sameFloor(actor, leader)
         and distanceToLeader <= 14 then clearOpenFormation = true end
     if clearOpenFormation and not sharedRoad and SC.Navigation
         and type(SC.Navigation._fastOpenRouteForRequest) == "function" then
-        -- Visibility alone is not a movement contract (it commonly passes
-        -- through fences). Only intercept when every edge to the leader is
-        -- ordinary open floor; otherwise retain the player's portal trace.
-        local interceptSquare = utility.squareOf(leader)
+        -- Prove the route to the flank slot itself. A straight line to the
+        -- player's occupied tile can fail even when the companion has a clear
+        -- path beside them, leaving player-led teams in trail mode outdoors.
+        -- Fences and portals still fail this proof and keep the safe trail.
+        local interceptSquare = utility.gridSquare(targetX, targetY, pz)
         local ok, route = pcall(SC.Navigation._fastOpenRouteForRequest,
             utility.squareOf(actor), interceptSquare, {})
+        if not ok or route == nil then
+            -- A companion or prop can occupy the direct flank line for one
+            -- pulse. The old leader route is still a valid open-ground proof
+            -- when it succeeds; Navigation will choose the actual slot path.
+            ok, route = pcall(SC.Navigation._fastOpenRouteForRequest,
+                utility.squareOf(actor), utility.squareOf(leader), {})
+        end
         clearOpenFormation = ok and route ~= nil
+    elseif clearOpenFormation and not sharedRoad then
+        clearOpenFormation = utility.canSee(actor, leader)
+            or utility.canSee(actor, utility.squareOf(leader))
     end
     local portalHoldMs = tonumber(utility.config("formationPortalHoldMs")) or 1200
     local passageActive = false
@@ -1118,16 +1131,45 @@ function Positioning.updateHoldAwareness(actor, leader, snapshot)
     if not utility.isValidActor(actor) or not utility.isValidActor(leader) then
         return false, "invalid_awareness_actor"
     end
-    if type(snapshot) == "table" and ((tonumber(snapshot.threatCount) or 0) > 0
-        or (tonumber(snapshot.immediateCount) or 0) > 0) then return nil, "danger_present" end
-
     local state = stateFor(actor)
+    if type(snapshot) == "table" and ((tonumber(snapshot.threatCount) or 0) > 0
+        or (tonumber(snapshot.immediateCount) or 0) > 0) then
+        state.restoreFormationFacingAt = nil
+        state.rearScanLeaderX, state.rearScanLeaderY = utility.position(leader)
+        return nil, "danger_present"
+    end
+
     local current = utility.nowMs()
     local forwardX, forwardY = leaderHeading(actor, leader, current)
     local actorX, actorY, actorZ = utility.position(actor)
     if not actorX then return false, "awareness_position_unavailable" end
 
     if state.cqbRole == "rear_guard" then
+        state.restoreFormationFacingAt = nil
+        local desiredX, desiredY = -forwardX, -forwardY
+        local leaderX, leaderY = utility.position(leader)
+        local facingX = select(1, utility.call(actor, "getForwardDirectionX"))
+        local facingY = select(1, utility.call(actor, "getForwardDirectionY"))
+        facingX, facingY = normalized(facingX, facingY)
+        -- The player may turn to aim while standing still. Keep watching the
+        -- established route behind the team until the leader actually moves.
+        if facingX and state.rearWatchLeaderX and leaderX
+            and (leaderX - state.rearWatchLeaderX)^2
+                + (leaderY - state.rearWatchLeaderY)^2 < 0.64
+            and facingX * -state.rearWatchHeadingX
+                + facingY * -state.rearWatchHeadingY >= 0.85 then
+            return nil, "rear_guard_already_covering"
+        end
+        if facingX and facingX * desiredX + facingY * desiredY >= 0.85 then
+            return nil, "rear_guard_already_covering"
+        end
+        if not facingX and state.rearWatchHeadingX
+            and state.rearWatchHeadingX * forwardX
+                + state.rearWatchHeadingY * forwardY >= 0.85
+            and (actorX - state.rearWatchX)^2
+                + (actorY - state.rearWatchY)^2 < 0.36 then
+            return nil, "rear_guard_already_covering"
+        end
         local interval = utility.config("rearGuardRefreshMs") or 2200
         if not utility.isDue(actor, "formation_rear_guard", interval, current) then
             return nil, "rear_guard_watch_not_due"
@@ -1144,6 +1186,11 @@ function Positioning.updateHoldAwareness(actor, leader, snapshot)
             awarenessMovement = true,
             cqbRole = "rear_guard",
         })
+        if accepted then
+            state.rearWatchHeadingX, state.rearWatchHeadingY = forwardX, forwardY
+            state.rearWatchX, state.rearWatchY = actorX, actorY
+            state.rearWatchLeaderX, state.rearWatchLeaderY = leaderX, leaderY
+        end
         return accepted == true, reason or "rear_guard_watch_rejected"
     end
 
@@ -1163,23 +1210,44 @@ function Positioning.updateHoldAwareness(actor, leader, snapshot)
         return accepted == true, reason or "formation_facing_restore_rejected"
     end
 
-    local interval = utility.config("rearScanIntervalMs") or 8500
+    -- The assigned rear guard covers a group. Other members keep their normal
+    -- formation facing instead of taking turns spinning to inspect the rear.
+    if (state.fireteamSize or 1) >= 2 then return nil, "rear_guard_covers_team" end
+    local leaderX, leaderY = utility.position(leader)
+    if not leaderX then return nil, "rear_scan_leader_unavailable" end
+    if state.rearScanLeaderX == nil then
+        state.rearScanLeaderX, state.rearScanLeaderY = leaderX, leaderY
+        return nil, "rear_scan_route_not_travelled"
+    end
+    local dx, dy = leaderX - state.rearScanLeaderX, leaderY - state.rearScanLeaderY
+    local travel = math.max(0, tonumber(utility.config("rearScanTravelTiles")) or 6)
+    if dx * dx + dy * dy < travel * travel then
+        return nil, "rear_scan_route_not_travelled"
+    end
+    if current - (state.heldAt or current) < 500 then return nil, "rear_scan_settling" end
+    local interval = utility.config("rearScanIntervalMs") or 30000
     if not utility.isDue(actor, "formation_rear_scan", interval, current) then
         return nil, "rear_scan_not_due"
     end
     if not utility.stop(actor) then return false, "rear_scan_stop_rejected" end
+    local side = state.rearScanSide
+        or (utility.stableHash(utility.idOf(actor)) % 2 == 0 and 1 or -1)
+    local lookX, lookY = normalized(forwardX * 0.25 - forwardY * side,
+        forwardY * 0.25 + forwardX * side)
     local accepted, reason = utility.move(actor, "walk", {
         action = "rear_scan",
         targetPosition = {
-            x = actorX - forwardX * 2,
-            y = actorY - forwardY * 2,
+            x = actorX + lookX * 2,
+            y = actorY + lookY * 2,
             z = actorZ,
         },
         stableFacing = true,
         awarenessMovement = true,
     })
     if accepted then
-        state.restoreFormationFacingAt = current + (utility.config("rearScanHoldMs") or 550)
+        state.restoreFormationFacingAt = current + (utility.config("rearScanHoldMs") or 350)
+        state.rearScanLeaderX, state.rearScanLeaderY = leaderX, leaderY
+        state.rearScanSide = -side
     end
     return accepted == true, reason or "rear_scan_rejected"
 end

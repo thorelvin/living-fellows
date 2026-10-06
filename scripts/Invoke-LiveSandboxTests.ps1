@@ -14,11 +14,16 @@ param(
     [int]$TimeoutSeconds = 300,
     [switch]$HiddenWindow,
     [switch]$LivingFellowsOnly,
+    [switch]$UIMenuProbe,
+    [switch]$ProjectALifeDamageProbe,
+    [string]$ProjectALifeModPath = '',
     [string[]]$ExcludeModId = @(),
     [string]$FactionMapScreenshot = '',
     [switch]$FactionMapOnly,
     [string]$BaseLayoutScreenshot = '',
     [switch]$BaseLayoutOnly,
+    [string]$CompanionInventoryScreenshot = '',
+    [switch]$CompanionInventoryOnly,
     [switch]$FurniturePoseOnly,
     [switch]$WoodcutterOnly,
     [switch]$PostedStreamOnly,
@@ -26,6 +31,9 @@ param(
     [switch]$PlaceMetadataOnly,
     [switch]$SplitScreenOnly,
     [switch]$ColdCompanionProbe,
+    [switch]$FishingBankProbe,
+    [switch]$FishingCatchProbe,
+    [switch]$ChefRecipesProbe,
     [switch]$ColdRestartProbe,
     [switch]$ColdRestartHandoff,
     [switch]$ColdRestartCrashProbe,
@@ -134,6 +142,12 @@ if ($LeaderSlotOnly -and -not $SplitScreenOnly) {
 }
 if ($ColdCompanionProbe -and (-not $SplitScreenOnly -or $LeaderSlotOnly)) {
     throw '-ColdCompanionProbe requires the standalone split-screen probe.'
+}
+if ($FishingBankProbe -and (-not $SplitScreenOnly -or -not $LeaderSlotOnly -or -not $LeaderRemote)) {
+    throw '-FishingBankProbe requires -SplitScreenOnly, -LeaderSlotOnly and -LeaderRemote.'
+}
+if ($FishingCatchProbe -and -not $FishingBankProbe) {
+    throw '-FishingCatchProbe requires -FishingBankProbe.'
 }
 if ($ColdRestartProbe -and -not $ColdCompanionProbe) {
     throw '-ColdRestartProbe requires -ColdCompanionProbe.'
@@ -444,6 +458,13 @@ if ($captureBaseLayout) {
 }
 if ($captureBaseLayout -ne $BaseLayoutOnly.IsPresent) {
     throw '-BaseLayoutScreenshot and -BaseLayoutOnly must be used together.'
+}
+if ($CompanionInventoryOnly -ne (-not [string]::IsNullOrWhiteSpace($CompanionInventoryScreenshot))) {
+    throw '-CompanionInventoryOnly requires -CompanionInventoryScreenshot.'
+}
+if ($CompanionInventoryOnly) {
+    $CompanionInventoryScreenshot = [System.IO.Path]::GetFullPath($CompanionInventoryScreenshot)
+    New-Item -ItemType Directory -Path (Split-Path -Parent $CompanionInventoryScreenshot) -Force | Out-Null
 }
 if ($BaseLayoutOnly -and ($PathingOnly -or $FactionMapOnly -or $captureFactionMap)) {
     throw '-BaseLayoutOnly cannot be combined with pathing or faction-map runs.'
@@ -779,6 +800,13 @@ if ($installedBridgeHash -ne $sourceBridgeHash -and -not $PrepareOnly) {
 }
 Copy-Item -LiteralPath $sourceMod -Destination (Join-Path $SandboxMods 'SurvivorCompanion') -Recurse
 Copy-Item -LiteralPath $harnessMod -Destination (Join-Path $SandboxMods 'SCRealSandboxHarness') -Recurse
+if ($ProjectALifeDamageProbe) {
+    if ([string]::IsNullOrWhiteSpace($ProjectALifeModPath) -or
+        -not (Test-Path -LiteralPath (Join-Path $ProjectALifeModPath '42.20\mod.info') -PathType Leaf)) {
+        throw '-ProjectALifeDamageProbe requires -ProjectALifeModPath pointing at the ProjectALifeNPCs mod directory.'
+    }
+    Copy-Item -LiteralPath $ProjectALifeModPath -Destination (Join-Path $SandboxMods 'ProjectALifeNPCs') -Recurse
+}
 
 $modText = if ($LivingFellowsOnly) {
     "VERSION = 1,`r`n`r`nmods`r`n{`r`n}`r`n`r`nmaps`r`n{`r`n}`r`n"
@@ -789,6 +817,7 @@ foreach ($excludedId in $ExcludeModId) {
     $modText = Remove-ModEntry $modText $excludedId
 }
 $modText = Add-ModEntry $modText 'SurvivorCompanion'
+$modText = if ($ProjectALifeDamageProbe) { Add-ModEntry $modText 'ProjectALifeNPCs' } else { $modText }
 $modText = Add-ModEntry $modText 'SCRealSandboxHarness'
 [System.IO.File]::WriteAllText((Join-Path $SandboxMods 'default.txt'), $modText, $utf8NoBom)
 [System.IO.File]::WriteAllText((Join-Path $TargetSave 'mods.txt'), $modText, $utf8NoBom)
@@ -801,12 +830,17 @@ $config = @(
     ('run_id=' + $runId),
     ('world=' + $runId),
     ('mode=' + $GameMode),
+    ('project_alife_damage_probe=' + $ProjectALifeDamageProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('ui_menu_probe=' + $UIMenuProbe.IsPresent.ToString().ToLowerInvariant()),
     ('capture_faction_map=' + $captureFactionMap.ToString().ToLowerInvariant()),
     ('faction_map_only=' + $FactionMapOnly.IsPresent.ToString().ToLowerInvariant()),
     ('pathing_only=' + $PathingOnly.IsPresent.ToString().ToLowerInvariant()),
     ('place_metadata_only=' + $PlaceMetadataOnly.IsPresent.ToString().ToLowerInvariant()),
     ('split_screen_only=' + $SplitScreenOnly.IsPresent.ToString().ToLowerInvariant()),
     ('cold_companion_probe=' + $ColdCompanionProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('fishing_bank_probe=' + $FishingBankProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('fishing_catch_probe=' + $FishingCatchProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('chef_recipes_probe=' + $ChefRecipesProbe.IsPresent.ToString().ToLowerInvariant()),
     ('cold_restart_probe=' + $ColdRestartProbe.IsPresent.ToString().ToLowerInvariant()),
     ('cold_restart_handoff=' + $ColdRestartHandoff.IsPresent.ToString().ToLowerInvariant()),
     ('cold_restart_crash_probe=' + $ColdRestartCrashProbe.IsPresent.ToString().ToLowerInvariant()),
@@ -895,6 +929,7 @@ $config = @(
     ('leader_watch_ms=' + ($LeaderWatchSeconds * 1000)),
     ('capture_base_layout=' + $captureBaseLayout.ToString().ToLowerInvariant()),
     ('base_layout_only=' + $BaseLayoutOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('companion_inventory_only=' + $CompanionInventoryOnly.IsPresent.ToString().ToLowerInvariant()),
     ('furniture_pose_only=' + $FurniturePoseOnly.IsPresent.ToString().ToLowerInvariant()),
     ('woodcutter_only=' + $WoodcutterOnly.IsPresent.ToString().ToLowerInvariant()),
     ('posted_stream_only=' + $PostedStreamOnly.IsPresent.ToString().ToLowerInvariant()),
@@ -923,6 +958,7 @@ $manifest = [ordered]@{
     factionMapOnly = $FactionMapOnly.IsPresent
     baseLayoutScreenshot = if ($captureBaseLayout) { $BaseLayoutScreenshot } else { $null }
     baseLayoutOnly = $BaseLayoutOnly.IsPresent
+    companionInventoryScreenshot = if ($CompanionInventoryOnly) { $CompanionInventoryScreenshot } else { $null }
     pathingOnly = $PathingOnly.IsPresent
     splitScreenOnly = $SplitScreenOnly.IsPresent
     leaderSlotOnly = $LeaderSlotOnly.IsPresent
@@ -1123,6 +1159,17 @@ try {
                 ('captured=true' + [Environment]::NewLine), $utf8NoBom)
             $baseLayoutCaptureCompleted = $true
         }
+        if ($CompanionInventoryOnly -and -not $companionInventoryCaptureCompleted -and
+            (Test-Path -LiteralPath (Join-Path $SandboxLua 'companion-inventory-ready.txt') -PathType Leaf)) {
+            Start-Sleep -Milliseconds 1000
+            if (-not (Save-ClientScreenshot $process $CompanionInventoryScreenshot)) {
+                throw "Could not capture the companion inventory to $CompanionInventoryScreenshot"
+            }
+            [System.IO.File]::WriteAllText((Join-Path $SandboxLua 'companion-inventory-captured.txt'),
+                ('captured=true' + [Environment]::NewLine), $utf8NoBom)
+            Write-Output "Captured companion inventory screenshot: $CompanionInventoryScreenshot"
+            $companionInventoryCaptureCompleted = $true
+        }
         Start-Sleep -Milliseconds 500
     }
     if (-not $crashProbeCompleted -and -not (Test-Path -LiteralPath $summaryPath -PathType Leaf)) {
@@ -1160,6 +1207,7 @@ if ($captureFactionMap) {
     Write-Output "Faction map screenshot: $FactionMapScreenshot"
 }
 if ($SplitScreenOnly) { Write-Output "Split-screen screenshot: $SplitScreenScreenshot" }
+if ($CompanionInventoryOnly) { Write-Output "Companion inventory screenshot: $CompanionInventoryScreenshot" }
 if ($TeamZombieVisibilityProbe) { Write-Output "Zombie visibility screenshot: $ZombieVisibilityScreenshot" }
 if ($PerformanceBaselineOnly -or $TeamPerformanceProbe -or $TeamPerformanceRouteProbe) {
     Write-Output "Performance samples: $SandboxLua"

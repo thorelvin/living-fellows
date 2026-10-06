@@ -496,11 +496,75 @@ function U.instanceOf(value, className)
     return false
 end
 
+-- Project A-Life uses IsoZombie bodies for living NPCs. Its owned marker is
+-- present on both server-created and client-mirrored shells; avoid allocating
+-- mod data on ordinary zombies during the hot perception scan.
+function U.isALifeNpc(value)
+    if value == nil then return false end
+    local hasData, hasDataOk = U.call(value, "hasModData")
+    if hasDataOk and hasData ~= true then return false end
+    local data, dataOk = U.call(value, "getModData")
+    if not dataOk and type(value) == "table" then
+        data = value.modData or value.__modData
+    end
+    return type(data) == "table" and (data.ProjectALifeOwned == true
+        or data.ProjectALifeActor == true)
+end
+
+-- A-Life owns the stance decision. Its combat phase alone is insufficient:
+-- an NPC may be fighting zombies or another faction rather than our party.
+function U.isALifeHostileToParty(shell, player, companion)
+    if not U.isALifeNpc(shell) or U.isGoneTarget(shell) then return false end
+    local data, dataOk = U.call(shell, "getModData")
+    if not dataOk and type(shell) == "table" then data = shell.modData or shell.__modData end
+    local uid = type(data) == "table" and data.ProjectALifeUID or nil
+    local alife = type(_G) == "table" and rawget(_G, "ProjectALife") or nil
+    local registry = type(alife) == "table" and alife.ActorRegistry or nil
+    local relations = type(alife) == "table" and alife.Relations or nil
+    local record
+    local lookup = type(registry) == "table"
+        and (type(registry.peek) == "function" and registry.peek
+            or registry.read) or nil
+    if uid ~= nil and type(lookup) == "function" then
+        local readOk, value = pcall(lookup, tostring(uid))
+        if readOk and type(value) == "table" then
+            record = value
+            local shellGeneration = type(data) == "table"
+                and tonumber(data.ProjectALifeGeneration) or nil
+            local actorGeneration = tonumber(record.generation)
+            if shellGeneration ~= nil and actorGeneration ~= nil
+                and shellGeneration ~= actorGeneration then return false end
+        end
+    end
+    local target, targetOk = U.call(shell, "getTarget")
+    if targetOk and target ~= nil and (target == player or target == companion) then
+        return true
+    end
+    if record == nil or player == nil or type(relations) ~= "table"
+        or type(relations.hostileToPlayer) ~= "function" then return false end
+    local stanceOk, hostile = pcall(relations.hostileToPlayer, record, player)
+    return stanceOk and hostile == true
+end
+
+function U.isALifeHordeHeld(value)
+    if value == nil then return false end
+    local hasData, hasDataOk = U.call(value, "hasModData")
+    if hasDataOk and hasData ~= true then return false end
+    local data, dataOk = U.call(value, "getModData")
+    if not dataOk and type(value) == "table" then
+        data = value.modData or value.__modData
+    end
+    return type(data) == "table" and data.ALifeHold ~= nil
+end
+
 function U.isZombie(value)
     if value == nil then return false end
-    if U.instanceOf(value, "IsoZombie") then return true end
-    local zombie, ok = U.call(value, "isZombie")
-    return ok and zombie == true
+    local zombie = U.instanceOf(value, "IsoZombie")
+    if not zombie then
+        local reported, ok = U.call(value, "isZombie")
+        zombie = ok and reported == true
+    end
+    return zombie and not U.isALifeNpc(value)
 end
 
 function U.isDead(value)
@@ -537,7 +601,19 @@ end
 function U.isGoneTarget(value)
     if U.isDead(value) or U.isCorpseProxy(value) then return true end
     local exists, ok = U.call(value, "isExistInTheWorld")
-    return ok and exists == false
+    if not ok or exists ~= false then return false end
+    -- A-Life's owned IsoZombie shell can report false here while it is loaded.
+    -- Check its local square membership, rather than querying the global zombie
+    -- list for every candidate. The ordinary-zombie path keeps the native flag.
+    if U.isALifeNpc(value) then
+        local square = U.squareOf(value)
+        local present = false
+        U.squareMovingObjects(square, function(candidate)
+            if candidate == value then present = true; return false end
+        end, 64)
+        if present then return false end
+    end
+    return true
 end
 
 function U.nativeHealth(value)
@@ -728,7 +804,7 @@ function U.movingBlocker(square, actor, options)
         if collisionKnown and collidable == false then return end
         -- Giblets, blood drops and particles are IsoMovingObjects too. Only
         -- physical pushables and living character bodies are traffic.
-        local character = U.isZombie(other) or U.isCompanion(other)
+        local character = U.isZombie(other) or U.isALifeNpc(other) or U.isCompanion(other)
             or U.instanceOf(other, "IsoPlayer") or U.instanceOf(other, "IsoGameCharacter")
             or U.instanceOf(other, "IsoAnimal") or U.hasMethod(other, "getBodyDamage")
         if not character and not U.instanceOf(other, "IsoPushableObject") then return end

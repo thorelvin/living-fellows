@@ -1,5 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Disposable single-player expedition prototype; no release packaging yet.
+require "SCViewSession"
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
 SC.ExpeditionPrototype = SC.ExpeditionPrototype or {}
@@ -12,10 +13,11 @@ local reusableSlotSqlId
 local holdColdHandoffForTest = false
 local TEST_RADIO_CHANNEL = 90000
 local TEST_RADIO_PRESET = "Living Fellows Team"
+Expedition.TEAM_RADIO_CHANNEL = TEST_RADIO_CHANNEL
 local SEARCH_HOURS = 0.75
 local startReturnFromSite
 local SUPPLY_CATEGORIES = {
-    useful = true,
+    useful = true, fish = true,
     food = true, water = true, medicine = true, ammunition = true,
     weapon = true, tools = true, construction = true, crafting = true,
     farming = true, clothing = true, container = true, literature = true,
@@ -535,6 +537,9 @@ end
 
 function Expedition.start(records, plan)
     if mission ~= nil then return false, "expedition_already_active" end
+    if SC.BaseWatch and SC.BaseWatch.current and SC.BaseWatch.current() then
+        return false, "base_watch_uses_companion_view"
+    end
     if SCSplitScreenProbe == nil then return false, "local_view_unavailable" end
     if type(records) ~= "table" or #records < 1 or #records > 4 then
         return false, "expedition_requires_one_to_four_companions"
@@ -650,9 +655,9 @@ function Expedition.start(records, plan)
                 roadRoute, "outbound") or nil,
         }
     end
-    local ok, promoted = pcall(SCSplitScreenProbe.promote,
-        roster[1].actor, reusableSlotSqlId or -1)
-    if not ok or promoted ~= roster[1].actor then
+    local ok, promoted = SC.ViewSession.claim("expedition",
+        roster[1].actor, reusableSlotSqlId)
+    if not ok then
         return false, tostring(promoted)
     end
     lastOutcome = nil
@@ -662,7 +667,7 @@ function Expedition.start(records, plan)
     mission = {
         roster = roster, leader = roster[1], members = seen,
         doctrine = plan and plan.doctrine or nil,
-        slotSqlId = reusableSlotSqlId,
+        slotSqlId = SC.ViewSession.slotSqlId() or reusableSlotSqlId,
         radioSequence = 0,
         scout = scout,
         radioSession = tostring(type(getTimestampMs) == "function"
@@ -717,6 +722,72 @@ function Expedition.placeCandidates(leaderId, page)
         32, (page - 1) * 32)
 end
 
+function Expedition.fishingBankCandidates(leaderId, page, refresh)
+    local record = type(leaderId) == "string" and SC.Registry
+        and SC.Registry.byId(leaderId) or nil
+    if leaderId ~= nil and (record == nil or record.actor == nil) then
+        return nil, "leader_unavailable"
+    end
+    local actor = record and record.actor or type(getSpecificPlayer) == "function"
+        and getSpecificPlayer(0) or nil
+    if not actor then return nil, "local_player_unavailable" end
+    if not SC.Fishing or type(SC.Fishing.bankCandidates) ~= "function" then
+        return nil, "fishing_bank_lookup_unavailable"
+    end
+    page = tonumber(page) or 1
+    if page < 1 or page > 128 or page ~= math.floor(page) then
+        return nil, "invalid_place_page"
+    end
+    return SC.Fishing.bankCandidates(actor,
+        SC.Config and SC.Config.get("expeditionDestinationRadius") or 200,
+        32, (page - 1) * 32, refresh == true)
+end
+
+function Expedition.startAtFishingBank(records, bankId, options)
+    if mission ~= nil then return false, "expedition_already_active" end
+    if type(records) ~= "table" or #records < 1
+        or type(records[1]) ~= "table" or records[1].actor == nil then
+        return false, "expedition_member_unavailable"
+    end
+    if not SC.Fishing or type(SC.Fishing.bankById) ~= "function" then
+        return false, "fishing_bank_lookup_unavailable"
+    end
+    local selected, reason = SC.Fishing.bankById(records[1].actor, bankId,
+        SC.Config and SC.Config.get("expeditionDestinationRadius") or 200)
+    if not selected then return false, reason end
+    options = type(options) == "table" and options or {}
+    if not validRequest(options.request)
+        or options.request.category ~= "fish" then
+        return false, "invalid_search_plan"
+    end
+    local ready, gearReason, memberName = Expedition.fishingGearStatus(records)
+    if not ready then return false, gearReason, memberName end
+    return Expedition.start(records, {
+        kind = "search", destination = copyPoint(selected.anchor),
+        request = options.request,
+        turnHomeAfterHours = options.turnHomeAfterHours,
+        arriveByHour = options.arriveByHour,
+        doctrine = options.doctrine,
+        travelMode = options.travelMode,
+    })
+end
+
+function Expedition.fishingGearStatus(records)
+    if type(records) ~= "table" or not SC.Fishing
+        or type(SC.Fishing.checkGear) ~= "function" then
+        return false, "fishing_gear_unavailable"
+    end
+    local leader = records[1]
+    if not leader or not leader.actor then
+        return false, "leader_unavailable"
+    end
+    local ready, reason = SC.Fishing.checkGear(leader.actor)
+    if not ready then
+        return false, reason, leader.name or leader.id or "?"
+    end
+    return true
+end
+
 function Expedition.startAtPlace(records, placeId, kind, options)
     if mission ~= nil then return false, "expedition_already_active" end
     if type(placeId) ~= "string" or #placeId < 1 or #placeId > 64
@@ -758,13 +829,7 @@ function Expedition.startAtPlace(records, placeId, kind, options)
     })
 end
 
-function Expedition.previewAtPlace(leader, place, travelMode)
-    if leader == nil or leader.actor == nil or type(place) ~= "table" then
-        return nil, "leader_unavailable"
-    end
-    local approach, reason = SC.ExpeditionPlaces.plannedApproach(
-        place, leader.actor)
-    if approach == nil then return nil, reason end
+local function previewToPoint(leader, approach, travelMode)
     local distance = distanceToPoint(leader.actor, approach)
     if travelMode ~= "road" then
         return { mode = "local", distance = math.floor(distance + 0.5) }
@@ -797,13 +862,34 @@ function Expedition.previewAtPlace(leader, place, travelMode)
         offRoadEnd = tiles(exit.x, exit.y, approach) }
 end
 
+function Expedition.previewAtPlace(leader, place, travelMode)
+    if leader == nil or leader.actor == nil or type(place) ~= "table" then
+        return nil, "leader_unavailable"
+    end
+    local approach, reason = SC.ExpeditionPlaces.plannedApproach(
+        place, leader.actor)
+    if approach == nil then return nil, reason end
+    return previewToPoint(leader, approach, travelMode)
+end
+
+function Expedition.previewAtFishingBank(leader, bank, travelMode)
+    if leader == nil or leader.actor == nil or type(bank) ~= "table" then
+        return nil, "leader_unavailable"
+    end
+    local selected, reason = SC.Fishing.bankById(leader.actor, bank.id,
+        SC.Config and SC.Config.get("expeditionDestinationRadius") or 200)
+    if not selected then return nil, reason end
+    return previewToPoint(leader, selected.anchor, travelMode)
+end
+
 -- Persist only stable companion IDs and command serials. Native actors,
 -- chunk maps, UI, and in-flight radio callbacks cannot cross a save boundary.
 function Expedition.export()
     if mission == nil or mission.terminal then
-        if validSlotSqlId(reusableSlotSqlId) then
+        local idleSlotId = SC.ViewSession.slotSqlId() or reusableSlotSqlId
+        if validSlotSqlId(idleSlotId) then
             return { schema = 2, state = "idle",
-                slotSqlId = reusableSlotSqlId,
+                slotSqlId = idleSlotId,
                 debrief = copyDebrief(lastDebrief) }
         end
         return nil
@@ -831,7 +917,7 @@ function Expedition.export()
     end
     local liveSqlId = sqlOk and tonumber(sqlValue) or nil
     local slotSqlId = type(liveSqlId) == "number" and liveSqlId >= 2
-        and liveSqlId or mission.slotSqlId
+        and liveSqlId or SC.ViewSession.slotSqlId() or mission.slotSqlId
     if not validSlotSqlId(slotSqlId) then slotSqlId = nil end
     local scoutTrail
     if mission.scout ~= nil then
@@ -891,6 +977,9 @@ function Expedition.restore(saved)
             return false, "saved idle expedition slot is invalid"
         end
         reusableSlotSqlId = saved.slotSqlId
+        if SC.ViewSession.slotSqlId() == nil then
+            SC.ViewSession.rememberSlotSqlId(saved.slotSqlId)
+        end
         lastDebrief = copyDebrief(saved.debrief)
         return true
     end
@@ -1086,6 +1175,9 @@ function Expedition.restore(saved)
         technicalIssue = { reason = "expedition_restart_waiting_for_native_team" },
     }
     reusableSlotSqlId = saved.slotSqlId
+    if saved.slotSqlId and SC.ViewSession.slotSqlId() == nil then
+        SC.ViewSession.rememberSlotSqlId(saved.slotSqlId)
+    end
     for _, record in ipairs(roster) do
         if record.id == saved.leaderId then mission.leader = record break end
     end
@@ -1105,6 +1197,13 @@ function Expedition.prepareReset()
         return false, "expedition_view_owner_unavailable"
     end
     local slot = getSpecificPlayer(1)
+    if slot == nil and SCSplitScreenProbe ~= nil
+        and ((mission.leader and mission.leader.actor
+                and SCSplitScreenProbe.isLeader(mission.leader.actor) == true)
+            or (mission.bootstrapActor ~= nil
+                and SCSplitScreenProbe.isLeader(mission.bootstrapActor) == true)) then
+        return false, "expedition_view_join_pending"
+    end
     if slot ~= nil then
         if not mission.restoring and slot ~= mission.leader.actor then
             return false, "expedition_view_owner_mismatch"
@@ -1120,6 +1219,10 @@ function Expedition.prepareReset()
         local released, value = pcall(SCSplitScreenProbe.releaseForWorldExit)
         if not released or value ~= true then
             return false, tostring(value)
+        end
+        if SC.ViewSession.owner() == "expedition" then
+            SC.ViewSession.released("expedition",
+                mission.slotSqlId or reusableSlotSqlId)
         end
     end
     mission.pendingRadio = nil
@@ -1227,8 +1330,11 @@ function Expedition.describeForPlayer(viewer)
     return {
         leaderName = leader and leader.name or "?",
         kind = itinerary and itinerary.kind or nil,
-        plannedSite = itinerary and itinerary.site
-            and itinerary.site.label or nil,
+        plannedSite = itinerary and (itinerary.site
+            and itinerary.site.label or itinerary.search
+            and itinerary.search.request.category == "fish"
+            and ("Fishing bank " .. itinerary.destination.x .. ", "
+                .. itinerary.destination.y)) or nil,
         turnHomeAtHour = itinerary and itinerary.turnHomeAtHour or nil,
         members = members,
         helpRequest = viewer ~= nil
@@ -1595,6 +1701,7 @@ function Expedition.testSearchFor(actor)
     local search = itinerary and itinerary.search
     if itinerary == nil or itinerary.phase ~= "searching" or search == nil
         or #search.acquisitions >= search.request.quantity then return false end
+    if search.request.category == "fish" then return false end
     -- Give every squad member a first chance at the supplies when the request
     -- is large enough. If a member cannot find a usable container, the others
     -- resume after a short quiet interval rather than waiting until deadline.
@@ -1623,6 +1730,93 @@ function Expedition.testSearchFor(actor)
     end
     return current ~= nil and search.lastAcquisitionAt ~= nil
         and current - search.lastAcquisitionAt >= 60000
+end
+
+-- Fishing uses the existing search mission's return, radio and debrief flow,
+-- but its source is open water rather than an interior container.
+local FISHING_CATCH_RADIUS = 27
+
+function Expedition.fishingRequestFor(actor)
+    local itinerary = mission and mission.scout
+    local search = itinerary and itinerary.search
+    if not itinerary or itinerary.phase ~= "searching" or not search
+        or search.request.category ~= "fish" or mission.terminal
+        or mission.technicalIssue or not Expedition.isMember(actor)
+        or #search.acquisitions >= search.request.quantity then return nil end
+    local member = missionRecordForActor(actor)
+    if not member or not alive(member)
+        or mission.survivors and mission.survivors[member.id] ~= true then
+        return nil
+    end
+    -- Only the leader needs gear at departure. Equipped teammates may join
+    -- the fishing; unequipped teammates remain escorts instead of entering
+    -- the missing-tool action on every decision tick.
+    if member.id ~= mission.leader.id then
+        mission.fishingGearEligible = mission.fishingGearEligible or {}
+        local eligible = mission.fishingGearEligible[member.id]
+        if eligible == nil then
+            eligible = SC.Fishing and type(SC.Fishing.checkGear) == "function"
+                and SC.Fishing.checkGear(actor) == true or false
+            mission.fishingGearEligible[member.id] = eligible
+        end
+        if not eligible then return nil end
+    end
+    return { destination = copyPoint(itinerary.destination),
+        catchRadius = FISHING_CATCH_RADIUS,
+        remaining = search.request.quantity - #search.acquisitions }
+end
+
+function Expedition.noteFishCaught(actor, item, source)
+    local request = Expedition.fishingRequestFor(actor)
+    if not request or not validPoint({ x = math.floor(source and source.x or -1),
+            y = math.floor(source and source.y or -1), z = source and source.z })
+        or item == nil or SC.GameplayUtil == nil
+        or item:getModData().fishing_FishSize == nil then return false end
+    local dx, dy = source.x - request.destination.x,
+        source.y - request.destination.y
+    if dx * dx + dy * dy > request.catchRadius * request.catchRadius then
+        return false
+    end
+    local inventory = actor:getInventory()
+    if not SC.GameplayUtil.inventoryContains(inventory, item) then return false end
+    local id = SC.GameplayUtil.itemStableId(item, true)
+    if type(id) ~= "string" or #id == 0 or #id > 160 then return false end
+    local search = mission.scout.search
+    for _, receipt in ipairs(search.acquisitions) do
+        if receipt.id == id then return false end
+    end
+    local member = missionRecordForActor(actor)
+    search.acquisitions[#search.acquisitions + 1] = {
+        id = id, itemType = item:getFullType(), memberId = member.id,
+        source = { x = math.floor(source.x), y = math.floor(source.y),
+            z = source.z },
+    }
+    if SC.GameplayUtil.nowMs then
+        search.lastAcquisitionAt = SC.GameplayUtil.nowMs()
+    end
+    return true
+end
+
+function Expedition.noFishingWater(actor)
+    if not mission or mission.leader.actor ~= actor
+        or not Expedition.fishingRequestFor(actor) then return false end
+    startReturnFromSite(mission.scout, "no_fishing_water")
+    return true
+end
+
+function Expedition.fishingUnable(actor, reason)
+    if not mission or mission.leader.actor ~= actor
+        or not Expedition.fishingRequestFor(actor) then return false end
+    if reason ~= "fishing_rod_missing" and reason ~= "fishing_bait_missing"
+        and reason ~= "fishing_engine_unavailable"
+        and reason ~= "fishing_engine_failed"
+        and reason ~= "fishing_rod_unusable"
+        and reason ~= "cast_failed"
+        and reason ~= "bait_action_unavailable"
+        and reason ~= "bait_action_timeout"
+        and reason ~= "fish_receipt_failed" then return false end
+    startReturnFromSite(mission.scout, reason)
+    return true
 end
 
 function Expedition.testSearchTargetFor(actor)
@@ -2056,6 +2250,13 @@ local function playerMetSearchSquad(player, leader)
 end
 
 startReturnFromSite = function(itinerary, reason)
+    if itinerary.search and itinerary.search.request.category == "fish"
+        and SC.Fishing then
+        for _, member in ipairs(mission.roster) do
+            if member.actor then SC.Fishing.cancel(member.actor,
+                "expedition_fishing_finished") end
+        end
+    end
     if itinerary.pause ~= nil then
         itinerary.roadAvoidance = copyRoadAvoidance(itinerary.pause.hazard)
         itinerary.pause = nil
@@ -2870,7 +3071,8 @@ local function pulseScout()
             -- turn-home time is still checked independently above.
             local carriersNeeded = math.min(#mission.roster,
                 scout.search.request.quantity)
-            scout.search.deadlineHour = worldHour + SEARCH_HOURS
+            scout.search.deadlineHour = worldHour
+                + (scout.search.request.category == "fish" and 2 or SEARCH_HOURS)
                 + 0.25 * math.max(0, carriersNeeded - 1)
             scout.phase = "searching"
             if SC.Dialogue and type(SC.Dialogue.say) == "function"
@@ -3195,6 +3397,7 @@ function Expedition.finishAtPlayer(player)
         mission.technicalIssue = { reason = "return_view_release_failed" }
         return false, tostring(value)
     end
+    SC.ViewSession.released("expedition", slotSqlId)
     if mission.radioTextHooked then
         Events.OnDeviceText.Remove(radioTextReceived)
     end
@@ -3327,9 +3530,9 @@ function Expedition.pulse()
             if mission.bootstrapQueued then
                 return false, "expedition_restart_loader_pending"
             end
-            local ok, promoted = pcall(SCSplitScreenProbe.promote,
-                leader.actor, mission.slotSqlId or -1)
-            if not ok or promoted ~= leader.actor then
+            local ok, promoted = SC.ViewSession.claim("expedition",
+                leader.actor, mission.slotSqlId)
+            if not ok then
                 mission.technicalIssue = {
                     reason = "expedition_restart_view_unavailable",
                     detail = tostring(promoted),
@@ -3341,6 +3544,13 @@ function Expedition.pulse()
         local liveSqlId = SCSplitScreenProbe.leaderSqlId()
         if type(liveSqlId) == "number" and liveSqlId >= 2 then
             mission.slotSqlId = liveSqlId
+        end
+        local adopted, adoptReason = SC.ViewSession.adopt("expedition",
+            leader.actor, mission.slotSqlId)
+        if not adopted then
+            mission.technicalIssue = { reason = "expedition_restart_view_owner_failed",
+                detail = tostring(adoptReason) }
+            return false, "expedition_restart_view_owner_failed"
         end
         mission.restoring = nil
         mission.bootstrapQueued = nil
@@ -3439,6 +3649,7 @@ function Expedition.pulse()
         mission.technicalIssue = { reason = "all_dead_view_release_failed" }
         return false, tostring(released)
     end
+    SC.ViewSession.released("expedition", releasedSlotSqlId)
     mission.terminal = "all_dead"
     if validSlotSqlId(releasedSlotSqlId) then
         reusableSlotSqlId = releasedSlotSqlId

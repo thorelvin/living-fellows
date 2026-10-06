@@ -330,6 +330,17 @@ local function defaultState(source, recruited)
     local facts
     facts, copyReason = ownedCopy(downtime.facts, "downtime.facts", 6, 256, {})
     if copyReason then return nil, copyReason end
+    local mediaLines
+    mediaLines, copyReason = ownedCopy(downtime.mediaLines,
+        "downtime.mediaLines", 2, 2049, {})
+    if copyReason then return nil, copyReason end
+    if type(mediaLines) ~= "table" then mediaLines = {} end
+    local validMediaLines = {}
+    for _, guid in ipairs(mediaLines) do
+        if type(guid) == "string" and guid ~= "" and #guid <= 128 then
+            validMediaLines[#validMediaLines + 1] = guid
+        end
+    end
 
     return {
         order = {
@@ -379,6 +390,7 @@ local function defaultState(source, recruited)
         downtime = {
             lastCompleted = normalizeLastDowntime(downtime.lastCompleted),
             facts = facts,
+            mediaLines = validMediaLines,
         },
     }
 end
