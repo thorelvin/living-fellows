@@ -13,6 +13,11 @@ local lastScreenCommentAt = {}
 local function U() return SC.GameplayUtil end
 
 local function device(object)
+    -- getDeviceData exists on world wave-signal objects, not on every
+    -- fixture in a room. Avoid a failed Java method call for each cabinet,
+    -- floor item and wall object during the bounded TV search.
+    if type(object) ~= "table"
+        and not U().instanceOf(object, "IsoWaveSignal") then return nil end
     local data = select(1, U().call(object, "getDeviceData"))
     return data and select(1, U().call(data, "getIsTelevision")) == true
         and data or nil
@@ -32,6 +37,12 @@ local function sameRoom(first, second)
     local a = select(1, U().call(U().squareOf(first), "getRoom"))
     local b = select(1, U().call(U().squareOf(second), "getRoom"))
     return a ~= nil and a == b
+end
+
+local function campFloorRoute(source, destination)
+    return SC.BaseLife and type(SC.BaseLife.allowsFloorTransit) == "function"
+        and SC.BaseLife.allowsFloorTransit(source, destination,
+            { workCampOnly = true }) == true
 end
 
 local facingVectors = {
@@ -134,45 +145,63 @@ function TV.candidate(actor, state, now, hooks, desiredKind)
     local ax, ay, az = U().position(actor)
     if not ax then return nil end
     local seated = hooks.seatingStatus(actor) == "furniture"
+    local currentFloor = math.floor(az)
+    local camp = not seated and desiredKind ~= "sit" and SC.BaseLife
+        and type(SC.BaseLife.active) == "function" and SC.BaseLife.active()
     local best, bestScore
-    for dx = -6, 6 do
-        for dy = -6, 6 do
-            local square = U().gridSquare(ax + dx, ay + dy, az)
-            if square and sameRoom(actor, square) then
-                U().squareObjects(square, function(object)
-                    if not TV.isOn(object) or not U().canSee(actor, square) then
-                        return true
-                    end
-                    local candidate
-                    if seated then
-                        local direction = select(1, U().call(actor,
-                            "getSitOnFurnitureDirection"))
-                        if U().distance(actor, object) <= 5
-                            and facesScreen(direction, actor, object) then
-                            candidate = { kind = "tv_watch", score = 31,
-                                object = object, seated = true,
-                                durationMs = 90000,
-                                fact = { activity = "tv_watch", seated = true } }
+    for floor = currentFloor - 1, currentFloor + 1 do
+        local crossFloor = floor ~= currentFloor
+        if not crossFloor or camp then
+            local radius = crossFloor and 10 or 6
+            for dx = -radius, radius do
+                for dy = -radius, radius do
+                    if not crossFloor or dx * dx + dy * dy <= 100 then
+                        local square = U().gridSquare(ax + dx, ay + dy, floor)
+                        if square and (crossFloor or sameRoom(actor, square)) then
+                            U().squareObjects(square, function(object)
+                                if not TV.isOn(object)
+                                    or (crossFloor and not campFloorRoute(actor, square))
+                                    or (not crossFloor and not U().canSee(actor, square)) then
+                                    return true
+                                end
+                                local candidate
+                                if seated then
+                                    local direction = select(1, U().call(actor,
+                                        "getSitOnFurnitureDirection"))
+                                    if U().distance(actor, object) <= 5
+                                        and facesScreen(direction, actor, object) then
+                                        candidate = { kind = "tv_watch", score = 31,
+                                            object = object, seated = true,
+                                            durationMs = 90000,
+                                            fact = { activity = "tv_watch", seated = true } }
+                                    end
+                                else
+                                    local seat = desiredKind ~= "tv_watch"
+                                        and viewingSeat(actor, object, hooks, state, now) or nil
+                                    if seat then candidate = seat
+                                    else
+                                        local target = standingSquare(actor, object)
+                                        if target and desiredKind ~= "sit" then
+                                            candidate = { kind = "tv_watch",
+                                                score = crossFloor and 18 or 24,
+                                                object = object, square = target,
+                                                crossFloor = crossFloor,
+                                                originSquare = crossFloor
+                                                    and U().squareOf(actor) or nil,
+                                                durationMs = 90000,
+                                                fact = { activity = "tv_watch",
+                                                    seated = false } }
+                                        end
+                                    end
+                                end
+                                if candidate and (not best or candidate.score > bestScore) then
+                                    best, bestScore = candidate, candidate.score
+                                end
+                                return true
+                            end, 24)
                         end
-                    else
-                        local seat = desiredKind ~= "tv_watch"
-                            and viewingSeat(actor, object, hooks, state, now) or nil
-                        if seat then candidate = seat
-                        else
-                            local target = standingSquare(actor, object)
-                            if target and desiredKind ~= "sit" then
-                                candidate = { kind = "tv_watch", score = 24,
-                                    object = object, square = target,
-                                    durationMs = 90000,
-                                    fact = { activity = "tv_watch", seated = false } }
-                            end
-                        end
                     end
-                    if candidate and (not best or candidate.score > bestScore) then
-                        best, bestScore = candidate, candidate.score
-                    end
-                    return true
-                end, 24)
+                end
             end
         end
     end
@@ -180,8 +209,24 @@ function TV.candidate(actor, state, now, hooks, desiredKind)
 end
 
 function TV.valid(actor, activity, atViewpoint)
-    if not actor or not activity or not TV.isOn(activity.object)
-        or not sameRoom(actor, activity.object) then return false end
+    if not actor or not activity or not TV.isOn(activity.object) then return false end
+    if not sameRoom(actor, activity.object) then
+        if atViewpoint or activity.crossFloor ~= true
+            or not campFloorRoute(activity.originSquare, activity.square) then
+            return false
+        end
+        local nav = SC.Navigation and type(SC.Navigation.peek) == "function"
+            and SC.Navigation.peek(actor) or nil
+        local lease = nav and nav.nativeLease or nil
+        local onCampStairs = lease and lease.workCampOnly == true
+            and lease.affordance == "multi_level"
+            and ((SC.Navigation._betweenFloorHeights
+                    and SC.Navigation._betweenFloorHeights(actor))
+                or SC.BaseLife.admitsStairTransit(U().squareOf(actor), lease)
+                or (SC.Navigation.isCampStairLanding
+                    and SC.Navigation.isCampStairLanding(actor)))
+        if not SC.BaseLife.isInside(actor) and not onCampStairs then return false end
+    end
     if not atViewpoint then return true end
     if U().distance(actor, activity.object) > 5
         or not U().canSee(actor, U().squareOf(activity.object)) then return false end
@@ -204,6 +249,7 @@ function TV.approach(actor, activity)
         action = "move_to_tv", targetSquare = activity.square,
         object = activity.object, requireSameSquare = true,
         arrivalDistance = 0.35, continuousApproach = true,
+        workCampOnly = activity.crossFloor == true,
         supervisorToken = activity.supervisorToken,
     })
 end

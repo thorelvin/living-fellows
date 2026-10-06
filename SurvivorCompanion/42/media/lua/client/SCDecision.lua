@@ -1369,6 +1369,8 @@ local function doWork(actor, player, commands, snapshot, state)
             targetSquare = interactionSquare,
             object = object,
             snapshot = snapshot,
+            workCampOnly = commands.workTarget.baseJobId ~= nil,
+            workReach = commands.workTarget.baseJobId ~= nil,
         })
     end
 

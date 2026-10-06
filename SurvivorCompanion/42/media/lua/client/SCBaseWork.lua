@@ -856,10 +856,10 @@ local function updateBuild(actor, state, job)
             if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
                 return false, "navigation_unavailable", true
             end
-            local approached, approachReason = SC.Navigation.requestAny(actor, approaches, "walk", {
+            local approached, approachReason = SC.Navigation.requestAny(actor, approaches, "walk", workRoute({
                 action = "move_to_base_build", targetSquare = square,
                 arrivalDistance = 0.8,
-            })
+            }, true))
             return approached == true, approachReason
         end
         return startBuildAction(actor, state, job, info, square)
@@ -1326,10 +1326,12 @@ local function returnInsideAtNight(actor, state)
         state.nightShelterRefreshAt = now() + 10000
     end
     if #targets == 0 then return false, "night_shelter_unavailable" end
-    local handled, reason = SC.Navigation.requestAny(actor, targets, "walk", {
+    local intent = {
         action = "return_to_base", targetSquare = targets[1],
         nightShelter = true,
-    })
+    }
+    if SC.BaseLife.withinWorkReach(actor) then intent = workRoute(intent, true) end
+    local handled, reason = SC.Navigation.requestAny(actor, targets, "walk", intent)
     return handled, reason
 end
 
@@ -1454,9 +1456,11 @@ function BaseWork.update(actor, player, runtime)
             if not SC.Navigation or type(SC.Navigation.request) ~= "function" then
                 return false, "navigation_unavailable"
             end
-            return SC.Navigation.request(actor, square, "walk", {
+            local intent = {
                 action = "return_to_base", targetSquare = square,
-            })
+            }
+            if reachable then intent = workRoute(intent, true) end
+            return SC.Navigation.request(actor, square, "walk", intent)
         end
     end
     -- Finish a job already in hand, then let a tired resident sleep before

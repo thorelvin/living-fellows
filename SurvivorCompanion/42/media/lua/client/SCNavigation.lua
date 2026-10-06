@@ -4416,6 +4416,29 @@ function Navigation._betweenFloorHeights(actor)
         and math.abs(z - math.floor(z + 0.5)) > 0.05
 end
 
+function Navigation._campStairLanding(actor, lease)
+    if not lease or lease.affordance ~= "multi_level"
+        or lease.workCampOnly ~= true or not lease.ultimateGoal
+        or not SC.BaseLife or type(SC.BaseLife.isInside) ~= "function"
+        or SC.BaseLife.isInside(actor)
+        or type(SC.BaseLife.allowsFloorTransit) ~= "function"
+        or not SC.BaseLife.allowsFloorTransit(lease.fromSquare,
+            lease.ultimateGoal, lease) then return false end
+    local _, _, z = U().position(actor)
+    local _, _, goalZ = U().position(lease.ultimateGoal)
+    -- The engine sometimes reports the upper stair square at exact z=1,
+    -- before the body reaches the camp's solid landing. Its lower neighbour
+    -- need not itself be tagged as a stair tread. Stay with the verified
+    -- native route for this short final approach.
+    return z ~= nil and goalZ ~= nil and math.abs(z - goalZ) <= 0.05
+        and U().distance(actor, lease.ultimateGoal) <= 4
+end
+
+function Navigation.isCampStairLanding(actor)
+    local state = actor and states[actor] or nil
+    return state ~= nil and Navigation._campStairLanding(actor, state.nativeLease) or false
+end
+
 local function nativeLeaseArrival(actor, lease)
     local arrival = lease and lease.arrivalDistance
         or U().config("navigationArrivalDistance") or 0.6
@@ -4676,6 +4699,7 @@ local function maintainNativeLease(actor, state, goalSquare, now)
         and not SC.Navigation._workSquareAdmitted(currentSquare, lease)
         and not (SC.BaseLife and type(SC.BaseLife.admitsStairTransit) == "function"
             and SC.BaseLife.admitsStairTransit(currentSquare, lease))
+        and not Navigation._campStairLanding(actor, lease)
         and not Navigation._betweenFloorHeights(actor) then
         if SC.NativeActions and type(SC.NativeActions.stopDirect) == "function" then
             pcall(SC.NativeActions.stopDirect, actor, { preservePosture = true })
@@ -4961,6 +4985,23 @@ function Navigation._retainStairCrossingForRequest(actor, state, goalSquare,
         movementMode, intent, now)
     local lease = state.nativeLease
     if not Navigation._betweenFloorHeights(actor) then
+        -- The native route can already report the upper stair square while
+        -- the companion is still on its open tread. A camp scheduler may
+        -- request the ground rally point because that square has no floor.
+        -- Keep the active stair route until the actor clears the landing.
+        if lease and lease.affordance == "multi_level"
+            and lease.workCampOnly == true
+            and SC.BaseLife and type(SC.BaseLife.admitsStairTransit) == "function"
+            and type(SC.BaseLife.isInside) == "function"
+            and not SC.BaseLife.isInside(actor)
+            and (SC.BaseLife.admitsStairTransit(U().squareOf(actor), lease)
+                or Navigation._campStairLanding(actor, lease)) then
+            local phase, reason = maintainNativeLease(actor, state,
+                lease.ultimateGoal, now)
+            if phase == "active" then
+                return true, reason or "native_camp_stair_crossing"
+            end
+        end
         if lease and lease.affordance == "stair_recovery" then
             if SC.NativeActions and type(SC.NativeActions.stopDirect) == "function" then
                 pcall(SC.NativeActions.stopDirect, actor, { preservePosture = true })

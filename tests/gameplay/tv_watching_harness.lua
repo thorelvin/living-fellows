@@ -8,6 +8,7 @@ local originalSeating, originalPerks, originalSandbox, originalAddXp =
     SeatingManager, Perks, SandboxVars, addXp
 local originalSay, originalLastSpoken, originalRand =
     SC.Dialogue.say, SC.Dialogue.lastSpokenAt, ZombRand
+local originalBaseLife, originalNavigation = SC.BaseLife, SC.Navigation
 local spoken = {}
 SC.Dialogue.say = function(value, topic)
     spoken[#spoken + 1] = { actor = value, topic = topic }
@@ -22,12 +23,15 @@ local function check(value, message)
 end
 
 local room = {}
+local upperRoom = {}
 local squares = {}
-local function square(x, y)
-    local key = x .. ":" .. y
+local function square(x, y, z)
+    z = z or 0
+    local key = x .. ":" .. y .. ":" .. z
     local value = squares[key]
     if not value then
-        value = { x = x, y = y, z = 0, objects = {}, room = room }
+        value = { x = x, y = y, z = z, objects = {},
+            room = z == 0 and room or upperRoom }
         function value:getRoom() return self.room end
         squares[key] = value
     end
@@ -86,7 +90,7 @@ SC.GameplayUtil = {
         return point and point.x, point and point.y, point and point.z
     end,
     gridSquare = function(x, y, z)
-        return z == 0 and squares[x .. ":" .. y] or nil
+        return squares[x .. ":" .. y .. ":" .. z]
     end,
     squareObjects = function(value, callback)
         for _, object in ipairs(value.objects) do
@@ -207,6 +211,53 @@ check(standing and standing.kind == "tv_watch" and not standing.seated,
 check(TV.start(first, standing, 100000) and first.faced == television,
     "a standing viewer faces the television before watching")
 
+local upstairsTelevision = { square = square(10, 10, 1),
+    on = true, power = 1, volume = 0.5,
+    getDeviceData = television.getDeviceData }
+upstairsTelevision.square.objects[1] = upstairsTelevision
+square(10, 11, 1)
+television.on = false
+local routeAllowed, onCamp = true, true
+local requested
+SC.BaseLife = {
+    active = function() return true end,
+    allowsFloorTransit = function() return routeAllowed end,
+    isInside = function() return onCamp end,
+    admitsStairTransit = function() return false end,
+}
+SC.Navigation = {
+    request = function(_, goal, _, intent)
+        requested = { goal = goal, intent = intent }
+        return true, "native_multi_level"
+    end,
+    peek = function() return nil end,
+}
+first.square = square(10, 13, 0)
+local upstairsWatch = TV.candidate(first, {}, 100000, hooks, "tv_watch")
+check(upstairsWatch and upstairsWatch.object == upstairsTelevision
+        and upstairsWatch.crossFloor == true,
+    "a reachable powered TV on the camp's upper floor is offered downstairs")
+check(TV.valid(first, upstairsWatch, false)
+        and not TV.valid(first, upstairsWatch, true),
+    "a cross-floor TV stays valid in approach but cannot start downstairs")
+check(TV.approach(first, upstairsWatch) and requested
+        and requested.goal == upstairsWatch.square
+        and requested.intent.workCampOnly == true,
+    "the upstairs TV approach uses a camp-bounded native route")
+onCamp = false
+check(not TV.valid(first, upstairsWatch, false),
+    "a viewer outside camp cannot keep the cross-floor TV approach")
+onCamp = true
+routeAllowed = false
+check(not TV.valid(first, upstairsWatch, false)
+        and TV.candidate(first, {}, 100000, hooks, "tv_watch") == nil,
+    "a disconnected upper floor is neither selected nor retained")
+routeAllowed = true
+first.square = upstairsWatch.square
+check(TV.start(first, upstairsWatch, 100000),
+    "the viewer starts only after reaching the upstairs screen room")
+television.on = true
+
 local restored = actor(10, 12)
 restored.seated = true
 ids[restored] = "sc-tv-restored"
@@ -226,4 +277,5 @@ SeatingManager, Perks, SandboxVars, addXp =
     originalSeating, originalPerks, originalSandbox, originalAddXp
 SC.Dialogue.say, SC.Dialogue.lastSpokenAt, ZombRand =
     originalSay, originalLastSpoken, originalRand
+SC.BaseLife, SC.Navigation = originalBaseLife, originalNavigation
 print("TV watching harness PASS: " .. tostring(checks) .. " checks")

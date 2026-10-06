@@ -8644,6 +8644,30 @@ do
     check(proposedTidy and proposedTidy.object == shelf
             and proposedTidy.fact.storageId == storage.id,
         "camp tidy selects a loaded, marked storage object in the same building")
+    local tidyGroundSquare = shelf.square
+    local tidyUpperSquare = cell:getGridSquare(-1, -6, 1)
+    tidyUpperSquare.room = room
+    shelf.square = tidyUpperSquare
+    local oldTidyTransit = base.allowsFloorTransit
+    base.allowsFloorTransit = function(source, destination)
+        return source == tidier.square and destination == tidyUpperSquare
+    end
+    local upperTidy = tidyCamp(tidier)
+    local originalTidyRequest = SurvivorCompanion.Navigation.requestAny
+    local tidyRoute
+    SurvivorCompanion.Navigation.requestAny = function(_, _, _, intent)
+        tidyRoute = intent
+        return true, "moving"
+    end
+    local tidyMoving = SurvivorCompanion.Downtime.update(tidier,
+        player, calm, "tidy_camp")
+    check(upperTidy and upperTidy.crossFloor == true
+            and tidyMoving and tidyRoute and tidyRoute.workCampOnly == true,
+        "camp tidy discovers upstairs storage and keeps the stair route")
+    SurvivorCompanion.Navigation.requestAny = originalTidyRequest
+    SurvivorCompanion.Downtime.reset(tidier)
+    base.allowsFloorTransit = oldTidyTransit
+    shelf.square = tidyGroundSquare
     local tidyStarted = SurvivorCompanion.Downtime.update(tidier, player,
         calm, "tidy_camp")
     check(tidyStarted and visualStates[tidier]
@@ -8757,10 +8781,32 @@ do
         return { zones = { { kind = "area", x1 = -2, x2 = -2,
             y1 = -5, y2 = -5, z = 1 } } }
     end
+    local oldTransit = base.allowsFloorTransit
+    base.allowsFloorTransit = function(source, destination)
+        return (source == cleanerActor or source == cleanSquare)
+            and destination == upstairs
+    end
     local remoteClean = cleanBase(cleanerActor, {})
     check(remoteClean and remoteClean.square == upstairs
             and remoteClean.surface == "floor",
         "bounded camp sweep discovers stains on another floor")
+    SurvivorCompanion.Downtime.reset(cleanerActor)
+    local previousRequestAny = SurvivorCompanion.Navigation.requestAny
+    local cleanRoute
+    SurvivorCompanion.Navigation.requestAny = function(_, _, _, intent)
+        cleanRoute = intent
+        return true, "moving"
+    end
+    clock = clock + 45001
+    local remoteStarted = SurvivorCompanion.Downtime.update(cleanerActor,
+        player, calm, "clean_base")
+    check(remoteStarted and cleanRoute
+            and cleanRoute.workCampOnly == true
+            and SurvivorCompanion.Downtime.peek(cleanerActor).active.square == upstairs
+            and upstairs.stained,
+        "upstairs cleaning retains a native camp stair route before scrubbing")
+    SurvivorCompanion.Navigation.requestAny = previousRequestAny
+    SurvivorCompanion.Downtime.reset(cleanerActor)
     upstairs.stained = false
     cleanSquare.stained = true
     liquid.amount = 0.05
@@ -8771,6 +8817,7 @@ do
     check(cleanBase(cleanerActor) == nil,
         "camp cleaning refuses a missing stain-cleaning tool")
     base.isInside, base.active = oldInside, oldActive
+    base.allowsFloorTransit = oldTransit
     ItemTag, ZomboidGlobals = previousItemTag, previousGlobals
     Fluid.Bleach, Fluid.CleaningLiquid = previousBleach, previousCleaningLiquid
     end
@@ -8948,6 +8995,45 @@ do
     local _, seatProbe = SurvivorCompanion.Downtime._furnitureForTests()
     check(seatProbe(bedProbeActor, {}, clock).object == bed,
         "a tired companion selects a reachable bed beyond a closer chair")
+    local upperBedSquare = cell:getGridSquare(9, 5, 1)
+    upperBedSquare.room, upperBedSquare.moving = chairSquare.room, {}
+    bedSquare.objects[#bedSquare.objects] = nil
+    bed.square = upperBedSquare
+    upperBedSquare.objects[#upperBedSquare.objects + 1] = bed
+    local baseForBed = SurvivorCompanion.BaseLife
+    local oldBedActive, oldBedInside, oldBedTransit = baseForBed.active,
+        baseForBed.isInside, baseForBed.allowsFloorTransit
+    baseForBed.active = function()
+        return { zones = { { kind = "area", x1 = 9, x2 = 9,
+            y1 = 5, y2 = 5, z = 1 } } }
+    end
+    baseForBed.isInside = function(value)
+        return value == bedProbeActor or value == upperBedSquare
+    end
+    baseForBed.allowsFloorTransit = function(source, destination)
+        return source == bedProbeActor and destination == upperBedSquare
+    end
+    local upperBedChoice = seatProbe(bedProbeActor, {}, clock, "rest_bed")
+    check(upperBedChoice and upperBedChoice.object == bed
+            and upperBedChoice.crossFloor == true,
+        "a tired base worker discovers a bed upstairs through linked stairs")
+    local _, _, bedApproach = SurvivorCompanion.Downtime._furnitureForTests()
+    local oldBedRequest = SurvivorCompanion.Navigation.requestAny
+    local upperBedRoute
+    SurvivorCompanion.Navigation.requestAny = function(_, _, _, intent)
+        upperBedRoute = intent
+        return true, "moving"
+    end
+    local bedMoving = bedApproach(bedProbeActor, upperBedChoice)
+    check(bedMoving and upperBedRoute
+            and upperBedRoute.workCampOnly == true,
+        "upstairs bed approach stays under camp stair navigation")
+    SurvivorCompanion.Navigation.requestAny = oldBedRequest
+    upperBedSquare.objects[#upperBedSquare.objects] = nil
+    bed.square = bedSquare
+    bedSquare.objects[#bedSquare.objects + 1] = bed
+    baseForBed.active, baseForBed.isInside, baseForBed.allowsFloorTransit =
+        oldBedActive, oldBedInside, oldBedTransit
     chairSquare.moving = oldChairMoving
     local sleeper = actor("sc-bed-sleeper", 9, 5, {})
     sleeper.modData.SC_Order = "stay"
@@ -13492,6 +13578,7 @@ do
     local baseLife = SurvivorCompanion.BaseLife
     local savedInside, savedRows, savedResolve = baseLife.isInside,
         baseLife.storageRows, baseLife.resolveContainer
+    local savedTransit = baseLife.allowsFloorTransit
     -- Checkout re-reads the registered storage row by its id, so the fixture
     -- has to answer that lookup as the real registry would.
     local savedStorage = baseLife.storage
@@ -13548,6 +13635,49 @@ do
     SurvivorCompanion.Downtime.reset(reader)
     SurvivorCompanion.Commands.reset(reader)
     registry[reader.id] = nil
+
+    shelf:Remove(sharedBook)
+    local upstairsBook = item("Base.BookFarming1", "Literature", { pages = 120 })
+    shelf:AddItem(upstairsBook)
+    local groundShelfSquare = shelfObject.square
+    shelfObject.square = cell:getGridSquare(-3, 0, 1)
+    local upperReader = actor("sc-camp-library-upper", -2, 0,
+        { inventory = inventory() })
+    upperReader.modData.SC_Order = "stay"
+    upperReader.modData.SC_WorkMode = "idle"
+    registry[upperReader.id] = upperReader
+    baseLife.allowsFloorTransit = function(source, destination)
+        return (source == upperReader or source == upperReader.square)
+            and (destination == shelfObject or destination == shelfObject.square)
+    end
+    local linkedBook = campBookChoice(upperReader)
+    check(linkedBook and linkedBook.item == upstairsBook
+            and linkedBook.crossFloor == true,
+        "camp reading discovers a useful book in linked upstairs storage")
+    local savedRequestAny = SurvivorCompanion.Navigation.requestAny
+    local borrowedRoute
+    SurvivorCompanion.Navigation.requestAny = function(_, _, _, intent)
+        borrowedRoute = intent
+        return true, "moving"
+    end
+    clock = clock + 10
+    local upstairsReading, upstairsReason = SurvivorCompanion.Downtime.update(upperReader,
+        player, safeRuntime, "read")
+    check(upstairsReading == true and borrowedRoute
+            and borrowedRoute.workCampOnly == true
+            and shelf:contains(upstairsBook),
+        "upstairs book checkout routes through camp stairs before transfer: "
+            .. tostring(upstairsReading) .. "/" .. tostring(upstairsReason)
+            .. "/" .. tostring(borrowedRoute
+                and borrowedRoute.workCampOnly) .. " shelf="
+            .. tostring(shelf:contains(upstairsBook)))
+    SurvivorCompanion.Navigation.requestAny = savedRequestAny
+    SurvivorCompanion.Downtime.reset(upperReader)
+    SurvivorCompanion.Commands.reset(upperReader)
+    registry[upperReader.id] = nil
+    shelfObject.square = groundShelfSquare
+    shelf:Remove(upstairsBook)
+    baseLife.allowsFloorTransit = savedTransit
 
     shelf:Remove(sharedBook)
     local transientBook = item("Base.BookElectrician1", "Literature", { pages = 220 })
@@ -13682,6 +13812,7 @@ do
     baseLife.isInside, baseLife.storageRows, baseLife.resolveContainer =
         savedInside, savedRows, savedResolve
     baseLife.storage = savedStorage
+    baseLife.allowsFloorTransit = savedTransit
 end
 
 local outdoorBook = item("Base.BookOutdoors", "Literature", { pages = 120 })
@@ -15681,6 +15812,98 @@ check(SurvivorCompanion.Needs.update(sourceDrinker, player, {
 SurvivorCompanion.Encounter.takePlayerSupply = originalCampWater
 check(not campWaterRequested,
     "a clean nearby sink is used before withdrawing bottled water from camp storage")
+
+do
+    local savedActive = SurvivorCompanion.BaseLife.active
+    local savedInside = SurvivorCompanion.BaseLife.isInside
+    local savedTransit = SurvivorCompanion.BaseLife.allowsFloorTransit
+    local savedRequestAny = SurvivorCompanion.Navigation.requestAny
+    local upstairs = actor("sc-needs-upstairs-well", 12, 5, {})
+    upstairs.thirst = 0.70
+    registry[upstairs.id] = upstairs
+    local wellSquare = cell:getGridSquare(12, 5, 1)
+    local well = { square = wellSquare, amount = 12 }
+    function well:getSquare() return self.square end
+    function well:getX() return self.square.x end
+    function well:getY() return self.square.y end
+    function well:getZ() return self.square.z end
+    function well:hasFluid() return true end
+    function well:getFluidAmount() return self.amount end
+    function well:isTaintedWater() return false end
+    wellSquare.objects[#wellSquare.objects + 1] = well
+    SurvivorCompanion.BaseLife.active = function()
+        return { zones = { { kind = "area", z = 1 } } }
+    end
+    SurvivorCompanion.BaseLife.isInside = function() return true end
+    SurvivorCompanion.BaseLife.allowsFloorTransit = function()
+        return true
+    end
+    local waterApproach
+    SurvivorCompanion.Navigation.requestAny = function(_, targets, _, intent)
+        waterApproach = { targets = targets, intent = intent }
+        return true, "moving"
+    end
+    local safe = { snapshot = { immediateCount = 0, pressure = 0 } }
+    local selected, selectedReason = SurvivorCompanion.Needs.update(upstairs, player, safe)
+    check(selected and waterApproach and #waterApproach.targets > 0
+            and waterApproach.intent.workCampOnly == true
+            and SurvivorCompanion.Needs.peek(upstairs).waterSource == well,
+        "a thirsty camp companion selects an upstairs well and hands its use side to navigation: "
+            .. tostring(selected) .. "/" .. tostring(selectedReason)
+            .. " targets=" .. tostring(waterApproach and #waterApproach.targets)
+            .. " source=" .. tostring(SurvivorCompanion.Needs.peek(upstairs)
+                and SurvivorCompanion.Needs.peek(upstairs).waterSource))
+    upstairs.square = cell:getGridSquare(13, 5, 1)
+    local drank = SurvivorCompanion.Needs.update(upstairs, player, safe)
+    check(drank and upstairs.lastIntent
+            and upstairs.lastIntent.action == "drink_source"
+            and upstairs.lastIntent.object == well,
+        "the upstairs well is drunk from only after reaching its use side")
+    SurvivorCompanion.Navigation.requestAny = savedRequestAny
+    SurvivorCompanion.BaseLife.active = savedActive
+    SurvivorCompanion.BaseLife.isInside = savedInside
+    SurvivorCompanion.BaseLife.allowsFloorTransit = savedTransit
+    SurvivorCompanion.Needs.reset(upstairs)
+    registry[upstairs.id] = nil
+end
+
+do
+    local acrossWall = actor("sc-needs-wall-sink", 7, 2, {})
+    acrossWall.thirst = 0.70
+    registry[acrossWall.id] = acrossWall
+    local sinkSquare = cell:getGridSquare(8, 2, 0)
+    local sink = { square = sinkSquare, amount = 5 }
+    function sink:getSquare() return self.square end
+    function sink:getX() return self.square.x end
+    function sink:getY() return self.square.y end
+    function sink:getZ() return self.square.z end
+    function sink:hasFluid() return true end
+    function sink:getFluidAmount() return self.amount end
+    function sink:isTaintedWater() return false end
+    sinkSquare.objects[#sinkSquare.objects + 1] = sink
+    acrossWall.square.blocked[sinkSquare] = true
+    sinkSquare.blocked[acrossWall.square] = true
+    local savedRequestAny = SurvivorCompanion.Navigation.requestAny
+    local approached
+    SurvivorCompanion.Navigation.requestAny = function(_, targets)
+        approached = targets
+        return true, "moving"
+    end
+    local safe = { snapshot = { immediateCount = 0, pressure = 0 } }
+    SurvivorCompanion.Needs.update(acrossWall, player, safe)
+    check(approached and acrossWall.lastIntent == nil,
+        "a sink across a wall requires a reachable use side, not distance alone")
+    acrossWall.square.blocked[sinkSquare] = nil
+    sinkSquare.blocked[acrossWall.square] = nil
+    local drank = SurvivorCompanion.Needs.update(acrossWall, player, safe)
+    check(drank and acrossWall.lastIntent
+            and acrossWall.lastIntent.action == "drink_source"
+            and acrossWall.lastIntent.object == sink,
+        "the same sink is usable once its interaction side is open")
+    SurvivorCompanion.Navigation.requestAny = savedRequestAny
+    SurvivorCompanion.Needs.reset(acrossWall)
+    registry[acrossWall.id] = nil
+end
 
 local campActor = actor("sc-camp-supply", 36, 20, {})
 registry[campActor.id] = campActor
@@ -22481,6 +22704,35 @@ end)()
             and anyCall.intent.action == "move_to_water_source"
             and not blocked and blockedStatus == "no_interaction_targets",
         "a wash trip walks to a free square beside the sink, never to the sink's own square")
+    local upperSinkSquare = cell:getGridSquare(-5, 6, 1)
+    sink.square = upperSinkSquare
+    upperSinkSquare.objects[#upperSinkSquare.objects + 1] = sink
+    local base = SurvivorCompanion.BaseLife
+    local oldActive, oldInside, oldTransit = base.active,
+        base.isInside, base.allowsFloorTransit
+    base.active = function() return { zones = { { kind = "area",
+        x1 = -5, x2 = -5, y1 = 6, y2 = 6, z = 1 } } } end
+    base.isInside = function(value)
+        return value == washer or value == upperSinkSquare
+    end
+    base.allowsFloorTransit = function(source, destination)
+        return source == washer and destination == upperSinkSquare
+    end
+    local upperSink = nearbyWashSource(washer)
+    navigation.interactionTargets = function() return { upperSinkSquare } end
+    navigation.requestAny = function(_, _, _, intent)
+        anyCall = { intent = intent }
+        return true, "moving"
+    end
+    local upperApproach = approachWashSource(washer, {
+        object = sink, square = upperSinkSquare, crossFloor = true })
+    check(upperSink == sink and upperApproach
+            and anyCall.intent.workCampOnly == true,
+        "base washing discovers an upstairs sink and routes via camp stairs")
+    navigation.interactionTargets, navigation.requestAny = savedTargets, savedRequestAny
+    base.active, base.isInside, base.allowsFloorTransit =
+        oldActive, oldInside, oldTransit
+    upperSinkSquare.objects[#upperSinkSquare.objects] = nil
 end)()
 
 -- P2 tall tales: a good fight becomes a tale on the killer's command state;

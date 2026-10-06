@@ -87,6 +87,24 @@ queued, reason = chef.ensureAutomaticJob(actor, { role = "chef", duty = true })
 assert(queued == false and reason == "chef_job_pending",
     "an active cook job must suppress stock duplicates")
 world.jobs = {}
+local oldZones, oldGridSquare = world.zones, util.gridSquare
+local emptySquare = { getObjects = function() return {} end }
+world.zones = {
+    { kind = "area", x1 = 0, x2 = 1600, y1 = 0, y2 = 0, z = 0 },
+    { kind = "area", x1 = 0, x2 = 0, y1 = 0, y2 = 0, z = 1 },
+}
+util.gridSquare = function(_, _, z)
+    return z == 1 and square or emptySquare
+end
+chef.reset()
+local upperFridgeFound = false
+for _ = 1, 80 do
+    queued, reason = chef.ensureAutomaticJob(actor, { role = "chef", duty = true })
+    if queued then upperFridgeFound = true break end
+end
+assert(upperFridgeFound and #world.jobs == 1,
+    "Chef discovers an upstairs fridge even after 1600 ground-floor squares")
+world.jobs, world.zones, util.gridSquare = {}, oldZones, oldGridSquare
 stored[1], stored[2] = food("Base.Salad"), food("Base.Sandwich")
 chef.reset()
 queued, reason = chef.ensureAutomaticJob(actor, { role = "chef", duty = true })

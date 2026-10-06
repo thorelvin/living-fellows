@@ -356,11 +356,19 @@ local function drinkItem(actor, item, thirst)
 end
 
 local function validWaterSource(object)
+    if not U().squareOf(object) then return false end
     local has, hasOk = U().call(object, "hasFluid")
     local amount, amountOk = U().call(object, "getFluidAmount")
     local tainted, taintedOk = U().call(object, "isTaintedWater")
-    return hasOk and has == true and amountOk and (tonumber(amount) or 0) > 0.05
+    return hasOk and has == true and amountOk
+        and (amount ~= nil and tonumber(tostring(amount)) or 0) > 0.05
         and (not taintedOk or tainted ~= true)
+end
+
+local function campFloorRoute(actor, destination)
+    return SC.BaseLife and type(SC.BaseLife.allowsFloorTransit) == "function"
+        and SC.BaseLife.allowsFloorTransit(actor, destination,
+            { workCampOnly = true }) == true
 end
 
 local function findWaterSource(actor, state)
@@ -371,44 +379,89 @@ local function findWaterSource(actor, state)
         math.floor(utility.config("needsWaterSourceRadius") or 12)))
     local budget = math.max(1, math.floor(utility.config("needsWaterSquareBudget") or 180))
     state.waterScanPhase = ((state.waterScanPhase or 0) + 1) % 4
-    local scanned = 0
-    for distance = 0, radius do
-        local found
-        for dx = -distance, distance do
-            for dy = -distance, distance do
-                if scanned >= budget then return found end
-                local edge = math.max(math.abs(dx), math.abs(dy)) == distance
-                local sampled = distance <= 5 or ((dx * 17 + dy * 31) % 4) == state.waterScanPhase
-                if edge and sampled then
-                    local square = utility.gridSquare(ax + dx, ay + dy, az)
-                    if square then
-                        scanned = scanned + 1
-                        utility.squareObjects(square, function(object)
-                            if validWaterSource(object) then found = object return false end
-                        end, 48)
+    local currentFloor = math.floor(az)
+    local current = utility.nowMs()
+    local function scanFloor(floor, limit, crossFloor)
+        local scanned = 0
+        for distance = 0, radius do
+            local found
+            for dx = -distance, distance do
+                for dy = -distance, distance do
+                    if scanned >= limit then return nil end
+                    local edge = math.max(math.abs(dx), math.abs(dy)) == distance
+                    local sampled = distance <= 5
+                        or ((dx * 17 + dy * 31) % 4) == state.waterScanPhase
+                    if edge and sampled then
+                        local square = utility.gridSquare(ax + dx, ay + dy, floor)
+                        if square then
+                            scanned = scanned + 1
+                            utility.squareObjects(square, function(object)
+                                local retryAt = state.waterRetryAt
+                                    and state.waterRetryAt[object] or nil
+                                if (not retryAt or current >= retryAt)
+                                    and validWaterSource(object)
+                                    and (not crossFloor
+                                        or campFloorRoute(actor, square)) then
+                                    found = object
+                                    return false
+                                end
+                            end, 48)
+                        end
                     end
+                    if found then return found end
                 end
-                if found then return found end
             end
+        end
+        return nil
+    end
+    local source = scanFloor(currentFloor, budget, false)
+    if source then return source end
+    local base = SC.BaseLife and type(SC.BaseLife.active) == "function"
+        and SC.BaseLife.active() or nil
+    if not base or SC.BaseLife.isInside(actor) ~= true then return nil end
+    local campFloors = {}
+    for _, zone in ipairs(base.zones or {}) do
+        if zone.kind == "area" and math.abs(zone.z - currentFloor) == 1 then
+            campFloors[zone.z] = true
+        end
+    end
+    for _, floor in ipairs({ currentFloor + 1, currentFloor - 1 }) do
+        if campFloors[floor] then
+            source = scanFloor(floor, math.max(60, math.floor(budget / 2)), true)
+            if source then return source end
         end
     end
     return nil
 end
 
 local function drinkWorldSource(actor, source, snapshot, state)
-    if U().distance(actor, source) > 1.45 then
+    local _, _, actorZ = U().position(actor)
+    local _, _, sourceZ = U().position(source)
+    local crossFloor = actorZ ~= nil and sourceZ ~= nil
+        and math.floor(actorZ) ~= math.floor(sourceZ)
+    if crossFloor and not campFloorRoute(state.waterOriginSquare or actor, source) then
+        return false, "water_source_floor_unreachable"
+    end
+    local atSource, targets, accessReason = U().directInteractionAccess(actor,
+        source, { snapshot = snapshot })
+    if not atSource then
+        if accessReason == "no_interaction_targets" then
+            return false, accessReason
+        end
         if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
             return false, "water_source_navigation_unavailable"
         end
-        local targets = SC.Navigation.interactionTargets(actor, source, { snapshot = snapshot })
         return SC.Navigation.requestAny(actor, targets, "walk", {
             action = "move_to_water_source",
             object = source,
             snapshot = snapshot,
-            arrivalDistance = 1.0,
+            arrivalDistance = 0.35,
+            requireSameSquare = true,
+            continuousApproach = true,
+            workCampOnly = crossFloor,
         })
     end
-    state.waterSource = nil
+    state.waterSource, state.waterOriginSquare = nil, nil
     return U().move(actor, "walk", {
         action = "drink_source",
         object = source,
@@ -454,17 +507,38 @@ function Needs.update(actor, player, runtime)
     if assessment.thirsty then
         local safeWater = consumable(isSafeWaterItem)
         local water = firstInventoryItem(actor, safeWater)
-        if water then return drinkItem(actor, water, assessment.thirst) end
-        -- At camp, a clean nearby tap is the natural first choice. Previously
-        -- storage withdrawal always ran first, so residents almost never made
-        -- the visible trip to a sink even while standing beside one.
+        -- At camp a nearby tap or well saves carried drinking water. A bottle
+        -- remains the immediate choice when the source is farther away.
         local source = state.waterSource
-        if source and not validWaterSource(source) then source, state.waterSource = nil, nil end
-        if not source then source = findWaterSource(actor, state) state.waterSource = source end
+        if source and not validWaterSource(source) then
+            source, state.waterSource, state.waterOriginSquare = nil, nil, nil
+        end
+        local current = U().nowMs()
+        if not source and current >= (state.nextWaterSearchAt or 0) then
+            source = findWaterSource(actor, state)
+            state.waterSource = source
+            state.waterOriginSquare = source and U().squareOf(actor) or nil
+            state.nextWaterSearchAt = current + 3000
+        end
+        local nearbyCampSource = source and SC.BaseLife
+            and SC.BaseLife.isInside(actor) == true
+            and U().sameFloor(actor, source)
+            and U().distance(actor, source) <= 6
+        if water and not nearbyCampSource then
+            return drinkItem(actor, water, assessment.thirst)
+        end
         if source then
             local accepted, reason = drinkWorldSource(actor, source, snapshot, state)
-            if accepted == true or not assessment.hungry then return accepted, reason end
+            if accepted == true then return true, reason end
             thirstReason = reason or "water_source_unreachable"
+            state.waterRetryAt = state.waterRetryAt or setmetatable({}, { __mode = "k" })
+            state.waterRetryAt[source] = current + 15000
+            state.waterSource, state.waterOriginSquare = nil, nil
+            state.nextWaterSearchAt = 0
+            if water then return drinkItem(actor, water, assessment.thirst) end
+            local fetched, fetchReason = fetchFromCamp(actor,
+                "needs_water", safeWater, snapshot)
+            if fetched then return true, fetchReason end
         else
             local fetched, fetchReason = fetchFromCamp(actor, "needs_water", safeWater, snapshot)
             if fetched then return true, fetchReason end

@@ -61,6 +61,7 @@ $LuaFiles += @(
     'SCLighting.lua',
     'SCNeeds.lua',
     'SCTVWatching.lua',
+    'SCRadioListening.lua',
     'SCDowntime.lua',
     'SCPersonality.lua',
     'SCPersonalItems.lua',
@@ -98,6 +99,7 @@ $LuaFiles += Join-Path $TestRoot 'base_work_fixture.lua'
 $LuaFiles += Join-Path $ClientRoot 'SCBaseWork.lua'
 $LuaFiles += Join-Path $TestRoot 'gameplay_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'tv_watching_harness.lua'
+$LuaFiles += Join-Path $TestRoot 'radio_listening_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'fishing_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'chef_harness.lua'
 
@@ -111,12 +113,12 @@ try {
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @LuaFiles
         if ($LASTEXITCODE -ne 0) { throw 'Gameplay Kahlua integration harness failed.' }
         $medicalFiles = @((Join-Path $ProjectRoot 'tests\core\core_fixture.lua'))
-        $medicalFiles += @($LuaFiles | Select-Object -SkipLast 4)
+        $medicalFiles += @($LuaFiles | Select-Object -SkipLast 5)
         $medicalFiles += Join-Path $TestRoot 'medical_liveness_regression_harness.lua'
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @medicalFiles
         if ($LASTEXITCODE -ne 0) { throw 'Medical liveness/rescue regression harness failed.' }
         $combatFiles = @((Join-Path $ProjectRoot 'tests\core\core_fixture.lua'))
-        $combatFiles += @($LuaFiles | Select-Object -SkipLast 4)
+        $combatFiles += @($LuaFiles | Select-Object -SkipLast 5)
         $combatFiles += Join-Path $TestRoot 'combat_coordination_regression_harness.lua'
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @combatFiles
         if ($LASTEXITCODE -ne 0) { throw 'Combat coordination regression harness failed.' }

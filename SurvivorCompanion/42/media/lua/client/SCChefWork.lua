@@ -146,37 +146,60 @@ local function poweredFridge(container, kind)
     return kind == "fridge" and select(1, call(container, "isPowered")) == true
 end
 
--- The scan advances over at most 24 squares per update. This avoids a full
--- camp walk on a decision frame and includes automatically linked floors.
-local function campScan(base)
+-- Walk every camp area, including linked floors, in bounded slices. Building
+-- a fixed 1600-square list skipped later floors in larger camps.
+local function nextCampScanPoint(scan)
+    local zones = scan.zones
+    if #zones == 0 then return nil, true end
+    for _ = 1, 128 do
+        local unfinished = false
+        for _, zone in ipairs(zones) do
+            if not zone.done then unfinished = true break end
+        end
+        if not unfinished then return nil, true end
+        local zone = zones[scan.zoneIndex]
+        scan.zoneIndex = scan.zoneIndex % #zones + 1
+        if zone and not zone.done then
+            local x, y = zone.x, zone.y
+            zone.x = zone.x + 1
+            if zone.x > zone.x2 then zone.x, zone.y = zone.x1, zone.y + 1 end
+            if zone.y > zone.y2 then zone.done = true end
+            local key = x .. ":" .. y .. ":" .. zone.z
+            if not scan.seen[key] then
+                scan.seen[key] = true
+                return { x = x, y = y, z = zone.z }, false
+            end
+        end
+    end
+    return nil, false
+end
+
+local function campScan(base, retainCompleted)
     local scan = scans[base]
-    if scan and scan.done and now() - scan.finishedAt < 12000 then return scan end
+    if scan and scan.done
+        and (retainCompleted == true or now() - scan.finishedAt < 12000) then
+        return scan
+    end
     if not scan or (scan.done and now() - scan.finishedAt >= 12000) then
-        scan = { squares = {}, cursor = 1, containers = {}, fridges = {}, ovens = {},
-            fires = {}, water = {}, craftSurfaces = {}, done = false }
-        local seen = {}
+        scan = { zones = {}, zoneIndex = 1, seen = {}, containers = {},
+            fridges = {}, ovens = {}, fires = {}, water = {},
+            craftSurfaces = {}, done = false }
         for _, zone in ipairs(base.zones or {}) do
             if zone.kind == "area" then
-                for x = zone.x1, zone.x2 do
-                    for y = zone.y1, zone.y2 do
-                        local key = x .. ":" .. y .. ":" .. zone.z
-                        if not seen[key] and #scan.squares < 1600 then
-                            seen[key] = true
-                            scan.squares[#scan.squares + 1] = { x = x, y = y, z = zone.z }
-                        end
-                    end
-                end
+                scan.zones[#scan.zones + 1] = {
+                    x1 = zone.x1, x2 = zone.x2, y2 = zone.y2,
+                    x = zone.x1, y = zone.y1, z = zone.z,
+                }
             end
         end
         scans[base] = scan
     end
     for _ = 1, 24 do
-        local point = scan.squares[scan.cursor]
+        local point, exhausted = nextCampScanPoint(scan)
         if not point then
-            scan.done, scan.finishedAt = true, now()
+            if exhausted then scan.done, scan.finishedAt = true, now() end
             break
         end
-        scan.cursor = scan.cursor + 1
         local square = U().gridSquare(point.x, point.y, point.z)
         if square and SC.BaseLife.isInside(point) then
             U().squareObjects(square, function(object)
@@ -1484,7 +1507,9 @@ function Chef.update(actor, baseState, job, player)
     job.target = type(job.target) == "table" and job.target or {}
     local state = stateFor(actor, job)
     state.player = player
-    local scan = campScan(SC.BaseLife.active())
+    -- An active recipe keeps its discovered stations until completion. A
+    -- large camp must not pause cooking for a fresh floor survey every 12s.
+    local scan = campScan(SC.BaseLife.active(), true)
     state.scan = scan
     if not scan.done then return true, "chef_scan_pending" end
     local marked = markedContainerMap()

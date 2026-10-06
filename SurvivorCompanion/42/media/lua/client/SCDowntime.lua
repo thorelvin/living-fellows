@@ -280,6 +280,39 @@ local function sameBuilding(actorSquare, candidateSquare)
         and actorBuilding == candidateBuilding
 end
 
+local function campFloorRoute(source, destination)
+    return SC.BaseLife and type(SC.BaseLife.allowsFloorTransit) == "function"
+        and SC.BaseLife.allowsFloorTransit(source, destination,
+            { workCampOnly = true }) == true
+end
+
+local function campWorkContext(source, destination)
+    if not source or not destination then return false end
+    if U().sameFloor(source, destination) then
+        return sameBuilding(U().squareOf(source), U().squareOf(destination))
+    end
+    return campFloorRoute(source, destination)
+end
+
+local function onCampStairs(actor)
+    local nav = SC.Navigation and type(SC.Navigation.peek) == "function"
+        and SC.Navigation.peek(actor) or nil
+    local lease = nav and nav.nativeLease or nil
+    if not lease or lease.affordance ~= "multi_level"
+        or lease.workCampOnly ~= true then return false end
+    return (SC.Navigation._betweenFloorHeights
+            and SC.Navigation._betweenFloorHeights(actor))
+        or (SC.BaseLife and type(SC.BaseLife.admitsStairTransit) == "function"
+            and SC.BaseLife.admitsStairTransit(U().squareOf(actor), lease))
+        or (SC.Navigation.isCampStairLanding
+            and SC.Navigation.isCampStairLanding(actor))
+end
+
+local function campWorkActorPresent(actor)
+    return SC.BaseLife and type(SC.BaseLife.isInside) == "function"
+        and (SC.BaseLife.isInside(actor) == true or onCampStairs(actor))
+end
+
 local function curtainCooling(state, object, now)
     local expiry = state.curtainRetryAt and state.curtainRetryAt[object]
     return expiry ~= nil and now < expiry
@@ -714,8 +747,11 @@ local function campReadingActivity(actor)
         inspected = inspected + 1
         if inspected > storageLimit or remaining <= 0 then break end
         local container, object = base.resolveContainer(storage)
-        if container and object and utility.sameFloor(actor, object)
-            and utility.distance(actor, object) <= radius then
+        local crossFloor = object and not utility.sameFloor(actor, object)
+        if container and object
+            and (not crossFloor or campFloorRoute(actor, object))
+            and utility.distance(actor, object)
+                <= (crossFloor and math.max(radius, 16) or radius) then
             local items = utility.inventoryItems(container, remaining)
             remaining = remaining - #items
             local counts = {}
@@ -743,6 +779,8 @@ local function campReadingActivity(actor)
                         borrowedFrom = container,
                         borrowedOwner = object,
                         borrowedStorageId = storage.id,
+                        originSquare = utility.squareOf(actor),
+                        crossFloor = crossFloor,
                         fact = { activity = "read", itemType = itemType,
                             borrowedFromCamp = true },
                     }
@@ -913,6 +951,7 @@ local function approachWashSource(actor, activity)
         object = activity.object,
         supervisorToken = activity.supervisorToken,
         arrivalDistance = 0.6,
+        workCampOnly = activity.crossFloor == true,
     })
     return accepted == true, status
 end
@@ -936,6 +975,35 @@ local function nearbyWashSource(actor, skip)
                         end
                     end, 48)
                     if found then return found, square end
+                end
+            end
+        end
+    end
+    local base = SC.BaseLife
+    if base and type(base.active) == "function"
+        and type(base.isInside) == "function"
+        and base.isInside(actor) == true then
+        local active = base.active()
+        for _, zone in ipairs(active and active.zones or {}) do
+            if zone.kind == "area" and zone.z ~= math.floor(z) then
+                for cy = math.max(zone.y1, math.floor(y) - radius),
+                        math.min(zone.y2, math.floor(y) + radius) do
+                    for cx = math.max(zone.x1, math.floor(x) - radius),
+                            math.min(zone.x2, math.floor(x) + radius) do
+                        local square = utility.gridSquare(cx, cy, zone.z)
+                        if square and base.isInside(square) then
+                            local found
+                            utility.squareObjects(square, function(object)
+                                if washSourceValid(object)
+                                    and not (skip and skip(object))
+                                    and campFloorRoute(actor, square) then
+                                    found = object
+                                    return false
+                                end
+                            end, 48)
+                            if found then return found, square end
+                        end
+                    end
                 end
             end
         end
@@ -994,10 +1062,12 @@ local function washActivity(actor, items, state, current)
         return washSourceCooling(state, object, current)
     end)
     if not source then return nil end
+    local crossFloor = not U().sameFloor(actor, square)
     if dirtyBandage then
         return {
             kind = "wash_bandage", score = 62,
             object = source, square = square, item = dirtyBandage,
+            crossFloor = crossFloor,
             cleanType = CLEAN_DRESSING_TYPES[
                 string.lower(U().itemType(dirtyBandage))],
             fact = { activity = "wash_bandage",
@@ -1008,12 +1078,14 @@ local function washActivity(actor, items, state, current)
         return {
             kind = "wash_self", score = 48 + math.min(25, bodyScore * 5),
             object = source, square = square,
+            crossFloor = crossFloor,
             fact = { activity = "wash_self" },
         }
     end
     return {
         kind = "wash_equipment", score = 40 + math.min(28, (bestItemScore or 0) * 0.2),
         object = source, square = square, item = bestItem,
+        crossFloor = crossFloor,
         fact = { activity = "wash_equipment", itemType = U().itemType(bestItem) },
     }
 end
@@ -1157,6 +1229,70 @@ local function freeFurnitureAccess(actor, object)
     return false, free, reason
 end
 
+local function linkedFloorFurniture(actor, state, current, seatOnly, tired,
+        radius, fallback)
+    local utility, base = U(), SC.BaseLife
+    if not base or type(base.active) ~= "function"
+        or type(base.isInside) ~= "function"
+        or base.isInside(actor) ~= true then return fallback end
+    local active = base.active()
+    local ax, ay, az = utility.position(actor)
+    if not active or not ax then return fallback end
+    local seen, checked = {}, 0
+    for _, zone in ipairs(active.zones or {}) do
+        if zone.kind == "area" and zone.z ~= math.floor(az) then
+            for y = math.max(zone.y1, math.floor(ay) - radius),
+                    math.min(zone.y2, math.floor(ay) + radius) do
+                for x = math.max(zone.x1, math.floor(ax) - radius),
+                        math.min(zone.x2, math.floor(ax) + radius) do
+                    local key = x .. ":" .. y .. ":" .. zone.z
+                    if not seen[key] then
+                        seen[key], checked = true, checked + 1
+                        local square = utility.gridSquare(x, y, zone.z)
+                        if square and base.isInside(square) then
+                            local selected, kind
+                            utility.squareObjects(square, function(object)
+                                local value = furnitureKind(object)
+                                local occupied = select(1, utility.call(object,
+                                    "isFurnitureOccupied", actor))
+                                if value and (seatOnly ~= true or value == "sit")
+                                    and (seatOnly ~= "rest_bed"
+                                        or value == "rest_bed")
+                                    and (value ~= "rest_bed" or tired)
+                                    and occupied ~= true
+                                    and not reservationHeldByOther(object, actor, current)
+                                    and not furnitureCooling(state, object, current)
+                                    and campFloorRoute(actor, square) then
+                                    local reached, targets = freeFurnitureAccess(
+                                        actor, object)
+                                    if reached or #targets > 0 then
+                                        selected, kind = object, value
+                                        return false
+                                    end
+                                end
+                            end, 32)
+                            if selected then
+                                local activity = {
+                                    kind = kind,
+                                    score = kind == "rest_bed" and 78 or 12,
+                                    object = selected, square = square,
+                                    originSquare = utility.squareOf(actor),
+                                    crossFloor = true,
+                                    fact = { activity = kind },
+                                }
+                                if kind == "rest_bed" then return activity end
+                                fallback = fallback or activity
+                            end
+                        end
+                    end
+                    if checked >= 320 then return fallback end
+                end
+            end
+        end
+    end
+    return fallback
+end
+
 local function seatActivity(actor, state, current, seatOnly)
     local utility = U()
     if seatingStatus(actor) ~= "standing" then return nil end
@@ -1218,12 +1354,16 @@ local function seatActivity(actor, state, current, seatOnly)
                         end
                         chairFallback = chairFallback or candidate
                     end
-                    if scanned >= budget then return chairFallback end
+                    if scanned >= budget then
+                        return linkedFloorFurniture(actor, state, current,
+                            seatOnly, tired, radius, chairFallback)
+                    end
                 end
             end
         end
     end
-    return chairFallback
+    return linkedFloorFurniture(actor, state, current,
+        seatOnly, tired, radius, chairFallback)
 end
 
 local function floorRestActivity(actor, furnitureAvailable)
@@ -1265,6 +1405,7 @@ local function approachFurniture(actor, activity)
         action = "move_to_seat", targetSquare = activity.square,
         object = activity.object, arrivalDistance = 0.35,
         requireSameSquare = true, continuousApproach = true,
+        workCampOnly = activity.crossFloor == true,
         supervisorToken = activity.supervisorToken,
     })
 end
@@ -2305,7 +2446,7 @@ local function tidyCampValid(actor, activity)
     if not base or type(base.storage) ~= "function"
         or type(base.resolveContainer) ~= "function"
         or type(base.isInside) ~= "function"
-        or base.isInside(actor) ~= true then return false end
+        or not campWorkActorPresent(actor) then return false end
     local storage = base.storage(activity.storageId)
     if storage == nil or storage ~= activity.storage then return false end
     local container, owner = base.resolveContainer(storage)
@@ -2319,15 +2460,12 @@ local function tidyCampActivity(actor)
         or base.isInside(actor) ~= true
         or type(base.storageRows) ~= "function" then return nil end
     local actorSquare = utility.squareOf(actor)
-    if actorSquare == nil or select(1, utility.call(actorSquare, "getRoom")) == nil then
-        return nil
-    end
+    if actorSquare == nil then return nil end
     local best, bestDistance
-    for index, storage in ipairs(base.storageRows() or {}) do
-        if index > 12 then break end
+    for _, storage in ipairs(base.storageRows() or {}) do
         local container, object = base.resolveContainer(storage)
         local square = utility.squareOf(object)
-        if container and square and sameBuilding(actorSquare, square)
+        if container and square and campWorkContext(actorSquare, square)
             and #utility.inventoryItems(container, 1) > 0 then
             local distance = utility.distance(actor, square)
             if distance and distance <= 8
@@ -2337,6 +2475,8 @@ local function tidyCampActivity(actor)
                     kind = "tidy_camp", score = 16, object = object,
                     container = container, storage = storage,
                     storageId = storage.id, square = square,
+                    originSquare = actorSquare,
+                    crossFloor = not utility.sameFloor(actorSquare, square),
                     durationMs = 4200,
                     fact = { activity = "tidy_camp", storageId = storage.id },
                 }
@@ -2398,11 +2538,12 @@ local function cleanBaseValid(actor, activity)
     local tag = ItemTag and ItemTag.CLEAN_STAINS
     if not base or type(base.isInside) ~= "function"
         or tag == nil
-        or base.isInside(actor) ~= true
+        or not campWorkActorPresent(actor)
         or base.isInside(activity.square) ~= true
         or utility.gridSquare(activity.square:getX(), activity.square:getY(),
             activity.square:getZ()) ~= activity.square
-        or not sameBuilding(utility.squareOf(actor), activity.square)
+        or not campWorkContext(activity.originSquare or actor,
+            activity.square)
         or select(1, utility.call(activity.square, "haveStains")) ~= true
         or not carriedCleaningItem(actor, activity.item)
         or not carriedCleaningItem(actor, activity.material)
@@ -2420,9 +2561,7 @@ local function cleanBaseActivity(actor, state)
     if not base or type(base.isInside) ~= "function"
         or base.isInside(actor) ~= true then return nil end
     local actorSquare = utility.squareOf(actor)
-    if not actorSquare or select(1, utility.call(actorSquare, "getRoom")) == nil then
-        return nil
-    end
+    if not actorSquare then return nil end
     local tool, cleaner = cleaningSupplies(actor)
     if not tool then return nil end
     local x, y, z = utility.position(actorSquare)
@@ -2432,7 +2571,7 @@ local function cleanBaseActivity(actor, state)
         if not square or base.isInside(square) ~= true
             or state and state.cleanRetryAt and state.cleanRetryAt[square]
                 and U().nowMs() < state.cleanRetryAt[square]
-            or not sameBuilding(actorSquare, square)
+            or not campWorkContext(actorSquare, square)
             or select(1, utility.call(square, "haveStains")) ~= true then return end
         local distance = utility.distance(actor, square)
         if distance and (bestDistance == nil or distance < bestDistance) then
@@ -2442,6 +2581,8 @@ local function cleanBaseActivity(actor, state)
             best = {
                 kind = "clean_base", score = 24, square = square,
                 object = square, item = tool, material = cleaner,
+                originSquare = actorSquare,
+                crossFloor = not utility.sameFloor(actorSquare, square),
                 surface = wall and "wall" or "floor",
                 fact = { activity = "clean_base",
                     surface = wall and "wall" or "floor" },
@@ -2567,6 +2708,7 @@ local function ambientCooling(state, kind, current)
     local intervals = { radio_check = 600000, tidy_camp = 600000,
         leader_check_in = LEADER_CHECK_IN_COOLDOWN_MS,
         tv_watch = 240000,
+        radio_listen = 360000, radio_setup = 120000,
         weather_recovery = 120000, clean_base = 45000 }
     return lastAt ~= nil and current - lastAt < (intervals[kind] or 180000)
 end
@@ -2580,7 +2722,7 @@ local function leaderCheckInTargetValid(actor, target, id)
     local base = baseLife.active and baseLife.active()
     local resident = baseLife.resident and baseLife.resident(id)
     if not base or not resident or resident.baseId ~= base.id
-        or resident.duty ~= true or baseLife.isInside(actor) ~= true
+        or resident.duty ~= true or not campWorkActorPresent(actor)
         or baseLife.isInside(target) ~= true
         or baseLife.isOutdoorSquare(target) ~= false then return false end
     if SC.Registry.isActive and SC.Registry.isActive(target, id) ~= true then
@@ -2592,6 +2734,9 @@ local function leaderCheckInTargetValid(actor, target, id)
     local snapshot = runtime and (runtime.senses and runtime.senses.current
         or runtime.snapshot) or nil
     if dangerPresent(snapshot, target, utility.nowMs()) then return false end
+    if not utility.sameFloor(actor, target)
+        and not campFloorRoute(actor, target)
+        and not onCampStairs(actor) then return false end
     local commands = commandState(target)
     if commands.recruited ~= true or commands.order ~= "base_duty" then return false end
     local token = supervisor()
@@ -2622,6 +2767,8 @@ local function leaderCheckInActivity(actor, commands, state, current)
             if not best or score > bestScore then
                 best, bestScore = { kind = "leader_check_in", score = 52,
                     target = target, targetId = id, durationMs = 10000,
+                    originSquare = U().squareOf(actor),
+                    crossFloor = not U().sameFloor(actor, target),
                     deadlines = { approaching = 45000, waiting = 12000 },
                     fact = { activity = "leader_check_in", targetId = id } }, score
             end
@@ -2662,6 +2809,7 @@ local function approachLeaderCheckIn(actor, activity)
     return SC.Navigation.requestAny(actor, squares, "walk", {
         action = "move_to_base_check_in", targetSquare = utility.squareOf(target),
         arrivalDistance = 0.7, continuousApproach = true,
+        workCampOnly = activity.crossFloor == true,
         supervisorToken = activity.supervisorToken,
     })
 end
@@ -2771,6 +2919,27 @@ local function candidates(actor, commands, state, current, desiredKind)
             filtered[#filtered + 1] = television
         end
     end
+    local radio
+    if (desiredKind == nil or desiredKind == "sit"
+        or desiredKind == "radio_listen" or desiredKind == "radio_setup")
+        and not ambientCooling(state, "radio_listen", current)
+        and SC.RadioListening and type(SC.RadioListening.candidate) == "function"
+        and (desiredKind ~= nil
+            or current < (tonumber(state.radioSeatPendingUntil) or 0)
+            or utility.isDue(actor, "downtime_radio_listen_probe", 12000, current)) then
+        radio = SC.RadioListening.candidate(actor, state, current, {
+            seatingStatus = seatingStatus, furnitureKind = furnitureKind,
+            reserved = reservationHeldByOther, cooling = furnitureCooling,
+            freeAccess = freeFurnitureAccess,
+        }, desiredKind)
+        if radio and radio.kind ~= "sit" then
+            if radio.kind == "radio_listen"
+                and current < (tonumber(state.radioSeatPendingUntil) or 0) then
+                radio.score = math.max(radio.score, 46)
+            end
+            filtered[#filtered + 1] = radio
+        end
+    end
     if desiredKind == nil or desiredKind == "study_corpse" then
         activity = Study.activity(actor, commands, state or {}, current)
         if activity then filtered[#filtered + 1] = activity end
@@ -2803,8 +2972,8 @@ local function candidates(actor, commands, state, current, desiredKind)
                 end
             end
         end
-        local rest = television and television.kind == "sit"
-            and television or furniture
+        local rest = radio and radio.kind == "sit" and radio
+            or television and television.kind == "sit" and television or furniture
         if seatedTask ~= nil and seatedTask.borrowedFrom == nil
             and seatingStatus(actor) == "standing" then
             -- Sit first, then the normal next downtime pass starts Read/Write
@@ -2872,7 +3041,10 @@ local function reserveActivity(actor, activity, now)
         held[#held + 1] = value
         return true
     end
-    if not take(activity.object) or not take(activity.watchSquare)
+    -- A switched-on receiver is shared room ambience: several seated
+    -- companions may listen without claiming the radio from one another.
+    if (activity.kind ~= "radio_listen" and not take(activity.object))
+        or not take(activity.watchSquare)
         or not take(activity.item) or not take(activity.material) then
         for _, value in ipairs(held) do release(value, actor) end
         return false
@@ -2985,6 +3157,7 @@ local function beginSupervisedActivity(actor, state, activity)
             move_to_seat = true, move_to_water_source = true, move_to_corpse = true,
             move_to_base_storage = true, move_to_window = true, face_alert = true,
             move_to_clean_stain = true, move_to_tv = true,
+            move_to_radio = true,
             move_to_base_check_in = true,
             sit_ground = true, stand_ground = true,
             -- A seated companion may yawn or stretch without getting up.
@@ -3008,7 +3181,9 @@ local function beginSupervisedActivity(actor, state, activity)
     end
     activity.supervisorToken = token
     local resources = {}
-    if activity.object then resources[#resources + 1] = activity.object end
+    if activity.object and activity.kind ~= "radio_listen" then
+        resources[#resources + 1] = activity.object
+    end
     if activity.item then resources[#resources + 1] = activity.item end
     if activity.material then resources[#resources + 1] = activity.material end
     for _, value in ipairs(activity.scraps or {}) do resources[#resources + 1] = value end
@@ -3062,6 +3237,7 @@ local function approachBorrowedReadingSource(actor, activity)
         arrivalDistance = 0.35,
         requireSameSquare = true,
         continuousApproach = true,
+        workCampOnly = activity.crossFloor == true,
         supervisorToken = activity.supervisorToken,
     })
     return accepted == true, status
@@ -3229,6 +3405,7 @@ local function approachTidyCamp(actor, activity)
         object = activity.object, container = activity.container,
         arrivalDistance = 0.35, requireSameSquare = true,
         continuousApproach = true, supervisorToken = activity.supervisorToken,
+        workCampOnly = activity.crossFloor == true,
     })
 end
 
@@ -3265,6 +3442,7 @@ local function approachCleanBase(actor, activity)
         action = "move_to_clean_stain", targetSquare = activity.square,
         arrivalDistance = 0.35, requireSameSquare = true,
         continuousApproach = true, supervisorToken = activity.supervisorToken,
+        workCampOnly = activity.crossFloor == true,
     })
 end
 
@@ -3379,7 +3557,7 @@ local function beginActivity(actor, state, activity, commands, now)
         -- the wait instead.
         activity.deadlines.waiting = activity.gameDurationHours and 0 or math.max(
             tonumber(activity.durationMs) or 0, 30000)
-    elseif activity.kind == "tv_watch" then
+    elseif activity.kind == "tv_watch" or activity.kind == "radio_listen" then
         activity.deadlines = { waiting = (tonumber(activity.durationMs) or 90000)
             + 10000 }
     end
@@ -3439,6 +3617,24 @@ local function beginActivity(actor, state, activity, commands, now)
             activity.approaching = true
             transitionActivity(activity, "approaching", { status = status })
         end
+    elseif activity.kind == "radio_setup" then
+        state.active = activity
+        local accepted, status = SC.RadioListening.approach(actor, activity)
+        if not accepted then return failActivity(actor, state,
+            status or "radio_route_failed") end
+        if status == "arrived" then
+            local ready, reason = SC.RadioListening.setup(actor, activity)
+            if not ready then return failActivity(actor, state, reason) end
+            transitionActivity(activity, "waiting", { action = "radio_setup" })
+        else
+            activity.approaching = true
+            transitionActivity(activity, "approaching", { status = status })
+        end
+    elseif activity.kind == "radio_listen" then
+        state.active = activity
+        local started, reason = SC.RadioListening.start(actor, activity, now)
+        if not started then return failActivity(actor, state, reason) end
+        transitionActivity(activity, "waiting", { action = "radio_listen" })
     elseif activity.kind == "window_watch" then
         state.active = activity
         local accepted, status = approachWatchWindow(actor, activity)
@@ -3800,6 +3996,11 @@ local function finishActivity(actor, state, now)
     elseif activity.kind == "tv_watch" then
         success = activity.actionAccepted == true
             and SC.TVWatching and SC.TVWatching.valid(actor, activity, true)
+    elseif activity.kind == "radio_setup" or activity.kind == "radio_listen" then
+        success = activity.actionAccepted == true and SC.RadioListening
+            and (activity.kind == "radio_setup"
+                and SC.RadioListening.audible(activity.object)
+                or SC.RadioListening.valid(actor, activity, true))
     elseif activity.kind == "window_watch" then
         local curtain = select(1, U().call(activity.object, "getCurtain"))
         success = activity.actionAccepted == true
@@ -3857,6 +4058,8 @@ local function finishActivity(actor, state, now)
         rest_bed = "bed_rest_verification_failed",
         rest_floor = "floor_rest_verification_failed",
         tv_watch = "tv_view_verification_failed",
+        radio_setup = "radio_setup_verification_failed",
+        radio_listen = "radio_listen_verification_failed",
         window_watch = "window_watch_verification_failed",
         gear_check = "gear_check_verification_failed",
         radio_check = "radio_check_verification_failed",
@@ -3889,6 +4092,8 @@ local function finishActivity(actor, state, now)
         activity.preserveSeating = true
         if activity.fact and activity.fact.seatingFor == "tv_watch" then
             state.tvSeatPendingUntil = now + 15000
+        elseif activity.fact and activity.fact.seatingFor == "radio_listen" then
+            state.radioSeatPendingUntil = now + 15000
         end
     elseif (activity.kind == "rest_bed" or activity.kind == "rest_floor")
         and activity.furnitureEntered == true and seatedTaskReady(actor, now) then
@@ -3917,6 +4122,10 @@ local function finishActivity(actor, state, now)
         if activity.kind == "radio_check" then
             fact.transmitted = broadcastRadioCheck(actor, activity)
             if fact.transmitted then lastSquadRadioCheckAt = now end
+        elseif activity.kind == "radio_listen" and SC.RadioListening then
+            fact.heardBroadcast = activity.lastBroadcastAt ~= nil
+            activity.preserveSeating = true
+            SC.RadioListening.finish(actor, activity)
         end
         state.lastFact = fact
         if activity.kind == "read" and SC.Dialogue
@@ -3942,6 +4151,7 @@ local function finishActivity(actor, state, now)
             state.leaderCheckInPairs[activity.targetId] = now
         end
         if activity.kind == "window_watch" or activity.kind == "tv_watch"
+            or activity.kind == "radio_setup" or activity.kind == "radio_listen"
             or activity.kind == "gear_check"
             or activity.kind == "radio_check" or activity.kind == "tidy_camp"
             or activity.kind == "weather_recovery"
@@ -4115,6 +4325,35 @@ function Downtime.update(actor, player, runtime, desiredKind)
                 return finishActivity(actor, state, current)
             end
             return true, "watching_tv"
+        end
+        if state.active.kind == "radio_setup" then
+            local tuning = state.active
+            if tuning.approaching then
+                if not SC.RadioListening.valid(actor, tuning, false) then
+                    return failActivity(actor, state, "radio_unavailable")
+                end
+                local accepted, status = SC.RadioListening.approach(actor, tuning)
+                if not accepted then return failActivity(actor, state,
+                    status or "radio_route_failed") end
+                if status ~= "arrived" then
+                    transitionActivity(tuning, "approaching", { status = status })
+                    return true, "approaching_radio"
+                end
+                local ready, reason = SC.RadioListening.setup(actor, tuning)
+                if not ready then return failActivity(actor, state, reason) end
+                transitionActivity(tuning, "waiting", { action = "radio_setup" })
+            end
+            return finishActivity(actor, state, current)
+        end
+        if state.active.kind == "radio_listen" then
+            local listening = state.active
+            if not SC.RadioListening.valid(actor, listening, true) then
+                return failActivity(actor, state, "radio_listening_lost")
+            end
+            if current - listening.startedAt >= listening.durationMs then
+                return finishActivity(actor, state, current)
+            end
+            return true, "listening_radio"
         end
         local furniture = state.active.kind == "sit" or state.active.kind == "rest_bed"
         local floorRest = state.active.kind == "rest_floor"

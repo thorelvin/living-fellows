@@ -14720,6 +14720,9 @@ local function probeUIMenus(current)
     setPhase("ui_menu_capture", current)
 end
 Harness.probeUIMenus = probeUIMenus
+Harness.probeBaseMaintenance = require("SCBaseMaintenanceProbe").step
+Harness.probeBaseSecondFloor = require("SCBaseSecondFloorProbe").step
+Harness.probeWaterSource = require("SCWaterSourceProbe").step
 
 local function tick()
     if Harness.finished then return end
@@ -14792,6 +14795,12 @@ local function tick()
     if Harness.phase == "ui_menu_probe" or Harness.phase == "ui_menu_capture"
         or Harness.phase == "ui_menu_capture_bottom" then
         Harness.probeUIMenus(current)
+    elseif string.find(tostring(Harness.phase), "base_maintenance_", 1, true) == 1 then
+        Harness.probeBaseMaintenance(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "base_second_floor_", 1, true) == 1 then
+        Harness.probeBaseSecondFloor(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "water_source_", 1, true) == 1 then
+        Harness.probeWaterSource(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "chef_", 1, true) == 1 then
         Harness.probeChefRecipes(current)
     elseif Harness.phase == "alife_wait" or Harness.phase == "alife_companion_spawn"
@@ -15498,6 +15507,12 @@ local function onGameStart()
     end
     if Harness.config.ui_menu_probe == "true" then
         setPhase("ui_menu_probe", Harness.startedAt)
+    elseif Harness.config.base_maintenance_probe == "true" then
+        setPhase("base_maintenance_setup", Harness.startedAt)
+    elseif Harness.config.base_second_floor_probe == "true" then
+        setPhase("base_second_floor_setup", Harness.startedAt)
+    elseif Harness.config.water_source_probe == "true" then
+        setPhase("water_source_setup", Harness.startedAt)
     elseif Harness.config.chef_recipes_probe == "true" then
         setPhase("chef_recipes_begin", Harness.startedAt)
     elseif Harness.config.project_alife_damage_probe == "true" then
