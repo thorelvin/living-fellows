@@ -116,6 +116,7 @@ local movementActions = {
     move_to_memorial = true,
     move_to_water_source = true,
     move_to_seat = true,
+    move_to_light_switch = true,
     move_to_corpse = true,
     crowd_yield_order = true,
     move_to_treat = true,
@@ -986,7 +987,11 @@ local function directMove(actor, mode, dx, dy, intent)
         return false, "continuous_collision_blocked"
     end
 
-    local facingX, facingY = nx, ny
+    -- Vanilla's BwdDrag grapple walks backward while the survivor faces the
+    -- body. Facing along travel makes the corpse appear to be pushed ahead.
+    local draggingBody = type(intent) == "table" and intent.draggingBody == true
+    local facingX, facingY = draggingBody and -nx or nx,
+        draggingBody and -ny or ny
     local facingTarget = type(intent) == "table" and intent.facingTarget or nil
     if facingTarget == nil and type(intent) == "table" and intent.keepFacing == true then
         facingTarget = intent.target or intent.awayFrom
@@ -994,7 +999,7 @@ local function directMove(actor, mode, dx, dy, intent)
     if facingTarget == nil and type(intent) == "table" and intent.weaponReady == true then
         facingTarget = intent.observationTarget or intent.nextSquare or intent.targetSquare
     end
-    if facingTarget ~= nil then
+    if facingTarget ~= nil and not draggingBody then
         local targetX, targetY = position(facingTarget)
         if targetX ~= nil then
             local lookX, lookY = targetX - x, targetY - y
@@ -1011,7 +1016,7 @@ local function directMove(actor, mode, dx, dy, intent)
     -- directly (facing == travel gives dot 1; only an overridden facing can differ),
     -- and keep the explicit flags for the aligned-advance-with-weapon-ready case.
     local facingDot = facingX * nx + facingY * ny
-    local tactical = type(intent) == "table" and (facingDot < 0.985
+    local tactical = not draggingBody and type(intent) == "table" and (facingDot < 0.985
         or (facingTarget ~= nil and (intent.tacticalStrafe == true
             or intent.tacticalStair == true or intent.tacticalRetreat == true
             or intent.keepFacing == true or intent.weaponReady == true)))
@@ -1034,7 +1039,7 @@ local function directMove(actor, mode, dx, dy, intent)
     local behaviorOk, behavior = invoke(actor, "getPathFindBehavior2")
     if behaviorOk and behavior ~= nil then invoke(behavior, "cancel") end
     local waitingForTurn, turnReason = prepareForwardTurn(
-        actor, x, y, nx, ny, tactical, intent, length)
+        actor, x, y, nx, ny, tactical or draggingBody, intent, length)
     if waitingForTurn ~= nil then return waitingForTurn, turnReason end
     invoke(actor, "setForwardDirection", facingX, facingY)
     invoke(actor, "setRunning", mode == "run" and not tactical and intent.weaponReady ~= true)
@@ -1057,7 +1062,9 @@ local function directMove(actor, mode, dx, dy, intent)
     end
     -- MoveForward owns the translation vector. Reapply the observation vector
     -- afterwards so a corner step is a true sidestep rather than a blind turn.
-    if tactical and facingTarget ~= nil then invoke(actor, "setForwardDirection", facingX, facingY) end
+    if draggingBody or tactical and facingTarget ~= nil then
+        invoke(actor, "setForwardDirection", facingX, facingY)
+    end
 
     local movingOk, moving = invoke(actor, "isMoving")
     local newX, newY = position(actor)
@@ -1067,6 +1074,21 @@ local function directMove(actor, mode, dx, dy, intent)
         return false, "native movement did not start"
     end
     return true, "moving"
+end
+
+-- PathFindBehavior2 owns door alignment, but its travel bearing can turn a
+-- BwdDrag survivor toward the destination. Restore the backward grapple
+-- bearing on each retained native-path update as well as manual open steps.
+function actions.faceDraggedCorpse(actor, target)
+    if not actions.isDraggingCorpse(actor) then return false end
+    local ax, ay = position(actor)
+    local tx, ty = position(target)
+    if ax == nil or tx == nil then return false end
+    local dx, dy = tx - ax, ty - ay
+    local length = math.sqrt(dx * dx + dy * dy)
+    if length <= 0.001 then return false end
+    local changed = invoke(actor, "setForwardDirection", -dx / length, -dy / length)
+    return changed == true
 end
 
 local function useProvider(provider, operation, ...)

@@ -555,6 +555,182 @@ local POOLS = {
     },
 }
 
+-- Each table exchange keeps one subject for all three turns. The speaker's
+-- voice selector still picks a line within that subject; independent topics
+-- would make a reply about supper answer a question about the roof.
+local TABLE_TALKS = {
+    meal = {
+        open = {
+            "This table used to mean supper. What would you put on it tonight, %1?",
+            "It's strange how a table makes a small meal feel less lonely.",
+            "If we could cook one proper meal, what would you ask for, %1?",
+            "Remember when somebody else worried about what was for dinner?",
+            "These chairs make canned beans feel almost respectable.",
+            "I keep imagining fresh bread on this table. That smell, you know?",
+        },
+        reply = {
+            "Hot soup would do. Something with a spoon and no hurry.",
+            "I'd take eggs and toast. Burn the toast if you like.",
+            "Beans taste better when someone stays to eat with you.",
+            "A tomato from the garden would make this feel like a feast.",
+            "I'd settle for tea that stayed hot until the last sip.",
+            "Bread, if we ever get the flour. I'd even wash the dishes.",
+        },
+        close = {
+            "Then that's a plan. One decent meal, all of us at this table.",
+            "I'll save you the good spoon if we ever find one.",
+            "For now, pass the tin. Company helps.",
+            "Funny how much a plate can make a place feel like home.",
+            "We should eat together more often, even when the menu's grim.",
+            "I'll remember that order if the world ever opens a diner again.",
+        },
+    },
+    chores = {
+        open = {
+            "The work can wait five minutes. How are your hands holding up?",
+            "I spent half the day fixing things that broke yesterday.",
+            "If the roof starts leaking, do we have a better plan than a bucket?",
+            "We have a list of jobs longer than this table, %1.",
+            "Who decided a safe house would need this much sweeping?",
+            "Every house has one loose board that waits until you're tired.",
+        },
+        reply = {
+            "My hands are sore, but the wall's still standing.",
+            "A bucket buys us time. Dry boards will take longer.",
+            "We can do one job at a time. That's how we got this far.",
+            "I'd trade a week's sweeping for one working mop.",
+            "Tomorrow I'll check the hinges. They sound like a warning bell.",
+            "The place has more faults than people. We'll catch up.",
+        },
+        close = {
+            "All right. Finish the tea first, then we'll see what needs doing.",
+            "That can be tomorrow's problem. Tonight the walls held.",
+            "Put it on the list. I'll help when these legs remember their job.",
+            "You're right. A house gets fixed one stubborn piece at a time.",
+            "We'll leave the bucket out and call it engineering.",
+            "Good. Nobody has to carry the whole place alone.",
+        },
+    },
+    rain = {
+        open = {
+            "Rain on the roof sounds like gravel from this chair.",
+            "Does the weather ever give us a day without an argument?",
+            "I used to like a storm when I had a warm room to watch it from.",
+            "The rain keeps tapping at the windows like it wants in.",
+            "You can almost smell the wet fields through the walls.",
+            "The rain makes every light in this room look warmer.",
+        },
+        reply = {
+            "At least rain keeps the dust down on the road.",
+            "If the shutters hold, I can almost sleep to it.",
+            "Wet fields might give us something to grow next month.",
+            "Storms used to mean a day indoors and a pot on the stove.",
+            "I checked the window. No leak there yet.",
+            "Cold rain's honest. It tells you what kind of day you're having.",
+        },
+        close = {
+            "We'll listen from this side of the glass, then.",
+            "Maybe the morning will smell clean, for once.",
+            "If the roof lets go, wake me. Otherwise let it sing.",
+            "A dry chair and someone to talk to. I'll take it.",
+            "There's worse company than weather. Much worse.",
+            "We'll put another log on before the cold gets ideas.",
+        },
+    },
+    before = {
+        open = {
+            "What did your kitchen sound like before all this, %1?",
+            "I keep trying to remember the last ordinary Sunday.",
+            "There was a diner outside town. The coffee was terrible. I miss it.",
+            "My family used to argue over who sat by the window.",
+            "This table reminds me of one my grandmother kept under a yellow lamp.",
+            "I used to complain about crowded dinners. Can you believe that?",
+        },
+        reply = {
+            "Mine was loud. Cutlery, radio, somebody laughing too hard.",
+            "Sunday meant dishes in the sink and nowhere urgent to be.",
+            "Bad coffee sounds good now. I'd drink the whole pot.",
+            "We argued about seats too. Nobody wanted the wobbly chair.",
+            "I remember a lamp like that. Warm light on the tablecloth.",
+            "Crowded meant there was always someone to pass the salt.",
+        },
+        close = {
+            "Keep telling me those things. I don't want to forget the sound.",
+            "The old days weren't perfect. They were ours.",
+            "We'll make a new Sunday here when we can.",
+            "Maybe that's why I like this table. It gives the memories a place.",
+            "I can almost hear that kitchen when you talk about it.",
+            "Thanks. For a minute, I remembered something besides July.",
+        },
+    },
+    tomorrow = {
+        open = {
+            "If the road's clear tomorrow, what do we need most?",
+            "We should decide which chore gets daylight first.",
+            "Before the next supply run, we should agree on what matters most.",
+            "If there's trouble outside, I'd rather check it in daylight.",
+            "Let's talk tomorrow before everyone scatters, %1.",
+            "One good tool always seems to be needed in two places.",
+        },
+        reply = {
+            "Water first. Everything else waits if the cans are empty.",
+            "I'll check the fence before anyone heads out.",
+            "A short run for food beats a long one with tired legs.",
+            "Those tracks can wait until we can see both ends of the road.",
+            "Leave the tools where everybody can find them. We'll take turns.",
+            "Let's sleep on it and decide with a little daylight.",
+        },
+        close = {
+            "Fair. We'll make the call after breakfast.",
+            "I'll tell the others when they come in.",
+            "No heroic detours, then. We get what we need and come home.",
+            "That sounds like a plan people might survive.",
+            "We'll leave a note by the door so nobody misses it.",
+            "Good. It's easier to face tomorrow when it has a shape.",
+        },
+    },
+    little_things = {
+        open = {
+            "Someone straightened these chairs. I noticed.",
+            "There was a bird on the sill this morning. Just watching us.",
+            "I found a blue cup in the cupboard. Kept it for no reason.",
+            "The floor creaks in the same place every time. It's becoming familiar.",
+            "I heard somebody humming while they worked today.",
+            "This room still smells a little like coffee after the fire goes out.",
+        },
+        reply = {
+            "A chair in the right place makes it easier to sit a while.",
+            "Birds don't know the world ended. I envy them for that.",
+            "Keep the cup. We're allowed to like things.",
+            "Familiar sounds are better than surprising ones.",
+            "I heard it too. I almost joined in.",
+            "Coffee or smoke, I'll take a warm room either way.",
+        },
+        close = {
+            "We should hold on to the little things. They add up.",
+            "Maybe that's what makes this place ours.",
+            "You can have the blue cup next time.",
+            "If I start humming, you have permission to complain.",
+            "I needed that thought more than I knew.",
+            "All right. One quiet minute, then back to the world.",
+        },
+    },
+}
+local TABLE_THEME_KEYS = { "meal", "chores", "rain", "before", "tomorrow",
+    "little_things" }
+local function tableThemeAvailable(theme)
+    if theme ~= "rain" then return true end
+    if type(getClimateManager) ~= "function" then return false end
+    local ok, manager = pcall(getClimateManager)
+    return ok and manager ~= nil
+        and select(1, U().call(manager, "isRaining")) == true
+end
+for theme, stages in pairs(TABLE_TALKS) do
+    for stage, lines in pairs(stages) do
+        POOLS["banter.table." .. theme .. "." .. stage] = { common = lines }
+    end
+end
+
 -- Room definition names (Build 42 Distributions) grouped into one set of lines.
 local ROOM_GROUPS = {
     policestorage = "police", policelocker = "police",
@@ -1169,6 +1345,8 @@ local function faceConversation(first, second, action, firstEmote, secondEmote)
         socialMovement = true, stableFacing = true })
 end
 
+local tableServesPair
+
 local function beginExchange(first, second, openTopic, replyTopic,
         firstCommands, secondCommands, current, kind, faceToFace)
     if not speak(first, openTopic, firstCommands, { firstName(second) }, {
@@ -1207,16 +1385,33 @@ local function exchangePulse(records, current)
         party.exchange = nil
         return false, "conversation_interrupted", false
     end
+    if exchange.kind == "table" and not tableServesPair(exchange.first,
+        exchange.second, exchange.tableObject) then
+        party.exchange = nil
+        return false, "table_conversation_interrupted", false
+    end
     if current < (exchange.nextAt or 0) then return false, "conversation_waiting", true end
-    local spoken = speak(exchange.second, exchange.replyTopic, exchange.secondCommands,
-        { firstName(exchange.first) }, {
-            salt = exchange.kind .. ":reply:" .. pairKey(exchange.first, exchange.second)
-                .. ":" .. tostring(current),
+    local closing = exchange.stage == "close"
+    local speaker = closing and exchange.first or exchange.second
+    local topic = closing and exchange.closeTopic or exchange.replyTopic
+    local commands = closing and exchange.firstCommands or exchange.secondCommands
+    local other = closing and exchange.second or exchange.first
+    local spoken = speak(speaker, topic, commands, { firstName(other) }, {
+            salt = exchange.kind .. ":" .. (closing and "close" or "reply") .. ":"
+                .. pairKey(exchange.first, exchange.second) .. ":" .. tostring(current),
         })
-    local topic = exchange.replyTopic
-    party.exchange = nil
-    if not spoken then return false, "conversation_reply_rejected", false end
+    if not spoken then
+        party.exchange = nil
+        return false, "conversation_reply_rejected", false
+    end
     party.lastFlavorAt = current
+    if not closing and exchange.closeTopic then
+        exchange.stage = "close"
+        exchange.nextAt = current + config("companionConversationReplyMs", 2800)
+        exchange.expiresAt = current + 12000
+        return true, topic, true
+    end
+    party.exchange = nil
     return true, topic, false
 end
 
@@ -1287,6 +1482,72 @@ local quietAction = {
     tidy_camp = true, weather_recovery = true, clean_base = true,
 }
 
+local function isTableFurniture(object)
+    local sprite = select(1, U().call(object, "getSprite"))
+    local properties = sprite and select(1, U().call(sprite, "getProperties"))
+    return properties ~= nil
+        and select(1, U().call(properties, "has", "IsTable")) == true
+end
+
+local function seatedForConversation(actor)
+    if select(1, U().call(actor, "isSittingOnFurniture")) ~= true
+        or select(1, U().call(actor, "isAsleep")) == true
+        or select(1, U().call(actor, "isMoving")) == true then return false end
+    local supervisor = SC.ActionSupervisor
+    local token = supervisor and type(supervisor.current) == "function"
+        and supervisor.current(actor) or nil
+    if token and (token.owner ~= "downtime" or token.action ~= "sit") then
+        return false
+    end
+    return not (SC.Positioning
+        and type(SC.Positioning.activeConversation) == "function"
+        and SC.Positioning.activeConversation(actor) ~= nil)
+end
+
+tableServesPair = function(first, second, object)
+    if object == nil or not seatedForConversation(first)
+        or not seatedForConversation(second) then return false end
+    local firstSquare, secondSquare = U().squareOf(first), U().squareOf(second)
+    local tableSquare = U().squareOf(object)
+    local room = firstSquare and select(1, U().call(firstSquare, "getRoom"))
+    if room == nil or not secondSquare or not tableSquare
+        or select(1, U().call(secondSquare, "getRoom")) ~= room
+        or select(1, U().call(tableSquare, "getRoom")) ~= room
+        or not isTableFurniture(object)
+        or (U().distance(first, tableSquare) or math.huge) > 2.25
+        or (U().distance(second, tableSquare) or math.huge) > 2.25 then
+        return false
+    end
+    local stillThere = false
+    U().squareObjects(tableSquare, function(candidate)
+        if candidate == object then stillThere = true return false end
+        return true
+    end, 48)
+    return stillThere
+end
+
+local function sharedTable(first, second)
+    if not seatedForConversation(first) or not seatedForConversation(second)
+        then return nil end
+    local ax, ay, az = U().position(first)
+    if ax == nil then return nil end
+    for dx = -2, 2 do
+        for dy = -2, 2 do
+            local square = U().gridSquare(ax + dx, ay + dy, az)
+            local found
+            U().squareObjects(square, function(object)
+                if tableServesPair(first, second, object) then
+                    found = object
+                    return false
+                end
+                return true
+            end, 24)
+            if found then return found end
+        end
+    end
+    return nil
+end
+
 local function availableForQuietTalk(record, player, current, radius)
     local commands = available(record, player, current, radius, true)
     if not commands then return nil end
@@ -1333,6 +1594,7 @@ local function campConversationPulse(player, records, current)
                 and U().distance(firstActor, secondActor) <= radius
                 and U().canSee(firstActor, secondActor)
                 and current - prior >= config("campConversationPairCooldownMs", 600000) then
+                local tableObject = sharedTable(firstActor, secondActor)
                 local openTopic = campPair and "banter.camp.open"
                     or "banter.shelter.open"
                 local replyTopic = campPair and "banter.camp.reply"
@@ -1348,12 +1610,42 @@ local function campConversationPulse(player, records, current)
                 if bookConversation then
                     openTopic, replyTopic = "banter.books.open", "banter.books.reply"
                 end
+                local closeTopic, conversationKind
+                if tableObject then
+                    local index = math.abs(tonumber(U().stableHash(key .. ":table:"
+                        .. tostring(math.floor(current / 60000)))) or 0)
+                        % #TABLE_THEME_KEYS + 1
+                    if not tableThemeAvailable(TABLE_THEME_KEYS[index]) then
+                        index = index % #TABLE_THEME_KEYS + 1
+                    end
+                    local prefix = "banter.table." .. TABLE_THEME_KEYS[index]
+                    openTopic, replyTopic, closeTopic = prefix .. ".open",
+                        prefix .. ".reply", prefix .. ".close"
+                    conversationKind = "table"
+                else
+                    conversationKind = campPair and "camp" or "shelter"
+                end
                 local spoken, topic = beginExchange(firstActor, secondActor,
                     openTopic, replyTopic,
                     first.commands, second.commands, current,
-                    campPair and "camp" or "shelter",
-                    first.freeToFace and second.freeToFace)
+                    conversationKind,
+                    not tableObject and first.freeToFace and second.freeToFace)
                 if spoken then
+                    if tableObject then
+                        party.exchange.tableObject = tableObject
+                        party.exchange.closeTopic = closeTopic
+                        party.exchange.firstCommands = first.commands
+                        party.exchange.expiresAt = current + 18000
+                        if SC.Gestures
+                            and type(SC.Gestures.seatedConversation) == "function"
+                            and roll(config("tableConversationGestureChancePercent", 40),
+                                firstActor, current) then
+                            local gesturer = U().stableHash(key .. ":gesture:"
+                                .. tostring(current)) % 2 == 0
+                                and firstActor or secondActor
+                            pcall(SC.Gestures.seatedConversation, gesturer, current)
+                        end
+                    end
                     actorState(firstActor).lastCampTalkAt = current
                     actorState(secondActor).lastCampTalkAt = current
                     rememberPair("campPairs", "campPairCount", key, current, 128)

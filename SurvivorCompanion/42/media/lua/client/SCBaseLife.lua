@@ -73,7 +73,7 @@ BaseLife.PRODUCTION_OPERATIONS = {
         defaultRequested = 5,
         settings = {
             withBelongings = { kind = "boolean", default = false },
-            closeWhenDone = { kind = "boolean", default = true },
+            closeWhenDone = { kind = "boolean", default = false },
             digIfNeeded = { kind = "boolean", default = true },
             marker = { kind = "enum", values = { none = true, wood = true }, default = "none" },
         },

@@ -970,6 +970,22 @@ do
     SC.BaseLife.cancelGatherOrder(ctx.order.id)
     oldMedical = SC.Medical
     SC.Medical = {
+        replaceDirtyBandage = function() return false, "no_treatable_wound" end,
+        peek = function() return nil end,
+    }
+    accepted, job = SC.BaseLife.enqueueJob({
+        type = "replace_bandage", assignedId = ctx.actor.modData.SC_Id, priority = 5,
+    })
+    handled, reason = SC.BaseWork.update(ctx.actor, nil, {})
+    check(accepted == true and handled == true and reason == "already_treated"
+            and SC.BaseLife.job(job.id) == nil,
+        "a stale bandage job completes after another care path treated the wound")
+    SC.Medical = oldMedical
+
+    ctx = setup("logs", 1)
+    SC.BaseLife.cancelGatherOrder(ctx.order.id)
+    oldMedical = SC.Medical
+    SC.Medical = {
         replaceDirtyBandage = function() return true, "treating" end,
         peek = function() return { phase = "active" } end,
     }

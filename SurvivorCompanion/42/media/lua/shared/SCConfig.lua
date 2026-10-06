@@ -868,6 +868,7 @@ local valueData = {
     campConversationPartyCooldownMs = 60000,
     campConversationActorCooldownMs = 180000,
     campConversationPairCooldownMs = 600000,
+    tableConversationGestureChancePercent = 40,
     distractionMinHealth = 40,
     distractionChancePercent = 35,
     distractionAllyChancePercent = 25,
@@ -1413,6 +1414,7 @@ local valueData = {
     -- A sandbox option can restrict it to interiors actually seen by the player.
     expeditionDestinationScope = "all_nearby",
     expeditionDestinationRadius = 200,
+    expeditionFishingRadius = 1000,
     expeditionRoadRoutingEnabled = true,
     factionSpawnCooldownDays = 7,
     factionDailySpawnChancePercent = 8,

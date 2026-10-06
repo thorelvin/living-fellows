@@ -245,6 +245,12 @@ local function objectOpen(object)
     return ok and value == true
 end
 
+local function windowCurtain(window)
+    -- IsoWindow exposes HasCurtains in Build 42. A missing lookup used to
+    -- treat every covered window as clear and let the watch begin through it.
+    return select(1, U().call(window, "HasCurtains"))
+end
+
 local function isCurtain(object)
     local utility = U()
     if utility.instanceOf(object, "IsoCurtain") then return true end
@@ -1038,17 +1044,37 @@ local function washBandageProtected(actor, item)
         or personal.isProtected(item, actor, "wash_bandage") == true
 end
 
+-- Logistics audits include the contents of carried bags. A dirty dressing
+-- found there must be replaced in that same container; removing it from the
+-- character's root inventory leaves the original in the bag and fails every
+-- subsequent wash attempt.
+local function carriedBandageContainer(actor, item)
+    local utility = U()
+    local root = utility.inventory(actor)
+    if not root or not item then return nil end
+    local holder, holderOk = utility.call(item, "getContainer")
+    if not holderOk or holder == nil then holder = root end
+    if holder ~= root then
+        local carried = false
+        for _, pack in ipairs(utility.inventoryItems(root, 240)) do
+            local nested, nestedOk = utility.call(pack, "getItemContainer")
+            if nestedOk and nested == holder then carried = true break end
+        end
+        if not carried then return nil end
+    end
+    return utility.containerContainsIdentity(holder, item) == true and holder or nil
+end
+
 local function washActivity(actor, items, state, current)
     local bodyScore = bodyDirt(actor)
     local bestItem, bestItemScore
     local dirtyBandage
-    local inventory = U().inventory(actor)
     for _, item in ipairs(items) do
         local cleanType = CLEAN_DRESSING_TYPES[string.lower(U().itemType(item))]
         local protected = cleanType ~= nil and washBandageProtected(actor, item)
         if dirtyBandage == nil
             and cleanType
-            and U().inventoryContains(inventory, item)
+            and carriedBandageContainer(actor, item) ~= nil
             and not protected then
             dirtyBandage = item
         end
@@ -1067,6 +1093,7 @@ local function washActivity(actor, items, state, current)
         return {
             kind = "wash_bandage", score = 62,
             object = source, square = square, item = dirtyBandage,
+            itemContainer = carriedBandageContainer(actor, dirtyBandage),
             crossFloor = crossFloor,
             cleanType = CLEAN_DRESSING_TYPES[
                 string.lower(U().itemType(dirtyBandage))],
@@ -1382,6 +1409,69 @@ local function floorRestActivity(actor, furnitureAvailable)
 end
 
 local function approachFurniture(actor, activity)
+    if activity.kind == "rest_bed" and activity.lightChecked ~= true then
+        local bedSquare = U().squareOf(activity.object)
+        local bedroom = bedSquare and select(1, U().call(bedSquare, "getRoom"))
+        if bedroom then
+            if activity.lightSwitch == nil then
+                local bx, by, bz = U().position(bedSquare)
+                local nearest, nearestDistance
+                for dx = -5, 5 do
+                    for dy = -5, 5 do
+                        local square = U().gridSquare(bx + dx, by + dy, bz)
+                        if square and select(1, U().call(square, "getRoom")) == bedroom then
+                            U().squareObjects(square, function(object)
+                                if U().instanceOf(object, "IsoLightSwitch")
+                                    and select(1, U().call(object, "isActivated")) == true
+                                    and select(1, U().call(object, "canSwitchLight")) ~= false then
+                                    local distance = U().distance(actor, square)
+                                    if distance and (nearestDistance == nil
+                                        or distance < nearestDistance) then
+                                        nearest, nearestDistance = object, distance
+                                    end
+                                end
+                                return true
+                            end, 32)
+                        end
+                    end
+                end
+                activity.lightSwitch = nearest
+            end
+            if activity.lightSwitch then
+                local light = activity.lightSwitch
+                if select(1, U().call(light, "isActivated")) == true then
+                    local arrived, targets = U().directInteractionAccess(actor, light)
+                    if arrived then
+                        U().call(actor, "faceThisObject", light)
+                        U().call(light, "toggle")
+                        activity.lightChecked = true
+                        activity.lightSwitch = nil
+                    elseif #targets > 0 and SC.Navigation
+                        and type(SC.Navigation.requestAny) == "function" then
+                        local accepted, status = SC.Navigation.requestAny(actor, targets,
+                            "walk", { action = "move_to_light_switch",
+                                object = light, targetSquare = U().squareOf(light),
+                                requireSameSquare = true, continuousApproach = true,
+                                workCampOnly = activity.crossFloor == true,
+                                supervisorToken = activity.supervisorToken })
+                        if accepted then return true, "approaching_light_switch" end
+                        activity.lightChecked = true
+                        activity.lightSwitch = nil
+                    else
+                        activity.lightChecked = true
+                        activity.lightSwitch = nil
+                    end
+                else
+                    activity.lightChecked = true
+                    activity.lightSwitch = nil
+                end
+            else
+                activity.lightChecked = true
+            end
+        else
+            activity.lightChecked = true
+        end
+    end
     local arrived, targets, accessReason = freeFurnitureAccess(actor, activity.object)
     if arrived == true then
         activity.busySince = nil
@@ -3076,6 +3166,10 @@ end
 local function releaseDowntimeResources(actor, state, activity, reason)
     activity = activity or state and state.active
     if not activity then return true, reason or "no_activity" end
+    if activity.kind == "window_watch" and activity.watchCrouched == true then
+        U().call(actor, "setSneaking", activity.wasSneaking == true)
+        activity.watchCrouched = nil
+    end
     if activity.kind == "clean_base" and SC.NativeActions
         and type(SC.NativeActions.cancelWork) == "function" then
         pcall(SC.NativeActions.cancelWork, actor, reason or "downtime_cancelled")
@@ -3155,7 +3249,8 @@ local function beginSupervisedActivity(actor, state, activity)
         allowedActions = {
             [activity.kind] = true,
             move_to_seat = true, move_to_water_source = true, move_to_corpse = true,
-            move_to_base_storage = true, move_to_window = true, face_alert = true,
+            move_to_base_storage = true, move_to_window = true,
+            move_to_light_switch = true, face_alert = true,
             move_to_clean_stain = true, move_to_tv = true,
             move_to_radio = true,
             move_to_base_check_in = true,
@@ -3360,7 +3455,7 @@ local function startWindowWatch(actor, activity, now)
         or U().movingBlocker(activity.square, actor) then
         return false, "window_watch_unavailable"
     end
-    local curtain = select(1, U().call(activity.object, "getCurtain"))
+    local curtain = windowCurtain(activity.object)
     if curtain ~= nil and not objectOpen(curtain) then
         if not SC.Navigation or type(SC.Navigation.interact) ~= "function" then
             return false, "curtain_interaction_unavailable"
@@ -3380,11 +3475,25 @@ local function startWindowWatch(actor, activity, now)
         end
     end
     activity.curtainWaitSince = nil
+    if activity.wasSneaking == nil then
+        activity.wasSneaking = select(1, U().call(actor, "isSneaking")) == true
+    end
     if not U().move(actor, "walk", {
         action = "face_alert", targetPosition = activity.watchTarget,
         weaponReady = false, downtime = true,
         supervisorToken = activity.supervisorToken,
     }) then return false, "window_watch_facing_rejected" end
+    if activity.watchCrouched == nil then
+        local x, y = U().position(activity.square)
+        -- A few lookout positions call for a low silhouette; this is chosen
+        -- once for the whole pause so the posture cannot flicker every tick.
+        local crouch = x and y and (math.abs(math.floor(x * 17 + y * 31
+            + now / 60000)) % 3 == 0)
+        if crouch or activity.wasSneaking then
+            local _, set = U().call(actor, "setSneaking", true)
+            if set then activity.watchCrouched = true end
+        end
+    end
     activity.approaching = nil
     activity.actionAccepted = true
     activity.startedAt = now
@@ -3879,9 +3988,9 @@ end
 
 local function completeWashBandage(actor, activity)
     local utility = U()
-    local inventory = utility.inventory(actor)
+    local inventory = carriedBandageContainer(actor, activity.item)
     if not inventory or not activity.item or not activity.cleanType
-        or not utility.inventoryContains(inventory, activity.item)
+        or (activity.itemContainer ~= nil and activity.itemContainer ~= inventory)
         or CLEAN_DRESSING_TYPES[string.lower(utility.itemType(activity.item))]
             ~= activity.cleanType
         or washBandageProtected(actor, activity.item)
@@ -3911,7 +4020,8 @@ local function completeWashBandage(actor, activity)
             return false
         end
     end
-    if not useWashWater(activity.object, 0.5) then
+    -- The stock ISCleanBandage action spends one unit for one dressing.
+    if not useWashWater(activity.object, 1) then
         consumeExact(inventory, clean)
         return false
     end
@@ -3919,6 +4029,7 @@ local function completeWashBandage(actor, activity)
         consumeExact(inventory, clean)
         return false
     end
+    utility.touchInventoryIndex(inventory)
     return utility.inventoryContains(inventory, clean)
 end
 
@@ -4002,7 +4113,7 @@ local function finishActivity(actor, state, now)
                 and SC.RadioListening.audible(activity.object)
                 or SC.RadioListening.valid(actor, activity, true))
     elseif activity.kind == "window_watch" then
-        local curtain = select(1, U().call(activity.object, "getCurtain"))
+        local curtain = windowCurtain(activity.object)
         success = activity.actionAccepted == true
             and watchWindowValid(actor, activity)
             and U().sameSquare(actor, activity.square)
@@ -4173,6 +4284,10 @@ local function finishActivity(actor, state, now)
             SC.NativeActions.noteResult(actor, "downtime_" .. tostring(activity.kind),
                 "completed", { kind = "long", skip = activity.preserveSeating == true })
         end
+    end
+    if activity.kind == "window_watch" and activity.watchCrouched == true then
+        U().call(actor, "setSneaking", activity.wasSneaking == true)
+        activity.watchCrouched = nil
     end
     releaseActivity(actor, activity)
     state.active = nil

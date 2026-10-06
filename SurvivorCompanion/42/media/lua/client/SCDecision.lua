@@ -1342,7 +1342,9 @@ local function doWork(actor, player, commands, snapshot, state)
     local utility = U()
     local current = utility.nowMs()
     state.workAssignedAt = state.workAssignedAt or current
-    if current - state.workAssignedAt > (utility.config("workApproachTimeoutMs") or 60000) then
+    if not (type(commands.workTarget) == "table"
+            and commands.workTarget.kind == "barricade" and state.workAction)
+        and current - state.workAssignedAt > (utility.config("workApproachTimeoutMs") or 60000) then
         return finishWork(actor, player, state, "work_timeout")
     end
     local object, targetSquare, targetReason = resolveWorkObject(commands)
@@ -1374,7 +1376,9 @@ local function doWork(actor, player, commands, snapshot, state)
         })
     end
 
-
+    -- ISBarricadeAction closes an open door when the build action starts.
+    -- Closing it here can trap the worker in a loop: supply gathering or other
+    -- residents reopen the door before the timed action is queued.
     if commands.workTarget.kind == "remove_barricade" then
         local currentPlanks = selectedBarricadePlanks(object, actor, commands.workTarget)
         if currentPlanks == nil then
@@ -1466,6 +1470,7 @@ local function doWork(actor, player, commands, snapshot, state)
                 local cleaned, cleanupReason = SC.NativeActions.finishWork(actor)
                 if cleaned ~= true then return false, cleanupReason end
                 state.workAction = nil
+                state.workAssignedAt = utility.nowMs()
                 return true, "barricade_continuing"
             end
             return finishWork(actor, player, state, "barricade_completed")
@@ -1516,6 +1521,7 @@ local function doWork(actor, player, commands, snapshot, state)
         initialPlanks = currentPlanks,
         objectIndex = commands.workTarget.objectIndex,
     }
+    state.workAssignedAt = state.workAction.startedAt
     return true, "barricade_started"
 end
 

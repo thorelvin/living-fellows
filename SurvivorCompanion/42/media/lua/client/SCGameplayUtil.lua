@@ -800,6 +800,9 @@ function U.movingBlocker(square, actor, options)
     local found, kind
     U.squareMovingObjects(square, function(other)
         if other == actor then return end
+        -- Build 42 briefly turns a dragged corpse into a grapple-only zombie.
+        -- It follows the hauler and must not become traffic in its own route.
+        if U.isCorpseProxy(other) then return end
         local collidable, collisionKnown = U.call(other, "isCollidable")
         if collisionKnown and collidable == false then return end
         -- Giblets, blood drops and particles are IsoMovingObjects too. Only

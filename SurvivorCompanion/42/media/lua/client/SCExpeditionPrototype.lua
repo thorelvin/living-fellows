@@ -600,6 +600,11 @@ function Expedition.start(records, plan)
             z = math.floor(player:getZ()),
         } or nil
         local searchPlan = type(plan) == "table" and plan.kind == "search"
+        local fishingPlan = searchPlan and type(plan.request) == "table"
+            and plan.request.category == "fish"
+        local destinationRadius = SC.Config and SC.Config.get(fishingPlan
+            and "expeditionFishingRadius" or "expeditionDestinationRadius")
+            or (fishingPlan and 1000 or 200)
         if type(plan) ~= "table"
             or (plan.kind ~= "scout" and not searchPlan)
             or not validPoint(plan.destination)
@@ -608,7 +613,7 @@ function Expedition.start(records, plan)
             or distanceToPoint(roster[1].actor, plan.destination)
                 < (searchPlan and 8 or 20)
             or distanceToPoint(roster[1].actor, plan.destination)
-                > (SC.Config and SC.Config.get("expeditionDestinationRadius") or 200)
+                > destinationRadius
             or (plan.site ~= nil and not validSite(plan.site))
             or (searchPlan and (not validRequest(plan.request)
                 or (plan.radius ~= nil and (type(plan.radius) ~= "number"
@@ -739,7 +744,7 @@ function Expedition.fishingBankCandidates(leaderId, page, refresh)
         return nil, "invalid_place_page"
     end
     return SC.Fishing.bankCandidates(actor,
-        SC.Config and SC.Config.get("expeditionDestinationRadius") or 200,
+        SC.Config and SC.Config.get("expeditionFishingRadius") or 1000,
         32, (page - 1) * 32, refresh == true)
 end
 
@@ -753,7 +758,7 @@ function Expedition.startAtFishingBank(records, bankId, options)
         return false, "fishing_bank_lookup_unavailable"
     end
     local selected, reason = SC.Fishing.bankById(records[1].actor, bankId,
-        SC.Config and SC.Config.get("expeditionDestinationRadius") or 200)
+        SC.Config and SC.Config.get("expeditionFishingRadius") or 1000)
     if not selected then return false, reason end
     options = type(options) == "table" and options or {}
     if not validRequest(options.request)

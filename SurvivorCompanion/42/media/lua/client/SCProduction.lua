@@ -131,7 +131,7 @@ end
 -- failures: they must never cool down or exhaust a work target.
 local TRANSIENT_PREFIXES = {
     "action_pacing", "visual_action_active", "visual_effect_pending",
-    "actor_state_busy", "activity_",
+    "actor_state_busy", "activity_", "diagonal_corner",
 }
 
 local function transientRejection(reason)
@@ -1193,8 +1193,12 @@ local function approachSquare(actor, square, action, avoid, reach, dragging)
         return "failed", "navigation_unavailable"
     end
     local treeWork = action == "move_to_production_tree"
+    local graveWork = action == "move_to_production_grave"
+        or action == "drag_body_to_grave"
+    local graveInRoom = graveWork and select(1, invoke(square, "isInARoom")) == true
     local offered = type(SC.Navigation.interactionTargets) == "function"
-        and SC.Navigation.interactionTargets(actor, square) or {}
+        and SC.Navigation.interactionTargets(actor, square,
+            graveWork and { requireDirectAccess = true } or nil) or {}
     local targets = {}
     for _, target in ipairs(type(offered) == "table" and offered or {}) do
         -- Navigation's generic interaction helper may offer the object's own
@@ -1206,13 +1210,15 @@ local function approachSquare(actor, square, action, avoid, reach, dragging)
         local cardinal = tx ~= nil and sx ~= nil
             and math.abs(math.floor(tx) - math.floor(sx))
                 + math.abs(math.floor(ty) - math.floor(sy)) == 1
+        local targetInRoom = graveWork and select(1, invoke(target, "isInARoom")) == true
         if not U().sameSquare(target, square) and standingTree == nil
-            and (not treeWork or cardinal)
+            and (not treeWork or cardinal) and (not graveWork or
+                (cardinal and targetInRoom == graveInRoom))
             and not avoided(target, avoid) then
             targets[#targets + 1] = target
         end
     end
-    if #targets == 0 then
+    if #targets == 0 and not graveWork then
         local free = freeAdjacent(square, actor, avoid, treeWork)
         targets = free and { free } or {}
     end
@@ -3578,6 +3584,52 @@ function Disposal.dropHere(actor, order, state, context, reason, block)
     return false, reason
 end
 
+-- An ordinary route failure while hauling is not a reason to leave a corpse
+-- in the kitchen. Retry the grave route briefly, then look for a clear outdoor
+-- square on the same floor before giving up the haul. Threats still use the
+-- immediate emergency drop above.
+function Disposal.safeDropOutside(actor, haul)
+    local utility = U()
+    local square = utility.squareOf(actor)
+    if square == nil then return false, "actor_square_unavailable" end
+    if select(1, invoke(square, "getRoom")) == nil then return true, "already_outside" end
+    if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
+        return false, "navigation_unavailable"
+    end
+    local candidates = haul.safeDropCandidates
+    if not candidates or now() - (haul.safeDropScanAt or 0) >= 2000 then
+        local x, y, z = utility.position(square)
+        candidates = {}
+        for radius = 1, 10 do
+            for dx = -radius, radius do
+                for dy = -radius, radius do
+                    if math.max(math.abs(dx), math.abs(dy)) == radius then
+                        local target = utility.gridSquare(x + dx, y + dy, z)
+                        if target and select(1, invoke(target, "getRoom")) == nil
+                            and utility.isSquareFree(target)
+                            and not Disposal.hasBody(target) then
+                            candidates[#candidates + 1] = target
+                        end
+                    end
+                end
+            end
+            if #candidates >= 12 then break end
+        end
+        haul.safeDropCandidates, haul.safeDropScanAt = candidates, now()
+    end
+    if #candidates == 0 then return false, "no_outdoor_drop_square" end
+    local accepted, reason = SC.Navigation.requestAny(actor, candidates, "walk", {
+        action = "drag_body_to_safe_drop", targetSquare = candidates[1],
+        arrivalDistance = 0.4, requireSameSquare = true,
+        workCampOnly = true, workReach = true, draggingBody = true,
+    })
+    if accepted ~= true then return false, reason or "safe_drop_path_blocked" end
+    if select(1, invoke(utility.squareOf(actor), "getRoom")) == nil then
+        return true, "outside_reached"
+    end
+    return nil, reason or "approaching_outdoor_drop"
+end
+
 function Disposal.emergencyDrop(actor, order, state, context)
     speak(actor, "burial.haul.threat", nil, tostring(now()), context.runtime)
     return Disposal.dropHere(actor, order, state, context, "unsafe_area")
@@ -3790,7 +3842,12 @@ function Disposal.continueDrag(actor, order, state, context, zone)
     if haul.pyreKey then claim(haul.pyreKey, order.id, context.actorId) end
     local elapsed = now() - (haul.dragStartedAt or now())
     if elapsed > config("productionCorpseDragTimeoutMs", 90000) then
-        return Disposal.dropHere(actor, order, state, context, "drag_timeout")
+        local outside, outsideReason = Disposal.safeDropOutside(actor, haul)
+        if outside == nil then return true, outsideReason end
+        if outside == false then
+            return true, "waiting_for_outdoor_drop:" .. tostring(outsideReason)
+        end
+        return Disposal.dropHere(actor, order, state, context, "drag_timeout", true)
     end
     state.phase = "dragging"
     speak(actor, "burial.haul.drag", nil,
@@ -3807,8 +3864,20 @@ function Disposal.continueDrag(actor, order, state, context, zone)
         result, moveReason = approachSquare(actor, target, "drag_body_to_grave", avoid, reach, true)
     end
     if result == "failed" then
-        return Disposal.dropHere(actor, order, state, context, "drag_route_blocked", true)
+        haul.routeBlockedSince = haul.routeBlockedSince or now()
+        haul.routeBlockReason = moveReason
+        if now() - haul.routeBlockedSince < 15000 then
+            return true, "drag_route_replanning:" .. tostring(moveReason)
+        end
+        local outside, outsideReason = Disposal.safeDropOutside(actor, haul)
+        if outside == nil then return true, outsideReason end
+        if outside == false then
+            return true, "waiting_for_outdoor_drop:" .. tostring(outsideReason)
+        end
+        return Disposal.dropHere(actor, order, state, context,
+            "drag_route_blocked:" .. tostring(moveReason), true)
     end
+    haul.routeBlockedSince, haul.routeBlockReason = nil, nil
     if result ~= "arrived" then return true, moveReason end
     local accepted, reason = U().move(actor, "walk", {
         action = "drop_body", targetSquare = U().squareOf(actor),
@@ -3869,6 +3938,17 @@ end
 
 -- A body laid at its destination is buried in its reserved grave or burned on
 -- the pyre. One that landed beside the pyre is taken hold of again, bounded.
+local function bodyLandedByGrave(bodySquare, grave)
+    local x, y, z = U().position(bodySquare)
+    if x == nil or y == nil or math.floor(z or 0) ~= grave.z
+        or math.abs(math.floor(x) - grave.x) > 2
+        or math.abs(math.floor(y) - grave.y) > 2 then return false end
+    local graveSquare = U().gridSquare(grave.x, grave.y, grave.z)
+    local bodyInRoom = select(1, invoke(bodySquare, "isInARoom")) == true
+    local graveInRoom = select(1, invoke(graveSquare, "isInARoom")) == true
+    return bodyInRoom == graveInRoom
+end
+
 function Disposal.disposePlaced(actor, order, state, context, zone)
     local haul = state.haul
     if not zone then
@@ -3903,6 +3983,16 @@ function Disposal.disposePlaced(actor, order, state, context, zone)
         Disposal.abandonHaul(state, context)
         return false, "production_grave_unavailable"
     end
+    if not bodyLandedByGrave(haul.square, grave) then
+        haul.attempts = (haul.attempts or 0) + 1
+        if haul.attempts >= config("productionCorpsePlacementAttempts", 2) then
+            Disposal.clearTag(haul.body)
+            Disposal.abandonHaul(state, context)
+            return blockOrder(order, "grave_placement_failed")
+        end
+        haul.stage = "approach"
+        return true, "production_replacing_body"
+    end
     local target = {
         body = haul.body, bodySquare = haul.square, key = haul.key,
         grave = { x = grave.x, y = grave.y, z = grave.z }, graveInfo = grave, graveKey = grave.key,
@@ -3930,7 +4020,10 @@ end
 
 function Disposal.finishCollect(actor, order, state, context, zone)
     if zone.kind == "burial" then
-        local handled, reason, terminal = Disposal.closeGraves(actor, order, state, context, true)
+        -- An automatic collection order may contain only one body. Keep an
+        -- ordinary grave open for its remaining capacity; named graves and
+        -- full graves are closed by the normal closeGraves pass.
+        local handled, reason, terminal = Disposal.closeGraves(actor, order, state, context, false)
         if handled ~= nil then return handled, reason, terminal end
     end
     return completeOrder(order, "bodies_collected")

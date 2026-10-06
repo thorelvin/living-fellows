@@ -438,6 +438,12 @@ do
     direct.lastMovementReason = "path_started"
     check(N._directRouteNoNetMotionForTests(actor, direct, 7001, 5000) == true,
         "a native provider path acknowledgement still exposes direct-route no-motion")
+    direct.directStallNativeGoalKey = "12:5:0"
+    direct.directStallNativeUntil = 9000
+    check(N._directStallNeedsNativeEdgeForTests(direct, square(12, 5), 7001) == true
+            and N._directStallNeedsNativeEdgeForTests(direct, square(13, 5), 7001) == false
+            and N._directStallNeedsNativeEdgeForTests(direct, square(12, 5), 9001) == false,
+        "a stalled direct route grants a bounded native edge only for its original goal")
     actor.x, actor.y = 11.1, 10.2
     direct.lastDirectMotionCommandAt = 7100
     check(N._directRouteNoNetMotionForTests(actor, direct, 7100, 5000) == false,

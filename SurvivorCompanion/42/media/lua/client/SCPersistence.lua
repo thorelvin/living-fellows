@@ -2602,15 +2602,17 @@ local function validateRecord(id, source)
     return clean
 end
 
--- Builds prior to exact appearance persistence could also carry the old
--- scratch-restore infection roll.  Its unmistakable save signature is an
--- entire legacy cohort becoming newly Knox-positive together despite every
--- body being free of zombie wounds.  Repair only that cohort-wide signature;
--- a mixed group, a mature infection, any wound evidence, or any record written
--- by the new appearance codec is left untouched.
+-- Older saves can contain a fabricated whole-group Knox infection. The old
+-- scratch restore rolled an infection; later, the one-argument SetBitten(false)
+-- marked every restored body part infected. Repair only a full, wound-free
+-- cohort written before part-level Knox flags were saved. For recent saves,
+-- require two newly infected companions with the same infection age: that is
+-- the signature of a single load/update, not independent zombie encounters.
 local function repairLegacyKnoxCohort(document)
     if type(document) ~= "table" then return 0 end
     local records, suspicious = {}, {}
+    local allLegacyRecent, oldPartCodec = true, true
+    local recentOnsets = {}
     for _, bucketName in ipairs({ "companions", "factionActors" }) do
         local bucket = document[bucketName]
         if type(bucket) == "table" then
@@ -2625,9 +2627,13 @@ local function repairLegacyKnoxCohort(document)
                         and finite(vitals.infectionTime, -1) <= 0.05
                         and finite(vitals.apparentInfection, 100) >= 0
                         and finite(vitals.apparentInfection, 100) <= 15
+                    if not legacy or not recent then allLegacyRecent = false end
                     local woundEvidence = false
                     for _, part in ipairs(type(vitals.parts) == "table"
                         and vitals.parts or {}) do
+                        if type(part) == "table" and part.knoxInfected ~= nil then
+                            oldPartCodec = false
+                        end
                         if type(part) == "table" and (part.bitten == true
                             or part.scratched == true or part.cut == true
                             or part.deepWound == true
@@ -2638,21 +2644,57 @@ local function repairLegacyKnoxCohort(document)
                             break
                         end
                     end
-                    if legacy and vitals.infected == true and recent
-                        and not woundEvidence then
+                    if vitals.infected == true and not woundEvidence then
                         suspicious[#suspicious + 1] = { id = id, record = record }
+                        local elapsed = finite(vitals.infectionElapsedHours, -1)
+                        if elapsed >= 0.1 and elapsed <= 2 then
+                            recentOnsets[#recentOnsets + 1] = elapsed
+                        end
                     end
                 end
             end
         end
     end
     if #records < 2 or #suspicious ~= #records then return 0 end
+    local synchronizedOnset = false
+    for first = 1, #recentOnsets do
+        for second = first + 1, #recentOnsets do
+            if math.abs(recentOnsets[first] - recentOnsets[second]) <= 0.002 then
+                synchronizedOnset = true
+                break
+            end
+        end
+        if synchronizedOnset then break end
+    end
+    if not oldPartCodec or (not allLegacyRecent and not synchronizedOnset) then
+        return 0
+    end
 
     local repairedIds = {}
     for _, entry in ipairs(suspicious) do
         local vitals = entry.record.vitals
+        local parts = type(vitals.parts) == "table" and vitals.parts or {}
+        local partCount, depletedParts = 0, 0
+        for _, part in ipairs(parts) do
+            if type(part) == "table" then
+                partCount = partCount + 1
+                if finite(part.health, 100) < 99 then
+                    depletedParts = depletedParts + 1
+                end
+            end
+        end
+        -- The fabricated infection can drain nearly every body part before
+        -- the player notices. Restore only that systemic pattern; isolated
+        -- damage may be a real injury and stays as saved.
+        if partCount >= 4 and depletedParts * 2 >= partCount then
+            for _, part in ipairs(parts) do
+                if type(part) == "table" then part.health = 100 end
+            end
+            vitals.overallHealth = 100
+        end
         vitals.infected = false
         vitals.infectionTime = -1
+        vitals.infectionElapsedHours = nil
         vitals.infectionMortalityDuration = -1
         vitals.apparentInfection = 0
         entry.record.knox = false
@@ -3833,7 +3875,7 @@ function persistence.restore(player)
     local repairedKnox = repairLegacyKnoxCohort(candidateDocument)
     if repairedKnox > 0 then
         SC.Diagnostics.report("persistence", nil,
-            "repaired impossible legacy companion infection cohort",
+            "repaired fabricated companion infection cohort",
             tostring(repairedKnox) .. " wound-free companions")
     end
 

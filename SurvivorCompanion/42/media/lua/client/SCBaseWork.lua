@@ -1154,6 +1154,11 @@ local function updateChore(actor, state, job, player, runtime)
         end
         if ok and reason == "bandaged" then
             SC.BaseLife.completeJob(job.id, actorId(actor), reason)
+        elseif not ok and reason == "no_treatable_wound" then
+            -- Another care path may have changed the dressing since this job
+            -- was queued. The work is resolved; retrying cannot improve it.
+            SC.BaseLife.completeJob(job.id, actorId(actor), "already_treated")
+            return true, "already_treated", false
         end
         local activeTreatment = SC.Medical and type(SC.Medical.peek) == "function"
             and SC.Medical.peek(actor) or nil
@@ -1479,10 +1484,16 @@ function BaseWork.update(actor, player, runtime)
     -- danger cancellation follow the same rules as every quiet activity.
     local visitState = SC.Downtime and type(SC.Downtime.peek) == "function"
         and SC.Downtime.peek(actor) or nil
-    local activeVisit = visitState and visitState.active
-        and visitState.active.kind == "leader_check_in"
-    if job and activeVisit and type(SC.Downtime.cancel) == "function" then
+    local activeQuiet = visitState and visitState.active
+    local activeVisit = activeQuiet and activeQuiet.kind == "leader_check_in"
+    if job and activeQuiet and type(SC.Downtime.cancel) == "function" then
         SC.Downtime.cancel(actor, "base_job_assigned")
+    elseif not job and activeQuiet
+        and SC.Downtime and type(SC.Downtime.update) == "function" then
+        -- Once a quiet action owns the actor, let it finish before the next
+        -- queue claim. A fresh base job used to strand an active lookout.
+        return SC.Downtime.update(actor, player, runtime,
+            activeQuiet.kind == "leader_check_in" and "leader_check_in" or nil)
     end
     local base = SC.BaseLife.active()
     if not job and not activeGuard and base and base.settings
@@ -1502,6 +1513,37 @@ function BaseWork.update(actor, player, runtime)
     if not job and resident.role == "chef" and SC.ChefWork
         and type(SC.ChefWork.ensureAutomaticJob) == "function" then
         SC.ChefWork.ensureAutomaticJob(actor, resident)
+    end
+    if not job and not activeGuard and base and base.settings
+        and base.settings.routines ~= false
+        and SC.Downtime and type(SC.Downtime.canPerform) == "function"
+        and type(SC.Downtime.update) == "function" then
+        -- The queue can be permanently populated. Offer quiet activities
+        -- between jobs at a sparse per-resident cadence, never mid-job.
+        -- Every third pause favors a lookout so gear checks and seating do
+        -- not permanently outscore it.
+        if state.nextQuietAt == nil then
+            local spread = 0
+            for index = 1, #tostring(id) do
+                spread = (spread + string.byte(tostring(id), index)) % 120000
+            end
+            state.nextQuietAt = now() + 180000 + spread
+        end
+        if now() >= state.nextQuietAt then
+            local lookout = (state.quietPasses or 0) % 3 == 0
+                and SC.Downtime.canPerform(actor, "window_watch") == true
+            local handled, reason = SC.Downtime.update(actor, player,
+                runtime, lookout and "window_watch" or nil)
+            if handled then
+                state.quietPasses = (state.quietPasses or 0) + 1
+                state.nextQuietAt = now() + 480000
+            elseif reason ~= "settling" and reason ~= "cooldown" then
+                state.nextQuietAt = now() + 90000
+            end
+            if handled or reason == "settling" or reason == "cooldown" then
+                return true, reason or "base_downtime"
+            end
+        end
     end
     if not job and (not (activeGuard and resident.role == "guard") or namedJobWaiting(id)) then
         job = select(1, SC.BaseLife.claimJob(id))

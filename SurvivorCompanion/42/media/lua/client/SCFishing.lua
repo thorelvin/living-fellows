@@ -24,6 +24,8 @@ local MAP_EDGE_STEP = 10
 local BANK_DIRECTIONS = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
 -- One shoreline scan serves every page of the expedition picker.
 local BANK_LIST_CACHE_MS = 30000
+local MAX_BANK_RADIUS = 1000
+local LOADED_BANK_SCAN_RADIUS = 200
 local bankListCache
 
 local function U() return SC.GameplayUtil end
@@ -78,9 +80,12 @@ local function mapWorld()
     local mini = type(getPlayerMiniMap) == "function"
         and getPlayerMiniMap(0) or nil
     local javaMap = mini and mini.inner and mini.inner.javaObject
-    local world = javaMap and javaMap:getWorldMap() or nil
-    if world and world:isDataLoaded() then return world end
-    return nil
+    -- UIWorldMap.getWorldMap exists in Java but is not exposed to stock Lua.
+    -- The narrow bridge returns it only after its feature data is loaded.
+    if not javaMap or not SCBridge or not SCBridge.loadedWorldMap then
+        return nil
+    end
+    return SCBridge.loadedWorldMap(javaMap)
 end
 
 local function mapWaterFeatures(world, cx, cy, cache)
@@ -197,7 +202,7 @@ function Angling.bankById(actor, id, radius)
     if actor then ox, oy = U().position(actor) end
     radius = tonumber(radius)
     if not x or not y or not ox or not oy or not radius
-        or radius < 1 or radius > 200 or x > 30000 or y > 30000
+        or radius < 1 or radius > MAX_BANK_RADIUS or x > 30000 or y > 30000
         or (x - ox)^2 + (y - oy)^2 > radius * radius then
         return nil, "fishing_bank_out_of_range"
     end
@@ -219,15 +224,16 @@ function Angling.bankCandidates(actor, radius, limit, offset, refresh)
     local ox, oy
     if actor then ox, oy = U().position(actor) end
     radius, limit, offset = tonumber(radius), tonumber(limit), tonumber(offset) or 0
-    if not ox or not oy or not radius or radius < 1 or radius > 200
+    if not ox or not oy or not radius or radius < 1 or radius > MAX_BANK_RADIUS
         or radius ~= math.floor(radius) or not limit or limit < 1
         or limit > 32 or limit ~= math.floor(limit) or offset < 0
         or offset > 4096 or offset ~= math.floor(offset) then
         return nil, "invalid_fishing_bank_query"
     end
     ox, oy = math.floor(ox), math.floor(oy)
-    -- A 200-tile scan reads up to 160,000 squares. Paging through the same
-    -- list reuses it for a short while; the picker's Refresh rescans.
+    -- Loaded squares are only useful near the active player stream. Scan at
+    -- most 200 tiles here; mapped water supplies the distant candidates.
+    -- Paging reuses one scan and the picker's Refresh rescans.
     local cached = bankListCache
     if refresh ~= true and cached and cached.x == ox and cached.y == oy
         and cached.radius == radius and now() - cached.at < BANK_LIST_CACHE_MS then
@@ -243,8 +249,9 @@ function Angling.bankCandidates(actor, radius, limit, offset, refresh)
         return U().loadedSquare({ x = x, y = y, z = 0 })
     end
     local groups, rows = {}, {}
-    for x = math.max(0, ox - radius), ox + radius do
-        for y = math.max(0, oy - radius), oy + radius do
+    local loadedRadius = math.min(radius, LOADED_BANK_SCAN_RADIUS)
+    for x = math.max(0, ox - loadedRadius), ox + loadedRadius do
+        for y = math.max(0, oy - loadedRadius), oy + loadedRadius do
             if (x - ox)^2 + (y - oy)^2 <= radius * radius
                 and water(squareAt(x, y)) then
                 for _, direction in ipairs(BANK_DIRECTIONS) do

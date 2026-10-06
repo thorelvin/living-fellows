@@ -1899,6 +1899,7 @@ function Navigation._provisionalAdvance(actor, state, goalSquare, intent, now)
         -- This dispatches a movement vector, not a route: nothing downstream
         -- will open a door or climb a window for it.
         directWalkOnly = true,
+        draggingBody = type(intent) == "table" and intent.draggingBody == true,
         now = now or U().nowMs(),
     }
     if type(intent) == "table" and intent.workCampOnly == true then
@@ -3321,6 +3322,15 @@ local function tacticalStep(actor, state, sourceSquare, nextSquare, afterSquare,
         state.chokeQueueSince = nil
         releaseChoke(state, actor)
     end
+    -- The grapple already supplies its own backward pose. A room sweep or
+    -- corner observation would rotate the hauler toward the route and leave
+    -- the body ahead of the survivor at the next doorway.
+    if intent.draggingBody == true then
+        state.roomEntryKey, state.roomEntryObserveUntil = nil, nil
+        state.roomEntrySweepPhase, state.cornerObserveKey = nil, nil
+        state.cornerObserveUntil = nil
+        return true, "dragging_body"
+    end
     if fence then
         -- The landing side is not an ordinary doorway/corner yet. The native
         -- player climb owns alignment, visibility and the full transition, so
@@ -4126,6 +4136,13 @@ Navigation._goalResetDistanceForTests = goalResetDistance
 -- occupancy are separate -- a mover adds crowd cost (and none when the goal is
 -- allowed to be occupied), while a static blocker is always impassable.
 Navigation._passableEdgeForTests = passableEdge
+function Navigation.dragEdgeAllowed(actor, fromSquare, toSquare, now)
+    local permitted, _, reason = passableEdge(fromSquare, toSquare, 1, {
+        actor = actor, draggingBody = true, now = now,
+        allowOccupiedGoal = true,
+    })
+    return permitted == true, reason
+end
 
 -- Test seams (heap A*, review 3.3): the open-set min-heap must drain in exact
 -- (f, h, seq) order so the search keeps producing the same paths as the old scan.
@@ -4389,6 +4406,7 @@ local function beginNativeLease(state, targets, fromSquare, toSquare, ultimateGo
         urgent = intent and intent.urgent == true,
         workCampOnly = intent and intent.workCampOnly == true,
         workReach = intent and intent.workReach == true,
+        draggingBody = intent and intent.draggingBody == true,
         arrivalDistance = intent and tonumber(intent.arrivalDistance) or nil,
         supervisorToken = intent and intent.supervisorToken,
     }
@@ -4742,6 +4760,22 @@ local function maintainNativeLease(actor, state, goalSquare, now)
         if nextSquare then
             lease.nativeNextSquare = nextSquare
             local nextKey = squareKey(nextSquare)
+            if lease.draggingBody and currentSquare and nextKey ~= currentKey then
+                local allowed, dragReason
+                if adjacentStep(currentSquare, nextSquare) then
+                    allowed, dragReason = SC.Navigation.dragEdgeAllowed(
+                        actor, currentSquare, nextSquare, now)
+                else
+                    allowed, dragReason = false, "drag_unverified_native_edge"
+                end
+                if not allowed then
+                    if SC.NativeActions and type(SC.NativeActions.stopDirect) == "function" then
+                        pcall(SC.NativeActions.stopDirect, actor, { preservePosture = true })
+                    end
+                    state.nativeLease = nil
+                    return "failed", "path_blocked:" .. tostring(dragReason)
+                end
+            end
             -- PathFindBehavior2 may advance its next waypoint while the actor
             -- remains wedged. Only translated actor position renews the lease.
             lease.nativeNextKey = nextKey
@@ -4869,6 +4903,11 @@ local function maintainNativeLease(actor, state, goalSquare, now)
                 return "active", openStatus or "opening_door"
             end
         end
+    end
+    if lease.draggingBody and SC.NativeActions
+        and type(SC.NativeActions.faceDraggedCorpse) == "function" then
+        SC.NativeActions.faceDraggedCorpse(actor,
+            lease.nativeNextSquare or lease.toSquare)
     end
     if progressed then
         lease.progressAt = now
@@ -5422,6 +5461,11 @@ local function directRouteNoNetMotion(actor, state, now, delayMs)
 end
 Navigation._directRouteNoNetMotionForTests = directRouteNoNetMotion
 
+function Navigation._directStallNeedsNativeEdgeForTests(state, goalSquare, now)
+    return state.directStallNativeGoalKey == squareKey(goalSquare)
+        and now <= (tonumber(state.directStallNativeUntil) or 0)
+end
+
 local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, now)
     local utility = U()
     local actorSquare = utility.squareOf(actor)
@@ -5599,6 +5643,12 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
             math.max(5000, stuckDelay * 2)) then
         state.nativeRecoveryDue = true
         state.lastMovementReason = "direct_route_no_net_motion"
+        -- MoveForward can acknowledge a pulse while the collision capsule
+        -- shuffles in place. Replanning the same open edge with the same
+        -- direct mover repeats the stall; give the next validated edge to
+        -- PathFindBehavior2 instead.
+        state.directStallNativeGoalKey = squareKey(goalSquare)
+        state.directStallNativeUntil = now + 10000
     end
     if state.nativeRecoveryDue ~= true
         and now - (state.lastProgressAt or now) < stuckDelay then
@@ -6712,6 +6762,7 @@ function Navigation.request(actor, target, movementMode, intent)
                 advanced = utility.move(actor, requestIntent.mode or "walk", {
                     action = requestIntent.action,
                     dx = advanceX, dy = advanceY,
+                    draggingBody = requestIntent.draggingBody,
                     continuousFollow = true,
                     continuousApproach = true,
                     continuousAimSquare = advanceSquare,
@@ -6903,7 +6954,8 @@ function Navigation.request(actor, target, movementMode, intent)
     -- pause. Raising the weapon here puts a local-player companion into
     -- PlayerAimState; it can stop at a clear door and trigger an "unknown"
     -- stuck recovery. A threat decision takes ownership and aims separately.
-    requestIntent.weaponReady = requestIntent.continuousApproach ~= true
+    requestIntent.weaponReady = requestIntent.draggingBody ~= true
+        and requestIntent.continuousApproach ~= true
         and not insideSecureBase(actor, requestIntent.snapshot)
         and now < (state.weaponReadyUntil or 0)
     if requestIntent.weaponReady and requestIntent.mode == "run" then requestIntent.mode = "walk" end
@@ -6997,6 +7049,18 @@ function Navigation.request(actor, target, movementMode, intent)
     end
 
     local barrier, kind = barrierBetween(sourceSquare, nextSquare)
+    -- Recheck a retained edge against the hauling policy before any traversal
+    -- action. A route cached before the grab, or a changed window/door, must
+    -- never make a worker climb while holding a corpse.
+    if requestIntent.draggingBody == true then
+        local permitted, dragReason = SC.Navigation.dragEdgeAllowed(
+            actor, sourceSquare, nextSquare, now)
+        if permitted ~= true then
+            rememberFailure(actor, state, sourceSquare, nextSquare,
+                dragReason or "drag_edge_blocked", now, "drag_route_replan")
+            return false, dragReason or "drag_edge_blocked"
+        end
+    end
     if requestIntent.workCampOnly == true
         and not SC.Navigation._workSquareAdmitted(nextSquare, requestIntent) then
         state.path, state.pathGoalSquare, state.pathSearch = nil, nil, nil
@@ -7234,6 +7298,12 @@ function Navigation.request(actor, target, movementMode, intent)
         requestIntent.vehicleClearance = squareNearVehicle(sourceSquare)
             or squareNearVehicle(nextSquare)
     end
+    if kind == "open" and SC.Navigation._directStallNeedsNativeEdgeForTests(
+            state, goalSquare, now) then
+        requestIntent.direct = false
+        requestIntent.enginePath = true
+        requestIntent.directStallFallback = true
+    end
     if kind == "open" and requestIntent.direct == true
         and requestIntent.enginePath ~= true then
         local aimX, aimY, aimSquare = SC.Navigation._continuousFollowVectorForRequest(
@@ -7308,6 +7378,10 @@ function Navigation.request(actor, target, movementMode, intent)
         end
     end
     if requestIntent.enginePath == true then
+        if requestIntent.directStallFallback == true then
+            state.directStallNativeGoalKey = nil
+            state.directStallNativeUntil = nil
+        end
         beginNativeLease(state, { nextSquare }, sourceSquare, nextSquare,
             goalSquare, now, requestIntent.vegetationClearance
                 and "vegetation_corridor"

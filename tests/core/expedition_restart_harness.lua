@@ -1015,14 +1015,14 @@ local formerFishing = SC.Fishing
 local fishingReady = false
 SC.Fishing = {
     bankCandidates = function(actor, radius, limit, offset)
-        check(actor == reserve and radius == 200 and limit == 32
+        check(actor == reserve and radius == 1000 and limit == 32
             and offset == 0, "fishing lists banks around the selected leader")
-        return { { id = "bank:80:25", anchor = { x = 80, y = 25, z = 0 },
-            kind = "fishing_bank", label = "Fishing bank 80, 25" } }, nil, 1
+        return { { id = "bank:800:25", anchor = { x = 800, y = 25, z = 0 },
+            kind = "fishing_bank", label = "Fishing bank 800, 25" } }, nil, 1
     end,
-    bankById = function(actor, id)
-        if actor == reserve and id == "bank:80:25" then
-            return { anchor = { x = 80, y = 25, z = 0 } }
+    bankById = function(actor, id, radius)
+        if actor == reserve and id == "bank:800:25" and radius == 1000 then
+            return { anchor = { x = 800, y = 25, z = 0 } }
         end
         return nil, "fishing_bank_unavailable"
     end,
@@ -1037,7 +1037,7 @@ check(#fishingChoices == 1 and fishingChoices[1].kind == "fishing_bank",
     "fishing mission lists shore coordinates instead of building footprints")
 local promotedBeforeFishing = promotions
 local fishStarted, fishReason, missingName = expedition.startAtFishingBank(
-    { { id = "delta", actor = reserve, name = "Reserve" } }, "bank:80:25",
+    { { id = "delta", actor = reserve, name = "Reserve" } }, "bank:800:25",
     { request = { category = "fish", quantity = 1 } })
 check(not fishStarted and fishReason == "fishing_rod_missing"
         and missingName == "Reserve" and promotions == promotedBeforeFishing,
@@ -1049,13 +1049,13 @@ check(expedition.fishingGearStatus({
     }) == true,
     "ungeared escort does not block a geared fishing leader")
 fishStarted, newMission = expedition.startAtFishingBank(
-    { { id = "delta", actor = reserve, name = "Reserve" } }, "bank:80:25",
+    { { id = "delta", actor = reserve, name = "Reserve" } }, "bank:800:25",
     { request = { category = "fish", quantity = 1 } })
 check(fishStarted and newMission.scout.site == nil
-        and newMission.scout.destination.x == 80
+        and newMission.scout.destination.x == 800
         and newMission.scout.destination.y == 25
         and newMission.scout.search.request.category == "fish",
-    "fishing launch routes straight to the selected bank without a building")
+    "fishing launch accepts a distant selected bank without a building")
 newMission.scout.phase = "awaiting_player"
 check(expedition.finishAtPlayer(player) == true,
     "the shoreline expedition can close through normal debrief")
@@ -1290,6 +1290,7 @@ end
 SC.ExpeditionRoute.verifyEntry = function() return true end
 SC.Config = { get = function(key)
     if key == "expeditionDestinationRadius" then return 200 end
+    if key == "expeditionFishingRadius" then return 1000 end
     if key == "expeditionRoadRoutingEnabled" then return true end
 end }
 reserve.x, reserve.y = 23, 20

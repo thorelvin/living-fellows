@@ -665,7 +665,8 @@ do
         return true
     end
     function woundPart:SetHealth(v) return note("SetHealth", v) end
-    function woundPart:SetBitten(v) return note("SetBitten", v) end
+    function woundPart:SetBitten(v, infected) return note("SetBitten", v, infected) end
+    function woundPart:SetInfected(v) return note("SetInfected", v) end
     function woundPart:setScratched(a, b) return note("setScratched", a, b) end
     function woundPart:setCut(a, b) return note("setCut", a, b) end
     function woundPart:setWoundInfectionLevel(v) return note("setWoundInfectionLevel", v) end
@@ -693,6 +694,19 @@ do
     check(recorded.setWoundInfectionLevel ~= nil
         and recorded.setWoundInfectionLevel[1] == 0.4,
         "the saved wound infection level is what gets restored, not a new roll")
+    check(recorded.SetBitten ~= nil and recorded.SetBitten[1] == false
+            and recorded.SetBitten[2] == false
+            and recorded.SetInfected ~= nil and recorded.SetInfected[1] == false,
+        "healthy saved body parts cannot gain Knox from the native bite setter")
+    SC.Vitals.apply(woundActor, {
+        health = 100, overallHealth = 100, infected = true, parts = {
+            { type = "ForeArm_R", health = 70, bitten = true,
+              knoxInfected = true },
+        },
+    })
+    check(recorded.SetBitten[1] == true and recorded.SetBitten[2] == true
+            and recorded.SetInfected[1] == true,
+        "a genuinely infected bite retains its body-part Knox flag")
 end
 
 do
@@ -848,7 +862,37 @@ do
     current.companions.a.identity.appearance = { hairModel = "Bob" }
     current.companions.b.identity.appearance = { hairModel = "CrewCut" }
     check(SC.Persistence._repairLegacyKnoxCohortForTests(current) == 0,
-        "current appearance-aware saves never enter the legacy Knox repair")
+        "appearance alone cannot trigger a whole-group Knox repair")
+
+    local restoredCohort = { companions = {
+        a = impossibleLegacy("A"), b = impossibleLegacy("B"),
+        c = impossibleLegacy("C"),
+    }, factionActors = {} }
+    for _, row in pairs(restoredCohort.companions) do
+        row.identity.appearance = { hairModel = "Bob" }
+        row.vitals.infectionTime = 2.5
+        row.vitals.infectionElapsedHours = 21
+        row.vitals.apparentInfection = 42
+    end
+    restoredCohort.companions.b.vitals.infectionElapsedHours = 0.50456641
+    restoredCohort.companions.c.vitals.infectionElapsedHours = 0.50456643
+    restoredCohort.companions.a.vitals.overallHealth = 20
+    restoredCohort.companions.a.vitals.parts = {
+        { type = "Hand_L", health = 20 }, { type = "Hand_R", health = 21 },
+        { type = "Foot_L", health = 19 }, { type = "Foot_R", health = 22 },
+    }
+    check(SC.Persistence._repairLegacyKnoxCohortForTests(restoredCohort) == 3
+            and restoredCohort.companions.a.vitals.infected == false
+            and restoredCohort.companions.b.vitals.infectionElapsedHours == nil
+            and restoredCohort.companions.a.vitals.overallHealth == 100
+            and restoredCohort.companions.a.vitals.parts[1].health == 100,
+        "synchronized wound-free Knox after load repairs the whole saved cohort")
+    restoredCohort.companions.a.vitals.infected = true
+    restoredCohort.companions.b.vitals.infected = true
+    restoredCohort.companions.c.vitals.infected = true
+    restoredCohort.companions.a.vitals.parts[1].knoxInfected = true
+    check(SC.Persistence._repairLegacyKnoxCohortForTests(restoredCohort) == 0,
+        "a save with explicit part-level Knox evidence is never auto-cleared")
 end
 
 local needsParts = {}
@@ -1377,6 +1421,36 @@ function directProvider:dismantle(candidate, object)
 end
 check(SC.Actor._setProviderForTests(directProvider),
     "pure-Lua experimental adapter selects explicit direct-native execution")
+
+do
+    local saved = { px = actor.px, py = actor.py, forwardX = actor.forwardX,
+        forwardY = actor.forwardY, moving = actor.moving, aiming = actor.aiming,
+        tacticalMovement = actor.tacticalMovement,
+        strafeX = actor.strafeX, strafeY = actor.strafeY }
+    actor.px, actor.py, actor.forwardX, actor.forwardY = 0.5, 0.5, -1, 0
+    actor.moving, actor.aiming = false, false
+    local hauled, haulReason = SC.NativeMovementActions.dispatch(actor, "walk", {
+        action = "drag_body_to_grave", dx = 1, dy = 0, draggingBody = true,
+    }, directProvider)
+    check(hauled == true and actor.px > 0.5 and actor.forwardX < -0.9
+            and actor.tacticalMovement ~= true and actor.aiming ~= true,
+        "corpse hauling translates toward the grave while facing the body without aiming: "
+            .. tostring(haulReason))
+    local priorDragProbe = actor.isDraggingCorpse
+    actor.isDraggingCorpse = function() return true end
+    local nativeFacing = SC.NativeActions.faceDraggedCorpse(actor,
+        { x = actor:getX() + 1, y = actor:getY(), z = 0 })
+    check(nativeFacing and actor.forwardX < -0.9,
+        "a retained native door path restores the backward corpse-drag bearing")
+    actor.isDraggingCorpse = priorDragProbe
+    for key, value in pairs(saved) do actor[key] = value end
+    if saved.px == nil then actor.px = nil end
+    if saved.py == nil then actor.py = nil end
+    if saved.aiming == nil then actor.aiming = nil end
+    if saved.tacticalMovement == nil then actor.tacticalMovement = nil end
+    if saved.strafeX == nil then actor.strafeX = nil end
+    if saved.strafeY == nil then actor.strafeY = nil end
+end
 
 do
     local blowtorch = { uses = 2 }

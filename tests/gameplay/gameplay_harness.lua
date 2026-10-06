@@ -1036,6 +1036,25 @@ do
     check(npcBlocker == alifeNpc and npcBlockerKind == "actor_crowd",
         "A-Life NPCs remain physical traffic even after zombie threat filtering")
 
+    local hauledProxy = zombie(6, 2, {})
+    function hauledProxy:isReanimatedForGrappleOnly() return true end
+    local clearHaul, clearKind = SurvivorCompanion.GameplayUtil.movingBlocker(
+        hauledProxy.square, closeCompanion)
+    check(clearHaul == nil and clearKind == nil,
+        "a grapple-only corpse proxy never blocks its hauler as zombie traffic")
+    local livingBlocker = zombie(6, 2, {})
+    local realBlocker, realKind = SurvivorCompanion.GameplayUtil.movingBlocker(
+        hauledProxy.square, closeCompanion)
+    check(realBlocker == livingBlocker and realKind == "zombie_crowd",
+        "a live zombie on the same tile still blocks a corpse route")
+    for _, candidate in ipairs({ hauledProxy, livingBlocker }) do
+        for index = #candidate.square.moving, 1, -1 do
+            if candidate.square.moving[index] == candidate then
+                table.remove(candidate.square.moving, index)
+            end
+        end
+    end
+
     local alifeBystander = zombie(5, 0, {})
     alifeBystander.modData.ProjectALifeOwned = true
     alifeBystander.modData.ProjectALifeUID = "playtest-alife-bystander"
@@ -8458,7 +8477,7 @@ do
     local window = { __class = "IsoWindow", square = inside }
     function window:getSquare() return self.square end
     function window:getNorth() return true end
-    function window:getCurtain() return curtain end
+    function window:HasCurtains() return curtain end
     inside.objects[#inside.objects + 1] = window
     local proposedWatch = watchWindow(watcher)
     check(proposedWatch and proposedWatch.object == window
@@ -8505,6 +8524,8 @@ do
         "a settled watcher opens the curtain before facing the exterior: "
             .. tostring(watching) .. "/" .. tostring(watchReason)
             .. "/candidate=" .. tostring(watchWindow(watcher)))
+    check(SurvivorCompanion.Downtime.canPerform(watcher, "window_watch") == true,
+        "the ordinary downtime candidate probe can still find a lookout")
     SurvivorCompanion.Navigation.interact = originalCurtainInteraction
     clock = clock + 7000
     local watched = SurvivorCompanion.Downtime.update(watcher, player,
@@ -8512,6 +8533,74 @@ do
     check(watched and SurvivorCompanion.Downtime.peek(watcher).lastFact.activity
             == "window_watch" and watcher.square == inside,
         "the window pause completes without moving or changing the window")
+    check(watcher:isSneaking() == false,
+        "a window watch restores the companion's original standing posture")
+    do
+        local baseLife, originalBaseWatch = SurvivorCompanion.BaseLife,
+            SurvivorCompanion.BaseWatch
+        SurvivorCompanion.BaseWatch = originalBaseWatch or {}
+        local baseWatch = SurvivorCompanion.BaseWatch
+        local downtime, baseWork = SurvivorCompanion.Downtime,
+            SurvivorCompanion.BaseWork
+        local saved = { resident = baseLife.resident, active = baseLife.active,
+            jobFor = baseLife.jobFor, claimJob = baseLife.claimJob,
+            isInside = baseLife.isInside,
+            outdoorNightRestricted = baseLife.outdoorNightRestricted,
+            guardStatus = baseLife.guardStatus,
+            isLeader = baseWatch.isLeader,
+            canPerform = downtime.canPerform, update = downtime.update,
+            peek = downtime.peek }
+        local claims, requested, activeLookout = 0, nil, nil
+        baseLife.resident = function() return { duty = true, role = "generalist" } end
+        baseLife.active = function() return { settings = { routines = true } } end
+        baseLife.jobFor = function() return nil end
+        baseLife.claimJob = function() claims = claims + 1 return nil end
+        baseLife.isInside = function() return true end
+        baseLife.outdoorNightRestricted = function() return false end
+        baseLife.guardStatus = function() return false end
+        baseWatch.isLeader = function() return false end
+        downtime.canPerform = function(_, kind) return kind == "window_watch" end
+        downtime.update = function(_, _, _, kind)
+            requested = kind
+            return true, kind or "base_downtime"
+        end
+        downtime.peek = function()
+            return activeLookout and { active = activeLookout } or nil
+        end
+        baseWork.reset(watcher)
+        baseWork.update(watcher, player, calm)
+        local priorClaims = claims
+        clock = clock + 310000
+        local lookoutOffered, lookoutReason = baseWork.update(watcher,
+            player, calm)
+        check(lookoutOffered and lookoutReason == "window_watch"
+                and requested == "window_watch" and claims == priorClaims,
+            "base work offers a window watch between jobs before claiming again")
+        activeLookout = { kind = "window_watch" }
+        requested = "unset"
+        baseWork.update(watcher, player, calm)
+        check(requested == nil and claims == priorClaims,
+            "an active base lookout keeps its downtime owner until it finishes")
+        activeLookout = nil
+        requested = "unset"
+        clock = clock + 480001
+        local generalPause, generalReason = baseWork.update(watcher,
+            player, calm)
+        check(generalPause and generalReason == "base_downtime"
+                and requested == nil and claims == priorClaims,
+            "later work breaks admit other ordinary downtime activities")
+        baseWork.reset(watcher)
+        baseLife.resident, baseLife.active, baseLife.jobFor,
+            baseLife.claimJob, baseLife.isInside,
+            baseLife.outdoorNightRestricted, baseLife.guardStatus =
+            saved.resident, saved.active, saved.jobFor,
+            saved.claimJob, saved.isInside,
+            saved.outdoorNightRestricted, saved.guardStatus
+        baseWatch.isLeader = saved.isLeader
+        SurvivorCompanion.BaseWatch = originalBaseWatch
+        downtime.canPerform, downtime.update, downtime.peek =
+            saved.canPerform, saved.update, saved.peek
+    end
     table.remove(inside.objects)
     SurvivorCompanion.Downtime.reset(watcher)
 
@@ -9044,6 +9133,13 @@ do
     function sleeper:setForceWakeUpTime(value) self.wakeTime = value end
     function sleeper:setBed(value) self.bed = value end
     function sleeper:setBedType(value) self.bedType = value end
+    local bedroomSwitch = { __class = "IsoLightSwitch", square = bedSquare,
+        active = true }
+    function bedroomSwitch:getSquare() return self.square end
+    function bedroomSwitch:isActivated() return self.active end
+    function bedroomSwitch:canSwitchLight() return true end
+    function bedroomSwitch:toggle() self.active = not self.active end
+    bedSquare.objects[#bedSquare.objects + 1] = bedroomSwitch
     registry[sleeper.id] = sleeper
     local bedKind, bedCandidate = SurvivorCompanion.Downtime._furnitureForTests()
     local sleepCandidate = bedCandidate(sleeper, {}, clock)
@@ -9055,7 +9151,7 @@ do
     check(sleepStarted and sleepEntered and sleepReason == "sleeping_on_bed"
             and sleeping and sleeping.gameDurationHours >= 3.5
             and sleeping.gameDurationHours <= 9 and sleeper.asleep == true
-            and sleeper.bedType == "averageBed",
+            and sleeper.bedType == "averageBed" and bedroomSwitch.active == false,
         "a tired companion begins a several-hour sleep in a real bed: "
             .. tostring(sleepStarted) .. "/" .. tostring(sleepEntered) .. "/"
             .. tostring(sleepReason) .. "/" .. tostring(sleeping and sleeping.kind)
@@ -9063,6 +9159,7 @@ do
             .. "/" .. tostring(sleeper.asleep)
             .. "/" .. tostring(bedKind(bed))
             .. "/" .. tostring(sleepCandidate and sleepCandidate.kind))
+    bedSquare.objects[#bedSquare.objects] = nil
     restClockOffset = restClockOffset + sleeping.gameDurationHours / 2
     clock = clock + 1
     SurvivorCompanion.Downtime.update(sleeper, player, calm, "rest_bed")
@@ -14967,6 +15064,37 @@ check(returnedBuildState.order == "stay" and returnedBuildState.workMode == "idl
         .. tostring(returnedBuildState.order) .. " mode=" .. tostring(returnedBuildState.workMode)
         .. " target=" .. tostring(returnedBuildState.workTarget)
         .. " decision=" .. tostring(SurvivorCompanion.Decision.peek(buildActor).intent))
+
+local openDoorWorker = actor("sc-open-door-barricade", -7, -5,
+    { inventory = inventory(buildKit()) })
+registry[openDoorWorker.id] = openDoorWorker
+local openDoor = worldObjectIdentityFixture({
+    square = openDoorWorker.square,
+    objectIndex = #openDoorWorker.square.objects,
+    toggles = 0,
+})
+function openDoor:getSquare() return self.square end
+function openDoor:getX() return self.square.x + 0.5 end
+function openDoor:getY() return self.square.y + 0.5 end
+function openDoor:getZ() return self.square.z end
+function openDoor:getObjectIndex() return self.objectIndex end
+function openDoor:getNorth() return true end
+function openDoor:isBarricadeAllowed() return true end
+function openDoor:IsOpen() return true end
+function openDoor:ToggleDoor() self.toggles = self.toggles + 1 end
+function openDoor:getBarricadeForCharacter() return nil end
+openDoorWorker.square.objects[#openDoorWorker.square.objects + 1] = openDoor
+check(SurvivorCompanion.Commands.issue(openDoorWorker.id, "barricade", {
+        object = openDoor, baseJobId = "job:open-door-test", barricadeSide = "same",
+    }, guardTestPlayer), "camp barricade accepts an open door for the native build action")
+check(decisionAfterDue(openDoorWorker, guardTestPlayer, {
+    snapshot = { threats = {}, threatCount = 0, immediateCount = 0,
+        escapeSquares = {}, allies = {}, player = { danger = 0 } },
+}, 201) and openDoorWorker.lastIntent
+    and openDoorWorker.lastIntent.action == "barricade" and openDoor.toggles == 0,
+    "camp barricade queues the native action without repeatedly closing the door")
+SurvivorCompanion.Decision.reset(openDoorWorker)
+SurvivorCompanion.Commands.reset(openDoorWorker)
 
 function SurvivorCompanion.__testDestructiveTargetWork()
 local removeActor = actor("sc-remove-work", -8, -4, {})
@@ -21180,6 +21308,12 @@ end)()
             { draggingBody = true })
         results[kind] = { passable = passable, reason = reason }
     end
+    affordance = "window"
+    local staleWindow, staleWindowReason = navigation.dragEdgeAllowed(nil, from, to, clock)
+    affordance = "window_frame"
+    local staleFrame, staleFrameReason = navigation.dragEdgeAllowed(nil, from, to, clock)
+    affordance = "door"
+    local usableDoor = navigation.dragEdgeAllowed(nil, from, to, clock)
     affordance = "fence"
     local _, _, plainReason = navigation._passableEdgeForTests(from, to, 1, {})
     topology.classifyEdge = originalClassify
@@ -21191,6 +21325,10 @@ end)()
         "a companion dragging a body never plans a climb, window, stairs or slope")
     check(results.door.reason ~= "drag_door" and results.open.reason ~= "drag_open",
         "doors and open ground stay available to a dragged body")
+    check(staleWindow == false and staleWindowReason == "drag_window"
+            and staleFrame == false and staleFrameReason == "drag_window_frame"
+            and usableDoor == true,
+        "retained corpse routes reject windows at execution but still allow doors")
     check(plainReason ~= "drag_fence", "ordinary routes may still climb a fence")
 end)()
 
@@ -22469,6 +22607,94 @@ end)()
     check(seatedTalk and seatedTopic == "banter.shelter.open" and keptSeating
             and seatedReply and seatedReplyTopic == "banter.shelter.reply",
         "resting companions can chat without a pose that interrupts their seats")
+    local function tableConversationRegression()
+    banter.reset()
+    local tableSquare = cell:getGridSquare(4, 4, 0)
+    local priorTableRoom = tableSquare.room
+    tableSquare.room = shelterRoom
+    local diningTable = { square = tableSquare }
+    function diningTable:getSquare() return self.square end
+    function diningTable:getSprite()
+        return { getProperties = function()
+            return { has = function(_, property) return property == "IsTable" end }
+        end }
+    end
+    tableSquare.objects[#tableSquare.objects + 1] = diningTable
+    shelterA.seated, shelterB.seated = true, true
+    function shelterA:isSittingOnFurniture() return self.seated end
+    function shelterB:isSittingOnFurniture() return self.seated end
+    SurvivorCompanion.ActionSupervisor.current = function(value)
+        if value == shelterA or value == shelterB then
+            return { owner = "downtime", action = "sit" }
+        end
+        return savedCurrent(value)
+    end
+    local savedGesture = SurvivorCompanion.Gestures.seatedConversation
+    local savedRand = ZombRand
+    local gesturesRequested = 0
+    SurvivorCompanion.Gestures.seatedConversation = function(value)
+        if value == shelterA or value == shelterB then
+            gesturesRequested = gesturesRequested + 1
+            return true, "Yawn"
+        end
+        return false
+    end
+    ZombRand = function() return 0 end
+    clock = clock + 200000
+    local tableOpen, tableOpenTopic = quietConversation(player, shelterRecords, clock)
+    local theme = type(tableOpenTopic) == "string"
+        and string.match(tableOpenTopic, "^banter%.table%.([%w_]+)%.open$") or nil
+    local noSeatMovement = SurvivorCompanion.Positioning.activeConversation(shelterA) == nil
+        and SurvivorCompanion.Positioning.activeConversation(shelterB) == nil
+    clock = clock + 3000
+    local tableReply, tableReplyTopic = advanceExchange(shelterRecords, clock)
+    clock = clock + 3000
+    local tableClose, tableCloseTopic = advanceExchange(shelterRecords, clock)
+    check(tableOpen and theme and tableReply and tableClose
+            and tableReplyTopic == "banter.table." .. theme .. ".reply"
+            and tableCloseTopic == "banter.table." .. theme .. ".close"
+            and noSeatMovement and shelterA.seated and shelterB.seated
+            and gesturesRequested == 1 and banter._partyForTests().exchange == nil,
+        "two seated companions at one table trade three themed lines and may gesture without getting up")
+    SurvivorCompanion.Gestures.seatedConversation = savedGesture
+    ZombRand = savedRand
+    banter.reset()
+    clock = clock + 200000
+    local interruptedOpen = quietConversation(player, shelterRecords, clock)
+    shelterB.seated = false
+    clock = clock + 3000
+    local interruptedReply, interruptedReason = advanceExchange(shelterRecords, clock)
+    check(interruptedOpen and not interruptedReply
+            and interruptedReason == "table_conversation_interrupted",
+        "table talk ends when a companion leaves their chair")
+    shelterB.seated = true
+    tableSquare.objects[#tableSquare.objects] = nil
+    tableSquare.room = priorTableRoom
+    banter.reset()
+    clock = clock + 200000
+    local noTableTalk, noTableTopic = quietConversation(player, shelterRecords, clock)
+    check(noTableTalk and noTableTopic == "banter.shelter.open",
+        "seated companions without a real table keep ordinary shelter dialogue")
+    local gestures = SurvivorCompanion.Gestures
+    gestures.reset()
+    local originalMove = SurvivorCompanion.GameplayUtil.move
+    local seatedIntent
+    SurvivorCompanion.GameplayUtil.move = function(value, mode, intent)
+        if value == shelterA and intent.action == "ext_gesture" then
+            seatedIntent = intent
+            return true
+        end
+        return originalMove(value, mode, intent)
+    end
+    local animated, animation = gestures.seatedConversation(shelterA, clock + 20000)
+    SurvivorCompanion.GameplayUtil.move = originalMove
+    check(animated and (animation == "Yawn" or animation == "TiredStretch")
+            and seatedIntent and seatedIntent.ext == animation
+            and shelterA.seated == true,
+        "a table gesture uses the seated Ext animation while retaining the chair")
+    SurvivorCompanion.ActionSupervisor.current = savedCurrent
+    end
+    tableConversationRegression()
     baseLife.isInside = savedInside
     SurvivorCompanion.Positioning.reset(camperA)
     SurvivorCompanion.Positioning.reset(camperB)
@@ -22592,6 +22818,14 @@ end)()
         end
     end
     for topic, spec in pairs(pools) do checkSpec(topic, spec) end
+    local tableLineCount = 0
+    for topic, spec in pairs(pools) do
+        if string.match(topic, "^banter%.table%.") then
+            tableLineCount = tableLineCount + #(spec.common or {})
+        end
+    end
+    check(tableLineCount >= 100,
+        "seated table conversation has a substantial dialogue pool")
     for group, entry in pairs(placeLines) do checkSpec("place." .. group, entry) end
     for room, group in pairs(roomGroups) do
         if placeLines[group] == nil then problems[#problems + 1] = "room:" .. room end
@@ -24701,9 +24935,22 @@ end)()
         end
     end
     check(cleaned and cleanCount == 1 and not washer.inventory:contains(dirty)
-            and sink.used == waterBefore + 0.5 and cleanItem:isFavorite()
+            and sink.used == waterBefore + 1 and cleanItem:isFavorite()
             and cleanItem:getName() == "Clinic spare",
         "washing preserves favorite and custom name on the new clean bandage")
+    local bag = item("Base.Duffelbag", "Container")
+    bag.nestedInventory = inventory({ item("Base.BandageDirty", "Medical") })
+    function bag:getItemContainer() return self.nestedInventory end
+    washer.inventory:AddItem(bag)
+    local bagDirty = bag.nestedInventory.items[1]
+    local bagWash = washActivity(washer, { bagDirty }, {}, clock)
+    local bagWaterBefore = sink.used
+    check(bagWash ~= nil and bagWash.itemContainer == bag.nestedInventory
+            and completeWashBandage(washer, bagWash) == true
+            and not bag.nestedInventory:contains(bagDirty)
+            and bag.nestedInventory:containsTypeRecurse("Base.Bandage")
+            and sink.used == bagWaterBefore + 1,
+        "a dirty bandage audited inside a carried bag is replaced inside that bag")
     SurvivorCompanion.WorkTransport = previousTransport
     sinkSquare.objects[#sinkSquare.objects] = nil
 end)()

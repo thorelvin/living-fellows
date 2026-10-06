@@ -860,7 +860,12 @@ local function barricadeTarget(actor, payload)
         return nil, nil, "barricade_not_allowed"
     end
     local open, openOk = U().call(object, "IsOpen")
-    if openOk and open == true then return nil, nil, "close_target_first" end
+    -- A saved camp blueprint can outlive someone opening its door. Let the
+    -- assigned worker reach and close that door before starting the planks.
+    if openOk and open == true
+        and not (type(payload) == "table" and payload.baseJobId ~= nil) then
+        return nil, nil, "close_target_first"
+    end
     local side = type(payload) == "table" and payload.barricadeSide or nil
     local selectedMethod = side == "same" and "getBarricadeOnSameSquare"
         or side == "opposite" and "getBarricadeOnOppositeSquare"

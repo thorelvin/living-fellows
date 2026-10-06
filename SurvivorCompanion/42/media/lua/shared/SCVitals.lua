@@ -142,6 +142,7 @@ local function capturePart(part)
         type = tostring(invoke(part, "getType", "unknown")),
         health = finite(invoke(part, "getHealth", 100), 100),
         bitten = invoke(part, "bitten", false) == true,
+        knoxInfected = invoke(part, "IsInfected", false) == true,
         scratched = invoke(part, "scratched", false) == true,
         cut = invoke(part, "isCut", false) == true,
         deepWound = invoke(part, "isDeepWounded", false) == true,
@@ -224,10 +225,17 @@ function vitals.capture(actor)
     return result
 end
 
-local function applyPart(part, saved)
+local function applyPart(part, saved, bodyInfected)
+    -- BodyPart.SetBitten(boolean) infects the part even when passed false in
+    -- Build 42.21. The two-argument overload only marks a real infected bite.
+    -- Restore the part flag explicitly so BodyDamage.update cannot turn a
+    -- healthy companion after the body's immediate post-restore verification.
+    local partKnox = saved.knoxInfected == true
+        or (saved.knoxInfected == nil and saved.bitten == true and bodyInfected)
     local operations = {
         { "SetHealth", finite(saved.health, 100) },
-        { "SetBitten", saved.bitten == true },
+        { "SetBitten", saved.bitten == true, partKnox },
+        { "SetInfected", partKnox },
         -- BodyPart.setScratched takes (flag, forceNoInfection). Verified in the
         -- 42.20.4 bytecode: a FALSE second argument makes the engine call
         -- generateZombieInfection(), a fresh Knox roll. BodyPart.setCut exposes
@@ -296,7 +304,8 @@ function vitals.apply(actor, saved)
                 if part == nil then
                     return false, "saved native body part is unavailable: " .. tostring(savedPart.type)
                 end
-                local applied, reason = applyPart(part, savedPart)
+                local applied, reason = applyPart(part, savedPart,
+                    saved.infected == true)
                 if not applied then return false, reason end
             end
         end

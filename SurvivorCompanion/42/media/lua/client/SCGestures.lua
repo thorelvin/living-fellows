@@ -306,6 +306,30 @@ local function perform(actor, name, current)
     return true
 end
 
+-- Table banter may borrow the stock sitext yawn or stretch without replacing
+-- the chair state. Share the ordinary gesture cooldown so a conversation
+-- cannot stack a second animation on an already gesturing companion.
+function Gestures.seatedConversation(actor, current)
+    current = tonumber(current) or U().nowMs()
+    if actor == nil or config("gesturesEnabled", true) == false
+        or U().call(actor, "isSittingOnFurniture") ~= true
+        or U().call(actor, "isAsleep") == true
+        or not cooledDown(actor, current)
+        or current - party.lastGestureAt < config("gesturePartyGapMs", 15000) then
+        return false, "seated_gesture_unavailable"
+    end
+    local owner = SC.ActionSupervisor and type(SC.ActionSupervisor.current) == "function"
+        and SC.ActionSupervisor.current(actor) or nil
+    if owner ~= nil and (owner.owner ~= "downtime" or owner.action ~= "sit") then
+        return false, "seated_gesture_busy"
+    end
+    local name = hash(tostring(U().idOf(actor)) .. ":table:"
+        .. tostring(math.floor(current / 60000))) % 2 == 0
+        and "TiredStretch" or "Yawn"
+    if not perform(actor, name, current) then return false, "seated_gesture_rejected" end
+    return true, name
+end
+
 -- A line to go with a gesture, within the shared flavor-speech budget.
 local function say(actor, topic, commands, current, chance)
     if chance ~= nil and not roll(chance, tostring(U().idOf(actor)) .. ":" .. topic

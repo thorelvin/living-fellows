@@ -74,7 +74,7 @@
     "UI_SC_Expedition_FishingDestination": "Fishing shoreline",
       "UI_SC_Expedition_SelectBank": "Select a fishing shoreline",
       "UI_SC_Expedition_SelectBankFirst": "Choose a fishing shoreline before reviewing the mission.",
-      "UI_SC_Expedition_BankPage": "Fishing shores %1-%2 of %3 (within 200 tiles)",
+      "UI_SC_Expedition_BankPage": "Fishing shores %1-%2 of %3 (within 1,000 tiles)",
       "UI_SC_Expedition_NoFishingBanks": "No fishing shoreline appears in range. Approach water and refresh this list.",
       "UI_SC_Expedition_FishingShoreUnconfirmed": "Mapped shore; the squad will confirm a safe bank and water on arrival.",
     "UI_SC_Expedition_RefreshBanks": "Refresh fishing banks",

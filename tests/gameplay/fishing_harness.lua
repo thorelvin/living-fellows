@@ -108,19 +108,48 @@ local mapWorld = { isDataLoaded = function() return true end,
             return { features = cellFeatures }
         end
     end }
+local oldBridge = SCBridge
+local mapWidget = {}
+local mapReads = 0
+SCBridge = { loadedWorldMap = function(widget)
+    assert(widget == mapWidget, "the bridge receives the minimap's Java widget")
+    mapReads = mapReads + 1
+    return mapWorld
+end }
 getPlayerMiniMap = function()
-    return { inner = { javaObject = {
-        getWorldMap = function() return mapWorld end } } }
+    return { inner = { javaObject = mapWidget } }
 end
 squares = {}
 local remoteBanks, remoteReason, remoteCount =
     angling.bankCandidates(scout, 40, 32, 0)
 assert(remoteReason == nil and remoteCount > 0
-        and remoteBanks[1].knowledge == "map_water_unconfirmed",
+        and remoteBanks[1].knowledge == "map_water_unconfirmed"
+        and mapReads > 0,
     "a mapped river offers a remote shore without loading its game squares")
 local remoteSelected = angling.bankById(scout, remoteBanks[1].id, 40)
 assert(remoteSelected and remoteSelected.id == remoteBanks[1].id,
     "a mapped remote shore remains selectable at departure")
+mapWorld.getCell = function(_, cx, cy)
+    if cx == 0 and cy == 3 then return { features = cellFeatures } end
+end
+local longScanReads = 0
+local localCell = getCell
+getCell = function()
+    local inner = localCell()
+    return { getGridSquare = function(_, x, y, z)
+        longScanReads = longScanReads + 1
+        return inner:getGridSquare(x, y, z)
+    end }
+end
+local distantBanks, distantReason, distantCount =
+    angling.bankCandidates(scout, 1000, 32, 0)
+assert(distantReason == nil and distantCount > 0
+        and distantBanks[1].distance > 200 and longScanReads < 200000,
+    "a mapped shore within 1,000 appears without scanning millions of game squares")
+getCell = localCell
+local distantSelected = angling.bankById(scout, distantBanks[1].id, 1000)
+assert(distantSelected and distantSelected.id == distantBanks[1].id,
+    "a distant mapped shoreline passes the departure range check")
 ring.points = { { 172, 4 }, { 212, 4 }, { 212, 26 }, { 172, 26 } }
 function feature:containsPoint(x, y)
     return x >= 172 and x <= 212 and y >= 4 and y <= 26
@@ -152,6 +181,13 @@ assert(pagedReads == 0 and squareReads > 0
         and pagedCount == riversideCount and refreshedCount == riversideCount,
     "fishing bank pages reuse one scan and Refresh rescans: "
         .. tostring(pagedReads) .. "/" .. tostring(squareReads))
+SCBridge = nil
+local noBridgeRows, noBridgeReason, noBridgeCount =
+    angling.bankCandidates(riverside, 200, 32, 0, true)
+assert(noBridgeReason == nil and noBridgeCount == 0
+        and #noBridgeRows == 0,
+    "Refresh stays safe if the native map accessor is unavailable")
+SCBridge = oldBridge
 getCell = listedCell
 getPlayerMiniMap = oldMiniMap
 getCell = oldCell

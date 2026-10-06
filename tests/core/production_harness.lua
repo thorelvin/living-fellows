@@ -311,9 +311,13 @@ SC.Navigation = {
     cancel = function() return true end,
     interactionTargets = function(_, target)
         if type(target) == "table" and target.__square then
-            local west = squares[squareKey(target.x - 1, target.y, target.z)]
-            local east = squares[squareKey(target.x + 1, target.y, target.z)]
-            return { west or east }
+            local result = {}
+            for _, offset in ipairs({ { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } }) do
+                local adjacent = squares[squareKey(target.x + offset[1],
+                    target.y + offset[2], target.z)]
+                if adjacent then result[#result + 1] = adjacent end
+            end
+            return result
         end
         return { target }
     end,
@@ -1483,7 +1487,8 @@ do
     local staleCarrying = makeBody(sq(-2, -2), { items = { "Base.Hat" },
         modData = { lastPlayerGrabbed = 3 } })
     local victim = makeBody(sq(-2, -2))
-    local order = start(ctx, { operation = "bury_bodies", zoneId = ctx.burial.id, requested = 1 })
+    local order = start(ctx, { operation = "bury_bodies", zoneId = ctx.burial.id,
+        requested = 1, settings = { closeWhenDone = true } })
     local _, reason = tick(ctx)
     check(reason == "production_burying", "the worker buries a graveside body: " .. tostring(reason))
     check(victim.modData.lastPlayerGrabbed == 3 and staleCarrying.modData.lastPlayerGrabbed == nil,
@@ -1870,13 +1875,27 @@ do
     local machete = ctx.actor.inventory:AddItem(makeItem("Base.Machete"))
     ctx.actor.primary = machete
     local grave, partner = createGrave(-2, -3, 0, false)
-    local victim = makeBody(sq(4, -4), { items = { "Base.RippedSheets" } })
+    local indoorBodySquare = sq(4, -4)
+    indoorBodySquare.room = true
+    local victim = makeBody(indoorBodySquare, { items = { "Base.RippedSheets" } })
     local order = start(ctx, {
         operation = "collect_bodies", zoneId = ctx.burial.id, requested = 1,
         settings = { fromLumber = false, withBelongings = true },
     })
+    local graveSquare, outsideStand = sq(-2, -3), sq(-1, -3)
+    local insideStand = sq(-2, -2)
+    insideStand.room = true
     local intents = {}
     local originalRequestAny = SC.Navigation.requestAny
+    local originalTargets = SC.Navigation.interactionTargets
+    SC.Navigation.interactionTargets = function(actor, target, options)
+        if target == graveSquare then
+            check(options and options.requireDirectAccess == true,
+                "grave work asks Navigation for a clear interaction edge")
+            return { insideStand, outsideStand }
+        end
+        return originalTargets(actor, target, options)
+    end
     SC.Navigation.requestAny = function(actor, candidates, mode, intent)
         intents[#intents + 1] = intent
         return originalRequestAny(actor, candidates, mode, intent)
@@ -1887,7 +1906,10 @@ do
         "body collection leaves the shovel stored until a grave actually needs digging")
     local grab = current(ctx.actor)
     check(grab ~= nil and grab.Type == "ISGrabCorpseAction" and grab.corpseBody == victim,
-        "vanilla ISGrabCorpseAction receives the body")
+        "vanilla ISGrabCorpseAction takes hold of a body inside the house")
+    check(intents[#intents].action == "move_to_production_body"
+        and intents[#intents].targetSquare == indoorBodySquare,
+        "an indoor corpse remains a valid source for an outdoor grave")
     check(ctx.actor.primary == nil, "the grapple starts with empty hands")
     local tag = victim.modData.LF_CorpseHaul
     check(type(tag) == "string" and string.find(tag, order.id, 1, true) == 1,
@@ -1899,8 +1921,11 @@ do
     local _, placeReason = tick(ctx)
     check(placeReason == "production_placing",
         "the drag reaches the graveside: " .. tostring(placeReason))
-    check(intents[#intents].draggingBody == true and intents[#intents].action == "drag_body_to_grave",
-        "the drag asks navigation for a route a dragged body can take")
+    check(ctx.actor.square == outsideStand,
+        "an outdoor grave is approached from outdoors rather than through the kitchen")
+    check(intents[#intents].draggingBody == true and intents[#intents].action == "drag_body_to_grave"
+        and intents[#intents].targetSquare == graveSquare,
+        "the indoor-to-outdoor drag asks navigation for a route a dragged body can take")
     local drop = current(ctx.actor)
     check(drop ~= nil and drop.Type == "ISDropCorpseAction",
         "vanilla ISDropCorpseAction lays the body down")
@@ -1919,20 +1944,133 @@ do
     local counters = SC.BaseLife.productionCounters()
     check(counters.bodiesCollected == 1 and counters.bodiesBuried == 1,
         "collection counters are exact")
-    local filling, fillReason = tickUntil(ctx, function(value)
-        return value == "production_filling"
-    end, 8)
-    check(filling and shovel.container == ctx.actor.inventory,
-        "a finished collection borrows the shovel only when closing its grave: " .. tostring(fillReason))
-    current(ctx.actor):perform()
     local done = tickUntil(ctx, function(value)
-        return value == "production_order_completed"
-            and shovel.container == ctx.toolsObject.container
-    end, 10)
+        return value == "production_order_completed" end, 8)
     SC.Navigation.requestAny = originalRequestAny
+    SC.Navigation.interactionTargets = originalTargets
     check(done and SC.BaseLife.productionOrder(order.id).state == "completed"
-        and grave.modData.filled == true,
-        "the collection order completes after the grave closes and its shovel is returned")
+        and grave.modData.corpses == 1 and grave.modData.filled == false
+        and shovel.container == ctx.toolsObject.container,
+        "a one-body collection leaves an ordinary grave open for four more bodies")
+end
+
+do
+    local ctx = setup()
+    local grave = createGrave(-2, -3, 0, false)
+    local kitchen = sq(-2, -2)
+    kitchen.room = true
+    makeBody(sq(4, -4))
+    local originalTargets = SC.Navigation.interactionTargets
+    SC.Navigation.interactionTargets = function(actor, target, options)
+        if target == sq(-2, -3) then return { sq(-1, -3) } end
+        return originalTargets(actor, target, options)
+    end
+    start(ctx, {
+        operation = "collect_bodies", zoneId = ctx.burial.id, requested = 1,
+        settings = { fromLumber = false },
+    })
+    local grabbing = tickUntil(ctx, function(value) return value == "production_grabbing" end, 8)
+    check(grabbing, "the misplaced-drop reproducer grabs a corpse")
+    current(ctx.actor):perform()
+    tick(ctx)
+    local placing = tickUntil(ctx, function(value) return value == "production_placing" end, 8)
+    check(placing, "the corpse reaches an outdoor grave approach")
+    SC_TEST_DROP_SQUARE = kitchen
+    current(ctx.actor):perform()
+    SC_TEST_DROP_SQUARE = nil
+    local _, misplacedReason = tick(ctx)
+    check(misplacedReason == "production_replacing_body" and kitchen.staticMoving[1]
+            and grave.modData.corpses == 0,
+        "a body dropped inside the kitchen is picked up again, not buried through the wall")
+    local regrabbing = tickUntil(ctx, function(value) return value == "production_grabbing" end, 8)
+    check(regrabbing, "the gravedigger can recover a misplaced body")
+    SC.Navigation.interactionTargets = originalTargets
+end
+
+do
+    local ctx = setup()
+    createGrave(-2, -3, 0, false)
+    local kitchen = sq(4, -4)
+    kitchen.room = true
+    makeBody(kitchen)
+    start(ctx, {
+        operation = "collect_bodies", zoneId = ctx.burial.id, requested = 1,
+        settings = { fromLumber = false },
+    })
+    local grabbing = tickUntil(ctx, function(value) return value == "production_grabbing" end, 8)
+    check(grabbing, "the route retry test grabs an indoor body")
+    current(ctx.actor):perform()
+    tick(ctx)
+    local originalRequestAny = SC.Navigation.requestAny
+    SC.Navigation.requestAny = function(actor, candidates, mode, intent)
+        if intent.action == "drag_body_to_grave" then
+            return false, "path_blocked:blocked_static"
+        end
+        return originalRequestAny(actor, candidates, mode, intent)
+    end
+    local handled, reason = tick(ctx)
+    check(handled == true and string.find(tostring(reason), "drag_route_replanning", 1, true)
+            and ctx.actor:isDraggingCorpse() and #kitchen.staticMoving == 0,
+        "a failed grave route keeps the indoor body in hand for a replan")
+    SC.Navigation.requestAny = originalRequestAny
+    local recovered, recoveryReason = tick(ctx)
+    check(recovered == true and recoveryReason == "production_placing",
+        "a cleared route resumes delivery to the grave: " .. tostring(recoveryReason))
+end
+
+do
+    local ctx = setup()
+    createGrave(-2, -3, 0, false)
+    local kitchen = sq(4, -4)
+    kitchen.room = true
+    makeBody(kitchen)
+    start(ctx, {
+        operation = "collect_bodies", zoneId = ctx.burial.id, requested = 1,
+        settings = { fromLumber = false },
+    })
+    tickUntil(ctx, function(value) return value == "production_grabbing" end, 8)
+    current(ctx.actor):perform()
+    tick(ctx)
+    local originalRequestAny = SC.Navigation.requestAny
+    SC.Navigation.requestAny = function(actor, candidates, mode, intent)
+        if intent.action == "drag_body_to_grave" then
+            return false, "path_blocked:blocked_static"
+        end
+        return originalRequestAny(actor, candidates, mode, intent)
+    end
+    local _, waiting = tick(ctx)
+    local _, redirected = tick(ctx, nil, nil, 16000)
+    SC.Navigation.requestAny = originalRequestAny
+    check(string.find(tostring(waiting), "drag_route_replanning", 1, true)
+            and (redirected == "production_approaching" or redirected == "fixture_path_started"
+                or string.find(tostring(redirected), "drag_route_blocked", 1, true))
+            and ctx.actor.square.room ~= true and #kitchen.staticMoving == 0,
+        "a persistent blocked grave route carries the body outside before release")
+end
+
+do
+    local ctx = setup()
+    local grave, partner = createGrave(-2, -3, 0, false)
+    grave.modData.corpses, partner.modData.corpses = 4, 4
+    ctx.toolsObject.container:AddItem(makeItem("Base.Shovel", {
+        tags = { diggrave = true },
+    }))
+    makeBody(sq(4, -4))
+    local order = start(ctx, {
+        operation = "collect_bodies", zoneId = ctx.burial.id, requested = 1,
+        settings = { fromLumber = false },
+    })
+    local reason
+    for _ = 1, 24 do
+        local action = current(ctx.actor)
+        if action then action:perform() end
+        _, reason = tick(ctx)
+        if SC.BaseLife.productionOrder(order.id).state == "completed" then break end
+    end
+    check(grave.modData.corpses == 5 and partner.modData.corpses == 5
+            and grave.modData.filled == true
+            and SC.BaseLife.productionOrder(order.id).state == "completed",
+        "the fifth ordinary corpse fills and closes its shared grave: " .. tostring(reason))
 end
 
 do

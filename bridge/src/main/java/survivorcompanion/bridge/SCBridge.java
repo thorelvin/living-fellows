@@ -58,6 +58,8 @@ import zombie.iso.objects.IsoWindow;
 import zombie.vehicles.BaseVehicle;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
+import zombie.worldMap.UIWorldMap;
+import zombie.worldMap.WorldMap;
 
 /** Narrow Lua-facing authority for creating and owning native companions. */
 public final class SCBridge {
@@ -686,6 +688,13 @@ public final class SCBridge {
     /** "" when the swing collision path is fully wired, else the missing handle. */
     public static String getCombatCapabilityFailure() {
         return SCNativeCompanion.combatCollisionFailure();
+    }
+
+    /** Return loaded map features without calling an unexposed UIWorldMap method from Lua. */
+    public static Object loadedWorldMap(Object mapObject) {
+        if (!(mapObject instanceof UIWorldMap map)) return null;
+        WorldMap world = map.getWorldMap();
+        return world != null && world.isDataLoaded() ? world : null;
     }
 
     /**
