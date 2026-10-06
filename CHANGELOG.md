@@ -2,7 +2,7 @@
 
 # Changelog
 
-## 0.26.28 - Shoreline expedition and construction fix
+## 0.26.28 - Shoreline expeditions and camp life
 
 - Fishing expeditions now list confirmed loaded fishing banks instead of buildings. The selected bank is rechecked before departure and used as the route destination.
 - Only the fishing leader needs a rod and bait to depart. Equipped teammates can also fish; ungeared teammates stay with the squad.
@@ -18,7 +18,11 @@
 - A tired angler goes to bed before fishing again. With outdoor work allowed at night, anglers used to fish around the clock.
 - When a companion's strikes fade, the follow distance you had set before the second hit comes back, unless you have changed it since.
 - Paging through the fishing-bank list on the expedition planner reuses one shoreline scan; **Refresh** scans again.
-- Gameplay, core, UI and source regressions cover each fix, and each new test was confirmed to fail with its fix reverted.
+- Gameplay, core, UI and source regressions cover the shoreline, construction and base-job fixes above.
+- Base work now keeps camp-only stair routes for building and returning indoors. Residents can find books, furniture, washing water, cleaning and tidying work, and leader check-ins on connected camp floors. The Chef's bounded kitchen scan reaches upper floors even in a large camp.
+- Companions can drink from reachable sinks and wells on connected camp floors. TV watching can select an upstairs screen and keep the trip through the stairs instead of abandoning it mid-crossing.
+- During downtime, a companion can turn on and tune a powered camp radio to a non-squad station, find a free seat in the same room, listen, and comment on broadcasts or silence. New Kentucky and dry Nordic noir lines cover the routine.
+- A cloned-save base-duty run carried a plank from ground-floor marked storage to an upstairs marked container and then returned it downstairs through the real stairs. Gameplay tests cover cross-floor work, water, TV, radio, and a camp large enough to exceed the Chef's former scan cutoff. Corpse dragging remains blocked on stairs.
 
 ## 0.26.27 - Camp life playtest
 

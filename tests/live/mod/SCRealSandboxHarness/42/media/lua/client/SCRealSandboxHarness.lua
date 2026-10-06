@@ -14720,9 +14720,30 @@ local function probeUIMenus(current)
     setPhase("ui_menu_capture", current)
 end
 Harness.probeUIMenus = probeUIMenus
-Harness.probeBaseMaintenance = require("SCBaseMaintenanceProbe").step
-Harness.probeBaseSecondFloor = require("SCBaseSecondFloorProbe").step
-Harness.probeWaterSource = require("SCWaterSourceProbe").step
+-- Build 42's require reports true after loading a Lua file rather than
+-- returning that file's table. Load probes only in their selected live phase:
+-- the static Kahlua regression loads this harness without the probe modules.
+local function externalProbe(moduleName, ...)
+    require(moduleName)
+    local probe = SCRealSandboxHarnessProbes
+        and SCRealSandboxHarnessProbes[moduleName] or nil
+    if type(probe) ~= "table" or type(probe.step) ~= "function" then
+        error("live probe did not register: " .. moduleName)
+    end
+    return probe.step(...)
+end
+
+Harness.probeBaseMaintenance = function(...)
+    return externalProbe("SCBaseMaintenanceProbe", ...)
+end
+
+Harness.probeBaseSecondFloor = function(...)
+    return externalProbe("SCBaseSecondFloorProbe", ...)
+end
+
+Harness.probeWaterSource = function(...)
+    return externalProbe("SCWaterSourceProbe", ...)
+end
 
 local function tick()
     if Harness.finished then return end

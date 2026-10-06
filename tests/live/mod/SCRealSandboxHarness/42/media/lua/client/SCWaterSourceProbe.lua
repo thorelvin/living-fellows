@@ -153,4 +153,6 @@ function Probe.step(H, current, check, result, setPhase)
     end
 end
 
+SCRealSandboxHarnessProbes = SCRealSandboxHarnessProbes or {}
+SCRealSandboxHarnessProbes.SCWaterSourceProbe = Probe
 return Probe
