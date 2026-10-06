@@ -882,7 +882,7 @@ function Expedition.previewAtFishingBank(leader, bank, travelMode)
         return nil, "leader_unavailable"
     end
     local selected, reason = SC.Fishing.bankById(leader.actor, bank.id,
-        SC.Config and SC.Config.get("expeditionDestinationRadius") or 200)
+        SC.Config and SC.Config.get("expeditionFishingRadius") or 1000)
     if not selected then return nil, reason end
     return previewToPoint(leader, selected.anchor, travelMode)
 end

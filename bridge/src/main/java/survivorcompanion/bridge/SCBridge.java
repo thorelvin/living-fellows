@@ -690,11 +690,45 @@ public final class SCBridge {
         return SCNativeCompanion.combatCollisionFailure();
     }
 
-    /** Return loaded map features without calling an unexposed UIWorldMap method from Lua. */
+    /** Return loaded map metadata without an unexposed UIWorldMap Lua method. */
     public static Object loadedWorldMap(Object mapObject) {
         if (!(mapObject instanceof UIWorldMap map)) return null;
         WorldMap world = map.getWorldMap();
         return world != null && world.isDataLoaded() ? world : null;
+    }
+
+    /** Bank coordinates from the source map XML, which matches game terrain. */
+    public static String mappedFishingBanks(Object mapObject, double x,
+            double y, double radius) {
+        lastFailure = "";
+        if (!onGameThread() || !(mapObject instanceof WorldMap world)
+                || !world.isDataLoaded() || !Double.isFinite(x)
+                || !Double.isFinite(y) || !Double.isFinite(radius)
+                || radius < 1 || radius > 1000) return null;
+        try {
+            return SCFishingMap.candidates(world, (int) Math.floor(x),
+                    (int) Math.floor(y), (int) radius);
+        } catch (RuntimeException | LinkageError failure) {
+            lastFailure = "mapped fishing bank lookup failed"
+                    + messageSuffix(failure.getMessage());
+            return null;
+        }
+    }
+
+    /** Recheck a remote map bank just before departure. */
+    public static boolean mappedFishingBankPlausible(Object mapObject,
+            double x, double y) {
+        if (!onGameThread() || !(mapObject instanceof WorldMap world)
+                || !world.isDataLoaded() || !Double.isFinite(x)
+                || !Double.isFinite(y)) return false;
+        try {
+            return SCFishingMap.plausible(world,
+                    (int) Math.floor(x), (int) Math.floor(y));
+        } catch (RuntimeException | LinkageError failure) {
+            lastFailure = "mapped fishing bank check failed"
+                    + messageSuffix(failure.getMessage());
+            return false;
+        }
     }
 
     /**

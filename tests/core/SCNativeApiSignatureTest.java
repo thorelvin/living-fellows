@@ -80,6 +80,9 @@ public final class SCNativeApiSignatureTest {
         Class<?> worldMapTextSymbol = Class.forName("zombie.worldMap.symbols.WorldMapTextSymbol");
         Class<?> uiWorldMap = Class.forName("zombie.worldMap.UIWorldMap");
         Class<?> uiWorldMapV3 = Class.forName("zombie.worldMap.UIWorldMapV3");
+        Class<?> worldMap = Class.forName("zombie.worldMap.WorldMap");
+        Class<?> worldMapData = Class.forName("zombie.worldMap.WorldMapData");
+        Class<?> zomboidFileSystem = Class.forName("zombie.ZomboidFileSystem");
         Class<?> worldMapStreetsV1 = Class.forName(
                 "zombie.worldMap.streets.WorldMapStreetsV1");
         Class<?> worldMapStreets = Class.forName(
@@ -477,6 +480,16 @@ public final class SCNativeApiSignatureTest {
                         && method(worldMapStreet, "getMaxX").getReturnType() == float.class
                         && method(worldMapStreet, "getMaxY").getReturnType() == float.class,
                 "world-map nearest-street signatures changed");
+        require(method(uiWorldMap, "getWorldMap").getReturnType() == worldMap
+                        && worldMap.getField("data").getType()
+                                == java.util.ArrayList.class
+                        && worldMapData.getField("relativeFileName").getType()
+                                == String.class
+                        && zomboidFileSystem.getField("instance").getType()
+                                == zomboidFileSystem
+                        && method(zomboidFileSystem, "getString", String.class)
+                                .getReturnType() == String.class,
+                "world-map fishing XML source signatures changed");
         // Build 42 exposes WorldMapStreetsV1 to Kahlua but not WorldMapStreets, so
         // the street walk runs in the bridge and Lua passes the streets API object.
         require(method(survivorcompanion.bridge.SCBridge.class, "nearestStreet", Object.class,
@@ -912,7 +925,7 @@ public final class SCNativeApiSignatureTest {
                 + " IsoPlayer-NPC-constructor=true AttackType=true room-facing=true"
                 + " player-accessors=true descriptor=true direct-native=true removal=true vitals=true interior-stats=true"
                 + " needs=true water-source=true emote=true fatal-injury=true deferred-spawn=true"
-                + " faction-life=true world-map-rumours=true world-map-streets=true"
+                + " faction-life=true world-map-rumours=true world-map-streets=true world-map-fishing=true"
                 + " readable-speech=true"
                 + " reflection-contract=true cleanup-retry=true"
                 + " reaction-states=" + reactionStates.length + " movement-owner=true"

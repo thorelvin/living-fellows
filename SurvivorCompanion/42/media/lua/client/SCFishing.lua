@@ -17,10 +17,7 @@ local ENGINE_RETRY_DELAY = 60000
 local CAMP_CATCH_TAG = "SC_CampFishingCatch"
 local CAMP_DELIVERY_COUNT = 3
 local CAMP_DELIVERY_LOAD_RATIO = 0.70
-local BANK_GROUP_SIZE = 12
--- worldmap.xml cells are 256 squares, unlike terrain map cells.
-local MAP_CELL_SIZE = 256
-local MAP_EDGE_STEP = 10
+local BANK_GROUP_SIZE = 24
 local BANK_DIRECTIONS = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
 -- One shoreline scan serves every page of the expedition picker.
 local BANK_LIST_CACHE_MS = 30000
@@ -73,8 +70,8 @@ local function bankRow(site, originX, originY)
         knowledge = "loaded_water_confirmed" }
 end
 
--- The minimap has the world's map features even where game squares are not
--- loaded. Its water polygons give us possible shores for a remote mission;
+-- The minimap identifies the source map XML even where game squares are not
+-- loaded. The bridge reads its water polygons for possible remote shores;
 -- the arrival scan still has to find a real, free bank before anyone casts.
 local function mapWorld()
     local mini = type(getPlayerMiniMap) == "function"
@@ -88,34 +85,6 @@ local function mapWorld()
     return SCBridge.loadedWorldMap(javaMap)
 end
 
-local function mapWaterFeatures(world, cx, cy, cache)
-    local key = cx .. ":" .. cy
-    if cache[key] then return cache[key] end
-    local result = {}
-    local cell = world:getCell(cx, cy)
-    if cell then
-        local features = cell.features
-        for i = 0, features:size() - 1 do
-            local feature = features:get(i)
-            if feature:hasPolygon() and feature.properties:get("water") then
-                result[#result + 1] = feature
-            end
-        end
-    end
-    cache[key] = result
-    return result
-end
-
-local function mapWaterAt(world, x, y, cache)
-    local cx, cy = math.floor(x / MAP_CELL_SIZE),
-        math.floor(y / MAP_CELL_SIZE)
-    for _, feature in ipairs(mapWaterFeatures(world, cx, cy, cache)) do
-        if feature:containsPoint(x - cx * MAP_CELL_SIZE,
-            y - cy * MAP_CELL_SIZE) then return true end
-    end
-    return false
-end
-
 local function mapBankRow(x, y, originX, originY)
     local dx, dy = x - originX, y - originY
     return { id = "bank:" .. x .. ":" .. y,
@@ -126,70 +95,24 @@ local function mapBankRow(x, y, originX, originY)
         knowledge = "map_water_unconfirmed" }
 end
 
-local function mapBankIsPlausible(world, x, y, cache)
-    cache = cache or {}
-    if mapWaterAt(world, x + 0.5, y + 0.5, cache) then return false end
-    for _, direction in ipairs(BANK_DIRECTIONS) do
-        local dx, dy = direction[1], direction[2]
-        if mapWaterAt(world, x + dx * 6 + 0.5, y + dy * 6 + 0.5, cache)
-            and mapWaterAt(world, x + dx * 9 + 0.5,
-                y + dy * 9 + 0.5, cache) then return true end
-    end
-    return false
-end
-
 local function addMapBanks(world, ox, oy, radius, groups)
-    local cache = {}
-    local minCX = math.floor(math.max(0, ox - radius) / MAP_CELL_SIZE)
-    local maxCX = math.floor((ox + radius) / MAP_CELL_SIZE)
-    local minCY = math.floor(math.max(0, oy - radius) / MAP_CELL_SIZE)
-    local maxCY = math.floor((oy + radius) / MAP_CELL_SIZE)
-    for cx = minCX, maxCX do
-        for cy = minCY, maxCY do
-            local features = mapWaterFeatures(world, cx, cy, cache)
-            for _, feature in ipairs(features) do
-                local rings = feature.geometry.points
-                for ri = 0, rings:size() - 1 do
-                    local ring = rings:get(ri)
-                    local count = ring:numPoints()
-                    for pi = 0, count - 1 do
-                        local nextIndex = (pi + 1) % count
-                        local ax, ay = ring:getX(pi), ring:getY(pi)
-                        local bx, by = ring:getX(nextIndex),
-                            ring:getY(nextIndex)
-                        local ex, ey = bx - ax, by - ay
-                        local length = math.sqrt(ex * ex + ey * ey)
-                        if length > 0 then
-                            local nx, ny = -ey / length, ex / length
-                            local steps = math.ceil(length / MAP_EDGE_STEP)
-                            for step = 0, steps - 1 do
-                                local t = (step + 0.5) / steps
-                                local px = cx * MAP_CELL_SIZE + ax + ex * t
-                                local py = cy * MAP_CELL_SIZE + ay + ey * t
-                                for side = -1, 1, 2 do
-                                    local x = math.floor(px + nx * side * 4)
-                                    local y = math.floor(py + ny * side * 4)
-                                    local distSq = (x - ox)^2 + (y - oy)^2
-                                    if x >= 0 and y >= 0 and distSq >= 64
-                                        and distSq <= radius * radius
-                                        and mapBankIsPlausible(world, x, y, cache) then
-                                        local row = mapBankRow(x, y, ox, oy)
-                                        local key = math.floor(x / BANK_GROUP_SIZE)
-                                            .. ":" .. math.floor(y / BANK_GROUP_SIZE)
-                                        local old = groups[key]
-                                        if not old or (old.knowledge ~= "loaded_water_confirmed"
-                                            and row.distanceSq < old.distanceSq) then
-                                            groups[key] = row
-                                        end
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end
-            end
+    if not SCBridge or type(SCBridge.mappedFishingBanks) ~= "function" then
+        return false
+    end
+    local encoded = SCBridge.mappedFishingBanks(world, ox, oy, radius)
+    if type(encoded) ~= "string" then return false end
+    for sx, sy in string.gmatch(encoded, "(%d+):(%d+)") do
+        local x, y = tonumber(sx), tonumber(sy)
+        local row = mapBankRow(x, y, ox, oy)
+        local key = math.floor(x / BANK_GROUP_SIZE)
+            .. ":" .. math.floor(y / BANK_GROUP_SIZE)
+        local old = groups[key]
+        if not old or (old.knowledge ~= "loaded_water_confirmed"
+            and row.distanceSq < old.distanceSq) then
+            groups[key] = row
         end
     end
+    return true
 end
 
 function Angling.bankById(actor, id, radius)
@@ -214,7 +137,8 @@ function Angling.bankById(actor, id, radius)
     end
     local ok, plausible = pcall(function()
         local world = mapWorld()
-        return world and mapBankIsPlausible(world, x, y)
+        return world and SCBridge.mappedFishingBankPlausible
+            and SCBridge.mappedFishingBankPlausible(world, x, y)
     end)
     if ok and plausible then return mapBankRow(x, y, ox, oy) end
     return nil, "fishing_bank_unavailable"
@@ -273,19 +197,27 @@ function Angling.bankCandidates(actor, radius, limit, offset, refresh)
             end
         end
     end
+    local mapError
     local ok, err = pcall(function()
         local world = mapWorld()
-        if world then addMapBanks(world, ox, oy, radius, groups) end
+        if world and not addMapBanks(world, ox, oy, radius, groups) then
+            mapError = SCBridge and SCBridge.getLastFailure
+                and SCBridge.getLastFailure() or "mapped bank bridge unavailable"
+        end
     end)
-    if not ok and SC.Diagnostics and SC.Diagnostics.report then
+    if not ok then mapError = tostring(err) end
+    if mapError and SC.Diagnostics and SC.Diagnostics.report then
         SC.Diagnostics.report("fishing-map", nil,
-            "mapped shore lookup failed", err)
+            "mapped shore lookup failed", mapError)
     end
     for _, row in pairs(groups) do rows[#rows + 1] = row end
     table.sort(rows, function(a, b)
         if a.distanceSq ~= b.distanceSq then return a.distanceSq < b.distanceSq end
         return a.id < b.id
     end)
+    if #rows == 0 and mapError then
+        return nil, "fishing_map_lookup_failed", 0
+    end
     bankListCache = { x = ox, y = oy, radius = radius, at = now(), rows = rows }
     local result = {}
     for index = offset + 1, math.min(#rows, offset + limit) do

@@ -14816,6 +14816,57 @@ local function tick()
     if Harness.phase == "ui_menu_probe" or Harness.phase == "ui_menu_capture"
         or Harness.phase == "ui_menu_capture_bottom" then
         Harness.probeUIMenus(current)
+    elseif Harness.phase == "fishing_map_list" then
+        if current - Harness.phaseStartedAt < 4000 then return end
+        local banks, reason, total = SurvivorCompanion.Fishing.bankCandidates(
+            Harness.player, 1000, 32, 0, true)
+        local mapped
+        for _, row in ipairs(banks or {}) do
+            if row.knowledge == "map_water_unconfirmed"
+                and row.distance <= 500 then mapped = row break end
+        end
+        check("riverside_mapped_fishing_shore_available",
+            mapped ~= nil and banks[1].distance >= 100,
+            "count=" .. tostring(total) .. " reason=" .. tostring(reason)
+                .. " nearest=" .. tostring(banks and banks[1]
+                    and banks[1].id)
+                .. " distance=" .. tostring(banks and banks[1]
+                    and banks[1].distance)
+                .. " player=" .. tostring(math.floor(Harness.playerX))
+                .. ":" .. tostring(math.floor(Harness.playerY)))
+        Harness.player:teleportTo(7330.5, 6069.5, 0)
+        setPhase("fishing_truth_near", current)
+    elseif Harness.phase == "fishing_truth_near"
+        or Harness.phase == "fishing_truth_river" then
+        if current - Harness.phaseStartedAt < 3000 then return end
+        local x, y = Harness.phase == "fishing_truth_near"
+            and 7330 or 7504, Harness.phase == "fishing_truth_near"
+            and 6069 or 6045
+        local cell = getCell()
+        local function waterAt(tx, ty)
+            local square = cell and cell:getGridSquare(tx, ty, 0)
+            if not square then return "unloaded" end
+            return tostring(SurvivorCompanion.Topology.squareIsWater(square))
+        end
+        local detail = "site=" .. x .. ":" .. y
+            .. " tile=" .. waterAt(x, y)
+            .. " east=" .. waterAt(x + 6, y) .. "/" .. waterAt(x + 9, y)
+            .. " west=" .. waterAt(x - 6, y) .. "/" .. waterAt(x - 9, y)
+            .. " north=" .. waterAt(x, y - 6) .. "/" .. waterAt(x, y - 9)
+            .. " south=" .. waterAt(x, y + 6) .. "/" .. waterAt(x, y + 9)
+        local terrainMatches = Harness.phase == "fishing_truth_near"
+            and waterAt(x + 6, y) == "false"
+            and waterAt(x + 9, y) == "false"
+            or Harness.phase == "fishing_truth_river"
+            and waterAt(x + 6, y) == "true"
+            and waterAt(x + 9, y) == "true"
+        check("fishing_bank_terrain_" .. Harness.phase, terrainMatches, detail)
+        if Harness.phase == "fishing_truth_near" then
+            Harness.player:teleportTo(7504.5, 6045.5, 0)
+            setPhase("fishing_truth_river", current)
+        else
+            setPhase("finish", current)
+        end
     elseif string.find(tostring(Harness.phase), "base_maintenance_", 1, true) == 1 then
         Harness.probeBaseMaintenance(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "base_second_floor_", 1, true) == 1 then
@@ -15528,6 +15579,8 @@ local function onGameStart()
     end
     if Harness.config.ui_menu_probe == "true" then
         setPhase("ui_menu_probe", Harness.startedAt)
+    elseif Harness.config.fishing_map_list_probe == "true" then
+        setPhase("fishing_map_list", Harness.startedAt)
     elseif Harness.config.base_maintenance_probe == "true" then
         setPhase("base_maintenance_setup", Harness.startedAt)
     elseif Harness.config.base_second_floor_probe == "true" then

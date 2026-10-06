@@ -1035,6 +1035,10 @@ SC.Fishing = {
 local fishingChoices = expedition.fishingBankCandidates("delta", 1)
 check(#fishingChoices == 1 and fishingChoices[1].kind == "fishing_bank",
     "fishing mission lists shore coordinates instead of building footprints")
+local fishingPreview = expedition.previewAtFishingBank(
+    { actor = reserve }, fishingChoices[1], "straight")
+check(fishingPreview and fishingPreview.mode == "local",
+    "a distant listed fishing bank uses the fishing radius during review")
 local promotedBeforeFishing = promotions
 local fishStarted, fishReason, missingName = expedition.startAtFishingBank(
     { { id = "delta", actor = reserve, name = "Reserve" } }, "bank:800:25",

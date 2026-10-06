@@ -96,6 +96,7 @@ try {
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCNativeCleanupTransactionTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCNativeBridgeExposureTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCStreetLookupTest.java') `
+        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCFishingMapTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCRoadRouterTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCSpeechNameplateLiftTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCConstructionHideTest.java')
@@ -501,6 +502,7 @@ try {
     Add-ScJvmStep 'sc-deferred-main-thread-queue-test' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCDeferredMainThreadQueueTest') @() 'Deferred main-thread spawn queue gate failed.'
     Add-ScJvmStep 'sc-bootstrap-lifecycle-test' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCBootstrapLifecycleTest') @() 'Bootstrap generation lifecycle gate failed.'
     Add-ScJvmStep 'sc-street-lookup-test' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCStreetLookupTest') @() 'Native nearest-street lookup gate failed.'
+    Add-ScJvmStep 'sc-fishing-map-test' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCFishingMapTest') @() 'Native mapped-shore lookup gate failed.'
     Add-ScJvmStep 'sc-road-router-test' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCRoadRouterTest') @() 'Native road graph and router gate failed.'
     Add-ScJvmStep 'sc-speech-nameplate-lift' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCSpeechNameplateLiftTest') @() 'Companion speech nameplate lift gate failed.'
     Add-ScJvmStep 'sc-construction-hide' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCConstructionHideTest') @() 'Companion construction-hide deadline gate failed.'

@@ -85,36 +85,23 @@ assert(outOfRange == nil and outReason == "fishing_bank_out_of_range",
 -- The map knows about a river beyond loaded chunks. The picker may offer it,
 -- while the expedition still has to verify the real bank when it arrives.
 local oldMiniMap = getPlayerMiniMap
-local ring = { points = { { 119, 94 }, { 145, 94 },
-    { 145, 110 }, { 119, 110 } } }
-function ring:numPoints() return #self.points end
-function ring:getX(i) return self.points[i + 1][1] end
-function ring:getY(i) return self.points[i + 1][2] end
-local feature = { geometry = { points = {
-    size = function() return 1 end,
-    get = function() return ring end } },
-    properties = { get = function(_, key)
-        return key == "water" and "river" or nil
-    end } }
-function feature:hasPolygon() return true end
-function feature:containsPoint(x, y)
-    return x >= 119 and x <= 145 and y >= 94 and y <= 110
-end
-local cellFeatures = { size = function() return 1 end,
-    get = function() return feature end }
-local mapWorld = { isDataLoaded = function() return true end,
-    getCell = function(_, cx, cy)
-        if cx == 0 and cy == 0 then
-            return { features = cellFeatures }
-        end
-    end }
+local mapWorld = { bankLocations = "122:100",
+    getCell = function() error("Lua must not read Java map feature fields") end }
 local oldBridge = SCBridge
 local mapWidget = {}
 local mapReads = 0
 SCBridge = { loadedWorldMap = function(widget)
     assert(widget == mapWidget, "the bridge receives the minimap's Java widget")
-    mapReads = mapReads + 1
     return mapWorld
+end,
+mappedFishingBanks = function(world)
+    assert(world == mapWorld, "the Java map lookup receives the loaded map")
+    mapReads = mapReads + 1
+    return world.bankLocations
+end,
+mappedFishingBankPlausible = function(world, x, y)
+    return world == mapWorld and string.find(world.bankLocations,
+        tostring(x) .. ":" .. tostring(y), 1, true) ~= nil
 end }
 getPlayerMiniMap = function()
     return { inner = { javaObject = mapWidget } }
@@ -129,9 +116,7 @@ assert(remoteReason == nil and remoteCount > 0
 local remoteSelected = angling.bankById(scout, remoteBanks[1].id, 40)
 assert(remoteSelected and remoteSelected.id == remoteBanks[1].id,
     "a mapped remote shore remains selectable at departure")
-mapWorld.getCell = function(_, cx, cy)
-    if cx == 0 and cy == 3 then return { features = cellFeatures } end
-end
+mapWorld.bankLocations = "100:700"
 local longScanReads = 0
 local localCell = getCell
 getCell = function()
@@ -150,19 +135,13 @@ getCell = localCell
 local distantSelected = angling.bankById(scout, distantBanks[1].id, 1000)
 assert(distantSelected and distantSelected.id == distantBanks[1].id,
     "a distant mapped shoreline passes the departure range check")
-ring.points = { { 172, 4 }, { 212, 4 }, { 212, 26 }, { 172, 26 } }
-function feature:containsPoint(x, y)
-    return x >= 172 and x <= 212 and y >= 4 and y <= 26
-end
-mapWorld.getCell = function(_, cx, cy)
-    if cx == 28 and cy == 24 then return { features = cellFeatures } end
-end
+mapWorld.bankLocations = "7502:6050"
 local riverside = { x = 7350, y = 6050 }
 local riversideBanks, riversideReason, riversideCount =
     angling.bankCandidates(riverside, 200, 32, 0)
 assert(riversideReason == nil and riversideCount > 0
-        and riversideBanks[1].anchor.y >= 6144,
-    "world map cells use 256 tile coordinates at the Riverside shoreline")
+        and riversideBanks[1].anchor.x >= 7500,
+    "world map cells use 300 tile coordinates at the Riverside shoreline")
 -- Paging through the same shoreline list reuses one 200-tile scan; the
 -- picker's Refresh asks for a new one.
 local squareReads = 0
