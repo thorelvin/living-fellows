@@ -310,22 +310,27 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <p class="subtitle">A Complete Guide to Living with the Fellows of Knox County</p>
   <p class="divider">· · · ✚ · · ·</p>
   <p class="edition">Living Fellows — Project Zomboid Build 42.21.0 Edition</p>
-  <p class="version">Release 0.26.25 — First Edition, Third Printing — You won't die... alone.</p>
+  <p class="version">Release 0.26.28 — First Edition, Fourth Printing — You won't die... alone.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2.5rem;">
-<strong>What changed in this release</strong> — the latest work from 0.26.24 and 0.26.25:
+<strong>What changed in this printing</strong> — the 0.26.26 to 0.26.28 playtest work:
 <ul style="margin-top:0.5rem;margin-bottom:0;">
-  <li><a href="#dismissing"><strong>Dismissing a companion</strong></a> works. The farewell walk used to be sent without a direction and was always refused, so the dismissal failed with it. A dismissed companion now walks away from you. A dismissal ends its pause, its own activity and any routine job. A companion fighting for its life, or partway through something that can't safely be stopped, finishes that first.</li>
-  <li><a href="#ch12"><strong>Camp floors</strong></a> follow your stairs. A complete staircase inside the camp extends the camp to the connected floor above or below, including a basement, and a woodcutter can carry logs up or down to storage there.</li>
-  <li><a href="#ch8">A thirsty and hungry companion</a> with no clean water in reach now eats its food instead of waiting for water first.</li>
-  <li><a href="#ch18">A household asking for water</a> no longer accepts a bottle of tainted or poisoned water.</li>
-  <li><a href="#ch6">Busy companions speak up.</a> A companion reading, eating, working or pausing between actions still calls out a zombie it sees, and a pinned companion always cries for help.</li>
+  <li><a href="#ch14c"><strong>Base Watch</strong></a> keeps your camp loaded while you travel. One indoor resident holds it in a second view, and a radio lets you ask for news or change the watch from afar.</li>
+  <li><a href="#ch15b"><strong>Two new base jobs.</strong></a> A <strong>Chef</strong> cooks real meals for the camp fridge, or one for you on request, and an <strong>Angler</strong> fishes a marked bank. Fishing is also a new <a href="#ch17">expedition task</a>.</li>
+  <li><a href="#ch14"><strong>Camp nights.</strong></a> Outdoor camp work pauses from 21:00 to 06:00 and workers head indoors, unless you allow work outside at night. A tired resident sleeps in a bed before taking the next job.</li>
+  <li><a href="#ch9e"><strong>Quiet hours</strong></a> fill up: watching TV and learning from it, tuning in a radio station, reading a book a chapter at a time, looking out of a window, radio checks, tidying, scrubbing blood and drying off after rain.</li>
+  <li><a href="#ch12"><strong>Camp life spans floors.</strong></a> Residents go up or down the camp stairs for a bed, a seat, a TV or radio, water, the library and chores, and the Chef finds kitchens on any camp floor.</li>
+  <li><a href="#ch9d_hits"><strong>Hitting a companion</strong></a> has consequences: warnings, distance, and in the end a fight. A stray hit in a melee only earns a complaint, and strikes fade after a quiet spell.</li>
+  <li><a href="#ch8">Late Knox infection</a> shows as a worsening shamble, and <strong>bleach</strong> is a possible last choice, theirs to make.</li>
+  <li><a href="#ch14b">Stalled jobs.</a> A base job that keeps failing waits longer each time, then stops and waits for your Retry or Cancel.</li>
+  <li><a href="#appA">New keys.</a> Peek, Watch and Steer moved to keypad 1, 2 and 3, and the base layout to <kbd>Insert</kbd>.</li>
+  <li><a href="#appC">Project A-Life</a> NPCs are recognised as people, not zombies.</li>
 </ul>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2.5rem;">
-<strong>About this manual</strong> — it covers what the companion panel does not explain: how the fellows think, what they need from you, and the rules they follow when nobody is giving orders. Everything here describes release 0.26.25. Living Fellows is a <strong>public playtest</strong>: back up important saves, and send logs when something goes wrong (<a href="#appD">Appendix D</a>). The mod itself lives at <a href="https://github.com/thorelvin/living-fellows">github.com/thorelvin/living-fellows</a>. The <em>Overheard</em> quotes are real lines from the mod's own voice pools. Later printings added <a href="#ch3b">Status and Loadout</a>, <a href="#ch5b">squads and signals</a>, <a href="#ch5c">vehicles</a>, every line of the <a href="#ch9b">Talk menu</a>, <a href="#ch9c">who companions are</a>, <a href="#ch9d">how trust is earned</a>, <a href="#ch9e">downtime</a>, <a href="#ch9f">stress, joy and boredom</a>, <a href="#ch8">infection crises</a>, <a href="#ch14b">running the camp</a>, <a href="#ch17">expedition radio calls</a>, household <a href="#ch18b">contracts, quests and recruitment</a>, and the <a href="#appC">Support page</a>.
+<strong>About this manual</strong> — it covers what the companion panel does not explain: how the fellows think, what they need from you, and the rules they follow when nobody is giving orders. Everything here describes release 0.26.28. Living Fellows is a <strong>public playtest</strong>: back up important saves, and send logs when something goes wrong (<a href="#appD">Appendix D</a>). The mod itself lives at <a href="https://github.com/thorelvin/living-fellows">github.com/thorelvin/living-fellows</a>. The <em>Overheard</em> quotes are real lines from the mod's own voice pools. Later printings added <a href="#ch3b">Status and Loadout</a>, <a href="#ch5b">squads and signals</a>, <a href="#ch5c">vehicles</a>, every line of the <a href="#ch9b">Talk menu</a>, <a href="#ch9c">who companions are</a>, <a href="#ch9d">how trust is earned</a>, <a href="#ch9e">downtime</a>, <a href="#ch9f">stress, joy and boredom</a>, <a href="#ch8">infection crises</a>, <a href="#ch14b">running the camp</a>, <a href="#ch17">expedition radio calls</a>, household <a href="#ch18b">contracts, quests and recruitment</a>, the <a href="#appC">Support page</a>, <a href="#ch14c">Base Watch</a>, <a href="#ch15b">cooking and fishing</a>, and <a href="#ch9d_hits">what happens when you hit them</a>.
 </div>
 
 <!-- TABLE OF CONTENTS -->
@@ -366,7 +371,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
         <li><a href="#ch13">Ch 13: Building from Blueprints</a></li>
         <li><a href="#ch14">Ch 14: Base Duty and Jobs</a></li>
         <li><a href="#ch14b">Ch 14b: Running the Camp</a></li>
+        <li><a href="#ch14c">Ch 14c: Base Watch</a></li>
         <li><a href="#ch15">Ch 15: Farming</a></li>
+        <li><a href="#ch15b">Ch 15b: The Kitchen and the Water</a></li>
         <li><a href="#ch16">Ch 16: Laying the Dead to Rest</a></li>
       </ol>
     </li>
@@ -406,7 +413,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li>Load a single-player save and press <kbd>Home</kbd> to open the companion panel</li>
   <li>Find a survivor, select them in the panel, and press <span class="menu">Recruit</span></li>
   <li>Pick a main order on <span class="menu">Orders</span>; new recruits start on Follow</li>
-  <li>Try <kbd>[</kbd> to peek through their eyes and <kbd>]</kbd> to steer them</li>
+  <li>Try <kbd>Keypad 1</kbd> to peek through their eyes and <kbd>Keypad 3</kbd> to steer them</li>
   <li>If anything looks wrong, open <span class="menu">More → Support</span> and copy its report</li>
 </ul>
 </div>
@@ -485,8 +492,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li>Explore until you meet a survivor. Survivors never join automatically.</li>
   <li>Select the survivor in the panel and press <span class="menu">Recruit</span> when it is offered.</li>
   <li>Open <span class="menu">Orders</span> and pick a main order.</li>
-  <li>Hold <kbd>[</kbd> (Left bracket) to peek through the selected companion's position; let go to return to your character. Or right-click a nearby companion and choose <span class="menu">Watch</span> for a view that stays.</li>
-  <li>Hold <kbd>]</kbd> (Right bracket) to steer that companion toward the cursor; let go to hand them back to their own judgement.</li>
+  <li>Hold <kbd>Keypad 1</kbd> to peek through the selected companion's position; let go to return to your character. Press <kbd>Keypad 2</kbd>, or right-click a nearby companion and choose <span class="menu">Watch</span>, for a view that stays.</li>
+  <li>Hold <kbd>Keypad 3</kbd> to steer that companion toward the cursor; let go to hand them back to their own judgement.</li>
   <li>If something looks wrong, open <span class="menu">More → Support</span> for runtime health and a copyable report.</li>
 </ol>
 
@@ -525,18 +532,18 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <div class="lore-pull">Doing fine. Tell me what comes next.<span class="who">— a companion asked how they are</span></div>
 
 <h3>Peek and Watch</h3>
-<p>Select a companion in the roster and hold <kbd>[</kbd> to ease the camera toward them; let go to ease home. For mouse-only play, right-click a nearby companion and choose <span class="menu">Watch</span>; while watching, right-click anywhere and choose <span class="menu">Stop watching</span>. Both work with the panel collapsed, on the same floor within 16 tiles, and alongside the game's right-click aim lean.</p>
+<p>Select a companion in the roster and hold <kbd>Keypad 1</kbd> to ease the camera toward them; let go to ease home. <kbd>Keypad 2</kbd> starts or stops a <strong>Watch</strong> view that stays on them. With the mouse, right-click a nearby companion and choose <span class="menu">Watch</span>; while watching, right-click anywhere and choose <span class="menu">Stop watching</span>. Both work with the panel collapsed, on the same floor within 16 tiles, and alongside the game's right-click aim lean. All three keypad keys can be rebound under Options, Key bindings, Living Fellows.</p>
 
 <div class="callout callout-warn">Peek and Watch move only the camera. Your character keeps moving normally and is just as vulnerable. Don't watch a companion's fight while you stand in a street full of your own trouble.</div>
 
 <h3>Steer</h3>
-<p>Hold <kbd>]</kbd> (separately rebindable) and point at loaded ground to walk the selected companion toward the cursor. Hold Peek and Steer together for a scout-and-direct view. Steering goes through the same action supervisor as work and survival: it can interrupt lower-priority activity, can't pull a companion out of a protected native action, and gives way at once to a combat rescue or survival movement. Let go of the key and the companion's own judgement resumes.</p>
+<p>Hold <kbd>Keypad 3</kbd> (separately rebindable) and point at loaded ground to walk the selected companion toward the cursor. Hold Peek and Steer together for a scout-and-direct view. Steering goes through the same action supervisor as work and survival: it can interrupt lower-priority activity, can't pull a companion out of a protected native action, and gives way at once to a combat rescue or survival movement. Let go of the key and the companion's own judgement resumes.</p>
 
 <h3>On-Screen Helpers</h3>
 <ul>
   <li><strong>First-name labels</strong> above companions you can see (a sandbox option).</li>
   <li><strong>Minimap markers</strong> for your companions.</li>
-  <li><strong>The base layout overlay</strong>, toggled with <kbd>End</kbd> (<a href="#ch11">Chapter 11</a>).</li>
+  <li><strong>The base layout overlay</strong>, toggled with <kbd>Insert</kbd> (<a href="#ch11">Chapter 11</a>).</li>
   <li><strong>The Support page</strong> under <span class="menu">More → Support</span>: runtime health, leaked-action counters, and a report you can copy into a bug report.</li>
 </ul>
 
@@ -653,7 +660,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 5 -->
 <h2 class="chapter" id="ch5"><img class="ico" src="https://pzwiki.net/w/images/4/4d/Flashlight.png" alt="">Chapter 5: Moving Together<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<p>Followers keep formation slots instead of stacking on your heels. Each fireteam has a shape: a close fighter at point, firearm support in the middle, and a cautious survivor at the rear. When the street narrows they file through doors, windows, fences and stairs one at a time, then spread out again on the other side.</p>
+<p>Followers keep their place instead of stacking on your heels. By default a team you lead walks in single file along your path. Turn on <span class="menu">Team fans out while following</span> (Orders, Combat; it applies to the whole team) and on clear open ground they spread into fireteam slots instead: a close fighter at point, firearm support in the middle, and a cautious survivor at the rear. Doors, windows, fences, stairs and narrow streets put them back in file, one at a time, and they spread out again on the other side. An expedition squad always uses the fireteam shape.</p>
 
 <table>
   <tr><th>Fireteam role</th><th>Where they stand</th><th>Who fits it</th></tr>
@@ -869,7 +876,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <div class="lore-pull">My stomach is reminding me it exists.<span class="who">— a companion getting hungry</span></div>
 
 <h3>Water and Food</h3>
-<p>A companion drinks only <strong>clean</strong> water: a carried bottle, a safe source nearby such as a working sink, or water fetched from camp storage. Tainted or poisoned water is not drunk. Thirst comes first, but no water never stops a companion eating. One that is thirsty and hungry with no clean water in reach eats its food and keeps looking for water.</p>
+<p>A companion drinks only <strong>clean</strong> water: a carried bottle, a safe source nearby such as a working sink, or water fetched from camp storage. Tainted or poisoned water is not drunk. At camp, a clean tap or well within six tiles on the same floor comes before their own bottles, which they save for the road, and a source on a connected camp floor will do; a source that fails is left alone for a short while. Thirst comes first, but no water never stops a companion eating. One that is thirsty and hungry with no clean water in reach eats its food and keeps looking for water.</p>
 
 <div class="callout callout-tip">Mark a <strong>Water</strong> and a <strong>Food</strong> container at camp (<a href="#ch11">Chapter 11</a>). A companion who can't find either nearby will fetch from them.</div>
 
@@ -898,6 +905,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <h3>Bites and the Knox Infection</h3>
 <p>A bite changes everything, and the fellows know it. A known bite can lead to <strong>concealment, confession, quarantine, exile, or a farewell</strong>. Those who learn of it walk over and talk it through face to face. A bitten companion may first confide in the one it trusts most, which might be you, and a protective friend might keep the secret for a while.</p>
+<p><img class="ico-sm moodle" src="https://pzwiki.net/w/images/3/3e/Moodle_Icon_Zombie.png" alt="">Near the end the infection shows. From <strong>90%</strong> verified Knox progress a living companion walks with a worsening shamble, the game's own heavy limp, and settled on a bed it now and then lets out a short, zombie-like groan. Other illnesses never cause either, and real leg wounds still show as they are.</p>
 
 
 <h3>When Someone Is Bitten</h3>
@@ -911,10 +919,13 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Argue for quarantine</strong></td><td>They walk to the quarantine area and stay there, and take no base jobs</td></tr>
   <tr><td><strong>Order exile</strong></td><td>They walk out of the camp and are not allowed back</td></tr>
   <tr><td class="tbl-power">Propose mercy killing</td><td>Only once the bite is confirmed to you. A companion who knows carries it out, and only after your final authorization, which a short safety delay holds back</td></tr>
+  <tr><td class="tbl-power"><img class="ico-sm" src="https://pzwiki.net/w/images/e/ea/Bleach.png" alt="">Offer bleach (their choice)</td><td>Only for a companion, once the bite is confirmed to you and the infection has reached 90%. A bottle of bleach must be in their pack, or in yours while you stand within three tiles, and it is handed over. They may refuse, and then you choose another way. If they accept, they drink it themselves with the game's own drink action, after the same safety delay and your final authorization</td></tr>
   <tr><td><strong>End crisis and return to normal duty</strong></td><td>Lifts the restriction and gives them their ordinary duties back</td></tr>
 </table>
 
-<div class="callout callout-warn">Mercy, and a bitten companion's own choice to sacrifice itself, both wait for <strong>your</strong> final authorization. Nothing irreversible happens without it.</div>
+<div class="callout callout-warn">Mercy, bleach, and a bitten companion's own choice to sacrifice itself all wait for <strong>your</strong> final authorization. Nothing irreversible happens without it.</div>
+
+<div class="lore-pull">No one else has to do this for me.<span class="who">— a bitten companion, accepting the bleach</span></div>
 
 <h3>Death</h3>
 <p>Death is permanent, and it follows the game's own rules for corpses and reanimation. A dying companion may have last words, shaped by how it is dying and how close you were. A diary keeper's book stays with the body (<a href="#ch10">Chapter 10</a>), and a fallen companion found by the gravekeeper gets a grave with a cross and its name (<a href="#ch16">Chapter 16</a>).</p>
@@ -955,7 +966,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li><strong>New places</strong>: the first walk into a notable building, such as a police station, church, bar, hospital or gun store, earns a remark. Former police officers, doctors, nurses and others have lines of their own for places like their old workplaces.</li>
   <li><strong>Strangers</strong>: a companion who meets a calm, non-hostile survivor says hello and gives them room to answer.</li>
 </ul>
-<p>Conversation is spaced out so it never becomes a chorus, and danger interrupts it.</p>
+<p>There is more to say during routine work, while following you, and when one or two zombies come at you: Kentucky references, dry post-apocalypse humour, and stressed, low or hopeful lines depending on mood. Conversation is spaced out so it never becomes a chorus, and danger interrupts it.</p>
 
 <div class="lore-pull">Knox County never looked this empty on a weekday.<span class="who">— a follower, walking</span></div>
 
@@ -1181,6 +1192,18 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <div class="callout callout-warn">A <strong>push</strong> (focusing the same zombie twice, <a href="#ch4">Chapter 4</a>) is remembered three ways: as being pushed into a fight, as being pushed and getting everyone through, or as being pushed and getting hurt. A higher relationship score gives a push more room; below a score of 25 it adds nothing at all.</div>
 
+<h3 id="ch9d_hits">When You Hit Them</h3>
+<p>A swing or a shot that lands on a companion is remembered. If zombies or hostile people are on them at that moment, it is an accident in a melee: they complain and nothing is counted. A hit in a quiet moment is a <strong>strike</strong>.</p>
+<table>
+  <tr><th>Strike</th><th>What follows</th><th>Trust</th><th>Bond</th></tr>
+  <tr><td>First</td><td>A warning: <em>"Hey! Watch your swing."</em></td><td>−5</td><td>−2</td></tr>
+  <tr><td>Second</td><td>They keep 8 tiles back, step away when you come within 7, and stop treating your wounds: <em>"That's twice. I'm staying back."</em></td><td>−12</td><td>−6</td></tr>
+  <tr><td>Third</td><td>A last warning</td><td>−12</td><td>−6</td></tr>
+  <tr><td class="tbl-power">Fourth</td><td>They fight you, unless your health is already at 25% or below; then they stay angry instead</td><td>−12</td><td>−6</td></tr>
+</table>
+<p>A companion fighting you stops once your health falls to 25% or below: one <strong>ceasefire</strong>, <em>"You're hurt enough. I'm done fighting."</em> Strike them after that and the fight goes on to the end, accident or not.</p>
+<div class="callout callout-tip">Strikes fade. After six game hours without another hit, the count goes back to zero, and the follow distance you had set before the second strike comes back, unless you've changed it since. An open fight and a ceasefire don't fade.</div>
+
 <h3>Trust Opens the Past</h3>
 <p>"Tell me about yourself" gives one new detail each time, but only as far as their <strong>trust</strong> (not the tier score) allows:</p>
 <table>
@@ -1232,20 +1255,31 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <table>
   <tr><th></th><th>Activity</th><th>When and how</th></tr>
-  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/f/f3/Book.png" alt=""></td><td><strong>Reading</strong></td><td>Something they carry, or an unread book borrowed from the camp library and put back afterwards. They stay seated to read, and read in bed after a rest if a book is to hand.</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/f/f3/Book.png" alt=""></td><td><strong>Reading</strong></td><td>Something they carry, or an unread book borrowed from marked storage and put back afterwards. A sitting covers a chapter, about a twentieth of the book; progress is kept across trips and saves, and a passenger in your car may read on the road. Skill books raise the game's own XP multiplier in ten-percent steps, for a volume they can use now. They stay seated to read, and read in bed after a rest if a book is to hand. Two companions chatting at camp sometimes talk about a book one of them is carrying.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/e/ea/Pencil.png" alt=""></td><td><strong>Writing</strong></td><td>Diary keepers write an entry in a quiet, safe moment (<a href="#ch10">Chapter 10</a>)</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/4/46/Toolbox.png" alt=""></td><td><strong>Repairs</strong></td><td>Damaged gear they carry. Handy, Tinkerer, Sewer and Dextrous companions do more of it.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/0c/Bandage.png" alt=""></td><td><strong>Changing a dressing</strong></td><td>A dirty bandage swapped for a clean one; the used one goes back in their pack</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/a/a9/Splint.png" alt=""></td><td><strong>Making splints</strong></td><td>From a clean rag and wood, while they carry fewer than two</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/0e/SheetRope.png" alt=""></td><td><strong>Making sheet rope</strong></td><td>For climbing out of windows</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/5/52/Bucket.png" alt=""></td><td><strong>Washing</strong></td><td>Themselves, their gear, and dirty dressings for reuse, at reachable clean water. Protected items are left alone, and a washed dressing keeps its custom name and favourite mark.</td></tr>
-  <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/2/2b/Moodle_Icon_Tired.png" alt=""></td><td><strong>Rest</strong></td><td>A bed or cot, a usable chair, or the floor when no seat or bed is free</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/2/2b/Moodle_Icon_Tired.png" alt=""></td><td><strong>Rest</strong></td><td>A bed or cot, a usable chair, or the floor when no seat or bed is free. A tired companion sleeps in a bed for 3½ to 9 game hours, longer the more tired it is, and wakes rested; a chair rest lasts 25 to 85 game minutes. Danger and a new order wake them.</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/7/75/Television.png" alt=""></td><td><strong>Television</strong></td><td>A powered TV with the volume up: they take a seat that faces the screen, or stand in the same room where they can see it. At camp they may go one floor up or down to a TV that is on. Skill shows and VHS tapes give each viewer the game's usual XP and recipes, once per line, remembered across saves. They may comment, or note something worth learning.</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/3/31/Radio.png" alt=""></td><td><strong>Radio</strong></td><td>A powered radio within reach, or one floor away at camp: they switch it on, tune it to a station (never the squad's own channel), turn the volume up if it is off, then sit nearby and listen, remarking on what they hear. It passes the time; it teaches nothing.</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/b/bb/Moodle_Icon_Bored.png" alt=""></td><td><strong>Window watching</strong></td><td>Indoors, a short look out of a nearby window, opening a closed curtain first; they wait if someone else has the spot</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/7/7c/Wrench.png" alt=""></td><td><strong>Gear check</strong></td><td>A short look over the weapon or tool in hand. Nothing is repaired or swapped.</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/3/31/Radio.png" alt=""></td><td><strong>Radio check</strong></td><td>With a powered two-way radio on the Living Fellows team channel, a short call that really goes out on the air, at most every ten minutes</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/b/b1/Backpack.png" alt=""></td><td><strong>Tidying</strong></td><td>At camp, a short spell straightening a marked container in the same building. Nothing is moved: sorting is a base job.</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/f/f5/Mop.png" alt=""></td><td><strong>Cleaning</strong></td><td>At camp, scrubbing blood or grime off a floor or wall in the same building with the game's own cleaning action. They need a mop or other cleaning tool and bleach or cleaning liquid in their pack, and the game takes its usual amount.</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/7/7f/Moodle_Icon_Wet.png" alt=""></td><td><strong>Drying off</strong></td><td>Indoors when wet or cold: a short wipe-down, using one use of a carried bath towel or dish cloth if they have one. The game handles wetness and warmth.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/d/d2/Sheet.png" alt=""></td><td><strong>Curtains</strong></td><td>Indoors, curtains get closed at night (20:00–06:00). By day a companion now and then opens or closes one; a companion on Stealth, sneaking or holding fire only ever closes them.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/f/f0/Moodle_Icon_Endurance.png" alt=""></td><td><strong>Exercise</strong></td><td>Athletic companions work out at base in the morning, and others sometimes join them (<a href="#ch9">Chapter 9</a>)</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/8/86/Moodle_Icon_Dead.png" alt=""></td><td><strong>The dead</strong></td><td>Studying a body, or paying respects to one (<a href="#ch7">Chapter 7</a>)</td></tr>
 </table>
 
-<div class="callout callout-tip">At camp, downtime also follows the base policies (<a href="#ch14b">Chapter 14b</a>): <strong>Allow safe routines and downtime</strong> switches it on or off for residents, and the <strong>Continuous useful work</strong> workload adds extra routines on top.</div>
+<div class="callout callout-tip">At camp, downtime also follows the base policies (<a href="#ch14b">Chapter 14b</a>): <strong>Allow safe routines and downtime</strong> switches it on or off for residents, and the <strong>Continuous useful work</strong> workload adds extra routines on top. At camp, downtime reaches every connected floor (<a href="#ch12">Chapter 12</a>): a bed upstairs when tired, a seat, a TV or radio, washing water, library shelves, tidying and cleaning. The resident keeping <a href="#ch14c">Base Watch</a> now and then walks over to another indoor resident for a word.</div>
+
+<div class="lore-pull">Strange seeing ordinary life still running on that screen.<span class="who">— a companion watching TV</span></div>
+<div class="lore-pull">The signal crossed a lot of empty roads to get here.<span class="who">— a companion by the radio</span></div>
 
 <!-- CH 9f -->
 <h2 class="chapter" id="ch9f"><img class="ico" src="https://pzwiki.net/w/images/1/1f/Cigarette.png" alt="">Chapter 9f: Stress, Joy and Boredom<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
@@ -1396,12 +1430,13 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Quarantine area</strong></td><td>Somewhere to keep a bitten companion apart</td><td>Inside the camp</td></tr>
   <tr><td><img class="ico-sm" src="https://pzwiki.net/w/images/4/45/WoodAxe.png" alt=""><strong>Lumber area</strong></td><td>Standing trees for the woodcutter</td><td>Up to 30 tiles beyond the boundary</td></tr>
   <tr><td><img class="ico-sm" src="https://pzwiki.net/w/images/8/87/Hoe.png" alt=""><strong>Farm area</strong></td><td>Existing plots for the farmer</td><td>Up to 30 tiles beyond the boundary</td></tr>
+  <tr><td><img class="ico-sm" src="https://pzwiki.net/w/images/2/2f/FishingRod.png" alt=""><strong>Fishing bank</strong></td><td>Dry ground beside at least two tiles of open water, for the angler (<a href="#ch15b">Ch 15b</a>)</td><td>Up to 30 tiles beyond the boundary, at ground level</td></tr>
   <tr><td><img class="ico-sm" src="https://pzwiki.net/w/images/7/77/Shovel.png" alt=""><strong>Burial ground</strong></td><td>Graves</td><td>Up to 30 tiles beyond the boundary</td></tr>
   <tr><td><img class="ico-sm" src="https://pzwiki.net/w/images/0/01/Campfire.png" alt=""><strong>Pyre (burn site)</strong></td><td>Burning the dead; at most nine tiles, and it must pass a fire-safety check when drawn</td><td>Up to 30 tiles beyond the boundary</td></tr>
 </table>
 
 <h3>Seeing the Layout</h3>
-<p>Press <kbd>End</kbd> (rebindable under Options, Key bindings, Living Fellows), or use the right-click menu or the button in the Base tab, to show the base layout. Each zone gets a see-through floor tint and outline in its colour, registered storage gets a tile and outline in its category colour, and a legend lists what is on screen. With the layout showing, right-click a zone to remove it. A zone that is still needed says why instead.</p>
+<p>Press <kbd>Insert</kbd> (rebindable under Options, Key bindings, Living Fellows), or use the right-click menu or the button in the Base tab, to show the base layout. Each zone gets a see-through floor tint and outline in its colour, registered storage gets a tile and outline in its category colour, and a legend lists what is on screen. With the layout showing, right-click a zone to remove it. A zone that is still needed says why instead.</p>
 
 <h3>Marking Storage</h3>
 <p>Right-click a container inside the camp, choose <span class="menu">Mark storage as...</span> and pick a category. Companions help themselves from marked storage and leave unmarked containers to you. You can give each marked container a reserve, and companions leave that many items in it (<a href="#ch14b">Chapter 14b</a>).</p>
@@ -1438,10 +1473,11 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <ul>
   <li>This also happens after you <strong>build</strong> stairs, once the stair and landing tiles are loaded.</li>
-  <li>The generated area follows the current camp rectangle and covers only tiles with a real floor. Use <kbd>End</kbd> to inspect it.</li>
+  <li>The generated area follows the current camp rectangle and covers only tiles with a real floor. Use <kbd>Insert</kbd> to inspect it.</li>
   <li>A camp made in a basement extends up to the ground floor at the top of its stairs, and a ground-floor camp extends down into the cellar.</li>
   <li>Residents use marked storage on a connected floor normally. Mark upper-floor storage the same way as any other.</li>
   <li>A woodcutter can work a lumber area outside camp and carry logs up or down the stairs to storage on a connected floor.</li>
+  <li>Camp life uses every connected floor. Residents go up or down for a bed, a seat, a TV or radio, water to drink or wash with, the library and downtime chores, and the Chef finds fridges, stoves, sinks and tables on any camp floor.</li>
 </ul>
 
 <div class="callout callout-tip">Remove a generated floor area and the stair survey won't recreate it; that floor stays off until you draw an area there yourself. Over a part of the camp in the same building, you can also draw your own area on a floor with no verified staircase.</div>
@@ -1501,7 +1537,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>A companion on <strong>base duty</strong> lives at the camp and works for it. Give Stay or Guard inside the camp area, or choose a job in <span class="menu">More → Base</span>, and they are on duty. Residents sort storage, repair gear, craft supplies, keep watch, patrol, maintain barricades, and build queued construction. A guard on shift keeps watch around its post instead of taking general chores.</p>
 
 <h3>Jobs Are Roles</h3>
-<p>A resident's base job is its camp role. Each companion arrives with a <strong>natural role</strong> from its profession (Generalist, Guard, Builder, Quartermaster, Medic or Farmer), and the job you choose replaces it. The job list adds three more: Woodcutter, Gravekeeper and Maintainer. The <strong>Carpenter</strong> job is the Builder role.</p>
+<p>A resident's base job is its camp role. Each companion arrives with a <strong>natural role</strong> from its profession (Generalist, Guard, Builder, Quartermaster, Medic or Farmer), and the job you choose replaces it. The job list adds five more: Woodcutter, Gravekeeper, Maintainer, Chef and Angler. The <strong>Carpenter</strong> job is the Builder role.</p>
 
 <h3>Choosing a Base Job</h3>
 <p>Select a companion in <span class="menu">More → Base</span> and pick one job from the dropdown near the top. That puts them on base duty; <span class="menu">No base job (follow me)</span> brings them back. The job survives a save and reload. You don't set quantities, areas, destinations or workers for each order: the marked areas and storage tell them where, and the scheduler gives them time between survival and other work.</p>
@@ -1513,6 +1549,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/7/77/Shovel.png" alt=""></td><td><strong>Gravekeeper</strong></td><td>A burial ground and shovel, or a safe pyre with lighter and petrol</td><td>Finds a body in the camp or lumber areas, drags it to the burial ground or pyre, then buries or burns it (<a href="#ch16">Ch 16</a>).</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/8/87/Hoe.png" alt=""></td><td><strong>Farmer</strong></td><td>A farm area over existing plots and marked farming supplies</td><td>Waters, tends and harvests what the field audit finds (<a href="#ch15">Ch 15</a>).</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/8/81/Hammer.png" alt=""></td><td><strong>Maintainer</strong></td><td>Marked maintenance targets</td><td>Repairs damaged barricades that need planks.</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/5/54/Pot.png" alt=""></td><td><strong>Chef</strong></td><td>A powered camp fridge, ingredients and cookware in camp storage</td><td>Keeps safe meals in the fridge, and cooks one for you on request (<a href="#ch15b">Ch 15b</a>).</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/2/2f/FishingRod.png" alt=""></td><td><strong>Angler</strong></td><td>A fishing bank, a rod and bait</td><td>Fishes the bank and stores the catch in marked Food storage (<a href="#ch15b">Ch 15b</a>).</td></tr>
 </table>
 <p>Quartermasters, medics, guards and generalists use the ordinary base chores. How much of that work they take on, and who keeps watch, is set by the base policies (<a href="#ch14b">Chapter 14b</a>).</p>
 
@@ -1521,14 +1559,16 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h3>Safety Rules for Camp Work</h3>
 <ul>
   <li><strong>Chopping is loud.</strong> No tree is started while danger is visible nearby, winded residents rest, and a chop that gets stuck is abandoned after three minutes.</li>
-  <li><strong>Nights outside.</strong> Beyond the camp boundary, residents start no new tree and fetch no body at night (21:00–06:00).</li>
+  <li><strong>Nights indoors.</strong> From 21:00 to 06:00 outdoor camp work pauses: workers head to an indoor camp square, outdoor jobs wait for daylight, and indoor chores carry on. A farm job already under way is finished, and a Chef stays by a pot on a lit fire. Switch on <strong>Work outside at night</strong> in the base policies (<a href="#ch14b">Ch 14b</a>) to keep everyone working. Beyond the boundary, nobody starts a new tree or fetches a body at night either way.</li>
+  <li><strong>Sleep first.</strong> A resident who is more than half tired sleeps in a bed before claiming its next job, and keeps the bed until rested. A job already in hand is finished first.</li>
   <li><strong>Loot is yours.</strong> Bodies still carrying items are left for you to loot.</li>
   <li><strong>Dragging.</strong> A resident dragging a body takes no fences, windows or stairs, and drops it at once when danger shows up. The body stays where it fell.</li>
-  <li><strong>Blocked work</strong> shows its reason and tries again on its own.</li>
+  <li><strong>Blocked work</strong> shows its reason and tries again on its own, waiting longer each time; a job that keeps failing ends up under <strong>Stalled jobs</strong> (<a href="#ch14b">Ch 14b</a>).</li>
+  <li><strong>Missing tools.</strong> A worker blocked for want of a tool may walk over and tell you what it needs, if you are on the same floor within 16 tiles and nothing is threatening. It doesn't follow you about: it gives up after half a minute, or once it finds the tool.</li>
 </ul>
 
 <h3>The Camp Library</h3>
-<p>Residents put spare carried books and magazines into nearby <strong>Books &amp; magazines</strong> storage, even when they aren't overloaded, and keep them if no library is marked. In a quiet spell they may borrow an unread book or magazine, read it, and put that exact item back. Storage reserves, private diaries, favourites and other protected belongings are left alone. Immediate danger interrupts reading and returns a borrowed book.</p>
+<p>Residents put spare carried books and magazines into nearby <strong>Books &amp; magazines</strong> storage, even when they aren't overloaded, and keep them if no library is marked. In a quiet spell they may borrow an unread book or magazine, read it a chapter at a time (<a href="#ch9e">Ch 9e</a>), and put that exact item back. Storage reserves, private diaries, favourites and other protected belongings are left alone. Immediate danger interrupts reading and returns a borrowed book.</p>
 
 <!-- CH 14b -->
 <h2 class="chapter" id="ch14b"><img class="ico" src="https://pzwiki.net/w/images/c/c7/Clipboard.png" alt="">Chapter 14b: Running the Camp<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
@@ -1587,13 +1627,15 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Continuous useful work</strong></td><td>All of that, plus safe routines whenever someone is free</td></tr>
 </table>
 
-<p>Two switches sit beside them. <strong>Allow safe routines and downtime</strong> turns residents' downtime and routines on or off. <strong>Automatically maintain and sort the base</strong> covers sorting and barricade maintenance; with it off, only a resident with the <strong>Maintainer</strong> job still repairs barricades.</p>
+<p>Three switches sit beside them, each with its name and an On/Off button. <strong>Allow safe routines and downtime</strong> turns residents' downtime and routines on or off. <strong>Automatically maintain and sort the base</strong> covers sorting and barricade maintenance; with it off, only a resident with the <strong>Maintainer</strong> job still repairs barricades. <strong>Work outside at night</strong>, off by default, lets outdoor camp work carry on from 21:00 to 06:00 (<a href="#ch14">Ch 14</a>).</p>
 
 <h3>Staffing and Shifts</h3>
 <p>Every resident is listed with their job and state: <em>on watch</em>, <em>available</em> or <em>off duty</em>. Select one to set their base job or start base duty (<a href="#ch14">Chapter 14</a>).</p>
 
 <h3>The Work Queue</h3>
-<p>Each job shows its kind, its state and its worker. A blocked job says what it's <strong>blocked by</strong> and retries on its own; you can also <span class="menu">Retry blocked job</span> or <span class="menu">Cancel job</span> yourself, with a confirmation.</p>
+<p>The status lines count jobs pending, active and blocked, and planned construction is listed with its state and what it is <strong>blocked by</strong> (<a href="#ch13">Ch 13</a>). A blocked job tries again on its own, waiting twice as long after each failure: 10 seconds, then 20, 40 and so on, up to ten minutes.</p>
+<p>After <strong>six failures in a row</strong> a job stops trying and appears under <strong>Stalled jobs</strong>, with its worker, the reason, and two buttons: <span class="menu">Retry blocked job</span> gives it a fresh run, and <span class="menu">Cancel job</span> removes it after a confirmation. Gathering and production jobs follow their own order's controls instead.</p>
+<div class="callout callout-warn">A cancel can be refused while a job can't safely stop, such as a Chef's pot still on the heat, or a carried item that can't be put back yet. The reason is shown; try again once it has settled.</div>
 
 <h3>Zones, Storage and Maintenance</h3>
 <ul>
@@ -1603,6 +1645,39 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </ul>
 
 <div class="callout callout-tip">Older saves may still show <strong>Gather materials</strong> orders, for logs or planks from a work or lumber area. Residents finish the ones already there, and the view shows each worker's phase, from seeking material to depositing it.</div>
+
+<!-- CH 14c -->
+<h2 class="chapter" id="ch14c"><img class="ico" src="https://pzwiki.net/w/images/3/31/Radio.png" alt="">Chapter 14c: Base Watch<span class="stage stage-end">Experimental</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>A camp lives only while the game has it loaded. Travel far enough and it unloads, and the camp's work stops with it. <strong>Base Watch</strong> keeps the camp loaded while you travel: one indoor resident holds it in a second local view, the way an expedition leader does, and the other residents carry on working around them.</p>
+
+<div class="callout callout-recipe">
+<strong>Start a watch:</strong> stand inside the marked camp area, open <span class="menu">More → Base</span>, choose the resident under <span class="menu">Base Watch</span> and press <span class="menu">Start Base Watch</span>. Wait for the second view to open, then leave camp.
+</div>
+
+<ul>
+  <li>The watcher must be on base duty, indoors, and not in the middle of an outdoor job.</li>
+  <li>Base Watch and an expedition share the one companion view, so only one of them runs at a time.</li>
+  <li>Until you leave, <span class="menu">End Base Watch</span> closes it again.</li>
+</ul>
+
+<h3>While You're Away</h3>
+<ul>
+  <li>The watcher stays indoors. Outdoor jobs and fishing are dropped for them, and now and then they walk over to another indoor resident for a word.</li>
+  <li>Residents beyond the watcher's loaded area may wait until it streams in again.</li>
+  <li>From afar, the panel refuses camp changes and direct orders to residents: <em>"While away, camp policy changes require a confirmed radio exchange."</em></li>
+  <li>With a powered two-way radio equipped on you and on the watcher, on the same channel, the Base tab offers <span class="menu">Request camp status</span> and the three defence policies (<a href="#ch14b">Ch 14b</a>). A change happens only when the watcher's reply comes back over the air.</li>
+</ul>
+
+<h3>Handing Over</h3>
+<ul>
+  <li>If the watcher steps outdoors or out of camp for more than four seconds, an indoor resident on the same floor within 16 tiles takes over the view. With nobody to take over, the panel says coverage was lost and waits for a return.</li>
+  <li>If the watcher dies, the next eligible resident takes over once the body has settled. With nobody left, the watch ends.</li>
+  <li>Saving and loading while away keeps the watch: the camp is loaded back in first, then the view is handed to the saved watcher.</li>
+</ul>
+<p>Come back into camp within 16 tiles of the watcher and the second view closes on its own, once your own map covers the camp.</p>
+
+<div class="callout callout-warn">Base Watch is a playtest feature. Use a disposable save. If the panel shows <em>Camp view needs attention</em>, note the reason with the Support report (<a href="#appD">Appendix D</a>).</div>
 
 <!-- CH 15 -->
 <h2 class="chapter" id="ch15"><img class="ico" src="https://pzwiki.net/w/images/9/96/WateringCan.png" alt="">Chapter 15: Farming<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
@@ -1619,6 +1694,55 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </table>
 
 <p>Residents borrow and return exact supplies, and route crops and seeds to marked storage. Mark a <strong>Farming supplies</strong> container for seed, tools, compost, water cans and crop treatments. Farmers comment now and then when preparing ground, sowing, watering, harvesting, treating or losing a crop, or finding the tools unusable. Those remarks never hold up the work.</p>
+
+<!-- CH 15b -->
+<h2 class="chapter" id="ch15b"><img class="ico" src="https://pzwiki.net/w/images/5/54/Pot.png" alt="">Chapter 15b: The Kitchen and the Water<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>Two base jobs feed the camp. Neither makes food out of nothing: the Chef cooks what the camp holds with the game's own recipes, and the Angler pulls real fish out of real water.</p>
+
+<h3>The Chef</h3>
+<p>Give a resident the <strong>Chef</strong> job. On duty, the Chef keeps <strong>one safe, prepared dish per resident on duty</strong> in a powered camp fridge, and cooks another when the stock runs short. With no powered fridge, the stock cooking waits.</p>
+
+<table>
+  <tr><th></th><th>Dish</th><th>Needs</th></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/9/9c/Bowl.png" alt=""></td><td><strong>Salad</strong></td><td>A bowl and a safe salad ingredient</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/f/ff/Sandwich.png" alt=""></td><td><strong>Sandwich</strong></td><td>Bread slices, or a loaf and a knife to slice it, and a safe filling</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/5/54/Pot.png" alt=""></td><td><strong>Soup</strong></td><td>A pot, two bowls, clean water from a reachable sink, and heat</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/c/c9/FishFillet.png" alt=""></td><td><strong>Fish soup, fish stew</strong></td><td>As soup, with fish fillets; a whole fish and a sharp knife will do</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/e/e3/Venison.png" alt=""></td><td><strong>Venison stew, venison sandwich</strong></td><td>As soup, or as a sandwich, with venison; raw venison for a sandwich is cooked first</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/c/ca/Pan.png" alt=""></td><td><strong>Stir fry</strong></td><td>A frying pan, a suitable vegetable or other stir-fry ingredient, and heat. It stays in its pan until eaten.</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/5/54/Pot.png" alt=""></td><td><strong>Pasta</strong></td><td>Dry pasta, a pot holding 1.5 L of clean water, two bowls, a topping, and heat</td></tr>
+</table>
+
+<ul>
+  <li>The automatic job rotates through the dishes and skips one whose meat or equipment is missing.</li>
+  <li><strong>Heat</strong> is a powered oven, or a campfire that is already lit. The Chef never lights or feeds a fire, and cooks on one only while outdoor work is allowed.</li>
+  <li>Pot dishes are divided into two bowls with the game's own recipe, and the empty pot goes back to camp storage. Handcraft steps happen at a camp table.</li>
+  <li>Fridges, stoves, sinks and tables count on any camp floor, and the Chef keeps what it found for the whole recipe. Finished food goes to a marked Food fridge first, then any other powered camp fridge.</li>
+  <li>The Chef draws on marked storage first and respects its reserves. Nothing rotten, burnt or poisoned is used, and nothing is served until it is confirmed cooked and safe. Frozen fish or venison is carried out of the freezer and left to thaw first.</li>
+  <li>Spare bread slices and a borrowed knife stay in the Chef's pack for the next meal.</li>
+</ul>
+
+<div class="callout callout-recipe">
+<strong>Cook me a meal:</strong> right-click a Chef on base duty and choose <span class="menu">Cook me a meal</span>. The Chef hands the finished dish to you while you are inside camp and within reach, and keeps it until you are back if you leave. Salad and sandwiches need no fridge; hot dishes do.
+</div>
+
+<div class="callout callout-warn">A pot on the heat can't be abandoned: changing the Chef's job, taking them off duty or cancelling waits until it comes off. Take the meal out of the oven yourself and the Chef switches off the stove it lit and calls the job done.</div>
+
+<div class="lore-pull">There's bread to slice and no knife to do it with.<span class="who">— a Chef, short a knife</span></div>
+
+<h3>The Angler</h3>
+<p>Draw a <img class="ico-sm" src="https://pzwiki.net/w/images/2/2f/FishingRod.png" alt=""><strong>Fishing bank</strong> zone on dry ground at ground level, beside at least two tiles of open water (<a href="#ch11">Ch 11</a>), and give a resident the <strong>Angler</strong> job, a fishing rod and <img class="ico-sm" src="https://pzwiki.net/w/images/5/52/Worm.png" alt="">bait or a <img class="ico-sm" src="https://pzwiki.net/w/images/8/8d/FishingTackle.png" alt="">lure.</p>
+<ul>
+  <li>The Angler fixes the bait with the game's own action, walks to a free spot on the bank and casts. Bites come from Build 42's own fish schools, weather and Fishing skill. A hooked fish can still slip the line, and that costs the bait as it would for you.</li>
+  <li>After three catches, or when the load gets heavy, the Angler carries the fish to marked Food storage.</li>
+  <li>Fishing waits at night unless outdoor work is allowed, and a tired angler sleeps before casting again.</li>
+  <li>Without a rod or bait, the Angler asks you for one (<a href="#ch14">Ch 14</a>) and does ordinary chores meanwhile. Without a fishing bank, it does chores too.</li>
+</ul>
+<p>Fishing also works as an expedition task (<a href="#ch17">Ch 17</a>).</p>
+
+<div class="lore-pull">Got it. That will make a meal.<span class="who">— an angler</span></div>
+<div class="lore-pull">That one got away. I felt the line go slack.<span class="who">— an angler, later</span></div>
 
 <!-- CH 16 -->
 <h2 class="chapter" id="ch16"><img class="ico" src="https://pzwiki.net/w/images/7/77/Shovel.png" alt="">Chapter 16: Laying the Dead to Rest<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
@@ -1654,7 +1778,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <div class="callout callout-warn">Expeditions are an <strong>incomplete playtest feature</strong>. Use a disposable save. Departure from the Riverside gas station has intermittently stalled on a native path. A four-member road mission to a site 180 tiles away and back has passed in a cloned test save, but a live detour along a real alternate road has not been confirmed yet.</div>
 
-<p>An expedition sends a squad out on its own while you stay behind. The squad's actual leader appears in a second local view while the team moves, and the other members follow that leader.</p>
+<p>An expedition sends a squad out on its own while you stay behind. The squad's actual leader appears in a second local view while the team moves, and the other members follow that leader. <a href="#ch14c">Base Watch</a> uses the same view, so the two never run at once.</p>
 
 <figure class="plate narrow">
   <img loading="lazy" decoding="async" src="https://pzwiki.net/w/images/a/aa/Pzmap_01_public_paper.png" alt="A creased paper tourist map of Muldraugh, KY, population 3566, with a numbered legend of stores, police, motel and school.">
@@ -1665,8 +1789,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <ol class="steps">
   <li>On <span class="menu">Squad</span>, assign one to four companions to a squad.</li>
   <li>Open <span class="menu">Expeditions</span> and choose the squad's <strong>leader</strong>.</li>
-  <li>Choose the mission: <strong>Scout</strong> or <strong>Search</strong>. Search also lets you request a supply type and quantity, including <strong>Everything useful</strong> for supplies across categories.</li>
-  <li>Choose a location within 200 tiles (32 per page).</li>
+  <li>Choose the mission: <strong>Scout</strong>, <strong>Search</strong> or <strong>Fish nearby water</strong>. Search also lets you request a supply type and quantity, including <strong>Everything useful</strong> for supplies across categories.</li>
+  <li>Choose a location within 200 tiles (32 per page), or a fishing bank for a fishing trip.</li>
   <li>Choose how to travel, how long before they turn home, and the combat style.</li>
   <li>Review the plan and select <span class="menu">Send squad</span>.</li>
 </ol>
@@ -1678,9 +1802,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><th>Option</th><th>Choices</th></tr>
   <tr><td><strong>Squad</strong></td><td>A group from the Squad tab, one to four companions</td></tr>
   <tr><td><strong>Team leader</strong></td><td>The member who gets the second view and leads the column</td></tr>
-  <tr><td><strong>Task</strong></td><td>Scout the location, or Search for supplies</td></tr>
+  <tr><td><strong>Task</strong></td><td>Scout the location, Search for supplies, or Fish nearby water</td></tr>
   <tr><td><strong>Supplies</strong> (Search)</td><td>Food, Water, Medicine, Ammunition, Tools, Clothing, or Everything useful, and how many items</td></tr>
-  <tr><td><strong>Target location</strong></td><td>A building within 200 tiles, 32 to a page; refresh the list as you move</td></tr>
+  <tr><td><strong>Target location</strong></td><td>A building within 200 tiles, 32 to a page, or a fishing bank for a fishing trip; refresh the list as you move</td></tr>
   <tr><td><strong>Travel route</strong></td><td>Follow roads, or Head straight for target</td></tr>
   <tr><td><strong>Time before turning home</strong></td><td>1, 2, 4 or 8 game hours</td></tr>
   <tr><td><strong>Combat style</strong></td><td>Stealth, Close Defense, or Aggressive (weapons free)</td></tr>
@@ -1697,6 +1821,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>The squad has to get inside the building itself. It looks for what you asked for, then plans a fresh route home. From an upper floor or a basement it comes down one staircase at a time.</p>
 </div>
 </div>
+
+<h4><img class="ico-sm" src="https://pzwiki.net/w/images/2/2f/FishingRod.png" alt="">Fish nearby water</h4>
+<p>Set how many fish to bring home, and the planner lists <strong>fishing banks</strong> instead of buildings: confirmed shores in the loaded world, and possible shores further out from the map's water, which the leader checks on arrival. Paging through the list reuses one scan; <span class="menu">Refresh</span> looks again. The leader must carry a rod and bait to set out. Other members with their own gear fish too, and the rest stand guard. Only fish caught near the chosen bank count. The squad heads home with the catch, after about two hours at the water, or at the turn-home time, and earlier if the bank has no usable water or the bait runs out.</p>
 
 <h3>Two Ways to Travel</h3>
 <div class="two-col">
@@ -1914,11 +2041,12 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <table>
   <tr><th>Key or menu</th><th>Does</th><th>Notes</th></tr>
   <tr><td><kbd>Home</kbd></td><td>Open or close the companion panel</td><td class="tbl-note">Rebindable under Living Fellows</td></tr>
-  <tr><td><kbd>[</kbd> held</td><td>Peek: ease the camera to the selected companion</td><td class="tbl-note">Same floor, within 16 tiles</td></tr>
-  <tr><td><kbd>]</kbd> held</td><td>Steer the selected companion toward the cursor</td><td class="tbl-note">Yields to combat rescue and survival</td></tr>
-  <tr><td><kbd>End</kbd></td><td>Show or hide the base layout</td><td class="tbl-note">Rebindable under Options, Key bindings, Living Fellows</td></tr>
+  <tr><td><kbd>Keypad 1</kbd> held</td><td>Peek: ease the camera to the selected companion</td><td class="tbl-note">Same floor, within 16 tiles</td></tr>
+  <tr><td><kbd>Keypad 2</kbd></td><td>Start or stop Watch on the selected companion</td><td class="tbl-note">Same floor, within 16 tiles</td></tr>
+  <tr><td><kbd>Keypad 3</kbd> held</td><td>Steer the selected companion toward the cursor</td><td class="tbl-note">Yields to combat rescue and survival</td></tr>
+  <tr><td><kbd>Insert</kbd></td><td>Show or hide the base layout</td><td class="tbl-note">All Living Fellows keys are rebindable under Options, Key bindings, Living Fellows</td></tr>
   <tr><td>Game's Rotate building key</td><td>Turn a blueprint before you place it</td><td class="tbl-note">The game's own binding</td></tr>
-  <tr><td>Right-click a companion</td><td>Talk to [name], Watch, Follow, Stay, Regroup, Retreat, Assign objective</td><td class="tbl-note"></td></tr>
+  <tr><td>Right-click a companion</td><td>Talk to [name], Watch, Follow, Stay, Regroup, Retreat, Assign objective; a Chef on duty also offers Cook me a meal</td><td class="tbl-note"></td></tr>
   <tr><td>Right-click the world</td><td><span class="menu">Living Fellows</span>: Move here, object actions, target actions, care, squad signals, base life, households</td><td class="tbl-note"></td></tr>
   <tr><td>Right-click the world → Living Fellows → Squad</td><td>Whistle, Hold, Fall back, Cease fire, Fire</td><td class="tbl-note">Hand signs need line of sight (<a href="#ch5b">Ch 5b</a>)</td></tr>
   <tr><td>Right-click your radio</td><td>Return immediately (expeditions)</td><td class="tbl-note">Needs a received transmission</td></tr>
@@ -1967,14 +2095,18 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>Close Project Zomboid and rerun <code>Uninstall.bat</code> from the same release folder. Its backup lives under <code>%LOCALAPPDATA%\LivingFellows</code>; don't delete that folder until the uninstall succeeds.</p>
 
 <h3>Mods that may conflict</h3>
-<p>Mods that replace player actor construction, animation ownership, pathfinding, vehicle passenger state, UI key bindings, or the same launcher <code>mainClass</code> may conflict. If another mod uses <kbd>Home</kbd>, <kbd>[</kbd> or <kbd>]</kbd>, rebind them under Living Fellows.</p>
+<p>Mods that replace player actor construction, animation ownership, pathfinding, vehicle passenger state, UI key bindings, or the same launcher <code>mainClass</code> may conflict. If another mod uses <kbd>Home</kbd>, <kbd>Insert</kbd> or the keypad keys, rebind them under Living Fellows.</p>
+
+<h3>Playing alongside Project A-Life</h3>
+<p>Project A-Life's NPCs are zombie-shaped game objects. Living Fellows recognises A-Life's own ownership mark, so its NPCs are never counted as zombies: companions don't target them, count them as spawn danger or offer zombie actions on them, and still treat them as people in the way. A neutral A-Life NPC is protected from friendly fire like any bystander. One that A-Life itself reports as hostile to you, and that a companion can see, becomes a human threat, and a truce clears it. Zombies that A-Life's horde control is holding are left alone until it lets go.</p>
+<div class="callout callout-warn">This is a playtest pairing. Try it on a disposable save with both mods enabled: the two mods' combat controllers have not yet been checked together in a live game.</div>
 
 
 <h3>Reading the Support Page</h3>
 <p><span class="menu">More → Support</span> is the first place to look when something is wrong, and the report it copies is the most useful thing to attach to a bug report.</p>
 <table>
   <tr><th>Line</th><th>What a healthy game shows</th></tr>
-  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.25</td></tr>
+  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.28</td></tr>
   <tr><td>Game build / supported build</td><td>42.21.0 on both sides</td></tr>
   <tr><td>Runtime active</td><td>Yes. If not, <strong>Runtime disabled reason</strong> says why.</td></tr>
   <tr><td>Native bridge status, actor provider, bridge protocol</td><td>The bridge is ready, and its protocol matches the expected one. A mismatch means an old or mixed install.</td></tr>
@@ -2044,9 +2176,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h4><img src="https://pzwiki.net/w/images/7/7f/KeyRing.png" alt="">Keys</h4>
 <table>
   <tr><td><kbd>Home</kbd></td><td>Open or close the panel; <strong>LF</strong> when collapsed</td></tr>
-  <tr><td><kbd>[</kbd> held</td><td>Peek at the selected companion</td></tr>
-  <tr><td><kbd>]</kbd> held</td><td>Steer them toward the cursor</td></tr>
-  <tr><td><kbd>End</kbd></td><td>Show or hide the base layout</td></tr>
+  <tr><td><kbd>Keypad 1</kbd> held</td><td>Peek at the selected companion; <kbd>Keypad 2</kbd> toggles Watch</td></tr>
+  <tr><td><kbd>Keypad 3</kbd> held</td><td>Steer them toward the cursor</td></tr>
+  <tr><td><kbd>Insert</kbd></td><td>Show or hide the base layout</td></tr>
   <tr><td>Rotate building</td><td>The game's key; turns a blueprint</td></tr>
   <tr><td>Right-click</td><td>A companion: Talk, Watch, quick orders, Assign objective. The world: the <span class="k">Living Fellows</span> menu.</td></tr>
 </table>
@@ -2103,6 +2235,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p><span class="k">Score</span> = trust × 0.55 + bond × 0.45: Cautious &lt;10 · Ally 10 · Trusted 30 · Close 55 · Family 80.</p>
 <p><span class="k">Builds when close</span> (8 tiles, same floor): patched up +5 trust / +4 bond · eating or drinking +3/+2 · escaping together +2/+4 · danger to you passing +2/+5.</p>
 <p><span class="k">Their past opens</span> at trust 10 past · 25 home · 40 value · 55 fear · 70 habit · 80 keepsake.</p>
+<p><span class="k">Hitting them</span>: a strike in a quiet moment; at two they keep away, at four they fight. Strikes fade after 6 quiet game hours.</p>
 <p class="tbl-note">Ch 9d</p>
 </div>
 
@@ -2117,7 +2250,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <ul>
   <li>Clean water only; they eat if no water is in reach.</li>
   <li>They treat you when it's safe: bleeding first, then wounds, then splints.</li>
-  <li><span class="k">A bite</span>: conceal, confess or leave; the group votes; you decide. Mercy waits for your authorization.</li>
+  <li><span class="k">A bite</span>: conceal, confess or leave; the group votes; you decide. Mercy and bleach wait for your authorization.</li>
 </ul>
 <p class="tbl-note">Ch 8</p>
 </div>
@@ -2130,7 +2263,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li><span class="k">Mark storage as...</span>: food, water, medical, tools, construction, and more.</li>
   <li><span class="k">More → Base</span>: give each resident a base job.</li>
 </ol>
-<p>Lumber, farm, burial and pyre areas may lie 30 tiles out. Stairs extend the camp up or down, basements included. Blueprints: <span class="k">Queue construction</span>.</p>
+<p>Lumber, farm, fishing, burial and pyre areas may lie 30 tiles out. Stairs extend the camp up or down, basements included. Blueprints: <span class="k">Queue construction</span>.</p>
 <p class="tbl-note">Ch 11–13</p>
 </div>
 
@@ -2142,9 +2275,11 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="k">Gravekeeper</td><td>Burial ground and shovel, or a pyre, lighter and petrol</td></tr>
   <tr><td class="k">Farmer</td><td>Farm area over existing plots; farming supplies</td></tr>
   <tr><td class="k">Maintainer</td><td>Barricades marked for upkeep</td></tr>
+  <tr><td class="k">Chef</td><td>Powered fridge, food and cookware in storage</td></tr>
+  <tr><td class="k">Angler</td><td>Fishing bank, rod and bait</td></tr>
 </table>
-<p>No new trees or bodies outside camp from 21:00 to 06:00.</p>
-<p class="tbl-note">Ch 14, 15, 16</p>
+<p>Outdoor work pauses 21:00–06:00 unless allowed. Tired residents sleep before the next job.</p>
+<p class="tbl-note">Ch 14, 15, 15b, 16</p>
 </div>
 
 <div class="card">
@@ -2152,7 +2287,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p><span class="k">Stock per resident</span>: food 3 · water 2 · medical 1 · construction 2 · ammunition 6 per guard.</p>
 <p><span class="k">Roles needed</span>: guard and builder (Carpenter) at 2 residents · medic at 3 · quartermaster at 4 · farmer with a farm area.</p>
 <p><span class="k">Defence</span>: Rotating watch · Role based · All hands. <span class="k">Workload</span>: Essential · Balanced · Continuous.</p>
-<p class="tbl-note">Ch 14b</p>
+<p><span class="k">Stalled jobs</span>: six failures in a row, then Retry or Cancel. <span class="k">Base Watch</span> keeps camp loaded while you travel.</p>
+<p class="tbl-note">Ch 14b, 14c</p>
 </div>
 
 <div class="card">
@@ -2167,7 +2303,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h4><img src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Expeditions <span class="stage stage-end" style="margin-left:auto">Experimental</span></h4>
 <ol>
   <li>Put 1–4 companions in a group on <span class="k">Squad</span>.</li>
-  <li><span class="k">Expeditions</span>: leader, Scout or Search, a place within 200 tiles, route, 1/2/4/8 h, combat style.</li>
+  <li><span class="k">Expeditions</span>: leader, Scout, Search or Fish, a place or fishing bank within 200 tiles, route, 1/2/4/8 h, combat style.</li>
   <li><span class="k">Send squad</span>, on a disposable save.</li>
 </ol>
 <p><span class="k">Recall</span>: powered walkie-talkies on you and the leader, same channel → right-click your radio → <em>Return immediately</em>.</p>
@@ -2190,7 +2326,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CARD END -->
 
 <div class="page-footer">
-  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.25 &nbsp;·&nbsp; First Edition, Third Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
+  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.28 &nbsp;·&nbsp; First Edition, Fourth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
 </div>
 <script>
 (function () {

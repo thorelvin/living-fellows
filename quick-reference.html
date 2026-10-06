@@ -265,7 +265,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </head>
 <body>
 <!-- CARD START -->
-<p class="appendix-label">Living Fellows · Release 0.26.25</p>
+<p class="appendix-label">Living Fellows · Release 0.26.28</p>
 <h2 class="chapter" id="appF">Quick Reference Card</h2>
 <p class="card-intro">The Field Manual on two printed pages. Each panel names the manual chapter with the detail.</p>
 
@@ -275,9 +275,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h4><img src="https://pzwiki.net/w/images/7/7f/KeyRing.png" alt="">Keys</h4>
 <table>
   <tr><td><kbd>Home</kbd></td><td>Open or close the panel; <strong>LF</strong> when collapsed</td></tr>
-  <tr><td><kbd>[</kbd> held</td><td>Peek at the selected companion</td></tr>
-  <tr><td><kbd>]</kbd> held</td><td>Steer them toward the cursor</td></tr>
-  <tr><td><kbd>End</kbd></td><td>Show or hide the base layout</td></tr>
+  <tr><td><kbd>Keypad 1</kbd> held</td><td>Peek at the selected companion; <kbd>Keypad 2</kbd> toggles Watch</td></tr>
+  <tr><td><kbd>Keypad 3</kbd> held</td><td>Steer them toward the cursor</td></tr>
+  <tr><td><kbd>Insert</kbd></td><td>Show or hide the base layout</td></tr>
   <tr><td>Rotate building</td><td>The game's key; turns a blueprint</td></tr>
   <tr><td>Right-click</td><td>A companion: Talk, Watch, quick orders, Assign objective. The world: the <span class="k">Living Fellows</span> menu.</td></tr>
 </table>
@@ -334,6 +334,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p><span class="k">Score</span> = trust × 0.55 + bond × 0.45: Cautious &lt;10 · Ally 10 · Trusted 30 · Close 55 · Family 80.</p>
 <p><span class="k">Builds when close</span> (8 tiles, same floor): patched up +5 trust / +4 bond · eating or drinking +3/+2 · escaping together +2/+4 · danger to you passing +2/+5.</p>
 <p><span class="k">Their past opens</span> at trust 10 past · 25 home · 40 value · 55 fear · 70 habit · 80 keepsake.</p>
+<p><span class="k">Hitting them</span>: a strike in a quiet moment; at two they keep away, at four they fight. Strikes fade after 6 quiet game hours.</p>
 <p class="tbl-note">Ch 9d</p>
 </div>
 
@@ -348,7 +349,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <ul>
   <li>Clean water only; they eat if no water is in reach.</li>
   <li>They treat you when it's safe: bleeding first, then wounds, then splints.</li>
-  <li><span class="k">A bite</span>: conceal, confess or leave; the group votes; you decide. Mercy waits for your authorization.</li>
+  <li><span class="k">A bite</span>: conceal, confess or leave; the group votes; you decide. Mercy and bleach wait for your authorization.</li>
 </ul>
 <p class="tbl-note">Ch 8</p>
 </div>
@@ -361,7 +362,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li><span class="k">Mark storage as...</span>: food, water, medical, tools, construction, and more.</li>
   <li><span class="k">More → Base</span>: give each resident a base job.</li>
 </ol>
-<p>Lumber, farm, burial and pyre areas may lie 30 tiles out. Stairs extend the camp up or down, basements included. Blueprints: <span class="k">Queue construction</span>.</p>
+<p>Lumber, farm, fishing, burial and pyre areas may lie 30 tiles out. Stairs extend the camp up or down, basements included. Blueprints: <span class="k">Queue construction</span>.</p>
 <p class="tbl-note">Ch 11–13</p>
 </div>
 
@@ -373,9 +374,11 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="k">Gravekeeper</td><td>Burial ground and shovel, or a pyre, lighter and petrol</td></tr>
   <tr><td class="k">Farmer</td><td>Farm area over existing plots; farming supplies</td></tr>
   <tr><td class="k">Maintainer</td><td>Barricades marked for upkeep</td></tr>
+  <tr><td class="k">Chef</td><td>Powered fridge, food and cookware in storage</td></tr>
+  <tr><td class="k">Angler</td><td>Fishing bank, rod and bait</td></tr>
 </table>
-<p>No new trees or bodies outside camp from 21:00 to 06:00.</p>
-<p class="tbl-note">Ch 14, 15, 16</p>
+<p>Outdoor work pauses 21:00–06:00 unless allowed. Tired residents sleep before the next job.</p>
+<p class="tbl-note">Ch 14, 15, 15b, 16</p>
 </div>
 
 <div class="card">
@@ -383,7 +386,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p><span class="k">Stock per resident</span>: food 3 · water 2 · medical 1 · construction 2 · ammunition 6 per guard.</p>
 <p><span class="k">Roles needed</span>: guard and builder (Carpenter) at 2 residents · medic at 3 · quartermaster at 4 · farmer with a farm area.</p>
 <p><span class="k">Defence</span>: Rotating watch · Role based · All hands. <span class="k">Workload</span>: Essential · Balanced · Continuous.</p>
-<p class="tbl-note">Ch 14b</p>
+<p><span class="k">Stalled jobs</span>: six failures in a row, then Retry or Cancel. <span class="k">Base Watch</span> keeps camp loaded while you travel.</p>
+<p class="tbl-note">Ch 14b, 14c</p>
 </div>
 
 <div class="card">
@@ -398,7 +402,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h4><img src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Expeditions <span class="stage stage-end" style="margin-left:auto">Experimental</span></h4>
 <ol>
   <li>Put 1–4 companions in a group on <span class="k">Squad</span>.</li>
-  <li><span class="k">Expeditions</span>: leader, Scout or Search, a place within 200 tiles, route, 1/2/4/8 h, combat style.</li>
+  <li><span class="k">Expeditions</span>: leader, Scout, Search or Fish, a place or fishing bank within 200 tiles, route, 1/2/4/8 h, combat style.</li>
   <li><span class="k">Send squad</span>, on a disposable save.</li>
 </ol>
 <p><span class="k">Recall</span>: powered walkie-talkies on you and the leader, same channel → right-click your radio → <em>Return immediately</em>.</p>
