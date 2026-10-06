@@ -24295,13 +24295,26 @@ end)()
     local urgedLine = dialogue.lastSpokenTopic(friend)
     clock = clock + 4500
     Crisis.pulse(player, clock)
+    -- The crisis scanner rotates across the registry in bounded windows. The
+    -- subject can be outside this pulse's window when earlier fixtures have
+    -- registered many companions; give one complete scan cycle to reach it.
+    local utility = SurvivorCompanion.GameplayUtil
+    local window = math.max(1, tonumber(utility.config("maxCompanions")) or 16)
+    local rounds = math.ceil(#utility.registryLiving(false) / window) + 1
+    for _ = 1, rounds do
+        if current().confessedAt ~= nil then break end
+        Crisis.pulse(player, clock)
+    end
     local urged = current()
     local otherKnows = urged.participants[other.id] and urged.participants[other.id].knowledge
     check(urgedLine == "crisis.urge" and urged.strategy == "confess" and urged.confessedAt ~= nil
             and otherKnows == "confirmed",
         "a pragmatic friend pushes the bitten one to tell the group, and they do: "
             .. table.concat({ tostring(urgedLine), tostring(urged.strategy),
-                tostring(urged.confessedAt), tostring(otherKnows) }, "/"))
+                tostring(urged.confessedAt), tostring(otherKnows),
+                tostring(urged.confideState), tostring(urged.confessAfter),
+                tostring(urged.phase), tostring(urged.updatedAt),
+                tostring(clock) }, "/"))
 
     requests = {}
     subject.square = cell:getGridSquare(10, 1, 0)
