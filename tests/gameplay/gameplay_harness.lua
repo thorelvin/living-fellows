@@ -15065,7 +15065,7 @@ check(returnedBuildState.order == "stay" and returnedBuildState.workMode == "idl
         .. " target=" .. tostring(returnedBuildState.workTarget)
         .. " decision=" .. tostring(SurvivorCompanion.Decision.peek(buildActor).intent))
 
-local openDoorWorker = actor("sc-open-door-barricade", -7, -5,
+local openDoorWorker = actor("sc-open-door-barricade", -9, -5,
     { inventory = inventory(buildKit()) })
 registry[openDoorWorker.id] = openDoorWorker
 local openDoor = worldObjectIdentityFixture({
@@ -15084,15 +15084,29 @@ function openDoor:IsOpen() return true end
 function openDoor:ToggleDoor() self.toggles = self.toggles + 1 end
 function openDoor:getBarricadeForCharacter() return nil end
 openDoorWorker.square.objects[#openDoorWorker.square.objects + 1] = openDoor
-check(SurvivorCompanion.Commands.issue(openDoorWorker.id, "barricade", {
-        object = openDoor, baseJobId = "job:open-door-test", barricadeSide = "same",
-    }, guardTestPlayer), "camp barricade accepts an open door for the native build action")
-check(decisionAfterDue(openDoorWorker, guardTestPlayer, {
-    snapshot = { threats = {}, threatCount = 0, immediateCount = 0,
-        escapeSquares = {}, allies = {}, player = { danger = 0 } },
-}, 201) and openDoorWorker.lastIntent
-    and openDoorWorker.lastIntent.action == "barricade" and openDoor.toggles == 0,
-    "camp barricade queues the native action without repeatedly closing the door")
+-- This synthetic base job predates the camp fixture below. Admit its exact
+-- work square as an in-camp tile so the side check exercises the native action.
+do
+    local originalAdmitsBarricadeWork = SurvivorCompanion.BaseLife.admitsWork
+    SurvivorCompanion.BaseLife.admitsWork = function(value, intent)
+        if value == openDoorWorker.square then return true end
+        return originalAdmitsBarricadeWork(value, intent)
+    end
+    check(SurvivorCompanion.Commands.issue(openDoorWorker.id, "barricade", {
+            object = openDoor, baseJobId = "job:open-door-test", barricadeSide = "same",
+        }, guardTestPlayer), "camp barricade accepts an open door for the native build action")
+    local handled, detail = decisionAfterDue(openDoorWorker, guardTestPlayer, {
+        snapshot = { threats = {}, threatCount = 0, immediateCount = 0,
+            escapeSquares = {}, allies = {}, player = { danger = 0 } },
+    }, 201)
+    check(handled and openDoorWorker.lastIntent
+        and openDoorWorker.lastIntent.action == "barricade" and openDoor.toggles == 0,
+        "camp barricade queues the native action without repeatedly closing the door: "
+            .. tostring(detail) .. " intent=" .. tostring(openDoorWorker.lastIntent
+                and openDoorWorker.lastIntent.action)
+            .. " decision=" .. tostring(SurvivorCompanion.Decision.peek(openDoorWorker).intent))
+    SurvivorCompanion.BaseLife.admitsWork = originalAdmitsBarricadeWork
+end
 SurvivorCompanion.Decision.reset(openDoorWorker)
 SurvivorCompanion.Commands.reset(openDoorWorker)
 
@@ -15209,8 +15223,8 @@ SurvivorCompanion.__testDestructiveTargetWork()
 SurvivorCompanion.__testDestructiveTargetWork = nil
 
 function SurvivorCompanion.__testExclusiveWorkReservation()
-local reserveActorOne = actor("sc-build-reserve-one", -7, -7, { inventory = inventory(buildKit()) })
-local reserveActorTwo = actor("sc-build-reserve-two", -7, -7, { inventory = inventory(buildKit()) })
+local reserveActorOne = actor("sc-build-reserve-one", -10, -7, { inventory = inventory(buildKit()) })
+local reserveActorTwo = actor("sc-build-reserve-two", -11, -7, { inventory = inventory(buildKit()) })
 registry[reserveActorOne.id] = reserveActorOne
 registry[reserveActorTwo.id] = reserveActorTwo
 local sharedBuildObject = {
@@ -15271,6 +15285,19 @@ SurvivorCompanion.NativeActions = {
 check(SurvivorCompanion.Commands.issue(reserveActorOne.id, "stay", nil, guardTestPlayer)
     and cancelledBuildActions == 1,
     "a new command cancels the previous native build action before role transition")
+-- The first worker leaves the work side; the waiting worker reaches it.
+for index = #reserveActorOne.square.moving, 1, -1 do
+    if reserveActorOne.square.moving[index] == reserveActorOne then
+        table.remove(reserveActorOne.square.moving, index)
+    end
+end
+for index = #reserveActorTwo.square.moving, 1, -1 do
+    if reserveActorTwo.square.moving[index] == reserveActorTwo then
+        table.remove(reserveActorTwo.square.moving, index)
+    end
+end
+reserveActorTwo.square = sharedBuildObject.square
+reserveActorTwo.square.moving[#reserveActorTwo.square.moving + 1] = reserveActorTwo
 reserveActorTwo.lastIntent = nil
 for _ = 1, 5 do
     clock = clock + 201

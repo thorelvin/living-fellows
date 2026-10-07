@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.26.29 - Furniture-aware camp paths
+
+- Guard rounds and window watching avoid standing tiles occupied by chairs, stools, tables or counters. Counter-covered windows remain available to native escape traversal.
+- Barricade workers choose an accessible side of a door or window and stand on that side before starting the native action. A temporarily occupied side is retried briefly; a blocked side reports a job failure instead of looping against furniture.
+- The local standalone installer can recover its owned bridge after Steam restores a vanilla game launcher during a reinstall, provided the recorded bridge and backup still verify.
+- The core suite passed 51 of 51 checks. A cloned-save live probe confirmed that Build 42's bar stool is recognized as occupied even though its surface-offset accessor reports zero.
+
 ## 0.26.28 - Shoreline expeditions and camp life
 
 - Fishing expeditions now list confirmed loaded fishing banks instead of buildings. The selected bank is rechecked before departure and used as the route destination.

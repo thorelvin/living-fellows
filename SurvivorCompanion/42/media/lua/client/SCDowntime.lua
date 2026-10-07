@@ -2373,7 +2373,9 @@ local function carriedItems(actor)
     return items
 end
 
--- A quiet lookout uses an actual indoor square beside an exterior window.
+-- A quiet lookout needs a clear indoor standing square. A kitchen counter in
+-- front of the window rules out watching there; the native window traversal
+-- remains available to emergency escape movement.
 -- Windows sit on the north or west edge of their square; inspect both sides
 -- instead of assuming that the window object's square is the indoor side.
 local function windowWatchActivity(actor)
@@ -2408,9 +2410,9 @@ local function windowWatchActivity(actor)
                         or select(1, utility.call(outside, "getRoom")) ~= nil then
                         return true
                     end
-                    if not utility.sameSquare(actor, candidate)
-                        and not utility.isSquareFree(candidate) then return true end
-                    if utility.movingBlocker(candidate, actor)
+                    if not SC.Navigation
+                        or type(SC.Navigation.standingSquareClear) ~= "function"
+                        or not SC.Navigation.standingSquareClear(actor, candidate)
                         or reservationHeldByOther(candidate, actor, utility.nowMs()) then
                         return true
                     end
@@ -3423,6 +3425,8 @@ local function watchWindowValid(actor, activity)
     local utility = U()
     if utility.squareOf(activity.object) == nil
         or not sameBuilding(utility.squareOf(actor), activity.square) then return false end
+    if not SC.Navigation or type(SC.Navigation.standingSquareClear) ~= "function"
+        or not SC.Navigation.standingSquareClear(actor, activity.square) then return false end
     return true
 end
 

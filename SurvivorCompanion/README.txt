@@ -1,7 +1,7 @@
-Living Fellows 0.26.28 - public playtest
+Living Fellows 0.26.29 - public playtest
 
-This build adds camp Base Watch, fishing and Chef jobs, longer companion rest,
-shoreline fishing targets, and a construction placement fix.
+This build improves guard and window-watch paths around furniture and makes
+barricade workers approach a clear side before starting their native action.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added

@@ -81,7 +81,72 @@ T.configure({
     useProvider = function() return nil end,
     stopDirect = function(value) value.stopped = true return true end,
 })
+local counterWindowSide, counterEscapeWindow
+do
+    local worker = actor()
+    local windowSide = square(80, 80)
+    local otherSide = square(80, 79)
+    local tableObject = { __class = "IsoObject" }
+    function tableObject:getSurfaceOffset() return 16 end
+    windowSide.objects[1] = tableObject
+    check(U.isSquareFree(windowSide) == true
+            and N.standingSquareClear(worker, windowSide) == false,
+        "a partial table is not a valid standing tile for guard or window watch")
+    local stoolSide = square(81, 80)
+    local stoolProperties = {}
+    function stoolProperties:Val(name)
+        if name == "Surface" then return "28" end
+    end
+    local stoolSprite = {}
+    function stoolSprite:getProperties() return stoolProperties end
+    local stoolObject = { __class = "IsoObject" }
+    function stoolObject:getSprite() return stoolSprite end
+    stoolSide.objects[1] = stoolObject
+    check(U.isSquareFree(stoolSide) == true
+            and N.standingSquareClear(worker, stoolSide) == false,
+        "a stool with only the sprite Surface property blocks a standing tile")
+    counterWindowSide = square(82, 80)
+    local counter = { __class = "IsoObject" }
+    function counter:getContainer() return {} end
+    counterEscapeWindow = { __class = "IsoWindow" }
+    function counterEscapeWindow:IsOpen() return true end
+    counterWindowSide.objects[1], counterWindowSide.objects[2] =
+        counterEscapeWindow, counter
+    check(U.isSquareFree(counterWindowSide) == true
+            and U.squareOccupyingObject(counterWindowSide) == counter
+            and N.standingSquareClear(worker, counterWindowSide) == false,
+        "a kitchen counter covering a window disqualifies its watch position")
+    local oldGridSquare, oldLoadedSquare = U.gridSquare, U.loadedSquare
+    U.gridSquare = function(x, y)
+        if x == 80 and y == 79 then return otherSide end
+        return nil
+    end
+    U.loadedSquare = function(value)
+        if value == windowSide then return windowSide end
+        return oldLoadedSquare(value)
+    end
+    local window = {}
+    function window:getNorth() return true end
+    local chosen = N.barricadeWorkSquare(worker, window, windowSide)
+    local blocked, reason = N.barricadeWorkSquare(worker, window, windowSide, "same")
+    local explicit = N.barricadeWorkSquare(worker, window, windowSide, "opposite")
+    U.gridSquare, U.loadedSquare = oldGridSquare, oldLoadedSquare
+    check(chosen == otherSide and explicit == otherSide
+            and blocked == nil and reason == "work_side_blocked",
+        "barricade approaches only a clear side and respects an explicitly selected side")
+end
 local provider = { directNative = true }
+do
+    local escaping = actor()
+    escaping.square, escaping.x, escaping.y = counterWindowSide, 82.5, 80.5
+    local queued = T.window(escaping, "climb_window", {
+        object = counterEscapeWindow, fromSquare = counterWindowSide,
+        toSquare = square(82, 79),
+    }, provider)
+    check(queued == true and escaping.event == true,
+        "a counter-covered window remains a native escape route")
+    T.reset(escaping)
+end
 for _, action in ipairs({ "climb_fence", "climb_wall", "climb_window",
     "climb_sheet_rope", "climb_down_sheet_rope" }) do
     local value, object = actor(), {}

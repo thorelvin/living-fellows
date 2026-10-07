@@ -1243,6 +1243,8 @@ local function guardRoutine(actor, state)
         local candidate = U().gridSquare(center.x + offset[1],
             center.y + offset[2], center.z)
         if candidate and SC.BaseLife.isInside(candidate)
+            and SC.Navigation and SC.Navigation.standingSquareClear
+            and SC.Navigation.standingSquareClear(actor, candidate)
             and (not SC.BaseLife.outdoorNightRestricted()
                 and not (SC.BaseWatch and SC.BaseWatch.isLeader(actor))
                 or SC.BaseLife.isOutdoorSquare(candidate) == false) then

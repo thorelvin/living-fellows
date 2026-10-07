@@ -13869,8 +13869,21 @@ function Harness.beginFurniturePose(current)
     local spriteName = "location_restaurant_bar_01_26"
     local object = IsoObject.new(seatSquare, spriteName, "Bar Stool")
     seatSquare:AddTileObject(object)
+    local sprite = object:getSprite()
+    local properties = sprite and sprite:getProperties()
+    local surface = properties and properties:get("Surface")
+    local detected, detectedLabel = U.squareOccupyingObject(seatSquare)
+    if not check("furniture_standing_square",
+        SC.Navigation.standingSquareClear(Harness.player, seatSquare) == false,
+        "placed bar stool must be rejected as a guard/window-watch standing tile"
+            .. " surface=" .. tostring(surface)
+            .. " offset=" .. tostring(select(1, U.call(object, "getSurfaceOffset")))
+            .. " moveable=" .. tostring(select(1, U.call(object, "isMoveAble")))
+            .. " detected=" .. tostring(detected == object)
+            .. " label=" .. tostring(detectedLabel)) then
+        setPhase("finish", current) return
+    end
     local count = SeatingManager.getInstance():getTilePositionCount(object)
-    local properties = object:getSprite():getProperties()
     local tileName = properties and properties:get("CustomName") or "unknown"
     if not check("furniture_fixture", count > 0,
         "sprite=" .. spriteName .. " custom=" .. tostring(tileName)

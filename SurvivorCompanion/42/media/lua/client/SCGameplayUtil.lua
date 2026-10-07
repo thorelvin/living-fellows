@@ -749,7 +749,7 @@ end
 -- blocker was then recorded as "unknown" with no object at all, so nothing
 -- downstream could learn or report anything. This names the culprit.
 --
--- Diagnostics and recovery only. Passability is unchanged.
+-- Navigation also uses this for actions that require a clear standing tile.
 function U.squareOccupyingObject(square)
     if not square then return nil, nil end
     local found, label
@@ -759,9 +759,16 @@ function U.squareOccupyingObject(square)
         local offset, offsetOk = U.call(object, "getSurfaceOffset")
         local moveable, moveableOk = U.call(object, "isMoveAble")
         local container, containerOk = U.call(object, "getContainer")
+        -- Build 42's stools can have collision geometry and a Surface sprite
+        -- property while all three IsoObject accessors above report empty.
+        local sprite = select(1, U.call(object, "getSprite"))
+        local properties = select(1, U.call(sprite, "getProperties"))
+        local surface = select(1, U.call(properties, "Val", "Surface"))
+        if surface == nil then surface = select(1, U.call(properties, "get", "Surface")) end
         if (offsetOk and (tonumber(offset) or 0) > 0)
             or (moveableOk and moveable == true)
-            or (containerOk and container ~= nil) then
+            or (containerOk and container ~= nil)
+            or (tonumber(surface) or 0) > 0 then
             found = object
             label = U.objectLabel(object)
             return false

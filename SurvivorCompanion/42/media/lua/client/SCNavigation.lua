@@ -1042,6 +1042,50 @@ function Navigation._workSquareAdmitted(square, intent)
     return type(base.isInside) == "function" and base.isInside(square) == true
 end
 
+-- A square can pass the tile-wide static test while a chair, table or counter
+-- still occupies the centre where a standing action expects the actor to end.
+-- Keep this decision with Navigation so patrols and work use the same rule.
+function Navigation.standingSquareClear(actor, square)
+    local utility = U()
+    if not utility.isSquareFree(square) then return false, "static_blocker" end
+    local furniture = utility.squareOccupyingObject(square)
+    if furniture ~= nil then return false, "furniture" end
+    if utility.movingBlocker(square, actor) then return false, "occupied" end
+    return true
+end
+
+-- Barricades are attached to a window/door edge. The worker must stand on the
+-- selected edge square, not merely within the usual interaction radius across
+-- the wall. Automatic maintenance can choose either clear side.
+function Navigation.barricadeWorkSquare(actor, object, objectSquare, side, intent)
+    local utility = U()
+    local x, y, z = utility.position(objectSquare)
+    if x == nil then return nil, "work_side_unloaded" end
+    local north, known = utility.call(object, "getNorth")
+    local same = utility.loadedSquare(objectSquare)
+    local opposite = known and utility.gridSquare(x + (north and 0 or -1),
+        y + (north and -1 or 0), z) or nil
+    local candidates = {}
+    if side ~= "opposite" and same then candidates[#candidates + 1] = same end
+    if side ~= "same" and opposite then candidates[#candidates + 1] = opposite end
+    if #candidates == 0 then return nil, "work_side_unloaded" end
+    local best, bestDistance, busy
+    for _, square in ipairs(candidates) do
+        local clear, reason = Navigation.standingSquareClear(actor, square)
+        local admitted = type(intent) ~= "table" or intent.workCampOnly ~= true
+            or Navigation._workSquareAdmitted(square, intent)
+        if admitted and reason == "occupied" then busy = true end
+        if clear and admitted then
+            local distance = utility.distance(actor, square)
+            if distance ~= nil and (bestDistance == nil or distance < bestDistance) then
+                best, bestDistance = square, distance
+            end
+        end
+    end
+    if best ~= nil then return best end
+    return nil, busy and "work_side_busy" or "work_side_blocked"
+end
+
 local function insideSecureBase(actor, snapshot)
     if type(SC.BaseLife) ~= "table" or type(SC.BaseLife.isInside) ~= "function" then return false end
     local ok, inside = pcall(SC.BaseLife.isInside, actor)

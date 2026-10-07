@@ -1186,21 +1186,6 @@ end
 
 Decision._resolveWorkObjectForTests = resolveWorkObject
 
-local function removalInteractionSquare(object, target, fallback)
-    if type(target) ~= "table"
-        or (target.kind ~= "remove_barricade" and target.kind ~= "barricade")
-        or target.barricadeSide ~= "opposite" then return fallback end
-    local north, northOk = U().call(object, "getNorth")
-    local x, y, z = U().position(fallback)
-    if x == nil then return fallback end
-    local candidate = {
-        x = northOk and north == true and x or x - 1,
-        y = northOk and north == true and y - 1 or y,
-        z = z or 0,
-    }
-    return U().loadedSquare(candidate)
-end
-
 local function barricadePlanks(object, actor)
     local barricade, ok = U().call(object, "getBarricadeForCharacter", actor)
     if not ok or not barricade then return 0 end
@@ -1270,6 +1255,9 @@ local function cancelWork(actor, state, reason)
     if cancelled ~= true then return false, "work_cancel_failed:" .. tostring(cancelReason) end
     state.workAction = nil
     state.workAssignedAt = nil
+    state.workApproachSide = nil
+    state.workSideKey = nil
+    state.workSideBusyAt = nil
     if SC.Encounter and type(SC.Encounter.cancelPlayerSupply) == "function" then
         SC.Encounter.cancelPlayerSupply(actor)
     end
@@ -1286,6 +1274,9 @@ local function finishWork(actor, player, state, reason)
     end
     state.workAction = nil
     state.workAssignedAt = nil
+    state.workApproachSide = nil
+    state.workSideKey = nil
+    state.workSideBusyAt = nil
     if SC.Encounter and type(SC.Encounter.cancelPlayerSupply) == "function" then
         SC.Encounter.cancelPlayerSupply(actor)
     end
@@ -1354,13 +1345,52 @@ local function doWork(actor, player, commands, snapshot, state)
         if not utility.stop(actor) then return false, "work_wait_stop_rejected" end
         return true, reservationReason
     end
-    local interactionSquare = removalInteractionSquare(object, commands.workTarget, targetSquare)
-    if not interactionSquare then
-        return finishWork(actor, player, state, "work_side_unloaded")
+    local interactionSquare, sideReason
+    if commands.workTarget.kind == "barricade"
+        or commands.workTarget.kind == "remove_barricade" then
+        if not SC.Navigation or type(SC.Navigation.barricadeWorkSquare) ~= "function" then
+            return finishWork(actor, player, state, "work_navigation_unavailable")
+        end
+        local sideKey = workKey(commands)
+        if state.workSideKey ~= sideKey then
+            state.workSideKey, state.workApproachSide = sideKey, nil
+        end
+        local requestedSide = commands.workTarget.barricadeSide
+            or state.workApproachSide
+        interactionSquare, sideReason = SC.Navigation.barricadeWorkSquare(
+            actor, object, targetSquare, requestedSide, {
+                workCampOnly = commands.workTarget.baseJobId ~= nil,
+                workReach = commands.workTarget.baseJobId ~= nil,
+            })
+        if not interactionSquare and state.workApproachSide
+            and commands.workTarget.barricadeSide == nil then
+            state.workApproachSide = nil
+            interactionSquare, sideReason = SC.Navigation.barricadeWorkSquare(
+                actor, object, targetSquare, nil, {
+                    workCampOnly = commands.workTarget.baseJobId ~= nil,
+                    workReach = commands.workTarget.baseJobId ~= nil,
+                })
+        end
+        if interactionSquare and commands.workTarget.barricadeSide == nil then
+            state.workApproachSide = utility.sameSquare(interactionSquare, targetSquare)
+                and "same" or "opposite"
+        end
+    else
+        interactionSquare = targetSquare
     end
+    if not interactionSquare then
+        if sideReason == "work_side_busy" then
+            state.workSideBusyAt = state.workSideBusyAt or current
+            if current - state.workSideBusyAt < 8000 then
+                if not utility.stop(actor) then return false, "work_wait_stop_rejected" end
+                return true, "work_side_busy"
+            end
+        end
+        return finishWork(actor, player, state, sideReason or "work_side_unloaded")
+    end
+    state.workSideBusyAt = nil
     local wrongRemovalSide = (commands.workTarget.kind == "remove_barricade"
-        or (commands.workTarget.kind == "barricade"
-            and commands.workTarget.barricadeSide ~= nil))
+        or commands.workTarget.kind == "barricade")
         and utility.squareKey(utility.squareOf(actor)) ~= utility.squareKey(interactionSquare)
     if utility.distance(actor, object) > 1.75 or wrongRemovalSide then
         if not SC.Navigation or type(SC.Navigation.request) ~= "function" then
@@ -1547,6 +1577,11 @@ local function doTactical(actor, player, rootRuntime, commands, snapshot, state)
             local current = utility.nowMs()
             local patrolTarget = state.guardPatrolTarget
                 and utility.loadedSquare(state.guardPatrolTarget) or nil
+            if patrolTarget and SC.Navigation
+                and type(SC.Navigation.standingSquareClear) == "function"
+                and not SC.Navigation.standingSquareClear(actor, patrolTarget) then
+                patrolTarget, state.guardPatrolTarget = nil, nil
+            end
             if patrolTarget and utility.distance(actor, patrolTarget) <= 0.8 then
                 state.guardPatrolTarget = nil
                 state.guardPatrolDue = current + (utility.config("guardPatrolIntervalMs") or 30000)
@@ -1566,7 +1601,9 @@ local function doTactical(actor, player, rootRuntime, commands, snapshot, state)
                 for step = 0, #offsets - 1 do
                     local offset = offsets[((start + step - 1) % #offsets) + 1]
                     local candidate = utility.gridSquare(ax + offset[1], ay + offset[2], az)
-                    if candidate and utility.isSquareFree(candidate) then
+                    if candidate and SC.Navigation
+                        and type(SC.Navigation.standingSquareClear) == "function"
+                        and SC.Navigation.standingSquareClear(actor, candidate) then
                         patrolTarget = candidate
                         state.guardPatrolTarget = {
                             x = select(1, utility.position(candidate)),

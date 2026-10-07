@@ -175,6 +175,7 @@ local navigationCancels = 0
 local navigationStarts = 0
 local rejectNavigation = false
 SC.Navigation = {
+    standingSquareClear = function() return true end,
     cancel = function()
         navigationCancels = navigationCancels + 1
         return true
