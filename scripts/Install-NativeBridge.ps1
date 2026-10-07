@@ -123,6 +123,7 @@ if ($config.mainClass -eq $WrapperMain -and $null -eq $existingManifest) {
 if ($config.mainClass -ne $OriginalMain -and $config.mainClass -ne $WrapperMain) {
     throw "Refusing to replace an unknown Project Zomboid mainClass: $($config.mainClass)"
 }
+$recoveredGameReinstall = $false
 if ($existingManifest) {
     $ownedBridgeRoot = if ([string]::IsNullOrWhiteSpace([string]$existingManifest.bridgeRoot)) {
         Split-Path -Parent ([string]$existingManifest.bridgeJar)
@@ -135,17 +136,36 @@ if ($existingManifest) {
     if ($manifestMismatch) {
         throw 'Existing native bridge manifest does not own this normalized game/config/bridge path set.'
     }
-    if ($config.mainClass -ne $WrapperMain) {
-        throw 'Owned native bridge manifest exists but SCLauncher is not active; recover or uninstall it before updating.'
-    }
-    $recordedInstalledConfigHash = [string]$existingManifest.installedConfigSha256
-    if ([string]::IsNullOrWhiteSpace($recordedInstalledConfigHash)) {
-        throw 'Owned native bridge manifest has no installedConfigSha256; refusing update before mutation.'
-    }
-    $currentInstalledConfigHash = Get-HashOrEmpty $configPath
-    if (-not $recordedInstalledConfigHash.Equals($currentInstalledConfigHash,
-            [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw 'Launcher configuration hash no longer matches installedConfigSha256; refusing update before mutation.'
+    $classpathMatches = @($config.classpath | Where-Object {
+        ([string]$_).Replace('\', '/').Equals($targetJarArgument,
+            [System.StringComparison]::OrdinalIgnoreCase)
+    })
+    if ($config.mainClass -eq $WrapperMain) {
+        $recordedInstalledConfigHash = [string]$existingManifest.installedConfigSha256
+        if ([string]::IsNullOrWhiteSpace($recordedInstalledConfigHash)) {
+            throw 'Owned native bridge manifest has no installedConfigSha256; refusing update before mutation.'
+        }
+        $currentInstalledConfigHash = Get-HashOrEmpty $configPath
+        if (-not $recordedInstalledConfigHash.Equals($currentInstalledConfigHash,
+                [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw 'Launcher configuration hash no longer matches installedConfigSha256; refusing update before mutation.'
+        }
+        if ($classpathMatches.Count -ne 1) {
+            throw 'SCLauncher classpath ownership is missing or duplicated; refusing update.'
+        }
+    } else {
+        # Steam restores ProjectZomboid64.json on reinstall but leaves the
+        # user's LocalAppData ownership manifest behind. A vanilla launcher
+        # with no bridge classpath entry can be installed afresh, provided the
+        # old bridge and backup still match the manifest we own.
+        if ($config.mainClass -ne $OriginalMain -or $classpathMatches.Count -ne 0) {
+            throw 'Owned native bridge manifest exists but SCLauncher is not active and the launcher is not clean; refusing recovery.'
+        }
+        if ([string]$existingManifest.originalMainClass -ne $OriginalMain -or
+            [string]::IsNullOrWhiteSpace([string]$existingManifest.originalConfigSha256)) {
+            throw 'Owned native bridge manifest has no verified original launcher; refusing reinstall recovery.'
+        }
+        $recoveredGameReinstall = $true
     }
     if (-not (Test-Path -LiteralPath $targetJar -PathType Leaf)) {
         throw "Owned native bridge JAR is missing: $targetJar"
@@ -153,12 +173,6 @@ if ($existingManifest) {
     $currentJarHash = Get-HashOrEmpty $targetJar
     if ([string]$existingManifest.bridgeSha256 -ne $currentJarHash) {
         throw 'Owned native bridge JAR hash no longer matches its manifest; refusing update.'
-    }
-    $classpathMatches = @($config.classpath | Where-Object {
-        ([string]$_).Equals($targetJarArgument, [System.StringComparison]::OrdinalIgnoreCase)
-    })
-    if ($classpathMatches.Count -ne 1) {
-        throw 'SCLauncher classpath ownership is missing or duplicated; refusing update.'
     }
     if ([string]$existingManifest.originalMainClass -eq $WrapperMain -or
         [string]::IsNullOrWhiteSpace([string]$existingManifest.originalMainClass)) {
@@ -171,6 +185,13 @@ if ($existingManifest) {
     if ($existingManifest.originalConfigSha256) {
         if ((Get-HashOrEmpty $originalBackup) -ne [string]$existingManifest.originalConfigSha256) {
             throw 'Original successful-install launcher backup hash changed; refusing update.'
+        }
+    }
+    if ($recoveredGameReinstall) {
+        $oldOriginal = Get-Content -LiteralPath $originalBackup -Raw -Encoding utf8 |
+            ConvertFrom-Json
+        if ([string]$oldOriginal.mainClass -ne $OriginalMain) {
+            throw 'Original successful-install launcher backup is not vanilla; refusing reinstall recovery.'
         }
     }
 }
@@ -198,21 +219,21 @@ if ($metadata.protocol -ne $ExpectedProtocol -or
 }
 New-Item -ItemType Directory -Path $BridgeRoot, $ConfigBackupRoot -Force | Out-Null
 
-$backupPath = if ($existingManifest) {
+$backupPath = if ($existingManifest -and -not $recoveredGameReinstall) {
     [string]$existingManifest.originalConfigBackup
 } else {
     $suffix = (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + ([guid]::NewGuid().ToString('N')).Substring(0, 8)
     Join-Path $ConfigBackupRoot ("ProjectZomboid64.before-SurvivorCompanion.$suffix.json")
 }
-$originalMainClass = if ($existingManifest) {
+$originalMainClass = if ($existingManifest -and -not $recoveredGameReinstall) {
     [string]$existingManifest.originalMainClass
 } else { [string]$config.mainClass }
-$originalClasspath = if ($existingManifest) {
+$originalClasspath = if ($existingManifest -and -not $recoveredGameReinstall) {
     @($existingManifest.originalClasspath)
 } else { @($config.classpath) }
-$originalConfigHash = if ($existingManifest -and $existingManifest.originalConfigSha256) {
+$originalConfigHash = if ($existingManifest -and -not $recoveredGameReinstall -and $existingManifest.originalConfigSha256) {
     [string]$existingManifest.originalConfigSha256
-} elseif ($existingManifest) {
+} elseif ($existingManifest -and -not $recoveredGameReinstall) {
     Get-HashOrEmpty $backupPath
 } else {
     Get-HashOrEmpty $configPath
@@ -253,7 +274,7 @@ $installedConfigHash = Get-HashOrEmpty $stagedConfig
 $manifest = [ordered]@{
     schemaVersion = 2
     owner = $Owner
-    installedAtUtc = if ($existingManifest) { [string]$existingManifest.installedAtUtc } else { [DateTime]::UtcNow.ToString('o') }
+    installedAtUtc = if ($existingManifest -and -not $recoveredGameReinstall) { [string]$existingManifest.installedAtUtc } else { [DateTime]::UtcNow.ToString('o') }
     updatedAtUtc = [DateTime]::UtcNow.ToString('o')
     projectRoot = $ProjectRoot
     gameRoot = $GameRoot

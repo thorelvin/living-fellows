@@ -252,6 +252,81 @@ switch ($Case) {
     }
 }
 
+'game-reinstall-recovery' {
+    $fixture = New-Fixture 'game-reinstall-recovery'
+    & $NativeInstall -ProjectRoot $ProjectRoot -GameRoot $fixture.game `
+        -BridgeRoot $fixture.bridge -ConfigBackupRoot $fixture.configBackups `
+        -PrebuiltBridgeJar $PrebuiltJar | Out-Null
+    $manifestPath = Join-Path $fixture.bridge 'install-manifest.json'
+    $previous = Get-Content -LiteralPath $manifestPath -Raw -Encoding utf8 |
+        ConvertFrom-Json
+    # Steam restores only the game launcher during reinstall; LocalAppData
+    # still contains our manifest and bridge JAR.
+    Set-Content -LiteralPath $fixture.config -Value $originalConfig -Encoding utf8
+    $vanillaHash = (Get-FileHash -LiteralPath $fixture.config -Algorithm SHA256).Hash.ToLowerInvariant()
+    $before = Get-InstallFixtureSnapshot $fixture
+    $failed = $false
+    try {
+        & $NativeInstall -ProjectRoot $ProjectRoot -GameRoot $fixture.game `
+            -BridgeRoot $fixture.bridge -ConfigBackupRoot $fixture.configBackups `
+            -PrebuiltBridgeJar $PrebuiltJar -FailAfter 'native-config-replace' | Out-Null
+    } catch { $failed = $_.Exception.Message -like '*Injected native installer failure*' }
+    if (-not $failed -or (Get-InstallFixtureSnapshot $fixture) -ne $before) {
+        throw 'Game-reinstall recovery did not roll back exactly on install failure.'
+    }
+    & $NativeInstall -ProjectRoot $ProjectRoot -GameRoot $fixture.game `
+        -BridgeRoot $fixture.bridge -ConfigBackupRoot $fixture.configBackups `
+        -PrebuiltBridgeJar $PrebuiltJar | Out-Null
+    $recovered = Get-Content -LiteralPath $manifestPath -Raw -Encoding utf8 |
+        ConvertFrom-Json
+    if ($recovered.originalConfigBackup -eq $previous.originalConfigBackup -or
+        $recovered.originalConfigSha256 -ne $vanillaHash -or
+        $recovered.originalMainClass -ne 'zombie/gameStates/MainScreenState' -or
+        (Get-FileHash -LiteralPath $recovered.originalConfigBackup -Algorithm SHA256).Hash.ToLowerInvariant() -ne $vanillaHash) {
+        throw 'Game-reinstall recovery did not preserve the new vanilla launcher.'
+    }
+    & (Join-Path $ProjectRoot 'scripts\Uninstall-NativeBridge.ps1') `
+        -BridgeRoot $fixture.bridge | Out-Null
+    if ((Get-FileHash -LiteralPath $fixture.config -Algorithm SHA256).Hash.ToLowerInvariant() -ne $vanillaHash) {
+        throw 'Game-reinstall recovery could not restore the new vanilla launcher.'
+    }
+
+    $mixed = New-Fixture 'game-reinstall-mixed-launcher'
+    & $NativeInstall -ProjectRoot $ProjectRoot -GameRoot $mixed.game `
+        -BridgeRoot $mixed.bridge -ConfigBackupRoot $mixed.configBackups `
+        -PrebuiltBridgeJar $PrebuiltJar | Out-Null
+    $mixedConfig = Get-Content -LiteralPath $mixed.config -Raw -Encoding utf8 |
+        ConvertFrom-Json
+    $mixedConfig.mainClass = 'zombie/gameStates/MainScreenState'
+    $mixedConfig.classpath = @($mixedConfig.classpath | ForEach-Object {
+        ([string]$_).Replace('/', '\')
+    })
+    $mixedConfig | ConvertTo-Json -Depth 8 |
+        Set-Content -LiteralPath $mixed.config -Encoding utf8
+    $mixedBefore = Get-InstallFixtureSnapshot $mixed
+    $refused = $false
+    try {
+        & $NativeInstall -ProjectRoot $ProjectRoot -GameRoot $mixed.game `
+            -BridgeRoot $mixed.bridge -ConfigBackupRoot $mixed.configBackups `
+            -PrebuiltBridgeJar $PrebuiltJar | Out-Null
+    } catch { $refused = $_.Exception.Message -like '*launcher is not clean*' }
+    if (-not $refused -or (Get-InstallFixtureSnapshot $mixed) -ne $mixedBefore) {
+        throw 'Game-reinstall recovery accepted an ambiguous launcher classpath.'
+    }
+
+    $standalone = New-StandaloneFixture 'standalone-game-reinstall'
+    Install-StandaloneFixture $ProjectRoot $standalone $StandalonePreparedPayload $PrebuiltJar
+    Set-Content -LiteralPath $standalone.config -Value $originalConfig -Encoding utf8
+    $standaloneVanillaHash = (Get-FileHash -LiteralPath $standalone.config -Algorithm SHA256).Hash.ToLowerInvariant()
+    Install-StandaloneFixture $ProjectRoot $standalone $StandalonePreparedPayload $PrebuiltJar
+    & $StandaloneUninstall -ProjectRoot $ProjectRoot -ModsRoot $standalone.mods `
+        -InstallDataRoot $standalone.data | Out-Null
+    if ((Get-FileHash -LiteralPath $standalone.config -Algorithm SHA256).Hash.ToLowerInvariant() -ne $standaloneVanillaHash -or
+        (Test-Path -LiteralPath $standalone.target)) {
+        throw 'Standalone update after game reinstall did not uninstall cleanly.'
+    }
+}
+
 'stale-protocol' {
     $staleFixture = New-Fixture 'stale-protocol'
     $staleJar = Join-Path $staleFixture.root 'stale-protocol.jar'

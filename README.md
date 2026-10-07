@@ -319,6 +319,10 @@ Remove one copy. Keep only one `SurvivorCompanion` mod folder, restart the game,
 
 Close Project Zomboid and rerun `Uninstall.bat` from the same release folder. Its backup lives under `%LOCALAPPDATA%\LivingFellows`; do not delete that folder until the uninstall succeeds.
 
+### Standalone install says the owned bridge manifest exists but SCLauncher is inactive
+
+Reinstalling Project Zomboid restores `ProjectZomboid64.json`, while the standalone install record under `%LOCALAPPDATA%\LivingFellows\bridge` can remain. Close the game, then open `ProjectZomboid64.json` in the game installation folder. If `mainClass` is `zombie/gameStates/MainScreenState` and `classpath` has no `SurvivorCompanionBridge.jar` entry, rename `%LOCALAPPDATA%\LivingFellows\bridge` to `bridge-before-game-reinstall` and rerun `Install.bat` from the latest standalone package. Keep the renamed folder as a backup. If either launcher check fails, send the launcher file and the install error with a support report before changing files.
+
 ## Reporting a bug
 
 Use the repository's [bug report form](https://github.com/thorelvin/living-fellows/issues/new/choose). Include:

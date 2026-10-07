@@ -198,7 +198,7 @@ try {
     }
     foreach ($case in @('derived-bridge', 'missing-native-final-generation',
             'missing-native-installed-config-hash', 'manifestless-wrapper',
-            'stale-protocol')) {
+            'game-reinstall-recovery', 'stale-protocol')) {
         Add-InstallerCase $case
     }
     foreach ($boundary in @('standalone-snapshot', 'standalone-generation-remove',
@@ -208,7 +208,7 @@ try {
     Add-InstallerCase 'standalone-deep-corrupt'
     Add-InstallerCase 'standalone-success'
 
-    $expectedCases = 35
+    $expectedCases = 36
     if ($cases.Count -ne $expectedCases) {
         # A case list that quietly shrinks is a coverage loss that still
         # reports a pass, so the count is part of the contract.
@@ -229,7 +229,7 @@ try {
     }
     if (-not $legacyRefused) { throw 'Installer did not reject the legacy loose actor class.' }
 
-    Write-Output 'INSTALLER_TRANSACTION_PASS ownership=true rollback=all-boundaries standalone-atomic=true deep-chain-preflight=true derived-bridge=true exact-target=true no-duplicate-id=true legacy-preflight=true native-launcher=true manifestless-refusal=true stale-protocol=true bat-wrapper-safe=true default-profile=true'
+    Write-Output 'INSTALLER_TRANSACTION_PASS ownership=true rollback=all-boundaries standalone-atomic=true deep-chain-preflight=true derived-bridge=true exact-target=true no-duplicate-id=true legacy-preflight=true native-launcher=true manifestless-refusal=true game-reinstall-recovery=true stale-protocol=true bat-wrapper-safe=true default-profile=true'
 }
 finally {
     if (Test-Path -LiteralPath $Sandbox) {
