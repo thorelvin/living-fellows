@@ -330,7 +330,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2.5rem;">
-<strong>About this manual</strong> — it covers what the companion panel does not explain: how the fellows think, what they need from you, and the rules they follow when nobody is giving orders. Everything here describes release 0.26.28. Living Fellows is a <strong>public playtest</strong>: back up important saves, and send logs when something goes wrong (<a href="#appD">Appendix D</a>). The mod itself lives at <a href="https://github.com/thorelvin/living-fellows">github.com/thorelvin/living-fellows</a>. The <em>Overheard</em> quotes are real lines from the mod's own voice pools. Later printings added <a href="#ch3b">Status and Loadout</a>, <a href="#ch5b">squads and signals</a>, <a href="#ch5c">vehicles</a>, every line of the <a href="#ch9b">Talk menu</a>, <a href="#ch9c">who companions are</a>, <a href="#ch9d">how trust is earned</a>, <a href="#ch9e">downtime</a>, <a href="#ch9f">stress, joy and boredom</a>, <a href="#ch8">infection crises</a>, <a href="#ch14b">running the camp</a>, <a href="#ch17">expedition radio calls</a>, household <a href="#ch18b">contracts, quests and recruitment</a>, the <a href="#appC">Support page</a>, <a href="#ch14c">Base Watch</a>, <a href="#ch15b">cooking and fishing</a>, and <a href="#ch9d_hits">what happens when you hit them</a>.
+<strong>About this manual</strong> — it covers what the companion panel does not explain: how the fellows think, what they need from you, and the rules they follow when nobody is giving orders. Everything here describes release 0.26.28 and was checked against the mod itself. Living Fellows is a <strong>public playtest</strong>: back up important saves, and send logs when something goes wrong (<a href="#appD">Appendix D</a>). The mod lives at <a href="https://github.com/thorelvin/living-fellows">github.com/thorelvin/living-fellows</a>. The <em>Overheard</em> quotes are real lines from the mod's own voice pools.
 </div>
 
 <!-- TABLE OF CONTENTS -->
@@ -423,7 +423,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <p>Living Fellows turns the survivors you meet into persistent people. They are native human actors with real inventories, injuries, skills and permanent death, and they make their own survival decisions when you are not giving orders. That depth needs a small native bridge beside the usual Lua, which is why installing it takes one step more than an ordinary mod.</p>
 
-<p>The mod targets <strong>Project Zomboid Build 42.21.0</strong> and is <strong>single-player only</strong>. Multiplayer and user-added split-screen players are refused. The one exception is the experimental expedition, which may briefly put its own companion leader in a second local view to load the mission area.</p>
+<p>The mod targets <strong>Project Zomboid Build 42.21.0</strong> and is <strong>single-player only</strong>. Multiplayer and user-added split-screen players are refused. The exceptions are the mod's own: an expedition or Base Watch may put one companion in a second local view, to keep the area around it loaded.</p>
 
 <h3>Two Ways In</h3>
 <table>
@@ -448,7 +448,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <div>
 <h4>With <code>Install.bat</code></h4>
 <ol class="steps">
-  <li>Download the <code>STANDALONE-WINDOWS</code> ZIP from the project's Releases page.</li>
+  <li>Download the <code>STANDALONE-WINDOWS</code> ZIP from the project's Releases page on GitHub. If a release has no package yet, use the Workshop for that version.</li>
   <li>Extract the whole ZIP to a normal folder. Don't run it from inside the ZIP viewer.</li>
   <li>Close Project Zomboid.</li>
   <li>Double-click <strong>Install.bat</strong>.</li>
@@ -592,7 +592,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h3>The Main Order</h3>
 <table>
   <tr><th>Order</th><th>What it means</th></tr>
-  <tr><td><strong>Follow</strong></td><td>Keep formation behind you at the chosen follow distance. When you stop, followers hold formation for a few seconds before they start downtime or scavenging nearby.</td></tr>
+  <tr><td><strong>Follow</strong></td><td>Walk with you at the chosen follow distance, in single file unless the team fans out (<a href="#ch5">Chapter 5</a>). When you stop, followers hold their places for a few seconds before they start downtime or scavenging nearby.</td></tr>
   <tr><td><strong>Stay</strong></td><td>Hold this place. Inside your camp area, Stay puts the companion on <a href="#ch14">base duty</a> instead.</td></tr>
   <tr><td><strong>Guard</strong></td><td>Patrol around an anchor. Inside the camp, Guard makes them a base guard watching the square you picked.</td></tr>
   <tr><td class="tbl-power">Regroup</td><td>Emergency: come back to me now.</td></tr>
@@ -615,7 +615,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h3>Standing Settings</h3>
 <table>
   <tr><th>Setting</th><th>Choices</th><th>Notes</th></tr>
-  <tr><td>Follow distance</td><td>Stay close, 2, 3, 5 or 8 tiles</td><td class="tbl-note">Formation slots, not a single queue</td></tr>
+  <tr><td>Follow distance</td><td>Stay close, 2, 3, 5 or 8 tiles</td><td class="tbl-note">How far back the team keeps</td></tr>
+  <tr><td>Team fans out while following</td><td>On or off</td><td class="tbl-note">The whole team spreads into fireteam slots on open ground; off by default</td></tr>
   <tr><td>Movement</td><td>Copy player, Walk, Sneak, Run</td><td class="tbl-note">Escapes and combat can override it</td></tr>
   <tr><td>Scavenging</td><td>On or off</td><td class="tbl-note">On for new recruits</td></tr>
   <tr><td>Weapon priority</td><td>Best available, Melee, Firearms, Quiet weapons</td><td class="tbl-note">What they reach for first</td></tr>
@@ -646,6 +647,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td>Day 2–3</td><td>Set a camp core; mark food, water, medical and tool storage</td><td><a href="#ch11">Ch 11</a></td></tr>
   <tr><td>Day 3–4</td><td>Give one companion a base job; plan a wall or barricade</td><td><a href="#ch13">Ch 13</a>, <a href="#ch14">Ch 14</a></td></tr>
   <tr><td>Day 4+</td><td>Watch for households, and for bandit camps, which appear from day four</td><td><a href="#ch18">Ch 18</a></td></tr>
+  <tr><td>Day 5+</td><td>Feed the camp: a Chef for the fridge, an Angler at the water</td><td><a href="#ch15b">Ch 15b</a></td></tr>
+  <tr><td>Before a long trip</td><td>Start Base Watch so the camp keeps working while you're away</td><td><a href="#ch14c">Ch 14c</a></td></tr>
   <tr><td>When ready</td><td>On a disposable save, try sending a squad on an expedition</td><td><a href="#ch17">Ch 17</a></td></tr>
 </table>
 
@@ -768,12 +771,13 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>The Rules of Engagement are set on <span class="menu">Orders</span>, for one companion or the whole team. A team doctrine applies to every recruited companion, including recruits who join later. Friendly-fire and survival checks stay active under all four.</p>
 
 <table>
-  <tr><th>Doctrine</th><th>What it asks of them</th><th>From a vehicle</th></tr>
-  <tr><td class="tbl-power">Stealth</td><td>Avoid contact. Defend only against an active attack, using quiet force whenever possible. Warnings become silent hand signals when they can.</td><td>Never shoots</td></tr>
-  <tr><td class="tbl-power">Close Defense</td><td>Remove threats close to the team without chasing distant zombies. Use the best available weapon.</td><td>Doesn't shoot</td></tr>
-  <tr><td class="tbl-power">Ranged Support</td><td>Prefer firearms, keep distance, conserve fire, and support the team.</td><td>May fire through an open or broken window at a safe speed</td></tr>
-  <tr><td class="tbl-power">Weapons Free</td><td>Engage visible nearby threats with the best weapon, and pursue briefly.</td><td>Vehicle safety checks still apply</td></tr>
+  <tr><th>Doctrine</th><th>What it asks of them</th></tr>
+  <tr><td class="tbl-power">Stealth</td><td>Avoid contact. Defend only against an active attack, using quiet force whenever possible. Warnings become silent hand signals when they can.</td></tr>
+  <tr><td class="tbl-power">Close Defense</td><td>Remove threats close to the team without chasing distant zombies. Use the best available weapon.</td></tr>
+  <tr><td class="tbl-power">Ranged Support</td><td>Prefer firearms, keep distance, conserve fire, and support the team.</td></tr>
+  <tr><td class="tbl-power">Weapons Free</td><td>Engage visible nearby threats with the best weapon, and pursue briefly.</td></tr>
 </table>
+<p>What each doctrine allows from a passenger seat is in <a href="#ch5c">Chapter 5c</a>.</p>
 
 <div class="callout callout-tip"><strong>Hold fire</strong> sits on top of any doctrine and blocks ordinary shots, whatever the doctrine would allow. Gunfire is loud in Knox County, and loud draws a crowd.</div>
 
@@ -1546,7 +1550,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><th></th><th>Base job</th><th>You need</th><th>What happens</th></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/4/45/WoodAxe.png" alt=""></td><td><strong>Woodcutter</strong></td><td>A lumber area, an axe, and marked construction, general or output storage</td><td>Scans a few loaded tiles at a time, chops one standing tree with the game's own action, and hauls the logs to storage. Makes small logging orders when stored logs are low.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/4/46/Handsaw.png" alt=""></td><td><strong>Carpenter</strong></td><td>Logs in marked storage, a saw, and a second marked container for planks</td><td>Takes one log, saws it into three planks with the vanilla recipe, and stores them. Finished output is recovered after a pause or reload.</td></tr>
-  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/7/77/Shovel.png" alt=""></td><td><strong>Gravekeeper</strong></td><td>A burial ground and shovel, or a safe pyre with lighter and petrol</td><td>Finds a body in the camp or lumber areas, drags it to the burial ground or pyre, then buries or burns it (<a href="#ch16">Ch 16</a>).</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/7/77/Shovel.png" alt=""></td><td><strong>Gravekeeper</strong></td><td>A burial ground and shovel, or a safe pyre with lighter and petrol</td><td>Finds a body in the camp or lumber areas, drags it to the burial ground or pyre, then buries or burns it. A burial takes the body's belongings with it (<a href="#ch16">Ch 16</a>).</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/8/87/Hoe.png" alt=""></td><td><strong>Farmer</strong></td><td>A farm area over existing plots and marked farming supplies</td><td>Waters, tends and harvests what the field audit finds (<a href="#ch15">Ch 15</a>).</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/8/81/Hammer.png" alt=""></td><td><strong>Maintainer</strong></td><td>Marked maintenance targets</td><td>Repairs damaged barricades that need planks.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/5/54/Pot.png" alt=""></td><td><strong>Chef</strong></td><td>A powered camp fridge, ingredients and cookware in camp storage</td><td>Keeps safe meals in the fridge, and cooks one for you on request (<a href="#ch15b">Ch 15b</a>).</td></tr>
@@ -1559,9 +1563,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h3>Safety Rules for Camp Work</h3>
 <ul>
   <li><strong>Chopping is loud.</strong> No tree is started while danger is visible nearby, winded residents rest, and a chop that gets stuck is abandoned after three minutes.</li>
-  <li><strong>Nights indoors.</strong> From 21:00 to 06:00 outdoor camp work pauses: workers head to an indoor camp square, outdoor jobs wait for daylight, and indoor chores carry on. A farm job already under way is finished, and a Chef stays by a pot on a lit fire. Switch on <strong>Work outside at night</strong> in the base policies (<a href="#ch14b">Ch 14b</a>) to keep everyone working. Beyond the boundary, nobody starts a new tree or fetches a body at night either way.</li>
+  <li><strong>Nights indoors.</strong> From 21:00 to 06:00 outdoor camp work pauses: workers head to an indoor camp square, outdoor jobs wait for daylight, and indoor chores carry on. A farm job already under way is finished, and a Chef stays by a pot on a lit fire. Switch on <strong>Work outside at night</strong> in the base policies (<a href="#ch14b">Ch 14b</a>) to keep everyone working. That switch covers the gravekeeper and woodcutter too: at night, without it, no tree outdoors is started and no body lying outdoors is fetched.</li>
   <li><strong>Sleep first.</strong> A resident who is more than half tired sleeps in a bed before claiming its next job, and keeps the bed until rested. A job already in hand is finished first.</li>
-  <li><strong>Loot is yours.</strong> Bodies still carrying items are left for you to loot.</li>
+  <li><strong>Loot first.</strong> A gravekeeper with a burial ground takes bodies as they lie, clothes, pockets and all, and buries them with their belongings. A pyre still leaves a body carrying items for you to loot.</li>
   <li><strong>Dragging.</strong> A resident dragging a body takes no fences, windows or stairs, and drops it at once when danger shows up. The body stays where it fell.</li>
   <li><strong>Blocked work</strong> shows its reason and tries again on its own, waiting longer each time; a job that keeps failing ends up under <strong>Stalled jobs</strong> (<a href="#ch14b">Ch 14b</a>).</li>
   <li><strong>Missing tools.</strong> A worker blocked for want of a tool may walk over and tell you what it needs, if you are on the same floor within 16 tiles and nothing is threatening. It doesn't follow you about: it gives up after half a minute, or once it finds the tool.</li>
@@ -1748,6 +1752,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h2 class="chapter" id="ch16"><img class="ico" src="https://pzwiki.net/w/images/7/77/Shovel.png" alt="">Chapter 16: Laying the Dead to Rest<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
 <p>The dead pile up around any camp worth holding. A <strong>Gravekeeper</strong> looks for bodies inside the camp and lumber areas and carries them to a marked burial ground or a safe pyre. Burial digs and fills a grave as needed.</p>
+
+<div class="callout callout-warn">A body goes into the grave the way it lies, with its clothes and whatever is in its pockets. Search the dead you care about before the gravekeeper reaches them. A pyre is pickier: it leaves a body still carrying items for you.</div>
 
 <h3>The Burial Ground</h3>
 <p>Every closed grave gets a few words: a short prayer or a line of bleak gallows humour, depending on who holds the shovel, and a salute. Sometimes a friend nearby adds an "Amen".</p>
