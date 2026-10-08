@@ -8,6 +8,6 @@
 version=1
 id=3805760339
 title=Living Fellows: Companion
-description=You wont die... Alone! Public beta for Project Zomboid 42.21.0: persistent native companions, survivor households, social contracts, and living bases. Single-player only. Workshop users need ZombieBuddy 2.3.3 or newer and must complete its one-time loader setup; subscribing alone is not enough. The standalone Windows installer from GitHub Releases does not need ZombieBuddy. Use only one copy.
+description=You wont die... Alone! Public beta for Project Zomboid 42.21.0: persistent native companions, survivor households, social contracts, and living bases. Single-player only. Workshop users need ZombieBuddy 2.3.3 or newer and must complete its one-time loader setup; subscribing alone is not enough. The standalone Windows installer from the GitHub repository does not need ZombieBuddy. Use only one copy.
 tags=Build 42
 visibility=public
