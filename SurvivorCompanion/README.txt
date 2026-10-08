@@ -1,7 +1,7 @@
-Living Fellows 0.26.32 - public playtest
+Living Fellows 0.26.33 - public playtest
 
-This build shows a companion next to you as a backpack in the loot pane, stops
-items duplicating when taken from a companion's hands, and adds Medical Check.
+This build brings companions left at camp back as soon as their area loads
+again after a long trip, instead of only once you walk right up to them.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added

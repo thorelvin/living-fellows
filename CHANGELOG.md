@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.26.33 - Companions come back after a long trip
+
+- Companions on base duty, working, staying or guarding are put back in the world as soon as their area loads again after you travel far away. They used to wait until you came within 30 tiles of where they last stood, although the game loads about 76 tiles around you. A companion at a far field, woodpile or guard post stayed missing, still listed on the roster, until you walked over to it or restarted the game. A restart already restored them this way.
+- Following companions still catch up with you as before.
+- A core test reattaches a posted companion 49 tiles away once its square loads, and the cloned-save live check now returns 45 tiles from home before going in. Both were confirmed to fail with the old 30-tile rule. In the live run the companion was missing at 49 tiles with its square loaded.
+
 ## 0.26.32 - Companion inventory and Medical Check
 
 - A recruited companion standing next to you, within one tile on the same floor, appears as a named backpack in the loot pane. Its inventory opens there without a Stay order or a pause in what it is doing, and the backpack goes away when it moves off.

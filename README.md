@@ -12,7 +12,7 @@ Persistent companions, survivor households, and living bases for Project Zomboid
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.21.0-red.svg)](#requirements)
-[![Release](https://img.shields.io/badge/release-0.26.32-blue.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-0.26.33-blue.svg)](CHANGELOG.md)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 
 Living Fellows turns the survivors you meet into persistent people. They can join you, fight and travel with you, help run a base, and make their own survival decisions. Companions are native human actors with real inventories, injuries, skills, and permanent death.
@@ -140,7 +140,7 @@ Right-click the world for the **Living Fellows** menu. The selected companion ge
 
 For private local playtests, launch with `scripts/Start-LocalPlaytest.ps1`. It selects the installed local build ahead of older staged Workshop copies that share the same mod ID.
 
-Use a disposable save for this 0.26.32 playtest. Assign one to four companions to a squad on **Squad**, then open **Expeditions**. Choose its leader, Scout, Search, or Fish, a destination within 200 tiles (32 per page), how to travel, time before turning home, and combat style. Search also lets you request a supply type and quantity, including **Everything useful** for supplies across categories. Review the plan and select **Send squad**. The actual leader appears in a second local view while the team moves; the remaining members follow that leader.
+Use a disposable save for this 0.26.33 playtest. Assign one to four companions to a squad on **Squad**, then open **Expeditions**. Choose its leader, Scout, Search, or Fish, a destination within 200 tiles (32 per page), how to travel, time before turning home, and combat style. Search also lets you request a supply type and quantity, including **Everything useful** for supplies across categories. Review the plan and select **Send squad**. The actual leader appears in a second local view while the team moves; the remaining members follow that leader.
 
 **Fishing playtest:** Mark a **Fishing bank** zone on dry ground beside at least two tiles of open water, then assign a base resident the **Angler** job. Give them a fishing rod and bait; they attach bait, move to an open bank, and fish when outdoor work is allowed. For an expedition, choose **Fish nearby water**, set the catch count, and pick a confirmed fishing bank from the loaded shore list. Buildings are not fishing destinations. The leader must carry a rod and bait before departure; other equipped members may fish while the rest escort them. The squad returns after the catch quota, the site deadline, or the selected turn-home time. Fishing uses Build 42's fish schools and produces real fish in companion inventories. This activity currently supports single-player playtests only.
 

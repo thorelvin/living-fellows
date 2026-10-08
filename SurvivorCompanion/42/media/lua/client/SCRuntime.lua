@@ -746,12 +746,14 @@ local function vitalsTask(current)
             -- Only a following companion catches up to the player. Posted
             -- companions stay at their last verified position while the player
             -- is away, then reattach the same native actor when that area loads.
+            -- "Loads" is the whole rule, as when a save is restored: waiting for
+            -- the player to come within 30 tiles left companions missing from a
+            -- loaded, visible area (the chunk map reaches about 76 tiles) until
+            -- a restart.
             if state.order ~= "follow" and state.order ~= "regroup" then
                 record.runtime.nativeSquareMissingAt = current
                 record.runtime.postedRecoveryDeferred = true
-                local px, py = SC.GameplayUtil.position(currentPlayer)
-                if postedRecoveryNearby(record, px, py)
-                    and SC.Persistence
+                if SC.Persistence
                     and type(SC.Persistence.loadedRecoverySquare) == "function" then
                     local square = SC.Persistence.loadedRecoverySquare(record)
                     local recovered, recoverReason = square

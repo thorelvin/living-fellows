@@ -479,6 +479,67 @@ do
     SC.Actor.retireDead, SC.Factions = oldRetire, oldFactions
 end
 
+-- A posted companion whose area unloaded while the player was away comes back
+-- as soon as its last verified square is loaded again, as a restored save does.
+-- The chunk map reaches about 76 tiles; waiting until the player stood within
+-- 30 tiles left the companion missing from a visible area until a restart.
+do
+    local vitalsTask = SC.Runtime._vitalsTaskForTests
+    SC.Scheduler.reset(true)
+    local saved = {
+        validate = SC.Actor.validateNative, recover = SC.Actor.recover,
+        commands = SC.Commands, util = SC.GameplayUtil,
+        loaded = SC.Persistence.loadedRecoverySquare,
+        expedition = SC.ExpeditionPrototype,
+    }
+    local posted = makeRecord(950, {
+        lastStablePosition = { x = 7339, y = 6038, z = 0 },
+    })
+    function posted.actor:isDead() return false end
+    records = { posted }
+    local attached, recoveredTo = false, nil
+    local loadedSquare = { x = 7339, y = 6038 }
+    local squareLoaded = false
+    SC.ExpeditionPrototype = nil
+    SC.Commands = { peek = function() return { recruited = true, order = "work" } end }
+    SC.GameplayUtil = { position = function() return 7388, 6040, 0 end }
+    SC.Persistence.loadedRecoverySquare = function(record)
+        check(record == posted, "posted recovery looked up another record")
+        if not squareLoaded then return nil, "saved_square_unloaded" end
+        return loadedSquare, "last_verified_position"
+    end
+    SC.Actor.validateNative = function()
+        if attached then return true end
+        return false, "living native companion has no current world square"
+    end
+    SC.Actor.recover = function(actor, square)
+        check(actor == posted.actor, "posted recovery moved another actor")
+        attached, recoveredTo = true, square
+        return true
+    end
+
+    SC.Scheduler.dueFor(posted.id, "vitals", 1000, 1100000)
+    vitalsTask(1101000)
+    vitalsTask(1102000)
+    vitalsTask(1103000)
+    check(not attached and posted.runtime.postedRecoveryDeferred == true,
+        "a posted companion was reattached while its square was still unloaded")
+
+    squareLoaded = true
+    vitalsTask(1104000)
+    vitalsTask(1105000)
+    vitalsTask(1106000)
+    check(attached and recoveredTo == loadedSquare
+            and posted.runtime.nativeSquareMissingAt == nil
+            and posted.runtime.postedRecoveryDeferred == nil,
+        "a posted companion 49 tiles away stayed missing although its square was loaded")
+    records = {}
+    SC.Actor.validateNative, SC.Actor.recover = saved.validate, saved.recover
+    SC.Commands, SC.GameplayUtil = saved.commands, saved.util
+    SC.Persistence.loadedRecoverySquare = saved.loaded
+    SC.ExpeditionPrototype = saved.expedition
+end
+
 print("DECISION_SCHEDULER_PASS checks=" .. tostring(checks)
     .. " multi-actor=true critical-lane=true starvation-capped=true schedule-repair=pulsed"
     .. " hardened=true critical-fairness=rotating")
