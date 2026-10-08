@@ -8,7 +8,7 @@
 
 > ### You won't die... alone.
 
-Persistent companions, survivor households, and living bases for Project Zomboid.
+Persistent companions, survivor households, and living bases for Project Zomboid Build 42.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.21.0-red.svg)](#requirements)
@@ -17,7 +17,9 @@ Persistent companions, survivor households, and living bases for Project Zomboid
 
 Living Fellows turns the survivors you meet into persistent people. They can join you, fight and travel with you, help run a base, and make their own survival decisions. Companions are native human actors with real inventories, injuries, skills, and permanent death.
 
-This is a public playtest release. Back up important saves and include logs when you report a problem.
+**Public playtest for Build 42.21.0, single-player only.** Back up a save before adding the mod. [Choose an install method](#requirements) and follow the [first five minutes](#first-five-minutes).
+
+**Field guide:** [Living Fellows Field Manual](https://thorelvin.github.io/living-fellows/).
 
 ## Contents
 
@@ -47,7 +49,7 @@ Full change history lives in [CHANGELOG.md](CHANGELOG.md).
 - Survivor households that trade, remember how you treat them, and offer contracts, quests, and recruitment, plus rare hostile bandit camps.
 - Private diaries: some companions write short entries in a real book about what actually happened to them, including wounds, bites, and the Knox fever. The book stays with them when they die.
 - A translucent companion panel, context-menu commands, first-name labels, minimap markers, a base-layout overlay, and a Support page for diagnostics.
-- Experimental expeditions: choose a configured squad, leader, nearby building, return timer, and combat style; watch the actual leader in a second local view.
+- Experimental expeditions: send an existing squad to a building or fishing shore, choose its leader and return time, and watch that leader in a second local view.
 
 ## Requirements
 
@@ -55,16 +57,16 @@ Living Fellows targets **Project Zomboid Build 42.21.0** and is **single-player 
 
 | Method | What you need | Best for |
 | --- | --- | --- |
-| Steam Workshop | Project Zomboid 42.21.0 and ZombieBuddy 2.3.3 or newer, including its one-time loader setup | Automatic Living Fellows updates after ZombieBuddy is installed |
-| `Install.bat` | Windows and Project Zomboid 42.21.0 | Everyone else; no ZombieBuddy, no Workshop account needed |
+| Steam Workshop | Project Zomboid 42.21.0 and ZombieBuddy 2.3.3 or newer, including its one-time loader setup | Players who already use ZombieBuddy |
+| `Install.bat` | Windows and Project Zomboid 42.21.0 | One local installer; no ZombieBuddy or Workshop subscription |
 
 Use only one copy. The Workshop and standalone editions share the mod ID `SurvivorCompanion`.
 
 ## Install from Steam Workshop
 
 1. Close Project Zomboid.
-2. Subscribe to **ZombieBuddy 2.3.3 or newer** and complete ZombieBuddy's one-time loader installation. Subscribing alone does not install its Java loader.
-3. Subscribe to **Living Fellows**.
+2. Subscribe to [ZombieBuddy](https://steamcommunity.com/sharedfiles/filedetails/?id=3619862853) **2.3.3 or newer** and complete the loader setup on its Workshop page. Subscribing alone does not install its Java loader.
+3. Subscribe to [Living Fellows](https://steamcommunity.com/sharedfiles/filedetails/?id=3805760339).
 4. Start the game, open **Mods**, and enable both.
 5. For an existing save, use **More... > Choose Mods** and enable both mods for that save.
 6. Back up the save before your first long session.
@@ -75,11 +77,11 @@ ZombieBuddy loads approved Java mods outside Project Zomboid's Lua sandbox. Revi
 
 The standalone edition does not need ZombieBuddy.
 
-1. Download `LivingFellowsCompanion-<version>-STANDALONE-WINDOWS.zip` from [Releases](https://github.com/thorelvin/living-fellows/releases).
-2. Extract the whole ZIP to a normal folder. Do not run it from inside the ZIP viewer.
+1. Use **Code → Download ZIP** on this repository, or download `LivingFellowsCompanion-<version>-STANDALONE-WINDOWS.zip` from [Releases](https://github.com/thorelvin/living-fellows/releases) if one is available. The complete repository ZIP includes the bridge and installer.
+2. Extract the whole ZIP to a normal folder. Do not run the installer from inside the ZIP viewer.
 3. Close Project Zomboid.
 4. Double-click **Install.bat**.
-5. Start the game and enable **Living Fellows** for your save.
+5. Start the game and enable **Living Fellows** in **Mods** and, for an existing save, under **More... → Choose Mods**.
 
 The installer finds Steam automatically. If Windows denies access to the game folder, run it as Administrator. For a different Steam library:
 
@@ -87,18 +89,16 @@ The installer finds Steam automatically. If Windows denies access to the game fo
 .\Install.bat -GameRoot "D:\SteamLibrary\steamapps\common\ProjectZomboid"
 ```
 
-It installs the mod under `%USERPROFILE%\Zomboid\mods\SurvivorCompanion`, keeps its bridge under `%LOCALAPPDATA%\LivingFellows`, and backs up `ProjectZomboid64.json` before changing it. It never edits `projectzomboid.jar`. Run **Uninstall.bat** from the same folder to remove it and restore the original launcher settings.
+It installs the mod under `%USERPROFILE%\Zomboid\mods\SurvivorCompanion`, keeps its bridge under `%LOCALAPPDATA%\LivingFellows`, and backs up `ProjectZomboid64.json` before changing it. It never edits `projectzomboid.jar`. Keep the extracted folder so you can run **Uninstall.bat** to remove the mod and restore the launcher. See [INSTALL.md](INSTALL.md) for the debug playtest variant.
 
 ## First five minutes
 
-1. Load a single-player save.
-2. Press **Home** to open the companion panel, or click the small **LF** launcher when the panel is collapsed.
-3. Explore until you meet a survivor. Survivors never join automatically.
-4. Select the survivor in the panel and press **Recruit** when it is offered.
-5. Open **Orders** and pick a main order. New recruits start on **Follow**, **Copy player** movement, and **Ride with player**.
-6. Hold **keypad 1** to peek through the selected companion's position; release it to return to your character. Press **keypad 2** to toggle a persistent Watch view.
-7. Hold **keypad 3** to steer that companion toward the cursor; release it to return them to normal AI control.
-8. If something looks wrong, open **More → Support** for runtime health and a copyable report.
+1. Load a single-player save and press **Home** to open the companion panel. If it is collapsed, click the small **LF** launcher.
+2. Meet a survivor, select them in the panel, and choose **Recruit** when offered. Survivors do not join automatically.
+3. Use **Orders** to change their behavior. A new recruit starts on **Follow**, **Copy player** movement, and **Ride with player**.
+4. Use **Talk** in the panel header or right-click the companion to speak with them. Select **More → Support** for runtime status and a copyable report if something goes wrong.
+
+Peek, Watch, and Steer use rebindable **keypad 1**, **keypad 2**, and **keypad 3**. Their controls are explained [below](#companion-panel).
 
 ## Companion panel
 
@@ -119,6 +119,8 @@ The panel is translucent so you can still see the world. It can be docked left o
 
 Use the persistent **Talk** button above the tabs, or right-click a nearby companion and choose **Talk to [name]**. Choose a topic and a line; the companion walks into speaking distance before answering. The view keeps recent dialogue and explains interruptions. Right-click also offers Follow, Stay, Regroup, Retreat, and a link to the full Orders panel.
 
+To check injuries, right-click a companion and choose **Medical Check**, or open their health view from **Loadout**. A recruited companion within one tile on your floor also appears as a named backpack in the regular loot pane. Selecting it does not put them on a Stay order.
+
 ## Orders
 
 - **Main order:** Follow, Stay, or Guard. Guard patrols around its anchor. Inside your camp area, Stay and Guard put the companion on base duty instead; Guard makes it a guard that watches the square you picked. **Regroup** and **Retreat** are immediate emergency actions.
@@ -138,17 +140,15 @@ Right-click the world for the **Living Fellows** menu. The selected companion ge
 
 ## Expeditions (experimental)
 
-For private local playtests, launch with `scripts/Start-LocalPlaytest.ps1`. It selects the installed local build ahead of older staged Workshop copies that share the same mod ID.
+Use a disposable save for expeditions. Assign one to four companions to a squad on **Squad**, then open **Expeditions**. Choose a leader, **Scout**, **Search**, or **Fish**, the travel route, time before turning home, and combat style. Scout and Search list buildings within 200 tiles; Fish searches for confirmed shorelines within 1,000 tiles. Search also lets you request a supply type and quantity, including **Everything useful** across categories. Review the plan, then select **Send squad**. The leader appears in a second local view while the other members follow.
 
-Use a disposable save for this 0.26.31 playtest. Assign one to four companions to a squad on **Squad**, then open **Expeditions**. Choose its leader, Scout, Search, or Fish, a destination within 200 tiles (32 per page), how to travel, time before turning home, and combat style. Search also lets you request a supply type and quantity, including **Everything useful** for supplies across categories. Review the plan and select **Send squad**. The actual leader appears in a second local view while the team moves; the remaining members follow that leader.
-
-**Fishing playtest:** Mark a **Fishing bank** zone on dry ground beside at least two tiles of open water, then assign a base resident the **Angler** job. Give them a fishing rod and bait; they attach bait, move to an open bank, and fish when outdoor work is allowed. For an expedition, choose **Fish nearby water**, set the catch count, and pick a confirmed fishing bank from the loaded shore list. Buildings are not fishing destinations. The leader must carry a rod and bait before departure; other equipped members may fish while the rest escort them. The squad returns after the catch quota, the site deadline, or the selected turn-home time. Fishing uses Build 42's fish schools and produces real fish in companion inventories. This activity currently supports single-player playtests only.
+**Fishing:** For camp work, mark a **Fishing bank** zone on dry ground beside at least two tiles of open water, assign a resident the **Angler** job, and provide a rod and bait. For an expedition, choose **Fish nearby water**, set the catch count, and select a confirmed bank from the shore list. Buildings are not fishing destinations. The leader needs a rod and bait before departure; equipped teammates can fish while the others escort them. The squad turns home after its catch quota, site deadline, or chosen return time.
 
 **Follow roads** is the default: the squad walks the map's streets and plans a fresh road route home. A building far from any mapped street is reached by leaving the streets as close to it as possible and walking up to 100 tiles off-road; the review names any long off-road stretch. If the leader sees a group of more than three zombies per living squad member on the road ahead, the squad plans around it, or turns home when no connected detour exists on the way out. **Head straight for target** takes the direct course and turns home if no path out is found for 30 seconds.
 
 The team can leave without radios. To order an immediate return while they are away, equip a powered walkie-talkie on your character and the leader, tune them to the same channel, then right-click your equipped radio and choose **Return immediately**. The order requires a received transmission; the panel does not show unseen position or health as live facts.
 
-This is an incomplete expedition playtest. Departure from the Riverside gas station has intermittently stalled on a native path. A four-member road mission to a site 180 tiles away and back has passed in a cloned test save, but a live detour along a real alternate road has not. The selected time limits when the team turns home; it does not promise an arrival time. See [the verification ledger](docs/expedition-v5-verification-ledger.md) for observed results and open checks.
+Expeditions remain experimental. A four-member road round trip to a site 180 tiles away passed in a cloned save, but some routes can still stall; a live alternate-road detour remains unverified. The chosen time controls when the squad turns home, not when it arrives. See the [verification ledger](docs/expedition-v5-verification-ledger.md) for observed results and open checks.
 
 ## How companions behave
 
@@ -166,7 +166,9 @@ Zombies hunt companions like players. Bites can infect and turn them, and a swar
 
 ### Scavenging and equipment
 
-A scavenger chooses a container from the outside, the way you would: how far away it is, and what room it stands in. It does not know what is inside until it opens it, and once it has, it keeps taking what it needs from that container rather than walking to the next one for one more item. Every transfer finishes the rummage animation and is verified. Empty containers are skipped for a while. Nails, planks, thread, tape, scrap and batteries are always worth carrying home, whoever is short of what. Scavengers also search containers you have already opened, so a house you searched first is still worth their time. Inside your base it works the other way round: companions use the storage you have marked, of any category, for scavenging and for meals, down to any reserve you set, and leave every unmarked container to you. Memorial storage keeps its keepsakes. Companions use backpacks, keep supplies suited to their role, drop dead weight outside combat, loot dead zombies when it is safe, upgrade clothing and armor, and wash themselves and their gear near clean water. After dark, and in an unlit room at any hour, a companion carrying a flashlight holds it in its off hand and switches it on, puts it out when there is light again or the room is already lit, and swaps in a spare battery when the torch runs flat. A two-handed weapon leaves no hand for a torch.
+A scavenger chooses containers by distance and room before seeing their contents. Once a container is open, they keep taking useful items from it instead of walking away after one item. Each transfer finishes its rummage animation and is verified. Previously searched containers can still be worth their time; empty ones are skipped for a while.
+
+Inside camp, companions use marked storage and respect its reserves. They leave unmarked containers and Memorial storage alone. They manage backpacks, gear and clothing, loot dead zombies when safe, and carry useful materials home. In the dark, a companion with a flashlight can use it in the off hand and replace a spent battery. A two-handed weapon leaves no hand free for the light.
 
 <p align="center">
   <img src="assets/screenshot-scavenging.png" width="100%" alt="A companion standing in a blood-smeared house says: I found Bra - Strapless. Eww, I got some of it on my hands.">
@@ -271,6 +273,7 @@ The **Living Fellows** sandbox page controls:
 | Companion menu opacity | Panel background opacity |
 | Show companion first names | Name labels above companions you can see |
 | Companions keep private diaries, diary keeper chance | Whether some companions write diaries, and the chance (35% by default), decided once per companion |
+| Rare intrusive-thought banter, companion profanity | Optional rare stray thoughts and stronger language; both are on by default |
 
 Lowering a limit never deletes companions, households, or camps already in the save. Turning diaries off never removes a book or its pages.
 
@@ -301,7 +304,11 @@ Do not remove the mod from an important save without a backup.
 
 ### The panel is missing
 
-Press Home once, then look for the small **LF** launcher at the edge of the screen. Confirm Living Fellows is enabled for the current save. Workshop users must also have ZombieBuddy enabled and current. Standalone users should rerun `Install.bat` after a game update and check **More → Support**.
+Press Home once, then look for the small **LF** launcher at the edge of the screen. Confirm Living Fellows is enabled for the current save. Check the [installation steps](#requirements) for your chosen edition.
+
+### Runtime active is off or the native bridge is missing
+
+Workshop users: verify ZombieBuddy is enabled for the save **and** its one-time loader setup is complete. Its startup watermark alone does not prove that Living Fellows' Java bridge loaded. Standalone users: close the game, rerun the latest `Install.bat`, then open **More → Support** and copy the report. Do not enable both editions together.
 
 ### A companion is only a moving shadow
 
@@ -321,7 +328,7 @@ Close Project Zomboid and rerun `Uninstall.bat` from the same release folder. It
 
 ### Standalone install says the owned bridge manifest exists but SCLauncher is inactive
 
-Reinstalling Project Zomboid restores `ProjectZomboid64.json`, while the standalone install record under `%LOCALAPPDATA%\LivingFellows\bridge` can remain. Close the game, then open `ProjectZomboid64.json` in the game installation folder. If `mainClass` is `zombie/gameStates/MainScreenState` and `classpath` has no `SurvivorCompanionBridge.jar` entry, rename `%LOCALAPPDATA%\LivingFellows\bridge` to `bridge-before-game-reinstall` and rerun `Install.bat` from the latest standalone package. Keep the renamed folder as a backup. If either launcher check fails, send the launcher file and the install error with a support report before changing files.
+A game reinstall can restore the vanilla launcher while leaving the standalone bridge record behind. The current installer recovers this state when the original launcher backup and installed bridge still verify. Close the game and rerun `Install.bat` from the latest complete download. If it still refuses recovery, keep `%LOCALAPPDATA%\LivingFellows` intact and report the exact error and `ProjectZomboid64.json`; the installer is refusing a launcher state it cannot verify.
 
 ## Reporting a bug
 
@@ -375,6 +382,8 @@ Maintainers can run the real-engine sandbox tests with the game closed. They wor
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Invoke-LiveSandboxTests.ps1
 ```
+
+For a private local playtest, `scripts/Start-LocalPlaytest.ps1` launches the installed build with local mods ahead of older Workshop staging copies for that launch only.
 
 ## Repository layout
 
