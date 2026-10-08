@@ -1,7 +1,7 @@
-Living Fellows 0.26.31 - public playtest
+Living Fellows 0.26.32 - public playtest
 
-This build stops camp sorting from emptying the Tools, Ammunition and Medical
-shelves, keeps Memorial storage untouched and keeps the Base Watch watcher indoors.
+This build shows a companion next to you as a backpack in the loot pane, stops
+items duplicating when taken from a companion's hands, and adds Medical Check.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added

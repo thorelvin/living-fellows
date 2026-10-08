@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 0.26.32 - Companion inventory and Medical Check
+
+- A recruited companion standing next to you, within one tile on the same floor, appears as a named backpack in the loot pane. Its inventory opens there without a Stay order or a pause in what it is doing, and the backpack goes away when it moves off.
+- Taking a wielded, attached or worn item out of a companion's inventory also takes it out of the companion's hands or off its body. The game's transfer only unequipped the player, so a hammer taken from a companion's hand stayed equipped there and could come back as a second hammer after a save and reload.
+- A lit candle or hurricane lantern taken from a companion is released from its hand too. The game hands those over as a new unlit item, which left the companion holding a lit one that no longer existed.
+- Right-click Medical Check on a companion opens its health and wound summary. It used to do nothing.
+- Another mod that wraps the game's item transfer after Living Fellows no longer stops the runtime from shutting down on the way to the main menu. The Living Fellows wrapper stays in that chain and does nothing until a companion inventory opens again.
+- The companion transfer harness now runs in the gameplay suite and covers the hammer, the lit lantern and a wrapped transfer chain. A runtime check covers teardown with a wrapped chain. Each new check was confirmed to fail without its fix. The full gate passed 9 of 9 stages.
+
 ## 0.26.31 - Sorting, memorial and Base Watch fixes
 
 - Sorting no longer empties correctly filed shelves. Build 42 reports every hand weapon as a weapon, so 0.26.30 moved hammers, axes and shovels from Tools to Weapons storage, where camp jobs never look for tools, and sorted shotgun shells, magazines and pills out of Ammunition and Medical. Items are now classified by the game's own display category first, a specific shelf keeps anything that is not surely misfiled, and hand tools may live in Tools or Weapons storage. General and work-output storage are still emptied into the right categories, and planks now go to Construction instead of Weapons.

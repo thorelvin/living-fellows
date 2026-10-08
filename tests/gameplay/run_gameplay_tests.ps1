@@ -150,6 +150,13 @@ try {
         )
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @diaryFiles
         if ($LASTEXITCODE -ne 0) { throw 'Private diary harness failed.' }
+        $transferFiles = @(
+            (Join-Path $SharedRoot 'SCNamespace.lua'),
+            (Join-Path $ClientRoot 'SCUIBridge.lua'),
+            (Join-Path $TestRoot 'companion_inventory_transfer_harness.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @transferFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Companion inventory transfer harness failed.' }
     }
     finally {
         Pop-Location

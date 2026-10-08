@@ -25,6 +25,7 @@ Bridge.VIEW_DISTANCE = 64
 local ownedLootPane = nil
 local transferOwners = setmetatable({}, { __mode = "kv" })
 local originalTransferItem, transferItemWrapper
+local transferHookActive = false
 local nearbySignatures = setmetatable({}, { __mode = "k" })
 
 local function safeMethod(object, methodName, ...)
@@ -87,8 +88,30 @@ local function releaseTransferredEquipment(actor, item)
     end
 end
 
+local function holds(container, item)
+    if SC.GameplayUtil and type(SC.GameplayUtil.inventoryContains) == "function" then
+        return SC.GameplayUtil.inventoryContains(container, item) == true
+    end
+    return safeMethod(container, "contains", item) == true
+end
+
+-- Vanilla hands a lit candle or hurricane lantern over as a new unlit item and
+-- removes the lit original from both containers, so the original is in
+-- neither and only the returned replacement proves the move happened.
+local function leftSource(item, result, source, destination)
+    if safeMethod(item, "getContainer") == destination then return true end
+    if holds(source, item) then return false end
+    if holds(destination, item) then return true end
+    return result ~= nil and result ~= item
+        and (safeMethod(result, "getContainer") == destination
+            or holds(destination, result))
+end
+
 function Bridge.installTransferHook()
-    if originalTransferItem ~= nil then return true end
+    if originalTransferItem ~= nil then
+        transferHookActive = true
+        return true
+    end
     if type(ISTransferAction) ~= "table" and type(require) == "function" then
         pcall(require, "TimedActions/ISTransferAction")
     end
@@ -100,17 +123,12 @@ function Bridge.installTransferHook()
     transferItemWrapper = function(self, character, item, source, destination, ...)
         local result = originalTransferItem(self, character, item,
             source, destination, ...)
+        if not transferHookActive then return result end
         local repaired, repairReason = pcall(function()
             local owner = transferOwners[source]
-            if owner and item and destination and source ~= destination then
-                local container = safeMethod(item, "getContainer")
-                local moved = container == destination
-                if not moved and SC.GameplayUtil
-                    and type(SC.GameplayUtil.inventoryContains) == "function" then
-                    moved = not SC.GameplayUtil.inventoryContains(source, item)
-                        and SC.GameplayUtil.inventoryContains(destination, item)
-                end
-                if moved then releaseTransferredEquipment(owner, item) end
+            if owner and item and destination and source ~= destination
+                and leftSource(item, result, source, destination) then
+                releaseTransferredEquipment(owner, item)
             end
         end)
         if not repaired and SC.Diagnostics
@@ -121,26 +139,31 @@ function Bridge.installTransferHook()
         return result
     end
     ISTransferAction.transferItem = transferItemWrapper
+    transferHookActive = true
     return true
 end
 
 function Bridge.transferHookState()
-    return originalTransferItem ~= nil,
+    return transferHookActive,
         originalTransferItem == nil or (type(ISTransferAction) == "table"
             and ISTransferAction.transferItem == transferItemWrapper)
 end
 
 function Bridge.removeTransferHook()
-    if originalTransferItem == nil then return true end
-    if type(ISTransferAction) ~= "table"
-        or ISTransferAction.transferItem ~= transferItemWrapper then
-        return false, "transfer hook chain changed"
-    end
-    ISTransferAction.transferItem = originalTransferItem
-    originalTransferItem, transferItemWrapper = nil, nil
     transferOwners = setmetatable({}, { __mode = "kv" })
     nearbySignatures = setmetatable({}, { __mode = "k" })
-    return true
+    transferHookActive = false
+    if originalTransferItem == nil then return true end
+    if type(ISTransferAction) == "table"
+        and ISTransferAction.transferItem == transferItemWrapper then
+        ISTransferAction.transferItem = originalTransferItem
+        originalTransferItem, transferItemWrapper = nil, nil
+        return true
+    end
+    -- Another mod wrapped the transfer after us and calls our wrapper from its
+    -- own. Unwrapping would cut that mod out of the chain, so ours stays in it
+    -- as a plain pass-through until the next install switches it back on.
+    return true, "transfer hook left inert"
 end
 
 -- A nearby recruited companion is a loot-pane container, without borrowing

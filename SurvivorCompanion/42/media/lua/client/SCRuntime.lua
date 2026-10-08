@@ -1527,13 +1527,8 @@ local function preflightInfrastructureTeardown(shouldDetach)
         or type(Events.OnTick.Remove) ~= "function") then
         return false, "OnTick removal is unavailable"
     end
-    local transferInstalled, transferOwned = false, true
-    if SC.UIBridge and type(SC.UIBridge.transferHookState) == "function" then
-        transferInstalled, transferOwned = SC.UIBridge.transferHookState()
-    end
-    if transferInstalled and not transferOwned then
-        return false, "companion transfer hook chain changed"
-    end
+    -- The transfer hook never blocks teardown: when another mod has wrapped it,
+    -- UIBridge leaves it in that chain as an inert pass-through instead.
     return preflightContainerHookRemoval()
 end
 

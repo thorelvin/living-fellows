@@ -156,6 +156,29 @@ check(SC.Runtime.reset(true) == true,
     "exceptional subsystem teardown remains retryable")
 
 do
+    -- Another mod may wrap the item-transfer action after Living Fellows did.
+    -- UIBridge then leaves its own wrapper in that chain as a pass-through, so
+    -- the hook can never hold a main-menu teardown back.
+    ready, reason, operational = SC.Runtime.start()
+    check(operational == true, "runtime restarts for the foreign transfer wrapper fixture")
+    local savedBridge = SC.UIBridge
+    local removals = 0
+    SC.UIBridge = {
+        transferHookState = function() return true, false end,
+        removeTransferHook = function()
+            removals = removals + 1
+            return true, "transfer hook left inert"
+        end,
+        installTransferHook = function() return true end,
+    }
+    reset, resetReason = SC.Runtime.reset(true)
+    SC.UIBridge = savedBridge
+    check(reset == true and removals == 1,
+        "a transfer hook wrapped by another mod does not block teardown: "
+            .. tostring(resetReason))
+end
+
+do
     -- A transient native-health dip must be tolerated for a bounded window so a
     -- teleport-recovered companion is not despawned before its native state settles
     -- (playtest: "teleported to me, then a health-check despawned her, body never

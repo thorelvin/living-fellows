@@ -58,6 +58,16 @@ function ISTransferAction:transferItem(character, item, source, destination)
     destination.items[#destination.items + 1] = item
     item.container = destination
     character:removeFromHands(item)
+    -- A lit candle or hurricane lantern arrives as a new unlit item, and the
+    -- lit original is removed from the destination as well.
+    if item.unlit then
+        local unlit = item.unlit
+        unlit.container = destination
+        destination.items[#destination.items + 1] = unlit
+        remove(destination, item)
+        item.container = nil
+        return unlit
+    end
     return item
 end
 
@@ -84,6 +94,55 @@ companion.primary = second
 ISTransferAction:transferItem(player, second, otherInventory, playerInventory)
 assert(companion.primary == second, "unrelated transfer changed companion")
 
-local removed = bridge.removeTransferHook()
+local function newItem(container)
+    local item = { container = container }
+    function item:getContainer() return self.container end
+    if container then container.items[#container.items + 1] = item end
+    return item
+end
+
+-- A lit lantern carried as the companion's light leaves no copy behind.
+local lantern = newItem(companionInventory)
+lantern.unlit = newItem(nil)
+companion.secondary = lantern
+local unlit = ISTransferAction:transferItem(player, lantern,
+    companionInventory, playerInventory)
+assert(unlit == lantern.unlit and contains(playerInventory, unlit))
+assert(not contains(companionInventory, lantern) and not contains(playerInventory, lantern))
+assert(companion.secondary == nil, "companion still holds the lit lantern that was replaced")
+
+-- Another mod wraps the transfer after us. Teardown must not cut it out of the
+-- chain, and must not refuse: our wrapper stays in it as a pass-through.
+local ours = ISTransferAction.transferItem
+local foreignCalls = 0
+local foreign = function(self, ...)
+    foreignCalls = foreignCalls + 1
+    return ours(self, ...)
+end
+ISTransferAction.transferItem = foreign
+local removed, removedReason = bridge.removeTransferHook()
+assert(removed == true, tostring(removedReason))
+assert(ISTransferAction.transferItem == foreign, "teardown cut the other mod out of the chain")
+assert(bridge.transferHookState() == false, "the left-behind wrapper is still active")
+local axe = newItem(companionInventory)
+companion.primary = axe
+ISTransferAction:transferItem(player, axe, companionInventory, playerInventory)
+assert(foreignCalls == 1 and contains(playerInventory, axe), "the chain stopped moving items")
+assert(companion.primary == axe, "an inert wrapper still changed the companion")
+
+-- Opening the inventory again switches the same wrapper back on, without a
+-- second layer.
+opened, reason = bridge.openInventory(companion, player)
+assert(opened == true, tostring(reason))
+assert(ISTransferAction.transferItem == foreign and bridge.transferHookState() == true)
+local knife = newItem(companionInventory)
+companion.primary = knife
+ISTransferAction:transferItem(player, knife, companionInventory, playerInventory)
+assert(foreignCalls == 2 and companion.primary == nil,
+    "the reactivated wrapper did not release the knife")
+
+-- With the other mod gone, teardown restores the vanilla function.
+ISTransferAction.transferItem = ours
+removed = bridge.removeTransferHook()
 assert(removed == true and ISTransferAction.transferItem == original)
-SC_TEST_REPORT = "Companion inventory transfer: wielded hammer moves once and clears both hands"
+SC_TEST_REPORT = "Companion inventory transfer: hammer, lit lantern and a foreign wrapper chain"
