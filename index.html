@@ -310,12 +310,15 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <p class="subtitle">A Complete Guide to Living with the Fellows of Knox County</p>
   <p class="divider">· · · ✚ · · ·</p>
   <p class="edition">Living Fellows — Project Zomboid Build 42.21.0 Edition</p>
-  <p class="version">Release 0.26.31 — First Edition, Sixth Printing — You won't die... alone.</p>
+  <p class="version">Release 0.26.32 — First Edition, Seventh Printing — You won't die... alone.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2.5rem;">
-<strong>What changed in this printing</strong> — the 0.26.31 fixes first, then the 0.26.29 and 0.26.30 work:
+<strong>What changed in this printing</strong> — 0.26.32 first, then the 0.26.31 fixes and the 0.26.29 and 0.26.30 work:
 <ul style="margin-top:0.5rem;margin-bottom:0;">
+  <li><a href="#ch3b"><strong>A companion next to you is a backpack.</strong></a> Stand within a tile of a recruited companion, on the same floor, and its inventory shows up in your loot pane under its name. It carries on with what it was doing.</li>
+  <li><a href="#ch3b"><strong>Medical Check works on companions.</strong></a> The game's own right-click Medical Check opens their wounds in the Loadout tab.</li>
+  <li><a href="#ch3b"><strong>No more doubled weapons.</strong></a> A hammer taken from a companion's hand leaves the hand, so it can't come back as a second hammer after a reload. The same goes for a lit candle or lantern.</li>
   <li><a href="#ch11"><strong>Sorting keeps your shelves.</strong></a> Hammers, axes and shovels stay in Tools, shells and magazines in Ammunition, medicine in Medical. Loose planks go to Construction, not Weapons.</li>
   <li><a href="#ch11"><strong>Memorial storage</strong></a> is never touched: no sorting, no cooking, no fetching from it.</li>
   <li><a href="#ch14c"><strong>The Base Watch watcher</strong></a> never steps outside for a toilet break, so the camp view stays where you left it.</li>
@@ -334,7 +337,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2.5rem;">
-<strong>About this manual</strong> — it covers what the companion panel does not explain: how the fellows think, what they need from you, and the rules they follow when nobody is giving orders. Everything here describes release 0.26.31 and was checked against the mod itself. Living Fellows is a <strong>public playtest</strong>: back up important saves, and send logs when something goes wrong (<a href="#appD">Appendix D</a>). The mod lives at <a href="https://github.com/thorelvin/living-fellows">github.com/thorelvin/living-fellows</a>. The <em>Overheard</em> quotes are real lines from the mod's own voice pools.
+<strong>About this manual</strong> — it covers what the companion panel does not explain: how the fellows think, what they need from you, and the rules they follow when nobody is giving orders. Everything here describes release 0.26.32 and was checked against the mod itself. Living Fellows is a <strong>public playtest</strong>: back up important saves, and send logs when something goes wrong (<a href="#appD">Appendix D</a>). The mod lives at <a href="https://github.com/thorelvin/living-fellows">github.com/thorelvin/living-fellows</a>. The <em>Overheard</em> quotes are real lines from the mod's own voice pools.
 </div>
 
 <!-- TABLE OF CONTENTS -->
@@ -578,7 +581,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Health actions</strong></td><td>Open their health panel, bandage them yourself, or open their inventory</td></tr>
 </table>
 
-<div class="callout callout-warn">Opening a companion's <strong>inventory</strong> holds them where they stand until you close it: downtime, scavenging, base work and any walk are cancelled, so nothing moves out from under your hands. They pick up their order again when the window closes.</div>
+<div class="callout callout-warn">Opening a companion's <strong>inventory</strong> from the panel holds them where they stand until you close it: downtime, scavenging, base work and any walk are cancelled, so nothing moves out from under your hands. They pick up their order again when the window closes.</div>
+
+<p>A quick look needs no panel. A recruited companion standing within one tile of you, on the same floor, shows up in your loot pane as a backpack with its name on it. Move items in and out there while it carries on with whatever it was doing; the backpack goes away when it steps off. Taking something it holds, wears or has strapped on takes it off the companion too. The game's own right-click <span class="menu">Medical Check</span> on a companion opens this Loadout tab at its wounds.</p>
 
 <table>
   <tr><th></th><th>Wound state</th><th>What to do</th></tr>
@@ -2085,7 +2090,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><kbd>Keypad 3</kbd> held</td><td>Steer the selected companion toward the cursor</td><td class="tbl-note">Yields to combat rescue and survival</td></tr>
   <tr><td><kbd>Insert</kbd></td><td>Show or hide the base layout</td><td class="tbl-note">All Living Fellows keys are rebindable under Options, Key bindings, Living Fellows</td></tr>
   <tr><td>Game's Rotate building key</td><td>Turn a blueprint before you place it</td><td class="tbl-note">The game's own binding</td></tr>
-  <tr><td>Right-click a companion</td><td>Talk to [name], Watch, Follow, Stay, Regroup, Retreat, Assign objective; a Chef on duty also offers Cook me a meal</td><td class="tbl-note"></td></tr>
+  <tr><td>Right-click a companion</td><td>Talk to [name], Watch, Follow, Stay, Regroup, Retreat, Assign objective; a Chef on duty also offers Cook me a meal. The game's Medical Check opens their wounds.</td><td class="tbl-note"></td></tr>
   <tr><td>Right-click the world</td><td><span class="menu">Living Fellows</span>: Move here, object actions, target actions, care, squad signals, base life, households</td><td class="tbl-note"></td></tr>
   <tr><td>Right-click the world → Living Fellows → Squad</td><td>Whistle, Hold, Fall back, Cease fire, Fire</td><td class="tbl-note">Hand signs need line of sight (<a href="#ch5b">Ch 5b</a>)</td></tr>
   <tr><td>Right-click your radio</td><td>Return immediately (expeditions)</td><td class="tbl-note">Needs a received transmission</td></tr>
@@ -2150,7 +2155,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p><span class="menu">More → Support</span> is the first place to look when something is wrong, and the report it copies is the most useful thing to attach to a bug report.</p>
 <table>
   <tr><th>Line</th><th>What a healthy game shows</th></tr>
-  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.31</td></tr>
+  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.32</td></tr>
   <tr><td>Game build / supported build</td><td>42.21.0 on both sides</td></tr>
   <tr><td>Runtime active</td><td>Yes. If not, <strong>Runtime disabled reason</strong> says why.</td></tr>
   <tr><td>Native bridge status, actor provider, bridge protocol</td><td>The bridge is ready, and its protocol matches the expected one. A mismatch means an old or mixed install.</td></tr>
@@ -2370,7 +2375,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CARD END -->
 
 <div class="page-footer">
-  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.31 &nbsp;·&nbsp; First Edition, Sixth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
+  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.32 &nbsp;·&nbsp; First Edition, Seventh Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
 </div>
 <script>
 (function () {
