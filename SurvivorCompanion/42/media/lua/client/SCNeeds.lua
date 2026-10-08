@@ -316,16 +316,32 @@ local function updatePee(actor, player, state, hour, due)
         return false, "bathroom_break_interrupted"
     end
     if current < (state.nextPeeRetryAt or 0) then return false, "bathroom_retry" end
+    -- The Base Watch leader holds the camp's second view and must stay
+    -- indoors: four seconds outside hands the watch to someone else. It never
+    -- takes the outdoor fallback, and without a usable toilet it skips this
+    -- break and waits for the next one.
+    local indoorsOnly = SC.BaseWatch and type(SC.BaseWatch.isLeader) == "function"
+        and SC.BaseWatch.isLeader(actor) == true
+    local function giveUp(reason)
+        -- Needs.cancel also stops eating and drinking; only a break already
+        -- under way has anything of its own to cancel.
+        if state.pee then Needs.cancel(actor, reason) end
+        if indoorsOnly then
+            local record = hygieneRecord(actor)
+            if record then record.nextPeeHour = hour + nextPeeInterval(actor, hour) end
+            return false, "bathroom_watcher_stays_indoors"
+        end
+        state.nextPeeRetryAt = current + 30000
+        return false, "bathroom_spot_unavailable"
+    end
     if not task then
         local inBase = SC.BaseLife and SC.BaseLife.isInside(actor) == true
         local insideRoom = select(1, U().call(U().squareOf(actor), "getRoom")) ~= nil
         local sits, style = peeStyle(actor, hour)
         local toilet = inBase and insideRoom and toiletTarget(actor, not sits) or nil
-        local spot = toilet == nil and outdoorTarget(actor, player, hour - due >= 2)
-        if not toilet and not spot then
-            state.nextPeeRetryAt = current + 30000
-            return false, "bathroom_spot_unavailable"
-        end
+        local spot = toilet == nil and not indoorsOnly
+            and outdoorTarget(actor, player, hour - due >= 2) or nil
+        if not toilet and not spot then return giveUp("bathroom_spot_unavailable") end
         local x, y = U().position(actor)
         task = { toilet = toilet, square = spot, startedAt = current,
             sits = sits, style = style,
@@ -345,14 +361,11 @@ local function updatePee(actor, player, state, hour, due)
     elseif current - (task.lastProgressAt or current) > 6000 then
         if task.toilet then
             task.toilet = nil
-            task.square = outdoorTarget(actor, player, true)
+            task.square = not indoorsOnly and outdoorTarget(actor, player, true) or nil
             task.startedAt = current
             task.lastProgressAt = current
             if SC.Navigation then SC.Navigation.cancel(actor, "toilet_route_stalled") end
-            if not task.square then
-                Needs.cancel(actor, "bathroom_route_stalled")
-                return false, "bathroom_spot_unavailable"
-            end
+            if not task.square then return giveUp("bathroom_route_stalled") end
         else
             Needs.cancel(actor, "bathroom_route_stalled")
             state.nextPeeRetryAt = current + 30000
@@ -385,10 +398,11 @@ local function updatePee(actor, player, state, hour, due)
     if arrived ~= true then
         if task.toilet and status == "arrived" and task.sits then
             task.toilet = nil
-            task.square = outdoorTarget(actor, player, true)
+            task.square = not indoorsOnly and outdoorTarget(actor, player, true) or nil
             task.startedAt = current
             task.lastProgressAt = current
             if task.square then return true, "bathroom_spot_changed" end
+            return giveUp("toilet_seat_unreachable")
         end
         if status == nil then
             Needs.cancel(actor, "bathroom_route_failed")

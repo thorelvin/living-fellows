@@ -250,6 +250,48 @@ assert(sc.HygieneEffects.renderStream(canvas, 0, { 0, 0, 500, 500 },
     subject, 5, 5, 0, 0, nil) == true and polygons > 0,
     "UI stream must resume when native depth rendering is unavailable")
 
+-- The effects overlay is a world effect: it sits behind every window and
+-- panel instead of drawing droplets over the inventory or companion panel.
+do
+    local oldElement, oldCore, oldRequire = ISUIElement, getCore, require
+    require = function(name)
+        if name == "ISUI/ISUIElement" then return true end
+        return oldRequire(name)
+    end
+    local calls = {}
+    local element = {}
+    function element:derive()
+        local class = {}
+        function class:new()
+            local overlay = {}
+            for _, name in ipairs({ "initialise", "setWantMouseEvents",
+                "addToUIManager", "backMost", "bringToTop", "removeFromUIManager" }) do
+                overlay[name] = function() calls[#calls + 1] = name end
+            end
+            return overlay
+        end
+        return class
+    end
+    ISUIElement = element
+    getCore = function()
+        return { getScreenWidth = function() return 800 end,
+            getScreenHeight = function() return 600 end }
+    end
+    sc.HygieneEffects.remove()
+    calls = {}
+    local created = sc.HygieneEffects.ensureOverlay()
+    local sentBack, broughtForward = false, false
+    for _, name in ipairs(calls) do
+        if name == "backMost" then sentBack = true end
+        if name == "bringToTop" then broughtForward = true end
+    end
+    assert(created == true and sentBack and not broughtForward,
+        "the hygiene overlay is placed behind other UI, never brought to the top: "
+            .. table.concat(calls, ","))
+    sc.HygieneEffects.remove()
+    ISUIElement, getCore, require = oldElement, oldCore, oldRequire
+end
+
 sc.Registry.living, sc.Needs.peek, sc.Downtime.peek =
     oldLiving, oldNeeds, oldDowntime
 getSpecificPlayer, isoToScreenX, isoToScreenY =
@@ -257,4 +299,4 @@ getSpecificPlayer, isoToScreenX, isoToScreenY =
 getPlayerScreenLeft, getPlayerScreenTop,
     getPlayerScreenWidth, getPlayerScreenHeight =
     oldLeft, oldTop, oldWidth, oldHeight
-print("HYGIENE_EFFECTS_PASS checks=19")
+print("HYGIENE_EFFECTS_PASS checks=20")

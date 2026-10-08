@@ -366,7 +366,9 @@ function Effects.ensureOverlay()
     overlay:initialise()
     overlay:setWantMouseEvents(false)
     overlay:addToUIManager()
-    overlay:bringToTop()
+    -- A world effect: draw it above the map but behind every window and panel,
+    -- as vanilla's fishing tension overlay does.
+    overlay:backMost()
     return true
 end
 

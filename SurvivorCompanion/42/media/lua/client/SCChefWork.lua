@@ -290,7 +290,7 @@ end
 local function withdrawalAllowed(row, item)
     if not contains(row.container, item) then return false end
     if row.storage then
-        if row.storage.withdrawals == false
+        if not SC.BaseLife.withdrawable(row.storage)
             or SC.BaseLife.storage(row.storage.id) ~= row.storage
             or SC.BaseLife.resolveContainer(row.storage) ~= row.container then return false end
         return SC.BaseLife.availableCountExact(row.storage, U().itemType(item)) > 0

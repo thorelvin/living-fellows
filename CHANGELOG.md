@@ -2,6 +2,14 @@
 
 # Changelog
 
+## Unreleased
+
+- Sorting no longer empties correctly filed shelves. Build 42 reports every hand weapon as a weapon, so 0.26.30 moved hammers, axes and shovels from Tools to Weapons storage, where camp jobs never look for tools, and sorted shotgun shells, magazines and pills out of Ammunition and Medical. Items are now classified by the game's own display category first, a specific shelf keeps anything that is not surely misfiled, and hand tools may live in Tools or Weapons storage. General and work-output storage are still emptied into the right categories, and planks now go to Construction instead of Weapons.
+- Memorial storage is never a source. Sorting, the Chef, supply fetches and every other withdrawal leave it alone, as scavenging already did.
+- The Base Watch watcher no longer steps outdoors for a toilet break, which handed the camp view to another resident. Without a reachable toilet it skips the break until the next one.
+- The shower and stream effects draw behind windows and panels instead of on top of them.
+- Gameplay harnesses cover each fix with real Build 42 display categories, and each new check was confirmed to fail without its fix.
+
 ## 0.26.30 - Camp work and companion downtime
 
 - Automatic production checks eligible roles during each audit, so a busy worker no longer delays corpse disposal and other jobs. Woodcutters continue until marked log storage is full.

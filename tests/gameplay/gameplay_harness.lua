@@ -17868,6 +17868,89 @@ do
             and misfiledJob.state == "completed" and store.container:contains(sourceItem),
         "sorting moves a misfiled plank out of marked food storage")
     store.container:Remove(sourceItem)
+    -- Sorting from a specific shelf moves only what surely belongs elsewhere.
+    -- Build 42 reports "Weapon" from getCategory() for every hand weapon
+    -- (hammers, axes, planks), so these items carry the game's own
+    -- display categories, as the real ones do.
+    local function shelf(category)
+        local object = { square = campSquare, objectIndex = #campSquare.objects,
+            modData = {}, container = inventory({}) }
+        function object:getSquare() return self.square end
+        function object:getX() return self.square.x end
+        function object:getY() return self.square.y end
+        function object:getZ() return self.square.z end
+        function object:getObjectIndex() return self.objectIndex end
+        function object:getContainer() return self.container end
+        function object:getModData() return self.modData end
+        campSquare.objects[#campSquare.objects + 1] = object
+        local _, row = BaseLife.registerStorage(object, category)
+        return object, row
+    end
+    local weaponsShelf, weaponsRow = shelf("weapons")
+    local craftingShelf, craftingRow = shelf("crafting")
+    local function sortOnly(value, category)
+        source.container.items = { value }
+        value.container = source.container
+        BaseLife.setStorageCategory(sourceRow.id, category)
+        SurvivorCompanion.BaseWork.reset(sorter)
+        local queued, job = BaseLife.enqueueJob({ type = "sort", priority = 9,
+            assignedId = sorter.id })
+        local moved, reason = SurvivorCompanion.BaseWork.update(sorter, player, {})
+        if moved then
+            if visual then visual.status = "completed" end
+            SurvivorCompanion.BaseWork.update(sorter, player, {})
+            if visual then visual.status = "completed" end
+            moved, reason = SurvivorCompanion.BaseWork.update(sorter, player, {})
+        end
+        if job and job.state ~= "completed" then BaseLife.cancelJob(job.id) end
+        return queued, moved, reason
+    end
+    local shelvedHammer = item("Base.Hammer", "Weapon",
+        { displayCategory = "ToolWeapon", tags = { Hammer = true } })
+    local _, hammerMoved, hammerReason = sortOnly(shelvedHammer, "tools")
+    check(not hammerMoved and hammerReason == "no_sortable_supply"
+            and source.container:contains(shelvedHammer)
+            and not weaponsShelf.container:contains(shelvedHammer),
+        "sorting leaves a hammer in Tools storage although the engine calls it a weapon: "
+            .. tostring(hammerReason))
+    local shelvedShells = item("Base.ShotgunShells", "Item", { displayCategory = "Ammo" })
+    local _, shellsMoved, shellsReason = sortOnly(shelvedShells, "ammunition")
+    check(not shellsMoved and source.container:contains(shelvedShells)
+            and not craftingShelf.container:contains(shelvedShells),
+        "sorting leaves shotgun shells in Ammunition storage: " .. tostring(shellsReason))
+    local loosePlank = item("Base.Plank", "Weapon", { displayCategory = "MaterialWeapon" })
+    local _, plankMoved, plankReason = sortOnly(loosePlank, "general")
+    check(plankMoved and plankReason == "base_transfer_complete"
+            and store.container:contains(loosePlank)
+            and not weaponsShelf.container:contains(loosePlank),
+        "sorting shelves a general-storage plank with construction, not weapons: "
+            .. tostring(plankReason))
+    store.container:Remove(loosePlank)
+    local strayPistol = item("Base.Pistol", "Weapon", { displayCategory = "Weapon" })
+    local _, pistolMoved, pistolReason = sortOnly(strayPistol, "tools")
+    check(pistolMoved and pistolReason == "base_transfer_complete"
+            and weaponsShelf.container:contains(strayPistol),
+        "sorting still moves a pistol filed under Tools to Weapons: " .. tostring(pistolReason))
+    weaponsShelf.container:Remove(strayPistol)
+    -- Memorial storage keeps the keepsakes of the dead: never a source, for
+    -- sorting or for any other withdrawal.
+    local memorialPlank = item("Base.Plank", "Material")
+    local _, memorialMoved, memorialReason = sortOnly(memorialPlank, "memorial")
+    local memorialListed = false
+    for _, row in ipairs(BaseLife.storageRows(nil, true)) do
+        if row.id == sourceRow.id then memorialListed = true end
+    end
+    local memorialTaken, memorialRefusal = SurvivorCompanion.BaseWork.withdrawFromStorage(
+        sorter, { visualAt = 1 }, sourceRow, source.container, memorialPlank)
+    check(not memorialMoved and not memorialListed and not memorialTaken
+            and memorialRefusal == "base_storage_withdrawals_disabled"
+            and BaseLife.withdrawable(sourceRow) == false
+            and source.container:contains(memorialPlank),
+        "memorial storage is never a source for sorting or withdrawals: "
+            .. tostring(memorialReason) .. "/" .. tostring(memorialRefusal))
+    BaseLife.removeStorage(weaponsRow.id)
+    BaseLife.removeStorage(craftingRow.id)
+    SurvivorCompanion.BaseWork.reset(sorter)
     source.container.items = savedContents
     sourceItem.container = source.container
     BaseLife.setStorageCategory(sourceRow.id, "general")

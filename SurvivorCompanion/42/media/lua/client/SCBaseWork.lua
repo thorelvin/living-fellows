@@ -370,7 +370,7 @@ local function withdrawalAllowed(storage, expectedContainer, item)
     if SC.BaseLife.storage(storage.id) ~= storage then
         return false, "base_storage_changed"
     end
-    if storage.withdrawals == false then
+    if not SC.BaseLife.withdrawable(storage) then
         return false, "base_storage_withdrawals_disabled"
     end
     local currentContainer = SC.BaseLife.resolveContainer(storage)
@@ -393,7 +393,7 @@ local function transferFromStorage(actor, state, storage, container, item)
     if type(storage) ~= "table" or SC.BaseLife.storage(storage.id) ~= storage then
         return false, "base_storage_changed"
     end
-    if storage.withdrawals == false then
+    if not SC.BaseLife.withdrawable(storage) then
         return false, "base_storage_withdrawals_disabled"
     end
     local object = SC.BaseLife.resolveObject(storage)
@@ -884,26 +884,72 @@ local function updateBuild(actor, state, job)
     return false, outcome == "missing" and "build_result_missing" or "build_action_cancelled", true
 end
 
+-- The game's own shelf label (DisplayCategory) decides first. getCategory()
+-- reports "Weapon" for every Build 42 hand weapon, which includes hammers,
+-- axes, shovels and even planks, so it cannot tell a work tool or building
+-- material from a pistol. Shells, magazines and pills have no telling word
+-- in their type names either.
+local DISPLAY_CATEGORIES = {
+    ammo = "ammunition",
+    firstaid = "medical", bandage = "medical",
+    tool = "tools", toolweapon = "tools", gardeningweapon = "tools",
+    materialweapon = "construction",
+    weapon = "weapons", weaponcrafted = "weapons", sportsweapon = "weapons",
+    literature = "literature", skillbook = "literature",
+    food = "food",
+}
+
+-- Hand tools are weapons too, so either shelf is a proper home for them.
+local DUAL_USE_DISPLAY = { toolweapon = true, gardeningweapon = true, cookingweapon = true }
+
+local function displayCategory(item)
+    return string.lower(tostring(select(1, invoke(item, "getDisplayCategory")) or ""))
+end
+
+local function isHandTool(item)
+    return DUAL_USE_DISPLAY[displayCategory(item)] == true
+        or U().itemHasTag(item, "Hammer") or U().itemHasTag(item, "Saw")
+        or U().itemHasTag(item, "Screwdriver")
+end
+
+-- Returns the category and whether it is certain. Only the final crafting
+-- fallback is a guess.
 local function classifyItem(item)
     local itemType = string.lower(U().itemType(item))
     local category = select(1, invoke(item, "getCategory"))
     category = string.lower(tostring(category or ""))
     if SC.FarmWork and type(SC.FarmWork.isFarmingSupply) == "function"
-        and SC.FarmWork.isFarmingSupply(item) == true then return "farming" end
-    if category == "food" then return "food" end
-    if category == "literature" then return "literature" end
-    if string.find(itemType, "water", 1, true) or string.find(itemType, "bottle", 1, true) then return "water" end
+        and SC.FarmWork.isFarmingSupply(item) == true then return "farming", true end
+    local shelf = DISPLAY_CATEGORIES[displayCategory(item)]
+    if shelf then return shelf, true end
+    if category == "food" then return "food", true end
+    if category == "literature" then return "literature", true end
+    if string.find(itemType, "water", 1, true) or string.find(itemType, "bottle", 1, true) then return "water", true end
     if string.find(itemType, "bandage", 1, true) or string.find(itemType, "rippedsheet", 1, true)
-        or string.find(itemType, "disinfect", 1, true) then return "medical" end
-    if category == "weapon" then return "weapons" end
+        or string.find(itemType, "disinfect", 1, true) then return "medical", true end
     if string.find(itemType, "ammo", 1, true) or string.find(itemType, "bullets", 1, true)
-        or string.find(itemType, "round", 1, true) then return "ammunition" end
+        or string.find(itemType, "round", 1, true) then return "ammunition", true end
+    -- Tools and building material before the weapon test: the engine counts
+    -- both as hand weapons.
     if U().itemHasTag(item, "Hammer") or string.find(itemType, "saw", 1, true)
-        or string.find(itemType, "screwdriver", 1, true) then return "tools" end
+        or string.find(itemType, "screwdriver", 1, true) then return "tools", true end
     if itemType == "base.log" or string.find(itemType, "plank", 1, true)
         or string.find(itemType, "nails", 1, true)
-        or string.find(itemType, "lumber", 1, true) then return "construction" end
-    return "crafting"
+        or string.find(itemType, "lumber", 1, true) then return "construction", true end
+    if category == "weapon" then return "weapons", true end
+    return "crafting", false
+end
+
+-- General and output storage are staging shelves: sorting empties them. A
+-- specific shelf keeps an item unless it surely belongs somewhere else, so a
+-- hammer in Tools, a shotgun shell in Ammunition or a pill in Medical stays.
+local STAGING_CATEGORIES = { general = true, output = true }
+
+local function belongsIn(item, category)
+    if STAGING_CATEGORIES[category] then return false end
+    local wanted, certain = classifyItem(item)
+    if not certain or wanted == category then return true end
+    return (category == "tools" or category == "weapons") and isHandTool(item)
 end
 
 local function destinationHasRoom(container, actor, item)
@@ -944,9 +990,8 @@ local function findTransfer(job, actor)
                 local itemType = U().itemType(item)
                 if not (SC.PersonalItems and SC.PersonalItems.isProtected
                     and SC.PersonalItems.isProtected(item, actor, "base_haul")) then
-                    local wanted = type(job.target) == "table"
-                        and job.target.destinationCategory or classifyItem(item)
-                    local needsSorting = job.type ~= "sort" or source.category ~= wanted
+                    local needsSorting = job.type ~= "sort"
+                        or not belongsIn(item, source.category)
                     local rows = needsSorting and destinationsFor(job, item, actor, source.id)
                         or {}
                     if #rows > 0 and sourceItemAvailable(source, itemType) then

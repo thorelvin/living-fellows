@@ -3462,7 +3462,7 @@ local function borrowedCheckoutAuthorized(actor, activity)
     end
     local storage = base.storage(activity.borrowedStorageId)
     if type(storage) ~= "table" then return false, "borrowed_book_storage_changed" end
-    if storage.withdrawals == false then return false, "borrowed_book_withdrawals_disabled" end
+    if not base.withdrawable(storage) then return false, "borrowed_book_withdrawals_disabled" end
     local container = base.resolveContainer(storage)
     if container == nil or container ~= activity.borrowedFrom then
         return false, "borrowed_book_storage_changed"

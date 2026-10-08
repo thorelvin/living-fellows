@@ -1621,7 +1621,7 @@ local function withdrawLog(actor, order, state)
         return blockOrder(order, "base_work_unavailable")
     end
     local storage = storageById(order.sourceStorageId)
-    if not storage or storage.withdrawals == false then
+    if not SC.BaseLife.withdrawable(storage) then
         return blockOrder(order, "production_source_invalid")
     end
     local container = SC.BaseLife.resolveContainer(storage)

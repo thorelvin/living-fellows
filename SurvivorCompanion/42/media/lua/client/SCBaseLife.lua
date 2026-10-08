@@ -1619,12 +1619,20 @@ function BaseLife.setStorageCategory(id, category)
     return true, storage
 end
 
+-- Memorial storage keeps the keepsakes of the dead, so nothing that takes
+-- items out may use it: sorting, the Chef, supply fetches and every other
+-- withdrawal ask this, as SCEncounter.baseStorageAccess does for scavenging.
+function BaseLife.withdrawable(storage)
+    return type(storage) == "table" and storage.withdrawals ~= false
+        and storage.category ~= "memorial"
+end
+
 function BaseLife.storageRows(category, withdrawals)
     local base, result = activeBase(), {}
     if not base then return result end
     for _, storage in ipairs(base.storages) do
         if (category == nil or storage.category == category)
-            and (withdrawals ~= true or storage.withdrawals ~= false) then
+            and (withdrawals ~= true or BaseLife.withdrawable(storage)) then
             result[#result + 1] = storage
         end
     end
@@ -2634,7 +2642,7 @@ function BaseLife.createProductionOrder(spec)
     local sourceStorage, destinationStorage
     if schema.source == true then
         sourceStorage = findById(base.storages, spec.sourceStorageId)
-        if not sourceStorage or sourceStorage.withdrawals == false then
+        if not BaseLife.withdrawable(sourceStorage) then
             return false, "invalid_production_source"
         end
         if not BaseLife.resolveContainer(sourceStorage) then return false, "production_source_unloaded" end
@@ -2707,7 +2715,7 @@ end
 local function autonomousStorage(base, category, withdrawal, exclude)
     for _, storage in ipairs(base.storages or {}) do
         if storage.id ~= exclude and (category == nil or storage.category == category)
-            and (withdrawal ~= true or storage.withdrawals ~= false)
+            and (withdrawal ~= true or BaseLife.withdrawable(storage))
             and (withdrawal == true or storage.deposits ~= false)
             and BaseLife.resolveContainer(storage) then
             return storage
@@ -2852,7 +2860,7 @@ local function autonomousProductionSpec(base, actorId, role)
     elseif role == "builder" then
         local source
         for _, storage in ipairs(base.storages or {}) do
-            if storage.withdrawals ~= false and BaseLife.resolveContainer(storage)
+            if BaseLife.withdrawable(storage) and BaseLife.resolveContainer(storage)
                 and BaseLife.availableCountExact(storage, "Base.Log") > 0 then
                 source = storage break
             end

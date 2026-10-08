@@ -125,6 +125,50 @@ needs.update(actor, nil, runtime)
 assert(runtime.needs.pee == nil and stopCount == 3 and lastHandle == 103,
     "seated relief should stop sound when its six seconds end")
 
+-- The Base Watch leader never takes the outdoor fallback: four seconds
+-- outside hands the camp's second view to someone else. Without a usable
+-- toilet it skips the break and waits for the next one.
+local outdoorSquare = {
+    getRoom = function() return nil end,
+    getMovingObjects = function() return {} end,
+}
+local hygiene = { state = { downtime = { nextPeeHour = 90 } } }
+local oldWatch, oldGetGameTime = sc.BaseWatch, getGameTime
+local leading = false
+sc.BaseWatch = { isLeader = function(candidate) return leading and candidate == actor end }
+getGameTime = function() return { getWorldAgeHours = function() return 100 end } end
+sc.Registry.byId = function() return hygiene end
+actor.square = outdoorSquare
+local oldRequest = navigation.request
+navigation.request = function() return true, "moving" end
+needs.reset(actor)
+runtime.needs = {}
+local stepped, steppedReason = needs.update(actor, nil, runtime)
+assert(runtime.needs.pee ~= nil and runtime.needs.pee.square == outdoorSquare,
+    "control: an ordinary companion takes the outdoor spot: "
+        .. tostring(stepped) .. ":" .. tostring(steppedReason))
+needs.cancel(actor, "test_reset")
+runtime.needs.nextPeeRetryAt = 0
+leading = true
+local held, heldReason = needs.update(actor, nil, runtime)
+assert(held == false and heldReason == "bathroom_watcher_stays_indoors"
+    and runtime.needs.pee == nil and hygiene.state.downtime.nextPeeHour > 100,
+    "the Base Watch leader skips a break rather than step outdoors: "
+        .. tostring(held) .. ":" .. tostring(heldReason))
+hygiene.state.downtime.nextPeeHour = 90
+runtime.needs.nextPeeRetryAt = 0
+runtime.needs.pee = { toilet = { object = {}, targets = { {} } }, startedAt = now,
+    lastX = 5, lastY = 5, lastProgressAt = now - 7000, sits = false, style = "pee_stand" }
+local stalled, stalledReason = needs.update(actor, nil, runtime)
+assert(stalled == false and stalledReason == "bathroom_watcher_stays_indoors"
+    and runtime.needs.pee == nil and hygiene.state.downtime.nextPeeHour > 100,
+    "a stalled toilet route never sends the Base Watch leader outdoors: "
+        .. tostring(stalled) .. ":" .. tostring(stalledReason))
+actor.square = nil
+navigation.request = oldRequest
+sc.BaseWatch, getGameTime = oldWatch, oldGetGameTime
+sc.Registry.byId = function() return nil end
+
 needs.reset(actor)
 utility.nowMs, utility.actorState, utility.isValidActor,
     utility.position, utility.sameSquare, utility.move =
@@ -137,4 +181,4 @@ native.visualStatus, native.clearVisual, native.cancelVisual,
     saved.cancelNeeds, saved.furnitureStatus, saved.leaveFurniture
 navigation.cancel, sc.Dialogue.say = saved.navCancel, saved.say
 sc.NativeActions = oldNative
-print("HYGIENE_AUDIO_PASS checks=9")
+print("HYGIENE_AUDIO_PASS checks=12")
