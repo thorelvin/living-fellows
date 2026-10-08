@@ -555,6 +555,13 @@ local POOLS = {
     },
 }
 
+if not SC.IntrusiveLines and type(require) == "function" then
+    pcall(require, "SCIntrusiveLines")
+end
+for topic, specification in pairs(SC.IntrusiveLines or {}) do
+    POOLS[topic] = specification
+end
+
 -- Each table exchange keeps one subject for all three turns. The speaker's
 -- voice selector still picks a line within that subject; independent topics
 -- would make a reply about supper answer a question about the roof.
@@ -752,6 +759,7 @@ local ROOM_GROUPS = {
     gigamart = "grocery", grocery = "grocery",
     gasstore = "gas", fossoil = "gas",
     mechanic = "garage",
+    hunting = "hunting",
     firestorage = "firehouse",
     armystorage = "army",
     theatre = "theatre",
@@ -1058,6 +1066,14 @@ local PLACE_LINES = {
             "Smell of old paper. Almost like nothing happened.",
         },
     },
+    hunting = {
+        common = {
+            "Field guides. Take one before we need it.",
+            "The racks are empty. Somebody planned a long season.",
+            "A store for hunting things that hunt back now.",
+            "I used to come here for boots. I'd still take a good pair.",
+        },
+    },
     zippee = {
         common = {
             "Zippee Market. Zip in, zip out, like the jingle said.",
@@ -1170,6 +1186,10 @@ local function freshParty()
         lastJokeAt = -math.huge,
         lastRoutineAt = -math.huge,
         lastFollowAt = -math.huge,
+        lastPassengerAt = -math.huge,
+        lastIntrusiveAt = -math.huge,
+        intrusiveRecent = {},
+        intrusiveRecentSet = {},
         lastMovedAt = -math.huge,
         idle = nil,
         placeKeys = {},
@@ -1230,8 +1250,9 @@ local function speak(actor, topic, commands, arguments, options)
     registerPools()
     local settings = type(options) == "table" and options or {}
     settings.state = commands
-    local ok, spoken = pcall(SC.Dialogue.say, actor, topic, nil, arguments, settings)
-    return ok and spoken == true
+    local ok, spoken, line, detail = pcall(SC.Dialogue.say,
+        actor, topic, nil, arguments, settings)
+    return ok and spoken == true, line, detail
 end
 
 local function lastSpokenAt(actor)
@@ -1287,6 +1308,7 @@ local function available(record, player, current, radius, speechOnly)
 end
 
 local budgetAllows
+local intrusiveRemember
 
 local function firstName(actor)
     local name = tostring(U().nameOf(actor) or "")
@@ -1390,21 +1412,36 @@ local function exchangePulse(records, current)
         party.exchange = nil
         return false, "table_conversation_interrupted", false
     end
+    if exchange.kind == "intrusive" then
+        local replyCommands = freeSurvivor(secondRecord, current)
+        if not replyCommands or replyCommands.recruited ~= true
+            or select(1, U().call(exchange.second, "isMoving")) == true then
+            party.exchange = nil
+            return false, "intrusive_reply_busy", false
+        end
+    end
     if current < (exchange.nextAt or 0) then return false, "conversation_waiting", true end
     local closing = exchange.stage == "close"
     local speaker = closing and exchange.first or exchange.second
     local topic = closing and exchange.closeTopic or exchange.replyTopic
     local commands = closing and exchange.firstCommands or exchange.secondCommands
     local other = closing and exchange.second or exchange.first
-    local spoken = speak(speaker, topic, commands, { firstName(other) }, {
+    local spoken, _, detail = speak(speaker, topic, commands, { firstName(other) }, {
             salt = exchange.kind .. ":" .. (closing and "close" or "reply") .. ":"
                 .. pairKey(exchange.first, exchange.second) .. ":" .. tostring(current),
+            excludedLines = exchange.kind == "intrusive"
+                and party.intrusiveRecentSet or nil,
+            recentLimit = exchange.kind == "intrusive"
+                and config("intrusiveRecentLimit", 60) or nil,
         })
     if not spoken then
         party.exchange = nil
         return false, "conversation_reply_rejected", false
     end
     party.lastFlavorAt = current
+    if exchange.kind == "intrusive" then
+        intrusiveRemember(type(detail) == "table" and detail.lineKey)
+    end
     if not closing and exchange.closeTopic then
         exchange.stage = "close"
         exchange.nextAt = current + config("companionConversationReplyMs", 2800)
@@ -1661,6 +1698,222 @@ end
 
 budgetAllows = function(current)
     return current - party.lastFlavorAt >= config("flavorPartySpeechGapMs", 20000)
+end
+
+local function intrusiveClock()
+    if type(getGameTime) ~= "function" then return nil, nil end
+    local ok, clock = pcall(getGameTime)
+    if not ok or clock == nil then return nil, nil end
+    local age = tonumber((U().call(clock, "getWorldAgeHours")))
+    local hour = tonumber((U().call(clock, "getHour")))
+    return age, hour
+end
+
+local function intrusiveRoll(percent, actor, current, tag)
+    percent = tonumber(percent) or 0
+    if percent <= 0 then return false end
+    if percent >= 100 then return true end
+    if type(ZombRand) == "function" then
+        local ok, value = pcall(ZombRand, 100)
+        if ok and tonumber(value) then return tonumber(value) < percent end
+    end
+    local seed = tostring(U().idOf(actor)) .. ":" .. tostring(tag) .. ":"
+        .. tostring(math.floor(current / 1000))
+    return math.abs(tonumber(U().stableHash(seed)) or 0) % 100 < percent
+end
+
+intrusiveRemember = function(key)
+    if type(key) ~= "string" or key == "" then return end
+    local recent, lookup = party.intrusiveRecent, party.intrusiveRecentSet
+    if lookup[key] then return end
+    recent[#recent + 1], lookup[key] = key, true
+    local limit = math.max(0, math.floor(config("intrusiveRecentLimit", 60)))
+    while #recent > limit do lookup[table.remove(recent, 1)] = nil end
+end
+
+function Banter.noteKill(actor, current)
+    if actor == nil then return false end
+    actorState(actor).lastKillAt = tonumber(current) or U().nowMs()
+    return true
+end
+
+local function intrusiveSafe(actor, records, current)
+    if U().config("intrusiveThoughtsEnabled") == false then return false end
+    if current - party.lastIntrusiveAt < config("intrusivePartyCooldownMs", 2700000)
+        or current - party.lastRefusalAt < config("interiorRefusalPriorityMs", 5000)
+        or party.exchange ~= nil or not budgetAllows(current) then return false end
+    if SC.Tales and type(SC.Tales.isTelling) == "function"
+        and SC.Tales.isTelling() == true then return false end
+    if SC.Positioning and type(SC.Positioning.activeConversation) == "function"
+        and SC.Positioning.activeConversation(actor) ~= nil then return false end
+    local age = intrusiveClock()
+    local own = actorState(actor)
+    if age and own.lastIntrusiveHour
+        and age - own.lastIntrusiveHour
+            < config("intrusiveActorCooldownGameHours", 24) then return false end
+    for _, record in ipairs(records or {}) do
+        if record.actor and U().sameFloor(actor, record.actor)
+            and U().distance(actor, record.actor) <= config("intrusiveReplyDistance", 6)
+            and (not calm(recordSnapshot(record))
+                or (SC.Positioning
+                    and type(SC.Positioning.activeConversation) == "function"
+                    and SC.Positioning.activeConversation(record.actor) ~= nil))
+            then return false end
+    end
+    return true, age
+end
+
+local function intrusiveRoomGroup(actor)
+    local square = U().squareOf(actor)
+    local name = square and U().roomName and U().roomName(square) or nil
+    local group = name and ROOM_GROUPS[string.lower(tostring(name))] or nil
+    if not group or not POOLS["banter.intrusive.place." .. group] then return nil end
+    local building = square and select(1, U().call(square, "getBuilding"))
+    if party.placeKeys[tostring(building or name) .. "|" .. group] then return group end
+    return nil
+end
+
+local function intrusiveHiddenBite(actor)
+    local crisis = SC.InfectionCrisis
+    if not crisis or type(crisis.peekForSubject) ~= "function" then return false end
+    local ok, state = pcall(crisis.peekForSubject, tostring(U().idOf(actor)))
+    return ok and type(state) == "table" and state.strategy == "conceal"
+        and state.confessed ~= true and state.othersConfirmed ~= true
+end
+
+local function intrusiveGrieving(actor)
+    if not SC.Community or type(SC.Community.activeGrief) ~= "function" then
+        return false
+    end
+    local ok, grief = pcall(SC.Community.activeGrief, actor)
+    return ok and type(grief) == "table"
+        and (tonumber(grief.currentIntensity) or 0) > 0
+end
+
+local function intrusiveVehicle(actor)
+    local vehicle = select(1, U().call(actor, "getVehicle"))
+    if not vehicle then return nil end
+    local driver = select(1, U().call(vehicle, "getDriver"))
+    local speed = tonumber((U().call(vehicle, "getCurrentSpeedKmHour"))) or 0
+    return driver ~= actor and math.abs(speed) > 1 and vehicle or nil
+end
+
+local function intrusiveNightWatch(actor, current)
+    if not SC.BaseLife or type(SC.BaseLife.guardStatus) ~= "function"
+        or not atCamp(actor) then return false end
+    local ok, guarding = pcall(SC.BaseLife.guardStatus,
+        tostring(U().idOf(actor)), current)
+    return ok and guarding == true
+end
+
+local function intrusiveEating(actor, token)
+    if token and (token.action == "eat_food" or token.action == "eat") then
+        return true
+    end
+    if SC.NativeActions and type(SC.NativeActions.needsStatus) == "function" then
+        local ok, active, kind = pcall(SC.NativeActions.needsStatus, actor)
+        return ok and active == true and (kind == "eat" or kind == "eat_food")
+    end
+    return false
+end
+
+local PRIVATE_INTRUSIVE = {
+    ["banter.intrusive.hidden_bite"] = true,
+    ["banter.intrusive.grief"] = true,
+    ["banter.intrusive.after_kill"] = true,
+}
+
+local function intrusiveReply(actor, records, current)
+    if not intrusiveRoll(config("intrusiveReplyChancePercent", 35),
+        actor, current, "reply") then return end
+    local best, bestCommands, bestDistance
+    for _, record in ipairs(records or {}) do
+        local other = record.actor
+        local commands = other ~= actor and freeSurvivor(record, current) or nil
+        if commands and commands.recruited == true
+            and U().sameFloor(actor, other)
+            and select(1, U().call(other, "isMoving")) ~= true then
+            local distance = U().distance(actor, other)
+            if distance <= config("intrusiveReplyDistance", 6)
+                and (bestDistance == nil or distance < bestDistance) then
+                best, bestCommands, bestDistance = other, commands, distance
+            end
+        end
+    end
+    if not best then return end
+    party.exchange = {
+        first = actor, second = best, replyTopic = "banter.intrusive.reply",
+        secondCommands = bestCommands,
+        nextAt = current + config("companionConversationReplyMs", 2800),
+        expiresAt = current + config("companionConversationTimeoutMs", 9000),
+        kind = "intrusive",
+    }
+end
+
+local function intrusivePulse(actor, commands, records, current, kind)
+    local safe, age = intrusiveSafe(actor, records, current)
+    if not safe then return false end
+    local own = actorState(actor)
+    local recentKill = own.lastKillAt
+        and current - own.lastKillAt <= config("intrusiveEventWindowMs", 120000)
+    local chance = recentKill
+        and config("intrusiveAfterKillChancePercent", 12)
+        or config("intrusiveChancePercent", 3)
+    if not intrusiveRoll(chance, actor, current, "entry") then return false end
+    local _, hour = intrusiveClock()
+    local night = hour and (hour >= 21 or hour < 5)
+    local square = U().squareOf(actor)
+    local room = square and select(1, U().call(square, "getRoom"))
+    local outdoors = square and room == nil
+    local token = SC.ActionSupervisor and type(SC.ActionSupervisor.current) == "function"
+        and SC.ActionSupervisor.current(actor) or nil
+    local candidates = {}
+    local function offer(suffix, eligible, share)
+        if eligible and intrusiveRoll(share, actor, current, suffix) then
+            candidates[#candidates + 1] = "banter.intrusive." .. suffix
+        end
+    end
+    offer("hidden_bite", intrusiveHiddenBite(actor), 40)
+    offer("grief", intrusiveGrieving(actor), 50)
+    offer("after_kill", recentKill, 60)
+    offer("passenger", kind == "passenger" and intrusiveVehicle(actor) ~= nil, 100)
+    local _, _, z = U().position(actor)
+    offer("height", z and (z >= 2 or (outdoors and z >= 1)), 50)
+    offer("night_watch", night and intrusiveNightWatch(actor, current), 50)
+    offer("eating", intrusiveEating(actor, token), 40)
+    local group = intrusiveRoomGroup(actor)
+    offer("place." .. tostring(group), group ~= nil, 40)
+    offer("night", night, 35)
+    local raining = false
+    if outdoors and type(getClimateManager) == "function" then
+        local ok, climate = pcall(getClimateManager)
+        raining = ok and climate ~= nil
+            and select(1, U().call(climate, "isRaining")) == true
+    end
+    offer("rain", raining, 35)
+    offer("seated", select(1, U().call(actor, "isSittingOnFurniture")) == true, 30)
+    local stress, morale = tonumber(commands.stress) or 0,
+        tonumber(commands.morale) or 55
+    offer("dark", true, (stress >= 65 or morale <= 28)
+        and config("intrusiveDarkPercent", 35)
+        or config("intrusiveDarkBasePercent", 10))
+    candidates[#candidates + 1] = kind == "camp"
+        and "banter.intrusive.camp" or "banter.intrusive.travel"
+    for _, topic in ipairs(candidates) do
+        local spoken, _, detail = speak(actor, topic, commands, nil, {
+            salt = tostring(current), excludedLines = party.intrusiveRecentSet,
+            recentLimit = config("intrusiveRecentLimit", 60),
+        })
+        if spoken then
+            intrusiveRemember(type(detail) == "table" and detail.lineKey)
+            party.lastIntrusiveAt = current
+            party.lastFlavorAt = current
+            own.lastIntrusiveHour = age
+            if not PRIVATE_INTRUSIVE[topic] then intrusiveReply(actor, records, current) end
+            return true, topic
+        end
+    end
+    return false
 end
 
 -- Shared with SCTales: one flavor budget and one notion of a free speaker.
@@ -2204,13 +2457,14 @@ local function routinePulse(player, records, current)
         end
     end
     if best == nil then return false, "routine_no_speaker" end
-    if not speak(best, "banter.routine", bestCommands) then
+    local intrusive, topic = intrusivePulse(best, bestCommands, records, current, "camp")
+    if not intrusive and not speak(best, "banter.routine", bestCommands) then
         return false, "routine_speech_rejected"
     end
     party.lastRoutineAt = current
     party.lastFlavorAt = current
     actorState(best).lastRoutineAt = current
-    return true, "banter.routine"
+    return true, intrusive and topic or "banter.routine"
 end
 
 -- A follower walking with the player has no owned task, so routine banter
@@ -2242,13 +2496,32 @@ local function followPulse(player, records, current, inVehicle)
         end
     end
     if best == nil then return false, "follow_no_speaker" end
-    if not speak(best, "banter.follow", bestCommands) then
+    local intrusive, topic = intrusivePulse(best, bestCommands, records, current, "travel")
+    if not intrusive and not speak(best, "banter.follow", bestCommands) then
         return false, "follow_speech_rejected"
     end
     party.lastFollowAt = current
     party.lastFlavorAt = current
     actorState(best).lastFollowAt = current
-    return true, "banter.follow"
+    return true, intrusive and topic or "banter.follow"
+end
+
+local function passengerPulse(player, records, current)
+    if current - party.lastPassengerAt < config("followBanterIntervalMs", 120000)
+        then return false end
+    local vehicle, moving = playerVehicle(player)
+    if not moving or not budgetAllows(current) then return false end
+    for _, record in ipairs(records or {}) do
+        local actor = record.actor
+        local commands = available(record, player, current,
+            config("ambientDialogueDistance", 10), true)
+        if commands and select(1, U().call(actor, "getVehicle")) == vehicle
+            and intrusiveVehicle(actor) == vehicle then
+            party.lastPassengerAt = current
+            return intrusivePulse(actor, commands, records, current, "passenger")
+        end
+    end
+    return false
 end
 
 -- ---------------------------------------------------------------------------
@@ -2278,6 +2551,8 @@ function Banter.update(player, records, current)
     end
     local placed, placeReason = placePulse(player, records, current)
     if placed then return true, placeReason end
+    local passengerSpoken, passengerTopic = passengerPulse(player, records, current)
+    if passengerSpoken then return true, passengerTopic end
     local chatted, chatReason = campConversationPulse(player, records, current)
     if chatted then return true, chatReason end
     local joked, jokeReason = jokePulse(player, records, current, idle, inVehicle)
@@ -2311,6 +2586,10 @@ end
 
 function Banter._partyForTests()
     return party
+end
+
+function Banter._intrusiveForTests(actor, commands, records, current, kind)
+    return intrusivePulse(actor, commands, records, current, kind)
 end
 
 return Banter

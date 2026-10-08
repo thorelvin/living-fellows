@@ -126,6 +126,9 @@ public class IsoGameCharacter extends IsoMovingObject {
     public zombie.characters.WornItems.WornItems getWornItems() { return null; }
     public void removeWornItem(zombie.inventory.InventoryItem item) {}
     public void resetModelNextFrame() {}
+    public void render(float x, float y, float z,
+            zombie.core.textures.ColorInfo color, boolean bDoChild,
+            boolean bWallLightingPass, zombie.core.opengl.Shader shader) {}
     public void setAddedToModelManager(ModelManager manager, boolean added) {}
     public void setMovingSquare(IsoGridSquare square) {}
     public void setSquare(IsoGridSquare square) {}

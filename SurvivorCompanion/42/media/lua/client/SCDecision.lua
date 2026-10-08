@@ -525,10 +525,13 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
             add("infection_crisis", crisis.priority, false, crisis)
         end
     end
-    if type(needs) == "table" and (needs.active or needs.hungry or needs.thirsty)
+    if type(needs) == "table" and (needs.active or needs.hungry or needs.thirsty
+        or needs.peeDue)
         and threatCount == 0 then
         local pressure = math.max(needs.hunger or 0, needs.thirst or 0)
-        add("needs", needs.active and 112 or (62 + pressure * 42), needs.emergency)
+        local priority = needs.active and 112 or (62 + pressure * 42)
+        if needs.peeDue then priority = math.max(priority, needs.peeOverdue and 86 or 68) end
+        add("needs", priority, needs.emergency)
     end
     local humanThreat = type(snapshot) == "table" and snapshot.humanThreat or nil
     if threatCount > 0 or humanThreat then

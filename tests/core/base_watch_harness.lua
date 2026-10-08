@@ -31,6 +31,13 @@ local alice, bob = actor("sc-alice", 3), actor("sc-bob", 4)
 local cold = actor("cold-loader", 3)
 local slot, nativeLeader, policy, detached
 local radioHook
+local hudClock = { y = 10 }
+local speedControls = { y = 42 }
+function hudClock:setY(y) self.y = y end
+UIManager = {
+    getClock = function() return hudClock end,
+    resize = function() speedControls.y = hudClock.y + 32 end,
+}
 local playerRadio, leaderRadio
 local function radio(owner)
     local device = {}
@@ -214,9 +221,12 @@ check(view.claim("expedition", alice) == false,
     "expedition cannot claim Base Watch's view")
 human.x = 3
 SC_TEST_CLOCK = SC_TEST_CLOCK + 1000
+hudClock.y, speedControls.y = 900, 932
 check(watch.pulse() == true and watch.current() == nil
         and view.owner() == nil and view.slotSqlId() == 2,
     "return to camp releases second view and reuses one SQL row")
+check(hudClock.y == 10 and speedControls.y == 42,
+    "Base Watch return restores clock and speed controls to primary HUD")
 
 alice.outside = false
 check(watch.start(alice.id) == true, "watch can start again")

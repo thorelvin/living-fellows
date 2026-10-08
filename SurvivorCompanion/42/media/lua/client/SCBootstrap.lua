@@ -66,6 +66,7 @@ require "SCObjectives"
 require "SCJournal"
 require "SCBaseLife"
 require "SCBaseVisuals"
+require "SCHygieneEffects"
 require "SCWorkTransport"
 require "SCGatherWork"
 require "SCFarmWork"
@@ -86,6 +87,7 @@ require "SCAutonomy"
 require "SCCommands"
 require "SCFactionRecruitment"
 require "SCTales"
+require "SCIntrusiveLines"
 require "SCBanter"
 require "SCGestures"
 require "SCDecision"
@@ -127,7 +129,7 @@ local requiredModules = {
     "FactionBehavior", "ZombieTargeting", "ThreatSet", "PerceptionScan",
     "Locomotion", "Senses", "Navigation", "Positioning", "Combat", "Medical", "Encounter",
     "Logistics", "Lighting", "Needs", "Downtime", "Personality", "PersonalItems", "Relationship",
-    "Objectives", "Journal", "BaseLife", "BaseVisuals", "WorkTransport", "GatherWork",
+    "Objectives", "Journal", "BaseLife", "BaseVisuals", "HygieneEffects", "WorkTransport", "GatherWork",
     "FarmWork", "Fishing", "BaseWork", "Production", "InfectionCrisis",
     "LifeEvents", "Community", "DiaryText", "DiaryCatalog", "DiaryItem", "Diary",
     "Quirks", "Autonomy",

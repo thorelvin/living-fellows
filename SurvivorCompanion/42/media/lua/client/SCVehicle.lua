@@ -597,7 +597,30 @@ local function rollbackNativeEntry(actor, vehicle)
     return exitOk and exited == true and verifyOk and after == nil
 end
 
+local function settleNativeSeat(actor, vehicle, seat)
+    local positionOk, inside = invoke(vehicle, "getPassengerPosition", seat, "inside")
+    if not positionOk or inside == nil then
+        return false, "native vehicle inside passenger position is unavailable"
+    end
+    -- BaseVehicle.enter(seat, actor) starts at the scripted outside offset.
+    -- Vanilla ISEnterVehicle:perform moves that offset inside before travel.
+    if not invoke(vehicle, "setCharacterPosition", actor, seat, "inside") then
+        return false, "native vehicle inside passenger placement failed"
+    end
+    if not invoke(vehicle, "transmitCharacterPosition", seat, "inside") then
+        return false, "native vehicle inside passenger transmission failed"
+    end
+    if not invoke(vehicle, "playPassengerAnim", seat, "idle") then
+        return false, "native vehicle passenger idle animation failed"
+    end
+    return true
+end
+
 local function nativeBoard(actor, vehicle, seat)
+    local positionOk, inside = invoke(vehicle, "getPassengerPosition", seat, "inside")
+    if not positionOk or inside == nil then
+        return false, "native vehicle inside passenger position is unavailable", true
+    end
     local enteredOk, entered = invoke(vehicle, "enter", seat, actor)
     if not enteredOk or entered ~= true then
         if rollbackNativeEntry(actor, vehicle) then
@@ -607,11 +630,20 @@ local function nativeBoard(actor, vehicle, seat)
     end
     local vehicleOk, currentVehicle = invoke(actor, "getVehicle")
     local seatOk, currentSeat = invoke(vehicle, "getSeat", actor)
-    if not vehicleOk or currentVehicle ~= vehicle or not seatOk or tonumber(currentSeat) ~= seat then
+    local characterOk, character = invoke(vehicle, "getCharacter", seat)
+    if not vehicleOk or currentVehicle ~= vehicle or not seatOk or tonumber(currentSeat) ~= seat
+        or not characterOk or character ~= actor then
         if rollbackNativeEntry(actor, vehicle) then
             return false, "native vehicle entry could not be verified; rollback verified", true
         end
         return false, "native vehicle entry and rollback could not be verified", false
+    end
+    local settled, settleReason = settleNativeSeat(actor, vehicle, seat)
+    if not settled then
+        if rollbackNativeEntry(actor, vehicle) then
+            return false, settleReason .. "; rollback verified", true
+        end
+        return false, settleReason .. "; rollback was not verified", false
     end
     return true, "native_seat", false
 end
@@ -1005,6 +1037,7 @@ function vehicleService.exit(actor, vehicle, requestedSeat, intent)
         local restored = rollbackOk and rollbackEntered == true
             and vehicleOk and restoredVehicle == vehicle
             and seatOk and tonumber(restoredSeat) == seat
+        if restored then restored = settleNativeSeat(actor, vehicle, seat) == true end
         return finishTransaction(transaction, false,
             verifyReason or "vehicle_exit_verification_rejected",
             { preserveReservation = true, rollbackVerified = restored })
@@ -1018,7 +1051,10 @@ function vehicleService.exit(actor, vehicle, requestedSeat, intent)
     if recovered ~= true then
         local rollbackOk, rollbackEntered = invoke(vehicle, "enter", seat, actor)
         local rollbackVehicleOk, rollbackVehicle = invoke(actor, "getVehicle")
-        if rollbackOk and rollbackEntered == true and rollbackVehicleOk and rollbackVehicle == vehicle then
+        local restored = rollbackOk and rollbackEntered == true
+            and rollbackVehicleOk and rollbackVehicle == vehicle
+        if restored then restored = settleNativeSeat(actor, vehicle, seat) == true end
+        if restored then
             return finishTransaction(transaction, false,
                 "native vehicle exit placement failed; seat rollback verified: "
                     .. tostring(recoverReason), { preserveReservation = true })

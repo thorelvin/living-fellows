@@ -11,7 +11,7 @@ local states = setmetatable({}, { __mode = "k" })
 local reservations = setmetatable({}, { __mode = "k" })
 local visualActivities = {
     read = true, repair = true, craft_supply = true,
-    wash_self = true, wash_equipment = true, wash_bandage = true,
+    wash_self = true, wash_equipment = true, wash_bandage = true, shower = true,
     study_corpse = true, pay_respects = true,
     workout = true, write_diary = true, gear_check = true,
     radio_check = true, tidy_camp = true, weather_recovery = true,
@@ -962,12 +962,13 @@ local function approachWashSource(actor, activity)
     return accepted == true, status
 end
 
-local function nearbyWashSource(actor, skip)
+local function nearbyWashSource(actor, skip, validator, radiusOverride)
     local utility = U()
+    validator = validator or washSourceValid
     local x, y, z = utility.position(actor)
     if not x then return nil, nil end
     local radius = math.max(1, math.min(8,
-        math.floor(utility.config("downtimeWashRadius") or 4)))
+        math.floor(radiusOverride or utility.config("downtimeWashRadius") or 4)))
     for distance = 0, radius do
         for dx = -distance, distance do
             for dy = -distance, distance do
@@ -975,7 +976,7 @@ local function nearbyWashSource(actor, skip)
                     local square = utility.gridSquare(x + dx, y + dy, z)
                     local found
                     utility.squareObjects(square, function(object)
-                        if washSourceValid(object) and not (skip and skip(object)) then
+                        if validator(object) and not (skip and skip(object)) then
                             found = object
                             return false
                         end
@@ -1000,7 +1001,7 @@ local function nearbyWashSource(actor, skip)
                         if square and base.isInside(square) then
                             local found
                             utility.squareObjects(square, function(object)
-                                if washSourceValid(object)
+                                if validator(object)
                                     and not (skip and skip(object))
                                     and campFloorRoute(actor, square) then
                                     found = object
@@ -1029,6 +1030,108 @@ local function bodyDirt(actor)
         end
     end)
     return ok and score or 0
+end
+
+local function showerSourceValid(object)
+    if not washSourceValid(object) then return false end
+    local amount = select(1, U().call(object, "getFluidAmount"))
+    if (tonumber(amount) or 0) < 10 then return false end
+    local sprite = select(1, U().call(object, "getSprite"))
+    local properties = select(1, U().call(sprite, "getProperties"))
+    local name = select(1, U().call(properties, "get", "CustomName"))
+    local lowered = type(name) == "string" and string.lower(name) or ""
+    return string.find(lowered, "shower", 1, true) ~= nil
+end
+
+local function showerRecord(actor)
+    local registry = SC.Registry
+    local record = registry and type(registry.byId) == "function"
+        and registry.byId(U().idOf(actor)) or nil
+    if not record then return nil end
+    record.state = record.state or {}
+    record.state.downtime = record.state.downtime or {}
+    return record.state.downtime
+end
+
+local function showerActivity(actor, state, current)
+    if not SC.BaseLife or SC.BaseLife.isInside(actor) ~= true then return nil end
+    local hour = gameHours()
+    local record = showerRecord(actor)
+    if not hour or not record or hour - (record.lastShowerHour or -math.huge) < 18 then
+        return nil
+    end
+    local parts = BloodBodyPartType and BloodBodyPartType.MAX
+        and BloodBodyPartType.MAX:index() or 0
+    if parts <= 0 or bodyDirt(actor) / parts < 0.35 then return nil end
+    if current < (state.nextShowerSearchAt or 0) then return nil end
+    local source, square = nearbyWashSource(actor, function(object)
+        return washSourceCooling(state, object, current)
+    end, showerSourceValid, 8)
+    if not source then
+        state.nextShowerSearchAt = current + 30000
+        return nil
+    end
+    return {
+        kind = "shower", score = 86, object = source, square = square,
+        crossFloor = not U().sameFloor(actor, square),
+        fact = { activity = "shower" },
+    }
+end
+
+local function showerStartSpeech(actor)
+    if not SC.Dialogue or type(SC.Dialogue.say) ~= "function" then return end
+    local seed = tostring(U().idOf(actor) or actor) .. ":shower:"
+        .. tostring(math.floor(gameHours() or 0))
+    local topic = math.abs(tonumber(U().stableHash(seed)) or 0) % 5 == 0
+        and "hygiene.shower_sing" or "hygiene.shower_start"
+    pcall(SC.Dialogue.say, actor, topic)
+end
+
+local function restoreShowerClothes(actor, activity)
+    local receipt = activity and activity.showerClothes
+    if not receipt then return true end
+    local allRestored = true
+    for _, worn in ipairs(receipt) do
+        local equipped = select(1, U().call(actor, "isEquippedClothing", worn.item))
+        if equipped ~= true then
+            local result, called = U().call(actor, "setWornItem", worn.location,
+                worn.item)
+            equipped = called and result ~= false
+                and select(1, U().call(actor, "isEquippedClothing", worn.item)) == true
+            if not equipped then allRestored = false end
+        end
+    end
+    if allRestored then activity.showerClothes = nil end
+    U().call(actor, "resetModelNextFrame")
+    return allRestored
+end
+
+local function undressForShower(actor, activity)
+    if activity.showerClothes then return true end
+    local worn = select(1, U().call(actor, "getWornItems"))
+    local size = worn and select(1, U().call(worn, "size")) or 0
+    local receipt = {}
+    for index = 0, math.min((tonumber(size) or 0) - 1, 63) do
+        local entry = select(1, U().call(worn, "get", index))
+        local item = select(1, U().call(entry, "getItem"))
+        -- The worn slot is authoritative. An item's preferred body location
+        -- can differ from the slot it occupied (notably bags and accessories).
+        local location = select(1, U().call(entry, "getLocation"))
+            or (item and select(1, U().call(item, "getBodyLocation")))
+        if item and location then receipt[#receipt + 1] = {
+            item = item, location = location,
+        } end
+    end
+    activity.showerClothes = receipt
+    for _, entry in ipairs(receipt) do
+        local _, removed = U().call(actor, "removeWornItem", entry.item, false)
+        if not removed then
+            restoreShowerClothes(actor, activity)
+            return false
+        end
+    end
+    U().call(actor, "resetModelNextFrame")
+    return true
 end
 
 local function itemDirt(item)
@@ -2946,6 +3049,8 @@ local function candidates(actor, commands, state, current, desiredKind)
     if activity then filtered[#filtered + 1] = activity end
     activity = washActivity(actor, items, state, current)
     if activity then filtered[#filtered + 1] = activity end
+    activity = showerActivity(actor, state, current)
+    if activity then filtered[#filtered + 1] = activity end
     -- Older saves may retain a manual idle/craft setting. Quiet activity is
     -- now chosen by the companion's scored candidates, not that old setting.
     activity = repairActivity(actor, items)
@@ -3168,6 +3273,7 @@ end
 local function releaseDowntimeResources(actor, state, activity, reason)
     activity = activity or state and state.active
     if not activity then return true, reason or "no_activity" end
+    if activity.kind == "shower" then restoreShowerClothes(actor, activity) end
     if activity.kind == "window_watch" and activity.watchCrouched == true then
         U().call(actor, "setSneaking", activity.wasSneaking == true)
         activity.watchCrouched = nil
@@ -3683,6 +3789,7 @@ local function beginActivity(actor, state, activity, commands, now)
     local utility = U()
     local wash = activity.kind == "wash_self"
         or activity.kind == "wash_equipment" or activity.kind == "wash_bandage"
+        or activity.kind == "shower"
     local study = activity.kind == "study_corpse" or activity.kind == "pay_respects"
     local furniture = activity.kind == "sit" or activity.kind == "rest_bed"
     local floorRest = activity.kind == "rest_floor"
@@ -3860,6 +3967,14 @@ local function beginActivity(actor, state, activity, commands, now)
             return failActivity(actor, state, "navigation_unavailable")
         end
     else
+        if activity.kind == "shower" then
+            if not showerSourceValid(activity.object)
+                or not undressForShower(actor, activity) then
+                state.active = activity
+                return failActivity(actor, state, "shower_source_or_clothes_failed")
+            end
+            showerStartSpeech(actor)
+        end
         if visualActivities[activity.kind] then
             local expected, expectedReason = startSupervisedVisual(actor, activity, {
                 action = activity.kind,
@@ -3947,6 +4062,34 @@ local function completeWashSelf(actor, activity)
     end
     U().call(actor, "resetModelNextFrame")
     if type(sendHumanVisual) == "function" then pcall(sendHumanVisual, actor) end
+    return true
+end
+
+local function completeShower(actor, activity)
+    if not showerSourceValid(activity.object)
+        or not washSourceInReach(actor, activity) then return false end
+    local visual = select(1, U().call(actor, "getHumanVisual"))
+    if not visual then return false end
+    local parts = {}
+    local inspected = pcall(function()
+        for index = 0, BloodBodyPartType.MAX:index() - 1 do
+            parts[#parts + 1] = BloodBodyPartType.FromIndex(index)
+        end
+    end)
+    if not inspected or #parts == 0 then return false end
+    if not useWashWater(activity.object, 10) then return false end
+    for _, part in ipairs(parts) do
+        U().call(visual, "setBlood", part, 0)
+        U().call(visual, "setDirt", part, 0)
+    end
+    U().call(actor, "resetModelNextFrame")
+    if type(sendHumanVisual) == "function" then pcall(sendHumanVisual, actor) end
+    if not restoreShowerClothes(actor, activity) then return false end
+    local record = showerRecord(actor)
+    if record then record.lastShowerHour = gameHours() end
+    if SC.Dialogue and type(SC.Dialogue.say) == "function" then
+        pcall(SC.Dialogue.say, actor, "hygiene.shower_done")
+    end
     return true
 end
 
@@ -4151,6 +4294,8 @@ local function finishActivity(actor, state, now)
         success = activity.actionAccepted == true and activity.replied == true
     elseif activity.kind == "wash_self" then
         success = completeWashSelf(actor, activity)
+    elseif activity.kind == "shower" then
+        success = completeShower(actor, activity)
     elseif activity.kind == "wash_equipment" then
         success = completeWashEquipment(actor, activity)
     elseif activity.kind == "wash_bandage" then
@@ -4183,6 +4328,7 @@ local function finishActivity(actor, state, now)
         weather_recovery = "weather_recovery_verification_failed",
         leader_check_in = "leader_check_in_reply_failed",
         wash_self = "wash_self_commit_failed",
+        shower = "shower_commit_failed",
         wash_equipment = "wash_equipment_commit_failed",
         wash_bandage = "wash_bandage_commit_failed",
         study_corpse = "study_verification_failed",
@@ -4552,6 +4698,7 @@ function Downtime.update(actor, player, runtime, desiredKind)
         local washing = state.active.kind == "wash_self"
             or state.active.kind == "wash_equipment"
             or state.active.kind == "wash_bandage"
+            or state.active.kind == "shower"
         if washing and state.active.approaching and state.active.atSource ~= true
             and not washSourceInReach(actor, state.active) then
             local accepted, status = approachWashSource(actor, state.active)
@@ -4567,6 +4714,13 @@ function Downtime.update(actor, player, runtime, desiredKind)
             state.active.atSource = true
         end
         if washing and state.active.approaching then
+            if state.active.kind == "shower" then
+                if not showerSourceValid(state.active.object)
+                    or not undressForShower(actor, state.active) then
+                    return failActivity(actor, state, "shower_source_or_clothes_failed")
+                end
+                showerStartSpeech(actor)
+            end
             local expected, expectedReason = startSupervisedVisual(actor, state.active, {
                 action = state.active.kind,
             })
@@ -4793,6 +4947,16 @@ function Downtime.peek(actor)
     return actor and states[actor] or nil
 end
 
+function Downtime.prepareForSave(actor)
+    local state = actor and states[actor]
+    local activity = state and state.active
+    if not activity or activity.kind ~= "shower" then return true end
+    local cancelled, reason = Downtime.cancel(actor, "save_capture")
+    if cancelled ~= true then return false, reason or "shower_cancel_failed" end
+    if activity.showerClothes then return false, "shower_clothes_restore_failed" end
+    return true
+end
+
 function Downtime._readingForTests()
     return readActivity, campReadingActivity, returnBorrowedReadingItem,
         finishReadingPages
@@ -4837,6 +5001,11 @@ function Downtime._washForTests()
     return nearbyWashSource, approachWashSource, coolWashSource, washSourceCooling,
         washSourceInReach, completeWashSelf, completeWashEquipment,
         completeWashBandage, washActivity
+end
+
+function Downtime._showerForTests()
+    return showerActivity, undressForShower, restoreShowerClothes,
+        completeShower
 end
 
 -- Test seam: the camp-book checkout policy re-read at transfer time.

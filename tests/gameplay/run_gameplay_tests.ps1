@@ -61,6 +61,7 @@ $LuaFiles += @(
     'SCLogistics.lua',
     'SCLighting.lua',
     'SCNeeds.lua',
+    'SCHygieneEffects.lua',
     'SCTVWatching.lua',
     'SCRadioListening.lua',
     'SCDowntime.lua',
@@ -72,6 +73,7 @@ $LuaFiles += @(
     'SCDiary.lua',
     'SCRelationship.lua',
     'SCTales.lua',
+    'SCIntrusiveLines.lua',
     'SCBanter.lua',
     'SCGestures.lua',
     'SCObjectives.lua',
@@ -103,8 +105,10 @@ $LuaFiles += Join-Path $TestRoot 'tv_watching_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'radio_listening_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'fishing_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'chef_harness.lua'
+$LuaFiles += Join-Path $TestRoot 'hygiene_effects_harness.lua'
+$LuaFiles += Join-Path $TestRoot 'hygiene_audio_harness.lua'
 if ($FishingOnly) {
-    $LuaFiles = @($LuaFiles | Select-Object -SkipLast 5)
+    $LuaFiles = @($LuaFiles | Select-Object -SkipLast 7)
     $LuaFiles += Join-Path $TestRoot 'fishing_harness.lua'
 }
 
@@ -119,12 +123,12 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Gameplay Kahlua integration harness failed.' }
         if ($FishingOnly) { return }
         $medicalFiles = @((Join-Path $ProjectRoot 'tests\core\core_fixture.lua'))
-        $medicalFiles += @($LuaFiles | Select-Object -SkipLast 5)
+        $medicalFiles += @($LuaFiles | Select-Object -SkipLast 7)
         $medicalFiles += Join-Path $TestRoot 'medical_liveness_regression_harness.lua'
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @medicalFiles
         if ($LASTEXITCODE -ne 0) { throw 'Medical liveness/rescue regression harness failed.' }
         $combatFiles = @((Join-Path $ProjectRoot 'tests\core\core_fixture.lua'))
-        $combatFiles += @($LuaFiles | Select-Object -SkipLast 5)
+        $combatFiles += @($LuaFiles | Select-Object -SkipLast 7)
         $combatFiles += Join-Path $TestRoot 'combat_coordination_regression_harness.lua'
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @combatFiles
         if ($LASTEXITCODE -ne 0) { throw 'Combat coordination regression harness failed.' }

@@ -9,6 +9,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.RejectedExecutionException;
 
+import org.lwjgl.util.vector.Vector3f;
+
 import zombie.Lua.LuaEventManager;
 import zombie.GameTime;
 import zombie.ai.AIBrainPlayerControlVars;
@@ -37,6 +39,9 @@ import zombie.core.skinnedmodel.advancedanimation.AnimLayer;
 import zombie.core.skinnedmodel.animation.AnimationMultiTrack;
 import zombie.core.skinnedmodel.animation.AnimationPlayer;
 import zombie.core.skinnedmodel.animation.AnimationTrack;
+import zombie.core.skinnedmodel.model.SkeletonBone;
+import zombie.core.opengl.Shader;
+import zombie.core.textures.ColorInfo;
 
 /** A non-local human actor backed by Build 42's complete player character runtime. */
 public final class SCNativeCompanion extends IsoPlayer {
@@ -146,6 +151,13 @@ public final class SCNativeCompanion extends IsoPlayer {
     private volatile long bridgeSuppressedContextualActions;
     private volatile String bridgeLastSuppressedContextualAction = "";
     private volatile long bridgePostUpdateCount;
+    private final Vector3f bridgePelvisWorld = new Vector3f();
+    private long bridgePelvisSamplePostUpdateCount = Long.MIN_VALUE;
+    private boolean bridgePelvisSampleValid;
+    private volatile SCWorldPeeStreamRenderer.Stream bridgePeeStream;
+    private final long[] bridgePeeStreamDepthDrawNanos = new long[4];
+    private volatile long bridgePeeStreamDepthSubmissionCount;
+    private volatile String bridgePeeStreamDepthFailure = "";
     private volatile String bridgePostUpdateDiagnostic = "not_run";
     private final MovementProbe bridgeLastMovementProbe = new MovementProbe();
     private final MovementProbe bridgeLastCollisionProbe = new MovementProbe();
@@ -342,6 +354,101 @@ public final class SCNativeCompanion extends IsoPlayer {
             return names.toString();
         } catch (RuntimeException | LinkageError failure) {
             return "";
+        }
+    }
+
+    /** Exact world-space pelvis point, sampled once per native postupdate pass. */
+    private boolean refreshCompanionPelvisWorld() {
+        long postUpdateCount = bridgePostUpdateCount;
+        if (bridgePelvisSamplePostUpdateCount != postUpdateCount) {
+            bridgePelvisSamplePostUpdateCount = postUpdateCount;
+            bridgePelvisSampleValid = false;
+            try {
+                AnimationPlayer player = getAnimationPlayer();
+                if (player != null
+                        && player.getSkinningBoneIndex("Bip01_Pelvis", -1) >= 0) {
+                    Vector3f point = player.getBoneWorldPosition(
+                            SkeletonBone.Bip01_Pelvis, bridgePelvisWorld);
+                    bridgePelvisSampleValid = point != null
+                            && Float.isFinite(point.x)
+                            && Float.isFinite(point.y)
+                            && Float.isFinite(point.z);
+                }
+            } catch (RuntimeException | LinkageError ignored) {
+                // A model without initialized bone transforms has no sample yet.
+            }
+        }
+        return bridgePelvisSampleValid;
+    }
+
+    public float getCompanionPelvisWorldX() {
+        return refreshCompanionPelvisWorld() ? bridgePelvisWorld.x : Float.NaN;
+    }
+
+    public float getCompanionPelvisWorldY() {
+        return refreshCompanionPelvisWorld() ? bridgePelvisWorld.y : Float.NaN;
+    }
+
+    public float getCompanionPelvisWorldZ() {
+        return refreshCompanionPelvisWorld() ? bridgePelvisWorld.z : Float.NaN;
+    }
+
+    /** Keep the world effect synchronized with the Lua hygiene animation. */
+    public boolean setCompanionPeeStream(double sourceX, double sourceY,
+            double sourceZ, double targetX, double targetY) {
+        if (!SCWorldPeeStreamRenderer.valid(this, sourceX, sourceY,
+                sourceZ, targetX, targetY)) {
+            clearCompanionPeeStream();
+            return false;
+        }
+        bridgePeeStream = new SCWorldPeeStreamRenderer.Stream(
+                (float) sourceX, (float) sourceY, (float) sourceZ,
+                (float) targetX, (float) targetY,
+                System.nanoTime() + 800_000_000L);
+        return true;
+    }
+
+    public void clearCompanionPeeStream() {
+        bridgePeeStream = null;
+        for (int index = 0; index < bridgePeeStreamDepthDrawNanos.length; index++) {
+            bridgePeeStreamDepthDrawNanos[index] = 0L;
+        }
+    }
+
+    /** Lua skips its approximate screen mask only after a recent world draw. */
+    public boolean isCompanionPeeStreamDepthReady(int playerIndex) {
+        if (playerIndex < 0 || playerIndex >= bridgePeeStreamDepthDrawNanos.length
+                || bridgePeeStream == null) return false;
+        long last = bridgePeeStreamDepthDrawNanos[playerIndex];
+        return last > 0L && System.nanoTime() - last < 500_000_000L;
+    }
+
+    public String getCompanionPeeStreamDepthFailure() {
+        return bridgePeeStreamDepthFailure;
+    }
+
+    /** Counts queued world stream batches, not completed GPU frames. */
+    public long getCompanionPeeStreamDepthSubmissionCount() {
+        return bridgePeeStreamDepthSubmissionCount;
+    }
+
+    @Override
+    public void render(float x, float y, float z, ColorInfo color,
+            boolean bDoChild, boolean bWallLightingPass, Shader shader) {
+        super.render(x, y, z, color, bDoChild, bWallLightingPass, shader);
+        try {
+            int playerIndex = SCWorldPeeStreamRenderer.queue(this, bridgePeeStream);
+            if (playerIndex >= 0) {
+                bridgePeeStreamDepthDrawNanos[playerIndex] = System.nanoTime();
+                bridgePeeStreamDepthSubmissionCount++;
+                bridgePeeStreamDepthFailure = "";
+            }
+        } catch (RuntimeException | LinkageError failure) {
+            for (int index = 0; index < bridgePeeStreamDepthDrawNanos.length; index++) {
+                bridgePeeStreamDepthDrawNanos[index] = 0L;
+            }
+            bridgePeeStreamDepthFailure = failure.getClass().getSimpleName()
+                    + ": " + String.valueOf(failure.getMessage());
         }
     }
 

@@ -663,6 +663,178 @@ local pools = {
         "I came looking for news and found a person.",
         "That is enough hope to carry for one day.",
     } },
+    ["hygiene.pee_start"] = { common = {
+        "Give me a minute. Nature has filed a complaint.",
+        "I need a short stop. Keep an ear out.",
+        "Back in a moment. Don't let the road leave without me.",
+        "Even the end of the world takes bathroom breaks.",
+        "Cover the path a second, would you?",
+        "I can hold a line. This, less so.",
+        "One minute, then we move.",
+        "I need some privacy and a clear exit.",
+        "Don't turn around. I'll catch up.",
+        "My bladder has worse timing than the weather.",
+        "A quick stop before the next fight.",
+        "There's one errand nobody can scavenge for me.",
+        "Give me a breath. The body has its own orders.",
+        "Not far. I know the way back.",
+        "I'll take care of something and rejoin you.",
+        "If anyone asks, I was checking the perimeter.",
+    } },
+    ["hygiene.pee_outdoor"] = { common = {
+        "Kentucky has plenty of trees and not enough doors.",
+        "This ditch has seen worse days than mine.",
+        "I miss a bathroom with a lock.",
+        "Wind's wrong. Give me another second.",
+        "Quiet out here. Too quiet for this sort of thing.",
+        "The trees can keep this secret.",
+        "A road trip used to have gas stations.",
+        "No plumbing, no queue. Small mercies.",
+        "If the woods judge me, they can file a report.",
+        "Somewhere beyond those pines is a working faucet. Maybe.",
+        "I've got the tree line. Watch the road.",
+        "Cold air makes a simple job complicated.",
+        "At least the rain will cover the sound.",
+        "I never thought I'd envy a highway rest stop.",
+        "This is still better than a crowded motel bathroom.",
+        "Nobody gets a map marker for this stop.",
+        "The last quiet place in Knox County might be this hedge.",
+        "If you hear a branch snap, say something.",
+    } },
+    ["hygiene.pee_toilet"] = { common = {
+        "A real toilet. Civilization lives another minute.",
+        "The porcelain throne still has a kingdom.",
+        "I could almost pretend this is a normal house.",
+        "Door stays open enough to hear trouble.",
+        "One ordinary minute. That's all I'm asking.",
+        "They built this room for privacy. Imagine that.",
+        "If the pipes knock, I'm leaving.",
+        "No mirror today. I know how I look.",
+        "The light flickers like it remembers the owner.",
+        "I'd trade a can of beans for toilet paper.",
+        "Nobody rush me. The dead can wait outside.",
+        "A bathroom with walls feels extravagant now.",
+    } },
+    ["hygiene.pee_done"] = { common = {
+        "All right. I'm ready.",
+        "Back to it.",
+        "Thanks for watching the approach.",
+        "Let's keep moving.",
+        "That bought me a few hours.",
+        "Nobody followed me. We're clear.",
+        "Small victories still count.",
+        "If I ever find a clean restroom, I'm framing the sign.",
+        "Right. Where were we?",
+        "The road hasn't changed. We have.",
+        "I'm done. Keep your voice down.",
+        "No trouble. Let's go.",
+    } },
+    ["hygiene.shower_start"] = { common = {
+        "I'm washing the road off before it becomes part of me.",
+        "Ten minutes under water sounds like a miracle.",
+        "This blood isn't all mine. I want it gone.",
+        "The shower still works. I'm taking my chance.",
+        "I can smell the last three houses on this jacket.",
+        "Keep watch. I'll be quick.",
+        "A little warm water could bring me back to myself.",
+        "These hands need more than a wipe on my pants.",
+        "I used to complain about low water pressure.",
+        "Soap or no soap, this is overdue.",
+        "There's dirt in places the sun has forgotten.",
+        "If the water stops, I stop. Fair deal.",
+        "I need a clean start, even if it's only for tonight.",
+        "Nobody take my clothes. I know what I left there.",
+        "The dead can have the street. I'm claiming this shower.",
+        "Just a few minutes to feel human again.",
+    } },
+    ["hygiene.shower_sing"] = { common = {
+        "Oh, the rain in Kentucky knows my name...",
+        "Blue moon over a broken water tower...",
+        "One road out and the headlights gone...",
+        "I had a home by the river, now I have this song...",
+        "The old radio says the night is long...",
+        "Wash the mud away, leave the memory on...",
+        "If the county line could talk, it'd tell us to run...",
+        "Hum along if you know the last verse.",
+        "North wind, hold your breath till morning...",
+        "There was a train through Riverside once...",
+        "Soap in my eyes and ghosts in the hall...",
+        "A little song keeps the cold outside.",
+        "The lights go out, but the chorus stays.",
+        "I can't remember the tune. I remember who sang it.",
+        "Let the pipes rattle. I'll sing louder.",
+        "No audience, no encore. Just water.",
+    } },
+    ["hygiene.shower_done"] = { common = {
+        "Clean enough to know which stains are old.",
+        "I feel a little more like myself.",
+        "That was worth every drop.",
+        "The mirror still looks tired, but at least it's clean.",
+        "Clothes back on. Let's see what needs doing.",
+        "I forgot how good water can feel.",
+        "The blood's gone. The memory can wait.",
+        "A shower doesn't fix the world. It helps with this hour.",
+        "If anyone asks, I found a spa in Knox County.",
+        "I could sleep now without smelling yesterday.",
+        "All right. Back to work before I get dirty again.",
+        "For a moment, it sounded like rain on a safe roof.",
+    } },
+    ["hygiene.pee_gnome"] = { common = {
+        "Sorry, little fellow. Wrong side of the garden.",
+        "That gnome is judging me harder than the living do.",
+        "Keep staring, garden man. We all need a break.",
+        "If this gnome tells anyone, I'll deny it.",
+    } },
+    ["hygiene.pee_hydrant"] = { common = {
+        "A fire hydrant. The dogs knew something we didn't.",
+        "Sorry, hydrant. The fire trucks aren't coming.",
+        "This hydrant's had a worse week than me.",
+        "The county can send me a bill when it reopens.",
+    } },
+    ["hygiene.pee_corpse"] = { common = {
+        "Not on the body. Beside it. There's a line.",
+        "Even now, I can show the dead a little respect.",
+        "Give the body room. I can find another patch.",
+        "I'm stepping away from that corpse first.",
+    } },
+    ["hygiene.pee_reaction"] = { common = {
+        "I'll watch the road. Take your minute.",
+        "You're clear. I'll keep my back turned.",
+        "Nobody's timing you. Much.",
+        "I'll look the other way.",
+        "Just don't pick the only patch of poison ivy.",
+        "I saw nothing. That's our story.",
+        "I'll keep the dead away from your little kingdom.",
+        "Make it quick. This place gives me the creeps.",
+        "You've got cover. Call if you need it.",
+        "No shame in stopping while we still can.",
+    } },
+    ["hygiene.pee_dirty"] = { common = {
+        "It's not about size. It's all about speed.",
+        "The stream's strong. My aim's seen better days.",
+        "I can miss a zombie at ten paces, but not this tree.",
+        "If this takes any longer, name the river after me.",
+        "That's one weapon I refuse to holster in a hurry.",
+        "The apocalypse has really lowered the bar for privacy.",
+        "Easy now. No need to scare the shrubbery.",
+        "If someone scores this, I want points for distance.",
+        "The road is long. This part should be short.",
+        "Aiming is easier when the target's a whole county.",
+        "That's enough excitement for one pair of trousers.",
+        "Even the dead ought to give a person a minute.",
+    } },
+    ["hygiene.pee_reaction_dirty"] = { common = {
+        "%1, let go of that ugly thing and come on.",
+        "%1, I said cover the road, not water the county.",
+        "%1, is that a bathroom break or a border dispute?",
+        "Put it away, %1. The trees have suffered enough.",
+        "%1, you're making the fire hydrant look embarrassed.",
+        "All right, %1. Nobody asked for a demonstration.",
+        "Move it, %1. Even the zombies are losing interest.",
+        "%1, that's a mighty long speech for a short stop.",
+        "I'm watching your back, %1. Strictly your back.",
+        "Finish up, %1. This is not a county fair contest.",
+    } },
     ["downtime.clean_start"] = { common = {
         "I'll get this blood off the floor.",
         "Give me a minute with the mop.",
@@ -3082,13 +3254,29 @@ local function styleFor(state, options)
     return voice, tostring(mood)
 end
 
+local function lineKey(value)
+    if type(value) == "string" then return value ~= "" and value or nil end
+    if type(value) == "table" and type(value[1]) == "string"
+        and value[1] ~= "" and type(value.clean) == "string"
+        and value.clean ~= "" then return value[1] end
+    return nil
+end
+
+local function lineText(value)
+    if type(value) == "string" then return value end
+    if type(value) ~= "table" then return nil end
+    if U() and U().config("profanityEnabled") == false then return value.clean end
+    return value[1]
+end
+
 local function appendUnique(target, source, seen)
     if type(source) == "string" then source = { source } end
     if type(source) ~= "table" then return end
     for _, value in ipairs(source) do
-        if type(value) == "string" and value ~= "" and not seen[value] then
+        local key = lineKey(value)
+        if key and not seen[key] then
             target[#target + 1] = value
-            seen[value] = true
+            seen[key] = true
         end
     end
 end
@@ -3125,8 +3313,9 @@ local function commonLookup(specification)
     if type(common) == "string" then common = { common } end
     if type(common) ~= "table" then return lookup, count end
     for _, line in ipairs(common) do
-        if type(line) == "string" and line ~= "" and lookup[line] ~= true then
-            lookup[line], count = true, count + 1
+        local key = lineKey(line)
+        if key and lookup[key] ~= true then
+            lookup[key], count = true, count + 1
         end
     end
     return lookup, count
@@ -3267,8 +3456,11 @@ function Dialogue.choose(actor, topic, specification, arguments, options)
         candidates[1] = options.fallback
     end
     local eligible = {}
+    local excluded = type(options.excludedLines) == "table" and options.excludedLines or nil
     for _, line in ipairs(candidates) do
-        if interpolate(line, arguments) ~= nil then
+        local key = lineKey(line)
+        if key and (not excluded or excluded[key] ~= true)
+            and interpolate(lineText(line), arguments) ~= nil then
             eligible[#eligible + 1] = line
         end
     end
@@ -3277,6 +3469,7 @@ function Dialogue.choose(actor, topic, specification, arguments, options)
         and interpolate(options.fallback, arguments) ~= nil then
         eligible[1] = options.fallback
     end
+    if #eligible == 0 and excluded then return nil, "dialogue_recent_exhausted" end
     if #eligible == 0 then
         if not missingArgumentWarnings[topic]
             and missingArgumentWarningCount < 32 then
@@ -3295,8 +3488,9 @@ function Dialogue.choose(actor, topic, specification, arguments, options)
     local sharedRecent = partyExclusions(topic, actor)
     local available = {}
     for _, line in ipairs(candidates) do
-        if not recentlyUsed(line, recent) and line ~= runtime.last
-            and (sharedCommon[line] ~= true or sharedRecent[line] ~= true) then
+        local key = lineKey(line)
+        if not recentlyUsed(key, recent) and key ~= runtime.last
+            and (sharedCommon[key] ~= true or sharedRecent[key] ~= true) then
             available[#available + 1] = line
         end
     end
@@ -3304,14 +3498,17 @@ function Dialogue.choose(actor, topic, specification, arguments, options)
         -- A party list may never starve a small pool. Fall back to the actor's
         -- own bounded memory before allowing an immediate self-repeat.
         for _, line in ipairs(candidates) do
-            if not recentlyUsed(line, recent) and line ~= runtime.last then
+            local key = lineKey(line)
+            if not recentlyUsed(key, recent) and key ~= runtime.last then
                 available[#available + 1] = line
             end
         end
     end
     if #available == 0 then
         for _, line in ipairs(candidates) do
-            if line ~= runtime.last or #candidates == 1 then available[#available + 1] = line end
+            if lineKey(line) ~= runtime.last or #candidates == 1 then
+                available[#available + 1] = line
+            end
         end
     end
     if #available == 0 then available = candidates end
@@ -3321,16 +3518,17 @@ function Dialogue.choose(actor, topic, specification, arguments, options)
         .. ":" .. tostring(options.salt or "") .. ":" .. tostring(math.floor(current / 250))
     local hash = U() and type(U().stableHash) == "function" and U().stableHash(salt) or #salt * 7919
     local selected = available[(math.abs(hash) % #available) + 1]
-    recent[#recent + 1] = selected
+    local selectedKey = lineKey(selected)
+    recent[#recent + 1] = selectedKey
     local maximum = math.max(1, math.min(tonumber(options.recentLimit) or 3, #candidates - 1))
     while #recent > maximum do table.remove(recent, 1) end
-    runtime.recent[topic], runtime.last = recent, selected
-    if sharedCommon[selected] == true then
-        rememberPartyLine(topic, actor, selected, commonCount, options.recentLimit)
+    runtime.recent[topic], runtime.last = recent, selectedKey
+    if sharedCommon[selectedKey] == true then
+        rememberPartyLine(topic, actor, selectedKey, commonCount, options.recentLimit)
     end
-    return interpolate(selected, arguments), {
+    return interpolate(lineText(selected), arguments), {
         topic = topic, voice = voice, mood = mood, poolSize = #candidates,
-        sequence = runtime.sequence,
+        sequence = runtime.sequence, lineKey = selectedKey,
     }
 end
 

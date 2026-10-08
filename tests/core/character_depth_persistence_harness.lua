@@ -1387,6 +1387,7 @@ local downtimeRecord = SC.Registry.register(downtimeActor, {
     state = { downtime = {
         lastCompleted = { kind = "read", label = "Read a book", at = 1234 },
         mediaLines = { "vhs-carpentry-line-1", "tv-cooking-line-2" },
+        nextPeeHour = 250.5, lastShowerHour = 244.25,
     } },
 })
 check(downtimeRecord ~= nil and type(downtimeRecord.state.downtime.lastCompleted) == "table"
@@ -1402,7 +1403,20 @@ check(capturedDowntime ~= nil and type(capturedDowntime.downtime.lastCompleted) 
 check(capturedDowntime.downtime.mediaLines[1] == "vhs-carpentry-line-1"
         and capturedDowntime.downtime.mediaLines[2] == "tv-cooking-line-2",
     "save capture keeps learned TV and VHS lines for each restored companion")
+check(capturedDowntime.downtime.nextPeeHour == 250.5
+        and capturedDowntime.downtime.lastShowerHour == 244.25,
+    "save capture keeps the companion's next break and last shower times")
 SC.Registry.unregister(downtimeActor)
+
+local restoredActor = makeActor(square)
+local restoredRecord = SC.Registry.register(restoredActor, {
+    id = "sc-downtime-hygiene-restored", recruited = true,
+    state = { downtime = capturedDowntime.downtime },
+})
+check(restoredRecord.state.downtime.nextPeeHour == 250.5
+        and restoredRecord.state.downtime.lastShowerHour == 244.25,
+    "the registry restores both hygiene times after save/load")
+SC.Registry.unregister(restoredActor)
 
 local legacyActor = makeActor(square)
 local legacyRecord = SC.Registry.register(legacyActor, {

@@ -213,7 +213,7 @@ local function campScan(base, retainCompleted)
                 if container then
                     local row = { object = object, container = container, kind = kind }
                     scan.containers[#scan.containers + 1] = row
-                    if poweredFridge(container, kind) then
+                    if kind == "fridge" then
                         scan.fridges[#scan.fridges + 1] = row
                     end
                 end
@@ -254,15 +254,23 @@ end
 
 local function sources(scan, marked, wanted, actor)
     local result, seen = {}, {}
-    for _, category in ipairs(wanted or { "food", "tools", "general" }) do
-        for _, storage in ipairs(SC.BaseLife.storageRows(category, true)) do
-            local container, object = SC.BaseLife.resolveContainer(storage),
-                SC.BaseLife.resolveObject(storage)
-            if container and object and not seen[container] then
-                seen[container] = true
-                result[#result + 1] = { container = container, object = object,
-                    storage = storage }
+    local storages = {}
+    if wanted then
+        for _, category in ipairs(wanted) do
+            for _, storage in ipairs(SC.BaseLife.storageRows(category, true)) do
+                storages[#storages + 1] = storage
             end
+        end
+    else
+        storages = SC.BaseLife.storageRows(nil, true)
+    end
+    for _, storage in ipairs(storages) do
+        local container, object = SC.BaseLife.resolveContainer(storage),
+            SC.BaseLife.resolveObject(storage)
+        if container and object and not seen[container] then
+            seen[container] = true
+            result[#result + 1] = { container = container, object = object,
+                storage = storage }
         end
     end
     for _, row in ipairs(scan.containers) do
@@ -344,25 +352,29 @@ local function previewBase(spec, baseItem, bread)
 end
 
 local function storageDestinations(scan)
-    local result, seen = {}, {}
+    local preferred, fallback, seen = {}, {}, {}
     local marked = markedContainerMap()
     for _, storage in ipairs(SC.BaseLife.depositStorageRows("food")) do
         local container, object = SC.BaseLife.resolveContainer(storage),
             SC.BaseLife.resolveObject(storage)
-        if container and object and poweredFridge(container,
-            tostring(select(1, call(container, "getType")) or "")) then
+        if container and object then
             seen[container] = true
-            result[#result + 1] = { container = container, object = object,
-                storage = storage }
+            local row = { container = container, object = object, storage = storage }
+            local kind = tostring(select(1, call(container, "getType")) or "")
+            local rows = poweredFridge(container, kind) and preferred or fallback
+            rows[#rows + 1] = row
         end
     end
     for _, row in ipairs(scan.fridges) do
-        if not seen[row.container] and marked[row.container] == nil
-            and poweredFridge(row.container,
-                tostring(select(1, call(row.container, "getType")) or "")) then
-            result[#result + 1] = row
+        if not seen[row.container] and marked[row.container] == nil then
+            seen[row.container] = true
+            local kind = tostring(select(1, call(row.container, "getType")) or "")
+            local rows = poweredFridge(row.container, kind) and preferred or fallback
+            rows[#rows + 1] = row
         end
     end
+    local result = preferred
+    for _, row in ipairs(fallback) do result[#result + 1] = row end
     return result
 end
 
@@ -796,9 +808,8 @@ end
 
 local function countPrepared(scan)
     local seen, count = {}, 0
-    for _, row in ipairs(scan.fridges) do
-        if not seen[row.container] and poweredFridge(row.container,
-            tostring(select(1, call(row.container, "getType")) or "")) then
+    for _, row in ipairs(storageDestinations(scan)) do
+        if not seen[row.container] then
             seen[row.container] = true
             for _, item in ipairs(U().inventoryItems(row.container, 500)) do
                 if Chef.isPrepared(item) then count = count + 1 end
@@ -823,7 +834,7 @@ function Chef.ensureAutomaticJob(actor, resident)
     local scan = campScan(base)
     if not scan.done then return false, "chef_scan_pending" end
     autoChecks[actor] = now() + 5000
-    if #storageDestinations(scan) == 0 then return false, "chef_fridge_unavailable" end
+    if #storageDestinations(scan) == 0 then return false, "chef_food_storage_unavailable" end
     local residents = 0
     for _, row in ipairs(SC.BaseLife.summary().residentRows or {}) do
         if row.duty == true then residents = residents + 1 end
@@ -929,7 +940,7 @@ local function restoreReceipt(actor, player, state, job, scan, marked)
         state.mealTaken, state.ownOven, state.phase = true, oven, "switch_off"
         return true
     end
-    local allSources = sources(scan, marked, { "food", "tools", "general" }, actor)
+    local allSources = sources(scan, marked, nil, actor)
     for _, spec in ipairs(recipes) do
         if (spec.id or spec.name) == job.target.recipe then
             state.spec, state.recipe, state.sources = spec,
@@ -1200,7 +1211,7 @@ local function restoreReceipt(actor, player, state, job, scan, marked)
 end
 
 local function chooseRecipe(actor, state, job, scan, marked)
-    local allSources = sources(scan, marked, { "food", "tools", "general" }, actor)
+    local allSources = sources(scan, marked, nil, actor)
     local fridgeReady = #storageDestinations(scan) > 0
     local missingTool
     local availableBowls = 0
@@ -1429,14 +1440,15 @@ local function deposit(actor, state, job, scan)
         end
         return false, reason, true
     end
-    local destination = storageDestinations(scan)[1]
-    if not destination then return true, "chef_waiting_for_fridge" end
+    local destination
+    for _, candidate in ipairs(storageDestinations(scan)) do
+        local room = SC.WorkTransport and SC.WorkTransport.hasRoom
+            and select(1, SC.WorkTransport.hasRoom(candidate.container, actor, item))
+        if room ~= false then destination = candidate break end
+    end
+    if not destination then return true, "chef_waiting_for_food_storage" end
     local at, reason, terminal = approach(actor, destination.object, "chef_store_meal")
     if not at then return not terminal, reason, terminal end
-    if not poweredFridge(destination.container,
-        tostring(select(1, call(destination.container, "getType")) or "")) then
-        return true, "chef_fridge_power_lost"
-    end
     local moved, moveReason
     if destination.storage and SC.BaseWork then
         moved, moveReason = SC.BaseWork.depositToStorage(actor, state.transfer,

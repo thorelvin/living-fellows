@@ -7358,15 +7358,29 @@ do
     function car:enter(seat, candidate)
         if seat ~= 1 or self.passenger ~= nil then return false end
         self.passenger, candidate.vehicle = candidate, self
+        self.passengerPosition = "outside"
         return true
     end
     function car:exit(candidate)
         if self.passenger ~= candidate then return false end
         self.passenger, candidate.vehicle = nil, nil
+        self.passengerPosition = nil
         return true
     end
     function car:getSeat(candidate) return self.passenger == candidate and 1 or -1 end
     function car:getCharacter(seat) return seat == 1 and self.passenger or nil end
+    function car:getPassengerPosition(seat, position)
+        return seat == 1 and position == "inside" and { position = position } or nil
+    end
+    function car:setCharacterPosition(candidate, seat, position)
+        if seat == 1 and self.passenger == candidate then self.passengerPosition = position end
+    end
+    function car:transmitCharacterPosition(seat, position)
+        if seat == 1 then self.transmittedPosition = position end
+    end
+    function car:playPassengerAnim(seat, animation)
+        if seat == 1 then self.passengerAnimation = animation end
+    end
 
     check(SurvivorCompanion.Commands.issue(carActor.id, "follow", nil, player)
             and SurvivorCompanion.Commands.issue(carActor.id,
@@ -7430,6 +7444,10 @@ do
         carActor, player, {}, commands, quiet)
     local boardedByFollow, boardStatus = SurvivorCompanion.Decision._doFollowForTests(
         carActor, player, {}, commands, quiet)
+    local boardedInside = carActor:getVehicle() == car
+        and car.passengerPosition == "inside"
+        and car.transmittedPosition == "inside"
+        and car.passengerAnimation == "idle"
     player.vehicle = nil
     local exitedByFollow, exitStatus = SurvivorCompanion.Decision._doFollowForTests(
         carActor, player, {}, commands, quiet)
@@ -7441,6 +7459,7 @@ do
     check(approachedByFollow == true and approachStatus == "approaching_passenger_door"
             and approachCalls == 1 and approachTargetCount > 1
             and boardedByFollow == true and boardStatus == "boarding_vehicle"
+            and boardedInside
             and exitedByFollow == true and exitStatus == "exiting_vehicle"
             and carActor:getVehicle() == nil and car.passenger == nil
             and SurvivorCompanion.ActionSupervisor.snapshot(carActor).phase == "idle",
@@ -13999,6 +14018,71 @@ local gearWashFinished = SurvivorCompanion.Downtime.update(gearWashActor, player
 check(gearWashStarted and gearWashFinished and dirtyJacket:getBloodLevel() == 0
     and dirtyJacket:getDirtiness() == 0 and sink.fluid < 39,
     "downtime inventory inspection reaches inside bags and washes dirty equipment")
+
+do
+    local showerActivity, undressForShower, restoreShowerClothes,
+        completeShower = SurvivorCompanion.Downtime._showerForTests()
+    local savedInside = SurvivorCompanion.BaseLife.isInside
+    SurvivorCompanion.BaseLife.isInside = function() return true end
+    local showerVisual = {
+        blood = { [0] = 0.8, [1] = 0 },
+        dirt = { [0] = 0.2, [1] = 0 },
+    }
+    function showerVisual:getBlood(part) return self.blood[part] or 0 end
+    function showerVisual:getDirt(part) return self.dirt[part] or 0 end
+    function showerVisual:setBlood(part, amount) self.blood[part] = amount end
+    function showerVisual:setDirt(part, amount) self.dirt[part] = amount end
+    local showerActor = actor("sc-shower", -3, 5,
+        { humanVisual = showerVisual })
+    local shirt = item("Base.Shirt_FormalWhite", "Clothing",
+        { bodyLocation = "Shirt" })
+    local trousers = item("Base.Trousers", "Clothing",
+        { bodyLocation = "Pants" })
+    showerActor.inventory:AddItem(shirt)
+    showerActor.inventory:AddItem(trousers)
+    showerActor:setWornItem("Shirt", shirt)
+    showerActor:setWornItem("Pants", trousers)
+    local showerSquare = showerActor.square
+    local fixture = { square = showerSquare, fluid = 20 }
+    function fixture:getSquare() return self.square end
+    function fixture:getFluidAmount() return self.fluid end
+    function fixture:isTaintedWater() return false end
+    function fixture:useFluid(amount) self.fluid = self.fluid - amount end
+    function fixture:transmitModData() end
+    function fixture:getSprite()
+        return { getProperties = function()
+            return { get = function(_, key)
+                return key == "CustomName" and "Shower" or nil
+            end }
+        end }
+    end
+    showerSquare.objects[#showerSquare.objects + 1] = fixture
+    registry[showerActor.id] = { actor = showerActor,
+        state = { downtime = {} } }
+    local activity = showerActivity(showerActor, {}, clock)
+    check(activity and activity.kind == "shower" and activity.object == fixture,
+        "a dirty camp companion selects an available shower")
+    check(undressForShower(showerActor, activity)
+        and not showerActor:isEquippedClothing(shirt)
+        and not showerActor:isEquippedClothing(trousers),
+        "shower preparation removes worn clothes while retaining them in inventory")
+    check(restoreShowerClothes(showerActor, activity)
+        and showerActor:getWornItem("Shirt") == shirt
+        and showerActor:getWornItem("Pants") == trousers,
+        "an interrupted shower restores the exact worn slots")
+    check(undressForShower(showerActor, activity)
+        and completeShower(showerActor, activity)
+        and fixture.fluid == 10
+        and showerVisual:getBlood(0) == 0
+        and showerVisual:getDirt(0) == 0
+        and showerActor:getWornItem("Shirt") == shirt
+        and showerActor:getWornItem("Pants") == trousers
+        and registry[showerActor.id].state.downtime.lastShowerHour ~= nil,
+        "a completed shower spends water, cleans the body and restores the outfit")
+    showerSquare.objects[#showerSquare.objects] = nil
+    registry[showerActor.id] = nil
+    SurvivorCompanion.BaseLife.isInside = savedInside
+end
 end
 SurvivorCompanion.__testCompanionWashing()
 SurvivorCompanion.__testCompanionWashing = nil
@@ -17767,6 +17851,26 @@ do
     for _, value in ipairs(loadedContainer.items) do value.container = loadedContainer end
     if not loadedContainer:contains(sourceItem) then loadedContainer:AddItem(sourceItem) end
     SurvivorCompanion.BaseWork.reset(sorter)
+    local savedContents = source.container.items
+    source.container.items = { sourceItem }
+    sourceItem.container = source.container
+    BaseLife.setStorageCategory(sourceRow.id, "food")
+    local queuedMisfiled, misfiledJob = BaseLife.enqueueJob({
+        type = "sort", priority = 9, assignedId = sorter.id,
+    })
+    local movingMisfiled = SurvivorCompanion.BaseWork.update(sorter, player, {})
+    if visual then visual.status = "completed" end
+    local tookMisfiled = SurvivorCompanion.BaseWork.update(sorter, player, {})
+    if visual then visual.status = "completed" end
+    local placedMisfiled, placedReason = SurvivorCompanion.BaseWork.update(sorter, player, {})
+    check(queuedMisfiled and movingMisfiled and tookMisfiled and placedMisfiled
+            and placedReason == "base_transfer_complete"
+            and misfiledJob.state == "completed" and store.container:contains(sourceItem),
+        "sorting moves a misfiled plank out of marked food storage")
+    store.container:Remove(sourceItem)
+    source.container.items = savedContents
+    sourceItem.container = source.container
+    BaseLife.setStorageCategory(sourceRow.id, "general")
     local removedSource = BaseLife.removeStorage(sourceRow.id)
     local staleState = { visualAt = 1 }
     visual = { action = "loot_container", status = "completed" }
@@ -22358,6 +22462,8 @@ end)()
         savedValues[key] = values[key]
         values[key] = 100
     end
+    local savedIntrusiveEnabled = values.intrusiveThoughtsEnabled
+    values.intrusiveThoughtsEnabled = false
     banter.reset()
     local created = {}
     local function recruit(id, x, y)
@@ -22844,7 +22950,79 @@ end)()
             end
         end
     end
-    for topic, spec in pairs(pools) do checkSpec(topic, spec) end
+    for topic, spec in pairs(pools) do
+        if not string.match(topic, "^banter%.intrusive%.") then
+            checkSpec(topic, spec)
+        end
+    end
+    ;(function()
+    local intrusiveCount, roughCount = 0, 0
+    local roughWords = { "damn", "hell", "shit", "fuck", "ass", "bastard", "christ" }
+    local function hasRoughWord(line)
+        local lowered = string.lower(line)
+        for _, compound in ipairs({ "goddamn", "dammit", "dumbass",
+            "bullshit", "bitch" }) do
+            if string.find(lowered, compound, 1, true) then return true end
+        end
+        for _, word in ipairs(roughWords) do
+            if string.find(lowered, "%f[%a]" .. word .. "%a*%f[%A]") then
+                return true
+            end
+        end
+        return false
+    end
+    local function checkIntrusiveLine(topic, value)
+        if type(value) ~= "string" or value == "" or not printable(value)
+            or string.find(value, "%%[0-9]") or string.find(value, '"', 1, true) then
+            problems[#problems + 1] = topic .. ":invalid_line"
+            return
+        end
+        local words = 0
+        for _ in string.gmatch(value, "%S+") do words = words + 1 end
+        if words > 15 then problems[#problems + 1] = topic .. ":too_long" end
+    end
+    for topic, spec in pairs(pools) do
+        if string.match(topic, "^banter%.intrusive%.") then
+            local minimum = string.match(topic, "^banter%.intrusive%.place%.") and 2 or 1
+            if type(spec.common) ~= "table" or #spec.common < minimum then
+                problems[#problems + 1] = topic .. ":short_common"
+            end
+            for key, entries in pairs(spec) do
+                local seen = {}
+                for _, entry in ipairs(entries) do
+                    local rough = type(entry) == "table" and entry[1] or entry
+                    local clean = type(entry) == "table" and entry.clean or nil
+                    checkIntrusiveLine(topic .. "." .. key, rough)
+                    if seen[rough] then problems[#problems + 1] = topic .. ":duplicate" end
+                    seen[rough] = true
+                    if type(entry) == "table" then
+                        checkIntrusiveLine(topic .. "." .. key .. ".clean", clean)
+                        if not hasRoughWord(rough or "") or hasRoughWord(clean or "") then
+                            problems[#problems + 1] = topic .. ":rough_clean_mismatch"
+                        end
+                        roughCount = roughCount + 1
+                    end
+                    if topic == "banter.intrusive.hidden_bite" then
+                        for _, line in ipairs({ rough, clean or "" }) do
+                            if type(line) == "string" then
+                                local lowered = string.lower(line)
+                                for _, forbidden in ipairs({ "bite", "bitten", "infected",
+                                    "zombie", "turn", "fever" }) do
+                                    if string.find(lowered, "%f[%a]" .. forbidden .. "%f[%A]") then
+                                        problems[#problems + 1] = topic .. ":secret_leak"
+                                    end
+                                end
+                            end
+                        end
+                    end
+                    intrusiveCount = intrusiveCount + 1
+                end
+            end
+        end
+    end
+    check(intrusiveCount == 369 and roughCount == 82,
+        "the intrusive catalog retains all 369 lines and 82 clean twins")
+    end)()
     local tableLineCount = 0
     for topic, spec in pairs(pools) do
         if string.match(topic, "^banter%.table%.") then
@@ -22894,11 +23072,177 @@ end)()
             .. " standing=" .. tostring(standing))
 
     for key, value in pairs(savedValues) do values[key] = value end
+    values.intrusiveThoughtsEnabled = savedIntrusiveEnabled
     banter.reset()
     for _, value in ipairs(created) do
         SurvivorCompanion.Commands.reset(value)
         registry[value.id] = nil
     end
+end)()
+
+-- Intrusive asides use existing banter beats, with a party and actor cap.
+-- Exercise the live selector as well as the authored-line lint above.
+;(function()
+    local banter = SurvivorCompanion.Banter
+    local dialogue = SurvivorCompanion.Dialogue
+    local values = SurvivorCompanion.Config.values
+    local saved = {}
+    local function set(key, value)
+        if saved[key] == nil then saved[key] = { value = rawget(values, key) } end
+        values[key] = value
+    end
+    local first = actor("sc-intrusive-first", 2, 2, {})
+    local second = actor("sc-intrusive-second", 3, 2, {})
+    registry[first.id], registry[second.id] = first, second
+    local firstCommands = SurvivorCompanion.Commands.peek(first)
+    local secondCommands = SurvivorCompanion.Commands.peek(second)
+    firstCommands.recruited, secondCommands.recruited = true, true
+    firstCommands.order, secondCommands.order = "follow", "follow"
+    firstCommands.stress, firstCommands.morale = 0, 55
+    local safe = { threats = {}, threatCount = 0, immediateCount = 0,
+        pressure = 0, player = { danger = 0 } }
+    local records = {
+        { actor = first, runtime = { snapshot = safe } },
+        { actor = second, runtime = { snapshot = safe } },
+    }
+    local oldRand = ZombRand
+    ZombRand = function() return 0 end
+    set("intrusiveThoughtsEnabled", true)
+    set("intrusiveChancePercent", 100)
+    set("intrusiveAfterKillChancePercent", 100)
+    set("intrusiveDarkPercent", 0)
+    set("intrusiveDarkBasePercent", 0)
+    set("intrusiveReplyChancePercent", 0)
+    set("intrusivePartyCooldownMs", 2700000)
+    set("intrusiveActorCooldownGameHours", 24)
+    banter.reset()
+    clock = 200000000
+    local spoken, topic = banter._intrusiveForTests(first, firstCommands,
+        records, clock, "travel")
+    local firstKey = banter._partyForTests().intrusiveRecent[1]
+    clock = clock + 120000
+    local partyHeld = banter._intrusiveForTests(second, secondCommands,
+        records, clock, "travel")
+    clock = clock + 2700000
+    local actorHeld = banter._intrusiveForTests(first, firstCommands,
+        records, clock, "travel")
+    check(spoken and topic == "banter.intrusive.travel" and firstKey
+            and banter._partyForTests().intrusiveRecentSet[firstKey]
+            and not partyHeld and not actorHeld,
+        "intrusive travel replaces one beat, remembers its line and respects party and actor caps")
+
+    banter.reset()
+    records[1].runtime.snapshot = { threats = {}, threatCount = 1 }
+    clock = clock + 3000000
+    local dangerHeld = banter._intrusiveForTests(first, firstCommands,
+        records, clock, "travel")
+    records[1].runtime.snapshot = safe
+    set("intrusiveThoughtsEnabled", false)
+    local switchedOff = banter._intrusiveForTests(first, firstCommands,
+        records, clock, "travel")
+    set("intrusiveThoughtsEnabled", true)
+    local oldConversation = SurvivorCompanion.Positioning.activeConversation
+    SurvivorCompanion.Positioning.activeConversation = function(value)
+        if value == second then return { action = "confiding" } end
+        return oldConversation(value)
+    end
+    local conversationHeld = banter._intrusiveForTests(first, firstCommands,
+        records, clock, "travel")
+    SurvivorCompanion.Positioning.activeConversation = oldConversation
+    check(not dangerHeld and not switchedOff,
+        "threats and the master switch suppress intrusive asides")
+    check(not conversationHeld,
+        "a nearby companion's protected conversation suppresses intrusive asides")
+
+    local crisis = SurvivorCompanion.InfectionCrisis
+    local oldPeek = crisis and crisis.peekForSubject
+    if crisis then
+        crisis.peekForSubject = function()
+            return { strategy = "conceal", confessed = false,
+                othersConfirmed = false }
+        end
+    end
+    banter.reset()
+    local hidden, hiddenTopic = banter._intrusiveForTests(first,
+        firstCommands, records, clock, "travel")
+    local hiddenPrivate = banter._partyForTests().exchange == nil
+    if crisis then
+        crisis.peekForSubject = function()
+            return { strategy = "conceal", confessed = true }
+        end
+    end
+    banter.reset()
+    local disclosed, disclosedTopic = banter._intrusiveForTests(first,
+        firstCommands, records, clock, "travel")
+    if crisis then crisis.peekForSubject = oldPeek end
+    check(hidden and hiddenTopic == "banter.intrusive.hidden_bite"
+            and hiddenPrivate and disclosed
+            and disclosedTopic ~= "banter.intrusive.hidden_bite",
+        "concealed infection wins the event priority and stops once disclosed")
+
+    banter.reset()
+    banter.noteKill(first, clock)
+    local postKill, postKillTopic = banter._intrusiveForTests(first,
+        firstCommands, records, clock, "travel")
+    local postKillPrivate = banter._partyForTests().exchange == nil
+    banter.reset()
+    local noKill, noKillTopic = banter._intrusiveForTests(first,
+        firstCommands, records, clock, "travel")
+    check(postKill and postKillTopic == "banter.intrusive.after_kill"
+            and postKillPrivate and noKill
+            and noKillTopic ~= "banter.intrusive.after_kill",
+        "only the speaker's recent kill enables the private after-kill pool")
+
+    set("intrusivePartyCooldownMs", 0)
+    set("intrusiveActorCooldownGameHours", 0)
+    set("intrusiveReplyChancePercent", 100)
+    banter.reset()
+    local ordinary, ordinaryTopic = banter._intrusiveForTests(first,
+        firstCommands, records, clock, "travel")
+    local exchange = banter._partyForTests().exchange
+    local replyPulse = select(3, banter._socialForTests())
+    local awaiting = exchange and exchange.second == second
+    local replied, replyTopic = replyPulse(records,
+        clock + (tonumber(values.companionConversationReplyMs) or 2800))
+    local oldCurrent = SurvivorCompanion.ActionSupervisor.current
+    SurvivorCompanion.ActionSupervisor.current = function(value)
+        if value == second then return { action = "busy" } end
+        return oldCurrent(value)
+    end
+    banter.reset()
+    clock = clock + 30000
+    local busySpoken = banter._intrusiveForTests(first,
+        firstCommands, records, clock, "travel")
+    local busyReply = banter._partyForTests().exchange
+    SurvivorCompanion.ActionSupervisor.current = oldCurrent
+    check(ordinary and ordinaryTopic == "banter.intrusive.travel" and awaiting
+            and replied and replyTopic == "banter.intrusive.reply"
+            and busySpoken and busyReply == nil,
+        "ordinary asides may receive an idle reply, while busy companions stay silent")
+
+    local twin = { common = { { "Damn this rain.", clean = "What a rain." } } }
+    set("profanityEnabled", false)
+    local clean, cleanDetail = dialogue.choose(first, "test.intrusive.twin",
+        twin, nil, { salt = "clean" })
+    set("profanityEnabled", true)
+    local rough, roughDetail = dialogue.choose(second, "test.intrusive.twin",
+        twin, nil, { salt = "rough" })
+    local excluded, excludedReason = dialogue.choose(first,
+        "test.intrusive.twin", twin, nil,
+        { excludedLines = { ["Damn this rain."] = true } })
+    check(clean == "What a rain." and rough == "Damn this rain."
+            and cleanDetail.lineKey == roughDetail.lineKey
+            and excluded == nil and excludedReason == "dialogue_recent_exhausted",
+        "the profanity switch selects a clean twin and party memory excludes its shared key")
+
+    ZombRand = oldRand
+    for key, entry in pairs(saved) do values[key] = entry.value end
+    banter.reset()
+    dialogue.reset(first)
+    dialogue.reset(second)
+    SurvivorCompanion.Commands.reset(first)
+    SurvivorCompanion.Commands.reset(second)
+    registry[first.id], registry[second.id] = nil, nil
 end)()
 
 -- Ordinary trips turn on the move, and a wash trip walks to a free square

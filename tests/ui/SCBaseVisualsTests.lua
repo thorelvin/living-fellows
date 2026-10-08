@@ -113,6 +113,34 @@ assert(#fixture.legend == 4 and fixture.legend[1].value == "Base layout"
     "the legend must name each visible zone kind and storage category in its color")
 fixture.legend = {}
 
+fixture.splitScreen = true
+fixture.config.baseLayoutLegendX = 1100
+fixture.lines, fixture.fills, fixture.labels = {}, {}, {}
+Events.OnRenderTick.callback()
+Events.OnPreUIDraw.callback()
+assert(#fixture.lines == 0 and #fixture.fills == 3
+        and fixture.fills[1].player == 0
+        and fixture.fills[2].player == 0
+        and fixture.fills[3].player == 0,
+    "split-screen areas must use player-zero highlights without current-camera lines")
+local splitOutline = fixture.foodObject.calls[#fixture.foodObject.calls - 1]
+assert(splitOutline.name == "setOutlineHighlight"
+        and splitOutline.args[1] == 0 and splitOutline.args[2] == true,
+    "storage object outlines must remain scoped to the primary player in split screen")
+assert(#fixture.labels == 10 and fixture.labels[1].value == "Camp area"
+        and fixture.labels[3].value == "Workshop"
+        and fixture.labels[5].value == "Food"
+        and fixture.labels[1].x < 960 and fixture.labels[3].x < 960
+        and fixture.labels[5].x < 960
+        and fixture.labels[10].x > 960,
+    "base area labels must stay in the primary viewport while companion names remain per view")
+assert(#fixture.legend == 4 and fixture.legend[1].x < 960
+        and fixture.legend[4].x < 960,
+    "the base legend must move inside the narrower primary viewport")
+fixture.splitScreen = false
+fixture.config.baseLayoutLegendX = nil
+fixture.lines, fixture.fills, fixture.labels, fixture.legend = {}, {}, {}, {}
+
 fixture.companion.square.visible = false
 fixture.labels = {}
 Events.OnPreUIDraw.callback()
@@ -238,6 +266,17 @@ assert(#fixture.lines == 8 and #fixture.fills == 1
         and fixture.lines[2].z1 == 1 and fixture.lines[3].z2 == 1
         and fixture.fills[1].x1 == 12 and fixture.fills[1].x2 == 13,
     "wall plans need an upright edge and floor plans a filled tile after placement")
+fixture.splitScreen = true
+fixture.clock = fixture.clock + 500
+fixture.lines, fixture.fills = {}, {}
+Events.OnRenderTick.callback()
+assert(ghosts == 2 and barricadeGhosts == 1
+        and #fixture.lines == 0 and #fixture.fills == 3
+        and fixture.fills[1].player == 0
+        and fixture.fills[2].player == 0
+        and fixture.fills[3].player == 0,
+    "split-screen construction guides must stay in the player view without shared ghost sprites")
+fixture.splitScreen = false
 fixture.summary.blueprints = false
 fixture.clock = fixture.clock + 500
 fixture.lines, fixture.fills = {}, {}

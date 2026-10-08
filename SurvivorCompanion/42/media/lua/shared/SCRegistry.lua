@@ -391,6 +391,12 @@ local function defaultState(source, recruited)
             lastCompleted = normalizeLastDowntime(downtime.lastCompleted),
             facts = facts,
             mediaLines = validMediaLines,
+            nextPeeHour = finite(tonumber(downtime.nextPeeHour))
+                and boundedNumber(downtime.nextPeeHour, 0,
+                    0, maximumSafeInteger, false) or nil,
+            lastShowerHour = finite(tonumber(downtime.lastShowerHour))
+                and boundedNumber(downtime.lastShowerHour, 0,
+                    0, maximumSafeInteger, false) or nil,
         },
     }
 end

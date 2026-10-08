@@ -29,7 +29,16 @@ local function makeInventory(kind)
         for _, value in ipairs(self.items) do if value == item then return true end end
         return false
     end
-    function inventory:hasRoomFor() return self.room == true end
+    function inventory:getCapacityWeight()
+        local weight = 0
+        for _, item in ipairs(self.items) do weight = weight + item:getActualWeight() end
+        return weight
+    end
+    function inventory:getCapacity() return self.capacity end
+    function inventory:hasRoomFor(_, item)
+        return self.room == true and (self.capacity == nil
+            or self:getCapacityWeight() + item:getActualWeight() <= self.capacity)
+    end
     function inventory:getType() return self.kind end
     function inventory:AddItem(value)
         local item = type(value) == "string" and makeItem(value) or value
@@ -1758,6 +1767,10 @@ local function makeLighter()
     return makeItem("Base.Lighter", { tags = { startfire = true } })
 end
 
+local function makeFirestarter(fullType)
+    return makeItem(fullType, { tags = { startfire = true } })
+end
+
 local function makePetrol(amount)
     local can = makeItem("Base.PetrolCan")
     can.fluid = { amount = amount or 1 }
@@ -2130,6 +2143,30 @@ do
             and #SC_PRODUCTION_CALLS.bury == burialsBefore and landed ~= nil
             and landed.modData.LF_CorpseHaul == nil,
         "settle-only drop cancellation leaves the body safely landed without starting burial")
+end
+
+for _, fireType in ipairs({ "Base.Matchbox", "Base.Matches",
+    "Base.LighterDisposable", "Base.LighterBBQ", "Base.Lighter_Battery",
+    "Base.MagnesiumFirestarter" }) do
+    local ctx = setup()
+    local pyre = outsidePyre()
+    local starter = makeFirestarter(fireType)
+    if fireType == "Base.Matchbox" then
+        local bag = makeItem("Base.Bag_Schoolbag")
+        local pocket = makeInventory("bag")
+        function bag:getItemContainer() return pocket end
+        ctx.actor.inventory:AddItem(bag)
+        pocket:AddItem(starter)
+    else
+        ctx.actor.inventory:AddItem(starter)
+    end
+    ctx.actor.inventory:AddItem(makePetrol(1))
+    makeBody(sq(21, 1))
+    start(ctx, { operation = "burn_bodies", zoneId = pyre.id, requested = 1 })
+    local _, reason = tick(ctx)
+    check(reason == "production_burning" and ctx.actor.primary == starter,
+        "a tagged firestarter can ignite a pyre, including one carried in a bag: "
+            .. fireType .. "/" .. tostring(reason))
 end
 
 do
@@ -2526,6 +2563,42 @@ end
 
 do
     local ctx = setup()
+    SC.BaseLife.assign(ctx.id, "woodcutter", true)
+    makeTree(sq(3, 2), 20)
+    ctx.planksObject.container.capacity = 250
+    for _ = 1, 25 do ctx.planksObject.container:AddItem("Base.Log") end
+    local created, order = SC.BaseLife.auditRoleProduction()
+    check(created == true and order.destinationStorageId == ctx.planks.id,
+        "woodcutter keeps logging while marked storage has room despite 25 logs")
+end
+
+do
+    local ctx = setup()
+    SC.BaseLife.assign(ctx.id, "woodcutter", true)
+    makeTree(sq(3, 2), 20)
+    ctx.planksObject.container.capacity = 17
+    ctx.planksObject.container:AddItem("Base.Log")
+    ctx.logsObject.container.capacity = 18
+    local created, order = SC.BaseLife.auditRoleProduction()
+    check(created == true and order.destinationStorageId == ctx.logs.id,
+        "woodcutter chooses another marked container when a log cannot fit in the first")
+end
+
+do
+    local ctx = setup()
+    SC.BaseLife.assign(ctx.id, "woodcutter", true)
+    makeTree(sq(3, 2), 20)
+    ctx.planksObject.container.capacity = 9
+    ctx.planksObject.container:AddItem("Base.Log")
+    ctx.logsObject.container.capacity = 9
+    ctx.logsObject.container:AddItem("Base.Log")
+    local created, reason = SC.BaseLife.auditRoleProduction()
+    check(created == false and reason == "no_production_need",
+        "woodcutter stops creating orders when every marked destination is full")
+end
+
+do
+    local ctx = setup()
     check(SC.BaseLife.assign(ctx.id, "builder", true) == true,
         "carpenter uses the existing saved builder role")
     check(SC.BaseLife.auditRoleProduction() == false,
@@ -2536,6 +2609,18 @@ do
         and order.sourceStorageId == ctx.logs.id
         and order.destinationStorageId ~= ctx.logs.id,
         "carpenter chooses loaded log and plank storage without a form")
+end
+
+do
+    local ctx = setup({ workers = 2 })
+    local secondId = ctx.actors[2].modData.SC_Id
+    SC.BaseLife.assign(ctx.id, "builder", true)
+    SC.BaseLife.assign(secondId, "woodcutter", true)
+    makeTree(sq(3, 2), 20)
+    local created, order = SC.BaseLife.auditRoleProduction()
+    check(created == true and order.operation == "fell_trees"
+            and order.workers[1] == secondId,
+        "automatic production checks the next resident when the first has no work")
 end
 
 do

@@ -3148,7 +3148,7 @@ function Disposal.supplyMatches(item, kind)
 end
 
 function Disposal.inventorySupply(actor, kind)
-    for _, item in ipairs(U().inventoryItems(U().inventory(actor), 256)) do
+    for _, item in ipairs(U().inventoryItemsDeep(U().inventory(actor), 256)) do
         if Disposal.supplyMatches(item, kind) then return item end
     end
     return nil

@@ -832,6 +832,20 @@ local valueData = {
     banterSpeakerQuietMs = 15000,
     flavorPartySpeechGapMs = 20000,
     routineBanterIntervalMs = 90000,
+    -- Intrusive thoughts replace an eligible ambient beat. They never add a
+    -- new speech timer or interrupt an owned action.
+    intrusiveThoughtsEnabled = true,
+    intrusiveChancePercent = 3,
+    intrusivePartyCooldownMs = 2700000,
+    intrusiveActorCooldownGameHours = 24,
+    intrusiveEventWindowMs = 120000,
+    intrusiveAfterKillChancePercent = 12,
+    intrusiveDarkPercent = 35,
+    intrusiveDarkBasePercent = 10,
+    intrusiveReplyChancePercent = 35,
+    intrusiveReplyDistance = 6,
+    intrusiveRecentLimit = 60,
+    profanityEnabled = true,
     -- Autonomous combat refusals only speak when overrun begins, then face a
     -- much longer actor cooldown than ordinary banter. The decision is always
     -- deterministic; chance governs speech only.
@@ -1760,6 +1774,12 @@ function SC.Config.refreshSandbox(source)
     if opacity then runtimeOverrides.uiPanelOpacity = opacity end
     if type(sandbox.ShowCompanionNames) == "boolean" then
         runtimeOverrides.companionNameLabels = sandbox.ShowCompanionNames
+    end
+    if type(sandbox.IntrusiveThoughtsEnabled) == "boolean" then
+        runtimeOverrides.intrusiveThoughtsEnabled = sandbox.IntrusiveThoughtsEnabled
+    end
+    if type(sandbox.ProfanityEnabled) == "boolean" then
+        runtimeOverrides.profanityEnabled = sandbox.ProfanityEnabled
     end
     if type(sandbox.DiariesEnabled) == "boolean" then
         runtimeOverrides.diaryEnabled = sandbox.DiariesEnabled

@@ -2716,6 +2716,47 @@ local function autonomousStorage(base, category, withdrawal, exclude)
     return nil
 end
 
+-- Logs are heavy. Treat a marked container as full for automatic logging when
+-- another log will not fit, and try the next marked destination instead.
+local function autonomousLogStorage(base, actorId)
+    local actorRecord = SC.Registry and SC.Registry.byId
+        and SC.Registry.byId(actorId) or nil
+    local actor = actorRecord and actorRecord.actor or nil
+    for _, category in ipairs({ "construction", "general", "output" }) do
+        for _, storage in ipairs(base.storages or {}) do
+            if storage.category == category and storage.deposits ~= false then
+                local container = BaseLife.resolveContainer(storage)
+                if container then
+                    local log
+                    for _, item in ipairs(U().inventoryItems(container, 128)) do
+                        if U().itemType(item) == "Base.Log" then log = item break end
+                    end
+                    local used, usedOk = U().call(container, "getCapacityWeight")
+                    local capacity, capacityOk = U().call(container, "getCapacity")
+                    if not capacityOk or type(capacity) ~= "number" or capacity <= 0 then
+                        capacity, capacityOk = U().call(container, "getMaxWeight")
+                    end
+                    -- Use a real stored log when available. Base.Log weighs 9
+                    -- in the base game; the haul action checks the actual item.
+                    local logWeight = log and U().itemWeight(log) or 9
+                    local numericRoom = not usedOk or not capacityOk
+                        or type(used) ~= "number" or type(capacity) ~= "number"
+                        or capacity <= 0 or used + logWeight <= capacity
+                    if numericRoom then
+                        if log and actor then
+                            local room, called = U().call(container, "hasRoomFor", actor, log)
+                            if not called or room == true then return storage end
+                        else
+                            return storage
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
 local function autonomousBodyWaiting(base)
     local zones = {}
     for _, zone in ipairs(base.zones or {}) do
@@ -2800,14 +2841,8 @@ end
 
 local function autonomousProductionSpec(base, actorId, role)
     if role == "woodcutter" then
-        local destination = autonomousStorage(base, "construction", false)
-            or autonomousStorage(base, "general", false)
-            or autonomousStorage(base, "output", false)
-        -- The role audit runs infrequently, so use the full marked container
-        -- here: logs beyond the routine scan budget still count as stock.
-        if not destination or BaseLife.availableCountExact(destination, "Base.Log") >= 4 then
-            return nil
-        end
+        local destination = autonomousLogStorage(base, actorId)
+        if not destination then return nil end
         local zone = autonomousTreeWaiting(base)
         if not zone then return nil end
         return { operation = "fell_trees", zoneId = zone.id,
@@ -2846,8 +2881,8 @@ local function autonomousProductionSpec(base, actorId, role)
     return nil
 end
 
--- One resident and one candidate per scheduled audit. The existing work and
--- survival owners decide when the companion actually accepts the resulting job.
+-- Check each eligible production role during an audit, but create at most one
+-- order. The existing work and survival owners decide when it can start.
 function BaseLife.auditRoleProduction()
     local base = activeBase()
     if not base then return false, "base_missing" end
@@ -2898,24 +2933,46 @@ function BaseLife.auditRoleProduction()
     end
     table.sort(workers, function(a, b) return a.id < b.id end)
     if #workers == 0 then return false, "no_production_resident" end
-    autonomousWorkerCursor = autonomousWorkerCursor % #workers + 1
-    local worker = workers[autonomousWorkerCursor]
-    if now() < (autonomousRetryAt[worker.id] or 0)
-        or BaseLife.jobFor(worker.id) ~= nil then
-        return false, "production_worker_busy"
-    end
-    for _, order in ipairs(productionFor(base).orders or {}) do
-        if not orderIsTerminal(order) then
-            for _, id in ipairs(order.workers or {}) do
-                if id == worker.id then return false, "production_order_active" end
+    local first = autonomousWorkerCursor % #workers + 1
+    local lastReason = "no_production_need"
+    local attemptedRoles = {}
+    for offset = 0, #workers - 1 do
+        local index = (first + offset - 1) % #workers + 1
+        local worker = workers[index]
+        if now() < (autonomousRetryAt[worker.id] or 0)
+            or BaseLife.jobFor(worker.id) ~= nil then
+            lastReason = "production_worker_busy"
+        else
+            local activeOrder = false
+            for _, order in ipairs(productionFor(base).orders or {}) do
+                if not orderIsTerminal(order) then
+                    for _, id in ipairs(order.workers or {}) do
+                        if id == worker.id then activeOrder = true break end
+                    end
+                end
+                if activeOrder then break end
+            end
+            if activeOrder then
+                lastReason = "production_order_active"
+            elseif not attemptedRoles[worker.role] then
+                attemptedRoles[worker.role] = true
+                local spec = autonomousProductionSpec(base, worker.id, worker.role)
+                if spec then
+                    local created, order = BaseLife.createProductionOrder(spec)
+                    autonomousRetryAt[worker.id] = now()
+                        + (created and (worker.role == "woodcutter" and 10000 or 90000)
+                            or 60000)
+                    if created then
+                        autonomousWorkerCursor = index
+                        return true, order
+                    end
+                    lastReason = order or "production_order_rejected"
+                end
             end
         end
     end
-    local spec = autonomousProductionSpec(base, worker.id, worker.role)
-    if not spec then return false, "no_production_need" end
-    local created, order = BaseLife.createProductionOrder(spec)
-    autonomousRetryAt[worker.id] = now() + (created and 90000 or 60000)
-    return created, order
+    autonomousWorkerCursor = first
+    return false, lastReason
 end
 
 function BaseLife.blockProductionOrder(id, reason)

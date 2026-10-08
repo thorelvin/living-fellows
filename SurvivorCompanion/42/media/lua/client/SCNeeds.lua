@@ -12,6 +12,423 @@ local function U()
     return SC.GameplayUtil
 end
 
+local function worldHour()
+    if type(getGameTime) ~= "function" then return nil end
+    local ok, clock = pcall(getGameTime)
+    if not ok or clock == nil then return nil end
+    local hour, read = U().call(clock, "getWorldAgeHours")
+    hour = read and tonumber(hour) or nil
+    return hour and hour >= 0 and hour == hour and hour or nil
+end
+
+local function hygieneRecord(actor)
+    local registry = SC.Registry
+    local record = registry and type(registry.byId) == "function"
+        and registry.byId(U().idOf(actor)) or nil
+    if not record then return nil end
+    record.state = record.state or {}
+    record.state.downtime = record.state.downtime or {}
+    return record.state.downtime
+end
+
+local function nextPeeInterval(actor, hour)
+    local seed = tostring(U().idOf(actor) or actor) .. ":pee:"
+        .. tostring(math.floor(hour or 0))
+    return 6 + math.abs(tonumber(U().stableHash(seed)) or 0) % 5
+end
+
+local function peeSchedule(actor, hour)
+    local record = hygieneRecord(actor)
+    if not record or not hour then return nil end
+    if type(record.nextPeeHour) ~= "number" then
+        record.nextPeeHour = hour + nextPeeInterval(actor, hour)
+    end
+    return record.nextPeeHour, record
+end
+
+local function customName(object)
+    local sprite = select(1, U().call(object, "getSprite"))
+    local properties = select(1, U().call(sprite, "getProperties"))
+    local value = select(1, U().call(properties, "get", "CustomName"))
+    return type(value) == "string" and string.lower(value) or ""
+end
+
+local function toiletTarget(actor, standing)
+    local x, y, z = U().position(actor)
+    if not x then return nil end
+    for radius = 0, 8 do
+        for dx = -radius, radius do
+            for dy = -radius, radius do
+                if math.max(math.abs(dx), math.abs(dy)) == radius then
+                    local square = U().gridSquare(x + dx, y + dy, z)
+                    local found
+                    U().squareObjects(square, function(object)
+                        if customName(object) == "toilet" then
+                            local targets = SC.Navigation and SC.Navigation.interactionTargets
+                                and SC.Navigation.interactionTargets(actor, object,
+                                    { requireDirectAccess = true })
+                            if standing and type(targets) == "table" then
+                                -- A standing actor must approach the bowl from its
+                                -- front. A valid tile beside or behind the toilet
+                                -- is not an acceptable standing position.
+                                local facing = select(1, U().call(object, "getFacing"))
+                                local direction = string.upper(tostring(facing or ""))
+                                    :match("([NESW])$")
+                                local offsets = {
+                                    N = { 0, -1 }, E = { 1, 0 },
+                                    S = { 0, 1 }, W = { -1, 0 },
+                                }
+                                local offset = offsets[direction]
+                                local ox, oy = U().position(square)
+                                local front = offset and U().gridSquare(ox + offset[1],
+                                    oy + offset[2], z) or nil
+                                local aligned = {}
+                                for _, target in ipairs(targets) do
+                                    if front and U().sameSquare(target, front) then
+                                        aligned[1] = target
+                                        break
+                                    end
+                                end
+                                targets = aligned
+                            end
+                            if type(targets) == "table" and #targets > 0 then
+                                found = { object = object, targets = targets }
+                                return false
+                            end
+                        end
+                    end, 48)
+                    if found then return found end
+                end
+            end
+        end
+    end
+end
+
+local function personality(actor)
+    local record = SC.Registry and type(SC.Registry.byId) == "function"
+        and SC.Registry.byId(U().idOf(actor)) or nil
+    local state = record and record.state
+    return state and state.personality and state.personality.profile or {}
+end
+
+local function peeStyle(actor, hour)
+    local profile = personality(actor)
+    local archetype = profile.archetype or "practical"
+    local identity = tostring(U().idOf(actor) or actor)
+    local preference = math.abs(tonumber(U().stableHash(identity .. ":toilet_style")) or 0) % 100
+    local seatChance = ({ cautious = 62, caring = 38, practical = 22, brave = 12 })[archetype] or 28
+    local sits = select(1, U().call(actor, "isFemale")) == true
+        or preference < seatChance
+    local roll = math.abs(tonumber(U().stableHash(identity .. ":pee_pose:"
+        .. tostring(math.floor(hour or 0)))) or 0) % 100
+    local style
+    if archetype == "cautious" then
+        style = roll < 70 and "pee_stand" or "pee_hip"
+    elseif archetype == "brave" then
+        style = roll < 7 and "pee_free" or roll < 72 and "pee_hip" or "pee_stand"
+    else
+        style = roll < 52 and "pee_stand" or "pee_hip"
+    end
+    return sits, style
+end
+
+local function outdoorTarget(actor, player, overdue)
+    local x, y, z = U().position(actor)
+    if not x then return nil end
+    local currentSquare = U().squareOf(actor)
+    local room = currentSquare and select(1, U().call(currentSquare, "getRoom"))
+    local playerDistance = player and U().distance(player, actor) or 6
+    local alone = true
+    U().squareMovingObjects(currentSquare, function(other)
+        if other ~= actor then alone = false return false end
+    end, 12)
+    -- A companion already alone outdoors and a few steps from the group has
+    -- found a safe enough break spot. Avoid an artificial detour for privacy.
+    if currentSquare and room == nil and alone
+        and (tonumber(playerDistance) or 0) >= 3 then return currentSquare end
+    local best, bestScore
+    for dx = -4, 4 do
+        for dy = -4, 4 do
+            local distance = math.max(math.abs(dx), math.abs(dy))
+            if distance >= 2 or overdue then
+                local square = U().gridSquare(x + dx, y + dy, z)
+                local room = square and select(1, U().call(square, "getRoom"))
+                local objects = square and select(1, U().call(square, "getMovingObjects"))
+                local occupied = objects and select(1, U().call(objects, "size")) or 0
+                if square and room == nil and U().isSquareFree(square)
+                    and (tonumber(occupied) or 0) == 0 then
+                    local playerDistance = player and U().distance(player, square) or 6
+                    local hidden = player and not U().canSee(player, square)
+                    local score = (hidden and 12 or 0)
+                        + math.min(6, tonumber(playerDistance) or 0)
+                        - distance * 2
+                    if not bestScore or score > bestScore then
+                        best, bestScore = square, score
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+local function sayPee(actor, topic)
+    if SC.Dialogue and type(SC.Dialogue.say) == "function" then
+        pcall(SC.Dialogue.say, actor, topic)
+    end
+end
+
+local function peeAction(actor, task)
+    local female = select(1, U().call(actor, "isFemale")) == true
+    return female and "pee_squat" or task.style or "pee_stand"
+end
+
+-- Audio handles belong to this session, never to a saved companion record.
+local peeSoundHandles = setmetatable({}, { __mode = "k" })
+
+local function startPeeSound(actor)
+    if peeSoundHandles[actor] ~= nil then return end
+    local handle, played = U().call(actor, "playSound", "LFUrinate")
+    if played and handle ~= nil and handle ~= 0 then
+        peeSoundHandles[actor] = handle
+    end
+end
+
+local function stopPeeSound(actor)
+    local handle = peeSoundHandles[actor]
+    if handle == nil then return end
+    peeSoundHandles[actor] = nil
+    U().call(actor, "stopOrTriggerSound", handle)
+end
+
+local function peeStartTopic(actor, task, hour)
+    if task.toilet then return "hygiene.pee_toilet" end
+    local square = task.square
+    local context
+    for dx = -1, 1 do
+        for dy = -1, 1 do
+            local x, y, z = U().position(square)
+            local near = x and U().gridSquare(x + dx, y + dy, z) or nil
+            U().squareObjects(near, function(object)
+                local name = customName(object)
+                if string.find(name, "gnome", 1, true) then context = "gnome" end
+                if string.find(name, "hydrant", 1, true) then context = "hydrant" end
+            end, 32)
+            local bodies = near and select(1, U().call(near, "getDeadBodys"))
+            local count = bodies and select(1, U().call(bodies, "size"))
+            if (tonumber(count) or 0) > 0 then context = "corpse" end
+        end
+    end
+    local seed = tostring(U().idOf(actor) or actor) .. ":pee_context:"
+        .. tostring(math.floor(hour or 0))
+    local roll = math.abs(tonumber(U().stableHash(seed)) or 0)
+    if roll % 12 == 0 and select(1, U().call(actor, "isFemale")) ~= true then
+        return "hygiene.pee_dirty"
+    end
+    if context and roll % 8 == 0 then
+        local topics = {
+            gnome = "hygiene.pee_gnome",
+            hydrant = "hygiene.pee_hydrant",
+            corpse = "hygiene.pee_corpse",
+        }
+        return topics[context]
+    end
+    return roll % 3 == 0 and "hygiene.pee_start" or "hygiene.pee_outdoor"
+end
+
+local function maybePeeReaction(actor, hour)
+    if not SC.Registry or type(SC.Registry.records) ~= "function" then return end
+    local seed = tostring(U().idOf(actor) or actor) .. ":pee_reaction:"
+        .. tostring(math.floor(hour or 0))
+    if math.abs(tonumber(U().stableHash(seed)) or 0) % 4 ~= 0 then return end
+    for _, record in ipairs(SC.Registry.records()) do
+        local other = record.actor
+        if other and other ~= actor and U().isValidActor(other)
+            and U().sameFloor(other, actor) and U().distance(other, actor) <= 5 then
+            local name = tostring(U().nameOf(actor) or "friend")
+            name = string.match(name, "^(%S+)") or "friend"
+            local topic = select(1, U().call(actor, "isFemale")) ~= true
+                and math.abs(tonumber(U().stableHash(seed .. ":tease")) or 0)
+                    % 5 == 0 and "hygiene.pee_reaction_dirty"
+                or "hygiene.pee_reaction"
+            if SC.Dialogue and type(SC.Dialogue.say) == "function" then
+                pcall(SC.Dialogue.say, other, topic, nil, { name })
+            end
+            return
+        end
+    end
+end
+
+local function updatePee(actor, player, state, hour, due)
+    local current = U().nowMs()
+    local task = state.pee
+    if task and task.phase == "seating" then
+        local status = SC.NativeActions and SC.NativeActions.furnitureStatus(actor) or "none"
+        local seated = select(1, U().call(actor, "isSittingOnFurniture")) == true
+        if status == "entered" and seated then
+            task.phase, task.seatedAt = "seated", current
+            startPeeSound(actor)
+            return true, "bathroom_break_seated"
+        end
+        if status == "failed" or status == "none"
+            or current - (task.seatingAt or current) > 12000 then
+            Needs.cancel(actor, "toilet_seat_failed")
+            state.nextPeeRetryAt = current + 30000
+            return false, "toilet_seat_failed"
+        end
+        return true, "taking_toilet_seat"
+    end
+    if task and task.phase == "seated" then
+        if select(1, U().call(actor, "isSittingOnFurniture")) ~= true then
+            Needs.cancel(actor, "toilet_seat_lost")
+            return false, "toilet_seat_lost"
+        end
+        if current - task.seatedAt < 6000 then return true, "bathroom_break_seated" end
+        task.phase = "standing"
+    end
+    if task and task.phase == "standing" then
+        stopPeeSound(actor)
+        local stood, reason = SC.NativeActions.leaveFurniture(actor)
+        if not stood then return true, reason or "leaving_toilet" end
+        local record = hygieneRecord(actor)
+        if record then record.nextPeeHour = hour + nextPeeInterval(actor, hour) end
+        state.pee = nil
+        sayPee(actor, "hygiene.pee_done")
+        return true, "bathroom_break_finished"
+    end
+    if task and task.phase == "animating" then
+        local status = SC.NativeActions and SC.NativeActions.visualStatus(actor,
+            peeAction(actor, task)) or "none"
+        if status == "active" then return true, "bathroom_break" end
+        if status == "completed" then
+            stopPeeSound(actor)
+            SC.NativeActions.clearVisual(actor)
+            local record = hygieneRecord(actor)
+            if record then record.nextPeeHour = hour + nextPeeInterval(actor, hour) end
+            state.pee = nil
+            sayPee(actor, "hygiene.pee_done")
+            return true, "bathroom_break_finished"
+        end
+        stopPeeSound(actor)
+        if SC.NativeActions then SC.NativeActions.cancelVisual(actor, "pee_interrupted") end
+        state.pee = nil
+        state.nextPeeRetryAt = current + 30000
+        return false, "bathroom_break_interrupted"
+    end
+    if current < (state.nextPeeRetryAt or 0) then return false, "bathroom_retry" end
+    if not task then
+        local inBase = SC.BaseLife and SC.BaseLife.isInside(actor) == true
+        local insideRoom = select(1, U().call(U().squareOf(actor), "getRoom")) ~= nil
+        local sits, style = peeStyle(actor, hour)
+        local toilet = inBase and insideRoom and toiletTarget(actor, not sits) or nil
+        local spot = toilet == nil and outdoorTarget(actor, player, hour - due >= 2)
+        if not toilet and not spot then
+            state.nextPeeRetryAt = current + 30000
+            return false, "bathroom_spot_unavailable"
+        end
+        local x, y = U().position(actor)
+        task = { toilet = toilet, square = spot, startedAt = current,
+            sits = sits, style = style,
+            lastX = x, lastY = y, lastProgressAt = current }
+        state.pee = task
+        sayPee(actor, peeStartTopic(actor, task, hour))
+        maybePeeReaction(actor, hour)
+    end
+    if current - task.startedAt > 45000 then
+        Needs.cancel(actor, "bathroom_route_timeout")
+        state.nextPeeRetryAt = current + 30000
+        return false, "bathroom_route_timeout"
+    end
+    local x, y = U().position(actor)
+    if x and task.lastX and (x - task.lastX)^2 + (y - task.lastY)^2 > 0.16 then
+        task.lastX, task.lastY, task.lastProgressAt = x, y, current
+    elseif current - (task.lastProgressAt or current) > 6000 then
+        if task.toilet then
+            task.toilet = nil
+            task.square = outdoorTarget(actor, player, true)
+            task.startedAt = current
+            task.lastProgressAt = current
+            if SC.Navigation then SC.Navigation.cancel(actor, "toilet_route_stalled") end
+            if not task.square then
+                Needs.cancel(actor, "bathroom_route_stalled")
+                return false, "bathroom_spot_unavailable"
+            end
+        else
+            Needs.cancel(actor, "bathroom_route_stalled")
+            state.nextPeeRetryAt = current + 30000
+            return false, "bathroom_route_stalled"
+        end
+    end
+    local arrived, status
+    if task.toilet then
+        arrived = task.sits
+            and U().directInteractionAccess(actor, task.toilet.object) == true
+            or not task.sits and U().sameSquare(actor, task.toilet.targets[1])
+        if not arrived and SC.Navigation then
+            local accepted
+            accepted, status = SC.Navigation.requestAny(actor, task.toilet.targets,
+                "walk", { action = "move_to_water_source",
+                    object = task.toilet.object,
+                    arrivalDistance = task.sits and 0.6 or 0.15,
+                    requireSameSquare = not task.sits })
+            if not accepted then status = nil end
+        end
+    else
+        arrived = U().sameSquare(actor, task.square)
+        if not arrived and SC.Navigation then
+            local accepted
+            accepted, status = SC.Navigation.request(actor, task.square, "walk",
+                { action = "move_to_water_source", arrivalDistance = 0.5 })
+            if not accepted then status = nil end
+        end
+    end
+    if arrived ~= true then
+        if task.toilet and status == "arrived" and task.sits then
+            task.toilet = nil
+            task.square = outdoorTarget(actor, player, true)
+            task.startedAt = current
+            task.lastProgressAt = current
+            if task.square then return true, "bathroom_spot_changed" end
+        end
+        if status == nil then
+            Needs.cancel(actor, "bathroom_route_failed")
+            state.nextPeeRetryAt = current + 30000
+            return false, "bathroom_route_failed"
+        end
+        return true, "approaching_bathroom_spot"
+    end
+    if task.toilet and task.sits then
+        local accepted, reason = U().move(actor, "walk", {
+            action = "sit", object = task.toilet.object,
+        })
+        if not accepted then
+            Needs.cancel(actor, "toilet_seat_rejected")
+            state.nextPeeRetryAt = current + 30000
+            return false, reason or "toilet_seat_rejected"
+        end
+        task.phase, task.seatingAt = "seating", current
+        return true, "taking_toilet_seat"
+    end
+    local action = peeAction(actor, task)
+    local accepted, reason = U().move(actor, "walk", {
+        action = action, object = task.toilet and task.toilet.object or nil,
+        durationMs = 6000,
+    })
+    if not accepted then
+        Needs.cancel(actor, "bathroom_animation_rejected")
+        state.nextPeeRetryAt = current + 30000
+        return false, reason or "bathroom_animation_rejected"
+    end
+    task.phase = "animating"
+    -- Make the effect UI available when the action starts; the render-tick
+    -- hook also retries if the interface is still initializing.
+    if SC.HygieneEffects and type(SC.HygieneEffects.ensureOverlay) == "function" then
+        pcall(SC.HygieneEffects.ensureOverlay)
+    end
+    startPeeSound(actor)
+    return true, "bathroom_break"
+end
+
 local function stateFor(actor, runtime)
     local root = U().actorState(actor, runtime)
     root.needs = root.needs or {}
@@ -204,6 +621,9 @@ function Needs.assess(actor, runtime)
         fatigue = U().characterStatValue(actor, "FATIGUE", state.fatigue or 0)
         state.hunger, state.thirst, state.fatigue = hunger, thirst, fatigue
     end
+    local hour = worldHour()
+    local peeDueAt = peeSchedule(actor, hour)
+    local inVehicle = select(1, U().call(actor, "getVehicle")) ~= nil
     return {
         hunger = hunger,
         thirst = thirst,
@@ -213,7 +633,10 @@ function Needs.assess(actor, runtime)
         emergency = hunger >= (U().config("needsHungerEmergency") or 0.82)
             or thirst >= (U().config("needsThirstEmergency") or 0.75),
         exhausted = fatigue >= (U().config("needsFatigueEmergency") or 0.82),
-        active = active,
+        active = active or state.pee ~= nil,
+        peeDue = hour ~= nil and peeDueAt ~= nil and hour >= peeDueAt
+            and not inVehicle,
+        peeOverdue = hour ~= nil and peeDueAt ~= nil and hour >= peeDueAt + 2,
     }
 end
 
@@ -484,10 +907,23 @@ end
 function Needs.update(actor, player, runtime)
     if not U().isValidActor(actor) then return false, "invalid_actor" end
     local state = stateFor(actor, runtime)
-    local active, kind = nativeNeedsActive(actor, state)
-    if active then return true, kind == "eat" and "eating" or "drinking" end
+    local hour = worldHour()
+    local peeDueAt = peeSchedule(actor, hour)
     local root = U().actorState(actor, runtime)
     local snapshot = root.senses and root.senses.current or root.snapshot or {}
+    if state.pee then
+        if (snapshot.immediateCount or 0) > 0
+            or (snapshot.pressure or 0) >= 1.5
+            or select(1, U().call(actor, "getVehicle")) ~= nil then
+            Needs.cancel(actor, "bathroom_break_unsafe")
+            return false, "needs_unsafe"
+        end
+        if hour then return updatePee(actor, player, state, hour, peeDueAt or hour) end
+        Needs.cancel(actor, "bathroom_clock_unavailable")
+        return false, "bathroom_clock_unavailable"
+    end
+    local active, kind = nativeNeedsActive(actor, state)
+    if active then return true, kind == "eat" and "eating" or "drinking" end
     if (snapshot.immediateCount or 0) > 0 or (snapshot.pressure or 0) >= 1.5 then
         return false, "needs_unsafe"
     end
@@ -554,10 +990,32 @@ function Needs.update(actor, player, runtime)
         if fetched then return true, fetchReason end
         return false, thirstReason or "safe_food_unavailable"
     end
+    if hour and peeDueAt and hour >= peeDueAt
+        and select(1, U().call(actor, "getVehicle")) == nil then
+        return updatePee(actor, player, state, hour, peeDueAt)
+    end
     return false, thirstReason or "needs_satisfied"
 end
 
 function Needs.cancel(actor, reason)
+    if actor then stopPeeSound(actor) end
+    local state = actor and states[actor]
+    if state and state.pee then
+        if (state.pee.phase == "seating" or state.pee.phase == "seated"
+            or state.pee.phase == "standing") and SC.NativeActions
+            and type(SC.NativeActions.leaveSeating) == "function" then
+            SC.NativeActions.leaveSeating(actor)
+        end
+        if SC.NativeActions and type(SC.NativeActions.cancelVisual) == "function" then
+            local cancelled, cancelReason = SC.NativeActions.cancelVisual(actor,
+                reason or "bathroom_break_cancelled")
+            if cancelled ~= true then return false, cancelReason end
+        end
+        if SC.Navigation and type(SC.Navigation.cancel) == "function" then
+            pcall(SC.Navigation.cancel, actor, reason or "bathroom_break_cancelled")
+        end
+        state.pee = nil
+    end
     if SC.Encounter and type(SC.Encounter.cancelPlayerSupply) == "function" then
         SC.Encounter.cancelPlayerSupply(actor)
     end

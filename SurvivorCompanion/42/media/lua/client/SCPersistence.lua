@@ -1153,6 +1153,10 @@ function persistence.captureRecord(record, vehicleState)
     if actor == nil then
         return nil, "active actor is required"
     end
+    if SC.Downtime and type(SC.Downtime.prepareForSave) == "function" then
+        local ready, reason = SC.Downtime.prepareForSave(actor)
+        if ready ~= true then return nil, reason or "shower_not_restored" end
+    end
     if type(record.runtime) == "table" and record.runtime.inactive == true then
         return nil, "inactive/unrecoverable actor cannot be captured"
     end
@@ -1348,6 +1352,8 @@ function persistence.captureRecord(record, vehicleState)
             lastCompleted = captureLastDowntime(downtime.lastCompleted),
             facts = downtimeFacts,
             mediaLines = mediaLines,
+            nextPeeHour = finite(downtime.nextPeeHour, nil),
+            lastShowerHour = finite(downtime.lastShowerHour, nil),
         },
         vehicle = vehicleCopy,
     }

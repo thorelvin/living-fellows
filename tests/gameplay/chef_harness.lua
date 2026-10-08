@@ -76,8 +76,9 @@ swap(util, "idOf", function(value) return value.id end)
 chef.reset()
 fridge.powered = false
 local queued, reason = chef.ensureAutomaticJob(actor, { role = "chef", duty = true })
-assert(queued == false and reason == "chef_fridge_unavailable",
-    "automatic meals must wait for powered cold storage")
+assert(queued == true and #world.jobs == 1,
+    "automatic meals may use an unpowered fridge when no cold storage remains")
+world.jobs = {}
 chef.reset()
 fridge.powered = true
 queued = chef.ensureAutomaticJob(actor, { role = "chef", duty = true })
@@ -110,6 +111,12 @@ chef.reset()
 queued, reason = chef.ensureAutomaticJob(actor, { role = "chef", duty = true })
 assert(queued == false and reason == "chef_stock_ready",
     "safe ready meals in the powered fridge satisfy residents")
+chef.reset()
+fridge.powered = false
+queued, reason = chef.ensureAutomaticJob(actor, { role = "chef", duty = true })
+assert(queued == false and reason == "chef_stock_ready",
+    "prepared food in an unpowered fridge still counts toward the small camp reserve")
+fridge.powered = true
 
 queued = chef.requestMeal(actor, player)
 assert(queued == true and world.jobs[1].target.manual == true,
@@ -193,6 +200,24 @@ end }
 ISTimedActionQueue = { add = function(action) queuedAction = action end }
 swap(util, "directInteractionAccess", function() return true, {} end)
 swap(util, "resolveActor", function() return actor end)
+local craftingStorage = { id = "chef-crafting", category = "crafting" }
+local previousRows, previousResolve, previousObject, previousStorage,
+    previousAvailable = baseLife.storageRows, baseLife.resolveContainer,
+    baseLife.resolveObject, baseLife.storage, baseLife.availableCountExact
+baseLife.storageRows = function(category)
+    if category == nil or category == "crafting" then return { craftingStorage } end
+    return {}
+end
+baseLife.resolveContainer = function(storage)
+    return storage == craftingStorage and shelf or nil
+end
+baseLife.resolveObject = function(storage)
+    return storage == craftingStorage and supplyObject or nil
+end
+baseLife.storage = function(id)
+    return id == craftingStorage.id and craftingStorage or nil
+end
+baseLife.availableCountExact = function() return 2 end
 chef.reset()
 local job = { id = "job:meal", type = "cook", target = { manual = false } }
 local handled, progress, _, completed = chef.update(actor, {}, job, player)
@@ -209,6 +234,9 @@ assert(handled == true and completed == true and progress == "chef_meal_stored",
     "finished native meal must be moved to powered fridge")
 assert(util.inventoryContains(fridge, salad) and saladData.SC_ChefJobId == job.id
     and job.target.cookPhase == "stored", "receipt identifies the exact stored meal")
+baseLife.storageRows, baseLife.resolveContainer, baseLife.resolveObject,
+    baseLife.storage, baseLife.availableCountExact = previousRows,
+    previousResolve, previousObject, previousStorage, previousAvailable
 chef.reset()
 handled, progress, _, completed = chef.update(actor, {}, job, player)
 assert(handled == true and completed == true and progress == "stored"

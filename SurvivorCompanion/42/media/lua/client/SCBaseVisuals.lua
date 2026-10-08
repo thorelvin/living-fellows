@@ -73,6 +73,12 @@ local function player()
     return nil
 end
 
+local function splitScreenActive()
+    if type(getSpecificPlayer) ~= "function" then return false end
+    local ok, secondPlayer = pcall(getSpecificPlayer, 1)
+    return ok and secondPlayer ~= nil
+end
+
 local function numberMethod(object, methodName)
     local method = object and object[methodName] or nil
     if type(method) ~= "function" then return nil end
@@ -234,7 +240,10 @@ local function bounds(row)
 end
 
 -- Build 42 declares renderIsoLine's thickness as an int.
-local function renderRectangle(row, color, thickness, alpha)
+local function renderRectangle(row, color, thickness, alpha, split)
+    -- renderIsoLine uses the current camera, not an explicit player index.
+    -- OnRenderTick can run after the second viewport became current.
+    if split then return true end
     if type(renderIsoLine) ~= "function" then return false end
     local x1, y1, x2, y2 = bounds(row)
     local z = tonumber(row.z)
@@ -267,7 +276,7 @@ local function fillArea(row, color, alpha)
         addAreaHighlightForPlayer(0, x1, y1, x2, y2, z, color.r, color.g, color.b, alpha)
         return true
     end
-    if type(addAreaHighlight) == "function" then
+    if not splitScreenActive() and type(addAreaHighlight) == "function" then
         addAreaHighlight(x1, y1, x2, y2, z, color.r, color.g, color.b, alpha)
         return true
     end
@@ -277,13 +286,16 @@ end
 -- Build recipe ghost sprites do not always survive outside the placement
 -- cursor. Keep a world-space guide for each queued segment so the plan stays
 -- visible until the job is built or cancelled, even if its sprite is absent.
-local function renderConstructionGuide(row, color, alpha)
+local function renderConstructionGuide(row, color, alpha, split)
     local x, y, z = tonumber(row.x), tonumber(row.y), tonumber(row.z)
     if not x or not y or not z then return false end
     local tile = { x1 = x, y1 = y, x2 = x, y2 = y, z = z }
     if row.kind == "floor" then
         local filled = fillArea(tile, color, math.max(0.28, alpha * 0.7))
-        return renderRectangle(tile, color, 3, math.max(0.85, alpha)) or filled
+        return renderRectangle(tile, color, 3, math.max(0.85, alpha), split) or filled
+    end
+    if split then
+        return fillArea(tile, color, math.max(0.24, alpha * 0.5))
     end
     if type(renderIsoLine) ~= "function" then
         return fillArea(tile, color, math.max(0.24, alpha * 0.5))
@@ -385,6 +397,7 @@ end
 local reportFailure
 
 function Visuals.renderWorld()
+    local split = splitScreenActive()
     local draft = currentDraft()
     refreshConstruction(false)
     if SC.ConstructionPlanner then
@@ -395,7 +408,17 @@ function Visuals.renderWorld()
                     and { r = 0.10, g = 0.94, b = 0.95 }
                 or { r = 0.24, g = 0.70, b = 1.00 }
             local alpha = enabled and 0.58 or 0.35
-            if row.type == "barricade" then
+            if split then
+                -- Ghost sprites render in both world views. During split screen,
+                -- keep each plan visible as a player-zero tile guide instead.
+                local guideOkay, guideRendered = pcall(
+                    renderConstructionGuide, row, color, alpha, true)
+                if not guideOkay or guideRendered ~= true then
+                    reportFailure("base-visuals-build-guide",
+                        guideOkay and tostring(row.id) .. ": guide unavailable"
+                            or guideRendered)
+                end
+            elseif row.type == "barricade" then
                 local okay, rendered = pcall(
                     SC.ConstructionPlanner.renderBarricadeGhost, row, color, alpha)
                 if not okay or rendered ~= true then
@@ -409,7 +432,7 @@ function Visuals.renderWorld()
                     SC.ConstructionPlanner.renderBuildGhost, recipe, row.face,
                     row.x, row.y, row.z, color, alpha)
                 local guideOkay, guideRendered = pcall(
-                    renderConstructionGuide, row, color, alpha)
+                    renderConstructionGuide, row, color, alpha, split)
                 if not okay then
                     reportFailure("base-visuals-build", rendered)
                 end
@@ -428,7 +451,8 @@ function Visuals.renderWorld()
             local color = colorFor(ZONE_COLORS, zone.kind)
             fillArea(zone, color, focused and FOCUS_FILL_ALPHA
                 or (zone.kind == "area" and AREA_FILL_ALPHA or ZONE_FILL_ALPHA))
-            renderRectangle(zone, color, focused and 4 or 2, focused and 0.98 or 0.80)
+            renderRectangle(zone, color, focused and 4 or 2,
+                focused and 0.98 or 0.80, split)
         end
         for _, entry in ipairs(cachedStorages) do
             local tile = storageTile(entry.record)
@@ -454,8 +478,8 @@ function Visuals.renderWorld()
                 local color = valid and colorFor(ZONE_COLORS, draft.kind)
                     or { r = 1.00, g = 0.08, b = 0.04 }
                 fillArea(preview, color, DRAFT_FILL_ALPHA)
-                renderRectangle(preview, color, 3, 0.92)
-                if type(renderIsoCircle) == "function" then
+                renderRectangle(preview, color, 3, 0.92, split)
+                if not split and type(renderIsoCircle) == "function" then
                     renderIsoCircle(draft.first.x + 0.5, draft.first.y + 0.5,
                         draft.first.z, 0.24, 12, 2, color.r, color.g, color.b, 0.95)
                     renderIsoCircle(endpoint.x + 0.5, endpoint.y + 0.5,
@@ -475,7 +499,21 @@ local function zoomFor(playerIndex)
     return value
 end
 
+local playerViewport
+
 local function screenPosition(x, y, z, playerIndex)
+    local index = tonumber(playerIndex) or 0
+    local zoom = zoomFor(index)
+    if type(isoToScreenX) == "function" and type(isoToScreenY) == "function" then
+        local xOk, sx = pcall(isoToScreenX, index, x, y, z)
+        local yOk, sy = pcall(isoToScreenY, index, x, y, z)
+        sx, sy = xOk and tonumber(sx) or nil, yOk and tonumber(sy) or nil
+        if sx == nil or sy == nil then return nil, nil end
+        return sx, sy, zoom
+    end
+    -- The legacy conversion uses whichever camera rendered last. It cannot
+    -- place a base label reliably in split screen.
+    if splitScreenActive() then return nil, nil end
     local ok, sx, sy
     if type(ISCoordConversion) == "table"
         and type(ISCoordConversion.ToScreen) == "function" then
@@ -492,7 +530,6 @@ local function screenPosition(x, y, z, playerIndex)
     end
     sx, sy = ok and tonumber(sx) or nil, ok and tonumber(sy) or nil
     if sx == nil or sy == nil then return nil, nil end
-    local zoom = zoomFor(playerIndex)
     return sx / zoom, sy / zoom, zoom
 end
 
@@ -527,10 +564,12 @@ local function drawScreenLabel(value, sx, sy, color, occupied, alpha, stackDirec
 end
 
 local function drawLabel(value, x, y, z, color, occupied, alpha, verticalOffset, playerIndex)
-    local sx, sy, zoom = screenPosition(x, y, z, playerIndex)
+    local index = tonumber(playerIndex) or 0
+    local sx, sy, zoom = screenPosition(x, y, z, index)
     if not sx then return false end
     sy = sy - (tonumber(verticalOffset) or 48) / zoom
-    return drawScreenLabel(value, sx, sy, color, occupied, alpha)
+    return drawScreenLabel(value, sx, sy, color, occupied, alpha,
+        nil, playerViewport and playerViewport(index))
 end
 
 local function companionNamePosition(actor, x, y, z, playerIndex)
@@ -559,7 +598,7 @@ local function companionNamePosition(actor, x, y, z, playerIndex)
         sy - (offsetY + headClearance) / zoom - fontHeight - bottomGap
 end
 
-local function playerViewport(index)
+playerViewport = function(index)
     if type(getPlayerScreenLeft) ~= "function"
         or type(getPlayerScreenTop) ~= "function"
         or type(getPlayerScreenWidth) ~= "function"
@@ -692,8 +731,22 @@ local function drawLegend()
     if not manager or type(manager.DrawString) ~= "function" then return 0 end
     local x = tonumber(configured("baseLayoutLegendX", 90)) or 90
     local y = tonumber(configured("baseLayoutLegendY", 160)) or 160
+    local viewport = playerViewport(0)
+    if viewport then
+        local reserved = math.min(220, viewport.right - viewport.left - 16)
+        x = math.max(viewport.left + 8,
+            math.min(x, viewport.right - 8 - reserved))
+        y = math.max(viewport.top + 8, math.min(y, viewport.bottom - 23))
+    end
     local lines = 0
     local function line(value, color)
+        if viewport then
+            local width = safeMethod(manager, "MeasureStringX", UIFont.Small, value)
+            if (tonumber(width) or 0) > viewport.right - x - 8
+                or y + (lines + 1) * 15 > viewport.bottom - 8 then
+                return
+            end
+        end
         manager:DrawString(UIFont.Small, x, y + lines * 15, value,
             color.r, color.g, color.b, 0.95)
         lines = lines + 1
@@ -775,6 +828,13 @@ function Visuals.onRenderTick()
     end
     local ok, reason = pcall(Visuals.renderWorld)
     if not ok then reportFailure("base-visuals-world", reason) end
+    if SC.HygieneEffects and type(SC.HygieneEffects.ensureOverlay) == "function" then
+        local effectOk, ready, effectReason =
+            pcall(SC.HygieneEffects.ensureOverlay)
+        if not effectOk or ready == false then
+            reportFailure("hygiene-effects", effectOk and effectReason or ready)
+        end
+    end
 end
 
 function Visuals.onPreUIDraw()
@@ -865,6 +925,9 @@ function Visuals.remove()
         return false, tostring(not labelsOk and labelsReason or worldReason)
     end
     installed = false
+    if SC.HygieneEffects and type(SC.HygieneEffects.remove) == "function" then
+        pcall(SC.HygieneEffects.remove)
+    end
     Visuals.reset()
     return true, "removed"
 end

@@ -900,7 +900,8 @@ local function classifyItem(item)
         or string.find(itemType, "round", 1, true) then return "ammunition" end
     if U().itemHasTag(item, "Hammer") or string.find(itemType, "saw", 1, true)
         or string.find(itemType, "screwdriver", 1, true) then return "tools" end
-    if string.find(itemType, "plank", 1, true) or string.find(itemType, "nails", 1, true)
+    if itemType == "base.log" or string.find(itemType, "plank", 1, true)
+        or string.find(itemType, "nails", 1, true)
         or string.find(itemType, "lumber", 1, true) then return "construction" end
     return "crafting"
 end
@@ -932,8 +933,9 @@ local function destinationsFor(job, item, actor, sourceId)
 end
 
 local function findTransfer(job, actor)
-    local sourceCategory = job.type == "sort" and "general"
-        or (type(job.target) == "table" and job.target.sourceCategory) or "general"
+    local sourceCategory = (type(job.target) == "table" and job.target.sourceCategory)
+        or "general"
+    if job.type == "sort" then sourceCategory = nil end
     for _, source in ipairs(SC.BaseLife.storageRows(sourceCategory, true)) do
         local container = SC.BaseLife.resolveContainer(source)
         if container then
@@ -942,7 +944,11 @@ local function findTransfer(job, actor)
                 local itemType = U().itemType(item)
                 if not (SC.PersonalItems and SC.PersonalItems.isProtected
                     and SC.PersonalItems.isProtected(item, actor, "base_haul")) then
-                    local rows = destinationsFor(job, item, actor, source.id)
+                    local wanted = type(job.target) == "table"
+                        and job.target.destinationCategory or classifyItem(item)
+                    local needsSorting = job.type ~= "sort" or source.category ~= wanted
+                    local rows = needsSorting and destinationsFor(job, item, actor, source.id)
+                        or {}
                     if #rows > 0 and sourceItemAvailable(source, itemType) then
                         -- The audit also calls this selector. Leave its selected
                         -- window ready for the worker's first execution tick.
@@ -1674,8 +1680,8 @@ end
 
 local function auditSorting(base)
     if openJob(base, "sort") then return false, "sorting_already_queued" end
-    if #SC.BaseLife.storageRows("general", true) == 0 then
-        return false, "general_storage_missing"
+    if #SC.BaseLife.storageRows(nil, true) == 0 then
+        return false, "sorting_source_missing"
     end
     local destinations = 0
     for category in pairs(SC.BaseLife.STORAGE_CATEGORIES) do

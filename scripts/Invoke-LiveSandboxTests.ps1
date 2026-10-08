@@ -16,6 +16,9 @@ param(
     [switch]$LivingFellowsOnly,
     [switch]$UIMenuProbe,
     [switch]$BaseMaintenanceProbe,
+    [switch]$HygieneProbe,
+    [string]$HygieneScreenshot = '',
+    [string]$HygieneEightDirectionsScreenshotDirectory = '',
     [switch]$BaseSecondFloorProbe,
     [switch]$WaterSourceProbe,
     [switch]$ProjectALifeDamageProbe,
@@ -28,11 +31,14 @@ param(
     [string]$CompanionInventoryScreenshot = '',
     [switch]$CompanionInventoryOnly,
     [switch]$FurniturePoseOnly,
+    [switch]$VehiclePassengerOnly,
+    [string]$VehiclePassengerScreenshot = '',
     [switch]$WoodcutterOnly,
     [switch]$PostedStreamOnly,
     [switch]$PathingOnly,
     [switch]$PlaceMetadataOnly,
     [switch]$SplitScreenOnly,
+    [switch]$SplitBaseLayoutProbe,
     [switch]$ColdCompanionProbe,
     [switch]$FishingMapListProbe,
     [switch]$FishingBankProbe,
@@ -143,6 +149,9 @@ if ($SplitScreenOnly -and ($PathingOnly -or $FactionMapOnly -or $BaseLayoutOnly)
 }
 if ($LeaderSlotOnly -and -not $SplitScreenOnly) {
     throw '-LeaderSlotOnly requires -SplitScreenOnly.'
+}
+if ($SplitBaseLayoutProbe -and (-not $SplitScreenOnly -or -not $LeaderSlotOnly)) {
+    throw '-SplitBaseLayoutProbe requires -SplitScreenOnly and -LeaderSlotOnly.'
 }
 if ($ColdCompanionProbe -and (-not $SplitScreenOnly -or $LeaderSlotOnly)) {
     throw '-ColdCompanionProbe requires the standalone split-screen probe.'
@@ -414,6 +423,14 @@ if ($TeamRadioKitOnly -and (-not $LeaderSlotOnly -or $TeamHandoff -or $LeaderRem
 if ($TeamRadioKitVerifyOnly -and (-not $LeaderSlotOnly -or $TeamHandoff -or $LeaderRemote -or $TeamRadioKitOnly)) {
     throw '-TeamRadioKitVerifyOnly requires -LeaderSlotOnly without kit provisioning.'
 }
+if (-not [string]::IsNullOrWhiteSpace($HygieneEightDirectionsScreenshotDirectory)) {
+    if (-not $HygieneProbe) {
+        throw '-HygieneEightDirectionsScreenshotDirectory requires -HygieneProbe.'
+    }
+    $HygieneEightDirectionsScreenshotDirectory = [System.IO.Path]::GetFullPath(
+        $HygieneEightDirectionsScreenshotDirectory)
+    New-Item -ItemType Directory -Path $HygieneEightDirectionsScreenshotDirectory -Force | Out-Null
+}
 if ($SplitScreenOnly -ne (-not [string]::IsNullOrWhiteSpace($SplitScreenScreenshot))) {
     throw '-SplitScreenOnly requires -SplitScreenScreenshot, and that screenshot requires -SplitScreenOnly.'
 }
@@ -469,6 +486,14 @@ if ($CompanionInventoryOnly -ne (-not [string]::IsNullOrWhiteSpace($CompanionInv
 if ($CompanionInventoryOnly) {
     $CompanionInventoryScreenshot = [System.IO.Path]::GetFullPath($CompanionInventoryScreenshot)
     New-Item -ItemType Directory -Path (Split-Path -Parent $CompanionInventoryScreenshot) -Force | Out-Null
+}
+if ($VehiclePassengerOnly -ne (-not [string]::IsNullOrWhiteSpace($VehiclePassengerScreenshot))) {
+    throw '-VehiclePassengerOnly requires -VehiclePassengerScreenshot.'
+}
+if ($VehiclePassengerOnly) {
+    if ($HiddenWindow) { throw '-VehiclePassengerOnly requires a visible game window for capture.' }
+    $VehiclePassengerScreenshot = [System.IO.Path]::GetFullPath($VehiclePassengerScreenshot)
+    New-Item -ItemType Directory -Path (Split-Path -Parent $VehiclePassengerScreenshot) -Force | Out-Null
 }
 if ($BaseLayoutOnly -and ($PathingOnly -or $FactionMapOnly -or $captureFactionMap)) {
     throw '-BaseLayoutOnly cannot be combined with pathing or faction-map runs.'
@@ -837,6 +862,9 @@ $config = @(
     ('project_alife_damage_probe=' + $ProjectALifeDamageProbe.IsPresent.ToString().ToLowerInvariant()),
     ('ui_menu_probe=' + $UIMenuProbe.IsPresent.ToString().ToLowerInvariant()),
     ('base_maintenance_probe=' + $BaseMaintenanceProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('hygiene_probe=' + $HygieneProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('hygiene_eight_directions=' +
+        (-not [string]::IsNullOrWhiteSpace($HygieneEightDirectionsScreenshotDirectory)).ToString().ToLowerInvariant()),
     ('base_second_floor_probe=' + $BaseSecondFloorProbe.IsPresent.ToString().ToLowerInvariant()),
     ('water_source_probe=' + $WaterSourceProbe.IsPresent.ToString().ToLowerInvariant()),
     ('capture_faction_map=' + $captureFactionMap.ToString().ToLowerInvariant()),
@@ -844,6 +872,7 @@ $config = @(
     ('pathing_only=' + $PathingOnly.IsPresent.ToString().ToLowerInvariant()),
     ('place_metadata_only=' + $PlaceMetadataOnly.IsPresent.ToString().ToLowerInvariant()),
     ('split_screen_only=' + $SplitScreenOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('split_base_layout_probe=' + $SplitBaseLayoutProbe.IsPresent.ToString().ToLowerInvariant()),
     ('cold_companion_probe=' + $ColdCompanionProbe.IsPresent.ToString().ToLowerInvariant()),
     ('fishing_bank_probe=' + $FishingBankProbe.IsPresent.ToString().ToLowerInvariant()),
     ('fishing_map_list_probe=' + $FishingMapListProbe.IsPresent.ToString().ToLowerInvariant()),
@@ -939,6 +968,7 @@ $config = @(
     ('base_layout_only=' + $BaseLayoutOnly.IsPresent.ToString().ToLowerInvariant()),
     ('companion_inventory_only=' + $CompanionInventoryOnly.IsPresent.ToString().ToLowerInvariant()),
     ('furniture_pose_only=' + $FurniturePoseOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('vehicle_passenger_only=' + $VehiclePassengerOnly.IsPresent.ToString().ToLowerInvariant()),
     ('woodcutter_only=' + $WoodcutterOnly.IsPresent.ToString().ToLowerInvariant()),
     ('posted_stream_only=' + $PostedStreamOnly.IsPresent.ToString().ToLowerInvariant()),
     ('internal_timeout_ms=' + (($TimeoutSeconds - 15) * 1000))
@@ -967,8 +997,10 @@ $manifest = [ordered]@{
     baseLayoutScreenshot = if ($captureBaseLayout) { $BaseLayoutScreenshot } else { $null }
     baseLayoutOnly = $BaseLayoutOnly.IsPresent
     companionInventoryScreenshot = if ($CompanionInventoryOnly) { $CompanionInventoryScreenshot } else { $null }
+    vehiclePassengerScreenshot = if ($VehiclePassengerOnly) { $VehiclePassengerScreenshot } else { $null }
     pathingOnly = $PathingOnly.IsPresent
     splitScreenOnly = $SplitScreenOnly.IsPresent
+    splitBaseLayoutProbe = $SplitBaseLayoutProbe.IsPresent
     leaderSlotOnly = $LeaderSlotOnly.IsPresent
     leaderRemote = $LeaderRemote.IsPresent
     leaderWatchSeconds = $LeaderWatchSeconds
@@ -1028,6 +1060,7 @@ try {
     $zombieVisibilityCaptureCompleted = $false
     $postHandoffCaptureCompleted = $false
     $crashProbeCompleted = $false
+    $hygieneCaptureCompleted = $false
     $nextProcessSample = [DateTime]::MinValue
     while ([DateTime]::UtcNow -lt $deadline -and -not (Test-Path -LiteralPath $summaryPath -PathType Leaf)) {
         $process.Refresh()
@@ -1067,6 +1100,16 @@ try {
                 Write-Output "Sent isolated click-to-start attempt $clickAttempts to pid=$($process.Id)"
             }
             $nextLoadingClick = [DateTime]::UtcNow.AddSeconds(3)
+        }
+        if ($HygieneProbe -and -not $hygieneCaptureCompleted -and
+            -not [string]::IsNullOrWhiteSpace($HygieneScreenshot) -and
+            (Test-Path -LiteralPath $eventsPath -PathType Leaf) -and
+            (Select-String -LiteralPath $eventsPath -SimpleMatch 'PASS|hygiene_screenshot|' -Quiet)) {
+            if (-not (Save-ClientScreenshot $process $HygieneScreenshot)) {
+                throw "Could not capture hygiene pose to $HygieneScreenshot"
+            }
+            Write-Output "Captured hygiene pose: $HygieneScreenshot"
+            $hygieneCaptureCompleted = $true
         }
         if ($captureFactionMap -and -not $factionMapCaptureCompleted -and
             (Test-Path -LiteralPath $factionMapReadyPath -PathType Leaf)) {
@@ -1178,6 +1221,17 @@ try {
             Write-Output "Captured companion inventory screenshot: $CompanionInventoryScreenshot"
             $companionInventoryCaptureCompleted = $true
         }
+        if ($VehiclePassengerOnly -and -not $vehiclePassengerCaptureCompleted -and
+            (Test-Path -LiteralPath (Join-Path $SandboxLua 'vehicle-passenger-ready.txt') -PathType Leaf)) {
+            Start-Sleep -Milliseconds 1000
+            if (-not (Save-ClientScreenshot $process $VehiclePassengerScreenshot)) {
+                throw "Could not capture the vehicle passenger to $VehiclePassengerScreenshot"
+            }
+            [System.IO.File]::WriteAllText((Join-Path $SandboxLua 'vehicle-passenger-captured.txt'),
+                ('captured=true' + [Environment]::NewLine), $utf8NoBom)
+            Write-Output "Captured vehicle passenger: $VehiclePassengerScreenshot"
+            $vehiclePassengerCaptureCompleted = $true
+        }
         Start-Sleep -Milliseconds 500
     }
     if (-not $crashProbeCompleted -and -not (Test-Path -LiteralPath $summaryPath -PathType Leaf)) {
@@ -1209,6 +1263,20 @@ if (-not $process.HasExited) {
 }
 
 Get-Content -LiteralPath $eventsPath -ErrorAction SilentlyContinue
+if (-not [string]::IsNullOrWhiteSpace($HygieneEightDirectionsScreenshotDirectory)) {
+    $directionNames = @('N','NE','E','SE','S','SW','W','NW')
+    $sourceDirectory = Join-Path $CacheRoot 'Screenshots'
+    foreach ($directionName in $directionNames) {
+        $source = Join-Path $sourceDirectory ($runId + '-pee-' + $directionName)
+        if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+            throw "Missing hygiene direction screenshot: $source"
+        }
+        $destination = Join-Path $HygieneEightDirectionsScreenshotDirectory `
+            ('pee-' + $directionName + '.png')
+        Copy-Item -LiteralPath $source -Destination $destination -Force
+        Write-Output "Hygiene direction $directionName screenshot: $destination"
+    }
+}
 Write-Output "Live sandbox run retained for audit: $RunRoot"
 Write-Output "Live console: $consolePath"
 if ($captureFactionMap) {
@@ -1216,6 +1284,7 @@ if ($captureFactionMap) {
 }
 if ($SplitScreenOnly) { Write-Output "Split-screen screenshot: $SplitScreenScreenshot" }
 if ($CompanionInventoryOnly) { Write-Output "Companion inventory screenshot: $CompanionInventoryScreenshot" }
+if ($VehiclePassengerOnly) { Write-Output "Vehicle passenger screenshot: $VehiclePassengerScreenshot" }
 if ($TeamZombieVisibilityProbe) { Write-Output "Zombie visibility screenshot: $ZombieVisibilityScreenshot" }
 if ($PerformanceBaselineOnly -or $TeamPerformanceProbe -or $TeamPerformanceRouteProbe) {
     Write-Output "Performance samples: $SandboxLua"

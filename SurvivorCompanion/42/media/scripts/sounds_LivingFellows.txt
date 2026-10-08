@@ -1,0 +1,15 @@
+module Base
+{
+    sound LFUrinate
+    {
+        category = Player,
+        maxInstancesPerEmitter = 1,
+        clip
+        {
+            file = media/sound/LFUrinate.ogg,
+            is3D = true,
+            distanceMax = 12,
+            volume = 0.65,
+        }
+    }
+}

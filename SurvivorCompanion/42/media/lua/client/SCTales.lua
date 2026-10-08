@@ -374,6 +374,9 @@ function Tales.noteKill(actor, target, now)
     episode.weapon = weaponOf(actor)
     episode.hour = hourNow()
     noteWitnesses(actor, episode)
+    if SC.Banter and type(SC.Banter.noteKill) == "function" then
+        SC.Banter.noteKill(actor, now)
+    end
     return true, "kill_noted"
 end
 

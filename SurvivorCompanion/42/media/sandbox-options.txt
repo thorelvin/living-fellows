@@ -112,6 +112,22 @@ option LivingFellows.ShowCompanionNames
     translation = LivingFellows_ShowCompanionNames,
 }
 
+option LivingFellows.IntrusiveThoughtsEnabled
+{
+    type = boolean,
+    default = true,
+    page = LivingFellows,
+    translation = LivingFellows_IntrusiveThoughtsEnabled,
+}
+
+option LivingFellows.ProfanityEnabled
+{
+    type = boolean,
+    default = true,
+    page = LivingFellows,
+    translation = LivingFellows_ProfanityEnabled,
+}
+
 option LivingFellows.DiariesEnabled
 {
     type = boolean,

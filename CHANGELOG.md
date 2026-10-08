@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 0.26.30 - Camp work and companion downtime
+
+- Automatic production checks eligible roles during each audit, so a busy worker no longer delays corpse disposal and other jobs. Woodcutters continue until marked log storage is full.
+- Sorting can move misfiled items from any marked, withdrawable crate into the right category. Chefs can find recipe ingredients and tools across marked storage categories, use Food storage after fridge power fails, and try another destination when one is full.
+- Corpse pyres recognize usable firestarters with the game's StartFire tag, including ones carried in bags. Burial and burning still require their respective safe marked zones and supplies.
+- Native vehicle boarding settles companions into the inside passenger position. Base Watch and expedition view cleanup restores the clock and speed controls; base overlays respect the player viewport in split screen.
+- Companions gain shower and toilet downtime actions with animation, effects, sound, and contextual dialogue. Rare contextual thoughts and replies expand conversation variety.
+- Gameplay and production harnesses cover the new camp, hygiene, vehicle, and view behavior. In-game visual checks remain useful for the new animations and split-screen presentation.
+
 ## 0.26.29 - Furniture-aware camp paths
 
 - Guard rounds and window watching avoid standing tiles occupied by chairs, stools, tables or counters. Counter-covered windows remain available to native escape traversal.

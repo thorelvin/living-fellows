@@ -187,6 +187,12 @@ local visualActionSpecs = {
         sound = "RummageInInventory" },
     wash_self = { animation = "WashFace", event = "EventWashClothing", ticks = 240,
         sound = "WashYourself" },
+    shower = { animation = "WashFace", event = "EventWashClothing", ticks = 360,
+        sound = "WashYourself" },
+    pee_stand = { animation = "LF_PeeStanding", ticks = 330, maxTicks = 420 },
+    pee_hip = { animation = "LF_PeeHip", ticks = 330, maxTicks = 420 },
+    pee_free = { animation = "LF_PeeFree", ticks = 330, maxTicks = 420 },
+    pee_squat = { animation = "LF_PeeSquat", ticks = 330, maxTicks = 420 },
     wash_equipment = { animation = "ScrubClothWithSoap", event = "EventWashClothing",
         primaryItem = true, ticks = 240, sound = "WashClothing" },
     wash_bandage = { animation = "ScrubClothWithSoap", event = "EventWashClothing",
@@ -1397,7 +1403,9 @@ local function visualActionClass()
                 value.bandageType = value.bandageType or "LeftLeg"
             end
         end
-        if actionName == "study_corpse" or actionName == "pay_respects" then
+        if actionName == "study_corpse" or actionName == "pay_respects"
+            or actionName == "pee_stand" or actionName == "pee_hip"
+            or actionName == "pee_free" or actionName == "shower" then
             value.faceTarget = intent.object
         end
         value.sound = spec.sound

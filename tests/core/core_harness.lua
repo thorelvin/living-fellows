@@ -961,15 +961,33 @@ end
 function vehicle:enter(seat, candidate)
     if seat ~= 1 or self.passenger ~= nil then return false end
     self.passenger, candidate.vehicle = candidate, self
+    self.passengerPosition = "outside"
     return true
 end
 function vehicle:exit(candidate)
     if self.passenger ~= candidate then return false end
     self.passenger, candidate.vehicle = nil, nil
+    self.passengerPosition = nil
     return true
 end
 function vehicle:getSeat(candidate) return self.passenger == candidate and 1 or -1 end
 function vehicle:getCharacter(seat) return seat == 1 and self.passenger or nil end
+function vehicle:getPassengerPosition(seat, position)
+    if seat == 1 and position == "inside" and not self.missingInside then
+        return { position = position }
+    end
+    return nil
+end
+function vehicle:setCharacterPosition(candidate, seat, position)
+    if self.rejectInside then error("injected inside-position failure") end
+    if seat == 1 and self.passenger == candidate then self.passengerPosition = position end
+end
+function vehicle:transmitCharacterPosition(seat, position)
+    if seat == 1 then self.transmittedPosition = position end
+end
+function vehicle:playPassengerAnim(seat, animation)
+    if seat == 1 then self.passengerAnimation = animation end
+end
 local vehicleCell = {}
 function vehicleCell:getGridSquare(x, y, z)
     local candidate = { x = x, y = y, z = z }
@@ -1191,9 +1209,35 @@ check(unverifiedBoard == false and unverifiedBoardReason == "board_verify_owner_
         and SC.Vehicle.isSeatReserved(vehicle, 1) == false,
     "boarding rolls native entry back if verification ownership is rejected")
 SC.ActionSupervisor.resetRetry(actor, "next_fault_case", "board_vehicle")
+function SC.__testVehicleInsidePosition()
+    vehicle.missingInside = true
+    local unpositionableBoard, unpositionableReason = SC.Vehicle.board(actor, vehicle, nil,
+        { preflight = preflight })
+    vehicle.missingInside = nil
+    check(unpositionableBoard == false
+            and string.find(tostring(unpositionableReason), "inside passenger position", 1, true)
+            and actor:getVehicle() == nil and vehicle.passenger == nil,
+        "boarding refuses a vehicle seat without a scripted inside position")
+    SC.ActionSupervisor.resetRetry(actor, "next_fault_case", "board_vehicle")
+    vehicle.rejectInside = true
+    local misplacedBoard, misplacedReason = SC.Vehicle.board(actor, vehicle, nil,
+        { preflight = preflight })
+    vehicle.rejectInside = nil
+    check(misplacedBoard == false
+            and string.find(tostring(misplacedReason), "placement failed", 1, true)
+            and actor:getVehicle() == nil and vehicle.passenger == nil
+            and vehicle.passengerPosition == nil,
+        "a failed inside-seat transition rolls native boarding back")
+    SC.ActionSupervisor.resetRetry(actor, "next_fault_case", "board_vehicle")
+end
+SC.__testVehicleInsidePosition()
+SC.__testVehicleInsidePosition = nil
 local boarded, boardReason = SC.Vehicle.board(actor, vehicle, nil, { preflight = preflight })
 check(boarded and boardReason == "native_seat" and SC.Vehicle.isNativeSeated(actor)
     and SC.Registry.byId("sc-core-actor") ~= nil
+    and vehicle.passengerPosition == "inside"
+    and vehicle.transmittedPosition == "inside"
+    and vehicle.passengerAnimation == "idle"
     and SC.ActionSupervisor.snapshot(actor).phase == "idle"
     and SC.ActionSupervisor.reservationCount(actor) == 0,
     "verified native passenger entry commits once and releases action ownership")
@@ -1229,8 +1273,19 @@ function SC.__testVehiclePolicyStatus()
     local unverifiedExit, unverifiedExitReason = SC.Vehicle.exit(actor, vehicle)
     SC.ActionSupervisor.transition = originalTransition
     check(unverifiedExit == false and unverifiedExitReason == "exit_verify_owner_refused"
-            and actor:getVehicle() == vehicle and vehicle.passenger == actor,
-        "exiting restores the occupied seat if verification ownership is rejected")
+            and actor:getVehicle() == vehicle and vehicle.passenger == actor
+            and vehicle.passengerPosition == "inside",
+        "exiting restores the occupied inside seat if verification ownership is rejected")
+    SC.ActionSupervisor.resetRetry(actor, "next_fault_case", "exit_vehicle")
+    local originalRecover = SC.Actor.recover
+    SC.Actor.recover = function() return false, "fixture_recover_rejected" end
+    local failedPlacement, failedPlacementReason = SC.Vehicle.exit(actor, vehicle)
+    SC.Actor.recover = originalRecover
+    check(failedPlacement == false
+            and string.find(tostring(failedPlacementReason), "seat rollback verified", 1, true)
+            and actor:getVehicle() == vehicle and vehicle.passenger == actor
+            and vehicle.passengerPosition == "inside",
+        "a failed exit placement restores the passenger to the inside offset")
     SC.ActionSupervisor.resetRetry(actor, "next_fault_case", "exit_vehicle")
     local exited, exitReason = SC.Vehicle.exit(actor, vehicle)
     check(exited and exitReason == "native_exit" and actor:getVehicle() == nil

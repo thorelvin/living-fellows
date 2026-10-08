@@ -1,5 +1,22 @@
 # Companion playtest fix queue
 
+## Rare intrusive-thought banter (implemented, harness verified 2026-10-08)
+
+- **Source:** [Intrusive-thought voice-lines plan](../../../intrusive-thoughts-voice-lines.md), revision 3 (369 lines across travel, camp, event, place, and reply pools). Keep the source file as the line and tone specification.
+- **Implemented:** All 369 lines and 82 rough/clean twins load with the existing follow, routine, and passenger beats. Recent kills, infection secrecy, grief, night watch, eating, place, weather, height, mood, and seating select context lines. The family has its own chance, party and actor cooldowns, a 60-line party memory, a master switch, and optional idle replies; private topics remain private. Sandbox options control intrusive thoughts and profanity.
+- **Verified:** Gameplay harness covers the catalog lint, event priority, known versus hidden infection, a recent kill, threat and conversation suppression, party and actor caps, idle versus busy replies, master switch, clean twins, and recent-line exclusion. A live follow and camp rate check remains for playtesting.
+
+## Distinct companion voice colors (queued, 2026-10-07)
+
+- Give each companion a stable, distinct muted color for their spoken lines, so nearby voices are easy to tell apart without bright text.
+- Use the same companion color across speech bubbles and conversation history where supported, and preserve it across save/load. Check legibility against light and dark scenes and avoid assigning near-identical colors to companions in the same group.
+
+## Base Watch close hides the clock UI (fixed in source, 2026-10-08)
+
+- **Playtester report:** After closing Base Watch, the time fast-forward controls, date, and clock disappear. Reloading the game restores them.
+- **Cause and fix:** Build 42's split-screen resize places the clock near the bottom. On return to one player, its resize restores the clock's X coordinate but leaves Y unchanged, which also puts the speed controls below the screen. Releasing Living Fellows' second view now resets the clock to the vanilla top margin and asks the game to recalculate the primary HUD. This shared path covers Base Watch and expeditions.
+- **Verified:** The Base Watch lifecycle harness passed 42 checks, including clock and speed-control placement after a joined return. A cloned-save game probe reached an active second view twice but its unrelated team-overlap fixture stopped before release (no container at one remote tile; no safe follower square at another). A visual in-game return check remains open.
+
 ## Outdoor work after dark (implemented, harness verified 2026-10-04)
 
 - Base > Policies now has **Work outside at night** beside Workload. It defaults off, including older saves.

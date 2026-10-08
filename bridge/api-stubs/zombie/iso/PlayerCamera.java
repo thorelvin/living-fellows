@@ -7,4 +7,8 @@ public final class PlayerCamera {
     public float deferedY;
     public float rightClickX;
     public float rightClickY;
+    public float fixJigglyModelsSquareX;
+    public float fixJigglyModelsSquareY;
+    public float getOffX() { return 0.0f; }
+    public float getOffY() { return 0.0f; }
 }

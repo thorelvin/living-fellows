@@ -18,6 +18,8 @@ local PERFORMANCE_FRAMES_FILE = "SurvivorCompanionHarness/performance-frames.txt
 local PERFORMANCE_NATIVE_FILE = "SurvivorCompanionHarness/performance-native.txt"
 local PERFORMANCE_SUMMARY_FILE = "SurvivorCompanionHarness/performance-summary.txt"
 local PERFORMANCE_LF_FILE = "SurvivorCompanionHarness/performance-lf.txt"
+local VEHICLE_PASSENGER_READY_FILE = "SurvivorCompanionHarness/vehicle-passenger-ready.txt"
+local VEHICLE_PASSENGER_CAPTURED_FILE = "SurvivorCompanionHarness/vehicle-passenger-captured.txt"
 
 local Harness = {
     config = {},
@@ -5372,6 +5374,15 @@ local function probeLeaderSlot(current)
         writeSignal(SPLIT_READY_FILE, { "ready=true" })
         setPhase("team_local_travel_stage", current)
     else
+        if Harness.config.split_base_layout_probe == "true" then
+            local baseLife = SurvivorCompanion.BaseLife
+            local hasBase = baseLife and baseLife.active()
+                and baseLife.isInside(Harness.player) == true
+            check("split_base_layout_player_inside_camp", hasBase,
+                "a marked camp must be visible from primary view")
+            if not hasBase then setPhase("finish", current) return end
+            SurvivorCompanion.BaseVisuals.setEnabled(true)
+        end
         writeSignal(SPLIT_READY_FILE, { "ready=true" })
         setPhase("leader_wait_capture", current)
     end
@@ -5671,6 +5682,8 @@ function Harness.probeTeamOverlapMerge(current)
         setPhase("finish", current) return
     end
     if Harness.config.team_return_release_probe == "true" then
+        local clock = UIManager and UIManager.getClock()
+        Harness.splitClockY = clock and clock:getY() or nil
         local finished, reason = SurvivorCompanion.ExpeditionPrototype.finishAtPlayer(
             Harness.player)
         check("joined_team_release_accepted", finished == true
@@ -5696,6 +5709,30 @@ function Harness.probeTeamOverlapReleased(current)
     local square = cell:getGridSquare(source.x, source.y, source.z)
     local count = overlapObjectCount(square, source.object)
     local map0 = cell:getChunkMap(0)
+    local clock = UIManager and UIManager.getClock()
+    local controls = UIManager and UIManager.getSpeedControls()
+    local ui = UIManager and UIManager.UI
+    local clockListed, controlsListed = false, false
+    if ui ~= nil then
+        for index = 0, ui:size() - 1 do
+            clockListed = clockListed or ui:get(index) == clock
+            controlsListed = controlsListed or ui:get(index) == controls
+        end
+    end
+    check("joined_release_restores_primary_clock_and_speed_controls",
+        clock ~= nil and controls ~= nil
+            and clockListed and controlsListed
+            and controls:isVisible()
+            and clock:getY() >= 0 and clock:getY() <= 20
+            and controls:getY() >= 0
+            and controls:getY() + controls:getHeight()
+                < getCore():getScreenHeight(),
+        "split_clock_y=" .. tostring(Harness.splitClockY)
+            .. " clock_y=" .. tostring(clock and clock:getY())
+            .. " controls_y=" .. tostring(controls and controls:getY())
+            .. " screen_height=" .. tostring(getCore():getScreenHeight())
+            .. " listed=" .. tostring(clockListed) .. ","
+                .. tostring(controlsListed))
     local active = true
     for _, record in ipairs(Harness.team or {}) do
         if record.actor ~= nil and not record.actor:isDead() then
@@ -11427,6 +11464,13 @@ end
 
 local function probeLeaderCapture(current)
     if fileExists(SPLIT_CAPTURED_FILE) then
+        if Harness.config.split_base_layout_probe == "true" then
+            local status = SurvivorCompanion.BaseVisuals.status()
+            check("split_base_layout_primary_overlay_drawn",
+                status.enabled == true and status.visibleZones > 0,
+                "zones=" .. tostring(status.visibleZones)
+                    .. " storages=" .. tostring(status.visibleStorages))
+        end
         result("PASS", "leader_split_screen_capture", "existing companion visible in split view")
         Harness.leaderObserveFrames = SurvivorCompanion.Scheduler.getStats().frames or 0
         setPhase("leader_observe", current)
@@ -14001,6 +14045,357 @@ function Harness.probeFurniturePose(current)
     end
 end
 
+-- Direct vehicle boarding bypasses vanilla's timed entry action. This focused
+-- probe checks the native passenger offset, then lets the runner capture the
+-- actual car and companion in the disposable cloned world.
+local function passengerWorldDistance(first, second)
+    local dx, dy, dz = first:x() - second:x(), first:y() - second:y(),
+        first:z() - second:z()
+    return math.sqrt(dx * dx + dy * dy + dz * dz)
+end
+
+local function passengerOutdoorSquare(square, U, requireFree, vehicle)
+    if square == nil then return false, "unloaded square" end
+    if square:isOutside() ~= true or square:getRoom() ~= nil
+        or square:getBuilding() ~= nil or square:getRoofHideBuilding() ~= nil then
+        return false, "not an unroofed exterior square"
+    end
+    for floor = 1, 2 do
+        local above = U.gridSquare(square:getX(), square:getY(), floor)
+        if above and (above:getFloor() ~= nil or above:getRoom() ~= nil
+            or above:getBuilding() ~= nil or above:getRoofHideBuilding() ~= nil) then
+            return false, "upper floor or roof is present"
+        end
+    end
+    local occupying = square:getVehicleContainer()
+    if occupying ~= nil and occupying ~= vehicle then
+        return false, "another vehicle occupies the square"
+    end
+    if requireFree and (not U.isSquareFree(square) or occupying ~= nil) then
+        return false, "square is blocked"
+    end
+    return true
+end
+
+local function passengerOpenPatch(U, x, y, radius, vehicle)
+    for dx = -radius, radius do
+        for dy = -radius, radius do
+            local square = U.gridSquare(x + dx, y + dy, 0)
+            local outside, reason = passengerOutdoorSquare(square, U,
+                vehicle == nil, vehicle)
+            if not outside then
+                return false, tostring(x + dx) .. "," .. tostring(y + dy)
+                    .. " " .. tostring(reason)
+            end
+        end
+    end
+    return true
+end
+
+local function passengerPreferredZone(square)
+    local zone = square and square:getZone() or nil
+    local kind = zone and tostring(zone:getType()) or ""
+    return kind == "Nav" or kind == "ParkingStall", kind
+end
+
+local function passengerSeatFixture(vehicle, U, z)
+    if vehicle == nil or tostring(vehicle:getScriptName()) ~= "Base.CarNormal" then
+        return nil
+    end
+    for seat = 1, math.min(vehicle:getMaxPassengers() - 1, 3) do
+        if vehicle:isSeatInstalled(seat) and not vehicle:isSeatOccupied(seat) then
+            local inside = vehicle:getPassengerPosition(seat, "inside")
+            local outside = vehicle:getPassengerPosition(seat, "outside")
+            if inside and outside then
+                local door = vehicle:getPassengerPositionWorldPos(outside,
+                    Vector3f.new())
+                local cx, cy = math.floor(door:x()), math.floor(door:y())
+                local best, bestDistance
+                for dx = -2, 2 do
+                    for dy = -2, 2 do
+                        local square = U.gridSquare(cx + dx, cy + dy, z)
+                        if passengerOutdoorSquare(square, U, true)
+                            and square ~= Harness.player:getCurrentSquare() then
+                            local distance = vehicle:getEnterSeatDistance(seat,
+                                square:getX() + 0.5, square:getY() + 0.5)
+                            if distance and distance >= 0 and distance <= 2.56
+                                and (bestDistance == nil or distance < bestDistance) then
+                                best, bestDistance = square, distance
+                            end
+                        end
+                    end
+                end
+                if best then return seat, best, inside, outside end
+            end
+        end
+    end
+    return nil
+end
+
+function Harness.beginVehiclePassenger(current)
+    if current - Harness.phaseStartedAt < 3000 then return end
+    local SC = SurvivorCompanion
+    local U = SC.GameplayUtil
+    local px, py, pz = position(Harness.player)
+    if px == nil or math.floor(pz or 0) ~= 0 then
+        result("FAIL", "vehicle_passenger_fixture", "observer must be on level zero")
+        setPhase("finish", current)
+        return
+    end
+    local cx, cy = math.floor(px), math.floor(py)
+    local vehicle, seat, spawnSquare, inside, outside, fixtureFailure, zoneKind
+    local function tryVehicle(candidate)
+        local ok, foundSeat, foundSquare, foundInside, foundOutside = pcall(
+            passengerSeatFixture, candidate, U, 0)
+        if ok and foundSeat then
+            vehicle, seat, spawnSquare, inside, outside = candidate,
+                foundSeat, foundSquare, foundInside, foundOutside
+            return true
+        end
+        fixtureFailure = ok and "vanilla car has no reachable installed passenger seat"
+            or tostring(foundSeat)
+        return false
+    end
+    local attempts, abortSearch = 0, false
+    -- A car occupies more than its origin tile. Prefer real navigation or
+    -- parking zones, but accept any fully outdoor 7x7 patch in the clone.
+    for preferredPass = 1, 2 do
+        for radius = 4, 28 do
+            for dx = -radius, radius do
+                for dy = -radius, radius do
+                    if math.abs(dx) == radius or math.abs(dy) == radius then
+                        local x, y = cx + dx, cy + dy
+                        local center = U.gridSquare(x, y, 0)
+                        local preferred, kind = passengerPreferredZone(center)
+                        if center and preferred == (preferredPass == 1)
+                            and passengerOpenPatch(U, x, y, 3) then
+                            attempts = attempts + 1
+                            local ok, created = pcall(addVehicle,
+                                "Base.CarNormal", x, y, 0)
+                            if ok and created then
+                                local vx, vy = math.floor(created:getX()),
+                                    math.floor(created:getY())
+                                local actual, actualReason = passengerOpenPatch(
+                                    U, vx, vy, 2, created)
+                                local nativeSquare = created:getSquare()
+                                local nativeOutside, nativeReason = true, nil
+                                if nativeSquare then
+                                    nativeOutside, nativeReason = passengerOutdoorSquare(
+                                        nativeSquare, U, false, created)
+                                end
+                                if actual and nativeOutside and tryVehicle(created) then
+                                    zoneKind = kind
+                                    break
+                                end
+                                fixtureFailure = not actual and actualReason
+                                    or not nativeOutside and nativeReason
+                                    or fixtureFailure
+                                local removed, removeReason = pcall(
+                                    created.permanentlyRemove, created)
+                                if not removed then
+                                    fixtureFailure = "invalid spawned car could not be removed: "
+                                        .. tostring(removeReason)
+                                    abortSearch = true
+                                    break
+                                end
+                            else
+                                fixtureFailure = tostring(created)
+                            end
+                            if attempts >= 6 then break end
+                        end
+                    end
+                end
+                if vehicle or abortSearch or attempts >= 6 then break end
+            end
+            if vehicle or abortSearch or attempts >= 6 then break end
+        end
+        if vehicle or abortSearch or attempts >= 6 then break end
+    end
+    if not check("vehicle_passenger_fixture", vehicle ~= nil,
+        vehicle and ("vehicle=" .. tostring(vehicle:getScriptName())
+            .. " seat=" .. tostring(seat) .. " door="
+            .. tostring(spawnSquare:getX()) .. "," .. tostring(spawnSquare:getY())
+            .. " center=" .. tostring(vehicle:getX()) .. "," .. tostring(vehicle:getY())
+            .. " zone=" .. tostring(zoneKind) .. " attempts=" .. tostring(attempts))
+            or (tostring(fixtureFailure or "no loaded outdoor road or parking patch")
+                .. " attempts=" .. tostring(attempts))) then
+        setPhase("finish", current)
+        return
+    end
+    Harness.passengerVehicle, Harness.passengerSeat = vehicle, seat
+    Harness.passengerInside, Harness.passengerOutside = inside, outside
+    local actualX, actualY = math.floor(vehicle:getX()), math.floor(vehicle:getY())
+    local footprint, footprintReason = passengerOpenPatch(U, actualX, actualY, 2, vehicle)
+    if not check("vehicle_passenger_spawned_outdoors", footprint,
+        "center=" .. tostring(actualX) .. "," .. tostring(actualY)
+            .. " zone=" .. tostring(zoneKind) .. " detail=" .. tostring(footprintReason)) then
+        setPhase("finish", current)
+        return
+    end
+    for _, offset in ipairs({ { 4, 0 }, { 0, 4 }, { -4, 0 }, { 0, -4 },
+        { 3, 3 }, { -3, 3 }, { 3, -3 }, { -3, -3 } }) do
+        local view = U.gridSquare(actualX + offset[1], actualY + offset[2], 0)
+        if passengerOutdoorSquare(view, U, true) then
+            Harness.passengerViewSquare = view
+            break
+        end
+    end
+    if not check("vehicle_passenger_observer_view", Harness.passengerViewSquare ~= nil,
+        "unobstructed outdoor view within four tiles of spawned car") then
+        setPhase("finish", current)
+        return
+    end
+    -- Daylight keeps the screenshot usable when the cloned seed was saved at
+    -- night. Only this disposable world is affected.
+    pcall(function() getGameTime():setTimeOfDay(12.0) end)
+    local ticket, reason = SC.Actor.beginSpawn(spawnSquare, {
+        recruited = true,
+        identity = { forename = "Passenger", surname = "Tester",
+            gender = "man", outfit = "Generic01" },
+    })
+    if not ticket then
+        result("FAIL", "vehicle_passenger_spawn", reason)
+        setPhase("finish", current)
+        return
+    end
+    Harness.passengerTicket = ticket
+    setPhase("vehicle_passenger_spawn", current)
+end
+
+function Harness.probeVehiclePassenger(current)
+    local SC = SurvivorCompanion
+    if Harness.phase == "vehicle_passenger_spawn" then
+        local actor, reason = SC.Actor.pollSpawn(Harness.passengerTicket)
+        if not actor then
+            if reason ~= "spawn_pending" or current - Harness.phaseStartedAt > 12000 then
+                result("FAIL", "vehicle_passenger_spawn", reason)
+                setPhase("finish", current)
+            end
+            return
+        end
+        Harness.passengerActor = actor
+        SC.Scheduler.unregister("decision")
+        setPhase("vehicle_passenger_wait_stationary", current)
+        return
+    end
+    if Harness.phase == "vehicle_passenger_wait_stationary" then
+        local vehicle = Harness.passengerVehicle
+        local stationary, reason = SC.Vehicle.isStationary(vehicle)
+        local speedOk, speed = pcall(vehicle.getCurrentSpeedKmHour, vehicle)
+        local detail = "speed_kph=" .. tostring(speedOk and speed or "unavailable")
+            .. " reason=" .. tostring(reason)
+            .. " waited_ms=" .. tostring(current - Harness.phaseStartedAt)
+        if stationary == true then
+            Harness.passengerStationarySince = Harness.passengerStationarySince or current
+            if current - Harness.passengerStationarySince < 700 then return end
+            result("PASS", "vehicle_passenger_vehicle_settled", detail)
+            local vx, vy = math.floor(vehicle:getX()), math.floor(vehicle:getY())
+            local outdoors, outdoorReason = passengerOpenPatch(SC.GameplayUtil,
+                vx, vy, 2, vehicle)
+            if not check("vehicle_passenger_settled_outdoors", outdoors,
+                "center=" .. tostring(vx) .. "," .. tostring(vy)
+                    .. " detail=" .. tostring(outdoorReason)) then
+                setPhase("finish", current)
+                return
+            end
+        else
+            Harness.passengerStationarySince = nil
+            if current - Harness.phaseStartedAt > 15000 then
+                result("FAIL", "vehicle_passenger_vehicle_settled", detail)
+                setPhase("finish", current)
+            elseif current >= (Harness.passengerNextSpeedTraceAt or 0) then
+                Harness.passengerNextSpeedTraceAt = current + 2000
+                print("SC_REAL_SANDBOX|VEHICLE_SETTLE|" .. clean(detail))
+            end
+            return
+        end
+        local boarded, status = SC.Vehicle.board(Harness.passengerActor, vehicle,
+            Harness.passengerSeat, { allowVirtualSeat = false })
+        if not check("vehicle_passenger_native_board", boarded == true
+            and status == "native_seat", tostring(status)) then
+            setPhase("finish", current)
+            return
+        end
+        local view = Harness.passengerViewSquare
+        local moved, moveReason = pcall(function()
+            Harness.player:teleportTo(view:getX() + 0.5, view:getY() + 0.5, 0)
+        end)
+        if not check("vehicle_passenger_observer_relocated", moved,
+            "view=" .. tostring(view:getX()) .. "," .. tostring(view:getY())
+                .. " reason=" .. tostring(moveReason)) then
+            setPhase("finish", current)
+            return
+        end
+        setPhase("vehicle_passenger_settle", current)
+        return
+    end
+    if Harness.phase == "vehicle_passenger_settle" then
+        if current - Harness.phaseStartedAt < 1800 then return end
+        local view = Harness.passengerViewSquare
+        local px, py = position(Harness.player)
+        local cameraReady = px ~= nil and math.abs(px - (view:getX() + 0.5)) < 1
+            and math.abs(py - (view:getY() + 0.5)) < 1
+            and passengerOutdoorSquare(Harness.player:getCurrentSquare(),
+                SC.GameplayUtil, false) == true
+        if not cameraReady then
+            if current - Harness.phaseStartedAt < 7000 then return end
+            result("FAIL", "vehicle_passenger_observer_outdoors",
+                "player=" .. tostring(px) .. "," .. tostring(py)
+                    .. " target=" .. tostring(view:getX()) .. ","
+                    .. tostring(view:getY()))
+            setPhase("finish", current)
+            return
+        end
+        result("PASS", "vehicle_passenger_observer_outdoors",
+            "player=" .. tostring(px) .. "," .. tostring(py))
+        local actor, vehicle, seat = Harness.passengerActor,
+            Harness.passengerVehicle, Harness.passengerSeat
+        local seated, nativeVehicle, nativeSeat = SC.Vehicle.isNativeSeated(actor)
+        check("vehicle_passenger_native_seat", seated == true
+            and nativeVehicle == vehicle and nativeSeat == seat,
+            "seat=" .. tostring(nativeSeat) .. " vehicle=" .. tostring(nativeVehicle == vehicle))
+        local passenger = vehicle:getPassengerWorldPos(seat, Vector3f.new())
+        local inside = vehicle:getPassengerPositionWorldPos(Harness.passengerInside,
+            Vector3f.new())
+        local outside = vehicle:getPassengerPositionWorldPos(Harness.passengerOutside,
+            Vector3f.new())
+        local insideGap = passengerWorldDistance(passenger, inside)
+        local outsideGap = passengerWorldDistance(passenger, outside)
+        check("vehicle_passenger_inside_offset", insideGap < 0.03
+            and outsideGap > 0.15,
+            string.format("inside_gap=%.4f outside_gap=%.4f seat=%d",
+                insideGap, outsideGap, seat))
+        local dx, dy, dz = actor:getX() - passenger:x(),
+            actor:getY() - passenger:y(), actor:getZ() - passenger:z()
+        local actorGap = math.sqrt(dx * dx + dy * dy + dz * dz)
+        check("vehicle_passenger_actor_tracks_seat", actorGap < 0.15,
+            string.format("actor_gap=%.4f vehicle=%.2f,%.2f",
+                actorGap, vehicle:getX(), vehicle:getY()))
+        pcall(function() UIManager.setVisibleAllUI(false) end)
+        if not writeSignal(VEHICLE_PASSENGER_READY_FILE, {
+            "seat=" .. tostring(seat),
+            "inside_gap=" .. tostring(insideGap),
+            "outside_gap=" .. tostring(outsideGap),
+            "actor_gap=" .. tostring(actorGap),
+        }) then
+            result("FAIL", "vehicle_passenger_capture", "ready signal failed")
+            setPhase("finish", current)
+            return
+        end
+        setPhase("vehicle_passenger_capture", current)
+        return
+    end
+    if Harness.phase == "vehicle_passenger_capture" then
+        if fileExists(VEHICLE_PASSENGER_CAPTURED_FILE) then
+            result("PASS", "vehicle_passenger_screenshot", "native passenger and car captured")
+            setPhase("finish", current)
+        elseif current - Harness.phaseStartedAt > 15000 then
+            result("FAIL", "vehicle_passenger_screenshot", "runner capture timed out")
+            setPhase("finish", current)
+        end
+    end
+end
+
 -- Observe the saved woodcutter in an isolated copy of the player's world.
 -- A successful job must reach native chopping from a non-tree approach tile.
 function Harness.probeWoodcutter(current)
@@ -14750,6 +15145,10 @@ Harness.probeBaseMaintenance = function(...)
     return externalProbe("SCBaseMaintenanceProbe", ...)
 end
 
+Harness.probeHygiene = function(...)
+    return externalProbe("SCHygieneProbe", ...)
+end
+
 Harness.probeBaseSecondFloor = function(...)
     return externalProbe("SCBaseSecondFloorProbe", ...)
 end
@@ -14882,6 +15281,8 @@ local function tick()
         end
     elseif string.find(tostring(Harness.phase), "base_maintenance_", 1, true) == 1 then
         Harness.probeBaseMaintenance(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "hygiene_", 1, true) == 1 then
+        Harness.probeHygiene(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "base_second_floor_", 1, true) == 1 then
         Harness.probeBaseSecondFloor(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "water_source_", 1, true) == 1 then
@@ -15445,6 +15846,13 @@ local function tick()
     elseif Harness.phase == "furniture_pose_spawn" or Harness.phase == "furniture_pose_entry"
         or Harness.phase == "furniture_pose_exit" then
         Harness.probeFurniturePose(current)
+    elseif Harness.phase == "vehicle_passenger_begin" then
+        Harness.beginVehiclePassenger(current)
+    elseif Harness.phase == "vehicle_passenger_spawn"
+        or Harness.phase == "vehicle_passenger_wait_stationary"
+        or Harness.phase == "vehicle_passenger_settle"
+        or Harness.phase == "vehicle_passenger_capture" then
+        Harness.probeVehiclePassenger(current)
     elseif Harness.phase == "woodcutter_probe" then
         Harness.probeWoodcutter(current)
     elseif Harness.phase == "posted_stream_probe" then
@@ -15596,6 +16004,8 @@ local function onGameStart()
         setPhase("fishing_map_list", Harness.startedAt)
     elseif Harness.config.base_maintenance_probe == "true" then
         setPhase("base_maintenance_setup", Harness.startedAt)
+    elseif Harness.config.hygiene_probe == "true" then
+        setPhase("hygiene_setup", Harness.startedAt)
     elseif Harness.config.base_second_floor_probe == "true" then
         setPhase("base_second_floor_setup", Harness.startedAt)
     elseif Harness.config.water_source_probe == "true" then
@@ -15622,6 +16032,8 @@ local function onGameStart()
         setPhase("companion_inventory_begin", Harness.startedAt)
     elseif Harness.config.furniture_pose_only == "true" then
         setPhase("furniture_pose_begin", Harness.startedAt)
+    elseif Harness.config.vehicle_passenger_only == "true" then
+        setPhase("vehicle_passenger_begin", Harness.startedAt)
     elseif Harness.config.woodcutter_only == "true" then
         setPhase("woodcutter_probe", Harness.startedAt)
     elseif Harness.config.posted_stream_only == "true" then

@@ -1,7 +1,7 @@
-Living Fellows 0.26.29 - public playtest
+Living Fellows 0.26.30 - public playtest
 
-This build improves guard and window-watch paths around furniture and makes
-barricade workers approach a clear side before starting their native action.
+This build improves automatic camp work, vehicle seating, base-view cleanup,
+and companion downtime behavior.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added
