@@ -310,17 +310,20 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <p class="subtitle">A Complete Guide to Living with the Fellows of Knox County</p>
   <p class="divider">· · · ✚ · · ·</p>
   <p class="edition">Living Fellows — Project Zomboid Build 42.21.0 Edition</p>
-  <p class="version">Release 0.26.30 — First Edition, Fifth Printing — You won't die... alone.</p>
+  <p class="version">Release 0.26.31 — First Edition, Sixth Printing — You won't die... alone.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2.5rem;">
-<strong>What changed in this printing</strong> — the 0.26.29 and 0.26.30 work, and the last 0.26.28 fixes:
+<strong>What changed in this printing</strong> — the 0.26.31 fixes first, then the 0.26.29 and 0.26.30 work:
 <ul style="margin-top:0.5rem;margin-bottom:0;">
+  <li><a href="#ch11"><strong>Sorting keeps your shelves.</strong></a> Hammers, axes and shovels stay in Tools, shells and magazines in Ammunition, medicine in Medical. Loose planks go to Construction, not Weapons.</li>
+  <li><a href="#ch11"><strong>Memorial storage</strong></a> is never touched: no sorting, no cooking, no fetching from it.</li>
+  <li><a href="#ch14c"><strong>The Base Watch watcher</strong></a> never steps outside for a toilet break, so the camp view stays where you left it.</li>
   <li><a href="#ch9_thoughts"><strong>Stray thoughts.</strong></a> Very rarely, a companion says whatever just crossed its mind: an urge it won't act on, a doubt, a morbid joke. Some companions swear. Two new sandbox switches turn the thoughts and the swearing off (<a href="#appB">Appendix B</a>).</li>
   <li><a href="#ch9"><strong>Table talk.</strong></a> Two companions at the same table hold a three-turn conversation on one subject, with the odd gesture.</li>
   <li><a href="#ch9e"><strong>Showers</strong></a> for dirty companions, and <a href="#ch8">toilet breaks</a> every few hours: a real toilet if one is close, a quiet spot outdoors if not.</li>
-  <li><a href="#ch14"><strong>Steadier camp work.</strong></a> One busy worker no longer holds the others up, woodcutters keep going until the log storage is full, and sorting moves items filed in the wrong container.</li>
-  <li><a href="#ch15b"><strong>The Chef</strong></a> no longer needs a powered fridge: meals go to marked Food storage when the power is out, and ingredients and tools come from any marked storage.</li>
+  <li><a href="#ch14"><strong>Steadier camp work.</strong></a> One busy worker no longer holds the others up, woodcutters keep going until the log storage is full, and sorting fixes items that are clearly misfiled.</li>
+  <li><a href="#ch15b"><strong>The Chef</strong></a> no longer needs a powered fridge: meals go to marked Food storage when the power is out, and ingredients and tools come from any marked storage except Memorial.</li>
   <li><a href="#ch16"><strong>Any firestarter</strong></a> lights a pyre, even one carried in a bag.</li>
   <li><a href="#ch14b"><strong>Furniture-aware paths.</strong></a> Guards and window watchers no longer try to stand on chairs, tables or counters, and barricade workers pick a side of the door or window they can reach.</li>
   <li><a href="#ch17"><strong>Fishing trips</strong></a> can head for shores up to 1,000 tiles away on the map. The squad checks the bank when it gets there.</li>
@@ -331,7 +334,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2.5rem;">
-<strong>About this manual</strong> — it covers what the companion panel does not explain: how the fellows think, what they need from you, and the rules they follow when nobody is giving orders. Everything here describes release 0.26.30 and was checked against the mod itself. Living Fellows is a <strong>public playtest</strong>: back up important saves, and send logs when something goes wrong (<a href="#appD">Appendix D</a>). The mod lives at <a href="https://github.com/thorelvin/living-fellows">github.com/thorelvin/living-fellows</a>. The <em>Overheard</em> quotes are real lines from the mod's own voice pools.
+<strong>About this manual</strong> — it covers what the companion panel does not explain: how the fellows think, what they need from you, and the rules they follow when nobody is giving orders. Everything here describes release 0.26.31 and was checked against the mod itself. Living Fellows is a <strong>public playtest</strong>: back up important saves, and send logs when something goes wrong (<a href="#appD">Appendix D</a>). The mod lives at <a href="https://github.com/thorelvin/living-fellows">github.com/thorelvin/living-fellows</a>. The <em>Overheard</em> quotes are real lines from the mod's own voice pools.
 </div>
 
 <!-- TABLE OF CONTENTS -->
@@ -879,7 +882,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p class="tbl-note">Percentages are of the game's own need scale, as the mod reads it.</p>
 
 <h3>Toilet Breaks</h3>
-<p>Companions need the toilet every 6 to 10 game hours, on the road or at camp, but only when it is safe and after food and water. A toilet within 8 tiles comes first. Otherwise they step a few tiles outdoors, away from the group. Two hours late, it turns urgent. There is an animation and a sound, and sometimes a remark about the spot they picked: a garden gnome, a fire hydrant, even a corpse.</p>
+<p>Companions need the toilet every 6 to 10 game hours, on the road or at camp, but only when it is safe and after food and water. A toilet within 8 tiles comes first. Otherwise they step a few tiles outdoors, away from the group. The resident keeping <a href="#ch14c">Base Watch</a> never steps outside: without a toilet, it skips the break. Two hours late, it turns urgent. There is an animation and a sound, and sometimes a remark about the spot they picked: a garden gnome, a fire hydrant, even a corpse.</p>
 
 <div class="lore-pull">My stomach is reminding me it exists.<span class="who">— a companion getting hungry</span></div>
 
@@ -1470,7 +1473,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>Press <kbd>Insert</kbd> (rebindable under Options, Key bindings, Living Fellows), or use the right-click menu or the button in the Base tab, to show the base layout. Each zone gets a see-through floor tint and outline in its colour, registered storage gets a tile and outline in its category colour, and a legend lists what is on screen. With the layout showing, right-click a zone to remove it. A zone that is still needed says why instead.</p>
 
 <h3>Marking Storage</h3>
-<p>Right-click a container inside the camp, choose <span class="menu">Mark storage as...</span> and pick a category. Companions help themselves from marked storage and leave unmarked containers to you. Sorting also tidies up mistakes: an item filed in the wrong marked container, one that allows withdrawals, is moved to a container of its own category. You can give each marked container a reserve, and companions leave that many items in it (<a href="#ch14b">Chapter 14b</a>).</p>
+<p>Right-click a container inside the camp, choose <span class="menu">Mark storage as...</span> and pick a category. Companions help themselves from marked storage and leave unmarked containers to you. Sorting empties General and Work output storage into the right categories, and fixes clear mistakes elsewhere: a pistol filed under Tools moves to Weapons. A shelf keeps anything that could belong on it, so hammers, axes and shovels may stay in Tools or Weapons, and shells, magazines and medicine stay where you put them. You can give each marked container a reserve, and companions leave that many items in it (<a href="#ch14b">Chapter 14b</a>).</p>
 
 <table>
   <tr><th></th><th>Category</th><th>What goes in it</th></tr>
@@ -1485,7 +1488,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/6/61/Shotgun.png" alt=""></td><td><strong>Ammunition</strong></td><td>Rounds and magazines</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/b/b1/Backpack.png" alt=""></td><td><strong>General source</strong></td><td>Anything the camp may draw from</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/2/2d/Logs.png" alt=""></td><td><strong>Work output</strong></td><td>Where finished work goes, such as a carpenter's planks</td></tr>
-  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/4/48/Whiskey.png" alt=""></td><td><strong>Memorial</strong></td><td>Keepsakes of the dead; companions leave them be</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/4/48/Whiskey.png" alt=""></td><td><strong>Memorial</strong></td><td>Keepsakes of the dead. Nothing is ever taken out of it: no sorting, cooking or fetching.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/9/96/WateringCan.png" alt=""></td><td><strong>Farming supplies</strong></td><td>Seed, tools, compost, water cans, crop treatments</td></tr>
 </table>
 
@@ -1697,7 +1700,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <h3>While You're Away</h3>
 <ul>
-  <li>The watcher stays indoors. Outdoor jobs and fishing are dropped for them, and now and then they walk over to another indoor resident for a word.</li>
+  <li>The watcher stays indoors. Outdoor jobs and fishing are dropped for them, and now and then they walk over to another indoor resident for a word. A toilet break uses an indoor toilet or waits for the next one.</li>
   <li>Residents beyond the watcher's loaded area may wait until it streams in again.</li>
   <li>From afar, the panel refuses camp changes and direct orders to residents: <em>"While away, camp policy changes require a confirmed radio exchange."</em></li>
   <li>With a powered two-way radio equipped on you and on the watcher, on the same channel, the Base tab offers <span class="menu">Request camp status</span> and the three defence policies (<a href="#ch14b">Ch 14b</a>). A change happens only when the watcher's reply comes back over the air.</li>
@@ -1753,7 +1756,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li><strong>Heat</strong> is a powered oven, or a campfire that is already lit. The Chef never lights or feeds a fire, and cooks on one only while outdoor work is allowed.</li>
   <li>Pot dishes are divided into two bowls with the game's own recipe, and the empty pot goes back to camp storage. Handcraft steps happen at a camp table.</li>
   <li>Fridges, stoves, sinks and tables count on any camp floor, and the Chef keeps what it found for the whole recipe. Finished food goes to a powered fridge, a marked Food one first; with the power out, it goes to marked Food storage or an unpowered camp fridge.</li>
-  <li>The Chef draws on marked storage first, from any category, and respects its reserves. Nothing rotten, burnt or poisoned is used, and nothing is served until it is confirmed cooked and safe. Frozen fish or venison is carried out of the freezer and left to thaw first.</li>
+  <li>The Chef draws on marked storage first, from any category but Memorial, and respects its reserves. Nothing rotten, burnt or poisoned is used, and nothing is served until it is confirmed cooked and safe. Frozen fish or venison is carried out of the freezer and left to thaw first.</li>
   <li>Spare bread slices and a borrowed knife stay in the Chef's pack for the next meal.</li>
 </ul>
 
@@ -2147,7 +2150,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p><span class="menu">More → Support</span> is the first place to look when something is wrong, and the report it copies is the most useful thing to attach to a bug report.</p>
 <table>
   <tr><th>Line</th><th>What a healthy game shows</th></tr>
-  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.30</td></tr>
+  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.31</td></tr>
   <tr><td>Game build / supported build</td><td>42.21.0 on both sides</td></tr>
   <tr><td>Runtime active</td><td>Yes. If not, <strong>Runtime disabled reason</strong> says why.</td></tr>
   <tr><td>Native bridge status, actor provider, bridge protocol</td><td>The bridge is ready, and its protocol matches the expected one. A mismatch means an old or mixed install.</td></tr>
@@ -2367,7 +2370,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CARD END -->
 
 <div class="page-footer">
-  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.30 &nbsp;·&nbsp; First Edition, Fifth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
+  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.31 &nbsp;·&nbsp; First Edition, Sixth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
 </div>
 <script>
 (function () {
