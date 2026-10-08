@@ -1375,6 +1375,80 @@ check(importedNative and importNativeReason ~= nil and exportedNative ~= nil
 SC.Vehicle.reset()
 
 do
+-- A parked car unloads with its area: the game removes it from the world and
+-- later loads it again as a new object with a new runtime id. The companion
+-- seated in the removed object is released without vehicle:exit(), which
+-- would write the removed car back to the vehicle database, and goes back to
+-- the reloaded car's door, found by the database id.
+local staleCar = { id = 31, sqlId = 5, script = "Base.TestCar", x = 1, y = 0, z = 0,
+    removed = false, exits = 0 }
+function staleCar:getId() return self.id end
+function staleCar:getSqlId() return self.sqlId end
+function staleCar:getScriptName() return self.script end
+function staleCar:getX() return self.x end
+function staleCar:getY() return self.y end
+function staleCar:getZ() return self.z end
+function staleCar:getSeat(candidate) return self.passenger == candidate and 1 or -1 end
+function staleCar:getCharacter(seat) return seat == 1 and self.passenger or nil end
+function staleCar:isRemovedFromWorld() return self.removed end
+function staleCar:clearPassenger(seat)
+    if seat ~= 1 then return false end
+    self.passenger = nil
+    return true
+end
+function staleCar:exit()
+    self.exits = self.exits + 1
+    return true
+end
+function actor:setVehicle(value) self.vehicle = value end
+function actor:setCollidable(value) self.collidable = value end
+function actor:ensureUnscheduled()
+    self.unscheduled = true
+    return true
+end
+actor.vehicle, staleCar.passenger = staleCar, actor
+local keptSeat, keptReason = SC.Vehicle.releaseUnloadedSeat(actor)
+check(keptSeat == false and keptReason == "vehicle_loaded"
+        and actor:getVehicle() == staleCar and staleCar.passenger == actor,
+    "a companion in a loaded car keeps its seat")
+staleCar.removed = true
+local released, anchor = SC.Vehicle.releaseUnloadedSeat(actor)
+check(released == true and type(anchor) == "table"
+        and actor:getVehicle() == nil and staleCar.passenger == nil
+        and staleCar.exits == 0 and actor.unscheduled == true
+        and actor.collidable == true and not SC.Vehicle.isNativeSeated(actor)
+        and anchor.sqlId == 5 and anchor.seat == 1 and anchor.x == 1 and anchor.y == 0,
+    "a companion seated in an unloaded car is released without a database write: "
+        .. tostring(type(anchor) == "table" and anchor.sqlId or anchor))
+
+local reloaded = setmetatable({ id = 44 }, { __index = vehicle })
+function reloaded:getSqlId() return 5 end
+function reloaded:isRemovedFromWorld() return false end
+local otherCar = setmetatable({ id = 45 }, { __index = vehicle })
+function otherCar:getSqlId() return 6 end
+function otherCar:isRemovedFromWorld() return false end
+local carList = { items = { otherCar, reloaded } }
+function carList:size() return #self.items end
+function carList:get(index) return self.items[index + 1] end
+local priorCarCell = getCell
+getCell = function()
+    return { getVehicles = function() return carList end }
+end
+local door, doorReason = SC.Vehicle.reloadedCarSquare(anchor)
+local doorGap = door and reloaded:getEnterSeatDistance(1, door:getX() + 0.5,
+    door:getY() + 0.5) or nil
+local missing, missingReason = SC.Vehicle.reloadedCarSquare({ sqlId = 7, seat = 1 })
+getCell = priorCarCell
+check(door ~= nil and doorReason == "car_door" and doorGap ~= nil and doorGap <= 2.56,
+    "the released companion goes to the door of the reloaded car with the same database id")
+check(missing == nil and missingReason == "car_not_loaded",
+    "a car that has not loaded again yet leaves the companion waiting")
+actor.setVehicle, actor.setCollidable, actor.ensureUnscheduled = nil, nil, nil
+actor.vehicle, actor.unscheduled, actor.collidable = nil, nil, nil
+SC.Vehicle.reset()
+end
+
+do
 -- LF-04: a temporary virtual-seat restore failure must be retried, not consumed
 -- after one attempt. restoreForVehicle reports how many stored passengers still
 -- await placement so the runtime keeps retrying instead of stranding them.
@@ -3216,6 +3290,44 @@ check(mixedSaved and preservedInvalid.inventory.equipment.primary == "missing"
         and mixedDocument.community.minds == "malformed",
     "load-save preserves rejected companion and subsystem values verbatim")
 SC.Community = priorCommunity
+
+-- A companion saved in a native seat comes back on foot by its car. As a
+-- stored passenger it was keyed by the car's runtime id, which the game
+-- reassigns on every load, and waited for a car exit that never matched.
+SC.Persistence.reset()
+SC.Vehicle.reset()
+local seatData = useWorldData({ SC_SaveV1 = {
+    schema = SC.Identity.saveSchema, companions = {
+        ["sc-seat-on-foot"] = {
+            id = "sc-seat-on-foot", recruited = true,
+            identity = { forename = "Seat", surname = "Rider" },
+            position = { x = 40, y = 40, z = 0 }, inventory = {},
+            skills = {}, vitals = {}, order = {},
+            vehicle = { stored = false, seat = 1,
+                vehicle = { id = 77, sqlId = 5, script = "Base.CarNormal",
+                    x = 40, y = 41, z = 0 } },
+        },
+        ["sc-virtual-rider"] = {
+            id = "sc-virtual-rider", recruited = true,
+            identity = { forename = "Virtual", surname = "Rider" },
+            position = { x = 40, y = 40, z = 0 }, inventory = {},
+            skills = {}, vitals = {}, order = {},
+            vehicle = { stored = true, seat = 2,
+                vehicle = { id = 77, sqlId = 5, script = "Base.CarNormal",
+                    x = 40, y = 41, z = 0 } },
+        },
+    },
+} })
+check(SC.Persistence.restore({ getModData = function() return seatData end }),
+    "a document with seated companions restores")
+check(SC.Persistence.isPending("sc-seat-on-foot")
+        and not SC.Vehicle.contains("sc-seat-on-foot"),
+    "a companion saved in a native seat is restored on foot, not as a stored passenger")
+check(SC.Vehicle.contains("sc-virtual-rider")
+        and not SC.Persistence.isPending("sc-virtual-rider"),
+    "a stored virtual passenger is still imported into its car")
+SC.Persistence.reset()
+SC.Vehicle.reset()
 
 SC.Persistence.reset()
 local cyclicRaw = {

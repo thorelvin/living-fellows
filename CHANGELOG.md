@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.26.34 - Companions left in a parked car
+
+- A companion left sitting in a parked car no longer disappears when you travel far away. The game unloads the car with its area and later loads it again as a new car, which left the companion seated in the old one, out of sight for the rest of the session. The companion now leaves that seat when the car unloads, and comes back standing at the car's door as soon as the area loads again. If the car is not there, it comes back where the car stood.
+- A companion saved while seated in a car comes back on foot beside it after a restart. It was restored as a stored passenger tied to the car's runtime number, which the game hands out again on every load, so it usually never reappeared.
+- Cars are now recognised by their vehicle database id, which survives unloading and restarts.
+- Core tests cover releasing the seat without writing the old car back to the vehicle database, placement at the door of the reloaded car, the ten-second fallback when the car does not return, and the on-foot restore. Each was confirmed to fail without its fix. A cloned-save live run confirmed the original fault: with its area unloaded, the companion was still seated in the removed car.
+
 ## 0.26.33 - Companions come back after a long trip
 
 - Companions on base duty, working, staying or guarding are put back in the world as soon as their area loads again after you travel far away. They used to wait until you came within 30 tiles of where they last stood, although the game loads about 76 tiles around you. A companion at a far field, woodpile or guard post stayed missing, still listed on the roster, until you walked over to it or restarted the game. A restart already restored them this way.

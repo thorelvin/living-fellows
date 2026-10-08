@@ -552,7 +552,31 @@ local function postedRecoveryNearby(record, px, py)
 end
 runtime._postedRecoveryNearbyForTests = postedRecoveryNearby
 
-local function followerRecoverySquare(record, currentPlayer)
+-- A companion released from an unloaded car goes back to that car's door,
+-- found again by its database id. The car can join the cell a moment after
+-- its squares load, so wait briefly before using the bare saved position,
+-- which may lie under the car body.
+local function postedRecoverySquare(record, current)
+    local anchor = type(record.runtime) == "table" and record.runtime.unloadedCar or nil
+    if type(anchor) ~= "table" or SC.Vehicle == nil
+        or type(SC.Vehicle.reloadedCarSquare) ~= "function" then
+        return SC.Persistence.loadedRecoverySquare(record)
+    end
+    local square = SC.Vehicle.reloadedCarSquare(anchor)
+    if square ~= nil then return square end
+    local fallback = SC.Persistence.loadedRecoverySquare(record)
+    if fallback == nil then
+        anchor.loadedSince = nil
+        return nil
+    end
+    current = tonumber(current) or 0
+    anchor.loadedSince = anchor.loadedSince or current
+    if current - anchor.loadedSince < 10000 then return nil end
+    return fallback
+end
+runtime._postedRecoverySquareForTests = postedRecoverySquare
+
+local function followerRecoverySquare(record, currentPlayer, current)
     local px, py = SC.GameplayUtil.position(currentPlayer)
     if postedRecoveryNearby(record, px, py) then
         -- A follower resting in the next room can briefly lose native square
@@ -560,7 +584,7 @@ local function followerRecoverySquare(record, currentPlayer)
         -- player in another room. If that position is unavailable, retry later.
         local persistence = SC.Persistence
         if persistence and type(persistence.loadedRecoverySquare) == "function" then
-            local square = persistence.loadedRecoverySquare(record)
+            local square = postedRecoverySquare(record, current)
             return square, square and "last_verified_position" or "deferred_nearby"
         end
         return nil, "deferred_nearby"
@@ -669,8 +693,28 @@ local function vitalsTask(current)
                 "mortality dialogue probe failed", farewellReason)
         end
     end
-    local healthy, healthReason = SC.Actor.validateNative(record.actor)
     record.runtime = type(record.runtime) == "table" and record.runtime or {}
+    -- A car unloaded with its area keeps the companion seated in a removed
+    -- object; the reloaded car is a new one. Release the seat so the ordinary
+    -- unloaded-area recovery below puts the companion back beside the car.
+    if SC.Vehicle ~= nil and type(SC.Vehicle.releaseUnloadedSeat) == "function" then
+        local released, anchor = SC.Vehicle.releaseUnloadedSeat(record.actor)
+        if released == true and type(anchor) == "table" then
+            record.runtime.unloadedCar = anchor
+            if anchor.x ~= nil and anchor.y ~= nil then
+                record.runtime.lastStablePosition = {
+                    x = math.floor(anchor.x), y = math.floor(anchor.y),
+                    z = math.floor(anchor.z or 0),
+                }
+            end
+            print("[SurvivorCompanion][recovery] companion released from an unloaded car actor="
+                .. tostring(record.id))
+        elseif released == false and anchor ~= "not_seated" and anchor ~= "vehicle_loaded" then
+            SC.Diagnostics.report("vehicle", record.id,
+                "unloaded car seat release deferred", anchor)
+        end
+    end
+    local healthy, healthReason = SC.Actor.validateNative(record.actor)
     if healthy then repairNativeSchedule(record, current) end
     local missingSquare = not healthy and isRecoverablePlacementFailure(healthReason)
     local detachedFromMovingList = not healthy
@@ -755,7 +799,7 @@ local function vitalsTask(current)
                 record.runtime.postedRecoveryDeferred = true
                 if SC.Persistence
                     and type(SC.Persistence.loadedRecoverySquare) == "function" then
-                    local square = SC.Persistence.loadedRecoverySquare(record)
+                    local square = postedRecoverySquare(record, current)
                     local recovered, recoverReason = square
                         and SC.Actor.recover(record.actor, square)
                     if recovered == true then
@@ -763,6 +807,7 @@ local function vitalsTask(current)
                         if healthy then
                             record.runtime.nativeSquareMissingAt = nil
                             record.runtime.postedRecoveryDeferred = nil
+                            record.runtime.unloadedCar = nil
                             print("[SurvivorCompanion][recovery] posted companion restored in place actor="
                                 .. tostring(record.id))
                         end
@@ -789,7 +834,7 @@ local function vitalsTask(current)
                     record.runtime.vehicleRecoveryDeferred = true
                     return
                 end
-                local square, recoveryKind = followerRecoverySquare(record, currentPlayer)
+                local square, recoveryKind = followerRecoverySquare(record, currentPlayer, current)
                 local recovered = square and SC.Actor.recover(record.actor, square)
                 if recovered == true then
                     healthy, healthReason = SC.Actor.validateNative(record.actor)
@@ -854,6 +899,7 @@ local function vitalsTask(current)
     elseif healthy then
         record.runtime.nativeSquareMissingAt = nil
         record.runtime.expeditionPlacementDeferred = nil
+        record.runtime.unloadedCar = nil
         if SC.ExpeditionPrototype then
             SC.ExpeditionPrototype.notePlacementRestored(record.actor)
         end

@@ -1,7 +1,7 @@
-Living Fellows 0.26.33 - public playtest
+Living Fellows 0.26.34 - public playtest
 
-This build brings companions left at camp back as soon as their area loads
-again after a long trip, instead of only once you walk right up to them.
+This build brings companions left sitting in a parked car back beside the car
+after a long trip or a restart, instead of losing them inside it.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added

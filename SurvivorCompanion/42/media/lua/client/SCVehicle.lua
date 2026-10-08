@@ -55,8 +55,13 @@ local function vehicleIdentity(vehicle)
     local yOk, y = invoke(vehicle, "getY")
     local zOk, z = invoke(vehicle, "getZ")
     if not idOk or id == nil or not xOk or not yOk then return nil end
+    -- getId() is a runtime slot the game reassigns whenever it loads the car.
+    -- The vehicle database id survives unloading and restarts.
+    local sqlOk, sqlId = invoke(vehicle, "getSqlId")
+    sqlId = sqlOk and math.floor(finite(sqlId, -1)) or -1
     return {
         id = math.floor(finite(id, -1)),
+        sqlId = sqlId >= 0 and sqlId or nil,
         script = scriptOk and tostring(script or "") or "",
         x = finite(x, 0),
         y = finite(y, 0),
@@ -814,6 +819,77 @@ function vehicleService.isNativeSeated(actor)
     local characterOk, character = invoke(vehicle, "getCharacter", seat)
     if characterOk and character ~= actor then return false, vehicle, seat end
     return true, vehicle, seat
+end
+
+local function loadedVehicleBySqlId(sqlId)
+    if sqlId == nil or sqlId < 0 or type(getCell) ~= "function" then return nil end
+    local cellOk, cell = pcall(getCell)
+    if not cellOk or cell == nil then return nil end
+    local listOk, vehicles = invoke(cell, "getVehicles")
+    local sizeOk, size = invoke(vehicles, "size")
+    if not listOk or not sizeOk then return nil end
+    for index = 0, math.min(math.floor(finite(size, 0)), 512) - 1 do
+        local itemOk, vehicle = invoke(vehicles, "get", index)
+        local idOk, id = invoke(vehicle, "getSqlId")
+        if itemOk and idOk and math.floor(finite(id, -1)) == sqlId then
+            local removedOk, removed = invoke(vehicle, "isRemovedFromWorld")
+            if not removedOk or removed ~= true then return vehicle end
+        end
+    end
+    return nil
+end
+
+-- Build 42 removes a parked car from the world when its area unloads, and
+-- later loads it again as a new object. A companion still seated in the
+-- removed object is out of the world until a restart. Free that seat and
+-- report where the car was, so the runtime can put the companion back beside
+-- it once the area loads. vehicle:exit() is not used: it writes the removed
+-- object back to the vehicle database over the car's saved state.
+function vehicleService.releaseUnloadedSeat(actor)
+    local seated, vehicle, seat = vehicleService.isNativeSeated(actor)
+    if not seated then return false, "not_seated" end
+    local removedOk, removed = invoke(vehicle, "isRemovedFromWorld")
+    if not removedOk or removed ~= true then return false, "vehicle_loaded" end
+    local identity = vehicleIdentity(vehicle)
+    local clearedOk, cleared = invoke(vehicle, "clearPassenger", seat)
+    if not clearedOk or cleared ~= true then return false, "unloaded_seat_release_failed" end
+    invoke(actor, "setVehicle", nil)
+    invoke(actor, "setCollidable", true)
+    local afterOk, after = invoke(actor, "getVehicle")
+    if not afterOk or after ~= nil then return false, "unloaded_seat_release_unverified" end
+    -- A seated companion stays on the cell update list. Without a seat or a
+    -- loaded square it must not update until it is placed again.
+    invoke(actor, "ensureUnscheduled")
+    if identity ~= nil then reservations[seatKey(identity, seat)] = nil end
+    vehicleService.invalidateManifests(vehicle)
+    local transaction = transactions[actor]
+    if transaction ~= nil then clearTransaction(actor, transaction) end
+    local record = SC.Registry.byId(SC.Registry.idOf(actor))
+    if record ~= nil and type(record.runtime) == "table" then record.runtime.vehicle = nil end
+    return true, {
+        sqlId = identity and identity.sqlId or nil, seat = seat,
+        x = identity and identity.x or nil, y = identity and identity.y or nil,
+        z = identity and identity.z or nil,
+    }
+end
+
+-- The door-side square of a car found again by its database id, for a
+-- companion that was released from it while its area was unloaded.
+function vehicleService.reloadedCarSquare(anchor)
+    if type(anchor) ~= "table" then return nil, "no_car_anchor" end
+    local vehicle = loadedVehicleBySqlId(tonumber(anchor.sqlId))
+    if vehicle == nil then return nil, "car_not_loaded" end
+    local seat = tonumber(anchor.seat)
+    local square, reason = nil, "no safe loaded passenger-door square"
+    if seat ~= nil then square, reason = exitSquare(vehicle, nil, seat) end
+    if square == nil then
+        local countOk, count = invoke(vehicle, "getMaxPassengers")
+        for other = 0, math.min(math.floor(finite(countOk and count or 0, 0)), 32) - 1 do
+            if other ~= seat then square = exitSquare(vehicle, nil, other) end
+            if square ~= nil then break end
+        end
+    end
+    return square, square and "car_door" or reason
 end
 
 function vehicleService.isSeatReserved(vehicle, seat)
