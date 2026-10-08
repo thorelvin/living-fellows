@@ -1,7 +1,7 @@
-Living Fellows 0.26.30 - public playtest
+Living Fellows 0.26.31 - public playtest
 
-This build improves automatic camp work, vehicle seating, base-view cleanup,
-and companion downtime behavior.
+This build stops camp sorting from emptying the Tools, Ammunition and Medical
+shelves, keeps Memorial storage untouched and keeps the Base Watch watcher indoors.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added
