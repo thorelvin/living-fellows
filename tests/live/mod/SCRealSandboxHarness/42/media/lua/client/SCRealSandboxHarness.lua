@@ -13771,7 +13771,8 @@ function Harness.beginCompanionInventory(current)
     end
     if actor == nil then
         for _, candidate in ipairs(SC.Registry.living()) do
-            if distance(candidate, Harness.player) <= SC.UIBridge.NEARBY_DISTANCE then
+            if select(1, SC.UIBridge.validateNearbyActor(candidate,
+                Harness.player, SC.UIBridge.NEARBY_DISTANCE)) == true then
                 actor = candidate
                 break
             end
@@ -13822,6 +13823,37 @@ function Harness.beginCompanionInventory(current)
     local opened, reason = SC.UIBridge.openInventory(actor, Harness.player)
     if not check("companion_inventory_opened", opened == true,
         tostring(reason) .. " distance=" .. tostring(distance(actor, Harness.player))) then
+        setPhase("finish", current)
+        return
+    end
+    if Harness.config.companion_transfer_probe == "true" then
+        local source, destination = actor:getInventory(), Harness.player:getInventory()
+        local hammer = source:AddItem("Base.Hammer")
+        if not check("companion_transfer_fixture", hammer ~= nil,
+            "native hammer created=" .. tostring(hammer ~= nil)) then
+            setPhase("finish", current)
+            return
+        end
+        actor:setPrimaryHandItem(hammer)
+        if not check("companion_transfer_equipped",
+            actor:getPrimaryHandItem() == hammer,
+            "hammer equipped=" .. tostring(actor:getPrimaryHandItem() == hammer)) then
+            setPhase("finish", current)
+            return
+        end
+        local called, transferred = pcall(ISTransferAction.transferItem,
+            ISTransferAction, Harness.player, hammer, source, destination, nil)
+        local moved = called and transferred == hammer
+            and SC.GameplayUtil.inventoryContains(destination, hammer)
+            and not SC.GameplayUtil.inventoryContains(source, hammer)
+        check("companion_transfer_identity", moved,
+            "called=" .. tostring(called) .. " result=" .. tostring(transferred)
+                .. " owner=" .. tostring(hammer:getContainer() == destination))
+        check("companion_transfer_unequipped",
+            actor:getPrimaryHandItem() ~= hammer
+                and actor:getSecondaryHandItem() ~= hammer,
+            "hand references cleared=" .. tostring(actor:getPrimaryHandItem() ~= hammer
+                and actor:getSecondaryHandItem() ~= hammer))
         setPhase("finish", current)
         return
     end
@@ -15145,6 +15177,14 @@ Harness.probeBaseMaintenance = function(...)
     return externalProbe("SCBaseMaintenanceProbe", ...)
 end
 
+Harness.probePyreBurn = function(...)
+    return externalProbe("SCPyreBurnProbe", ...)
+end
+
+Harness.probeMedicalCheck = function(...)
+    return externalProbe("SCMedicalCheckProbe", ...)
+end
+
 Harness.probeHygiene = function(...)
     return externalProbe("SCHygieneProbe", ...)
 end
@@ -15225,7 +15265,9 @@ local function tick()
         Harness.measurePerformance(current)
     end
 
-    if Harness.phase == "ui_menu_probe" or Harness.phase == "ui_menu_capture"
+    if string.sub(tostring(Harness.phase), 1, 14) == "medical_check_" then
+        Harness.probeMedicalCheck(Harness, current, check, result, setPhase)
+    elseif Harness.phase == "ui_menu_probe" or Harness.phase == "ui_menu_capture"
         or Harness.phase == "ui_menu_capture_bottom" then
         Harness.probeUIMenus(current)
     elseif Harness.phase == "fishing_map_list" then
@@ -15281,6 +15323,8 @@ local function tick()
         end
     elseif string.find(tostring(Harness.phase), "base_maintenance_", 1, true) == 1 then
         Harness.probeBaseMaintenance(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "pyre_burn_", 1, true) == 1 then
+        Harness.probePyreBurn(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "hygiene_", 1, true) == 1 then
         Harness.probeHygiene(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "base_second_floor_", 1, true) == 1 then
@@ -15998,12 +16042,16 @@ local function onGameStart()
         finish()
         return
     end
-    if Harness.config.ui_menu_probe == "true" then
+    if Harness.config.medical_check_probe == "true" then
+        setPhase("medical_check_setup", Harness.startedAt)
+    elseif Harness.config.ui_menu_probe == "true" then
         setPhase("ui_menu_probe", Harness.startedAt)
     elseif Harness.config.fishing_map_list_probe == "true" then
         setPhase("fishing_map_list", Harness.startedAt)
     elseif Harness.config.base_maintenance_probe == "true" then
         setPhase("base_maintenance_setup", Harness.startedAt)
+    elseif Harness.config.pyre_burn_probe == "true" then
+        setPhase("pyre_burn_setup", Harness.startedAt)
     elseif Harness.config.hygiene_probe == "true" then
         setPhase("hygiene_setup", Harness.startedAt)
     elseif Harness.config.base_second_floor_probe == "true" then
@@ -16028,7 +16076,8 @@ local function onGameStart()
         setPhase("split_start", Harness.startedAt)
     elseif Harness.config.base_layout_only == "true" then
         setPhase("base_layout_begin", Harness.startedAt)
-    elseif Harness.config.companion_inventory_only == "true" then
+    elseif Harness.config.companion_inventory_only == "true"
+        or Harness.config.companion_transfer_probe == "true" then
         setPhase("companion_inventory_begin", Harness.startedAt)
     elseif Harness.config.furniture_pose_only == "true" then
         setPhase("furniture_pose_begin", Harness.startedAt)

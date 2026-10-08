@@ -1,5 +1,13 @@
 # Companion playtest fix queue
 
+## 0.26.31 outside playtest: stairs, visibility, combat, health, and item transfer (2026-10-08)
+
+- **Report:** Companions sometimes stick on stairs or disappear until restart; they contribute little in combat and can stand still while being hurt. The game's right-click Medical Check does nothing, and taking a wielded hammer from a companion's inventory can duplicate it. The reporter could not provide logs, save, coordinates, or mod version.
+- **Fixed locally:** Right-click Medical Check on a Living Fellows companion now opens its health and wound summary. Companion inventory transfers clear that companion's equipped hand, attached, or worn reference after the same item moves to the player. Vanilla only unequips the player performing the transfer, leaving an orphan companion hand reference that persistence could save as a new root item. A nearby recruited companion now appears as a backpack in the player's loot pane within one tile on the same floor, without interrupting its movement. The focused Kahlua tests and cloned-save native hammer transfer passed. These fixes are installed in the local private build; Workshop publication remains pending.
+- **Stairs and disappearance remain open:** Cloned-save `SC-Harness-20261008-145117-05e0d14f` took a base worker from z=0 to z=1 and back down without sticking or disappearing. This verifies that staircase only; it does not reproduce the reporter's scene. A matching save, coordinates, video, or diagnostics from a failure is needed to identify the failing crossing or actor placement state.
+- **Combat remains open:** Existing doctrine, target-claim, overrun, and native attack rejection paths can all produce different visible pauses. Without the failing scene or log, changing thresholds would be speculative. Capture each affected companion's Status intent, combat action/rejection reason, weapon, health, doctrine, and nearby zombie positions in a focused encounter before changing combat policy.
+- **Separate base-work finding:** The same z=0 to z=1 harness did not deliver its sorting plank. It selected a washing machine as source, reached upstairs, then the job ended while the item remained in the source. Reproduce with a known ordinary storage container and inspect the exact transfer receipt before treating this as a stair failure.
+
 ## Rare intrusive-thought banter (implemented, harness verified 2026-10-08)
 
 - **Source:** [Intrusive-thought voice-lines plan](../../../intrusive-thoughts-voice-lines.md), revision 3 (369 lines across travel, camp, event, place, and reply pools). Keep the source file as the line and tone specification.

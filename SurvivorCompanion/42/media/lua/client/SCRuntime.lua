@@ -1013,6 +1013,12 @@ local function uiTask()
     end
 end
 
+local function nearbyInventoryTask()
+    if SC.UIBridge and type(SC.UIBridge.refreshNearbyInventory) == "function" then
+        SC.UIBridge.refreshNearbyInventory(player())
+    end
+end
+
 local observedBridgeGeneration = nil
 local function bridgeGenerationTask()
     local bridge = type(_G) == "table" and rawget(_G, "SCBridge") or nil
@@ -1109,6 +1115,7 @@ local function registerTasks()
         -- A larger roster needs several small panel slices. Admit each due
         -- slice promptly so a complete pass stays responsive at 16 members.
         { "ui-refresh", 50, 20, uiTask, "background", false, true, 1 },
+        { "nearby-inventory", 250, 22, nearbyInventoryTask, "background" },
         { "bridge-generation", 1000, 21, bridgeGenerationTask, "background" },
         { "base-maintenance", SC.Config.get("baseAuditIntervalMs"), 19,
             baseMaintenanceTask, "background" },
@@ -1298,19 +1305,35 @@ end
 local selectedBeforeContainerRefresh = setmetatable({}, { __mode = "k" })
 local function refreshInventoryContainers(page, phase)
     if type(page) ~= "table" or page.onCharacter == true then return end
+    if tonumber(page.player) ~= nil and tonumber(page.player) ~= 0 then return end
     local bridge = SC.UIBridge
     if type(bridge) ~= "table" or type(bridge.borrowedInventory) ~= "function" then return end
     local container, actor = bridge.borrowedInventory(page)
+    local nearby = {}
+    if type(bridge.nearbyInventories) == "function" then
+        local primary
+        if type(getSpecificPlayer) == "function" then
+            primary = getSpecificPlayer(0)
+        elseif type(getPlayer) == "function" then
+            primary = getPlayer()
+        end
+        nearby = bridge.nearbyInventories(primary)
+    end
+    local selected = page.inventoryPane and page.inventoryPane.inventory or nil
+    local selectedIsCompanion = selected ~= nil and selected == container
+    if not selectedIsCompanion then
+        for _, row in ipairs(nearby) do
+            if row.container == selected then selectedIsCompanion = true; break end
+        end
+    end
     if phase == "begin" then
-        selectedBeforeContainerRefresh[page] = container ~= nil
-            and page.inventoryPane ~= nil
-            and page.inventoryPane.inventory == container and container or nil
+        selectedBeforeContainerRefresh[page] = selectedIsCompanion and selected or nil
         return
     end
     if phase == "end" then
-        local selected = selectedBeforeContainerRefresh[page]
+        selected = selectedBeforeContainerRefresh[page]
         selectedBeforeContainerRefresh[page] = nil
-        if selected == nil or selected ~= container or page.inventoryPane == nil
+        if selected == nil or page.inventoryPane == nil
             or page.inventoryPane.inventory == selected
             or type(page.setNewContainer) ~= "function" then return end
         for _, button in ipairs(page.backpacks or {}) do
@@ -1325,17 +1348,7 @@ local function refreshInventoryContainers(page, phase)
         end
         return
     end
-    if phase ~= "buttonsAdded" or container == nil
-        or type(page.addContainerButton) ~= "function" then return end
-    if type(page.backpacks) == "table" then
-        for _, button in ipairs(page.backpacks) do
-            if type(button) == "table" and button.inventory == container then return end
-        end
-    end
-    local label = "Companion"
-    if type(bridge.borrowedInventoryLabel) == "function" then
-        label = bridge.borrowedInventoryLabel(actor) or label
-    end
+    if phase ~= "buttonsAdded" or type(page.addContainerButton) ~= "function" then return end
     -- A companion's root inventory normally has the same type as a corpse,
     -- which makes vanilla choose its dead-person icon. Pass the stock schoolbag
     -- texture explicitly; addContainerButton accepts it as a Texture and keeps
@@ -1345,7 +1358,18 @@ local function refreshInventoryContainers(page, phase)
         local found, texture = pcall(getTexture, "Item_Backpack_Black")
         if found then icon = texture end
     end
-    page:addContainerButton(container, icon, label, label)
+    if container then nearby[#nearby + 1] = { container = container, actor = actor } end
+    for _, row in ipairs(nearby) do
+        local exists = false
+        for _, button in ipairs(page.backpacks or {}) do
+            if button.inventory == row.container then exists = true; break end
+        end
+        if not exists then
+            local label = type(bridge.borrowedInventoryLabel) == "function"
+                and bridge.borrowedInventoryLabel(row.actor) or "Companion"
+            page:addContainerButton(row.container, icon, label, label)
+        end
+    end
 end
 
 -- The event boundary. A throwing handler here would break the player's whole
@@ -1503,6 +1527,13 @@ local function preflightInfrastructureTeardown(shouldDetach)
         or type(Events.OnTick.Remove) ~= "function") then
         return false, "OnTick removal is unavailable"
     end
+    local transferInstalled, transferOwned = false, true
+    if SC.UIBridge and type(SC.UIBridge.transferHookState) == "function" then
+        transferInstalled, transferOwned = SC.UIBridge.transferHookState()
+    end
+    if transferInstalled and not transferOwned then
+        return false, "companion transfer hook chain changed"
+    end
     return preflightContainerHookRemoval()
 end
 
@@ -1522,6 +1553,14 @@ local function removeInfrastructure(shouldDetach)
         return false, tostring(containerReason)
             .. (rollbackOk and "" or "; tick rollback failed: "
                 .. tostring(rollbackReason))
+    end
+    if SC.UIBridge and type(SC.UIBridge.removeTransferHook) == "function" then
+        local transferOk, transferReason = SC.UIBridge.removeTransferHook()
+        if not transferOk then
+            installContainerHook()
+            if detached then attachTick() end
+            return false, tostring(transferReason)
+        end
     end
     return true
 end
@@ -1691,6 +1730,9 @@ function runtime.reset(detach)
     local hadTick = tickAttached
     local hadContainer = originalSelectContainer ~= nil
         or originalSetNewContainer ~= nil
+    local hadTransfer = SC.UIBridge
+        and type(SC.UIBridge.transferHookState) == "function"
+        and select(1, SC.UIBridge.transferHookState()) == true
     local infrastructureOk, infrastructureReason = removeInfrastructure(shouldDetach)
     if not infrastructureOk then
         -- No destructive state mutation occurs unless both runtime-local hook
@@ -1701,6 +1743,11 @@ function runtime.reset(detach)
 
     local function restoreInfrastructure()
         local failures = {}
+        if hadTransfer and SC.UIBridge
+            and type(SC.UIBridge.installTransferHook) == "function" then
+            local ok, reason = SC.UIBridge.installTransferHook()
+            if not ok then failures[#failures + 1] = tostring(reason) end
+        end
         if hadContainer then
             local ok, reason = installContainerHook()
             if not ok then failures[#failures + 1] = tostring(reason) end

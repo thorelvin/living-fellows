@@ -4,7 +4,10 @@ local Bridge = SurvivorCompanion and SurvivorCompanion.UIBridge
 assert(Bridge, "SCUIBridge must be loaded before this test")
 
 local inventory = { marker = "companion-inventory" }
-local square = { marker = "live-square" }
+local square = { marker = "live-square", x = 10, y = 10, z = 0 }
+function square:getX() return self.x end
+function square:getY() return self.y end
+function square:getZ() return self.z end
 local actor = {}
 
 function actor:getSquare()
@@ -58,6 +61,9 @@ SurvivorCompanion.Commands = {
 }
 
 local player = { distance = 3 }
+local playerSquare = { x = 10, y = 10, z = 0,
+    getX = square.getX, getY = square.getY, getZ = square.getZ }
+function player:getSquare() return playerSquare end
 
 function player:DistTo(subject)
     assert(subject ~= nil)
@@ -100,6 +106,8 @@ getPlayerLoot = function(playerNum)
     assert(playerNum == 0)
     return lootPage
 end
+
+ISTransferAction = { transferItem = function() return true end }
 
 local opened, reason = Bridge.openInventory(actor, player)
 assert(opened == true and reason == nil)
@@ -172,6 +180,52 @@ assert(tooFar == false)
 assert(tooFarReason == "UI_SC_Disabled_TooFar")
 assert(limit == 4)
 player.distance = 3
+
+-- Ordinary loot browsing should offer a recruited companion within one tile,
+-- including diagonals, without asking them to stay or borrowing the pane.
+local companionSquare = { x = 11, y = 11, z = 0,
+    getX = square.getX, getY = square.getY, getZ = square.getZ }
+local originalGetSquare = actor.getSquare
+function actor:getSquare() return companionSquare end
+SurvivorCompanion.Registry = {
+    snapshot = function()
+        return { { id = "sc-bridge-test", actor = actor, recruited = true } }
+    end,
+}
+local nearby, signature = Bridge.nearbyInventories(player)
+assert(#nearby == 1 and nearby[1].container == inventory
+    and nearby[1].actor == actor and signature == "sc-bridge-test")
+assert(stayBegins == stayEnds, "nearby browsing must not hold companion movement")
+companionSquare.x = 12
+assert(#Bridge.nearbyInventories(player) == 0, "two tiles away is excluded")
+companionSquare.x = 11
+companionSquare.z = 1
+assert(#Bridge.nearbyInventories(player) == 0, "another floor is excluded")
+companionSquare.z = 0
+SurvivorCompanion.Registry.snapshot = function()
+    return { { id = "sc-bridge-test", actor = actor, recruited = false } }
+end
+assert(#Bridge.nearbyInventories(player) == 0, "unrecruited NPCs stay private")
+SurvivorCompanion.Registry.snapshot = function()
+    return { { id = "sc-bridge-test", actor = actor, recruited = true } }
+end
+local refreshes = 0
+function lootPage:refreshBackpacks() refreshes = refreshes + 1 end
+lootPage.visible = true
+Bridge.refreshNearbyInventory(player)
+Bridge.refreshNearbyInventory(player)
+assert(refreshes == 1, "unchanged nearby set does not repeatedly rebuild the pane")
+companionSquare.x = 12
+Bridge.refreshNearbyInventory(player)
+assert(refreshes == 2, "leaving arm's reach rebuilds the pane")
+lootPage.visible = false
+companionSquare.x = 11
+Bridge.refreshNearbyInventory(player)
+assert(refreshes == 2, "hidden loot panes are not rebuilt")
+lootPage.visible = true
+Bridge.refreshNearbyInventory(player)
+assert(refreshes == 3, "reopening catches a companion who moved closer")
+actor.getSquare = originalGetSquare
 
 local noPlayer, noPlayerReason = Bridge.openInventory(actor, nil)
 assert(noPlayer == false and noPlayerReason == "UI_SC_Disabled_NoPlayer")

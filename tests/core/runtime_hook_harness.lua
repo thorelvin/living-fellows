@@ -230,6 +230,47 @@ SC.Runtime.reset(true)
     check(#idlePage.backpacks == 1,
         "a loot pane nobody borrowed keeps exactly the containers vanilla found")
 
+    local withinOneTile = true
+    SC.UIBridge = {
+        borrowedInventory = function() return nil end,
+        nearbyInventories = function(primary)
+            check(primary == getPlayer(), "nearby inventory uses the main player")
+            return withinOneTile and {
+                { container = companionInventory, actor = companion },
+            } or {}
+        end,
+        borrowedInventoryLabel = function() return "Sam Vance" end,
+    }
+    local automatic = lootPage()
+    automatic.inventoryPane = { inventory = otherInventory }
+    function automatic:setNewContainer(inventory)
+        self.inventoryPane.inventory = inventory
+    end
+    SC_RUNTIME_FIXTURE.fireRefresh(automatic, "begin")
+    SC_RUNTIME_FIXTURE.fireRefresh(automatic, "buttonsAdded")
+    check(#automatic.backpacks == 2
+            and automatic.backpacks[2].inventory == companionInventory
+            and automatic.backpacks[2].name == "Sam Vance",
+        "an adjacent companion appears as a named backpack in the loot pane")
+    automatic.inventoryPane.inventory = companionInventory
+    SC_RUNTIME_FIXTURE.fireRefresh(automatic, "end")
+    SC_RUNTIME_FIXTURE.fireRefresh(automatic, "begin")
+    automatic.backpacks = { { inventory = otherInventory } }
+    SC_RUNTIME_FIXTURE.fireRefresh(automatic, "buttonsAdded")
+    automatic.inventoryPane.inventory = otherInventory
+    SC_RUNTIME_FIXTURE.fireRefresh(automatic, "end")
+    check(automatic.inventoryPane.inventory == companionInventory,
+        "an automatic companion selection survives vanilla's list rebuild")
+    withinOneTile = false
+    SC_RUNTIME_FIXTURE.fireRefresh(automatic, "begin")
+    automatic.backpacks = { { inventory = otherInventory } }
+    SC_RUNTIME_FIXTURE.fireRefresh(automatic, "buttonsAdded")
+    automatic.inventoryPane.inventory = otherInventory
+    SC_RUNTIME_FIXTURE.fireRefresh(automatic, "end")
+    check(#automatic.backpacks == 1
+            and automatic.inventoryPane.inventory == otherInventory,
+        "the icon and selected container go away when the companion leaves")
+
     -- A handler that throws would break the player's whole inventory window.
     SC.UIBridge = { borrowedInventory = function() error("injected bridge failure") end }
     local brokenPage = lootPage()

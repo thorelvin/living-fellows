@@ -7,6 +7,7 @@ SC.UIBridge = SC.UIBridge or {}
 local Bridge = SC.UIBridge
 
 Bridge.NEARBY_DISTANCE = 4
+Bridge.AUTO_INVENTORY_TILES = 1
 -- Opening a companion's read-only health/loadout view does not borrow the loot
 -- pane (only the explicit Open Inventory action does), so it must not be gated to
 -- the same arm's-reach distance as inventory. The context menu already only offers
@@ -22,6 +23,9 @@ Bridge.VIEW_DISTANCE = 64
 -- pane while it still shows what we put there (never clobbers a container the
 -- player deliberately selected afterwards).
 local ownedLootPane = nil
+local transferOwners = setmetatable({}, { __mode = "kv" })
+local originalTransferItem, transferItemWrapper
+local nearbySignatures = setmetatable({}, { __mode = "k" })
 
 local function safeMethod(object, methodName, ...)
     if not object then
@@ -52,6 +56,145 @@ local function companionId(actor)
         return nil
     end
     return tostring(id)
+end
+
+-- The stock transfer action is run by the player, even when its source is a
+-- companion's borrowed inventory. Vanilla therefore unequips the player, not
+-- the companion. A weapon left in the companion's hand after being taken can
+-- be captured as a new inventory root on save and appear duplicated on reload.
+local function releaseTransferredEquipment(actor, item)
+    if not actor or not item then return end
+    local changed = false
+    if safeMethod(actor, "getPrimaryHandItem") == item then
+        safeMethod(actor, "setPrimaryHandItem", nil)
+        changed = true
+    end
+    if safeMethod(actor, "getSecondaryHandItem") == item then
+        safeMethod(actor, "setSecondaryHandItem", nil)
+        changed = true
+    end
+    safeMethod(actor, "removeAttachedItem", item)
+    if safeMethod(actor, "isEquippedClothing", item) == true then
+        safeMethod(actor, "removeWornItem", item, false)
+        changed = true
+        if type(triggerEvent) == "function" then
+            pcall(triggerEvent, "OnClothingUpdated", actor)
+        end
+    end
+    if changed then safeMethod(actor, "resetModelNextFrame") end
+    if SC.InventoryIndex and type(SC.InventoryIndex.touch) == "function" then
+        SC.InventoryIndex.touch(actor)
+    end
+end
+
+function Bridge.installTransferHook()
+    if originalTransferItem ~= nil then return true end
+    if type(ISTransferAction) ~= "table" and type(require) == "function" then
+        pcall(require, "TimedActions/ISTransferAction")
+    end
+    if type(ISTransferAction) ~= "table"
+        or type(ISTransferAction.transferItem) ~= "function" then
+        return false, "vanilla transfer action unavailable"
+    end
+    originalTransferItem = ISTransferAction.transferItem
+    transferItemWrapper = function(self, character, item, source, destination, ...)
+        local result = originalTransferItem(self, character, item,
+            source, destination, ...)
+        local repaired, repairReason = pcall(function()
+            local owner = transferOwners[source]
+            if owner and item and destination and source ~= destination then
+                local container = safeMethod(item, "getContainer")
+                local moved = container == destination
+                if not moved and SC.GameplayUtil
+                    and type(SC.GameplayUtil.inventoryContains) == "function" then
+                    moved = not SC.GameplayUtil.inventoryContains(source, item)
+                        and SC.GameplayUtil.inventoryContains(destination, item)
+                end
+                if moved then releaseTransferredEquipment(owner, item) end
+            end
+        end)
+        if not repaired and SC.Diagnostics
+            and type(SC.Diagnostics.report) == "function" then
+            pcall(SC.Diagnostics.report, "inventory-transfer", nil,
+                "companion equipment cleanup failed", repairReason)
+        end
+        return result
+    end
+    ISTransferAction.transferItem = transferItemWrapper
+    return true
+end
+
+function Bridge.transferHookState()
+    return originalTransferItem ~= nil,
+        originalTransferItem == nil or (type(ISTransferAction) == "table"
+            and ISTransferAction.transferItem == transferItemWrapper)
+end
+
+function Bridge.removeTransferHook()
+    if originalTransferItem == nil then return true end
+    if type(ISTransferAction) ~= "table"
+        or ISTransferAction.transferItem ~= transferItemWrapper then
+        return false, "transfer hook chain changed"
+    end
+    ISTransferAction.transferItem = originalTransferItem
+    originalTransferItem, transferItemWrapper = nil, nil
+    transferOwners = setmetatable({}, { __mode = "kv" })
+    nearbySignatures = setmetatable({}, { __mode = "k" })
+    return true
+end
+
+-- A nearby recruited companion is a loot-pane container, without borrowing
+-- the pane or putting the companion on a temporary Stay order.
+function Bridge.nearbyInventories(player)
+    local result, ids = {}, {}
+    local playerSquare = safeMethod(player, "getSquare")
+    if not playerSquare or not SC.Registry
+        or type(SC.Registry.snapshot) ~= "function" then return result, "" end
+    local px = tonumber((safeMethod(playerSquare, "getX")))
+    local py = tonumber((safeMethod(playerSquare, "getY")))
+    local pz = tonumber((safeMethod(playerSquare, "getZ")))
+    if not px or not py or not pz then return result, "" end
+    for _, record in ipairs(SC.Registry.snapshot()) do
+        local actor = record.actor
+        if record.recruited == true and actor
+            and not (type(record.runtime) == "table"
+                and record.runtime.inactive == true) then
+            local square = safeMethod(actor, "getSquare")
+            local x = tonumber((safeMethod(square, "getX")))
+            local y = tonumber((safeMethod(square, "getY")))
+            local z = tonumber((safeMethod(square, "getZ")))
+            if x and y and z == pz and math.abs(x - px) <= Bridge.AUTO_INVENTORY_TILES
+                and math.abs(y - py) <= Bridge.AUTO_INVENTORY_TILES
+                and safeMethod(actor, "isDead") ~= true then
+                local container = safeMethod(actor, "getInventory")
+                if container then
+                    result[#result + 1] = { container = container, actor = actor }
+                    ids[#ids + 1] = tostring(record.id)
+                    transferOwners[container] = actor
+                end
+            end
+        end
+    end
+    if #result > 0 and not Bridge.installTransferHook() then return {}, "" end
+    return result, table.concat(ids, "|")
+end
+
+-- The vanilla pane only rebuilds when the player turns or changes squares.
+-- Companions can enter or leave arm's reach while the player stands still.
+function Bridge.refreshNearbyInventory(player)
+    local playerNum = tonumber((safeMethod(player, "getPlayerNum")))
+    if playerNum ~= 0 or type(getPlayerLoot) ~= "function" then return end
+    local ok, page = pcall(getPlayerLoot, playerNum)
+    if not ok or type(page) ~= "table"
+        or type(page.refreshBackpacks) ~= "function" then return end
+    local visible = safeMethod(page, "getIsVisible")
+    if visible == nil then visible = safeMethod(page, "isVisible") end
+    if visible == false then return end
+    local _, signature = Bridge.nearbyInventories(player)
+    if nearbySignatures[page] ~= signature then
+        nearbySignatures[page] = signature
+        page:refreshBackpacks()
+    end
 end
 
 function Bridge.validateNearbyActor(actor, player, maximumDistance)
@@ -88,6 +231,9 @@ function Bridge.openInventory(actor, player)
     if not inventory then
         return failure("UI_SC_Disabled_NoInventory")
     end
+    local hooked, hookReason = Bridge.installTransferHook()
+    if not hooked then return false, "UI_SC_Disabled_NoInventoryUI", hookReason end
+    transferOwners[inventory] = actor
     local playerNumValue = safeMethod(player, "getPlayerNum")
     local playerNum = tonumber(playerNumValue)
     if playerNum == nil or type(getPlayerLoot) ~= "function" then

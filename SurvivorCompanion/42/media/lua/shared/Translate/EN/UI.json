@@ -546,6 +546,7 @@
     "UI_SC_VehicleStatus_in_vehicle": "In vehicle",
     "UI_SC_VehicleStatus_waiting_safe_exit": "Waiting for safe exit",
     "UI_SC_Action_OpenHealth":  "Open companion health",
+    "UI_SC_MedicalCheck_Opened": "Health check opened in Living Fellows.",
     "UI_SC_Action_Bandage":  "Bandage companion",
     "UI_SC_Action_CookMeal": "Cook me a meal",
     "UI_SC_Action_GroupNone":  "Remove from group",

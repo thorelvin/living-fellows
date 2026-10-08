@@ -15,7 +15,10 @@ param(
     [switch]$HiddenWindow,
     [switch]$LivingFellowsOnly,
     [switch]$UIMenuProbe,
+    [switch]$MedicalCheckProbe,
     [switch]$BaseMaintenanceProbe,
+    [switch]$PyreBurnProbe,
+    [string]$PyreBurnScreenshot = '',
     [switch]$HygieneProbe,
     [string]$HygieneScreenshot = '',
     [string]$HygieneEightDirectionsScreenshotDirectory = '',
@@ -30,6 +33,7 @@ param(
     [switch]$BaseLayoutOnly,
     [string]$CompanionInventoryScreenshot = '',
     [switch]$CompanionInventoryOnly,
+    [switch]$CompanionTransferProbe,
     [switch]$FurniturePoseOnly,
     [switch]$VehiclePassengerOnly,
     [string]$VehiclePassengerScreenshot = '',
@@ -430,6 +434,13 @@ if (-not [string]::IsNullOrWhiteSpace($HygieneEightDirectionsScreenshotDirectory
     $HygieneEightDirectionsScreenshotDirectory = [System.IO.Path]::GetFullPath(
         $HygieneEightDirectionsScreenshotDirectory)
     New-Item -ItemType Directory -Path $HygieneEightDirectionsScreenshotDirectory -Force | Out-Null
+}
+if ($PyreBurnProbe -ne (-not [string]::IsNullOrWhiteSpace($PyreBurnScreenshot))) {
+    throw '-PyreBurnProbe requires -PyreBurnScreenshot.'
+}
+if ($PyreBurnProbe -and $status -eq 'PASS') {
+    $PyreBurnScreenshot = [System.IO.Path]::GetFullPath($PyreBurnScreenshot)
+    New-Item -ItemType Directory -Path (Split-Path -Parent $PyreBurnScreenshot) -Force | Out-Null
 }
 if ($SplitScreenOnly -ne (-not [string]::IsNullOrWhiteSpace($SplitScreenScreenshot))) {
     throw '-SplitScreenOnly requires -SplitScreenScreenshot, and that screenshot requires -SplitScreenOnly.'
@@ -861,7 +872,9 @@ $config = @(
     ('mode=' + $GameMode),
     ('project_alife_damage_probe=' + $ProjectALifeDamageProbe.IsPresent.ToString().ToLowerInvariant()),
     ('ui_menu_probe=' + $UIMenuProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('medical_check_probe=' + $MedicalCheckProbe.IsPresent.ToString().ToLowerInvariant()),
     ('base_maintenance_probe=' + $BaseMaintenanceProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('pyre_burn_probe=' + $PyreBurnProbe.IsPresent.ToString().ToLowerInvariant()),
     ('hygiene_probe=' + $HygieneProbe.IsPresent.ToString().ToLowerInvariant()),
     ('hygiene_eight_directions=' +
         (-not [string]::IsNullOrWhiteSpace($HygieneEightDirectionsScreenshotDirectory)).ToString().ToLowerInvariant()),
@@ -967,6 +980,7 @@ $config = @(
     ('capture_base_layout=' + $captureBaseLayout.ToString().ToLowerInvariant()),
     ('base_layout_only=' + $BaseLayoutOnly.IsPresent.ToString().ToLowerInvariant()),
     ('companion_inventory_only=' + $CompanionInventoryOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('companion_transfer_probe=' + $CompanionTransferProbe.IsPresent.ToString().ToLowerInvariant()),
     ('furniture_pose_only=' + $FurniturePoseOnly.IsPresent.ToString().ToLowerInvariant()),
     ('vehicle_passenger_only=' + $VehiclePassengerOnly.IsPresent.ToString().ToLowerInvariant()),
     ('woodcutter_only=' + $WoodcutterOnly.IsPresent.ToString().ToLowerInvariant()),
@@ -1263,6 +1277,15 @@ if (-not $process.HasExited) {
 }
 
 Get-Content -LiteralPath $eventsPath -ErrorAction SilentlyContinue
+if ($PyreBurnProbe) {
+    # TakeFullScreenshot writes a PNG without appending an extension to the name.
+    $pyreSource = Join-Path (Join-Path $CacheRoot 'Screenshots') ($runId + '-pyre-lit')
+    if (-not (Test-Path -LiteralPath $pyreSource -PathType Leaf)) {
+        throw "The lit pyre screenshot was not created: $pyreSource"
+    }
+    Copy-Item -LiteralPath $pyreSource -Destination $PyreBurnScreenshot -Force
+    Write-Output "Lit pyre screenshot: $PyreBurnScreenshot"
+}
 if (-not [string]::IsNullOrWhiteSpace($HygieneEightDirectionsScreenshotDirectory)) {
     $directionNames = @('N','NE','E','SE','S','SW','W','NW')
     $sourceDirectory = Join-Path $CacheRoot 'Screenshots'

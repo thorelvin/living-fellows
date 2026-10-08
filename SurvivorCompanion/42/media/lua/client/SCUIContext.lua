@@ -1,6 +1,7 @@
 -- SPDX-License-Identifier: MIT
 
 require "ISUI/ISContextMenu"
+require "ISUI/ISWorldObjectContextMenu"
 require "SCInteraction"
 require "SCConstructionPlanner"
 require "SCGameplayUtil"
@@ -36,6 +37,47 @@ local function safeMethod(object, methodName, ...)
         return value
     end
     return nil
+end
+
+-- Vanilla's Medical Check sends a consent request to another player. Native
+-- companions are IsoPlayers, so they get that menu item, but cannot answer the
+-- request. Show the companion's Living Fellows health and wound view instead.
+function Context.medicalCheckCompanion(requester, target)
+    local function reject(reason, argument)
+        if requester then safeMethod(requester, "setHaloNote",
+            argument and text(reason, argument) or text(reason)) end
+        return false, reason
+    end
+    if not requester or not target or not SC.Actor
+        or type(SC.Actor.isCompanion) ~= "function" then
+        return reject("UI_SC_Disabled_InvalidActor")
+    end
+    local valid, companion = pcall(SC.Actor.isCompanion, target)
+    if not valid or companion ~= true or safeMethod(target, "isDead") == true then
+        return reject("UI_SC_Disabled_InvalidActor")
+    end
+    if not SC.UI or type(SC.UI.openHealth) ~= "function" then
+        return reject("UI_SC_Disabled_HealthUnavailable")
+    end
+    local ok, opened, reason, argument = pcall(SC.UI.openHealth, target, requester)
+    if not ok or opened ~= true then
+        return reject(reason or "UI_SC_Disabled_HealthUnavailable", argument)
+    end
+    safeMethod(requester, "setHaloNote", text("UI_SC_MedicalCheck_Opened"))
+    return true, "health_opened"
+end
+
+function Context.onMedicalCheck(worldObjects, requester, target)
+    local valid, companion = pcall(function()
+        return SC.Actor and type(SC.Actor.isCompanion) == "function"
+            and SC.Actor.isCompanion(target) == true
+    end)
+    if valid and companion then
+        return Context.medicalCheckCompanion(requester, target)
+    end
+    if Context._originalMedicalCheck then
+        return Context._originalMedicalCheck(worldObjects, requester, target)
+    end
 end
 
 local function hasMethod(object, methodName)
@@ -1285,6 +1327,12 @@ function Context.install()
     if Context._installed then
         return
     end
+    if ISWorldObjectContextMenu
+        and type(ISWorldObjectContextMenu.onMedicalCheck) == "function"
+        and ISWorldObjectContextMenu.onMedicalCheck ~= Context.onMedicalCheck then
+        Context._originalMedicalCheck = ISWorldObjectContextMenu.onMedicalCheck
+        ISWorldObjectContextMenu.onMedicalCheck = Context.onMedicalCheck
+    end
     if Events and Events.OnFillWorldObjectContextMenu then
         Events.OnFillWorldObjectContextMenu.Add(Context.fillWorldObjectContextMenu)
         Context._installed = true
@@ -1303,6 +1351,10 @@ function Context.remove()
     end
     if Events and Events.OnFillInventoryObjectContextMenu then
         Events.OnFillInventoryObjectContextMenu.Remove(Context.fillRadioContextMenu)
+    end
+    if ISWorldObjectContextMenu
+        and ISWorldObjectContextMenu.onMedicalCheck == Context.onMedicalCheck then
+        ISWorldObjectContextMenu.onMedicalCheck = Context._originalMedicalCheck
     end
     Context._installed = false
 end
