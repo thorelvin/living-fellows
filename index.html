@@ -121,7 +121,7 @@ p { margin-bottom: 0.9rem; }
 
 /* ── Overheard: a companion's own words, quoted from the mod ── */
 .lore-pull { font-family: 'Courier New', Courier, monospace; color: var(--heard); border-left: 3px solid var(--amber); padding: 0.6rem 1.2rem; margin: 1.3rem 0 1rem; font-size: 0.9rem; background: var(--heard-bg); }
-.lore-pull::before { content: "Overheard — "; font-family: Georgia, serif; font-style: italic; font-weight: bold; color: var(--amber); }
+.lore-pull .lore-label { font-family: Georgia, serif; font-style: italic; font-weight: bold; color: var(--amber); }
 .lore-pull .who { display: block; font-family: Georgia, serif; font-style: italic; font-size: 0.78rem; color: var(--muted); margin-top: 0.2rem; }
 
 /* ── Callouts ── */
@@ -132,11 +132,12 @@ p { margin-bottom: 0.9rem; }
 .callout-also   { border-color: var(--also);  background: var(--also-bg); font-size: 0.86rem; color: #3a4a2c; }
 .callout-check  { border-color: var(--check); background: var(--check-bg); }
 
-.callout-tip::before    { content: "Note — "; font-weight: bold; color: var(--tip); }
-.callout-warn::before   { content: "Take care — "; font-weight: bold; color: var(--warn); }
-.callout-recipe::before { content: "How to — "; font-weight: bold; color: var(--howto); }
-.callout-also::before   { content: "See also — "; font-weight: bold; color: var(--also); }
-.callout-check::before  { content: "Checklist — "; font-weight: bold; color: var(--check); }
+.callout-label { font-weight: bold; }
+.callout-tip    .callout-label { color: var(--tip); }
+.callout-warn   .callout-label { color: var(--warn); }
+.callout-recipe .callout-label { color: var(--howto); }
+.callout-also   .callout-label { color: var(--also); }
+.callout-check  .callout-label { color: var(--check); }
 
 /* ── Plates: pictures from the game ── */
 figure.plate { margin: 1.6rem 0; padding: 6px; background: var(--paper-3); border: 1px solid var(--khaki); border-radius: 3px; box-shadow: 0 2px 8px rgba(30, 30, 15, 0.18); }
@@ -166,9 +167,9 @@ li { margin-bottom: 0.3rem; }
 .checklist li::before { content: "☐"; position: absolute; left: 0; color: var(--amber); }
 
 /* ── Step list ── */
-.steps { counter-reset: step-counter; list-style: none; padding-left: 0; }
-.steps li { counter-increment: step-counter; padding: 0.4rem 0 0.4rem 2.5rem; position: relative; margin-bottom: 0.4rem; }
-.steps li::before { content: counter(step-counter); position: absolute; left: 0; top: 0.3rem; width: 1.65rem; height: 1.65rem; background: var(--th-bg); border: 1px solid var(--olive-900); border-radius: 50%; text-align: center; line-height: 1.55rem; font-size: 0.78rem; color: var(--th-ink); font-weight: bold; }
+.steps { list-style: none; padding-left: 0; }
+.steps li { padding: 0.4rem 0 0.4rem 2.5rem; position: relative; margin-bottom: 0.4rem; }
+.steps li .step-n { position: absolute; left: 0; top: 0.3rem; width: 1.65rem; height: 1.65rem; background: var(--th-bg); border: 1px solid var(--olive-900); border-radius: 50%; text-align: center; line-height: 1.55rem; font-size: 0.78rem; color: var(--th-ink); font-weight: bold; }
 
 /* ── Two-column ── */
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; margin: 1rem 0; }
@@ -310,12 +311,14 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <p class="subtitle">A Complete Guide to Living with the Fellows of Knox County</p>
   <p class="divider">· · · ✚ · · ·</p>
   <p class="edition">Living Fellows — Project Zomboid Build 42.21.0 Edition</p>
-  <p class="version">Release 0.26.32 — First Edition, Seventh Printing — You won't die... alone.</p>
+  <p class="version">Release 0.26.34 — First Edition, Eighth Printing — You won't die... alone.</p>
 </div>
 
-<div class="callout callout-tip" style="margin-bottom:2.5rem;">
-<strong>What changed in this printing</strong> — 0.26.32 first, then the 0.26.31 fixes and the 0.26.29 and 0.26.30 work:
+<div class="callout callout-tip" style="margin-bottom:2.5rem;"><span class="callout-label">Note — </span>
+<strong>What changed in this printing</strong> — 0.26.33 and 0.26.34 first, then 0.26.32, the 0.26.31 fixes and the 0.26.29 and 0.26.30 work:
 <ul style="margin-top:0.5rem;margin-bottom:0;">
+  <li><a href="#ch14c"><strong>Companions come back after a long trip.</strong></a> Residents left at camp step back into the world as soon as their ground loads again. Before, they waited until you walked right up to them.</li>
+  <li><a href="#ch5c"><strong>Companions left in a parked car</strong></a> are waiting beside it when you come back, or after a restart, instead of vanishing inside it.</li>
   <li><a href="#ch3b"><strong>A companion next to you is a backpack.</strong></a> Stand within a tile of a recruited companion, on the same floor, and its inventory shows up in your loot pane under its name. It carries on with what it was doing.</li>
   <li><a href="#ch3b"><strong>Medical Check works on companions.</strong></a> The game's own right-click Medical Check opens their wounds in the Loadout tab.</li>
   <li><a href="#ch3b"><strong>No more doubled weapons.</strong></a> A hammer taken from a companion's hand leaves the hand, so it can't come back as a second hammer after a reload. The same goes for a lit candle or lantern.</li>
@@ -336,8 +339,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </ul>
 </div>
 
-<div class="callout callout-tip" style="margin-bottom:2.5rem;">
-<strong>About this manual</strong> — it covers what the companion panel does not explain: how the fellows think, what they need from you, and the rules they follow when nobody is giving orders. Everything here describes release 0.26.32 and was checked against the mod itself. Living Fellows is a <strong>public playtest</strong>: back up important saves, and send logs when something goes wrong (<a href="#appD">Appendix D</a>). The mod lives at <a href="https://github.com/thorelvin/living-fellows">github.com/thorelvin/living-fellows</a>. The <em>Overheard</em> quotes are real lines from the mod's own voice pools.
+<div class="callout callout-tip" style="margin-bottom:2.5rem;"><span class="callout-label">Note — </span>
+<strong>About this manual</strong> — it covers what the companion panel does not explain: how the fellows think, what they need from you, and the rules they follow when nobody is giving orders. Everything here describes release 0.26.34 and was checked against the mod itself. Living Fellows is a <strong>public playtest</strong>: back up important saves, and send logs when something goes wrong (<a href="#appD">Appendix D</a>). The mod lives at <a href="https://github.com/thorelvin/living-fellows">github.com/thorelvin/living-fellows</a>. The <em>Overheard</em> quotes are real lines from the mod's own voice pools.
 </div>
 
 <!-- TABLE OF CONTENTS -->
@@ -412,7 +415,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <p class="part-desc">Nobody hands you a manual when the world ends. Here is one anyway: how to install the fellows, find the first of them, and tell them what you need.</p>
 </div>
 
-<div class="callout callout-check">
+<div class="callout callout-check"><span class="callout-label">Checklist — </span>
 <strong>Before you proceed</strong> — the short version of the next four chapters:
 <ul class="checklist" style="margin-top:0.6rem;margin-bottom:0;">
   <li>Install exactly one copy of Living Fellows: Workshop with ZombieBuddy, or the standalone <code>Install.bat</code></li>
@@ -439,27 +442,27 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong><code>Install.bat</code></strong></td><td>Windows and Project Zomboid 42.21.0</td><td>Everyone else: no ZombieBuddy, no Workshop account needed</td></tr>
 </table>
 
-<div class="callout callout-warn">Use <strong>only one copy</strong>. The Workshop and standalone editions share the mod ID <code>SurvivorCompanion</code>, and two copies fight over which one loads. If you switch methods, remove the old copy first.</div>
+<div class="callout callout-warn"><span class="callout-label">Take care — </span>Use <strong>only one copy</strong>. The Workshop and standalone editions share the mod ID <code>SurvivorCompanion</code>, and two copies fight over which one loads. If you switch methods, remove the old copy first.</div>
 
 <div class="two-col">
 <div>
 <h4>From the Steam Workshop</h4>
 <ol class="steps">
-  <li>Close Project Zomboid.</li>
-  <li>Subscribe to <strong>ZombieBuddy 2.3.3 or newer</strong> and run its one-time loader installation. Subscribing alone does not install its Java loader.</li>
-  <li>Subscribe to <strong>Living Fellows</strong>.</li>
-  <li>Start the game, open <span class="menu">Mods</span>, and enable both.</li>
-  <li>For an existing save, use <span class="menu">More... → Choose Mods</span> and enable both for that save.</li>
+  <li><span class="step-n">1</span>Close Project Zomboid.</li>
+  <li><span class="step-n">2</span>Subscribe to <strong>ZombieBuddy 2.3.3 or newer</strong> and run its one-time loader installation. Subscribing alone does not install its Java loader.</li>
+  <li><span class="step-n">3</span>Subscribe to <strong>Living Fellows</strong>.</li>
+  <li><span class="step-n">4</span>Start the game, open <span class="menu">Mods</span>, and enable both.</li>
+  <li><span class="step-n">5</span>For an existing save, use <span class="menu">More... → Choose Mods</span> and enable both for that save.</li>
 </ol>
 </div>
 <div>
 <h4>With <code>Install.bat</code></h4>
 <ol class="steps">
-  <li>Download the <code>STANDALONE-WINDOWS</code> ZIP from the project's Releases page on GitHub. If a release has no package yet, use the Workshop for that version.</li>
-  <li>Extract the whole ZIP to a normal folder. Don't run it from inside the ZIP viewer.</li>
-  <li>Close Project Zomboid.</li>
-  <li>Double-click <strong>Install.bat</strong>.</li>
-  <li>Start the game and enable <strong>Living Fellows</strong> for your save.</li>
+  <li><span class="step-n">1</span>Download the <code>STANDALONE-WINDOWS</code> ZIP from the project's Releases page on GitHub. If a release has no package yet, use the Workshop for that version.</li>
+  <li><span class="step-n">2</span>Extract the whole ZIP to a normal folder. Don't run it from inside the ZIP viewer.</li>
+  <li><span class="step-n">3</span>Close Project Zomboid.</li>
+  <li><span class="step-n">4</span>Double-click <strong>Install.bat</strong>.</li>
+  <li><span class="step-n">5</span>Start the game and enable <strong>Living Fellows</strong> for your save.</li>
 </ol>
 </div>
 </div>
@@ -468,7 +471,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <p>The standalone installer finds Steam on its own. If Windows refuses access to the game folder, run it as Administrator. For a game in another Steam library, point it there:</p>
 
-<div class="callout callout-recipe">
+<div class="callout callout-recipe"><span class="callout-label">How to — </span>
 <strong>Another Steam library:</strong> <code>.\Install.bat -GameRoot "D:\SteamLibrary\steamapps\common\ProjectZomboid"</code>
 </div>
 
@@ -477,11 +480,11 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h3>Back Up Your Save</h3>
 <p>Companions, households, relationships, contracts, bases and production orders are saved with the world, so they outlive your character. That also means the mod is woven into the save. Before installing or updating:</p>
 <ol class="steps">
-  <li>Close the game.</li>
-  <li>Copy your save folder from <code>%USERPROFILE%\Zomboid\Saves</code> somewhere safe.</li>
-  <li>Keep at least one backup from before your first Living Fellows session.</li>
+  <li><span class="step-n">1</span>Close the game.</li>
+  <li><span class="step-n">2</span>Copy your save folder from <code>%USERPROFILE%\Zomboid\Saves</code> somewhere safe.</li>
+  <li><span class="step-n">3</span>Keep at least one backup from before your first Living Fellows session.</li>
 </ol>
-<div class="callout callout-warn">Don't remove the mod from an important save without a backup.</div>
+<div class="callout callout-warn"><span class="callout-label">Take care — </span>Don't remove the mod from an important save without a backup.</div>
 
 <!-- CH 2 -->
 <h2 class="chapter" id="ch2"><img class="ico" src="https://pzwiki.net/w/images/7/7f/KeyRing.png" alt="">Chapter 2: The First Five Minutes<span class="stage stage-early">Day One</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
@@ -494,17 +497,17 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </figure>
 
 <ol class="steps">
-  <li>Load a single-player save.</li>
-  <li>Press <kbd>Home</kbd> to open the companion panel, or click the small <strong>LF</strong> launcher when the panel is collapsed.</li>
-  <li>Explore until you meet a survivor. Survivors never join automatically.</li>
-  <li>Select the survivor in the panel and press <span class="menu">Recruit</span> when it is offered.</li>
-  <li>Open <span class="menu">Orders</span> and pick a main order.</li>
-  <li>Hold <kbd>Keypad 1</kbd> to peek through the selected companion's position; let go to return to your character. Press <kbd>Keypad 2</kbd>, or right-click a nearby companion and choose <span class="menu">Watch</span>, for a view that stays.</li>
-  <li>Hold <kbd>Keypad 3</kbd> to steer that companion toward the cursor; let go to hand them back to their own judgement.</li>
-  <li>If something looks wrong, open <span class="menu">More → Support</span> for runtime health and a copyable report.</li>
+  <li><span class="step-n">1</span>Load a single-player save.</li>
+  <li><span class="step-n">2</span>Press <kbd>Home</kbd> to open the companion panel, or click the small <strong>LF</strong> launcher when the panel is collapsed.</li>
+  <li><span class="step-n">3</span>Explore until you meet a survivor. Survivors never join automatically.</li>
+  <li><span class="step-n">4</span>Select the survivor in the panel and press <span class="menu">Recruit</span> when it is offered.</li>
+  <li><span class="step-n">5</span>Open <span class="menu">Orders</span> and pick a main order.</li>
+  <li><span class="step-n">6</span>Hold <kbd>Keypad 1</kbd> to peek through the selected companion's position; let go to return to your character. Press <kbd>Keypad 2</kbd>, or right-click a nearby companion and choose <span class="menu">Watch</span>, for a view that stays.</li>
+  <li><span class="step-n">7</span>Hold <kbd>Keypad 3</kbd> to steer that companion toward the cursor; let go to hand them back to their own judgement.</li>
+  <li><span class="step-n">8</span>If something looks wrong, open <span class="menu">More → Support</span> for runtime health and a copyable report.</li>
 </ol>
 
-<div class="lore-pull">All right. I'll come with you.<span class="who">— a new recruit</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>All right. I'll come with you.<span class="who">— a new recruit</span></div>
 
 <h3>What a New Recruit Starts With</h3>
 <table>
@@ -536,12 +539,12 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h3>Talking</h3>
 <p>Use the <span class="menu">Talk</span> button above the tabs, or right-click a nearby companion and choose <span class="menu">Talk to [name]</span>. Pick a topic and a line, and the companion walks into speaking distance before it answers. The talk view keeps recent dialogue and says so when something interrupts. Every line you can choose, and what it does, is in <a href="#ch9b">Chapter 9b</a>. The same right-click menu offers Follow, Stay, Regroup and Retreat, and a link to the full Orders panel.</p>
 
-<div class="lore-pull">Doing fine. Tell me what comes next.<span class="who">— a companion asked how they are</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>Doing fine. Tell me what comes next.<span class="who">— a companion asked how they are</span></div>
 
 <h3>Peek and Watch</h3>
 <p>Select a companion in the roster and hold <kbd>Keypad 1</kbd> to ease the camera toward them; let go to ease home. <kbd>Keypad 2</kbd> starts or stops a <strong>Watch</strong> view that stays on them. With the mouse, right-click a nearby companion and choose <span class="menu">Watch</span>; while watching, right-click anywhere and choose <span class="menu">Stop watching</span>. Both work with the panel collapsed, on the same floor within 16 tiles, and alongside the game's right-click aim lean. All three keypad keys can be rebound under Options, Key bindings, Living Fellows.</p>
 
-<div class="callout callout-warn">Peek and Watch move only the camera. Your character keeps moving normally and is just as vulnerable. Don't watch a companion's fight while you stand in a street full of your own trouble.</div>
+<div class="callout callout-warn"><span class="callout-label">Take care — </span>Peek and Watch move only the camera. Your character keeps moving normally and is just as vulnerable. Don't watch a companion's fight while you stand in a street full of your own trouble.</div>
 
 <h3>Steer</h3>
 <p>Hold <kbd>Keypad 3</kbd> (separately rebindable) and point at loaded ground to walk the selected companion toward the cursor. Hold Peek and Steer together for a scout-and-direct view. Steering goes through the same action supervisor as work and survival: it can interrupt lower-priority activity, can't pull a companion out of a protected native action, and gives way at once to a combat rescue or survival movement. Let go of the key and the companion's own judgement resumes.</p>
@@ -565,7 +568,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Status</strong></td><td>Name, health, hunger and thirst; the <strong>current action</strong> and the <strong>last action problem</strong>, if something just failed; order, intent and distance from you</td></tr>
   <tr><td><strong>At a glance</strong></td><td>Mood and relationship tier; their current need; a recent memory; grief, if they are mourning; any promise they're expecting you to keep; and any stress response they're going through right now</td></tr>
 </table>
-<div class="callout callout-tip"><strong>Last action problem</strong> is the line to read when a companion seems to ignore you. It names what stopped them, such as a blocked path or a missing tool.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span><strong>Last action problem</strong> is the line to read when a companion seems to ignore you. It names what stopped them, such as a blocked path or a missing tool.</div>
 
 <h3>A Companion's Request</h3>
 <p>Now and then a bored companion asks for something at the top of Status, most often <em>"We should plan another supply run."</em> (<a href="#ch9f">Chapter 9f</a>). Four answers are offered: <strong>We will go soon</strong>, <strong>Come with me now</strong>, <strong>Not now</strong> and <strong>We cannot spare the risk</strong>.</p>
@@ -581,7 +584,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Health actions</strong></td><td>Open their health panel, bandage them yourself, or open their inventory</td></tr>
 </table>
 
-<div class="callout callout-warn">Opening a companion's <strong>inventory</strong> from the panel holds them where they stand until you close it: downtime, scavenging, base work and any walk are cancelled, so nothing moves out from under your hands. They pick up their order again when the window closes.</div>
+<div class="callout callout-warn"><span class="callout-label">Take care — </span>Opening a companion's <strong>inventory</strong> from the panel holds them where they stand until you close it: downtime, scavenging, base work and any walk are cancelled, so nothing moves out from under your hands. They pick up their order again when the window closes.</div>
 
 <p>A quick look needs no panel. A recruited companion standing within one tile of you, on the same floor, shows up in your loot pane as a backpack with its name on it. Move items in and out there while it carries on with whatever it was doing; the backpack goes away when it steps off. Taking something it holds, wears or has strapped on takes it off the companion too. The game's own right-click <span class="menu">Medical Check</span> on a companion opens this Loadout tab at its wounds.</p>
 
@@ -616,7 +619,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li>Focus the same zombie again within four seconds to <strong>push</strong> the order.</li>
 </ul>
 
-<div class="callout callout-warn">A companion is not a remote-controlled gun. Doctrine, Hold Fire, line of sight, safe attack choice and overrun judgement all still apply, and a companion may refuse a bad instruction rather than obey it blindly. A <strong>push</strong> costs that companion morale and stress, works better when trust and bond are high, never overrides a missing escape route or missing support, and is remembered differently if it succeeds or gets them hurt.</div>
+<div class="callout callout-warn"><span class="callout-label">Take care — </span>A companion is not a remote-controlled gun. Doctrine, Hold Fire, line of sight, safe attack choice and overrun judgement all still apply, and a companion may refuse a bad instruction rather than obey it blindly. A <strong>push</strong> costs that companion morale and stress, works better when trust and bond are high, never overrides a missing escape route or missing support, and is remembered differently if it succeeds or gets them hurt.</div>
 
 <h3>Assigned Objectives</h3>
 <p>Right-click a recruited companion and choose <span class="menu">Assign objective</span> to set a concrete priority: medical supplies, reading material, gear, shelter, or a proper meal. Their own personal goal is kept and comes back once your objective is met (<a href="#ch9d">Chapter 9d</a>).</p>
@@ -635,14 +638,14 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td>Allow overload</td><td>On or off</td><td class="tbl-note">Carry past the normal limit, up to a cap</td></tr>
 </table>
 
-<div class="callout callout-tip">There is no manual Idle or Craft selector. In downtime, companions choose safe reading, rest, repair, crafting and other available activities from their needs, personality, goals and what they did recently.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>There is no manual Idle or Craft selector. In downtime, companions choose safe reading, rest, repair, crafting and other available activities from their needs, personality, goals and what they did recently.</div>
 
 <h3 id="dismissing">Dismissing a Companion</h3>
 <p>Dismissal asks for confirmation by name, from the Squad view or the context menu, so a changed roster selection can't send the wrong person away. Confirm, and the companion leaves the group and walks away from you. Their base duty and work end with it.</p>
 
 <p>A dismissal is a player order, and it outranks routine life. A companion pausing between actions, eating, reading or busy with a camp job stops and goes. Two things still come first. A companion fighting or escaping for its life keeps its claim, and so does one partway through an action that can't safely be stopped, such as the game's own timed actions or work that is committing its result. The dismissal is refused until that is over; try again a moment later.</p>
 
-<div class="lore-pull">Then this is goodbye. Stay alive.<span class="who">— a dismissed companion</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>Then this is goodbye. Stay alive.<span class="who">— a dismissed companion</span></div>
 
 <!-- First week -->
 <h2 class="chapter" id="ch_week"><img class="ico" src="https://pzwiki.net/w/images/e/ea/Pencil.png" alt="">Your First Week at a Glance <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
@@ -693,7 +696,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h3>Vehicles</h3>
 <p>With <strong>Ride with player</strong> on, companions take free passenger seats and get out when you do. When the car is full, the extra followers wait safely on foot. No one leaves a moving vehicle: getting out waits until it has stopped. Seats, statuses and shooting from a car are in <a href="#ch5c">Chapter 5c</a>.</p>
 
-<div class="callout callout-also">If a companion seems stuck, give it a moment to recover on its own, then use <strong>Regroup</strong>. <a href="#appC">Appendix C</a> says what to note for a report if it stays stuck.</div>
+<div class="callout callout-also"><span class="callout-label">See also — </span>If a companion seems stuck, give it a moment to recover on its own, then use <strong>Regroup</strong>. <a href="#appC">Appendix C</a> says what to note for a report if it stays stuck.</div>
 
 <!-- CH 5b -->
 <h2 class="chapter" id="ch5b"><img class="ico" src="https://pzwiki.net/w/images/1/18/Whistle.png" alt="">Chapter 5b: Squads and Signals<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
@@ -713,7 +716,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="tbl-power">Group: retreat</td><td>Retreat (emergency)</td></tr>
 </table>
 
-<div class="callout callout-tip">Rules of engagement have their own whole-team button: <span class="menu">Apply to whole squad</span> on Orders sets one doctrine for everyone, including recruits who join later.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Rules of engagement have their own whole-team button: <span class="menu">Apply to whole squad</span> on Orders sets one doctrine for everyone, including recruits who join later.</div>
 
 <h3>The Whistle and the Hand Signs</h3>
 <p>Signals are given by <strong>your character</strong>, in the world: you whistle or make the gesture, and companions answer. The difference is who hears it. The <strong>whistle</strong> reaches every companion on Follow, seen or not, but it is loud: it carries about 24 tiles, and zombies hear it too. A <strong>hand sign</strong> is silent, but only companions who can <strong>see you</strong> respond. Each one that obeys answers with an OK sign of its own.</p>
@@ -733,7 +736,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <p>The Squad tab lists every signal under <strong>Squad movement signals</strong> and <strong>Squad fire signals</strong>. The quickest ones (whistle, hold, fall back, cease fire and fire) are also in the world right-click menu under <span class="menu">Living Fellows → Squad</span>.</p>
 
-<div class="callout callout-warn">A hand sign is silent but needs a line of sight; the whistle needs neither, but every walker within earshot hears it as well. In a quiet house full of sleeping dead, signal by hand. Out in the open with a follower out of sight, whistle, and be ready for company.</div>
+<div class="callout callout-warn"><span class="callout-label">Take care — </span>A hand sign is silent but needs a line of sight; the whistle needs neither, but every walker within earshot hears it as well. In a quiet house full of sleeping dead, signal by hand. Out in the open with a follower out of sight, whistle, and be ready for company.</div>
 
 <h3>Follow Distance</h3>
 <p>Orders offers five follow distances: <strong>Stay close</strong>, <strong>2</strong>, <strong>3</strong>, <strong>5</strong> or <strong>8 tiles</strong>. Close spacing suits buildings and doorways; wide spacing suits open roads, where a long column is less likely to bunch up behind you at a fence.</p>
@@ -751,10 +754,11 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Waiting for safe exit</strong></td><td>Wants out, but the vehicle is still moving</td></tr>
 </table>
 
-<div class="callout callout-tip">When the car is full, Loadout says so (<em>Vehicle full … waiting safely</em>) and the extra followers wait on foot instead of chasing the car. Come back for them, or let them walk.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>When the car is full, Loadout says so (<em>Vehicle full … waiting safely</em>) and the extra followers wait on foot instead of chasing the car. Come back for them, or let them walk.</div>
 
 <h3>Getting Out</h3>
 <p>Nobody steps out of a moving vehicle. A companion who needs out waits until it stops; then <span class="menu">Exit vehicle now</span> appears on Loadout and in the companion's right-click menu if you want them out before you.</p>
+<p>Leave companions sitting in a parked car and travel far away, and they get out when the car's ground unloads. When you come back, or after a restart, they're waiting beside the car.</p>
 
 <h3>Shooting from a Vehicle</h3>
 <table>
@@ -788,7 +792,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </table>
 <p>What each doctrine allows from a passenger seat is in <a href="#ch5c">Chapter 5c</a>.</p>
 
-<div class="callout callout-tip"><strong>Hold fire</strong> sits on top of any doctrine and blocks ordinary shots, whatever the doctrine would allow. Gunfire is loud in Knox County, and loud draws a crowd.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span><strong>Hold fire</strong> sits on top of any doctrine and blocks ordinary shots, whatever the doctrine would allow. Gunfire is loud in Knox County, and loud draws a crowd.</div>
 
 <h3>When They Say No</h3>
 <p>A companion who decides a fight is too dangerous says why. It names the reason that actually decided it, such as exhaustion, encirclement, wounds, bad footing, no escape, or an empty weapon, instead of refusing in silence or shouting a generic retreat.</p>
@@ -820,12 +824,12 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <p>Shared barks are remembered across the squad, so three companions in one room won't echo the same line. The kill lines run deep, and a brave companion may allow itself some gallows humour after a confirmed kill, but only once the encounter is genuinely clear.</p>
 
-<div class="lore-pull">Single walker, up ahead.<span class="who">— a companion on watch</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>Single walker, up ahead.<span class="who">— a companion on watch</span></div>
 
 <h3>Bites and Pins</h3>
 <p>Zombies hunt companions the way they hunt you. Bites can infect and turn them. A swarm can pull a companion to the ground and pin it there unless you thin the pile in time. A pinned companion always cries for help.</p>
 
-<div class="callout callout-warn">A pinned companion is a race against the bites. Clear the zombies on top of them first; pulling at the edges of the pile buys nothing. If they get up, they'll thank you. If they don't, <a href="#ch8">Chapter 8</a> covers what comes next.</div>
+<div class="callout callout-warn"><span class="callout-label">Take care — </span>A pinned companion is a race against the bites. Clear the zombies on top of them first; pulling at the edges of the pile buys nothing. If they get up, they'll thank you. If they don't, <a href="#ch8">Chapter 8</a> covers what comes next.</div>
 
 <h3>Distractions</h3>
 <p>A companion who finds itself surrounded may yell a deadpan fake distraction at the zombies. It doesn't work on them. It sometimes works on morale.</p>
@@ -845,7 +849,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <p>Scavengers also search containers you have already opened, so a house you went through first is still worth their time.</p>
 
-<div class="lore-pull">Ha! A box of nails. Now that's a find.<span class="who">— a happy scavenger</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>Ha! A box of nails. Now that's a find.<span class="who">— a happy scavenger</span></div>
 
 <h3>Inside the Camp</h3>
 <p>Inside your base it works the other way round. Companions use the storage you have marked, of any category, for scavenging and for meals, down to any reserve you set, and leave every unmarked container to you. <strong>Memorial</strong> storage keeps its keepsakes. See <a href="#ch11">Chapter 11</a> for marking storage.</p>
@@ -866,7 +870,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h3>Studying the Dead</h3>
 <p>Now and then, when a spot has been quiet for a while, a companion crouches over a dead zombie nearby and talks through what it sees: the clothes, what the infection did to the person, and what Knox Knews and the radio said back in July 1993. Each does it in its own voice: a quiet word, a civil-defence joke, something about Kentucky. Doctors, nurses, police and other hands-on professions are more curious. Cautious companions keep their distance, a badly stressed one never looks, and each body gets one look.</p>
 
-<div class="lore-pull">Kentucky kept its gold at Fort Knox. Should have guarded the other Knox instead.<span class="who">— a companion studying the dead</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>Kentucky kept its gold at Fort Knox. Should have guarded the other Knox instead.<span class="who">— a companion studying the dead</span></div>
 
 <p>Sometimes a companion stops at a body for a different reason. It crouches and says a few quiet words. If the dead carried a keepsake such as a photo or a locket, it mentions it and leaves it where it lies. Caring companions do this most, and more often right after a fight. A friend nearby may say something back.</p>
 
@@ -889,12 +893,12 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h3>Toilet Breaks</h3>
 <p>Companions need the toilet every 6 to 10 game hours, on the road or at camp, but only when it is safe and after food and water. A toilet within 8 tiles comes first. Otherwise they step a few tiles outdoors, away from the group. The resident keeping <a href="#ch14c">Base Watch</a> never steps outside: without a toilet, it skips the break. Two hours late, it turns urgent. There is an animation and a sound, and sometimes a remark about the spot they picked: a garden gnome, a fire hydrant, even a corpse.</p>
 
-<div class="lore-pull">My stomach is reminding me it exists.<span class="who">— a companion getting hungry</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>My stomach is reminding me it exists.<span class="who">— a companion getting hungry</span></div>
 
 <h3>Water and Food</h3>
 <p>A companion drinks only <strong>clean</strong> water: a carried bottle, a safe source nearby such as a working sink, or water fetched from camp storage. Tainted or poisoned water is not drunk. At camp, a clean tap or well within six tiles on the same floor comes before their own bottles, which they save for the road, and a source on a connected camp floor will do; a source that fails is left alone for a short while. Thirst comes first, but no water never stops a companion eating. One that is thirsty and hungry with no clean water in reach eats its food and keeps looking for water.</p>
 
-<div class="callout callout-tip">Mark a <strong>Water</strong> and a <strong>Food</strong> container at camp (<a href="#ch11">Chapter 11</a>). A companion who can't find either nearby will fetch from them.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Mark a <strong>Water</strong> and a <strong>Food</strong> container at camp (<a href="#ch11">Chapter 11</a>). A companion who can't find either nearby will fetch from them.</div>
 
 <figure class="plate">
   <img loading="lazy" decoding="async" src="https://pzwiki.net/w/images/8/86/Cortman_Medical.png" alt="Cortman Medical: a brick clinic and a large brick house behind iron fences.">
@@ -917,7 +921,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/a/a9/Splint.png" alt=""></td><td><strong>Splint</strong></td><td>Braces a fracture; made in downtime from clean strips and wood</td></tr>
 </table>
 
-<div class="lore-pull">Just a scratch. Hold still anyway.<span class="who">— a companion with a bandage</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>Just a scratch. Hold still anyway.<span class="who">— a companion with a bandage</span></div>
 
 <h3>Bites and the Knox Infection</h3>
 <p>A bite changes everything, and the fellows know it. A known bite can lead to <strong>concealment, confession, quarantine, exile, or a farewell</strong>. Those who learn of it walk over and talk it through face to face. A bitten companion may first confide in the one it trusts most, which might be you, and a protective friend might keep the secret for a while.</p>
@@ -939,9 +943,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>End crisis and return to normal duty</strong></td><td>Lifts the restriction and gives them their ordinary duties back</td></tr>
 </table>
 
-<div class="callout callout-warn">Mercy, bleach, and a bitten companion's own choice to sacrifice itself all wait for <strong>your</strong> final authorization. Nothing irreversible happens without it.</div>
+<div class="callout callout-warn"><span class="callout-label">Take care — </span>Mercy, bleach, and a bitten companion's own choice to sacrifice itself all wait for <strong>your</strong> final authorization. Nothing irreversible happens without it.</div>
 
-<div class="lore-pull">No one else has to do this for me.<span class="who">— a bitten companion, accepting the bleach</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>No one else has to do this for me.<span class="who">— a bitten companion, accepting the bleach</span></div>
 
 <h3>Death</h3>
 <p>Death is permanent, and it follows the game's own rules for corpses and reanimation. A dying companion may have last words, shaped by how it is dying and how close you were. A diary keeper's book stays with the body (<a href="#ch10">Chapter 10</a>), and a fallen companion found by the gravekeeper gets a grave with a cross and its name (<a href="#ch16">Chapter 16</a>).</p>
@@ -951,7 +955,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <figcaption><span class="plate-no">Plate 6</span> What waits for anyone left behind. <span class="credit">Image: PZwiki</span></figcaption>
 </figure>
 
-<div class="lore-pull">I'm sorry. My body gave up before I did.<span class="who">— last words</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>I'm sorry. My body gave up before I did.<span class="who">— last words</span></div>
 
 <!-- CH 9 -->
 <h2 class="chapter" id="ch9"><img class="ico" src="https://pzwiki.net/w/images/5/56/Rubberducky.png" alt="">Chapter 9: Voices, Moods and Bonds<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
@@ -985,7 +989,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </ul>
 <p>There is more to say during routine work, while following you, and when one or two zombies come at you: Kentucky references, dry post-apocalypse humour, and stressed, low or hopeful lines depending on mood. Conversation is spaced out so it never becomes a chorus, and danger interrupts it.</p>
 
-<div class="lore-pull">Knox County never looked this empty on a weekday.<span class="who">— a follower, walking</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>Knox County never looked this empty on a weekday.<span class="who">— a follower, walking</span></div>
 
 <h3>Tall Tales</h3>
 <p>Companions remember their best fights. Four kills in one fight, or a kill after being pulled down, becomes a story. The companion tells it later, when things are calm at the base or you have stood still for a minute. Every retelling grows the numbers and the title, from "that thing at the gas station" to "the Legend of the Gas Station". A companion who was there may correct it. The teller never backs down.</p>
@@ -994,7 +998,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>Very rarely, a companion says whatever just crossed its mind: an urge it won't act on, a doubt it can't shake, a what-if, a morbid joke, a flat look at the end of the world. There are thoughts for the road and the camp, and for night, rain, heights, a car ride, a meal, a fresh kill, grief and certain kinds of building. A low or stressed companion's thoughts run darker. Sometimes another companion answers. They come at most once every 45 minutes for the whole party and once a game day per companion, never in danger, and nobody ever acts on one.</p>
 <p>Some companions swear, the way rough people do. <strong>Companion profanity</strong> in the sandbox options (<a href="#appB">Appendix B</a>) swaps every rough line for a clean one, and <strong>Rare intrusive-thought banter</strong> switches the stray thoughts off altogether.</p>
 
-<div class="lore-pull">Bourbon ages better than people. Hell, bourbon ages better than anything.<span class="who">— a stray thought on the road</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>Bourbon ages better than people. Hell, bourbon ages better than anything.<span class="who">— a stray thought on the road</span></div>
 
 <h3>Body Language</h3>
 <p>Companions yawn late at night, and the yawn spreads to whoever stands nearby. They stretch after sitting and first thing in the morning at base, sneeze in dusty storerooms and cough in the cold. They stay seated while reading or writing, prefer usable furniture when tired, and can rest on the floor when no seat or bed is free. A companion who rests on a bed, cot or the floor with a book or its diary to hand reads or writes there before getting up. Athletic companions do a short morning workout at base, and others sometimes join them. All of it is animation only, with no sound and no effect on stats.</p>
@@ -1004,7 +1008,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <p>Every word in the Talk view is a real conversation. You choose what to say, the companion walks over until it is close enough to speak, and then it answers in its own voice from what is true right now: its body, its mood, its memories of you. Some answers only tell you something. Others change how they feel.</p>
 
-<div class="callout callout-recipe">
+<div class="callout callout-recipe"><span class="callout-label">How to — </span>
 <strong>Start a conversation:</strong> press <span class="menu">Talk</span> above the panel tabs and choose a companion, or right-click a nearby companion and choose <span class="menu">Talk to [name]</span>. Pick a section, then a line. <em>Recent words</em> keeps the last few exchanges.
 </div>
 
@@ -1017,7 +1021,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>What are you hoping for?</strong></td><td>Their current goal (<a href="#ch9d">Chapter 9d</a>). Below trust 10 a companion keeps it to itself. Once told, the goal shows in the Journal.</td></tr>
 </table>
 
-<div class="lore-pull">Water, if we can spare it. I am getting very thirsty.<span class="who">— "Do you need anything?"</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>Water, if we can spare it. I am getting very thirsty.<span class="who">— "Do you need anything?"</span></div>
 
 <h3>Get to Know</h3>
 <table>
@@ -1028,7 +1032,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>How are we doing?</strong></td><td>Where you stand, in words that match their relationship tier. Recruited companions only.</td></tr>
 </table>
 
-<div class="lore-pull">I don't agree with every call, but I trust you to make one.<span class="who">— "How are we doing?", at Trusted</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>I don't agree with every call, but I trust you to make one.<span class="who">— "How are we doing?", at Trusted</span></div>
 
 <h3>Support</h3>
 <p>Support lines change how a companion feels, and only work on recruited companions.</p>
@@ -1038,7 +1042,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>You did well</strong></td><td>When there is something to praise: a recent moment of them helping you, getting out of danger together, pulling the danger off you, or useful work done. Each moment can be praised once.</td><td>Bond +3, morale +6</td></tr>
 </table>
 
-<div class="lore-pull">That helped more than I expected.<span class="who">— after "Reassure them"</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>That helped more than I expected.<span class="who">— after "Reassure them"</span></div>
 
 <h3>When a Conversation Fails</h3>
 <table>
@@ -1051,7 +1055,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td>This companion is on an expedition. Use the radio for orders.</td><td>See <a href="#ch17">Chapter 17</a></td></tr>
 </table>
 
-<div class="callout callout-tip">You can talk to a survivor before recruiting them. Check In and Get to Know work on strangers, which is a fair way to learn who you are inviting. <span class="menu">How are we doing?</span> and the Support lines wait until they've joined. Household representatives have their own conversation (<a href="#ch18">Chapter 18</a>).</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>You can talk to a survivor before recruiting them. Check In and Get to Know work on strangers, which is a fair way to learn who you are inviting. <span class="menu">How are we doing?</span> and the Support lines wait until they've joined. Household representatives have their own conversation (<a href="#ch18">Chapter 18</a>).</div>
 
 <!-- CH 9c -->
 <h2 class="chapter" id="ch9c"><img class="ico" src="https://pzwiki.net/w/images/c/c7/Clipboard.png" alt="">Chapter 9c: Who They Are<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
@@ -1076,7 +1080,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Compassion</strong></td><td>Medical help and rescues</td></tr>
   <tr><td><strong>Practicality</strong></td><td>Scavenging and useful downtime work</td></tr>
 </table>
-<div class="callout callout-tip">A lean is only a lean. Personality shifts a decision by a few points; it never invents an escape route, and it never makes a companion walk into a fight the tactical judgement calls hopeless.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>A lean is only a lean. Personality shifts a decision by a few points; it never invents an escape route, and it never makes a companion walk into a fight the tactical judgement calls hopeless.</div>
 
 <h3>Professions</h3>
 <p>The 25 professions are the game's own, with the game's starting skill boosts. Each points toward a <strong>natural camp role</strong> (Builder is the Carpenter job, <a href="#ch14">Chapter 14</a>) and offers a short list of background traits; a companion gets one of them.</p>
@@ -1211,9 +1215,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td>A goal of theirs is reached</td><td></td><td>+1 if they'd told you</td><td>+4</td><td></td><td class="tbl-note">each goal</td></tr>
 </table>
 
-<div class="callout callout-tip">The cheapest trust in Knox County is a shared meal. Feed them, give them water, patch them up, and stay close while you do it. Hours spent near each other are counted too, and the Journal names it: <em>"You have survived together for a while."</em></div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>The cheapest trust in Knox County is a shared meal. Feed them, give them water, patch them up, and stay close while you do it. Hours spent near each other are counted too, and the Journal names it: <em>"You have survived together for a while."</em></div>
 
-<div class="callout callout-warn">A <strong>push</strong> (focusing the same zombie twice, <a href="#ch4">Chapter 4</a>) is remembered three ways: as being pushed into a fight, as being pushed and getting everyone through, or as being pushed and getting hurt. A higher relationship score gives a push more room; below a score of 25 it adds nothing at all.</div>
+<div class="callout callout-warn"><span class="callout-label">Take care — </span>A <strong>push</strong> (focusing the same zombie twice, <a href="#ch4">Chapter 4</a>) is remembered three ways: as being pushed into a fight, as being pushed and getting everyone through, or as being pushed and getting hurt. A higher relationship score gives a push more room; below a score of 25 it adds nothing at all.</div>
 
 <h3 id="ch9d_hits">When You Hit Them</h3>
 <p>A swing or a shot that lands on a companion is remembered. If zombies or hostile people are on them at that moment, it is an accident in a melee: they complain and nothing is counted. A hit in a quiet moment is a <strong>strike</strong>.</p>
@@ -1225,7 +1229,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="tbl-power">Fourth</td><td>They fight you, unless your health is already at 25% or below; then they stay angry instead</td><td>−12</td><td>−6</td></tr>
 </table>
 <p>A companion fighting you stops once your health falls to 25% or below: one <strong>ceasefire</strong>, <em>"You're hurt enough. I'm done fighting."</em> Strike them after that and the fight goes on to the end, accident or not.</p>
-<div class="callout callout-tip">Strikes fade. After six game hours without another hit, the count goes back to zero, and the follow distance you had set before the second strike comes back, unless you've changed it since. An open fight and a ceasefire don't fade.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Strikes fade. After six game hours without another hit, the count goes back to zero, and the follow distance you had set before the second strike comes back, unless you've changed it since. An open fight and a ceasefire don't fade.</div>
 
 <h3>Trust Opens the Past</h3>
 <p>"Tell me about yourself" gives one new detail each time, but only as far as their <strong>trust</strong> (not the tier score) allows:</p>
@@ -1266,7 +1270,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </table>
 <p>A finished goal lifts morale, adds bond if they'd told you about it, and is followed by a breather of about six in-game hours before the next.</p>
 
-<div class="lore-pull">A real meal together would remind me what we are surviving for.<span class="who">— a companion asked what they're hoping for</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>A real meal together would remind me what we are surviving for.<span class="who">— a companion asked what they're hoping for</span></div>
 
 <h3>Assigned Objectives</h3>
 <p>Right-click a recruited companion and choose <span class="menu">Assign objective</span> to set one of the first five goals yourself. An objective they've already fulfilled isn't offered, since it would complete at once for nothing. Their own goal is set aside, not lost: it comes back when your objective is done.</p>
@@ -1300,10 +1304,10 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/8/86/Moodle_Icon_Dead.png" alt=""></td><td><strong>The dead</strong></td><td>Studying a body, or paying respects to one (<a href="#ch7">Chapter 7</a>)</td></tr>
 </table>
 
-<div class="callout callout-tip">At camp, downtime also follows the base policies (<a href="#ch14b">Chapter 14b</a>): <strong>Allow safe routines and downtime</strong> switches it on or off for residents, and the <strong>Continuous useful work</strong> workload adds extra routines on top. At camp, downtime reaches every connected floor (<a href="#ch12">Chapter 12</a>): a bed upstairs when tired, a seat, a TV or radio, washing water, library shelves, tidying and cleaning. The resident keeping <a href="#ch14c">Base Watch</a> now and then walks over to another indoor resident for a word.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>At camp, downtime also follows the base policies (<a href="#ch14b">Chapter 14b</a>): <strong>Allow safe routines and downtime</strong> switches it on or off for residents, and the <strong>Continuous useful work</strong> workload adds extra routines on top. At camp, downtime reaches every connected floor (<a href="#ch12">Chapter 12</a>): a bed upstairs when tired, a seat, a TV or radio, washing water, library shelves, tidying and cleaning. The resident keeping <a href="#ch14c">Base Watch</a> now and then walks over to another indoor resident for a word.</div>
 
-<div class="lore-pull">Strange seeing ordinary life still running on that screen.<span class="who">— a companion watching TV</span></div>
-<div class="lore-pull">The signal crossed a lot of empty roads to get here.<span class="who">— a companion by the radio</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>Strange seeing ordinary life still running on that screen.<span class="who">— a companion watching TV</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>The signal crossed a lot of empty roads to get here.<span class="who">— a companion by the radio</span></div>
 
 <!-- CH 9f -->
 <h2 class="chapter" id="ch9f"><img class="ico" src="https://pzwiki.net/w/images/1/1f/Cigarette.png" alt="">Chapter 9f: Stress, Joy and Boredom<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
@@ -1349,7 +1353,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Restless</strong></td><td>The practical</td><td>Hits the furniture, or paces it off</td></tr>
   <tr><td><strong>Shutdown</strong></td><td>An uncommon few</td><td>Stops, somewhere quiet, until it passes</td></tr>
 </table>
-<div class="lore-pull">I need a few quiet minutes.<span class="who">— a withdrawer, under strain</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>I need a few quiet minutes.<span class="who">— a withdrawer, under strain</span></div>
 
 <h3>Positive Momentum</h3>
 <p>Good days show too. When things go well, a companion gets a spell of momentum, again in its own fixed style:</p>
@@ -1361,7 +1365,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Focused</strong></td><td>Works about 15% faster at downtime and camp work</td></tr>
   <tr><td><strong>Bold</strong></td><td>Leans into scavenging and meeting strangers; only the very brave</td></tr>
 </table>
-<div class="lore-pull">My head is clear today. Put me to work.<span class="who">— a focused companion</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>My head is clear today. Put me to work.<span class="who">— a focused companion</span></div>
 
 <h3>Boredom and the Supply Run</h3>
 <p>Boredom grows while a companion waits with nothing to do and nothing threatening, and drains away when they're busy. Once it passes 45, it starts to weigh on them. A bored companion may then ask, from the top of Status, for a supply run, if two days have passed since the last one or supplies are low, and never more than once a day.</p>
@@ -1373,8 +1377,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Not now</strong></td><td>A sore thought for twelve hours: stress +4, morale −2</td></tr>
   <tr><td><strong>We cannot spare the risk</strong></td><td>A milder thought for eight hours; practical companions take it best</td></tr>
 </table>
-<div class="callout callout-warn">A promise is a promise. Keep the run, and they feel it (stress −8, morale +10). Let the day pass without one, and that weighs too (stress +14, morale −8).</div>
-<div class="lore-pull">When are we making the next supply run?<span class="who">— a bored companion</span></div>
+<div class="callout callout-warn"><span class="callout-label">Take care — </span>A promise is a promise. Keep the run, and they feel it (stress −8, morale +10). Let the day pass without one, and that weighs too (stress +14, morale −8).</div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>When are we making the next supply run?<span class="who">— a bored companion</span></div>
 
 <!-- CH 10 -->
 <h2 class="chapter" id="ch10"><img class="ico" src="https://pzwiki.net/w/images/f/f3/Book.png" alt="">Chapter 10: Private Diaries<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
@@ -1411,7 +1415,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h3>Reading One</h3>
 <p>Right-click the book and choose <span class="menu">Read</span>. Reading a living companion's diary asks you to confirm first, because it is private. Reading gives no experience or reward. A book holds 60 entries.</p>
 
-<div class="callout callout-tip">A page is never rewritten, and nothing is written after the author dies. The book stays with them: on the body, in a bag, or wherever they left it. Diaries can be turned off, and the keeper chance changed, on the sandbox page; turning them off never removes a book or its pages.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>A page is never rewritten, and nothing is written after the author dies. The book stays with them: on the body, in a bag, or wherever they left it. Diaries can be turned off, and the keeper chance changed, on the sandbox page; turning them off never removes a book or its pages.</div>
 
 <!-- ═══ PART III ═══ -->
 <div class="part-header" id="part3">
@@ -1431,16 +1435,16 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <figcaption><span class="plate-no">Plate 7</span> An isolated house outside Muldraugh: one door, one fence, trees close enough to cut. Good bones for a camp. <span class="credit">Image: PZwiki</span></figcaption>
 </figure>
 
-<div class="callout callout-recipe">
+<div class="callout callout-recipe"><span class="callout-label">How to — </span>
 <strong>Set the camp core:</strong> right-click the ground tile and choose <span class="menu">Living Fellows → Base life → Set camp core here</span>.
 </div>
 
 <h3>Drawing Zones</h3>
 <ol class="steps">
-  <li>Right-click the first corner tile and choose <span class="menu">Start zone here</span>, then the kind of zone.</li>
-  <li>Move the mouse to preview the rectangle.</li>
-  <li>Right-click the final corner tile. That locks the rectangle, so the preview won't shift while you move through the menu.</li>
-  <li>Choose <span class="menu">Finish zone here</span>. Your character's position is never used.</li>
+  <li><span class="step-n">1</span>Right-click the first corner tile and choose <span class="menu">Start zone here</span>, then the kind of zone.</li>
+  <li><span class="step-n">2</span>Move the mouse to preview the rectangle.</li>
+  <li><span class="step-n">3</span>Right-click the final corner tile. That locks the rectangle, so the preview won't shift while you move through the menu.</li>
+  <li><span class="step-n">4</span>Choose <span class="menu">Finish zone here</span>. Your character's position is never used.</li>
 </ol>
 
 <table>
@@ -1472,7 +1476,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td>Outside the boundary</td><td>Only lumber, farm, fishing, burial and pyre zones, up to 30 tiles out. Other camp work stays inside, apart from a step out to reach marked storage.</td></tr>
 </table>
 
-<p><strong>Mind the loaded ground.</strong> The game keeps only about 100 × 100 tiles loaded around you, roughly 50 tiles in every direction. Companions can't work on ground that isn't loaded, so the far end of a very big camp waits until someone is near it. While you're away, Base Watch keeps the same range loaded around its watcher (<a href="#ch14c">Ch 14c</a>). In practice, a camp up to about 90 tiles across can be worked all at once.</p>
+<p><strong>Mind the loaded ground.</strong> The game keeps only the ground around you loaded: about 100 tiles across on a small screen, and about 150 at 1080p or larger. Companions can't work on ground that isn't loaded, so the far end of a very big camp waits until someone is near it. While you're away, Base Watch keeps the same range loaded around its watcher (<a href="#ch14c">Ch 14c</a>). In practice, a camp up to about 90 tiles across can be worked all at once.</p>
 
 <h3>Seeing the Layout</h3>
 <p>Press <kbd>Insert</kbd> (rebindable under Options, Key bindings, Living Fellows), or use the right-click menu or the button in the Base tab, to show the base layout. Each zone gets a see-through floor tint and outline in its colour, registered storage gets a tile and outline in its category colour, and a legend lists what is on screen. With the layout showing, right-click a zone to remove it. A zone that is still needed says why instead.</p>
@@ -1497,13 +1501,13 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/9/96/WateringCan.png" alt=""></td><td><strong>Farming supplies</strong></td><td>Seed, tools, compost, water cans, crop treatments</td></tr>
 </table>
 
-<div class="callout callout-tip">Residents may use marked storage on another camp floor, and may stand just outside the boundary to reach it. Assign residents, roles and policies in <span class="menu">More → Base</span>.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Residents may use marked storage on another camp floor, and may stand just outside the boundary to reach it. Assign residents, roles and policies in <span class="menu">More → Base</span>.</div>
 
-<div class="lore-pull">Quiet minute. How are you doing, friend?<span class="who">— a resident at camp</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>Quiet minute. How are you doing, friend?<span class="who">— a resident at camp</span></div>
 
 <h3>Abandoning a Camp</h3>
 <p>To move, choose <span class="menu">Abandon camp</span> from the camp's right-click menu or at the end of <span class="menu">More → Base</span>, confirm, and set a new camp core. Running camp work is stopped. Anything a companion was carrying for the camp stays with it, and residents leave duty and stay where they stand. The camp's zones, storage marks and plans are removed; buildings and stored items stay in the world.</p>
-<div class="callout callout-warn">While you are building something yourself, the camp is kept until you finish or release that build. If a job refuses to stop partway through, the camp is kept and you can try again; the work already stopped stays stopped.</div>
+<div class="callout callout-warn"><span class="callout-label">Take care — </span>While you are building something yourself, the camp is kept until you finish or release that build. If a job refuses to stop partway through, the camp is kept and you can try again; the work already stopped stays stopped.</div>
 
 <!-- CH 12 -->
 <h2 class="chapter" id="ch12"><img class="ico" src="https://pzwiki.net/w/images/0/0e/SheetRope.png" alt="">Chapter 12: Floors, Stairs and Basements<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
@@ -1519,20 +1523,20 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li>Camp life uses every connected floor. Residents go up or down for a bed, a seat, a TV or radio, water to drink or wash with, the library and downtime chores, and the Chef finds fridges, stoves, sinks and tables on any camp floor.</li>
 </ul>
 
-<div class="callout callout-tip">Remove a generated floor area and the stair survey won't recreate it; that floor stays off until you draw an area there yourself. Over a part of the camp in the same building, you can also draw your own area on a floor with no verified staircase.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Remove a generated floor area and the stair survey won't recreate it; that floor stays off until you draw an area there yourself. Over a part of the camp in the same building, you can also draw your own area on a floor with no verified staircase.</div>
 
-<div class="callout callout-warn">A resident dragging a body takes no stairs, fences or windows. Put the burial ground or pyre on the same level as the dead, or carry those bodies yourself.</div>
+<div class="callout callout-warn"><span class="callout-label">Take care — </span>A resident dragging a body takes no stairs, fences or windows. Put the burial ground or pyre on the same level as the dead, or carry those bodies yourself.</div>
 
 <!-- CH 13 -->
 <h2 class="chapter" id="ch13"><img class="ico" src="https://pzwiki.net/w/images/0/0d/Plank.png" alt="">Chapter 13: Building from Blueprints<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
 <p>Companions build what you plan. Planned work appears as a <strong>blueprint ghost</strong>, and residents on duty build it in stages with materials from camp storage.</p>
 
-<div class="callout callout-recipe">
+<div class="callout callout-recipe"><span class="callout-label">How to — </span>
 <strong>Plan construction:</strong> inside the camp, right-click the ground and choose <span class="menu">Living Fellows → Base life → Queue construction</span>, then the piece: Wooden wall frame, Wooden wall, Wooden floor, Wooden door frame or Wooden door. A placement cursor appears. Drag to lay a run of wall, and turn the piece with the game's own <strong>Rotate building</strong> key before you place it.
 </div>
 
-<div class="callout callout-recipe">
+<div class="callout callout-recipe"><span class="callout-label">How to — </span>
 <strong>Plan a barricade:</strong> inside the camp, right-click a window or door and choose <span class="menu">Plan wooden barricade</span>. <span class="menu">Maintain this barricade</span> instead adds it to the maintainer's list (<a href="#ch14">Ch 14</a>).
 </div>
 
@@ -1595,7 +1599,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </table>
 <p>Each camp audit checks every production role, so one busy worker no longer holds up another, and body disposal no longer waits behind the woodpile. Quartermasters, medics, guards and generalists use the ordinary base chores. How much of that work they take on, and who keeps watch, is set by the base policies (<a href="#ch14b">Chapter 14b</a>).</p>
 
-<div class="lore-pull">Three planks from one log. The math still works.<span class="who">— a carpenter</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>Three planks from one log. The math still works.<span class="who">— a carpenter</span></div>
 
 <h3>Safety Rules for Camp Work</h3>
 <ul>
@@ -1642,7 +1646,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td>Farmer</td><td>A marked farm area</td></tr>
 </table>
 
-<div class="callout callout-check">
+<div class="callout callout-check"><span class="callout-label">Checklist — </span>
 <strong>The alerts to clear</strong> — the camp names what's missing:
 <ul class="checklist" style="margin-top:0.6rem;margin-bottom:0;">
   <li>No food, water, medical, construction or ammunition storage is marked</li>
@@ -1677,7 +1681,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h3>The Work Queue</h3>
 <p>The status lines count jobs pending, active and blocked, and planned construction is listed with its state and what it is <strong>blocked by</strong> (<a href="#ch13">Ch 13</a>). A blocked job tries again on its own, waiting twice as long after each failure: 10 seconds, then 20, 40 and so on, up to ten minutes.</p>
 <p>After <strong>six failures in a row</strong> a job stops trying and appears under <strong>Stalled jobs</strong>, with its worker, the reason, and two buttons: <span class="menu">Retry blocked job</span> gives it a fresh run, and <span class="menu">Cancel job</span> removes it after a confirmation. Gathering and production jobs follow their own order's controls instead.</p>
-<div class="callout callout-warn">A cancel can be refused while a job can't safely stop, such as a Chef's pot still on the heat, or a carried item that can't be put back yet. The reason is shown; try again once it has settled.</div>
+<div class="callout callout-warn"><span class="callout-label">Take care — </span>A cancel can be refused while a job can't safely stop, such as a Chef's pot still on the heat, or a carried item that can't be put back yet. The reason is shown; try again once it has settled.</div>
 
 <h3>Zones, Storage and Maintenance</h3>
 <ul>
@@ -1686,14 +1690,14 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li><strong>Maintenance targets</strong> are the barricades you've marked for upkeep. Each can be enabled, disabled or removed.</li>
 </ul>
 
-<div class="callout callout-tip">Older saves may still show <strong>Gather materials</strong> orders, for logs or planks from a work or lumber area. Residents finish the ones already there, and the view shows each worker's phase, from seeking material to depositing it.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Older saves may still show <strong>Gather materials</strong> orders, for logs or planks from a work or lumber area. Residents finish the ones already there, and the view shows each worker's phase, from seeking material to depositing it.</div>
 
 <!-- CH 14c -->
 <h2 class="chapter" id="ch14c"><img class="ico" src="https://pzwiki.net/w/images/3/31/Radio.png" alt="">Chapter 14c: Base Watch<span class="stage stage-end">Experimental</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<p>A camp lives only while the game has it loaded. Travel far enough and it unloads, and the camp's work stops with it. <strong>Base Watch</strong> keeps the camp loaded while you travel: one indoor resident holds it in a second local view, the way an expedition leader does, and the other residents carry on working around them.</p>
+<p>A camp lives only while the game has it loaded. Travel far enough and it unloads, and the camp's work stops with it. Its residents step back in where they were as soon as their ground loads again, even before you reach them. <strong>Base Watch</strong> keeps the camp loaded while you travel: one indoor resident holds it in a second local view, the way an expedition leader does, and the other residents carry on working around them.</p>
 
-<div class="callout callout-recipe">
+<div class="callout callout-recipe"><span class="callout-label">How to — </span>
 <strong>Start a watch:</strong> stand inside the marked camp area, open <span class="menu">More → Base</span>, choose the resident under <span class="menu">Base Watch</span> and press <span class="menu">Start Base Watch</span>. Wait for the second view to open, then leave camp.
 </div>
 
@@ -1719,7 +1723,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </ul>
 <p>Come back into camp within 16 tiles of the watcher and the second view closes on its own, once your own map covers the camp. Your clock and game-speed controls come back with it.</p>
 
-<div class="callout callout-warn">Base Watch is a playtest feature. Use a disposable save. If the panel shows <em>Camp view needs attention</em>, note the reason with the Support report (<a href="#appD">Appendix D</a>).</div>
+<div class="callout callout-warn"><span class="callout-label">Take care — </span>Base Watch is a playtest feature. Use a disposable save. If the panel shows <em>Camp view needs attention</em>, note the reason with the Support report (<a href="#appD">Appendix D</a>).</div>
 
 <!-- CH 15 -->
 <h2 class="chapter" id="ch15"><img class="ico" src="https://pzwiki.net/w/images/9/96/WateringCan.png" alt="">Chapter 15: Farming<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
@@ -1765,13 +1769,13 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li>Spare bread slices and a borrowed knife stay in the Chef's pack for the next meal.</li>
 </ul>
 
-<div class="callout callout-recipe">
+<div class="callout callout-recipe"><span class="callout-label">How to — </span>
 <strong>Cook me a meal:</strong> right-click a Chef on base duty and choose <span class="menu">Cook me a meal</span>. The Chef hands the finished dish to you while you are inside camp and within reach, and keeps it until you are back if you leave. Salad and sandwiches need no fridge; hot dishes do.
 </div>
 
-<div class="callout callout-warn">A pot on the heat can't be abandoned: changing the Chef's job, taking them off duty or cancelling waits until it comes off. Take the meal out of the oven yourself and the Chef switches off the stove it lit and calls the job done.</div>
+<div class="callout callout-warn"><span class="callout-label">Take care — </span>A pot on the heat can't be abandoned: changing the Chef's job, taking them off duty or cancelling waits until it comes off. Take the meal out of the oven yourself and the Chef switches off the stove it lit and calls the job done.</div>
 
-<div class="lore-pull">There's bread to slice and no knife to do it with.<span class="who">— a Chef, short a knife</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>There's bread to slice and no knife to do it with.<span class="who">— a Chef, short a knife</span></div>
 
 <h3>The Angler</h3>
 <p>Draw a <img class="ico-sm" src="https://pzwiki.net/w/images/2/2f/FishingRod.png" alt=""><strong>Fishing bank</strong> zone on dry ground at ground level, beside at least two tiles of open water (<a href="#ch11">Ch 11</a>), and give a resident the <strong>Angler</strong> job, a fishing rod and <img class="ico-sm" src="https://pzwiki.net/w/images/5/52/Worm.png" alt="">bait or a <img class="ico-sm" src="https://pzwiki.net/w/images/8/8d/FishingTackle.png" alt="">lure.</p>
@@ -1783,31 +1787,31 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </ul>
 <p>Fishing also works as an expedition task (<a href="#ch17">Ch 17</a>).</p>
 
-<div class="lore-pull">Got it. That will make a meal.<span class="who">— an angler</span></div>
-<div class="lore-pull">That one got away. I felt the line go slack.<span class="who">— an angler, later</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>Got it. That will make a meal.<span class="who">— an angler</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>That one got away. I felt the line go slack.<span class="who">— an angler, later</span></div>
 
 <!-- CH 16 -->
 <h2 class="chapter" id="ch16"><img class="ico" src="https://pzwiki.net/w/images/7/77/Shovel.png" alt="">Chapter 16: Laying the Dead to Rest<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
 <p>The dead pile up around any camp worth holding. A <strong>Gravekeeper</strong> looks for bodies inside the camp and lumber areas and carries them to a marked burial ground or a safe pyre. Burial digs and fills a grave as needed.</p>
 
-<div class="callout callout-warn">A body goes into the grave the way it lies, with its clothes and whatever is in its pockets. Search the dead you care about before the gravekeeper reaches them. A pyre is pickier: it leaves a body still carrying items for you.</div>
+<div class="callout callout-warn"><span class="callout-label">Take care — </span>A body goes into the grave the way it lies, with its clothes and whatever is in its pockets. Search the dead you care about before the gravekeeper reaches them. A pyre is pickier: it leaves a body still carrying items for you.</div>
 
 <h3>The Burial Ground</h3>
 <p>Every closed grave gets a few words: a short prayer or a line of bleak gallows humour, depending on who holds the shovel, and a salute. Sometimes a friend nearby adds an "Amen".</p>
 
-<div class="lore-pull">May the ground hold you better than the world did.<span class="who">— a gravekeeper's prayer</span></div>
-<div class="lore-pull">Please remain calm and horizontal.<span class="who">— a gravekeeper with a darker sense of humour</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>May the ground hold you better than the world did.<span class="who">— a gravekeeper's prayer</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>Please remain calm and horizontal.<span class="who">— a gravekeeper with a darker sense of humour</span></div>
 
 <h3>The Pyre</h3>
 <p>A <img class="ico-sm" src="https://pzwiki.net/w/images/0/01/Campfire.png" alt="">pyre needs petrol and a firestarter: anything the game counts as one, such as a lighter or matches, even in a bag. Fire is real. Lighting one may earn a "Burn, baby, burn!" or "Disco inferno!", and a burned-out pyre gets its own prayer or gallows line.</p>
 
-<div class="callout callout-warn">A pyre must be outdoors on open ground, away from buildings, stored goods, trees, vehicles and loose items. Nothing is lit in the rain unless you allow it, and nobody else may stand close to the body being lit. If fire appears beyond the pyre, every worker stops and the order waits for your <strong>Retry</strong>.</div>
+<div class="callout callout-warn"><span class="callout-label">Take care — </span>A pyre must be outdoors on open ground, away from buildings, stored goods, trees, vehicles and loose items. Nothing is lit in the rain unless you allow it, and nobody else may stand close to the body being lit. If fire appears beyond the pyre, every worker stops and the order waits for your <strong>Retry</strong>.</div>
 
 <h3>One of Our Own</h3>
 <p>A fallen companion found by the gravekeeper gets a grave of their own, always with a cross, and the grave keeps their name. Their grave closes with their name instead of a joke. Fallen companions are never burned. A body whose identity is uncertain is treated as a stranger, and your own body is never touched.</p>
 
-<div class="lore-pull">Here's to you. I'd pour one out, but Kentucky's rationing.<span class="who">— a bourbon blessing</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>Here's to you. I'd pour one out, but Kentucky's rationing.<span class="who">— a bourbon blessing</span></div>
 
 <!-- ═══ PART IV ═══ -->
 <div class="part-header" id="part4">
@@ -1820,7 +1824,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 17 -->
 <h2 class="chapter" id="ch17"><img class="ico" src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Chapter 17: Expeditions<span class="stage stage-end">Experimental</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<div class="callout callout-warn">Expeditions are an <strong>incomplete playtest feature</strong>. Use a disposable save. Departure from the Riverside gas station has intermittently stalled on a native path. A four-member road mission to a site 180 tiles away and back has passed in a cloned test save, but a live detour along a real alternate road has not been confirmed yet.</div>
+<div class="callout callout-warn"><span class="callout-label">Take care — </span>Expeditions are an <strong>incomplete playtest feature</strong>. Use a disposable save. Departure from the Riverside gas station has intermittently stalled on a native path. A four-member road mission to a site 180 tiles away and back has passed in a cloned test save, but a live detour along a real alternate road has not been confirmed yet.</div>
 
 <p>An expedition sends a squad out on its own while you stay behind. The squad's actual leader appears in a second local view while the team moves, and the other members follow that leader. <a href="#ch14c">Base Watch</a> uses the same view, so the two never run at once.</p>
 
@@ -1831,15 +1835,15 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <h3>Planning a Trip</h3>
 <ol class="steps">
-  <li>On <span class="menu">Squad</span>, assign one to four companions to a squad.</li>
-  <li>Open <span class="menu">Expeditions</span> and choose the squad's <strong>leader</strong>.</li>
-  <li>Choose the mission: <strong>Scout</strong>, <strong>Search</strong> or <strong>Fish nearby water</strong>. Search also lets you request a supply type and quantity, including <strong>Everything useful</strong> for supplies across categories.</li>
-  <li>Choose a location within 200 tiles (32 per page), or a fishing bank for a fishing trip.</li>
-  <li>Choose how to travel, how long before they turn home, and the combat style.</li>
-  <li>Review the plan and select <span class="menu">Send squad</span>.</li>
+  <li><span class="step-n">1</span>On <span class="menu">Squad</span>, assign one to four companions to a squad.</li>
+  <li><span class="step-n">2</span>Open <span class="menu">Expeditions</span> and choose the squad's <strong>leader</strong>.</li>
+  <li><span class="step-n">3</span>Choose the mission: <strong>Scout</strong>, <strong>Search</strong> or <strong>Fish nearby water</strong>. Search also lets you request a supply type and quantity, including <strong>Everything useful</strong> for supplies across categories.</li>
+  <li><span class="step-n">4</span>Choose a location within 200 tiles (32 per page), or a fishing bank for a fishing trip.</li>
+  <li><span class="step-n">5</span>Choose how to travel, how long before they turn home, and the combat style.</li>
+  <li><span class="step-n">6</span>Review the plan and select <span class="menu">Send squad</span>.</li>
 </ol>
 
-<div class="lore-pull">Kentucky's still out there. Let's see what it kept.<span class="who">— a squad heading out</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>Kentucky's still out there. Let's see what it kept.<span class="who">— a squad heading out</span></div>
 
 <h3>Mission Options</h3>
 <table>
@@ -1894,21 +1898,21 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Blocked route</strong></td><td>The leader reports a blocked route near a map point, and says whether the team is waiting for orders, looking for shelter, inside a house waiting for you, or holding position</td><td><span class="menu">Tell squad: return</span>, <span class="menu">push on</span> or <span class="menu">hold position</span>, from an equipped walkie-talkie</td></tr>
   <tr><td><strong>Sheltered</strong></td><td>The squad has taken shelter inside a house at a map point</td><td>Go and meet them there</td></tr>
 </table>
-<div class="callout callout-warn">If the squad hears your recall but can find no safe way back, it says so and waits for backup. Go and get them; they won't walk into a death trap because you told them to.</div>
-<div class="callout callout-tip">If a call shows <em>No radio receipt</em>, check that both radios are powered, equipped and on the same channel. Standing within three tiles of the leader also counts as no receipt; step further away.</div>
+<div class="callout callout-warn"><span class="callout-label">Take care — </span>If the squad hears your recall but can find no safe way back, it says so and waits for backup. Go and get them; they won't walk into a death trap because you told them to.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>If a call shows <em>No radio receipt</em>, check that both radios are powered, equipped and on the same channel. Standing within three tiles of the leader also counts as no receipt; step further away.</div>
 
 <h3>Calling Them Home</h3>
 <p>The team can leave without radios. To order an immediate return while they are away:</p>
 <ol class="steps">
-  <li>Equip a powered walkie-talkie on your character and on the squad leader.</li>
-  <li>Tune both to the same channel.</li>
-  <li>Right-click your equipped radio and choose <span class="menu">Return immediately</span>.</li>
+  <li><span class="step-n">1</span>Equip a powered walkie-talkie on your character and on the squad leader.</li>
+  <li><span class="step-n">2</span>Tune both to the same channel.</li>
+  <li><span class="step-n">3</span>Right-click your equipped radio and choose <span class="menu">Return immediately</span>.</li>
 </ol>
-<div class="callout callout-tip">The order needs a <strong>received transmission</strong>. While the squad is out of sight, the panel doesn't present its position or health as live facts.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>The order needs a <strong>received transmission</strong>. While the squad is out of sight, the panel doesn't present its position or health as live facts.</div>
 
 <p>The time you choose decides when the team turns home; it doesn't promise when they arrive. A returning Search squad finishes its trip once everyone has reached you, including when you're standing on a staircase. An intact squad says one of twenty homecoming lines once its leader view is released.</p>
 
-<div class="lore-pull">Kentucky tried its best. We came back anyway.<span class="who">— a squad back home</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>Kentucky tried its best. We came back anyway.<span class="who">— a squad back home</span></div>
 
 <!-- CH 18 -->
 <h2 class="chapter" id="ch18"><img class="ico" src="https://pzwiki.net/w/images/c/c1/Padlock.png" alt="">Chapter 18: Households, Trade and Bandits<span class="stage stage-end">Strangers</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
@@ -1917,7 +1921,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <p>New households start appearing from day seven: a daily chance (8% by default) once a week has passed since the last, 35 to 90 tiles from you and well apart from one another, up to three by default. The sandbox page sets the chance and the cap (<a href="#appB">Appendix B</a>).</p>
 
-<div class="lore-pull">Stop there. We don't trust strangers.<span class="who">— a household, at about 18 tiles</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>Stop there. We don't trust strangers.<span class="who">— a household, at about 18 tiles</span></div>
 
 <h3>Approaching a Household</h3>
 <p>A household warns you twice: once at about 18 tiles, and again, more sharply, at about 10. Walking on past that is trespass. Pointing a weapon at them is worse. Don't take anything from a container on their ground: the household notices, and the theft is pinned on the exact item that went into your pockets.</p>
@@ -1946,7 +1950,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <h3>Restitution</h3>
 <p>Once the waiting time has passed, the household's page shows the value of goods it wants for every unforgiven offence together. Select items worth at least that much and choose <span class="menu">Offer selected items as restitution</span>. Relations reopen, at Wary.</p>
-<div class="lore-pull">Leave the restitution where we can see it.<span class="who">— a household, waiting to be paid</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>Leave the restitution where we can see it.<span class="who">— a household, waiting to be paid</span></div>
 
 <h3>Talking to the Representative</h3>
 <p>Each household sends a representative to the entrance to talk. Meet them there, then ask:</p>
@@ -1988,7 +1992,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <h3>Bandits</h3>
 <p>Bandit camps are rare and always hostile. They appear from day four, at most one by default (up to three), 55 to 90 tiles from you, with at least ten days between new camps. Bandits guard their camp and patrol around it every couple of hours. They challenge first, need line of sight to target you, chase up to about 24 tiles, and fight zombies too. They never trade and never recruit.</p>
-<div class="lore-pull">Hold it. Leave now and you keep what you have.<span class="who">— a bandit</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>Hold it. Leave now and you keep what you have.<span class="who">— a bandit</span></div>
 
 <!-- CH 18b -->
 <h2 class="chapter" id="ch18b"><img class="ico" src="https://pzwiki.net/w/images/b/b2/Paper.png" alt="">Chapter 18b: Contracts, Quests and Recruitment<span class="stage stage-end">Strangers</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
@@ -1997,10 +2001,10 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <h3>Making a Promise</h3>
 <ol class="steps">
-  <li>Ask the representative what they need. They won't take a promise from someone who hasn't asked.</li>
-  <li>Read the offer on the household's page: its title and terms.</li>
-  <li>Choose <span class="menu">Promise to help</span>. You have <strong>48 hours</strong>.</li>
-  <li>Choose <span class="menu">Deliver help or report the area secure</span> when you've done it.</li>
+  <li><span class="step-n">1</span>Ask the representative what they need. They won't take a promise from someone who hasn't asked.</li>
+  <li><span class="step-n">2</span>Read the offer on the household's page: its title and terms.</li>
+  <li><span class="step-n">3</span>Choose <span class="menu">Promise to help</span>. You have <strong>48 hours</strong>.</li>
+  <li><span class="step-n">4</span>Choose <span class="menu">Deliver help or report the area secure</span> when you've done it.</li>
 </ol>
 
 <table>
@@ -2022,7 +2026,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <h3>When a Promise Is Broken</h3>
 <p>If you can't keep it, say so: <span class="menu">Admit that you cannot keep the promise</span>, then press again within eight seconds to confirm. A broken promise costs 12 standing, closes their door to you, and is remembered. The household offers nothing new for 24 hours.</p>
-<div class="callout callout-warn">The page keeps score: promises completed, promises broken, and events remembered. A household that has watched you break your word reads every new offer through that.</div>
+<div class="callout callout-warn"><span class="callout-label">Take care — </span>The page keeps score: promises completed, promises broken, and events remembered. A household that has watched you break your word reads every new offer through that.</div>
 
 <h3>Quests</h3>
 <p>A quest opens in its own window: a short account of the job, the <strong>objective</strong>, the location and coordinates, and the rewards. Accept or decline. Accepted quests are marked on the world map. Come back when the objective is done and choose <strong>COMPLETE QUEST</strong>.</p>
@@ -2053,10 +2057,10 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h3>Recruiting from a Household</h3>
 <p>Eventually one resident may try out as your companion. It takes a separate conversation and a real field trial, not a purchase.</p>
 <ol class="steps">
-  <li>Keep at least <strong>two</strong> promises to the household, while residents are at home.</li>
-  <li>Choose <span class="menu">Ask whether anyone would consider a field trial</span>. If someone would, they are named.</li>
-  <li>Choose <span class="menu">Invite the named survivor on a field trial</span>. They travel with you as a companion on trial.</li>
-  <li>After at least <strong>six hours</strong> together, choose <span class="menu">Ask for a decision</span>.</li>
+  <li><span class="step-n">1</span>Keep at least <strong>two</strong> promises to the household, while residents are at home.</li>
+  <li><span class="step-n">2</span>Choose <span class="menu">Ask whether anyone would consider a field trial</span>. If someone would, they are named.</li>
+  <li><span class="step-n">3</span>Choose <span class="menu">Invite the named survivor on a field trial</span>. They travel with you as a companion on trial.</li>
+  <li><span class="step-n">4</span>After at least <strong>six hours</strong> together, choose <span class="menu">Ask for a decision</span>.</li>
 </ol>
 
 <p>What they decide comes from the whole trial: how many promises you've kept, your standing with the household, the hours you spent together, how they came to trust you and feel about you, and how you looked after them, from treatments and meals to rescues. Family and close ties back home pull the other way, and a household's leader is the hardest to win.</p>
@@ -2068,9 +2072,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Return</strong></td><td>They go home. The household will reconsider after 72 hours.</td></tr>
 </table>
 
-<div class="lore-pull">The trial is over. I want to remain with your group.<span class="who">— a recruit at the end of a field trial</span></div>
+<div class="lore-pull"><span class="lore-label">Overheard — </span>The trial is over. I want to remain with your group.<span class="who">— a recruit at the end of a field trial</span></div>
 
-<div class="callout callout-tip">A trial runs for about a day, a little longer if they ask for more time. You can end it early with <span class="menu">End the trial and let them return home</span>, and dismissing a trial recruit sends them home the same way. Treat the trial like the real thing: feed them, patch them up, and keep them out of bad fights.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>A trial runs for about a day, a little longer if they ask for more time. You can end it early with <span class="menu">End the trial and let them return home</span>, and dismissing a trial recruit sends them home the same way. Treat the trial like the real thing: feed them, patch them up, and keep them out of bad fights.</div>
 
 <!-- ═══ APPENDICES ═══ -->
 <div class="part-header" id="appendices">
@@ -2119,7 +2123,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td>Companion profanity</td><td>on / off</td><td>on</td><td>Off swaps every rough companion line for its clean version</td></tr>
   <tr><td>Expedition destination choices</td><td>All nearby, Known places only</td><td>All nearby</td><td>All nearby includes buildings from map data you haven't visited; Known places only lists buildings whose interiors you've seen</td></tr>
 </table>
-<div class="callout callout-tip">Lowering a limit never deletes companions, households or camps already in the save. Turning diaries off never removes a book or its pages.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Lowering a limit never deletes companions, households or camps already in the save. Turning diaries off never removes a book or its pages.</div>
 
 <p class="appendix-label">Appendix C</p>
 <h2 class="chapter" id="appC">Troubleshooting <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
@@ -2129,10 +2133,13 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <h3>A companion is only a moving shadow</h3>
 <p>The native actor bridge didn't load, or failed its health check. Open <span class="menu">More → Support</span> and copy its report.</p>
-<div class="callout callout-warn">Don't continue a valuable save until companions render correctly.</div>
+<div class="callout callout-warn"><span class="callout-label">Take care — </span>Don't continue a valuable save until companions render correctly.</div>
 
 <h3>A companion is stuck</h3>
 <p>Wait a moment for automatic recovery, then use <strong>Regroup</strong>. If it stays stuck, note what is in the way (door, gate, fence, vehicle, stairs or furniture) and the current order and movement setting, and send the Support report, logs, and a screenshot or short video.</p>
+
+<h3>A companion is missing after a long trip</h3>
+<p>Companions left behind come back where they were as soon as their ground loads again, so head toward where you left them. One left in a parked car waits beside it. If someone is still missing, open <span class="menu">More → Support</span> and send its report; reloading the save brings them back.</p>
 
 <h3>Workshop and standalone copies conflict</h3>
 <p>Remove one copy. Keep only one <code>SurvivorCompanion</code> mod folder, restart the game, and enable the remaining copy for the save.</p>
@@ -2148,14 +2155,14 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <h3>Playing alongside Project A-Life</h3>
 <p>Project A-Life's NPCs are zombie-shaped game objects. Living Fellows recognises A-Life's own ownership mark, so its NPCs are never counted as zombies: companions don't target them, count them as spawn danger or offer zombie actions on them, and still treat them as people in the way. A neutral A-Life NPC is protected from friendly fire like any bystander. One that A-Life itself reports as hostile to you, and that a companion can see, becomes a human threat, and a truce clears it. Zombies that A-Life's horde control is holding are left alone until it lets go.</p>
-<div class="callout callout-warn">This is a playtest pairing. Try it on a disposable save with both mods enabled: the two mods' combat controllers have not yet been checked together in a live game.</div>
+<div class="callout callout-warn"><span class="callout-label">Take care — </span>This is a playtest pairing. Try it on a disposable save with both mods enabled: the two mods' combat controllers have not yet been checked together in a live game.</div>
 
 
 <h3>Reading the Support Page</h3>
 <p><span class="menu">More → Support</span> is the first place to look when something is wrong, and the report it copies is the most useful thing to attach to a bug report.</p>
 <table>
   <tr><th>Line</th><th>What a healthy game shows</th></tr>
-  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.32</td></tr>
+  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.34</td></tr>
   <tr><td>Game build / supported build</td><td>42.21.0 on both sides</td></tr>
   <tr><td>Runtime active</td><td>Yes. If not, <strong>Runtime disabled reason</strong> says why.</td></tr>
   <tr><td>Native bridge status, actor provider, bridge protocol</td><td>The bridge is ready, and its protocol matches the expected one. A mismatch means an old or mixed install.</td></tr>
@@ -2193,7 +2200,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li>Screenshots or a short video for visual or pathing problems</li>
   <li>The relevant logs, and the <span class="menu">More → Support</span> report</li>
 </ul>
-<div class="callout callout-recipe"><strong>Where the logs are on Windows:</strong> <code>%USERPROFILE%\Zomboid\console.txt</code> and <code>%USERPROFILE%\Zomboid\logs.zip</code>. Remove server addresses, usernames, chat and other personal information before posting logs publicly.</div>
+<div class="callout callout-recipe"><span class="callout-label">How to — </span><strong>Where the logs are on Windows:</strong> <code>%USERPROFILE%\Zomboid\console.txt</code> and <code>%USERPROFILE%\Zomboid\logs.zip</code>. Remove server addresses, usernames, chat and other personal information before posting logs publicly.</div>
 
 <p class="appendix-label">Appendix E</p>
 <h2 class="chapter" id="appE">Picture Credits <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
@@ -2375,7 +2382,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CARD END -->
 
 <div class="page-footer">
-  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.32 &nbsp;·&nbsp; First Edition, Seventh Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
+  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.34 &nbsp;·&nbsp; First Edition, Eighth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
 </div>
 <script>
 (function () {

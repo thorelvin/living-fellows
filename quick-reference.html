@@ -121,7 +121,7 @@ p { margin-bottom: 0.9rem; }
 
 /* ── Overheard: a companion's own words, quoted from the mod ── */
 .lore-pull { font-family: 'Courier New', Courier, monospace; color: var(--heard); border-left: 3px solid var(--amber); padding: 0.6rem 1.2rem; margin: 1.3rem 0 1rem; font-size: 0.9rem; background: var(--heard-bg); }
-.lore-pull::before { content: "Overheard — "; font-family: Georgia, serif; font-style: italic; font-weight: bold; color: var(--amber); }
+.lore-pull .lore-label { font-family: Georgia, serif; font-style: italic; font-weight: bold; color: var(--amber); }
 .lore-pull .who { display: block; font-family: Georgia, serif; font-style: italic; font-size: 0.78rem; color: var(--muted); margin-top: 0.2rem; }
 
 /* ── Callouts ── */
@@ -132,11 +132,12 @@ p { margin-bottom: 0.9rem; }
 .callout-also   { border-color: var(--also);  background: var(--also-bg); font-size: 0.86rem; color: #3a4a2c; }
 .callout-check  { border-color: var(--check); background: var(--check-bg); }
 
-.callout-tip::before    { content: "Note — "; font-weight: bold; color: var(--tip); }
-.callout-warn::before   { content: "Take care — "; font-weight: bold; color: var(--warn); }
-.callout-recipe::before { content: "How to — "; font-weight: bold; color: var(--howto); }
-.callout-also::before   { content: "See also — "; font-weight: bold; color: var(--also); }
-.callout-check::before  { content: "Checklist — "; font-weight: bold; color: var(--check); }
+.callout-label { font-weight: bold; }
+.callout-tip    .callout-label { color: var(--tip); }
+.callout-warn   .callout-label { color: var(--warn); }
+.callout-recipe .callout-label { color: var(--howto); }
+.callout-also   .callout-label { color: var(--also); }
+.callout-check  .callout-label { color: var(--check); }
 
 /* ── Plates: pictures from the game ── */
 figure.plate { margin: 1.6rem 0; padding: 6px; background: var(--paper-3); border: 1px solid var(--khaki); border-radius: 3px; box-shadow: 0 2px 8px rgba(30, 30, 15, 0.18); }
@@ -166,9 +167,9 @@ li { margin-bottom: 0.3rem; }
 .checklist li::before { content: "☐"; position: absolute; left: 0; color: var(--amber); }
 
 /* ── Step list ── */
-.steps { counter-reset: step-counter; list-style: none; padding-left: 0; }
-.steps li { counter-increment: step-counter; padding: 0.4rem 0 0.4rem 2.5rem; position: relative; margin-bottom: 0.4rem; }
-.steps li::before { content: counter(step-counter); position: absolute; left: 0; top: 0.3rem; width: 1.65rem; height: 1.65rem; background: var(--th-bg); border: 1px solid var(--olive-900); border-radius: 50%; text-align: center; line-height: 1.55rem; font-size: 0.78rem; color: var(--th-ink); font-weight: bold; }
+.steps { list-style: none; padding-left: 0; }
+.steps li { padding: 0.4rem 0 0.4rem 2.5rem; position: relative; margin-bottom: 0.4rem; }
+.steps li .step-n { position: absolute; left: 0; top: 0.3rem; width: 1.65rem; height: 1.65rem; background: var(--th-bg); border: 1px solid var(--olive-900); border-radius: 50%; text-align: center; line-height: 1.55rem; font-size: 0.78rem; color: var(--th-ink); font-weight: bold; }
 
 /* ── Two-column ── */
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; margin: 1rem 0; }
@@ -265,7 +266,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </head>
 <body>
 <!-- CARD START -->
-<p class="appendix-label">Living Fellows · Release 0.26.32</p>
+<p class="appendix-label">Living Fellows · Release 0.26.34</p>
 <h2 class="chapter" id="appF">Quick Reference Card</h2>
 <p class="card-intro">The Field Manual on two printed pages. Each panel names the manual chapter with the detail.</p>
 
