@@ -163,6 +163,8 @@ In clear conditions companions spot zombies up to 24 tiles away. Each companion 
 
 Companions fight with the game's own attack animations and weapon timings. They weigh wounds, stamina, panic, pain, morale, skill, weapon condition, support, and escape routes. They split targets, avoid friendly fire, shove when it is safe, finish grounded zombies, and cover a retreat. When one decides a fight is too dangerous, it may say the actual dominant reason--such as exhaustion, encirclement, wounds, bad footing, no escape, or an empty weapon--instead of silently refusing or giving only a generic retreat call.
 
+A wall, closed door, barricade, closed window or tall fence between a companion and its target stops a swing, shove or stomp; the companion moves to an opening instead. Under Weapons Free a melee swing may still go through a closed, unbarricaded window.
+
 Zombies hunt companions like players. Bites can infect and turn them, and a swarm can pin a companion to the ground unless you thin it in time. Combat calls make real noise; under Stealth doctrine companions use silent hand signals when they can.
 
 ### Scavenging and equipment
@@ -193,7 +195,7 @@ Companions now volunteer when native hunger, thirst, or fatigue crosses a notice
 
 ### Personality and relationships
 
-Every survivor has a profession, trait, personality, history, keepsake, preferred camp role, and personal goal. Trust, bonds, morale, stress, memories, grief, and relationships persist, and dialogue reacts to what actually happened. Stress can show as venting, pacing, arguments, withdrawal, or a breakdown; good morale gives small boosts. Danger interrupts all of it.
+Every survivor has a profession, trait, personality, history, keepsake, preferred camp role, personal goal, and sometimes a nickname. About one in eight arrives with one; friends coin others in passing, and deeds earn names such as Slugger, Reaper or Nine Lives. Right-click a recruited companion for **Give nickname...** or **Clear nickname**, and untick **Show nicknames** under **More** for plain names. Trust, bonds, morale, stress, memories, grief, and relationships persist, and dialogue reacts to what actually happened. Stress can show as venting, pacing, arguments, withdrawal, or a breakdown; good morale gives small boosts. Danger interrupts all of it.
 
 Companions also talk in their own voice. Two idle companions at camp, including followers and anyone standing in the camp's logging, farm, burial or pyre areas, may turn toward one another for a short exchange, and a companion who meets a calm, non-hostile survivor says hello and gives them room to answer. A surrounded companion may yell a deadpan fake distraction at the zombies, a follower makes the odd remark while you walk, one of them cracks a joke when you stand still for a few minutes, and the first walk into a notable place, such as a police station, church, bar, hospital, or gun store, earns a remark. Former police officers, doctors, nurses, and other professions have lines of their own for places like their old workplaces. Conversation is spaced out so it never becomes a chorus, and danger interrupts it.
 
@@ -264,9 +266,9 @@ Bandit camps are rare, always hostile, and appear from day four. Bandits guard a
 
 ## Strange Folk (0.26.35 playtest)
 
-The 0.26.35 playtest adds rare, one-off encounters to the household system. Gale Mercer runs a GigaMart checkout and notices unpaid items. Butch Kittredge offers a steak until you enter his back room. Cecil Ray Haskins warns armed visitors away from his gun-shop counter. Hollis Burkett cares for Duchess, a real named sow. Delbert Sloan barricades Room 12, trades through its door, and keeps Sweet Pea inside. Ranger June Whitlock knows all ten of her named rabbits and may ask you to find an escaped Juniper. Other Strange Folk include the Gut-Cloaked Man, Window Spiffo, and Shotgun Farmer.
+The 0.26.35 playtest adds 65 rare, one-off characters to the household system. From the third day, one may settle into a fitting building near you every three days by default, at most two stories at a time; each appears once per save and only around you, never to an expedition. Right-click near one for **Living Fellows → Strange Folk**. Gale Mercer runs a GigaMart checkout and notices unpaid items. Butch Kittredge offers a steak until you enter his back room. Cecil Ray Haskins warns armed visitors away from his gun-shop counter. Hollis Burkett cares for Duchess, a real named sow. Delbert Sloan barricades Room 12, trades through its door, and keeps Sweet Pea inside. Ranger June Whitlock knows all ten of her named rabbits and may ask you to find an escaped Juniper. Other Strange Folk include the Gut-Cloaked Man, Window Spiffo, and Shotgun Farmer.
 
-Silas Reed keeps a forest campfire, a fishing kit and a story to trade by the fire. Eli Rourke calls from a locked garage with a broken leg, and Nate Duvall calls from a closed room without clean water. Their 90 MHz distress calls reach your radio only while the survivor is loaded nearby; answer with a working two-way radio to mark the location. Eli needs a real splint and clean bandage through Medical Check. Nate needs clean water from your inventory and time to recover. These encounters use the existing faction standing, native animal, inventory transfer, barricade, navigation, combat, and recruitment systems.
+Walt Reed keeps a forest campfire, a fishing kit and a story to trade by the fire. Eli Rourke calls from a locked garage with a broken leg, and Nate Duvall calls from a closed room without clean water. Their 90 MHz distress calls reach any powered portable radio you hold or wear, tuned to 90 MHz with the volume up, while the survivor is loaded nearby and more than three tiles away. Storm static can garble a call; they call again within two minutes. Answer with a working two-way radio to mark the location. Eli needs a real splint and clean bandage through Medical Check. Nate needs clean water from your inventory and time to recover. These encounters use the existing faction standing, native animal, inventory transfer, barricade, navigation, combat, and recruitment systems.
 
 ## Sandbox options
 
@@ -283,6 +285,8 @@ The **Living Fellows** sandbox page controls:
 | Show companion first names | Name labels above companions you can see |
 | Companions keep private diaries, diary keeper chance | Whether some companions write diaries, and the chance (35% by default), decided once per companion |
 | Rare intrusive-thought banter, companion profanity | Optional rare stray thoughts and stronger language; both are on by default |
+| Strange Folk encounters, days between Strange Folk encounters | Whether new Strange Folk appear (on by default), and the wait between them, 1 to 14 days (3 by default). Strangers already met stay in the save. |
+| Companion nicknames, rare famous namesakes | Whether companions bring, earn and use nicknames (on), and whether a very few new survivors share an exact name with a fictional zombie-story character (off) |
 
 Lowering a limit never deletes companions, households, or camps already in the save. Turning diaries off never removes a book or its pages.
 
