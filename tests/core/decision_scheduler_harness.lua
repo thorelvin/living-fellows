@@ -479,6 +479,154 @@ do
     SC.Actor.retireDead, SC.Factions = oldRetire, oldFactions
 end
 
+-- A posted companion whose area unloaded while the player was away comes back
+-- as soon as its last verified square is loaded again, as a restored save does.
+-- The chunk map reaches about 76 tiles; waiting until the player stood within
+-- 30 tiles left the companion missing from a visible area until a restart.
+do
+    local vitalsTask = SC.Runtime._vitalsTaskForTests
+    SC.Scheduler.reset(true)
+    local saved = {
+        validate = SC.Actor.validateNative, recover = SC.Actor.recover,
+        commands = SC.Commands, util = SC.GameplayUtil,
+        loaded = SC.Persistence.loadedRecoverySquare,
+        expedition = SC.ExpeditionPrototype,
+    }
+    local posted = makeRecord(950, {
+        lastStablePosition = { x = 7339, y = 6038, z = 0 },
+    })
+    function posted.actor:isDead() return false end
+    records = { posted }
+    local attached, recoveredTo = false, nil
+    local loadedSquare = { x = 7339, y = 6038 }
+    local squareLoaded = false
+    SC.ExpeditionPrototype = nil
+    SC.Commands = { peek = function() return { recruited = true, order = "work" } end }
+    SC.GameplayUtil = { position = function() return 7388, 6040, 0 end }
+    SC.Persistence.loadedRecoverySquare = function(record)
+        check(record == posted, "posted recovery looked up another record")
+        if not squareLoaded then return nil, "saved_square_unloaded" end
+        return loadedSquare, "last_verified_position"
+    end
+    SC.Actor.validateNative = function()
+        if attached then return true end
+        return false, "living native companion has no current world square"
+    end
+    SC.Actor.recover = function(actor, square)
+        check(actor == posted.actor, "posted recovery moved another actor")
+        attached, recoveredTo = true, square
+        return true
+    end
+
+    SC.Scheduler.dueFor(posted.id, "vitals", 1000, 1100000)
+    vitalsTask(1101000)
+    vitalsTask(1102000)
+    vitalsTask(1103000)
+    check(not attached and posted.runtime.postedRecoveryDeferred == true,
+        "a posted companion was reattached while its square was still unloaded")
+
+    squareLoaded = true
+    vitalsTask(1104000)
+    vitalsTask(1105000)
+    vitalsTask(1106000)
+    check(attached and recoveredTo == loadedSquare
+            and posted.runtime.nativeSquareMissingAt == nil
+            and posted.runtime.postedRecoveryDeferred == nil,
+        "a posted companion 49 tiles away stayed missing although its square was loaded")
+    records = {}
+    SC.Actor.validateNative, SC.Actor.recover = saved.validate, saved.recover
+    SC.Commands, SC.GameplayUtil = saved.commands, saved.util
+    SC.Persistence.loadedRecoverySquare = saved.loaded
+    SC.ExpeditionPrototype = saved.expedition
+end
+
+-- A companion left seated in a parked car whose area unloaded is released from
+-- the removed car and put back at the reloaded car's door, not at the bare
+-- saved position under the car body, and not before the car is there.
+do
+    local vitalsTask = SC.Runtime._vitalsTaskForTests
+    SC.Scheduler.reset(true)
+    local saved = {
+        validate = SC.Actor.validateNative, recover = SC.Actor.recover,
+        commands = SC.Commands, util = SC.GameplayUtil, vehicle = SC.Vehicle,
+        loaded = SC.Persistence.loadedRecoverySquare,
+        expedition = SC.ExpeditionPrototype,
+    }
+    local rider = makeRecord(960, {})
+    function rider.actor:isDead() return false end
+    records = { rider }
+    local released, carLoaded, areaLoaded, recoveredTo = false, false, false, nil
+    local doorSquare, bareSquare = { door = true }, { bare = true }
+    SC.ExpeditionPrototype = nil
+    SC.Commands = { peek = function() return { recruited = true, order = "stay" } end }
+    SC.GameplayUtil = { position = function() return 7600, 6040, 0 end }
+    SC.Vehicle = {
+        releaseUnloadedSeat = function(actor)
+            check(actor == rider.actor, "seat release looked at another actor")
+            if released then return false, "not_seated" end
+            released = true
+            return true, { sqlId = 8, seat = 1, x = 7346.6, y = 6045.2, z = 0 }
+        end,
+        reloadedCarSquare = function(anchor)
+            check((anchor.sqlId == 8 and anchor.seat == 1)
+                    or (anchor.sqlId == 9 and anchor.seat == 0),
+                "car anchor lost its identity")
+            if carLoaded then return doorSquare, "car_door" end
+            return nil, "car_not_loaded"
+        end,
+    }
+    SC.Persistence.loadedRecoverySquare = function()
+        if areaLoaded then return bareSquare, "last_verified_position" end
+        return nil, "saved_square_unloaded"
+    end
+    SC.Actor.validateNative = function()
+        if recoveredTo ~= nil then return true end
+        return false, "living native companion has no current world square"
+    end
+    SC.Actor.recover = function(_, square)
+        recoveredTo = square
+        return true
+    end
+
+    local now = 1200000
+    SC.Scheduler.dueFor(rider.id, "vitals", 1000, now)
+    local function pulses(count)
+        for _ = 1, count do
+            now = now + 1000
+            vitalsTask(now)
+        end
+    end
+    pulses(1)
+    local stable = rider.runtime.lastStablePosition
+    check(released and type(rider.runtime.unloadedCar) == "table"
+            and rider.runtime.unloadedCar.sqlId == 8
+            and stable and stable.x == 7346 and stable.y == 6045 and stable.z == 0,
+        "the vitals lane releases a seat in an unloaded car and anchors the companion there")
+    pulses(4)
+    check(recoveredTo == nil, "a companion was placed while its car's area was unloaded")
+    areaLoaded = true
+    pulses(4)
+    check(recoveredTo == nil,
+        "a companion was placed at the bare position before its car had a chance to load")
+    carLoaded = true
+    pulses(3)
+    check(recoveredTo == doorSquare and rider.runtime.unloadedCar == nil,
+        "the companion from the unloaded car is placed at the reloaded car's door")
+
+    local seam = SC.Runtime._postedRecoverySquareForTests
+    carLoaded, areaLoaded = false, true
+    local waiting = { runtime = { unloadedCar = { sqlId = 9, seat = 0 } } }
+    check(seam(waiting, 50000) == nil and waiting.runtime.unloadedCar.loadedSince == 50000
+            and seam(waiting, 59000) == nil and seam(waiting, 60000) == bareSquare,
+        "a car that never loads again gives way to the bare position after ten seconds")
+
+    records = {}
+    SC.Actor.validateNative, SC.Actor.recover = saved.validate, saved.recover
+    SC.Commands, SC.GameplayUtil, SC.Vehicle = saved.commands, saved.util, saved.vehicle
+    SC.Persistence.loadedRecoverySquare = saved.loaded
+    SC.ExpeditionPrototype = saved.expedition
+end
+
 print("DECISION_SCHEDULER_PASS checks=" .. tostring(checks)
     .. " multi-actor=true critical-lane=true starvation-capped=true schedule-repair=pulsed"
     .. " hardened=true critical-fairness=rotating")

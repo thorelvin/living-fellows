@@ -12,7 +12,7 @@ Persistent companions, survivor households, and living bases for Project Zomboid
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.21.0-red.svg)](#requirements)
-[![Release](https://img.shields.io/badge/release-0.26.32-blue.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-0.26.34-blue.svg)](CHANGELOG.md)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 
 Living Fellows turns the survivors you meet into persistent people. They can join you, fight and travel with you, help run a base, and make their own survival decisions. Companions are native human actors with real inventories, injuries, skills, and permanent death.
@@ -264,7 +264,7 @@ Bandit camps are rare, always hostile, and appear from day four. Bandits guard a
 
 The current development branch adds rare, one-off encounters to the household system. Gale Mercer runs a GigaMart checkout and notices unpaid items. Butch Kittredge offers a steak until you enter his back room. Cecil Ray Haskins warns armed visitors away from his gun-shop counter. Hollis Burkett cares for Duchess, a real named sow. Delbert Sloan barricades Room 12, trades through its door, and keeps Sweet Pea inside. Ranger June Whitlock knows all ten of her named rabbits and may ask you to find an escaped Juniper. Other Strange Folk on this branch include the Gut-Cloaked Man, Window Spiffo, and Shotgun Farmer.
 
-These encounters use the existing faction standing, native animal, inventory transfer, barricade, navigation, combat, and recruitment systems. They are not part of the published 0.26.32 build yet.
+These encounters use the existing faction standing, native animal, inventory transfer, barricade, navigation, combat, and recruitment systems. They are not part of the published 0.26.34 build yet.
 
 ## Sandbox options
 

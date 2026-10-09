@@ -14582,6 +14582,55 @@ function Harness.probePostedStreamFar(current)
         .. " world=" .. tostring(U.call(actor, "isExistInTheWorld"))
         .. " scheduled=" .. tostring(U.call(actor, "isScheduled"))
         .. " model=" .. tostring(U.call(actor, "isAddedToModelManager")))
+    -- Come back to 45 tiles from home first: inside the loaded chunk map, but
+    -- outside the 30-tile radius that 0.26.32 waited for before reattaching.
+    local moved, moveReason = pcall(function()
+        Harness.player:teleportTo(Harness.postedHomeX + 45,
+            Harness.postedHomeY, Harness.postedHomeZ)
+    end)
+    if not check("posted_stream_band_return", moved, moveReason) then
+        setPhase("finish", current)
+        return
+    end
+    setPhase("posted_stream_band_wait", current)
+end
+
+function Harness.probePostedStreamBand(current)
+    if current - Harness.phaseStartedAt < 15000 then return end
+    local SC, U = SurvivorCompanion, SurvivorCompanion.GameplayUtil
+    local actor = Harness.postedActor
+    local px, py = position(Harness.player)
+    local id = SC.Registry.idOf(actor)
+    local record = id and SC.Registry.byId(id) or nil
+    local stable = record and type(record.runtime) == "table"
+        and record.runtime.lastStablePosition or nil
+    local sx, sy, sz = stable and stable.x, stable and stable.y, stable and stable.z
+    local stableSquare = sx and U.gridSquare(sx, sy, sz or 0) or nil
+    local healthy, reason = SC.Actor.validateNative(actor)
+    local distance = (sx and px) and math.sqrt((px - sx) ^ 2 + (py - sy) ^ 2) or nil
+    local x, y, z = position(actor)
+    local square = U.call(actor, "getCurrentSquare")
+    local loaded = x and U.gridSquare(x, y, z) or nil
+    local world = U.call(actor, "isExistInTheWorld")
+    local scheduled = U.call(actor, "isScheduled")
+    local sameActor = record ~= nil and record.actor == actor
+    check("posted_stream_visible_in_loaded_band", healthy == true
+        and distance ~= nil and distance > 30
+        and square ~= nil and square == loaded and world == true
+        and scheduled == true and sameActor == true,
+        "player=" .. tostring(px) .. "," .. tostring(py)
+            .. " stable=" .. tostring(sx) .. "," .. tostring(sy)
+            .. " distance=" .. tostring(distance and math.floor(distance + 0.5))
+            .. " stableSquareLoaded=" .. tostring(stableSquare ~= nil)
+            .. " healthy=" .. tostring(healthy) .. "/" .. tostring(reason)
+            .. " current=" .. tostring(square ~= nil and square == loaded)
+            .. " world=" .. tostring(world) .. " scheduled=" .. tostring(scheduled)
+            .. " sameActor=" .. tostring(sameActor)
+            .. " postedDeferred=" .. tostring(record and record.runtime
+                and record.runtime.postedRecoveryDeferred))
+    pcall(function()
+        getCore():TakeFullScreenshot(tostring(Harness.config.run_id) .. "-sarah-band-45")
+    end)
     local moved, moveReason = pcall(function()
         Harness.player:teleportTo(Harness.postedHomeX,
             Harness.postedHomeY, Harness.postedHomeZ)
@@ -15933,6 +15982,8 @@ local function tick()
         Harness.probePostedStream(current)
     elseif Harness.phase == "posted_stream_far" then
         Harness.probePostedStreamFar(current)
+    elseif Harness.phase == "posted_stream_band_wait" then
+        Harness.probePostedStreamBand(current)
     elseif Harness.phase == "posted_stream_return_wait" then
         Harness.probePostedStreamReturn(current)
     elseif Harness.phase == "finish" then

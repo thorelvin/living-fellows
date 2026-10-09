@@ -3701,8 +3701,33 @@ function persistence.loadedRecoverySquare(record)
     return candidate, "last_verified_position"
 end
 
+-- A companion saved in a native seat comes back on foot beside its car. The
+-- car's runtime id is reassigned whenever the game loads it, so a stored
+-- passenger keyed by the saved id could wait for a car that never matches.
+-- Only a record without a usable position keeps the stored-passenger import.
+local function restoresOnFoot(record)
+    local vehicle = type(record) == "table" and record.vehicle or nil
+    if type(vehicle) ~= "table" or vehicle.stored ~= false then return false end
+    local position = record.position
+    return type(position) == "table" and finite(position.x, nil) ~= nil
+        and finite(position.y, nil) ~= nil and finite(position.z, nil) ~= nil
+end
+
+local function usesVehicleImport(record)
+    return type(record) == "table" and record.vehicle ~= nil
+        and not restoresOnFoot(record)
+end
+
 local function squareFor(record)
     if type(getCell) ~= "function" then return nil end
+    if restoresOnFoot(record) and SC.Vehicle ~= nil
+        and type(SC.Vehicle.reloadedCarSquare) == "function" then
+        local car = type(record.vehicle.vehicle) == "table" and record.vehicle.vehicle or {}
+        local door = SC.Vehicle.reloadedCarSquare({
+            sqlId = car.sqlId, seat = record.vehicle.seat,
+        })
+        if door ~= nil then return door end
+    end
     local ok, cell = pcall(getCell)
     if not ok or cell == nil then return nil end
     local position = record.position
@@ -3935,7 +3960,7 @@ function persistence.restore(player)
         if clean ~= nil then
             candidatePending[id] = {
                 record = clean, nextAt = 0, attempts = 0, status = "pending",
-                vehicle = clean.vehicle ~= nil,
+                vehicle = usesVehicleImport(clean),
                 raw = candidateDocument.companions[id], bucket = "companions",
             }
             candidateOrder[#candidateOrder + 1] = id
@@ -4209,7 +4234,7 @@ function persistence.retainForRecovery(record)
         nextAt = (not quarantined) and 0 or nil, attempts = 0,
         status = quarantined and "quarantined" or "pending",
         quarantinedAt = quarantined and now or nil,
-        vehicle = clean.vehicle ~= nil, recovered = true, retirements = retirements,
+        vehicle = usesVehicleImport(clean), recovered = true, retirements = retirements,
     }
     SC.Diagnostics.report("persistence", id, quarantined
         and "recovery quarantined after repeated native retirement"

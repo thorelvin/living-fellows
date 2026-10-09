@@ -216,7 +216,7 @@ do
     check(postedNearby(posted, 105, 206) == true
             and postedNearby(posted, 131, 200) == false
             and postedNearby({ runtime = {} }, 100, 200) == false,
-        "posted recovery reattaches only when the player returns near a verified position")
+        "a follower rests in place only when the player is near its verified position")
     posted.runtime.lastStablePosition = nil
     posted.runtime.lastStableSnapshot = { position = { x = 100, y = 200, z = 0 } }
     check(postedNearby(posted, 100, 200) == true,
