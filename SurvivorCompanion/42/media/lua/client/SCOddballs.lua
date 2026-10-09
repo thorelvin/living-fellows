@@ -42,6 +42,15 @@ local definitions = {
             visualSeed = 3100224 },
         kit = { items = { "Base.Clipboard", "Base.Pencil" } },
         module = "OddballLoretta" },
+    { id = "milli_tea_and_trouble", name = "Milli Wilson",
+        archetype = "oddball_resident", kind = "resident",
+        recruitment = true, trade = true, firstEligibleOffsetDays = 3,
+        identity = { forename = "Milli", surname = "Wilson",
+            gender = "female", outfit = "Retiree",
+            extras = { "Base.Jumper_DiamondPatternTINT",
+                "Base.Trousers_WhiteTINT", "Base.Shoes_Slippers" },
+            dirt = 0.1, visualSeed = 3100225 },
+        module = "OddballMilli" },
     { id = "grocery_gale_mercer", name = "Gale Mercer",
         archetype = "oddball_psycho", kind = "resident",
         trade = true, recruitment = false, firstEligibleOffsetDays = 3,
@@ -787,6 +796,11 @@ local function isResidentRoom(id, name)
             or name == "livingroom" or name == "kitchen"
     end
     if id == "voice_actor_vera_quill" then return name == "bedroom" end
+    if id == "milli_tea_and_trouble" then
+        -- The sampled ground-floor tile may be a kitchen while the child's
+        -- bedroom is upstairs. Milli.siteFor inspects this building's rooms.
+        return true
+    end
     if id == "pyromaniac_earl_kessler" then return true end
     return false
 end
@@ -1381,6 +1395,13 @@ local function siteForResident(square, player, definition, name, allowSeen)
     if not isResidentRoom(definition.id, name) then return nil end
     local house = SC.Factions.oddballHouseAt(square, player, allowSeen)
     if not house then return nil end
+    if definition.id == "milli_tea_and_trouble" then
+        local milli = SC.OddballMilli
+        if type(milli) ~= "table" or type(milli.siteFor) ~= "function" then
+            return nil
+        end
+        return milli.siteFor(house, player, allowSeen)
+    end
     if definition.id == "survivalist_locked_horde" then
         return survivalistSite(house, square, player, allowSeen)
     end
@@ -2559,6 +2580,32 @@ function Oddballs.onZombieDead(zombie, attacker, player)
     return true
 end
 
+function Oddballs.onCharacterDeath(actor)
+    local seeded = state.seeded.milli_tea_and_trouble
+    if not actor or not seeded or not SC.OddballMilli then return false end
+    local group = SC.Factions and SC.Factions.group(seeded.groupId)
+    if not group or not group.oddball
+        or group.oddball.id ~= "milli_tea_and_trouble" then return false end
+    if U().instanceOf(actor, "IsoAnimal") then
+        local data = U().modData(actor)
+        local slot = data and tonumber(data.lfOddballAnimalSlot)
+        if data and data.lfOddballGroupId == group.id
+            and (slot == 1 or slot == 2)
+            and type(SC.OddballMilli.onAnimalDeath) == "function" then
+            local attacker = select(1, U().call(actor, "getAttackedBy"))
+            return callModule(group, "onAnimalDeath", actor, attacker) == true
+        end
+        return false
+    end
+    if not U().instanceOf(actor, "IsoZombie")
+        and type(SC.OddballMilli.onKeeperDeath) == "function" then
+        -- The native death callback may run after registry affiliation is
+        -- cleared. Milli verifies the actor against her persistent member ID.
+        return callModule(group, "onKeeperDeath", actor, group) == true
+    end
+    return false
+end
+
 function Oddballs.noteChallengeKill(actor, zombie)
     if not actor or not zombie then return false end
     local seeded = state.seeded.cameraman_skeeter_bowles
@@ -2607,6 +2654,11 @@ end
 
 local function seedPersonalKit(group, actor)
     local story = group and group.oddball
+    -- Milli's scene module chooses between horse and bottle variants and
+    -- seeds exact quantities; the generic kit deduplicates repeated types.
+    if story and story.id == "milli_tea_and_trouble" then
+        return true, "milli_module_kit"
+    end
     local definition = story and byId[story.id]
     local kit = definition and definition.kit
     if not kit or story.kitSeeded == true then return true, "kit_already_ready" end
@@ -2687,7 +2739,11 @@ function Oddballs.retire(group, reason)
     roomGuard("release", group.id)
     state.retired[story.id] = tostring(reason or "resolved")
     if state.pending and state.pending.groupId == group.id then state.pending = nil end
-    story.stage = tostring(reason or "resolved")
+    if story.id == "milli_tea_and_trouble" and story.keeperDead == true then
+        story.stage = "orphaned"
+    else
+        story.stage = tostring(reason or "resolved")
+    end
     return true
 end
 
@@ -2737,9 +2793,16 @@ function Oddballs.pulse(player, current)
     if current >= nextRecruitedPulseAt then
         nextRecruitedPulseAt = current + 1000
         for _, group in ipairs(SC.Factions and SC.Factions.list(false) or {}) do
-            local joinedId = type(group.oddball) == "table"
+            local story = type(group.oddball) == "table" and group.oddball or nil
+            local joinedId = story
                 and type(group.recruitment) == "table"
                 and group.recruitment.joinedActorId or nil
+            -- Milli's verified death can hand her existing native babies to a
+            -- recruited friend. Never keep the dead joined actor active.
+            if story and story.id == "milli_tea_and_trouble"
+                and story.keeperDead == true then
+                joinedId = story.caregiverActorId
+            end
             local record = joinedId and SC.Registry and SC.Registry.byId(joinedId) or nil
             if record and record.actor and record.recruited == true then
                 callModule(group, "pulseRecruited", group, record.actor, player, current)
@@ -2781,8 +2844,9 @@ function Oddballs.pulse(player, current)
             return false, "oddball_spawn_pending"
         end
     end
-    if unresolvedCount() >= configInteger("oddballMaxActive",
-        MAX_UNRESOLVED, 0, MAX_UNRESOLVED) then
+    local freeSlots = configInteger("oddballMaxActive",
+        MAX_UNRESOLVED, 0, MAX_UNRESOLVED) - unresolvedCount()
+    if freeSlots <= 0 then
         return false, "oddball_cap_reached"
     end
     local cooldown = tonumber(SC.Config and SC.Config.get("oddballEncounterDays")) or 3
@@ -2842,6 +2906,7 @@ function Oddballs.pulse(player, current)
                     for _, definition in ipairs(definitions) do
                         if state.seeded[definition.id] == nil
                             and state.retired[definition.id] == nil
+                            and (definition.kind ~= "rival_pair" or freeSlots >= 2)
                             and currentDay >= firstDay
                                 + (definition.firstEligibleOffsetDays or 0) then
                             local site

@@ -2,7 +2,7 @@
 -- Focused behavior checks for the six remaining Phase 2 encounters.
 local SC = SurvivorCompanion
 local hour, now, nextAnimalId = 100, 1000, 0
-local animals, actors = {}, {}
+local animals, onlineAnimals, actors = {}, {}, {}
 local room = { getName = function() return "motelroom" end }
 local outside = { getName = function() return "outside" end }
 
@@ -92,23 +92,50 @@ SC_TEST_GROUPS = {}
 AnimalDefinitions = { getDef = function()
     return { getBreedByName = function(self, name) return name end }
 end }
-getCell = function() return {} end
+local animalCell = {}
+function animalCell:getAnimals()
+    self.scans = (self.scans or 0) + 1
+    local loaded = {}
+    for _, animal in pairs(animals) do
+        if animal.inWorld then loaded[#loaded + 1] = animal end
+    end
+    return loaded
+end
+getCell = function() return animalCell end
 getGameTime = function() return { getWorldAgeHours = function() return hour end } end
 addAnimal = function(cell, x, y, z, kind, breed)
     nextAnimalId = nextAnimalId + 1
     local value = { x = x, y = y, z = z, kind = kind, breed = breed,
-        id = nextAnimalId, data = {} }
+        id = nextAnimalId, onlineId = 100 + nextAnimalId, data = {} }
+    local square = { getAnimals = function()
+        return animals[value.id] == value and value.inWorld and { value } or {}
+    end }
     function value:setCustomName(name) self.name = name end
     function value:setWild(wild) self.wild = wild end
     function value:getModData() return self.data end
-    function value:addToWorld() animals[self.id] = self end
+    function value:addToWorld()
+        self.inWorld = true
+        animals[self.id], onlineAnimals[self.onlineId] = self, self
+    end
     function value:getAnimalID() return self.id end
+    function value:getOnlineID() return self.onlineId end
+    function value:getAnimalType() return self.kind end
+    function value:getBreed() return {
+        getName = function() return self.breed end }
+    end
+    function value:getCustomName() return self.name end
+    function value:getSquare()
+        return animals[self.id] == self and self.inWorld and square or nil
+    end
     function value:getHealth() return 100 end
     function value:pathToCharacter() end
     function value:pathToLocation() end
     return value
 end
-getAnimal = function(id) return animals[id] end
+getAnimal = function(id)
+    local animal = onlineAnimals[id]
+    return animal and animals[animal.id] == animal and animal or nil
+end
 
 local player = actor(6, 5)
 local gale = group("grocery_gale_mercer", actor(5, 5))
@@ -153,6 +180,13 @@ assert(SC.OddballHollis.onSpawn(hollis, actors[hollis.id]))
 assert(nextAnimalId == 1 and animals[1].name == "Duchess"
     and animals[1].wild == false, "Duchess must be a named tame vanilla sow")
 local duchess = animals[1]
+local duchessRecord = hollis.oddball.animals.slots[1]
+assert(duchessRecord.id == 1 and duchessRecord.onlineId == 101,
+    "persistent and online animal IDs must be stored separately")
+duchessRecord.onlineId = nil
+assert(SC.OddballAnimals.find(hollis, 1) == duchess
+    and duchessRecord.onlineId == 101,
+    "legacy id-only animal slots must migrate when the animal is loaded")
 SC.OddballHollis.onSpawn(hollis, actors[hollis.id])
 assert(nextAnimalId == 1, "Hollis must not duplicate Duchess")
 animals[1] = nil
@@ -179,6 +213,17 @@ assert(#party.jobs == 2 and party.jobs[1].kind == "barricade"
     and party.jobs[2].kind == "barricade",
     "Room 12 should use real faction barricade jobs")
 assert(nextAnimalId == 2 and animals[2].name == "Sweet Pea")
+local sweetPeaRecord = party.oddball.animals.slots[1]
+sweetPeaRecord.onlineId = duchessRecord.onlineId
+assert(SC.OddballAnimals.find(party, 1) == animals[2]
+    and sweetPeaRecord.onlineId == 102,
+    "reused online IDs must not resolve to another group's animal")
+animals[2].onlineId = -1
+sweetPeaRecord.onlineId = nil
+assert(SC.OddballAnimals.find(party, 1) == animals[2]
+    and sweetPeaRecord.onlineId == nil,
+    "single-player animals without online IDs must remain findable")
+animals[2].onlineId = 102
 for _, job in ipairs(party.jobs) do job.status = "completed" end
 SC.OddballRoom12.pulse(party, player, now)
 assert(party.oddball.stage == "party", "finished barricades should start the party")
@@ -204,6 +249,20 @@ for slot, rabbit in ipairs(june.oddball.animals.slots) do
     assert(animals[rabbit.id] and animals[rabbit.id].name == rabbit.name
         and animals[rabbit.id].wild == false,
         "every rabbit must retain its native ID and name")
+end
+local scansBefore = animalCell.scans or 0
+for _, rabbit in ipairs(june.oddball.animals.slots) do
+    animals[rabbit.id].onlineId = -1
+    rabbit.onlineId = nil
+end
+for slot, rabbit in ipairs(june.oddball.animals.slots) do
+    assert(SC.OddballAnimals.find(june, slot) == animals[rabbit.id],
+        "single-player lookup must find every loaded rabbit")
+end
+assert((animalCell.scans or 0) == scansBefore + 1,
+    "ten rabbit lookups should share one native loaded-cell scan")
+for _, rabbit in ipairs(june.oddball.animals.slots) do
+    animals[rabbit.id].onlineId = 100 + rabbit.id
 end
 SC.OddballJune.onSpawn(june, actors[june.id])
 assert(nextAnimalId == 12, "reloading June must not clone rabbits")
@@ -243,4 +302,15 @@ assert(june.reputation == 37,
 player.x, player.y = 6, 5
 assert(SC.OddballJune.action(june, "animal_hurt", player))
 assert(june.standing == "Hostile", "June must defend her rabbits")
+local adoptedGroup = group("adopted_hen_fixture", actor(5, 5))
+local adoptedHen = addAnimal(animalCell, 8, 8, 0, "hen", "rhodeisland")
+adoptedHen:setCustomName("Lucky")
+adoptedHen:addToWorld()
+assert(SC.OddballAnimals.adopt(adoptedGroup, 1, adoptedHen, "hen"))
+local adoptedRecord = adoptedGroup.oddball.animals.slots[1]
+assert(adoptedRecord.id == adoptedHen.id
+    and adoptedRecord.onlineId == adoptedHen.onlineId
+    and adoptedRecord.breed == "rhodeisland"
+    and SC.OddballAnimals.find(adoptedGroup, 1) == adoptedHen,
+    "adopted animals must save both native IDs and their breed")
 print("Phase 2 encounter behavior PASS")

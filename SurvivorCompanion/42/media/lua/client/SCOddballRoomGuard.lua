@@ -177,7 +177,7 @@ local function refresh(guard)
                 if square ~= nil then
                     local squareRoom = select(1, U().call(square, "getRoom"))
                     if rooms[squareRoom] then
-                        tiles[#tiles + 1] = { x = x, y = y }
+                        tiles[#tiles + 1] = { x = x, y = y, z = z }
                     end
                     local function inspect(object)
                         if object == nil or seenObjects[object] then return end
@@ -236,11 +236,15 @@ local function openingBreached(guard)
 end
 
 local function withinRoom(guard, player)
-    local px, py = U().position(player)
-    if px == nil or py == nil then return false end
+    local px, py, pz = U().position(player)
+    if px == nil or py == nil or pz == nil then return false end
     for _, tile in ipairs(guard.tiles) do
-        local dx, dy = px - (tile.x + 0.5), py - (tile.y + 0.5)
-        if dx * dx + dy * dy <= NEAR_DISTANCE_SQ then return true end
+        if math.floor(pz) == tile.z then
+            local dx, dy = px - (tile.x + 0.5), py - (tile.y + 0.5)
+            if dx * dx + dy * dy <= (guard.nearDistanceSq or NEAR_DISTANCE_SQ) then
+                return true
+            end
+        end
     end
     return false
 end
@@ -292,6 +296,33 @@ local function playerInProtectedRoom(guard, fallback)
     return entered(fallback)
 end
 
+local function playerInProtectedHouse(guard, fallback)
+    local square = U().gridSquare(guard.points[1].x,
+        guard.points[1].y, guard.points[1].z)
+    local building = select(1, U().call(square, "getBuilding"))
+    if building == nil then return false end
+    local function entered(player)
+        local current = player and type(U().squareOf) == "function"
+            and U().squareOf(player) or nil
+        return current ~= nil
+            and select(1, U().call(current, "getBuilding")) == building
+    end
+    if type(getSpecificPlayer) == "function" then
+        local maximum = 4
+        if type(getNumActivePlayers) == "function" then
+            local ok, count = pcall(getNumActivePlayers)
+            if ok and finite(count) then
+                maximum = math.max(0, math.min(4, math.floor(count)))
+            end
+        end
+        for index = 0, maximum - 1 do
+            local ok, player = pcall(getSpecificPlayer, index)
+            if ok and entered(player) then return true end
+        end
+    end
+    return entered(fallback)
+end
+
 local function gamePaused()
     if type(getGameTime) ~= "function" then return false end
     local ok, gameTime = pcall(getGameTime)
@@ -310,6 +341,7 @@ function Guard.register(group, player, nowMs)
     knownStories[id] = story
     local sealed = story.id == "survivalist_locked_horde"
     local protectedVoice = story.id == "voice_actor_vera_quill"
+    local protectedMilli = story.id == "milli_tea_and_trouble"
     local persistent = sealed or protectedVoice
     local elapsed = elapsedFrom(story)
     if finished[id] or story.roomGuardDone == true
@@ -336,6 +368,12 @@ function Guard.register(group, player, nowMs)
     local guard = { points = points, bounds = bounds, objects = {}, tiles = {},
         story = story, elapsedMs = elapsed, lastNowMs = now,
         nextScanAt = now + RESCAN_INTERVAL_MS }
+    if protectedMilli then
+        local distance = finite(SC.Config and SC.Config.get
+            and SC.Config.get("oddballMilliGuardReleaseTiles")) or 12
+        distance = math.max(1, math.min(64, distance))
+        guard.nearDistanceSq = distance * distance
+    end
     active[id] = guard
     refresh(guard)
     local hasOpening = false
@@ -363,7 +401,8 @@ function Guard.register(group, player, nowMs)
     story.roomGuardElapsedMs = elapsed
     story.roomGuardDone = false
     if (not persistent and playerNear(guard, player))
-        or (protectedVoice and playerInProtectedRoom(guard, player)) then
+        or (protectedVoice and playerInProtectedRoom(guard, player))
+        or (protectedMilli and playerInProtectedHouse(guard, player)) then
         Guard.release(id)
         return false, "player_near_room"
     end
@@ -377,6 +416,7 @@ function Guard.pulse(group, player, nowMs)
         and group.oddball or nil
     local sealed = story and story.id == "survivalist_locked_horde"
     local protectedVoice = story and story.id == "voice_actor_vera_quill"
+    local protectedMilli = story and story.id == "milli_tea_and_trouble"
     local persistent = sealed or protectedVoice
     if id ~= nil and story ~= nil then knownStories[id] = story end
     if not guard then
@@ -428,7 +468,8 @@ function Guard.pulse(group, player, nowMs)
         return false, "room_opening_breached"
     end
     if (not persistent and playerNear(guard, player))
-        or (protectedVoice and playerInProtectedRoom(guard, player)) then
+        or (protectedVoice and playerInProtectedRoom(guard, player))
+        or (protectedMilli and playerInProtectedHouse(guard, player)) then
         Guard.release(id)
         return false, "player_near_room"
     end

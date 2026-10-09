@@ -93,6 +93,10 @@ $stages = @(
         -Script (Join-Path $ProjectRoot 'tests\core\run_oddball_loretta_tests.ps1') `
         -Arguments @('-GameRoot', $GameRoot) `
         -Failure 'Strange Folk Loretta vehicle encounter tests failed.'),
+    (New-ScPowerShellStep -Name 'oddball-milli' `
+        -Script (Join-Path $ProjectRoot 'tests\core\run_oddball_milli_tests.ps1') `
+        -Arguments @('-GameRoot', $GameRoot) `
+        -Failure 'Strange Folk Milli Wilson encounter tests failed.'),
     (New-ScPowerShellStep -Name 'oddball-silas-rusty' `
         -Script (Join-Path $ProjectRoot 'tests\core\run_oddball_silas_rusty_tests.ps1') `
         -Arguments @('-GameRoot', $GameRoot) `
@@ -148,7 +152,7 @@ Invoke-ScParallelSteps -Steps $stages -Throttle $Jobs -Label 'gate stages'
 $gate.Stop()
 Write-Output ("PROJECT_TEST_PASS pz-runtime=true source=true core=true " +
     "strange-folk-behavior=true oddball-foundation=true oddball-room-guard=true oddball-wendell=true " +
-    "oddball-deputy=true oddball-loretta=true oddball-silas-rusty=true oddball-lonnie-virgil=true " +
+    "oddball-deputy=true oddball-loretta=true oddball-milli=true oddball-silas-rusty=true oddball-lonnie-virgil=true " +
     "oddball-clem-purdy=true gameplay=true " +
     "navigation-stability=true perception-topology=true ui=true live-harness-static=true " +
     "workshop=true standalone=true seconds={0:N0} jobs={1}" -f $gate.Elapsed.TotalSeconds, $Jobs)

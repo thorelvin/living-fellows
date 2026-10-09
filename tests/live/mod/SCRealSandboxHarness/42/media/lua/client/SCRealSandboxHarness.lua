@@ -15212,6 +15212,11 @@ Harness.probeLoretta = function(...)
 end
 Harness.lorettaSignals = { write = writeSignal, exists = fileExists }
 
+Harness.probeMilli = function(...)
+    return externalProbe("SCMilliLiveProbe", ...)
+end
+Harness.milliSignals = { write = writeSignal, exists = fileExists }
+
 local function tick()
     if Harness.finished then return end
     local current = nowMs()
@@ -15280,7 +15285,9 @@ local function tick()
         Harness.measurePerformance(current)
     end
 
-    if string.sub(tostring(Harness.phase), 1, 8) == "loretta_" then
+    if string.sub(tostring(Harness.phase), 1, 6) == "milli_" then
+        Harness.probeMilli(Harness, current, check, result, setPhase)
+    elseif string.sub(tostring(Harness.phase), 1, 8) == "loretta_" then
         Harness.probeLoretta(Harness, current, check, result, setPhase)
     elseif string.sub(tostring(Harness.phase), 1, 14) == "deputy_rhonda_" then
         Harness.probeDeputyRhonda(Harness, current, check, result, setPhase)
@@ -16065,7 +16072,9 @@ local function onGameStart()
         finish()
         return
     end
-    if Harness.config.loretta_probe == "true" then
+    if Harness.config.milli_probe == "true" then
+        setPhase("milli_prepare", Harness.startedAt)
+    elseif Harness.config.loretta_probe == "true" then
         setPhase("loretta_prepare", Harness.startedAt)
     elseif Harness.config.deputy_rhonda_probe == "true" then
         setPhase("deputy_rhonda_prepare", Harness.startedAt)

@@ -1468,6 +1468,13 @@ local valueData = {
     oddballBackseatRemarkMs = 90000,
     oddballBackseatSpeedKmh = 80,
     oddballBackseatBrakeKmh = 30,
+    oddballMilliGuardReleaseTiles = 12,
+    oddballMilliStartleTiles = 3,
+    oddballMilliPetTalkMs = 20000,
+    oddballMilliTeaCooldownHours = 24,
+    oddballMilliReimbursement = 5,
+    oddballMilliToysMin = 5,
+    oddballMilliToysMax = 8,
     -- Hostile camps use a separate production roll so peaceful households do
     -- not starve them (or vice versa). Their patrol and contact memories remain
     -- local, bounded and driven by confirmed sight or registered sound.

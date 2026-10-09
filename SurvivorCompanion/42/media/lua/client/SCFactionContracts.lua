@@ -1432,9 +1432,22 @@ function Contracts.resolveAccessDispute(groupOrId, player, choice, forced)
     return false, "appeal_rejected"
 end
 
+local function isMilliGuest(group)
+    return type(group.oddball) == "table"
+        and group.oddball.id == "milli_tea_and_trouble"
+end
+
+local function oddballGuestAccess(group)
+    return isMilliGuest(group) and group.oddball.guestAccess == true
+        and (group.standing == "Tolerated" or group.standing == "Trusted")
+        and group.lifecycle ~= "hostile"
+        and group.lifecycle ~= "destroyed"
+end
+
 function Contracts.hasAccess(groupOrId, player)
     local group = groupFor(groupOrId)
     if not group then return false end
+    if isMilliGuest(group) then return oddballGuestAccess(group) end
     local access = Contracts.initialize(group).access
     if group.standing == "Hostile" or group.lifecycle == "hostile" then
         access.state, access.reason, access.safeRest = "denied", "hostile", false
@@ -1453,9 +1466,15 @@ end
 function Contracts.safeRestStatus(groupOrId, player)
     local group = groupFor(groupOrId)
     if not group then return false, "faction_unavailable" end
-    local social = Contracts.initialize(group)
+    if isMilliGuest(group) and not oddballGuestAccess(group) then
+        return false, "house_access_required"
+    end
+    local social = not isMilliGuest(group)
+        and Contracts.initialize(group) or nil
     if not Contracts.hasAccess(group, player) then return false, "house_access_required" end
-    if social.access.safeRest ~= true then return false, "safe_rest_not_granted" end
+    if social and social.access.safeRest ~= true then
+        return false, "safe_rest_not_granted"
+    end
     local aiming, aimingOk = U().call(player, "isAiming")
     if aimingOk and aiming == true then return false, "lower_weapon_required" end
     local x, y = U().position(player)

@@ -32,6 +32,10 @@ param(
     [string]$LorettaScreenshot = '',
     [ValidateRange(0, 20000)][int]$LorettaSiteX = 0,
     [ValidateRange(0, 20000)][int]$LorettaSiteY = 0,
+    [switch]$MilliProbe,
+    [string]$MilliScreenshot = '',
+    [ValidateRange(0, 20000)][int]$MilliSiteX = 0,
+    [ValidateRange(0, 20000)][int]$MilliSiteY = 0,
     [switch]$BaseSecondFloorProbe,
     [switch]$WaterSourceProbe,
     [switch]$ProjectALifeDamageProbe,
@@ -500,6 +504,21 @@ if ($captureLoretta) {
     }
     New-Item -ItemType Directory -Path (Split-Path -Parent $LorettaScreenshot) -Force | Out-Null
 }
+$captureMilli = -not [string]::IsNullOrWhiteSpace($MilliScreenshot)
+if (($MilliSiteX -gt 0) -ne ($MilliSiteY -gt 0) -or
+    (($MilliSiteX -gt 0 -or $MilliSiteY -gt 0) -and -not $MilliProbe)) {
+    throw '-MilliSiteX and -MilliSiteY must be positive together and require -MilliProbe.'
+}
+if ($captureMilli) {
+    if (-not $MilliProbe -or $HiddenWindow) {
+        throw '-MilliScreenshot requires -MilliProbe and a visible game window.'
+    }
+    $MilliScreenshot = [System.IO.Path]::GetFullPath($MilliScreenshot)
+    if (Test-Path -LiteralPath $MilliScreenshot) {
+        throw "Milli screenshot already exists; choose a fresh path: $MilliScreenshot"
+    }
+    New-Item -ItemType Directory -Path (Split-Path -Parent $MilliScreenshot) -Force | Out-Null
+}
 if ($PyreBurnProbe -ne (-not [string]::IsNullOrWhiteSpace($PyreBurnScreenshot))) {
     throw '-PyreBurnProbe requires -PyreBurnScreenshot.'
 }
@@ -959,6 +978,10 @@ $config = @(
     ('loretta_screenshot=' + $captureLoretta.ToString().ToLowerInvariant()),
     ('loretta_site_x=' + $LorettaSiteX),
     ('loretta_site_y=' + $LorettaSiteY),
+    ('milli_probe=' + $MilliProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('milli_screenshot=' + $captureMilli.ToString().ToLowerInvariant()),
+    ('milli_site_x=' + $MilliSiteX),
+    ('milli_site_y=' + $MilliSiteY),
     ('base_second_floor_probe=' + $BaseSecondFloorProbe.IsPresent.ToString().ToLowerInvariant()),
     ('water_source_probe=' + $WaterSourceProbe.IsPresent.ToString().ToLowerInvariant()),
     ('capture_faction_map=' + $captureFactionMap.ToString().ToLowerInvariant()),
@@ -1108,6 +1131,10 @@ $manifest = [ordered]@{
     lorettaSite = if ($LorettaSiteX -gt 0) {
         @{ x = $LorettaSiteX; y = $LorettaSiteY }
     } else { $null }
+    milliScreenshot = if ($captureMilli) { $MilliScreenshot } else { $null }
+    milliSite = if ($MilliSiteX -gt 0) {
+        @{ x = $MilliSiteX; y = $MilliSiteY }
+    } else { $null }
     autoCleanup = $false
 }
 [System.IO.File]::WriteAllText((Join-Path $RunRoot 'run-manifest.json'),
@@ -1167,6 +1194,7 @@ try {
     $strangeFolkPortraitsCaptured = @{}
     $deputyRhondaCaptured = $false
     $lorettaCaptured = $false
+    $milliCaptured = $false
     $nextProcessSample = [DateTime]::MinValue
     while ([DateTime]::UtcNow -lt $deadline -and -not (Test-Path -LiteralPath $summaryPath -PathType Leaf)) {
         $process.Refresh()
@@ -1262,6 +1290,20 @@ try {
                     ('captured=true' + [Environment]::NewLine), $utf8NoBom)
                 Write-Output "Captured Loretta encounter: $LorettaScreenshot"
                 $lorettaCaptured = $true
+            }
+        }
+        if ($captureMilli -and -not $milliCaptured) {
+            $readyPath = Join-Path $SandboxLua 'milli-ready.txt'
+            if (Test-Path -LiteralPath $readyPath -PathType Leaf) {
+                Start-Sleep -Milliseconds 750
+                if (-not (Save-ClientScreenshot $process $MilliScreenshot)) {
+                    throw "Could not capture Milli encounter to $MilliScreenshot"
+                }
+                [System.IO.File]::WriteAllText(
+                    (Join-Path $SandboxLua 'milli-captured.txt'),
+                    ('captured=true' + [Environment]::NewLine), $utf8NoBom)
+                Write-Output "Captured Milli encounter: $MilliScreenshot"
+                $milliCaptured = $true
             }
         }
         if ($captureFactionMap -and -not $factionMapCaptureCompleted -and
@@ -1467,6 +1509,10 @@ if ($captureDeputyRhonda) {
 if ($captureLoretta) {
     if (-not $lorettaCaptured) { throw 'Missing Loretta screenshot capture.' }
     Write-Output "Loretta screenshot: $LorettaScreenshot"
+}
+if ($captureMilli) {
+    if (-not $milliCaptured) { throw 'Missing Milli screenshot capture.' }
+    Write-Output "Milli screenshot: $MilliScreenshot"
 }
 if ($status -ne 'PASS') {
     throw "LIVE_SANDBOX_FAIL run=$runId results=$eventsPath"

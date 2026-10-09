@@ -566,6 +566,20 @@ end
 -- voice selector still picks a line within that subject; independent topics
 -- would make a reply about supper answer a question about the roof.
 local TABLE_TALKS = {
+    tea = {
+        open = {
+            "Milli's kettle is making its rounds. Who wants cold tea?",
+            "I found one of Milli's teabags. She says it has one more cup in it.",
+        },
+        reply = {
+            "Cold tea and company beat hot tea alone.",
+            "I'll take a cup. Just keep Bandit out of the muffins.",
+        },
+        close = {
+            "Put the kettle back by Milli. She'll want it tomorrow.",
+            "That was almost an ordinary afternoon. I'll take it.",
+        },
+    },
     meal = {
         open = {
             "This table used to mean supper. What would you put on it tonight, %1?",
@@ -1668,13 +1682,27 @@ local function campConversationPulse(player, records, current)
                 end
                 local closeTopic, conversationKind
                 if tableObject then
-                    local index = math.abs(tonumber(U().stableHash(key .. ":table:"
+                    local salt = math.abs(tonumber(U().stableHash(key .. ":table:"
                         .. tostring(math.floor(current / 60000)))) or 0)
-                        % #TABLE_THEME_KEYS + 1
-                    if not tableThemeAvailable(TABLE_THEME_KEYS[index]) then
-                        index = index % #TABLE_THEME_KEYS + 1
+                    local firstGroup = SC.Oddballs and SC.Oddballs.groupForActor
+                        and SC.Oddballs.groupForActor(firstActor)
+                    local secondGroup = SC.Oddballs and SC.Oddballs.groupForActor
+                        and SC.Oddballs.groupForActor(secondActor)
+                    local milliAtTable = firstGroup and firstGroup.oddball
+                        and firstGroup.oddball.id == "milli_tea_and_trouble"
+                        or secondGroup and secondGroup.oddball
+                            and secondGroup.oddball.id == "milli_tea_and_trouble"
+                    local theme
+                    if milliAtTable and salt % 3 == 0 then
+                        theme = "tea"
+                    else
+                        local index = salt % #TABLE_THEME_KEYS + 1
+                        if not tableThemeAvailable(TABLE_THEME_KEYS[index]) then
+                            index = index % #TABLE_THEME_KEYS + 1
+                        end
+                        theme = TABLE_THEME_KEYS[index]
                     end
-                    local prefix = "banter.table." .. TABLE_THEME_KEYS[index]
+                    local prefix = "banter.table." .. theme
                     openTopic, replyTopic, closeTopic = prefix .. ".open",
                         prefix .. ".reply", prefix .. ".close"
                     conversationKind = "table"

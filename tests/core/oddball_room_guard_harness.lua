@@ -271,6 +271,55 @@ assert(Guard.register(enteredVoice, outsidePlayer, 0) == true)
 assert(Guard.pulse(enteredVoice, near, 1000) == false,
     "entering Vera's room releases its opening protection")
 
+-- Milli keeps the room closed while the player is still beyond her shorter
+-- approach radius, including the 12..18 tile range of ordinary residents.
+Guard.reset()
+local milliBuilding = {}
+function inside:getBuilding() return milliBuilding end
+local milli = F.group("milli", { x = 10, y = 10, z = 0 })
+milli.oddball.id = "milli_tea_and_trouble"
+local outsideFifteen = { x = 25.5, y = 10.5, z = 0 }
+local outsideTen = { x = 20.5, y = 10.5, z = 0 }
+assert(Guard.register(milli, outsideFifteen, 0) == true)
+assert(Guard.pulse(milli, outsideFifteen, 1000) == true,
+    "Milli guard remains active beyond twelve tiles")
+assert(Guard.pulse(milli, outsideTen, 2000) == false,
+    "Milli guard releases inside twelve tiles")
+
+Guard.reset()
+SurvivorCompanion.Config = { get = function(key)
+    if key == "oddballMilliGuardReleaseTiles" then return 1 end
+end }
+local entrySquare = F.square(13, 13, 0, nil)
+function entrySquare:getBuilding() return milliBuilding end
+local enteredHouse = { x = 13.2, y = 13.2, z = 0 }
+local milliHouse = F.group("milli-house", { x = 10, y = 10, z = 0 })
+milliHouse.oddball.id = "milli_tea_and_trouble"
+assert(Guard.register(milliHouse, outsideFifteen, 0) == true)
+assert(Guard.pulse(milliHouse, enteredHouse, 1000) == false,
+    "entering Milli's building releases the room even outside approach radius")
+SurvivorCompanion.Config = nil
+
+-- A player directly below an upstairs bedroom is neither in the room nor
+-- inside its building, so horizontal proximity alone must not end the guard.
+Guard.reset()
+local upperRoom, upperBuilding = {}, {}
+local upperSquare = F.square(12, 10, 1, upperRoom)
+F.square(12, 9, 1, nil)
+F.square(12, 10, 0, nil)
+function upperSquare:getBuilding() return upperBuilding end
+local upperDoor = F.opening("IsoDoor", upperSquare, true, "door")
+upperSquare.objects = { upperDoor }
+local upperMilli = F.group("upper-milli", { x = 12, y = 10, z = 1 })
+upperMilli.oddball.id = "milli_tea_and_trouble"
+local directlyBelow = { x = 12.5, y = 10.5, z = 0 }
+local inUpperRoom = { x = 12.5, y = 10.5, z = 1 }
+assert(Guard.register(upperMilli, directlyBelow, 0) == true)
+assert(Guard.pulse(upperMilli, directlyBelow, 1000) == true,
+    "player below upstairs room does not release its guard")
+assert(Guard.pulse(upperMilli, inUpperRoom, 2000) == false,
+    "player on upstairs room floor releases its guard")
+
 assert(Guard.remove() == true and not Guard.isInstalled()
     and #Events.OnZombieUpdate.callbacks == 0,
     "remove detaches the native event")

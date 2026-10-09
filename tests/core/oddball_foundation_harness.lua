@@ -527,11 +527,21 @@ badRabbitSave.groups[juneGroup.id].oddball.site.animalSpawns[2].y =
     badRabbitSave.groups[juneGroup.id].oddball.site.animalSpawns[1].y
 check(SC.Factions.restore(badRabbitSave) == false,
     "duplicate rabbit tiles are rejected without corrupting the save")
-local badAnimalIdSave = SC.StableValue.copyStrict(phaseTwoSave,
+local sharedAnimalIdSave = SC.StableValue.copyStrict(phaseTwoSave,
     { maxDepth = 16, maxEntries = 131072 })
-badAnimalIdSave.groups[juneGroup.id].oddball.animals.slots[2].id = 4001
-check(SC.Factions.restore(badAnimalIdSave) == false,
-    "two named rabbits cannot restore with one native animal ID")
+sharedAnimalIdSave.groups[juneGroup.id].oddball.animals.slots[2].id = 4001
+check(SC.Factions.restore(sharedAnimalIdSave) == true,
+    "randomized native animal IDs may coincide across distinct tagged slots")
+local wrappedAnimalOnlineIdSave = SC.StableValue.copyStrict(phaseTwoSave,
+    { maxDepth = 16, maxEntries = 131072 })
+wrappedAnimalOnlineIdSave.groups[juneGroup.id].oddball.animals.slots[2].onlineId = -2
+check(SC.Factions.restore(wrappedAnimalOnlineIdSave) == true,
+    "wrapped signed-short online IDs are valid native lookup keys")
+local badAnimalOnlineIdSave = SC.StableValue.copyStrict(phaseTwoSave,
+    { maxDepth = 16, maxEntries = 131072 })
+badAnimalOnlineIdSave.groups[juneGroup.id].oddball.animals.slots[2].onlineId = 40000
+check(SC.Factions.restore(badAnimalOnlineIdSave) == false,
+    "online lookup IDs outside native short range are rejected")
 local pyro = SC.Oddballs.definition("pyromaniac_earl_kessler")
 check(pyro and pyro.recruitment == true and pyro.kind == "resident",
     "Earl's recruitable resident encounter is registered")
@@ -770,5 +780,81 @@ do
         SC.Oddballs.definition("voice_actor_vera_quill"),
         "bedroom", true)
     check(voice == nil, "voice actor is not seeded in an open bedroom")
+end
+
+-- A paired story needs two unresolved slots. With one slot left it must wait,
+-- even when its landmark is valid; the same landmark seeds both rivals when
+-- the cap has room.
+do
+    local oldClock = SC_TEST_CLOCK
+    local oldGridSquare, oldCanSee = U.gridSquare, U.canSee
+    local oldList = SC.Factions.list
+    local oldHouseAt = SC.Factions.oddballHouseAt
+    local oldCreate = SC.Factions.createOddballGroup
+    local oldPlayerNum = player.getPlayerNum
+    local oldFirstDay = SC.Config.get("oddballFirstEligibleDay")
+    local oldMaxActive = SC.Config.get("oddballMaxActive")
+    local oldBudget = SC.Config.get("oddballScanSampleBudget")
+    local office = { getName = function() return "office" end }
+    local building = {}
+    U.gridSquare = function(x, y, z)
+        if z ~= 0 then return nil end
+        return { x = x, y = y, z = z,
+            getRoom = function() return office end,
+            getBuilding = function() return building end,
+            isCanSee = function() return false end }
+    end
+    U.canSee = function() return false end
+    player.getPlayerNum = function() return 0 end
+    local mainPoint
+    SC.Factions.oddballHouseAt = function(square)
+        mainPoint = mainPoint or { x = square.x, y = square.y }
+        local dx, dy = square.x - mainPoint.x, square.y - mainPoint.y
+        local id = dx * dx + dy * dy < 100
+            and "doctor-office" or "rival-office"
+        return { id = id, anchor = { x = square.x, y = square.y, z = 0 },
+            bounds = { x1 = square.x, y1 = square.y,
+                x2 = square.x + 2, y2 = square.y + 2 },
+            interior = { { x = square.x, y = square.y, z = 0 } },
+            openings = {} }
+    end
+    local created = {}
+    SC.Factions.createOddballGroup = function(_, character)
+        created[#created + 1] = character.id
+        return { id = "capacity-" .. character.id,
+            oddball = { id = character.id } }
+    end
+    SC.Config.testSet("oddballFirstEligibleDay", 0)
+    SC.Config.testSet("oddballMaxActive", 2)
+    SC.Config.testSet("oddballScanSampleBudget", 1)
+    SC_TEST_CLOCK = 15 * 86400000
+    SC.Oddballs.reset()
+    SC.Factions.list = function()
+        return { { id = "existing-oddball",
+            oddball = { id = "grocery_gale_mercer" }, lifecycle = "settled" } }
+    end
+    local seeded, reason = SC.Oddballs.pulse(player, SC_TEST_CLOCK)
+    check(seeded == false and reason == "no_eligible_loaded_site"
+        and #created == 0,
+        "paired rivals wait when only one active encounter slot remains: "
+            .. tostring(reason) .. ", created=" .. tostring(#created))
+    SC.Oddballs.reset()
+    SC.Factions.list = function() return {} end
+    mainPoint = nil
+    seeded, reason = SC.Oddballs.pulse(player, SC_TEST_CLOCK)
+    check(seeded == true and #created == 2
+        and created[1] == "doctor_pest" and created[2] == "bluegrass_bolt",
+        "the same office still seeds both rivals when two slots are free: "
+            .. tostring(reason))
+    SC.Oddballs.reset()
+    SC_TEST_CLOCK = oldClock
+    U.gridSquare, U.canSee = oldGridSquare, oldCanSee
+    SC.Factions.list = oldList
+    SC.Factions.oddballHouseAt = oldHouseAt
+    SC.Factions.createOddballGroup = oldCreate
+    player.getPlayerNum = oldPlayerNum
+    SC.Config.testSet("oddballFirstEligibleDay", oldFirstDay)
+    SC.Config.testSet("oddballMaxActive", oldMaxActive)
+    SC.Config.testSet("oddballScanSampleBudget", oldBudget)
 end
 SC_TEST_REPORT = "Oddball foundation PASS: " .. checks .. " checks"

@@ -616,11 +616,12 @@ local function addRecruitedOddballAction(menu, row, player)
     local group = origin and origin.group
     if not group or type(group.oddball) ~= "table" then return end
     for _, action in ipairs(SC.Oddballs.menuOptions(group, player) or {}) do
-        if action.id == "gut_up" then
+        if action.id == "gut_up" or action.id == "have_tea" then
+            local fallback = action.id == "have_tea" and "Have tea" or "Gut up"
             if action.enabled == false then
-                addUnavailableOption(menu, tostring(action.label or "Gut up"))
+                addUnavailableOption(menu, tostring(action.label or fallback))
             else
-                menu:addOption(tostring(action.label or "Gut up"), nil,
+                menu:addOption(tostring(action.label or fallback), nil,
                     oddballStoryAction, group.id, action.id, player, action.payload)
             end
             return

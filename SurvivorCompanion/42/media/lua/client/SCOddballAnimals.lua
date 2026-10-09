@@ -1,11 +1,13 @@
 -- SPDX-License-Identifier: MIT
--- Named encounter animals are real vanilla IsoAnimals. The saved slot stores
--- their native ID; an absent animal is never silently replaced with a clone.
+-- Named encounter animals are real vanilla IsoAnimals. The saved slot keeps
+-- the persistent animal ID separately from the online ID used by getAnimal().
+-- An absent animal is never silently replaced with a clone.
 
 local SC = SurvivorCompanion
 SC.OddballAnimals = SC.OddballAnimals or {}
 local Animals = SC.OddballAnimals
 local followAt = {}
+local loadedScan = { cell = nil, list = nil, untilMs = 0 }
 
 local function U() return SC.GameplayUtil end
 
@@ -13,6 +15,76 @@ local function number(value)
     if type(value) == "number" then return value end
     if type(value) == "string" then return tonumber(value) end
     return nil
+end
+
+local function onlineId(animal)
+    local id = number(select(1, U().call(animal, "getOnlineID")))
+    -- The native map uses signed short IDs and skips -1. Single-player
+    -- animals can keep the -1 sentinel and are found via IsoCell:getAnimals().
+    if id and id >= -32768 and id <= 32767 and id ~= -1
+        and id == math.floor(id) then
+        return id
+    end
+    return nil
+end
+
+local function stableId(animal)
+    local id = number(select(1, U().call(animal, "getAnimalID")))
+    if id and id >= 0 and id == math.floor(id) then return id end
+    return nil
+end
+
+local function matches(animal, group, slot, record)
+    if animal == nil or stableId(animal) ~= number(record.id) then return false end
+    local data = select(1, U().call(animal, "getModData"))
+    return type(data) == "table" and data.lfOddballGroupId == group.id
+        and number(data.lfOddballAnimalSlot) == slot
+end
+
+local function firstMatching(list, predicate)
+    if list == nil then return nil end
+    if type(list) == "table" then
+        for _, candidate in ipairs(list) do
+            if predicate(candidate) then return candidate end
+        end
+        return nil
+    end
+    local count = number(select(1, U().call(list, "size")))
+    if not count then return nil end
+    for index = 0, count - 1 do
+        local candidate = select(1, U().call(list, "get", index))
+        if predicate(candidate) then return candidate end
+    end
+    return nil
+end
+
+local function stillLoaded(animal)
+    local square = select(1, U().call(animal, "getSquare"))
+    local squareAnimals = square and select(1, U().call(square, "getAnimals"))
+    return firstMatching(squareAnimals,
+        function(candidate) return candidate == animal end) ~= nil
+end
+
+local function invalidateLoadedScan()
+    loadedScan.cell, loadedScan.list, loadedScan.untilMs = nil, nil, 0
+end
+
+local function findLoaded(group, slot, record)
+    if type(getCell) ~= "function" then return nil end
+    local cellOk, cell = pcall(getCell)
+    if not cellOk or cell == nil then return nil end
+    local current = number(U().nowMs()) or 0
+    local reused = loadedScan.cell == cell and loadedScan.list ~= nil
+        and current < loadedScan.untilMs
+    if not reused then
+        loadedScan.cell = cell
+        loadedScan.list = select(1, U().call(cell, "getAnimals"))
+        loadedScan.untilMs = current + 1000
+    end
+    return firstMatching(loadedScan.list, function(candidate)
+        return matches(candidate, group, slot, record)
+            and (not reused or stillLoaded(candidate))
+    end)
 end
 
 local function slots(group)
@@ -69,14 +141,16 @@ function Animals.spawn(group, slot, spec, point)
         U().call(animal, "removeFromWorld")
         return false, "animal_world_add_failed"
     end
-    local id = number(select(1, U().call(animal, "getAnimalID")))
+    local id = stableId(animal)
     if not id then
         U().call(animal, "removeFromWorld")
         return false, "animal_native_id_unavailable"
     end
     records[slot] = { kind = spec.kind, breed = spec.breed,
-        name = spec.name, id = id, x = x, y = y, z = z,
+        name = spec.name, id = id, onlineId = onlineId(animal),
+        x = x, y = y, z = z,
         spawned = true }
+    invalidateLoadedScan()
     return true, animal
 end
 
@@ -88,7 +162,9 @@ function Animals.adopt(group, slot, animal, expectedKind)
         return false, "animal_slot_occupied_or_missing"
     end
     local kind = select(1, U().call(animal, "getAnimalType"))
-    local id = number(select(1, U().call(animal, "getAnimalID")))
+    local id = stableId(animal)
+    local breed = select(1, U().call(animal, "getBreed"))
+    local breedName = breed and select(1, U().call(breed, "getName"))
     local x, y, z = U().position(animal)
     if kind ~= expectedKind or not id or not x or not y then
         return false, "animal_kind_or_id_unavailable"
@@ -98,27 +174,38 @@ function Animals.adopt(group, slot, animal, expectedKind)
         return false, "animal_already_owned"
     end
     data.lfOddballGroupId, data.lfOddballAnimalSlot = group.id, slot
-    records[slot] = { kind = kind, name = select(1,
+    records[slot] = { kind = kind,
+        breed = type(breedName) == "string" and breedName or "",
+        name = select(1,
         U().call(animal, "getCustomName")) or kind,
-        id = id, x = math.floor(x), y = math.floor(y),
+        id = id, onlineId = onlineId(animal),
+        x = math.floor(x), y = math.floor(y),
         z = z or 0, spawned = true, adopted = true }
+    invalidateLoadedScan()
     return true, "existing_native_animal_adopted"
 end
 
 function Animals.find(group, slot)
     local records = slots(group)
     local record = records and records[slot] or nil
-    if not record or record.dead == true or not record.id
-        or type(getAnimal) ~= "function" then
+    if not record or record.dead == true or not record.id then
         return nil, record
     end
-    local ok, animal = pcall(getAnimal, record.id)
-    if not ok or animal == nil then return nil, record end
-    local data = select(1, U().call(animal, "getModData"))
-    if type(data) ~= "table" or data.lfOddballGroupId ~= group.id
-        or data.lfOddballAnimalSlot ~= slot then
-        return nil, record
+    local animal
+    local lookupId = number(record.onlineId)
+    if lookupId and type(getAnimal) == "function" then
+        local ok, candidate = pcall(getAnimal, lookupId)
+        if ok and matches(candidate, group, slot, record) then
+            animal = candidate
+        end
     end
+    -- Existing saves have only record.id (getAnimalID), and online IDs may be
+    -- reassigned after loading. Search loaded animals by their persisted ID and
+    -- owner marker, then refresh the fast lookup key. Never trust a reused
+    -- online ID without the stable ID and owner marker.
+    if animal == nil then animal = findLoaded(group, slot, record) end
+    if animal == nil then return nil, record end
+    record.onlineId = onlineId(animal)
     local health = number(select(1, U().call(animal, "getHealth")))
     if health ~= nil and health <= 0 then
         record.dead = true

@@ -30,6 +30,7 @@ local recentCompanionHits = {}
 local PLAYER_CONFLICT_STOP_HEALTH = 25
 local hitHookInstalled = false
 local swingHookInstalled = false
+local deathHookInstalled = false
 local fallbackRandomSequence = 0
 
 local lifecycleValues = {
@@ -1632,6 +1633,43 @@ function Factions.createOddballGroup(site, definition, debugCreated)
             seen[key] = true
         end
     end
+    if definition.id == "milli_tea_and_trouble" then
+        if type(site.petSpawns) ~= "table" or #site.petSpawns ~= 2 then
+            return nil, "milli_pet_posts_unavailable"
+        end
+        local spawnSquare = U().gridSquare(site.spawn.x, site.spawn.y,
+            site.spawn.z or 0)
+        local spawnRoom = select(1, U().call(spawnSquare, "getRoom"))
+        if spawnRoom == nil then return nil, "milli_room_unavailable" end
+        local seen = { [spawnPositionKey(site.spawn)] = true }
+        for _, post in ipairs(site.petSpawns) do
+            local key = spawnPositionKey(post)
+            local square = key and U().gridSquare(post.x, post.y,
+                post.z or 0) or nil
+            if key == nil or seen[key] or not U().isSafeSpawnSquare(square)
+                or (post.z or 0) ~= (site.spawn.z or 0)
+                or select(1, U().call(square, "getRoom")) ~= spawnRoom then
+                return nil, "milli_pet_posts_unavailable"
+            end
+            seen[key] = true
+        end
+        if type(site.toySpawns) ~= "table" or #site.toySpawns < 3
+            or #site.toySpawns > 32 then
+            return nil, "milli_toy_posts_unavailable"
+        end
+        local toysSeen = {}
+        for _, post in ipairs(site.toySpawns) do
+            local key = spawnPositionKey(post)
+            local square = key and U().gridSquare(post.x, post.y,
+                post.z or 0) or nil
+            if key == nil or toysSeen[key] or not U().isSafeSpawnSquare(square)
+                or (post.z or 0) ~= (site.spawn.z or 0)
+                or select(1, U().call(square, "getRoom")) ~= spawnRoom then
+                return nil, "milli_toy_posts_unavailable"
+            end
+            toysSeen[key] = true
+        end
+    end
     if site.memberSpawns ~= nil then
         if definition.captives == true or type(site.memberSpawns) ~= "table"
             or #site.memberSpawns < 2 or #site.memberSpawns > 4
@@ -1723,6 +1761,10 @@ function Factions.createOddballGroup(site, definition, debugCreated)
         bunkerOutside = site.bunkerOutside and stableCopy(site.bunkerOutside, 2) or nil,
         animalSpawns = site.animalSpawns
             and stableCopy(site.animalSpawns, 3, { count = 64 }) or nil,
+        petSpawns = site.petSpawns
+            and stableCopy(site.petSpawns, 3, { count = 16 }) or nil,
+        toySpawns = site.toySpawns
+            and stableCopy(site.toySpawns, 3, { count = 128 }) or nil,
         house = compactHouse,
     }
     return createGroup(site.house, 1, debugCreated == true,
@@ -2116,6 +2158,25 @@ end
 
 function Factions.onWeaponHitCharacter(attacker, target, weapon, damage)
     local currentPlayer = localPlayer()
+    local namedAnimal = target and SC.OddballAnimals
+        and SC.OddballAnimals.isProtected(target) == true
+    if namedAnimal then
+        local companion = attacker ~= currentPlayer and SC.Registry
+            and SC.Registry.byId(U().idOf(attacker)) or nil
+        if attacker ~= nil and (attacker == currentPlayer
+            or companion and companion.recruited == true) then
+            local data = U().modData(target)
+            local owner = data and data.lfOddballGroupId
+            if owner and SC.Oddballs
+                and type(SC.Oddballs.storyAction) == "function" then
+                SC.Oddballs.storyAction(owner, "animal_hurt", attacker,
+                    { target = target, weapon = weapon, damage = damage })
+            end
+        end
+        -- The owning story receives the strike once. June's nearby-rabbit
+        -- reaction below is for unowned wildlife, not another resident's pet.
+        return
+    end
     if attacker and target and SC.Oddballs
         and type(SC.Oddballs.storyAction) == "function" then
         local animalType = select(1, U().call(target, "getAnimalType"))
@@ -2123,9 +2184,7 @@ function Factions.onWeaponHitCharacter(attacker, target, weapon, damage)
             or animalType == "rabkitten" then
             local companion = attacker ~= currentPlayer and SC.Registry
                 and SC.Registry.byId(U().idOf(attacker)) or nil
-            local named = SC.OddballAnimals
-                and SC.OddballAnimals.isProtected(target) == true
-            if (attacker == currentPlayer and not named)
+            if attacker == currentPlayer
                 or companion and companion.recruited == true then
                 local x, y, z = U().position(target)
                 for _, group in ipairs(Factions.list(false)) do
@@ -2153,15 +2212,6 @@ function Factions.onWeaponHitCharacter(attacker, target, weapon, damage)
         end
     end
     if attacker == nil or attacker ~= currentPlayer or target == nil then return end
-    if SC.OddballAnimals and SC.OddballAnimals.isProtected(target) then
-        local data = U().modData(target)
-        local owner = data and data.lfOddballGroupId
-        if owner and SC.Oddballs and type(SC.Oddballs.storyAction) == "function" then
-            SC.Oddballs.storyAction(owner, "animal_hurt", attacker,
-                { target = target, weapon = weapon, damage = damage })
-        end
-        return
-    end
     local id = U().idOf(target)
     local record = id and SC.Registry.byId(id) or nil
     if not record then return end
@@ -2212,14 +2262,31 @@ function Factions.onWeaponSwingHitPoint(attacker, weapon)
         rangedOk and ranged == true and 30 or 8, "player_attack")
 end
 
+function Factions.onCharacterDeath(actor)
+    if SC.Oddballs and type(SC.Oddballs.onCharacterDeath) == "function" then
+        SC.Oddballs.onCharacterDeath(actor)
+    end
+end
+
 function Factions.installHooks()
     if hitHookInstalled then return true end
     if type(Events) ~= "table" or not Events.OnWeaponHitCharacter
         or type(Events.OnWeaponHitCharacter.Add) ~= "function" then
         return false, "OnWeaponHitCharacter event is unavailable"
     end
+    if not Events.OnCharacterDeath
+        or type(Events.OnCharacterDeath.Add) ~= "function" then
+        return false, "OnCharacterDeath event is unavailable"
+    end
     local ok, reason = pcall(Events.OnWeaponHitCharacter.Add, Factions.onWeaponHitCharacter)
     if not ok then return false, tostring(reason) end
+    local deathOk, deathReason = pcall(Events.OnCharacterDeath.Add,
+        Factions.onCharacterDeath)
+    if not deathOk then
+        pcall(Events.OnWeaponHitCharacter.Remove, Factions.onWeaponHitCharacter)
+        return false, tostring(deathReason)
+    end
+    deathHookInstalled = true
     hitHookInstalled = true
     if Events.OnWeaponSwingHitPoint
         and type(Events.OnWeaponSwingHitPoint.Add) == "function" then
@@ -2236,6 +2303,10 @@ function Factions.removeHooks()
         or type(Events.OnWeaponHitCharacter.Remove) ~= "function" then
         return false, "OnWeaponHitCharacter removal is unavailable"
     end
+    if deathHookInstalled and (not Events.OnCharacterDeath
+        or type(Events.OnCharacterDeath.Remove) ~= "function") then
+        return false, "OnCharacterDeath removal is unavailable"
+    end
     if swingHookInstalled then
         if not Events.OnWeaponSwingHitPoint
             or type(Events.OnWeaponSwingHitPoint.Remove) ~= "function" then
@@ -2248,6 +2319,12 @@ function Factions.removeHooks()
     end
     local ok, reason = pcall(Events.OnWeaponHitCharacter.Remove, Factions.onWeaponHitCharacter)
     if not ok then return false, tostring(reason) end
+    if deathHookInstalled then
+        local deathOk, deathReason = pcall(Events.OnCharacterDeath.Remove,
+            Factions.onCharacterDeath)
+        if not deathOk then return false, tostring(deathReason) end
+        deathHookInstalled = false
+    end
     hitHookInstalled = false
     return true
 end
@@ -3659,6 +3736,58 @@ local function validGroup(source, id, path)
                 seenAnimals[key] = true
             end
         end
+        if story.id == "milli_tea_and_trouble" then
+            local positions, count = denseArray(story.site.petSpawns,
+                path .. ".oddball.site.petSpawns", 2, 2)
+            if not positions then return false, count end
+            local bounds = story.site.house and story.site.house.bounds
+            local function inHouse(position)
+                return type(bounds) == "table"
+                    and finiteNumber(bounds.x1) and finiteNumber(bounds.x2)
+                    and finiteNumber(bounds.y1) and finiteNumber(bounds.y2)
+                    and position.x >= bounds.x1 and position.x <= bounds.x2
+                    and position.y >= bounds.y1 and position.y <= bounds.y2
+            end
+            local seenPets = { [spawnPositionKey(story.site.spawn)] = true }
+            for index = 1, count do
+                local position = story.site.petSpawns[index]
+                local positionPath = path .. ".oddball.site.petSpawns["
+                    .. tostring(index) .. "]"
+                siteOkay, siteReason = validPosition(position, positionPath, false)
+                if not siteOkay then return false, siteReason end
+                local key = spawnPositionKey(position)
+                if seenPets[key] or not inHouse(position)
+                    or (position.z or 0) ~= (story.site.spawn.z or 0) then
+                    return restoreFailure(positionPath,
+                        "pet post outside bedroom floor or duplicated")
+                end
+                seenPets[key] = true
+            end
+            local toys, toyCount = denseArray(story.site.toySpawns,
+                path .. ".oddball.site.toySpawns", 3, 32)
+            if not toys then return false, toyCount end
+            local seenToys = {}
+            for index = 1, toyCount do
+                local position = story.site.toySpawns[index]
+                local positionPath = path .. ".oddball.site.toySpawns["
+                    .. tostring(index) .. "]"
+                siteOkay, siteReason = validPosition(position, positionPath, false)
+                if not siteOkay then return false, siteReason end
+                local key = spawnPositionKey(position)
+                if seenToys[key] or not inHouse(position)
+                    or (position.z or 0) ~= (story.site.spawn.z or 0) then
+                    return restoreFailure(positionPath,
+                        "toy post outside bedroom floor or duplicated")
+                end
+                seenToys[key] = true
+            end
+        elseif story.site.petSpawns ~= nil then
+            return restoreFailure(path .. ".oddball.site.petSpawns",
+                "pet posts outside Milli encounter")
+        elseif story.site.toySpawns ~= nil then
+            return restoreFailure(path .. ".oddball.site.toySpawns",
+                "toy posts outside Milli encounter")
+        end
         if story.id == "ranger_june_whitlock"
             and story.site.animalSpawns == nil then
             return restoreFailure(path .. ".oddball.site.animalSpawns",
@@ -3673,13 +3802,16 @@ local function validGroup(source, id, path)
             local validSlots, slotCount = denseArray(story.animals.slots,
                 path .. ".oddball.animals.slots", 0, 10)
             if not validSlots then return false, slotCount end
-            local seenIds = {}
             for index = 1, slotCount do
                 local animal = story.animals.slots[index]
                 local animalPath = path .. ".oddball.animals.slots["
                     .. tostring(index) .. "]"
                 if type(animal) ~= "table" or not finiteNumber(animal.id)
                     or animal.id < 0 or animal.id ~= math.floor(animal.id)
+                    or (animal.onlineId ~= nil and (not finiteNumber(animal.onlineId)
+                        or animal.onlineId < -32768 or animal.onlineId > 32767
+                        or animal.onlineId == -1
+                        or animal.onlineId ~= math.floor(animal.onlineId)))
                     or type(animal.name) ~= "string" or #animal.name > 80
                     or type(animal.kind) ~= "string"
                     or type(animal.breed) ~= "string"
@@ -3689,11 +3821,6 @@ local function validGroup(source, id, path)
                 siteOkay, siteReason = validPosition(animal,
                     animalPath, false)
                 if not siteOkay then return false, siteReason end
-                if seenIds[animal.id] then
-                    return restoreFailure(animalPath .. ".id",
-                        "duplicate native animal ID")
-                end
-                seenIds[animal.id] = true
             end
         end
         if story.captives == true then
