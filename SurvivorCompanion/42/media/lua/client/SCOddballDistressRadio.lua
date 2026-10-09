@@ -45,14 +45,19 @@ local function equippedRadio(actor, transmit)
         or call(radio, "getContainer") ~= inventory then return nil end
     if not U().instanceOf(radio, "Radio") then return nil end
     local data = call(radio, "getDeviceData")
-    if not data or call(data, "getIsTwoWay") ~= true
+    -- ZomboidRadio.DistributeToPlayer hands a call to any portable radio that
+    -- is on, tuned and audible; only answering needs a two-way set.
+    if not data or call(data, "getIsPortable") ~= true
         or call(data, "getIsTurnedOn") ~= true
         or call(data, "getHasBattery") ~= true
         or (number(call(data, "getPower")) or 0) <= 0
-        or not transmit and (number(call(data, "getDeviceVolume")) or 0) <= 0
-        or (number(call(data, "getTransmitRange")) or 0) <= 0
         or number(call(data, "getChannel")) ~= CHANNEL
-        or transmit and (call(data, "getMicIsMuted") == true
+        or not transmit and ((number(call(data, "getDeviceVolume")) or 0) <= 0
+            or call(data, "isPlayingMedia") == true
+            or call(data, "isNoTransmit") == true)
+        or transmit and (call(data, "getIsTwoWay") ~= true
+            or (number(call(data, "getTransmitRange")) or 0) <= 0
+            or call(data, "getMicIsMuted") == true
             or call(data, "isNoTransmit") == true) then
         return nil
     end
@@ -65,6 +70,19 @@ local function inRange(a, b, range)
     if not ax or not bx then return false end
     local dx, dy = ax - bx, ay - by
     return dx * dx + dy * dy <= range * range
+end
+
+-- The native delivery rule, so a call is only sent when it can arrive intact:
+-- whole-tile Euclidean distance above three tiles, and no farther than 90% of
+-- the sender's range, past which the text is scrambled and can never match.
+local function deliverable(source, listener, range)
+    local sx, sy = U().position(source)
+    local lx, ly = U().position(listener)
+    if not sx or not lx or not range or range <= 0 then return false end
+    local dx = math.floor(lx) - math.floor(sx)
+    local dy = math.floor(ly) - math.floor(sy)
+    local distance = math.floor(math.sqrt(dx * dx + dy * dy))
+    return distance > 3 and distance < range and distance <= range * 0.9
 end
 
 local function send(source, data, textValue, guid, code)
@@ -148,7 +166,7 @@ function Radio.pulse(group, player, current)
     local receiver = equippedRadio(player, false)
     local sender, data = equippedRadio(source, true)
     if not receiver or not sender
-        or not inRange(source, player,
+        or not deliverable(source, player,
             number(call(data, "getTransmitRange")) or 0) then
         return false, "radio_endpoints_unavailable"
     end

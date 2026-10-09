@@ -12,12 +12,14 @@ local annotations = {}
 local function data()
     return {
         on = true, channel = channel, power = 1, volume = 0.8,
-        getIsTwoWay = function() return true end,
+        twoWay = true, range = 100,
+        getIsPortable = function() return true end,
+        getIsTwoWay = function(self) return self.twoWay end,
         getIsTurnedOn = function(self) return self.on end,
         getHasBattery = function() return true end,
         getPower = function(self) return self.power end,
         getDeviceVolume = function(self) return self.volume end,
-        getTransmitRange = function() return 100 end,
+        getTransmitRange = function(self) return self.range end,
         getChannel = function(self) return self.channel end,
         getMicIsMuted = function() return false end,
         isNoTransmit = function() return false end,
@@ -138,6 +140,17 @@ player.device.volume = 0
 assert(Radio.pulse(group, player, 1500) == false and offered == 0,
     "silent receiver must not consume a distress offer")
 player.device.volume = 0.8
+-- The game skips a listener within three tiles of the sender and scrambles
+-- the text past 90% of the sender's range; neither can ever be heard intact.
+player.x = 117
+assert(Radio.pulse(group, player, 1600) == false and offered == 0,
+    "a listener within three tiles must not consume a distress offer")
+player.x = 29
+assert(Radio.pulse(group, player, 1700) == false and offered == 0,
+    "a listener past 90% of the range must not consume a distress offer")
+player.x = 100
+-- Listening needs only a powered portable radio on 90 MHz, as in the game.
+player.device.twoWay, player.device.range = false, 0
 delivered = false
 assert(Radio.pulse(group, player, 2000) == false
     and group.oddball.radioHeard ~= true,
@@ -157,9 +170,13 @@ assert(Radio.pulse(group, player, 8002) == false
     "a native callback for the wrong receiving device is ignored")
 queued(-1, -1, player.radio)
 assert(Radio.pulse(group, player, 8003) == true
-    and group.oddball.radioHeard == true
-    and #Radio.replyOptions(player) == 1,
-    "the delayed exact receiver hears the call and exposes one reply")
+    and group.oddball.radioHeard == true,
+    "the delayed exact receiver hears the call on a receive-only radio")
+assert(#Radio.replyOptions(player) == 0,
+    "a receive-only radio hears the call but cannot offer a reply")
+player.device.twoWay, player.device.range = true, 100
+assert(#Radio.replyOptions(player) == 1,
+    "a two-way radio offers exactly one reply")
 deferred = false
 queued = nil
 player.device.on = false
