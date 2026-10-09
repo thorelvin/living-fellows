@@ -28,10 +28,13 @@ assert(Guard.onZombieUpdate(zombie) == false and zombie.thumpReads == 0,
     "idle zombie updates do not read thump target")
 
 assert(Guard.install() == true and Guard.isInstalled())
-assert(Guard.install() == true and #Events.OnZombieUpdate.callbacks == 1,
-    "install must be idempotent")
+assert(Guard.install() == true and #Events.OnZombieUpdate.callbacks == 0
+    and not Guard.isAttached(),
+    "install must be idempotent and leave zombie updates alone while no room is guarded")
 assert(Guard.register(group, far, 0) == true, "resident room registration")
-assert(Guard.register(group, far, 0) == true, "register must be idempotent")
+assert(Guard.register(group, far, 0) == true
+    and #Events.OnZombieUpdate.callbacks == 1 and Guard.isAttached(),
+    "register must be idempotent and attach the zombie hook once")
 
 for _, opening in ipairs({ northDoor, westDoor, westWindow,
     northThumpWindow, westThumpWindow }) do
@@ -72,6 +75,8 @@ local readsAfterOverlap = zombie.thumpReads
 assert(Guard.onZombieUpdate(zombie) == false
     and zombie.thumpReads == readsAfterOverlap,
     "last owner removal clears zombie hot path")
+assert(#Events.OnZombieUpdate.callbacks == 0 and not Guard.isAttached(),
+    "last owner removal detaches the zombie hook")
 
 Guard.reset()
 local timed = F.group("timed", { x = 10, y = 10, z = 0 })
@@ -320,7 +325,35 @@ assert(Guard.pulse(upperMilli, directlyBelow, 1000) == true,
 assert(Guard.pulse(upperMilli, inUpperRoom, 2000) == false,
     "player on upstairs room floor releases its guard")
 
-assert(Guard.remove() == true and not Guard.isInstalled()
+-- A failed attach leaves the scene registered and is retried by the next
+-- rescan rather than every pulse.
+Guard.reset()
+local retryRoom = {}
+local retrySquare = F.square(11, 9, 2, retryRoom)
+F.square(11, 8, 2, nil)
+retrySquare.objects = { F.opening("IsoDoor", retrySquare, true, "door") }
+local retried = F.group("retried", { x = 11, y = 9, z = 2 })
+local addZombieHook = Events.OnZombieUpdate.Add
+Events.OnZombieUpdate.Add = function() error("event list busy") end
+assert(Guard.register(retried, far, 0) == true and not Guard.isAttached()
     and #Events.OnZombieUpdate.callbacks == 0,
+    "a failed attach keeps the scene registered without a hook")
+Events.OnZombieUpdate.Add = addZombieHook
+assert(Guard.pulse(retried, far, 1000) == true and not Guard.isAttached(),
+    "the attach is not retried on every pulse")
+assert(Guard.pulse(retried, far, 30000) == true and Guard.isAttached()
+    and #Events.OnZombieUpdate.callbacks == 1,
+    "the next rescan attaches the zombie hook")
+
+assert(Guard.remove() == true and not Guard.isInstalled()
+    and not Guard.isAttached() and #Events.OnZombieUpdate.callbacks == 0,
     "remove detaches the native event")
+assert(Guard.register(F.group("after-remove", { x = 11, y = 9, z = 2 }), far, 40000)
+    == true and #Events.OnZombieUpdate.callbacks == 0,
+    "a scene registered after teardown never attaches the hook")
+assert(Guard.install() == true and Guard.isAttached()
+    and #Events.OnZombieUpdate.callbacks == 1,
+    "reinstalling with a guarded scene attaches the hook")
+assert(Guard.remove() == true and #Events.OnZombieUpdate.callbacks == 0,
+    "second teardown detaches again")
 SC_TEST_REPORT = "Oddball room guard oriented boundary and active-play regression PASS"

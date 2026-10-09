@@ -21,7 +21,11 @@ local targetCount = 0
 local retryAfter = {}
 local reportedEmpty = {}
 local knownStories = {}
+-- installed is the bootstrap's ownership of this hook. The native callback is
+-- only attached while an opening is guarded: OnZombieUpdate calls into Lua
+-- once per zombie per update, and almost every session has no guarded room.
 local installed = false
+local attached = false
 
 local function U() return SC.GameplayUtil end
 
@@ -147,6 +151,25 @@ local function openingNorth(object)
     return nil
 end
 
+local function zombieEvent()
+    local events = type(Events) == "table" and Events.OnZombieUpdate or nil
+    if type(events) ~= "table" or type(events.Add) ~= "function"
+        or type(events.Remove) ~= "function" then return nil end
+    return events
+end
+
+local function syncHook()
+    local wanted = installed and targetCount > 0
+    if wanted == attached then return true end
+    local events = zombieEvent()
+    if events == nil then return false, "zombie_event_unavailable" end
+    local ok, reason = pcall(wanted and events.Add or events.Remove,
+        Guard.onZombieUpdate)
+    if not ok then return false, tostring(reason) end
+    attached = wanted
+    return true
+end
+
 local function relinquish(object)
     local owners = targetOwners[object]
     if owners == nil then return end
@@ -223,6 +246,8 @@ local function refresh(guard)
     end
     guard.objects = found
     guard.tiles = tiles
+    -- A failed attach is retried on the next rescan, not every pulse.
+    syncHook()
 end
 
 local function openingBreached(guard)
@@ -484,6 +509,7 @@ function Guard.abort(groupId)
         active[groupId] = nil
     end
     retryAfter[groupId] = nil
+    syncHook()
     return true, guard and "aborted" or "not_registered"
 end
 
@@ -507,6 +533,7 @@ function Guard.reset()
     active, finished, targetOwners, retryAfter, reportedEmpty, knownStories =
         {}, {}, {}, {}, {}, {}
     targetCount = 0
+    syncHook()
     return true
 end
 
@@ -521,31 +548,34 @@ end
 
 function Guard.install()
     if installed then return true, "already_installed" end
-    if type(Events) ~= "table" or type(Events.OnZombieUpdate) ~= "table"
-        or type(Events.OnZombieUpdate.Add) ~= "function"
-        or type(Events.OnZombieUpdate.Remove) ~= "function" then
-        return false, "zombie_event_unavailable"
-    end
-    local ok, reason = pcall(Events.OnZombieUpdate.Add, Guard.onZombieUpdate)
-    if not ok then return false, tostring(reason) end
+    if zombieEvent() == nil then return false, "zombie_event_unavailable" end
     installed = true
+    local ok, reason = syncHook()
+    if not ok then
+        installed = false
+        return false, reason
+    end
     return true, "installed"
 end
 
 function Guard.remove()
-    if not installed then
+    if not installed and not attached then
         Guard.reset()
         return true, "not_installed"
     end
-    if type(Events) ~= "table" or type(Events.OnZombieUpdate) ~= "table"
-        or type(Events.OnZombieUpdate.Remove) ~= "function" then
-        return false, "zombie_event_unavailable"
-    end
-    local ok, reason = pcall(Events.OnZombieUpdate.Remove, Guard.onZombieUpdate)
-    if not ok then return false, tostring(reason) end
+    local wasInstalled = installed
     installed = false
+    local ok, reason = syncHook()
+    if not ok then
+        installed = wasInstalled
+        return false, reason
+    end
     Guard.reset()
     return true, "removed"
+end
+
+function Guard.isAttached()
+    return attached
 end
 
 function Guard.isInstalled()
