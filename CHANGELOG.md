@@ -8,6 +8,13 @@
 - Shops react to real item transfers and paid trades. The party uses real barricade jobs and door-slot barter. Named animals retain native IDs through saves and are never silently cloned after unloading.
 - June's rabbit quiz uses the animal nearest the player. Juniper's escape uses native animal pathing and is only reported after she actually travels away; finding her earns trust.
 - Added focused Kahlua behavior checks for all six encounters and readable status labels for earlier Strange Folk actions.
+- New camps start with a 25 by 25 camp area instead of 15 by 15. A camp that still has the older 13 by 13 or 15 by 15 default area grows to 25 by 25 when the save loads; a camp area you drew yourself keeps its size.
+- Zombies now really ignore the Gut-Cloaked Man while his cloak lasts and Window Spiffo while he poses. Build 42 quietly refuses the game setting they used for any character without a cheat role, so zombies could still attack them. The native bridge now owns that flag, and the mod only trusts it after reading it back from the game.
+- The native bridge protocol is now `42.21-isocompanion-14`, because the bridge gained that flag. Update the Lua payload and the bridge together; an older bridge is reported as stale.
+- The encounter room guard listens to zombie updates only while it protects a room. It used to be called for every zombie on every update for the whole session.
+- Generated companions no longer get the surnames Wilson, Sutton or Vickers, which belong to Strange Folk characters. A source check now fails if a Strange Folk surname can be generated.
+- Elmer's clean story line belongs to the line it replaces instead of its position in the story, so reordering his lines cannot swap the wrong one.
+- Twenty-five Strange Folk encounter suites, the strike barrier regression and the grave marker harness were written but never run by the project gate. They all pass and now run in it, alongside a new Elmer story check. A source check fails when any harness is not reached from the gate.
 
 ## 0.26.34 - Companions left in a parked car
 
