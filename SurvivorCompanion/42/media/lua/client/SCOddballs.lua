@@ -2518,6 +2518,26 @@ function Oddballs.groupForActor(actor)
     return group and type(group.oddball) == "table" and group or nil
 end
 
+-- Build 42 forces IsoGameCharacter.setZombiesDontAttack off for any character
+-- without a cheat capability, and a companion never has one: the call
+-- "succeeds" and changes nothing. The native bridge owns a private, temporary
+-- flag for scripted companions instead. Read it back, so a missing or stale
+-- bridge is never mistaken for a working shelter.
+function Oddballs.setZombieShelter(actor, enabled)
+    if actor == nil then return false, "actor_missing" end
+    enabled = enabled == true
+    local bridge = type(_G) == "table" and rawget(_G, "SCBridge") or nil
+    if bridge == nil or not SC.Call or type(SC.Call.static) ~= "function" then
+        return false, "bridge_unavailable"
+    end
+    local called, accepted = SC.Call.static(bridge, "setStoryZombieIgnored",
+        actor, enabled)
+    if not called or accepted ~= true then return false, "bridge_refused" end
+    local observed, observedOk = U().call(actor, "isZombiesDontAttack")
+    if not observedOk or observed ~= enabled then return false, "shelter_not_applied" end
+    return true
+end
+
 function Oddballs.isZombieIgnored(actor)
     local group = Oddballs.groupForActor(actor)
     if not group then return false end

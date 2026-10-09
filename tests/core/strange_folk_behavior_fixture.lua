@@ -168,6 +168,15 @@ SC.ZombieAttack = { reset = function() return true end }
 SC.Oddballs = {
     state = function(group) return group.oddball end,
     actorGroups = {},
+    -- Mirrors SC.Oddballs.setZombieShelter: the bridge owns the flag and the
+    -- native getter is read back. The real helper is covered by the
+    -- oddball foundation harness.
+    setZombieShelter = function(actor, enabled)
+        if not SCBridge.setStoryZombieIgnored(actor, enabled == true) then
+            return false
+        end
+        return actor:isZombiesDontAttack() == (enabled == true)
+    end,
     isZombieIgnored = function(actor)
         local group = SC.Oddballs.actorGroups[actor]
         if not group then return false end
@@ -177,6 +186,13 @@ SC.Oddballs = {
     end,
 }
 
+SCBridge = { refuse = false }
+function SCBridge.setStoryZombieIgnored(actor, enabled)
+    if SCBridge.refuse then return false end
+    actor.immunity = enabled == true
+    return true
+end
+
 function SC_TEST_ACTOR(x, y)
     local actor = { x = x, y = y, z = 0, immunity = false,
         variables = {}, events = {},
@@ -185,7 +201,12 @@ function SC_TEST_ACTOR(x, y)
     function actor:setVariable(name, value) self.variables[name] = value end
     function actor:clearVariable(name) self.variables[name] = nil end
     function actor:reportEvent(name) self.events[#self.events + 1] = name end
-    function actor:setZombiesDontAttack(value) self.immunity = value end
+    -- Build 42 forces the vanilla flag off for a character without the
+    -- zombie-don't-attack cheat capability, and a companion never has it.
+    function actor:setZombiesDontAttack() self.vanillaImmunity = false end
+    function actor:isZombiesDontAttack()
+        return self.immunity == true or self.vanillaImmunity == true
+    end
     function actor:isRunning() return false end
     function actor:isSprinting() return false end
     function actor:isAttackStarted() return false end

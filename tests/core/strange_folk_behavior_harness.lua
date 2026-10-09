@@ -64,6 +64,10 @@ SC.OddballRed.onSpawn(redGroup, red)
 assert(#red.inventory == 1 and red.inventory[1].fullType == "Base.HandScythe",
     "save/load must not replace Red's food after he consumes or trades it")
 assert(red.immunity == true, "Red must set native attack immunity")
+red.immunity = false
+SC.OddballRed.onSpawn(redGroup, red)
+assert(red.immunity == true,
+    "Red must re-apply attack immunity when the native flag drifted off")
 
 local zombie = { zombie = true, x = 11, y = 10, z = 0, target = red }
 function zombie:getTarget() return self.target end
@@ -82,6 +86,11 @@ SC.OddballRed.pulse(redGroup, player, C.ms)
 assert(redGroup.oddball.cloak.remainingHours == 14,
     "outdoor rain must cost four cloak hours per hour")
 redGroup.oddball.cloak.remainingHours = 0
+SCBridge.refuse = true
+SC.OddballRed.pulse(redGroup, player, C.ms)
+assert(red.immunity == true,
+    "a refused bridge call must leave the native flag as it was")
+SCBridge.refuse = false
 SC.OddballRed.pulse(redGroup, player, C.ms)
 assert(red.immunity == false, "faded cloak must clear native immunity")
 zombie.visible = { ["10:10"] = true }

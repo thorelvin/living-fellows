@@ -249,6 +249,40 @@ local ignored, ignoreReason = SC.Oddballs.isZombieIgnored(actor)
 check(ignored and ignoreReason == "actor_gore_cloaked",
     "zombie targeting preserves the authored ignore reason")
 
+do
+    -- The vanilla setter is a no-op for companions, so the shelter belongs
+    -- to the bridge and only counts once the native getter agrees.
+    local oldBridge = rawget(_G, "SCBridge")
+    local sheltered = { flag = false }
+    function sheltered:setZombiesDontAttack() self.vanillaFlag = false end
+    function sheltered:isZombiesDontAttack() return self.flag end
+    SCBridge = nil
+    local applied, why = SC.Oddballs.setZombieShelter(sheltered, true)
+    check(applied == false and why == "bridge_unavailable"
+        and sheltered.flag == false,
+        "zombie shelter fails closed without the native bridge: " .. tostring(why))
+    SCBridge = { setStoryZombieIgnored = function(target, enabled)
+        target.flag = enabled
+        return true
+    end }
+    applied, why = SC.Oddballs.setZombieShelter(sheltered, true)
+    check(applied == true and sheltered.flag == true,
+        "zombie shelter applies through the bridge: " .. tostring(why))
+    applied, why = SC.Oddballs.setZombieShelter(sheltered, false)
+    check(applied == true and sheltered.flag == false,
+        "zombie shelter clears through the bridge: " .. tostring(why))
+    SCBridge.setStoryZombieIgnored = function() return false end
+    applied, why = SC.Oddballs.setZombieShelter(sheltered, true)
+    check(applied == false and why == "bridge_refused",
+        "a refused zombie shelter is reported: " .. tostring(why))
+    SCBridge.setStoryZombieIgnored = function() return true end
+    applied, why = SC.Oddballs.setZombieShelter(sheltered, true)
+    check(applied == false and why == "shelter_not_applied",
+        "an accepted shelter the native getter denies is not trusted: "
+            .. tostring(why))
+    SCBridge = oldBridge
+end
+
 local asked, askReason = SC.FactionRecruitment.ask(group, player)
 check(asked == true, "lone oddball can be asked: " .. tostring(askReason))
 local started, startReason = SC.FactionRecruitment.startTrial(group, player)

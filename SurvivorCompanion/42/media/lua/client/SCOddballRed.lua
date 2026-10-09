@@ -117,11 +117,13 @@ local function syncImmunity(group, actor)
     if not actor then return end
     local enabled = active(group)
     local last = immunityByActor[actor]
-    if last == enabled then return end
-    local _, set = U().call(actor, "setZombiesDontAttack", enabled)
-    if not set then return end
+    local nativeFlag, readable = U().call(actor, "isZombiesDontAttack")
+    -- Re-apply when the native flag drifted (a reload or a bridge reset), not
+    -- only when the story state changed.
+    if last == enabled and readable and nativeFlag == enabled then return end
+    if not SC.Oddballs.setZombieShelter(actor, enabled) then return end
     immunityByActor[actor] = enabled
-    if enabled then
+    if enabled and (last ~= true or nativeFlag ~= true) then
         local snapshot = SC.Senses and type(SC.Senses.cached) == "function"
             and SC.Senses.cached(actor) or nil
         if snapshot and SC.ZombieTargeting
