@@ -280,7 +280,7 @@ local strangeFolkPairs = {
     "Merle:Lusby", "Hollis:Burkett", "Jedediah:Cole",
     "June:Whitlock", "Tommy:Beaumont", "Gordon:Pettibone",
     "Morton:Feeney", "Mien:Ward", "Grinder:Berg",
-    "Silas:Reed", "Eli:Rourke", "Nate:Duvall",
+    "Walt:Reed", "Eli:Rourke", "Nate:Duvall",
 }
 local reservedSurnames = {
     Cole = true, Mercer = true, Ward = true, Crane = true,

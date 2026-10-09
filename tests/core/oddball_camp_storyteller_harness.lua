@@ -38,7 +38,7 @@ check(F.fireBuilt == 1,
 
 Camp.pulse(F.group, F.player, F.now)
 check(F.group.discovered == true and #F.lines == 1,
-    "Silas invites the nearby player to tell a story")
+    "Walt invites the nearby player to tell a story")
 local options = Camp.menuOptions(F.group, F.player)
 check(#options >= 5 and options[3].id == "tell_home_story",
     "the menu offers a choice of story")
@@ -62,7 +62,7 @@ check(F.group.oddball.stage == "story_heard"
 check(F.reputation == 65 and F.group.standing == "Trusted",
     "he trusts the player after hearing the story")
 check(Camp.canRecruit(F.group) == true,
-    "Silas becomes recruitable after the story")
+    "Walt becomes recruitable after the story")
 check(Camp.action(F.group, "recruit", F.player) == true
     and F.trial,
     "invitation uses the standard faction trial")
@@ -96,6 +96,8 @@ F.client = false
 local Server = SCStoryCampfireServer
 check(F.serverCommandHandler == Server.onClientCommand,
     "server command handler is registered")
+check(Server.register() == true and #F.serverHandlers == 1,
+    "registering the server handler again keeps exactly one")
 F.serverCommandHandler(command.module, command.command,
     command.player, command.args)
 check(F.fireBuilt == 2 and F.fires["0:0"].lit,

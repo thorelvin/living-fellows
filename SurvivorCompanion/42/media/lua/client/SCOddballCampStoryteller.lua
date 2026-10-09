@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
--- Silas Reed keeps a real campfire in a forest clearing. A story told by the
+-- Walt Reed keeps a real campfire in a forest clearing. A story told by the
 -- player plays out over several beats; progress is scalar and survives saves.
 
 local SC = SurvivorCompanion
@@ -348,13 +348,13 @@ function Camp.menuOptions(group, player)
     end
     if value.storyTold then
         options[#options + 1] = { id = "recruit",
-            label = "Invite Silas to travel with you",
+            label = "Invite Walt to travel with you",
             enabled = Camp.canRecruit(group) == true }
         local recruitment = SC.FactionRecruitment
             and SC.FactionRecruitment.summary(group.id) or nil
         if recruitment and recruitment.status == "trial" then
             options[#options + 1] = { id = "recruitment_decide",
-                label = "Ask Silas for his answer",
+                label = "Ask Walt for his answer",
                 enabled = recruitment.canDecide == true }
         end
     end

@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
--- Server authority for Silas Reed's campfire. The client only requests a
+-- Server authority for Walt Reed's campfire. The client only requests a
 -- placement; vanilla SCampfireSystem owns the real persistent world object.
 
 if type(isClient) == "function" and isClient() == true then return end
@@ -143,9 +143,20 @@ function Server.onClientCommand(module, command, player, args)
     Server.place(player, args)
 end
 
-if Events and Events.OnClientCommand
-    and type(Events.OnClientCommand.Add) == "function" then
-    Events.OnClientCommand.Add(Server.onClientCommand)
+-- Server Lua sits outside the client bootstrap, which cannot require it, so
+-- this registers itself the way vanilla server systems do. Replace any earlier
+-- handler so loading the file again never leaves two placing campfires.
+function Server.register()
+    local event = Events and Events.OnClientCommand
+    if not event or type(event.Add) ~= "function" then return false end
+    if Server.registeredHandler and type(event.Remove) == "function" then
+        pcall(event.Remove, Server.registeredHandler)
+    end
+    event.Add(Server.onClientCommand)
+    Server.registeredHandler = Server.onClientCommand
+    return true
 end
+
+Server.register()
 
 return Server

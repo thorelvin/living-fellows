@@ -7,9 +7,20 @@ CampFixture = { now = 1000, lines = {}, fires = {}, reputation = 0,
     trial = false, players = {}, client = false, commands = {}, stores = {} }
 local F = CampFixture
 function isClient() return F.client end
-Events = { OnClientCommand = { Add = function(callback)
-    F.serverCommandHandler = callback
-end } }
+F.serverHandlers = {}
+Events = { OnClientCommand = {
+    Add = function(callback)
+        F.serverHandlers[#F.serverHandlers + 1] = callback
+        F.serverCommandHandler = callback
+    end,
+    Remove = function(callback)
+        for index = #F.serverHandlers, 1, -1 do
+            if F.serverHandlers[index] == callback then
+                table.remove(F.serverHandlers, index)
+            end
+        end
+    end,
+} }
 ModData = { getOrCreate = function(key)
     F.stores[key] = F.stores[key] or {}
     return F.stores[key]
