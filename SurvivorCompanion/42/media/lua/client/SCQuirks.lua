@@ -862,7 +862,27 @@ local function finishEpisode(actor, state, episode, completed, reason)
     end
     clearVisual(actor)
     episodes[actor] = nil
-    if completed then completeRitual(actor, state, episode.ritual, episode.objectKey) end
+    if completed then
+        completeRitual(actor, state, episode.ritual, episode.objectKey)
+        if (episode.id == "spiffo_salute" or episode.id == "mannequin_apology")
+            and SC.Oddballs and type(SC.Oddballs.storyAction) == "function"
+            and SC.Factions and type(SC.Factions.list) == "function" then
+            for _, group in ipairs(SC.Factions.list(false) or {}) do
+                if group.oddball and group.oddball.id == "window_spiffo_kevin"
+                    and group.oddball.revealed ~= true then
+                    local member = group.members and group.members[1]
+                    local record = member and member.actorId and SC.Registry
+                        and SC.Registry.byId(member.actorId) or nil
+                    local kevin = record and record.actor
+                    if kevin and U().distance(actor, kevin) <= 8
+                        and U().sameFloor(actor, kevin) and U().canSee(actor, kevin) then
+                        pcall(SC.Oddballs.storyAction, group.id, "quirk", actor)
+                        break
+                    end
+                end
+            end
+        end
+    end
     return completed == true, reason
 end
 

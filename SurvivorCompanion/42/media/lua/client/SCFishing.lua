@@ -688,6 +688,15 @@ local function finishCatch(actor, state)
         item:getModData()[CAMP_CATCH_TAG] = true
         catches[#catches + 1] = item
     end
+    if state.mode == "camp" and not state.isTrash and SC.NicknameLife
+        and type(SC.NicknameLife.noteEvent) == "function" then
+        local fishData = item:getModData()
+        pcall(SC.NicknameLife.noteEvent, actor, "fish", {
+            size = type(fishData) == "table" and tonumber(fishData.fishing_FishSize)
+                or tonumber((U().call(item, "getActualWeight"))),
+            item = item,
+        })
+    end
     speak(actor, state.isTrash and "fishing.trash" or "fishing.catch", 55, 8000)
     return true, "fish_caught"
 end

@@ -146,9 +146,16 @@ local function normalizeGrief(source)
     local startedAt = math.max(0, math.floor(finite(source.startedAt, now())))
     local acuteUntil = math.max(startedAt, math.floor(finite(source.acuteUntil,
         startedAt + hours(24))))
+    local subjectName = clean(source.subjectName, "Survivor", 80)
+    local firstName = subjectName:match("^(%S+)") or subjectName
     return {
         subjectId = subjectId,
-        subjectName = clean(source.subjectName, "Survivor", 80),
+        subjectName = subjectName,
+        subjectDisplayName = clean(source.subjectDisplayName, subjectName, 100),
+        -- Old saves have neither field. Keep the historical spoken name for
+        -- this survivor, rather than re-evaluating a dead person's nickname.
+        subjectCallName = clean(source.subjectCallName, firstName, 80),
+        subjectNicknameUsed = source.subjectNicknameUsed == true,
         startedAt = startedAt,
         acuteUntil = acuteUntil,
         recoveryAt = math.max(acuteUntil, math.floor(finite(source.recoveryAt,
@@ -299,6 +306,31 @@ local function deathName(record)
     return "Survivor"
 end
 
+local function deathDisplayName(record, fallback)
+    if SC.Names and type(SC.Names.displayName) == "function" then
+        local ok, value = pcall(SC.Names.displayName, record, true)
+        if ok and type(value) == "string" and value ~= "" then
+            return clean(value, fallback, 100)
+        end
+    end
+    return fallback
+end
+
+local function deathCallName(survivor, deceased, fallback)
+    local firstName = fallback:match("^(%S+)") or fallback
+    if not SC.Names or type(SC.Names.callName) ~= "function" then
+        return firstName, false
+    end
+    local ok, called = pcall(SC.Names.callName, survivor, deceased, { about = true })
+    if not ok or type(called) ~= "string" or called == "" then
+        return firstName, false
+    end
+    local nickname = type(SC.Names.normalizeRecord) == "function"
+        and SC.Names.normalizeRecord(deceased.nickname) or nil
+    return clean(called, firstName, 80),
+        nickname ~= nil and called == nickname.text
+end
+
 local function deathGender(record)
     local identity = type(record) == "table" and type(record.identity) == "table"
         and record.identity or nil
@@ -349,6 +381,7 @@ function Community.activeGrief(actorOrId)
     end
     if not selected or selectedScore <= 0 then return nil end
     local result = stableCopy(selected, 3, { count = 32 }) or {}
+    result.subjectDisplayName = result.subjectDisplayName or result.subjectName
     result.currentIntensity = math.floor(selectedScore + 0.5)
     result.stage = current <= finite(selected.acuteUntil, current) and "acute" or "recovering"
     return result
@@ -369,6 +402,7 @@ function Community.deathMatching(name)
     end
     if foundId == nil then return nil end
     return foundId, { subjectId = foundId, subjectName = foundRow.subjectName,
+        subjectDisplayName = foundRow.subjectDisplayName or foundRow.subjectName,
         subjectGender = foundRow.subjectGender, startedAt = foundRow.startedAt }
 end
 
@@ -398,8 +432,10 @@ function Community.noteCompanionDeath(record)
 
     local current = now()
     local name = deathName(record)
+    local displayName = deathDisplayName(record, name)
     local gender = deathGender(record)
     rememberDeath({ subjectId = record.id, subjectName = name,
+        subjectDisplayName = displayName,
         subjectGender = gender, startedAt = current })
     local affected = 0
     -- The registry also contains neutral encounters and loaded faction actors.
@@ -426,8 +462,12 @@ function Community.noteCompanionDeath(record)
             local acuteHours = acuteMin + (acuteMax - acuteMin) * intensity / 100
             local recoveryDays = recoveryMin + (recoveryMax - recoveryMin) * intensity / 100
             local mind = Community.mindFor(actor, state)
+            local callName, nicknameUsed = deathCallName(actor, record, name)
             local grief = {
                 subjectId = record.id, subjectName = name, subjectGender = gender,
+                subjectDisplayName = displayName,
+                subjectCallName = callName,
+                subjectNicknameUsed = nicknameUsed,
                 startedAt = current,
                 acuteUntil = current + hours(acuteHours),
                 recoveryAt = current + hours(recoveryDays * 24),
@@ -449,7 +489,7 @@ function Community.noteCompanionDeath(record)
             while #mind.grief > (U().config("griefMemoryLimit") or 8) do table.remove(mind.grief) end
             Community.addThought(actor, {
                 key = "grief:" .. record.id, kind = "companion_died",
-                text = name .. " died. I am still trying to take that in.",
+                text = displayName .. " died. I am still trying to take that in.",
                 stress = math.floor(10 + intensity * 0.28),
                 morale = -math.floor(8 + intensity * 0.3),
                 at = current, expiresAt = grief.acuteUntil,
@@ -475,9 +515,10 @@ function Community.noteCompanionDeath(record)
     end
     history({ id = "death:" .. record.id .. ":" .. tostring(current),
         kind = "companion_died", at = current, sourceId = record.id,
-        subjectName = name, subjectGender = gender, affected = affected })
+        subjectName = name, subjectDisplayName = displayName,
+        subjectGender = gender, affected = affected })
     return true, { affected = affected, subjectId = record.id,
-        subjectName = name, subjectGender = gender }
+        subjectName = name, subjectDisplayName = displayName, subjectGender = gender }
 end
 
 local function upsertCondition(actor, key, amount, morale, textValue, current)
@@ -496,6 +537,7 @@ local function refreshGrief(actor, mind, current)
     for _, grief in ipairs(mind.grief or {}) do
         local intensity = Community.griefIntensity(grief, current)
         local key = "grief:" .. tostring(grief.subjectId)
+        local subject = grief.subjectDisplayName or grief.subjectName
         if intensity <= 0 then
             if finite(grief.resolvedAt, 0) <= 0 then grief.resolvedAt = current end
             grief.reactionPending = false
@@ -504,8 +546,8 @@ local function refreshGrief(actor, mind, current)
             local acute = current <= finite(grief.acuteUntil, current)
             Community.addThought(actor, {
                 key = key, kind = "companion_died",
-                text = acute and (tostring(grief.subjectName) .. " is dead. It still does not feel real.")
-                    or ("I still miss " .. tostring(grief.subjectName) .. "."),
+                text = acute and (tostring(subject) .. " is dead. It still does not feel real.")
+                    or ("I still miss " .. tostring(subject) .. "."),
                 stress = math.floor((acute and 7 or 2) + intensity * (acute and 0.26 or 0.1)),
                 morale = -math.floor((acute and 6 or 2) + intensity * (acute and 0.28 or 0.12)),
                 at = grief.startedAt, expiresAt = current + minutes(
@@ -993,6 +1035,8 @@ local function normalize(source)
         else
             death.subjectId = id
             death.subjectName = clean(death.subjectName, "Survivor", 80)
+            death.subjectDisplayName = clean(death.subjectDisplayName,
+                death.subjectName, 100)
             death.startedAt = math.max(0, finite(death.startedAt, 0))
             deathRows[#deathRows + 1] = { id = id, at = death.startedAt }
         end

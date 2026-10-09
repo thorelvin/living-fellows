@@ -2,6 +2,8 @@
 
 require "ISUI/ISContextMenu"
 require "ISUI/ISWorldObjectContextMenu"
+require "ISUI/ISInventoryPaneContextMenu"
+require "ISUI/ISTextBox"
 require "SCInteraction"
 require "SCConstructionPlanner"
 require "SCGameplayUtil"
@@ -13,6 +15,23 @@ local Context = SC.UIContext
 
 Context._installed = Context._installed or false
 Context.maximumShortcutDistance = 16
+
+-- Vanilla routes readable letters through this one entry point, including
+-- the multi-item Read action. Keep the original callback and restore it when
+-- UI hooks are removed so sealed post is detected without changing other
+-- literature or keeping a stale wrapper after returning to the main menu.
+function Context.readItemWithOddballMail(item, playerIndex)
+    if SC.OddballVirgil and type(SC.OddballVirgil.isSealedMail) == "function"
+        and SC.OddballVirgil.isSealedMail(item) == true
+        and type(SC.OddballVirgil.openMailFor) == "function" then
+        local player = type(getSpecificPlayer) == "function"
+            and getSpecificPlayer(playerIndex) or nil
+        SC.OddballVirgil.openMailFor(item, player)
+    end
+    if type(Context._originalReadItem) == "function" then
+        return Context._originalReadItem(item, playerIndex)
+    end
+end
 
 local function text(key, ...)
     if SC.UI and type(SC.UI.text) == "function" then
@@ -138,12 +157,118 @@ local function companionName(companionId)
     if SC.Registry and type(SC.Registry.byId) == "function" then
         local ok, record = pcall(SC.Registry.byId, companionId)
         if ok and type(record) == "table" and record.actor then
+            if SC.Names and type(SC.Names.displayName) == "function" then
+                local show = not SC.UI or type(SC.UI.getSettings) ~= "function"
+                    or SC.UI.getSettings().showNicknames ~= false
+                local named, display = pcall(SC.Names.displayName, record, show)
+                if named and type(display) == "string" and display ~= "" then
+                    return display
+                end
+            end
             local name = safeMethod(record.actor, "getFullName")
                 or safeMethod(record.actor, "getDisplayName")
             if name and name ~= "" then return name end
         end
     end
     return companionId
+end
+
+local function nicknameRecord(row)
+    if type(row) ~= "table" or type(row.id) ~= "string"
+        or not SC.Registry or type(SC.Registry.byId) ~= "function" then return nil end
+    local ok, record = pcall(SC.Registry.byId, row.id)
+    if not ok or type(record) ~= "table" or record.recruited ~= true
+        or record.actor == nil or row.actor ~= record.actor then return nil end
+    return record
+end
+
+function Context.nicknameValid(_target, candidate)
+    return SC.Names and type(SC.Names.normalize) == "function"
+        and type(SC.Names.normalize(candidate)) == "string"
+end
+
+local function acknowledgeNickname(record, nickname)
+    local actor = record and record.actor
+    if not actor then return end
+    local likes = type(record.nickname) == "table" and record.nickname.likes ~= false
+    local topic = likes and "nickname.player.accept" or "nickname.player.reject"
+    if SC.Dialogue and type(SC.Dialogue.has) == "function"
+        and SC.Dialogue.has(topic) == true and type(SC.Dialogue.say) == "function" then
+        local ok, spoken = pcall(SC.Dialogue.say, actor, topic, nil, { nickname },
+            { salt = tostring(record.id) .. ":" .. tostring(nickname) })
+        if ok and spoken == true then return end
+    end
+    safeMethod(actor, "Say", likes and (nickname .. "? Alright. I'll answer to it.")
+        or ("I'm not answering to " .. nickname .. ". Try again."))
+end
+
+function Context.onNicknameTextBox(_target, button, row, player)
+    if not button or button.internal ~= "OK" then return end
+    local record = nicknameRecord(row)
+    if not record or not SC.Names or type(SC.Names.setNickname) ~= "function" then return end
+    local input = button.parent and button.parent.entry
+        and button.parent.entry:getText() or nil
+    local nickname = type(SC.Names.normalize) == "function"
+        and SC.Names.normalize(input) or nil
+    if type(nickname) ~= "string" then
+        if player then safeMethod(player, "setHaloNote", text("UI_SC_Nickname_Invalid")) end
+        return
+    end
+    local ok, accepted = pcall(SC.Names.setNickname, record, nickname, "player", nil)
+    if not ok or accepted == false or accepted == nil then
+        if player then safeMethod(player, "setHaloNote", text("UI_SC_Nickname_Invalid")) end
+        return
+    end
+    acknowledgeNickname(record, nickname)
+    if SC.UIBridge and type(SC.UIBridge.invalidateNearbyInventoryLabels) == "function" then
+        SC.UIBridge.invalidateNearbyInventoryLabels()
+    end
+    if SC.UI and type(SC.UI.refresh) == "function" then SC.UI.refresh() end
+end
+
+local function giveNicknameFromContext(_target, row, player)
+    local record = nicknameRecord(row)
+    if not record or not SC.Names or type(SC.Names.normalize) ~= "function" then return end
+    local current = type(record.nickname) == "table" and record.nickname.text or ""
+    local playerNum = tonumber(safeMethod(player, "getPlayerNum")) or 0
+    local modal = ISTextBox:new(0, 0, 300, 170,
+        text("UI_SC_Nickname_Prompt"), current, nil,
+        Context.onNicknameTextBox, playerNum, row, player)
+    modal:initialise()
+    modal.maxChars = tonumber(SC.Config and SC.Config.get
+        and SC.Config.get("nicknameMaxLength")) or 16
+    modal.noEmpty = true
+    modal:setValidateFunction(nil, Context.nicknameValid)
+    modal:setValidateTooltipText(text("UI_SC_Nickname_Invalid"))
+    modal:addToUIManager()
+end
+
+local function clearNicknameFromContext(_target, row)
+    local record = nicknameRecord(row)
+    if not record or not SC.Names or type(SC.Names.clearNickname) ~= "function" then
+        return
+    end
+    local ok, cleared = pcall(SC.Names.clearNickname, record)
+    if not ok or cleared == false then return end
+    if SC.UIBridge and type(SC.UIBridge.invalidateNearbyInventoryLabels) == "function" then
+        SC.UIBridge.invalidateNearbyInventoryLabels()
+    end
+    if SC.UI and type(SC.UI.refresh) == "function" then SC.UI.refresh() end
+end
+
+local function addNicknameActions(menu, row, player)
+    if SC.Config and type(SC.Config.get) == "function"
+        and SC.Config.get("nicknamesEnabled") == false then return end
+    if not SC.Names or type(SC.Names.setNickname) ~= "function" then return end
+    local record = nicknameRecord(row)
+    if not record then return end
+    menu:addOption(text("UI_SC_Nickname_Give"), nil,
+        giveNicknameFromContext, row, player)
+    if type(record.nickname) == "table" and type(record.nickname.text) == "string"
+        and record.nickname.text ~= "" then
+        menu:addOption(text("UI_SC_Nickname_Clear"), nil,
+            clearNicknameFromContext, row)
+    end
 end
 
 local function issueFromContext(target, companionId, command, payload, player)
@@ -378,10 +503,129 @@ local function talkableFactions(player)
         return result
     end
     for _, group in ipairs(SC.Factions.list(true) or {}) do
-        local ok, ready = pcall(SC.FactionContracts.canTalk, group, player)
-        if ok and ready == true then result[#result + 1] = group end
+        if type(group.oddball) ~= "table" then
+            local ok, ready = pcall(SC.FactionContracts.canTalk, group, player)
+            if ok and ready == true then result[#result + 1] = group end
+        end
     end
     return result
+end
+
+local function talkableOddballs(player)
+    local result = {}
+    if not SC.Factions or type(SC.Factions.list) ~= "function"
+        or not SC.Registry or type(SC.Registry.byId) ~= "function" then
+        return result
+    end
+    for _, group in ipairs(SC.Factions.list(false) or {}) do
+        if type(group.oddball) == "table" and group.lifecycle ~= "destroyed" then
+            local added = false
+            for _, member in ipairs(group.members or {}) do
+                local record = type(member.actorId) == "string"
+                    and SC.Registry.byId(member.actorId) or nil
+                if record and record.actor and SC.GameplayUtil.distance(player, record.actor) <= 6
+                    and (not SC.GameplayUtil.canSee
+                        or SC.GameplayUtil.canSee(player, record.actor) == true) then
+                    result[#result + 1] = group
+                    added = true
+                    break
+                end
+            end
+            if not added and SC.OddballLester
+                and type(SC.OddballLester.canTalkThroughSlot) == "function"
+                and SC.OddballLester.canTalkThroughSlot(group, player) then
+                result[#result + 1] = group
+                added = true
+            end
+            if not added and SC.OddballGordon
+                and type(SC.OddballGordon.canTalkThroughSlot) == "function"
+                and SC.OddballGordon.canTalkThroughSlot(group, player) then
+                result[#result + 1] = group
+                added = true
+            end
+            if not added and SC.OddballWerewolf
+                and type(SC.OddballWerewolf.canTalkThroughDoor) == "function"
+                and SC.OddballWerewolf.canTalkThroughDoor(group, player) then
+                result[#result + 1] = group
+                added = true
+            end
+            if not added and SC.OddballLoretta
+                and type(SC.OddballLoretta.canTalkFromVehicle) == "function"
+                and SC.OddballLoretta.canTalkFromVehicle(group, player) then
+                result[#result + 1] = group
+            end
+        end
+    end
+    return result
+end
+
+local function oddballStoryAction(_target, groupId, action, player, payload)
+    local ok, accepted, detail = false, false, "story_unavailable"
+    if SC.Oddballs and type(SC.Oddballs.storyAction) == "function" then
+        ok, accepted, detail = pcall(SC.Oddballs.storyAction,
+            groupId, action, player, payload)
+    end
+    if player then
+        safeMethod(player, "setHaloNote", ok and accepted == true
+            and text("UI_SC_Oddball_ActionAccepted", tostring(detail or "Done"))
+            or text("UI_SC_Oddball_ActionFailed", tostring(ok and detail or accepted)))
+    end
+    if SC.UI and type(SC.UI.refresh) == "function" then SC.UI.refresh() end
+end
+
+local function addOddballConversations(context, groups, player)
+    for _, group in ipairs(groups or {}) do
+        local option = context:addOption(tostring(group.name or "Stranger"), nil, nil)
+        local menu = ISContextMenu:getNew(context)
+        context:addSubMenu(option, menu)
+        local stage = group.oddball and group.oddball.stage or "unmet"
+        addUnavailableOption(menu, text("UI_SC_Oddball_Progress", tostring(stage)))
+        local options = SC.Oddballs and type(SC.Oddballs.menuOptions) == "function"
+            and SC.Oddballs.menuOptions(group, player) or {}
+        if #options == 0 then
+            addUnavailableOption(menu, text("UI_SC_Oddball_NoAction"))
+        end
+        for _, row in ipairs(options) do
+            local label = tostring(row.label or row.id or "Speak")
+            local item
+            if row.enabled == false then
+                item = addUnavailableOption(menu, label)
+            elseif type(row.id) == "string" then
+                item = menu:addOption(label, nil, oddballStoryAction,
+                    group.id, row.id, player, row.payload)
+            end
+            local detail = row.detail or row.reason
+            if item and detail and type(ISToolTip) == "table" then
+                local tooltip = ISToolTip:new()
+                tooltip:initialise()
+                tooltip:setVisible(false)
+                tooltip.description = tostring(detail)
+                item.toolTip = tooltip
+            end
+        end
+    end
+end
+
+local function addRecruitedOddballAction(menu, row, player)
+    if not row or row.recruited ~= true or not SC.FactionRecruitment
+        or type(SC.FactionRecruitment.originForActor) ~= "function"
+        or not SC.Oddballs or type(SC.Oddballs.menuOptions) ~= "function" then
+        return
+    end
+    local origin = SC.FactionRecruitment.originForActor(row.id)
+    local group = origin and origin.group
+    if not group or type(group.oddball) ~= "table" then return end
+    for _, action in ipairs(SC.Oddballs.menuOptions(group, player) or {}) do
+        if action.id == "gut_up" then
+            if action.enabled == false then
+                addUnavailableOption(menu, tostring(action.label or "Gut up"))
+            else
+                menu:addOption(tostring(action.label or "Gut up"), nil,
+                    oddballStoryAction, group.id, action.id, player, action.payload)
+            end
+            return
+        end
+    end
 end
 
 local function addFactionConversations(context, factions, player)
@@ -1102,6 +1346,17 @@ local function addSquadMenu(menu, player)
     end
 end
 
+local function namedGraveMarker(worldObjects)
+    for _, object in ipairs(worldObjects or {}) do
+        local data = safeMethod(object, "getModData")
+        if type(data) == "table" and data.LF_FallenMarker == true then
+            local name = data.LF_FallenDisplayName or data.LF_FallenName
+            if type(name) == "string" and name ~= "" then return name end
+        end
+    end
+    return nil
+end
+
 function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, test)
     if test and ISWorldObjectContextMenu and ISWorldObjectContextMenu.Test then
         return true
@@ -1113,6 +1368,7 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
     if not player then
         return
     end
+    local memorialName = namedGraveMarker(worldObjects)
     local square, door, targetPayload, doorPayload, barricadeTarget, barricadePayload,
         containerTarget, removeBarricadeTarget, removeBarricadePayload,
         dismantleTarget, dismantlePayload, combatTarget = findTarget(worldObjects, player)
@@ -1134,14 +1390,27 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
     local rows, talkRows = nearbyRows(player)
     local clickedCompanion, clickedMatches = clickedCompanionRow(talkRows, worldObjects, clickSquare)
     local factions = talkableFactions(player)
+    local oddballs = talkableOddballs(player)
+    local sealedDoorGroup = SC.Oddballs
+        and type(SC.Oddballs.sealedDoorGroup) == "function"
+        and SC.Oddballs.sealedDoorGroup(door, player) or nil
     local baseRelevant = baseMenuRelevant(clickSquare)
     local watchStatus = SC.ViewControl and type(SC.ViewControl.status) == "function"
         and SC.ViewControl.status() or {}
-    if #rows == 0 and #factions == 0 and not baseRelevant
+    if #rows == 0 and #factions == 0 and #oddballs == 0 and not baseRelevant
         and watchStatus.watching ~= true and not clickedCompanion
-        and not (clickedMatches and #clickedMatches > 1) then return end
+        and not (clickedMatches and #clickedMatches > 1)
+        and not memorialName and not sealedDoorGroup then return end
     if test and ISWorldObjectContextMenu and ISWorldObjectContextMenu.setTest then
         return ISWorldObjectContextMenu.setTest()
+    end
+    if memorialName then
+        local option = context:addOption(text("UI_SC_Grave_Memorial", memorialName), nil, nil)
+        if option then option.notAvailable = true end
+    end
+    if sealedDoorGroup then
+        context:addOption("Touch the sealed door", nil, oddballStoryAction,
+            sealedDoorGroup.id, "touch_door", player)
     end
     if test ~= true and clickSquare and SC.BaseLife
         and type(SC.BaseLife.zoneDraft) == "function"
@@ -1162,7 +1431,9 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
         context:addOption(text("UI_SC_Talk_To", clickedCompanion.name),
             nil, openTalkFromContext, clickedCompanion)
         if clickedCompanion.recruited == true then
+            addNicknameActions(context, clickedCompanion, player)
             addChefOrder(context, clickedCompanion, player)
+            addRecruitedOddballAction(context, clickedCompanion, player)
             for _, action in ipairs(SC.Interaction.quickOrders) do
                 addInteractionShortcut(context, clickedCompanion, action, player)
             end
@@ -1183,7 +1454,8 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
             removeBarricadePayload, dismantleTarget, dismantlePayload, player)
     end
 
-    if #rows == 0 and #factions == 0 and not baseRelevant then return end
+    if #rows == 0 and #factions == 0 and #oddballs == 0
+        and not baseRelevant then return end
 
     local rootOption = context:addOption(text("UI_SC_Context_LivingFellows"), nil, nil)
     local rootMenu = ISContextMenu:getNew(context)
@@ -1203,6 +1475,8 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
             barricadeTarget, barricadePayload, removeBarricadeTarget,
             removeBarricadePayload, dismantleTarget, dismantlePayload, combatTarget, player)
         addCompanionCare(addCategory(selectedMenu, "UI_SC_Context_Care"), selected, player)
+        addNicknameActions(selectedMenu, selected, player)
+        addRecruitedOddballAction(selectedMenu, selected, player)
         addCommand(selectedMenu, "UI_SC_Action_Dismiss", selected.id,
             "dismiss", nil, player)
     end
@@ -1226,6 +1500,8 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
                 openTalkFromContext, row)
             addObjectiveAssignments(companionMenu, row, player)
             addCompanionCare(addCategory(companionMenu, "UI_SC_Context_Care"), row, player)
+            addNicknameActions(companionMenu, row, player)
+            addRecruitedOddballAction(companionMenu, row, player)
             addCommand(companionMenu, "UI_SC_Action_Dismiss", row.id,
                 "dismiss", nil, player)
         end
@@ -1240,6 +1516,10 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
     if #factions > 0 then
         addFactionConversations(addCategory(rootMenu, "UI_SC_Context_Households"),
             factions, player)
+    end
+    if #oddballs > 0 then
+        addOddballConversations(addCategory(rootMenu, "UI_SC_Context_StrangeFolk"),
+            oddballs, player)
     end
 end
 
@@ -1333,6 +1613,13 @@ function Context.install()
         Context._originalMedicalCheck = ISWorldObjectContextMenu.onMedicalCheck
         ISWorldObjectContextMenu.onMedicalCheck = Context.onMedicalCheck
     end
+    if ISInventoryPaneContextMenu
+        and type(ISInventoryPaneContextMenu.readItem) == "function"
+        and ISInventoryPaneContextMenu.readItem
+            ~= Context.readItemWithOddballMail then
+        Context._originalReadItem = ISInventoryPaneContextMenu.readItem
+        ISInventoryPaneContextMenu.readItem = Context.readItemWithOddballMail
+    end
     if Events and Events.OnFillWorldObjectContextMenu then
         Events.OnFillWorldObjectContextMenu.Add(Context.fillWorldObjectContextMenu)
         Context._installed = true
@@ -1343,18 +1630,26 @@ function Context.install()
 end
 
 function Context.remove()
-    if not Context._installed then
+    if not Context._installed
+        and not (ISInventoryPaneContextMenu
+            and ISInventoryPaneContextMenu.readItem
+                == Context.readItemWithOddballMail) then
         return
     end
-    if Events and Events.OnFillWorldObjectContextMenu then
+    if Context._installed and Events and Events.OnFillWorldObjectContextMenu then
         Events.OnFillWorldObjectContextMenu.Remove(Context.fillWorldObjectContextMenu)
     end
-    if Events and Events.OnFillInventoryObjectContextMenu then
+    if Context._installed and Events and Events.OnFillInventoryObjectContextMenu then
         Events.OnFillInventoryObjectContextMenu.Remove(Context.fillRadioContextMenu)
     end
     if ISWorldObjectContextMenu
         and ISWorldObjectContextMenu.onMedicalCheck == Context.onMedicalCheck then
         ISWorldObjectContextMenu.onMedicalCheck = Context._originalMedicalCheck
+    end
+    if ISInventoryPaneContextMenu
+        and ISInventoryPaneContextMenu.readItem
+            == Context.readItemWithOddballMail then
+        ISInventoryPaneContextMenu.readItem = Context._originalReadItem
     end
     Context._installed = false
 end

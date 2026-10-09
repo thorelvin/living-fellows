@@ -27,6 +27,7 @@ Events = {
     OnInitGlobalModData = event(), OnGameStart = event(), OnSave = event(),
     OnMainMenuEnter = event(),
     OnWeaponHitCharacter = event(), OnZombieDead = event(),
+    OnZombieUpdate = event(),
 }
 
 SC.Config = { refreshSandbox = function() return true end }
@@ -61,13 +62,15 @@ local required = {
     "Scheduler", "NativeTraversalActions", "NativeVisualActions", "NativeCombatActions",
     "NativeWorkActions", "NativeMovementActions", "NativeActions", "Performance",
     "ActionSupervisor", "Actor",
-    "Persistence", "Vehicle", "Spawn", "GameplayUtil", "Topology", "PathSearch", "NavTraffic", "NavTraversal",
+    "Persistence", "Vehicle", "Spawn", "GameplayUtil", "Names", "Topology", "PathSearch", "NavTraffic", "NavTraversal",
     "Background", "Dialogue", "Allegiance", "Trade", "FactionLife",
-    "FactionWorld", "FactionBehavior", "ZombieTargeting", "ThreatSet", "PerceptionScan", "Locomotion", "Senses",
+    "FactionWorld", "FactionBehavior", "OddballRoomGuard", "Oddballs", "OddballRed", "OddballSpiffo", "OddballWendell", "OddballDeputy",
+    "OddballSilas", "OddballRusty", "OddballLonnie", "OddballVirgil", "OddballClem", "OddballPurdy",
+    "ZombieTargeting", "ThreatSet", "PerceptionScan", "Locomotion", "Senses",
     "Navigation", "Positioning", "Combat", "Medical", "Logistics", "Lighting", "Needs", "Downtime",
     "Personality", "PersonalItems", "Relationship", "Objectives", "Journal", "BaseObjectRef", "BaseLife",
     "BaseVisuals", "HygieneEffects", "WorkTransport", "GatherWork",
-    "FarmWork", "Fishing", "BaseWork", "Production", "InfectionCrisis", "LifeEvents", "Community",
+    "FarmWork", "Fishing", "BaseWork", "Production", "InfectionCrisis", "LifeEvents", "Community", "NicknameLife",
     "DiaryText", "DiaryCatalog", "DiaryItem", "Diary", "Quirks", "Autonomy", "Commands",
     "FactionRecruitment", "Decision", "Support", "ViewControl", "Steering", "UIContext",
     "Net", "Banter", "CombatTrace", "Gestures", "Tales", "WorkRoutes", "ZombieAttack",
@@ -96,6 +99,27 @@ end
 
 SC.Factions = ownedHooks()
 SC.FactionContracts = ownedHooks()
+SC.OddballRoomGuard = { installed = false, installs = 0, removes = 0,
+    failRemove = false }
+function SC.OddballRoomGuard.install()
+    if SC.OddballRoomGuard.installed then return true end
+    SC.OddballRoomGuard.installed = true
+    SC.OddballRoomGuard.installs = SC.OddballRoomGuard.installs + 1
+    return true
+end
+function SC.OddballRoomGuard.remove()
+    if SC.OddballRoomGuard.failRemove then
+        return false, "injected room guard remove failure"
+    end
+    if SC.OddballRoomGuard.installed then
+        SC.OddballRoomGuard.removes = SC.OddballRoomGuard.removes + 1
+    end
+    SC.OddballRoomGuard.installed = false
+    return true
+end
+function SC.OddballRoomGuard.isInstalled()
+    return SC.OddballRoomGuard.installed
+end
 SC.CompanionMap = { installed = false, installs = 0, removes = 0,
     failRemove = false }
 function SC.CompanionMap.install()

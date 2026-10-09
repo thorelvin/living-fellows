@@ -1508,10 +1508,15 @@ local function handleRecruit(actor, entry, state, payload, player)
     if SC.Vehicle and type(SC.Vehicle.invalidateManifests) == "function" then
         SC.Vehicle.invalidateManifests()
     end
-    if SC.Dialogue and type(SC.Dialogue.say) == "function" then
+    local nicknameSpoken = false
+    if SC.NicknameLife and type(SC.NicknameLife.onRecruit) == "function" then
+        local ok, spoken = pcall(SC.NicknameLife.onRecruit, actor, player)
+        nicknameSpoken = ok and spoken == true
+    end
+    if not nicknameSpoken and SC.Dialogue and type(SC.Dialogue.say) == "function" then
         SC.Dialogue.say(actor, "team.recruit", nil, nil,
             { state = state, fallback = U().text("IGUI_SC_Recruit_Response", "All right. I will come with you.") })
-    else
+    elseif not nicknameSpoken then
         U().say(actor, U().text("IGUI_SC_Recruit_Response", "All right. I will come with you."))
     end
     if type(U().playUISound) == "function" then U().playUISound("UIAchievement") end
@@ -2804,6 +2809,11 @@ local function transitionFactionMembership(actor, specification, player)
         and (type(entry) ~= "table" or entry.factionId ~= specification.expectedFactionId) then
         return false, "faction_membership_changed"
     end
+    if specification.expectedFactionRole ~= nil
+        and current.factionRole ~= specification.expectedFactionRole
+        and (type(entry) ~= "table" or entry.factionRole ~= specification.expectedFactionRole) then
+        return false, "faction_role_changed"
+    end
     if specification.expectedRecruited ~= nil
         and current.recruited ~= specification.expectedRecruited then
         return false, "recruitment_state_changed"
@@ -2824,7 +2834,7 @@ local function transitionFactionMembership(actor, specification, player)
     staged.factionRole = type(specification.factionRole) == "string"
         and specification.factionRole or nil
     staged.order = specification.order or (staged.recruited and "follow" or "faction_duty")
-    staged.anchor = nil
+    staged.anchor = staged.order == "stay" and positionTable(actor) or nil
     staged.tacticalTarget = nil
     staged.pendingInteraction = nil
     staged.workTarget = nil
@@ -2868,6 +2878,42 @@ local function transitionFactionMembership(actor, specification, player)
         SC.Vehicle.invalidateManifests()
     end
     return true, staged
+end
+
+function Commands.releaseFactionCaptive(actor, factionId)
+    if type(factionId) ~= "string" then return false, "invalid_captive_faction" end
+    local accepted, result = transitionFactionMembership(actor, {
+        expectedFactionId = factionId,
+        expectedFactionRole = "captive",
+        expectedRecruited = false,
+        recruited = false,
+        factionId = nil,
+        factionRole = nil,
+        -- Give the player time to speak to a freed survivor. They can be
+        -- recruited through the ordinary neutral-survivor conversation.
+        order = "stay",
+    })
+    if not accepted then return false, result end
+    return true, "captive_released"
+end
+
+function Commands.releaseOddballMember(actor, factionId, expectedRole, order)
+    if type(factionId) ~= "string" or type(expectedRole) ~= "string"
+        or expectedRole == "leader" or expectedRole == "captive"
+        or (order ~= "stay" and order ~= "wander") then
+        return false, "invalid_oddball_release"
+    end
+    local accepted, result = transitionFactionMembership(actor, {
+        expectedFactionId = factionId,
+        expectedFactionRole = expectedRole,
+        expectedRecruited = false,
+        recruited = false,
+        factionId = nil,
+        factionRole = nil,
+        order = order,
+    })
+    if not accepted then return false, result end
+    return true, "oddball_member_released"
 end
 
 function Commands.beginFactionTrial(actor, origin, player)

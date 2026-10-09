@@ -69,6 +69,46 @@ $stages = @(
         -Arguments @('-GameRoot', $GameRoot, '-SkipNativeBridge',
                      '-SkipSharedSourceChecks', '-Jobs', "$Jobs") `
         -Failure 'Core suite failed.'),
+    (New-ScPowerShellStep -Name 'strange-folk-behavior' `
+        -Script (Join-Path $ProjectRoot 'tests\core\run_strange_folk_behavior_tests.ps1') `
+        -Arguments @('-GameRoot', $GameRoot) `
+        -Failure 'Strange Folk Red/Kevin behavior tests failed.'),
+    (New-ScPowerShellStep -Name 'oddball-foundation' `
+        -Script (Join-Path $ProjectRoot 'tests\core\run_oddball_foundation_tests.ps1') `
+        -Arguments @('-GameRoot', $GameRoot) `
+        -Failure 'Strange Folk persistence and scheduler tests failed.'),
+    (New-ScPowerShellStep -Name 'oddball-room-guard' `
+        -Script (Join-Path $ProjectRoot 'tests\core\run_oddball_room_guard_tests.ps1') `
+        -Arguments @('-GameRoot', $GameRoot) `
+        -Failure 'Strange Folk encounter room guard tests failed.'),
+    (New-ScPowerShellStep -Name 'oddball-wendell' `
+        -Script (Join-Path $ProjectRoot 'tests\core\run_oddball_wendell_tests.ps1') `
+        -Arguments @('-GameRoot', $GameRoot) `
+        -Failure 'Strange Folk Wendell behavior tests failed.'),
+    (New-ScPowerShellStep -Name 'oddball-deputy' `
+        -Script (Join-Path $ProjectRoot 'tests\core\run_oddball_deputy_tests.ps1') `
+        -Arguments @('-GameRoot', $GameRoot) `
+        -Failure 'Strange Folk deputy checkpoint and captive tests failed.'),
+    (New-ScPowerShellStep -Name 'oddball-loretta' `
+        -Script (Join-Path $ProjectRoot 'tests\core\run_oddball_loretta_tests.ps1') `
+        -Arguments @('-GameRoot', $GameRoot) `
+        -Failure 'Strange Folk Loretta vehicle encounter tests failed.'),
+    (New-ScPowerShellStep -Name 'oddball-silas-rusty' `
+        -Script (Join-Path $ProjectRoot 'tests\core\run_oddball_silas_rusty_tests.ps1') `
+        -Arguments @('-GameRoot', $GameRoot) `
+        -Failure 'Strange Folk cult and ringmaster tests failed.'),
+    (New-ScPowerShellStep -Name 'oddball-lonnie-virgil' `
+        -Script (Join-Path $ProjectRoot 'tests\core\run_oddball_lonnie_virgil_tests.ps1') `
+        -Arguments @('-GameRoot', $GameRoot) `
+        -Failure 'Strange Folk wedding and mail tests failed.'),
+    (New-ScPowerShellStep -Name 'oddball-clem-purdy' `
+        -Script (Join-Path $ProjectRoot 'tests\core\run_oddball_clem_purdy_tests.ps1') `
+        -Arguments @('-GameRoot', $GameRoot) `
+        -Failure 'Strange Folk duel and sniper tests failed.'),
+    (New-ScPowerShellStep -Name 'oddball-phase2' `
+        -Script (Join-Path $ProjectRoot 'tests\core\run_oddball_phase2_tests.ps1') `
+        -Arguments @('-GameRoot', $GameRoot) `
+        -Failure 'Strange Folk Phase 2 encounters failed.'),
     (New-ScPowerShellStep -Name 'source' `
         -Script (Join-Path $ProjectRoot 'scripts\Test-Source.ps1') `
         -Arguments @('-SkipNativeBridge', '-Jobs', "$Jobs") `
@@ -106,6 +146,9 @@ $stages = @(
 Invoke-ScParallelSteps -Steps $stages -Throttle $Jobs -Label 'gate stages'
 
 $gate.Stop()
-Write-Output ("PROJECT_TEST_PASS pz-runtime=true source=true core=true gameplay=true " +
+Write-Output ("PROJECT_TEST_PASS pz-runtime=true source=true core=true " +
+    "strange-folk-behavior=true oddball-foundation=true oddball-room-guard=true oddball-wendell=true " +
+    "oddball-deputy=true oddball-loretta=true oddball-silas-rusty=true oddball-lonnie-virgil=true " +
+    "oddball-clem-purdy=true gameplay=true " +
     "navigation-stability=true perception-topology=true ui=true live-harness-static=true " +
     "workshop=true standalone=true seconds={0:N0} jobs={1}" -f $gate.Elapsed.TotalSeconds, $Jobs)

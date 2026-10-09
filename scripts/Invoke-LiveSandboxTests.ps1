@@ -22,6 +22,16 @@ param(
     [switch]$HygieneProbe,
     [string]$HygieneScreenshot = '',
     [string]$HygieneEightDirectionsScreenshotDirectory = '',
+    [string]$StrangeFolkPortraitScreenshotDirectory = '',
+    [ValidateSet('all', 'red', 'kevin', 'wendell')]
+    [string]$StrangeFolkPortraitTarget = 'all',
+    [switch]$WendellApproachProbe,
+    [switch]$DeputyRhondaProbe,
+    [string]$DeputyRhondaScreenshot = '',
+    [switch]$LorettaProbe,
+    [string]$LorettaScreenshot = '',
+    [ValidateRange(0, 20000)][int]$LorettaSiteX = 0,
+    [ValidateRange(0, 20000)][int]$LorettaSiteY = 0,
     [switch]$BaseSecondFloorProbe,
     [switch]$WaterSourceProbe,
     [switch]$ProjectALifeDamageProbe,
@@ -435,6 +445,61 @@ if (-not [string]::IsNullOrWhiteSpace($HygieneEightDirectionsScreenshotDirectory
         $HygieneEightDirectionsScreenshotDirectory)
     New-Item -ItemType Directory -Path $HygieneEightDirectionsScreenshotDirectory -Force | Out-Null
 }
+$captureStrangeFolkPortraits = -not [string]::IsNullOrWhiteSpace(
+    $StrangeFolkPortraitScreenshotDirectory)
+if (-not $captureStrangeFolkPortraits -and $StrangeFolkPortraitTarget -ne 'all') {
+    throw '-StrangeFolkPortraitTarget requires -StrangeFolkPortraitScreenshotDirectory.'
+}
+if ($WendellApproachProbe -and (-not $captureStrangeFolkPortraits -or
+    $StrangeFolkPortraitTarget -ne 'wendell')) {
+    throw '-WendellApproachProbe requires one Wendell portrait screenshot.'
+}
+$strangeFolkPortraitLabels = if ($StrangeFolkPortraitTarget -eq 'all') {
+    @('red', 'kevin', 'wendell')
+} else { @($StrangeFolkPortraitTarget) }
+if ($captureStrangeFolkPortraits) {
+    if ($HiddenWindow) {
+        throw '-StrangeFolkPortraitScreenshotDirectory requires a visible game window.'
+    }
+    $StrangeFolkPortraitScreenshotDirectory = [System.IO.Path]::GetFullPath(
+        $StrangeFolkPortraitScreenshotDirectory)
+    if (Test-Path -LiteralPath $StrangeFolkPortraitScreenshotDirectory -PathType Leaf) {
+        throw 'Strange Folk portrait destination is a file, not a directory.'
+    }
+    New-Item -ItemType Directory -Path $StrangeFolkPortraitScreenshotDirectory -Force | Out-Null
+    foreach ($portrait in $strangeFolkPortraitLabels) {
+        $destination = Join-Path $StrangeFolkPortraitScreenshotDirectory ($portrait + '.png')
+        if (Test-Path -LiteralPath $destination) {
+            throw "Strange Folk portrait already exists; choose a fresh directory: $destination"
+        }
+    }
+}
+$captureDeputyRhonda = -not [string]::IsNullOrWhiteSpace($DeputyRhondaScreenshot)
+if ($captureDeputyRhonda) {
+    if (-not $DeputyRhondaProbe -or $HiddenWindow) {
+        throw '-DeputyRhondaScreenshot requires -DeputyRhondaProbe and a visible game window.'
+    }
+    $DeputyRhondaScreenshot = [System.IO.Path]::GetFullPath($DeputyRhondaScreenshot)
+    if (Test-Path -LiteralPath $DeputyRhondaScreenshot) {
+        throw "Deputy Rhonda screenshot already exists; choose a fresh path: $DeputyRhondaScreenshot"
+    }
+    New-Item -ItemType Directory -Path (Split-Path -Parent $DeputyRhondaScreenshot) -Force | Out-Null
+}
+$captureLoretta = -not [string]::IsNullOrWhiteSpace($LorettaScreenshot)
+if (($LorettaSiteX -gt 0) -ne ($LorettaSiteY -gt 0) -or
+    (($LorettaSiteX -gt 0 -or $LorettaSiteY -gt 0) -and -not $LorettaProbe)) {
+    throw '-LorettaSiteX and -LorettaSiteY must be positive together and require -LorettaProbe.'
+}
+if ($captureLoretta) {
+    if (-not $LorettaProbe -or $HiddenWindow) {
+        throw '-LorettaScreenshot requires -LorettaProbe and a visible game window.'
+    }
+    $LorettaScreenshot = [System.IO.Path]::GetFullPath($LorettaScreenshot)
+    if (Test-Path -LiteralPath $LorettaScreenshot) {
+        throw "Loretta screenshot already exists; choose a fresh path: $LorettaScreenshot"
+    }
+    New-Item -ItemType Directory -Path (Split-Path -Parent $LorettaScreenshot) -Force | Out-Null
+}
 if ($PyreBurnProbe -ne (-not [string]::IsNullOrWhiteSpace($PyreBurnScreenshot))) {
     throw '-PyreBurnProbe requires -PyreBurnScreenshot.'
 }
@@ -514,10 +579,17 @@ $runsPrefix = $RunsRoot.TrimEnd('\') + '\'
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 function Test-ProjectZomboidRunning {
-    $matches = @(Get-CimInstance Win32_Process | Where-Object {
-        $_.Name -like 'ProjectZomboid*' -or
-        ($_.Name -match '^java(w)?\.exe$' -and $_.CommandLine -match 'ProjectZomboid')
-    })
+    try {
+        $matches = @(Get-CimInstance Win32_Process | Where-Object {
+            $_.Name -like 'ProjectZomboid*' -or
+            ($_.Name -match '^java(w)?\.exe$' -and $_.CommandLine -match 'ProjectZomboid')
+        })
+    } catch {
+        # Restricted desktop sessions may deny WMI process command lines.
+        # The game executable name remains available through Get-Process.
+        $matches = @(Get-Process -Name 'ProjectZomboid64', 'ProjectZomboid32' `
+            -ErrorAction SilentlyContinue)
+    }
     return $matches.Count -gt 0
 }
 
@@ -878,6 +950,15 @@ $config = @(
     ('hygiene_probe=' + $HygieneProbe.IsPresent.ToString().ToLowerInvariant()),
     ('hygiene_eight_directions=' +
         (-not [string]::IsNullOrWhiteSpace($HygieneEightDirectionsScreenshotDirectory)).ToString().ToLowerInvariant()),
+    ('strange_folk_portrait_probe=' + $captureStrangeFolkPortraits.ToString().ToLowerInvariant()),
+    ('strange_folk_portrait_target=' + $StrangeFolkPortraitTarget),
+    ('wendell_approach_probe=' + $WendellApproachProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('deputy_rhonda_probe=' + $DeputyRhondaProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('deputy_rhonda_screenshot=' + $captureDeputyRhonda.ToString().ToLowerInvariant()),
+    ('loretta_probe=' + $LorettaProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('loretta_screenshot=' + $captureLoretta.ToString().ToLowerInvariant()),
+    ('loretta_site_x=' + $LorettaSiteX),
+    ('loretta_site_y=' + $LorettaSiteY),
     ('base_second_floor_probe=' + $BaseSecondFloorProbe.IsPresent.ToString().ToLowerInvariant()),
     ('water_source_probe=' + $WaterSourceProbe.IsPresent.ToString().ToLowerInvariant()),
     ('capture_faction_map=' + $captureFactionMap.ToString().ToLowerInvariant()),
@@ -1019,6 +1100,14 @@ $manifest = [ordered]@{
     leaderRemote = $LeaderRemote.IsPresent
     leaderWatchSeconds = $LeaderWatchSeconds
     splitScreenScreenshot = if ($SplitScreenOnly) { $SplitScreenScreenshot } else { $null }
+    strangeFolkPortraitScreenshotDirectory = if ($captureStrangeFolkPortraits) {
+        $StrangeFolkPortraitScreenshotDirectory
+    } else { $null }
+    deputyRhondaScreenshot = if ($captureDeputyRhonda) { $DeputyRhondaScreenshot } else { $null }
+    lorettaScreenshot = if ($captureLoretta) { $LorettaScreenshot } else { $null }
+    lorettaSite = if ($LorettaSiteX -gt 0) {
+        @{ x = $LorettaSiteX; y = $LorettaSiteY }
+    } else { $null }
     autoCleanup = $false
 }
 [System.IO.File]::WriteAllText((Join-Path $RunRoot 'run-manifest.json'),
@@ -1075,6 +1164,9 @@ try {
     $postHandoffCaptureCompleted = $false
     $crashProbeCompleted = $false
     $hygieneCaptureCompleted = $false
+    $strangeFolkPortraitsCaptured = @{}
+    $deputyRhondaCaptured = $false
+    $lorettaCaptured = $false
     $nextProcessSample = [DateTime]::MinValue
     while ([DateTime]::UtcNow -lt $deadline -and -not (Test-Path -LiteralPath $summaryPath -PathType Leaf)) {
         $process.Refresh()
@@ -1124,6 +1216,53 @@ try {
             }
             Write-Output "Captured hygiene pose: $HygieneScreenshot"
             $hygieneCaptureCompleted = $true
+        }
+        if ($captureStrangeFolkPortraits) {
+            foreach ($portrait in $strangeFolkPortraitLabels) {
+                if ($strangeFolkPortraitsCaptured[$portrait]) { continue }
+                $readyPath = Join-Path $SandboxLua ('strange-folk-' + $portrait + '-ready.txt')
+                if (-not (Test-Path -LiteralPath $readyPath -PathType Leaf)) { continue }
+                $destination = Join-Path $StrangeFolkPortraitScreenshotDirectory `
+                    ($portrait + '.png')
+                Start-Sleep -Milliseconds 750
+                if (-not (Save-ClientScreenshot $process $destination)) {
+                    throw "Could not capture Strange Folk portrait to $destination"
+                }
+                $capturedPath = Join-Path $SandboxLua `
+                    ('strange-folk-' + $portrait + '-captured.txt')
+                [System.IO.File]::WriteAllText($capturedPath,
+                    ('captured=true' + [Environment]::NewLine), $utf8NoBom)
+                Write-Output "Captured Strange Folk portrait: $destination"
+                $strangeFolkPortraitsCaptured[$portrait] = $true
+            }
+        }
+        if ($captureDeputyRhonda -and -not $deputyRhondaCaptured) {
+            $readyPath = Join-Path $SandboxLua 'deputy-rhonda-ready.txt'
+            if (Test-Path -LiteralPath $readyPath -PathType Leaf) {
+                Start-Sleep -Milliseconds 750
+                if (-not (Save-ClientScreenshot $process $DeputyRhondaScreenshot)) {
+                    throw "Could not capture Deputy Rhonda to $DeputyRhondaScreenshot"
+                }
+                [System.IO.File]::WriteAllText(
+                    (Join-Path $SandboxLua 'deputy-rhonda-captured.txt'),
+                    ('captured=true' + [Environment]::NewLine), $utf8NoBom)
+                Write-Output "Captured Deputy Rhonda encounter: $DeputyRhondaScreenshot"
+                $deputyRhondaCaptured = $true
+            }
+        }
+        if ($captureLoretta -and -not $lorettaCaptured) {
+            $readyPath = Join-Path $SandboxLua 'loretta-ready.txt'
+            if (Test-Path -LiteralPath $readyPath -PathType Leaf) {
+                Start-Sleep -Milliseconds 750
+                if (-not (Save-ClientScreenshot $process $LorettaScreenshot)) {
+                    throw "Could not capture Loretta encounter to $LorettaScreenshot"
+                }
+                [System.IO.File]::WriteAllText(
+                    (Join-Path $SandboxLua 'loretta-captured.txt'),
+                    ('captured=true' + [Environment]::NewLine), $utf8NoBom)
+                Write-Output "Captured Loretta encounter: $LorettaScreenshot"
+                $lorettaCaptured = $true
+            }
         }
         if ($captureFactionMap -and -not $factionMapCaptureCompleted -and
             (Test-Path -LiteralPath $factionMapReadyPath -PathType Leaf)) {
@@ -1313,6 +1452,22 @@ if ($PerformanceBaselineOnly -or $TeamPerformanceProbe -or $TeamPerformanceRoute
     Write-Output "Performance samples: $SandboxLua"
 }
 if ($ColdRestartHandoff) { Write-Output "Restored companion screenshot: $PostHandoffScreenshot" }
+if ($captureStrangeFolkPortraits) {
+    foreach ($portrait in $strangeFolkPortraitLabels) {
+        if (-not $strangeFolkPortraitsCaptured[$portrait]) {
+            throw "Missing Strange Folk portrait capture: $portrait"
+        }
+    }
+    Write-Output "Strange Folk portraits: $StrangeFolkPortraitScreenshotDirectory"
+}
+if ($captureDeputyRhonda) {
+    if (-not $deputyRhondaCaptured) { throw 'Missing Deputy Rhonda screenshot capture.' }
+    Write-Output "Deputy Rhonda screenshot: $DeputyRhondaScreenshot"
+}
+if ($captureLoretta) {
+    if (-not $lorettaCaptured) { throw 'Missing Loretta screenshot capture.' }
+    Write-Output "Loretta screenshot: $LorettaScreenshot"
+}
 if ($status -ne 'PASS') {
     throw "LIVE_SANDBOX_FAIL run=$runId results=$eventsPath"
 }

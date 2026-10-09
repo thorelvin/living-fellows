@@ -3192,6 +3192,44 @@ local pools = {
         "Lower the weapon and make your request. Entry is the household's decision.",
         "You can ask. Whether the door opens depends on how you behave.",
     } },
+    ["nickname.intro"] = { common = {
+        "Name's %1. Everybody calls me %2.",
+        "%1 on paper. %2 to anybody who's met me.",
+        "Call me %2. Only my mother called me %1.",
+    } },
+    ["nickname.player.accept"] = { common = {
+        "%1? All right. I'll answer to it.",
+        "%1. Sure. You've earned a joke.",
+        "Fine. %1 it is. Don't wear it out.",
+    } },
+    ["nickname.player.reject"] = { common = {
+        "I'm not answering to %1. Try again.",
+        "Call me that if you must. I won't like it.",
+    } },
+    ["nickname.coin"] = { common = {
+        "%1, you know what? From now on you're %2.",
+        "That's it. You're %2 now. I don't make the rules.",
+        "Everybody out here needs a road name. Yours is %2.",
+    } },
+    ["nickname.coin.accept"] = { common = {
+        "%2. Huh. I've been called worse.",
+        "Fine. %2 it is. Don't wear it out.",
+        "%2. My mama would hate that. I love it.",
+    } },
+    ["nickname.coin.reject"] = { common = {
+        "Call me %2 again and see what happens.",
+        "No. My name is %1. Use it.",
+        { "Call me %2 one more time, you son of a bitch.",
+            clean = "Call me %2 one more time, you son of a gun." },
+    } },
+    ["nickname.grief"] = { common = {
+        "%1 would have laughed at this.",
+        "Nobody says %1 anymore. Feels wrong.",
+    } },
+    ["nickname.namesake"] = { common = {
+        "Yeah. I've heard it.",
+        "You think you're the first to point that out?",
+    } },
 }
 
 local actorHistory = setmetatable({}, { __mode = "k" })

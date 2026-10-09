@@ -126,12 +126,14 @@ try {
         (Join-Path $Client 'SCNativeActions.lua'),
         (Join-Path $Client 'SCActionSupervisor.lua'),
         (Join-Path $Client 'SCBackground.lua'),
+        (Join-Path $Client 'SCNames.lua'),
         (Join-Path $Client 'SCActor.lua'),
         (Join-Path $Client 'SCVehicle.lua'),
         (Join-Path $Client 'SCPerformance.lua'),
         (Join-Path $Client 'SCScheduler.lua'),
         (Join-Path $Client 'SCPersistence.lua'),
         (Join-Path $Client 'SCGameplayUtil.lua'),
+        (Join-Path $Client 'SCTopology.lua'),
         (Join-Path $Client 'SCInventoryIndex.lua'),
         (Join-Path $Client 'SCZombieFacts.lua'),
         (Join-Path $Client 'SCBaseObjectRef.lua'),
@@ -474,6 +476,35 @@ try {
             (Join-Path $TestRoot 'production_spawn_harness.lua')
         )
         Add-ScJvmStep 'production-spawn' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $productionSpawnFiles 'Production encounter cadence harness failed.'
+
+        $namesGenerationFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCCall.lua'),
+            (Join-Path $Shared 'SCStableValue.lua'),
+            (Join-Path $Shared 'SCNativeList.lua'),
+            (Join-Path $Shared 'SCTransaction.lua'),
+            (Join-Path $Shared 'SCConfig.lua'),
+            (Join-Path $Shared 'SCDiagnostics.lua'),
+            (Join-Path $Shared 'SCRegistry.lua'),
+            (Join-Path $Client 'SCSpawn.lua'),
+            (Join-Path $Client 'SCFactions.lua'),
+            (Join-Path $TestRoot 'names_generation_harness.lua')
+        )
+        Add-ScJvmStep 'names-generation' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $namesGenerationFiles 'Companion name generation harness failed.'
+
+        $nicknameFiles = @(
+            (Join-Path $Client 'SCNames.lua'),
+            (Join-Path $TestRoot 'names_harness.lua')
+        )
+        Add-ScJvmStep 'nicknames' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $nicknameFiles 'Nickname core harness failed.'
+
+        $nicknameLifeFiles = @(
+            (Join-Path $Client 'SCNames.lua'),
+            (Join-Path $Client 'SCNicknameLife.lua'),
+            (Join-Path $TestRoot 'nickname_life_harness.lua')
+        )
+        Add-ScJvmStep 'nickname-life' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $nicknameLifeFiles 'Nickname event harness failed.'
 
         & (Join-Path $ProjectRoot 'scripts\New-PrivatePlaytestPayload.ps1') -ProjectRoot $ProjectRoot | Out-Null
         $PrivateLua = Join-Path $ProjectRoot 'build\private-playtest\SurvivorCompanion\42\media\lua'

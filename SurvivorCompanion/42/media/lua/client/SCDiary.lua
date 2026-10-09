@@ -160,6 +160,34 @@ local function identity(character)
     return result
 end
 
+-- Only completed pages establish that this author has written about someone.
+-- Legacy writers have no list, so their existing pages and tokens stay as saved.
+local function subjectUsedBefore(writer, subjectId)
+    if type(subjectId) ~= "string" or type(writer) ~= "table" then return false end
+    for _, id in ipairs(type(writer.subjectMentions) == "table" and writer.subjectMentions or {}) do
+        if id == subjectId then return true end
+    end
+    return false
+end
+
+local function subjectCallName(writer, author, subject, subjectId, fallback)
+    if subject ~= nil and SC.Names and type(SC.Names.callName) == "function" then
+        local ok, value = pcall(SC.Names.callName, author, subject, {
+            about = true, usedBefore = subjectUsedBefore(writer, subjectId),
+        })
+        if ok and SC.DiaryText.validToken(value) then return value end
+    end
+    return fallback
+end
+
+local function rememberSubject(writer, subjectId)
+    if type(subjectId) ~= "string" or subjectId == "" then return end
+    writer.subjectMentions = type(writer.subjectMentions) == "table" and writer.subjectMentions or {}
+    if subjectUsedBefore(writer, subjectId) then return end
+    writer.subjectMentions[#writer.subjectMentions + 1] = subjectId
+    while #writer.subjectMentions > 64 do table.remove(writer.subjectMentions, 1) end
+end
+
 local function commandsState(actor)
     if SC.Commands and type(SC.Commands.peek) == "function" then
         local ok, state = pcall(SC.Commands.peek, actor)
@@ -279,7 +307,7 @@ local function decideWriter(actor, clock)
         bookCreated = false, bookAttempts = 0, bookRetryHours = 0, pencilGiven = false,
         entrySeq = 0, entryCount = 0, lastWrittenHours = 0, lastWrittenDay = 0,
         nextWriteHours = clock and clock.hours or 0,
-        candidates = {}, anchors = {}, recent = {}, receipts = {},
+        candidates = {}, anchors = {}, recent = {}, receipts = {}, subjectMentions = {},
         trustQueued = false,
     }
     ensure().writers[id] = writer
@@ -585,7 +613,8 @@ function Diary.noteBandage(helper, patient, player, woundName, options)
                 scene = "care_companion"
                 facts["care.companion_bandaged_writer"] = true
                 local who = identity(helper)
-                tokens.subject = who.first
+                tokens.subject = subjectCallName(patientWriter, patient, helper,
+                    U().idOf(helper), who.first)
                 if who.sex then facts["subject." .. who.sex] = true end
             end
             if options.bleeding == true then facts["care.wound_bleeding"] = true end
@@ -607,7 +636,8 @@ function Diary.noteBandage(helper, patient, player, woundName, options)
             else
                 facts["care.writer_bandaged_companion"] = true
                 local who = identity(patient)
-                tokens.subject = who.first
+                tokens.subject = subjectCallName(helperWriter, helper, patient,
+                    U().idOf(patient), who.first)
                 if who.sex then facts["subject." .. who.sex] = true end
             end
             admitted = admit(helperWriter, {
@@ -674,7 +704,9 @@ function Diary.noteCompanionDeath(record)
                         elseif grief.subjectGender == "male" then facts["subject.he"] = true end
                         if admit(writer, {
                             scene = "loss", importance = facts["death.subject_close"] and 90 or 75,
-                            facts = facts, tokens = { subject = firstName(grief.subjectName) },
+                            facts = facts, tokens = { subject = subjectCallName(writer, actor,
+                                record.actor and record or nil, record.id,
+                                firstName(grief.subjectName)) },
                             subjectId = record.id, sourceKey = "death:" .. record.id,
                         }, clock) then admitted = admitted + 1 end
                         break
@@ -699,7 +731,9 @@ function Diary.noteCrisisKnowledge(crisis, observerId, path, stance)
         local facts = { ["crisis.other_bitten_known"] = true }
         if type(path) == "string" then facts["crisis.learned." .. path] = true end
         if type(stance) == "string" then facts["stance." .. stance] = true end
-        local subject = firstName(crisis.subjectName)
+        local subject = subjectCallName(writer, actor,
+            U().resolveActor(crisis.subjectId), crisis.subjectId,
+            firstName(crisis.subjectName))
         return admit(writer, {
             scene = "crisis_other", importance = 78, facts = facts, tokens = { subject = subject },
             subjectId = crisis.subjectId,
@@ -744,10 +778,11 @@ local function writerById(id, clock)
     return writer, actor
 end
 
-local function subjectTokens(tokens, facts, character)
+local function subjectTokens(tokens, facts, author, writer, character)
     if character == nil then return end
     local who = identity(character)
-    tokens.subject = who.first
+    tokens.subject = subjectCallName(writer, author, character,
+        U().idOf(character), who.first)
     if who.sex then facts["subject." .. who.sex] = true end
 end
 
@@ -785,7 +820,7 @@ function Diary.observeLifeEvent(row)
                 if writer and hurt then
                     local facts, tokens = { ["witness.saw_hurt"] = true }, {}
                     if finite(row.severity, 0) >= 20 then facts["witness.badly"] = true end
-                    subjectTokens(tokens, facts, hurt)
+                    subjectTokens(tokens, facts, actorById(id), writer, hurt)
                     offer(writer, { scene = "witnessed_hurt", importance = facts["witness.badly"] and 60 or 42,
                         facts = facts, tokens = tokens, subjectId = source,
                         sourceKey = "hurt:" .. writer.id .. ":" .. tostring(source) .. ":" .. day })
@@ -803,7 +838,7 @@ function Diary.observeLifeEvent(row)
                         facts[pair[3] and "conflict.shoved_them" or "conflict.got_shoved"] = true
                         if row.injury == true then facts["conflict.someone_hurt"] = true end
                     end
-                    subjectTokens(tokens, facts, other)
+                    subjectTokens(tokens, facts, actorById(pair[1]), writer, other)
                     offer(writer, { scene = "conflict", importance = kind == "argument" and 50 or 68,
                         facts = facts, tokens = tokens, subjectId = pair[2],
                         supersedes = "conflict:" .. writer.id .. ":" .. day,
@@ -828,7 +863,7 @@ function Diary.observeLifeEvent(row)
                         facts["joy." .. tostring(row.response or "rallying")] = true
                     elseif lifter then
                         facts["joy.lifted_by_someone"] = true
-                        subjectTokens(tokens, facts, lifter)
+                        subjectTokens(tokens, facts, actorById(id), writer, lifter)
                     end
                     offer(writer, { scene = "joy", importance = 28, facts = facts, tokens = tokens,
                         sourceKey = "joy:" .. writer.id .. ":" .. day })
@@ -1036,16 +1071,21 @@ function Diary.noteWork(actor, kind, count)
 end
 
 -- A fallen companion laid in their own grave by this worker.
-function Diary.noteFallenBurial(actor, fallenName)
+function Diary.noteFallenBurial(actor, fallenName, fallenId)
     return guarded("fallen_burial", function()
         local clock = Diary.clock()
         local writer = writerForActor(actor, clock)
         if not writer then return false, "not_a_diarist" end
-        local subject = firstName(fallenName)
-        if not subject then return false, "unnamed" end
+        local rawSubject = firstName(fallenName)
+        if not rawSubject then return false, "unnamed" end
+        local record = type(fallenId) == "string" and SC.Registry
+            and type(SC.Registry.byId) == "function" and SC.Registry.byId(fallenId) or nil
+        local subject = subjectCallName(writer, actor,
+            record and record.actor and record or nil, fallenId, rawSubject)
         return admit(writer, { scene = "burial", importance = 88,
             facts = { ["burial.friend"] = true }, tokens = { subject = subject },
-            sourceKey = "fallen_burial:" .. writer.id .. ":" .. subject }, clock)
+            subjectId = fallenId,
+            sourceKey = "fallen_burial:" .. writer.id .. ":" .. rawSubject }, clock)
     end)
 end
 
@@ -1056,8 +1096,11 @@ function Diary.noteMercyKilling(actor, crisis)
         local clock = Diary.clock()
         local writer = writerForActor(actor, clock)
         if not writer then return false, "not_a_diarist" end
+        local subject = subjectCallName(writer, actor,
+            U().resolveActor(crisis.subjectId), crisis.subjectId,
+            firstName(crisis.subjectName))
         return admit(writer, { scene = "mercy", importance = 97,
-            facts = { ["mercy.performed"] = true }, tokens = { subject = firstName(crisis.subjectName) },
+            facts = { ["mercy.performed"] = true }, tokens = { subject = subject },
             subjectId = crisis.subjectId,
             sourceKey = "mercy:" .. tostring(crisis.id) .. ":" .. writer.id }, clock)
     end)
@@ -1345,7 +1388,9 @@ local function worldFacts(actor, writer, state, clock, evidence, tokens)
     end
     if SC.Community and type(SC.Community.activeGrief) == "function" then
         local ok, grief = pcall(SC.Community.activeGrief, writer.id)
-        local name = ok and type(grief) == "table" and firstName(grief.subjectName) or nil
+        local name = ok and type(grief) == "table" and subjectCallName(writer, actor,
+            U().resolveActor(grief.subjectId), grief.subjectId,
+            firstName(grief.subjectName)) or nil
         if name then
             evidence["grief.active"] = true
             if grief.stage == "recovering" then evidence["grief.recovering"] = true end
@@ -1583,8 +1628,15 @@ function Diary.commitWrite(actor, plan)
         dateLabel = plan.dateLabel, text = plan.draft.text,
     })
     if not appended then return false, payload end
+    local writtenCandidate = writer.candidates[candidateIndex]
+    local writtenSubject = type(writtenCandidate.tokens) == "table"
+        and writtenCandidate.tokens.subject or nil
     table.remove(writer.candidates, candidateIndex)
     addReceipt(writer, plan.sourceKey)
+    if type(writtenSubject) == "string" and type(plan.draft.text) == "string"
+        and string.find(plan.draft.text, writtenSubject, 1, true) then
+        rememberSubject(writer, writtenCandidate.subjectId)
+    end
     local recent = writer.recent
     recent[#recent + 1] = { variantId = plan.draft.variantId, ideaId = plan.draft.ideaId,
         shape = plan.draft.shape }
@@ -1745,6 +1797,16 @@ local function validateWriter(writer, id, path)
     if not denseArray(writer.receipts, 128) then return restoreFailure(path .. ".receipts", "expected dense array") end
     for _, value in ipairs(writer.receipts) do
         if not isString(value, 160) then return restoreFailure(path .. ".receipts", "expected string") end
+    end
+    if writer.subjectMentions ~= nil then
+        if not denseArray(writer.subjectMentions, 64) then
+            return restoreFailure(path .. ".subjectMentions", "expected bounded array")
+        end
+        for _, id in ipairs(writer.subjectMentions) do
+            if not isString(id, 80) then
+                return restoreFailure(path .. ".subjectMentions", "invalid subject id")
+            end
+        end
     end
     if type(writer.anchors) ~= "table" then return restoreFailure(path .. ".anchors", "expected table") end
     for key, anchor in pairs(writer.anchors) do

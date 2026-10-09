@@ -41,7 +41,8 @@ BaseLife.GATHER_MATERIALS = {
 }
 BaseLife.GATHER_ZONE_KINDS = { work = true, lumber = true }
 local LEGACY_DEFAULT_AREA_RADIUS = 6
-local DEFAULT_AREA_RADIUS = 7
+local PREVIOUS_DEFAULT_AREA_RADIUS = 7
+local DEFAULT_AREA_RADIUS = 12
 
 -- Persisted production operations. This table is the save schema only:
 -- SCProduction registers the runtime behaviour for each id. Keeping the
@@ -371,6 +372,12 @@ local function normalizeJob(source)
         planId = type(source.planId) == "string" and cleanText(source.planId, "", 64) or nil,
         buildKind = type(source.buildKind) == "string"
             and cleanText(source.buildKind, "", 32) or nil,
+        fallenName = source.type == "build" and type(source.fallenName) == "string"
+            and source.fallenName ~= "" and cleanText(source.fallenName, "", 128) or nil,
+        fallenDisplayName = source.type == "build"
+            and type(source.fallenDisplayName) == "string"
+            and source.fallenDisplayName ~= ""
+            and cleanText(source.fallenDisplayName, "", 128) or nil,
         face = integer(source.face, 1, 1, 4),
         assignedId = type(source.assignedId) == "string" and source.assignedId or nil,
         reservedBy = nil, leaseUntil = 0, blocker = source.blocker ~= nil
@@ -763,17 +770,20 @@ local function normalizeBase(source)
         local zone = normalizeZone(row)
         if zone and #result.zones < maximumZones then result.zones[#result.zones + 1] = zone end
     end
-    -- Preserve hand-drawn areas, but grow the untouched legacy default by the
-    -- newly requested one-tile border when an existing camp is first restored.
+    -- Preserve hand-drawn areas, but grow untouched 13x13 and 15x15 defaults
+    -- to the current camp footprint when an existing camp is restored.
     local desiredRadius = integer(U() and U().config("baseDefaultAreaRadius")
         or DEFAULT_AREA_RADIUS, DEFAULT_AREA_RADIUS, 2, 32)
     if desiredRadius > LEGACY_DEFAULT_AREA_RADIUS then
         for _, zone in ipairs(result.zones) do
+            local oldRadius = core.x - zone.x1
             if zone.kind == "area" and zone.name == "Camp area" and zone.z == core.z
-                and zone.x1 == core.x - LEGACY_DEFAULT_AREA_RADIUS
-                and zone.y1 == core.y - LEGACY_DEFAULT_AREA_RADIUS
-                and zone.x2 == core.x + LEGACY_DEFAULT_AREA_RADIUS
-                and zone.y2 == core.y + LEGACY_DEFAULT_AREA_RADIUS then
+                and (oldRadius == LEGACY_DEFAULT_AREA_RADIUS
+                    or oldRadius == PREVIOUS_DEFAULT_AREA_RADIUS)
+                and desiredRadius > oldRadius
+                and zone.y1 == core.y - oldRadius
+                and zone.x2 == core.x + oldRadius
+                and zone.y2 == core.y + oldRadius then
                 zone.x1, zone.y1 = core.x - desiredRadius, core.y - desiredRadius
                 zone.x2, zone.y2 = core.x + desiredRadius, core.y + desiredRadius
                 break

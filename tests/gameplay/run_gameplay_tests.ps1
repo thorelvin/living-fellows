@@ -2,10 +2,12 @@
 
 param(
     [string]$GameRoot = 'C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid',
-    [switch]$FishingOnly
+    [switch]$FishingOnly,
+    [switch]$NicknamesOnly
 )
 
 $ErrorActionPreference = 'Stop'
+if ($FishingOnly -and $NicknamesOnly) { throw 'Choose one focused test group.' }
 $TestRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = (Resolve-Path -LiteralPath (Join-Path $TestRoot '..\..')).Path
 $ClientRoot = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\client'
@@ -30,6 +32,7 @@ $LuaFiles = @(
 )
 $LuaFiles += @(
     'SCGameplayUtil.lua',
+    'SCNames.lua',
     'SCInventoryIndex.lua',
     'SCVitalsTrace.lua',
     'SCBaseObjectRef.lua',
@@ -119,19 +122,21 @@ try {
 
     Push-Location -LiteralPath $GameRoot
     try {
-        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @LuaFiles
-        if ($LASTEXITCODE -ne 0) { throw 'Gameplay Kahlua integration harness failed.' }
-        if ($FishingOnly) { return }
-        $medicalFiles = @((Join-Path $ProjectRoot 'tests\core\core_fixture.lua'))
-        $medicalFiles += @($LuaFiles | Select-Object -SkipLast 7)
-        $medicalFiles += Join-Path $TestRoot 'medical_liveness_regression_harness.lua'
-        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @medicalFiles
-        if ($LASTEXITCODE -ne 0) { throw 'Medical liveness/rescue regression harness failed.' }
-        $combatFiles = @((Join-Path $ProjectRoot 'tests\core\core_fixture.lua'))
-        $combatFiles += @($LuaFiles | Select-Object -SkipLast 7)
-        $combatFiles += Join-Path $TestRoot 'combat_coordination_regression_harness.lua'
-        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @combatFiles
-        if ($LASTEXITCODE -ne 0) { throw 'Combat coordination regression harness failed.' }
+        if (-not $NicknamesOnly) {
+            & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @LuaFiles
+            if ($LASTEXITCODE -ne 0) { throw 'Gameplay Kahlua integration harness failed.' }
+            if ($FishingOnly) { return }
+            $medicalFiles = @((Join-Path $ProjectRoot 'tests\core\core_fixture.lua'))
+            $medicalFiles += @($LuaFiles | Select-Object -SkipLast 7)
+            $medicalFiles += Join-Path $TestRoot 'medical_liveness_regression_harness.lua'
+            & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @medicalFiles
+            if ($LASTEXITCODE -ne 0) { throw 'Medical liveness/rescue regression harness failed.' }
+            $combatFiles = @((Join-Path $ProjectRoot 'tests\core\core_fixture.lua'))
+            $combatFiles += @($LuaFiles | Select-Object -SkipLast 7)
+            $combatFiles += Join-Path $TestRoot 'combat_coordination_regression_harness.lua'
+            & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @combatFiles
+            if ($LASTEXITCODE -ne 0) { throw 'Combat coordination regression harness failed.' }
+        }
         $diaryFiles = @(
             (Join-Path $TestRoot 'diary_fixture.lua'),
             (Join-Path $SharedRoot 'SCNamespace.lua'),
@@ -141,15 +146,29 @@ try {
             (Join-Path $SharedRoot 'SCConfig.lua'),
             (Join-Path $SharedRoot 'SCDiagnostics.lua'),
             (Join-Path $ClientRoot 'SCGameplayUtil.lua'),
+            (Join-Path $ClientRoot 'SCNames.lua'),
             (Join-Path $ClientRoot 'SCPersonalItems.lua'),
             (Join-Path $ClientRoot 'SCDiaryText.lua'),
             (Join-Path $ClientRoot 'SCDiaryCatalog.lua'),
             (Join-Path $ClientRoot 'SCDiaryItem.lua'),
             (Join-Path $ClientRoot 'SCDiary.lua'),
-            (Join-Path $TestRoot 'diary_harness.lua')
+            (Join-Path $TestRoot 'diary_harness.lua'),
+            (Join-Path $TestRoot 'nickname_diary_harness.lua')
         )
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @diaryFiles
         if ($LASTEXITCODE -ne 0) { throw 'Private diary harness failed.' }
+        $memorialFiles = @(
+            (Join-Path $TestRoot 'nickname_memorial_fixture.lua'),
+            (Join-Path $SharedRoot 'SCNamespace.lua'),
+            (Join-Path $SharedRoot 'SCStableValue.lua'),
+            (Join-Path $ClientRoot 'SCNames.lua'),
+            (Join-Path $ClientRoot 'SCCommunity.lua'),
+            (Join-Path $ClientRoot 'SCProduction.lua'),
+            (Join-Path $TestRoot 'nickname_memorial_harness.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @memorialFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Nickname memorial harness failed.' }
+        if ($NicknamesOnly) { return }
         $transferFiles = @(
             (Join-Path $SharedRoot 'SCNamespace.lua'),
             (Join-Path $ClientRoot 'SCUIBridge.lua'),

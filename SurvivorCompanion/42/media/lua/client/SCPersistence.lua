@@ -1300,6 +1300,10 @@ function persistence.captureRecord(record, vehicleState)
         factionRole = type(record.factionRole) == "string" and text(record.factionRole, "", 32) or nil,
         factionLeader = record.factionLeader == true,
         identity = captureIdentity(record, actor),
+        nickname = SC.Names and type(SC.Names.normalizeRecord) == "function"
+            and SC.Names.normalizeRecord(record.nickname) or nil,
+        nicknameMeta = SC.Names and type(SC.Names.normalizeMeta) == "function"
+            and SC.Names.normalizeMeta(record.nicknameMeta) or nil,
         position = position,
         order = {
             current = text(order.current, SC.Config.get("defaultOrder"), 32),
@@ -1398,6 +1402,7 @@ end
 local function scheduledSubsystemDefinitions()
     return {
         { field = "factions", owner = SC.Factions, depth = 12, entries = 131072 },
+        { field = "oddballs", owner = SC.Oddballs, depth = 6, entries = 1024 },
         { field = "factionWorld", owner = SC.FactionWorld, depth = 8, entries = 16384 },
         { field = "baseLife", owner = SC.BaseLife, depth = 24, entries = 65536 },
         { field = "infectionCrisis", owner = SC.InfectionCrisis,
@@ -2570,7 +2575,29 @@ local function validateRecord(id, source)
     end
     local sourceWithoutInventory = {}
     for key, value in pairs(source) do
-        if key ~= "inventory" then sourceWithoutInventory[key] = value end
+        if key ~= "inventory" and key ~= "nickname" and key ~= "nicknameMeta" then
+            sourceWithoutInventory[key] = value
+        end
+    end
+    if source.nickname ~= nil then
+        local normalized = SC.Names and type(SC.Names.normalizeRecord) == "function"
+            and SC.Names.normalizeRecord(source.nickname) or nil
+        if normalized then
+            sourceWithoutInventory.nickname = normalized
+        elseif SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
+            SC.Diagnostics.report("nickname", id,
+                "invalid saved nickname dropped", nil)
+        end
+    end
+    if source.nicknameMeta ~= nil then
+        local normalized = SC.Names and type(SC.Names.normalizeMeta) == "function"
+            and SC.Names.normalizeMeta(source.nicknameMeta) or nil
+        if normalized then
+            sourceWithoutInventory.nicknameMeta = normalized
+        elseif SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
+            SC.Diagnostics.report("nickname", id,
+                "invalid saved nickname metadata dropped", nil)
+        end
     end
     local clean, copyReason = stableCopy(sourceWithoutInventory, 12, 65536,
         "$.records[" .. tostring(id) .. "]")
@@ -3556,6 +3583,8 @@ function persistence.restoreAt(saved, square)
         factionLeader = saved.factionLeader == true,
         restored = true,
         identity = saved.identity,
+        nickname = saved.nickname,
+        nicknameMeta = saved.nicknameMeta,
         state = {
             order = saved.order,
             group = saved.group,
@@ -3943,7 +3972,8 @@ function persistence.restore(player)
 
     local subsystemDefinitions = scheduledSubsystemDefinitions()
     local subsystemDiagnostics = {
-        factions = "factions", factionWorld = "faction-world", baseLife = "base-life",
+        factions = "factions", oddballs = "oddballs",
+        factionWorld = "faction-world", baseLife = "base-life",
         infectionCrisis = "infection-crisis", community = "community",
         diaries = "diary", tradeRecovery = "trade-recovery",
         viewSlot = "companion-view", expedition = "expedition",
@@ -3977,6 +4007,9 @@ function persistence.restore(player)
                 SC.Diagnostics.report(subsystemDiagnostics[definition.field], nil,
                     "subsystem save quarantined", failure)
             end
+        elseif definition.field == "oddballs" and SC.Oddballs
+            and type(SC.Oddballs.restore) == "function" then
+            SC.Oddballs.restore(nil)
         end
     end
 

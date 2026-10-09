@@ -13,6 +13,8 @@ import zombie.characters.SurvivorDesc;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.SliceY;
+import zombie.network.GameClient;
+import zombie.network.GameServer;
 
 /** Real-game-JAR fault matrix for bridge ownership and native teardown. */
 public final class SCNativeCleanupTransactionTest {
@@ -420,8 +422,44 @@ public final class SCNativeCleanupTransactionTest {
             actor.setCurrentSquare(null);
             actor.setSquare(null);
         }
+        require(!SCBridge.setStoryZombieIgnored(first, true)
+                        && !first.isZombiesDontAttack(),
+                "unowned native actor accepted story zombie shelter");
         addOwned(first);
         addOwned(second);
+        require(SCBridge.setStoryZombieIgnored(first, true)
+                        && first.isZombiesDontAttack()
+                        && !second.isZombiesDontAttack(),
+                "story zombie shelter changed another owned actor or did not take effect");
+        AtomicBoolean offThreadShelter = new AtomicBoolean(true);
+        Thread offThread = new Thread(() -> offThreadShelter.set(
+                SCBridge.setStoryZombieIgnored(second, true)), "SC-story-shelter-off-thread-test");
+        offThread.start();
+        offThread.join(5_000L);
+        require(!offThread.isAlive() && !offThreadShelter.get()
+                        && !second.isZombiesDontAttack(),
+                "story zombie shelter accepted an off-thread write");
+        boolean previousClient = GameClient.client;
+        boolean previousServer = GameServer.server;
+        try {
+            GameClient.client = true;
+            require(!SCBridge.setStoryZombieIgnored(second, true)
+                            && !second.isZombiesDontAttack(),
+                    "story zombie shelter accepted a multiplayer client");
+            GameClient.client = false;
+            GameServer.server = true;
+            require(!SCBridge.setStoryZombieIgnored(second, true)
+                            && !second.isZombiesDontAttack(),
+                    "story zombie shelter accepted a multiplayer server");
+        } finally {
+            GameClient.client = previousClient;
+            GameServer.server = previousServer;
+        }
+        require(SCBridge.setStoryZombieIgnored(first, false)
+                        && !first.isZombiesDontAttack()
+                        && SCBridge.setStoryZombieIgnored(first, true)
+                        && first.isZombiesDontAttack(),
+                "story zombie shelter could not be revoked and restored on one actor");
         SCBridge.failNextCleanupStepForTests("current-square");
         require(!SCBridge.removeAll()
                         && SCBridge.getOwnedCount() == 1
@@ -433,6 +471,8 @@ public final class SCNativeCleanupTransactionTest {
                         + SCBridge.isCompanion(first) + " second="
                         + SCBridge.isCompanion(second) + " failure="
                         + SCBridge.getLastFailure());
+        require(!first.isZombiesDontAttack() && !second.isZombiesDontAttack(),
+                "native teardown left a story zombie shelter flag on an actor");
         require(SCBridge.retryCleanupAll()
                         && !SCBridge.isCompanion(first)
                         && !SCBridge.isCompanion(second),

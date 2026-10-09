@@ -170,11 +170,13 @@ for _, name in ipairs({
     "Background", "Dialogue", "NativeTraversalActions", "NativeVisualActions",
     "NativeCombatActions", "NativeWorkActions", "NativeMovementActions",
     "Trade", "FactionLife", "FactionWorld",
-    "FactionBehavior", "ZombieTargeting", "ThreatSet", "PerceptionScan", "Locomotion", "Senses", "Topology", "PathSearch", "NavTraffic", "NavTraversal", "Allegiance", "Navigation",
+    "FactionBehavior", "Oddballs", "OddballRed", "OddballSpiffo", "OddballWendell", "OddballDeputy",
+    "OddballSilas", "OddballRusty", "OddballLonnie", "OddballVirgil", "OddballClem", "OddballPurdy",
+    "ZombieTargeting", "ThreatSet", "PerceptionScan", "Locomotion", "Senses", "Topology", "PathSearch", "NavTraffic", "NavTraversal", "Allegiance", "Navigation", "Names",
     "Positioning", "Combat", "Medical", "Logistics", "Lighting", "Needs", "Downtime",
     "Personality", "PersonalItems", "Relationship", "Objectives", "Journal",
     "BaseObjectRef", "BaseLife", "HygieneEffects", "WorkTransport", "GatherWork", "FarmWork", "Fishing", "BaseWork", "Production",
-    "InfectionCrisis", "LifeEvents", "Community",
+    "InfectionCrisis", "LifeEvents", "Community", "NicknameLife",
     "DiaryText", "DiaryCatalog", "DiaryItem", "Diary",
     "Quirks", "Autonomy", "Commands", "FactionRecruitment", "Decision", "Support", "ViewControl", "Steering",
     "UIContext",
@@ -236,6 +238,19 @@ function SC.BaseVisuals.remove()
     return true
 end
 function SC.BaseVisuals.isInstalled() return SC.BaseVisuals.installed end
+
+SC.OddballRoomGuard = { installed = false }
+function SC.OddballRoomGuard.install()
+    SC.OddballRoomGuard.installed = true
+    return true
+end
+function SC.OddballRoomGuard.remove()
+    SC.OddballRoomGuard.installed = false
+    return true
+end
+function SC.OddballRoomGuard.isInstalled()
+    return SC.OddballRoomGuard.installed
+end
 
 SC.DiaryUI = { installed = false, installs = 0, removes = 0, failInstall = false }
 function SC.DiaryUI.install()

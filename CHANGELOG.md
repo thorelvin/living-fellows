@@ -2,6 +2,13 @@
 
 # Changelog
 
+## Unreleased - Strange Folk, Phase 2
+
+- Added six more rare, one-off encounters: Gale Mercer at the GigaMart, Butch Kittredge at the butcher shop, Cecil Ray Haskins at the gun counter, Hollis and Duchess, the Party in Room 12, and Ranger June with ten named rabbits.
+- Shops react to real item transfers and paid trades. The party uses real barricade jobs and door-slot barter. Named animals retain native IDs through saves and are never silently cloned after unloading.
+- June's rabbit quiz uses the animal nearest the player. Juniper's escape uses native animal pathing and is only reported after she actually travels away; finding her earns trust.
+- Added focused Kahlua behavior checks for all six encounters and readable status labels for earlier Strange Folk actions.
+
 ## 0.26.32 - Companion inventory and Medical Check
 
 - A recruited companion standing next to you, within one tile on the same floor, appears as a named backpack in the loot pane. Its inventory opens there without a Stay order or a pause in what it is doing, and the backpack goes away when it moves off.

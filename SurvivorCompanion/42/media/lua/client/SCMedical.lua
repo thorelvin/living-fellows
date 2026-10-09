@@ -1389,6 +1389,24 @@ local function finishTreatment(helper, state)
             .. " splinted=" .. tostring(verifiedWound.splinted == true)
             .. " health=" .. tostring(math.floor(tonumber(verifiedAssessment.health) or 0)))
     end
+    if helper ~= state.patient and SC.NicknameLife
+        and type(SC.NicknameLife.noteEvent) == "function"
+        and (tonumber(verifiedAssessment.health) or 100) < 25 then
+        local patientRuntime = U().actorState(state.patient)
+        if not patientRuntime.nicknameCrisisKey then
+            patientRuntime.nicknameCrisisKey = tostring(U().idOf(state.patient)
+                or "patient") .. ":" .. tostring(U().nowMs())
+        end
+        local crisisKey = patientRuntime.nicknameCrisisKey
+        pcall(SC.NicknameLife.noteEvent, state.patient, "rescued", {
+            crisisKey = crisisKey, helper = helper,
+            patientHealth = verifiedAssessment.health,
+        })
+        pcall(SC.NicknameLife.noteEvent, helper, "rescuer", {
+            crisisKey = crisisKey, patient = state.patient,
+            patientHealth = verifiedAssessment.health, verified = true,
+        })
+    end
     Medical.releasePatient(helper)
     treatmentState[helper] = nil
     if SC.NativeActions and type(SC.NativeActions.noteResult) == "function" then
@@ -2161,6 +2179,39 @@ function Medical.update(actor, player, runtime)
     local rootRuntime = utility.actorState(actor, runtime)
     local assessment = Medical.assess(actor, rootRuntime)
     rootRuntime.medicalAssessment = assessment
+    if (tonumber(assessment.health) or 0) > 35 then
+        rootRuntime.nicknameCrisisKey = nil
+    end
+
+    if SC.NicknameLife and type(SC.NicknameLife.noteEvent) == "function" then
+        for _, wound in ipairs(assessment.wounds or {}) do
+            if wound.burned then
+                pcall(SC.NicknameLife.noteEvent, actor, "burn", {
+                    part = wound.name, verified = true,
+                })
+                break
+            end
+        end
+        local z = tonumber((utility.call(actor, "getZ")))
+        local health = tonumber(assessment.health)
+        local current = utility.nowMs()
+        if z and rootRuntime.nicknameLastZ
+            and rootRuntime.nicknameLastZ - z >= 1.8 then
+            rootRuntime.nicknameRecentDropAt = current
+        end
+        if rootRuntime.nicknameRecentDropAt and health
+            and rootRuntime.nicknameLastHealth
+            and rootRuntime.nicknameLastHealth - health >= 3
+            and current - rootRuntime.nicknameRecentDropAt <= 2500 then
+            pcall(SC.NicknameLife.noteEvent, actor, "fall", {
+                floors = 2, survived = true,
+                healthLost = rootRuntime.nicknameLastHealth - health,
+            })
+            rootRuntime.nicknameRecentDropAt = nil
+        end
+        if z then rootRuntime.nicknameLastZ = z end
+        if health then rootRuntime.nicknameLastHealth = health end
+    end
 
     if not assessment.alive or assessment.health <= 0 or assessment.terminalKnox then
         if treatmentState[actor] then Medical.cancel(actor,

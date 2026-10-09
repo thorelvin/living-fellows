@@ -37,6 +37,9 @@ local buildRecipeAliases = {
     -- Burial markers use the same EntityScript names.
     grave_marker = { "WoodCross", "RuggedCross" },
 }
+local FALLEN_NAME = "LF_FallenName"
+local FALLEN_DISPLAY_NAME = "LF_FallenDisplayName"
+local FALLEN_MARKER = "LF_FallenMarker"
 
 local function U()
     return SC.GameplayUtil
@@ -708,6 +711,42 @@ local function squareHasSprite(square, spriteName)
     return nil
 end
 
+local function fallenMarkerNames(job)
+    if type(job) ~= "table" or job.type ~= "build"
+        or (job.recipeId ~= "WoodCross" and job.recipeId ~= "RuggedCross")
+        or type(job.fallenName) ~= "string" or job.fallenName == "" then
+        return nil
+    end
+    local displayName = type(job.fallenDisplayName) == "string"
+        and job.fallenDisplayName ~= "" and job.fallenDisplayName or job.fallenName
+    return job.fallenName, displayName
+end
+
+-- Companion builds receive these fields before vanilla copies the cursor's
+-- name and modData into the IsoThumpable. Player-completed queued crosses are
+-- tagged when the world object is reconciled instead.
+local function nameFallenMarker(job, square, spriteName)
+    local name, displayName = fallenMarkerNames(job)
+    if not name or type(spriteName) ~= "string" then return false end
+    local marker
+    U().squareObjects(square, function(object)
+        local sprite = select(1, invoke(object, "getSprite"))
+        if sprite and select(1, invoke(sprite, "getName")) == spriteName then
+            marker = object
+            return false
+        end
+    end, 128)
+    if not marker then return false end
+    local data = U().modData(marker)
+    if type(data) ~= "table" then return false end
+    data[FALLEN_NAME], data[FALLEN_DISPLAY_NAME], data[FALLEN_MARKER] =
+        name, displayName, true
+    invoke(marker, "setName", displayName)
+    invoke(marker, "transmitModData")
+    return true
+end
+BaseWork._nameFallenMarkerForTests = nameFallenMarker
+
 -- A normal player build may finish a queued segment without going through the
 -- companion action. Only world evidence advances it; an absent action cannot.
 function BaseWork.reconcileBuildJob(job, actorId)
@@ -719,6 +758,7 @@ function BaseWork.reconcileBuildJob(job, actorId)
     local lastRecipe = #stages > 0 and stages[#stages] or job.recipeId
     local finalSprite = BaseWork.recipeSprite(lastRecipe, job.face)
     if squareHasSprite(square, finalSprite) == true then
+        nameFallenMarker(job, square, finalSprite)
         return SC.BaseLife.completeJob(job.id, actorId, "built")
     end
     local currentSprite = BaseWork.recipeSprite(job.recipeId, job.face)
@@ -793,6 +833,14 @@ local function startBuildAction(actor, state, job, info, square)
     containers:add(U().inventory(actor))
     local entity = ISBuildIsoEntity:new(actor, info, tonumber(job.face) or 1, containers)
     if not entity then return false, "build_entity_creation_failed" end
+    local fallenName, fallenDisplayName = fallenMarkerNames(job)
+    if fallenName then
+        entity.name = fallenDisplayName
+        entity.modData = type(entity.modData) == "table" and entity.modData or {}
+        entity.modData[FALLEN_NAME] = fallenName
+        entity.modData[FALLEN_DISPLAY_NAME] = fallenDisplayName
+        entity.modData[FALLEN_MARKER] = true
+    end
     entity.nSprite = tonumber(job.face) or 1
     -- The vanilla entity cursor uses getSprite() to set its facing, but its
     -- inherited method may return nil: rendering/building uses getFace().
@@ -870,6 +918,7 @@ local function updateBuild(actor, state, job)
     end
     local outcome = buildOutcome(state, square)
     if outcome == "complete" then
+        nameFallenMarker(job, square, state.buildSpriteName)
         SC.BaseLife.advanceBuildStage(job.id, actorId(actor))
         state.phase, state.action, state.entity = "idle", nil, nil
         state.buildSpriteName = nil

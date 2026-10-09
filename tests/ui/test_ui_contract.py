@@ -554,6 +554,29 @@ class UIStaticContractTests(unittest.TestCase):
         ):
             self.assertIn(key, translations)
 
+    def test_debug_spawn_can_request_a_random_strange_folk_encounter(self) -> None:
+        debug = lua_function(self.ui, "function SCUIDetail:buildDebug(panel)")
+        handler = lua_function(self.ui, "local function onFactionButton(target, button)")
+        location = lua_function(self.ui, "function UI.debugHouseLocation(factionOrSummary, player)")
+        self.assertIn('"UI_SC_Debug_SpawnOddballRandom"', debug)
+        self.assertIn('"spawn_oddball_random"', debug)
+        self.assertIn('"UI_SC_Debug_OddballSpawnHint"', debug)
+        self.assertIn('action == "spawn_oddball_random"', handler)
+        self.assertIn("pcall(SC.Oddballs.debugSpawnRandom, playerForUI())", handler)
+        self.assertIn('no_eligible_loaded_site = "UI_SC_Debug_OddballNoSite"', handler)
+        self.assertIn('action == "spawn_oddball_random"',
+            handler.split('UI.locateDebugFactionHouse(reason)')[0])
+        self.assertIn('summary.oddball.site', location)
+        self.assertIn('oddballSite.spawn', location)
+        translations = json.loads(read(TRANSLATE / "EN" / "UI.json"))
+        for key in (
+            "UI_SC_Debug_SpawnOddballRandom",
+            "UI_SC_Debug_OddballSpawnHint",
+            "UI_SC_Debug_OddballUnavailable",
+            "UI_SC_Debug_OddballNoSite",
+        ):
+            self.assertIn(key, translations)
+
     def test_debug_movement_recorder_is_selected_companion_scoped(self) -> None:
         debug = lua_function(self.ui, "function SCUIDetail:buildDebug(panel)")
         handler = lua_function(self.ui, "local function onSupportButton(target, button)")

@@ -28,6 +28,10 @@ local originalTransferItem, transferItemWrapper
 local transferHookActive = false
 local nearbySignatures = setmetatable({}, { __mode = "k" })
 
+function Bridge.invalidateNearbyInventoryLabels()
+    nearbySignatures = setmetatable({}, { __mode = "k" })
+end
+
 local function safeMethod(object, methodName, ...)
     if not object then
         return nil
@@ -361,6 +365,15 @@ end
 
 -- What to call the companion's container in the pane's button list.
 function Bridge.borrowedInventoryLabel(actor)
+    if SC.Names and type(SC.Names.displayName) == "function" then
+        local show = true
+        if SC.UI and type(SC.UI.getSettings) == "function" then
+            local settings = SC.UI.getSettings()
+            show = type(settings) ~= "table" or settings.showNicknames ~= false
+        end
+        local ok, display = pcall(SC.Names.displayName, actor, show)
+        if ok and type(display) == "string" and display ~= "" then return display end
+    end
     local descriptor = safeMethod(actor, "getDescriptor")
     local forename = descriptor and safeMethod(descriptor, "getForename") or nil
     local surname = descriptor and safeMethod(descriptor, "getSurname") or nil

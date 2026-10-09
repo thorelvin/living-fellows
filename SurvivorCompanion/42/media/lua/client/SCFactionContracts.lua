@@ -1773,6 +1773,15 @@ function Contracts.onZombieDead(zombie)
     end
     local attacker, attackerOk = U().call(zombie, "getAttackedBy")
     local player = localPlayer()
+    -- Faction contracts already owns the zombie-death event. Share this
+    -- callback with authored encounters so each death is observed once.
+    if SC.Oddballs and type(SC.Oddballs.onZombieDead) == "function" then
+        SC.Oddballs.onZombieDead(zombie, attackerOk and attacker or nil, player)
+    end
+    if attackerOk and attacker == player and SC.Oddballs
+        and type(SC.Oddballs.notePlayerKill) == "function" then
+        SC.Oddballs.notePlayerKill(player, zombie)
+    end
     if not attackerOk or not isPlayerPartyKill(attacker, player) then return end
     for _, group in ipairs(SC.Factions and SC.Factions.list(false) or {}) do
         local active = group.social and group.social.contract and group.social.contract.active or nil

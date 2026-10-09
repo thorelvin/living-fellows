@@ -265,6 +265,11 @@ function PersonalItems.ensure(actor, source)
     local possessions = PersonalItems.normalize(source)
     local id = U().idOf(actor)
     if type(id) ~= "string" or id == "" then return nil, "companion_id_unavailable" end
+    local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(id)
+    local identity = record and record.identity
+    local desiredType = type(identity) == "table" and identity.keepsakeType
+    if type(desiredType) ~= "string" or not string.match(desiredType,
+        "^Base%.[%w_]+$") then desiredType = nil end
     local keepsake = possessions.keepsake
     if keepsake and keepsake.key ~= "" then
         local item = PersonalItems.find(actor, keepsake.key)
@@ -280,13 +285,18 @@ function PersonalItems.ensure(actor, source)
 
     local selected
     PersonalItems.walkActorInventory(actor, function(item)
-        if not PersonalItems.personalRecord(item) and isMemento(item) then selected = item return false end
+        if not PersonalItems.personalRecord(item)
+            and ((desiredType and U().itemType(item) == desiredType)
+                or (not desiredType and isMemento(item))) then
+            selected = item return false
+        end
     end)
     local created = false
     local creationReason = "no keepsake type was attempted"
     if not selected then
         local inventory = U().inventory(actor)
-        for _, itemType in ipairs(keepsakeTypes) do
+        for _, itemType in ipairs(desiredType and { desiredType }
+            or keepsakeTypes) do
             selected, creationReason = U().addItem(inventory, itemType)
             if selected then
                 created = true

@@ -6,6 +6,7 @@ require "SCStableValue"
 require "SCTransaction"
 require "SCNativeList"
 require "SCConfig"
+require "SCNames"
 require "SCDiagnostics"
 require "SCNet"
 require "SCRegistry"
@@ -40,6 +41,66 @@ require "SCFactionLife"
 require "SCFactionContracts"
 require "SCFactionWorld"
 require "SCFactionBehavior"
+require "SCOddballRoomGuard"
+require "SCOddballs"
+require "SCOddballRed"
+require "SCOddballSpiffo"
+require "SCOddballWendell"
+require "SCOddballLoretta"
+require "SCOddballGale"
+require "SCOddballButch"
+require "SCOddballCecil"
+require "SCOddballAnimals"
+require "SCOddballHollis"
+require "SCOddballRoom12"
+require "SCOddballJune"
+require "SCOddballDefenseLeague"
+require "SCOddballAshby"
+require "SCOddballSins"
+require "SCOddballKris"
+require "SCOddballEbb"
+require "SCOddballPrentice"
+require "SCOddballLusk"
+require "SCOddballVelma"
+require "SCOddballCorey"
+require "SCOddballDwight"
+require "SCOddballRoyce"
+require "SCOddballMose"
+require "SCOddballAmos"
+require "SCOddballLester"
+require "SCOddballVisitors"
+require "SCOddballTupelo"
+require "SCOddballAuxiliary"
+require "SCOddballRivals"
+require "SCOddballBledsoe"
+require "SCOddballWerewolf"
+require "SCOddballSkeeter"
+require "SCOddballMerle"
+require "SCOddballCrabtree"
+require "SCOddballJedediah"
+require "SCOddballGideon"
+require "SCOddballRenfro"
+require "SCOddballGoatman"
+require "SCOddballTolliver"
+require "SCOddballSleeper"
+require "SCOddballElmer"
+require "SCOddballBigChris"
+require "SCOddballTommy"
+require "SCOddballExchange"
+require "SCOddballGordon"
+require "SCOddballMorton"
+require "SCOddballMien"
+require "SCOddballGrinder"
+require "SCOddballSurvivalist"
+require "SCOddballVoiceActor"
+require "SCOddballPyromaniac"
+require "SCOddballDeputy"
+require "SCOddballSilas"
+require "SCOddballRusty"
+require "SCOddballLonnie"
+require "SCOddballVirgil"
+require "SCOddballClem"
+require "SCOddballPurdy"
 require "SCCombatTrace"
 require "SCZombieTargeting"
 require "SCZombieAttack"
@@ -78,6 +139,7 @@ require "SCProduction"
 require "SCInfectionCrisis"
 require "SCLifeEvents"
 require "SCCommunity"
+require "SCNicknameLife"
 require "SCDiaryText"
 require "SCDiaryCatalog"
 require "SCDiaryItem"
@@ -123,15 +185,18 @@ local requiredModules = {
     "Registry", "Vitals", "VitalsTrace", "Scheduler", "NativeTraversalActions", "NativeVisualActions",
     "NativeCombatActions", "NativeWorkActions", "NativeMovementActions",
     "NativeActions", "Performance",
-    "ActionSupervisor", "Actor", "Persistence", "Vehicle", "Spawn", "GameplayUtil", "Topology",
+    "ActionSupervisor", "Actor", "Persistence", "Vehicle", "Spawn", "GameplayUtil", "Names", "Topology",
     "BaseObjectRef", "PathSearch", "NavTraffic", "NavTraversal",
     "Background", "Dialogue", "Allegiance", "Factions", "Trade", "FactionLife", "FactionContracts", "FactionWorld",
-    "FactionBehavior", "ZombieTargeting", "ThreatSet", "PerceptionScan",
+    "FactionBehavior", "OddballRoomGuard", "Oddballs", "OddballRed", "OddballSpiffo", "OddballWendell", "OddballGale", "OddballButch", "OddballCecil", "OddballAnimals", "OddballHollis", "OddballRoom12", "OddballJune", "OddballDefenseLeague", "OddballAshby", "OddballSins", "OddballKris", "OddballEbb", "OddballPrentice", "OddballLusk", "OddballVelma", "OddballCorey", "OddballDwight", "OddballRoyce", "OddballMose", "OddballAmos", "OddballLester", "OddballVisitors", "OddballTupelo", "OddballAuxiliary", "OddballRivals", "OddballBledsoe", "OddballWerewolf", "OddballSkeeter", "OddballMerle", "OddballCrabtree", "OddballJedediah", "OddballGideon", "OddballRenfro", "OddballGoatman", "OddballTolliver", "OddballSleeper", "OddballElmer", "OddballBigChris", "OddballTommy", "OddballExchange", "OddballGordon", "OddballMorton", "OddballMien", "OddballGrinder", "OddballSurvivalist", "OddballVoiceActor", "OddballPyromaniac",
+    "OddballDeputy", "OddballSilas", "OddballRusty", "OddballLonnie",
+    "OddballVirgil", "OddballClem", "OddballPurdy",
+    "ZombieTargeting", "ThreatSet", "PerceptionScan",
     "Locomotion", "Senses", "Navigation", "Positioning", "Combat", "Medical", "Encounter",
     "Logistics", "Lighting", "Needs", "Downtime", "Personality", "PersonalItems", "Relationship",
     "Objectives", "Journal", "BaseLife", "BaseVisuals", "HygieneEffects", "WorkTransport", "GatherWork",
     "FarmWork", "Fishing", "BaseWork", "Production", "InfectionCrisis",
-    "LifeEvents", "Community", "DiaryText", "DiaryCatalog", "DiaryItem", "Diary",
+    "LifeEvents", "Community", "NicknameLife", "DiaryText", "DiaryCatalog", "DiaryItem", "Diary",
     "Quirks", "Autonomy",
     "Commands", "FactionRecruitment", "Decision", "Support", "UI", "ViewControl", "Steering", "UIContext",
     "CompanionMap",
@@ -156,6 +221,9 @@ local requiredFunctions = {
     { "Factions", "installHooks" },
     { "Factions", "removeHooks" },
     { "Factions", "hooksInstalled" },
+    { "OddballRoomGuard", "install" },
+    { "OddballRoomGuard", "remove" },
+    { "OddballRoomGuard", "isInstalled" },
     { "FactionContracts", "installHooks" },
     { "FactionContracts", "removeHooks" },
     { "FactionContracts", "hooksInstalled" },
@@ -191,6 +259,8 @@ end
 local contractDefinitions = {
     { name = "faction combat", owner = function() return SC.Factions end,
         install = "installHooks", remove = "removeHooks", state = "hooksInstalled" },
+    { name = "encounter room guard", owner = function() return SC.OddballRoomGuard end,
+        install = "install", remove = "remove", state = "isInstalled" },
     { name = "faction contracts", owner = function() return SC.FactionContracts end,
         install = "installHooks", remove = "removeHooks", state = "hooksInstalled" },
     { name = "companion minimap", owner = function() return SC.CompanionMap end,

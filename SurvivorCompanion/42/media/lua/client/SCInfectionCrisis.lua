@@ -748,6 +748,18 @@ local function preserveKeepsake(crisis, subject, player)
         for _, storage in ipairs(SC.BaseLife.storageRows("memorial", false)) do
             local container = SC.BaseLife.resolveContainer(storage)
             if container and U().transferItem(U().inventory(subject), container, item) then
+                local owner = crisis.subjectName or U().nameOf(subject)
+                if SC.Names and type(SC.Names.displayName) == "function" then
+                    local okay, decorated = pcall(SC.Names.displayName, subject, true)
+                    if okay and type(decorated) == "string" and decorated ~= "" then
+                        owner = decorated
+                    end
+                end
+                local itemName = U().itemName(item)
+                if type(itemName) == "string" and itemName ~= ""
+                    and type(owner) == "string" and owner ~= "" then
+                    U().call(item, "setName", itemName .. " (" .. owner .. ")")
+                end
                 crisis.artifacts.keepsake = { storageId = storage.id, at = now() }
                 history("keepsake_memorial", {
                     crisisId = crisis.id, subjectId = crisis.subjectId, storageId = storage.id,
@@ -757,6 +769,7 @@ local function preserveKeepsake(crisis, subject, player)
         end
     end
 end
+Crisis._preserveKeepsakeForTests = preserveKeepsake
 
 local function createNote(subject, crisis, outcome)
     if crisis.artifacts.note then return end

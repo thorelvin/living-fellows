@@ -632,9 +632,15 @@ function UI.getSettings()
         if type(modData[UI.SETTINGS_KEY]) ~= "table" then
             modData[UI.SETTINGS_KEY] = {}
         end
+        if modData[UI.SETTINGS_KEY].showNicknames == nil then
+            modData[UI.SETTINGS_KEY].showNicknames = true
+        end
         return modData[UI.SETTINGS_KEY]
     end
     UI._sessionSettings = UI._sessionSettings or {}
+    if UI._sessionSettings.showNicknames == nil then
+        UI._sessionSettings.showNicknames = true
+    end
     return UI._sessionSettings
 end
 
@@ -669,6 +675,37 @@ local function actorName(actor)
         return tostring(fullName)
     end
     return UI.text("UI_SC_Value_UnknownCompanion")
+end
+
+function UI.displayName(entry, fallback)
+    if not SC.Names or type(SC.Names.displayName) ~= "function" then
+        return fallback
+    end
+    local actor, id = actorAndId(entry)
+    local record
+    if id and SC.Registry and type(SC.Registry.byId) == "function" then
+        local ok, found = pcall(SC.Registry.byId, id)
+        if ok and type(found) == "table" then record = found end
+    end
+    local candidate = record
+    if candidate == nil and type(entry) == "table" then
+        candidate = entry.identity and entry or entry.actor
+    elseif candidate == nil then
+        candidate = actor
+    end
+    if candidate == nil then return fallback end
+    local ok, name = pcall(SC.Names.displayName, candidate,
+        UI.getSettings().showNicknames ~= false)
+    return ok and type(name) == "string" and name ~= "" and name or fallback
+end
+
+function UI.setShowNicknames(enabled)
+    UI.getSettings().showNicknames = enabled == true
+    if Bridge and type(Bridge.invalidateNearbyInventoryLabels) == "function" then
+        Bridge.invalidateNearbyInventoryLabels()
+    end
+    if type(UI.refresh) == "function" then UI.refresh() end
+    return UI.getSettings().showNicknames
 end
 
 local function actorHealth(actor)
@@ -772,7 +809,8 @@ function UI.projectExpeditionRow(row, player)
     local name = type(expedition.memberName) == "function"
         and expedition.memberName(row.id) or row.name
     return {
-        id = row.id, name = name or UI.text("UI_SC_Value_UnknownCompanion"),
+        id = row.id,
+        name = UI.displayName(row, name) or UI.text("UI_SC_Value_UnknownCompanion"),
         group = row.group, recruited = true, available = false,
         order = "expedition", activity = "away",
         expeditionAway = true, expeditionMember = true,
@@ -813,6 +851,7 @@ function UI.describeEntry(entry, player)
     if type(entry) == "table" then
         copySummary(row, entry)
     end
+    row.name = UI.displayName(entry, row.name)
     row.name = row.name or UI.text("UI_SC_Value_UnknownCompanion")
     row.id = row.id or ""
     if started and type(performance.record) == "function" then
@@ -1711,8 +1750,11 @@ function UI.debugHouseLocation(factionOrSummary, player)
         and SC.Factions and type(SC.Factions.summary) == "function" then
         summary = SC.Factions.summary(summary.id) or summary
     end
-    local anchor = type(summary) == "table" and type(summary.house) == "table"
-        and summary.house.anchor or nil
+    local oddballSite = type(summary) == "table" and type(summary.oddball) == "table"
+        and summary.oddball.site or nil
+    local anchor = type(oddballSite) == "table" and oddballSite.spawn
+        or type(summary) == "table" and type(summary.house) == "table"
+            and summary.house.anchor or nil
     local x, y, z = anchor and tonumber(anchor.x), anchor and tonumber(anchor.y),
         anchor and tonumber(anchor.z) or 0
     if not x or not y then return nil end
@@ -2100,6 +2142,12 @@ local function onFactionButton(target, button)
             tonumber(string.sub(action, -1)))
     elseif action == "spawn_random" then
         ok, accepted, reason = pcall(SC.Factions.debugSpawnHousehold, playerForUI(), "random")
+    elseif action == "spawn_oddball_random" then
+        if SC.Oddballs and type(SC.Oddballs.debugSpawnRandom) == "function" then
+            ok, accepted, reason = pcall(SC.Oddballs.debugSpawnRandom, playerForUI())
+        else
+            ok, accepted, reason = true, false, UI.text("UI_SC_Debug_OddballUnavailable")
+        end
     elseif action == "spawn_bandits_random" then
         ok, accepted, reason = pcall(SC.Factions.debugSpawnBanditCamp,
             playerForUI(), "random")
@@ -2182,8 +2230,20 @@ local function onFactionButton(target, button)
         return
     end
     local successful = ok and accepted == true
+    if action == "spawn_oddball_random" and not successful then
+        local reasonKeys = {
+            debug_tools_disabled = "UI_SC_Debug_OddballDisabled",
+            actor_provider_unavailable = "UI_SC_Debug_OddballProviderUnavailable",
+            oddball_spawn_pending = "UI_SC_Debug_OddballPending",
+            all_strange_folk_used = "UI_SC_Debug_OddballAllUsed",
+            no_eligible_loaded_site = "UI_SC_Debug_OddballNoSite",
+        }
+        local key = reasonKeys[tostring(reason)]
+        if key then reason = UI.text(key) end
+    end
     if successful and (action == "spawn_1" or action == "spawn_2"
         or action == "spawn_3" or action == "spawn_random"
+        or action == "spawn_oddball_random"
         or action == "spawn_bandits_random" or action == "spawn_bandits_melee"
         or action == "spawn_bandits_armed") then
         local located, locationText = UI.locateDebugFactionHouse(reason)
@@ -3198,7 +3258,8 @@ function SCUIDetail:buildStatus(panel, row)
                 selectedRowValue(self, function(value)
                     local grief = value.grief or {}
                     return UI.text("UI_SC_Info_GriefValue",
-                        grief.subjectName or unknownValue(), UI.stateText(grief.stage),
+                        grief.subjectDisplayName or grief.subjectName or unknownValue(),
+                        UI.stateText(grief.stage),
                         numericText(grief.currentIntensity, 0))
                 end))
         end
@@ -3352,6 +3413,10 @@ local function onMoreButton(target, button)
     end
 end
 
+local function onShowNicknames(_target, _index, selected)
+    UI.setShowNicknames(selected)
+end
+
 local function onMoreBackButton(target)
     if target and target.root and type(target.root.setSelectedTab) == "function" then
         target.root:setSelectedTab("more")
@@ -3387,6 +3452,16 @@ function SCUIDetail:buildMore(panel, row)
     y = self:addSection(panel, y, "UI_SC_Section_More")
     local metrics = self.metrics or UI.layoutMetrics()
     local width = math.max(100, panel:getWidth() - 28)
+    local showLabel = UI.text("UI_SC_Nickname_Show")
+    local show = ISTickBox:new(12, y, width, math.max(18, metrics.fontHeight), "",
+        self, onShowNicknames)
+    show:initialise()
+    show.background = false
+    show:addOption(showLabel, "showNicknames")
+    show:setSelected(1, UI.getSettings().showNicknames ~= false)
+    show.tooltip = showLabel
+    panel:addChild(show)
+    y = y + math.max(metrics.buttonHeight, show:getHeight()) + 8
     for _, entry in ipairs({
         { key = "UI_SC_Tab_Base", tab = "base", description = "UI_SC_More_Base" },
         { key = "UI_SC_Tab_Factions", tab = "factions", description = "UI_SC_More_Factions" },
@@ -4144,7 +4219,8 @@ function SCUIDetail:buildFactions(panel)
             if type(life.mourning) == "table" then
                 y = self:addInformationLine(panel, y, "UI_SC_Faction_Mourning",
                     UI.text("UI_SC_Faction_MourningValue",
-                        life.mourning.subjectName or unknownValue(),
+                        life.mourning.subjectDisplayName
+                            or life.mourning.subjectName or unknownValue(),
                         numericText(life.mourning.hoursRemaining, 1)))
             end
             for _, member in ipairs(life.members or {}) do
@@ -4413,6 +4489,10 @@ function SCUIDetail:buildDebug(panel)
     y = self:addFactionAction(panel, y, "UI_SC_Debug_SpawnTwo", "spawn_2")
     y = self:addFactionAction(panel, y, "UI_SC_Debug_SpawnThree", "spawn_3")
     y = self:addFactionAction(panel, y, "UI_SC_Debug_SpawnRandom", "spawn_random")
+    y = self:addFactionAction(panel, y, "UI_SC_Debug_SpawnOddballRandom",
+        "spawn_oddball_random")
+    y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+        UI.text("UI_SC_Debug_OddballSpawnHint"))
     y = self:addFactionAction(panel, y, "UI_SC_Debug_SpawnBandits",
         "spawn_bandits_random")
     y = self:addFactionAction(panel, y, "UI_SC_Debug_SpawnBanditsMelee",
@@ -5181,6 +5261,7 @@ function SCUIRoot:refreshRoster(preferredId, description, preserveScroll, deferD
         end
     end
     for index, row in ipairs(entries) do
+        row.name = UI.displayName(row, row.name)
         entries[index] = UI.projectExpeditionRow(row, player)
     end
     table.sort(entries, function(left, right)

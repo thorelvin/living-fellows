@@ -835,6 +835,17 @@ local valueData = {
     -- Intrusive thoughts replace an eligible ambient beat. They never add a
     -- new speech timer or interrupt an owned action.
     intrusiveThoughtsEnabled = true,
+    nicknamesEnabled = true,
+    famousNamesakes = false,
+    nicknameIntroChance = 0.12,
+    nicknamePlaceChance = 0.05,
+    nicknameAddressChance = 0.4,
+    nicknameFamiliarity = 25,
+    nicknameFriendlyOpinion = 15,
+    nicknameRivalTension = 50,
+    nicknameFamiliarForm = 60,
+    nicknameCoinCooldownHours = 168,
+    nicknameMaxLength = 16,
     intrusiveChancePercent = 3,
     intrusivePartyCooldownMs = 2700000,
     intrusiveActorCooldownGameHours = 24,
@@ -1210,7 +1221,7 @@ local valueData = {
     campStorageReservationMs = 20000,
 
     -- Bounded Base Life state keeps per-pulse work and long-world saves predictable.
-    baseDefaultAreaRadius = 7,
+    baseDefaultAreaRadius = 12,
     baseMaxZones = 24,
     baseMaxStorages = 32,
     baseMaxMaintenanceTargets = 64,
@@ -1442,6 +1453,21 @@ local valueData = {
     factionHouseSampleBudget = 96,
     factionMemberMin = 1,
     factionMemberMax = 3,
+    -- Authored strangers share the faction actor budget, but have their own
+    -- encounter cadence and never consume the ordinary household cap.
+    oddballsEnabled = true,
+    oddballEncounterDays = 3,
+    oddballFirstEligibleDay = 2,
+    oddballMaxActive = 2,
+    oddballScanIntervalMs = 30000,
+    oddballScanSampleBudget = 96,
+    oddballLorettaRescueHours = 72,
+    oddballLorettaDarrenRadius = 20,
+    oddballLorettaThirst = 0.8,
+    oddballLorettaHunger = 0.6,
+    oddballBackseatRemarkMs = 90000,
+    oddballBackseatSpeedKmh = 80,
+    oddballBackseatBrakeKmh = 30,
     -- Hostile camps use a separate production roll so peaceful households do
     -- not starve them (or vice versa). Their patrol and contact memories remain
     -- local, bounded and driven by confirmed sight or registered sound.
@@ -1761,6 +1787,13 @@ function SC.Config.refreshSandbox(source)
     end
     local households = clamp(sandbox.MaxHouseholds, 0, 12)
     if households then runtimeOverrides.factionMaxHouseholds = math.floor(households) end
+    if type(sandbox.OddballsEnabled) == "boolean" then
+        runtimeOverrides.oddballsEnabled = sandbox.OddballsEnabled
+    end
+    local oddballDays = clamp(sandbox.OddballEncounterDays, 1, 14)
+    if oddballDays then
+        runtimeOverrides.oddballEncounterDays = math.floor(oddballDays)
+    end
     if type(sandbox.BanditCampsEnabled) == "boolean" then
         runtimeOverrides.banditFactionEnabled = sandbox.BanditCampsEnabled
     end
@@ -1777,6 +1810,12 @@ function SC.Config.refreshSandbox(source)
     end
     if type(sandbox.IntrusiveThoughtsEnabled) == "boolean" then
         runtimeOverrides.intrusiveThoughtsEnabled = sandbox.IntrusiveThoughtsEnabled
+    end
+    if type(sandbox.NicknamesEnabled) == "boolean" then
+        runtimeOverrides.nicknamesEnabled = sandbox.NicknamesEnabled
+    end
+    if type(sandbox.FamousNamesakes) == "boolean" then
+        runtimeOverrides.famousNamesakes = sandbox.FamousNamesakes
     end
     if type(sandbox.ProfanityEnabled) == "boolean" then
         runtimeOverrides.profanityEnabled = sandbox.ProfanityEnabled

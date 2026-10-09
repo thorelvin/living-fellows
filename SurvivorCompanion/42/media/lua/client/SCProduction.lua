@@ -30,6 +30,7 @@ local PRODUCTION_WORK_KINDS = {
 Production.HAUL_TAG = "LF_CorpseHaul"
 Production.BURNED_TAG = "LF_CorpseBurned"
 Production.FALLEN_NAME = "LF_FallenName"
+Production.FALLEN_DISPLAY_NAME = "LF_FallenDisplayName"
 -- Collect/burn helpers live in one table so the module keeps its local count
 -- and each function's upvalues well inside Kahlua's limits.
 local Disposal = { urgentAt = {} }
@@ -576,7 +577,7 @@ local function ceremony(actor, grave, runtime)
     -- pyre gets the fire-side version of the same prayer or gallows line.
     local topic, arguments = ceremonyTopic(actor, key), nil
     if grave.fallenName then
-        topic, arguments = "burial.fallen", { grave.fallenName }
+        topic, arguments = "burial.fallen", { grave.fallenDisplayName or grave.fallenName }
     elseif grave.pyre == true then
         if topic == "burial.prayer" then topic = "burn.prayer"
         elseif topic == "burial.gallows" then topic = "burn.gallows" end
@@ -1851,12 +1852,16 @@ local function graveInfo(object)
     if x == nil then return nil end
     local north, northOk = invoke(object, "getNorth")
     local fallenName = data[Production.FALLEN_NAME]
+    local fallenDisplayName = data[Production.FALLEN_DISPLAY_NAME]
+    fallenName = type(fallenName) == "string" and fallenName or nil
     return {
         object = object, x = x, y = y, z = z or 0,
         corpses = tonumber(data.corpses) or 0, filled = data.filled == true,
         spriteType = data.spriteType, north = northOk and north == true,
         key = "grave:" .. pointKey(x, y, z or 0),
-        fallenName = type(fallenName) == "string" and fallenName or nil,
+        fallenName = fallenName,
+        fallenDisplayName = type(fallenDisplayName) == "string"
+            and fallenDisplayName or fallenName,
     }
 end
 
@@ -2258,6 +2263,8 @@ local function placeMarker(order, grave)
     end
     local ok = SC.BaseLife.enqueueJob({
         type = "build", priority = 2, recipeId = recipeId, face = 1, target = head,
+        fallenName = fallen and grave.fallenName or nil,
+        fallenDisplayName = fallen and (grave.fallenDisplayName or grave.fallenName) or nil,
     })
     return ok == true
 end
@@ -2405,7 +2412,7 @@ local function pollBury(actor, order, state, context)
     if work.fallen and info then Disposal.markFallenGrave(info, work.fallen) end
     if SC.Diary and type(SC.Diary.noteWork) == "function" then
         if type(work.fallen) == "table" then
-            pcall(SC.Diary.noteFallenBurial, actor, work.fallen.name)
+            pcall(SC.Diary.noteFallenBurial, actor, work.fallen.name, work.fallen.subjectId)
         else
             pcall(SC.Diary.noteWork, actor, "buried", 1)
         end
@@ -2684,7 +2691,9 @@ function Disposal.identity(body)
         if ok and subjectId ~= nil and type(row) == "table" then
             local known = row.subjectGender or "unknown"
             if known == "unknown" or gender == "unknown" or known == gender then
-                return "fallen", { name = row.subjectName or name, subjectId = subjectId }
+                return "fallen", { name = row.subjectName or name,
+                    displayName = row.subjectDisplayName or row.subjectName or name,
+                    subjectId = subjectId }
             end
         end
     end
@@ -2857,6 +2866,8 @@ end
 function Disposal.markFallenGrave(info, fallen)
     local name = type(fallen) == "table" and fallen.name or nil
     if type(name) ~= "string" or name == "" then return false end
+    local displayName = type(fallen.displayName) == "string" and fallen.displayName ~= ""
+        and fallen.displayName or name
     local halves = { info.object }
     local px, py = gravePartner(info)
     for _, object in ipairs(graveObjects(U().gridSquare(px, py, info.z))) do
@@ -2867,14 +2878,20 @@ function Disposal.markFallenGrave(info, fallen)
     end
     for _, object in ipairs(halves) do
         local data = U().modData(object)
-        if type(data) == "table" then data[Production.FALLEN_NAME] = name end
+        if type(data) == "table" then
+            data[Production.FALLEN_NAME] = name
+            data[Production.FALLEN_DISPLAY_NAME] = displayName
+            invoke(object, "transmitModData")
+        end
     end
     info.fallenName = name
+    info.fallenDisplayName = displayName
     noteOwnershipMutation()
     metrics.fallenBuried = metrics.fallenBuried + 1
     SC.BaseLife.noteProductionCounter("fallenBuried", 1)
     SC.BaseLife.noteHistory("fallen_buried", {
-        name = name, subjectId = fallen.subjectId, x = info.x, y = info.y, z = info.z,
+        name = name, displayName = displayName,
+        subjectId = fallen.subjectId, x = info.x, y = info.y, z = info.z,
     })
     return true
 end

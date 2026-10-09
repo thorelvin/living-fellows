@@ -3607,6 +3607,14 @@ local function startWindowWatch(actor, activity, now)
     activity.approaching = nil
     activity.actionAccepted = true
     activity.startedAt = now
+    if SC.Oddballs and type(SC.Oddballs.groupForActor) == "function"
+        and SC.OddballSpiffo and type(SC.OddballSpiffo.windowDuty) == "function" then
+        local group = SC.Oddballs.groupForActor(actor)
+        if group and group.oddball
+            and group.oddball.id == "window_spiffo_kevin" then
+            pcall(SC.OddballSpiffo.windowDuty, actor, activity.square)
+        end
+    end
     transitionActivity(activity, "settling", { action = activity.kind })
     return true, activity.kind
 end

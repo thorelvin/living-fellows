@@ -22,7 +22,46 @@ local function eligibleActor(actor)
     if ghostOk and ghost == true then return false, "actor_is_ghost" end
     local invisible, invisibleOk = U().call(actor, "isInvisible")
     if invisibleOk and invisible == true then return false, "actor_is_invisible" end
+    -- Oddball disguises apply only to our owned actors. The same owner restores
+    -- the native attack-immunity flag, while this gate prevents new spotted()
+    -- calls from immediately reacquiring the actor.
+    if SC.Oddballs and type(SC.Oddballs.isZombieIgnored) == "function" then
+        local ok, ignored, reason = pcall(SC.Oddballs.isZombieIgnored, actor)
+        if ok and ignored == true then
+            return false, reason or "actor_oddball_ignored"
+        end
+    end
     return true
+end
+
+-- Releasing a newly disguised actor is a one-shot, bounded operation over the
+-- already observed threat set. Never walk the global zombie list here: it can
+-- be enormous and its order says nothing about distance from this actor.
+function Targeting.releaseTargets(actor, suppliedZombies)
+    if actor == nil or suppliedZombies == nil or not U() then
+        return false, "zombie_candidates_unavailable"
+    end
+    local radius = math.max(1, math.min(32,
+        tonumber(U().config("zombieTargetRadius")) or 18))
+    local maximum = math.max(1, math.min(256,
+        tonumber(U().config("zombieTargetMaxChecks")) or 128))
+    local checked, released = 0, 0
+    U().each(suppliedZombies, maximum, function(entry)
+        local zombie = type(entry) == "table" and entry.actor or entry
+        if zombie ~= nil and U().isZombie(zombie) and not U().isDead(zombie)
+            and U().distance(actor, zombie) <= radius then
+            checked = checked + 1
+            local current, currentOk = U().call(zombie, "getTarget")
+            if currentOk and current == actor then
+                local _, cleared = U().call(zombie, "setTarget", nil)
+                if cleared then
+                    U().call(zombie, "setTargetSeenTime", 0)
+                    released = released + 1
+                end
+            end
+        end
+    end)
+    return true, "target_release_complete", { checked = checked, released = released }
 end
 
 local function clearSight(zombie, actor)

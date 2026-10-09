@@ -135,11 +135,193 @@ local firstNames = {
     { name = "Yongguk", gender = "male" },
 }
 
-local surnames = {
-    "Baker", "Bennett", "Carter", "Cole", "Ellis", "Foster", "Grant", "Hayes",
-    "Holland", "Lane", "Mercer", "Nolan", "Parker", "Reed", "Rowan", "Shaw",
-    "Sutton", "Turner", "Walker", "Ward",
+-- Additional main-character given names from zombie films, television and
+-- games. Kept separate from the existing list so older names remain intact.
+local additionalFemaleNames = {
+    "Alicia", "Althea", "Angela", "Ashley", "Barbra", "Bonnie", "Carla",
+    "Carley", "Caroline", "Casey", "Cassandra", "Cherry", "Clementine",
+    "Dakota", "Dani", "Debra", "Eleanor", "Francine", "Helen", "Helena",
+    "Holly", "Isabela", "Jade", "Jane", "Jessica", "Jinhee", "Judy",
+    "Julie", "Juliet", "June", "Karin", "Karlee", "Lilly", "Lily", "Lisa",
+    "Liv", "Luciana", "Madison", "Mariana", "Maya", "Megan", "Melanie",
+    "Mia", "Mindy", "Minjung", "Moira", "Norma", "Ofelia", "Purna",
+    "Regina", "Roberta", "Rose", "Samantha", "Seongkyeong", "Sheva",
+    "Sherry", "Stacey", "Sydney", "Tina", "Violet", "Xian", "Yoobin",
+    "Zelda",
 }
+local additionalMaleNames = {
+    "Aiden", "Barry", "Bart", "Billy", "Brad", "Bruno", "Burt", "Charlie",
+    "Chuck", "Cliff", "Dan", "Daniel", "Dieter", "Doug", "Eddie",
+    "Edward", "Elijah", "Ernie", "Ethan", "Evangelo", "Flynn", "Freddy",
+    "Gary", "Grant", "Harry", "Hector", "Herbert", "Howard", "Jacob",
+    "Jake", "James", "Jamie", "Jason", "Javier", "John", "Johnny",
+    "Joonwoo", "Juan", "Julius", "Jungseok", "Karl", "Kenny", "Kieran",
+    "Kyle", "Lance", "Larry", "Lazaro", "Lee", "Logan", "Luke", "Mack",
+    "Marcus", "Mark", "Marlon", "Matthew", "Miguel", "Mike", "Nikolai",
+    "Omid", "Otis", "Perry", "Peter", "Piers", "Rahim", "Robert",
+    "Ronnie", "Ryan", "Scott", "Takeo", "Terry", "Theodore", "Thierry",
+    "Thomas", "Tom", "Travis", "Victor", "Wade", "Walter", "Wendell",
+    "William",
+}
+for _, name in ipairs(additionalFemaleNames) do
+    firstNames[#firstNames + 1] = { name = name, gender = "female" }
+end
+for _, name in ipairs(additionalMaleNames) do
+    firstNames[#firstNames + 1] = { name = name, gender = "male" }
+end
+
+local surnames = {
+    "Baker", "Bennett", "Carter", "Ellis", "Foster", "Grant", "Hayes",
+    "Holland", "Lane", "Nolan", "Parker", "Reed", "Rowan", "Shaw",
+    "Sutton", "Turner", "Walker",
+    "Abel", "Aldemir", "Alomar", "Alvarez", "Anderson", "Andrews",
+    "Belinski", "Belmont", "Birkin", "Block", "Bowman", "Brecken",
+    "Briar", "Burton", "Cain", "Caldwell", "Campbell", "Carver", "Caul",
+    "Chambers", "Chambler", "Chang", "Clark", "Coen", "Cooper",
+    "Cosgrove", "Creed", "Cruz", "Darling", "DeMarco", "Dempsey",
+    "Denbo", "Dixon", "Dorie", "Douglas", "Espinosa", "Everett",
+    "Fairburne", "Fincher", "Ford", "Forrester", "Forsythe", "Galvez",
+    "Gallagher", "Garcia", "Garrison", "Gomez", "Graham", "Gray",
+    "Green", "Greene", "Grigio", "Grimes", "Hall", "Halsey", "Harper",
+    "Harris", "Harrison", "Hawthorne", "Hoffman", "Horvath", "James",
+    "Jones", "Justineau", "Kaufman", "Kelvin", "Kennedy", "Keyes",
+    "Levy", "Logan", "MacFarlane", "Manawa", "Marcus", "Marston",
+    "Masaki", "Mazzy", "McCarney", "McDermott", "Miller", "Moore",
+    "Morrison", "Moynihan", "Muller", "Murphy", "Neville", "Nivans",
+    "Oliveira", "Overbeck", "Parks", "Peletier", "Peterson", "Porter",
+    "Ramos", "Redfield", "Rhodes", "Richtofen", "Riley", "Ritter",
+    "Robertson", "Robinson", "Rogan", "Rose", "Salazar", "Schow",
+    "Starling", "Stewart", "Stokes", "Strand", "Taylor", "Thompson",
+    "Torres", "Valentine", "Vickers", "Vogel", "Walsh", "Warren",
+    "Washington", "West", "Whitaker", "Wilcox", "Williams", "Wilson",
+    "Winston", "Winters", "Wong",
+}
+
+local koreanSurnames = { "Rhee", "Kim", "Oh", "Yoon", "Seo", "Park" }
+local koreanGivenNames = {
+    Seokwoo = true, Sanghwa = true, Yongguk = true, Jinhee = true,
+    Seongkyeong = true, Minjung = true, Yoobin = true, Joonwoo = true,
+    Jungseok = true,
+}
+local koreanSurnameSet = {}
+for _, name in ipairs(koreanSurnames) do koreanSurnameSet[name] = true end
+
+-- Exact source-character names are excluded even though their components can
+-- be used independently. The optional namesake roll draws only from pairs
+-- whose two components are present in the new pools.
+local sourcePairs = {
+    "Harry:Cooper", "Helen:Cooper", "Peter:Washington",
+    "Roger:DeMarco", "Stephen:Andrews", "Francine:Parker",
+    "Sarah:Bowman", "Bill:McDermott", "Miguel:Salazar",
+    "Matthew:Logan", "Burt:Wilson", "Herbert:West", "Dan:Cain",
+    "Megan:Halsey", "Regina:Belmont", "Samantha:Belmont",
+    "Hector:Gomez", "Lionel:Cosgrove", "Henry:West",
+    "Shaun:Riley", "Ana:Clark", "Kenneth:Hall", "Michael:Schow",
+    "Steve:Marcus", "Riley:Denbo", "Paul:Kaufman",
+    "Don:Harris", "Alice:Harris", "Tammy:Harris", "Andy:Harris",
+    "Scarlet:Levy", "Jason:Creed", "Debra:Moynihan",
+    "Robert:Neville", "Cherry:Darling", "Dakota:Block",
+    "William:Block", "Grant:Mazzy", "Sydney:Briar",
+    "Gerry:Lane", "Karin:Lane", "Julie:Grigio", "Perry:Kelvin",
+    "Wade:Vogel", "Maggie:Vogel", "Seokwoo:Seo",
+    "Sanghwa:Yoon", "Helen:Justineau", "Eddie:Parks",
+    "Caroline:Caldwell", "Kieran:Gallagher", "Cliff:Robertson",
+    "Ronnie:Peterson", "Mindy:Morrison", "Zelda:Winston",
+    "Joonwoo:Oh", "Yoobin:Kim", "Scott:Ward", "Kate:Ward",
+    "Maria:Cruz",
+    "Rick:Grimes", "Lori:Grimes", "Carl:Grimes", "Judith:Grimes",
+    "Shane:Walsh", "Glenn:Rhee", "Maggie:Greene", "Beth:Greene",
+    "Hershel:Greene", "Daryl:Dixon", "Merle:Dixon",
+    "Carol:Peletier", "Andrea:Harrison", "Dale:Horvath",
+    "Morgan:Jones", "Michonne:Hawthorne", "Tyreese:Williams",
+    "Sasha:Williams", "Abraham:Ford", "Rosita:Espinosa",
+    "Eugene:Porter", "Tara:Chambler", "Gabriel:Stokes",
+    "Theodore:Douglas", "Madison:Clark", "Nick:Clark",
+    "Alicia:Clark", "Travis:Manawa", "Victor:Strand",
+    "Daniel:Salazar", "Ofelia:Salazar", "John:Dorie",
+    "Luciana:Galvez", "Roberta:Warren", "Addy:Carver",
+    "Mack:Thompson", "Julius:James", "Liv:Moore",
+    "Chris:Redfield", "Claire:Redfield", "Jill:Valentine",
+    "Leon:Kennedy", "Ada:Wong", "Barry:Burton", "Moira:Burton",
+    "Rebecca:Chambers", "Carlos:Oliveira", "Sheva:Alomar",
+    "Ethan:Winters", "Mia:Winters", "Ashley:Graham",
+    "Sherry:Birkin", "Billy:Coen", "Piers:Nivans",
+    "Jake:Muller", "Helena:Harper", "Brad:Vickers",
+    "Bill:Overbeck", "Joel:Miller", "Tommy:Miller",
+    "Ellie:Williams", "Riley:Abel", "Abby:Anderson",
+    "Owen:Moore", "Manny:Alvarez", "Nora:Harris",
+    "Isaac:Dixon", "Frank:West", "Isabela:Keyes",
+    "Brad:Garrison", "Jessica:McCarney", "Otis:Washington",
+    "Chuck:Greene", "Stacey:Forsythe", "Rebecca:Chang",
+    "Nick:Ramos", "Lee:Everett", "Lilly:Caul", "Larry:Caul",
+    "Javier:Garcia", "Marcus:Campbell", "Maya:Torres",
+    "Ed:Jones", "Lily:Ritter", "Deacon:StJohn",
+    "William:Gray", "Sarah:Whitaker", "Mike:Wilcox",
+    "Kyle:Crane", "Jade:Aldemir", "Rahim:Aldemir",
+    "Harris:Brecken", "Aiden:Caldwell", "Logan:Carter",
+    "Elijah:Walker", "Holly:Forrester", "Howard:Hoffman",
+    "Karlee:Fincher", "Tank:Dempsey", "Nikolai:Belinski",
+    "Takeo:Masaki", "Edward:Richtofen", "Thomas:Rogan",
+    "James:Taylor", "Gary:Stewart", "Kate:Green",
+    "John:Marston", "Bonnie:MacFarlane", "Karl:Fairburne",
+    "Juliet:Starling",
+}
+
+local strangeFolkPairs = {
+    "Red:Pruitt", "Kevin:Dupree", "Wendell:Skaggs", "Gale:Mercer",
+    "Ambrose:Kittredge", "Cecil:Haskins", "Rhonda:Vance",
+    "Silas:Crane", "Ada:Flint", "Jonah:Vale", "Morris:Pike",
+    "Rusty:Pell", "Lonnie:Tackett", "Virgil:Toombs",
+    "Clem:Sutter", "Harlan:Purdy", "Ellis:Purdy", "Wade:Purdy",
+    "Vernon:Ashby", "Kris:Kimbrough", "Prentice:Hollowell",
+    "Pettigrew:Lusk", "Velma:Crisp", "Corey:Biggs",
+    "Royce:Pickett", "Mose:Calloway", "Amos:Teague",
+    "Lester:Voss", "Dalton:Reese", "Skeeter:Bowles",
+    "Merle:Lusby", "Hollis:Burkett", "Jedediah:Cole",
+    "June:Whitlock", "Tommy:Beaumont", "Gordon:Pettibone",
+    "Morton:Feeney", "Mien:Ward", "Grinder:Berg",
+}
+local reservedSurnames = {
+    Cole = true, Mercer = true, Ward = true, Crane = true,
+    Pruitt = true, Dupree = true, Skaggs = true, Kittredge = true,
+    Haskins = true, Vance = true, Flint = true, Vale = true, Pike = true,
+    Pell = true, Tackett = true, Toombs = true, Sutter = true, Purdy = true,
+    Ashby = true, Kimbrough = true, Hollowell = true, Lusk = true,
+    Crisp = true, Biggs = true, Pickett = true, Calloway = true,
+    Teague = true, Voss = true, Bledsoe = true, Reese = true,
+    Bowles = true, Lusby = true, Burkett = true, Crabtree = true,
+    Whitlock = true, Tolliver = true, Beaumont = true, Pettibone = true,
+    Feeney = true, Berg = true,
+    Hemingway = true, Hass = true, Watts = true, Kormick = true,
+    Jaye = true,
+}
+local reservedFullNames, famousPairs = {}, {}
+local givenByName, availableSurnames = {}, {}
+for _, row in ipairs(firstNames) do givenByName[row.name] = row end
+for _, name in ipairs(surnames) do availableSurnames[name] = true end
+for _, name in ipairs(koreanSurnames) do availableSurnames[name] = true end
+local function pairKey(forename, surname)
+    return string.lower(forename) .. ":" .. string.lower(surname)
+end
+for _, pair in ipairs(sourcePairs) do
+    local forename, surname = pair:match("^([^:]+):([^:]+)$")
+    reservedFullNames[pairKey(forename, surname)] = true
+    local given = givenByName[forename]
+    if given and availableSurnames[surname] and not reservedSurnames[surname]
+        and (koreanGivenNames[forename] == true) == (koreanSurnameSet[surname] == true)
+        and string.lower(forename) ~= string.lower(surname) then
+        famousPairs[#famousPairs + 1] = { given = given, surname = surname }
+    end
+end
+for _, pair in ipairs(strangeFolkPairs) do
+    local forename, surname = pair:match("^([^:]+):([^:]+)$")
+    reservedFullNames[pairKey(forename, surname)] = true
+end
+
+function spawn.isReservedFullName(forename, surname)
+    return type(forename) == "string" and type(surname) == "string"
+        and reservedFullNames[pairKey(forename, surname)] == true
+end
 
 -- Stock 42.20.4 outfits present in both male and female OutfitManager catalogs.
 -- The mundane pool keeps encounters grounded and prevents unclothed descriptors.
@@ -147,6 +329,60 @@ local survivorOutfits = {
     "Generic01", "Generic02", "Generic03", "Generic04", "Generic05",
     "Grunge", "Hobbyist", "Backpacker", "Camper", "Evacuee",
 }
+
+-- Only rooms with a recognisable occupation influence an ordinary survivor's
+-- clothes. Keep the vanilla outfit pool as the fallback for other rooms and
+-- for the 40% who happened to be dressed for something else that day.
+local themedOutfits = {
+    police = { "Police", "PoliceState", "Sheriff_Deputy", "Detective" },
+    prison = { "InmateEscaped", "Inmate", "InmateKhaki", "PrisonGuard" },
+    church = { "Priest", "Classy", "Retiree" },
+    hospital = { "Doctor", "Nurse", "HospitalPatient", "HospitalPatientBathrobe", "AmbulanceDriver" },
+    medical = { "Doctor", "Nurse", "HospitalPatient", "HospitalPatientBathrobe", "AmbulanceDriver" },
+    pharmacy = { "Pharmacist" },
+    spiffos = { "Cook_Spiffos", "Waiter_Spiffo" },
+    jays = { "Cook_Jays", "Waiter_Jays" },
+    grocery = { "GigaMart_Employee" },
+    gas = { "Fossoil", "Gas2Go", "ThunderGas" },
+    garage = { "Mechanic", "MetalWorker" },
+    firehouse = { "Fireman", "FiremanFullSuit" },
+    army = { "ArmyCamoGreen", "ArmyInstructor", "ArmyServiceUniform" },
+    school = { "Teacher", "Student" },
+    bar = { "Biker", "Redneck", "Rocker" },
+    bowling = { "Bowling" },
+    gym = { "FitnessInstructor", "BoxingRed", "BoxingBlue" },
+    lab = { "Doctor", "HazardSuit" },
+    motel = { "Tourist", "Trucker", "Hobbo" },
+    music = { "GuitarGuy", "Rocker" },
+    farm = { "Farmer", "Redneck" },
+    barn = { "Farmer", "Redneck" },
+    farmstorage = { "Farmer", "Redneck" },
+    hunting = { "Hunter" },
+}
+
+local roomAliases = {
+    policestation = "police", policeoffice = "police", cells = "prison",
+    jail = "prison", prisoncell = "prison", chapel = "church",
+    clinic = "medical", surgery = "medical", doctor = "medical",
+    drugstore = "pharmacy", pharmacyshop = "pharmacy",
+    supermarket = "grocery", gigamart = "grocery", grocerystorage = "grocery",
+    gasstation = "gas", gasstore = "gas", mechanic = "garage",
+    firestation = "firehouse", classroom = "school",
+    pub = "bar", bowlingalley = "bowling", fitness = "gym",
+    laboratory = "lab", motelroom = "motel", musicstore = "music",
+    barnstorage = "barn", farmhouse = "farm",
+}
+
+local function normalizeRoomGroup(value)
+    if type(value) ~= "string" then return nil end
+    local name = string.lower(value):gsub("[^%a%d]", "")
+    return roomAliases[name] or name
+end
+
+function spawn.isThemedRoom(name)
+    local group = normalizeRoomGroup(name)
+    return group ~= nil and themedOutfits[group] ~= nil
+end
 
 -- New, unaffiliated survivors are not trained soldiers. Half of them begin
 -- with one plausible household/tool weapon; everyone else must find one in
@@ -236,34 +472,185 @@ local function prepareNeutralStarterWeapon(profile)
     return profile
 end
 
-function spawn.generateIdentity()
-    local chosen, surname, key
-    for _ = 1, 8 do
-        chosen = firstNames[randomBetween(1, #firstNames)]
-        surname = surnames[randomBetween(1, #surnames)]
-        key = chosen.name .. ":" .. surname
-        if key ~= lastGeneratedIdentityKey then break end
-        chosen = nil
-    end
-    if chosen == nil then
-        local fallbackIndex = (sequence % #firstNames) + 1
-        chosen = firstNames[fallbackIndex]
-        local surnameIndex = ((sequence + 1) % #surnames) + 1
-        surname = surnames[surnameIndex]
-        key = chosen.name .. ":" .. surname
-        if key == lastGeneratedIdentityKey then
-            surname = surnames[(surnameIndex % #surnames) + 1]
-            key = chosen.name .. ":" .. surname
+local function livingNameUsage(options)
+    local usedGiven, usedSurnames = {}, {}
+    local function include(identity)
+        if type(identity) ~= "table" then return end
+        local given = identity.forename or identity.name
+        if type(given) == "string" and given ~= "" then
+            usedGiven[string.lower(given)] = true
+        end
+        if type(identity.surname) == "string" and identity.surname ~= "" then
+            usedSurnames[string.lower(identity.surname)] = true
         end
     end
-    lastGeneratedIdentityKey = key
+    local registry = SC.Registry
+    if registry and type(registry.snapshot) == "function" then
+        local ok, records = pcall(registry.snapshot)
+        if ok and type(records) == "table" then
+            for _, record in ipairs(records) do
+                local actor = type(record) == "table" and record.actor or nil
+                local alive = actor ~= nil and not (type(record.runtime) == "table"
+                    and record.runtime.inactive == true)
+                if alive and type(actor.isDead) == "function" then
+                    local deadOk, dead = pcall(actor.isDead, actor)
+                    alive = not deadOk or dead ~= true
+                end
+                if alive then include(record.identity) end
+            end
+        end
+    elseif registry and type(registry.living) == "function" then
+        local ok, actors = pcall(registry.living)
+        if ok and type(actors) == "table" then
+            for _, actor in ipairs(actors) do
+                local identity = type(actor) == "table" and actor.identity or nil
+                if identity == nil and type(actor.getDescriptor) == "function" then
+                    local descOk, descriptor = pcall(actor.getDescriptor, actor)
+                    if descOk and descriptor then
+                        local firstOk, first = pcall(descriptor.getForename, descriptor)
+                        local lastOk, last = pcall(descriptor.getSurname, descriptor)
+                        if firstOk and lastOk then
+                            identity = { forename = first, surname = last }
+                        end
+                    end
+                end
+                include(identity)
+            end
+        end
+    end
+    if SC.Vehicle and type(SC.Vehicle.exportStored) == "function" then
+        local ok, stored = pcall(SC.Vehicle.exportStored)
+        if ok and type(stored) == "table" then
+            for _, record in pairs(stored) do include(record.identity) end
+        end
+    end
+    if SC.Factions and type(SC.Factions.list) == "function" then
+        local ok, groups = pcall(SC.Factions.list)
+        if ok and type(groups) == "table" then
+            for _, group in ipairs(groups) do
+                for _, member in ipairs(type(group.members) == "table" and group.members or {}) do
+                    if member.alive ~= false then include(member.identity) end
+                end
+            end
+        end
+    end
+    local pendingProfile = pendingSpawn and pendingSpawn.ticket
+        and pendingSpawn.ticket.profile
+    if type(pendingProfile) == "table" then include(pendingProfile.identity) end
+    for name, used in pairs(options.usedFirstNames or {}) do
+        if used then usedGiven[string.lower(tostring(name))] = true end
+    end
+    for name, used in pairs(options.usedSurnames or {}) do
+        if used then usedSurnames[string.lower(tostring(name))] = true end
+    end
+    return usedGiven, usedSurnames
+end
+
+function spawn.generateIdentity(options)
+    options = type(options) == "table" and options or { roomGroup = options }
+    local themedPool = themedOutfits[normalizeRoomGroup(options.roomGroup) or ""]
+    local usedGiven, usedSurnames = livingNameUsage(options)
+    local forcedSurname = options.surname or options.familySurname
+    local allowSurnameReuse = options.allowSurnameReuse == true
+        and type(forcedSurname) == "string"
+    local function available(given, surname, allowReserved)
+        if type(given) ~= "table" or type(surname) ~= "string"
+            or not availableSurnames[surname] or reservedSurnames[surname]
+            or usedGiven[string.lower(given.name)]
+            or (usedSurnames[string.lower(surname)] and not allowSurnameReuse)
+            or (koreanGivenNames[given.name] == true)
+                ~= (koreanSurnameSet[surname] == true)
+            or string.lower(given.name) == string.lower(surname) then return false end
+        local key = pairKey(given.name, surname)
+        return key ~= lastGeneratedIdentityKey
+            and (allowReserved or not reservedFullNames[key])
+    end
+    local chosen, surname
+    if SC.Config.get("famousNamesakes") == true and options.allowFamous ~= false
+        and randomBetween(1, 50) == 1 and #famousPairs > 0 then
+        local start = randomBetween(1, #famousPairs)
+        for step = 0, #famousPairs - 1 do
+            local pair = famousPairs[((start + step - 1) % #famousPairs) + 1]
+            if (forcedSurname == nil or forcedSurname == pair.surname)
+                and available(pair.given, pair.surname, true) then
+                chosen, surname = pair.given, pair.surname
+                break
+            end
+        end
+    end
+    if chosen == nil then
+        for _ = 1, 32 do
+            local candidate = firstNames[randomBetween(1, #firstNames)]
+            local pool = koreanGivenNames[candidate.name] and koreanSurnames or surnames
+            local candidateSurname = forcedSurname or pool[randomBetween(1, #pool)]
+            if available(candidate, candidateSurname, false) then
+                chosen, surname = candidate, candidateSurname
+                break
+            end
+        end
+    end
+    if chosen == nil then
+        -- A deterministic full scan guarantees progress when a fixed test RNG
+        -- or a crowded roster repeatedly presents the same invalid pair.
+        local start = sequence % #firstNames
+        for offset = 0, #firstNames - 1 do
+            local candidate = firstNames[((start + offset) % #firstNames) + 1]
+            local pool = koreanGivenNames[candidate.name] and koreanSurnames or surnames
+            local surnameStart = sequence % #pool
+            for surnameOffset = 0, #pool - 1 do
+                local candidateSurname = forcedSurname
+                    or pool[((surnameStart + surnameOffset) % #pool) + 1]
+                if available(candidate, candidateSurname, false) then
+                    chosen, surname = candidate, candidateSurname
+                    break
+                end
+                if forcedSurname then break end
+            end
+            if chosen then break end
+        end
+    end
+    if chosen == nil then return nil, "identity_name_pool_exhausted" end
+    lastGeneratedIdentityKey = pairKey(chosen.name, surname)
+    local outfitPool = themedPool and randomBetween(1, 100) <= 60
+        and themedPool or survivorOutfits
     return {
         forename = chosen.name,
         surname = surname,
         gender = chosen.gender,
-        outfit = survivorOutfits[randomBetween(1, #survivorOutfits)],
+        outfit = outfitPool[randomBetween(1, #outfitPool)],
         visualSeed = randomBetween(1, 999999999),
     }
+end
+
+local function roomGroupNear(square)
+    local function roomName(candidate)
+        local roomOk, room = invoke(candidate, "getRoom")
+        if not roomOk or not room then return nil end
+        local nameOk, name = invoke(room, "getName")
+        if nameOk and spawn.isThemedRoom(name) then return name end
+        return nil
+    end
+    local name = roomName(square)
+    if name then return name end
+    local cellOk, cell = invoke(square, "getCell")
+    local xOk, x = invoke(square, "getX")
+    local yOk, y = invoke(square, "getY")
+    local zOk, z = invoke(square, "getZ")
+    if not cellOk or not xOk or not yOk or not zOk then return nil end
+    for radius = 1, 2 do
+        for dx = -radius, radius do
+            for dy = -radius, radius do
+                if math.max(math.abs(dx), math.abs(dy)) == radius then
+                    local candidateOk, candidate = invoke(cell, "getGridSquare", x + dx, y + dy, z)
+                    if candidateOk then
+                        name = roomName(candidate)
+                        if name then return name end
+                    end
+                end
+            end
+        end
+    end
+    return nil
 end
 
 local function safeSquare(square, player, requireUnseen)
@@ -457,7 +844,7 @@ function spawn.attempt(player, profile, runtime, source)
     if square == nil then return nil, reason end
     profile = type(profile) == "table" and profile or {
         recruited = false,
-        identity = spawn.generateIdentity(),
+        identity = spawn.generateIdentity({ roomGroup = roomGroupNear(square) }),
     }
     profile = prepareNeutralStarterWeapon(profile)
     if privateDebug then

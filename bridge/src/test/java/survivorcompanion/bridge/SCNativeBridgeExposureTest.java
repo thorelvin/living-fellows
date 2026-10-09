@@ -81,6 +81,8 @@ public final class SCNativeBridgeExposureTest {
                 + "SC_TEST_PROTOCOL = SCBridge.getProtocol()\n"
                 + "SC_TEST_READY = SCBridge.checkReady()\n"
                 + "SC_TEST_VIEW_API = SCBridge.setViewOffset ~= nil and SCBridge.clearViewOffset ~= nil\n"
+                + "SC_TEST_STORY_SHELTER_API = SCBridge.setStoryZombieIgnored ~= nil\n"
+                + "SC_TEST_STORY_SHELTER_REJECTS_NIL = not SCBridge.setStoryZombieIgnored(nil, true)\n"
                 + "SC_TEST_ATTACK_TYPES = true\n";
         Object closure = Class.forName("se.krka.kahlua.luaj.compiler.LuaCompiler")
                 .getMethod("loadstring", String.class, String.class, tableClass)
@@ -92,6 +94,11 @@ public final class SCNativeBridgeExposureTest {
                 "Lua received the wrong native bridge protocol");
         require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_VIEW_API")),
                 "production bridge did not expose the camera offset contract");
+        require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_STORY_SHELTER_API")),
+                "production bridge did not expose the owned story zombie shelter API");
+        require(Boolean.TRUE.equals(rawget.invoke(environment,
+                        "SC_TEST_STORY_SHELTER_REJECTS_NIL")),
+                "Lua could not call the story zombie shelter API or it accepted nil");
         require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_ATTACK_TYPES")),
                 "production bridge did not expose the native attack enum contract");
         String readiness = String.valueOf(rawget.invoke(environment, "SC_TEST_READY"));

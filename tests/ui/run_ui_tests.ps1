@@ -39,6 +39,14 @@ try {
     try {
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @files
         if ($LASTEXITCODE -ne 0) { throw 'UI Kahlua tests failed.' }
+        $nicknameFiles = @(
+            (Join-Path $Client 'SCNames.lua'),
+            (Join-Path $Client 'SCUIBridge.lua'),
+            (Join-Path $Client 'SCBanter.lua'),
+            (Join-Path $TestRoot 'nickname_display_harness.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @nicknameFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Nickname UI Kahlua tests failed.' }
     }
     finally {
         Pop-Location

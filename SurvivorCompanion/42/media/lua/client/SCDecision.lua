@@ -637,7 +637,8 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
 
     if factionIntent then
         add("faction", tonumber(factionIntent.priority),
-            factionIntent.mode == "hostile" or factionIntent.mode == "bandit_human",
+            factionIntent.mode == "hostile" or factionIntent.mode == "bandit_human"
+                or factionIntent.mode == "pyromaniac_stay",
             factionIntent)
     end
 

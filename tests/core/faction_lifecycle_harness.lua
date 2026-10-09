@@ -59,7 +59,8 @@ check(SC.Bootstrap.isInstalled()
         and Events.OnZombieDead.count() == 1
         and SC.BaseVisuals.installed == true
         and SC.DiaryUI.installed == true,
-    "production modules bootstrap with exactly one copy of every owned hook")
+    "production modules bootstrap with exactly one copy of every owned hook: "
+        .. tostring(SC.State.disabledReason))
 check(SC.Factions.hooksInstalled() and SC.FactionContracts.hooksInstalled(),
     "production faction modules expose their installed hook state")
 
@@ -70,13 +71,20 @@ check(SC.Runtime.isTickAttached() and SC.Runtime.tasksRegistered()
 
 local group = testGroup()
 SC.Factions.list = function() return { group } end
+local oddballDeathCalls = 0
+SC.Oddballs.onZombieDead = function(dead, attacker, player)
+    oddballDeathCalls = oddballDeathCalls + 1
+    check(dead ~= nil and attacker == SC_TEST_PLAYER and player == SC_TEST_PLAYER,
+        "authored encounter observes the same confirmed player kill")
+end
 local zombie = {
     getAttackedBy = function() return SC_TEST_PLAYER end,
 }
 Events.OnZombieDead.fire(zombie)
-check(group.social.contract.active.progress.kills == 1
+check(oddballDeathCalls == 1
+        and group.social.contract.active.progress.kills == 1
         and #group.social.memories == 1,
-    "one matching zombie-death event produces exactly one local-threat increment")
+    "one zombie-death event reaches the story and contract once")
 
 local disposeBeforeSecondStart = SC_TEST_COUNTS.actorDispose
 local ready, reason, operational = SC.Runtime.start()

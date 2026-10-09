@@ -124,6 +124,25 @@ local function candidateScore(group, member)
 end
 
 local function selectCandidate(group)
+    if type(group.oddball) == "table" then
+        local preferred = group.oddball.recruitmentCandidateKey
+        if type(preferred) == "string" then
+            local candidate = memberFor(group, preferred)
+            if candidate and SC.Factions.memberIsPresent(candidate)
+                and activeRecord(candidate) then
+                return candidate, candidateScore(group, candidate),
+                    "preferred_candidate_available"
+            end
+        end
+        for _, member in ipairs(group.members or {}) do
+            if (group.oddball.captives ~= true or member.role == "leader")
+                and SC.Factions and SC.Factions.memberIsPresent
+                and SC.Factions.memberIsPresent(member) and activeRecord(member) then
+                return member, candidateScore(group, member), "candidate_available"
+            end
+        end
+        return nil, nil, "candidate_not_loaded"
+    end
     local selected, selectedScore, present, loaded = nil, nil, 0, 0
     for _, member in ipairs(group.members or {}) do
         local isPresent = SC.Factions and SC.Factions.memberIsPresent
@@ -167,6 +186,7 @@ end
 
 local function eligibility(group, forced)
     local state = Recruitment.initialize(group)
+    local oddball = type(group.oddball) == "table"
     local current = worldHour()
     if state.status == "trial" then return false, "trial_already_active" end
     if state.status == "joined" then return false, "household_member_already_joined" end
@@ -184,15 +204,24 @@ local function eligibility(group, forced)
         if SC.Config and SC.Config.get("factionRecruitmentEnabled") ~= true then
             return false, "faction_recruitment_disabled"
         end
-        if group.discovered ~= true then return false, "faction_not_discovered" end
+        if group.discovered ~= true and not oddball then
+            return false, "faction_not_discovered"
+        end
         if group.standing == "Hostile" or group.lifecycle == "hostile"
             or group.permanentHostility == true then return false, "faction_hostile" end
-        if group.standing ~= "Trusted" then return false, "trusted_standing_required" end
         if unresolvedOffenses(group) > 0 then return false, "unresolved_offenses" end
-        local required = tonumber(SC.Config.get("factionRecruitmentContractsRequired")) or 2
-        if completedContracts(group) < required then return false, "more_contracts_required" end
+        if oddball then
+            if not SC.Oddballs or type(SC.Oddballs.canRecruit) ~= "function"
+                or SC.Oddballs.canRecruit(group) ~= true then
+                return false, "oddball_story_incomplete"
+            end
+        else
+            if group.standing ~= "Trusted" then return false, "trusted_standing_required" end
+            local required = tonumber(SC.Config.get("factionRecruitmentContractsRequired")) or 2
+            if completedContracts(group) < required then return false, "more_contracts_required" end
+        end
     end
-    if presentCount(group) <= 1 then return false, "last_household_resident" end
+    if presentCount(group) <= 1 and not oddball then return false, "last_household_resident" end
     local candidate = state.status == "candidate" and memberFor(group, state.candidateKey) or nil
     if candidate and activeRecord(candidate) then return true, candidate end
     local ignoredScore, selectionReason
@@ -203,6 +232,20 @@ end
 
 local function canTalk(group, player, forced)
     if forced == true then return true end
+    if type(group.oddball) == "table" then
+        if group.standing == "Hostile" or group.lifecycle == "hostile" then
+            return false, "faction_hostile"
+        end
+        for _, member in ipairs(group.members or {}) do
+            local record = (group.oddball.captives ~= true or member.role == "leader")
+                and activeRecord(member) or nil
+            if record and player and U().distance(player, record.actor) <= 6
+                and (not U().canSee or U().canSee(player, record.actor) == true) then
+                return true
+            end
+        end
+        return false, "candidate_too_far_away"
+    end
     if not SC.FactionContracts or type(SC.FactionContracts.canTalk) ~= "function" then
         return false, "conversation_unavailable"
     end
@@ -259,7 +302,7 @@ function Recruitment.ask(groupOrId, player, forced)
     local name, first = memberName(candidate)
     say(candidate, "faction.recruit.candidate", "IGUI_SC_FactionRecruit_Candidate",
         "I can try one run with you. Then I decide.")
-    if SC.FactionLife and type(SC.FactionLife.noteEvent) == "function" then
+    if not group.oddball and SC.FactionLife and type(SC.FactionLife.noteEvent) == "function" then
         SC.FactionLife.noteEvent(group, "recruitment_discussed", name)
     end
     return true, "candidate_named:" .. first
@@ -330,10 +373,10 @@ function Recruitment.startTrial(groupOrId, player, forced)
         hour = started, kind = "trial_started", memberKey = candidate.key,
         actorId = record.id,
     }, 48)
-    if SC.FactionLife and type(SC.FactionLife.noteEvent) == "function" then
+    if not group.oddball and SC.FactionLife and type(SC.FactionLife.noteEvent) == "function" then
         SC.FactionLife.noteEvent(group, "member_left_on_trial", candidate.key)
     end
-    if SC.FactionContracts and type(SC.FactionContracts.noteAction) == "function" then
+    if not group.oddball and SC.FactionContracts and type(SC.FactionContracts.noteAction) == "function" then
         SC.FactionContracts.noteAction(group, "recruitment_trial", candidate.key)
     end
     say(candidate, "faction.recruit.trial", "IGUI_SC_FactionRecruit_TrialStart",
@@ -347,7 +390,7 @@ local function trialDecisionScore(group, state, record)
     local member = memberFor(group, state.candidateKey)
     local ties = member and relationshipWeight(group, member.key) or 0
     local hours = math.max(0, worldHour() - (tonumber(state.trialStartedHour) or worldHour()))
-    local score = 38
+    local score = (type(group.oddball) == "table" and 82 or 38)
         + completedContracts(group) * 12
         + math.max(0, (tonumber(group.reputation) or 0) - 40) * 0.35
         + math.min(14, hours * 0.8)
@@ -360,7 +403,9 @@ local function trialDecisionScore(group, state, record)
         + (tonumber(care.rescues) or 0) * 5
         + (tonumber(care.goalsCompleted) or 0) * 2
         - ties * 0.30
-    if member and member.role == "leader" then score = score - 12 end
+    if member and member.role == "leader" and type(group.oddball) ~= "table" then
+        score = score - 12
+    end
     return math.floor(score + 0.5)
 end
 
@@ -388,7 +433,7 @@ local function returnToHousehold(group, state, record, reason)
         hour = worldHour(), kind = "returned", memberKey = member.key,
         actorId = record.id, reason = state.reason,
     }, 48)
-    if SC.FactionLife and type(SC.FactionLife.noteEvent) == "function" then
+    if not group.oddball and SC.FactionLife and type(SC.FactionLife.noteEvent) == "function" then
         SC.FactionLife.noteEvent(group, "member_returned_from_trial", member.key)
     end
     say(member, "faction.recruit.return", "IGUI_SC_FactionRecruit_Return",
@@ -421,14 +466,21 @@ local function joinPlayer(group, state, record, player)
         hour = worldHour(), kind = "joined", memberKey = member.key,
         actorId = record.id,
     }, 48)
-    if SC.FactionLife and type(SC.FactionLife.noteEvent) == "function" then
+    if not group.oddball and SC.FactionLife and type(SC.FactionLife.noteEvent) == "function" then
         SC.FactionLife.noteEvent(group, "member_joined_player", member.key)
     end
-    if SC.FactionContracts and type(SC.FactionContracts.noteAction) == "function" then
+    if not group.oddball and SC.FactionContracts and type(SC.FactionContracts.noteAction) == "function" then
         SC.FactionContracts.noteAction(group, "recruitment_joined", member.key)
     end
-    say(member, "faction.recruit.join", "IGUI_SC_FactionRecruit_Join",
-        "I have made my choice. I am staying with you.")
+    local nicknameSpoken = false
+    if SC.NicknameLife and type(SC.NicknameLife.onRecruit) == "function" then
+        local ok, spoken = pcall(SC.NicknameLife.onRecruit, record.actor, player)
+        nicknameSpoken = ok and spoken == true
+    end
+    if not nicknameSpoken then
+        say(member, "faction.recruit.join", "IGUI_SC_FactionRecruit_Join",
+            "I have made my choice. I am staying with you.")
+    end
     return true, "joined_permanently"
 end
 

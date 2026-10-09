@@ -16867,11 +16867,11 @@ local campSquare = cell:getGridSquare(2, 2, 0)
 check(BaseLife.create(campSquare, "Test Camp") and BaseLife.active().name == "Test Camp",
     "base core creates one bounded default camp area")
 local defaultCampArea = BaseLife.active().zones[1]
-check(defaultCampArea and defaultCampArea.x1 == -5 and defaultCampArea.y1 == -5
-        and defaultCampArea.x2 == 9 and defaultCampArea.y2 == 9
-        and BaseLife.isInside(cell:getGridSquare(9, 2, 0)) == true
-        and BaseLife.isInside(cell:getGridSquare(10, 2, 0)) == false,
-    "the automatic camp boundary extends seven tiles from its core")
+check(defaultCampArea and defaultCampArea.x1 == -10 and defaultCampArea.y1 == -10
+        and defaultCampArea.x2 == 14 and defaultCampArea.y2 == 14
+        and BaseLife.isInside(cell:getGridSquare(14, 2, 0)) == true
+        and BaseLife.isInside(cell:getGridSquare(15, 2, 0)) == false,
+    "the automatic camp boundary extends twelve tiles from its core")
 do
     local previousWorld = getWorld
     local buildingA, buildingB = {}, {}
@@ -18319,8 +18319,8 @@ for _, zone in ipairs(savedBase and savedBase.zones or {}) do
 end
 BaseLife.reset()
 check(BaseLife.restore(baseSave) and BaseLife.active().name == "Test Camp"
-    and BaseLife.active().zones[1].x1 == -5 and BaseLife.active().zones[1].y1 == -5
-    and BaseLife.active().zones[1].x2 == 9 and BaseLife.active().zones[1].y2 == 9
+    and BaseLife.active().zones[1].x1 == -10 and BaseLife.active().zones[1].y1 == -10
+    and BaseLife.active().zones[1].x2 == 14 and BaseLife.active().zones[1].y2 == 14
     and BaseLife.restriction(fellow.id) == "quarantine"
     and #BaseLife.storageRows("tools", true) == 1
     and BaseLife.summary().storageRows[1].reserve == 2
@@ -18334,6 +18334,21 @@ check(BaseLife.restore(baseSave) and BaseLife.active().name == "Test Camp"
     and BaseLife.job(segments[1].id).stageIndex == 2
     and BaseLife.job(segments[1].id).recipeId == "ES_Wood_WallLvl1",
     "base zones, staged blueprints, visibility, storage, policies and quarantine round-trip transactionally")
+local previousDefaultSave = BaseLife.export()
+local previousDefaultBase = previousDefaultSave.bases[previousDefaultSave.activeBaseId]
+for _, zone in ipairs(previousDefaultBase and previousDefaultBase.zones or {}) do
+    if zone.kind == "area" and zone.name == "Camp area" then
+        zone.x1, zone.y1, zone.x2, zone.y2 = -5, -5, 9, 9
+        break
+    end
+end
+BaseLife.reset()
+check(BaseLife.restore(previousDefaultSave)
+        and BaseLife.active().zones[1].x1 == -10
+        and BaseLife.active().zones[1].y1 == -10
+        and BaseLife.active().zones[1].x2 == 14
+        and BaseLife.active().zones[1].y2 == 14,
+    "the previous 15x15 default camp area expands to 25x25 on restore")
 local legacyNightSave = BaseLife.export()
 legacyNightSave.bases[legacyNightSave.activeBaseId].settings.workOutsideAtNight = nil
 BaseLife.reset()

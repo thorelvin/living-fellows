@@ -1009,6 +1009,72 @@ local function validateSpawnRequest(square, profile)
     return profile
 end
 
+local function wornType(actor, fullType)
+    local wornOk, worn = invoke(actor, "getWornItems")
+    if not wornOk or not worn then return false end
+    local sizeOk, size = invoke(worn, "size")
+    for index = 0, sizeOk and math.min(tonumber(size) or 0, 64) - 1 or -1 do
+        local entryOk, entry = invoke(worn, "get", index)
+        local itemOk, item = false, nil
+        if entryOk then itemOk, item = invoke(entry, "getItem") end
+        local typeOk, itemType = false, nil
+        if itemOk then typeOk, itemType = invoke(item, "getFullType") end
+        if typeOk and itemType == fullType then return true end
+    end
+    return false
+end
+
+local function applyAppearanceDetails(actor, identity, restored)
+    if restored == true or type(identity) ~= "table" then return end
+    local changed = false
+    if type(identity.extras) == "table" then
+        local inventoryOk, inventory = invoke(actor, "getInventory")
+        if inventoryOk and inventory then
+            for index = 1, math.min(#identity.extras, 8) do
+                local fullType = identity.extras[index]
+                if type(fullType) == "string" and fullType:match("^Base%.[%w_]+$")
+                    and not wornType(actor, fullType) then
+                    local addedOk, item = invoke(inventory, "AddItem", fullType)
+                    local locationOk, location = false, nil
+                    if addedOk then
+                        locationOk, location = invoke(item, "getBodyLocation")
+                    end
+                    if locationOk and location then
+                        local equippedOk, equipped = invoke(actor, "setWornItem", location, item)
+                        changed = changed or (equippedOk and equipped ~= false)
+                    end
+                end
+            end
+        end
+    end
+    local gore = math.max(0, math.min(1, tonumber(identity.gore) or 0))
+    local dirt = math.max(0, math.min(1, tonumber(identity.dirt) or 0))
+    if gore > 0 or dirt > 0 then
+        local enum = type(_G) == "table" and rawget(_G, "BloodBodyPartType") or nil
+        local maxOk, maximum = false, nil
+        if enum then maxOk, maximum = pcall(function() return enum.MAX end) end
+        maximum = maxOk and maximum or nil
+        local countOk, count = invoke(maximum, "index")
+        if countOk and tonumber(count) then
+            local seed = math.floor(math.abs(tonumber(identity.visualSeed) or 17))
+            for index = 0, math.min(math.floor(count), 64) - 1 do
+                local partOk, part = staticInvoke(enum, "FromIndex", index)
+                if partOk and part then
+                    if (seed + index * 37) % 100 < gore * 100 then
+                        local ok = invoke(actor, "addBlood", part, false, false, true)
+                        changed = changed or ok
+                    end
+                    if (seed + index * 53) % 100 < dirt * 100 then
+                        local ok = invoke(actor, "addDirt", part, nil, false)
+                        changed = changed or ok
+                    end
+                end
+            end
+        end
+    end
+    if changed then invoke(actor, "resetModelNextFrame") end
+end
+
 local function finalizeSpawn(actor, profile, provider)
     local initialized, nativeReason = nativeComponents(actor)
     if not initialized then
@@ -1035,6 +1101,8 @@ local function finalizeSpawn(actor, profile, provider)
         id = profile.id,
         recruited = profile.recruited == true,
         identity = identity,
+        nickname = profile.nickname,
+        nicknameMeta = profile.nicknameMeta,
         state = profile.state,
         restored = profile.restored == true,
         debugSpawn = profile.debugSpawn == true,
@@ -1055,6 +1123,12 @@ local function finalizeSpawn(actor, profile, provider)
             return nil, failure, not cleaned and actor or nil
         end
     end
+
+    if SC.Names and type(SC.Names.ensureIntro) == "function" then
+        SC.Names.ensureIntro(recordInput, actor)
+    end
+
+    applyAppearanceDetails(actor, identity, profile.restored == true)
 
     local record, registerReason = SC.Registry.register(actor, recordInput)
     if record == nil then

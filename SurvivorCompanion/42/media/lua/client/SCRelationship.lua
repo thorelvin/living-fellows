@@ -583,6 +583,7 @@ local doingLabels = {
     burn_body = "tending a pyre",
     bury_body = "burying someone",
     check_room = "checking a room",
+    clem_approach_duel_ground = "walking to the duel ground",
     chop_tree = "chopping a tree",
     clean_base = "cleaning the camp",
     climb_window = "climbing through a window",
@@ -594,8 +595,10 @@ local doingLabels = {
     copy_player_posture = "matching your posture",
     corner_escape = "escaping a corner",
     crisis_approach = "going to help someone",
+    cult_return_church = "heading back to the church",
     crowd_yield_order = "making room for the group",
     dig_grave = "digging a grave",
+    deputy_return_checkpoint = "heading back to the checkpoint",
     dismantle = "taking something apart",
     drag_body_to_pyre = "dragging a body to the pyre",
     drag_body_to_safe_drop = "carrying a body outside",
@@ -618,6 +621,7 @@ local doingLabels = {
     lateral_kite = "keeping distance from a threat",
     leave_base = "leaving camp",
     leave_group = "going my own way",
+    lonnie_wedding = "returning to the wedding",
     move_to_base_build = "heading to the work site",
     move_to_base_check_in = "checking in on someone at camp",
     move_to_tv = "finding a place to watch television",
@@ -642,9 +646,16 @@ local doingLabels = {
     ordered_move = "moving as ordered",
     ordered_retreat = "falling back as ordered",
     purposeful_idle = "keeping busy",
+    purdy_return_to_perch = "returning to a firing position",
     ready_weapon = "getting my weapon ready",
     rear_guard_watch = "watching our rear",
     rear_scan = "checking behind us",
+    red_approach_corpse = "heading to a body",
+    red_flee_horde = "getting clear of a horde",
+    red_gut_up = "renewing his disguise",
+    red_roam_road = "walking the road",
+    red_runner_depart = "heading out for supplies",
+    red_runner_return = "bringing back supplies",
     recover_from_downed = "getting back up",
     reload = "reloading",
     remove_barricade = "removing a barricade",
@@ -654,18 +665,23 @@ local doingLabels = {
     right_of_way_yield = "making room to pass",
     rip_clothing_for_bandage = "making a bandage",
     room_sweep = "checking the room",
+    rusty_return_stage = "returning to the stage",
     saw_logs = "sawing logs",
     shove = "pushing a threat back",
     sit_ground = "resting on the ground",
     stand_ground = "getting back up",
     stair_recovery = "finding a safe way off the stairs",
+    study_corpse = "studying a body",
     steer = "steering clear",
     stomp = "finishing a fallen threat",
+    spiffo_pose_step = "shifting to another window",
+    spiffo_relocate = "moving to a safer window",
     stress_bottle_smash = "venting my nerves",
     stress_furniture_hit = "venting my nerves",
     survival_reassess = "checking our situation",
     traversal_exit = "clearing a crossing",
     unjam = "clearing my weapon",
+    virgil_route = "walking the mail route",
     window_approach = "reaching a window",
 }
 
@@ -769,7 +785,8 @@ function Relationship.respond(action, actor, player, state, description)
     elseif action == "status" then
         local grief = type(description.grief) == "table" and description.grief or nil
         if grief and tonumber(grief.currentIntensity or 0) > 0 then
-            local subject = grief.subjectName or "someone from our group"
+            local subject = grief.subjectDisplayName or grief.subjectName
+                or "someone from our group"
             return varied(actor, "status.grief", text("IGUI_SC_Status_Grieving",
                 "I am not all right yet. %1 is gone, and I need time.", subject),
                 { subject }, state), "undecided", false

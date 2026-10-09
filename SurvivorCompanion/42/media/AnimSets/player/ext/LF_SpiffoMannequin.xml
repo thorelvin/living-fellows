@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<animNode>
+    <m_Name>LF_SpiffoMannequin</m_Name>
+    <m_AnimName>Bob_Mannequin01</m_AnimName>
+    <m_Looped>true</m_Looped>
+    <m_BlendTime>0.20</m_BlendTime>
+    <m_SpeedScale>0.80</m_SpeedScale>
+    <m_SyncTrackingEnabled>false</m_SyncTrackingEnabled>
+    <m_Conditions>
+        <m_Name>Ext</m_Name>
+        <m_Type>STRING</m_Type>
+        <m_Value>LF_SpiffoMannequin</m_Value>
+    </m_Conditions>
+    <m_SubStateBoneWeights><boneName>Dummy01</boneName></m_SubStateBoneWeights>
+    <m_SubStateBoneWeights><boneName>Translation_Data</boneName></m_SubStateBoneWeights>
+</animNode>

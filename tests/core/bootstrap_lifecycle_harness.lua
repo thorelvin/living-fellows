@@ -10,11 +10,13 @@ local SC = SurvivorCompanion
 check(SC.Bootstrap.isInstalled() and Events.OnInitGlobalModData.count() == 1
         and Events.OnGameStart.count() == 1
         and Events.OnSave.count() == 1 and Events.OnMainMenuEnter.count() == 1,
-    "bootstrap atomically owns one copy of each lifecycle hook")
+    "bootstrap atomically owns one copy of each lifecycle hook: "
+        .. tostring(SC.State.disabledReason))
 check(SC.Factions.installs == 1 and SC.FactionContracts.installs == 1
+        and SC.OddballRoomGuard.installs == 1
         and SC.CompanionMap.installs == 1 and SC.BaseVisuals.installs == 1
         and SC.DiaryUI.installs == 1,
-    "bootstrap owns the long-lived faction, minimap, base-visual, and diary hooks")
+    "bootstrap owns the faction, encounter guard, minimap, base-visual, and diary hooks")
 -- The diary context menu used to install itself at module load, outside the
 -- install transaction: a failed bootstrap could not roll it back and a teardown
 -- left the global event handler behind.
@@ -24,7 +26,8 @@ check(SC.DiaryUI.isInstalled(),
 Events.OnGameStart.fire()
 Events.OnGameStart.fire()
 check(SC.Runtime.starts == 2 and SC.Factions.installs == 1
-        and SC.FactionContracts.installs == 1 and SC.CompanionMap.installs == 1
+        and SC.FactionContracts.installs == 1
+        and SC.OddballRoomGuard.installs == 1 and SC.CompanionMap.installs == 1
         and SC.BaseVisuals.installs == 1 and SC.DiaryUI.installs == 1,
     "world starts do not duplicate long-lived hooks")
 
@@ -33,6 +36,7 @@ check(removed and removeReason == "" and Events.OnInitGlobalModData.count() == 0
         and Events.OnGameStart.count() == 0
         and Events.OnSave.count() == 0 and Events.OnMainMenuEnter.count() == 0
         and not SC.Factions.installed and not SC.FactionContracts.installed
+        and not SC.OddballRoomGuard.installed
         and not SC.CompanionMap.installed and not SC.BaseVisuals.installed
         and not SC.DiaryUI.installed,
     "bootstrap removal releases every lifecycle and contract hook")
@@ -43,6 +47,7 @@ check(not installed and string.find(tostring(reason), "OnSave hook failed", 1, t
         and not SC.Bootstrap.isInstalled() and Events.OnGameStart.count() == 0
         and Events.OnSave.count() == 0 and not SC.Factions.installed
         and not SC.FactionContracts.installed and not SC.CompanionMap.installed
+        and not SC.OddballRoomGuard.installed
         and not SC.BaseVisuals.installed and not SC.DiaryUI.installed,
     "partial lifecycle installation rolls back every acquired hook")
 
@@ -77,6 +82,7 @@ local function allOwned()
         and Events.OnGameStart.count() == 1 and Events.OnSave.count() == 1
         and Events.OnMainMenuEnter.count() == 1
         and SC.Factions.installed and SC.FactionContracts.installed
+        and SC.OddballRoomGuard.installed
         and SC.CompanionMap.installed and SC.BaseVisuals.installed
         and SC.DiaryUI.installed
 end
@@ -115,6 +121,7 @@ end
 
 for _, entry in ipairs({
     { name = "faction combat", owner = SC.Factions },
+    { name = "encounter room guard", owner = SC.OddballRoomGuard },
     { name = "faction contracts", owner = SC.FactionContracts },
     { name = "companion minimap", owner = SC.CompanionMap },
     { name = "base visuals", owner = SC.BaseVisuals },

@@ -1310,8 +1310,12 @@ end
 local budgetAllows
 local intrusiveRemember
 
-local function firstName(actor)
-    local name = tostring(U().nameOf(actor) or "")
+local function callName(speaker, listener, context)
+    if SC.Names and type(SC.Names.callName) == "function" then
+        local ok, name = pcall(SC.Names.callName, speaker, listener, context)
+        if ok and type(name) == "string" and name ~= "" then return name end
+    end
+    local name = tostring(U().nameOf(listener) or "")
     return string.match(name, "^(%S+)") or "friend"
 end
 
@@ -1371,8 +1375,10 @@ local tableServesPair
 
 local function beginExchange(first, second, openTopic, replyTopic,
         firstCommands, secondCommands, current, kind, faceToFace)
-    if not speak(first, openTopic, firstCommands, { firstName(second) }, {
-        salt = kind .. ":open:" .. pairKey(first, second) .. ":" .. tostring(current),
+    local salt = kind .. ":open:" .. pairKey(first, second) .. ":" .. tostring(current)
+    if not speak(first, openTopic, firstCommands,
+        { callName(first, second, { salt = salt }) }, {
+        salt = salt,
     }) then return false, "conversation_speech_rejected" end
     if faceToFace ~= false then
         faceConversation(first, second, kind,
@@ -1426,9 +1432,11 @@ local function exchangePulse(records, current)
     local topic = closing and exchange.closeTopic or exchange.replyTopic
     local commands = closing and exchange.firstCommands or exchange.secondCommands
     local other = closing and exchange.second or exchange.first
-    local spoken, _, detail = speak(speaker, topic, commands, { firstName(other) }, {
-            salt = exchange.kind .. ":" .. (closing and "close" or "reply") .. ":"
-                .. pairKey(exchange.first, exchange.second) .. ":" .. tostring(current),
+    local salt = exchange.kind .. ":" .. (closing and "close" or "reply") .. ":"
+        .. pairKey(exchange.first, exchange.second) .. ":" .. tostring(current)
+    local spoken, _, detail = speak(speaker, topic, commands,
+        { callName(speaker, other, { salt = salt }) }, {
+            salt = salt,
             excludedLines = exchange.kind == "intrusive"
                 and party.intrusiveRecentSet or nil,
             recentLimit = exchange.kind == "intrusive"
@@ -1460,6 +1468,17 @@ local function greetingPulse(player, records, current)
         local first = firstRecord.actor
         local firstCommands = available(firstRecord, player, current, playerRadius)
         if firstCommands then
+            if SC.NicknameLife and type(SC.NicknameLife.maybeCoin) == "function"
+                and U().sameFloor(first, player)
+                and U().distance(first, player) <= radius then
+                local salt = "player:coin:" .. tostring(U().idOf(first))
+                    .. ":" .. tostring(current)
+                local ok, coined = pcall(SC.NicknameLife.maybeCoin, first, player, salt)
+                if ok and coined == true then
+                    party.lastFlavorAt = current
+                    return true, "nickname_coin_player"
+                end
+            end
             for _, secondRecord in ipairs(records or {}) do
                 local second = secondRecord.actor
                 local secondCommands = second ~= first and freeSurvivor(secondRecord, current) or nil
@@ -1661,6 +1680,20 @@ local function campConversationPulse(player, records, current)
                     conversationKind = "table"
                 else
                     conversationKind = campPair and "camp" or "shelter"
+                end
+                if SC.NicknameLife and type(SC.NicknameLife.maybeCoin) == "function" then
+                    local coinSalt = conversationKind .. ":coin:" .. key
+                        .. ":" .. tostring(current)
+                    local ok, coined = pcall(SC.NicknameLife.maybeCoin,
+                        firstActor, secondActor, coinSalt)
+                    if ok and coined == true then
+                        actorState(firstActor).lastCampTalkAt = current
+                        actorState(secondActor).lastCampTalkAt = current
+                        rememberPair("campPairs", "campPairCount", key, current, 128)
+                        party.lastCampConversationAt = current
+                        party.lastFlavorAt = current
+                        return true, "nickname_coin"
+                    end
                 end
                 local spoken, topic = beginExchange(firstActor, secondActor,
                     openTopic, replyTopic,
@@ -1934,9 +1967,10 @@ function Banter.crowdYield(actor, blocker, current)
         < config("crowdYieldSpeechCooldownMs", 8000) then
         return false, "crowd_yield_speech_cooldown"
     end
+    local salt = pairKey(actor, blocker) .. ":" .. tostring(current)
     local spoken = speak(actor, "banter.crowd.yield", commandState(actor),
-        { firstName(blocker) }, {
-            salt = pairKey(actor, blocker) .. ":" .. tostring(current),
+        { callName(actor, blocker, { salt = salt, urgent = true }) }, {
+            salt = salt,
         })
     if spoken then own.lastCrowdYieldAt = current end
     return spoken, spoken and "crowd_yield_spoken" or "crowd_yield_speech_rejected"
@@ -2537,6 +2571,10 @@ function Banter.update(player, records, current)
     if type(records) ~= "table" then
         records = SC.Registry and type(SC.Registry.records) == "function"
             and SC.Registry.records() or {}
+    end
+    if SC.NicknameLife and type(SC.NicknameLife.pulse) == "function" then
+        local spoken, reason = SC.NicknameLife.pulse(current)
+        if spoken then return true, reason end
     end
     local exchanged, exchangeReason, exchangeBusy = exchangePulse(records, current)
     if exchanged or exchangeBusy then return exchanged, exchangeReason end

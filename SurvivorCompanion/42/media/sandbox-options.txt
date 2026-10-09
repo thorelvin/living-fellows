@@ -66,6 +66,24 @@ option LivingFellows.MaxHouseholds
     translation = LivingFellows_MaxHouseholds,
 }
 
+option LivingFellows.OddballsEnabled
+{
+    type = boolean,
+    default = true,
+    page = LivingFellows,
+    translation = LivingFellows_OddballsEnabled,
+}
+
+option LivingFellows.OddballEncounterDays
+{
+    type = integer,
+    min = 1,
+    max = 14,
+    default = 3,
+    page = LivingFellows,
+    translation = LivingFellows_OddballEncounterDays,
+}
+
 option LivingFellows.BanditCampsEnabled
 {
     type = boolean,
@@ -118,6 +136,22 @@ option LivingFellows.IntrusiveThoughtsEnabled
     default = true,
     page = LivingFellows,
     translation = LivingFellows_IntrusiveThoughtsEnabled,
+}
+
+option LivingFellows.NicknamesEnabled
+{
+    type = boolean,
+    default = true,
+    page = LivingFellows,
+    translation = LivingFellows_NicknamesEnabled,
+}
+
+option LivingFellows.FamousNamesakes
+{
+    type = boolean,
+    default = false,
+    page = LivingFellows,
+    translation = LivingFellows_FamousNamesakes,
 }
 
 option LivingFellows.ProfanityEnabled

@@ -17,6 +17,10 @@ local eventDefinitions = {
     medical_aid = { delta = 10, text = "%s provided emergency medical help to %s." },
     uneasy_contact = { delta = 1, text = "%s and %s made cautious contact." },
     boundary_dispute = { delta = -9, text = "%s and %s argued over territory and scavenging rights." },
+    neighborhood_accusation = { delta = -28,
+        text = "%s accused %s of conspiring against the neighborhood." },
+    neighborhood_warning = { delta = 12,
+        text = "%s and %s compared notes about a dangerous neighbor." },
 }
 
 local function freshState()
@@ -106,7 +110,9 @@ end
 
 local function ensureRelation(leftId, rightId)
     local key, first, second = pairKey(leftId, rightId)
-    if not key or not group(first) or not group(second) then return nil end
+    local left, right = group(first), group(second)
+    if not key or not left or not right
+        or left.oddball ~= nil or right.oddball ~= nil then return nil end
     local relation = state.relations[key]
     if relation == nil then
         local score = initialScore(first, second)
@@ -124,6 +130,7 @@ local function orderedGroups(livingOnly)
     local result = {}
     for _, candidate in ipairs(rows) do
         if type(candidate) == "table" and type(candidate.id) == "string"
+            and candidate.oddball == nil
             and (not livingOnly or candidate.lifecycle ~= "destroyed") then
             result[#result + 1] = candidate
         end
@@ -214,8 +221,10 @@ end
 function World.reconcile()
     local rows = ensureAllRelations()
     for key, relation in pairs(state.relations) do
-        if type(relation) ~= "table" or group(relation.leftId) == nil
-            or group(relation.rightId) == nil then
+        local left, right = type(relation) == "table" and group(relation.leftId) or nil,
+            type(relation) == "table" and group(relation.rightId) or nil
+        if left == nil or right == nil
+            or left.oddball ~= nil or right.oddball ~= nil then
             state.relations[key] = nil
             state.version = state.version + 1
         end
@@ -247,6 +256,7 @@ end
 function World.onGroupAdded(groupId)
     local added = type(groupId) == "table" and groupId or group(groupId)
     if not added or type(added.id) ~= "string" then return false, "faction_unavailable" end
+    if added.oddball ~= nil then return true, "oddball_has_no_world_relations" end
     for _, other in ipairs(orderedGroups(true)) do
         if other.id ~= added.id then ensureRelation(added.id, other.id) end
     end
@@ -269,6 +279,18 @@ function World.relation(leftId, rightId, create)
     if not key then return nil end
     if create == true then return ensureRelation(leftId, rightId) end
     return state.relations[key]
+end
+
+-- Story encounters can put real information into the same relation/news ledger
+-- used by ordinary households. Oddball groups themselves remain outside it.
+function World.noteNeighborhoodReport(kind, leftId, rightId)
+    if kind ~= "neighborhood_accusation"
+        and kind ~= "neighborhood_warning" then
+        return false, "invalid_neighborhood_report"
+    end
+    local relation = ensureRelation(leftId, rightId)
+    if not relation then return false, "household_pair_unavailable" end
+    return applyEvent(kind, relation, worldHour())
 end
 
 function World.pulse(currentHour)
@@ -337,6 +359,10 @@ end
 function World.onStandingChanged(sourceId, delta, reason)
     if string.sub(tostring(reason or ""), 1, 13) == "word_travels:" then
         return false, "world_reaction_complete"
+    end
+    local source = group(sourceId)
+    if source and source.oddball ~= nil then
+        return false, "oddball_has_no_world_relations"
     end
     ensureAllRelations()
     return spreadStanding(sourceId, finite(delta, 0), reason)

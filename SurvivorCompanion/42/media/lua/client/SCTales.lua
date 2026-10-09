@@ -289,8 +289,12 @@ local function records()
     return {}
 end
 
-local function firstName(actor)
-    local name = tostring(U().nameOf(actor) or "")
+local function callName(speaker, listener, context)
+    if SC.Names and type(SC.Names.callName) == "function" then
+        local ok, name = pcall(SC.Names.callName, speaker, listener, context)
+        if ok and type(name) == "string" and name ~= "" then return name end
+    end
+    local name = tostring(U().nameOf(listener) or "")
     return string.match(name, "^(%S+)") or "friend"
 end
 
@@ -376,6 +380,12 @@ function Tales.noteKill(actor, target, now)
     noteWitnesses(actor, episode)
     if SC.Banter and type(SC.Banter.noteKill) == "function" then
         SC.Banter.noteKill(actor, now)
+    end
+    if SC.NicknameLife and type(SC.NicknameLife.noteKill) == "function" then
+        pcall(SC.NicknameLife.noteKill, actor, target, now)
+    end
+    if SC.Oddballs and type(SC.Oddballs.noteChallengeKill) == "function" then
+        pcall(SC.Oddballs.noteChallengeKill, actor, target)
     end
     return true, "kill_noted"
 end
@@ -662,10 +672,11 @@ local function buildBeats(teller, tale, player, current)
     local function beat(actor, topic, args)
         return { actor = actor, topic = topic, args = args }
     end
-    local story = arguments(tale.place, count, guest, firstName(teller), tale.weapon)
+    local tellerName = callName(teller, teller, { about = true, salt = seed .. ":teller" })
+    local story = arguments(tale.place, count, guest, tellerName, tale.weapon)
     local beats = {
         beat(teller, "tales.open", arguments(Tales.title(tale, telling), count, guest,
-            firstName(teller), tale.weapon)),
+            tellerName, tale.weapon)),
         beat(teller, "tales.body", story),
     }
     if telling >= 2 then beats[#beats + 1] = beat(teller, "tales.dark", story) end
@@ -681,14 +692,18 @@ local function buildBeats(teller, tale, player, current)
         local witness, _, stub = nearbyWitness(tale, teller)
         if witness and roll(config("taleWitnessCorrectChancePercent", 70), seed .. ":witness") then
             beats[#beats + 1] = beat(witness, "tales.correction", arguments(tale.place,
-                stub.kills, guest, firstName(teller), tale.weapon))
+                stub.kills, guest,
+                callName(witness, teller, { about = true, salt = seed .. ":correction" }),
+                tale.weapon))
             local utility = U()
             if tale.playerThere and player ~= nil and utility.sameFloor(teller, player)
                 and utility.distance(teller, player) <= config("ambientDialogueDistance", 10) then
                 beats[#beats + 1] = beat(teller, "tales.appeal", story)
             else
                 beats[#beats + 1] = beat(teller, "tales.doubledown", arguments(tale.place,
-                    stub.kills, guest, firstName(witness), tale.weapon))
+                    stub.kills, guest,
+                    callName(teller, witness, { about = true, salt = seed .. ":doubledown" }),
+                    tale.weapon))
             end
         end
     end

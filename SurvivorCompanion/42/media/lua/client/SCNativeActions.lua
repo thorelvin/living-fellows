@@ -3,6 +3,7 @@
 require "SCNamespace"
 require "SCCall"
 require "SCConfig"
+require "SCTopology"
 require "SCNativeTraversalActions"
 require "SCNativeVisualActions"
 require "SCNativeCombatActions"
@@ -2534,8 +2535,14 @@ local function startDigGrave(actor, intent, provider)
         restoreWorkInventory(actor, record)
         return false, "grave square position is unavailable"
     end
+    local normalTicks = tonumber(graves.maxTime) or 150
+    -- A story helper may shorten the real vanilla build action. Never extend it
+    -- or bypass ISEmptyGraves/ISBuildAction's placement and inventory checks.
+    local requestedTicks = tonumber(intent.durationTicks)
+    local actionTicks = requestedTicks and math.min(normalTicks,
+        math.max(30, requestedTicks)) or normalTicks
     local actionCreated, timedAction = pcall(class.new, class, actor, graves, x, y, z,
-        graves.north, spriteOk and sprite or GRAVE_SPRITES[1], tonumber(graves.maxTime) or 150)
+        graves.north, spriteOk and sprite or GRAVE_SPRITES[1], actionTicks)
     if not actionCreated then
         restoreWorkInventory(actor, record)
         return false, tostring(timedAction)
@@ -3169,6 +3176,21 @@ local function attack(actor, action, intent, provider)
     if not recovered then return false, recoveryReason end
     local inRange, rangeReason = nativeAttackRange(actor, action, intent)
     if not inRange then return false, rangeReason end
+    if action ~= "attack_firearm" and SC.Topology
+        and type(SC.Topology.strikeBarrier) == "function" then
+        local doctrine = intent.combatDoctrine
+        if doctrine == nil and SC.Commands
+            and type(SC.Commands.peek) == "function" then
+            local order = SC.Commands.peek(actor)
+            doctrine = order and order.combatDoctrine
+        end
+        local blocked, barrier = SC.Topology.strikeBarrier(actor, target,
+            action, intent.weapon or heldWeapon(actor), {
+                allowClosedWindow = action == "attack_melee"
+                    and doctrine == "weapons_free",
+            })
+        if blocked then return false, "attack_path_blocked:" .. tostring(barrier) end
+    end
     local handled, reason = useProvider(provider, "attack", actor, action, intent)
     if handled ~= nil then
         return handled, reason

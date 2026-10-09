@@ -95,6 +95,10 @@ public final class SCNativeCompanion extends IsoPlayer {
     private static final int MAX_SPEECH_DISPLAY_MILLIS = 30_000;
 
     private volatile boolean bridgeDisabled;
+    // The game's ordinary setter refuses ZOMBIES_DONT_ATTACK without a player
+    // cheat role. A story passenger needs a private, temporary exemption while
+    // sealed inside her vehicle; never change the player's cheat permissions.
+    private transient volatile boolean bridgeStoryZombieIgnored;
     private volatile String bridgeFailure = "";
     private volatile boolean bridgeDeathStarted;
     private volatile boolean corpseReady;
@@ -289,6 +293,15 @@ public final class SCNativeCompanion extends IsoPlayer {
     @Override
     public boolean isLocalPlayer() {
         return bridgeWallClimbOutcomeContext || bridgeRadioTextContext;
+    }
+
+    @Override
+    public boolean isZombiesDontAttack() {
+        return bridgeStoryZombieIgnored || super.isZombiesDontAttack();
+    }
+
+    void setStoryZombieIgnored(boolean enabled) {
+        bridgeStoryZombieIgnored = enabled;
     }
 
     void beginCompanionRadioTextContext() {
@@ -3109,6 +3122,7 @@ public final class SCNativeCompanion extends IsoPlayer {
     public void disableBridge(String reason) {
         bridgeFailure = cleanReason(reason);
         bridgeDisabled = true;
+        bridgeStoryZombieIgnored = false;
         try { setCompanionTacticalMovement(false, 0.0f, 0.0f); }
         catch (RuntimeException | LinkageError ignored) {}
         try { setMoving(false); } catch (RuntimeException | LinkageError ignored) {}

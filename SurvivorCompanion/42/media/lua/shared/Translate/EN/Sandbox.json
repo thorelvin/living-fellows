@@ -18,6 +18,10 @@
     "Sandbox_LivingFellows_HouseholdDailyChance_tooltip": "Chance checked on an eligible day after the household cooldown and distance rules are satisfied.",
     "Sandbox_LivingFellows_MaxHouseholds": "Maximum new households",
     "Sandbox_LivingFellows_MaxHouseholds_tooltip": "Stops additional household spawning at this count. Lowering the value never removes households already saved.",
+    "Sandbox_LivingFellows_OddballsEnabled": "Strange Folk encounters",
+    "Sandbox_LivingFellows_OddballsEnabled_tooltip": "Allows three unique strangers to appear near suitable places from day two. Existing strangers stay in the save when disabled.",
+    "Sandbox_LivingFellows_OddballEncounterDays": "Days between Strange Folk encounters",
+    "Sandbox_LivingFellows_OddballEncounterDays_tooltip": "After this many in-game days, the next suitable unseen location may host a unique stranger. A lack of suitable places can delay the encounter.",
     "Sandbox_LivingFellows_BanditCampsEnabled": "Spawn bandit camps",
     "Sandbox_LivingFellows_BanditCampsEnabled_tooltip": "Allows rare persistent hostile camps to appear from day four. Existing camps remain when this is disabled.",
     "Sandbox_LivingFellows_BanditCampDailyChance": "Bandit camp daily spawn chance",
@@ -39,5 +43,9 @@
     "Sandbox_LivingFellows_ExpeditionDestinationScope": "Expedition destination choices",
     "Sandbox_LivingFellows_ExpeditionDestinationScope_tooltip": "All nearby includes buildings inferred from map data, even if you have not visited them. Known only lists buildings whose interiors your character has seen. Destinations still need a reachable route before departure.",
     "Sandbox_LivingFellows_ExpeditionDestinationScope_option1": "All nearby (default)",
-    "Sandbox_LivingFellows_ExpeditionDestinationScope_option2": "Known places only"
+    "Sandbox_LivingFellows_ExpeditionDestinationScope_option2": "Known places only",
+    "Sandbox_LivingFellows_NicknamesEnabled": "Companion nicknames",
+    "Sandbox_LivingFellows_NicknamesEnabled_tooltip": "Allow companions to bring, earn, and use nicknames. Existing saved nicknames remain when this is turned off.",
+    "Sandbox_LivingFellows_FamousNamesakes": "Rare famous namesakes",
+    "Sandbox_LivingFellows_FamousNamesakes_tooltip": "A very small number of new survivors may share an exact name with a fictional zombie story character. Off by default."
 }

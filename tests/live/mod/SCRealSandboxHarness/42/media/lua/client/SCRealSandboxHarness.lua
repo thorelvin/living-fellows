@@ -15197,6 +15197,21 @@ Harness.probeWaterSource = function(...)
     return externalProbe("SCWaterSourceProbe", ...)
 end
 
+Harness.probeStrangeFolkPortrait = function(...)
+    return externalProbe("SCStrangeFolkPortraitProbe", ...)
+end
+Harness.strangeFolkPortraitSignals = { write = writeSignal, exists = fileExists }
+
+Harness.probeDeputyRhonda = function(...)
+    return externalProbe("SCDeputyRhondaProbe", ...)
+end
+Harness.deputyRhondaSignals = { write = writeSignal, exists = fileExists }
+
+Harness.probeLoretta = function(...)
+    return externalProbe("SCLorettaLiveProbe", ...)
+end
+Harness.lorettaSignals = { write = writeSignal, exists = fileExists }
+
 local function tick()
     if Harness.finished then return end
     local current = nowMs()
@@ -15265,7 +15280,15 @@ local function tick()
         Harness.measurePerformance(current)
     end
 
-    if string.sub(tostring(Harness.phase), 1, 14) == "medical_check_" then
+    if string.sub(tostring(Harness.phase), 1, 8) == "loretta_" then
+        Harness.probeLoretta(Harness, current, check, result, setPhase)
+    elseif string.sub(tostring(Harness.phase), 1, 14) == "deputy_rhonda_" then
+        Harness.probeDeputyRhonda(Harness, current, check, result, setPhase)
+    elseif string.sub(tostring(Harness.phase), 1, 22) == "strange_folk_portrait_"
+        or string.sub(tostring(Harness.phase), 1, 17) == "wendell_approach_" then
+        Harness.probeStrangeFolkPortrait(Harness, current, check, result,
+            setPhase)
+    elseif string.sub(tostring(Harness.phase), 1, 14) == "medical_check_" then
         Harness.probeMedicalCheck(Harness, current, check, result, setPhase)
     elseif Harness.phase == "ui_menu_probe" or Harness.phase == "ui_menu_capture"
         or Harness.phase == "ui_menu_capture_bottom" then
@@ -16042,7 +16065,13 @@ local function onGameStart()
         finish()
         return
     end
-    if Harness.config.medical_check_probe == "true" then
+    if Harness.config.loretta_probe == "true" then
+        setPhase("loretta_prepare", Harness.startedAt)
+    elseif Harness.config.deputy_rhonda_probe == "true" then
+        setPhase("deputy_rhonda_prepare", Harness.startedAt)
+    elseif Harness.config.strange_folk_portrait_probe == "true" then
+        setPhase("strange_folk_portrait_begin", Harness.startedAt)
+    elseif Harness.config.medical_check_probe == "true" then
         setPhase("medical_check_setup", Harness.startedAt)
     elseif Harness.config.ui_menu_probe == "true" then
         setPhase("ui_menu_probe", Harness.startedAt)

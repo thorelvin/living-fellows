@@ -9,6 +9,9 @@ end
 if not SC.ZombieFacts and type(require) == "function" then
     pcall(require, "SCZombieFacts")
 end
+if not SC.Topology and type(require) == "function" then
+    pcall(require, "SCTopology")
+end
 
 SC.Combat = SC.Combat or {}
 local Combat = SC.Combat
@@ -2462,7 +2465,7 @@ end
 
 Combat._tryShoveFollowUpForTests = tryShoveFollowUp
 
-local function groundedStrikeBarrier(actor, target)
+local function groundedStrikeBarrier(actor, target, allowWindowStrike)
     local topology = SC.Topology
     if not topology or type(topology.barrierBetween) ~= "function" then return nil end
     local fromSquare, toSquare = U().squareOf(actor), U().squareOf(target)
@@ -2475,6 +2478,10 @@ local function groundedStrikeBarrier(actor, target)
     local object, kind = topology.barrierBetween(fromSquare, toSquare)
     if kind == "door" and object and type(topology.objectOpen) == "function"
         and topology.objectOpen(object) then return nil end
+    if allowWindowStrike and kind == "window_frame" then return nil end
+    if allowWindowStrike and kind == "window" and object
+        and type(topology.objectBarricaded) == "function"
+        and not topology.objectBarricaded(object) then return nil end
     if kind == "fence" or kind == "window" or kind == "window_frame"
         or kind == "door" or kind == "blocked" then return kind end
     return nil
@@ -2508,7 +2515,9 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
     if grounded and readiness.immediate <= 1 and isolatedFront then
         local finisher = Combat.groundedFinisher(actor, target.actor, weapon, readiness, commands)
         local barrier = finisher.kind ~= "hold_range"
-            and groundedStrikeBarrier(actor, target.actor) or nil
+            and groundedStrikeBarrier(actor, target.actor,
+                finisher.kind == "melee"
+                and commands.combatDoctrine == "weapons_free") or nil
         if barrier then
             -- A fallen zombie beyond a fence or window is tempting but cannot
             -- receive a floor hit through that edge. Movement owns crossing it.
@@ -2648,6 +2657,32 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
         end
     elseif not weapon and not grounded then
         actions[#actions + 1] = { kind = distance <= 1.35 and "shove" or "escape", score = 58 + pressure * 8 }
+    end
+    if SC.Topology and type(SC.Topology.strikeBarrier) == "function" then
+        local barrier
+        -- Visibility is not strike clearance. Remove each blocked physical
+        -- action before scoring; a spear may pierce a transparent high fence,
+        -- while a shove with that same weapon still cannot.
+        for index = #actions, 1, -1 do
+            local kind = actions[index].kind
+            if kind == "melee" or kind == "shove" or kind == "stomp" then
+                local blocked, reason = SC.Topology.strikeBarrier(actor,
+                    target.actor, kind, weapon and weapon.item, {
+                        allowClosedWindow = commands.combatDoctrine == "weapons_free",
+                    })
+                if blocked then
+                    barrier = barrier or reason
+                    table.remove(actions, index)
+                end
+            end
+        end
+        if barrier and utility.sameFloor(actor, target.actor) then
+            actions[#actions + 1] = {
+                kind = "approach", score = 55 - pressure * 2,
+                requiresRoute = true,
+                vectorReason = "barrier:" .. tostring(barrier),
+            }
+        end
     end
     local recoveryAction = weapon and (weapon.ranged and "attack_firearm" or "attack_melee") or "shove"
     local recovered, recoveryReason = nativeCombatReadiness(actor, recoveryAction)
@@ -3636,6 +3671,7 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
             action = "attack_melee", weapon = weapon.item, target = targetActor,
             floorAttack = action.floorAttack == true,
             groundedAttack = action.floorAttack == true,
+            combatDoctrine = commands and commands.combatDoctrine,
         })
     elseif action.kind == "shove" then
         if not utility.sameFloor(actor, targetActor) then return false, "different_floor" end

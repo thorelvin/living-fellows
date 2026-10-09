@@ -800,6 +800,30 @@ public final class SCBridge {
         return candidate instanceof SCNativeCompanion actor && isOwned(actor);
     }
 
+    /**
+     * Temporary, actor-local shelter for a scripted companion in a sealed car.
+     * Lua decides when the doors and windows still justify that shelter. Build
+     * 42's normal cheat setter ignores a non-local actor, so only the bridge's
+     * owned native actor may receive this flag; no player or other NPC changes.
+     */
+    public static boolean setStoryZombieIgnored(SCNativeCompanion actor, boolean enabled) {
+        lastFailure = "";
+        if (!onGameThread()) {
+            return failBoolean("story zombie shelter requires the game thread");
+        }
+        if (GameClient.client || GameServer.server) {
+            return failBoolean("story zombie shelter is single-player only");
+        }
+        if (!isOwned(actor)) {
+            return failBoolean("native companion is not owned by SCBridge");
+        }
+        if (enabled && actor.isDead()) {
+            return failBoolean("dead companion cannot enter story zombie shelter");
+        }
+        actor.setStoryZombieIgnored(enabled);
+        return true;
+    }
+
     public static String checkActor(SCNativeCompanion actor) {
         if (!isOwned(actor)) return "native companion is not owned by SCBridge";
         return checkActorState(actor);
@@ -1893,6 +1917,7 @@ public final class SCBridge {
 
     private static void removeOwned(SCNativeCompanion actor) {
         synchronized (OWNED) {
+            actor.setStoryZombieIgnored(false);
             OWNED.remove(actor);
             if (OWNED.isEmpty() && coopPvpOverrideActive) {
                 IsoPlayer.setCoopPVP(coopPvpBeforeOwnership);

@@ -452,11 +452,17 @@ function registry.register(actor, record)
     local identity, identityReason = ownedCopy(record.identity,
         "identity", 5, 128, {})
     if identity == nil then return nil, "invalid companion identity: " .. tostring(identityReason) end
+    local nickname = SC.Names and type(SC.Names.normalizeRecord) == "function"
+        and SC.Names.normalizeRecord(record.nickname) or nil
+    local nicknameMeta = SC.Names and type(SC.Names.normalizeMeta) == "function"
+        and SC.Names.normalizeMeta(record.nicknameMeta) or nil
     local committed = {
         id = id,
         actor = actor,
         recruited = recruited,
         identity = identity,
+        nickname = nickname,
+        nicknameMeta = nicknameMeta,
         state = state,
         -- Flat mirrors are the gameplay command adapter's stable compatibility
         -- surface. Commands replace `state` whenever these values change, and

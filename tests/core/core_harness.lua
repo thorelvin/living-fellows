@@ -2026,6 +2026,33 @@ do
     check(not farMeleeOk and farMeleeReason == "attack target is outside melee range"
             and (actor.doAttackCalls or 0) == attackCallsBeforeRangeGate,
         "the final native attack gate rejects a melee swing before DoAttack when the target is metres away")
+    local savedStrikeBarrier = SC.Topology.strikeBarrier
+    local checkedStrikeActions = {}
+    local checkedWindowPolicies = {}
+    SC.Topology.strikeBarrier = function(_, _, action, _, options)
+        checkedStrikeActions[#checkedStrikeActions + 1] = action
+        checkedWindowPolicies[#checkedWindowPolicies + 1] =
+            options and options.allowClosedWindow == true
+        return true, "high_fence"
+    end
+    local callsBeforeBarrier = actor.doAttackCalls or 0
+    local blockedMelee, blockedMeleeReason = SC.Actor.setMovement(actor, "walk", {
+        action = "attack_melee", target = groundedWeaponTarget,
+        weapon = twoHandedWeapon, floorAttack = true,
+        combatDoctrine = "weapons_free",
+    })
+    local blockedShove, blockedShoveReason = SC.Actor.setMovement(actor, "walk", {
+        action = "shove", target = groundedWeaponTarget,
+    })
+    SC.Topology.strikeBarrier = savedStrikeBarrier
+    check(not blockedMelee and blockedMeleeReason == "attack_path_blocked:high_fence"
+            and not blockedShove and blockedShoveReason == "attack_path_blocked:high_fence"
+            and checkedStrikeActions[1] == "attack_melee"
+            and checkedStrikeActions[2] == "shove"
+            and checkedWindowPolicies[1] == true
+            and checkedWindowPolicies[2] == false
+            and (actor.doAttackCalls or 0) == callsBeforeBarrier,
+        "physical attacks stop at the shared blocker gate before DoAttack while free-fire window permission is melee-only")
     local function stompTarget(health)
         local value = { health = health, hitCalls = 0, setHealthCalls = 0 }
         function value:getX() return 1.0 end

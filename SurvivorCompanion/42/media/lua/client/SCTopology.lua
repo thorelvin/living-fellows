@@ -528,6 +528,162 @@ function Topology.barrierBetween(fromSquare, toSquare)
     return nil, "blocked"
 end
 
+-- A visible zombie is not necessarily reachable by a swing. Build 42's hit
+-- list checks the native LOS ray and a separate transparent-wall rule; its
+-- shove list also rejects blocked windows. Keep this geometry in topology so
+-- the combat planner and the final attack dispatcher ask the same question.
+local function strikeLosBlocked(fromSquare, toSquare)
+    local los = type(_G) == "table" and rawget(_G, "LosUtil") or nil
+    local methodOk, lineClear = pcall(function() return los and los.lineClear end)
+    local cell = U().cell()
+    if not methodOk or type(lineClear) ~= "function" or cell == nil then return false end
+    local fx, fy, fz = floorPosition(fromSquare)
+    local tx, ty, tz = floorPosition(toSquare)
+    local ok, result = pcall(lineClear, cell, fx, fy, fz, tx, ty, tz, false)
+    if not ok or result == nil then return false end
+    local name = string.lower(tostring(result))
+    if name == "blocked" or string.match(name, "%.blocked$") then
+        return true, "blocked_los"
+    end
+    if string.find(name, "clearthroughcloseddoor", 1, true) then
+        return true, "closed_door"
+    end
+    return false
+end
+
+local function strikePiercesTransparentWall(actor, weapon, action)
+    if action ~= "melee" and action ~= "attack_melee" or weapon == nil then
+        return false
+    end
+    local pierces, known = U().call(weapon,
+        "canAttackPierceTransparentWall", actor, weapon)
+    return known and pierces == true
+end
+
+local function strikeEdgeBarrier(fromSquare, toSquare, canPierce, allowClosedWindow)
+    local transparent, known = U().call(fromSquare, "getTransparentWallTo", toSquare)
+    if not known or transparent == nil then
+        transparent = select(1, U().call(toSquare, "getTransparentWallTo", fromSquare))
+    end
+    if transparent ~= nil then
+        return not canPierce(), "transparent_wall"
+    end
+    local object, kind = Topology.barrierBetween(fromSquare, toSquare)
+    if kind == "open" or kind == "same" or kind == "window_frame" then
+        return false
+    end
+    if kind == "door" then
+        if object ~= nil and Topology.objectOpen(object)
+            and not Topology.objectBarricaded(object) then return false end
+        return true, "closed_door"
+    end
+    if kind == "window" then
+        if object ~= nil and not Topology.objectBarricaded(object)
+            and (allowClosedWindow or Topology.objectOpen(object)
+                or Topology.windowSmashed(object)) then
+            return false
+        end
+        return true, "closed_window"
+    end
+    if kind == "fence" then
+        -- isHoppableTo includes empty window frames. barrierBetween already
+        -- classifies those first; for a real fence only the low vaultable edge
+        -- permits a normal strike. Tall fences need the native piercing rule.
+        if object ~= nil and callBoolean(object, "isTallHoppable") then
+            return true, "high_fence"
+        end
+        local low, lowKnown = U().call(object, "isHoppable")
+        if lowKnown and low == true then return false end
+        local hoppable, hopKnown = U().call(fromSquare, "isHoppableTo", toSquare)
+        if hopKnown and hoppable == true then
+            if object == nil or not lowKnown or low == true then return false end
+        end
+        return true, "fence"
+    end
+    if kind == "blocked" then return true, "wall" end
+    return false
+end
+
+-- Return true only for a physical strike blocker. The caller may then route
+-- around it; the attack dispatcher uses the same result before DoAttack.
+-- The short grid ray catches doors/windows/fences between a long weapon and a
+-- zombie more than one tile away, including both legs of a diagonal corner.
+function Topology.strikeBarrier(actor, target, action, weapon, options)
+    options = type(options) == "table" and options or {}
+    local fromSquare, toSquare = U().squareOf(actor), U().squareOf(target)
+    if fromSquare == nil or toSquare == nil then return false end
+    local fx, fy, fz = floorPosition(fromSquare)
+    local tx, ty, tz = floorPosition(toSquare)
+    if fx == nil or tx == nil then return false end
+    if fz ~= tz then return true, "different_floor" end
+    if fx == tx and fy == ty then return false end
+    local losBlocked, losReason = strikeLosBlocked(fromSquare, toSquare)
+    if losBlocked then return true, losReason end
+
+    local pierces
+    local function canPierce()
+        if pierces == nil then
+            pierces = strikePiercesTransparentWall(actor, weapon, action)
+        end
+        return pierces
+    end
+    local targetTransparent, targetKnown = U().call(target,
+        "isTransparentWallTo", actor)
+    if targetKnown and targetTransparent == true and not canPierce() then
+        return true, "transparent_wall"
+    end
+
+    local ax, ay = U().position(actor)
+    local bx, by = U().position(target)
+    ax, ay = ax or fx + 0.5, ay or fy + 0.5
+    bx, by = bx or tx + 0.5, by or ty + 0.5
+    local dx, dy = bx - ax, by - ay
+    local stepX, stepY = dx >= 0 and 1 or -1, dy >= 0 and 1 or -1
+    local deltaX = dx ~= 0 and 1 / math.abs(dx) or math.huge
+    local deltaY = dy ~= 0 and 1 / math.abs(dy) or math.huge
+    local crossX = dx ~= 0 and ((dx > 0 and fx + 1 or fx) - ax) / dx or math.huge
+    local crossY = dy ~= 0 and ((dy > 0 and fy + 1 or fy) - ay) / dy or math.huge
+    local x, y = fx, fy
+    local function squareAt(sx, sy)
+        if sx == fx and sy == fy then return fromSquare end
+        if sx == tx and sy == ty then return toSquare end
+        return U().gridSquare(sx, sy, fz)
+    end
+    local function edgeBlocked(x1, y1, x2, y2)
+        local first, second = squareAt(x1, y1), squareAt(x2, y2)
+        if first == nil or second == nil then return true, "unloaded_edge" end
+        local windowStrike = options.allowClosedWindow == true
+            and (action == "melee" or action == "attack_melee")
+        return strikeEdgeBarrier(first, second, canPierce, windowStrike)
+    end
+    for _ = 1, 12 do
+        if x == tx and y == ty then return false end
+        if crossX < crossY - 0.000001 then
+            local blocked, reason = edgeBlocked(x, y, x + stepX, y)
+            if blocked then return true, reason end
+            x, crossX = x + stepX, crossX + deltaX
+        elseif crossY < crossX - 0.000001 then
+            local blocked, reason = edgeBlocked(x, y, x, y + stepY)
+            if blocked then return true, reason end
+            y, crossY = y + stepY, crossY + deltaY
+        else
+            -- A ray exactly through a tile corner must not clip either wall.
+            local legs = {
+                { x, y, x + stepX, y }, { x, y, x, y + stepY },
+                { x + stepX, y, x + stepX, y + stepY },
+                { x, y + stepY, x + stepX, y + stepY },
+            }
+            for _, leg in ipairs(legs) do
+                local blocked, reason = edgeBlocked(leg[1], leg[2], leg[3], leg[4])
+                if blocked then return true, reason end
+            end
+            x, y = x + stepX, y + stepY
+            crossX, crossY = crossX + deltaX, crossY + deltaY
+        end
+    end
+    return true, "strike_ray_too_long"
+end
+
 local function thumpableBlocker(actor, fromSquare, toSquare)
     local found, kind
     local function inspect(object, ownerSquare)

@@ -367,6 +367,16 @@ local function fortify(actor, group, state)
     return true, "fortification_started"
 end
 
+-- Authored residents can run the same native barricade/remove-barricade jobs
+-- as households without entering the household territory or job scheduler.
+function Behavior.fortifyOddball(actor, group)
+    if not actor or type(group) ~= "table"
+        or type(group.oddball) ~= "table" then
+        return false, "oddball_fortification_unavailable"
+    end
+    return fortify(actor, group, stateFor(actor))
+end
+
 local function friendlyInLine(actor, target, group, player, kind)
     local allies = {}
     if group then
@@ -445,6 +455,7 @@ local function hostile(actor, target, group, state, player)
     if target == nil then return false, "hostile_target_unavailable" end
     local leash = group and group.archetype == "bandit_camp"
         and (tonumber(SC.Config.get("banditFactionPursuitLeash")) or 24)
+        or group and type(group.oddball) == "table" and 20
         or (tonumber(SC.Config.get("factionPursuitLeash")) or 15)
     if group and territoryDistance(group, target) > leash then
         local target = group.house and U().loadedSquare(group.house.anchor) or nil
@@ -840,6 +851,38 @@ function Behavior.intentFor(actor, player, snapshot)
     if not group then return nil end
     local threatCount = type(snapshot) == "table"
         and (tonumber(snapshot.threatCount) or #(snapshot.threats or {})) or 0
+    if type(group.oddball) == "table" then
+        local authored = SC.Oddballs and type(SC.Oddballs.intentFor) == "function"
+            and SC.Oddballs.intentFor(actor, player, snapshot, group) or nil
+        -- Lonnie must remain at the altar for the authored bride bite. The
+        -- ordinary zombie-defense route resumes as soon as that ceremony ends.
+        if type(authored) == "table" and authored.mode == "lonnie_ceremony"
+            and group.oddball.id == "wedding_lonnie_tackett"
+            and group.oddball.stage == "ceremony" then
+            return authored
+        end
+        if type(authored) == "table" and authored.mode == "pyromaniac_stay"
+            and group.oddball.id == "pyromaniac_earl_kessler" then
+            return authored
+        end
+        if threatCount > 0 and not (SC.Oddballs
+            and type(SC.Oddballs.avoidsZombieCombat) == "function"
+            and SC.Oddballs.avoidsZombieCombat(actor, group)) then
+            return { priority = 18, kind = "faction", mode = "zombie_defense",
+                factionId = group.id }
+        end
+        if type(authored) == "table" then return authored end
+        if group.standing == "Hostile" or group.lifecycle == "hostile" then
+            local humanThreat = rememberHumanThreat(actor, player, stateFor(actor))
+            if humanThreat then
+                return { priority = humanThreat.visible and 110 or 90,
+                    kind = "faction", mode = "hostile", factionId = group.id,
+                    humanThreat = humanThreat }
+            end
+        end
+        return { priority = 28, kind = "faction", mode = "oddball_idle",
+            factionId = group.id }
+    end
     ensureEmergencyJobs(group, threatCount)
     if threatCount > 0 then
         -- Keep a faction candidate in the list so residents never fall through
@@ -928,6 +971,18 @@ function Behavior.update(actor, player, runtime, intent)
     if not group then return false, "not_a_faction_member" end
     local state = stateFor(actor)
     local mode = type(intent) == "table" and intent.mode or nil
+    if type(group.oddball) == "table" and mode == "zombie_defense" then
+        if SC.Combat and type(SC.Combat.update) == "function" then
+            return SC.Combat.update(actor, player, runtime)
+        end
+        return false, "combat_unavailable"
+    end
+    if type(group.oddball) == "table" and mode ~= "hostile" then
+        if SC.Oddballs and type(SC.Oddballs.update) == "function" then
+            return SC.Oddballs.update(actor, player, runtime, intent, group)
+        end
+        return false, "oddball_behavior_unavailable"
+    end
     if mode == "bandit_human" or mode == "bandit_search" then
         return banditHumanCombat(actor, intent and intent.humanThreat,
             group, state, player)

@@ -81,6 +81,21 @@ check(deterministic.forename == deterministicAgain.forename
     and deterministic.gender == deterministicAgain.gender,
     "identity fallback is deterministic after reset")
 
+local originalRand = ZombRand
+ZombRand = function(minimum) return minimum end
+check(SC.Spawn.isThemedRoom("farmstorage")
+    and SC.Spawn.isThemedRoom("police station")
+    and not SC.Spawn.isThemedRoom("bedroom"),
+    "only known occupational rooms carry a themed outfit hint")
+local farmIdentity = SC.Spawn.generateIdentity({ roomGroup = "farmstorage" })
+check(farmIdentity.outfit == "Farmer",
+    "themed survivor near a farm can wear the farm outfit")
+ZombRand = function(_, maximum) return maximum - 1 end
+local ordinaryIdentity = SC.Spawn.generateIdentity({ roomGroup = "farmstorage" })
+check(ordinaryIdentity.outfit == "Evacuee",
+    "themed room still allows the ordinary outfit fallback")
+ZombRand = originalRand
+
 local starterCount, starterTypes = 0, {}
 for visualSeed = 0, 499 do
     local starterType = SC.Spawn.starterMeleeWeapon({ visualSeed = visualSeed })
