@@ -59,8 +59,8 @@ local function safeMethod(object, methodName, ...)
 end
 
 -- Vanilla's Medical Check sends a consent request to another player. Native
--- companions are IsoPlayers, so they get that menu item, but cannot answer the
--- request. Show the companion's Living Fellows health and wound view instead.
+-- companions are IsoPlayers but cannot answer it. Route the real right-click
+-- option directly to a local-player check and treatment session instead.
 function Context.medicalCheckCompanion(requester, target)
     local function reject(reason, argument)
         if requester then safeMethod(requester, "setHaloNote",
@@ -84,6 +84,42 @@ function Context.medicalCheckCompanion(requester, target)
     end
     safeMethod(requester, "setHaloNote", text("UI_SC_MedicalCheck_Opened"))
     return true, "health_opened"
+end
+
+-- The vanilla option may be omitted for a native companion or another mod may
+-- have captured its callback before our wrapper was installed. Bind the actual
+-- clicked menu option as well, without adding a duplicate Medical Check entry.
+function Context.ensureCompanionMedicalOption(context, worldObjects, player, row)
+    if not context or not row or not row.actor then return nil end
+    local name = getText and getText("ContextMenu_Medical_Check") or "Medical Check"
+    local option = type(context.getOptionFromName) == "function"
+        and context:getOptionFromName(name) or nil
+    if not option then
+        option = context:addOption(name, worldObjects, Context.onMedicalCheck,
+            player, row.actor)
+    else
+        option.target = worldObjects
+        option.onSelect = Context.onMedicalCheck
+        option.param1 = player
+        option.param2 = row.actor
+    end
+    local available, reason, argument
+    if SC.MedicalUI and type(SC.MedicalUI.availability) == "function" then
+        available, reason, argument = SC.MedicalUI.availability(row.actor, player)
+    else
+        available, reason = false, "UI_SC_Disabled_HealthUnavailable"
+    end
+    option.notAvailable = available ~= true
+    if option.notAvailable and type(ISToolTip) == "table" then
+        local tooltip = ISToolTip:new()
+        tooltip:initialise()
+        tooltip:setVisible(false)
+        tooltip.description = argument and text(reason, argument) or text(reason)
+        option.toolTip = tooltip
+    else
+        option.toolTip = nil
+    end
+    return option
 end
 
 function Context.onMedicalCheck(worldObjects, requester, target)
@@ -1429,6 +1465,8 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
             watchFromContext, clickedCompanion, player)
     end
     if clickedCompanion then
+        Context.ensureCompanionMedicalOption(context, worldObjects,
+            player, clickedCompanion)
         context:addOption(text("UI_SC_Talk_To", clickedCompanion.name),
             nil, openTalkFromContext, clickedCompanion)
         if clickedCompanion.recruited == true then
@@ -1558,11 +1596,21 @@ local function answerExpeditionFromRadio(_target, player, answer)
     return ok and accepted == true, ok and reason or tostring(accepted)
 end
 
+local function answerDistressFromRadio(_target, player, groupId)
+    local radio = SC.OddballDistressRadio
+    if not radio or type(radio.answer) ~= "function" then return end
+    local okay, accepted, reason = pcall(radio.answer, groupId, player)
+    local feedback = okay and accepted == true
+        and tostring(reason or "Rescue location marked on your map.")
+        or "Radio reply failed: " .. tostring(okay and reason or accepted)
+    safeMethod(player, "setHaloNote", feedback)
+    return okay and accepted == true, reason
+end
+
 function Context.fillRadioContextMenu(playerIndex, context, items)
     local expedition = SC.ExpeditionPrototype
     local mission = expedition and type(expedition.current) == "function"
         and expedition.current() or nil
-    if not mission or not mission.scout or playerIndex ~= 0 then return end
     local player = type(getSpecificPlayer) == "function"
         and getSpecificPlayer(playerIndex) or nil
     if not player or type(items) ~= "table" then return end
@@ -1576,16 +1624,25 @@ function Context.fillRadioContextMenu(playerIndex, context, items)
                 or item == safeMethod(player, "getClothingItem_Back"))
     end
     local function addRadioOptions()
-        if mission.scout.pause and mission.scout.pause.reported then
-            context:addOptionOnTop(text("UI_SC_Expedition_AnswerHold"),
-                nil, answerExpeditionFromRadio, player, "hold_position")
-            context:addOptionOnTop(text("UI_SC_Expedition_AnswerPush"),
-                nil, answerExpeditionFromRadio, player, "push_on")
-            context:addOptionOnTop(text("UI_SC_Expedition_AnswerReturn"),
-                nil, answerExpeditionFromRadio, player, "return")
-        elseif mission.scout.phase ~= "inbound" then
-            context:addOptionOnTop(text("UI_SC_Expedition_ReturnNow"), nil,
-                returnExpeditionFromRadio, player)
+        if playerIndex == 0 and mission and mission.scout then
+            if mission.scout.pause and mission.scout.pause.reported then
+                context:addOptionOnTop(text("UI_SC_Expedition_AnswerHold"),
+                    nil, answerExpeditionFromRadio, player, "hold_position")
+                context:addOptionOnTop(text("UI_SC_Expedition_AnswerPush"),
+                    nil, answerExpeditionFromRadio, player, "push_on")
+                context:addOptionOnTop(text("UI_SC_Expedition_AnswerReturn"),
+                    nil, answerExpeditionFromRadio, player, "return")
+            elseif mission.scout.phase ~= "inbound" then
+                context:addOptionOnTop(text("UI_SC_Expedition_ReturnNow"), nil,
+                    returnExpeditionFromRadio, player)
+            end
+        end
+        local distress = SC.OddballDistressRadio
+        if distress and type(distress.replyOptions) == "function" then
+            for _, option in ipairs(distress.replyOptions(player)) do
+                context:addOptionOnTop(option.label, nil,
+                    answerDistressFromRadio, player, option.groupId)
+            end
         end
     end
     for _, entry in ipairs(items) do

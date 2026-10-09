@@ -2,11 +2,15 @@
 
 # Changelog
 
-## Unreleased - Strange Folk, Phase 2
+## 0.26.35 - Strange Folk rescues and hands-on companion care
 
 - Added six more rare, one-off encounters: Gale Mercer at the GigaMart, Butch Kittredge at the butcher shop, Cecil Ray Haskins at the gun counter, Hollis and Duchess, the Party in Room 12, and Ranger June with ten named rabbits.
 - Shops react to real item transfers and paid trades. The party uses real barricade jobs and door-slot barter. Named animals retain native IDs through saves and are never silently cloned after unloading.
 - June's rabbit quiz uses the animal nearest the player. Juniper's escape uses native animal pathing and is only reported after she actually travels away; finding her earns trust.
+- Three more one-off encounters bring Silas Reed to a forest camp with a real fire, fishing kit and a story told in several beats; Eli Rourke to a locked garage with a broken leg; and Nate Duvall to a closed room where he is running out of water. Their progress survives save and reload.
+- Eli and Nate call for help on 90 MHz while their areas are loaded. A call appears only after the player's powered, equipped radio actually receives it; replying with a working two-way radio marks the rescue location on the map. Eli needs the player's real splint and clean bandage through the medical panel before he can join. Nate receives actual clean water from the player's inventory, drinks from the container, and needs about two minutes to recover before he can join.
+- Medical Check now uses the game's timed examination and patient body-part panel for nearby companions, including Eli. The player can treat real injuries with their own supplies; the patient waits while the panel is open, and the session ends if the player leaves or danger arrives.
+- Giving a companion a weapon, clothing or a bag through the borrowed loot pane prompts a safe loadout review, including favorite items. The pane offers **Equip on** and **Wear on** for the exact selected item, even when it sits inside a bag, without equipping the player. Explicit equipment choices remain in place while usable, and transferred or restored equipment is checked against the game's actual worn and hand slots.
 - Added focused Kahlua behavior checks for all six encounters and readable status labels for earlier Strange Folk actions.
 - New camps start with a 25 by 25 camp area instead of 15 by 15. A camp that still has the older 13 by 13 or 15 by 15 default area grows to 25 by 25 when the save loads; a camp area you drew yourself keeps its size.
 - Zombies now really ignore the Gut-Cloaked Man while his cloak lasts and Window Spiffo while he poses. Build 42 quietly refuses the game setting they used for any character without a cheat role, so zombies could still attack them. The native bridge now owns that flag, and the mod only trusts it after reading it back from the game.
@@ -14,7 +18,7 @@
 - The encounter room guard listens to zombie updates only while it protects a room. It used to be called for every zombie on every update for the whole session.
 - Generated companions no longer get the surnames Wilson, Sutton or Vickers, which belong to Strange Folk characters. A source check now fails if a Strange Folk surname can be generated.
 - Elmer's clean story line belongs to the line it replaces instead of its position in the story, so reordering his lines cannot swap the wrong one.
-- Twenty-five Strange Folk encounter suites, the strike barrier regression and the grave marker harness were written but never run by the project gate. They all pass and now run in it, alongside a new Elmer story check. A source check fails when any harness is not reached from the gate.
+- Twenty-five existing Strange Folk encounter suites, the strike barrier regression and the grave marker harness were written but never run by the project gate. They now run in it, alongside an Elmer story check and focused checks for the new rescues, camp story, medical panel and companion equipment. A source check fails when an encounter harness is not reached from the gate.
 
 ## 0.26.34 - Companions left in a parked car
 

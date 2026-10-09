@@ -626,12 +626,14 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         local ok, load = pcall(SC.Logistics.status, actor)
         -- Bag, clothing and packing chores wait for a following leader to
         -- settle, like idle work; being overloaded does not.
-        if ok and load and load.shouldManage and (load.overloaded
+        if ok and load and load.shouldManage and commands.temporaryStay ~= true
+            and (load.overloaded or load.giftPending == true
             or not (commands.recruited and commands.order == "follow")
             or leaderSettled(actor, player, current)) then
             -- Overload beats routine follow/work, but never urgent medicine,
             -- needs, retreat, or combat survival.
-            add("logistics", load.overloaded and 92 or 74, false, load)
+            add("logistics", load.overloaded and 92
+                or load.giftPending and 82 or 74, false, load)
         end
     end
 
@@ -2765,6 +2767,25 @@ function Decision.update(actor, player, runtime, roundTimestamp)
     if SC.Dialogue and type(SC.Dialogue.ambientPulse) == "function" then
         utility.safeSubsystem("ambient-dialogue", actor,
             SC.Dialogue.ambientPulse, actor, player, snapshot, commands, current)
+    end
+
+    -- The player is examining or treating this companion through the native
+    -- health panel. The opening command already stopped its route; do not let
+    -- a fresh downtime, need, crowd-yield, or combat recheck move the patient
+    -- between vanilla treatment actions. Release the panel for immediate danger.
+    local medicalPanel = SC.MedicalUI and type(SC.MedicalUI.current) == "function"
+        and SC.MedicalUI.current() or nil
+    if medicalPanel and medicalPanel.actor == actor then
+        local immediate = tonumber(snapshot.immediateCount) or 0
+        local human = snapshot.humanThreat
+        if immediate > 0 or (human and human.visible == true) then
+            SC.MedicalUI.close("danger")
+        else
+            state.current, state.currentKey = "medical", "player_medical_check"
+            state.intent = "receiving_player_medical_check"
+            state.lastHandledAt = current
+            return true, state.intent
+        end
     end
 
     -- A completed hit may remove the final perceived threat before the native

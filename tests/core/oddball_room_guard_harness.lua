@@ -356,4 +356,28 @@ assert(Guard.install() == true and Guard.isAttached()
     "reinstalling with a guarded scene attaches the hook")
 assert(Guard.remove() == true and #Events.OnZombieUpdate.callbacks == 0,
     "second teardown detaches again")
+
+for _, id in ipairs({ "garage_rescue_eli_rourke",
+    "radio_rescue_nate_duvall" }) do
+    Guard.reset()
+    assert(Guard.install() == true)
+    local rescueRoom = {}
+    local rescueSquare = F.square(10, 10, 0, rescueRoom)
+    F.square(10, 9, 0, nil)
+    local rescueDoor = F.opening("IsoDoor", rescueSquare, true, "door")
+    function rescueDoor:IsOpen() return self.open == true end
+    rescueSquare.objects = { rescueDoor }
+    local rescue = F.group("guard-" .. id,
+        { x = 10, y = 10, z = 0 })
+    rescue.oddball.id = id
+    rescue.oddball.roomGuardElapsedMs = 300000
+    assert(Guard.register(rescue, near, 0) == true
+        and Guard.pulse(rescue, near, 1000) == true,
+        "rescue room remains guarded past five minutes and player approach")
+    rescueDoor.open = true
+    assert(Guard.pulse(rescue, near, 2000) == false
+        and rescue.oddball.roomGuardDone == true,
+        "opening the rescue door releases the protected room")
+    Guard.remove()
+end
 SC_TEST_REPORT = "Oddball room guard oriented boundary and active-play regression PASS"

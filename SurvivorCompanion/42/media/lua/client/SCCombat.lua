@@ -40,12 +40,31 @@ local function equipWeapon(actor, item, options)
     if item == nil then return false, "equip_weapon_missing" end
     local primary, primaryOk = U().call(actor, "getPrimaryHandItem")
     if primaryOk and primary == item then return true, "weapon_already_equipped" end
+    local root = U().inventory(actor)
+    if not root then return false, "equip_inventory_missing" end
+    if not U().inventoryContains(root, item) then
+        local source = select(1, U().call(item, "getContainer"))
+        local owned = false
+        for _, candidate in ipairs(U().inventoryItemsDeep(root,
+            U().config("combatInventoryScanLimit") or 240)) do
+            if candidate == item then owned = true break end
+        end
+        if not owned or not source then return false, "equip_item_not_owned" end
+        local moved, moveReason = U().transferItemVerified(source, root, item)
+        if not moved then return false, moveReason or "equip_root_transfer_failed" end
+    end
     local service = actionSupervisor()
     if service == nil or type(service.begin) ~= "function" then
-        return U().move(actor, "walk", {
+        local accepted, reason = U().move(actor, "walk", {
             action = "equip_weapon", item = item, nextAction = options.nextAction,
             immediateCommand = options.immediateCommand == true,
         })
+        if accepted ~= true then return false, reason or "equip_rejected" end
+        if select(1, U().call(actor, "getPrimaryHandItem")) ~= item then
+            return false, "equip_not_verified"
+        end
+        if SC.InventoryIndex then SC.InventoryIndex.touch(actor) end
+        return true, "weapon_equipped"
     end
     local token, beginReason, retry = service.begin(actor, {
         owner = "combat-loadout",
@@ -1178,6 +1197,40 @@ local function weaponUsableNow(inventory, weapon, indexEntry)
         or hasReloadAmmo(inventory, weapon, indexEntry)
 end
 
+function Combat.primaryWeaponUsable(actor)
+    local primary = select(1, U().call(actor, "getPrimaryHandItem"))
+    return weaponUsableNow(U().inventory(actor), weaponRecord(primary))
+end
+
+function Combat.equipExactWeapon(actor, item)
+    if not U().isValidActor(actor) then return false, "invalid_actor" end
+    local weapon = weaponRecord(item)
+    if not weapon or not weaponUsableNow(U().inventory(actor), weapon) then
+        return false, "no_usable_weapon"
+    end
+    local equipped, reason = equipWeapon(actor, item, {
+        preference = "manual", immediateCommand = true,
+    })
+    if equipped then
+        local id = U().idOf(actor)
+        for _, candidate in ipairs(U().inventoryItemsDeep(U().inventory(actor),
+            U().config("combatInventoryScanLimit") or 240)) do
+            if candidate ~= item then
+                local hasData, hasDataOk = U().call(candidate, "hasModData")
+                local old = (not hasDataOk or hasData == true)
+                    and select(1, U().call(candidate, "getModData")) or nil
+                if type(old) == "table" and old.SC_ManualEquipFor == id then
+                    old.SC_ManualEquipFor = nil
+                end
+            end
+        end
+        local data = select(1, U().call(item, "getModData"))
+        if type(data) == "table" then data.SC_ManualEquipFor = id end
+        U().call(actor, "resetModelNextFrame")
+    end
+    return equipped, reason
+end
+
 -- How many weapons the companion is carrying, and how many of those could be
 -- swung or fired right now. The gap between the two is the difference between
 -- "never picked one up" and "carrying a broken axe or an empty rifle".
@@ -1196,6 +1249,16 @@ end
 
 local function chooseWeapon(actor, preference, distance, pressure, indexEntry)
     local weapons, inventory, entry = inventoryWeapons(actor, indexEntry)
+    local manualId = U().idOf(actor)
+    for _, weapon in ipairs(weapons) do
+        local hasData, hasDataOk = U().call(weapon.item, "hasModData")
+        local data = (not hasDataOk or hasData == true)
+            and select(1, U().call(weapon.item, "getModData")) or nil
+        if type(data) == "table" and data.SC_ManualEquipFor == manualId
+            and weaponUsableNow(inventory, weapon, entry) then
+            return weapon, inventory, entry
+        end
+    end
     local preferredAvailable = false
     if preference == "melee" or preference == "quiet" or preference == "firearm" then
         for _, weapon in ipairs(weapons) do
@@ -1284,7 +1347,7 @@ local function responsiveWeapon(actor, state, preference, distance, pressure, sn
     return weapon, inventory
 end
 
-function Combat.equipPreferred(actor, preference)
+function Combat.equipPreferred(actor, preference, options)
     if not U().isValidActor(actor) then return false, "invalid_actor" end
     local weapon = chooseWeapon(actor, preference or "best", 3, 0)
     if not weapon or not weapon.item or weapon.condition <= 0 then
@@ -1297,7 +1360,8 @@ function Combat.equipPreferred(actor, preference)
     end
     local accepted, reason = equipWeapon(actor, weapon.item, {
         preference = preference or "best",
-        immediateCommand = true,
+        immediateCommand = type(options) ~= "table"
+            or options.immediateCommand ~= false,
     })
     if not accepted then
         return false, reason or "equip_rejected", { weaponName = weaponName }

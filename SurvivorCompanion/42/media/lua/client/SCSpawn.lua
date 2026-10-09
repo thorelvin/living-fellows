@@ -280,6 +280,7 @@ local strangeFolkPairs = {
     "Merle:Lusby", "Hollis:Burkett", "Jedediah:Cole",
     "June:Whitlock", "Tommy:Beaumont", "Gordon:Pettibone",
     "Morton:Feeney", "Mien:Ward", "Grinder:Berg",
+    "Silas:Reed", "Eli:Rourke", "Nate:Duvall",
 }
 local reservedSurnames = {
     Cole = true, Mercer = true, Ward = true, Crane = true,
@@ -291,7 +292,8 @@ local reservedSurnames = {
     Teague = true, Voss = true, Bledsoe = true, Reese = true,
     Bowles = true, Lusby = true, Burkett = true, Crabtree = true,
     Whitlock = true, Tolliver = true, Beaumont = true, Pettibone = true,
-    Feeney = true, Berg = true,
+    Feeney = true, Berg = true, Reed = true,
+    Rourke = true, Duvall = true,
     Hemingway = true, Hass = true, Watts = true, Kormick = true,
     Jaye = true,
     Wilson = true, Sutton = true, Vickers = true,

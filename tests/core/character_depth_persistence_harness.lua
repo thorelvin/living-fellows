@@ -383,6 +383,20 @@ function provider:spawn(spawnSquare)
             return setWornItem(self, location, item)
         end
     end
+    if self.silentWornLocation ~= nil then
+        local setWornItem = actor.setWornItem
+        local silentLocation = self.silentWornLocation
+        function actor:setWornItem(location, item)
+            if location == silentLocation then return true end
+            return setWornItem(self, location, item)
+        end
+    end
+    if self.silentPrimary == true then
+        function actor:setPrimaryHandItem(item)
+            if item == nil then self.primary = nil end
+            return true
+        end
+    end
     self.spawned[#self.spawned + 1] = actor
     return actor
 end
@@ -1262,6 +1276,22 @@ if compatible ~= nil then
 end
 provider.rejectWornLocation = nil
 captured.inventory.equipment.worn[1].location = compatibilityLocation
+provider.silentWornLocation = compatibilityLocation
+local silentWear, silentWearReason = SC.Persistence.restoreAt(captured, square)
+local unwornBag = silentWear and findType(silentWear.inventory,
+    "Base.Bag_Schoolbag") or nil
+check(silentWear ~= nil and unwornBag ~= nil
+        and silentWear:getWornItem(compatibilityLocation) == nil,
+    "a native worn setter that returns success without retaining the item is detected: "
+        .. tostring(silentWearReason))
+if silentWear then SC.Commands.reset(silentWear) SC.Registry.unregister(silentWear) end
+provider.silentWornLocation = nil
+provider.silentPrimary = true
+local silentHand, silentHandReason = SC.Persistence.restoreAt(captured, square)
+check(silentHand == nil and string.find(tostring(silentHandReason),
+        "primary hand item could not be equipped", 1, true) ~= nil,
+    "a native hand setter that does not retain the weapon fails verified restore")
+provider.silentPrimary = nil
 local verifiedCount = captured.inventory.count
 captured.inventory.count = verifiedCount + 1
 local rejected, rejectionReason = SC.Persistence.restoreAt(captured, square)

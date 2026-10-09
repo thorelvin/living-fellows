@@ -1,7 +1,7 @@
-Living Fellows 0.26.34 - public playtest
+Living Fellows 0.26.35 - public playtest
 
-This build brings companions left sitting in a parked car back beside the car
-after a long trip or a restart, instead of losing them inside it.
+This playtest adds Strange Folk rescues and a forest camp storyteller. You can
+give companions gear in the loot pane and treat them through Medical Check.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added

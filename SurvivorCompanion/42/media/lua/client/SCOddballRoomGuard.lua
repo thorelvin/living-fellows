@@ -366,8 +366,10 @@ function Guard.register(group, player, nowMs)
     knownStories[id] = story
     local sealed = story.id == "survivalist_locked_horde"
     local protectedVoice = story.id == "voice_actor_vera_quill"
+    local protectedRescue = story.id == "garage_rescue_eli_rourke"
+        or story.id == "radio_rescue_nate_duvall"
     local protectedMilli = story.id == "milli_tea_and_trouble"
-    local persistent = sealed or protectedVoice
+    local persistent = sealed or protectedVoice or protectedRescue
     local elapsed = elapsedFrom(story)
     if finished[id] or story.roomGuardDone == true
         or (not persistent and elapsed >= DURATION_MS) then
@@ -441,8 +443,10 @@ function Guard.pulse(group, player, nowMs)
         and group.oddball or nil
     local sealed = story and story.id == "survivalist_locked_horde"
     local protectedVoice = story and story.id == "voice_actor_vera_quill"
+    local protectedRescue = story and (story.id == "garage_rescue_eli_rourke"
+        or story.id == "radio_rescue_nate_duvall")
     local protectedMilli = story and story.id == "milli_tea_and_trouble"
-    local persistent = sealed or protectedVoice
+    local persistent = sealed or protectedVoice or protectedRescue
     if id ~= nil and story ~= nil then knownStories[id] = story end
     if not guard then
         if id == nil then return false, "not_registered" end

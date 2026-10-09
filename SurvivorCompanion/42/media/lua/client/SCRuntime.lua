@@ -1265,6 +1265,14 @@ local function productionTickCore(current, tickStarted)
     if SC.Steering and type(SC.Steering.update) == "function" then
         pcall(SC.Steering.update)
     end
+    -- The medical panel owns a short movement hold while the player treats a
+    -- companion. Maintain it on the central tick so closing or interrupting
+    -- treatment releases the hold without a second OnTick listener.
+    if SC.MedicalUI and type(SC.MedicalUI.current) == "function"
+        and SC.MedicalUI.current()
+        and type(SC.MedicalUI.maintain) == "function" then
+        pcall(SC.MedicalUI.maintain)
+    end
     if now - campFloorSurveyAt >= 100
         and SC.BaseLife and type(SC.BaseLife.autoExtendFloors) == "function" then
         campFloorSurveyAt = now

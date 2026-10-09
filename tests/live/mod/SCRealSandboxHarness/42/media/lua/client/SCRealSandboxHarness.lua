@@ -15234,6 +15234,10 @@ Harness.probeMedicalCheck = function(...)
     return externalProbe("SCMedicalCheckProbe", ...)
 end
 
+Harness.probeGiftedEquipment = function(...)
+    return externalProbe("SCGiftedEquipmentProbe", ...)
+end
+
 Harness.probeHygiene = function(...)
     return externalProbe("SCHygieneProbe", ...)
 end
@@ -15346,6 +15350,8 @@ local function tick()
             setPhase)
     elseif string.sub(tostring(Harness.phase), 1, 14) == "medical_check_" then
         Harness.probeMedicalCheck(Harness, current, check, result, setPhase)
+    elseif string.sub(tostring(Harness.phase), 1, 17) == "gifted_equipment_" then
+        Harness.probeGiftedEquipment(Harness, current, check, result, setPhase)
     elseif Harness.phase == "ui_menu_probe" or Harness.phase == "ui_menu_capture"
         or Harness.phase == "ui_menu_capture_bottom" then
         Harness.probeUIMenus(current)
@@ -16133,6 +16139,8 @@ local function onGameStart()
         setPhase("strange_folk_portrait_begin", Harness.startedAt)
     elseif Harness.config.medical_check_probe == "true" then
         setPhase("medical_check_setup", Harness.startedAt)
+    elseif Harness.config.gifted_equipment_probe == "true" then
+        setPhase("gifted_equipment_setup", Harness.startedAt)
     elseif Harness.config.ui_menu_probe == "true" then
         setPhase("ui_menu_probe", Harness.startedAt)
     elseif Harness.config.fishing_map_list_probe == "true" then

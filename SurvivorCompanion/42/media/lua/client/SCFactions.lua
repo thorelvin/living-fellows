@@ -1747,6 +1747,7 @@ function Factions.createOddballGroup(site, definition, debugCreated)
         chair = site.chair and stableCopy(site.chair, 2) or nil,
         bedroom = site.bedroom and stableCopy(site.bedroom, 2) or nil,
         bedroomDoor = site.bedroomDoor and stableCopy(site.bedroomDoor, 2) or nil,
+        rescueDoor = site.rescueDoor and stableCopy(site.rescueDoor, 2) or nil,
         sealedRoom = site.sealedRoom and stableCopy(site.sealedRoom, 2) or nil,
         roomDoor = site.roomDoor and stableCopy(site.roomDoor, 2) or nil,
         hordeSpawns = site.hordeSpawns
@@ -3612,7 +3613,9 @@ local function validGroup(source, id, path)
         if type(story.id) ~= "string" or #story.id < 3 or #story.id > 96
             or type(story.stage) ~= "string" or #story.stage > 64
             or type(story.site) ~= "table"
-            or (story.site.kind ~= "resident" and story.site.kind ~= "roamer")
+            or (story.site.kind ~= "resident" and story.site.kind ~= "roamer"
+                and not (story.id == "survivalist05_mid_storyteller"
+                    and story.site.kind == "forest_camp"))
             or (story.spawned ~= nil and type(story.spawned) ~= "boolean")
             or (story.kitSeeded ~= nil and type(story.kitSeeded) ~= "boolean")
             or (story.captives ~= nil and type(story.captives) ~= "boolean")
@@ -3691,6 +3694,15 @@ local function validGroup(source, id, path)
             siteOkay, siteReason = validPosition(story.site.bedroomDoor,
                 path .. ".oddball.site.bedroomDoor", true)
             if not siteOkay then return false, siteReason end
+        elseif story.id == "garage_rescue_eli_rourke"
+            or story.id == "radio_rescue_nate_duvall" then
+            siteOkay, siteReason = validPosition(story.site.rescueDoor,
+                path .. ".oddball.site.rescueDoor", true)
+            if not siteOkay then return false, siteReason end
+            if story.site.rescueDoor.kind ~= "door" then
+                return restoreFailure(path .. ".oddball.site.rescueDoor.kind",
+                    "expected rescue door")
+            end
         elseif story.id == "pyromaniac_earl_kessler" then
             local posts, count = denseArray(story.site.fuelPosts,
                 path .. ".oddball.site.fuelPosts", 2, 6)

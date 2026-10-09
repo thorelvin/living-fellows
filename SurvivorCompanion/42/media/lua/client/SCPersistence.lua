@@ -3308,13 +3308,17 @@ local function applyEquipment(actor, equipment, byId, companionId)
     equipment = type(equipment) == "table" and equipment or {}
     if equipment.primary ~= nil then
         local item = byId[equipment.primary]
-        if item == nil or not invoke(actor, "setPrimaryHandItem", item) then
+        local set = item ~= nil and invoke(actor, "setPrimaryHandItem", item)
+        local readOk, readItem = invoke(actor, "getPrimaryHandItem")
+        if not set or not readOk or readItem ~= item then
             return false, "primary hand item could not be equipped"
         end
     end
     if equipment.secondary ~= nil then
         local item = byId[equipment.secondary]
-        if item == nil or not invoke(actor, "setSecondaryHandItem", item) then
+        local set = item ~= nil and invoke(actor, "setSecondaryHandItem", item)
+        local readOk, readItem = invoke(actor, "getSecondaryHandItem")
+        if not set or not readOk or readItem ~= item then
             return false, "secondary hand item could not be equipped"
         end
     end
@@ -3340,12 +3344,17 @@ local function applyEquipment(actor, equipment, byId, companionId)
             if equipOk and equipLocation ~= nil then location = equipLocation end
         end
         location = location or worn.location
-        local equipped, equipReason = invoke(actor, "setWornItem", location, item)
-        if not equipped then
+        local equipped, equipResult = invoke(actor, "setWornItem", location, item)
+        local atOk, atItem = invoke(actor, "getWornItem", location)
+        local readOk, readItem = invoke(actor, "isEquippedClothing", item)
+        local retained = (atOk and atItem == item)
+            or (readOk and readItem == true)
+        if not equipped or equipResult == false or not retained then
             -- Body-location names can disappear when Build 42 or a clothing mod
             -- changes. The item tree is already restored exactly; retaining the
             -- item in inventory is safer than rolling back the entire actor.
-            reportEquipmentFallback(companionId, "worn", worn.location, equipReason)
+            reportEquipmentFallback(companionId, "worn", worn.location,
+                not equipped and equipResult or "equip_not_retained")
         end
     end
     for _, attached in ipairs(type(equipment.attached) == "table" and equipment.attached or {}) do

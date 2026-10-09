@@ -26,6 +26,7 @@ local ownedLootPane = nil
 local transferOwners = setmetatable({}, { __mode = "kv" })
 local originalTransferItem, transferItemWrapper
 local transferHookActive = false
+local inventoryMenuInstalled = false
 local nearbySignatures = setmetatable({}, { __mode = "k" })
 
 function Bridge.invalidateNearbyInventoryLabels()
@@ -63,6 +64,60 @@ local function companionId(actor)
     return tostring(id)
 end
 
+local function recruitedActor(actor)
+    if not actor or not SC.Actor or type(SC.Actor.isCompanion) ~= "function" then
+        return false
+    end
+    local valid, isCompanion = pcall(SC.Actor.isCompanion, actor)
+    if not valid or isCompanion ~= true then return false end
+    if SC.Commands and type(SC.Commands.peek) == "function" then
+        local record = SC.Commands.peek(actor)
+        if type(record) == "table" then return record.recruited == true end
+    end
+    if SC.Registry and type(SC.Registry.snapshot) == "function" then
+        for _, record in ipairs(SC.Registry.snapshot()) do
+            if record.actor == actor then return record.recruited == true end
+        end
+    end
+    return false
+end
+
+-- InventoryItem:getContainer() points to its immediate bag. Walk containing
+-- items back to a recruited companion's root instead of treating bag gifts as
+-- world-container transfers. Only exact, currently owned roots are trusted.
+function Bridge.ownerOfContainer(container)
+    local visited = {}
+    local current = container
+    for _ = 1, 12 do
+        if not current or visited[current] then break end
+        visited[current] = true
+        local owner = transferOwners[current]
+        if owner and safeMethod(owner, "getInventory") == current
+            and recruitedActor(owner) then return owner end
+        local containingItem = safeMethod(current, "getContainingItem")
+        if not containingItem then
+            local parent = safeMethod(current, "getParent")
+            if parent and safeMethod(parent, "getContainer") then
+                containingItem = parent
+            end
+        end
+        current = containingItem and safeMethod(containingItem, "getContainer") or nil
+    end
+    if SC.Registry and type(SC.Registry.snapshot) == "function" then
+        for _, record in ipairs(SC.Registry.snapshot()) do
+            if record.recruited == true and record.actor
+                and recruitedActor(record.actor) then
+                local root = safeMethod(record.actor, "getInventory")
+                if root and visited[root] then
+                    transferOwners[root] = record.actor
+                    return record.actor
+                end
+            end
+        end
+    end
+    return nil
+end
+
 -- The stock transfer action is run by the player, even when its source is a
 -- companion's borrowed inventory. Vanilla therefore unequips the player, not
 -- the companion. A weapon left in the companion's hand after being taken can
@@ -87,8 +142,23 @@ local function releaseTransferredEquipment(actor, item)
         end
     end
     if changed then safeMethod(actor, "resetModelNextFrame") end
+    local data = safeMethod(item, "hasModData") == true
+        and safeMethod(item, "getModData") or nil
+    if type(data) == "table" then
+        local id = companionId(actor)
+        if data.SC_ManualEquipFor == id then data.SC_ManualEquipFor = nil end
+        if data.SC_ManualWearFor == id then data.SC_ManualWearFor = nil end
+    end
     if SC.InventoryIndex and type(SC.InventoryIndex.touch) == "function" then
         SC.InventoryIndex.touch(actor)
+    end
+end
+
+local function installInventoryMenu()
+    if inventoryMenuInstalled then return end
+    if Events and Events.OnFillInventoryObjectContextMenu then
+        Events.OnFillInventoryObjectContextMenu.Add(Bridge.fillInventoryContextMenu)
+        inventoryMenuInstalled = true
     end
 end
 
@@ -114,6 +184,7 @@ end
 function Bridge.installTransferHook()
     if originalTransferItem ~= nil then
         transferHookActive = true
+        installInventoryMenu()
         return true
     end
     if type(ISTransferAction) ~= "table" and type(require) == "function" then
@@ -129,10 +200,25 @@ function Bridge.installTransferHook()
             source, destination, ...)
         if not transferHookActive then return result end
         local repaired, repairReason = pcall(function()
-            local owner = transferOwners[source]
+            local owner = Bridge.ownerOfContainer(source)
             if owner and item and destination and source ~= destination
                 and leftSource(item, result, source, destination) then
                 releaseTransferredEquipment(owner, item)
+            end
+            local receiver = Bridge.ownerOfContainer(destination)
+            if receiver and receiver ~= owner and source ~= destination then
+                local received = item
+                if not holds(destination, received)
+                    and result ~= nil and result ~= item
+                    and holds(destination, result) then received = result end
+                if holds(destination, received) and not holds(source, item) then
+                    if SC.InventoryIndex and type(SC.InventoryIndex.touch) == "function" then
+                        SC.InventoryIndex.touch(receiver)
+                    end
+                    if SC.Logistics and type(SC.Logistics.noteGift) == "function" then
+                        SC.Logistics.noteGift(receiver, received)
+                    end
+                end
             end
         end)
         if not repaired and SC.Diagnostics
@@ -144,6 +230,7 @@ function Bridge.installTransferHook()
     end
     ISTransferAction.transferItem = transferItemWrapper
     transferHookActive = true
+    installInventoryMenu()
     return true
 end
 
@@ -157,6 +244,10 @@ function Bridge.removeTransferHook()
     transferOwners = setmetatable({}, { __mode = "kv" })
     nearbySignatures = setmetatable({}, { __mode = "k" })
     transferHookActive = false
+    if inventoryMenuInstalled and Events and Events.OnFillInventoryObjectContextMenu then
+        Events.OnFillInventoryObjectContextMenu.Remove(Bridge.fillInventoryContextMenu)
+    end
+    inventoryMenuInstalled = false
     if originalTransferItem == nil then return true end
     if type(ISTransferAction) == "table"
         and ISTransferAction.transferItem == transferItemWrapper then
@@ -247,6 +338,143 @@ function Bridge.validateNearbyActor(actor, player, maximumDistance)
         return failure("UI_SC_Disabled_TooFar", limit)
     end
     return true
+end
+
+function Bridge.equipOnCompanion(actor, item, player, kind)
+    local valid, reason = Bridge.validateNearbyActor(actor, player,
+        Bridge.NEARBY_DISTANCE)
+    if not valid then return false, reason end
+    if not recruitedActor(actor) then return false, "companion_not_recruited" end
+    local actorSquare = safeMethod(actor, "getSquare")
+    local playerSquare = safeMethod(player, "getSquare")
+    if not actorSquare or not playerSquare
+        or safeMethod(actorSquare, "getZ") ~= safeMethod(playerSquare, "getZ") then
+        return false, "companion_on_other_floor"
+    end
+    local source = safeMethod(item, "getContainer")
+    if not source or Bridge.ownerOfContainer(source) ~= actor then
+        return false, "item_not_owned"
+    end
+    local equipped, equipReason
+    if kind == "weapon" and SC.Combat
+        and type(SC.Combat.equipExactWeapon) == "function" then
+        equipped, equipReason = SC.Combat.equipExactWeapon(actor, item)
+    elseif kind == "wear" and SC.Logistics
+        and type(SC.Logistics.equipExactWearable) == "function" then
+        equipped, equipReason = SC.Logistics.equipExactWearable(actor, item)
+    else
+        return false, "equip_action_unavailable"
+    end
+    if equipped and SC.InventoryIndex and type(SC.InventoryIndex.touch) == "function" then
+        SC.InventoryIndex.touch(actor)
+    end
+    return equipped == true, equipReason
+end
+
+local function firstInventoryItem(entries)
+    if type(entries) ~= "table" then return nil end
+    for _, entry in ipairs(entries) do
+        local item = entry
+        if type(entry) == "table" and type(entry.items) == "table" then
+            item = entry.items[1]
+        end
+        if item and safeMethod(item, "getContainer") then return item end
+    end
+    return nil
+end
+
+local function onEquipmentOption(item, actor, player, kind)
+    local ok, equipped, reason = pcall(Bridge.equipOnCompanion,
+        actor, item, player, kind)
+    local message = ok and equipped
+        and (Bridge.borrowedInventoryLabel(actor) .. " equipped "
+            .. tostring(safeMethod(item, "getDisplayName") or "the item"))
+        or ("Could not equip item: " .. tostring(ok and reason or equipped))
+    safeMethod(player, "setHaloNote", message)
+end
+
+local function equipmentLabel(key, fallback, name)
+    if type(getText) == "function" then
+        local ok, translated = pcall(getText, key, name)
+        if ok and type(translated) == "string" and translated ~= ""
+            and translated ~= key then return translated end
+    end
+    return fallback .. " " .. name
+end
+
+local function removePlayerEquipOptions(context)
+    local vanilla = ISInventoryPaneContextMenu
+    if type(vanilla) ~= "table" or type(context.options) ~= "table"
+        or type(context.removeOptionByName) ~= "function" then return end
+    local callbacks = {}
+    local function remember(callback)
+        if type(callback) == "function" then callbacks[callback] = true end
+    end
+    remember(vanilla.onWearItems)
+    remember(vanilla.onClothingItemExtra)
+    remember(vanilla.OnPrimaryWeapon)
+    remember(vanilla.OnSecondWeapon)
+    remember(vanilla.OnTwoHandsEquip)
+    local names = {}
+    for _, option in ipairs(context.options) do
+        local playerAction = option and option.onSelect and callbacks[option.onSelect]
+        -- Variant clothing creates a callback-free "Wear" parent with the
+        -- player-targeted clothing action in its submenu.
+        if not playerAction and option and option.subOption
+            and type(context.getSubMenu) == "function" then
+            local ok, submenu = pcall(context.getSubMenu, context, option.subOption)
+            if ok and submenu and type(submenu.options) == "table" then
+                for _, child in ipairs(submenu.options) do
+                    if child and child.onSelect == vanilla.onClothingItemExtra then
+                        playerAction = true
+                        break
+                    end
+                end
+            end
+        end
+        if playerAction then
+            names[#names + 1] = option.name
+        end
+    end
+    for _, name in ipairs(names) do context:removeOptionByName(name) end
+end
+
+function Bridge.fillInventoryContextMenu(playerIndex, context, entries)
+    if not context or type(context.addOption) ~= "function" then return end
+    local item = firstInventoryItem(entries)
+    if not item then return end
+    local actor = Bridge.ownerOfContainer(safeMethod(item, "getContainer"))
+    if not actor then return end
+    local player = type(getSpecificPlayer) == "function"
+        and getSpecificPlayer(playerIndex) or nil
+    local valid = Bridge.validateNearbyActor(actor, player, Bridge.NEARBY_DISTANCE)
+    if not valid then return end
+    local actorSquare = safeMethod(actor, "getSquare")
+    local playerSquare = safeMethod(player, "getSquare")
+    if safeMethod(actorSquare, "getZ") ~= safeMethod(playerSquare, "getZ") then
+        return
+    end
+    local name = Bridge.borrowedInventoryLabel(actor)
+    local category = safeMethod(item, "getCategory")
+    removePlayerEquipOptions(context)
+    if tostring(category) == "Weapon" or (SC.GameplayUtil
+        and type(SC.GameplayUtil.instanceOf) == "function"
+        and SC.GameplayUtil.instanceOf(item, "HandWeapon")) then
+        context:addOption(equipmentLabel("UI_SC_EquipOnCompanion",
+            "Equip on", name), item,
+            onEquipmentOption, actor, player, "weapon")
+    end
+    local clothing = safeMethod(item, "IsClothing") == true
+        or tostring(category) == "Clothing"
+    local bag = safeMethod(item, "getItemContainer")
+        or safeMethod(item, "getInventory")
+    local location = safeMethod(item, "getBodyLocation")
+        or safeMethod(item, "canBeEquipped")
+    if (clothing or bag) and location and tostring(location) ~= "" then
+        context:addOption(equipmentLabel("UI_SC_WearOnCompanion",
+            "Wear on", name), item,
+            onEquipmentOption, actor, player, "wear")
+    end
 end
 
 function Bridge.openInventory(actor, player)

@@ -2143,7 +2143,8 @@ local function issueOne(companionId, command, payload, player)
     end
     local handler = handlers[command]
     if not handler then return false, "unsupported_command" end
-    if not state.recruited and command ~= "recruit" and command ~= "dismiss" then return false, "not_recruited" end
+    if not state.recruited and command ~= "recruit" and command ~= "dismiss"
+        and command ~= "open_health" then return false, "not_recruited" end
     local before, copyReason = copyCommandState(state)
     if not before then return false, "command_state_copy_failed:" .. tostring(copyReason) end
     local storageBefore = snapshotStorage(actor, entry)

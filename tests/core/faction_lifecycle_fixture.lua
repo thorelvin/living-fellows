@@ -171,7 +171,7 @@ for _, name in ipairs({
     "Background", "Dialogue", "NativeTraversalActions", "NativeVisualActions",
     "NativeCombatActions", "NativeWorkActions", "NativeMovementActions",
     "Trade", "FactionLife", "FactionWorld",
-    "FactionBehavior", "Oddballs", "OddballRed", "OddballSpiffo", "OddballWendell", "OddballDeputy",
+    "FactionBehavior", "Oddballs", "OddballDistressRadio", "OddballRed", "OddballSpiffo", "OddballWendell", "OddballDeputy",
     "OddballSilas", "OddballRusty", "OddballLonnie", "OddballVirgil", "OddballClem", "OddballPurdy",
     "OddballGale", "OddballButch", "OddballCecil", "OddballAnimals", "OddballHollis",
     "OddballRoom12", "OddballJune", "OddballDefenseLeague", "OddballAshby",
@@ -184,7 +184,7 @@ for _, name in ipairs({
     "OddballSleeper", "OddballElmer", "OddballBigChris", "OddballTommy",
     "OddballExchange", "OddballGordon", "OddballMorton", "OddballMien",
     "OddballGrinder", "OddballSurvivalist", "OddballVoiceActor",
-    "OddballPyromaniac", "OddballMilli",
+    "OddballPyromaniac", "OddballGarageRescue", "OddballDehydrated", "OddballCampStoryteller", "OddballMilli",
     "ZombieTargeting", "ThreatSet", "PerceptionScan", "Locomotion", "Senses", "Topology", "PathSearch", "NavTraffic", "NavTraversal", "Allegiance", "Navigation", "Names",
     "Positioning", "Combat", "Medical", "Logistics", "Lighting", "Needs", "Downtime",
     "Personality", "PersonalItems", "Relationship", "Objectives", "Journal",
@@ -263,6 +263,18 @@ function SC.OddballRoomGuard.remove()
 end
 function SC.OddballRoomGuard.isInstalled()
     return SC.OddballRoomGuard.installed
+end
+SC.OddballDistressRadio = { installed = false }
+function SC.OddballDistressRadio.install()
+    SC.OddballDistressRadio.installed = true
+    return true
+end
+function SC.OddballDistressRadio.remove()
+    SC.OddballDistressRadio.installed = false
+    return true
+end
+function SC.OddballDistressRadio.isInstalled()
+    return SC.OddballDistressRadio.installed
 end
 
 SC.DiaryUI = { installed = false, installs = 0, removes = 0, failInstall = false }

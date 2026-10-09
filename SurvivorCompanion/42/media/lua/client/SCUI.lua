@@ -10,6 +10,7 @@ require "ISUI/ISModalDialog"
 pcall(require, "ISUI/ISUI3DModel")
 require "SCUIBounds"
 require "SCUIBridge"
+require "SCMedicalUI"
 require "SCUIFormat"
 require "SCUIPixels"
 require "SCUIExpeditions"
@@ -1066,7 +1067,6 @@ local RECRUITED_COMMANDS = {
     board_vehicle = true,
     exit_vehicle = true,
     open_inventory = true,
-    open_health = true,
     bandage = true,
     emote = true,
     relationship = true,
@@ -1090,7 +1090,6 @@ local PROXIMITY_LIMITS = {
     emote = 16,
     recruit = 16,
     open_inventory = tonumber(Bridge and Bridge.NEARBY_DISTANCE) or 4,
-    open_health = tonumber(Bridge and Bridge.VIEW_DISTANCE) or 64,
 }
 
 local function usableGroup(group)
@@ -1145,6 +1144,9 @@ function UI.commandAvailability(row, command, payload)
     end
     if command == "bandage" then
         return UI.bandageAvailability(row, playerForUI())
+    end
+    if command == "open_health" then
+        return SC.MedicalUI.availability(row.actor, playerForUI())
     end
     local limit = PROXIMITY_LIMITS[command]
     if limit then
@@ -5681,10 +5683,7 @@ function UI.restoreInventory()
 end
 
 function UI.openHealth(actor, player)
-    local activePlayer = player or playerForUI()
-    return Bridge.openHealth(actor, activePlayer, UI.open, function(subject, doctor)
-        return UI.describeEntry(subject, doctor)
-    end)
+    return SC.MedicalUI.open(actor, player or playerForUI())
 end
 
 function UI.isOpen()
@@ -5883,6 +5882,7 @@ end
 
 function UI.reset()
     UI.clearDebugHouseLocator()
+    if SC.MedicalUI then SC.MedicalUI.close("world_reset") end
     UI.close()
     if SC.Interaction then SC.Interaction.reset() end
     UI._gameStarted = false

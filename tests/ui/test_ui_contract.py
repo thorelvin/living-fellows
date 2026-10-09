@@ -895,9 +895,10 @@ class UIStaticContractTests(unittest.TestCase):
             self.ui,
         )
         self.assertIn(
-            "open_health = tonumber(Bridge and Bridge.VIEW_DISTANCE) or 64",
+            'if command == "open_health" then',
             self.ui,
         )
+        self.assertIn("SC.MedicalUI.availability(row.actor, playerForUI())", self.ui)
         loadout = lua_function(self.ui, "function SCUIDetail:buildLoadout(panel, row)")
         self.assertIn('"UI_SC_Action_Bandage", "bandage"', loadout)
         availability = lua_function(self.ui, "function UI.bandageAvailability(row, activePlayer)")

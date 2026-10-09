@@ -12,7 +12,7 @@ Persistent companions, survivor households, and living bases for Project Zomboid
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.21.0-red.svg)](#requirements)
-[![Release](https://img.shields.io/badge/release-0.26.34-blue.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-0.26.35-blue.svg)](CHANGELOG.md)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 
 Living Fellows turns the survivors you meet into persistent people. They can join you, fight and travel with you, help run a base, and make their own survival decisions. Companions are native human actors with real inventories, injuries, skills, and permanent death.
@@ -31,7 +31,7 @@ Living Fellows turns the survivors you meet into persistent people. They can joi
 - [Expeditions (experimental)](#expeditions-experimental)
 - [Base life and production](#base-life-and-production)
 - [Survivor households and bandits](#survivor-households-and-bandits)
-- [Strange Folk (in development)](#strange-folk-in-development)
+- [Strange Folk (0.26.35 playtest)](#strange-folk-02635-playtest)
 - [Sandbox options](#sandbox-options)
 - [Saves and backups](#saves-and-backups) · [Compatibility](#compatibility)
 - [Troubleshooting](#troubleshooting) · [Reporting a bug](#reporting-a-bug)
@@ -120,7 +120,7 @@ The panel is translucent so you can still see the world. It can be docked left o
 
 Use the persistent **Talk** button above the tabs, or right-click a nearby companion and choose **Talk to [name]**. Choose a topic and a line; the companion walks into speaking distance before answering. The view keeps recent dialogue and explains interruptions. Right-click also offers Follow, Stay, Regroup, Retreat, and a link to the full Orders panel.
 
-To check injuries, right-click a companion and choose **Medical Check**, or open their health view from **Loadout**. A recruited companion within one tile on your floor also appears as a named backpack in the regular loot pane. Selecting it does not put them on a Stay order.
+To check injuries, right-click a nearby companion and choose **Medical Check**, or open their health view from **Loadout**. The game's timed examination opens the patient's body-part panel, where you can treat wounds with your own supplies. The companion waits while you use it and resumes when the panel closes or danger interrupts. A recruited companion within one tile on your floor also appears as a named backpack in the regular loot pane. Selecting it does not put them on a Stay order.
 
 ## Orders
 
@@ -170,6 +170,8 @@ Zombies hunt companions like players. Bites can infect and turn them, and a swar
 A scavenger chooses containers by distance and room before seeing their contents. Once a container is open, they keep taking useful items from it instead of walking away after one item. Each transfer finishes its rummage animation and is verified. Previously searched containers can still be worth their time; empty ones are skipped for a while.
 
 Inside camp, companions use marked storage and respect its reserves. They leave unmarked containers and Memorial storage alone. They manage backpacks, gear and clothing, loot dead zombies when safe, and carry useful materials home. In the dark, a companion with a flashlight can use it in the off hand and replace a spent battery. A two-handed weapon leaves no hand free for the light.
+
+Open a nearby recruited companion in the regular loot pane to give them equipment. They review a gifted usable weapon, better clothing or bag when it is safe, including items marked as favorites. Right-click an item in their inventory and choose **Equip on** or **Wear on** to select that exact item for the companion. An explicit choice stays in place while the gear remains usable.
 
 <p align="center">
   <img src="assets/screenshot-scavenging.png" width="100%" alt="A companion standing in a blood-smeared house says: I found Bra - Strapless. Eww, I got some of it on my hands.">
@@ -260,11 +262,11 @@ Households of one to three survivors occupy real houses, barricade them, warn st
 
 Bandit camps are rare, always hostile, and appear from day four. Bandits guard and patrol their camp, need line of sight to target you, and fight zombies too. They never trade or recruit.
 
-## Strange Folk (in development)
+## Strange Folk (0.26.35 playtest)
 
-The current development branch adds rare, one-off encounters to the household system. Gale Mercer runs a GigaMart checkout and notices unpaid items. Butch Kittredge offers a steak until you enter his back room. Cecil Ray Haskins warns armed visitors away from his gun-shop counter. Hollis Burkett cares for Duchess, a real named sow. Delbert Sloan barricades Room 12, trades through its door, and keeps Sweet Pea inside. Ranger June Whitlock knows all ten of her named rabbits and may ask you to find an escaped Juniper. Other Strange Folk on this branch include the Gut-Cloaked Man, Window Spiffo, and Shotgun Farmer.
+The 0.26.35 playtest adds rare, one-off encounters to the household system. Gale Mercer runs a GigaMart checkout and notices unpaid items. Butch Kittredge offers a steak until you enter his back room. Cecil Ray Haskins warns armed visitors away from his gun-shop counter. Hollis Burkett cares for Duchess, a real named sow. Delbert Sloan barricades Room 12, trades through its door, and keeps Sweet Pea inside. Ranger June Whitlock knows all ten of her named rabbits and may ask you to find an escaped Juniper. Other Strange Folk include the Gut-Cloaked Man, Window Spiffo, and Shotgun Farmer.
 
-These encounters use the existing faction standing, native animal, inventory transfer, barricade, navigation, combat, and recruitment systems. They are not part of the published 0.26.34 build yet.
+Silas Reed keeps a forest campfire, a fishing kit and a story to trade by the fire. Eli Rourke calls from a locked garage with a broken leg, and Nate Duvall calls from a closed room without clean water. Their 90 MHz distress calls reach your radio only while the survivor is loaded nearby; answer with a working two-way radio to mark the location. Eli needs a real splint and clean bandage through Medical Check. Nate needs clean water from your inventory and time to recover. These encounters use the existing faction standing, native animal, inventory transfer, barricade, navigation, combat, and recruitment systems.
 
 ## Sandbox options
 

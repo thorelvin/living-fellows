@@ -42,6 +42,7 @@ require "SCFactionContracts"
 require "SCFactionWorld"
 require "SCFactionBehavior"
 require "SCOddballRoomGuard"
+require "SCOddballDistressRadio"
 require "SCOddballs"
 require "SCOddballRed"
 require "SCOddballSpiffo"
@@ -95,6 +96,9 @@ require "SCOddballGrinder"
 require "SCOddballSurvivalist"
 require "SCOddballVoiceActor"
 require "SCOddballPyromaniac"
+require "SCOddballGarageRescue"
+require "SCOddballDehydrated"
+require "SCOddballCampStoryteller"
 require "SCOddballDeputy"
 require "SCOddballSilas"
 require "SCOddballRusty"
@@ -189,7 +193,7 @@ local requiredModules = {
     "ActionSupervisor", "Actor", "Persistence", "Vehicle", "Spawn", "GameplayUtil", "Names", "Topology",
     "BaseObjectRef", "PathSearch", "NavTraffic", "NavTraversal",
     "Background", "Dialogue", "Allegiance", "Factions", "Trade", "FactionLife", "FactionContracts", "FactionWorld",
-    "FactionBehavior", "OddballRoomGuard", "Oddballs", "OddballRed", "OddballSpiffo", "OddballWendell", "OddballGale", "OddballButch", "OddballCecil", "OddballAnimals", "OddballHollis", "OddballRoom12", "OddballJune", "OddballDefenseLeague", "OddballAshby", "OddballSins", "OddballKris", "OddballEbb", "OddballPrentice", "OddballLusk", "OddballVelma", "OddballCorey", "OddballDwight", "OddballRoyce", "OddballMose", "OddballAmos", "OddballLester", "OddballVisitors", "OddballTupelo", "OddballAuxiliary", "OddballRivals", "OddballBledsoe", "OddballWerewolf", "OddballSkeeter", "OddballMerle", "OddballCrabtree", "OddballJedediah", "OddballGideon", "OddballRenfro", "OddballGoatman", "OddballTolliver", "OddballSleeper", "OddballElmer", "OddballBigChris", "OddballTommy", "OddballExchange", "OddballGordon", "OddballMorton", "OddballMien", "OddballGrinder", "OddballSurvivalist", "OddballVoiceActor", "OddballPyromaniac", "OddballMilli",
+    "FactionBehavior", "OddballRoomGuard", "OddballDistressRadio", "Oddballs", "OddballRed", "OddballSpiffo", "OddballWendell", "OddballGale", "OddballButch", "OddballCecil", "OddballAnimals", "OddballHollis", "OddballRoom12", "OddballJune", "OddballDefenseLeague", "OddballAshby", "OddballSins", "OddballKris", "OddballEbb", "OddballPrentice", "OddballLusk", "OddballVelma", "OddballCorey", "OddballDwight", "OddballRoyce", "OddballMose", "OddballAmos", "OddballLester", "OddballVisitors", "OddballTupelo", "OddballAuxiliary", "OddballRivals", "OddballBledsoe", "OddballWerewolf", "OddballSkeeter", "OddballMerle", "OddballCrabtree", "OddballJedediah", "OddballGideon", "OddballRenfro", "OddballGoatman", "OddballTolliver", "OddballSleeper", "OddballElmer", "OddballBigChris", "OddballTommy", "OddballExchange", "OddballGordon", "OddballMorton", "OddballMien", "OddballGrinder", "OddballSurvivalist", "OddballVoiceActor", "OddballPyromaniac", "OddballGarageRescue", "OddballDehydrated", "OddballCampStoryteller", "OddballMilli",
     "OddballDeputy", "OddballSilas", "OddballRusty", "OddballLonnie",
     "OddballVirgil", "OddballClem", "OddballPurdy",
     "ZombieTargeting", "ThreatSet", "PerceptionScan",
@@ -225,6 +229,9 @@ local requiredFunctions = {
     { "OddballRoomGuard", "install" },
     { "OddballRoomGuard", "remove" },
     { "OddballRoomGuard", "isInstalled" },
+    { "OddballDistressRadio", "install" },
+    { "OddballDistressRadio", "remove" },
+    { "OddballDistressRadio", "isInstalled" },
     { "FactionContracts", "installHooks" },
     { "FactionContracts", "removeHooks" },
     { "FactionContracts", "hooksInstalled" },
@@ -261,6 +268,8 @@ local contractDefinitions = {
     { name = "faction combat", owner = function() return SC.Factions end,
         install = "installHooks", remove = "removeHooks", state = "hooksInstalled" },
     { name = "encounter room guard", owner = function() return SC.OddballRoomGuard end,
+        install = "install", remove = "remove", state = "isInstalled" },
+    { name = "rescue distress radio", owner = function() return SC.OddballDistressRadio end,
         install = "install", remove = "remove", state = "isInstalled" },
     { name = "faction contracts", owner = function() return SC.FactionContracts end,
         install = "installHooks", remove = "removeHooks", state = "hooksInstalled" },

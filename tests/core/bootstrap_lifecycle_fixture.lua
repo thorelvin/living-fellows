@@ -64,7 +64,7 @@ local required = {
     "ActionSupervisor", "Actor",
     "Persistence", "Vehicle", "Spawn", "GameplayUtil", "Names", "Topology", "PathSearch", "NavTraffic", "NavTraversal",
     "Background", "Dialogue", "Allegiance", "Trade", "FactionLife",
-    "FactionWorld", "FactionBehavior", "OddballRoomGuard", "Oddballs", "OddballRed", "OddballSpiffo", "OddballWendell", "OddballDeputy",
+    "FactionWorld", "FactionBehavior", "OddballRoomGuard", "OddballDistressRadio", "Oddballs", "OddballRed", "OddballSpiffo", "OddballWendell", "OddballDeputy",
     "OddballSilas", "OddballRusty", "OddballLonnie", "OddballVirgil", "OddballClem", "OddballPurdy",
     "OddballGale", "OddballButch", "OddballCecil", "OddballAnimals", "OddballHollis", "OddballRoom12",
     "OddballJune", "OddballDefenseLeague", "OddballAshby", "OddballSins", "OddballKris", "OddballEbb",
@@ -73,7 +73,7 @@ local required = {
     "OddballRivals", "OddballBledsoe", "OddballWerewolf", "OddballSkeeter", "OddballMerle", "OddballCrabtree",
     "OddballJedediah", "OddballGideon", "OddballRenfro", "OddballGoatman", "OddballTolliver", "OddballSleeper",
     "OddballElmer", "OddballBigChris", "OddballTommy", "OddballExchange", "OddballGordon", "OddballMorton",
-    "OddballMien", "OddballGrinder", "OddballSurvivalist", "OddballVoiceActor", "OddballPyromaniac", "OddballMilli",
+    "OddballMien", "OddballGrinder", "OddballSurvivalist", "OddballVoiceActor", "OddballPyromaniac", "OddballGarageRescue", "OddballDehydrated", "OddballCampStoryteller", "OddballMilli",
     "ZombieTargeting", "ThreatSet", "PerceptionScan", "Locomotion", "Senses",
     "Navigation", "Positioning", "Combat", "Medical", "Logistics", "Lighting", "Needs", "Downtime",
     "Personality", "PersonalItems", "Relationship", "Objectives", "Journal", "BaseObjectRef", "BaseLife",
@@ -127,6 +127,28 @@ function SC.OddballRoomGuard.remove()
 end
 function SC.OddballRoomGuard.isInstalled()
     return SC.OddballRoomGuard.installed
+end
+SC.OddballDistressRadio = { installed = false, installs = 0, removes = 0,
+    failRemove = false }
+function SC.OddballDistressRadio.install()
+    if not SC.OddballDistressRadio.installed then
+        SC.OddballDistressRadio.installs = SC.OddballDistressRadio.installs + 1
+    end
+    SC.OddballDistressRadio.installed = true
+    return true
+end
+function SC.OddballDistressRadio.remove()
+    if SC.OddballDistressRadio.failRemove then
+        return false, "injected distress radio remove failure"
+    end
+    if SC.OddballDistressRadio.installed then
+        SC.OddballDistressRadio.removes = SC.OddballDistressRadio.removes + 1
+    end
+    SC.OddballDistressRadio.installed = false
+    return true
+end
+function SC.OddballDistressRadio.isInstalled()
+    return SC.OddballDistressRadio.installed
 end
 SC.CompanionMap = { installed = false, installs = 0, removes = 0,
     failRemove = false }

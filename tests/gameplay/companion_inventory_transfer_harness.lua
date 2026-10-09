@@ -16,7 +16,8 @@ local function remove(container, item)
 end
 
 local companion = { inventory = companionInventory }
-function companion:getSquare() return {} end
+local square = { getZ = function() return 0 end }
+function companion:getSquare() return square end
 function companion:isDead() return false end
 function companion:getInventory() return self.inventory end
 function companion:getPrimaryHandItem() return self.primary end
@@ -30,6 +31,7 @@ function companion:resetModelNextFrame() self.modelReset = true end
 local player = { inventory = playerInventory }
 function player:DistTo() return 1 end
 function player:getPlayerNum() return 0 end
+function player:getSquare() return square end
 function player:removeFromHands(item)
     if self.primary == item then self.primary = nil end
 end
@@ -44,6 +46,11 @@ getPlayerLoot = function() return lootPage end
 SurvivorCompanion = SurvivorCompanion or {}
 SurvivorCompanion.Actor = {
     isCompanion = function(actor) return actor == companion end,
+}
+SurvivorCompanion.Registry = {
+    snapshot = function()
+        return { { id = "transfer-companion", actor = companion, recruited = true } }
+    end,
 }
 SurvivorCompanion.GameplayUtil = { inventoryContains = contains }
 SurvivorCompanion.InventoryIndex = {
@@ -141,8 +148,95 @@ ISTransferAction:transferItem(player, knife, companionInventory, playerInventory
 assert(foreignCalls == 2 and companion.primary == nil,
     "the reactivated wrapper did not release the knife")
 
+local gifts = {}
+SurvivorCompanion.Logistics = {
+    noteGift = function(actor, item)
+        assert(actor == companion)
+        gifts[#gifts + 1] = item
+    end,
+    equipExactWearable = function(actor, item)
+        assert(actor == companion)
+        return true, item
+    end,
+}
+SurvivorCompanion.Combat = {
+    equipExactWeapon = function(actor, item)
+        assert(actor == companion)
+        return true, item
+    end,
+}
+local crowbar = newItem(playerInventory)
+function crowbar:getCategory() return "Weapon" end
+ISTransferAction:transferItem(player, crowbar, playerInventory, companionInventory)
+assert(gifts[#gifts] == crowbar and crowbar.container == companionInventory,
+    "confirmed gift to companion root did not request a loadout review")
+local bag = newItem(companionInventory)
+local bagInventory = { items = {}, containingItem = bag }
+function bagInventory:getContainingItem() return self.containingItem end
+local shoulderPads = newItem(playerInventory)
+function shoulderPads:IsClothing() return true end
+function shoulderPads:getBodyLocation() return "TorsoExtra" end
+ISTransferAction:transferItem(player, shoulderPads, playerInventory, bagInventory)
+assert(gifts[#gifts] == shoulderPads and shoulderPads.container == bagInventory,
+    "confirmed gift to a nested companion bag did not request a loadout review")
+assert(bridge.ownerOfContainer(bagInventory) == companion)
+local wearOk, wearItem = bridge.equipOnCompanion(companion, shoulderPads,
+    player, "wear")
+assert(wearOk == true and wearItem == shoulderPads,
+    "explicit Wear did not target the exact nested item")
+local weaponOk, weaponItem = bridge.equipOnCompanion(companion, crowbar,
+    player, "weapon")
+assert(weaponOk == true and weaponItem == crowbar,
+    "explicit Equip did not target the exact weapon")
+local stranger = newItem(otherInventory)
+assert(bridge.equipOnCompanion(companion, stranger, player, "weapon") == false,
+    "explicit Equip accepted an item the companion does not own")
+
+getSpecificPlayer = function(index) assert(index == 0) return player end
+local vanillaEquip = function() end
+local vanillaWear = function() end
+local vanillaClothingExtra = function() end
+ISInventoryPaneContextMenu = {
+    OnPrimaryWeapon = vanillaEquip, onWearItems = vanillaWear,
+    onClothingItemExtra = vanillaClothingExtra,
+}
+local function menuWithVanilla(optionName, callback)
+    local menu = { options = { { name = optionName, onSelect = callback } } }
+    function menu:addOption(name, target, onSelect)
+        local option = { name = name, target = target, onSelect = onSelect }
+        self.options[#self.options + 1] = option
+        return option
+    end
+    function menu:removeOptionByName(name)
+        for index, option in ipairs(self.options) do
+            if option.name == name then table.remove(self.options, index) return end
+        end
+    end
+    return menu
+end
+local weaponMenu = menuWithVanilla("Equip primary", vanillaEquip)
+bridge.fillInventoryContextMenu(0, weaponMenu, { crowbar })
+assert(#weaponMenu.options == 1 and weaponMenu.options[1].target == crowbar
+        and weaponMenu.options[1].name == "Equip on Companion",
+    "companion inventory menu kept a player-targeted weapon action")
+local armorMenu = menuWithVanilla("Wear", vanillaWear)
+bridge.fillInventoryContextMenu(0, armorMenu, { shoulderPads })
+assert(#armorMenu.options == 1 and armorMenu.options[1].target == shoulderPads
+        and armorMenu.options[1].name == "Wear on Companion",
+    "companion inventory menu kept player-targeted Wear or lost nested armor")
+local variantMenu = menuWithVanilla("Wear", nil)
+variantMenu.options[1].subOption = 1
+function variantMenu:getSubMenu(index)
+    assert(index == 1)
+    return { options = { { name = "Wear up", onSelect = vanillaClothingExtra } } }
+end
+bridge.fillInventoryContextMenu(0, variantMenu, { shoulderPads })
+assert(#variantMenu.options == 1
+        and variantMenu.options[1].name == "Wear on Companion",
+    "companion inventory menu kept vanilla player-targeted variant Wear submenu")
+
 -- With the other mod gone, teardown restores the vanilla function.
 ISTransferAction.transferItem = ours
 removed = bridge.removeTransferHook()
 assert(removed == true and ISTransferAction.transferItem == original)
-SC_TEST_REPORT = "Companion inventory transfer: hammer, lit lantern and a foreign wrapper chain"
+SC_TEST_REPORT = "Companion inventory transfer: equipped item removal, root/bag gifts, exact Equip/Wear and foreign wrapper chain"

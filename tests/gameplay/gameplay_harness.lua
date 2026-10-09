@@ -13339,6 +13339,66 @@ check(SurvivorCompanion.Logistics.itemCategory(bulletproofVest) == "clothing"
         .. tostring(vestReason))
 
 do
+    local helmet = item("Base.HockeyHelmet", "Clothing", {
+        bodyLocation = "Hat", favorite = true, condition = 10,
+        conditionMax = 10, biteDefense = 18, scratchDefense = 25,
+    })
+    local pads = item("Base.HockeyShoulderPads", "Clothing", {
+        bodyLocation = "TorsoExtra", favorite = true, condition = 10,
+        conditionMax = 10, biteDefense = 20, scratchDefense = 30,
+    })
+    local gifted = actor("sc-gifted-hockey-kit", 10, 5,
+        { inventory = inventory({ helmet, pads }) })
+    SurvivorCompanion.Logistics.noteGift(gifted, helmet)
+    SurvivorCompanion.Logistics.noteGift(gifted, pads)
+    SurvivorCompanion.Logistics.reset(gifted)
+    check(SurvivorCompanion.Logistics.status(gifted).giftPending == true,
+        "confirmed gifts survive a stay or order-change logistics reset")
+    for _ = 1, 3 do
+        SurvivorCompanion.Logistics.update(gifted, nil, {
+            snapshot = { threats = {}, immediateCount = 0, threatCount = 0, pressure = 0 },
+        })
+        if gifted:getWornItem("Hat") == helmet
+            and gifted:getWornItem("TorsoExtra") == pads then break end
+    end
+    check(gifted:getWornItem("Hat") == helmet
+            and gifted:getWornItem("TorsoExtra") == pads,
+        "favorite gifted armor is worn piece by piece instead of being skipped")
+
+    local betterHelmet = item("Base.HockeyHelmet_Stronger", "Clothing", {
+        bodyLocation = "Hat", condition = 10, conditionMax = 10,
+        biteDefense = 60, scratchDefense = 60,
+    })
+    gifted.inventory:AddItem(betterHelmet)
+    local chosen, chosenReason = SurvivorCompanion.Logistics.equipExactWearable(
+        gifted, helmet)
+    -- An already-worn explicit choice is still a manual preference.
+    check(chosen and gifted:getWornItem("Hat") == helmet
+            and not SurvivorCompanion.Logistics.clothingUpgrade(gifted, betterHelmet),
+        "the player's exact Wear choice survives autonomous armor scoring: "
+            .. tostring(chosenReason))
+    SurvivorCompanion.Logistics.reset(gifted)
+end
+
+do
+    local chosenBag = item("Base.Bag_Schoolbag", "Container", {
+        nestedInventory = inventory(), bagCapacity = 15,
+        weightReduction = 40, bodyLocation = "Back", equipLocation = "Back",
+    })
+    local biggerBag = item("Base.Bag_BigHikingBag", "Container", {
+        nestedInventory = inventory(), bagCapacity = 30,
+        weightReduction = 85, bodyLocation = "Back", equipLocation = "Back",
+    })
+    local bagActor = actor("sc-manual-bag", 10, 5,
+        { inventory = inventory({ chosenBag, biggerBag }) })
+    bagActor:setWornItem("Back", chosenBag)
+    local worn = SurvivorCompanion.Logistics.equipExactWearable(bagActor, chosenBag)
+    check(worn and not SurvivorCompanion.Logistics.bagUpgrade(bagActor, biggerBag),
+        "a manually chosen backpack remains worn despite a higher capacity option")
+    SurvivorCompanion.Logistics.reset(bagActor)
+end
+
+do
     -- Reported from a playtest: companions fled every fight bare-handed while
     -- carrying two broken pens. A pen is defined in the game's own weapon.txt
     -- (ItemType = base:weapon), so it filled the weapon loadout and the

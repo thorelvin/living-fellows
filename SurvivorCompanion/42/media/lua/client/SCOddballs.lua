@@ -526,6 +526,37 @@ local definitions = {
             items = { "Base.Lighter", "Base.CigarettePack",
                 "Base.Matchbox", "Base.Bandage" } },
         module = "OddballPyromaniac" },
+    { id = "garage_rescue_eli_rourke", name = "Eli Rourke",
+        archetype = "oddball_resident", kind = "resident",
+        recruitment = true, firstEligibleOffsetDays = 4,
+        identity = { forename = "Eli", surname = "Rourke",
+            gender = "male", outfit = "Mechanic", dirt = 0.32,
+            visualSeed = 3100226 },
+        kit = { weapon = "Base.Wrench", equipWeapon = false,
+            items = { "Base.Torch", "Base.Notebook", "Base.Pencil",
+                "Base.CigarettePack" } },
+        module = "OddballGarageRescue" },
+    { id = "survivalist05_mid_storyteller", name = "Silas Reed",
+        archetype = "oddball_resident", kind = "forest_camp",
+        recruitment = true, firstEligibleOffsetDays = 3,
+        identity = { forename = "Silas", surname = "Reed",
+            gender = "male", outfit = "Survivalist05_Mid",
+            dirt = 0.22, visualSeed = 3100228 },
+        kit = { weapon = "Base.HuntingKnife",
+            items = { "Base.FishingRod", "Base.FishingLine", "Base.Bobber",
+                "Base.Worm", "Base.Tacklebox", "Base.Matchbox",
+                "Base.WaterBottle", "Base.CannedSardines",
+                "Base.TinOpener" } },
+        module = "OddballCampStoryteller" },
+    { id = "radio_rescue_nate_duvall", name = "Nate Duvall",
+        archetype = "oddball_resident", kind = "resident",
+        recruitment = true, firstEligibleOffsetDays = 4,
+        identity = { forename = "Nate", surname = "Duvall",
+            gender = "male", outfit = "ConstructionWorker", dirt = 0.4,
+            visualSeed = 3100227 },
+        kit = { items = { "Base.WaterBottle", "Base.Map",
+            "Base.Pencil", "Base.Notebook", "Base.Torch" } },
+        module = "OddballDehydrated" },
 }
 -- Scene modules own their signature weapons and reward stock. These small
 -- personal kits fill the gaps without changing an encounter's combat script.
@@ -794,6 +825,13 @@ local function isResidentRoom(id, name)
     if id == "survivalist_locked_horde" then
         return name == "bedroom" or name == "storage"
             or name == "livingroom" or name == "kitchen"
+    end
+    if id == "garage_rescue_eli_rourke" then
+        return name == "garage" or name == "garagestorage"
+    end
+    if id == "radio_rescue_nate_duvall" then
+        return name == "bedroom" or name == "utility"
+            or name == "storage"
     end
     if id == "voice_actor_vera_quill" then return name == "bedroom" end
     if id == "milli_tea_and_trouble" then
@@ -1440,6 +1478,51 @@ local function siteForResident(square, player, definition, name, allowSeen)
     if definition.captives == true and #captiveSpawns == 0 then return nil end
     local site = { kind = "resident", room = name, house = house,
         anchor = point(square) or house.anchor, spawn = spawn }
+    if definition.id == "garage_rescue_eli_rourke"
+        or definition.id == "radio_rescue_nate_duvall" then
+        local opening = partyOpening(house, spawn, "door")
+        local holder = opening and U().gridSquare(opening.x,
+            opening.y, opening.z or 0)
+        local objects = holder and select(1, U().call(holder, "getObjects"))
+        local door = objects and SC.NativeList
+            and SC.NativeList.get(objects, opening.objectIndex) or nil
+        if not door or select(1, U().call(door, "IsOpen")) ~= false then
+            return nil
+        end
+        site.rescueDoor = opening
+        if definition.id == "garage_rescue_eli_rourke" then
+            local room = select(1, U().call(
+                U().gridSquare(spawn.x, spawn.y, spawn.z or 0), "getRoom"))
+            local best, bestScore
+            for _, position in ipairs(house.interior or {}) do
+                local candidate = U().gridSquare(position.x, position.y,
+                    position.z or 0)
+                if room and candidate and candidateUnseen(candidate,
+                    player, allowSeen)
+                    and select(1, U().call(candidate, "getRoom")) == room then
+                    local edgeCount = 0
+                    for _, step in ipairs({ { 1, 0 }, { -1, 0 },
+                        { 0, 1 }, { 0, -1 } }) do
+                        local neighbor = U().gridSquare(position.x + step[1],
+                            position.y + step[2], position.z or 0)
+                        if neighbor and select(1, U().call(neighbor,
+                            "getRoom")) ~= room then edgeCount = edgeCount + 1 end
+                    end
+                    local doorDistance = (position.x - opening.x) ^ 2
+                        + (position.y - opening.y) ^ 2
+                    if edgeCount > 0 and doorDistance >= 4 then
+                        local score = edgeCount * 100
+                            + math.min(doorDistance, 25)
+                        if not bestScore or score > bestScore then
+                            best, bestScore = point(candidate), score
+                        end
+                    end
+                end
+            end
+            if not best then return nil end
+            site.spawn = best
+        end
+    end
     if definition.id == "pyromaniac_earl_kessler" then
         local bounds = house.bounds or {}
         if not bounds.x1 or not bounds.x2 or not bounds.y1 or not bounds.y2
@@ -2584,6 +2667,10 @@ function Oddballs.pulseGroup(group, player, current)
     if type(group) ~= "table" or type(group.oddball) ~= "table" then return false end
     roomGuard("pulse", group, player, current)
     local handled, reason = callModule(group, "pulse", group, player, current)
+    if SC.OddballDistressRadio
+        and type(SC.OddballDistressRadio.pulse) == "function" then
+        SC.OddballDistressRadio.pulse(group, player, current)
+    end
     return handled ~= false, reason
 end
 
@@ -2947,6 +3034,12 @@ function Oddballs.pulse(player, current)
                                 site = siteForEbb(square, player, false, true)
                             elseif definition.kind == "trash_runner" then
                                 site = siteForBigChris(square, player, false)
+                            elseif definition.kind == "forest_camp"
+                                and SC.OddballCampStoryteller
+                                and type(SC.OddballCampStoryteller.siteFor)
+                                    == "function" then
+                                site = SC.OddballCampStoryteller.siteFor(
+                                    square, player, false)
                             elseif definition.kind == "roamer" then
                                 if definition.id == "peddler_mister_ebb" then
                                     site = siteForEbb(square, player)
@@ -3068,6 +3161,12 @@ function Oddballs.debugSpawnRandom(player)
                             site = siteForEbb(square, player, true, true)
                         elseif definition.kind == "trash_runner" then
                             site = siteForBigChris(square, player, true)
+                        elseif definition.kind == "forest_camp"
+                            and SC.OddballCampStoryteller
+                            and type(SC.OddballCampStoryteller.siteFor)
+                                == "function" then
+                            site = SC.OddballCampStoryteller.siteFor(
+                                square, player, true)
                         elseif definition.kind == "witness" then
                             site = siteForFan(square, player, true)
                         elseif definition.kind == "roamer" then

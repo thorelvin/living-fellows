@@ -7,11 +7,18 @@ if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGa
 SC.Logistics = SC.Logistics or {}
 local Logistics = SC.Logistics
 local states = setmetatable({}, { __mode = "k" })
+local pendingGifts = setmetatable({}, { __mode = "k" })
 local containerHasRoom
 local storageFor
 
 local function U()
     return SC.GameplayUtil
+end
+
+local function nestedInventory(item)
+    local nested, ok = U().call(item, "getItemContainer")
+    if ok and nested then return nested, true end
+    return U().call(item, "getInventory")
 end
 
 local function supervisor()
@@ -29,7 +36,7 @@ local function walkContainer(container, limit, callback, visited)
     U().each(items, limit.remaining, function(item)
         limit.remaining = limit.remaining - 1
         if callback(item, container) == false or limit.remaining <= 0 then return false end
-        local nested, nestedOk = U().call(item, "getInventory")
+        local nested, nestedOk = nestedInventory(item)
         if nestedOk and nested then walkContainer(nested, limit, callback, visited) end
         return limit.remaining > 0
     end)
@@ -237,7 +244,7 @@ function Logistics.itemCategory(item)
     if typeContains(itemType, { "scrap", "electronic", "screws", "glue", "ducttape",
         "adhesivetape", "twine", "thread", "leather", "rope", "tarp", "fabric" })
         or display == "crafting" then return "crafting" end
-    local nested, nestedOk = utility.call(item, "getInventory")
+    local nested, nestedOk = nestedInventory(item)
     if nestedOk and nested then return "container" end
     return "general"
 end
@@ -440,6 +447,16 @@ function Logistics.clothingUpgrade(actor, item)
     local replacements = replacementItems(actor, location)
     local current = replacements[1]
     if isWorn(actor, item, location) then return false, 0, current, location end
+    -- A player explicitly dressed this companion. Routine loadout decisions
+    -- must not immediately undo that choice while the garment is still worn.
+    for _, replaced in ipairs(replacements) do
+        local data = select(1, U().call(replaced, "getModData"))
+        local broken = select(1, U().call(replaced, "isBroken"))
+        if type(data) == "table" and data.SC_ManualWearFor == U().idOf(actor)
+            and broken ~= true then
+            return false, 0, current, location
+        end
+    end
     local candidateScore = Logistics.clothingScore(item)
     if candidateScore == -math.huge then return false, 0, current, location end
     local currentScore = 0
@@ -456,7 +473,7 @@ function Logistics.clothingUpgrade(actor, item)
 end
 
 local function bagScore(item)
-    local nested, nestedOk = U().call(item, "getInventory")
+    local nested, nestedOk = nestedInventory(item)
     local location = nestedOk and nested and wearableLocation(item) or nil
     if not location then return nil, nil, nil end
     local capacity = numericMethod(item, "getCapacity", 0)
@@ -475,6 +492,12 @@ function Logistics.bagUpgrade(actor, item)
     local current = replacements[1]
     local currentScore = 0
     for _, replaced in ipairs(replacements) do
+        local data = select(1, U().call(replaced, "getModData"))
+        local broken = select(1, U().call(replaced, "isBroken"))
+        if type(data) == "table" and data.SC_ManualWearFor == U().idOf(actor)
+            and broken ~= true then
+            return false, 0, current, location
+        end
         local replacedScore = select(1, bagScore(replaced))
         -- Likewise, never let a bag decision silently remove armor or another
         -- wearable whose value cannot be represented as bag capacity.
@@ -758,7 +781,7 @@ local function isProtected(actor, item)
     if secondaryOk and secondary == item then return true end
     local worn, wornOk = U().call(actor, "isEquippedClothing", item)
     if wornOk and worn == true then return true end
-    local nested, nestedOk = U().call(item, "getInventory")
+    local nested, nestedOk = nestedInventory(item)
     if nestedOk and nested and #U().inventoryItems(nested, 1) > 0 then return true end
     return false
 end
@@ -780,7 +803,12 @@ end
 local function selectOwnedClothingUpgrade(actor, audit)
     local best
     for _, record in ipairs(audit.items) do
-        if record.category == "clothing" and not isProtected(actor, record.item) then
+        -- Favourite is a disposal guard, not a veto against wearing a gift.
+        -- Personal keepsakes remain outside autonomous loadout choices.
+        local personal = SC.PersonalItems and SC.PersonalItems.isProtected
+            and SC.PersonalItems.isProtected(record.item, actor, "loadout")
+        if record.category == "clothing" and not personal
+            and not isWorn(actor, record.item) then
             local accepted, difference, current, location = Logistics.clothingUpgrade(actor, record.item)
             if accepted and (not best or difference > best.difference) then
                 best = { item = record.item, source = record.source, current = current,
@@ -814,7 +842,7 @@ local function selectPackMove(actor, audit)
         local bagValue, location, bagInventory = bagScore(bagRecord.item)
         if bagValue and isWorn(actor, bagRecord.item, location) then
             for _, record in ipairs(audit.items) do
-                local nested, nestedOk = U().call(record.item, "getInventory")
+                local nested, nestedOk = nestedInventory(record.item)
                 local clothingUpgrade = record.category == "clothing"
                     and select(1, Logistics.clothingUpgrade(actor, record.item)) == true
                 local bagUpgrade = record.category == "container"
@@ -918,7 +946,50 @@ local function commitWearable(actor, record)
         return false, "wearable_equip_failed"
     end
     utility.call(actor, "resetModelNextFrame")
+    if type(triggerEvent) == "function" then
+        pcall(triggerEvent, "OnClothingUpdated", actor)
+    end
+    utility.call(root, "setDirty", true)
+    utility.call(root, "setDrawDirty", true)
+    if type(ISInventoryPage) == "table" then ISInventoryPage.renderDirty = true end
+    if SC.InventoryIndex and type(SC.InventoryIndex.touch) == "function" then
+        SC.InventoryIndex.touch(actor)
+    end
     return true, "wearable_equipped"
+end
+
+-- The exact item chosen in the borrowed loot pane may be inside a worn bag.
+-- Keep native ownership and the existing verified replacement rollback in one
+-- place rather than asking vanilla's player-targeted Wear action to do it.
+function Logistics.equipExactWearable(actor, item)
+    if not U().isValidActor(actor) or not item then return false, "invalid_wear_request" end
+    local location = wearableLocation(item)
+    if not location or (not isClothingItem(item)
+        and select(1, bagScore(item)) == nil) then
+        return false, "item_not_wearable"
+    end
+    local source
+    for _, record in ipairs(Logistics.audit(actor).items) do
+        if record.item == item then source = record.source break end
+    end
+    if not source then return false, "item_not_owned" end
+    if isWorn(actor, item, location) then
+        local data = select(1, U().call(item, "getModData"))
+        if type(data) == "table" then data.SC_ManualWearFor = U().idOf(actor) end
+        return true, "already_worn"
+    end
+    local equipped, reason = commitWearable(actor, {
+        item = item, source = source, location = location,
+    })
+    if equipped then
+        local data = select(1, U().call(item, "getModData"))
+        if type(data) == "table" then data.SC_ManualWearFor = U().idOf(actor) end
+        local state = states[actor]
+        if state then state.auditAt = -math.huge end
+        local gifts = pendingGifts[actor]
+        if gifts then gifts.items[item] = nil end
+    end
+    return equipped, reason
 end
 
 function Logistics.selectSurplus(actor, audit)
@@ -1019,6 +1090,55 @@ function moveMemory.clear(actor, kind, item)
     if ledger and item ~= nil then ledger[moveMemory.key(kind, item)] = nil end
 end
 
+-- A successful player-to-companion transfer is a loadout event, not a new
+-- scavenging order. Retain exact item identities until a safe decision beat
+-- can consider them; several pieces of an outfit may arrive in one UI session.
+function Logistics.noteGift(actor, item)
+    if not actor or not item then return false, "invalid_gift" end
+    local gifts = pendingGifts[actor]
+    if not gifts then
+        gifts = { items = {}, nextWeaponAt = 0 }
+        pendingGifts[actor] = gifts
+    end
+    gifts.items[item] = true
+    local state = states[actor]
+    if state then state.auditAt = -math.huge end
+    if SC.InventoryIndex and type(SC.InventoryIndex.touch) == "function" then
+        SC.InventoryIndex.touch(actor)
+    end
+    return true
+end
+
+local function reviewPendingGifts(actor, audit)
+    local gifts = pendingGifts[actor]
+    if not gifts then return end
+    local owned = {}
+    for _, record in ipairs(audit.items) do owned[record.item] = record end
+    local primary = select(1, U().call(actor, "getPrimaryHandItem"))
+    local armed = SC.Combat and type(SC.Combat.primaryWeaponUsable) == "function"
+        and SC.Combat.primaryWeaponUsable(actor) == true
+        or (not (SC.Combat and type(SC.Combat.primaryWeaponUsable) == "function")
+            and primary ~= nil)
+    local pending = false
+    for item in pairs(gifts.items) do
+        local record = owned[item]
+        if record and record.category == "weapon" and not armed then
+            audit.giftWeapon = true
+            pending = true
+        elseif record and record.category == "clothing"
+            and select(1, Logistics.clothingUpgrade(actor, item)) == true then
+            pending = true
+        elseif record and record.category == "container"
+            and select(1, Logistics.bagUpgrade(actor, item)) == true then
+            pending = true
+        else
+            gifts.items[item] = nil
+        end
+    end
+    if not pending then pendingGifts[actor] = nil end
+    audit.giftPending = pending
+end
+
 function Logistics.status(actor)
     local state = states[actor]
     local current = U().nowMs()
@@ -1028,6 +1148,7 @@ function Logistics.status(actor)
     local audit = Logistics.audit(actor)
     audit.bagUpgrade = selectBagUpgrade(actor, audit)
     audit.clothingUpgrade = selectOwnedClothingUpgrade(actor, audit)
+    reviewPendingGifts(actor, audit)
     audit.packMove = selectPackMove(actor, audit)
     -- A move that just failed cools down instead of being proposed again.
     if audit.bagUpgrade and moveMemory.cooling(actor, "wear", audit.bagUpgrade.item, current) then
@@ -1060,7 +1181,8 @@ function Logistics.status(actor)
     end
     audit.surplus = surplus
     audit.shouldUnload = surplus ~= nil
-    audit.shouldManage = audit.bagUpgrade ~= nil or audit.clothingUpgrade ~= nil
+    audit.shouldManage = audit.giftWeapon == true
+        or audit.bagUpgrade ~= nil or audit.clothingUpgrade ~= nil
         or audit.packMove ~= nil or audit.shouldUnload
     audit.overloaded = audit.capacity > 0 and audit.ratio > audit.hardRatio
     state = state or {}
@@ -1530,6 +1652,32 @@ function Logistics.update(actor, player, runtime)
         return executeTransaction(actor, existing)
     end
     local audit = Logistics.status(actor)
+    if audit.giftWeapon then
+        local gifts = pendingGifts[actor]
+        local attempted = gifts and tonumber(gifts.nextWeaponAt) or 0
+        if U().nowMs() >= attempted then
+            if gifts then gifts.nextWeaponAt = U().nowMs() + 1500 end
+            local equipped, reason = false, "combat_unavailable"
+            if SC.Combat and type(SC.Combat.equipPreferred) == "function" then
+                equipped, reason = SC.Combat.equipPreferred(actor, "best", {
+                    immediateCommand = false,
+                })
+            end
+            if equipped or reason == "no_usable_weapon" then
+                if gifts then
+                    for item in pairs(gifts.items) do
+                        if Logistics.itemCategory(item) == "weapon" then
+                            gifts.items[item] = nil
+                        end
+                    end
+                end
+                local state = states[actor]
+                if state then state.auditAt = -math.huge end
+            end
+            return equipped, reason
+        end
+        return false, "gift_weapon_retry_pending"
+    end
     if audit.bagUpgrade then
         local state = states[actor] or {}
         states[actor] = state
@@ -1695,12 +1843,16 @@ function Logistics.reset(actor)
     if actor then
         cancelTransaction(actor, states[actor], "logistics_reset")
         states[actor] = nil
+        -- A stay, order change, or interrupted transaction resets logistics,
+        -- but must not erase the player's confirmed gift before its loadout
+        -- review. The next audit discards items no longer owned by this actor.
         moveMemory.byActor[actor] = nil
     else
         for value, state in pairs(states) do
             cancelTransaction(value, state, "logistics_reset")
         end
         states = setmetatable({}, { __mode = "k" })
+        pendingGifts = setmetatable({}, { __mode = "k" })
         moveMemory.byActor = setmetatable({}, { __mode = "k" })
     end
     return true
