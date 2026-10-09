@@ -19,7 +19,8 @@ local LINES = {
     "Twelve days on canned peaches. You can taste the can. You can taste the fear.",
     "The radio man kept saying help was coming. Then the radio man just breathed.",
     "Saw a cow on fire run down Main Street. Nobody chased it. Nobody could.",
-    "I have seen some shit. Some real shit. And then it got up and walked.",
+    { "I have seen some shit. Some real shit. And then it got up and walked.",
+        clean = "I have seen some things. Some real things. And then they got up and walked." },
     "Don't open the freezer at the Jay's. I mean it. Don't you open it.",
     "You blink, they're at the window. Blink again, they're in the kitchen. So I quit blinking.",
     "My wife's in the bedroom. She's quiet now. She's been quiet since Tuesday.",
@@ -67,8 +68,8 @@ local function bedroomDoor(value)
 end
 local function speak(actor, index)
     local line = LINES[index]
-    if index == 13 and U().config("profanityEnabled") == false then
-        line = "I have seen some things. Some real things. And then they got up and walked."
+    if type(line) == "table" then
+        line = U().config("profanityEnabled") == false and line.clean or line[1]
     end
     return line and U().say(actor, line)
 end
