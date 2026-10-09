@@ -19,7 +19,7 @@
     "Sandbox_LivingFellows_MaxHouseholds": "Maximum new households",
     "Sandbox_LivingFellows_MaxHouseholds_tooltip": "Stops additional household spawning at this count. Lowering the value never removes households already saved.",
     "Sandbox_LivingFellows_OddballsEnabled": "Strange Folk encounters",
-    "Sandbox_LivingFellows_OddballsEnabled_tooltip": "Allows three unique strangers to appear near suitable places from day two. Existing strangers stay in the save when disabled.",
+    "Sandbox_LivingFellows_OddballsEnabled_tooltip": "Allows one-off Strange Folk characters to settle into suitable places near you from the third day. Strangers already met stay in the save when disabled.",
     "Sandbox_LivingFellows_OddballEncounterDays": "Days between Strange Folk encounters",
     "Sandbox_LivingFellows_OddballEncounterDays_tooltip": "After this many in-game days, the next suitable unseen location may host a unique stranger. A lack of suitable places can delay the encounter.",
     "Sandbox_LivingFellows_BanditCampsEnabled": "Spawn bandit camps",
