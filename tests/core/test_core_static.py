@@ -349,6 +349,22 @@ for expected_name in (
 ):
     require(expected_name in name_entries,
             f"requested genre first name missing: {expected_name}")
+def lua_block(source: str, start: str) -> str:
+    begin = source.index(start)
+    return source[begin:source.index("}", begin)]
+
+
+# A generated companion must never share a surname with a Strange Folk
+# character, or a random recruit could read as Milli's or Elias's kin.
+generated_surnames = set(re.findall(r'"([^"]+)"', lua_block(spawn, "local surnames = {")))
+generated_surnames |= set(re.findall(r'"([^"]+)"', lua_block(spawn, "local koreanSurnames = {")))
+reserved_surnames = set(re.findall(r"(\w+) = true", lua_block(spawn, "local reservedSurnames = {")))
+oddball_source = (CLIENT / "SCOddballs.lua").read_text(encoding="utf-8")
+oddball_surnames = set(re.findall(r'forename = "[^"]+", surname = "([^"]+)"', oddball_source))
+require(len(oddball_surnames) >= 40, "Strange Folk identities were not found in SCOddballs.lua")
+unreserved = sorted(oddball_surnames & generated_surnames - reserved_surnames)
+require(not unreserved,
+        f"Strange Folk surnames can still be generated for companions: {unreserved}")
 require("function spawn.productionPulse" in spawn and "productionSpawnCooldownMs" in spawn,
         "bounded non-debug production encounter pulse is unreachable")
 require("runtime.active = true" in spawn and "runtime.disabledReason = nil" in spawn,

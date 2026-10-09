@@ -294,6 +294,7 @@ local reservedSurnames = {
     Feeney = true, Berg = true,
     Hemingway = true, Hass = true, Watts = true, Kormick = true,
     Jaye = true,
+    Wilson = true, Sutton = true, Vickers = true,
 }
 local reservedFullNames, famousPairs = {}, {}
 local givenByName, availableSurnames = {}, {}
