@@ -2790,6 +2790,7 @@ function Disposal.nextSource(actor, order, state, context, zone)
     end
     local burning = zone.kind == "pyre"
     local budget = config("productionCorpseScanSquaresPerSlice", 48)
+    local pendingReason
     for _ = 1, #sources do
         if search.index > #sources then search.index = 1 end
         local source = sources[search.index]
@@ -2819,11 +2820,22 @@ function Disposal.nextSource(actor, order, state, context, zone)
                     return found
                 end, context.actorId, false, budget)
             if candidate then return candidate, reason, false end
-            if not terminal then return nil, reason, false end
-            search.done[source.id] = true
+            if not terminal then
+                -- A pass that ended incomplete (unloaded squares) or is
+                -- cooling down must not starve the other areas: look at the
+                -- next one this update and come back to this one later.
+                if reason ~= "production_area_scan_incomplete"
+                    and reason ~= "production_candidates_waiting" then
+                    return nil, reason, false
+                end
+                pendingReason = pendingReason or reason
+            else
+                search.done[source.id] = true
+            end
         end
         search.index = search.index + 1
     end
+    if pendingReason then return nil, pendingReason, false end
     local carrying = search.carrying
     state.collect = nil
     if carrying > 0 then return nil, "bodies_carry_items:" .. tostring(carrying), true end

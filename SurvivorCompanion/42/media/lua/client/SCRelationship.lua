@@ -546,7 +546,18 @@ end
 
 local doingLabels = {
     bandage_treatment = "bandaging a wound",
+    chris_chase_rascal = "going after Rascal",
+    chris_run_to_bin = "checking a trash can",
+    crabtree_walk_away = "walking off",
+    dancer_approach_bed = "heading back to bed",
+    dancer_club_errand = "heading to the club",
+    elmer_approach_chair = "going back to my chair",
+    goatman_trestle_watch = "watching the trestle",
+    jockey_footrace = "racing",
+    merle_approach_grave = "heading to a grave",
+    morton_approach_chair = "taking a seat on stage",
     replace_bandage = "tending a wound",
+    survivalist_escape = "getting out of here",
     treat_patient = "treating an injury",
     scavenge = "searching for useful supplies",
     loot_container = "searching a container",

@@ -637,6 +637,21 @@ function Topology.strikeBarrier(actor, target, action, weapon, options)
     local bx, by = U().position(target)
     ax, ay = ax or fx + 0.5, ay or fy + 0.5
     bx, by = bx or tx + 0.5, by or ty + 0.5
+    -- Walk the grid from the tiles the two positions are in. A square
+    -- reference can trail its position by a tile; a ray measured from one
+    -- tile but stepped from another never reaches its target and would fail
+    -- closed as "too long", dropping a strike that is plainly in reach.
+    local startX, startY = math.floor(ax), math.floor(ay)
+    local endX, endY = math.floor(bx), math.floor(by)
+    if startX ~= fx or startY ~= fy then
+        fromSquare = U().gridSquare(startX, startY, fz) or fromSquare
+        fx, fy = startX, startY
+    end
+    if endX ~= tx or endY ~= ty then
+        toSquare = U().gridSquare(endX, endY, tz) or toSquare
+        tx, ty = endX, endY
+    end
+    if fx == tx and fy == ty then return false end
     local dx, dy = bx - ax, by - ay
     local stepX, stepY = dx >= 0 and 1 or -1, dy >= 0 and 1 or -1
     local deltaX = dx ~= 0 and 1 / math.abs(dx) or math.huge

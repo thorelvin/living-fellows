@@ -504,6 +504,18 @@ function LosUtil.lineClear(isoCell, ox, oy, oz, tx, ty, tz, ignoreDoors)
     return "Clear"
 end
 
+-- Squares beyond 15 tiles start hidden, the fixture's unseen ground, and this
+-- LosUtil stub reports Blocked for them. Melee scenes placed out there for
+-- isolation mean open ground: strike clearance checks the same line.
+function LosUtil.openGround(x, y, radius)
+    for dx = -radius, radius do
+        for dy = -radius, radius do
+            local square = cell:getGridSquare(x + dx, y + dy, 0)
+            if square then square.hidden = false end
+        end
+    end
+end
+
 local function actor(id, x, y, options)
     local settings = options or {}
     local z = settings.z or 0
@@ -9452,12 +9464,15 @@ local cleaver = item("Base.MeatCleaver", "Weapon", {
     damage = 1.6, range = 1.0, minRange = 0.61, sharpness = 1,
     weaponCategories = { "SmallBlade" },
 })
-local cleaverActor = actor("sc-cleaver-primary", 30, 30, {
+-- Squares beyond 15 tiles are the fixture's unseen region, where its LosUtil
+-- stub reports Blocked. Strike clearance now checks that line, so this
+-- open-ground melee scene stays inside the visible area.
+local cleaverActor = actor("sc-cleaver-primary", 14, 14, {
     inventory = inventory({ cleaver }),
 })
 cleaverActor.primary = cleaver
 registry[cleaverActor.id] = cleaverActor
-local cleaverZed = zombie(31, 30, { attacking = true, target = cleaverActor })
+local cleaverZed = zombie(15, 14, { attacking = true, target = cleaverActor })
 local cleaverSnapshot = {
     threats = { { actor = cleaverZed, square = cleaverZed.square, distanceSq = 1,
         visible = true, obstructed = false, attacking = true, score = 90 } },
@@ -9483,7 +9498,7 @@ cleaver.condition = 1
 -- At one full tile the weapon is already in reach while a stomp is not; the
 -- safety rule correctly keeps the weapon there. Move into verified foot range
 -- to isolate the nearly-broken-weapon preference this assertion covers.
-cleaverActor.worldX = 31.0
+cleaverActor.worldX = 15.0
 local preservedWeapon, preservedWeaponReason = SurvivorCompanion.Combat.update(
     cleaverActor, player, { snapshot = cleaverSnapshot })
 check(preservedWeapon and preservedWeaponReason == "stomp"
@@ -9491,7 +9506,7 @@ check(preservedWeapon and preservedWeaponReason == "stomp"
     "a nearly broken melee weapon is plausibly preserved by choosing a stomp")
 cleaver.condition = 10
 cleaverZed.onFloor = false
-cleaverActor.worldX = 31.25
+cleaverActor.worldX = 15.25
 cleaverSnapshot.threats[1].distanceSq = 0.25 * 0.25
 local cleaverContact, cleaverContactReason = SurvivorCompanion.Combat.update(
     cleaverActor, player, { snapshot = cleaverSnapshot })
@@ -9501,7 +9516,7 @@ check(cleaverContact and cleaverContactReason == "shove"
 -- A closing zombie can cross the preferred stance before the next combat
 -- pulse. The weapon still reaches here, so this must remain a strike rather
 -- than the contact shove reserved for inside native minimum range.
-cleaverActor.worldX = 30.25
+cleaverActor.worldX = 14.25
 cleaverSnapshot.threats[1].distanceSq = 0.75 * 0.75
 local insideDefendActions = SurvivorCompanion.Combat._actionUtilitiesForTests(
     cleaverActor, player, cleaverSnapshot, cleaverSnapshot.threats[1],
@@ -9521,6 +9536,7 @@ cleaverZed.dead = true
 end
 
 (function()
+    LosUtil.openGround(50, 50, 6)
     -- Two companions closing on a zombie fallen through a window must open
     -- separate melee lanes instead of both pinning it without a floor hit.
     local firstWeapon = item("Base.LaneAxe", "Weapon", {
@@ -9608,6 +9624,7 @@ end
 end)()
 
 ;(function()
+LosUtil.openGround(35, 33, 5)
 local vectorWeaponItem = item("Base.VectorAxe", "Weapon", {
     damage = 2.2, range = 1.5, minRange = 0.3, sharpness = 1,
 })
@@ -9757,6 +9774,8 @@ roleTarget.dead = true
 end
 
 do
+LosUtil.openGround(21, 20, 4)
+LosUtil.openGround(40, 40, 3)
 local approachClock = clock
 local approachConfig = SurvivorCompanion.Config.values
 local savedShoveDistance = approachConfig.combatShoveDistance
@@ -16876,9 +16895,10 @@ do
     local previousWorld = getWorld
     local buildingA, buildingB = {}, {}
     for _, building in ipairs({ buildingA, buildingB }) do
-        building.getX = function(self) return self == buildingA and 0 or 10 end
+        -- Building B sits outside the 25 x 25 default camp (x -10..14).
+        building.getX = function(self) return self == buildingA and 0 or 20 end
         building.getY = function() return 0 end
-        building.getX2 = function(self) return self == buildingA and 5 or 15 end
+        building.getX2 = function(self) return self == buildingA and 5 or 25 end
         building.getY2 = function() return 10 end
     end
     getWorld = function()
@@ -16886,12 +16906,12 @@ do
             return { getBuildingAt = function(_, x, y, z)
                 if y < 0 or y > 10 or z < 0 or z > 1 then return nil end
                 return x >= 0 and x <= 5 and buildingA
-                    or x >= 10 and x <= 15 and buildingB or nil
+                    or x >= 20 and x <= 25 and buildingB or nil
             end }
         end }
     end
     local upper = cell:getGridSquare(2, 2, 1)
-    local neighbor = cell:getGridSquare(12, 2, 1)
+    local neighbor = cell:getGridSquare(22, 2, 1)
     local extensionAllowed = BaseLife.mayExtendAreaToFloor(upper)
     local neighborAllowed = BaseLife.mayExtendAreaToFloor(neighbor)
     check(extensionAllowed and not neighborAllowed,
@@ -18048,7 +18068,13 @@ do
         return true, "night_shelter_route"
     end
     worldHour = 22
-    local returning = SurvivorCompanion.BaseWork.update(fellow, player, {})
+    -- The night-shelter survey checks 128 squares per update; the 25 x 25
+    -- default camp reaches this indoor square on the third update.
+    local returning
+    for _ = 1, 6 do
+        returning = SurvivorCompanion.BaseWork.update(fellow, player, {})
+        if capturedShelter then break end
+    end
     local shelterFound = false
     for _, square in ipairs(capturedShelter and capturedShelter.targets or {}) do
         if square == indoor then shelterFound = true end
@@ -22036,6 +22062,7 @@ end)()
 ;(function()
     local combat = SurvivorCompanion.Combat
     local facts = SurvivorCompanion.ZombieFacts
+    LosUtil.openGround(40, 32, 3)
     local fighter = actor("sc-grounded-opportunity", 40, 32, {})
     local fallen = zombie(41, 32, { onFloor = true })
     local standing = zombie(42, 32, {})

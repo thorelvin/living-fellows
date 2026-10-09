@@ -570,14 +570,20 @@ local TABLE_TALKS = {
         open = {
             "Milli's kettle is making its rounds. Who wants cold tea?",
             "I found one of Milli's teabags. She says it has one more cup in it.",
+            "Milli says tea tastes better when nobody is shooting. Let's test that, %1.",
+            "There's tea, if you don't mind it cold and a little suspicious.",
         },
         reply = {
             "Cold tea and company beat hot tea alone.",
             "I'll take a cup. Just keep Bandit out of the muffins.",
+            "Pour me one. I'll pretend the stove still works.",
+            "Only if Dumpling isn't sitting in the cup again.",
         },
         close = {
             "Put the kettle back by Milli. She'll want it tomorrow.",
             "That was almost an ordinary afternoon. I'll take it.",
+            "Best cup since the power went. Don't tell Milli it was the only one.",
+            "Rinse the cups. Milli counts them every night.",
         },
     },
     meal = {

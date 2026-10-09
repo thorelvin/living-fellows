@@ -352,8 +352,9 @@ local function setup(options)
     ISTimedActionQueue.queues = setmetatable({}, { __mode = "k" })
     SC_TEST_SAW_FAILS = false
     squares = {}
-    for x = -7, 7 do
-        for y = -7, 7 do makeSquare(x, y, 0) end
+    -- The whole 25 x 25 default camp is loaded.
+    for x = -12, 12 do
+        for y = -12, 12 do makeSquare(x, y, 0) end
     end
     local core = sq(0, 0)
     local ok, base = SC.BaseLife.create(core, "Harness Camp")
@@ -974,8 +975,13 @@ end
 do
     local ctx = setup()
     local outside = outsideLumber(ctx)
-    check(SC.BaseLife.beginZone("lumber", sq(38, 0)) == true, "a far lumber draft begins")
-    local far, farReason = SC.BaseLife.finishZone(sq(41, 1), "Too far")
+    -- The default camp reaches 12 tiles from its core and the reach band adds
+    -- 30 more, so the band ends at x = 42. Draw the draft just past it.
+    for x = 43, 47 do
+        for y = -2, 4 do makeSquare(x, y, 0) end
+    end
+    check(SC.BaseLife.beginZone("lumber", sq(44, 0)) == true, "a far lumber draft begins")
+    local far, farReason = SC.BaseLife.finishZone(sq(47, 1), "Too far")
     check(far == false and farReason == "lumber_zone_out_of_reach",
         "a lumber area beyond the reach band is refused: " .. tostring(farReason))
     SC.BaseLife.cancelZone()
@@ -987,7 +993,7 @@ do
     local reachIntent = { workCampOnly = true, workReach = true }
     check(SC.BaseLife.admitsWork(sq(20, 0), reachIntent) == true
         and SC.BaseLife.admitsWork(sq(20, 0), { workCampOnly = true }) == false
-        and SC.BaseLife.admitsWork(sq(40, 0), reachIntent) == false
+        and SC.BaseLife.admitsWork(sq(44, 0), reachIntent) == false
         and SC.BaseLife.admitsWork(sq(0, 0), { workCampOnly = true }) == true,
         "only lumber work crosses the bounded reach band")
     local axe = makeItem("Base.Axe", { tags = { choptree = true }, treeDamage = 20 })
@@ -1056,7 +1062,11 @@ do
     makeTree(sq(22, 2), 10)
     start(ctx, { operation = "fell_trees", zoneId = outside.id, requested = 1,
         settings = { haulLogs = false } })
-    ctx.actor.square, ctx.actor.x, ctx.actor.y = sq(41, 1), 41, 1
+    -- The reach band ends 30 tiles past the 12-tile default camp, at x = 42.
+    for x = 43, 45 do
+        for y = -2, 4 do makeSquare(x, y, 0) end
+    end
+    ctx.actor.square, ctx.actor.x, ctx.actor.y = sq(44, 1), 44, 1
     requests = {}
     tick(ctx)
     check(requests[1] ~= nil and requests[1].action == "return_to_base",
@@ -2097,13 +2107,17 @@ do
         x1 = 3, y1 = -5, x2 = 5, y2 = -3, z = 1,
     }
     local upperBody = makeBody(upperSquare)
+    squares[squareKey(-12, -12, 0)] = nil -- an unloaded corner of the camp area
     createGrave(-2, -3, 0, false)
     start(ctx, {
         operation = "collect_bodies", zoneId = ctx.burial.id, requested = 1,
         settings = { fromCamp = true, fromLumber = false },
     })
     local grabbing, reason, attempts = false, nil, {}
-    for _ = 1, 10 do
+    -- The ground-floor pass ends incomplete (one unloaded corner, set above);
+    -- that must not keep the search from the upper floor. The 25 x 25 ground
+    -- floor takes 13 slices of 48 squares to cover.
+    for _ = 1, 30 do
         local handled
         handled, reason = tick(ctx)
         attempts[#attempts + 1] = tostring(reason)
@@ -2354,9 +2368,10 @@ do
         operation = "collect_bodies", zoneId = ctx.burial.id, requested = 1,
         settings = { fromLumber = false },
     })
+    -- A full pass over the 25 x 25 default camp takes 13 slices of 48 squares.
     local blocked, reason = tickUntil(ctx, function()
         return SC.BaseLife.productionOrder(order.id).state == "blocked"
-    end, 10)
+    end, 30)
     check(blocked and reason == "no_bodies_in_collection_areas" and onSquare(sq(4, -4), player)
         and player.modData.LF_CorpseHaul == nil,
         "an unmatched player body is never touched: " .. tostring(reason))
