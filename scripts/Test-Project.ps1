@@ -113,6 +113,10 @@ $stages = @(
         -Script (Join-Path $ProjectRoot 'tests\core\run_oddball_phase2_tests.ps1') `
         -Arguments @('-GameRoot', $GameRoot) `
         -Failure 'Strange Folk Phase 2 encounters failed.'),
+    (New-ScPowerShellStep -Name 'oddball-encounters' `
+        -Script (Join-Path $ProjectRoot 'tests\core\run_oddball_encounter_tests.ps1') `
+        -Arguments @('-GameRoot', $GameRoot, '-Jobs', "$Jobs") `
+        -Failure 'Strange Folk single-encounter suites failed.'),
     (New-ScPowerShellStep -Name 'source' `
         -Script (Join-Path $ProjectRoot 'scripts\Test-Source.ps1') `
         -Arguments @('-SkipNativeBridge', '-Jobs', "$Jobs") `
@@ -129,6 +133,10 @@ $stages = @(
         -Script (Join-Path $ProjectRoot 'tests\gameplay\run_perception_topology_tests.ps1') `
         -Arguments @('-GameRoot', $GameRoot) `
         -Failure 'Perception topology suite failed.'),
+    (New-ScPowerShellStep -Name 'strike-barrier' `
+        -Script (Join-Path $ProjectRoot 'tests\gameplay\run_strike_barrier_tests.ps1') `
+        -Arguments @('-GameRoot', $GameRoot) `
+        -Failure 'Strike barrier regression suite failed.'),
     (New-ScPowerShellStep -Name 'ui' `
         -Script (Join-Path $ProjectRoot 'tests\ui\run_ui_tests.ps1') `
         -Arguments @('-GameRoot', $GameRoot) `
@@ -153,6 +161,6 @@ $gate.Stop()
 Write-Output ("PROJECT_TEST_PASS pz-runtime=true source=true core=true " +
     "strange-folk-behavior=true oddball-foundation=true oddball-room-guard=true oddball-wendell=true " +
     "oddball-deputy=true oddball-loretta=true oddball-milli=true oddball-silas-rusty=true oddball-lonnie-virgil=true " +
-    "oddball-clem-purdy=true gameplay=true " +
-    "navigation-stability=true perception-topology=true ui=true live-harness-static=true " +
+    "oddball-clem-purdy=true oddball-phase2=true oddball-encounters=true gameplay=true " +
+    "navigation-stability=true perception-topology=true strike-barrier=true ui=true live-harness-static=true " +
     "workshop=true standalone=true seconds={0:N0} jobs={1}" -f $gate.Elapsed.TotalSeconds, $Jobs)

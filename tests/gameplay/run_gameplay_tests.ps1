@@ -168,6 +168,14 @@ try {
         )
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @memorialFiles
         if ($LASTEXITCODE -ne 0) { throw 'Nickname memorial harness failed.' }
+        $graveMarkerFiles = @(
+            (Join-Path $TestRoot 'grave_marker_name_fixture.lua'),
+            (Join-Path $ClientRoot 'SCBaseWork.lua'),
+            (Join-Path $ClientRoot 'SCInfectionCrisis.lua'),
+            (Join-Path $TestRoot 'grave_marker_name_harness.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @graveMarkerFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Grave marker name harness failed.' }
         if ($NicknamesOnly) { return }
         $transferFiles = @(
             (Join-Path $SharedRoot 'SCNamespace.lua'),
