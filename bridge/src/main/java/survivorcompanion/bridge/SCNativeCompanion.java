@@ -32,6 +32,7 @@ import zombie.iso.IsoCell;
 import zombie.iso.IsoDirections;
 import zombie.iso.objects.IsoDeadBody;
 import zombie.iso.objects.IsoWindow;
+import zombie.inventory.types.HandWeapon;
 import zombie.pathfind.PathFindBehavior2;
 import zombie.pathfind.PolygonalMap2;
 import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
@@ -48,6 +49,25 @@ public final class SCNativeCompanion extends IsoPlayer {
     public static final int RESERVED_NON_LOCAL_PLAYER_INDEX = 3;
     private volatile boolean bridgeCoopLeaderForProbe;
     private volatile boolean coldBootstrapHiddenForProbe;
+    private final SCCompanionComfort bridgeComfort = new SCCompanionComfort();
+
+    /** Live Mod Options affect only this native companion's ordinary cold. */
+    public void setCompanionOrdinaryColdsEnabled(boolean enabled) {
+        bridgeComfort.setOrdinaryColdsEnabled(enabled, getBodyDamage());
+    }
+
+    /** Controls both the native symptom timer and scripted gesture admission. */
+    public void setCompanionSymptomMode(String mode) {
+        bridgeComfort.setSymptomMode(mode, getBodyDamage());
+    }
+
+    public boolean canCompanionScriptedSymptom() {
+        return bridgeComfort.canScriptedSymptom();
+    }
+
+    public boolean noteCompanionScriptedSymptom() {
+        return bridgeComfort.noteScriptedSymptom();
+    }
 
     void hideColdBootstrapForProbe() {
         coldBootstrapHiddenForProbe = true;
@@ -226,6 +246,7 @@ public final class SCNativeCompanion extends IsoPlayer {
     public SCNativeCompanion(SurvivorDesc descriptor, IsoCell cell, int x, int y, int z) {
         super(cell, descriptor, x, y, z, false);
         bridgeCell = cell;
+        bridgeComfort.applyDefaults(getBodyDamage());
         playerIndex = RESERVED_NON_LOCAL_PLAYER_INDEX;
         serverPlayerIndex = -1;
         setNpc(true);
@@ -243,6 +264,28 @@ public final class SCNativeCompanion extends IsoPlayer {
                     && square.getStaticMovingObjects().contains(body);
             corpseReady = body != null;
         }, false);
+    }
+
+    /**
+     * The shared co-op PvP switch lets the player hit hostile and unrecruited
+     * NPCs. A separate per-target marker, maintained by Lua relationship
+     * transitions, protects only a current ally when the user enables it.
+     * Check before vanilla Hit emits OnWeaponHitCharacter or applies damage,
+     * so a blocked shove, stomp, shot, or swing cannot count as a strike.
+     */
+    @Override
+    public float Hit(HandWeapon weapon, IsoGameCharacter wielder, float damageSplit,
+            boolean ignoreDamage, float modDelta, boolean remote) {
+        if (blocksPlayerWeaponHit(wielder)) return 0.0f;
+        return super.Hit(weapon, wielder, damageSplit, ignoreDamage, modDelta, remote);
+    }
+
+    boolean blocksPlayerWeaponHit(IsoGameCharacter wielder) {
+        if (!SCBridge.isProtectRecruitedCompanions() || !SCBridge.isCompanion(this)
+                || IsoPlayer.players == null || IsoPlayer.players.length == 0
+                || wielder == null || wielder != IsoPlayer.players[0]) return false;
+        KahluaTable data = getModData();
+        return data != null && Boolean.TRUE.equals(data.rawget("SC_PlayerAttackProtected"));
     }
 
     /**
@@ -2175,6 +2218,7 @@ public final class SCNativeCompanion extends IsoPlayer {
             return;
         }
         try {
+            bridgeComfort.beforeUpdate(getBodyDamage());
             refreshBridgeFloorAttackInput();
             boolean seated = getVehicle() != null;
             if (seated) suspendBridgeLocomotion();
@@ -2207,6 +2251,7 @@ public final class SCNativeCompanion extends IsoPlayer {
                 updatePlayerActionGroup();
             }
             updateGenericCharacter();
+            bridgeComfort.afterUpdate(getBodyDamage());
             advanceBridgePath();
             consumeBridgeDeferredMovement();
             genericUpdateActive = false;

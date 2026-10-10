@@ -24,6 +24,28 @@ local function config(key, fallback)
     return value
 end
 
+local function option(key, fallback)
+    local owner = SC.UserOptions
+    if type(owner) ~= "table" or type(owner.get) ~= "function" then return fallback end
+    local ok, value = pcall(owner.get, key)
+    if not ok or value == nil then return fallback end
+    return value
+end
+
+local function symptomMode()
+    local mode = option("coughSneezes", "normal")
+    if mode == "rare" or mode == "off" then return mode end
+    return "normal"
+end
+
+local function symptomGapMs()
+    return symptomMode() == "rare" and 300000 or 60000
+end
+
+local function isSymptom(name)
+    return name == "Cough" or name == "Sneeze1" or name == "Sneeze2"
+end
+
 local POOLS = {
     ["gestures.yawn.catch"] = {
         common = {
@@ -297,10 +319,23 @@ local function eligible(record, player, current)
 end
 
 local function perform(actor, name, current)
+    if isSymptom(name) then
+        if symptomMode() == "off" then return false end
+        local nativeAllowed, nativeOk = U().call(actor, "canCompanionScriptedSymptom")
+        if nativeOk then
+            if nativeAllowed ~= true then return false end
+        elseif current - (actorState(actor).lastSymptomAt or -math.huge) < symptomGapMs() then
+            return false
+        end
+    end
     local accepted = U().move(actor, "walk", {
         action = "ext_gesture", ext = name, humanAnimationOnly = true,
     })
     if accepted ~= true then return false end
+    if isSymptom(name) then
+        actorState(actor).lastSymptomAt = current
+        U().call(actor, "noteCompanionScriptedSymptom")
+    end
     actorState(actor).lastGestureAt = current
     party.lastGestureAt = current
     return true
@@ -373,7 +408,9 @@ local function processPending(player, byActor, current)
     local keep = {}
     for _, entry in ipairs(party.pending) do
         local record = byActor[entry.actor]
-        if current < entry.at then
+        if isSymptom(entry.name) and symptomMode() == "off" then
+            entry.cancelled = true -- A live setting change drops a queued symptom.
+        elseif current < entry.at then
             keep[#keep + 1] = entry
         elseif record and current - entry.at <= PENDING_PATIENCE_MS then
             local commands = eligible(record, player, current)
@@ -408,6 +445,8 @@ local function dustAndCold(list, current)
     local utility = U()
     local window = math.floor(current / math.max(1000, config("sneezeColdWindowMs", 300000)))
     local lineChance = config("gestureLineChancePercent", 35)
+    local mode = symptomMode()
+    local chanceScale = mode == "rare" and 0.2 or 1
     for _, record in ipairs(list) do
         local actor = type(record) == "table" and record.actor or nil
         if actor ~= nil and record.recruited == true and utility.isValidActor(actor) then
@@ -418,7 +457,8 @@ local function dustAndCold(list, current)
             state.room = room
             local id = tostring(utility.idOf(actor))
             if entered then
-                if roll(config("sneezeDustyChancePercent", 5), id .. ":dust:" .. tostring(current)) then
+                if mode ~= "off" and roll(config("sneezeDustyChancePercent", 5)
+                    * chanceScale, id .. ":dust:" .. tostring(current)) then
                     local sneaking = utility.call(actor, "isSneaking") == true
                     schedule(actor, sneezeName(actor, current), current + 1500,
                         sneaking and "gestures.sneeze.sneaking" or "gestures.sneeze",
@@ -427,8 +467,10 @@ local function dustAndCold(list, current)
             elseif state.coldWindow ~= window then
                 state.coldWindow = window
                 local temperature = airTemperature(actor)
-                if temperature ~= nil and temperature < config("sneezeColdTemperature", 5)
-                    and roll(config("sneezeColdChancePercent", 5), id .. ":cold:" .. tostring(window)) then
+                if mode ~= "off" and temperature ~= nil
+                    and temperature < config("sneezeColdTemperature", 5)
+                    and roll(config("sneezeColdChancePercent", 5) * chanceScale,
+                        id .. ":cold:" .. tostring(window)) then
                     local cough = hash(id .. ":cough:" .. tostring(window)) % 2 == 0
                     schedule(actor, cough and "Cough" or sneezeName(actor, current), current + 500,
                         cough and "gestures.cough" or "gestures.sneeze", { lineChance = lineChance })
@@ -436,6 +478,42 @@ local function dustAndCold(list, current)
             end
         end
     end
+end
+
+-- Apply live preferences to every Living Fellows native actor, including
+-- unrecruited residents. The setter keeps cold prevention in the native update
+-- chain even while no scripted gesture is eligible.
+function Gestures.applyNativeOptions(list)
+    list = type(list) == "table" and list or records()
+    local mode = symptomMode()
+    local ordinaryColds = option("ordinaryColds", true) ~= false
+    for _, record in ipairs(list) do
+        local actor = type(record) == "table" and record.actor or nil
+        if actor ~= nil and U().isValidActor(actor) then
+            local state = actorState(actor)
+            if state.nativeSymptomMode ~= mode then
+                local _, nativeOk = U().call(actor, "setCompanionSymptomMode", mode)
+                if nativeOk then state.nativeSymptomMode = mode end
+            end
+            local nativeOk = state.nativeOrdinaryColds == ordinaryColds
+            if not nativeOk then
+                local _, accepted = U().call(actor,
+                    "setCompanionOrdinaryColdsEnabled", ordinaryColds)
+                nativeOk = accepted
+                if accepted then state.nativeOrdinaryColds = ordinaryColds end
+            end
+            if not nativeOk and not ordinaryColds then
+                -- Also covers a test actor or a bridge missing the new setter.
+                local body = select(1, U().call(actor, "getBodyDamage"))
+                if body ~= nil then
+                    U().call(body, "setCatchACold", 0)
+                    U().call(body, "setHasACold", false)
+                    U().call(body, "setColdStrength", 0)
+                end
+            end
+        end
+    end
+    return true
 end
 
 -- The first gesture of the morning at base is a stretch, once a day each.
@@ -539,9 +617,10 @@ end
 
 -- One party pulse from the runtime's background lane.
 function Gestures.update(player, list, current)
-    if config("gesturesEnabled", true) == false then return false, "gestures_disabled" end
     current = tonumber(current) or U().nowMs()
     list = type(list) == "table" and list or records()
+    Gestures.applyNativeOptions(list)
+    if config("gesturesEnabled", true) == false then return false, "gestures_disabled" end
     registerPools()
     local byActor = {}
     for _, record in ipairs(list) do

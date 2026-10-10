@@ -99,7 +99,8 @@ try {
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCFishingMapTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCRoadRouterTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCSpeechNameplateLiftTest.java') `
-        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCConstructionHideTest.java')
+        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCConstructionHideTest.java') `
+        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCCompanionComfortTest.java')
     if ($LASTEXITCODE -ne 0) { throw 'Core Java test harness compilation failed.' }
 
     $allLua = @(Get-ChildItem -LiteralPath $Payload -Recurse -Filter '*.lua' -File | Sort-Object FullName | ForEach-Object FullName)
@@ -537,6 +538,7 @@ try {
     Add-ScJvmStep 'sc-road-router-test' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCRoadRouterTest') @() 'Native road graph and router gate failed.'
     Add-ScJvmStep 'sc-speech-nameplate-lift' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCSpeechNameplateLiftTest') @() 'Companion speech nameplate lift gate failed.'
     Add-ScJvmStep 'sc-construction-hide' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCConstructionHideTest') @() 'Companion construction-hide deadline gate failed.'
+    Add-ScJvmStep 'sc-companion-comfort' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCCompanionComfortTest') @() 'Companion cold/symptom policy gate failed.'
 
     $clothingCatalog = Join-Path $GameRoot 'media\clothing\clothing.xml'
     [xml]$clothing = Get-Content -LiteralPath $clothingCatalog -Raw -Encoding utf8

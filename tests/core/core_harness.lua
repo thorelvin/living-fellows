@@ -493,6 +493,37 @@ record.stress = 21
 record.timeTogetherMs = 7200000
 record.background = { occupation = "mechanic", home = "rosewood" }
 actor.__migratedMovement = SC.Commands.peek(actor)
+do
+check(actor.data.SC_PlayerAttackProtected == true,
+    "a recruited, peaceful companion publishes the native player-hit protection marker")
+actor.__migratedMovement.care.playerHostile = true
+check(SC.Commands.persist(actor) and actor.data.SC_PlayerAttackProtected == false,
+    "a companion hostile to the player remains hittable")
+actor.__migratedMovement.care.playerHostile = false
+check(SC.Commands.persist(actor) and actor.data.SC_PlayerAttackProtected == true,
+    "a peaceful relationship restores the native player-hit marker")
+actor.__migratedMovement.care.playerCeasefire = true
+check(SC.Commands.persist(actor) and actor.data.SC_PlayerAttackProtected == false,
+    "a conditional ceasefire leaves the survivor hittable for renewed conflict")
+actor.__migratedMovement.care.playerCeasefire = false
+check(SC.Commands.persist(actor) and actor.data.SC_PlayerAttackProtected == true,
+    "clearing the ceasefire restores the peaceful native marker")
+check(SC.BaseLife.setRestriction(record.id, "exiled")
+        and actor.data.SC_PlayerAttackProtected == false,
+    "exile makes the former ally hittable immediately")
+check(SC.BaseLife.setRestriction(record.id, nil)
+        and actor.data.SC_PlayerAttackProtected == true,
+    "lifting exile refreshes player-hit protection immediately")
+local peacefulBaseState = SC.BaseLife.export()
+local exiledBaseState = SC.BaseLife.export()
+exiledBaseState.restrictions[record.id] = "exiled"
+check(SC.BaseLife.restore(exiledBaseState)
+        and actor.data.SC_PlayerAttackProtected == false,
+    "restored exile clears the native marker even after command state is loaded")
+check(SC.BaseLife.restore(peacefulBaseState)
+        and actor.data.SC_PlayerAttackProtected == true,
+    "restoring a world without exile refreshes the native marker")
+end
 check(actor.__migratedMovement.moveMode == "copy"
         and actor.__migratedMovement.moveModeVersion == 2,
     "old recruited saves enter the Copy player default in memory")
@@ -1130,9 +1161,13 @@ local laterRecruit = setmetatable({
 local laterRecord = SC.Registry.register(laterRecruit, {
     id = "sc-later-recruit", recruited = false,
 })
+SC.Commands.peek(laterRecruit)
+check(laterRecruit.data.SC_PlayerAttackProtected == false,
+    "an unrecruited survivor remains hittable")
 check(laterRecord ~= nil
         and SC.Commands.issue(laterRecord.id, "recruit", nil, manifestPlayer)
-        and SC.Commands.peek(laterRecruit).combatDoctrine == "weapons_free",
+        and SC.Commands.peek(laterRecruit).combatDoctrine == "weapons_free"
+        and laterRecruit.data.SC_PlayerAttackProtected == true,
     "companions recruited later inherit the persisted team doctrine")
 SC.Registry.unregister(laterRecruit)
 

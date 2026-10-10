@@ -126,6 +126,15 @@ try {
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @LuaFiles
             if ($LASTEXITCODE -ne 0) { throw 'Gameplay Kahlua integration harness failed.' }
             if ($FishingOnly) { return }
+            $comfortFiles = @(
+                (Join-Path $TestRoot 'user_comfort_fixture.lua'),
+                (Join-Path $ClientRoot 'SCTales.lua'),
+                (Join-Path $ClientRoot 'SCBanter.lua'),
+                (Join-Path $ClientRoot 'SCGestures.lua'),
+                (Join-Path $TestRoot 'user_comfort_harness.lua')
+            )
+            & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @comfortFiles
+            if ($LASTEXITCODE -ne 0) { throw 'User comfort preference harness failed.' }
             $medicalFiles = @((Join-Path $ProjectRoot 'tests\core\core_fixture.lua'))
             $medicalFiles += @($LuaFiles | Select-Object -SkipLast 7)
             $medicalFiles += Join-Path $TestRoot 'medical_liveness_regression_harness.lua'

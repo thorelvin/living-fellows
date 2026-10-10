@@ -39,6 +39,14 @@ try {
     )
     Push-Location -LiteralPath $GameRoot
     try {
+        $userOptionsFiles = @(
+            (Join-Path $TestRoot 'SCUserOptionsFixture.lua'),
+            (Join-Path $GameRoot 'media\lua\client\PZAPI\ModOptions.lua'),
+            (Join-Path $Client 'SCUserOptions.lua'),
+            (Join-Path $TestRoot 'SCUserOptionsTests.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @userOptionsFiles
+        if ($LASTEXITCODE -ne 0) { throw 'User options Kahlua tests failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @files
         if ($LASTEXITCODE -ne 0) { throw 'UI Kahlua tests failed.' }
         $nicknameFiles = @(

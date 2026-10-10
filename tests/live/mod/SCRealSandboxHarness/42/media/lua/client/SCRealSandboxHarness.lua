@@ -15234,6 +15234,10 @@ Harness.probeMedicalCheck = function(...)
     return externalProbe("SCMedicalCheckProbe", ...)
 end
 
+Harness.probeUserOptions = function(...)
+    return externalProbe("SCUserOptionsLiveProbe", ...)
+end
+
 Harness.probeGiftedEquipment = function(...)
     return externalProbe("SCGiftedEquipmentProbe", ...)
 end
@@ -15962,6 +15966,9 @@ local function tick()
         probeFactionHostility(current)
     elseif Harness.phase == "medical_probe" then
         medicalProbe(current)
+    elseif Harness.phase == "user_options_setup" or Harness.phase == "user_options_spawn"
+        or Harness.phase == "user_options_check" then
+        Harness.probeUserOptions(Harness, current, check, result, setPhase)
     elseif Harness.phase == "base_layout_begin" then
         Harness.beginBaseLayout(current)
     elseif Harness.phase == "base_layout_capture" then
@@ -16139,6 +16146,8 @@ local function onGameStart()
         setPhase("strange_folk_portrait_begin", Harness.startedAt)
     elseif Harness.config.medical_check_probe == "true" then
         setPhase("medical_check_setup", Harness.startedAt)
+    elseif Harness.config.user_options_probe == "true" then
+        setPhase("user_options_setup", Harness.startedAt)
     elseif Harness.config.gifted_equipment_probe == "true" then
         setPhase("gifted_equipment_setup", Harness.startedAt)
     elseif Harness.config.ui_menu_probe == "true" then

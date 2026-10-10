@@ -67,7 +67,8 @@ check(SC.Factions.hooksInstalled() and SC.FactionContracts.hooksInstalled(),
     "production faction modules expose their installed hook state")
 
 Events.OnGameStart.fire()
-check(SC.Runtime.isTickAttached() and SC.Runtime.tasksRegistered()
+check(SC.UserOptions.loads == 1
+        and SC.Runtime.isTickAttached() and SC.Runtime.tasksRegistered()
         and Events.OnTick.count() == 1 and Events.OnZombieDead.count() == 1,
     "OnGameStart starts the real runtime without removing the contract hook")
 
@@ -114,7 +115,8 @@ check(removed and removeReason == "" and noOwnedHooks()
 
 check(SC.Bootstrap.install(), "bootstrap reinstalls after complete removal")
 Events.OnGameStart.fire()
-check(Events.OnZombieDead.count() == 1 and Events.OnWeaponHitCharacter.count() == 1
+check(SC.UserOptions.loads == 2 and Events.OnZombieDead.count() == 1
+        and Events.OnWeaponHitCharacter.count() == 1
         and Events.OnWeaponSwingHitPoint.count() == 1
         and Events.OnCharacterDeath.count() == 1
         and Events.OnTick.count() == 1,

@@ -12,6 +12,7 @@ import zombie.Lua.Event;
 import zombie.Lua.LuaEventManager;
 import zombie.characters.SurvivorDesc;
 import zombie.characters.IsoPlayer;
+import zombie.inventory.types.HandWeapon;
 import zombie.iso.IsoCell;
 
 /** Real-JAR safety control for the custom IsoPlayer-based companion prototype. */
@@ -1218,6 +1219,51 @@ public final class SCIsoCompanionControlTest {
         require(SCBridge.getOwnedCount() == 2
                         && SCBridge.isCompanion(actor) && SCBridge.isCompanion(secondActor),
                 "bridge identity ownership did not retain two companions");
+        var attackMarker = ((SCNativeCompanion) actor).getModData();
+        attackMarker.rawset("SC_PlayerAttackProtected", Boolean.TRUE);
+        require(!SCBridge.isProtectRecruitedCompanions()
+                        && !((SCNativeCompanion) actor).blocksPlayerWeaponHit((IsoPlayer) localPlayer),
+                "player attack protection must default off");
+        SCBridge.setProtectRecruitedCompanions(true);
+        require(((SCNativeCompanion) actor).blocksPlayerWeaponHit((IsoPlayer) localPlayer)
+                        && !((SCNativeCompanion) actor).blocksPlayerWeaponHit((SCNativeCompanion) secondActor),
+                "protected ally blocks only the local player's weapon hit");
+        HandWeapon testWeapon = new HandWeapon("Base", "Test", "Test", "Base.Test");
+        Class<?> scriptItemClass = Class.forName("zombie.scripting.objects.Item");
+        Object scriptItem = scriptItemClass.getConstructor().newInstance();
+        scriptItemClass.getMethod("setWeaponCategories", java.util.Set.class)
+                .invoke(scriptItem, java.util.Collections.emptySet());
+        testWeapon.getClass().getMethod("setWeaponCategories", java.util.Set.class)
+                .invoke(testWeapon, java.util.Collections.emptySet());
+        testWeapon.getClass().getMethod("setScriptItem", scriptItemClass).invoke(testWeapon,
+                scriptItem);
+        float protectedHealth = ((SCNativeCompanion) actor).getHealth();
+        float protectedBodyHealth = ((SCNativeCompanion) actor).getBodyDamage()
+                .getOverallBodyHealth();
+        Object protectedAttacker = invoke(actor, "getAttackedBy");
+        require(((SCNativeCompanion) actor).Hit(testWeapon, (IsoPlayer) localPlayer,
+                        0.1f, false, 1.0f, false) == 0.0f
+                        && ((SCNativeCompanion) actor).getHealth() == protectedHealth
+                        && ((SCNativeCompanion) actor).getBodyDamage()
+                                .getOverallBodyHealth() == protectedBodyHealth
+                        && invoke(actor, "getAttackedBy") == protectedAttacker,
+                "player weapon hit damaged a protected recruit");
+        attackMarker.rawset("SC_PlayerAttackProtected", Boolean.FALSE);
+        require(!((SCNativeCompanion) actor).blocksPlayerWeaponHit((IsoPlayer) localPlayer),
+                "hostile, exiled, or unrecruited marker must remain hittable");
+        float unprotectedDamage = ((SCNativeCompanion) actor).Hit(testWeapon,
+                (IsoPlayer) localPlayer, 0.1f, false, 1.0f, false);
+        // The headless control leaves the global damage multiplier at zero;
+        // a positive vanilla hit result and attacker assignment prove that the
+        // protected-target veto did not consume an unprotected survivor's hit.
+        require(unprotectedDamage > 0.0f
+                        && invoke(actor, "getAttackedBy") == localPlayer,
+                "player weapon hit was consumed for an unprotected survivor");
+        SCBridge.setProtectRecruitedCompanions(false);
+        attackMarker.rawset("SC_PlayerAttackProtected", Boolean.TRUE);
+        require(!((SCNativeCompanion) actor).blocksPlayerWeaponHit((IsoPlayer) localPlayer),
+                "turning the option off must restore player weapon hits immediately");
+        attackMarker.rawset("SC_PlayerAttackProtected", Boolean.FALSE);
         testLivingViewHandoff((IsoPlayer) localPlayer,
                 (SCNativeCompanion) actor, (SCNativeCompanion) secondActor);
         require((Boolean) playerClass.getMethod("getCoopPVP").invoke(null),

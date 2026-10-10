@@ -29,6 +29,22 @@ local function config(key, fallback)
     return value
 end
 
+-- Live Mod Options affect only the start of optional chatter. A conversation
+-- already in progress, a direct greeting, and urgent speech keep their timing.
+function Banter.chatterMultiplier()
+    local options = SC.UserOptions
+    if type(options) ~= "table" or type(options.get) ~= "function" then return 1 end
+    local ok, level = pcall(options.get, "chatter")
+    if not ok then return 1 end
+    if level == "less" then return 2 end
+    if level == "rare" then return 4 end
+    return 1
+end
+
+local function chatterGap(key, fallback)
+    return math.max(0, config(key, fallback)) * Banter.chatterMultiplier()
+end
+
 -- ---------------------------------------------------------------------------
 -- Lines
 -- ---------------------------------------------------------------------------
@@ -1637,12 +1653,12 @@ end
 
 local function campConversationPulse(player, records, current)
     if current - party.lastCampConversationAt
-        < config("campConversationPartyCooldownMs", 60000) then
+        < chatterGap("campConversationPartyCooldownMs", 60000) then
         return false, "camp_conversation_cooldown"
     end
-    if not budgetAllows(current) then return false, "flavor_budget" end
+    if not Banter.incidentalBudgetAllows(current) then return false, "flavor_budget" end
     local radius = config("campConversationDistance", 8)
-    local actorCooldown = config("campConversationActorCooldownMs", 180000)
+    local actorCooldown = chatterGap("campConversationActorCooldownMs", 180000)
     local candidates = {}
     for _, record in ipairs(records or {}) do
         local commands, freeToFace = availableForQuietTalk(record, player, current,
@@ -1669,7 +1685,7 @@ local function campConversationPulse(player, records, current)
                 and U().sameFloor(firstActor, secondActor)
                 and U().distance(firstActor, secondActor) <= radius
                 and U().canSee(firstActor, secondActor)
-                and current - prior >= config("campConversationPairCooldownMs", 600000) then
+                and current - prior >= chatterGap("campConversationPairCooldownMs", 600000) then
                 local tableObject = sharedTable(firstActor, secondActor)
                 local openTopic = campPair and "banter.camp.open"
                     or "banter.shelter.open"
@@ -1767,6 +1783,13 @@ budgetAllows = function(current)
     return current - party.lastFlavorAt >= config("flavorPartySpeechGapMs", 20000)
 end
 
+-- Optional chatter has a longer party gap at lower levels. The ordinary
+-- budget above remains available to combat, interior distress, and replies.
+function Banter.incidentalBudgetAllows(current)
+    current = tonumber(current) or U().nowMs()
+    return current - party.lastFlavorAt >= chatterGap("flavorPartySpeechGapMs", 20000)
+end
+
 local function intrusiveClock()
     if type(getGameTime) ~= "function" then return nil, nil end
     local ok, clock = pcall(getGameTime)
@@ -1806,9 +1829,9 @@ end
 
 local function intrusiveSafe(actor, records, current)
     if U().config("intrusiveThoughtsEnabled") == false then return false end
-    if current - party.lastIntrusiveAt < config("intrusivePartyCooldownMs", 2700000)
+    if current - party.lastIntrusiveAt < chatterGap("intrusivePartyCooldownMs", 2700000)
         or current - party.lastRefusalAt < config("interiorRefusalPriorityMs", 5000)
-        or party.exchange ~= nil or not budgetAllows(current) then return false end
+        or party.exchange ~= nil or not Banter.incidentalBudgetAllows(current) then return false end
     if SC.Tales and type(SC.Tales.isTelling) == "function"
         and SC.Tales.isTelling() == true then return false end
     if SC.Positioning and type(SC.Positioning.activeConversation) == "function"
@@ -1817,7 +1840,7 @@ local function intrusiveSafe(actor, records, current)
     local own = actorState(actor)
     if age and own.lastIntrusiveHour
         and age - own.lastIntrusiveHour
-            < config("intrusiveActorCooldownGameHours", 24) then return false end
+            < chatterGap("intrusiveActorCooldownGameHours", 24) then return false end
     for _, record in ipairs(records or {}) do
         if record.actor and U().sameFloor(actor, record.actor)
             and U().distance(actor, record.actor) <= config("intrusiveReplyDistance", 6)
@@ -2378,16 +2401,16 @@ local function jokePulse(player, records, current, idle, inVehicle)
     local stillFor = current - idle.since
     local tier
     if idle.firstDone and not idle.secondDone
-        and stillFor >= config("idleJokeSecondMs", 600000) then
+        and stillFor >= chatterGap("idleJokeSecondMs", 600000) then
         tier = "second"
-    elseif not idle.firstDone and stillFor >= config("idleJokeFirstMs", 180000) then
+    elseif not idle.firstDone and stillFor >= chatterGap("idleJokeFirstMs", 180000) then
         tier = "first"
     end
     if tier == nil then return false, "idle_not_due" end
-    if tier == "first" and current - party.lastJokeAt < config("idleJokeRearmMs", 300000) then
+    if tier == "first" and current - party.lastJokeAt < chatterGap("idleJokeRearmMs", 300000) then
         return false, "idle_rearming"
     end
-    if not budgetAllows(current) then return false, "flavor_budget" end
+    if not Banter.incidentalBudgetAllows(current) then return false, "flavor_budget" end
     local radius = config("ambientDialogueDistance", 10)
     local best, bestCommands, bestJoked
     for _, record in ipairs(records or {}) do
@@ -2466,10 +2489,10 @@ local function placePulse(player, records, current)
     local building = buildingOf(square)
     local key = tostring(building or roomName) .. "|" .. group
     if party.placeKeys[key] then return false, "place_already_commented" end
-    if current - party.lastPlaceAt < config("placeCommentPartyCooldownMs", 60000) then
+    if current - party.lastPlaceAt < chatterGap("placeCommentPartyCooldownMs", 60000) then
         return false, "place_cooldown"
     end
-    if not budgetAllows(current) then return false, "flavor_budget" end
+    if not Banter.incidentalBudgetAllows(current) then return false, "flavor_budget" end
     local radius = config("placeCommentRadius", 8)
     local lines = PLACE_LINES[group] or {}
     local best, bestCommands, bestTopic, bestScore
@@ -2504,10 +2527,10 @@ end
 -- overhead speech: it never touches that activity, facing, path or posture.
 local function routinePulse(player, records, current)
     if current - party.lastRoutineAt
-        < config("routineBanterIntervalMs", 90000) then
+        < chatterGap("routineBanterIntervalMs", 90000) then
         return false, "routine_cooldown"
     end
-    if not budgetAllows(current) then return false, "flavor_budget" end
+    if not Banter.incidentalBudgetAllows(current) then return false, "flavor_budget" end
     local supervisor = SC.ActionSupervisor
     if not supervisor or type(supervisor.current) ~= "function" then
         return false, "routine_owner_unavailable"
@@ -2544,10 +2567,10 @@ local function followPulse(player, records, current, inVehicle)
     if current - party.lastMovedAt >= config("followBanterSettledMs", 30000) then
         return false, "follow_leader_settled"
     end
-    if current - party.lastFollowAt < config("followBanterIntervalMs", 120000) then
+    if current - party.lastFollowAt < chatterGap("followBanterIntervalMs", 120000) then
         return false, "follow_cooldown"
     end
-    if not budgetAllows(current) then return false, "flavor_budget" end
+    if not Banter.incidentalBudgetAllows(current) then return false, "flavor_budget" end
     local supervisor = SC.ActionSupervisor
     local best, bestCommands, oldest
     for _, record in ipairs(records or {}) do
@@ -2575,10 +2598,10 @@ local function followPulse(player, records, current, inVehicle)
 end
 
 local function passengerPulse(player, records, current)
-    if current - party.lastPassengerAt < config("followBanterIntervalMs", 120000)
+    if current - party.lastPassengerAt < chatterGap("followBanterIntervalMs", 120000)
         then return false end
     local vehicle, moving = playerVehicle(player)
-    if not moving or not budgetAllows(current) then return false end
+    if not moving or not Banter.incidentalBudgetAllows(current) then return false end
     for _, record in ipairs(records or {}) do
         local actor = record.actor
         local commands = available(record, player, current,

@@ -6,6 +6,7 @@ require "SCStableValue"
 require "SCTransaction"
 require "SCNativeList"
 require "SCConfig"
+require "SCUserOptions"
 require "SCNames"
 require "SCDiagnostics"
 require "SCNet"
@@ -186,7 +187,7 @@ local function tableHasEntries(value)
 end
 
 local requiredModules = {
-    "Call", "StableValue", "Transaction", "NativeList", "Config", "Diagnostics",
+    "Call", "StableValue", "Transaction", "NativeList", "Config", "UserOptions", "Diagnostics",
     "Registry", "Vitals", "VitalsTrace", "Scheduler", "NativeTraversalActions", "NativeVisualActions",
     "NativeCombatActions", "NativeWorkActions", "NativeMovementActions",
     "NativeActions", "Performance",
@@ -218,6 +219,8 @@ local requiredModules = {
 -- global event if a partial load or incompatible module replaced one.
 local requiredFunctions = {
     { "Config", "refreshSandbox" },
+    { "UserOptions", "get" },
+    { "UserOptions", "load" },
     { "Diagnostics", "report" },
     { "Runtime", "start" },
     { "Runtime", "reset" },
@@ -380,6 +383,11 @@ local function removeContracts()
 end
 
 local function onGameStart()
+    local optionsLoaded, optionsReason = SC.UserOptions.load()
+    if not optionsLoaded then
+        SC.Diagnostics.report("user_options", nil,
+            "could not load ModOptions.ini", optionsReason)
+    end
     if SC.Config and type(SC.Config.refreshSandbox) == "function" then
         SC.Config.refreshSandbox()
     end

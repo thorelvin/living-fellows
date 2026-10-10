@@ -2,6 +2,7 @@
 package zombie.iso;
 
 public class IsoObject {
+    public se.krka.kahlua.vm.KahluaTable getModData() { return null; }
     public IsoGridSquare getSquare() { return null; }
     public void setAlphaAndTarget(float alpha) {}
     public float getTargetAlpha(int playerIndex) { return 1.0f; }

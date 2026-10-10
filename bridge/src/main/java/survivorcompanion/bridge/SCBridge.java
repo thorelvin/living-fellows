@@ -118,6 +118,10 @@ public final class SCBridge {
     // and enable the vanilla flag only while at least one owned NPC exists.
     private static boolean coopPvpOverrideActive;
     private static boolean coopPvpBeforeOwnership;
+    // The game-wide co-op PvP switch must remain enabled for hostile or
+    // unrecruited NPCs. The user's ally-protection choice is a separate target
+    // gate in SCNativeCompanion.Hit, applied only to the primary local player.
+    private static volatile boolean protectRecruitedCompanions;
     /**
      * MainThread.queueInvokeOnMainThread executes inline when called by the game
      * thread. Lua also runs on that thread, so calling it directly from the
@@ -798,6 +802,23 @@ public final class SCBridge {
 
     public static boolean isCompanion(Object candidate) {
         return candidate instanceof SCNativeCompanion actor && isOwned(actor);
+    }
+
+    /** Apply the local player's live option without changing vanilla co-op PvP. */
+    public static boolean setProtectRecruitedCompanions(boolean enabled) {
+        protectRecruitedCompanions = enabled;
+        return true;
+    }
+
+    public static boolean isProtectRecruitedCompanions() {
+        return protectRecruitedCompanions;
+    }
+
+    /** Snapshot live comfort options for every newly constructed companion. */
+    public static boolean setCompanionComfortOptions(String symptomMode,
+            boolean ordinaryColdsEnabled) {
+        SCCompanionComfort.setDefaults(symptomMode, ordinaryColdsEnabled);
+        return true;
     }
 
     /**

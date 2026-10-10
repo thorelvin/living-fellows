@@ -1406,5 +1406,18 @@
     "UI_SC_Nickname_Prompt": "Give nickname",
     "UI_SC_Nickname_Invalid": "Use 2-16 letters, numbers, spaces, apostrophes, hyphens or periods.",
     "UI_SC_Nickname_Show": "Show nicknames",
-    "UI_SC_Grave_Memorial": "In memory of %1"
+    "UI_SC_Grave_Memorial": "In memory of %1",
+    "UI_SC_ModOptions_Title": "Living Fellows",
+    "UI_SC_ModOptions_Chatter": "Companion chatter",
+    "UI_SC_ModOptions_Chatter_Tooltip": "How often companions speak on their own. Less doubles the normal cooldown; Rare quadruples it.",
+    "UI_SC_ModOptions_CoughSneezes": "Coughs and sneezes",
+    "UI_SC_ModOptions_CoughSneezes_Tooltip": "Normal allows a sound at most once per real minute; Rare at most once per five real minutes; Off silences both native and cosmetic coughs and sneezes.",
+    "UI_SC_ModOptions_OrdinaryColds": "Ordinary colds",
+    "UI_SC_ModOptions_OrdinaryColds_Tooltip": "Turn off ordinary colds for companions. Knox infection and other illness effects are unchanged.",
+    "UI_SC_ModOptions_ProtectRecruitedCompanions": "Protect recruits from your attacks",
+    "UI_SC_ModOptions_ProtectRecruitedCompanions_Tooltip": "Prevents your attacks from damaging recruited companions. Off by default.",
+    "UI_SC_ModOptions_Normal": "Normal",
+    "UI_SC_ModOptions_Less": "Less",
+    "UI_SC_ModOptions_Rare": "Rare",
+    "UI_SC_ModOptions_Off": "Off"
 }

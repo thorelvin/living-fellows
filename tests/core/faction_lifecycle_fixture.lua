@@ -73,6 +73,16 @@ SC.Config = {
     refreshSandbox = function() return true end,
     testSet = function(key, value) configValues[key] = value end,
 }
+local optionDefaults = {
+    chatter = "normal", coughSneezes = "normal", ordinaryColds = true,
+    protectRecruitedCompanions = false,
+}
+SC.UserOptions = { loads = 0 }
+function SC.UserOptions.get(key) return optionDefaults[key] end
+function SC.UserOptions.load()
+    SC.UserOptions.loads = SC.UserOptions.loads + 1
+    return true
+end
 
 SC.Diagnostics = {
     reports = {},

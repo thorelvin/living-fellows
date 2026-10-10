@@ -32,7 +32,7 @@ Living Fellows turns the survivors you meet into persistent people. They can joi
 - [Base life and production](#base-life-and-production)
 - [Survivor households and bandits](#survivor-households-and-bandits)
 - [Strange Folk (0.26.35 playtest)](#strange-folk-02635-playtest)
-- [Sandbox options](#sandbox-options)
+- [Sandbox options](#sandbox-options) · [Mod Options](#mod-options)
 - [Saves and backups](#saves-and-backups) · [Compatibility](#compatibility)
 - [Troubleshooting](#troubleshooting) · [Reporting a bug](#reporting-a-bug)
 - [Building from source](#building-from-source) · [Repository layout](#repository-layout)
@@ -289,6 +289,19 @@ The **Living Fellows** sandbox page controls:
 | Companion nicknames, rare famous namesakes | Whether companions bring, earn and use nicknames (on), and whether a very few new survivors share an exact name with a fictional zombie-story character (off) |
 
 Lowering a limit never deletes companions, households, or camps already in the save. Turning diaries off never removes a book or its pages.
+
+## Mod Options
+
+Open **Options → Mods → Living Fellows** to change these settings while playing. They apply when you press **Apply**, persist across saves on this computer, and do not require a separate Mod Options dependency.
+
+| Option | Choices | Default |
+| --- | --- | --- |
+| Companion chatter | Normal, Less, Rare | Normal |
+| Coughs and sneezes | Normal, Rare, Off | Normal |
+| Ordinary colds | On, Off | On |
+| Protect recruited companions from player attacks | Off, On | Off |
+
+The chatter setting spaces out incidental remarks. Direct replies, orders, combat calls, medical warnings, and rescue calls still come through. The symptom setting controls coughs and sneezes; **Ordinary colds** can separately stop new colds and clear existing ones without changing Knox or wound infections. A newly caught cold can produce a native world sound before symptom suppression takes effect, so turn ordinary colds off too if you want to prevent that onset. Attack protection applies only while a companion is recruited and allied; hostile, exiled, and unrecruited survivors remain hittable.
 
 ## Saves and backups
 

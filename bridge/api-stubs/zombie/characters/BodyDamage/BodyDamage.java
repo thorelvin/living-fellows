@@ -14,4 +14,16 @@ public class BodyDamage {
     public ArrayList<BodyPart> getBodyParts() { return new ArrayList<>(); }
     public float getOverallBodyHealth() { return 100.0f; }
     public void ReduceGeneralHealth(float amount) {}
+    public float getCatchACold() { return 0.0f; }
+    public void setCatchACold(float value) {}
+    public boolean isHasACold() { return false; }
+    public void setHasACold(boolean value) {}
+    public float getColdStrength() { return 0.0f; }
+    public void setColdStrength(float value) {}
+    public float getTimeToSneezeOrCough() { return 0.0f; }
+    public void setTimeToSneezeOrCough(float value) {}
+    public int getSneezeCoughActive() { return 0; }
+    public void setSneezeCoughActive(int value) {}
+    public int getSneezeCoughTime() { return 0; }
+    public void setSneezeCoughTime(int value) {}
 }

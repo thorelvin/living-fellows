@@ -85,6 +85,8 @@ public class IsoGameCharacter extends IsoMovingObject {
     public float getY() { return 0; }
     public float getZ() { return 0; }
     public float getHealth() { return 0; }
+    public float Hit(zombie.inventory.types.HandWeapon weapon, IsoGameCharacter wielder,
+            float damageSplit, boolean ignoreDamage, float modDelta, boolean remote) { return 0; }
     public int getLastHitCount() { return 0; }
     public boolean isDead() { return false; }
     public boolean isOnFloor() { return false; }

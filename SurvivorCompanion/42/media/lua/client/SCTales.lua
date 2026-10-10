@@ -714,6 +714,12 @@ local function banter()
     return type(SC.Banter) == "table" and SC.Banter or nil
 end
 
+local function chatterMultiplier()
+    local owner = banter()
+    return owner and type(owner.chatterMultiplier) == "function"
+        and owner.chatterMultiplier() or 1
+end
+
 local function speak(beat, current)
     if not SC.Dialogue or type(SC.Dialogue.say) ~= "function" then return false end
     registerPools()
@@ -768,7 +774,7 @@ local function advanceTelling(current)
 end
 
 local function readyTale(bucket, hours)
-    local cooldown = config("taleRetellCooldownHours", 48)
+    local cooldown = config("taleRetellCooldownHours", 48) * chatterMultiplier()
     local best, bestScore
     for _, tale in ipairs(bucket and bucket.list or {}) do
         if (tonumber(tale.kills) or 0) > 0
@@ -787,10 +793,13 @@ local function startTelling(player, list, current)
     if player == nil or owner == nil or type(owner.availableSpeaker) ~= "function" then
         return false, "tales_no_audience"
     end
-    if current - party.lastTellAt < config("taleTellPartyCooldownMs", 1800000) then
+    if current - party.lastTellAt
+        < config("taleTellPartyCooldownMs", 1800000) * chatterMultiplier() then
         return false, "tales_cooldown"
     end
-    if type(owner.budgetAllows) == "function" and not owner.budgetAllows(current) then
+    local budgetCheck = type(owner.incidentalBudgetAllows) == "function"
+        and owner.incidentalBudgetAllows or owner.budgetAllows
+    if type(budgetCheck) == "function" and not budgetCheck(current) then
         return false, "flavor_budget"
     end
     local idle = type(owner.playerIdleMs) == "function" and owner.playerIdleMs(current) or 0

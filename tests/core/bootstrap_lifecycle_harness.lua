@@ -26,7 +26,8 @@ check(SC.DiaryUI.isInstalled(),
 
 Events.OnGameStart.fire()
 Events.OnGameStart.fire()
-check(SC.Runtime.starts == 2 and SC.Factions.installs == 1
+check(SC.UserOptions.loads == 2 and SC.Runtime.starts == 2
+        and SC.Factions.installs == 1
         and SC.FactionContracts.installs == 1
         and SC.OddballRoomGuard.installs == 1
         and SC.OddballDistressRadio.installs == 1
@@ -44,6 +45,15 @@ check(removed and removeReason == "" and Events.OnInitGlobalModData.count() == 0
         and not SC.CompanionMap.installed and not SC.BaseVisuals.installed
         and not SC.DiaryUI.installed,
     "bootstrap removal releases every lifecycle and contract hook")
+
+local optionLoad = SC.UserOptions.load
+SC.UserOptions.load = nil
+local optionsInstalled, optionsReason = SC.Bootstrap.install()
+check(not optionsInstalled
+        and string.find(tostring(optionsReason), "SCUserOptions.load", 1, true)
+        and Events.OnGameStart.count() == 0 and not SC.Factions.installed,
+    "bootstrap rejects an incomplete user options contract before acquiring hooks")
+SC.UserOptions.load = optionLoad
 
 Events.OnSave.failAdd = true
 local installed, reason = SC.Bootstrap.install()

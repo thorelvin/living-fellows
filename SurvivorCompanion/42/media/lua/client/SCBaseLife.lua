@@ -4040,6 +4040,13 @@ function BaseLife.setRestriction(actorId, value)
         return false, "invalid_restriction"
     end
     ensure().restrictions[actorId] = value
+    if SC.Registry and type(SC.Registry.byId) == "function"
+        and SC.Commands and type(SC.Commands.refreshPlayerAttackProtection) == "function" then
+        local record = SC.Registry.byId(actorId)
+        if record and record.actor then
+            SC.Commands.refreshPlayerAttackProtection(record.actor)
+        end
+    end
     return true
 end
 
@@ -4865,12 +4872,29 @@ local function validateRestoreSource(source)
     return true
 end
 
+local function refreshRestoredProtection(priorRestrictions, restoredRestrictions)
+    if not SC.Registry or type(SC.Registry.byId) ~= "function"
+        or not SC.Commands
+        or type(SC.Commands.refreshPlayerAttackProtection) ~= "function" then return end
+    local changed = {}
+    for id in pairs(priorRestrictions or {}) do changed[id] = true end
+    for id in pairs(restoredRestrictions or {}) do changed[id] = true end
+    for id in pairs(changed) do
+        local record = SC.Registry.byId(id)
+        if record and record.actor then
+            SC.Commands.refreshPlayerAttackProtection(record.actor)
+        end
+    end
+end
+
 function BaseLife.restore(source)
+    local priorRestrictions = document and document.restrictions
     if source == nil then
         document, draftZone, operationsCache = emptyDocument(), nil, nil
         autonomousTreeScan, autonomousBodyScan = nil, nil
         autonomousWorkerCursor, autonomousRetryAt = 0, {}
         autoFloorScan, autoFloorLinks = nil, {}
+        refreshRestoredProtection(priorRestrictions, document.restrictions)
         return true, document
     end
     local stable, reason = stableCopy(source, 24, { count = 65536 })
@@ -4887,6 +4911,7 @@ function BaseLife.restore(source)
     autonomousWorkerCursor, autonomousRetryAt = 0, {}
     autoFloorScan, autoFloorLinks = nil, {}
     bumpWorkConsistencyRevision()
+    refreshRestoredProtection(priorRestrictions, document.restrictions)
     return true, document
 end
 

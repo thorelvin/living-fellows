@@ -77,7 +77,7 @@ local function requiredCopy(value, limit, path)
 end
 
 local stableDataKeys = {
-    "SC_Recruited", "SC_FactionId", "SC_FactionRole", "SC_Order", "SC_FollowDistance", "SC_Scavenge", "SC_AllowOverload", "SC_MoveMode", "SC_MoveModeVersion",
+    "SC_Recruited", "SC_PlayerAttackProtected", "SC_FactionId", "SC_FactionRole", "SC_Order", "SC_FollowDistance", "SC_Scavenge", "SC_AllowOverload", "SC_MoveMode", "SC_MoveModeVersion",
     "SC_RideWithPlayer", "SC_CombatMode", "SC_CombatDoctrine", "SC_WeaponPriority", "SC_HoldFire",
     "SC_Group", "SC_Trust",
     "SC_Personality",
@@ -127,6 +127,34 @@ local function rawModData(actor)
     local data, ok = U().call(actor, "getModData")
     if ok and type(data) == "table" then return data end
     return nil
+end
+
+-- Native Hit reads this small, derived marker before the engine can emit a
+-- weapon-hit event or apply damage. Keep it tied to the relationship state;
+-- the separate user option is synchronized directly with SCBridge.
+local function playerAttackProtected(actor, state)
+    if type(state) ~= "table" or state.recruited ~= true
+        or state.factionId ~= nil then return false end
+    local care = type(state.care) == "table" and state.care or nil
+    -- A post-conflict ceasefire is conditional: another player hit resumes the
+    -- fight to the death, so that survivor must remain hittable.
+    if care and (care.playerHostile == true or care.playerCeasefire == true) then
+        return false
+    end
+    if SC.BaseLife and type(SC.BaseLife.restriction) == "function" then
+        local id = U().idOf(actor)
+        if id ~= nil then
+            local ok, restriction = pcall(SC.BaseLife.restriction, id)
+            if ok and restriction == "exiled" then return false end
+        end
+    end
+    return true
+end
+
+local function syncPlayerAttackProtection(actor, state)
+    local data = rawModData(actor)
+    if data then data.SC_PlayerAttackProtected = playerAttackProtected(actor, state) end
+    return data and data.SC_PlayerAttackProtected == true or false
 end
 
 local function teamDoctrineForPlayer(player)
@@ -400,6 +428,7 @@ local function stateFor(actor, entry)
             SC.Diagnostics.report("character-depth", U().idOf(actor), reason)
         end
         states[actor] = state
+        syncPlayerAttackProtection(actor, state)
     end
     return state
 end
@@ -466,6 +495,7 @@ local function writeStable(actor, entry, state)
     local data = U().modData(actor)
     if data then
         data.SC_Recruited = state.recruited
+        data.SC_PlayerAttackProtected = playerAttackProtected(actor, state)
         data.SC_FactionId = state.factionId
         data.SC_FactionRole = state.factionRole
         data.SC_Order = state.order
@@ -2691,6 +2721,13 @@ end
 function Commands.peek(actor)
     if not actor then return nil end
     return states[actor] or stateFor(actor)
+end
+
+-- A base restriction can change independently of a player command. Refresh its
+-- native hit marker immediately when a companion is exiled or welcomed back.
+function Commands.refreshPlayerAttackProtection(actor)
+    if not actor then return false end
+    return syncPlayerAttackProtection(actor, states[actor] or stateFor(actor))
 end
 
 -- An exiled survivor still holds whatever order it was given -- releasing the
