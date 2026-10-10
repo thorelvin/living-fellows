@@ -7526,6 +7526,33 @@ local function multiGoalKey(candidates, action)
     return tostring(action or "approach") .. ":" .. table.concat(keys, "|")
 end
 
+-- Prefer interaction tiles no other companion is standing on or has chosen.
+-- Build 42 never pushes player-type characters apart, so two companions sent
+-- to the same container or work spot used to arrive on the same tile and stay
+-- there overlapping. This is only a preference: when every tile is taken the
+-- full list stays, so a crowded spot never fails a task outright.
+function Navigation._preferUnclaimedGoals(actor, valid)
+    if type(valid) ~= "table" or #valid <= 1 then return valid end
+    local utility = U()
+    local taken = {}
+    for other, otherState in pairs(states) do
+        if other ~= actor and type(otherState) == "table"
+            and utility.isValidActor(other) and not utility.isDead(other)
+            and utility.sameFloor(other, actor) then
+            local here = utility.squareOf(other)
+            if here then taken[squareKey(here)] = true end
+            local chosen = otherState.multiGoalSelected
+            if chosen then taken[squareKey(chosen)] = true end
+        end
+    end
+    local preferred = {}
+    for _, square in ipairs(valid) do
+        if not taken[squareKey(square)] then preferred[#preferred + 1] = square end
+    end
+    if #preferred == 0 then return valid end
+    return preferred
+end
+
 function Navigation.requestAny(actor, candidates, movementMode, intent)
     local utility = U()
     if not utility or not utility.isValidActor(actor) then return false, "invalid_actor" end
@@ -7551,6 +7578,7 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
         end
     end
     if #valid == 0 then return false, "no_interaction_targets" end
+    valid = Navigation._preferUnclaimedGoals(actor, valid)
     local arrival = tonumber(intent.arrivalDistance) or 0.85
     for _, square in ipairs(valid) do
         local arrived = intent.requireSameSquare == true
@@ -7688,6 +7716,87 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
     return false, lastReason
 end
 
+-- Nothing in Build 42 pushes two player-type characters apart, so a companion
+-- that ends up standing on another one -- or that the player walked onto --
+-- stays there until one of them gets a new task. Decision reaches the crowd
+-- yield only when the companion is free (not working, seated, reading or
+-- fighting). A free companion that has stood overlapping a still body for a
+-- moment steps to the nearest clear tile through the ordinary crowd-yield
+-- move, so doors, hazards and furniture keep their usual rules. When both are
+-- free the later id moves; a busy partner never gets here, so after a longer
+-- wait the free one moves instead.
+function Navigation._planUnstack(actor, snapshot, now)
+    local utility = U()
+    if not utility.isCompanion(actor) then return nil, "no_crowd_move" end
+    snapshot = type(snapshot) == "table" and snapshot or {}
+    if (tonumber(snapshot.immediateCount) or 0) > 0
+        or (tonumber(snapshot.pressure) or 0) >= 1.5
+        or snapshot.humanThreat ~= nil then return nil, "no_crowd_move" end
+    if select(1, utility.call(actor, "getVehicle")) ~= nil then return nil, "no_crowd_move" end
+    now = tonumber(now) or utility.nowMs()
+    local state = stateFor(actor)
+    local flowMs = tonumber(utility.config("navigationFlowMotionMs")) or 700
+    if now - (tonumber(state.motionAt) or -math.huge) <= flowMs then
+        state.stackWith, state.stackedSince = nil, nil
+        return nil, "no_crowd_move"
+    end
+    local ax, ay, az = utility.position(actor)
+    if ax == nil then return nil, "no_crowd_move" end
+    local limit = tonumber(utility.config("companionStackDistance")) or 0.45
+    local others = {}
+    for _, ally in ipairs(type(snapshot.allies) == "table" and snapshot.allies or {}) do
+        if type(ally) == "table" then others[#others + 1] = ally.actor end
+    end
+    if type(snapshot.player) == "table" then others[#others + 1] = snapshot.player.actor end
+    local stacked
+    for _, other in ipairs(others) do
+        if other ~= nil and other ~= actor and not utility.isDead(other) then
+            local ox, oy, oz = utility.position(other)
+            local otherState = states[other]
+            local otherMoving = otherState ~= nil
+                and now - (tonumber(otherState.motionAt) or -math.huge) <= flowMs
+            if ox ~= nil and math.floor(oz or 0) == math.floor(az or 0)
+                and (ox - ax) ^ 2 + (oy - ay) ^ 2 < limit * limit
+                and not otherMoving
+                and select(1, utility.call(other, "getVehicle")) == nil then
+                stacked = other
+                break
+            end
+        end
+    end
+    if not stacked then
+        state.stackWith, state.stackedSince = nil, nil
+        return nil, "no_crowd_move"
+    end
+    if state.stackWith ~= stacked then
+        state.stackWith, state.stackedSince = stacked, now
+    end
+    local hold = tonumber(utility.config("companionStackHoldMs")) or 1500
+    local designated = not utility.isCompanion(stacked)
+        or tostring(utility.idOf(actor)) > tostring(utility.idOf(stacked))
+    if now - state.stackedSince < (designated and hold or hold * 3) then
+        return nil, "stack_settling"
+    end
+    local cooldown = tonumber(utility.config("companionUnstackCooldownMs")) or 10000
+    if now - (tonumber(state.lastUnstackAt) or -math.huge) < cooldown then
+        return nil, "unstack_cooldown"
+    end
+    state.lastUnstackAt = now
+    local square = crowdClearanceSquare(actor, stacked, utility.squareOf(stacked), snapshot)
+    if not square then return nil, "unstack_no_clear_square" end
+    state.stackWith, state.stackedSince = nil, nil
+    state.crowdMove = {
+        square = square, requestedBy = stacked, requestedAt = now,
+        expiresAt = now + (utility.config("navigationCrowdMoveMs") or 6000),
+        reason = "unstack",
+    }
+    recordMovement(actor, "unstack_started", {
+        status = "stacked_with:" .. tostring(utility.idOf(stacked)),
+        targetSquare = square,
+    })
+    return state.crowdMove, "unstack"
+end
+
 -- Decision calls this before ordinary idle/work selection. A companion that
 -- was explicitly asked to clear a route walks to the reserved clearance tile
 -- instead of merely freezing and hoping the requester sidesteps around them.
@@ -7695,7 +7804,11 @@ function Navigation.serviceCrowdYield(actor, snapshot)
     local utility = U()
     local state = actor and states[actor] or nil
     local move = state and state.crowdMove or nil
-    if type(move) ~= "table" then return false, "no_crowd_move" end
+    if type(move) ~= "table" then
+        local planned, planReason = Navigation._planUnstack(actor, snapshot, utility.nowMs())
+        if type(planned) ~= "table" then return false, planReason or "no_crowd_move" end
+        state, move = states[actor], planned
+    end
     local current = utility.nowMs()
     if current > (tonumber(move.expiresAt) or 0)
         or not move.square or not move.requestedBy or utility.isDead(move.requestedBy)

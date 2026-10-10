@@ -21743,6 +21743,140 @@ end)()
         "the companion receiving a crowd order paths away instead of making the blocked companion sidestep")
 end)()
 
+-- Build 42 never pushes player-type characters apart. Two companions standing
+-- on the same spot separate through the crowd-yield move once both have been
+-- still for a moment, and a shared destination prefers a free tile.
+;(function()
+    local navigation = SurvivorCompanion.Navigation
+    local start = clock
+    local originalRequest = navigation.request
+    local routed = {}
+    navigation.request = function(value, target, _, intent)
+        routed[#routed + 1] = { actor = value, target = target, intent = intent }
+        return true, "crowd_yield_pathing"
+    end
+    local calm = function(allies)
+        return { allies = allies, immediateCount = 0, pressure = 0 }
+    end
+
+    -- Both free: only the later id moves, after the hold.
+    local first = actor("sc-stack-a", 12, -12, {})
+    local second = actor("sc-stack-b", 12, -12, {})
+    local movedFirst = navigation.serviceCrowdYield(first, calm({ { actor = second } }))
+    local movedSecond = navigation.serviceCrowdYield(second, calm({ { actor = first } }))
+    check(movedFirst == false and movedSecond == false and #routed == 0,
+        "two companions that have only just met on one spot are left a moment to move on")
+    clock = start + 1600
+    movedFirst = navigation.serviceCrowdYield(first, calm({ { actor = second } }))
+    movedSecond = navigation.serviceCrowdYield(second, calm({ { actor = first } }))
+    local secondState = navigation._stateForTests(second)
+    check(movedFirst == false and movedSecond == true and #routed == 1
+            and routed[1].actor == second
+            and routed[1].intent.action == "crowd_yield_order"
+            and routed[1].target ~= second.square
+            and secondState.crowdMove and secondState.crowdMove.reason == "unstack",
+        "of two free stacked companions only the later id steps to a clear tile")
+
+    -- The partner is busy and never reaches the crowd yield: the free one
+    -- moves after the longer wait.
+    routed = {}
+    clock = start
+    local worker = actor("sc-stack-z-worker", 13, -9, {})
+    local idler = actor("sc-stack-c-idler", 13, -9, {})
+    check(navigation.serviceCrowdYield(idler, calm({ { actor = worker } })) == false,
+        "the earlier id waits while its stacked partner might still move")
+    clock = start + 1600
+    check(navigation.serviceCrowdYield(idler, calm({ { actor = worker } })) == false,
+        "the earlier id still waits through the ordinary hold")
+    clock = start + 4600
+    check(navigation.serviceCrowdYield(idler, calm({ { actor = worker } })) == true
+            and routed[1] and routed[1].actor == idler,
+        "a free companion stacked on a busy one steps away after the longer wait")
+
+    -- A partner walking through is passing, not stacked.
+    routed = {}
+    clock = start
+    local walker = actor("sc-stack-w-walker", 10, -6, {})
+    local stander = actor("sc-stack-x-stander", 10, -6, {})
+    navigation._stateForTests(walker).motionAt = clock
+    navigation.serviceCrowdYield(stander, calm({ { actor = walker } }))
+    clock = start + 1600
+    navigation._stateForTests(walker).motionAt = clock
+    check(navigation.serviceCrowdYield(stander, calm({ { actor = walker } })) == false
+            and #routed == 0,
+        "a companion walking through another is not treated as stacked")
+
+    -- Danger comes first.
+    clock = start
+    local guardA = actor("sc-stack-g1", 8, -10, {})
+    local guardB = actor("sc-stack-g2", 8, -10, {})
+    navigation.serviceCrowdYield(guardB, calm({ { actor = guardA } }))
+    clock = start + 1600
+    check(navigation.serviceCrowdYield(guardB, { allies = { { actor = guardA } },
+            immediateCount = 1, pressure = 0 }) == false and #routed == 0,
+        "stacked companions do not shuffle aside with a zombie at hand")
+
+    -- One move, then a cooldown.
+    routed = {}
+    clock = start
+    local loopA = actor("sc-stack-l1", 6, -12, {})
+    local loopB = actor("sc-stack-l2", 6, -12, {})
+    navigation.serviceCrowdYield(loopB, calm({ { actor = loopA } }))
+    clock = start + 1600
+    local firstMove = navigation.serviceCrowdYield(loopB, calm({ { actor = loopA } }))
+    local loopState = navigation._stateForTests(loopB)
+    loopState.crowdMove = nil
+    clock = start + 3300
+    navigation.serviceCrowdYield(loopB, calm({ { actor = loopA } }))
+    clock = start + 5000
+    check(firstMove == true and #routed == 1
+            and navigation.serviceCrowdYield(loopB, calm({ { actor = loopA } })) == false
+            and #routed == 1,
+        "a companion steps aside at most once per cooldown")
+    navigation.request = originalRequest
+
+    -- A shared destination prefers the tile nobody stands on.
+    clock = start
+    local occupied = cell:getGridSquare(11, -3, 0)
+    local open = cell:getGridSquare(12, -3, 0)
+    local holder = actor("sc-goal-holder", 11, -3, {})
+    navigation._stateForTests(holder)
+    local seeker = actor("sc-goal-seeker", 9, -1, {})
+    local preferred = navigation._preferUnclaimedGoals(seeker, { occupied, open })
+    check(#preferred == 1 and preferred[1] == open,
+        "a companion choosing among interaction tiles skips the one another companion stands on")
+    local chooser = actor("sc-goal-chooser", 8, -1, {})
+    navigation._stateForTests(chooser).multiGoalSelected = open
+    preferred = navigation._preferUnclaimedGoals(seeker, { occupied, open })
+    check(#preferred == 2,
+        "when every tile is taken the full list stays, so a crowded spot never fails a task")
+    navigation._stateForTests(chooser).multiGoalSelected = nil
+
+    -- requestAny hands the native nearest-path only the free tile.
+    local originalNative = SurvivorCompanion.NativeActions
+    local offered
+    SurvivorCompanion.NativeActions = {
+        pathToNearest = function(_, requested)
+            offered = requested
+            return true, "nearest_path_started"
+        end,
+        pathTelemetry = function()
+            return { available = true, active = true, shouldBeMoving = true,
+                hasStartedMoving = false, pending = true }
+        end,
+        stopDirect = function() return true end,
+        seatingStatus = function() return "standing" end,
+        leaveSeating = function() return true, "already_standing" end,
+    }
+    local sharedStarted = navigation.requestAny(seeker, { occupied, open }, "walk",
+        { action = "test_shared_goal", arrivalDistance = 0.8 })
+    SurvivorCompanion.NativeActions = originalNative
+    navigation.reset(seeker)
+    check(sharedStarted and type(offered) == "table" and #offered == 1 and offered[1] == open,
+        "a companion sent to a shared spot is routed to the tile nobody stands on")
+    clock = start + 6000
+end)()
+
 -- A corpse, and the stand-in zombie Build 42 makes while a body is dragged,
 -- are neither perceived as threats nor attacked.
 ;(function()
