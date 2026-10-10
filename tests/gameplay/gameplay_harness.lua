@@ -18652,6 +18652,38 @@ do
         { "study.ritual.gnome_commander", 4, 0 },
         { "study.ritual.sports_pep_talk", 4, 0 },
         { "study.ritual.mannequin_apology", 4, 0 },
+        -- Priority 2
+        { "fishing.cast", 10, 0 },
+        { "fishing.bite", 10, 0 },
+        { "fishing.catch", 10, 0 },
+        { "fishing.lost", 10, 0 },
+        { "fishing.trash", 10, 0 },
+        { "banter.idle.second", 11, 0 },
+        { "banter.idle.vehicle", 11, 0 },
+        { "banter.interior.dread", 10, 0 },
+        { "banter.interior.panic_onset", 10, 0 },
+        { "banter.interior.panic_recovery", 10, 0 },
+        { "banter.interior.nicotine", 10, 0 },
+        { "banter.distraction.ally", 9, 0 },
+        { "banter.distraction.verdict", 9, 0 },
+        { "noise.horn", 8, 0 },
+        { "noise.breaking", 8, 0 },
+        { "noise.loud", 8, 0 },
+        { "banter.table.tea.open", 6, 1 },
+        { "banter.table.tea.reply", 6, 0 },
+        { "banter.table.tea.close", 6, 0 },
+        { "banter.place.grocery", 8, 0 },
+        { "banter.place.gas", 8, 0 },
+        { "banter.place.garage", 8, 0 },
+        { "banter.place.police", 8, 0 },
+        { "banter.place.pharmacy", 8, 0 },
+        { "banter.place.hospital", 8, 0 },
+        { "banter.place.school", 8, 0 },
+        { "banter.place.motel", 8, 0 },
+        { "banter.place.bar", 8, 0 },
+        { "gestures.cough", 9, 0 },
+        { "gestures.sneeze", 9, 0 },
+        { "gestures.yawn.catch", 9, 0 },
     }
     local voices = { "brave", "cautious", "caring", "practical" }
     local placeholderSets = {
@@ -26992,13 +27024,17 @@ end)()
         check(type(spec) == "table" and type(spec.common) == "table" and #spec.common > 0,
             "the noise topic has lines: " .. topic)
         total = total + #spec.common
-        for _, line in ipairs(spec.common) do
-            check(#line <= 120, topic .. " keeps its lines short: " .. line)
-            check(string.find(line, "%%1") == nil,
-                topic .. " needs no interpolation: " .. line)
+        for _, entry in ipairs(spec.common) do
+            local rough = type(entry) == "table" and entry[1] or entry
+            local clean = type(entry) == "table" and entry.clean or nil
+            for _, line in ipairs({ rough, clean }) do
+                check(#line <= 120, topic .. " keeps its lines short: " .. line)
+                check(string.find(line, "%%1") == nil,
+                    topic .. " needs no interpolation: " .. line)
+            end
         end
     end
-    check(total == 26, "the noise bucket holds 26 lines: " .. tostring(total))
+    check(total == 36, "the noise bucket holds 36 lines: " .. tostring(total))
 
     -- Each kind of noise reaches the right thing to say, and the noises a
     -- companion makes itself get no commentary at all.

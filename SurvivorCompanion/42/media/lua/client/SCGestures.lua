@@ -57,6 +57,22 @@ local POOLS = {
             "Rude. Now I'm tired too.",
             "That's contagious, you know that?",
         },
+        brave = {
+            "Keep yawning. I'll stay awake for both of us.",
+            "Sleep can wait. I have first watch.",
+        },
+        cautious = {
+            "That spread fast. Let's check the doors before we nod off.",
+            "One yawn is fine. Two means we find shelter.",
+        },
+        caring = {
+            "You're tired too? We can split the next watch.",
+            "Go rest. I'll wake you when it's safe.",
+        },
+        practical = {
+            "Yawns spreading. Time to rotate the watch.",
+            "Noted: morale steady, eyelids unreliable.",
+        },
     },
     ["gestures.stretch"] = {
         common = {
@@ -80,6 +96,22 @@ local POOLS = {
             "Has anybody dusted this place? Ever?",
             "That's three. I'm counting.",
         },
+        brave = {
+            "My nose picked a fight and won.",
+            "That sneeze had more force than my last swing.",
+        },
+        cautious = {
+            "That surprised me. Let's keep an eye on the exits.",
+            "Just dust. Check me again if it happens twice.",
+        },
+        caring = {
+            "Sorry, everyone. I'll cover up next time.",
+            "Keep your distance a minute. I might be catching something.",
+        },
+        practical = {
+            "Sneeze recorded. Dust source likely.",
+            "One sneeze, no fever. Back to work.",
+        },
     },
     ["gestures.sneeze.sneaking"] = {
         common = {
@@ -101,6 +133,22 @@ local POOLS = {
             "Just a tickle. Don't look at me like that.",
             "It's the cold. Relax.",
             "I need a hot drink. Or a fire. Or both.",
+        },
+        brave = {
+            "My lungs picked today to heckle me.",
+            "I'll outrun this cough too.",
+        },
+        cautious = {
+            "Chest feels tight. Taking the next corner slow.",
+            "If this gets worse, I'm turning back.",
+        },
+        caring = {
+            "Don't worry. I'll sit if I need to.",
+            "I'll get water. Save your concern for the next one.",
+        },
+        practical = {
+            "Cough noted. Dry air, no fever yet.",
+            "Need warm water and a scarf. Work can wait.",
         },
     },
     ["gestures.workout.start"] = {
