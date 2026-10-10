@@ -9,6 +9,8 @@
 - Coughs and sneezes come at most once a real minute on Normal and once every five on Rare, or never; this holds for both the game's own symptoms and the scripted ones. Turning ordinary colds off clears a companion's cold and stops new ones; Knox infection and wound infection are untouched.
 - With protection on, your melee swings, shoves, stomps and shots, and the blast of your own explosives, don't hurt a recruited ally, and your swings no longer bloody it or knock its helmet off. Hostile, exiled and unrecruited survivors stay hittable. Fire, burns and hitting a recruit with a car still hurt.
 - The native bridge protocol is now `42.21-isocompanion-15`, because the bridge gained the protection and comfort calls. Update the Lua payload and the bridge together; with an older bridge, protection and cough timing would quietly do nothing, so it is reported as stale.
+- A companion whose seat entry fails no longer freezes beside the chair. The failed entry leaves it at the stock entry point, flush against the seat, and the companion's own collision check started every step inside the chair, so no step was ever clear: in a playtest a companion stood still for minutes, unable to scavenge, sit or reach a radio. A step out of an obstacle onto ground the companion can stand on is now allowed; the walk itself still uses the game's collision.
+- A blocked camp job's log line now names the companion that was working it.
 - Bridge control tests cover the protection gate, including the blood and helmet veto during your own swing, and the comfort timers; gameplay and UI harnesses cover chatter scaling and the options page. Each was confirmed to fail without its fix.
 
 ## 0.26.35 - Strange Folk rescues and hands-on companion care

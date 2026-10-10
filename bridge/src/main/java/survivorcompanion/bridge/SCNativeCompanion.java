@@ -1993,8 +1993,28 @@ public final class SCNativeCompanion extends IsoPlayer {
         if (getVehicle() != null) return false;
         int level = (int)Math.floor(toZ);
         if ((int)Math.floor(getZ()) != level) return false;
-        return !PolygonalMap2.instance.lineClearCollide(
+        PolygonalMap2 map = PolygonalMap2.instance;
+        boolean sweepBlocked = map.lineClearCollide(
                 getX(), getY(), toX, toY, level, this, false, true);
+        if (!sweepBlocked) return true;
+        return movementLeavesObstacle(true,
+                map.canStandAt(getX(), getY(), level, this, false, true),
+                map.canStandAt(toX, toY, level, this, false, true));
+    }
+
+    /**
+     * A failed seat entry stops at the stock entry point, flush against the
+     * chair, and the companion's capsule can overlap the seat there. Every sweep
+     * from inside an obstacle collides at its first point, so no step out was
+     * ever clear and every route failed (a 2026-10-10 playtest companion stood
+     * frozen for minutes beside a chair). When the companion cannot stand where
+     * it is but can stand at the step's end, the step leaves the obstacle rather
+     * than entering it. Native collision still governs the walk itself.
+     */
+    static boolean movementLeavesObstacle(boolean sweepBlocked, boolean standsHere,
+            boolean standsThere) {
+        if (!sweepBlocked) return true;
+        return !standsHere && standsThere;
     }
 
     /**

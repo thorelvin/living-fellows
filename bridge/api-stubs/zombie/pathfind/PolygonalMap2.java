@@ -11,4 +11,9 @@ public final class PolygonalMap2 {
             boolean closeToWalls) {
         return false;
     }
+
+    public boolean canStandAt(float x, float y, int z, IsoMovingObject ignoreVehicle,
+            boolean ignoreDoors, boolean closeToWalls) {
+        return true;
+    }
 }

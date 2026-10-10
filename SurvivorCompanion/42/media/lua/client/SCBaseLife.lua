@@ -3703,6 +3703,9 @@ end
 function BaseLife.blockJob(id, actorId, reason, retryMs)
     local job = BaseLife.job(id)
     if not job or (actorId ~= nil and job.reservedBy ~= actorId) then return false, "job_not_owned" end
+    -- Keep the worker for the report: a playtest log said a barricade timed
+    -- out twice but not whose approach failed.
+    local worker = actorId or job.reservedBy
     job.state, job.reservedBy, job.leaseUntil = "blocked", nil, 0
     job.blocker = cleanText(reason, "blocked", 160)
     job.attempts, job.updatedAt = (job.attempts or 0) + 1, now()
@@ -3714,7 +3717,8 @@ function BaseLife.blockJob(id, actorId, reason, retryMs)
     job.retryAt = now() + math.min(cap, delay * 2 ^ math.min(job.attempts - 1, 16))
     if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
         SC.Diagnostics.report("base-job", job.id,
-            "blocked " .. tostring(job.type), job.blocker)
+            "blocked " .. tostring(job.type), worker ~= nil
+                and job.blocker .. " worker=" .. tostring(worker) or job.blocker)
     end
     return true, job
 end
