@@ -12,6 +12,9 @@ param(
     # asset loading before Build 42 exposes its click-to-start gate. The
     # in-game harness retains its own bounded deadline once play begins.
     [int]$TimeoutSeconds = 300,
+    # Load the save, leave every companion alone for this long and log what
+    # they do. Zero runs the ordinary harness checks instead.
+    [ValidateRange(0, 3600)][int]$ObserveSeconds = 0,
     [switch]$HiddenWindow,
     [switch]$LivingFellowsOnly,
     [switch]$UIMenuProbe,
@@ -848,6 +851,9 @@ if ([string]::IsNullOrWhiteSpace($SeedSave)) {
     $SeedSave = Join-Path (Join-Path (Join-Path $UserCache 'Saves') $GameMode) $seedName
 }
 $SeedSave = [System.IO.Path]::GetFullPath($SeedSave)
+if ($ObserveSeconds -gt 0 -and $TimeoutSeconds -lt ($ObserveSeconds + 240)) {
+    $TimeoutSeconds = $ObserveSeconds + 240
+}
 if ([string]::IsNullOrWhiteSpace($GameMode)) {
     $GameMode = Split-Path -Leaf (Split-Path -Parent $SeedSave)
 }
@@ -1093,6 +1099,8 @@ $config = @(
     ('vehicle_passenger_only=' + $VehiclePassengerOnly.IsPresent.ToString().ToLowerInvariant()),
     ('woodcutter_only=' + $WoodcutterOnly.IsPresent.ToString().ToLowerInvariant()),
     ('posted_stream_only=' + $PostedStreamOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('observe_only=' + ($ObserveSeconds -gt 0).ToString().ToLowerInvariant()),
+    ('observe_ms=' + ($ObserveSeconds * 1000)),
     ('internal_timeout_ms=' + (($TimeoutSeconds - 15) * 1000))
 ) -join [Environment]::NewLine
 [System.IO.File]::WriteAllText((Join-Path $SandboxLua 'config.ini'),

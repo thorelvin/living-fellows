@@ -15274,6 +15274,76 @@ Harness.probeMilli = function(...)
 end
 Harness.milliSignals = { write = writeSignal, exists = fileExists }
 
+-- Observe mode: load the cloned save and leave every companion alone, so the
+-- console shows ordinary behaviour. Each second it looks for companions
+-- standing inside each other (closer than 0.45 tiles on one floor); every
+-- fifteen seconds it prints where each one is and what it is doing.
+function Harness.observeSample(current, report)
+    local SC = SurvivorCompanion
+    local U = SC.GameplayUtil
+    local observe = Harness.observe
+    local actors = {}
+    for _, record in ipairs(SC.Registry.records()) do
+        local actor = record.actor
+        if actor and U.isValidActor(actor) and not U.isDead(actor) then
+            local x, y, z = U.position(actor)
+            if x ~= nil then
+                actors[#actors + 1] = { id = tostring(record.id), actor = actor,
+                    x = x, y = y, z = math.floor(z or 0) }
+            end
+        end
+    end
+    local stackedNow, seen = 0, {}
+    for first = 1, #actors do
+        for second = first + 1, #actors do
+            local a, b = actors[first], actors[second]
+            if a.z == b.z and (a.x - b.x) ^ 2 + (a.y - b.y) ^ 2 < 0.45 * 0.45 then
+                stackedNow = stackedNow + 1
+                local key = a.id .. "|" .. b.id
+                seen[key] = true
+                observe.pairSince[key] = observe.pairSince[key] or current
+                local held = current - observe.pairSince[key]
+                if held > observe.longestStackMs then
+                    observe.longestStackMs = math.floor(held)
+                    observe.longestStackPair = key
+                end
+            end
+        end
+    end
+    for key in pairs(observe.pairSince) do
+        if not seen[key] then observe.pairSince[key] = nil end
+    end
+    observe.samples = observe.samples + 1
+    if stackedNow > 0 then observe.stackedSamples = observe.stackedSamples + 1 end
+    if stackedNow > observe.maxStacked then observe.maxStacked = stackedNow end
+    for _, entry in ipairs(actors) do
+        local nav = SC.Navigation and SC.Navigation.peek(entry.actor) or nil
+        local move = nav and nav.crowdMove or nil
+        if move and move.reason == "unstack" and observe.unstackSeen[entry.actor] ~= move then
+            observe.unstackSeen[entry.actor] = move
+            observe.unstackMoves = observe.unstackMoves + 1
+            print("SC_OBSERVE|unstack|" .. entry.id .. "|from="
+                .. string.format("%.2f,%.2f", entry.x, entry.y))
+        end
+    end
+    observe.companions = #actors
+    if not report then return end
+    print(string.format("SC_OBSERVE|t=%ds|companions=%d|stacked_now=%d|stacked_samples=%d/%d|unstack_moves=%d|longest_stack_ms=%d",
+        math.floor((current - observe.startedAt) / 1000), #actors, stackedNow,
+        observe.stackedSamples, observe.samples, observe.unstackMoves,
+        observe.longestStackMs))
+    for _, entry in ipairs(actors) do
+        local decision = SC.Decision and SC.Decision.peek(entry.actor) or nil
+        local nav = SC.Navigation and SC.Navigation.peek(entry.actor) or nil
+        local moving = nav and current - (tonumber(nav.motionAt) or -math.huge) <= 1000
+        print(string.format("SC_OBSERVE|actor|%s|%s|pos=%.2f,%.2f,%d|moving=%s|decision=%s/%s|nav_terminal=%s",
+            entry.id, tostring(U.nameOf(entry.actor)), entry.x, entry.y, entry.z,
+            tostring(moving == true),
+            tostring(decision and decision.current), tostring(decision and decision.intent),
+            tostring(nav and nav.terminalReason)))
+    end
+end
+
 local function tick()
     if Harness.finished then return end
     local current = nowMs()
@@ -15840,6 +15910,42 @@ local function tick()
         Harness.probeColdRestartHandoffWait(current)
     elseif Harness.phase == "split_restart_handoff_capture" then
         Harness.probeColdRestartHandoffCapture(current)
+    elseif Harness.phase == "observe_wait" then
+        if not Harness.entryWindowsRetried then
+            Harness.entryWindowsRetried = true
+            closeEntryWindows("observe_wait")
+        end
+        local records = #SurvivorCompanion.Registry.records()
+        local waited = current - Harness.phaseStartedAt
+        if (records > 0 and waited >= 5000) or waited >= 30000 then
+            Harness.observe = {
+                startedAt = current, nextSampleAt = current, nextReportAt = current,
+                samples = 0, stackedSamples = 0, maxStacked = 0, unstackMoves = 0,
+                longestStackMs = 0, longestStackPair = nil,
+                pairSince = {}, unstackSeen = setmetatable({}, { __mode = "k" }),
+                companions = 0,
+            }
+            result("PASS", "observe_started", "records=" .. tostring(records)
+                .. " observe_ms=" .. tostring(Harness.config.observe_ms))
+            setPhase("observe_run", current)
+        end
+    elseif Harness.phase == "observe_run" then
+        local observe = Harness.observe
+        if current >= observe.nextSampleAt then
+            observe.nextSampleAt = current + 1000
+            local report = current >= observe.nextReportAt
+            if report then observe.nextReportAt = current + 15000 end
+            Harness.observeSample(current, report)
+        end
+        if current - observe.startedAt >= (tonumber(Harness.config.observe_ms) or 300000) then
+            Harness.observeSample(current, true)
+            result("PASS", "observe_completed", string.format(
+                "companions=%d samples=%d stacked_samples=%d max_stacked=%d unstack_moves=%d longest_stack_ms=%d pair=%s",
+                observe.companions, observe.samples, observe.stackedSamples,
+                observe.maxStacked, observe.unstackMoves, observe.longestStackMs,
+                tostring(observe.longestStackPair)))
+            setPhase("finish", current)
+        end
     elseif Harness.phase == "wait_runtime" then
         -- The survival/character panel can appear a beat after the world loads;
         -- close it again here so it never lingers over the on-screen view.
@@ -16195,6 +16301,8 @@ local function onGameStart()
         setPhase("posted_stream_probe", Harness.startedAt)
     elseif Harness.config.faction_map_only == "true" then
         setPhase("faction_begin", Harness.startedAt)
+    elseif Harness.config.observe_only == "true" then
+        setPhase("observe_wait", Harness.startedAt)
     else
         setPhase("wait_runtime", Harness.startedAt)
     end
