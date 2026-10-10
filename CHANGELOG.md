@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 0.26.36 - Your own companion settings
+
+- **Options → Mods → Living Fellows** has four settings that apply as soon as you press Apply and are kept on this computer for every save: **Companion chatter** (Normal, Less, Rare), **Coughs and sneezes** (Normal, Rare, Off), **Ordinary colds** (on or off) and **Protect recruited companions from player attacks** (off by default).
+- Less and Rare chatter double or quadruple the gaps between incidental remarks: idle jokes, place comments, table talk, stray thoughts and walking banter. Replies, orders, combat calls, medical warnings and rescue calls keep their timing.
+- Coughs and sneezes come at most once a real minute on Normal and once every five on Rare, or never; this holds for both the game's own symptoms and the scripted ones. Turning ordinary colds off clears a companion's cold and stops new ones; Knox infection and wound infection are untouched.
+- With protection on, your melee swings, shoves, stomps and shots, and the blast of your own explosives, don't hurt a recruited ally, and your swings no longer bloody it or knock its helmet off. Hostile, exiled and unrecruited survivors stay hittable. Fire, burns and hitting a recruit with a car still hurt.
+- The native bridge protocol is now `42.21-isocompanion-15`, because the bridge gained the protection and comfort calls. Update the Lua payload and the bridge together; with an older bridge, protection and cough timing would quietly do nothing, so it is reported as stale.
+- Bridge control tests cover the protection gate, including the blood and helmet veto during your own swing, and the comfort timers; gameplay and UI harnesses cover chatter scaling and the options page. Each was confirmed to fail without its fix.
+
 ## 0.26.35 - Strange Folk rescues and hands-on companion care
 
 - Strange Folk arrive: 65 rare, one-off characters, each with a place, rules, voice and ending of their own, from a butcher with a back room and a deputy still running her checkpoint to a grandmother guarding a child's bedroom and a man smeared in the dead so they leave him alone. From the third day, one may settle into a fitting building 35 to 90 tiles from you that you can't see at the time, every three days by default, with at most two stories running at once. Each appears once per save, sleeps while you are far away, and never meets an expedition. They use the standing, trade, combat, navigation and recruitment rules of households, and many can join you. Right-click near one for **Living Fellows → Strange Folk**.

@@ -1,7 +1,7 @@
-Living Fellows 0.26.35 - public playtest
+Living Fellows 0.26.36 - public playtest
 
-This playtest adds Strange Folk rescues and a forest camp storyteller. You can
-give companions gear in the loot pane and treat them through Medical Check.
+This playtest adds Options > Mods > Living Fellows: companion chatter, coughs
+and sneezes, ordinary colds, and protection for recruits from your attacks.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added

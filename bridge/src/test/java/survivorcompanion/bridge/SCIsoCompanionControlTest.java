@@ -1248,7 +1248,22 @@ public final class SCIsoCompanionControlTest {
                                 .getOverallBodyHealth() == protectedBodyHealth
                         && invoke(actor, "getAttackedBy") == protectedAttacker,
                 "player weapon hit damaged a protected recruit");
+        // CombatManager bloodies its target and may knock off a helmet before
+        // Hit runs; the local swing's own hit list must veto both for an ally.
+        zombie.util.list.PZArrayList<zombie.network.fields.hit.HitInfo> swingTargets =
+                ((IsoPlayer) localPlayer).getHitInfoList();
+        swingTargets.clear();
+        require(!((SCNativeCompanion) actor).protectedFromLocalSwing(),
+                "a protected ally outside the local swing must keep ordinary blood and helmet hits");
+        swingTargets.add(new zombie.network.fields.hit.HitInfo().init(
+                (SCNativeCompanion) actor, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f));
+        require(((SCNativeCompanion) actor).protectedFromLocalSwing()
+                        && !((SCNativeCompanion) actor).helmetFall(true),
+                "the local swing must not bloody or unhelm a protected recruit");
         attackMarker.rawset("SC_PlayerAttackProtected", Boolean.FALSE);
+        require(!((SCNativeCompanion) actor).protectedFromLocalSwing(),
+                "an unprotected survivor in the local swing keeps blood and helmet hits");
+        swingTargets.clear();
         require(!((SCNativeCompanion) actor).blocksPlayerWeaponHit((IsoPlayer) localPlayer),
                 "hostile, exiled, or unrecruited marker must remain hittable");
         float unprotectedDamage = ((SCNativeCompanion) actor).Hit(testWeapon,

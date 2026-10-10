@@ -12,7 +12,7 @@ Persistent companions, survivor households, and living bases for Project Zomboid
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.21.0-red.svg)](#requirements)
-[![Release](https://img.shields.io/badge/release-0.26.35-blue.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-0.26.36-blue.svg)](CHANGELOG.md)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 
 Living Fellows turns the survivors you meet into persistent people. They can join you, fight and travel with you, help run a base, and make their own survival decisions. Companions are native human actors with real inventories, injuries, skills, and permanent death.
@@ -31,7 +31,7 @@ Living Fellows turns the survivors you meet into persistent people. They can joi
 - [Expeditions (experimental)](#expeditions-experimental)
 - [Base life and production](#base-life-and-production)
 - [Survivor households and bandits](#survivor-households-and-bandits)
-- [Strange Folk (0.26.35 playtest)](#strange-folk-02635-playtest)
+- [Strange Folk](#strange-folk)
 - [Sandbox options](#sandbox-options) · [Mod Options](#mod-options)
 - [Saves and backups](#saves-and-backups) · [Compatibility](#compatibility)
 - [Troubleshooting](#troubleshooting) · [Reporting a bug](#reporting-a-bug)
@@ -264,9 +264,9 @@ Households of one to three survivors occupy real houses, barricade them, warn st
 
 Bandit camps are rare, always hostile, and appear from day four. Bandits guard and patrol their camp, need line of sight to target you, and fight zombies too. They never trade or recruit.
 
-## Strange Folk (0.26.35 playtest)
+## Strange Folk
 
-The 0.26.35 playtest adds 65 rare, one-off characters to the household system. From the third day, one may settle into a fitting building near you every three days by default, at most two stories at a time; each appears once per save and only around you, never to an expedition. Right-click near one for **Living Fellows → Strange Folk**. Gale Mercer runs a GigaMart checkout and notices unpaid items. Butch Kittredge offers a steak until you enter his back room. Cecil Ray Haskins warns armed visitors away from his gun-shop counter. Hollis Burkett cares for Duchess, a real named sow. Delbert Sloan barricades Room 12, trades through its door, and keeps Sweet Pea inside. Ranger June Whitlock knows all ten of her named rabbits and may ask you to find an escaped Juniper. Other Strange Folk include the Gut-Cloaked Man, Window Spiffo, and Shotgun Farmer.
+Since 0.26.35, 65 rare, one-off characters join the household system. From the third day, one may settle into a fitting building near you every three days by default, at most two stories at a time; each appears once per save and only around you, never to an expedition. Right-click near one for **Living Fellows → Strange Folk**. Gale Mercer runs a GigaMart checkout and notices unpaid items. Butch Kittredge offers a steak until you enter his back room. Cecil Ray Haskins warns armed visitors away from his gun-shop counter. Hollis Burkett cares for Duchess, a real named sow. Delbert Sloan barricades Room 12, trades through its door, and keeps Sweet Pea inside. Ranger June Whitlock knows all ten of her named rabbits and may ask you to find an escaped Juniper. Other Strange Folk include the Gut-Cloaked Man, Window Spiffo, and Shotgun Farmer.
 
 Walt Reed keeps a forest campfire, a fishing kit and a story to trade by the fire. Eli Rourke calls from a locked garage with a broken leg, and Nate Duvall calls from a closed room without clean water. Their 90 MHz distress calls reach any powered portable radio you hold or wear, tuned to 90 MHz with the volume up, while the survivor is loaded nearby and more than three tiles away. Storm static can garble a call; they call again within two minutes. Answer with a working two-way radio to mark the location. Eli needs a real splint and clean bandage through Medical Check. Nate needs clean water from your inventory and time to recover. These encounters use the existing faction standing, native animal, inventory transfer, barricade, navigation, combat, and recruitment systems.
 
@@ -301,7 +301,7 @@ Open **Options → Mods → Living Fellows** to change these settings while play
 | Ordinary colds | On, Off | On |
 | Protect recruited companions from player attacks | Off, On | Off |
 
-The chatter setting spaces out incidental remarks. Direct replies, orders, combat calls, medical warnings, and rescue calls still come through. The symptom setting controls coughs and sneezes; **Ordinary colds** can separately stop new colds and clear existing ones without changing Knox or wound infections. A newly caught cold can produce a native world sound before symptom suppression takes effect, so turn ordinary colds off too if you want to prevent that onset. Attack protection applies only while a companion is recruited and allied; hostile, exiled, and unrecruited survivors remain hittable.
+The chatter setting spaces out incidental remarks. Direct replies, orders, combat calls, medical warnings, and rescue calls still come through. The symptom setting controls coughs and sneezes; **Ordinary colds** can separately stop new colds and clear existing ones without changing Knox or wound infections. A newly caught cold can produce a native world sound before symptom suppression takes effect, so turn ordinary colds off too if you want to prevent that onset. Attack protection applies only while a companion is recruited and allied; hostile, exiled, and unrecruited survivors remain hittable. It covers your melee swings, shoves, stomps and shots and the blast of your own explosives, and your swings no longer bloody a protected recruit or knock its helmet off. Fire, burns and hitting a recruit with a car still hurt.
 
 ## Saves and backups
 

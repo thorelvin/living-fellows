@@ -33,6 +33,9 @@ import zombie.iso.IsoDirections;
 import zombie.iso.objects.IsoDeadBody;
 import zombie.iso.objects.IsoWindow;
 import zombie.inventory.types.HandWeapon;
+import zombie.characterTextures.BloodBodyPartType;
+import zombie.network.fields.hit.HitInfo;
+import zombie.util.list.PZArrayList;
 import zombie.pathfind.PathFindBehavior2;
 import zombie.pathfind.PolygonalMap2;
 import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
@@ -286,6 +289,38 @@ public final class SCNativeCompanion extends IsoPlayer {
                 || wielder == null || wielder != IsoPlayer.players[0]) return false;
         KahluaTable data = getModData();
         return data != null && Boolean.TRUE.equals(data.rawget("SC_PlayerAttackProtected"));
+    }
+
+    /**
+     * CombatManager splashes blood on its target and may knock off a helmet
+     * before it calls Hit, so the Hit gate alone would leave those marks on a
+     * protected ally. Recognise the local player's current swing by its own hit
+     * list, which the game fills with that swing's targets before either step.
+     */
+    boolean protectedFromLocalSwing() {
+        if (IsoPlayer.players == null || IsoPlayer.players.length == 0) return false;
+        IsoPlayer player = IsoPlayer.players[0];
+        if (player == null || !blocksPlayerWeaponHit(player)) return false;
+        PZArrayList<HitInfo> hits = player.getHitInfoList();
+        if (hits == null) return false;
+        for (int index = 0; index < hits.size(); index++) {
+            HitInfo hit = hits.get(index);
+            if (hit != null && hit.getObject() == this) return true;
+        }
+        return false;
+    }
+
+    @Override
+    public boolean helmetFall(boolean hitHead) {
+        if (protectedFromLocalSwing()) return false;
+        return super.helmetFall(hitHead);
+    }
+
+    @Override
+    public void addBlood(BloodBodyPartType part, boolean scratched, boolean bitten,
+            boolean allLayers) {
+        if (protectedFromLocalSwing()) return;
+        super.addBlood(part, scratched, bitten, allLayers);
     }
 
     /**

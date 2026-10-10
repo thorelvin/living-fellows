@@ -87,6 +87,12 @@ public class IsoGameCharacter extends IsoMovingObject {
     public float getHealth() { return 0; }
     public float Hit(zombie.inventory.types.HandWeapon weapon, IsoGameCharacter wielder,
             float damageSplit, boolean ignoreDamage, float modDelta, boolean remote) { return 0; }
+    public zombie.util.list.PZArrayList<zombie.network.fields.hit.HitInfo> getHitInfoList() {
+        return null;
+    }
+    public boolean helmetFall(boolean hitHead) { return false; }
+    public void addBlood(zombie.characterTextures.BloodBodyPartType part, boolean scratched,
+            boolean bitten, boolean allLayers) {}
     public int getLastHitCount() { return 0; }
     public boolean isDead() { return false; }
     public boolean isOnFloor() { return false; }
