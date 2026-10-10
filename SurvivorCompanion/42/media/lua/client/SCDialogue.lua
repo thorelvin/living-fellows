@@ -116,11 +116,11 @@ local pools = {
     },
     ["fishing.lost"] = {
         common = {
-            "Lost it, damn it.",
+            { "Lost it, damn it.", clean = "Lost it, blast it." },
             "No, no, no. It slipped the hook.",
             "Had it right there and let it go.",
             "That one got away. I felt the line go slack.",
-            "Damn. It took the bait and left me a story.",
+            { "Damn. It took the bait and left me a story.", clean = "Blast. It took the bait and left me a story." },
             "I was too quick. Next time I wait.",
         },
         brave = { "Lucky fish. It will not get me twice." },
@@ -229,7 +229,7 @@ local pools = {
             "The ending earned its nerve. I'll give it that.",
             "I wanted to throw %1 across the room. Then I read it again.",
             "The author was wrong about courage. The rest might be right.",
-            "Put me down as someone who finished the damn book.",
+            { "Put me down as someone who finished the damn book.", clean = "Put me down as someone who finished the darn book." },
         },
         cautious = {
             "Finished %1. There are two ideas in it worth testing.",
@@ -380,7 +380,7 @@ local pools = {
         "You caught me with that one. Slow down.",
         "I'm with you, remember?",
         "Aim past me, not through me.",
-        "Damn, that stung. Watch your reach.",
+        { "Damn, that stung. Watch your reach.", clean = "Blast, that stung. Watch your reach." },
         "Hold up! I'm not one of them.",
         "We good? Because that looked close.",
         "Watch the backswing, will you?",
@@ -1076,7 +1076,8 @@ local pools = {
         cautious = { "Zombie! Check your escape route!", "Movement! Zombie nearby!" },
         caring = { "Watch yourself! Zombie!", "Get back! One of them is close!" },
         practical = { "Zombie spotted!", "Contact, close range!" },
-        stressed = { "Oh hell, zombie!", "Damn it, one of them is here!" },
+        stressed = { { "Oh hell, zombie!", clean = "Oh heck, zombie!" },
+            { "Damn it, one of them is here!", clean = "Blast it, one of them is here!" } },
     },
     ["danger.heard"] = {
         common = {
@@ -1105,7 +1106,7 @@ local pools = {
         cautious = { "One zombie. There may be more behind it.", "Single contact. Check the corners too." },
         caring = { "One zombie ahead. Stay close to me.", "Just one in sight. Watch yourself." },
         practical = { "One confirmed. No others visible.", "Single contact at the moment." },
-        stressed = { "One of them. Damn it.", "I see one. Please let it be alone." },
+        stressed = { { "One of them. Damn it.", clean = "One of them. Blast it." }, "I see one. Please let it be alone." },
     },
     ["danger.pair"] = {
         common = {
@@ -1118,7 +1119,8 @@ local pools = {
         cautious = { "Two zombies. Don't let them come side by side.", "I count two. Leave us an exit." },
         caring = { "Two ahead. Stay where I can see you.", "Pair of walkers. Nobody gets isolated." },
         practical = { "Two confirmed, moving together.", "Pair ahead. We can separate them." },
-        stressed = { "Two now. Of course there are two.", "Damn it, a pair of them." },
+        stressed = { "Two now. Of course there are two.",
+            { "Damn it, a pair of them.", clean = "Blast it, a pair of them." } },
     },
     ["danger.group"] = {
         common = {
@@ -1133,7 +1135,8 @@ local pools = {
         cautious = { "About four. That's enough to trap us.", "Small group. Mark the way back." },
         caring = { "Several ahead. Stay together and don't rush.", "Four walkers. Nobody goes in alone." },
         practical = { "Four contacts. We need space between them.", "Small group confirmed. Choose the ground." },
-        stressed = { "There are four of them. This keeps getting worse.", "Damn, that's a whole group." },
+        stressed = { "There are four of them. This keeps getting worse.",
+            { "Damn, that's a whole group.", clean = "Blast, that's a whole group." } },
     },
     ["danger.crowd"] = {
         common = {
@@ -1148,7 +1151,8 @@ local pools = {
         cautious = { "Six or more. Start looking for another route.", "Crowd ahead. Keep the exit behind us." },
         caring = { "That's a lot of them. Stay close and stay calm.", "Crowd ahead. I don't want anyone separated." },
         practical = { "At least six contacts. Direct engagement is a bad trade.", "Large group. We need distance or a choke point." },
-        stressed = { "There are too many. There are way too many.", "Oh hell, look at all of them." },
+        stressed = { "There are too many. There are way too many.",
+            { "Oh hell, look at all of them.", clean = "Oh heck, look at all of them." } },
     },
     ["danger.horde"] = {
         common = {
@@ -1224,7 +1228,7 @@ local pools = {
     },
     ["scavenge.loot.excited"] = {
         common = {
-            "Ha! %1. Now that's a find.", "Got %1! Hell yes.",
+            "Ha! %1. Now that's a find.", { "Got %1! Hell yes.", clean = "Got %1! Heck yes." },
             "*holds up %1* Look what I found!", "%1! Today just improved.",
             "Found %1. Tell me that isn't beautiful.", "Would you look at that: %1!",
             "%1. Jackpot by Kentucky standards.", "I got %1! Still useful, still ours.",
@@ -1700,7 +1704,7 @@ local pools = {
             "Two! Stay where I can see you!", "I've got the near one! You stay safe!" },
         practical = { "Pair confirmed. Isolate the closer target.", "Two targets. Focus one down.",
             "Pair. Peel one off, finish it, repeat!", "Near one first, then the straggler!" },
-        stressed = { "Two of them. Fine!", "Damn it, don't let both reach me!",
+        stressed = { "Two of them. Fine!", { "Damn it, don't let both reach me!", clean = "Blast it, don't let both reach me!" },
             "Why is it always two?!", "Not both at once!" },
     },
     ["combat.engage.group"] = {
@@ -1754,7 +1758,7 @@ local pools = {
         cautious = { "Exit route! Fall back!", "Bad position! Get out!" },
         caring = { "Everyone back! Stay together!", "Move! I don't want anyone trapped!" },
         practical = { "Position lost! Withdraw!", "Too much pressure! Disengage!" },
-        stressed = { "Oh hell, get back!", "They're everywhere! Move!" },
+        stressed = { { "Oh hell, get back!", clean = "Oh heck, get back!" }, "They're everywhere! Move!" },
     },
     ["combat.retreat.one"] = {
         common = {
@@ -1810,7 +1814,7 @@ local pools = {
     },
     ["combat.struggle"] = {
         common = {
-            "Go down!", "Stay down!", "Why won't you die?", "Damn thing won't drop!",
+            "Go down!", "Stay down!", "Why won't you die?", { "Damn thing won't drop!", clean = "Darn thing won't drop!" },
             "Just die already!", "Come on!", "Almost got it!", "I'm working on it!",
         },
         brave = { "You are not getting through me!", "Come on, fall already!" },
@@ -1833,7 +1837,7 @@ local pools = {
         cautious = { "It's down. Check around us!", "Target down. Keep watching!" },
         caring = { "It's down. Is everyone all right?", "Clear here. Check yourselves!" },
         practical = { "Confirmed down.", "Target neutralized." },
-        stressed = { "Finally! It's down!", "Damn it. Dead at last." },
+        stressed = { "Finally! It's down!", { "Damn it. Dead at last.", clean = "Blast it. Dead at last." } },
         registers = { brave = { steady = {
             "He's not hungry any more. Silver linings.",
             "Somebody's neighbor. Probably the loud one.",
@@ -2112,7 +2116,7 @@ local pools = {
         cautious = { "We need to know why this failed before we repeat it.", "Clear it carefully. I don't want the next row catching this." },
         caring = { "I know they are only plants. It still hurts to lose food.", "All that tending, gone. I'll try again." },
         practical = { "Crop loss confirmed. Clearing and replanting.", "Failed plot. Salvage nothing; reset the bed." },
-        stressed = { "Damn it. We needed this crop.", "All that work, and now we start over." },
+        stressed = { { "Damn it. We needed this crop.", clean = "Blast it. We needed this crop." }, "All that work, and now we start over." },
         steady = { "Crop's gone. The ground remains available for another disappointment.",
             "Well. That failed. We plant again." },
     },
@@ -2178,10 +2182,10 @@ local pools = {
         "For now, I'm %1. An uneventful report is a good report." } },
     ["stress.vent"] = {
         common = {
-            "Damn it. I need a minute before I say something worse.",
-            "This whole damn place is grinding me down.",
-            "Hell, I can't keep pretending that run was fine.",
-            "For fuck's sake. Just give me some space.",
+            { "Damn it. I need a minute before I say something worse.", clean = "Blast it. I need a minute before I say something worse." },
+            { "This whole damn place is grinding me down.", clean = "This whole darn place is grinding me down." },
+            { "Hell, I can't keep pretending that run was fine.", clean = "Heck, I can't keep pretending that run was fine." },
+            { "For fuck's sake. Just give me some space.", clean = "For pity's sake. Just give me some space." },
             "Every little thing is starting to get under my skin.",
             "I swear, one more bad surprise and I'm going to lose it.",
         },
@@ -2403,7 +2407,7 @@ local pools = {
         "There. One less thing trying to kill us.",
     } },
     ["medical.bandage.serious"] = { common = {
-        "Shit, that looks bad. Hold still.",
+        { "Shit, that looks bad. Hold still.", clean = "Crap, that looks bad. Hold still." },
         "That will need time to heal. First we stop the bleeding.",
         "Look at me, not at the blood.",
         "Press here. Hard. I need both hands.",

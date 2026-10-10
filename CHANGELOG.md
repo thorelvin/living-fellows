@@ -4,6 +4,7 @@
 
 ## 0.26.36 - Your own companion settings
 
+- Existing rough companion lines now have clean alternatives when Companion profanity is disabled.
 - **Options → Mods → Living Fellows** has four settings that apply as soon as you press Apply and are kept on this computer for every save: **Companion chatter** (Normal, Less, Rare), **Coughs and sneezes** (Normal, Rare, Off), **Ordinary colds** (on or off) and **Protect recruited companions from player attacks** (off by default).
 - Less and Rare chatter double or quadruple the gaps between incidental remarks: idle jokes, place comments, table talk, stray thoughts and walking banter. Replies, orders, combat calls, medical warnings and rescue calls keep their timing.
 - Coughs and sneezes come at most once a real minute on Normal and once every five on Rare, or never; this holds for both the game's own symptoms and the scripted ones. Turning ordinary colds off clears a companion's cold and stops new ones; Knox infection and wound infection are untouched.

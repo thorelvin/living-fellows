@@ -18555,6 +18555,60 @@ check(Dialogue.poolSize("danger.one", fellow, {}) >= 12
         and Dialogue.poolSize("danger.horde", fellow, {}) >= 12
         and Dialogue.poolSize("signal.horde", fellow, {}) >= 6,
     "every contact scale has a broad spoken pool and several silent hand-sign variants")
+-- Profanity-off coverage includes every registered pool and voice/mood register.
+do
+    local roughWords = {
+        "damn", "damned", "dammit", "goddamn", "hell", "shit", "shitty",
+        "bullshit", "fuck", "fucking", "fucked", "ass", "asses", "dumbass",
+        "bastard", "bastards", "bitch", "christ",
+    }
+    local failures, inspected, offenses = 0, 0, {}
+    local function roughWord(line)
+        local lower = string.lower(line)
+        for _, word in ipairs(roughWords) do
+            if string.find(lower, "%f[%a]" .. word .. "%f[%A]") then return word end
+        end
+        return nil
+    end
+    local function inspectRows(topic, rows, path)
+        for key, entry in pairs(rows) do
+            local location = path .. "." .. tostring(key)
+            if type(key) == "number" and (type(entry) == "string"
+                or (type(entry) == "table" and type(entry[1]) == "string")) then
+                inspected = inspected + 1
+                local spoken = type(entry) == "string" and entry or entry[1]
+                local clean = type(entry) == "table" and entry.clean or nil
+                local reason
+                if type(entry) == "string" and roughWord(spoken) then
+                    reason = "rough plain string"
+                elseif type(entry) == "table" and type(clean) ~= "string" then
+                    reason = "missing clean twin"
+                elseif type(clean) == "string" and roughWord(clean) then
+                    reason = "rough clean twin"
+                end
+                if reason then
+                    failures = failures + 1
+                    local offense = "CLEAN_TWIN_LINT " .. topic .. location .. ": " .. reason
+                        .. ": " .. spoken .. " | clean=" .. tostring(clean)
+                    offenses[#offenses + 1] = offense
+                    print(offense)
+                end
+            elseif type(entry) == "table" then
+                inspectRows(topic, entry, location)
+            end
+        end
+    end
+    for topic, pool in pairs(SurvivorCompanion.Dialogue._allPoolsForTests()) do
+        inspectRows(topic, pool, "")
+    end
+    check(inspected > 1000 and failures == 0,
+        "all registered dialogue has exact-word clean twins; failures=" .. tostring(failures)
+            .. "\n" .. table.concat(offenses, "\n"))
+    check(roughWord("assault hello Christmas") == nil
+            and roughWord("Damn, that hurt.") == "damn"
+            and roughWord("For fuck's sake.") == "fuck",
+        "clean-twin lint matches whole rough words without innocent prefixes")
+end
 local departure = Dialogue._poolForTests("expedition.departure")
 check(type(departure) == "table" and type(departure.common) == "table"
         and #departure.common == 20
@@ -23249,12 +23303,18 @@ end)()
             problems[#problems + 1] = label .. ":short"
             return
         end
-        local seen = {}
-        for _, line in ipairs(lines) do
+        local seen, seenClean = {}, {}
+        for _, entry in ipairs(lines) do
+            local line = type(entry) == "table" and entry[1] or entry
+            local clean = type(entry) == "table" and entry.clean or line
             if type(line) ~= "string" or line == "" or not printable(line) or seen[line] then
                 problems[#problems + 1] = label .. ":" .. tostring(line)
             end
-            seen[line] = true
+            if type(clean) ~= "string" or clean == "" or not printable(clean) or seenClean[clean] then
+                problems[#problems + 1] = label .. ".clean:" .. tostring(clean)
+            end
+            if line ~= nil then seen[line] = true end
+            if clean ~= nil then seenClean[clean] = true end
         end
     end
     local function checkSpec(label, spec)

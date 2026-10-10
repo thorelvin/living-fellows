@@ -12,6 +12,61 @@ end
 -- World fakes
 -- ---------------------------------------------------------------------------
 
+-- Profanity-off coverage includes every registered pool and voice/mood register.
+do
+    local roughWords = {
+        "damn", "damned", "dammit", "goddamn", "hell", "shit", "shitty",
+        "bullshit", "fuck", "fucking", "fucked", "ass", "asses", "dumbass",
+        "bastard", "bastards", "bitch", "christ",
+    }
+    local failures, inspected, offenses = 0, 0, {}
+    local function roughWord(line)
+        local lower = string.lower(line)
+        for _, word in ipairs(roughWords) do
+            if string.find(lower, "%f[%a]" .. word .. "%f[%A]") then return word end
+        end
+        return nil
+    end
+    local function inspectRows(topic, rows, path)
+        for key, entry in pairs(rows) do
+            local location = path .. "." .. tostring(key)
+            if type(key) == "number" and (type(entry) == "string"
+                or (type(entry) == "table" and type(entry[1]) == "string")) then
+                inspected = inspected + 1
+                local spoken = type(entry) == "string" and entry or entry[1]
+                local clean = type(entry) == "table" and entry.clean or nil
+                local reason
+                if type(entry) == "string" and roughWord(spoken) then
+                    reason = "rough plain string"
+                elseif type(entry) == "table" and type(clean) ~= "string" then
+                    reason = "missing clean twin"
+                elseif type(clean) == "string" and roughWord(clean) then
+                    reason = "rough clean twin"
+                end
+                if reason then
+                    failures = failures + 1
+                    local offense = "CLEAN_TWIN_LINT " .. topic .. location .. ": " .. reason
+                        .. ": " .. spoken .. " | clean=" .. tostring(clean)
+                    offenses[#offenses + 1] = offense
+                    print(offense)
+                end
+            elseif type(entry) == "table" then
+                inspectRows(topic, entry, location)
+            end
+        end
+    end
+    for topic, pool in pairs(SurvivorCompanion.Dialogue._allPoolsForTests()) do
+        inspectRows(topic, pool, "")
+    end
+    check(inspected > 1000 and failures == 0,
+        "all registered dialogue has exact-word clean twins; failures=" .. tostring(failures)
+            .. "\n" .. table.concat(offenses, "\n"))
+    check(roughWord("assault hello Christmas") == nil
+            and roughWord("Damn, that hurt.") == "damn"
+            and roughWord("For fuck's sake.") == "fuck",
+        "clean-twin lint matches whole rough words without innocent prefixes")
+end
+
 local nextNativeId = 5000
 local makeItem
 
