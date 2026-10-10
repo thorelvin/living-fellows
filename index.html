@@ -311,28 +311,21 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <p class="subtitle">A Complete Guide to Living with the Fellows of Knox County</p>
   <p class="divider">· · · ✚ · · ·</p>
   <p class="edition">Living Fellows — Project Zomboid Build 42.21.0 Edition</p>
-  <p class="version">Release 0.26.35 — First Edition, Ninth Printing — You won't die... alone.</p>
+  <p class="version">Release 0.26.36 — First Edition, Tenth Printing — You won't die... alone.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2.5rem;"><span class="callout-label">Note — </span>
-<strong>What changed in this printing</strong> — release 0.26.35:
+<strong>What changed in this printing</strong> — release 0.26.36:
 <ul style="margin-top:0.5rem;margin-bottom:0;">
-  <li><a href="#ch18c"><strong>Sixty-five Strange Folk.</strong></a> Hand-made one-off characters, from a butcher with a back room to a grandmother guarding a child's bedroom, with how they turn up, how to talk to them, and who can join you. The cast tables are marked as spoilers.</li>
-  <li><a href="#ch18c_calls"><strong>Calls for help.</strong></a> Eli Rourke and Nate Duvall radio for rescue on 90 MHz; answer with a two-way radio and their location goes on your map.</li>
-  <li><a href="#ch3b"><strong>Hands-on Medical Check.</strong></a> The game's own examination opens a companion's body-part panel, and you treat them with your own supplies while they hold still.</li>
-  <li><a href="#ch3b"><strong>Equip on, Wear on.</strong></a> Put an exact weapon, garment or bag on a companion from its backpack, and gifts get looked over and used.</li>
-  <li><a href="#ch9g"><strong>Names and nicknames.</strong></a> A bigger name pool, nicknames that survivors bring, earn and coin for each other and for you, and <span class="menu">Give nickname...</span> on the right-click menu.</li>
-  <li><a href="#ch11"><strong>Bigger camps.</strong></a> A new camp starts 25 by 25 tiles, and the old 13 by 13 and 15 by 15 defaults grow to match when the save loads.</li>
-  <li><a href="#ch6"><strong>No swinging through walls.</strong></a> Companions walk round a wall, closed door, barricade, closed window or tall fence instead of attacking through it.</li>
-  <li><a href="#ch16"><strong>Memorials keep the whole name</strong></a>, nickname and all, on the cross and on a keepsake in Memorial storage.</li>
-  <li><a href="#appB"><strong>Four new sandbox switches</strong></a> for Strange Folk, their pace, nicknames and famous namesakes.</li>
-  <li>0.26.35 needs its own native bridge (protocol <code>42.21-isocompanion-14</code>). <a href="#appC">More → Support</a> reports an older bridge as a mismatch.</li>
+  <li><a href="#appB_mod"><strong>Your own companion settings.</strong></a> <span class="menu">Options → Mods → Living Fellows</span> sets how often companions chatter, cough and sneeze, whether they catch ordinary colds, and whether your attacks can hurt your recruits.</li>
+  <li><a href="#ch9d_hits"><strong>Protect your recruits.</strong></a> With that setting on, your swings, shoves, stomps and shots pass harmlessly over a recruited ally and never count as a strike.</li>
+  <li>0.26.36 needs its own native bridge (protocol <code>42.21-isocompanion-15</code>). <a href="#appC">More → Support</a> reports an older bridge as a mismatch.</li>
 </ul>
-<p style="margin:0.6rem 0 0;">Still new from 0.26.33 and 0.26.34: residents come back after a long trip, a companion left in a parked car waits beside it, and a companion next to you is a loot-pane backpack.</p>
+<p style="margin:0.6rem 0 0;">New in 0.26.35 and still worth a look: <a href="#ch18c">sixty-five Strange Folk</a> with <a href="#ch18c_calls">calls for help</a> on 90 MHz, <a href="#ch9g">names and nicknames</a>, the hands-on <a href="#ch3b">Medical Check</a> with Equip on and Wear on, <a href="#ch11">25 by 25 camps</a>, and companions who <a href="#ch6">won't swing through walls</a>.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2.5rem;"><span class="callout-label">Note — </span>
-<strong>About this manual</strong> — it covers what the companion panel does not explain: how the fellows think, what they need from you, and the rules they follow when nobody is giving orders. Everything here describes release 0.26.35 and was checked against the mod itself. Living Fellows is a <strong>public playtest</strong>: back up important saves, and send logs when something goes wrong (<a href="#appD">Appendix D</a>). The mod lives at <a href="https://github.com/thorelvin/living-fellows">github.com/thorelvin/living-fellows</a>. The <em>Overheard</em> quotes are real lines from the mod's own voice pools.
+<strong>About this manual</strong> — it covers what the companion panel does not explain: how the fellows think, what they need from you, and the rules they follow when nobody is giving orders. Everything here describes release 0.26.36 and was checked against the mod itself. Living Fellows is a <strong>public playtest</strong>: back up important saves, and send logs when something goes wrong (<a href="#appD">Appendix D</a>). The mod lives at <a href="https://github.com/thorelvin/living-fellows">github.com/thorelvin/living-fellows</a>. The <em>Overheard</em> quotes are real lines from the mod's own voice pools.
 </div>
 
 <!-- TABLE OF CONTENTS -->
@@ -391,7 +384,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
     <li><a href="#appendices">Appendices</a>
       <ol>
         <li><a href="#appA">A: Keys and Menus</a></li>
-        <li><a href="#appB">B: Sandbox Options</a></li>
+        <li><a href="#appB">B: Sandbox and Mod Options</a></li>
         <li><a href="#appC">C: Troubleshooting</a></li>
         <li><a href="#appD">D: Reporting a Problem</a></li>
         <li><a href="#appE">E: Picture Credits</a></li>
@@ -890,6 +883,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/2/2b/Moodle_Icon_Tired.png" alt=""></td><td><strong>Tiredness</strong></td><td>50%</td><td>68%</td><td>82%</td></tr>
 </table>
 <p class="tbl-note">Percentages are of the game's own need scale, as the mod reads it.</p>
+<p>Companions catch ordinary colds and cough and sneeze like you do, and a cough makes noise. <span class="menu">Coughs and sneezes</span> and <span class="menu">Ordinary colds</span> in Mod Options turn that down or off; Knox infection and infected wounds are never affected (<a href="#appB_mod">Appendix B</a>).</p>
 
 <h3>Toilet Breaks</h3>
 <p>Companions need the toilet every 6 to 10 game hours, on the road or at camp, but only when it is safe and after food and water. A toilet within 8 tiles comes first. Otherwise they step a few tiles outdoors, away from the group. The resident keeping <a href="#ch14c">Base Watch</a> never steps outside: without a toilet, it skips the break. Two hours late, it turns urgent. There is an animation and a sound, and sometimes a remark about the spot they picked: a garden gnome, a fire hydrant, even a corpse.</p>
@@ -989,6 +983,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li><strong>New places</strong>: the first walk into a notable building, such as a police station, church, bar, hospital or gun store, earns a remark. Former police officers, doctors, nurses and others have lines of their own for places like their old workplaces.</li>
   <li><strong>Strangers</strong>: a companion who meets a calm, non-hostile survivor says hello and gives them room to answer.</li>
 </ul>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Too much talk? <span class="menu">Options → Mods → Living Fellows → Companion chatter</span> doubles (Less) or quadruples (Rare) the gaps between these remarks. Replies, orders, combat calls and medical warnings keep their timing (<a href="#appB_mod">Appendix B</a>).</div>
 <p>There is more to say during routine work, while following you, and when one or two zombies come at you: Kentucky references, dry post-apocalypse humour, and stressed, low or hopeful lines depending on mood. Conversation is spaced out so it never becomes a chorus, and danger interrupts it.</p>
 
 <div class="lore-pull"><span class="lore-label">Overheard — </span>Knox County never looked this empty on a weekday.<span class="who">— a follower, walking</span></div>
@@ -1222,6 +1217,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <div class="callout callout-warn"><span class="callout-label">Take care — </span>A <strong>push</strong> (focusing the same zombie twice, <a href="#ch4">Chapter 4</a>) is remembered three ways: as being pushed into a fight, as being pushed and getting everyone through, or as being pushed and getting hurt. A higher relationship score gives a push more room; below a score of 25 it adds nothing at all.</div>
 
 <h3 id="ch9d_hits">When You Hit Them</h3>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Clumsy with a shotgun? Turn on <span class="menu">Protect recruited companions from player attacks</span> in Mod Options (<a href="#appB_mod">Appendix B</a>). Your swings, shoves, stomps and shots then do nothing to a recruited ally: no damage, no blood, no lost helmet, and no strike. The blast of your own explosives does no damage either, but fire, burns and your car still hurt, and hostile, exiled and unrecruited survivors stay hittable.</div>
 <p>A swing or a shot that lands on a companion is remembered. If zombies or hostile people are on them at that moment, it is an accident in a melee: they complain and nothing is counted. A hit in a quiet moment is a <strong>strike</strong>.</p>
 <table>
   <tr><th>Strike</th><th>What follows</th><th>Trust</th><th>Bond</th></tr>
@@ -2117,7 +2113,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 18c -->
 <h2 class="chapter" id="ch18c"><img class="ico" src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Chapter 18c: Strange Folk<span class="stage stage-end">Strangers</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<div class="callout callout-tip"><span class="callout-label">Note — </span>Strange Folk arrived in 0.26.35. They need that release's native bridge (protocol <code>42.21-isocompanion-14</code>); <span class="menu">More → Support</span> reports an older one as a mismatch.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Strange Folk arrived in 0.26.35. They need a native bridge from 0.26.35 or later (0.26.36 uses protocol <code>42.21-isocompanion-15</code>); <span class="menu">More → Support</span> reports an older one as a mismatch.</div>
 
 <p>Not every stranger is a household looking for supplies. Sixty-five hand-made characters live in Knox County: a butcher with a back room, a deputy still running her checkpoint, a grandmother guarding a child's bedroom with a broken bottle, a man who smeared himself in the dead so they'd leave him alone. Each one is a one-off with their own rules, voice and ending. They use the same standing, trade, combat, navigation and recruitment rules as other survivors, and their animals are real Build 42 animals with names that survive saves.</p>
 
@@ -2260,7 +2256,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </table>
 
 <p class="appendix-label">Appendix B</p>
-<h2 class="chapter" id="appB">Sandbox Options <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+<h2 class="chapter" id="appB">Sandbox and Mod Options <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 <p>The <strong>Living Fellows</strong> sandbox page controls:</p>
 <table>
   <tr><th>Option</th><th>Range</th><th>Default</th><th>Effect</th></tr>
@@ -2287,6 +2283,16 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td>Expedition destination choices</td><td>All nearby, Known places only</td><td>All nearby</td><td>All nearby includes buildings from map data you haven't visited; Known places only lists buildings whose interiors you've seen</td></tr>
 </table>
 <div class="callout callout-tip"><span class="callout-label">Note — </span>Lowering a limit never deletes companions, households or camps already in the save. Turning diaries off never removes a book or its pages.</div>
+
+<h3 id="appB_mod">Mod Options</h3>
+<p>These are yours rather than the world's: set them in <span class="menu">Options → Mods → Living Fellows</span>, press <span class="menu">Apply</span>, and they take effect at once and stay the same for every save on this computer.</p>
+<table>
+  <tr><th>Option</th><th>Choices</th><th>Default</th><th>Effect</th></tr>
+  <tr><td>Companion chatter</td><td>Normal, Less, Rare</td><td>Normal</td><td>Less doubles and Rare quadruples the gaps between incidental remarks: jokes, place comments, table talk, stray thoughts and walking banter. Replies, orders, combat calls, medical warnings and rescue calls keep their timing.</td></tr>
+  <tr><td>Coughs and sneezes</td><td>Normal, Rare, Off</td><td>Normal</td><td>At most one a real minute on Normal, one every five real minutes on Rare, or none</td></tr>
+  <tr><td>Ordinary colds</td><td>on / off</td><td>on</td><td>Off clears a companion's cold and stops new ones; Knox infection and infected wounds are untouched. A cold caught in the moment before can still make one sound.</td></tr>
+  <tr><td>Protect recruited companions from player attacks</td><td>on / off</td><td>off</td><td>Your swings, shoves, stomps and shots do nothing to a recruited ally, and your explosives' blast does it no damage (<a href="#ch9d_hits">Ch 9d</a>). Fire, burns and car hits still hurt.</td></tr>
+</table>
 
 <p class="appendix-label">Appendix C</p>
 <h2 class="chapter" id="appC">Troubleshooting <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
@@ -2325,7 +2331,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p><span class="menu">More → Support</span> is the first place to look when something is wrong, and the report it copies is the most useful thing to attach to a bug report.</p>
 <table>
   <tr><th>Line</th><th>What a healthy game shows</th></tr>
-  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.35</td></tr>
+  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.36</td></tr>
   <tr><td>Game build / supported build</td><td>42.21.0 on both sides</td></tr>
   <tr><td>Runtime active</td><td>Yes. If not, <strong>Runtime disabled reason</strong> says why.</td></tr>
   <tr><td>Native bridge status, actor provider, bridge protocol</td><td>The bridge is ready, and its protocol matches the expected one. A mismatch means an old or mixed install.</td></tr>
@@ -2545,7 +2551,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CARD END -->
 
 <div class="page-footer">
-  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.35 &nbsp;·&nbsp; First Edition, Ninth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
+  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.36 &nbsp;·&nbsp; First Edition, Tenth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
 </div>
 <script>
 (function () {
