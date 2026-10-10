@@ -6,6 +6,8 @@ local SC = SurvivorCompanion
 SC.OddballCorey = SC.OddballCorey or {}
 local Corey = SC.OddballCorey
 local ID = "fan_corey_biggs"
+local SPEAK_DISTANCE = 6
+local HOLD_DISTANCE = 11
 
 local function U() return SC.GameplayUtil end
 
@@ -100,7 +102,7 @@ function Corey.noteKill(group, player, zombie)
     local item = notebook(actor, group.id)
     local data = item and U().modData(item)
     if type(data) == "table" then data.lfCoreyTales = value.tales end
-    if #value.tales % 3 == 0 then
+    if #value.tales % 3 == 0 and U().distance(actor, player) <= SPEAK_DISTANCE then
         U().say(actor, "I'm writing it all down. Somebody has to. " .. tale .. ".")
     end
     return true, "real_kill_written_in_diary"
@@ -132,7 +134,8 @@ function Corey.pulse(group, player)
         return true, "fan_away"
     end
     value.awaySinceDay = nil
-    if value.greeted ~= true and U().canSee(actor, player) == true then
+    if value.greeted ~= true and U().distance(actor, player) <= SPEAK_DISTANCE
+        and U().canSee(actor, player) == true then
         value.greeted = true
         group.discovered = true
         U().say(actor,
@@ -153,28 +156,45 @@ function Corey.intentFor(actor, player, snapshot, group)
     return { mode = "fan_follow", priority = 30 }
 end
 
-function Corey.update(actor, player, runtime, intent)
+function Corey.update(actor, player, runtime, intent, group)
     if not intent or intent.mode ~= "fan_follow" or not player then return false end
+    local value = story(group)
+    local needsIntroduction = value and value.greeted ~= true
     local distance = U().distance(actor, player)
-    if distance >= 12 and distance <= 18 then return true, "fan_trailing" end
+    local hasSight = U().sameFloor(actor, player)
+        and U().canSee(actor, player) == true
+    if hasSight and distance <= (needsIntroduction and SPEAK_DISTANCE
+        or HOLD_DISTANCE) then
+        -- A native route can outlive the tick that brought Corey into range.
+        -- Retire only his follow route, as ordinary player followers do when
+        -- their formation slot becomes a hold, or he walks through the player
+        -- and repeatedly starts a new path in the opposite direction.
+        if SC.Navigation and type(SC.Navigation.peek) == "function"
+            and type(SC.Navigation.cancel) == "function" then
+            local route = SC.Navigation.peek(actor)
+            if route and route.goalAction == "faction_follow" then
+                SC.Navigation.cancel(actor, "fan_holding_distance")
+            end
+        end
+        return true, "fan_trailing"
+    end
     if not SC.Navigation or type(SC.Navigation.request) ~= "function" then
         return false, "navigation_unavailable"
     end
-    local px, py, pz = U().position(player)
-    local ax, ay = U().position(actor)
-    if not px or not ax then return true, "fan_position_unavailable" end
-    local target
-    if distance > 18 then
-        target = U().squareOf(player)
-    else
-        local dx, dy = ax - px, ay - py
-        local length = math.max(0.01, math.sqrt(dx * dx + dy * dy))
-        target = U().gridSquare(math.floor(px + dx / length * 14),
-            math.floor(py + dy / length * 14), pz or 0)
-    end
+    local target = U().squareOf(player)
     if not target then return true, "fan_target_unloaded" end
-    return SC.Navigation.request(actor, target, "walk", {
-        action = "faction_follow", arrivalDistance = distance > 18 and 14 or 1.5 })
+    -- Use the same moving-target route and recovery path as player followers.
+    -- Corey's previous static request replanned from each tile and never used
+    -- Navigation's far-follow engine or continuous route smoothing.
+    return SC.Navigation.request(actor, target,
+        distance > 18 and "jog" or "walk", {
+        action = "faction_follow",
+        -- A wide follow radius must not count as arrival through a wall or
+        -- across a floor. Keep routing until Corey can actually see the player.
+        arrivalDistance = hasSight and (needsIntroduction and 5 or 8) or 0.85,
+        player = player, followRecovery = true, movingTarget = true,
+        continuousApproach = true, movementPriority = 20,
+    })
 end
 
 function Corey.canRecruit(group)
