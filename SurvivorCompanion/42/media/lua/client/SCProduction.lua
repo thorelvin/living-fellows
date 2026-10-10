@@ -325,21 +325,38 @@ local POOLS = {
     ["burial.ritual.rubber_duck_oracle"] = { common = {
         "By yellow wing and squeaking beak, keep this one down and quiet.",
         "The Duck has reviewed the deceased. Approved for rest.",
+        "The Duck says the water runs deep. Sleep where it cannot reach you.",
+        "One small squeak for a life larger than this grave.",
     } },
     ["burial.ritual.bourbon_blessing"] = { common = {
         "Here's to you. I'd pour one out, but Kentucky's rationing.",
+        "To your name, even if we never learned it. Kentucky will remember.",
+        "May the last good bourbon wait wherever you went.",
+        "Barrel's empty, but the blessing isn't. Rest easy, friend.",
     } },
     ["burial.ritual.spiffo_salute"] = { common = {
         "*salutes* Colonel Spiffo, another customer has left the building.",
+        "Colonel Spiffo, stand at ease. This one has earned a quiet shift.",
+        "One final salute. No uniforms left, but we can still show respect.",
+        "Spiffo would keep the lights on for you. We remember who you were.",
     } },
     ["burial.ritual.gnome_commander"] = { common = {
         "Gnome Command, one more soldier reporting below ground.",
+        "Gnome Command, assign this soul a garden with no graves to dig.",
+        "Little sentries, keep watch. This one has done enough standing guard.",
+        "Mission complete. We will carry your name back to camp.",
     } },
     ["burial.ritual.sports_pep_talk"] = { common = {
         "Final whistle, champ. You played the whole game.",
+        "Take a seat, teammate. The rest of us can play the next quarter.",
+        "Coach says you gave everything. For once, I agree with coach.",
+        "No scoreboard tonight. Just a person worth remembering.",
     } },
     ["burial.ritual.mannequin_apology"] = { common = {
         "Sorry. You were real, weren't you? I'm so sorry.",
+        "I should have known you were more than a shape in the dark.",
+        "Sorry I mistook silence for safety. We will not forget your face.",
+        "No one should end up looking like a store display. Rest now.",
     } },
     ["burial.haul.start"] = {
         common = {

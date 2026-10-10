@@ -18609,6 +18609,123 @@ do
             and roughWord("For fuck's sake.") == "fuck",
         "clean-twin lint matches whole rough words without innocent prefixes")
 end
+-- Voice-pool expansion floors count common plus one stable voice; moods are extra.
+do
+    local Dialogue = SurvivorCompanion.Dialogue
+    local targets = {
+        -- Priority 1
+        { "banter.refusal.risk_score", 12, 0 },
+        { "banter.refusal.encircled", 12, 0 },
+        { "banter.refusal.close_pressure", 12, 0 },
+        { "banter.refusal.immediate_count", 12, 0 },
+        { "banter.refusal.stamina", 12, 0 },
+        { "banter.refusal.directional_pressure", 9, 0 },
+        { "banter.refusal.occupied_sectors", 9, 0 },
+        { "banter.refusal.internal_risk", 9, 0 },
+        { "banter.refusal.escape_danger", 9, 0 },
+        { "banter.refusal.footing", 9, 0 },
+        { "banter.refusal.no_escape", 9, 0 },
+        { "banter.refusal.indoors", 9, 0 },
+        { "banter.refusal.health", 9, 0 },
+        { "banter.refusal.unarmed", 9, 0 },
+        { "banter.refusal.weapon_condition", 9, 0 },
+        { "banter.refusal.ammo_dry", 9, 0 },
+        { "doing.active", 10, 1 },
+        { "doing.waiting", 10, 1 },
+        { "doing.recovering", 10, 1 },
+        { "doing.idle", 10, 1 },
+        { "doing.target", 10, 2 },
+        { "doing.failed", 10, 2 },
+        { "work.cannot", 8, 0 },
+        { "work.hammer", 8, 0 },
+        { "work.plank", 8, 0 },
+        { "work.nails", 8, 0 },
+        { "work.saw", 8, 0 },
+        { "work.screwdriver", 8, 0 },
+        { "work.blowtorch", 8, 0 },
+        { "work.pry", 8, 0 },
+        { "work.busy", 8, 0 },
+        { "danger.sitting", 13, 0 },
+        { "study.ritual.rubber_duck_oracle", 4, 0 },
+        { "study.ritual.bourbon_blessing", 4, 0 },
+        { "study.ritual.spiffo_salute", 4, 0 },
+        { "study.ritual.gnome_commander", 4, 0 },
+        { "study.ritual.sports_pep_talk", 4, 0 },
+        { "study.ritual.mannequin_apology", 4, 0 },
+    }
+    local voices = { "brave", "cautious", "caring", "practical" }
+    local placeholderSets = {
+        ["doing.target"] = { [1] = true, [2] = true },
+        ["doing.failed"] = { [1] = true, [2] = true },
+        ["nickname.coin"] = { [1] = true, [2] = true },
+        ["nickname.coin.reject"] = { [1] = true, [2] = true },
+        ["nickname.coin.accept"] = { [2] = true },
+    }
+    for _, row in ipairs(targets) do
+        local topic, floor, maxPlaceholder = row[1], row[2], row[3]
+        local pool = Dialogue._poolForTests(topic)
+        check(type(pool) == "table" and type(pool.common) == "table",
+            "expanded dialogue topic has a common pool: " .. topic)
+        for _, voice in ipairs(voices) do
+            local count = #pool.common + #(pool[voice] or {})
+            check(count >= floor, topic .. "." .. voice .. " floor="
+                .. tostring(floor) .. " actual=" .. tostring(count))
+        end
+        local cap = (string.match(topic, "^banter%.refusal%.")
+            or string.match(topic, "^banter%.distraction%.")
+            or topic == "danger.sitting") and 12 or 18
+        local problems, seenRaw, seenClean = {}, {}, {}
+        local function lintText(line, location)
+            if type(line) ~= "string" or line == "" then
+                problems[#problems + 1] = location .. ": missing text"
+                return
+            end
+            if string.find(line, "[^\032-\126]") or string.find(line, '"', 1, true)
+                or string.find(line, "%s$") then
+                problems[#problems + 1] = location .. ": format: " .. line
+            end
+            local words = 0
+            for _ in string.gmatch(line, "%S+") do words = words + 1 end
+            if words > cap then
+                problems[#problems + 1] = location .. ": words="
+                    .. tostring(words) .. "/" .. tostring(cap) .. ": " .. line
+            end
+            for marker in string.gmatch(line, "%%(%d+)") do
+                local number = tonumber(marker)
+                if number < 1 or number > maxPlaceholder
+                    or (placeholderSets[topic] and not placeholderSets[topic][number]) then
+                    problems[#problems + 1] = location .. ": unsupported %" .. marker .. ": " .. line
+                end
+            end
+        end
+        local function lintRows(rows, path)
+            for key, entry in pairs(rows) do
+                local location = topic .. path .. "." .. tostring(key)
+                if type(key) == "number" and (type(entry) == "string"
+                    or (type(entry) == "table" and type(entry[1]) == "string")) then
+                    local raw = type(entry) == "table" and entry[1] or entry
+                    local clean = type(entry) == "table" and entry.clean or entry
+                    lintText(raw, location)
+                    lintText(clean, location .. ".clean")
+                    if seenRaw[raw] then
+                        problems[#problems + 1] = location .. ": duplicate rough: " .. raw
+                    end
+                    if type(clean) == "string" and seenClean[clean] then
+                        problems[#problems + 1] = location .. ": duplicate clean: " .. clean
+                    end
+                    seenRaw[raw] = true
+                    if type(clean) == "string" then seenClean[clean] = true end
+                elseif type(entry) == "table" and key ~= "professions" then
+                    lintRows(entry, path .. "." .. tostring(key))
+                end
+            end
+        end
+        lintRows(pool, "")
+        for _, problem in ipairs(problems) do print("VOICE_POOL_LINT " .. problem) end
+        check(#problems == 0, "expanded dialogue topic obeys line rules: " .. topic
+            .. " failures=" .. tostring(#problems) .. "\n" .. table.concat(problems, "\n"))
+    end
+end
 local departure = Dialogue._poolForTests("expedition.departure")
 check(type(departure) == "table" and type(departure.common) == "table"
         and #departure.common == 20

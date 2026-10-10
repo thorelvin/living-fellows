@@ -1948,21 +1948,39 @@ local STUDY_POOLS = {
     } },
     ["study.ritual.spiffo_salute"] = { common = {
         "*salutes* Colonel Spiffo, one more for the lost and found.",
+        "Colonel, this one had a name before the uniform became a shroud.",
+        "Spiffo, keep your bright eyes on the road they took alone.",
+        "A salute for a stranger. Still counts as one of us.",
     } },
     ["study.ritual.bourbon_blessing"] = { common = {
         "By the barrel and the bluegrass, rest easy. I'd pour one out, but we're rationing.",
+        "Kentucky bourbon could warm a hand. It cannot help this one now.",
+        "I would toast your memory if I knew your name. Rest anyway.",
+        "Barrel's closed today. This stranger gets a blessing, not a drink.",
     } },
     ["study.ritual.mannequin_apology"] = { common = {
         "Sorry. You're real, aren't you? I thought you were a mannequin. I'm so sorry.",
+        "I keep seeing cloth first and a person second. Forgive me.",
+        "Nobody put you on display. The world just stopped looking.",
+        "Sorry, stranger. You deserved more than a second glance.",
     } },
     ["study.ritual.gnome_commander"] = { common = {
         "Gnome Command, be advised: one more hostile neutralized. Requesting tiny medals.",
+        "Gnome Command, stranger down. Send someone who remembers their name.",
+        "No medal for this one. Just a moment where we stop walking.",
+        "Report says unknown. I say somebody missed them.",
     } },
     ["study.ritual.sports_pep_talk"] = { common = {
         "Hey. You played the whole game. Final whistle, champ.",
+        "Lost the final round, stranger. You still made it this far.",
+        "Coach used to say get up. I wish that worked here.",
+        "One whistle for you. Then I get back to the living.",
     } },
     ["study.ritual.rubber_duck_oracle"] = { common = {
         "The Duck sees all. The Duck says this one is done. Squeak.",
+        "The Duck has no answer for why you ended here.",
+        "Squeak once for the living. Stay quiet for the dead.",
+        "Even the Duck knows when to stop joking. Rest now.",
     } },
 }
 
