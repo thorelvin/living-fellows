@@ -12,6 +12,164 @@ end
 -- World fakes
 -- ---------------------------------------------------------------------------
 
+-- Profanity-off coverage includes every registered pool and voice/mood register.
+do
+    local roughWords = {
+        "damn", "damned", "dammit", "goddamn", "hell", "shit", "shitty",
+        "bullshit", "fuck", "fucking", "fucked", "ass", "asses", "dumbass",
+        "bastard", "bastards", "bitch", "christ",
+    }
+    local failures, inspected, offenses = 0, 0, {}
+    local function roughWord(line)
+        local lower = string.lower(line)
+        for _, word in ipairs(roughWords) do
+            if string.find(lower, "%f[%a]" .. word .. "%f[%A]") then return word end
+        end
+        return nil
+    end
+    local function inspectRows(topic, rows, path)
+        for key, entry in pairs(rows) do
+            local location = path .. "." .. tostring(key)
+            if type(key) == "number" and (type(entry) == "string"
+                or (type(entry) == "table" and type(entry[1]) == "string")) then
+                inspected = inspected + 1
+                local spoken = type(entry) == "string" and entry or entry[1]
+                local clean = type(entry) == "table" and entry.clean or nil
+                local reason
+                if type(entry) == "string" and roughWord(spoken) then
+                    reason = "rough plain string"
+                elseif type(entry) == "table" and type(clean) ~= "string" then
+                    reason = "missing clean twin"
+                elseif type(clean) == "string" and roughWord(clean) then
+                    reason = "rough clean twin"
+                end
+                if reason then
+                    failures = failures + 1
+                    local offense = "CLEAN_TWIN_LINT " .. topic .. location .. ": " .. reason
+                        .. ": " .. spoken .. " | clean=" .. tostring(clean)
+                    offenses[#offenses + 1] = offense
+                    print(offense)
+                end
+            elseif type(key) == "number" then
+                failures = failures + 1
+                local offense = "CLEAN_TWIN_LINT " .. topic .. location
+                    .. ": malformed dialogue entry: " .. tostring(entry)
+                offenses[#offenses + 1] = offense
+                print(offense)
+            elseif type(entry) == "table" then
+                inspectRows(topic, entry, location)
+            end
+        end
+    end
+    for topic, pool in pairs(SurvivorCompanion.Dialogue._allPoolsForTests()) do
+        inspectRows(topic, pool, "")
+    end
+    check(inspected > 1000 and failures == 0,
+        "all registered dialogue has exact-word clean twins; failures=" .. tostring(failures)
+            .. "\n" .. table.concat(offenses, "\n"))
+    check(roughWord("assault hello Christmas") == nil
+            and roughWord("Damn, that hurt.") == "damn"
+            and roughWord("For fuck's sake.") == "fuck",
+        "clean-twin lint matches whole rough words without innocent prefixes")
+end
+
+-- Voice-pool expansion floors count common plus one stable voice; moods are extra.
+do
+    local Dialogue = SurvivorCompanion.Dialogue
+    local targets = {
+        -- Priority 1
+        { "burial.ritual.rubber_duck_oracle", 4, 0 },
+        { "burial.ritual.bourbon_blessing", 4, 0 },
+        { "burial.ritual.spiffo_salute", 4, 0 },
+        { "burial.ritual.gnome_commander", 4, 0 },
+        { "burial.ritual.sports_pep_talk", 4, 0 },
+        { "burial.ritual.mannequin_apology", 4, 0 },
+        -- Priority 3
+        { "burn.fire_spread", 6, 0 },
+        { "burn.rain", 6, 0 },
+        { "burial.haul.threat", 6, 0 },
+        { "work.fell.tired", 6, 0 },
+        { "work.tool.broken", 6, 1 },
+        { "burial.dig.done", 6, 0 },
+        { "burial.haul.drop", 6, 0 },
+        { "burn.watch", 6, 0 },
+    }
+    local voices = { "brave", "cautious", "caring", "practical" }
+    local placeholderSets = {
+        ["doing.target"] = { [1] = true, [2] = true },
+        ["doing.failed"] = { [1] = true, [2] = true },
+        ["nickname.coin"] = { [1] = true, [2] = true },
+        ["nickname.coin.reject"] = { [1] = true, [2] = true },
+        ["nickname.coin.accept"] = { [2] = true },
+    }
+    for _, row in ipairs(targets) do
+        local topic, floor, maxPlaceholder = row[1], row[2], row[3]
+        local pool = Dialogue._poolForTests(topic)
+        check(type(pool) == "table" and type(pool.common) == "table",
+            "expanded dialogue topic has a common pool: " .. topic)
+        for _, voice in ipairs(voices) do
+            local count = #Dialogue._candidatesForTests(pool, voice, nil, false)
+            check(count >= floor, topic .. "." .. voice .. " floor="
+                .. tostring(floor) .. " actual=" .. tostring(count))
+        end
+        local cap = (string.match(topic, "^banter%.refusal%.")
+            or string.match(topic, "^banter%.distraction%.")
+            or topic == "danger.sitting") and 12 or 18
+        local problems, seenRaw, seenClean = {}, {}, {}
+        local function lintText(line, location)
+            if type(line) ~= "string" or line == "" then
+                problems[#problems + 1] = location .. ": missing text"
+                return
+            end
+            if string.find(line, "[^\032-\126]") or string.find(line, '"', 1, true)
+                or string.find(line, "%s$") then
+                problems[#problems + 1] = location .. ": format: " .. line
+            end
+            local words = 0
+            for _ in string.gmatch(line, "%S+") do words = words + 1 end
+            if words > cap then
+                problems[#problems + 1] = location .. ": words="
+                    .. tostring(words) .. "/" .. tostring(cap) .. ": " .. line
+            end
+            for marker in string.gmatch(line, "%%(%d+)") do
+                local number = tonumber(marker)
+                if number < 1 or number > maxPlaceholder
+                    or (placeholderSets[topic] and not placeholderSets[topic][number]) then
+                    problems[#problems + 1] = location .. ": unsupported %" .. marker .. ": " .. line
+                end
+            end
+        end
+        local function lintRows(rows, path)
+            for key, entry in pairs(rows) do
+                local location = topic .. path .. "." .. tostring(key)
+                if type(key) == "number" and (type(entry) == "string"
+                    or (type(entry) == "table" and type(entry[1]) == "string")) then
+                    local raw = type(entry) == "table" and entry[1] or entry
+                    local clean = type(entry) == "table" and entry.clean or entry
+                    lintText(raw, location)
+                    lintText(clean, location .. ".clean")
+                    if seenRaw[raw] then
+                        problems[#problems + 1] = location .. ": duplicate rough: " .. raw
+                    end
+                    if type(clean) == "string" and seenClean[clean] then
+                        problems[#problems + 1] = location .. ": duplicate clean: " .. clean
+                    end
+                    seenRaw[raw] = true
+                    if type(clean) == "string" then seenClean[clean] = true end
+                elseif type(key) == "number" then
+                    problems[#problems + 1] = location
+                        .. ": malformed dialogue entry: " .. tostring(entry)
+                elseif type(entry) == "table" and key ~= "professions" then
+                    lintRows(entry, path .. "." .. tostring(key))
+                end
+            end
+        end
+        lintRows(pool, "")
+        for _, problem in ipairs(problems) do print("VOICE_POOL_LINT " .. problem) end
+        check(#problems == 0, "expanded dialogue topic obeys line rules: " .. topic
+            .. " failures=" .. tostring(#problems) .. "\n" .. table.concat(problems, "\n"))
+    end
+end
 local nextNativeId = 5000
 local makeItem
 
@@ -2507,7 +2665,7 @@ do
     end
     local line = said and said.line or nil
     check(type(line) == "string"
-            and (line:find("[Tt]he hand axe") ~= nil or line:find("this hand axe") ~= nil)
+            and (line:find("[Tt]he hand axe") ~= nil or line:find("[Tt]his hand axe") ~= nil)
             and line:find("[Aa] hand axe") == nil,
         "a companion names its own broken tool as that tool: " .. tostring(line))
 end

@@ -8,6 +8,7 @@ local Corey = SC.OddballCorey
 local ID = "fan_corey_biggs"
 local SPEAK_DISTANCE = 6
 local HOLD_DISTANCE = 11
+local MAX_EXACT_COUNT = 9007199254740991
 
 local function U() return SC.GameplayUtil end
 
@@ -97,13 +98,43 @@ function Corey.noteKill(group, player, zombie)
         return false, "fan_did_not_witness_kill"
     end
     local tale = Corey.describeKill(player, zombie)
+    -- The notebook keeps only its last twelve tales. A separate persisted
+    -- count preserves every-third-kill speech after that history fills. Older
+    -- saves have no count, so recover at least the pre-trim history length.
+    local witnessed = tonumber(value.witnessedKillCount)
+    if not witnessed or witnessed ~= witnessed or witnessed < 0
+        or witnessed >= MAX_EXACT_COUNT or witnessed % 1 ~= 0 then
+        witnessed = #value.tales
+    end
+    witnessed = math.max(witnessed, #value.tales) + 1
+    value.witnessedKillCount = witnessed
     value.tales[#value.tales + 1] = tale
     while #value.tales > 12 do table.remove(value.tales, 1) end
     local item = notebook(actor, group.id)
     local data = item and U().modData(item)
     if type(data) == "table" then data.lfCoreyTales = value.tales end
-    if #value.tales % 3 == 0 and U().distance(actor, player) <= SPEAK_DISTANCE then
-        U().say(actor, "I'm writing it all down. Somebody has to. " .. tale .. ".")
+    if witnessed % 3 == 0 and U().distance(actor, player) <= SPEAK_DISTANCE then
+        local openings = {
+            "I'm writing it all down. Put this one in the book as ",
+            "Somebody has to keep the record. This one's ",
+            "History survives on cheap paper. I'll call this ",
+            "Another page earned the hard way. Today we witnessed ",
+            "People ought to remember. I'm recording ",
+            { "That was one hell of a chapter. Call it ",
+                clean = "That was one heck of a chapter. Call it " },
+        }
+        local openingIndex = (math.floor(#value.tales / 3) - 1) % #openings + 1
+        local previousIndex = tonumber(value.diaryOpeningIndex)
+        if #value.tales >= 12 and previousIndex and previousIndex >= 1
+            and previousIndex <= #openings and previousIndex % 1 == 0 then
+            openingIndex = previousIndex % #openings + 1
+        end
+        value.diaryOpeningIndex = openingIndex
+        local opening = openings[openingIndex]
+        if type(opening) == "table" then
+            opening = U().config("profanityEnabled") == false and opening.clean or opening[1]
+        end
+        U().say(actor, opening .. tale .. ".")
     end
     return true, "real_kill_written_in_diary"
 end

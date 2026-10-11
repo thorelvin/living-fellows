@@ -3177,7 +3177,9 @@ function SCUIDetail:buildTalk(panel, row)
         y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
             UI.text("UI_SC_Talk_Empty"))
     else
-        for _, line in ipairs(conversation.lines) do
+        -- Keep the latest reply at the top of the recent words list.
+        for index = #conversation.lines, 1, -1 do
+            local line = conversation.lines[index]
             local speaker = line.speaker == "player" and UI.text("UI_SC_Talk_You")
                 or line.speaker == "companion" and row.name
                 or UI.text("UI_SC_Talk_System")

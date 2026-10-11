@@ -1817,29 +1817,37 @@ local STUDY_POOLS = {
     ["study.profession.parkranger"] = { common = {
         "Tracks, scat, bodies. Same job, meaner animal.",
         "Walked a long way on those shoes. Soles are gone. Came in from the east road, I'd say.",
+        "Nature takes everything back. Usually it has the courtesy to wait.",
     } },
     ["study.profession.fireofficer"] = { common = {
         "We used to carry people out. Now we make sure they stay down.",
         "Smoke on the jacket. Got out of one fire and walked into this.",
+        "Soot under the collar. They went in after somebody. I hope they got them out.",
     } },
     ["study.profession.chef"] = { common = {
         "Grey meat. I wouldn't serve it to a raccoon.",
         "Smells like a walk-in cooler three weeks after the power died.",
+        "Used to judge dinner by the smell. This tells me enough.",
     } },
     ["study.profession.farmer"] = { common = {
         "Seen livestock go down sick. Never seen a cow get up afterwards.",
         "Put down a lame horse once. Cried all night. This one I'd do again.",
+        "Fields taught me every season ends. Didn't teach me this one.",
     } },
     ["study.profession.mechanics"] = { common = {
         "Engine runs, nobody driving. Bad wiring all the way down.",
         "Everything's still hooked up and nothing runs right. Won't stop turning over, though.",
+        "I'd reach for a wrench. There isn't a bolt loose enough to fix this.",
     } },
     ["study.profession.burglar"] = { common = {
         "Pockets already turned out. Somebody got here first. Professional courtesy.",
         "Keys on the belt. Some house out there is still locked and waiting. Tempting.",
+        "Locks kept people out. Never did much for keeping death away.",
     } },
     ["study.profession.securityguard"] = { common = {
         "Night shift, I'd bet. Walked the same loop forever. Still doing it, in a way.",
+        "I checked doors for a living. Nobody checked this one's way out.",
+        "Used to log every visitor. Now I count who didn't leave.",
     } },
     ["study.outfit.law"] = {
         common = {
@@ -1858,6 +1866,7 @@ local STUDY_POOLS = {
     ["study.outfit.patient"] = { common = {
         "Hospital gown. Walked out of March Ridge in slippers.",
         "Hospital bracelet. Already sick when they checked in. They treated the flu. It wasn't the flu.",
+        "They came for care and found a hallway full of worse.",
     } },
     ["study.outfit.military"] = { common = {
         "Army fatigues. Sent here to hold the line. The line held them.",
@@ -1867,6 +1876,7 @@ local STUDY_POOLS = {
     ["study.outfit.fire"] = { common = {
         "Firefighter. Ran toward this. Of course they did.",
         "Turnout gear. Built for heat. Not for teeth.",
+        "Heavy coat, no air left to breathe. Brave wasn't enough.",
     } },
     ["study.outfit.hazmat"] = { common = {
         "Hazmat suit. Didn't help. Nothing helped.",
@@ -1881,6 +1891,7 @@ local STUDY_POOLS = {
     ["study.outfit.farm"] = { common = {
         "Overalls, boots, dirt under the nails. Kentucky farmer. The corn will go to seed now.",
         "Hunting vest. Spent a life stalking deer. Ended up the one doing the stalking.",
+        "Mud on the cuffs. The field kept growing after they stopped.",
     } },
     ["study.outfit.office"] = { common = {
         "Tie still knotted. Stuck on Monday morning forever.",
@@ -1890,6 +1901,7 @@ local STUDY_POOLS = {
     ["study.outfit.student"] = { common = {
         "Just a kid. Summer vacation, 1993. Should have been the best one.",
         "School jacket. Somebody's honor roll.",
+        "School clothes. They should have been worried about homework.",
     } },
     ["study.outfit.sports"] = { common = {
         "Baseball cap. Louisville fan. Season's over, champ.",
@@ -1899,22 +1911,27 @@ local STUDY_POOLS = {
     ["study.outfit.jockey"] = { common = {
         "Jockey silks. Derby dreams, Knox County nightmare.",
         "A jockey. Small, quick, light. Still wasn't fast enough.",
+        "Silks still bright. The track will never know who missed the start.",
     } },
     ["study.outfit.wedding"] = { common = {
         "Wedding clothes. 'Til death do us part. Death did its part. Then kept going.",
         "Somebody was getting married that week. Somebody's still waiting at the altar.",
+        "Someone pressed this outfit for a day they never reached.",
     } },
     ["study.outfit.inmate"] = { common = {
         "Prison orange. Got out in the end. Not how anybody planned it.",
         "Inmate. Served the sentence and then some.",
+        "Number on the shirt. I wonder whether anyone remembers the name.",
     } },
     ["study.outfit.clergy"] = { common = {
         "Priest's collar. I hope they found the answers they preached.",
         "A preacher. The end times came and nobody got raptured. Just this.",
+        "They might have blessed half the county. Nobody could bless them out of this.",
     } },
     ["study.outfit.home"] = { common = {
         "Bathrobe and slippers. It came for them at home, on an ordinary morning.",
         "Pajamas. Went to bed with a fever. Never really woke up.",
+        "Still dressed for breakfast. The dead never wait for a better hour.",
     } },
     ["study.outfit.worker"] = { common = {
         "Coveralls with a name stitched on. Somebody's mechanic. Somebody's dad, maybe.",
@@ -1925,13 +1942,17 @@ local STUDY_POOLS = {
     ["study.outfit.party"] = { common = {
         "Party clothes. Last good night out in Kentucky.",
         "Dressed as a monster for fun. Irony has a mean streak.",
+        "Dressed to be seen. Now nobody wants to look.",
     } },
     ["study.outfit.santa"] = { common = {
         "A Santa suit in July. There's a story here I'll never hear.",
+        "That red suit had one job: make children feel safe.",
+        "Someone wore this to make people smile. I hope it worked.",
     } },
     ["study.outfit.reporter"] = { common = {
         "Press badge. LBMW. Told us all to keep calm right up to the end.",
         "A reporter. Stayed on the story too long. The good ones always do.",
+        "I wish somebody saved their notes. We could use an honest account.",
     } },
     ["study.outfit.traveler"] = { common = {
         "Tourist. Came to see Kentucky. Saw too much of it.",
@@ -1941,28 +1962,48 @@ local STUDY_POOLS = {
     ["study.outfit.raider"] = { common = {
         "Bandit gear. Lived by taking. Died the same as everybody.",
         "Mask and a mean streak. Doesn't matter now.",
+        "Armor made from scraps. Whoever wore it expected a fight.",
     } },
     ["study.outfit.survivor"] = { common = {
         "Survivor gear. One of us, once. Didn't make it.",
         "Good boots, full pack, homemade armor. Did everything right. Still ended up here.",
+        "Extra pockets, careful stitching. They meant to stay out here a long time.",
     } },
     ["study.ritual.spiffo_salute"] = { common = {
         "*salutes* Colonel Spiffo, one more for the lost and found.",
+        "Colonel, this one had a name before the uniform became a shroud.",
+        "Spiffo, keep your bright eyes on the road they took alone.",
+        "A salute for a stranger. Still counts as one of us.",
     } },
     ["study.ritual.bourbon_blessing"] = { common = {
         "By the barrel and the bluegrass, rest easy. I'd pour one out, but we're rationing.",
+        "Kentucky bourbon could warm a hand. It cannot help this one now.",
+        "I would toast your memory if I knew your name. Rest anyway.",
+        "Barrel's closed today. This stranger gets a blessing, not a drink.",
     } },
     ["study.ritual.mannequin_apology"] = { common = {
         "Sorry. You're real, aren't you? I thought you were a mannequin. I'm so sorry.",
+        "I keep seeing cloth first and a person second. Forgive me.",
+        "Nobody put you on display. The world just stopped looking.",
+        "Sorry, stranger. You deserved more than a second glance.",
     } },
     ["study.ritual.gnome_commander"] = { common = {
         "Gnome Command, be advised: one more hostile neutralized. Requesting tiny medals.",
+        "Gnome Command, stranger down. Send someone who remembers their name.",
+        "No medal for this one. Just a moment where we stop walking.",
+        "Report says unknown. I say somebody missed them.",
     } },
     ["study.ritual.sports_pep_talk"] = { common = {
         "Hey. You played the whole game. Final whistle, champ.",
+        "Lost the final round, stranger. You still made it this far.",
+        "Coach used to say get up. I wish that worked here.",
+        "One whistle for you. Then I get back to the living.",
     } },
     ["study.ritual.rubber_duck_oracle"] = { common = {
         "The Duck sees all. The Duck says this one is done. Squeak.",
+        "The Duck has no answer for why you ended here.",
+        "Squeak once for the living. Stay quiet for the dead.",
+        "Even the Duck knows when to stop joking. Rest now.",
     } },
 }
 

@@ -1097,14 +1097,14 @@ local function registerDialogue()
     if not SC.Dialogue or type(SC.Dialogue.register) ~= "function" then return end
     SC.Dialogue.register("recognition.local", {
         common = {
-            "%1? Hell, that walker even leans like %5. Keep your distance.",
+            { "%1? Hell, that walker even leans like %5. Keep your distance.", clean = "%1? Heck, that walker even leans like %5. Keep your distance." },
             "I swear that's %1, the %3 from %4. Eyes on that one.",
             "That looks like %1. %2 used to be the %3 back in %4.",
             "%1? No. Couldn't be. Still, watch that walker.",
             "Same coat, same walk. Could be %1 from %4. Contact ahead.",
             "Tell me that isn't %1. Our %3, once. Stay sharp.",
             "I knew a %3 named %1. That dead thing stole %6 face.",
-            "That walker has %1's eyes. Kentucky is too damn small.",
+            { "That walker has %1's eyes. Kentucky is too damn small.", clean = "That walker has %1's eyes. Kentucky is too darn small." },
             "%1 used to wave from across the road. Now that walker is crossing it dead.",
             "Looks like %1 from back home. Don't let %5 get close.",
             "For half a second I thought that was %1. Half a second too long.",
@@ -1144,7 +1144,7 @@ local function registerDialogue()
     SC.Dialogue.register("recognition.grief", {
         common = {
             "%1? No. We already lost you. Walker ahead.",
-            "That looks like %1. Same face. Same damned ending.",
+            { "That looks like %1. Same face. Same damned ending.", clean = "That looks like %1. Same face. Same cursed ending." },
             "%1, is that... no. Keep your distance from it.",
             "For one second I saw %1 standing there alive.",
             "That dead thing is wearing %1's memory. Watch it.",
@@ -1154,7 +1154,7 @@ local function registerDialogue()
         },
         brave = { "%1, forgive me. I'm not letting you hurt them.", "%1 or not, I finish this standing." },
         cautious = { "It looks like %1. Don't make me go closer to prove it.", "%1? Stay back. We cannot risk certainty." },
-        caring = { "%1? I'm sorry. I'm so damn sorry. Stay behind me.", "That might be %1. Please don't make me do this twice." },
+        caring = { { "%1? I'm sorry. I'm so damn sorry. Stay behind me.", clean = "%1? I'm sorry. I'm so very sorry. Stay behind me." }, "That might be %1. Please don't make me do this twice." },
         practical = { "Resemblance to %1 confirmed. Identity irrelevant. Threat remains.", "Could be %1. We survive first and mourn later." },
         stressed = { "%1 is dead. %1 is dead. Then who is that?", "No. We buried %1. We buried %5." },
     })
@@ -1331,7 +1331,7 @@ local function registerDialogue()
     SC.Dialogue.register("ritual.duck.tradition", {
         common = {
             "By yellow wing and squeaking beak, this house remains ours.",
-            "Bless this base, bless this bourbon, and confuse the hell out of the dead.",
+            { "Bless this base, bless this bourbon, and confuse the hell out of the dead.", clean = "Bless this base, bless this bourbon, and confuse the heck out of the dead." },
             "The First Duck takes the floor. Let all bad luck wait outside.",
             "We survived long enough to have liturgy. That's something.",
             "The congregation stands armed. The Duck stands adorable.",

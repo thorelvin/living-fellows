@@ -16788,7 +16788,8 @@ local planSentence, _, planChanged = Objectives.respondPlans(depthState)
 check(type(planSentence) == "string" and planChanged == true
     and depthState.objectives.active.revealed == true
     and (string.find(planSentence, "meal", 1, true) ~= nil
-        or string.find(planSentence, "eat", 1, true) ~= nil),
+        or string.find(planSentence, "eat", 1, true) ~= nil
+        or string.find(planSentence, "supper", 1, true) ~= nil),
     "plans conversation reveals exactly the existing objective with personality wording: "
         .. tostring(planSentence))
 local revealedJournal = Journal.build(depthActor, depthState, { name = "Depth Fellow" })
@@ -18555,6 +18556,256 @@ check(Dialogue.poolSize("danger.one", fellow, {}) >= 12
         and Dialogue.poolSize("danger.horde", fellow, {}) >= 12
         and Dialogue.poolSize("signal.horde", fellow, {}) >= 6,
     "every contact scale has a broad spoken pool and several silent hand-sign variants")
+-- Profanity-off coverage includes every registered pool and voice/mood register.
+do
+    local roughWords = {
+        "damn", "damned", "dammit", "goddamn", "hell", "shit", "shitty",
+        "bullshit", "fuck", "fucking", "fucked", "ass", "asses", "dumbass",
+        "bastard", "bastards", "bitch", "christ",
+    }
+    local failures, inspected, offenses = 0, 0, {}
+    local function roughWord(line)
+        local lower = string.lower(line)
+        for _, word in ipairs(roughWords) do
+            if string.find(lower, "%f[%a]" .. word .. "%f[%A]") then return word end
+        end
+        return nil
+    end
+    local function inspectRows(topic, rows, path)
+        for key, entry in pairs(rows) do
+            local location = path .. "." .. tostring(key)
+            if type(key) == "number" and (type(entry) == "string"
+                or (type(entry) == "table" and type(entry[1]) == "string")) then
+                inspected = inspected + 1
+                local spoken = type(entry) == "string" and entry or entry[1]
+                local clean = type(entry) == "table" and entry.clean or nil
+                local reason
+                if type(entry) == "string" and roughWord(spoken) then
+                    reason = "rough plain string"
+                elseif type(entry) == "table" and type(clean) ~= "string" then
+                    reason = "missing clean twin"
+                elseif type(clean) == "string" and roughWord(clean) then
+                    reason = "rough clean twin"
+                end
+                if reason then
+                    failures = failures + 1
+                    local offense = "CLEAN_TWIN_LINT " .. topic .. location .. ": " .. reason
+                        .. ": " .. spoken .. " | clean=" .. tostring(clean)
+                    offenses[#offenses + 1] = offense
+                    print(offense)
+                end
+            elseif type(key) == "number" then
+                failures = failures + 1
+                local offense = "CLEAN_TWIN_LINT " .. topic .. location
+                    .. ": malformed dialogue entry: " .. tostring(entry)
+                offenses[#offenses + 1] = offense
+                print(offense)
+            elseif type(entry) == "table" then
+                inspectRows(topic, entry, location)
+            end
+        end
+    end
+    for topic, pool in pairs(SurvivorCompanion.Dialogue._allPoolsForTests()) do
+        inspectRows(topic, pool, "")
+    end
+    check(inspected > 1000 and failures == 0,
+        "all registered dialogue has exact-word clean twins; failures=" .. tostring(failures)
+            .. "\n" .. table.concat(offenses, "\n"))
+    check(roughWord("assault hello Christmas") == nil
+            and roughWord("Damn, that hurt.") == "damn"
+            and roughWord("For fuck's sake.") == "fuck",
+        "clean-twin lint matches whole rough words without innocent prefixes")
+end
+-- Voice-pool expansion floors count common plus one stable voice; moods are extra.
+do
+    local Dialogue = SurvivorCompanion.Dialogue
+    local targets = {
+        -- Priority 1
+        { "banter.refusal.risk_score", 12, 0 },
+        { "banter.refusal.encircled", 12, 0 },
+        { "banter.refusal.close_pressure", 12, 0 },
+        { "banter.refusal.immediate_count", 12, 0 },
+        { "banter.refusal.stamina", 12, 0 },
+        { "banter.refusal.directional_pressure", 9, 0 },
+        { "banter.refusal.occupied_sectors", 9, 0 },
+        { "banter.refusal.internal_risk", 9, 0 },
+        { "banter.refusal.escape_danger", 9, 0 },
+        { "banter.refusal.footing", 9, 0 },
+        { "banter.refusal.no_escape", 9, 0 },
+        { "banter.refusal.indoors", 9, 0 },
+        { "banter.refusal.health", 9, 0 },
+        { "banter.refusal.unarmed", 9, 0 },
+        { "banter.refusal.weapon_condition", 9, 0 },
+        { "banter.refusal.ammo_dry", 9, 0 },
+        { "doing.active", 10, 1 },
+        { "doing.waiting", 10, 1 },
+        { "doing.recovering", 10, 1 },
+        { "doing.idle", 10, 1 },
+        { "doing.target", 10, 2 },
+        { "doing.failed", 10, 2 },
+        { "work.cannot", 8, 0 },
+        { "work.hammer", 8, 0 },
+        { "work.plank", 8, 0 },
+        { "work.nails", 8, 0 },
+        { "work.saw", 8, 0 },
+        { "work.screwdriver", 8, 0 },
+        { "work.blowtorch", 8, 0 },
+        { "work.pry", 8, 0 },
+        { "work.busy", 8, 0 },
+        { "danger.sitting", 13, 0 },
+        { "study.ritual.rubber_duck_oracle", 4, 0 },
+        { "study.ritual.bourbon_blessing", 4, 0 },
+        { "study.ritual.spiffo_salute", 4, 0 },
+        { "study.ritual.gnome_commander", 4, 0 },
+        { "study.ritual.sports_pep_talk", 4, 0 },
+        { "study.ritual.mannequin_apology", 4, 0 },
+        -- Priority 2
+        { "fishing.cast", 10, 0 },
+        { "fishing.bite", 10, 0 },
+        { "fishing.catch", 10, 0 },
+        { "fishing.lost", 10, 0 },
+        { "fishing.trash", 10, 0 },
+        { "banter.idle.second", 11, 0 },
+        { "banter.idle.vehicle", 11, 0 },
+        { "banter.interior.dread", 10, 0 },
+        { "banter.interior.panic_onset", 10, 0 },
+        { "banter.interior.panic_recovery", 10, 0 },
+        { "banter.interior.nicotine", 10, 0 },
+        { "banter.distraction.ally", 9, 0 },
+        { "banter.distraction.verdict", 9, 0 },
+        { "noise.horn", 8, 0 },
+        { "noise.breaking", 8, 0 },
+        { "noise.loud", 8, 0 },
+        { "banter.table.tea.open", 6, 1 },
+        { "banter.table.tea.reply", 6, 0 },
+        { "banter.table.tea.close", 6, 0 },
+        { "banter.place.grocery", 8, 0 },
+        { "banter.place.gas", 8, 0 },
+        { "banter.place.garage", 8, 0 },
+        { "banter.place.police", 8, 0 },
+        { "banter.place.pharmacy", 8, 0 },
+        { "banter.place.hospital", 8, 0 },
+        { "banter.place.school", 8, 0 },
+        { "banter.place.motel", 8, 0 },
+        { "banter.place.bar", 8, 0 },
+        { "gestures.cough", 9, 0 },
+        { "gestures.sneeze", 9, 0 },
+        { "gestures.yawn.catch", 9, 0 },
+        -- Priority 3
+        { "nickname.intro", 5, 2 },
+        { "nickname.player.accept", 5, 1 },
+        { "nickname.player.reject", 5, 1 },
+        { "nickname.coin", 5, 2 },
+        { "nickname.coin.accept", 5, 2 },
+        { "nickname.coin.reject", 5, 2 },
+        { "nickname.grief", 5, 1 },
+        { "nickname.namesake", 5, 0 },
+        { "plans.none", 7, 0 },
+        { "plans.reserved", 7, 0 },
+        { "plans.keep_medical_ready", 7, 0 },
+        { "plans.find_something_to_read", 7, 0 },
+        { "plans.put_gear_in_order", 7, 0 },
+        { "plans.improve_shelter", 7, 0 },
+        { "plans.share_a_proper_meal", 7, 0 },
+        { "plans.recover_keepsake", 7, 0 },
+        { "study.profession.parkranger", 3, 0 },
+        { "study.profession.fireofficer", 3, 0 },
+        { "study.profession.chef", 3, 0 },
+        { "study.profession.farmer", 3, 0 },
+        { "study.profession.mechanics", 3, 0 },
+        { "study.profession.burglar", 3, 0 },
+        { "study.profession.securityguard", 3, 0 },
+        { "study.outfit.patient", 3, 0 },
+        { "study.outfit.fire", 3, 0 },
+        { "study.outfit.farm", 3, 0 },
+        { "study.outfit.student", 3, 0 },
+        { "study.outfit.jockey", 3, 0 },
+        { "study.outfit.wedding", 3, 0 },
+        { "study.outfit.inmate", 3, 0 },
+        { "study.outfit.clergy", 3, 0 },
+        { "study.outfit.home", 3, 0 },
+        { "study.outfit.party", 3, 0 },
+        { "study.outfit.reporter", 3, 0 },
+        { "study.outfit.raider", 3, 0 },
+        { "study.outfit.survivor", 3, 0 },
+        { "study.outfit.santa", 3, 0 },
+    }
+    local voices = { "brave", "cautious", "caring", "practical" }
+    local placeholderSets = {
+        ["doing.target"] = { [1] = true, [2] = true },
+        ["doing.failed"] = { [1] = true, [2] = true },
+        ["nickname.coin"] = { [1] = true, [2] = true },
+        ["nickname.coin.reject"] = { [1] = true, [2] = true },
+        ["nickname.coin.accept"] = { [2] = true },
+    }
+    for _, row in ipairs(targets) do
+        local topic, floor, maxPlaceholder = row[1], row[2], row[3]
+        local pool = Dialogue._poolForTests(topic)
+        check(type(pool) == "table" and type(pool.common) == "table",
+            "expanded dialogue topic has a common pool: " .. topic)
+        for _, voice in ipairs(voices) do
+            local count = #Dialogue._candidatesForTests(pool, voice, nil, false)
+            check(count >= floor, topic .. "." .. voice .. " floor="
+                .. tostring(floor) .. " actual=" .. tostring(count))
+        end
+        local cap = (string.match(topic, "^banter%.refusal%.")
+            or string.match(topic, "^banter%.distraction%.")
+            or topic == "danger.sitting") and 12 or 18
+        local problems, seenRaw, seenClean = {}, {}, {}
+        local function lintText(line, location)
+            if type(line) ~= "string" or line == "" then
+                problems[#problems + 1] = location .. ": missing text"
+                return
+            end
+            if string.find(line, "[^\032-\126]") or string.find(line, '"', 1, true)
+                or string.find(line, "%s$") then
+                problems[#problems + 1] = location .. ": format: " .. line
+            end
+            local words = 0
+            for _ in string.gmatch(line, "%S+") do words = words + 1 end
+            if words > cap then
+                problems[#problems + 1] = location .. ": words="
+                    .. tostring(words) .. "/" .. tostring(cap) .. ": " .. line
+            end
+            for marker in string.gmatch(line, "%%(%d+)") do
+                local number = tonumber(marker)
+                if number < 1 or number > maxPlaceholder
+                    or (placeholderSets[topic] and not placeholderSets[topic][number]) then
+                    problems[#problems + 1] = location .. ": unsupported %" .. marker .. ": " .. line
+                end
+            end
+        end
+        local function lintRows(rows, path)
+            for key, entry in pairs(rows) do
+                local location = topic .. path .. "." .. tostring(key)
+                if type(key) == "number" and (type(entry) == "string"
+                    or (type(entry) == "table" and type(entry[1]) == "string")) then
+                    local raw = type(entry) == "table" and entry[1] or entry
+                    local clean = type(entry) == "table" and entry.clean or entry
+                    lintText(raw, location)
+                    lintText(clean, location .. ".clean")
+                    if seenRaw[raw] then
+                        problems[#problems + 1] = location .. ": duplicate rough: " .. raw
+                    end
+                    if type(clean) == "string" and seenClean[clean] then
+                        problems[#problems + 1] = location .. ": duplicate clean: " .. clean
+                    end
+                    seenRaw[raw] = true
+                    if type(clean) == "string" then seenClean[clean] = true end
+                elseif type(key) == "number" then
+                    problems[#problems + 1] = location
+                        .. ": malformed dialogue entry: " .. tostring(entry)
+                elseif type(entry) == "table" and key ~= "professions" then
+                    lintRows(entry, path .. "." .. tostring(key))
+                end
+            end
+        end
+        lintRows(pool, "")
+        for _, problem in ipairs(problems) do print("VOICE_POOL_LINT " .. problem) end
+        check(#problems == 0, "expanded dialogue topic obeys line rules: " .. topic
+            .. " failures=" .. tostring(#problems) .. "\n" .. table.concat(problems, "\n"))
+    end
+end
 local departure = Dialogue._poolForTests("expedition.departure")
 check(type(departure) == "table" and type(departure.common) == "table"
         and #departure.common == 20
@@ -23342,12 +23593,18 @@ end)()
             problems[#problems + 1] = label .. ":short"
             return
         end
-        local seen = {}
-        for _, line in ipairs(lines) do
+        local seen, seenClean = {}, {}
+        for _, entry in ipairs(lines) do
+            local line = type(entry) == "table" and entry[1] or entry
+            local clean = type(entry) == "table" and entry.clean or line
             if type(line) ~= "string" or line == "" or not printable(line) or seen[line] then
                 problems[#problems + 1] = label .. ":" .. tostring(line)
             end
-            seen[line] = true
+            if type(clean) ~= "string" or clean == "" or not printable(clean) or seenClean[clean] then
+                problems[#problems + 1] = label .. ".clean:" .. tostring(clean)
+            end
+            if line ~= nil then seen[line] = true end
+            if clean ~= nil then seenClean[clean] = true end
         end
     end
     local function checkSpec(label, spec)
@@ -26908,13 +27165,17 @@ end)()
         check(type(spec) == "table" and type(spec.common) == "table" and #spec.common > 0,
             "the noise topic has lines: " .. topic)
         total = total + #spec.common
-        for _, line in ipairs(spec.common) do
-            check(#line <= 120, topic .. " keeps its lines short: " .. line)
-            check(string.find(line, "%%1") == nil,
-                topic .. " needs no interpolation: " .. line)
+        for _, entry in ipairs(spec.common) do
+            local rough = type(entry) == "table" and entry[1] or entry
+            local clean = type(entry) == "table" and entry.clean or nil
+            for _, line in ipairs({ rough, clean }) do
+                check(#line <= 120, topic .. " keeps its lines short: " .. line)
+                check(string.find(line, "%%1") == nil,
+                    topic .. " needs no interpolation: " .. line)
+            end
         end
     end
-    check(total == 26, "the noise bucket holds 26 lines: " .. tostring(total))
+    check(total == 36, "the noise bucket holds 36 lines: " .. tostring(total))
 
     -- Each kind of noise reaches the right thing to say, and the noises a
     -- companion makes itself get no commentary at all.
