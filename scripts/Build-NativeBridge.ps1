@@ -72,9 +72,14 @@ foreach ($classFile in Get-ChildItem -LiteralPath $classes -Filter '*.class' -Fi
 
 $bridgeJar = Join-Path $OutputRoot 'SurvivorCompanionBridge.jar'
 $manifest = Join-Path $ProjectRoot 'bridge\native\MANIFEST.MF'
+# Keep jar's atomic temporary archive on the same writable volume. A
+# sandboxed JVM can otherwise create it in a private TEMP directory that
+# cannot be moved into the project build directory.
+$jarTemp = Join-Path $OutputRoot 'jar-temp'
+New-Item -ItemType Directory -Path $jarTemp -Force | Out-Null
 # Pin archive timestamps so rebuilding the same Java sources produces the same
 # bridge bytes for source, Workshop staging, the release ZIP, and local install.
-& $jar --create --file $bridgeJar --manifest $manifest `
+& $jar "-J-Djava.io.tmpdir=$jarTemp" --create --file $bridgeJar --manifest $manifest `
     --date=2025-01-01T00:00:00Z -C $classes survivorcompanion
 if ($LASTEXITCODE -ne 0) { throw "Native bridge JAR creation failed with exit code $LASTEXITCODE" }
 

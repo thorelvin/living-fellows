@@ -258,6 +258,10 @@ SurvivorCompanion = {
             return zone.z == 0 and zone.x1 >= 8 and zone.x2 <= 18
                 and zone.y1 >= 8 and zone.y2 <= 18
         end,
+        parkingZoneValid = function(zone)
+            return zone.z == 0 and zone.x1 >= 8 and zone.x2 <= 38
+                and zone.y1 >= 8 and zone.y2 <= 38
+        end,
     },
     Registry = {
         records = function() return fixture.records end,

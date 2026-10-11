@@ -1939,6 +1939,42 @@ reserve.x = player.x + 3
 check(expedition.pulse() and expedition.finishAtPlayer(player),
     "the restored trail return can finish")
 
+do
+    local carSave = {}
+    for key, value in pairs(awaitingTrail) do carSave[key] = value end
+    carSave.schema = 6
+    carSave.scout = {}
+    for key, value in pairs(awaitingTrail.scout) do carSave.scout[key] = value end
+    carSave.scout.phase, carSave.scout.travelMode = "driving_out", "drive"
+    carSave.scout.road, carSave.scout.trailReturn = nil, nil
+    carSave.scout.vehicle = {
+        state = "driving_out", leg = "outbound", sqlId = 44,
+        script = "Base.CarNormal", seats = { delta = 0 },
+        parkingZoneId = "zone:42",
+        parking = { x1 = 20, y1 = 18, x2 = 27, y2 = 25, z = 0 },
+        departure = { x = 23, y = 20, z = 0 },
+        home = { x = 24, y = 20, z = 0 },
+        siteStop = { x = 185, y = 20, z = 0 },
+        position = { x = 80, y = 20, z = 0 },
+        departureFuel = 10,
+        departureHeading = 0,
+    }
+    check(expedition.restore(carSave)
+            and expedition.current().scout.vehicle.state == "interrupted_by_load"
+            and expedition.current().scout.travelMode == "drive",
+        "schema six preserves the car and converts a moving save to checked restart")
+    expedition.current().suspended = true
+    check(expedition.reset(), "schema-six restart fixture resets safely")
+    carSave.scout.vehicle.seats.delta = 1
+    check(expedition.restore(carSave)
+            and expedition.current().scout.vehicle == nil
+            and expedition.current().scout.travelMode == "straight"
+            and expedition.current().vehicleRestoreIssue ~= nil,
+        "invalid car subrecord degrades to walking without losing the mission")
+    expedition.current().suspended = true
+    check(expedition.reset(), "invalid car fixture resets safely")
+end
+
 reserve.x, reserve.y = 23, 20
 local readyStarted, delayedRoad = expedition.start(
     { { id = "delta", actor = reserve } },

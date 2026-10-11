@@ -17512,6 +17512,46 @@ do
 end
 local protectedArea = BaseLife.active().zones[1]
 do
+    local edge = protectedArea.x2
+    local validParking = { x1 = edge + 17, x2 = edge + 20,
+        y1 = 1, y2 = 4, z = 0 }
+    local valid, reason = BaseLife.parkingZoneValid(validParking)
+    local tooFar, farReason = BaseLife.parkingZoneValid({
+        x1 = edge + 20, x2 = edge + 21, y1 = 1, y2 = 4, z = 0,
+    })
+    local upstairs, upperReason = BaseLife.parkingZoneValid({
+        x1 = 1, x2 = 2, y1 = 1, y2 = 2, z = 1,
+    })
+    local oversize, sizeReason = BaseLife.parkingZoneValid({
+        x1 = 1, x2 = 17, y1 = 1, y2 = 16, z = 0,
+    })
+    check(valid and not tooFar and farReason == "parking_zone_out_of_reach"
+            and not upstairs and upperReason == "parking_ground_floor_only"
+            and not oversize and sizeReason == "parking_zone_too_large",
+        "parking rectangles share a 256-tile, ground-floor, 20-tile camp band: "
+            .. tostring(reason) .. "/" .. tostring(farReason) .. "/"
+            .. tostring(upperReason) .. "/" .. tostring(sizeReason))
+    local started = BaseLife.beginZone("parking",
+        cell:getGridSquare(validParking.x1, validParking.y1, 0))
+    local finished, parking = BaseLife.finishZone(
+        cell:getGridSquare(validParking.x2, validParking.y2, 0), "Driveway")
+    local snapshot = BaseLife.export()
+    local restored = BaseLife.restore(snapshot)
+    local found = false
+    for _, zone in ipairs(BaseLife.active().zones) do
+        if parking and zone.id == parking.id and zone.kind == "parking" then
+            found = true
+        end
+    end
+    check(started and finished and restored and found,
+        "marked parking retains its name and bounds through base save/restore")
+    local removed = parking and BaseLife.removeZone(parking.id)
+    local offsiteStarted = BaseLife.beginZone("parking",
+        cell:getGridSquare(edge + 21, 1, 0))
+    check(removed and offsiteStarted == false,
+        "parking can be removed and its out-of-band start is refused")
+end
+do
     local fourCorners = {
         { kind = "area", x1 = 0, y1 = 0, x2 = 1, y2 = 1, z = 0 },
         { kind = "area", x1 = 4, y1 = 0, x2 = 5, y2 = 1, z = 0 },

@@ -113,6 +113,27 @@ assert(#fixture.legend == 4 and fixture.legend[1].value == "Base layout"
     "the legend must name each visible zone kind and storage category in its color")
 fixture.legend = {}
 
+local parkingVisual = { id = "zone:parking", kind = "parking", name = "Parking area",
+    x1 = 20, y1 = 10, x2 = 22, y2 = 12, z = 0 }
+fixture.summary.zoneRows[#fixture.summary.zoneRows + 1] = parkingVisual
+fixture.clock = fixture.clock + 500
+fixture.lines, fixture.fills, fixture.labels, fixture.legend = {}, {}, {}, {}
+Events.OnRenderTick.callback()
+Events.OnPreUIDraw.callback()
+local parkingLabel, parkingLegend = false, false
+for _, label in ipairs(fixture.labels) do
+    if label.value == "Parking area" then parkingLabel = true end
+end
+for _, label in ipairs(fixture.legend) do
+    if label.value == "  Parking" then parkingLegend = true end
+end
+assert(parkingLabel and parkingLegend and Visuals.status().visibleZones == 3,
+    "a marked parking area draws its label and legend in the primary view")
+fixture.summary.zoneRows[#fixture.summary.zoneRows] = nil
+fixture.clock = fixture.clock + 500
+fixture.lines, fixture.fills, fixture.labels, fixture.legend = {}, {}, {}, {}
+Events.OnRenderTick.callback()
+
 fixture.splitScreen = true
 fixture.config.baseLayoutLegendX = 1100
 fixture.lines, fixture.fills, fixture.labels = {}, {}, {}
@@ -193,6 +214,19 @@ assert(#fixture.lines == 4 and #fixture.circles == 2
         and fixture.circles[2].x == 15.5 and fixture.circles[2].y == 14.5
         and fixture.lines[1].red < 1,
     "a right-clicked endpoint must remain fixed while the mouse navigates the menu")
+
+fixture.draft = { kind = "parking", first = { x = 20, y = 11, z = 0 },
+    lockedEndpoint = { x = 22, y = 12, z = 0 } }
+fixture.lines, fixture.circles = {}, {}
+Events.OnRenderTick.callback()
+assert(#fixture.lines == 4 and fixture.lines[1].red < 1,
+    "a driveway draft uses parking validation outside the camp boundary")
+fixture.draft.lockedEndpoint = { x = 40, y = 12, z = 0 }
+fixture.lines, fixture.circles = {}, {}
+Events.OnRenderTick.callback()
+assert(#fixture.lines == 4 and fixture.lines[1].red == 1,
+    "an out-of-band driveway previews as invalid")
+fixture.draft = { kind = "work", first = { x = 11, y = 11, z = 0 } }
 
 fixture.draft.lockedEndpoint = nil
 fixture.mouseX, fixture.mouseY = 500, 500

@@ -10,6 +10,8 @@ require "SCPerformance"
 require "SCActor"
 require "SCPersistence"
 require "SCVehicle"
+require "SCDriving"
+require "SCExpeditionRoute"
 require "SCSpawn"
 require "SCFactions"
 require "SCExpeditionPlaces"
@@ -32,6 +34,7 @@ require "SCQuirks"
 require "SCAutonomy"
 require "SCCommands"
 require "SCExpeditionRoute"
+require "SCExpeditionCar"
 require "SCExpeditionPrototype"
 require "SCBaseWatch"
 require "SCFactionRecruitment"
@@ -279,6 +282,9 @@ local function serviceRecord(record, current, currentPlayer)
         and SC.ZombieAttack.isGrabbed(record.actor) == true then
         record.runtime.lastDecision = "grabbed_by_zombies"
         record.runtime.lastDecisionHandled = false
+        if SC.Driving and type(SC.Driving.stop) == "function" then
+            pcall(SC.Driving.stop, record.actor, "survival_priority")
+        end
         -- Stop once when the pin begins. Stopping on every critical beat reset
         -- the native animation each time and made the pinned companion jerk.
         if record.runtime.grabStopped ~= true then
@@ -1153,6 +1159,12 @@ local function registerTasks()
         { "decision", 1, 100, decisionTask, "critical" },
         { "vitals", 25, 80, vitalsTask, "critical" },
         { "vehicle", 250, 70, vehicleTask, "critical" },
+        { "driving", 250, 60, function(current)
+            if SC.Driving and type(SC.Driving.tick) == "function" then
+                return SC.Driving.tick(current)
+            end
+            return true
+        end, "normal" },
         { "restore", 1000, 50, restoreTask, "high" },
         { "trade-recovery", SC.Config.get("tradeRecoveryIntervalMs"), 45,
             tradeRecoveryTask, "high" },
@@ -1765,6 +1777,10 @@ end
 
 function runtime.releaseActor(actor)
     if actor == nil then return false end
+    if SC.Driving and type(SC.Driving.releaseActor) == "function" then
+        local stopped = SC.Driving.releaseActor(actor, "actor_released")
+        if stopped ~= true then return false end
+    end
     criticalDecisionActive[actor] = nil
     if SC.InventoryIndex and type(SC.InventoryIndex.release) == "function" then
         SC.InventoryIndex.release(actor)
@@ -1857,6 +1873,23 @@ function runtime.reset(detach)
     -- Native actor teardown is the reset transaction boundary. If Java still
     -- owns an actor, keep every Lua registry/diagnostic reference intact so a
     -- later retry can finish cleanup instead of orphaning the native object.
+    if SC.Driving and type(SC.Driving.reset) == "function" then
+        local called, released, why = pcall(SC.Driving.reset)
+        if not called or released == false then
+            local restored, rollbackReason = restoreInfrastructure()
+            local detail = "driving teardown incomplete: " .. tostring(called and why or released)
+                .. (restored and "" or "; infrastructure rollback failed: " .. tostring(rollbackReason))
+            if not restored then
+                SC.State.active = false
+                SC.State.disabledReason = detail
+                startupCommitted = false
+                restoreCommitted = false
+                startupFailureReason = detail
+                running = false
+            end
+            return false, detail
+        end
+    end
     if SC.Actor ~= nil and type(SC.Actor.disposeAll) == "function" then
         local ok, disposed, reason = pcall(SC.Actor.disposeAll)
         if not ok or disposed ~= true then

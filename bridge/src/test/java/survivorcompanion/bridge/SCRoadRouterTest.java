@@ -141,6 +141,92 @@ public final class SCRoadRouterTest {
                 && Math.abs(clearWalk.exitX() - 160) < 0.001,
                 "a long off-road walk clear of the horde remains available");
 
+        var doubleBlockNetwork = List.of(
+                line("Main", 10, 10, 110, 10),
+                line("West", 10, 10, 10, 80),
+                line("First bypass", 10, 40, 110, 40),
+                line("Outer bypass", 10, 80, 110, 80),
+                line("East", 110, 80, 110, 10));
+        var firstOnly = SCRoadRouter.routeLinesAvoidingAll(doubleBlockNetwork,
+                20, 10, 100, 10, "60,10,8");
+        var both = SCRoadRouter.routeLinesAvoidingAll(doubleBlockNetwork,
+                20, 10, 100, 10, "60,10,8;60,40,8");
+        check("READY".equals(firstOnly.status())
+                        && firstOnly.points().stream().anyMatch(point -> point.y() == 40)
+                        && firstOnly.points().stream().noneMatch(point -> point.y() == 80),
+                "one blocked edge takes the nearer bypass");
+        check("READY".equals(both.status()) && both.roadLength() > firstOnly.roadLength()
+                        && both.points().stream().anyMatch(point -> point.y() == 80),
+                "two circles cut separate streets, forcing the route round both blocks");
+        check(SCRoadRouter.routeLinesAvoiding(doubleBlockNetwork,
+                        20, 10, 100, 10, 60, 10, 8).points().equals(firstOnly.points()),
+                "the existing one-circle planner remains a wrapper with the same route");
+        check(SCRoadRouter.routeLinesAvoidingAll(network, 20, 10, 100, 10, "").points()
+                        .equals(clear.points()),
+                "an empty avoidance list uses the original road route");
+        String eight = String.join(";", java.util.Collections.nCopies(8, "1000,1000,12"));
+        check("READY".equals(SCRoadRouter.routeLinesAvoidingAll(network,
+                        20, 10, 100, 10, eight).status()),
+                "the full budget of eight valid avoidance circles is accepted");
+        var ninth = SCRoadRouter.routeLinesAvoidingAll(network, 20, 10, 100, 10,
+                eight + ";1000,1000,12");
+        check("INVALID_REQUEST".equals(ninth.status()) && "avoidance_limit".equals(ninth.reason()),
+                "a ninth circle is refused before any route is returned");
+        for (String invalid : new String[] {null, "60,10,8;", "60,10", "NaN,10,8",
+                "60,Infinity,8", "-1,10,8", "30001,10,8", "60,10,3", "60,10,33",
+                "60,10,NaN", "garbage", "x".repeat(1025)}) {
+            var invalidResult = SCRoadRouter.routeLinesAvoidingAll(network,
+                    20, 10, 100, 10, invalid);
+            check("INVALID_REQUEST".equals(invalidResult.status())
+                            && invalidResult.points().isEmpty(),
+                    "malformed or unbounded avoidance text is refused: " + invalid);
+        }
+        var offRoadSecond = SCRoadRouter.routeLinesAvoidingAll(roadNetwork,
+                20, 0, 160, 60, "100,30,8;160,30,8");
+        check("NO_SAFE_ROAD_DETOUR".equals(offRoadSecond.status()),
+                "off-road connectors also honor the second avoidance circle");
+
+        var sourceInside = SCRoadRouter.routeLinesAvoidingAll(network,
+                50, 10, 100, 10, "60,10,12");
+        check("READY".equals(sourceInside.status()) && sourceInside.points().size() >= 4
+                        && sourceInside.points().get(0).x() == 50
+                        && sourceInside.points().get(0).y() == 10
+                        && sourceInside.points().get(1).x() <= 50.001
+                        && Math.hypot(sourceInside.points().get(1).x() - 60,
+                                sourceInside.points().get(1).y() - 10) >= 11.999
+                        && sourceInside.points().stream().anyMatch(point -> point.y() == 40),
+                "a source within the blocked buffer first escapes outward, then takes the bypass");
+        double sourceInsideLength = 0;
+        for (int index = 1; index < sourceInside.points().size(); index++) {
+            var first = sourceInside.points().get(index - 1);
+            var last = sourceInside.points().get(index);
+            sourceInsideLength += Math.hypot(last.x() - first.x(), last.y() - first.y());
+        }
+        check(Math.abs(sourceInside.roadLength() - sourceInsideLength) < 0.001,
+                "the explicit source escape leg counts towards the returned road length");
+        check("NO_SAFE_ROAD_DETOUR".equals(SCRoadRouter.routeLinesAvoidingAll(
+                        List.of(line("Only road", 10, 10, 110, 10)),
+                        50, 10, 100, 10, "60,10,12").status()),
+                "source escape never crosses the blocked circle to fake a connected route");
+        check("NO_SAFE_ROAD_DETOUR".equals(SCRoadRouter.routeLinesAvoidingAll(network,
+                        20, 10, 50, 10, "60,10,12").status()),
+                "the goal within a blocked circle never receives the source escape exception");
+        var overlapping = SCRoadRouter.routeLinesAvoidingAll(network,
+                50, 10, 100, 10, "60,10,12;55,10,12");
+        check("READY".equals(overlapping.status())
+                        && overlapping.points().get(1).x() <= 50.001
+                        && Math.hypot(overlapping.points().get(1).x() - 60,
+                                overlapping.points().get(1).y() - 10) >= 11.999
+                        && Math.hypot(overlapping.points().get(1).x() - 55,
+                                overlapping.points().get(1).y() - 10) >= 11.999,
+                "an escape from overlapping buffers moves outward and leaves both circles");
+        var escapeBlocked = SCRoadRouter.routeLinesAvoidingAll(network,
+                50, 10, 100, 10, "60,10,12;50,30,8");
+        check("READY".equals(escapeBlocked.status())
+                        && escapeBlocked.points().get(1).x() < 50
+                        && escapeBlocked.points().get(1).y() == 10,
+                "source escape cannot enter another circle outside its starting position");
+
         System.out.println("SC_ROAD_ROUTER_PASS checks=" + checks);
     }
 }

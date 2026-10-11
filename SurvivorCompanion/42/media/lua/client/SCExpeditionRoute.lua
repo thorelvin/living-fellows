@@ -81,14 +81,19 @@ end
 
 -- This is called only for review/dispatch and return replanning, never from a
 -- frame tick. The native router returns a bounded geometry and explicit status.
-function Route.plan(actor, target, continuingMission, avoidance)
+local function plan(actor, target, continuingMission, avoidance, circlesText, circles, origin)
     if not Route.enabled() and continuingMission ~= true then
         return nil, "road_routing_unavailable"
     end
-    if actor == nil or type(target) ~= "table" or target.z ~= 0 then
+    if (actor == nil and origin == nil) or type(target) ~= "table" or target.z ~= 0 then
         return nil, "invalid_road_target"
     end
-    local x, y, z = SC.GameplayUtil.position(actor)
+    local x, y, z
+    if origin ~= nil then
+        x, y, z = tonumber(origin.x), tonumber(origin.y), tonumber(origin.z)
+    else
+        x, y, z = SC.GameplayUtil.position(actor)
+    end
     if x == nil or y == nil or z ~= 0 then
         return nil, "road_source_unavailable"
     end
@@ -104,7 +109,10 @@ function Route.plan(actor, target, continuingMission, avoidance)
     end
     local result = {}
     local called, accepted
-    if avoidance ~= nil then
+    if circlesText ~= nil then
+        called, accepted = SC.Call.static(bridge,
+            "planRoadRouteAvoidingAll", api, x, y, target.x, target.y, circlesText, result)
+    elseif avoidance ~= nil then
         called, accepted = SC.Call.static(bridge,
             "planRoadRouteAvoiding", api, x, y, target.x, target.y,
             avoidance.x, avoidance.y, avoidance.radius, result)
@@ -132,7 +140,34 @@ function Route.plan(actor, target, continuingMission, avoidance)
         goal = { x = target.x, y = target.y, z = target.z },
         avoidance = avoidance and { x = avoidance.x, y = avoidance.y,
             radius = avoidance.radius } or nil,
+        avoidances = circles,
     }, nil, result
+end
+
+function Route.plan(actor, target, continuingMission, avoidance)
+    return plan(actor, target, continuingMission, avoidance)
+end
+
+-- Review and dispatch must route from the selected car's actual centre. The
+-- leader may be upstairs or far from the parking area; moving an actor to
+-- preview a route would alter the game world.
+function Route.planFromPoint(origin, target, continuingMission)
+    if type(origin) ~= "table" then return nil, "road_source_unavailable" end
+    return plan(nil, target, continuingMission, nil, nil, nil, origin)
+end
+
+function Route.planAvoidingAll(actor, target, circles)
+    if type(circles) ~= "table" or #circles > 8 then return nil, "invalid_road_avoidance" end
+    local parts, copied = {}, {}
+    for key, circle in pairs(circles) do
+        if type(key) ~= "number" or key % 1 ~= 0 or key < 1 or key > #circles
+            or not validAvoidance(circle) then return nil, "invalid_road_avoidance" end
+    end
+    for _, circle in ipairs(circles) do
+        copied[#copied + 1] = { x = circle.x, y = circle.y, radius = circle.radius }
+        parts[#parts + 1] = string.format("%.2f,%.2f,%.2f", circle.x, circle.y, circle.radius)
+    end
+    return plan(actor, target, true, nil, table.concat(parts, ";"), copied)
 end
 
 -- Use the leader's fresh visual contacts. A horde elsewhere in sight need not

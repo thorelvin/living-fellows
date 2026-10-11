@@ -15350,6 +15350,11 @@ Harness.probeWaterSource = function(...)
     return externalProbe("SCWaterSourceProbe", ...)
 end
 
+Harness.probeDriving = function(...)
+    return externalProbe("SCDrivingProbe", ...)
+end
+Harness.drivingSignals = { write = writeSignal, exists = fileExists }
+
 Harness.probeStrangeFolkPortrait = function(...)
     return externalProbe("SCStrangeFolkPortraitProbe", ...)
 end
@@ -15595,6 +15600,8 @@ local function tick()
         Harness.probeBaseSecondFloor(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "water_source_", 1, true) == 1 then
         Harness.probeWaterSource(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "drive_", 1, true) == 1 then
+        Harness.probeDriving(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "chef_", 1, true) == 1 then
         Harness.probeChefRecipes(current)
     elseif Harness.phase == "alife_wait" or Harness.phase == "alife_companion_spawn"
@@ -16384,6 +16391,8 @@ local function onGameStart()
         setPhase("base_second_floor_setup", Harness.startedAt)
     elseif Harness.config.water_source_probe == "true" then
         setPhase("water_source_setup", Harness.startedAt)
+    elseif Harness.config.driving_probe == "true" then
+        setPhase("drive_setup", Harness.startedAt)
     elseif Harness.config.chef_recipes_probe == "true" then
         setPhase("chef_recipes_begin", Harness.startedAt)
     elseif Harness.config.project_alife_damage_probe == "true" then

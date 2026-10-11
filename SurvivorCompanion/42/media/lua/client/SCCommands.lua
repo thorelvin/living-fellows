@@ -2138,6 +2138,27 @@ local function showConversation(actor, entry, state, id, action, player)
     return true, "conversation_approaching"
 end
 
+-- Only commands which transfer physical control preempt the driving lease.
+-- Conversation and policy/read-only controls retain a companion's wheel.
+local driveControlCommands = {
+    follow = true, cautious_follow = true, stay = true, guard = true,
+    regroup = true, retreat = true, move_to = true, base_duty = true, set_base_role = true,
+    open_door = true, close_door = true, check_room = true,
+    barricade = true, remove_barricade = true, dismantle = true,
+    board_vehicle = true, exit_vehicle = true, dismiss = true, recruit = true,
+    open_health = true, bandage = true, faction_membership = true,
+}
+
+local function preemptDrivingForOrder(actor, command)
+    if not driveControlCommands[command] or not SC.Driving
+        or type(SC.Driving.stop) ~= "function" then return true end
+    local called, stopped, why = pcall(SC.Driving.stop, actor, "player_order")
+    if not called or stopped ~= true then
+        return false, "drive_release_failed:" .. tostring(called and why or stopped)
+    end
+    return true
+end
+
 local function issueOne(companionId, command, payload, player)
     local actor, entry, reason = resolve(companionId)
     if not actor then return false, reason end
@@ -2178,6 +2199,8 @@ local function issueOne(companionId, command, payload, player)
     local before, copyReason = copyCommandState(state)
     if not before then return false, "command_state_copy_failed:" .. tostring(copyReason) end
     local storageBefore = snapshotStorage(actor, entry)
+    local driveReleased, driveReason = preemptDrivingForOrder(actor, command)
+    if not driveReleased then return false, driveReason end
     local ok, a, b, c = U().safeSubsystem("commands", actor, function()
         return handler(actor, entry, state, payload, player)
     end)
@@ -2431,6 +2454,10 @@ local function issueMemberSetAtomic(members, command, payload, player)
 
     -- Persist the staged states. A failure restores every member's exact prior
     -- command state and stable storage, including the member that failed.
+    for _, plan in ipairs(plans) do
+        local released, releaseReason = preemptDrivingForOrder(plan.actor, command)
+        if not released then return false, "group_prevalidation:" .. releaseReason, results end
+    end
     for index, plan in ipairs(plans) do
         local persisted, persistenceError = pcall(writeStable, plan.actor, plan.entry, plan.staged)
         if not persisted then
@@ -2856,6 +2883,9 @@ local function transitionFactionMembership(actor, specification, player)
         and current.recruited ~= specification.expectedRecruited then
         return false, "recruitment_state_changed"
     end
+
+    local driveReleased, driveReason = preemptDrivingForOrder(actor, "faction_membership")
+    if not driveReleased then return false, driveReason end
 
     local before, beforeReason = copyCommandState(current)
     if not before then

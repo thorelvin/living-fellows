@@ -24,6 +24,13 @@ local scheduledSave = nil
 local scheduledSaveRetryAt = 0
 local captureYieldHook = nil
 
+local function driverKeySaveReady()
+    if SC.Vehicle and type(SC.Vehicle.validateDriverKeyRecovery) == "function" then
+        return SC.Vehicle.validateDriverKeyRecovery()
+    end
+    return true
+end
+
 local function captureYieldPoint()
     if captureYieldHook ~= nil then captureYieldHook() end
 end
@@ -1663,6 +1670,8 @@ local function scheduledDocument(current)
 end
 
 function persistence.requestScheduledSave(player)
+    local keyReady, keyReason = driverKeySaveReady()
+    if not keyReady then return false, keyReason end
     local current = type(getTimestampMs) == "function" and tonumber(getTimestampMs()) or 0
     if scheduledSave ~= nil then return true, "already_pending" end
     if current < scheduledSaveRetryAt then return false, "retry_delayed" end
@@ -1981,6 +1990,8 @@ function persistence.pulse()
     local clock = type(getTimestampMs) == "function" and getTimestampMs
         or function() return math.floor((os.clock and os.clock() or 0) * 1000) end
     local current = tonumber(clock()) or 0
+    local keyReady, keyReason = driverKeySaveReady()
+    if not keyReady then return abortScheduledSave(job, keyReason, current) end
     -- The deadline bounds live capture work. Real time spent paused, loading or
     -- with the background lane deferred by busy frames is not capture work, so
     -- any delay past the grace shifts both the soft deadline and active-work
@@ -2181,6 +2192,8 @@ function persistence.pulse()
 end
 
 function persistence.save(player)
+    local keyReady, keyReason = driverKeySaveReady()
+    if not keyReady then return false, keyReason end
     persistence.cancelPendingSave("synchronous save")
     local store, storeReason = worldData()
     if store == nil then
@@ -3580,6 +3593,16 @@ local function initializeRestoredActor(actor, input, saved)
     return true
 end
 
+local function postCommittedRestore(actor, saved)
+    if actor and SC.Vehicle and type(SC.Vehicle.recoverRestoredDriverKey) == "function" then
+        local called, recovered, reason = pcall(SC.Vehicle.recoverRestoredDriverKey, actor, saved)
+        if not called or recovered ~= true then
+            SC.Diagnostics.report("vehicle-key", saved.id, "restored driver key recovery deferred",
+                tostring(called and reason or recovered))
+        end
+    end
+end
+
 function persistence.restoreAt(saved, square)
     if type(saved) ~= "table" or not SC.Registry.isValidId(saved.id) or square == nil then
         return nil, "valid saved record and loaded square are required"
@@ -3610,12 +3633,14 @@ function persistence.restoreAt(saved, square)
         end,
     }
     if type(SC.Actor.beginSpawn) ~= "function" then
-        return SC.Actor.spawn(square, profile)
+        local actor, result = SC.Actor.spawn(square, profile)
+        postCommittedRestore(actor, saved)
+        return actor, result
     end
     local ticket, reason = SC.Actor.beginSpawn(square, profile)
     if ticket == nil then return nil, reason end
     local actor, result = SC.Actor.pollSpawn(ticket)
-    if actor ~= nil then return actor, result end
+    if actor ~= nil then postCommittedRestore(actor, saved) return actor, result end
     if result == "spawn_pending" then return nil, result, ticket end
     return nil, result
 end
@@ -3854,6 +3879,7 @@ function persistence.restorePulse(player)
                 if entry.spawnTicket ~= nil then
                     local actor, result = SC.Actor.pollSpawn(entry.spawnTicket)
                     if actor ~= nil then
+                        postCommittedRestore(actor, entry.record)
                         entry.spawnTicket = nil
                         pending[id] = nil
                     elseif result == "spawn_pending" then
@@ -4334,6 +4360,10 @@ function persistence.restoreStatus()
 end
 
 function persistence.prepareReset()
+    if SC.Vehicle and type(SC.Vehicle.prepareDriverKeyReset) == "function" then
+        local settled, reason = SC.Vehicle.prepareDriverKeyReset()
+        if not settled then return false, reason end
+    end
     return preparePendingCancellation("persistence reset")
 end
 

@@ -37,6 +37,7 @@ local ZONE_COLORS = {
     fishing = { r = 0.12, g = 0.70, b = 0.92 },
     burial = { r = 0.62, g = 0.66, b = 0.78 },
     pyre = { r = 1.00, g = 0.42, b = 0.10 },
+    parking = { r = 0.48, g = 0.66, b = 0.75 },
 }
 
 local STORAGE_COLORS = {
@@ -382,6 +383,13 @@ local function draftIsValid(draft, endpoint)
     if not SC.BaseLife or type(SC.BaseLife.zoneInsideAreaUnion) ~= "function" then return false end
     local x1, x2 = math.min(draft.first.x, endpoint.x), math.max(draft.first.x, endpoint.x)
     local y1, y2 = math.min(draft.first.y, endpoint.y), math.max(draft.first.y, endpoint.y)
+    if draft.kind == "parking" then
+        if type(SC.BaseLife.parkingZoneValid) ~= "function" then return false end
+        local ok, valid = pcall(SC.BaseLife.parkingZoneValid, {
+            x1 = x1, y1 = y1, x2 = x2, y2 = y2, z = endpoint.z,
+        })
+        return ok and valid == true
+    end
     local ok, inside = pcall(SC.BaseLife.zoneInsideAreaUnion, {
         x1 = x1, y1 = y1, x2 = x2, y2 = y2, z = endpoint.z,
     })
@@ -707,7 +715,7 @@ local function renderCompanionLabels(occupied)
     return drawn
 end
 
-local LEGEND_ZONES = { "area", "work", "lumber", "farm", "fishing", "burial", "pyre", "rest", "social",
+local LEGEND_ZONES = { "area", "parking", "work", "lumber", "farm", "fishing", "burial", "pyre", "rest", "social",
     "guard", "rally", "quarantine" }
 local LEGEND_STORAGE = { "food", "water", "medical", "tools", "construction", "crafting",
     "literature", "weapons", "ammunition", "general", "output", "memorial", "farming" }

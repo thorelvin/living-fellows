@@ -54,6 +54,12 @@ public final class SCNativeCompanion extends IsoPlayer {
     private volatile boolean bridgeCoopLeaderForProbe;
     private volatile boolean coldBootstrapHiddenForProbe;
     private final SCCompanionComfort bridgeComfort = new SCCompanionComfort();
+    private final SCCompanionDriver bridgeDriver = new SCCompanionDriver();
+
+    /** The bridge's driving state for this companion. Package-private: Lua goes through SCBridge. */
+    SCCompanionDriver companionDriver() {
+        return bridgeDriver;
+    }
 
     /** Live Mod Options affect only this native companion's ordinary cold. */
     public void setCompanionOrdinaryColdsEnabled(boolean enabled) {
@@ -2258,6 +2264,8 @@ public final class SCNativeCompanion extends IsoPlayer {
     public void OnDeath() {
         if (bridgeDeathStarted) return;
         bridgeDeathStarted = true;
+        // A dead driver's last pedal stays in Bullet until someone parks the car.
+        bridgeDriver.stop(this, "driver_dead");
         StopAllActionQueue();
         if (isAsleep()) setAsleep(false);
         dropHandItems();
@@ -2312,6 +2320,7 @@ public final class SCNativeCompanion extends IsoPlayer {
             clearBridgeOnBedRenderLift();
         }
         if (bridgeDisabled) {
+            if (bridgeDriver.isActive()) bridgeDriver.stop(this, "bridge_disabled");
             return;
         }
         expireConstructionHide();
@@ -2325,6 +2334,7 @@ public final class SCNativeCompanion extends IsoPlayer {
             refreshBridgeFloorAttackInput();
             boolean seated = getVehicle() != null;
             if (seated) suspendBridgeLocomotion();
+            else if (bridgeDriver.isActive()) bridgeDriver.stop(this, "left_driver_seat");
             reconcileBridgePathState();
             synchronizePlayerLocomotion();
             genericUpdateActive = true;
@@ -2338,6 +2348,9 @@ public final class SCNativeCompanion extends IsoPlayer {
                 updateLOS();
             }
             if (seated) {
+                // A driving companion's pedals and wheel must be set before the
+                // vanilla in-vehicle update hands them to the car's controller.
+                bridgeDriver.beforeVehicleUpdate(this, getVehicle());
                 updatePlayerVehicleState();
             } else {
                 // Keep the on-foot player action group active every frame, not

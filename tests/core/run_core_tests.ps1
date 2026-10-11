@@ -101,7 +101,9 @@ try {
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCSpeechNameplateLiftTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCConstructionHideTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCCompanionComfortTest.java') `
-        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCMovementClearanceTest.java')
+        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCMovementClearanceTest.java') `
+        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCCompanionDrivingTest.java') `
+        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCRoadFollowerTest.java')
     if ($LASTEXITCODE -ne 0) { throw 'Core Java test harness compilation failed.' }
 
     $allLua = @(Get-ChildItem -LiteralPath $Payload -Recurse -Filter '*.lua' -File | Sort-Object FullName | ForEach-Object FullName)
@@ -131,6 +133,7 @@ try {
         (Join-Path $Client 'SCNames.lua'),
         (Join-Path $Client 'SCActor.lua'),
         (Join-Path $Client 'SCVehicle.lua'),
+        (Join-Path $Client 'SCDriving.lua'),
         (Join-Path $Client 'SCPerformance.lua'),
         (Join-Path $Client 'SCScheduler.lua'),
         (Join-Path $Client 'SCPersistence.lua'),
@@ -167,11 +170,36 @@ try {
         )
         Add-ScJvmStep 'view-control' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $viewControlFiles 'Companion Peek camera-control harness failed.'
 
+        $drivingFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCCall.lua'),
+            (Join-Path $Shared 'SCStableValue.lua'),
+            (Join-Path $Shared 'SCConfig.lua'),
+            (Join-Path $TestRoot 'driving_fixture.lua'),
+            (Join-Path $Client 'SCActionSupervisor.lua'),
+            (Join-Path $Client 'SCScheduler.lua'),
+            (Join-Path $Client 'SCExpeditionRoute.lua'),
+            (Join-Path $Client 'SCDriving.lua'),
+            (Join-Path $Client 'SCCommands.lua'),
+            (Join-Path $Client 'SCDecision.lua'),
+            (Join-Path $Client 'SCRuntime.lua'),
+            (Join-Path $TestRoot 'driving_harness.lua')
+        )
+        Add-ScJvmStep 'driving' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $drivingFiles 'Driving ownership, emergency control and bounded replanning harness failed.'
+        $expeditionCarFiles = @(
+            (Join-Path $TestRoot 'expedition_car_fixture.lua'),
+            (Join-Path $Client 'SCExpeditionCar.lua'),
+            (Join-Path $TestRoot 'expedition_car_harness.lua')
+        )
+        Add-ScJvmStep 'expedition-car' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $expeditionCarFiles 'Expedition car preflight, seat ownership and checked restart harness failed.'
+
         $expeditionRestartFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Client 'SCViewSession.lua'),
             (Join-Path $Client 'SCExpeditionRoute.lua'),
             (Join-Path $Client 'SCStairTransition.lua'),
+            (Join-Path $Client 'SCExpeditionCar.lua'),
             (Join-Path $Client 'SCExpeditionPrototype.lua'),
             (Join-Path $TestRoot 'expedition_restart_harness.lua')
         )
@@ -541,6 +569,8 @@ try {
     Add-ScJvmStep 'sc-construction-hide' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCConstructionHideTest') @() 'Companion construction-hide deadline gate failed.'
     Add-ScJvmStep 'sc-companion-comfort' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCCompanionComfortTest') @() 'Companion cold/symptom policy gate failed.'
     Add-ScJvmStep 'sc-movement-clearance' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCMovementClearanceTest') @() 'Companion wedge-escape clearance gate failed.'
+    Add-ScJvmStep 'sc-companion-driving' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCCompanionDrivingTest') @() 'Companion cruise control and lane scan gate failed.'
+    Add-ScJvmStep 'sc-road-follower' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCRoadFollowerTest') @() 'Route following, wreck avoidance and turning round gate failed.'
 
     $clothingCatalog = Join-Path $GameRoot 'media\clothing\clothing.xml'
     [xml]$clothing = Get-Content -LiteralPath $clothingCatalog -Raw -Encoding utf8
