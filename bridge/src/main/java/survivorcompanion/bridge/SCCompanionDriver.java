@@ -392,9 +392,9 @@ final class SCCompanionDriver {
 
     /**
      * A zombie the moving car touches dies on the spot, killed by the driver.
-     * Contact is the car's body box grown by {@link #RAM_MARGIN}; the kill is
-     * the game's own {@code Kill}, so the corpse, death events and kill credit
-     * all behave as for any other kill.
+     * Contact is the car's body box grown by {@link #RAM_MARGIN}. The margin
+     * compensates for native collision displacement, but cannot cross a wall.
+     * The kill is the game's own {@code Kill}, so corpse and credit are native.
      */
     private void ramZombies(IsoGameCharacter driver, BaseVehicle current) {
         if (Math.abs(speedKmh) < RAM_MIN_KMH) return;
@@ -411,6 +411,12 @@ final class SCCompanionDriver {
         int centerX = (int) Math.floor(carX);
         int centerY = (int) Math.floor(carY);
         int z = (int) Math.floor(current.getZ());
+        ClearEdge clearEdge = (fromX, fromY, toX, toY, floor) -> {
+            IsoGridSquare from = cell.getGridSquare(fromX, fromY, floor);
+            IsoGridSquare to = cell.getGridSquare(toX, toY, floor);
+            return from != null && to != null && !from.isBlockedTo(to)
+                    && !to.isSolid() && !to.isSolidTrans();
+        };
         for (int dx = -RAM_RADIUS; dx <= RAM_RADIUS; dx++) {
             for (int dy = -RAM_RADIUS; dy <= RAM_RADIUS; dy++) {
                 IsoGridSquare square = cell.getGridSquare(centerX + dx, centerY + dy, z);
@@ -421,7 +427,9 @@ final class SCCompanionDriver {
                     if (mover instanceof IsoZombie zombie && !zombie.isDead()
                             && !zombie.isOnKillDone()
                             && touches(carX, carY, headingX, headingY, body,
-                                    zombie.getX(), zombie.getY())) {
+                                    zombie.getX(), zombie.getY())
+                            && topologyClear(carX, carY, zombie.getX(), zombie.getY(), z,
+                                    clearEdge)) {
                         zombie.Kill(driver);
                         zombiesKilled++;
                     }
@@ -438,6 +446,38 @@ final class SCCompanionDriver {
         float along = dx * headingX + dy * headingY;
         float side = -dx * headingY + dy * headingX;
         return Math.abs(along) <= body[1] + RAM_MARGIN && Math.abs(side) <= body[0] + RAM_MARGIN;
+    }
+
+    @FunctionalInterface
+    interface ClearEdge {
+        boolean clear(int fromX, int fromY, int toX, int toY, int z);
+    }
+
+    /** Conservative loaded-square trace from the car to a prospective hit. */
+    static boolean topologyClear(float carX, float carY, float x, float y,
+                                 int z, ClearEdge edge) {
+        int lastX = (int) Math.floor(carX);
+        int lastY = (int) Math.floor(carY);
+        int steps = Math.max(1, (int) Math.ceil(Math.hypot(x - carX, y - carY) * 5.0));
+        for (int i = 1; i <= steps; i++) {
+            float fraction = (float) i / steps;
+            int nextX = (int) Math.floor(carX + (x - carX) * fraction);
+            int nextY = (int) Math.floor(carY + (y - carY) * fraction);
+            if (nextX != lastX && nextY != lastY) {
+                // A diagonal can graze either side of a corner. Both routes
+                // must be clear before treating the enlarged box as contact.
+                if (!edge.clear(lastX, lastY, nextX, lastY, z)
+                        || !edge.clear(lastX, lastY, lastX, nextY, z)
+                        || !edge.clear(nextX, lastY, nextX, nextY, z)
+                        || !edge.clear(lastX, nextY, nextX, nextY, z)) return false;
+            } else if ((nextX != lastX || nextY != lastY)
+                    && !edge.clear(lastX, lastY, nextX, nextY, z)) {
+                return false;
+            }
+            lastX = nextX;
+            lastY = nextY;
+        }
+        return true;
     }
 
     private void write(CarController.ClientControls controls, SCDriveControl.Input input) {

@@ -506,6 +506,33 @@ local function teamOnFoot(mission)
     return true
 end
 
+local function wholeTeamOnFoot(mission)
+    for _, member in ipairs(mission.roster or {}) do
+        if not member.actor or not mission.members[member.actor] then
+            return false
+        end
+    end
+    return teamOnFoot(mission)
+end
+
+local function abandonToWalking(mission, trip, car)
+    local scout = mission.scout
+    local leader = mission.leader and mission.leader.actor
+    local x, y, z
+    if leader then x, y, z = SC.GameplayUtil.position(leader) end
+    if not x or not y or not z then return false, "leader_position_unavailable" end
+    trip.state = "abandoned"
+    trip.abandonedAt = car and point(car) or trip.position
+    scout.phase = trip.leg == "home" and "inbound" or "outbound"
+    scout.travelMode = "straight"
+    scout.roadRoute, scout.road = nil, nil
+    scout.trail = { { x = math.floor(x), y = math.floor(y),
+        z = math.floor(z) } }
+    scout.lastStalledTarget = nil
+    scout.replans, scout.returnIndex = 0, nil
+    return true
+end
+
 local function stopAndUnload(mission, trip, car)
     local leader = mission.leader and mission.leader.actor
     if leader and SC.Driving.isDriving(leader) then
@@ -549,7 +576,91 @@ local function carLoaded(trip)
         and SC.Vehicle.loadedBySqlId(trip.sqlId) or nil
 end
 
-function Car.requestReturn(mission, now)
+-- A dead driver cannot run the normal car pulse. Finish the physical stop and
+-- evacuate living passengers before the expedition hands its view to a new
+-- leader (or tears the view down when everybody has died). Each step is
+-- retryable: a blocked exit or a delayed native stop leaves the trip active.
+function Car.recoverDeadDriver(mission)
+    local scout = mission and mission.scout
+    local trip = scout and scout.vehicle
+    if not trip or trip.state == "abandoned" then return true end
+    local alreadyWalking = trip.state == "parked_at_site"
+        or trip.state == "home_wait"
+    local driver = mission.leader and mission.leader.actor
+    if driver then
+        local stopped, why = SC.Driving.release(driver,
+            "expedition_driver_dead")
+        if stopped ~= true then return false, why or "drive_stop_pending" end
+    end
+    local car = carLoaded(trip)
+    local seated = {}
+    for _, member in ipairs(mission.roster or {}) do
+        local actor = member.actor
+        local deadOk, dead = false, nil
+        if actor then deadOk, dead = call(actor, "isDead") end
+        if actor and mission.members[actor] and deadOk and dead == false then
+            local inside, current, seat = SC.Vehicle.isNativeSeated(actor)
+            if inside or current ~= nil then
+                if not car then return false, "car_not_loaded" end
+                if not inside or current ~= car
+                    or seat ~= trip.seats[member.id] then
+                    return false, "wrong_vehicle_or_seat"
+                end
+                seated[#seated + 1] = { actor = actor, seat = seat }
+            end
+        end
+    end
+    if #seated > 0 then
+        local stationary, why = SC.Vehicle.isStationary(car)
+        if not stationary then return false, why or "car_not_stopped" end
+        for _, passenger in ipairs(seated) do
+            local exited, reason = SC.Vehicle.exit(passenger.actor, car,
+                passenger.seat, { expedition = true })
+            if not exited then return false, reason or "exit_blocked" end
+        end
+        for _, passenger in ipairs(seated) do
+            local inside, current = SC.Vehicle.isNativeSeated(passenger.actor)
+            if inside or current ~= nil then return false, "unload_unverified" end
+        end
+    end
+    trip.abandonedAt = car and point(car) or trip.position
+    trip.state = "abandoned"
+    trip.blocker, trip.resumeState = nil, nil
+    if not alreadyWalking and scout.phase ~= "awaiting_player" then
+        scout.phase = trip.leg == "home" and "inbound" or "outbound"
+    end
+    scout.travelMode = "straight"
+    if not alreadyWalking then
+        scout.roadRoute, scout.road = nil, nil
+        scout.lastStalledTarget = nil
+        scout.replans, scout.returnIndex = 0, nil
+        for _, member in ipairs(mission.roster or {}) do
+            local actor = member.actor
+            local deadOk, dead = false, nil
+            if actor then deadOk, dead = call(actor, "isDead") end
+            if actor and mission.members[actor] and deadOk and dead == false then
+                local x, y, z = SC.GameplayUtil.position(actor)
+                if x and y and z then
+                    scout.trail = { { x = math.floor(x), y = math.floor(y),
+                        z = math.floor(z) } }
+                end
+                break
+            end
+        end
+    end
+    return true
+end
+
+local function recordReturnIntent(scout, reason)
+    reason = reason or "radio_return"
+    if scout.search then
+        scout.search.endReason = reason
+    else
+        scout.endReason = reason
+    end
+end
+
+function Car.requestReturn(mission, now, reason)
     local scout = mission and mission.scout
     local trip = scout and scout.vehicle
     if not trip or trip.state == "abandoned" then return false, "no_car_trip" end
@@ -565,21 +676,26 @@ function Car.requestReturn(mission, now)
         local stopped, why = SC.Driving.release(driver,
             "expedition_return_requested")
         if not stopped then return false, why or "drive_stop_pending" end
+        recordReturnIntent(scout, reason)
         trip.leg, trip.state = "home", "boarding_home"
         scout.phase = "boarding_home"
         trip.boardStartedAt = now
         return true, "returning_by_car"
     end
     if trip.state == "walking_to_car" or trip.state == "boarding_out" then
+        recordReturnIntent(scout, reason)
+        trip.leg = "home"
         trip.state, scout.phase = "boarding_rollback", "boarding_rollback"
         trip.blocker = "return_requested_before_departure"
         return true, "returning_from_parking"
     end
     if trip.state == "unloading_site" then
+        recordReturnIntent(scout, reason)
         trip.returnRequested = true
         return true, "return_after_unloading"
     end
     if trip.state == "parked_at_site" then
+        recordReturnIntent(scout, reason)
         trip.leg, trip.state = "home", "returning_to_car"
         scout.phase = "returning_to_car"
         trip.boardStartedAt = now
@@ -801,6 +917,15 @@ local restartWalkingReason = {
     driver_needs_key = true,
 }
 
+local parkingRetryReason = {
+    road_access_blocked = true,
+    road_access_not_loaded = true,
+    road_access_vehicle_blocked = true,
+    parking_bay_blocked = true,
+    parking_not_loaded = true,
+    parking_exit_blocked = true,
+}
+
 function Car.pulse(mission, now, worldHour)
     local scout = mission and mission.scout
     local trip = scout and scout.vehicle
@@ -814,18 +939,59 @@ function Car.pulse(mission, now, worldHour)
     end
     if trip.state == "held" then
         -- A chunk or roster actor can appear after the restore callback. A
-        -- temporary wait must resume the saved leg automatically once both
-        -- are present; explicit/player holds must never be restarted here.
+        -- temporary wait resumes the saved leg once both are present. A car
+        -- that never reloads can be left behind only after the entire roster
+        -- is present and safely on foot.
         if trip.resumeState == "interrupted_by_load"
-            and restartWaitReason[trip.blocker]
-            and now >= (trip.nextRestartCheckAt or 0) then
-            trip.nextRestartCheckAt = now + 2000
-            if carLoaded(trip) then
-                trip.state = "interrupted_by_load"
-                trip.blocker = nil
-                trip.missingSince = nil
+            and restartWaitReason[trip.blocker] then
+            if now >= (trip.nextRestartCheckAt or 0) then
+                trip.nextRestartCheckAt = now + 2000
+                if carLoaded(trip) then
+                    trip.state = "interrupted_by_load"
+                    trip.blocker = nil
+                    trip.missingSince = nil
+                elseif trip.blocker == "car_not_loaded"
+                    and wholeTeamOnFoot(mission) then
+                    trip.recoveryAt = trip.recoveryAt or now + 60000
+                    if now >= trip.recoveryAt then
+                        local abandoned, why = abandonToWalking(mission, trip)
+                        if not abandoned then trip.blocker = why end
+                    end
+                end
             end
+            return true
         end
+        -- A hold outside load restoration has no manual resume action. Give a
+        -- transient obstruction time to clear, then stop and leave the car
+        -- through the same verified exit path as a failed drive. If the car is
+        -- gone, walk only after the entire roster is present and on foot.
+        trip.recoveryAt = trip.recoveryAt or now + 15000
+        local heldCar = carLoaded(trip)
+        if heldCar and SC.Vehicle.hasPlayerAboard
+            and SC.Vehicle.hasPlayerAboard(heldCar) then return true end
+        if heldCar and trip.resumeState == "parking_home"
+            and parkingRetryReason[trip.blocker]
+            and now < trip.recoveryAt
+            and now >= (trip.nextRecoveryCheckAt or 0) then
+            trip.nextRecoveryCheckAt = now + 2000
+            trip.state, scout.phase = "parking_home", "parking_home"
+            trip.blocker = nil
+            return true
+        end
+        if now < trip.recoveryAt then return true end
+        if not heldCar then
+            if not wholeTeamOnFoot(mission) then return true end
+            local leader = mission.leader and mission.leader.actor
+            if leader and SC.Driving.isDriving(leader) then
+                local stopped, why = SC.Driving.release(leader,
+                    "expedition_car_unloaded")
+                if not stopped then trip.blocker = why return true end
+            end
+            local abandoned, why = abandonToWalking(mission, trip)
+            if not abandoned then trip.blocker = why end
+            return true
+        end
+        trip.state, scout.phase = "fallback_unloading", "fallback_unloading"
         return true
     end
     if trip.leg == "outbound" and worldHour
@@ -834,7 +1000,10 @@ function Car.pulse(mission, now, worldHour)
         and (trip.state == "walking_to_car"
             or trip.state == "boarding_out"
             or trip.state == "driving_out") then
-        local requested, why = Car.requestReturn(mission, now)
+        local returnReason = scout.turnHomeAtHour
+            and worldHour >= scout.turnHomeAtHour
+            and "return_time_reached" or "arrival_reserve_reached"
+        local requested, why = Car.requestReturn(mission, now, returnReason)
         if not requested then trip.blocker = why end
         return true
     end
@@ -907,6 +1076,16 @@ function Car.pulse(mission, now, worldHour)
         local started, reason = SC.Driving.drive(mission.leader.actor,
             goal, { speedKmh = 10 })
         if not started then
+            if type(reason) == "string"
+                and reason:sub(1, 9) == "deferred:" then
+                if now - (trip.boardStartedAt or now) > 120000 then
+                    trip.state, trip.blocker = "boarding_rollback",
+                        "drive_deferred_deadline"
+                else
+                    trip.blocker = reason
+                end
+                return true
+            end
             trip.state, trip.blocker = "boarding_rollback", reason
             return true
         end
@@ -1004,14 +1183,9 @@ function Car.pulse(mission, now, worldHour)
         elseif trip.state == "unloading_home" then
             trip.state, scout.phase = "home_wait", "awaiting_player"
         else
-            trip.state = "abandoned"
-            trip.abandonedAt = at
-            scout.phase = trip.leg == "home" and "inbound" or "outbound"
-            scout.travelMode = "straight"
-            scout.roadRoute, scout.road = nil, nil
-            scout.trail = { { x = math.floor(mission.leader.actor:getX()),
-                y = math.floor(mission.leader.actor:getY()), z = 0 } }
-            scout.returnIndex = nil
+            local abandoned, abandonReason = abandonToWalking(
+                mission, trip, car)
+            if not abandoned then trip.blocker = abandonReason end
         end
         return true
     end

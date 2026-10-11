@@ -2,6 +2,14 @@
 
 # Changelog
 
+## 0.26.38 - Car expedition recovery
+
+- A car expedition can recover when its driver dies: it stops the car, gets living passengers out through verified exits, chooses a new leader, and continues on foot. A blocked exit waits and reports why.
+- A recall while the squad is boarding or driving records the return reason, so saved missions still head home after reload. Older car saves missing that reason are migrated when restored.
+- A temporarily blocked parking bay gets a short retry. If the obstruction persists, the squad leaves the car safely and continues on foot. A car missing after load receives a bounded wait for the full team before foot recovery.
+- Bounded driving deferrals prevent boarding from looping forever. Car positions retain fractional coordinates through save validation, and the support report includes the car leg, state and blocker.
+- Companion gifts are accepted only while the offered item still belongs to that companion and remains giftable. Vehicle collision checks avoid ramming zombies through solid walls.
+
 ## 0.26.37 - Car expeditions and camp gifts
 
 - Added ground-floor Parking areas to camp marking and overlays. Expeditions now offer **Drive car** alongside walking routes, with a selected car, visible refusal reasons, and checks for real seats, key, fuel, mechanical condition and road access.

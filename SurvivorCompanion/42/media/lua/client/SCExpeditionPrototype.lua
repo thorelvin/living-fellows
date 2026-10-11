@@ -56,6 +56,12 @@ local function validWorldCoordinate(value)
     return type(value) == "number" and value == value
         and value >= 0 and value <= 30000
 end
+local function validWorldPosition(point)
+    return type(point) == "table" and validWorldCoordinate(point.x)
+        and validWorldCoordinate(point.y) and type(point.z) == "number"
+        and point.z == math.floor(point.z)
+        and point.z >= -16 and point.z <= 16
+end
 local function validAvoidance(value)
     return type(value) == "table" and validWorldCoordinate(value.x)
         and validWorldCoordinate(value.y) and type(value.radius) == "number"
@@ -200,7 +206,8 @@ local function unstartedSearchReturn(itinerary)
     local reason = itinerary.search and itinerary.search.endReason
     return (reason == "return_time_reached" and itinerary.turnHomeAtHour ~= nil)
         or (reason == "arrival_reserve_reached" and itinerary.arriveByHour ~= nil)
-        or reason == "radio_return" or reason == "squad_wounded"
+        or reason == "radio_return" or reason == "legacy_car_return"
+        or reason == "squad_wounded"
         or reason == "horde_no_safe_detour" or reason == "site_unreachable"
         or reason == "road_path_unreachable"
         or reason == "straight_path_unreachable"
@@ -292,7 +299,7 @@ local function validDebrief(value)
             or type(value.inventoryComplete) ~= "boolean" then return false end
         if value.site ~= nil and not validSite(value.site) then return false end
         if value.abandonedCarAt ~= nil
-            and not validPoint(value.abandonedCarAt) then return false end
+            and not validWorldPosition(value.abandonedCarAt) then return false end
         local acquired, returned = {}, {}
         for _, receipt in ipairs(value.acquisitions) do
             acquired[receipt.id] = true
@@ -313,7 +320,7 @@ local function validDebrief(value)
             and #value.endReason <= 64))
         and (value.site == nil or validSite(value.site))
         and (value.abandonedCarAt == nil
-            or validPoint(value.abandonedCarAt))
+            or validWorldPosition(value.abandonedCarAt))
 end
 
 local function distanceToPoint(actor, point)
@@ -1080,6 +1087,20 @@ function Expedition.restore(saved)
         local savedPhase = saved.scout.phase
         local carSaved = saved.scout.vehicle
         local homeLeg = type(carSaved) == "table" and carSaved.leg == "home"
+        -- Earlier schema-6 car recalls omitted the Search return reason.
+        -- The saved home leg proves that a never-started Search was recalled;
+        -- preserve that fact without inventing completed Search work.
+        if homeLeg and walking.scout.kind == "search"
+            and type(walking.scout.search) == "table"
+            and walking.scout.search.startedHour == nil
+            and walking.scout.search.endReason == nil then
+            local migrated = {}
+            for key, value in pairs(walking.scout.search) do
+                migrated[key] = value
+            end
+            walking.scout.search = migrated
+            walking.scout.search.endReason = "legacy_car_return"
+        end
         if savedPhase ~= "outbound" and savedPhase ~= "observing"
             and savedPhase ~= "searching" and savedPhase ~= "inbound"
             and savedPhase ~= "awaiting_player" then
@@ -1731,7 +1752,7 @@ function Expedition.sendRadioOrder(player, command, payload)
         local car = mission.scout and mission.scout.vehicle
         if car and car.state ~= "abandoned" then
             local requested, why = SC.ExpeditionCar.requestReturn(
-                mission, SC.GameplayUtil.nowMs())
+                mission, SC.GameplayUtil.nowMs(), "radio_return")
             if not requested then return false, why end
         else
             startReturnFromSite(mission.scout, "radio_return")
@@ -3788,15 +3809,12 @@ function Expedition.pulse()
         return false, mission.cohesionHold and "expedition_regroup"
             or "leader_alive"
     end
-    if mission.scout and mission.scout.vehicle and mission.leader
-        and mission.leader.actor then
-        local stopped, reason = SC.Driving.release(mission.leader.actor,
-            "expedition_driver_dead")
-        if stopped ~= true then return false, reason or "drive_stop_pending" end
-        mission.scout.vehicle.blocker = "driver_dead_recovery"
-        mission.scout.vehicle.state = "held"
-        mission.scout.vehicle.resumeState = "fallback_unloading"
-        return false, "driver_dead_recovery"
+    if mission.scout and mission.scout.vehicle
+        and mission.scout.vehicle.state ~= "abandoned" then
+        local recovered, reason = SC.ExpeditionCar.recoverDeadDriver(mission)
+        if recovered ~= true then
+            return false, reason or "driver_dead_recovery"
+        end
     end
     for _, record in ipairs(mission.roster) do
         if record ~= mission.leader and alive(record) then

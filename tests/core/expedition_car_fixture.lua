@@ -90,6 +90,10 @@ SC.Driving = {
     end,
     drive = function(_, goal)
         if T.startBlocked then return false, "start_failed" end
+        if T.deferDrive then
+            T.deferDrive = false
+            return false, "deferred:urgent_action_pending"
+        end
         T.driveCalls = T.driveCalls + 1
         T.lastGoal = goal
         return true
@@ -102,7 +106,13 @@ SC.Driving = {
         return true
     end,
     isDriving = function() return false end,
-    release = function() return true end,
+    release = function()
+        if T.stopPending then
+            T.stopPending = false
+            return false, "drive_stop_pending"
+        end
+        return true
+    end,
 }
 SC.ExpeditionRoute = {
     planFromPoint = function(origin, destination)

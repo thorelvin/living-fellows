@@ -146,5 +146,32 @@ assert(gifts.decline(actor, player) == true
     and actor.inventory:contains(declinedItem)
     and not player.inventory:contains(declinedItem) and dialog == nil and held == nil,
     "declining a gift did not leave the exact item with its owner")
+
+day = day + 21
+conversation = nil
+assert(gifts.pulse(player, { record }) == true and conversation.onReady() == true,
+    "third offer was not staged")
+local stolen = gifts.current().item
+assert(SurvivorCompanion.GameplayUtil.transferItemVerified(
+    actor.inventory, player.inventory, stolen), "test could not move offered item")
+assert(gifts.accept(actor, player) == false and gifts.current() == nil
+    and player.inventory:contains(stolen) and held == nil,
+    "an item moved to another owner must cancel the gift, not transfer it again")
+
+day = day + 21
+conversation = nil
+assert(gifts.pulse(player, { record }) == true and conversation.onReady() == true,
+    "fourth offer was not staged")
+local bagGift = gifts.current().item
+local bagItem = { container = actor.inventory }
+function bagItem:getContainer() return self.container end
+local bag = inventory()
+function bag:getContainingItem() return bagItem end
+actor.inventory.items[#actor.inventory.items + 1] = bagItem
+assert(SurvivorCompanion.GameplayUtil.transferItemVerified(
+    actor.inventory, bag, bagGift), "test could not move offer into donor bag")
+assert(gifts.accept(actor, player) == true
+    and player.inventory:contains(bagGift) and not bag:contains(bagGift),
+    "the same donor may gift an item moved between their own bags")
 gifts.reset()
-SC_TEST_REPORT = "Companion gifts: rare stable offer, staged approach, exact acceptance, decline retention and cooldown"
+SC_TEST_REPORT = "Companion gifts: exact acceptance, donor ownership, bag transfer, decline and cooldown"

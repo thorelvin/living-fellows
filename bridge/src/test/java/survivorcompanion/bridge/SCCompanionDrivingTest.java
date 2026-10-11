@@ -209,6 +209,17 @@ public final class SCCompanionDrivingTest {
         require(SCCompanionDriver.touches(10.0f, 10.0f, 0.0f, -1.0f, body, 10.0f, 7.2f)
                         && !SCCompanionDriver.touches(10.0f, 10.0f, 0.0f, -1.0f, body, 12.8f, 10.0f),
                 "contact follows the car's heading: facing north, the front is up the map");
+        require(SCCompanionDriver.touches(100.0f, 100.9f, 1.0f, 0.0f,
+                        body, 100.0f, 102.2f),
+                "expanded side contact reaches the wall-separated zombie geometrically");
+        SCCompanionDriver.ClearEdge wall = (fx, fy, tx, ty, z) ->
+                !((fy == 101 && ty == 102) || (fy == 102 && ty == 101));
+        require(!SCCompanionDriver.topologyClear(100.0f, 100.9f,
+                        100.0f, 102.2f, 0, wall),
+                "a wall between car and zombie vetoes the expanded contact");
+        require(SCCompanionDriver.topologyClear(100.0f, 100.9f,
+                        100.0f, 102.2f, 0, (fx, fy, tx, ty, z) -> true),
+                "the same side contact remains valid with clear edges");
     }
 
     private static void hordeAvoidance() {

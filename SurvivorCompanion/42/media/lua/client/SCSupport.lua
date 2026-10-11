@@ -143,6 +143,20 @@ local function persistenceEvidence()
     }
 end
 
+local function expeditionEvidence()
+    local current = SC.ExpeditionPrototype and SC.ExpeditionPrototype.current
+    local active = safeCall(current, nil)
+    if type(active) ~= "table" then return { active = false } end
+    local scout = active.scout
+    local trip = scout and scout.vehicle
+    return {
+        active = true,
+        vehicleState = trip and trip.state or nil,
+        vehicleLeg = trip and trip.leg or nil,
+        vehicleBlocker = trip and trip.blocker or active.vehicleRestoreIssue,
+    }
+end
+
 function support.snapshot(force)
     local bridge = safeCall(function()
         return SC.Actor.bridgeStatus(force == true)
@@ -190,6 +204,7 @@ function support.snapshot(force)
         actionQuarantine = actionQuarantine,
         companionActions = companionActionEvidence(),
         persistence = persistenceEvidence(),
+        expedition = expeditionEvidence(),
         sandbox = safeCall(function()
             return SC.Config.sandboxSnapshot()
         end, {}),
@@ -207,6 +222,7 @@ function support.summary(force)
     local diagnostics = data.diagnostics or {}
     local performance = data.performance or {}
     local persistence = data.persistence or {}
+    local expedition = data.expedition or {}
     local lines = {
         "Living Fellows support report",
         "Release: " .. data.release,
@@ -245,6 +261,18 @@ function support.summary(force)
         "Persistence: " .. tostring(persistence.pendingCount or 0) .. " pending, "
             .. tostring(persistence.quarantineCount or 0) .. " quarantined",
     }
+    if expedition.active then
+        lines[#lines + 1] = "Expedition: active"
+        if expedition.vehicleState then
+            lines[#lines + 1] = "Expedition car: "
+                .. tostring(expedition.vehicleState) .. "/"
+                .. tostring(expedition.vehicleLeg or "unknown")
+                .. ", blocker " .. tostring(expedition.vehicleBlocker or "none")
+        elseif expedition.vehicleBlocker then
+            lines[#lines + 1] = "Expedition car issue: "
+                .. tostring(expedition.vehicleBlocker)
+        end
+    end
     if data.disabledReason ~= nil then
         lines[#lines + 1] = "Runtime disabled reason: " .. tostring(data.disabledReason)
     end

@@ -257,4 +257,194 @@ check(Car.pulse(T.mission, 81000) and
         and T.team[2].actor.car == nil
         and T.mission.scout.phase == "outbound",
     "walking fallback starts only after the whole team exits")
+
+local function freshTrip(state, leg)
+    local trip = Car.copyDescriptor(descriptor, T.team, "leader")
+    trip.state, trip.leg = state, leg or "outbound"
+    T.mission.scout.vehicle = trip
+    T.mission.scout.phase = state
+    T.mission.scout.search = { request = { category = "scavenge" } }
+    T.mission.scout.search.endReason = nil
+    return trip
+end
+
+local early = freshTrip("boarding_out")
+check(Car.requestReturn(T.mission, 82000, "radio_return")
+    and early.leg == "home" and early.state == "boarding_rollback"
+    and T.mission.scout.search.endReason == "radio_return",
+    "recall before boarding preserves return intent and Search reason")
+check(Car.pulse(T.mission, 83000) and early.state == "abandoned"
+    and T.mission.scout.phase == "inbound",
+    "pre-departure recall returns on foot instead of resuming outbound")
+
+local deadline = freshTrip("walking_to_car")
+T.mission.scout.turnHomeAtHour = 10
+check(Car.pulse(T.mission, 84000, 11)
+    and deadline.leg == "home"
+    and T.mission.scout.search.endReason == "return_time_reached",
+    "scheduled recall records its actual early Search reason")
+T.mission.scout.turnHomeAtHour = nil
+
+local deferred = freshTrip("boarding_out")
+for index, member in ipairs(T.team) do
+    member.actor.car, member.actor.seat = T.cars[1], index - 1
+    T.cars[1].occupied[index - 1] = member.actor
+end
+T.deferDrive = true
+check(Car.pulse(T.mission, 85000) and deferred.state == "boarding_out"
+    and deferred.blocker == "deferred:urgent_action_pending",
+    "temporary supervisor deferral keeps the team aboard")
+check(Car.pulse(T.mission, 86000) and deferred.state == "driving_out",
+    "deferred car drive retries successfully")
+local expiredDeferral = freshTrip("boarding_out")
+expiredDeferral.boardStartedAt = 1000
+T.deferDrive = true
+check(Car.pulse(T.mission, 125000)
+    and expiredDeferral.state == "boarding_rollback"
+    and expiredDeferral.blocker == "drive_deferred_deadline",
+    "persistent drive deferral eventually follows the bounded fallback")
+
+local deadDriver = freshTrip("driving_out")
+local previousDead = T.team[1].actor.isDead
+T.team[1].actor.isDead = function() return true end
+T.stopPending = true
+check(select(2, Car.recoverDeadDriver(T.mission)) == "drive_stop_pending"
+    and deadDriver.state == "driving_out",
+    "failed native stop is retried before handoff")
+T.exitBlocked = 1
+local recovered, recoveryReason = Car.recoverDeadDriver(T.mission)
+check(recovered == false and recoveryReason == "exit_blocked"
+    and deadDriver.state == "driving_out",
+    "surviving passenger waits for a safe exit: " .. tostring(recoveryReason))
+T.exitBlocked = nil
+check(Car.recoverDeadDriver(T.mission) == true
+    and deadDriver.state == "abandoned"
+    and T.team[2].actor.car == nil
+    and T.mission.scout.phase == "outbound",
+    "dead driver leaves the living passenger on foot for leader handoff")
+T.team[1].actor.isDead = previousDead
+
+local alreadyAbandoned = freshTrip("abandoned")
+check(Car.recoverDeadDriver(T.mission) == true
+    and alreadyAbandoned.state == "abandoned",
+    "former driver death on a walking trip does not hold the lifecycle")
+local parked = freshTrip("parked_at_site")
+T.mission.scout.phase = "searching"
+T.team[1].actor.isDead = function() return true end
+check(Car.recoverDeadDriver(T.mission) == true
+    and parked.state == "abandoned"
+    and T.mission.scout.phase == "searching",
+    "death after unloading preserves a walking Search phase for handoff")
+T.team[1].actor.isDead = previousDead
+local allDead = freshTrip("driving_out")
+T.team[1].actor.isDead = function() return true end
+local mateDead = T.team[2].actor.isDead
+T.team[2].actor.isDead = function() return true end
+check(Car.recoverDeadDriver(T.mission) == true
+    and allDead.state == "abandoned",
+    "all-dead car trip advances to the ordinary corpse teardown")
+T.team[1].actor.isDead = previousDead
+T.team[2].actor.isDead = mateDead
+
+local recoveringParking = freshTrip("held", "home")
+recoveringParking.resumeState = "parking_home"
+recoveringParking.blocker = "road_access_blocked"
+T.cars[1].x = 96
+T.accessBlocked = true
+check(Car.pulse(T.mission, 190000)
+    and recoveringParking.state == "parking_home",
+    "held parking retries its original state during the grace period")
+T.accessBlocked = nil
+local approachesBeforeRecovery = T.approaches
+check(Car.pulse(T.mission, 191000)
+    and recoveringParking.state == "parking_home"
+    and T.approaches == approachesBeforeRecovery + 1,
+    "cleared parking access can resume its car approach")
+
+local blockedParking = freshTrip("held", "home")
+blockedParking.resumeState = "parking_home"
+blockedParking.blocker = "road_access_blocked"
+for index, member in ipairs(T.team) do
+    member.actor.car, member.actor.seat = T.cars[1], index - 1
+    T.cars[1].occupied[index - 1] = member.actor
+end
+T.accessBlocked = true
+check(Car.pulse(T.mission, 200000)
+    and blockedParking.state == "parking_home"
+    and Car.pulse(T.mission, 201000)
+    and blockedParking.state == "held",
+    "persistent parking obstruction is rechecked during its grace period")
+check(Car.pulse(T.mission, 216000)
+    and blockedParking.state == "fallback_unloading",
+    "a persistent parking hold enters the verified walking fallback")
+T.accessBlocked = nil
+T.exitBlocked = 1
+check(Car.pulse(T.mission, 217000)
+    and blockedParking.state == "fallback_unloading"
+    and T.team[2].actor.car == T.cars[1],
+    "fallback does not walk through a blocked passenger door")
+T.exitBlocked = nil
+check(Car.pulse(T.mission, 218000)
+    and blockedParking.state == "abandoned"
+    and T.mission.scout.phase == "inbound",
+    "crew exits the blocked car and continues home on foot")
+T.cars[1].x = 102
+
+local missingDuringDrive = freshTrip("driving_out")
+for index, member in ipairs(T.team) do
+    member.actor.car, member.actor.seat = T.cars[1], index - 1
+    T.cars[1].occupied[index - 1] = member.actor
+end
+local unloadedCar = T.cars[1]
+T.cars = {}
+check(Car.pulse(T.mission, 220000)
+    and Car.pulse(T.mission, 251000)
+    and missingDuringDrive.state == "held"
+    and missingDuringDrive.blocker == "car_not_loaded",
+    "a missing car stops an active trip with a visible blocker")
+check(Car.pulse(T.mission, 252000)
+    and Car.pulse(T.mission, 268000)
+    and missingDuringDrive.state == "held",
+    "seated crew never abandons an unloaded vehicle")
+T.cars = { unloadedCar }
+check(Car.pulse(T.mission, 269000)
+    and missingDuringDrive.state == "fallback_unloading"
+    and Car.pulse(T.mission, 270000)
+    and missingDuringDrive.state == "abandoned",
+    "a returned car lets an interrupted crew exit and walk")
+
+local missingOnFoot = freshTrip("returning_to_car", "home")
+T.cars = {}
+check(Car.pulse(T.mission, 280000)
+    and Car.pulse(T.mission, 311000)
+    and Car.pulse(T.mission, 312000)
+    and Car.pulse(T.mission, 328000)
+    and missingOnFoot.state == "abandoned"
+    and T.mission.scout.phase == "inbound",
+    "on-foot crew walks home when its parked car is gone")
+
+local missingAfterLoad = freshTrip("interrupted_by_load", "home")
+check(Car.pulse(T.mission, 340000)
+    and Car.pulse(T.mission, 371000)
+    and missingAfterLoad.state == "held",
+    "restored trip waits for a late car load")
+check(Car.pulse(T.mission, 372000)
+    and Car.pulse(T.mission, 433000)
+    and missingAfterLoad.state == "abandoned"
+    and T.mission.scout.phase == "inbound",
+    "restored crew continues home on foot if the car never loads")
+local incompleteRoster = freshTrip("held", "home")
+incompleteRoster.resumeState = "returning_to_car"
+incompleteRoster.blocker = "car_not_loaded"
+local missingMate = T.team[2].actor
+T.team[2].actor = nil
+check(Car.pulse(T.mission, 440000)
+    and Car.pulse(T.mission, 456000)
+    and incompleteRoster.state == "held",
+    "missing roster member prevents an unverified walking fallback")
+T.team[2].actor = missingMate
+check(Car.pulse(T.mission, 457000)
+    and incompleteRoster.state == "abandoned",
+    "walking fallback resumes after the full roster is present")
+T.cars = { unloadedCar }
 print("EXPEDITION_CAR_PASS checks=" .. checks)

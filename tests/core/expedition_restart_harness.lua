@@ -230,6 +230,24 @@ check(invalid == false and invalidReason == "saved idle expedition slot is inval
 restored = expedition.restore(idle)
 check(restored == true and expedition.current() == nil,
     "a reload restores the idle slot without inventing an active mission")
+fractionalIdle = { schema = 2, state = "idle", slotSqlId = 2,
+    debrief = { kind = "scout",
+        destination = { x = 80, y = 20, z = 0 },
+        returnPoint = { x = 20, y = 20, z = 0 },
+        abandonedCarAt = { x = 102.2, y = 102.6, z = 0 } } }
+check(expedition.restore(fractionalIdle)
+        and expedition.lastDebrief().abandonedCarAt.x == 102.2,
+    "fractional abandoned-car marker does not invalidate the idle slot")
+fractionalIdle.debrief = { kind = "search",
+    destination = { x = 80, y = 20, z = 0 },
+    returnPoint = { x = 20, y = 20, z = 0 },
+    request = { category = "construction", quantity = 2 },
+    acquisitions = {}, returnedIds = {}, endReason = "radio_return",
+    inventoryComplete = true,
+    abandonedCarAt = { x = 102.2, y = 102.6, z = 0 } }
+check(expedition.restore(fractionalIdle)
+        and expedition.lastDebrief().abandonedCarAt.y == 102.6,
+    "fractional abandoned-car marker also restores a Search debrief")
 local started, newMission = expedition.start({
     { id = "gamma", actor = follower },
 })
@@ -1965,6 +1983,41 @@ do
         "schema six preserves the car and converts a moving save to checked restart")
     expedition.current().suspended = true
     check(expedition.reset(), "schema-six restart fixture resets safely")
+    function testLegacyCarPhase(phase)
+        local searchCarSave = {}
+        for key, value in pairs(earlySaved) do searchCarSave[key] = value end
+        searchCarSave.schema = 6
+        searchCarSave.scout = {}
+        for key, value in pairs(earlySaved.scout) do
+            searchCarSave.scout[key] = value
+        end
+        searchCarSave.scout.phase = phase
+        searchCarSave.scout.travelMode = "drive"
+        searchCarSave.scout.road = nil
+        searchCarSave.scout.search = {}
+        for key, value in pairs(earlySaved.scout.search) do
+            searchCarSave.scout.search[key] = value
+        end
+        searchCarSave.scout.search.startedHour = nil
+        searchCarSave.scout.search.endReason = nil
+        searchCarSave.scout.vehicle = {}
+        for key, value in pairs(carSave.scout.vehicle) do
+            searchCarSave.scout.vehicle[key] = value
+        end
+        searchCarSave.scout.vehicle.state = phase
+        searchCarSave.scout.vehicle.leg = "home"
+        check(expedition.restore(searchCarSave)
+                and expedition.current().scout.search.startedHour == nil
+                and expedition.current().scout.search.endReason
+                    == "legacy_car_return",
+            "old unstarted Search car recall restores at " .. phase)
+        expedition.current().suspended = true
+        check(expedition.reset(), "old car recall fixture resets at " .. phase)
+    end
+    testLegacyCarPhase("boarding_home")
+    testLegacyCarPhase("driving_home")
+    testLegacyCarPhase("parking_home")
+    testLegacyCarPhase("home_wait")
     carSave.scout.vehicle.seats.delta = 1
     check(expedition.restore(carSave)
             and expedition.current().scout.vehicle == nil

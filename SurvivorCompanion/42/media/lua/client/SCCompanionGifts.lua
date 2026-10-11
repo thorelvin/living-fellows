@@ -62,10 +62,39 @@ local function nearbyAtBase(actor, player, maximum)
         and SC.BaseLife.isInside(player) == true
 end
 
-local function sourceOf(item)
+local function sourceOf(item, actor)
     local container = select(1, U().call(item, "getContainer"))
-    return container and U().containerContainsIdentity(container, item) == true
-        and container or nil
+    if not container or U().containerContainsIdentity(container, item) ~= true then
+        return nil
+    end
+    local root = U().inventory(actor)
+    local current, visited = container, {}
+    for _ = 1, 12 do
+        if current == root then return container end
+        if current == nil or visited[current] then return nil end
+        visited[current] = true
+        local holder = select(1, U().call(current, "getContainingItem"))
+        if not holder then return nil end
+        local parent = select(1, U().call(holder, "getContainer"))
+        if not parent or U().containerContainsIdentity(parent, holder) ~= true then
+            return nil
+        end
+        current = parent
+    end
+    return nil
+end
+
+local function stillGiftable(actor, item)
+    if not allowed[U().itemType(item)]
+        or select(1, U().call(item, "isFavorite")) == true
+        or select(1, U().call(actor, "getPrimaryHandItem")) == item
+        or select(1, U().call(actor, "getSecondaryHandItem")) == item
+        or select(1, U().call(actor, "isEquippedClothing", item)) == true then
+        return false
+    end
+    local data = select(1, U().call(item, "getModData"))
+    return type(data) ~= "table" or (data.SC_GivenByPlayer ~= true
+        and data.SC_PersonalOwnerId == nil)
 end
 
 local function giftItem(actor, day)
@@ -82,7 +111,7 @@ local function giftItem(actor, day)
             if type(data) ~= "table"
                 or (data.SC_GivenByPlayer ~= true
                     and data.SC_PersonalOwnerId == nil) then
-                if sourceOf(item) then choices[#choices + 1] = item end
+                if sourceOf(item, actor) then choices[#choices + 1] = item end
             end
         end
     end
@@ -150,8 +179,11 @@ function Gifts.accept(actor, player)
     if not nearbyAtBase(actor, player, 4) or not noDanger(actor) then
         return false, "gift_offer_no_longer_safe"
     end
-    local source = sourceOf(offer.item)
-    if not source then return false, "gift_item_missing" end
+    local source = sourceOf(offer.item, actor)
+    if not source or not stillGiftable(actor, offer.item) then
+        clearOffer("gift_item_missing", false)
+        return false, "gift_item_missing"
+    end
     local destination = U().inventory(player)
     if not destination then return false, "player_inventory_unavailable" end
     local moved, reason = U().transferItemVerified(source, destination, offer.item)
@@ -199,7 +231,7 @@ local function beginOffer(record, player, day, state)
             end
             offer.stayToken = token
             local item = giftItem(actor, day)
-            if not item or not sourceOf(item) then
+            if not item or not sourceOf(item, actor) then
                 clearOffer("gift_item_unavailable", false)
                 return false
             end
@@ -236,7 +268,9 @@ function Gifts.pulse(player, records)
     if pending then
         if pending.phase == "offered" then
             if not nearbyAtBase(pending.actor, pending.player, 4)
-                or not noDanger(pending.actor) or not sourceOf(pending.item) then
+                or not noDanger(pending.actor)
+                or not sourceOf(pending.item, pending.actor)
+                or not stillGiftable(pending.actor, pending.item) then
                 clearOffer("gift_offer_interrupted", false)
             end
         elseif U().nowMs() >= (pending.expires or 0)
