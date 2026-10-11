@@ -1345,6 +1345,167 @@ end
 SC.__testVehiclePolicyStatus()
 SC.__testVehiclePolicyStatus = nil
 
+-- Companion driving: the driver's seat goes only through boardDriver, never to
+-- a follower and never with a stranger aboard; SC.Driving forwards to the bridge.
+function SC.__testCompanionDriving()
+    local car = { id = 31, script = "Base.DriveTestCar", x = 1, y = 0, z = 0, speed = 0,
+        occupants = {}, positions = {} }
+    function car:getId() return self.id end
+    function car:getScriptName() return self.script end
+    function car:getX() return self.x end
+    function car:getY() return self.y end
+    function car:getZ() return self.z end
+    function car:getMaxPassengers() return 4 end
+    function car:isSeatInstalled(seat) return seat >= 0 and seat <= 3 end
+    function car:isSeatOccupied(seat) return self.occupants[seat] ~= nil end
+    function car:getCurrentSpeedKmHour() return self.speed end
+    function car:getEnterSeatDistance(seat, x, y)
+        if seat < 0 or seat > 3 then return -1 end
+        return (x - 1.5) * (x - 1.5) + (y - 0.5) * (y - 0.5)
+    end
+    function car:enter(seat, candidate)
+        if self.occupants[seat] ~= nil then return false end
+        self.occupants[seat], candidate.vehicle = candidate, self
+        self.positions[seat] = "outside"
+        return true
+    end
+    function car:exit(candidate)
+        for seat, occupant in pairs(self.occupants) do
+            if occupant == candidate then
+                self.occupants[seat], candidate.vehicle = nil, nil
+                self.positions[seat] = nil
+                return true
+            end
+        end
+        return false
+    end
+    function car:getSeat(candidate)
+        for seat, occupant in pairs(self.occupants) do
+            if occupant == candidate then return seat end
+        end
+        return -1
+    end
+    function car:getCharacter(seat) return self.occupants[seat] end
+    function car:getDriver() return self.occupants[0] end
+    function car:getPassengerPosition(seat, position)
+        if position == "inside" then return { position = position } end
+        return nil
+    end
+    function car:setCharacterPosition(candidate, seat, position)
+        if self.occupants[seat] == candidate then self.positions[seat] = position end
+    end
+    function car:transmitCharacterPosition() end
+    function car:playPassengerAnim() end
+    function car:getCell() return vehicleCell end
+    function car:getKeyId() return 4242 end
+    local priorSquare, priorPx, priorPy = actor.square, actor.px, actor.py
+
+    local followerSeat, followerReason = SC.Vehicle.preflightBoard(actor, car, 0)
+    check(followerSeat == nil and followerReason == "requested vehicle seat is unavailable",
+        "the ride-along path never hands a companion the driver's seat")
+    local passengerBoard = SC.Vehicle.board(actor, car, 0, {})
+    SC.ActionSupervisor.resetRetry(actor, "next_fault_case", "board_vehicle")
+    check(passengerBoard == false and actor:getVehicle() == nil and car:getDriver() == nil,
+        "ordinary boarding cannot be talked into seat zero")
+    car.occupants[2] = { stranger = true }
+    local strangerSeat, strangerReason = SC.Vehicle.preflightDriver(actor, car)
+    car.occupants[2] = nil
+    check(strangerSeat == nil
+            and strangerReason == "someone who is not a companion is in this vehicle",
+        "a companion never takes the wheel with the player or a stranger aboard")
+    local priorClient = isClient
+    isClient = function() return true end
+    local remoteSeat, remoteReason = SC.Vehicle.preflightDriver(actor, car)
+    isClient = priorClient
+    check(remoteSeat == nil and remoteReason == "companion driving is single-player only",
+        "companion driving fails closed in multiplayer")
+    local driverPreflight = SC.Vehicle.preflightDriver(actor, car)
+    check(driverPreflight ~= nil and driverPreflight.seat == 0,
+        "an empty, stopped car offers its driver's seat to the driving path")
+    local boardedDriver, driverReason = SC.Vehicle.boardDriver(actor, car)
+    local driverRecord = SC.Registry.byId("sc-core-actor")
+    check(boardedDriver and driverReason == "native_seat" and car:getDriver() == actor
+            and car.positions[0] == "inside"
+            and driverRecord.runtime.vehicle.seat == 0
+            and SC.ActionSupervisor.snapshot(actor).phase == "idle",
+        "the driver's seat uses the verified boarding transaction: " .. tostring(driverReason))
+
+    local priorBridge = rawget(_G, "SCBridge")
+    local calls = {}
+    local bridge = { refuseSet = false }
+    function bridge.driveStart(who, haveKey)
+        calls[#calls + 1] = { "driveStart", who, haveKey }
+        return true
+    end
+    function bridge.driveSet(who, steering, kmh, brakeForObstacles)
+        calls[#calls + 1] = { "driveSet", who, steering, kmh, brakeForObstacles }
+        return not bridge.refuseSet
+    end
+    function bridge.driveStop(who)
+        calls[#calls + 1] = { "driveStop", who }
+        return true
+    end
+    function bridge.driveStatus(who, out)
+        out.state, out.speedKmh = "cruising", 9
+        return true
+    end
+    function bridge.scanLane(who, lookAhead, out)
+        out.blocked, out.obstacleKind, out.obstacleDistance = true, "vehicle", 6
+        out.lookAhead = lookAhead
+        return true
+    end
+    function bridge.getLastFailure() return "stub refusal" end
+    rawset(_G, "SCBridge", bridge)
+    local Driving = SC.Driving
+    local priorInventory = actor.getInventory
+    actor.getInventory = function()
+        return { haveThisKeyId = function(_, id) return id == 4242 and { key = true } or nil end }
+    end
+    check(Driving.available() and Driving.isDriver(actor) and Driving.hasKey(actor),
+        "a seated driver holding the car's key is ready to drive")
+    local started = Driving.start(actor)
+    actor.getInventory = priorInventory
+    check(started and calls[1][1] == "driveStart" and calls[1][2] == actor
+            and calls[1][3] == true,
+        "taking the wheel hands the bridge the driver and whether it holds the key")
+    check(Driving.cruise(actor, 12, -0.5) and calls[2][1] == "driveSet"
+            and calls[2][3] == -0.5 and calls[2][4] == 12 and calls[2][5] == true,
+        "cruise passes speed and steering with obstacle braking on by default")
+    check(Driving.cruise(actor, 10, 0, false) and calls[3][5] == false,
+        "obstacle braking can only be switched off explicitly")
+    check(Driving.hold(actor) and calls[4][3] == 0 and calls[4][4] == 0 and calls[4][5] == true,
+        "holding is a zero-speed cruise that keeps obstacle braking")
+    bridge.refuseSet = true
+    local refused, refusedReason = Driving.cruise(actor, 10, 0)
+    bridge.refuseSet = false
+    check(refused == false and refusedReason == "stub refusal",
+        "a native refusal comes back with the bridge's reason")
+    local status = Driving.status(actor)
+    local lane = Driving.scanLane(actor, 14)
+    check(status and status.state == "cruising" and status.speedKmh == 9
+            and lane and lane.blocked == true and lane.obstacleKind == "vehicle"
+            and lane.lookAhead == 14,
+        "status and lane scans come back as plain tables")
+    check(Driving.release(actor) and calls[#calls][1] == "driveStop",
+        "letting go of the wheel stops native driving")
+    rawset(_G, "SCBridge", nil)
+    local offline, offlineReason = Driving.cruise(actor, 10, 0)
+    check(not Driving.available() and offline == false
+            and offlineReason == "driving bridge is unavailable",
+        "without the native bridge driving fails closed")
+    rawset(_G, "SCBridge", priorBridge)
+
+    local leftWheel, leftReason = SC.Vehicle.exit(actor, car)
+    check(leftWheel and leftReason == "native_exit" and car:getDriver() == nil
+            and actor:getVehicle() == nil,
+        "a companion gets out of the driver's seat through the ordinary exit: "
+            .. tostring(leftReason))
+    check(not Driving.isDriver(actor), "a companion on foot is not a driver")
+    actor.square, actor.px, actor.py = priorSquare, priorPx, priorPy
+end
+SC.__testCompanionDriving()
+SC.__testCompanionDriving = nil
+
 local fireWindow = { hittable = true }
 function fireWindow:isHittable() return self.hittable end
 local fireDoor = {}

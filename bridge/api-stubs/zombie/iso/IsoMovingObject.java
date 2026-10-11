@@ -6,6 +6,7 @@ public class IsoMovingObject extends IsoObject {
     public boolean isExistInTheWorld() { return false; }
     public float getX() { return 0; }
     public float getY() { return 0; }
+    public float getZ() { return 0; }
     public float getNextX() { return 0; }
     public float getNextY() { return 0; }
     public float getLastX() { return 0; }

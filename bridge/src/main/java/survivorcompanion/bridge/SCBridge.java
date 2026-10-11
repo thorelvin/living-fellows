@@ -63,7 +63,7 @@ import zombie.worldMap.WorldMap;
 
 /** Narrow Lua-facing authority for creating and owning native companions. */
 public final class SCBridge {
-    public static final String PROTOCOL = "42.21-isocompanion-15";
+    public static final String PROTOCOL = "42.21-isocompanion-16";
     public static final int ITEM_FACT_FOOD = 1;
     public static final int ITEM_FACT_DRAINABLE = 1 << 1;
     public static final int ITEM_FACT_HAND_WEAPON = 1 << 2;
@@ -843,6 +843,142 @@ public final class SCBridge {
         }
         actor.setStoryZombieIgnored(enabled);
         return true;
+    }
+
+    /**
+     * Puts an owned companion that already sits in seat 0 under bridge control.
+     * Lua's SCVehicle owns boarding; this only takes the wheel. The car starts
+     * held still, and the engine is started (with a few bounded retries) only
+     * once {@link #driveSet} asks for speed. Never while a player is aboard.
+     */
+    public static boolean driveStart(SCNativeCompanion actor, boolean haveKey) {
+        lastFailure = "";
+        String refused = driveRefusal(actor);
+        if (!refused.isEmpty()) return failBoolean(refused);
+        try {
+            BaseVehicle vehicle = actor.getVehicle();
+            if (vehicle == null) return failBoolean("companion is not in a vehicle");
+            if (playerAboard(vehicle)) return failBoolean("a player is in this vehicle");
+            String failure = actor.companionDriver().start(actor, vehicle, haveKey);
+            return failure.isEmpty() || failBoolean(failure);
+        } catch (RuntimeException | LinkageError failure) {
+            return failBoolean("drive start failed: " + failure.getClass().getSimpleName());
+        }
+    }
+
+    /**
+     * Steering in [-1, 1] (-1 is the left key) and a cruise speed in km/h. Zero
+     * stops and holds; anything else is held to SCDriveControl's low-speed band.
+     * With brakeForObstacles the car stops for anything the lane scan finds.
+     */
+    public static boolean driveSet(SCNativeCompanion actor, double steering, double cruiseKmh,
+                                   boolean brakeForObstacles) {
+        lastFailure = "";
+        String refused = driveRefusal(actor);
+        if (!refused.isEmpty()) return failBoolean(refused);
+        SCCompanionDriver driver = actor.companionDriver();
+        if (!driver.isActive()) return failBoolean("companion is not driving");
+        driver.set(steering, cruiseKmh, brakeForObstacles);
+        return true;
+    }
+
+    /** Lets go of the wheel and parks the car. Safe to call when not driving. */
+    public static boolean driveStop(SCNativeCompanion actor) {
+        lastFailure = "";
+        if (!onGameThread()) return failBoolean("companion driving requires the game thread");
+        if (!isOwned(actor)) return failBoolean("native companion is not owned by SCBridge");
+        try {
+            actor.companionDriver().stop(actor, "released");
+            return true;
+        } catch (RuntimeException | LinkageError failure) {
+            return failBoolean("drive stop failed: " + failure.getClass().getSimpleName());
+        }
+    }
+
+    /** Fills out with the driver's state, the last inputs and the last lane scan. */
+    public static boolean driveStatus(SCNativeCompanion actor, KahluaTable out) {
+        lastFailure = "";
+        if (out == null) return failBoolean("driveStatus requires an output table");
+        if (!onGameThread()) return failBoolean("companion driving requires the game thread");
+        if (!isOwned(actor)) return failBoolean("native companion is not owned by SCBridge");
+        SCCompanionDriver driver = actor.companionDriver();
+        out.wipe();
+        put(out, "active", driver.isActive());
+        put(out, "state", driver.state());
+        put(out, "reason", driver.reason());
+        put(out, "speedKmh", driver.speedKmh());
+        put(out, "cruiseKmh", driver.cruiseKmh());
+        put(out, "maxCruiseKmh", SCDriveControl.MAX_CRUISE_KMH);
+        put(out, "steering", driver.steering());
+        put(out, "autoBrake", driver.autoBrake());
+        put(out, "engineRunning", driver.engineRunning());
+        put(out, "engineState", driver.engineState());
+        put(out, "startAttempts", driver.startAttempts());
+        put(out, "engineStartCalls", driver.startCalls());
+        SCDriveControl.Input input = driver.lastInput();
+        put(out, "forward", input.forward());
+        put(out, "brake", input.brake());
+        put(out, "backward", input.backward());
+        putLane(out, driver.lastScan());
+        return true;
+    }
+
+    /**
+     * Runs the lane scan once for the car the companion sits in, in any seat,
+     * lookAhead tiles past the front bumper. Never moves anything.
+     */
+    public static boolean scanLane(SCNativeCompanion actor, double lookAhead, KahluaTable out) {
+        lastFailure = "";
+        if (out == null) return failBoolean("scanLane requires an output table");
+        String refused = driveRefusal(actor);
+        if (!refused.isEmpty()) return failBoolean(refused);
+        try {
+            BaseVehicle vehicle = actor.getVehicle();
+            if (vehicle == null) return failBoolean("companion is not in a vehicle");
+            float reach = lookAhead > 0.0 && lookAhead == lookAhead
+                    ? (float) Math.min(lookAhead, SCLaneScan.MAX_LOOK_AHEAD)
+                    : SCCompanionDriver.lookAheadFor(0.0f);
+            SCLaneScan.Result result = actor.companionDriver().scan(vehicle, reach);
+            out.wipe();
+            put(out, "lookAhead", reach);
+            putLane(out, result);
+            return true;
+        } catch (RuntimeException | LinkageError failure) {
+            return failBoolean("lane scan failed: " + failure.getClass().getSimpleName());
+        }
+    }
+
+    private static void putLane(KahluaTable out, SCLaneScan.Result result) {
+        put(out, "blocked", result.blocked);
+        put(out, "obstacleDistance", result.distance);
+        put(out, "obstacleKind", SCLaneScan.kindName(result.kind));
+        put(out, "obstacleX", result.hitX);
+        put(out, "obstacleY", result.hitY);
+        put(out, "leftDistance", result.leftDistance);
+        put(out, "centerDistance", result.centerDistance);
+        put(out, "rightDistance", result.rightDistance);
+        put(out, "squaresChecked", result.squaresChecked);
+    }
+
+    private static String driveRefusal(SCNativeCompanion actor) {
+        if (!onGameThread()) return "companion driving requires the game thread";
+        if (GameClient.client || GameServer.server) return "companion driving is single-player only";
+        if (!isOwned(actor)) return "native companion is not owned by SCBridge";
+        if (actor.isDead()) return "a dead companion cannot drive";
+        return "";
+    }
+
+    /** A real player in the car. A promoted companion in a player slot does not count. */
+    private static boolean playerAboard(BaseVehicle vehicle) {
+        IsoPlayer[] players = IsoPlayer.players;
+        if (players == null) return false;
+        for (IsoPlayer player : players) {
+            if (player != null && !(player instanceof SCNativeCompanion)
+                    && player.getVehicle() == vehicle) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static String checkActor(SCNativeCompanion actor) {
@@ -1827,6 +1963,12 @@ public final class SCBridge {
      */
     private static boolean cleanupActor(SCNativeCompanion actor, String operation) {
         if (actor == null) return failBoolean("native companion is null");
+        // A removed driver must not leave its last pedal pressed in the car.
+        try {
+            actor.companionDriver().stop(actor, "removed");
+        } catch (RuntimeException | LinkageError ignored) {
+            // A failed park must not block removing the actor itself.
+        }
         addOwned(actor);
         if (removeUnchecked(actor)) {
             synchronized (CLEANUP_FAILURES) {

@@ -83,6 +83,12 @@ public final class SCNativeBridgeExposureTest {
                 + "SC_TEST_VIEW_API = SCBridge.setViewOffset ~= nil and SCBridge.clearViewOffset ~= nil\n"
                 + "SC_TEST_STORY_SHELTER_API = SCBridge.setStoryZombieIgnored ~= nil\n"
                 + "SC_TEST_STORY_SHELTER_REJECTS_NIL = not SCBridge.setStoryZombieIgnored(nil, true)\n"
+                + "SC_TEST_DRIVE_API = SCBridge.driveStart ~= nil and SCBridge.driveSet ~= nil\n"
+                + "    and SCBridge.driveStop ~= nil and SCBridge.driveStatus ~= nil\n"
+                + "    and SCBridge.scanLane ~= nil\n"
+                + "SC_TEST_DRIVE_REJECTS_NIL = not SCBridge.driveStart(nil, true)\n"
+                + "    and not SCBridge.driveSet(nil, 0, 10, true) and not SCBridge.driveStop(nil)\n"
+                + "    and not SCBridge.driveStatus(nil, {}) and not SCBridge.scanLane(nil, 8, {})\n"
                 + "SC_TEST_ATTACK_TYPES = true\n";
         Object closure = Class.forName("se.krka.kahlua.luaj.compiler.LuaCompiler")
                 .getMethod("loadstring", String.class, String.class, tableClass)
@@ -90,7 +96,7 @@ public final class SCNativeBridgeExposureTest {
         thread.getClass().getMethod("call", Object.class, Object[].class)
                 .invoke(thread, closure, (Object) new Object[0]);
         Method rawget = tableClass.getMethod("rawget", Object.class);
-        require("42.21-isocompanion-15".equals(rawget.invoke(environment, "SC_TEST_PROTOCOL")),
+        require("42.21-isocompanion-16".equals(rawget.invoke(environment, "SC_TEST_PROTOCOL")),
                 "Lua received the wrong native bridge protocol");
         require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_VIEW_API")),
                 "production bridge did not expose the camera offset contract");
@@ -99,6 +105,10 @@ public final class SCNativeBridgeExposureTest {
         require(Boolean.TRUE.equals(rawget.invoke(environment,
                         "SC_TEST_STORY_SHELTER_REJECTS_NIL")),
                 "Lua could not call the story zombie shelter API or it accepted nil");
+        require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_DRIVE_API")),
+                "production bridge did not expose the companion driving API");
+        require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_DRIVE_REJECTS_NIL")),
+                "Lua could not call the companion driving API or it accepted nil");
         require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_ATTACK_TYPES")),
                 "production bridge did not expose the native attack enum contract");
         String readiness = String.valueOf(rawget.invoke(environment, "SC_TEST_READY"));

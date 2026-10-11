@@ -83,3 +83,27 @@ has loaded. The runner waits for the engine's completed-load marker and posts a
 left click to the exact game window it started. GLFW requires real mouse state,
 so the cursor is placed briefly and restored immediately; retries stop as soon
 as the harness writes its first live assertion.
+
+## Companion driving probe
+
+`-DrivingProbe` checks real car mechanics with a companion at the wheel. It looks
+for a straight Nav-zone road within about 66 tiles of the observer, moves the
+observer to the roadside, spawns a `Base.CarNormal`, and spawns a companion at
+the driver's door. The companion boards seat 0 through `SC.Vehicle.boardDriver`,
+holds the car's key, and drives through `SC.Driving`. The probe checks that the
+engine starts, which way positive steering turns the car, a 10 km/h cruise with
+heading hold, stopping on request, the lane scan seeing a parked car placed
+16 tiles ahead, braking by itself for that car without touching it, a real crash
+into a parked car 20 tiles on at 20 km/h with obstacle braking switched off (the
+car must take vanilla crash damage), and letting go and getting out.
+`SC_REAL_SANDBOX|DRIVE` lines trace speed, pedals, steering, engine state and the
+lane scan every 250 ms. Add `-DrivingScreenshotDirectory` to capture
+`driving-cruise.png` at cruising speed and `driving-crash.png` after the crash.
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -DrivingProbe -LivingFellowsOnly -TimeoutSeconds 600 `
+    -DrivingScreenshotDirectory .uild\driving-shots
+```
+
+The run needs the branch's bridge on the game's classpath, so install it first
+with `.\scripts\Install-NativeBridge.ps1`.

@@ -42,6 +42,11 @@ param(
     [ValidateRange(0, 20000)][int]$MilliSiteY = 0,
     [switch]$BaseSecondFloorProbe,
     [switch]$WaterSourceProbe,
+    # A companion drives a spawned car on a straight road near the observer.
+    [switch]$DrivingProbe,
+    # With -DrivingProbe: save driving-cruise.png at cruising speed and
+    # driving-crash.png after the crash test into this directory.
+    [string]$DrivingScreenshotDirectory = '',
     [switch]$ProjectALifeDamageProbe,
     [string]$ProjectALifeModPath = '',
     [string[]]$ExcludeModId = @(),
@@ -590,6 +595,12 @@ if ($CompanionInventoryOnly) {
 if ($VehiclePassengerOnly -ne (-not [string]::IsNullOrWhiteSpace($VehiclePassengerScreenshot))) {
     throw '-VehiclePassengerOnly requires -VehiclePassengerScreenshot.'
 }
+if (-not [string]::IsNullOrWhiteSpace($DrivingScreenshotDirectory)) {
+    if (-not $DrivingProbe) { throw '-DrivingScreenshotDirectory requires -DrivingProbe.' }
+    if ($HiddenWindow) { throw '-DrivingScreenshotDirectory requires a visible game window for capture.' }
+    $DrivingScreenshotDirectory = [System.IO.Path]::GetFullPath($DrivingScreenshotDirectory)
+    New-Item -ItemType Directory -Path $DrivingScreenshotDirectory -Force | Out-Null
+}
 if ($VehiclePassengerOnly) {
     if ($HiddenWindow) { throw '-VehiclePassengerOnly requires a visible game window for capture.' }
     $VehiclePassengerScreenshot = [System.IO.Path]::GetFullPath($VehiclePassengerScreenshot)
@@ -993,6 +1004,8 @@ $config = @(
     ('milli_site_y=' + $MilliSiteY),
     ('base_second_floor_probe=' + $BaseSecondFloorProbe.IsPresent.ToString().ToLowerInvariant()),
     ('water_source_probe=' + $WaterSourceProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('driving_probe=' + $DrivingProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('driving_screenshots=' + (-not [string]::IsNullOrWhiteSpace($DrivingScreenshotDirectory)).ToString().ToLowerInvariant()),
     ('capture_faction_map=' + $captureFactionMap.ToString().ToLowerInvariant()),
     ('faction_map_only=' + $FactionMapOnly.IsPresent.ToString().ToLowerInvariant()),
     ('pathing_only=' + $PathingOnly.IsPresent.ToString().ToLowerInvariant()),
@@ -1128,6 +1141,7 @@ $manifest = [ordered]@{
     baseLayoutOnly = $BaseLayoutOnly.IsPresent
     companionInventoryScreenshot = if ($CompanionInventoryOnly) { $CompanionInventoryScreenshot } else { $null }
     vehiclePassengerScreenshot = if ($VehiclePassengerOnly) { $VehiclePassengerScreenshot } else { $null }
+    drivingScreenshotDirectory = if ([string]::IsNullOrWhiteSpace($DrivingScreenshotDirectory)) { $null } else { $DrivingScreenshotDirectory }
     pathingOnly = $PathingOnly.IsPresent
     splitScreenOnly = $SplitScreenOnly.IsPresent
     splitBaseLayoutProbe = $SplitBaseLayoutProbe.IsPresent
@@ -1198,6 +1212,7 @@ try {
     $loadingReadyObserved = $false
     $clickAttempts = 0
     $factionMapCaptureCompleted = $false
+    $drivingCaptures = @{}
     $splitScreenCaptureCompleted = $false
     $zombieVisibilityCaptureCompleted = $false
     $postHandoffCaptureCompleted = $false
@@ -1427,6 +1442,24 @@ try {
                 ('captured=true' + [Environment]::NewLine), $utf8NoBom)
             Write-Output "Captured companion inventory screenshot: $CompanionInventoryScreenshot"
             $companionInventoryCaptureCompleted = $true
+        }
+        if (-not [string]::IsNullOrWhiteSpace($DrivingScreenshotDirectory)) {
+            # The car is moving: capture as soon as the probe signals, no settle delay.
+            foreach ($shot in @('cruise', 'crash')) {
+                $ready = Join-Path $SandboxLua "driving-$shot-ready.txt"
+                if ($drivingCaptures.ContainsKey($shot) -or
+                    -not (Test-Path -LiteralPath $ready -PathType Leaf)) { continue }
+                Initialize-WindowInput
+                [void][SCLiveHarness.WindowInput]::Focus($process.MainWindowHandle)
+                $destination = Join-Path $DrivingScreenshotDirectory "driving-$shot.png"
+                if (-not (Save-ClientScreenshot $process $destination)) {
+                    throw "Could not capture the driving $shot screenshot to $destination"
+                }
+                [System.IO.File]::WriteAllText((Join-Path $SandboxLua "driving-$shot-captured.txt"),
+                    ('captured=true' + [Environment]::NewLine), $utf8NoBom)
+                Write-Output "Captured driving $shot screenshot: $destination"
+                $drivingCaptures[$shot] = $destination
+            }
         }
         if ($VehiclePassengerOnly -and -not $vehiclePassengerCaptureCompleted -and
             (Test-Path -LiteralPath (Join-Path $SandboxLua 'vehicle-passenger-ready.txt') -PathType Leaf)) {

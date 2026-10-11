@@ -161,7 +161,13 @@ local function beginTransaction(actor, vehicle, seat, action, intent)
     local identity = vehicleIdentity(vehicle)
     if identity == nil then return nil, "vehicle identity is unavailable" end
     seat = math.floor(finite(seat, -1))
-    if seat < 1 then return nil, "native vehicle seat is invalid" end
+    -- Seat zero is the driver's. Boarding it needs the driving path's flag;
+    -- leaving it, like any seat the companion really sits in, is always allowed.
+    local driverAllowed = action ~= "board_vehicle"
+        or type(intent) == "table" and intent.driverSeat == true
+    if seat < 0 or seat == 0 and not driverAllowed then
+        return nil, "native vehicle seat is invalid"
+    end
     local reservation = seatKey(identity, seat)
     local id = SC.Registry.idOf(actor)
     if id == nil then return nil, "companion identity is unavailable" end
@@ -275,7 +281,7 @@ local function frontSeatOnly(actor)
         and group.oddball.id == "loretta_ten_and_two" or false
 end
 
-local function chooseSeat(vehicle, actor, requested, identity)
+local function chooseSeat(vehicle, actor, requested, identity, allowDriver)
     local countOk, count = invoke(vehicle, "getMaxPassengers")
     count = countOk and math.floor(finite(count, -1)) or -1
     if count < 2 or count > 32 then
@@ -286,9 +292,10 @@ local function chooseSeat(vehicle, actor, requested, identity)
     local onlyFront = frontSeatOnly(actor)
     if requestedNumber ~= nil then
         local seat = math.floor(requestedNumber)
-        -- Seat zero is the driver. Companion driving is not implemented and a
-        -- follower must never displace or compete with the local player.
-        if seat < 1 or seat >= count or onlyFront and seat ~= 1
+        -- Seat zero is the driver. A follower never takes it and never competes
+        -- with the local player; only the driving path (boardDriver) may ask.
+        local lowest = allowDriver == true and 0 or 1
+        if seat < lowest or seat >= count or onlyFront and seat ~= 1
             or not availableSeat(vehicle, identity, seat, actorId) then
             return nil, "requested vehicle seat is unavailable"
         end
@@ -788,7 +795,31 @@ stationary = function(vehicle)
     return true
 end
 
-function vehicleService.preflightBoard(actor, vehicle, requestedSeat)
+-- Anyone aboard who is not a companion: the player, or a stranger. Unknown
+-- occupancy counts as someone, so the driver's seat is never taken blind.
+local function strangerAboard(vehicle)
+    local countOk, count = invoke(vehicle, "getMaxPassengers")
+    count = countOk and math.floor(finite(count, 0)) or 0
+    for seat = 0, math.min(count, 32) - 1 do
+        local ok, occupant = invoke(vehicle, "getCharacter", seat)
+        if not ok then return true end
+        if occupant ~= nil and not SC.Actor.isCompanion(occupant) then return true end
+    end
+    return false
+end
+
+local function multiplayerActive()
+    for _, name in ipairs({ "isClient", "isServer" }) do
+        local probe = rawget(_G, name)
+        if type(probe) == "function" then
+            local ok, value = pcall(probe)
+            if ok and value == true then return true end
+        end
+    end
+    return false
+end
+
+function vehicleService.preflightBoard(actor, vehicle, requestedSeat, allowDriver)
     if not SC.Actor.isCompanion(actor) then
         return nil, "actor is not an active companion"
     end
@@ -806,8 +837,14 @@ function vehicleService.preflightBoard(actor, vehicle, requestedSeat)
     if math.floor(actorZ) ~= math.floor(identity.z) then
         return nil, "companion and vehicle are on different floors"
     end
-    local seat, seatReason = chooseSeat(vehicle, actor, requestedSeat, identity)
+    local seat, seatReason = chooseSeat(vehicle, actor, requestedSeat, identity, allowDriver)
     if seat == nil then return nil, seatReason end
+    if seat == 0 then
+        if multiplayerActive() then return nil, "companion driving is single-player only" end
+        if strangerAboard(vehicle) then
+            return nil, "someone who is not a companion is in this vehicle"
+        end
+    end
     local entranceDistance = doorDistanceSquared(vehicle, seat, actorX, actorY)
     if entranceDistance == nil then return nil, "passenger door position is unavailable" end
     if entranceDistance > finite(SC.Config.get("vehicleBoardRangeSquared"), 2.56) then
@@ -996,7 +1033,8 @@ function vehicleService.board(actor, vehicle, requestedSeat, intent)
     if requestedSeat == nil and type(supplied) == "table" then
         requestedSeat = supplied.seat
     end
-    local prepared, prepareReason = vehicleService.preflightBoard(actor, vehicle, requestedSeat)
+    local prepared, prepareReason = vehicleService.preflightBoard(actor, vehicle, requestedSeat,
+        intent.driverSeat == true)
     if prepared == nil then
         vehicleService.failTransaction(actor, "vehicle_board_preflight_failed", {
             reason = prepareReason,
@@ -1105,6 +1143,19 @@ function vehicleService.board(actor, vehicle, requestedSeat, intent)
     return finishTransaction(transaction, true, "virtual_seat", {
         vehicleKey = prepared.vehicleKey, seat = prepared.seat, stored = true,
     })
+end
+
+-- The driver's seat, for a companion about to drive (SC.Driving). Same
+-- transaction, verification and rollback as a passenger seat; ride-along
+-- boarding still refuses seat zero. Never with the player or a stranger aboard.
+function vehicleService.boardDriver(actor, vehicle, intent)
+    intent = type(intent) == "table" and intent or {}
+    intent.driverSeat = true
+    return vehicleService.board(actor, vehicle, 0, intent)
+end
+
+function vehicleService.preflightDriver(actor, vehicle)
+    return vehicleService.preflightBoard(actor, vehicle, 0, true)
 end
 
 function vehicleService.exit(actor, vehicle, requestedSeat, intent)
