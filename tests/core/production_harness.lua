@@ -78,6 +78,15 @@ do
         { "burial.ritual.gnome_commander", 4, 0 },
         { "burial.ritual.sports_pep_talk", 4, 0 },
         { "burial.ritual.mannequin_apology", 4, 0 },
+        -- Priority 3
+        { "burn.fire_spread", 6, 0 },
+        { "burn.rain", 6, 0 },
+        { "burial.haul.threat", 6, 0 },
+        { "work.fell.tired", 6, 0 },
+        { "work.tool.broken", 6, 1 },
+        { "burial.dig.done", 6, 0 },
+        { "burial.haul.drop", 6, 0 },
+        { "burn.watch", 6, 0 },
     }
     local voices = { "brave", "cautious", "caring", "practical" }
     local placeholderSets = {
@@ -2647,7 +2656,7 @@ do
     end
     local line = said and said.line or nil
     check(type(line) == "string"
-            and (line:find("[Tt]he hand axe") ~= nil or line:find("this hand axe") ~= nil)
+            and (line:find("[Tt]he hand axe") ~= nil or line:find("[Tt]his hand axe") ~= nil)
             and line:find("[Aa] hand axe") == nil,
         "a companion names its own broken tool as that tool: " .. tostring(line))
 end

@@ -16788,7 +16788,8 @@ local planSentence, _, planChanged = Objectives.respondPlans(depthState)
 check(type(planSentence) == "string" and planChanged == true
     and depthState.objectives.active.revealed == true
     and (string.find(planSentence, "meal", 1, true) ~= nil
-        or string.find(planSentence, "eat", 1, true) ~= nil),
+        or string.find(planSentence, "eat", 1, true) ~= nil
+        or string.find(planSentence, "supper", 1, true) ~= nil),
     "plans conversation reveals exactly the existing objective with personality wording: "
         .. tostring(planSentence))
 local revealedJournal = Journal.build(depthActor, depthState, { name = "Depth Fellow" })
@@ -18684,6 +18685,44 @@ do
         { "gestures.cough", 9, 0 },
         { "gestures.sneeze", 9, 0 },
         { "gestures.yawn.catch", 9, 0 },
+        -- Priority 3
+        { "nickname.intro", 5, 2 },
+        { "nickname.player.accept", 5, 1 },
+        { "nickname.player.reject", 5, 1 },
+        { "nickname.coin", 5, 2 },
+        { "nickname.coin.accept", 5, 2 },
+        { "nickname.coin.reject", 5, 2 },
+        { "nickname.grief", 5, 1 },
+        { "nickname.namesake", 5, 0 },
+        { "plans.none", 7, 0 },
+        { "plans.reserved", 7, 0 },
+        { "plans.keep_medical_ready", 7, 0 },
+        { "plans.find_something_to_read", 7, 0 },
+        { "plans.put_gear_in_order", 7, 0 },
+        { "plans.improve_shelter", 7, 0 },
+        { "plans.share_a_proper_meal", 7, 0 },
+        { "plans.recover_keepsake", 7, 0 },
+        { "study.profession.parkranger", 3, 0 },
+        { "study.profession.fireofficer", 3, 0 },
+        { "study.profession.chef", 3, 0 },
+        { "study.profession.farmer", 3, 0 },
+        { "study.profession.mechanics", 3, 0 },
+        { "study.profession.burglar", 3, 0 },
+        { "study.profession.securityguard", 3, 0 },
+        { "study.outfit.patient", 3, 0 },
+        { "study.outfit.fire", 3, 0 },
+        { "study.outfit.farm", 3, 0 },
+        { "study.outfit.student", 3, 0 },
+        { "study.outfit.jockey", 3, 0 },
+        { "study.outfit.wedding", 3, 0 },
+        { "study.outfit.inmate", 3, 0 },
+        { "study.outfit.clergy", 3, 0 },
+        { "study.outfit.home", 3, 0 },
+        { "study.outfit.party", 3, 0 },
+        { "study.outfit.reporter", 3, 0 },
+        { "study.outfit.raider", 3, 0 },
+        { "study.outfit.survivor", 3, 0 },
+        { "study.outfit.santa", 3, 0 },
     }
     local voices = { "brave", "cautious", "caring", "practical" }
     local placeholderSets = {

@@ -103,7 +103,27 @@ function Corey.noteKill(group, player, zombie)
     local data = item and U().modData(item)
     if type(data) == "table" then data.lfCoreyTales = value.tales end
     if #value.tales % 3 == 0 and U().distance(actor, player) <= SPEAK_DISTANCE then
-        U().say(actor, "I'm writing it all down. Somebody has to. " .. tale .. ".")
+        local openings = {
+            "I'm writing it all down. Put this one in the book as ",
+            "Somebody has to keep the record. This one's ",
+            "History survives on cheap paper. I'll call this ",
+            "Another page earned the hard way. Today we witnessed ",
+            "People ought to remember. I'm recording ",
+            { "That was one hell of a chapter. Call it ",
+                clean = "That was one heck of a chapter. Call it " },
+        }
+        local openingIndex = (math.floor(#value.tales / 3) - 1) % #openings + 1
+        local previousIndex = tonumber(value.diaryOpeningIndex)
+        if #value.tales >= 12 and previousIndex and previousIndex >= 1
+            and previousIndex <= #openings and previousIndex % 1 == 0 then
+            openingIndex = previousIndex % #openings + 1
+        end
+        value.diaryOpeningIndex = openingIndex
+        local opening = openings[openingIndex]
+        if type(opening) == "table" then
+            opening = U().config("profanityEnabled") == false and opening.clean or opening[1]
+        end
+        U().say(actor, opening .. tale .. ".")
     end
     return true, "real_kill_written_in_diary"
 end
