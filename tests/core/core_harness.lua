@@ -1454,6 +1454,14 @@ function SC.__testCompanionDriving()
         out.lookAhead = lookAhead
         return true
     end
+    function bridge.driveFollow(who, route, kmh)
+        calls[#calls + 1] = { "driveFollow", who, route, kmh }
+        return true
+    end
+    function bridge.driveTurnAround(who, followBack)
+        calls[#calls + 1] = { "driveTurnAround", who, followBack }
+        return true
+    end
     function bridge.getLastFailure() return "stub refusal" end
     rawset(_G, "SCBridge", bridge)
     local Driving = SC.Driving
@@ -1486,6 +1494,22 @@ function SC.__testCompanionDriving()
             and lane and lane.blocked == true and lane.obstacleKind == "vehicle"
             and lane.lookAhead == 14,
         "status and lane scans come back as plain tables")
+    check(Driving.routeText({ { x = 1, y = 2, width = 8 }, { x = 10.5, y = 2 } })
+            == "1.00,2.00,8.0;10.50,2.00,0.0"
+            and Driving.routeText({ { x = 1, y = 2 } }) == nil
+            and Driving.routeText({ { x = 1 }, { x = 2, y = 3 } }) == nil,
+        "a planned route becomes the bridge's x,y,width text, and a broken one is refused")
+    local route = { points = { { x = 5, y = 6, width = 8 }, { x = 45, y = 6, width = 8 } } }
+    check(Driving.followRoute(actor, route, 12) and calls[#calls][1] == "driveFollow"
+            and calls[#calls][3] == "5.00,6.00,8.0;45.00,6.00,8.0" and calls[#calls][4] == 12,
+        "following a planner route hands the bridge its points and cruise speed")
+    local refusedRoute, refusedRouteReason = Driving.followRoute(actor, { points = {} }, 12)
+    check(refusedRoute == false and refusedRouteReason == "route has fewer than two points"
+            and calls[#calls][1] == "driveFollow",
+        "an empty route never reaches the bridge")
+    check(Driving.turnAround(actor, true) and calls[#calls][1] == "driveTurnAround"
+            and calls[#calls][3] == true,
+        "turning round asks the bridge to drive the route back")
     check(Driving.release(actor) and calls[#calls][1] == "driveStop",
         "letting go of the wheel stops native driving")
     rawset(_G, "SCBridge", nil)

@@ -6,14 +6,22 @@
 -- car ahead; braking by itself for that car; a real crash into a parked car with
 -- obstacle braking off, and the vanilla crash damage it does; letting go and
 -- getting out. With driving_screenshots the runner captures the car at cruising
--- speed and the scene after the crash. Telemetry lines start with
--- SC_REAL_SANDBOX|DRIVE. The seed save is never changed.
+-- speed and the scene after the crash. With driving_route the probe instead
+-- drives an expedition-planner route: round one wreck and through two
+-- zombies on the way out (a companion's car kills zombies it touches), a
+-- three-point turn at the end, and round two wrecks on the way back.
+-- Telemetry lines start with SC_REAL_SANDBOX|DRIVE. The seed save is never changed.
 
 local Probe = {}
 local SCRIPT = "Base.CarNormal"
 local CRUISE_KMH = 10
 local TURN_TEST_KMH = 6
 local SEGMENT_HALF = 30
+-- Route mode needs a longer clear stretch: 70 tiles out, then a turn.
+local ROUTE_SEGMENT_HALF = 45
+local ROUTE_KMH = 10
+local ROUTE_LENGTH = 70
+local segmentHalf = SEGMENT_HALF
 
 -- Exactly one value: GameplayUtil.call also returns its success flag, which
 -- Kahlua's tonumber would otherwise take as a number base.
@@ -66,7 +74,7 @@ local function roadFromZone(U, zone, px, py)
     if not (x and y and w and h) then return nil, "zone without bounds" end
     local horizontal = w >= h
     local length, width = horizontal and w or h, horizontal and h or w
-    if length < SEGMENT_HALF * 2 + 8 or width < 5 or width > 24 then
+    if length < segmentHalf * 2 + 8 or width < 5 or width > 24 then
         return nil, "zone " .. w .. "x" .. h .. " is not a long road"
     end
     local road = { width = width, zone = x .. "," .. y .. "," .. w .. "x" .. h }
@@ -74,19 +82,19 @@ local function roadFromZone(U, zone, px, py)
     if horizontal then
         road.ax, road.ay = 1, 0
         road.lineX, road.lineY = nil, y + h / 2
-        lo, hi, along = x + SEGMENT_HALF + 4, x + w - SEGMENT_HALF - 4, px
+        lo, hi, along = x + segmentHalf + 4, x + w - segmentHalf - 4, px
     else
         road.ax, road.ay = 0, 1
         road.lineX, road.lineY = x + w / 2, nil
-        lo, hi, along = y + SEGMENT_HALF + 4, y + h - SEGMENT_HALF - 4, py
+        lo, hi, along = y + segmentHalf + 4, y + h - segmentHalf - 4, py
     end
     local failure
     for _, shift in ipairs({ 0, 12, -12, 24, -24 }) do
         local center = math.max(lo, math.min(hi, along + shift))
         local cx = horizontal and center or road.lineX
         local cy = horizontal and road.lineY or center
-        local sx, sy = cx - road.ax * SEGMENT_HALF, cy - road.ay * SEGMENT_HALF
-        local ex, ey = cx + road.ax * SEGMENT_HALF, cy + road.ay * SEGMENT_HALF
+        local sx, sy = cx - road.ax * segmentHalf, cy - road.ay * segmentHalf
+        local ex, ey = cx + road.ax * segmentHalf, cy + road.ay * segmentHalf
         local open, why = corridorOpen(U, sx, sy, ex, ey, road.ax, road.ay)
         if open then
             road.cx, road.cy = cx, cy
@@ -164,6 +172,14 @@ local function telemetry(H, test, current, extra)
         .. "|blocked=" .. tostring(status.blocked) .. ":" .. tostring(status.obstacleKind)
         .. ":" .. fmt(status.obstacleDistance)
         .. "|game_speed=" .. tostring(speedOk and gameSpeed or "?")
+        .. (status.following and ("|mode=" .. tostring(status.mode) .. "|along="
+            .. fmt(status.along) .. "/" .. fmt(status.routeLength) .. "|lateral="
+            .. fmt(status.lateral) .. "|offset=" .. fmt(status.offset) .. "|swerves="
+            .. tostring(status.swerves) .. "|kills=" .. tostring(status.zombiesKilled)
+            .. "|rear=" .. tostring(status.rearBlocked) .. ":" .. tostring(status.rearKind)
+            .. ":" .. fmt(status.rearDistance) .. (status.turnState and ("|turn="
+            .. tostring(status.turnState) .. ":" .. tostring(status.turnLegs) .. ":"
+            .. tostring(status.turnReason)) or "")) or "")
         .. (extra and ("|" .. extra) or ""))
 end
 
@@ -227,6 +243,7 @@ local function setupRoad(H, SC, check, result, setPhase, current)
         "SCBridge driving calls are exposed") then
         setPhase("finish", current) return
     end
+    segmentHalf = H.config.driving_route == "true" and ROUTE_SEGMENT_HALF or SEGMENT_HALF
     local px, py = U.position(H.player)
     local road, why = findRoad(U, math.floor(px), math.floor(py))
     if not check("drive_road_found", road ~= nil, road and ("zone=" .. road.zone
@@ -381,9 +398,331 @@ local function board(H, SC, check, result, setPhase, current, test)
             started == true and "held still with the engine off" or tostring(why)) then
         setPhase("finish", current) return
     end
-    SC.Driving.cruise(test.actor, CRUISE_KMH, 0)
     test.startedAt = current
+    if H.config.driving_route == "true" then
+        setPhase("drive_route_plan", current)
+        return
+    end
+    SC.Driving.cruise(test.actor, CRUISE_KMH, 0)
     setPhase("drive_engine", current)
+end
+
+-- ---------------------------------------------------------------- route mode
+
+-- A point on this road: along it from a car position, and to the right of the
+-- outbound direction (negative is the other lane).
+local function roadPoint(test, fromX, fromY, along, lateral)
+    local normalX, normalY = -test.dirY, test.dirX
+    local baseX = test.road.ax == 1 and fromX or test.road.lineX
+    local baseY = test.road.ax == 1 and test.road.lineY or fromY
+    return baseX + test.dirX * along + normalX * lateral,
+        baseY + test.dirY * along + normalY * lateral
+end
+
+local function placeWreck(SC, x, y, direction)
+    local square = SC.GameplayUtil.gridSquare(math.floor(x), math.floor(y), 0)
+    if square == nil then return nil, "unloaded square " .. math.floor(x) .. "," .. math.floor(y) end
+    local ok, wreck = pcall(addVehicleDebug, SCRIPT, direction, nil, square)
+    if not ok or wreck == nil or wreck:getSquare() == nil then
+        return nil, "addVehicleDebug refused " .. math.floor(x) .. "," .. math.floor(y)
+    end
+    return wreck
+end
+
+local function moved(item)
+    return math.sqrt((item.vehicle:getX() - item.at.x) ^ 2 + (item.vehicle:getY() - item.at.y) ^ 2)
+end
+
+-- Watch a stretch of road from the far verge.
+local function watchFrom(H, test, x, y)
+    local side = -(test.road.width / 2 + 4)
+    local normalX, normalY = -test.dirY, test.dirX
+    pcall(function()
+        H.player:teleportTo(math.floor(x + normalX * side) + 0.5,
+            math.floor(y + normalY * side) + 0.5, 0)
+    end)
+end
+
+-- No wreck may be touched: each stays put and keeps its parts. The car's own
+-- parts are reported, not judged: running down zombies dents it.
+local function untouched(test)
+    for _, item in ipairs(test.wrecks) do
+        local shift = moved(item)
+        if shift > 0.15 then return false, item.name .. " moved " .. fmt(shift) .. " tiles" end
+        local dent = item.parts - partCondition(item.vehicle)
+        if dent > 0 then return false, item.name .. " lost " .. fmt(dent) .. " part condition" end
+    end
+    return true
+end
+
+local function nearestWreck(test)
+    local best, bestName
+    for _, item in ipairs(test.wrecks) do
+        local gap = math.sqrt((item.vehicle:getX() - test.vehicle:getX()) ^ 2
+            + (item.vehicle:getY() - test.vehicle:getY()) ^ 2)
+        if best == nil or gap < best then best, bestName = gap, item.name end
+    end
+    return best, bestName
+end
+
+local function settled(test)
+    for _, item in ipairs(test.wrecks) do
+        if not stationary(item.vehicle) then return false end
+    end
+    return true
+end
+
+local function recordWrecks(test)
+    for _, item in ipairs(test.wrecks) do
+        item.at = { x = item.vehicle:getX(), y = item.vehicle:getY() }
+        item.parts = partCondition(item.vehicle)
+    end
+end
+
+-- An inert zombie standing on the road, for the car to run down.
+local function placeZombie(x, y)
+    if type(addZombiesInOutfit) ~= "function" then return nil, "addZombiesInOutfit unavailable" end
+    local ok, list = pcall(addZombiesInOutfit, math.floor(x), math.floor(y), 0, 1, nil, 0)
+    local zombie = ok and list and call(list, "get", 0) or nil
+    if zombie == nil then return nil, "no zombie spawned at " .. math.floor(x) .. "," .. math.floor(y) end
+    call(zombie, "setUseless", true)
+    return zombie
+end
+
+-- One leg along the route: watches for contact, tracks the closest pass, and
+-- reports when the follower arrives. Returns the status table when it does.
+local function driveLeg(H, SC, test, current, check, result, setPhase, name, shot)
+    local status = SC.Driving.status(test.actor) or {}
+    -- Build 42 recycles a dead zombie's object, so a death is noted the moment it shows.
+    for index, item in ipairs(test.zombies or {}) do
+        if not item.diedAt and (call(item.zombie, "isDead") == true
+            or call(item.zombie, "isOnKillDone") == true
+            or (tonumber(call(item.zombie, "getHealth")) or 1) <= 0) then
+            item.diedAt = current
+            print("SC_REAL_SANDBOX|DRIVE|zombie_" .. index .. "_dead|car="
+                .. fmt(test.vehicle:getX()) .. "," .. fmt(test.vehicle:getY())
+                .. "|zombie=" .. fmt(call(item.zombie, "getX")) .. "," .. fmt(call(item.zombie, "getY"))
+                .. "|speed=" .. fmt(test.vehicle:getCurrentSpeedKmHour())
+                .. "|kills=" .. tostring(status.zombiesKilled))
+        end
+    end
+    local clean, why = untouched(test)
+    if not clean then
+        failTo(H, test, setPhase, result, current, name, "contact: " .. why)
+        return nil
+    end
+    local gap, gapName = nearestWreck(test)
+    if gap and (test.closest == nil or gap < test.closest) then
+        test.closest, test.closestName = gap, gapName
+    end
+    local slide = math.abs((tonumber(status.offset) or 0) - (tonumber(status.laneOffset) or 0))
+    test.maxSlide = math.max(test.maxSlide or 0, slide)
+    if status.state == "avoiding" and gap and gap <= 7 then
+        requestShot(H, test, shot, result, "sliding past " .. tostring(gapName) .. " at "
+            .. fmt(gap) .. " tiles")
+    end
+    if status.mode == "blocked" then
+        test.blockedSince = test.blockedSince or current
+        if current - test.blockedSince > 10000 then
+            failTo(H, test, setPhase, result, current, name, "blocked for 10 s at "
+                .. fmt(status.along) .. "/" .. fmt(status.routeLength) .. ", obstacle "
+                .. fmt(status.blockedAt) .. " tiles ahead")
+            return nil
+        end
+    else
+        test.blockedSince = nil
+    end
+    if status.mode == "arrived" then return status end
+    if current - H.phaseStartedAt > 100000 then
+        failTo(H, test, setPhase, result, current, name, "still " .. tostring(status.mode)
+            .. " after 100 s at " .. fmt(status.along) .. "/" .. fmt(status.routeLength))
+    end
+    return nil
+end
+
+local function routeStep(H, SC, current, check, result, setPhase, test)
+    local vehicle, actor = test.vehicle, test.actor
+    local direction = test.road.ax == 1 and IsoDirections.E or IsoDirections.S
+
+    if H.phase == "drive_route_plan" then
+        if current < (test.nextPlanAt or 0) then return end
+        test.nextPlanAt = current + 2000
+        local gx, gy = roadPoint(test, vehicle:getX(), vehicle:getY(), ROUTE_LENGTH, 0)
+        local route, why = SC.Driving.planRoute(actor, { x = math.floor(gx), y = math.floor(gy), z = 0 })
+        if not route then
+            if current - H.phaseStartedAt > 40000 then
+                failTo(H, test, setPhase, result, current, "drive_route_planned", tostring(why))
+            end
+            return
+        end
+        local length, worst, widths = 0, 0, {}
+        for index, point in ipairs(route.points) do
+            local off = test.road.ax == 1 and math.abs(point.y - test.road.lineY)
+                or math.abs(point.x - test.road.lineX)
+            worst = math.max(worst, off)
+            widths[tostring(point.width)] = true
+            if index > 1 then
+                local before = route.points[index - 1]
+                length = length + math.sqrt((point.x - before.x) ^ 2 + (point.y - before.y) ^ 2)
+            end
+        end
+        local names = {}
+        for width in pairs(widths) do names[#names + 1] = width end
+        local first, last = route.points[1], route.points[#route.points]
+        if not check("drive_route_planned", #route.points >= 2 and length >= ROUTE_LENGTH * 0.7,
+            "points=" .. #route.points .. " length=" .. fmt(length) .. " from " .. fmt(first.x)
+                .. "," .. fmt(first.y) .. " to " .. fmt(last.x) .. "," .. fmt(last.y)
+                .. " widths=" .. table.concat(names, "/") .. " furthest_from_road_centre="
+                .. fmt(worst) .. " street=" .. tostring(first.street)
+                .. " planned_in_ms=" .. tostring(current - H.phaseStartedAt)) then
+            setPhase("finish", current) return
+        end
+        test.route = route
+        test.routeStart = { x = vehicle:getX(), y = vehicle:getY() }
+        local ax, ay = roadPoint(test, vehicle:getX(), vehicle:getY(), 18, 2)
+        local wreck, failure = placeWreck(SC, ax, ay, direction)
+        if not wreck then
+            failTo(H, test, setPhase, result, current, "drive_route_wreck_placed", failure)
+            return
+        end
+        test.wrecks = { { name = "wreck_out", vehicle = wreck } }
+        result("PASS", "drive_route_wreck_placed", "one parked car in the right-hand lane at "
+            .. fmt(wreck:getX()) .. "," .. fmt(wreck:getY()))
+        test.zombies = {}
+        for _, along in ipairs({ 36, 40 }) do
+            local zx, zy = roadPoint(test, vehicle:getX(), vehicle:getY(), along, 2)
+            local zombie, zombieWhy = placeZombie(zx + 0.5, zy + 0.5)
+            if not zombie then
+                failTo(H, test, setPhase, result, current, "drive_route_zombies_placed", zombieWhy)
+                return
+            end
+            test.zombies[#test.zombies + 1] = { zombie = zombie, at = { x = zx + 0.5, y = zy + 0.5 } }
+        end
+        result("PASS", "drive_route_zombies_placed", "two still zombies in the lane "
+            .. "36 and 40 tiles on")
+        watchFrom(H, test, ax, ay)
+        setPhase("drive_route_settle_out", current)
+        return
+    end
+
+    if H.phase == "drive_route_settle_out" then
+        if current - H.phaseStartedAt < 1500 or not settled(test) then return end
+        recordWrecks(test)
+        test.legParts = partCondition(vehicle)
+        test.closest, test.maxSlide = nil, 0
+        local following, why = SC.Driving.followRoute(actor, test.route, ROUTE_KMH)
+        if not check("drive_route_follow_started", following == true, tostring(why)) then
+            setPhase("finish", current) return
+        end
+        setPhase("drive_route_out", current)
+        return
+    end
+
+    if H.phase == "drive_route_out" then
+        local status = driveLeg(H, SC, test, current, check, result, setPhase,
+            "drive_route_outbound", "swerve")
+        if not status then return end
+        local dead = 0
+        for _, item in ipairs(test.zombies or {}) do
+            if item.diedAt then dead = dead + 1 end
+        end
+        check("drive_route_rams_zombies", dead == #(test.zombies or {}) and dead >= 2
+                and (tonumber(status.zombiesKilled) or 0) >= dead,
+            "zombies in the lane dead: " .. dead .. "/" .. #(test.zombies or {})
+                .. ", killed by the car this drive: " .. tostring(status.zombiesKilled)
+                .. ", car part condition lost: " .. fmt(test.legParts - partCondition(vehicle)))
+        check("drive_route_outbound", (tonumber(status.swerves) or 0) >= 1,
+            "arrived in " .. tostring(math.floor((current - H.phaseStartedAt) / 1000)) .. " s at "
+                .. fmt(status.along) .. "/" .. fmt(status.routeLength) .. ", swerves="
+                .. tostring(status.swerves) .. ", widest slide " .. fmt(test.maxSlide)
+                .. " tiles, closest pass " .. fmt(test.closest) .. " tiles (centre to centre), "
+                .. "lateral at the end " .. fmt(status.lateral))
+        -- The outbound wreck goes; two wait in the return lane.
+        for _, item in ipairs(test.wrecks) do pcall(item.vehicle.permanentlyRemove, item.vehicle) end
+        test.wrecks = {}
+        for _, spot in ipairs({ { name = "wreck_back_1", along = -18 },
+            { name = "wreck_back_2", along = -50 } }) do
+            local wx, wy = roadPoint(test, vehicle:getX(), vehicle:getY(), spot.along, -2)
+            local wreck, failure = placeWreck(SC, wx, wy, direction)
+            if not wreck then
+                failTo(H, test, setPhase, result, current, "drive_route_return_wrecks", failure)
+                return
+            end
+            test.wrecks[#test.wrecks + 1] = { name = spot.name, vehicle = wreck }
+        end
+        result("PASS", "drive_route_return_wrecks", "two parked cars in the return lane at "
+            .. fmt(test.wrecks[1].vehicle:getX()) .. " and " .. fmt(test.wrecks[2].vehicle:getX()))
+        watchFrom(H, test, vehicle:getX(), vehicle:getY())
+        setPhase("drive_route_settle_back", current)
+        return
+    end
+
+    if H.phase == "drive_route_settle_back" then
+        if current - H.phaseStartedAt < 1500 or not settled(test) or not stationary(vehicle) then
+            return
+        end
+        recordWrecks(test)
+        test.legParts = partCondition(vehicle)
+        test.turnFrom = heading(vehicle)
+        local turning, why = SC.Driving.turnAround(actor, true)
+        if not check("drive_route_turn_started", turning == true, tostring(why)) then
+            setPhase("finish", current) return
+        end
+        setPhase("drive_route_turn", current)
+        return
+    end
+
+    if H.phase == "drive_route_turn" then
+        local status = SC.Driving.status(actor) or {}
+        local clean, why = untouched(test)
+        if not clean then
+            failTo(H, test, setPhase, result, current, "drive_turnaround", "contact: " .. why)
+            return
+        end
+        if (tonumber(status.turnLegs) or 0) >= 2 then
+            requestShot(H, test, "turn", result, "turn leg " .. tostring(status.turnLegs))
+        end
+        if status.mode == "turn_failed" then
+            failTo(H, test, setPhase, result, current, "drive_turnaround", "legs="
+                .. tostring(status.turnLegs) .. " reason=" .. tostring(status.turnReason))
+            return
+        end
+        if status.mode == "follow" or status.mode == "arrived" or status.mode == "blocked" then
+            local turned = math.deg(wrap(heading(vehicle) - test.turnFrom))
+            check("drive_turnaround", math.abs(math.abs(turned) - 180) <= 25,
+                "turned " .. fmt(turned) .. " deg in " .. tostring(status.turnLegs) .. " legs ("
+                    .. (tonumber(status.turnSide) == 1 and "right" or "left") .. " first, reverse wheel "
+                    .. (tonumber(status.turnReverseSign) == 1 and "as expected" or "flipped") .. ") in "
+                    .. tostring(math.floor((current - H.phaseStartedAt) / 100) / 10) .. " s")
+            test.closest, test.maxSlide = nil, 0
+            local first = test.wrecks[1].vehicle
+            watchFrom(H, test, first:getX(), first:getY())
+            setPhase("drive_route_back", current)
+            return
+        end
+        if current - H.phaseStartedAt > 60000 then
+            failTo(H, test, setPhase, result, current, "drive_turnaround", "still turning after 60 s, legs="
+                .. tostring(status.turnLegs) .. " state=" .. tostring(status.turnState))
+        end
+        return
+    end
+
+    if H.phase == "drive_route_back" then
+        local status = driveLeg(H, SC, test, current, check, result, setPhase,
+            "drive_route_return", "return")
+        if not status then return end
+        local home = math.sqrt((vehicle:getX() - test.routeStart.x) ^ 2
+            + (vehicle:getY() - test.routeStart.y) ^ 2)
+        -- Arriving with both wrecks untouched means both were passed; whether
+        -- that took one long swerve or two depends on the gap between them.
+        check("drive_route_return", (tonumber(status.swerves) or 0) >= 1 and home <= 6,
+            "arrived back in " .. tostring(math.floor((current - H.phaseStartedAt) / 1000))
+                .. " s, " .. fmt(home) .. " tiles from where it set out, swerves="
+                .. tostring(status.swerves) .. ", widest slide " .. fmt(test.maxSlide)
+                .. " tiles, closest pass " .. fmt(test.closest) .. " tiles to "
+                .. tostring(test.closestName))
+        setPhase("drive_release", current)
+    end
 end
 
 function Probe.step(H, current, check, result, setPhase)
@@ -406,6 +745,10 @@ function Probe.step(H, current, check, result, setPhase)
     local vehicle, actor = test.vehicle, test.actor
     telemetry(H, test, current)
     local speed = tonumber(vehicle:getCurrentSpeedKmHour()) or 0
+    if string.find(H.phase, "drive_route_", 1, true) == 1 then
+        routeStep(H, SC, current, check, result, setPhase, test)
+        return
+    end
 
     if H.phase == "drive_engine" then
         local status = SC.Driving.status(actor) or {}
@@ -664,9 +1007,13 @@ function Probe.step(H, current, check, result, setPhase)
         check("drive_driver_gets_out", exited == true and actor:getVehicle() == nil,
             tostring(why))
         if H.config.driving_screenshots == "true" then
-            check("drive_screenshots_captured", shotCaptured(H, "cruise") and shotCaptured(H, "crash"),
-                "cruise=" .. tostring(shotCaptured(H, "cruise"))
-                    .. " crash=" .. tostring(shotCaptured(H, "crash")))
+            local all, names = true, {}
+            for name in pairs(test.shots) do
+                local captured = shotCaptured(H, name)
+                all = all and captured
+                names[#names + 1] = name .. "=" .. tostring(captured)
+            end
+            check("drive_screenshots_captured", all and #names > 0, table.concat(names, " "))
         end
         setPhase("finish", current)
     end

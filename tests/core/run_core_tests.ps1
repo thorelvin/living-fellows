@@ -102,7 +102,8 @@ try {
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCConstructionHideTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCCompanionComfortTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCMovementClearanceTest.java') `
-        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCCompanionDrivingTest.java')
+        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCCompanionDrivingTest.java') `
+        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCRoadFollowerTest.java')
     if ($LASTEXITCODE -ne 0) { throw 'Core Java test harness compilation failed.' }
 
     $allLua = @(Get-ChildItem -LiteralPath $Payload -Recurse -Filter '*.lua' -File | Sort-Object FullName | ForEach-Object FullName)
@@ -544,6 +545,7 @@ try {
     Add-ScJvmStep 'sc-companion-comfort' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCCompanionComfortTest') @() 'Companion cold/symptom policy gate failed.'
     Add-ScJvmStep 'sc-movement-clearance' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCMovementClearanceTest') @() 'Companion wedge-escape clearance gate failed.'
     Add-ScJvmStep 'sc-companion-driving' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCCompanionDrivingTest') @() 'Companion cruise control and lane scan gate failed.'
+    Add-ScJvmStep 'sc-road-follower' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCRoadFollowerTest') @() 'Route following, wreck avoidance and turning round gate failed.'
 
     $clothingCatalog = Join-Path $GameRoot 'media\clothing\clothing.xml'
     [xml]$clothing = Get-Content -LiteralPath $clothingCatalog -Raw -Encoding utf8

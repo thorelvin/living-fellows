@@ -882,6 +882,40 @@ public final class SCBridge {
         return true;
     }
 
+    /**
+     * Follows a road route, "x,y,width;..." as the expedition planner gives it:
+     * keeps to the right-hand lane, slides round wrecks the lane scan finds,
+     * stops when the road is blocked edge to edge, and stops at the end.
+     */
+    public static boolean driveFollow(SCNativeCompanion actor, String route, double cruiseKmh) {
+        lastFailure = "";
+        String refused = driveRefusal(actor);
+        if (!refused.isEmpty()) return failBoolean(refused);
+        SCCompanionDriver driver = actor.companionDriver();
+        if (!driver.isActive()) return failBoolean("companion is not driving");
+        SCDrivePath path = SCDrivePath.parse(route);
+        if (path == null) {
+            return failBoolean("route must be 2 to " + SCDrivePath.MAX_POINTS
+                    + " points of x,y,width inside the map");
+        }
+        driver.follow(path, cruiseKmh);
+        return true;
+    }
+
+    /**
+     * Turns the car round with a bounded three-point turn. With followBack the
+     * companion then drives the same route back.
+     */
+    public static boolean driveTurnAround(SCNativeCompanion actor, boolean followBack) {
+        lastFailure = "";
+        String refused = driveRefusal(actor);
+        if (!refused.isEmpty()) return failBoolean(refused);
+        SCCompanionDriver driver = actor.companionDriver();
+        if (!driver.isActive()) return failBoolean("companion is not driving");
+        String failure = driver.turnAround(followBack);
+        return failure.isEmpty() || failBoolean(failure);
+    }
+
     /** Lets go of the wheel and parks the car. Safe to call when not driving. */
     public static boolean driveStop(SCNativeCompanion actor) {
         lastFailure = "";
@@ -915,11 +949,38 @@ public final class SCBridge {
         put(out, "engineState", driver.engineState());
         put(out, "startAttempts", driver.startAttempts());
         put(out, "engineStartCalls", driver.startCalls());
+        put(out, "zombiesKilled", driver.zombiesKilled());
         SCDriveControl.Input input = driver.lastInput();
         put(out, "forward", input.forward());
         put(out, "brake", input.brake());
         put(out, "backward", input.backward());
         putLane(out, driver.lastScan());
+        SCRoadFollower follower = driver.follower();
+        put(out, "following", follower != null);
+        if (follower != null) {
+            put(out, "mode", follower.mode().name().toLowerCase(java.util.Locale.ROOT));
+            put(out, "routeLength", follower.path().length());
+            put(out, "routePoints", follower.path().points());
+            put(out, "along", follower.along());
+            put(out, "remaining", follower.remaining());
+            put(out, "lateral", follower.lateral());
+            put(out, "offset", follower.offset());
+            put(out, "laneOffset", follower.laneOffset());
+            put(out, "swerves", follower.swerves());
+            put(out, "blockedAt", follower.blockedAt());
+            SCLaneScan.Result rear = driver.lastRearScan();
+            put(out, "rearBlocked", rear.blocked);
+            put(out, "rearDistance", rear.distance);
+            put(out, "rearKind", SCLaneScan.kindName(rear.kind));
+            SCTurnAround turn = follower.turn();
+            if (turn != null) {
+                put(out, "turnState", turn.state().name().toLowerCase(java.util.Locale.ROOT));
+                put(out, "turnLegs", turn.legs());
+                put(out, "turnSide", turn.side());
+                put(out, "turnReverseSign", turn.reverseSign());
+                put(out, "turnReason", turn.reason());
+            }
+        }
         return true;
     }
 

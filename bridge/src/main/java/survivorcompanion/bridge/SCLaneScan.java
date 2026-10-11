@@ -57,6 +57,7 @@ final class SCLaneScan {
         float leftDistance = -1.0f;
         float centerDistance = -1.0f;
         float rightDistance = -1.0f;
+        /** Squares this scan read from the world (not from a shared cache). */
         int squaresChecked;
 
         void copyFrom(Result other) {
@@ -85,6 +86,17 @@ final class SCLaneScan {
      */
     static Result scan(World world, float x, float y, int z, float forwardX, float forwardY,
                        float halfWidth, float frontOffset, float lookAhead) {
+        return scan(world, x, y, z, forwardX, forwardY, halfWidth, frontOffset, lookAhead,
+                new HashMap<>());
+    }
+
+    /**
+     * The same scan sharing a square cache with other scans of the same moment,
+     * so trying several lateral offsets reads each square once.
+     */
+    static Result scan(World world, float x, float y, int z, float forwardX, float forwardY,
+                       float halfWidth, float frontOffset, float lookAhead,
+                       HashMap<Long, Integer> kinds) {
         Result result = new Result();
         float length = (float) Math.sqrt(forwardX * forwardX + forwardY * forwardY);
         if (world == null || !(length > 0.001f) || !(x == x) || !(y == y)
@@ -102,14 +114,12 @@ final class SCLaneScan {
         float rightY = fx;
         float reach = Math.min(lookAhead, MAX_LOOK_AHEAD);
         float side = halfWidth + SIDE_MARGIN;
-        HashMap<Long, Integer> kinds = new HashMap<>();
         result.leftDistance = ray(world, kinds, result, x, y, z, fx, fy,
                 -rightX * side, -rightY * side, frontOffset, reach);
         result.centerDistance = ray(world, kinds, result, x, y, z, fx, fy,
                 0.0f, 0.0f, frontOffset, reach);
         result.rightDistance = ray(world, kinds, result, x, y, z, fx, fy,
                 rightX * side, rightY * side, frontOffset, reach);
-        result.squaresChecked = kinds.size();
         return result;
     }
 
@@ -134,9 +144,10 @@ final class SCLaneScan {
                 Integer cached = kinds.get(key);
                 if (cached != null) {
                     kind = cached;
-                } else if (kinds.size() < MAX_SQUARES) {
+                } else if (result.squaresChecked < MAX_SQUARES) {
                     kind = world.squareKind(squareX, squareY, z);
                     kinds.put(key, kind);
+                    result.squaresChecked++;
                 } else {
                     // Out of budget: an unchecked square is not a clear square.
                     kind = UNLOADED;

@@ -42,7 +42,8 @@ end
 function Driving.available()
     local api = bridge()
     if api == nil then return false end
-    for _, name in ipairs({ "driveStart", "driveSet", "driveStop", "driveStatus", "scanLane" }) do
+    for _, name in ipairs({ "driveStart", "driveSet", "driveStop", "driveStatus", "scanLane",
+        "driveFollow", "driveTurnAround" }) do
         local ok, callback = pcall(function() return api[name] end)
         if not ok or callback == nil then return false end
     end
@@ -100,6 +101,44 @@ end
 -- Lets go of the wheel and parks. Safe when not driving.
 function Driving.release(actor)
     return call("driveStop", actor)
+end
+
+-- The expedition road planner's route from where the car stands to a target.
+function Driving.planRoute(actor, target)
+    if SC.ExpeditionRoute == nil or type(SC.ExpeditionRoute.plan) ~= "function" then
+        return nil, "road planner is unavailable"
+    end
+    return SC.ExpeditionRoute.plan(actor, target, true)
+end
+
+-- The bridge's route text, "x,y,width;...", from route points. Bounded.
+function Driving.routeText(points)
+    if type(points) ~= "table" then return nil, "route has no points" end
+    local parts = {}
+    for index, point in ipairs(points) do
+        if index > 512 then return nil, "route has too many points" end
+        local x = type(point) == "table" and tonumber(point.x) or nil
+        local y = type(point) == "table" and tonumber(point.y) or nil
+        if not x or not y then return nil, "route point " .. index .. " is invalid" end
+        parts[#parts + 1] = string.format("%.2f,%.2f,%.1f", x, y, tonumber(point.width) or 0)
+    end
+    if #parts < 2 then return nil, "route has fewer than two points" end
+    return table.concat(parts, ";")
+end
+
+-- Drives a route: the planner's table, or a plain list of {x, y, width}
+-- points. The bridge keeps right, slides round wrecks in the lane, stops when
+-- the road is blocked edge to edge, and stops at the end.
+function Driving.followRoute(actor, route, kmh)
+    local points = type(route) == "table" and (route.points or route) or nil
+    local text, why = Driving.routeText(points)
+    if not text then return false, why end
+    return call("driveFollow", actor, text, tonumber(kmh) or 10)
+end
+
+-- Turns round with a three-point turn; with followBack, drives the route back.
+function Driving.turnAround(actor, followBack)
+    return call("driveTurnAround", actor, followBack == true)
 end
 
 function Driving.status(actor)

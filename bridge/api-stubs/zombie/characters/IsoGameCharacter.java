@@ -95,6 +95,8 @@ public class IsoGameCharacter extends IsoMovingObject {
             boolean bitten, boolean allLayers) {}
     public int getLastHitCount() { return 0; }
     public boolean isDead() { return false; }
+    public boolean isOnKillDone() { return false; }
+    public final void Kill(IsoGameCharacter killer) {}
     public boolean isOnFloor() { return false; }
     public boolean isClimbing() { return false; }
     // IsoGameCharacter implements IGrappleableWrapper in 42.20.4, which supplies

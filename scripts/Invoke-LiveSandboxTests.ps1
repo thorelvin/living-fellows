@@ -44,6 +44,9 @@ param(
     [switch]$WaterSourceProbe,
     # A companion drives a spawned car on a straight road near the observer.
     [switch]$DrivingProbe,
+    # With -DrivingProbe: drive an expedition-planner route round one wreck,
+    # turn round, and drive back round two, instead of the mechanics checks.
+    [switch]$DrivingRoute,
     # With -DrivingProbe: save driving-cruise.png at cruising speed and
     # driving-crash.png after the crash test into this directory.
     [string]$DrivingScreenshotDirectory = '',
@@ -595,6 +598,7 @@ if ($CompanionInventoryOnly) {
 if ($VehiclePassengerOnly -ne (-not [string]::IsNullOrWhiteSpace($VehiclePassengerScreenshot))) {
     throw '-VehiclePassengerOnly requires -VehiclePassengerScreenshot.'
 }
+if ($DrivingRoute -and -not $DrivingProbe) { throw '-DrivingRoute requires -DrivingProbe.' }
 if (-not [string]::IsNullOrWhiteSpace($DrivingScreenshotDirectory)) {
     if (-not $DrivingProbe) { throw '-DrivingScreenshotDirectory requires -DrivingProbe.' }
     if ($HiddenWindow) { throw '-DrivingScreenshotDirectory requires a visible game window for capture.' }
@@ -1005,6 +1009,7 @@ $config = @(
     ('base_second_floor_probe=' + $BaseSecondFloorProbe.IsPresent.ToString().ToLowerInvariant()),
     ('water_source_probe=' + $WaterSourceProbe.IsPresent.ToString().ToLowerInvariant()),
     ('driving_probe=' + $DrivingProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('driving_route=' + $DrivingRoute.IsPresent.ToString().ToLowerInvariant()),
     ('driving_screenshots=' + (-not [string]::IsNullOrWhiteSpace($DrivingScreenshotDirectory)).ToString().ToLowerInvariant()),
     ('capture_faction_map=' + $captureFactionMap.ToString().ToLowerInvariant()),
     ('faction_map_only=' + $FactionMapOnly.IsPresent.ToString().ToLowerInvariant()),
@@ -1445,10 +1450,11 @@ try {
         }
         if (-not [string]::IsNullOrWhiteSpace($DrivingScreenshotDirectory)) {
             # The car is moving: capture as soon as the probe signals, no settle delay.
-            foreach ($shot in @('cruise', 'crash')) {
-                $ready = Join-Path $SandboxLua "driving-$shot-ready.txt"
-                if ($drivingCaptures.ContainsKey($shot) -or
-                    -not (Test-Path -LiteralPath $ready -PathType Leaf)) { continue }
+            $readyFiles = @(Get-ChildItem -LiteralPath $SandboxLua -Filter 'driving-*-ready.txt' `
+                -File -ErrorAction SilentlyContinue)
+            foreach ($readyFile in $readyFiles) {
+                $shot = $readyFile.Name -replace '^driving-(.+)-ready\.txt$', '$1'
+                if ($shot -notmatch '^[a-z]+$' -or $drivingCaptures.ContainsKey($shot)) { continue }
                 Initialize-WindowInput
                 [void][SCLiveHarness.WindowInput]::Focus($process.MainWindowHandle)
                 $destination = Join-Path $DrivingScreenshotDirectory "driving-$shot.png"

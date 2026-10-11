@@ -11,12 +11,16 @@ package survivorcompanion.bridge;
 final class SCDriveControl {
     /** Companion driving is new: it cruises slowly and never faster than this. */
     static final float MAX_CRUISE_KMH = 25.0f;
+    /** Reversing is only ever a slow manoeuvre. */
+    static final float MAX_REVERSE_KMH = 6.0f;
     /** A requested speed below this but above zero still moves the car. */
     static final float MIN_CRUISE_KMH = 3.0f;
     /** Below this the car counts as standing still. */
     static final float STOPPED_KMH = 0.6f;
     /** Never creep closer than this to an obstacle, in tiles from the bumper. */
     static final float HOLD_GAP_TILES = 3.0f;
+    /** The gap kept during slow manoeuvres such as a three-point turn. */
+    static final float MANEUVER_GAP_TILES = 1.0f;
     private static final float SPEED_UP_BELOW_KMH = 1.0f;
     private static final float BRAKE_ABOVE_KMH = 3.0f;
     // Conservative: real Build 42 brakes stop harder than this.
@@ -51,8 +55,12 @@ final class SCDriveControl {
 
     /** True when an obstacle this far ahead means the car must stop now. */
     static boolean mustStop(float speedKmh, float obstacleTiles) {
+        return mustStop(speedKmh, obstacleTiles, HOLD_GAP_TILES);
+    }
+
+    static boolean mustStop(float speedKmh, float obstacleTiles, float holdGap) {
         return obstacleTiles >= 0.0f
-                && obstacleTiles <= Math.max(stoppingDistance(speedKmh), HOLD_GAP_TILES);
+                && obstacleTiles <= Math.max(stoppingDistance(speedKmh), holdGap);
     }
 
     /**
@@ -62,9 +70,14 @@ final class SCDriveControl {
      *     obstacle in the lane, or a negative value when the lane is clear
      */
     static Input cruise(float speedKmh, float targetKmh, float steering, float obstacleTiles) {
+        return cruise(speedKmh, targetKmh, steering, obstacleTiles, HOLD_GAP_TILES);
+    }
+
+    static Input cruise(float speedKmh, float targetKmh, float steering, float obstacleTiles,
+                        float holdGap) {
         float steer = clampSteering(steering);
         if (!(speedKmh == speedKmh)) return new Input(steer, false, false, true);
-        if (targetKmh <= 0.0f || mustStop(speedKmh, obstacleTiles)) {
+        if (targetKmh <= 0.0f || mustStop(speedKmh, obstacleTiles, holdGap)) {
             // Brake only while rolling. Build 42's controller forces game speed to
             // 1x on every frame with a pedal down, so a car at rest is left with
             // no input; the controller then holds it with its light parking brake.
@@ -74,6 +87,26 @@ final class SCDriveControl {
         if (speedKmh < -STOPPED_KMH) return new Input(steer, false, false, true);
         if (speedKmh < targetKmh - SPEED_UP_BELOW_KMH) return new Input(steer, true, false, false);
         if (speedKmh > targetKmh + BRAKE_ABOVE_KMH) return new Input(steer, false, false, true);
+        return new Input(steer, false, false, false);
+    }
+
+    /**
+     * One frame of reversing at targetKmh (a positive speed). Build 42 reports
+     * reverse as a negative speed. obstacleTiles is measured from the rear
+     * bumper backwards.
+     */
+    static Input reverse(float speedKmh, float targetKmh, float steering, float obstacleTiles) {
+        float steer = clampSteering(steering);
+        if (!(speedKmh == speedKmh)) return new Input(steer, false, false, true);
+        float backwards = -speedKmh;
+        float target = Math.min(Math.max(targetKmh, 0.0f), MAX_REVERSE_KMH);
+        if (target <= 0.0f || mustStop(backwards, obstacleTiles, MANEUVER_GAP_TILES)) {
+            boolean rolling = Math.abs(speedKmh) > STOPPED_KMH;
+            return new Input(steer, false, false, rolling);
+        }
+        if (speedKmh > STOPPED_KMH) return new Input(steer, false, false, true);
+        if (backwards < target - SPEED_UP_BELOW_KMH) return new Input(steer, false, true, false);
+        if (backwards > target + BRAKE_ABOVE_KMH) return new Input(steer, false, false, true);
         return new Input(steer, false, false, false);
     }
 }

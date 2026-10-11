@@ -187,9 +187,25 @@ public final class SCCompanionDrivingTest {
                 "obstacle kinds have stable names for Lua");
     }
 
+    private static void ramContact() {
+        float[] body = {1.0f, 2.4f};
+        // A car at (10, 10) facing east.
+        require(SCCompanionDriver.touches(10.0f, 10.0f, 1.0f, 0.0f, body, 12.8f, 10.0f),
+                "a zombie just past the front bumper is in contact");
+        require(SCCompanionDriver.touches(10.0f, 10.0f, 1.0f, 0.0f, body, 10.0f, 11.4f),
+                "a zombie against the side is in contact");
+        require(!SCCompanionDriver.touches(10.0f, 10.0f, 1.0f, 0.0f, body, 13.2f, 10.0f)
+                        && !SCCompanionDriver.touches(10.0f, 10.0f, 1.0f, 0.0f, body, 10.0f, 11.7f),
+                "a zombie a little way off is not");
+        require(SCCompanionDriver.touches(10.0f, 10.0f, 0.0f, -1.0f, body, 10.0f, 7.2f)
+                        && !SCCompanionDriver.touches(10.0f, 10.0f, 0.0f, -1.0f, body, 12.8f, 10.0f),
+                "contact follows the car's heading: facing north, the front is up the map");
+    }
+
     public static void main(String[] args) {
         cruiseRules();
         laneScan();
+        ramContact();
         System.out.println("COMPANION_DRIVING_PASS checks=" + checks);
     }
 }

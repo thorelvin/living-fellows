@@ -105,5 +105,19 @@ lane scan every 250 ms. Add `-DrivingScreenshotDirectory` to capture
     -DrivingScreenshotDirectory .uild\driving-shots
 ```
 
+Add `-DrivingRoute` to drive a route instead. The probe asks the expedition road
+planner for a route 70 tiles down the same road and parks a car in the
+companion's lane 18 tiles on, with two still zombies 36 and 40 tiles on. The
+companion follows the route, slides round the parked car without touching it,
+runs the zombies down (a companion's car kills zombies it touches), and stops at
+the end. It then turns round with a three-point turn and drives the route back
+round two parked cars waiting in its new lane. Screenshots, when asked for, are
+`driving-swerve.png`, `driving-turn.png` and `driving-return.png`.
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -DrivingProbe -DrivingRoute -LivingFellowsOnly `
+    -TimeoutSeconds 900 -DrivingScreenshotDirectory .\build\route-shots
+```
+
 The run needs the branch's bridge on the game's classpath, so install it first
 with `.\scripts\Install-NativeBridge.ps1`.

@@ -4,6 +4,7 @@ package survivorcompanion.bridge;
 import java.util.ArrayList;
 import org.joml.Vector3f;
 import zombie.characters.IsoGameCharacter;
+import zombie.characters.IsoZombie;
 import zombie.core.physics.CarController;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoGridSquare;
@@ -50,7 +51,28 @@ final class SCCompanionDriver {
     private String engineState = "";
     private SCDriveControl.Input lastInput = new SCDriveControl.Input(0.0f, false, false, false);
     private final SCLaneScan.Result lastScan = new SCLaneScan.Result();
+    private final SCLaneScan.Result lastRearScan = new SCLaneScan.Result();
     private final Vector3f forward = new Vector3f();
+    private SCRoadFollower follower;
+    private final SCRoadFollower.Command command = new SCRoadFollower.Command();
+    private boolean turnRequested;
+    private boolean turnFollowBack;
+    /** Rear clearance checked during a manoeuvre, in tiles behind the bumper. */
+    private static final float REAR_LOOK = 4.0f;
+    /** How far to look to each side when choosing which way to turn round. */
+    private static final float TURN_ROOM_LOOK = 10.0f;
+    private static final float TURN_ROOM_ANGLE = (float) Math.toRadians(70.0);
+    /** A companion's car kills any zombie it touches while moving at least this fast. */
+    static final float RAM_MIN_KMH = 1.5f;
+    /** Squares around the car's centre checked for zombies in contact. */
+    private static final int RAM_RADIUS = 4;
+    /**
+     * Contact reach beyond the body, in tiles. Build 42's own collision pushes
+     * a zombie out of the car's box the moment it touches it, so a test of the
+     * box alone ({@code isCollided}) only rarely sees the touch.
+     */
+    static final float RAM_MARGIN = 0.5f;
+    private int zombiesKilled;
 
     boolean isActive() {
         return active;
@@ -101,12 +123,26 @@ final class SCCompanionDriver {
         return startCalls;
     }
 
+    /** Zombies this driver has run down since taking the wheel. */
+    int zombiesKilled() {
+        return zombiesKilled;
+    }
+
     SCDriveControl.Input lastInput() {
         return lastInput;
     }
 
     SCLaneScan.Result lastScan() {
         return lastScan;
+    }
+
+    SCLaneScan.Result lastRearScan() {
+        return lastRearScan;
+    }
+
+    /** The route being followed, or null while driven by hand (driveSet). */
+    SCRoadFollower follower() {
+        return follower;
     }
 
     /** Takes the wheel of the car the actor is driving. Starts stopped. */
@@ -124,16 +160,42 @@ final class SCCompanionDriver {
         reason = "";
         startAttempts = 0;
         startCalls = 0;
+        zombiesKilled = 0;
         nextStartAt = 0L;
         nextScanAt = 0L;
         lastScan.copyFrom(new SCLaneScan.Result());
+        follower = null;
+        turnRequested = false;
         return "";
     }
 
+    /** Hand driving: a set wheel and speed. Ends any route being followed. */
     void set(double steeringValue, double cruise, boolean brakeForObstacles) {
+        follower = null;
+        turnRequested = false;
         steering = SCDriveControl.clampSteering(steeringValue);
         cruiseKmh = SCDriveControl.clampCruise(cruise);
         autoBrake = brakeForObstacles;
+    }
+
+    /**
+     * Follows a route: keeps right, slides round what blocks the lane, and
+     * brakes for anything the lane scan finds. Obstacle braking stays on.
+     */
+    void follow(SCDrivePath path, double cruise) {
+        follower = new SCRoadFollower(path, (float) cruise, true);
+        cruiseKmh = follower.cruiseKmh();
+        steering = 0.0f;
+        autoBrake = true;
+        turnRequested = false;
+    }
+
+    /** Turns round on the next frame; with followBack, drives the route back. */
+    String turnAround(boolean followBack) {
+        if (follower == null) return "companion is not following a route";
+        turnRequested = true;
+        turnFollowBack = followBack;
+        return "";
     }
 
     /**
@@ -146,6 +208,8 @@ final class SCCompanionDriver {
         boolean wasActive = active;
         active = false;
         vehicle = null;
+        follower = null;
+        turnRequested = false;
         cruiseKmh = 0.0f;
         steering = 0.0f;
         lastInput = new SCDriveControl.Input(0.0f, false, false, false);
@@ -182,6 +246,7 @@ final class SCCompanionDriver {
         BaseVehicle.engineStateTypes engine = current.getEngineState();
         engineState = engine == null ? "" : engine.name();
         CarController.ClientControls controls = controller.getClientControls();
+        ramZombies(actor, current);
         if (!engineRunning) {
             // No pedal while the engine is off: the controller would try its own
             // key start once and never retry. Start it here, a bounded few times.
@@ -204,6 +269,10 @@ final class SCCompanionDriver {
             return;
         }
         startAttempts = 0;
+        if (follower != null) {
+            driveRoute(current, controls, now);
+            return;
+        }
         if (autoBrake && now - nextScanAt >= 0L) {
             nextScanAt = now + SCAN_INTERVAL_NANOS;
             lastScan.copyFrom(scan(current, lookAheadFor(cruiseKmh)));
@@ -220,6 +289,130 @@ final class SCCompanionDriver {
         } else {
             state = "cruising";
         }
+    }
+
+    /** One frame of route following: the follower steers, the safety scans brake. */
+    private void driveRoute(BaseVehicle current, CarController.ClientControls controls, long now) {
+        current.getForwardVector(forward);
+        float length = (float) Math.hypot(forward.x, forward.z);
+        float headingX = length > 0.001f ? forward.x / length : 1.0f;
+        float headingY = length > 0.001f ? forward.z / length : 0.0f;
+        float[] body = bodySize(current);
+        float x = current.getX();
+        float y = current.getY();
+        int z = (int) Math.floor(current.getZ());
+        WorldView world = new WorldView(current);
+        if (now - nextScanAt >= 0L) {
+            nextScanAt = now + SCAN_INTERVAL_NANOS;
+            lastScan.copyFrom(SCLaneScan.scan(world, x, y, z, headingX, headingY, body[0],
+                    body[1] + 0.1f, lookAheadFor(follower.cruiseKmh())));
+            lastRearScan.copyFrom(SCLaneScan.scan(world, x, y, z, -headingX, -headingY, body[0],
+                    body[1] + 0.1f, REAR_LOOK));
+        }
+        if (turnRequested) {
+            turnRequested = false;
+            follower.beginTurn((float) Math.atan2(headingY, headingX),
+                    turnSide(world, x, y, z, headingX, headingY), turnFollowBack);
+        }
+        float front = lastScan.blocked ? lastScan.distance : -1.0f;
+        float rear = lastRearScan.blocked ? lastRearScan.distance : -1.0f;
+        follower.update(world, x, y, z, headingX, headingY, speedKmh, body[0], body[1],
+                front, rear, now / 1_000_000L, command);
+        steering = command.steering;
+        SCDriveControl.Input input = command.targetKmh < 0.0f
+                ? SCDriveControl.reverse(speedKmh, -command.targetKmh, command.steering, rear)
+                : SCDriveControl.cruise(speedKmh, command.targetKmh, command.steering, front,
+                        command.maneuver ? SCDriveControl.MANEUVER_GAP_TILES
+                                : SCDriveControl.HOLD_GAP_TILES);
+        write(controls, input);
+        SCRoadFollower.Mode mode = follower.mode();
+        if (mode == SCRoadFollower.Mode.FOLLOW) {
+            state = Math.abs(follower.offset() - follower.laneOffset()) > 0.5f
+                    ? "avoiding" : "following";
+        } else {
+            state = mode.name().toLowerCase(java.util.Locale.ROOT);
+        }
+    }
+
+    /**
+     * Which way to turn round: towards the side with more open ground ahead of
+     * it. -1 turns left, +1 right; a tie turns left, across the road.
+     */
+    private static int turnSide(WorldView world, float x, float y, int z, float headingX,
+                                float headingY) {
+        float heading = (float) Math.atan2(headingY, headingX);
+        float left = room(world, x, y, z, heading - TURN_ROOM_ANGLE);
+        float right = room(world, x, y, z, heading + TURN_ROOM_ANGLE);
+        return right > left + 0.5f ? 1 : -1;
+    }
+
+    private static float room(WorldView world, float x, float y, int z, float angle) {
+        SCLaneScan.Result result = SCLaneScan.scan(world, x, y, z, (float) Math.cos(angle),
+                (float) Math.sin(angle), 0.5f, 0.0f, TURN_ROOM_LOOK);
+        return result.blocked ? result.distance : TURN_ROOM_LOOK + 1.0f;
+    }
+
+    /** Half the body width and half its length, from the vehicle script. */
+    private static float[] bodySize(BaseVehicle current) {
+        float halfWidth = DEFAULT_HALF_WIDTH;
+        float halfLength = DEFAULT_HALF_LENGTH;
+        VehicleScript script = current.getScript();
+        Vector3f extents = script == null ? null : script.getExtents();
+        if (extents != null && extents.x > 0.5f && extents.z > 1.0f) {
+            halfWidth = extents.x * 0.5f;
+            halfLength = extents.z * 0.5f;
+        }
+        return new float[] {halfWidth, halfLength};
+    }
+
+    /**
+     * A zombie the moving car touches dies on the spot, killed by the driver.
+     * Contact is the car's body box grown by {@link #RAM_MARGIN}; the kill is
+     * the game's own {@code Kill}, so the corpse, death events and kill credit
+     * all behave as for any other kill.
+     */
+    private void ramZombies(IsoGameCharacter driver, BaseVehicle current) {
+        if (Math.abs(speedKmh) < RAM_MIN_KMH) return;
+        IsoCell cell = current.getCell();
+        if (cell == null) return;
+        current.getForwardVector(forward);
+        float length = (float) Math.hypot(forward.x, forward.z);
+        if (!(length > 0.001f)) return;
+        float headingX = forward.x / length;
+        float headingY = forward.z / length;
+        float[] body = bodySize(current);
+        float carX = current.getX();
+        float carY = current.getY();
+        int centerX = (int) Math.floor(carX);
+        int centerY = (int) Math.floor(carY);
+        int z = (int) Math.floor(current.getZ());
+        for (int dx = -RAM_RADIUS; dx <= RAM_RADIUS; dx++) {
+            for (int dy = -RAM_RADIUS; dy <= RAM_RADIUS; dy++) {
+                IsoGridSquare square = cell.getGridSquare(centerX + dx, centerY + dy, z);
+                ArrayList<IsoMovingObject> movers = square == null ? null : square.getMovingObjects();
+                if (movers == null) continue;
+                for (int index = movers.size() - 1; index >= 0; index--) {
+                    IsoMovingObject mover = movers.get(index);
+                    if (mover instanceof IsoZombie zombie && !zombie.isDead()
+                            && !zombie.isOnKillDone()
+                            && touches(carX, carY, headingX, headingY, body,
+                                    zombie.getX(), zombie.getY())) {
+                        zombie.Kill(driver);
+                        zombiesKilled++;
+                    }
+                }
+            }
+        }
+    }
+
+    /** A point inside the car's body box grown by the ram margin. */
+    static boolean touches(float carX, float carY, float headingX, float headingY, float[] body,
+                           float x, float y) {
+        float dx = x - carX;
+        float dy = y - carY;
+        float along = dx * headingX + dy * headingY;
+        float side = -dx * headingY + dy * headingX;
+        return Math.abs(along) <= body[1] + RAM_MARGIN && Math.abs(side) <= body[0] + RAM_MARGIN;
     }
 
     private void write(CarController.ClientControls controls, SCDriveControl.Input input) {
@@ -240,18 +433,11 @@ final class SCCompanionDriver {
     SCLaneScan.Result scan(BaseVehicle current, float lookAhead) {
         if (current == null) return SCLaneScan.scan(null, 0, 0, 0, 0, 0, 0, 0, 0);
         current.getForwardVector(forward);
-        float halfWidth = DEFAULT_HALF_WIDTH;
-        float halfLength = DEFAULT_HALF_LENGTH;
-        VehicleScript script = current.getScript();
-        Vector3f extents = script == null ? null : script.getExtents();
-        if (extents != null && extents.x > 0.5f && extents.z > 1.0f) {
-            halfWidth = extents.x * 0.5f;
-            halfLength = extents.z * 0.5f;
-        }
+        float[] body = bodySize(current);
         // Physics forward is (x, z); world y grows south like physics z.
         return SCLaneScan.scan(new WorldView(current), current.getX(), current.getY(),
                 (int) Math.floor(current.getZ()), forward.x, forward.z,
-                halfWidth, halfLength + 0.1f, lookAhead);
+                body[0], body[1] + 0.1f, lookAhead);
     }
 
     /** The loaded world as the lane scan sees it, ignoring the scanning car. */
@@ -276,6 +462,8 @@ final class SCCompanionDriver {
             if (movers != null) {
                 for (int index = 0; index < movers.size(); index++) {
                     IsoMovingObject mover = movers.get(index);
+                    // Zombies are run down (ramZombies), never braked or steered for.
+                    if (mover instanceof IsoZombie) continue;
                     if (mover instanceof IsoGameCharacter character
                             && !character.isDead() && character.getVehicle() == null) {
                         return SCLaneScan.CHARACTER;

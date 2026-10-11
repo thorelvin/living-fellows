@@ -85,10 +85,13 @@ public final class SCNativeBridgeExposureTest {
                 + "SC_TEST_STORY_SHELTER_REJECTS_NIL = not SCBridge.setStoryZombieIgnored(nil, true)\n"
                 + "SC_TEST_DRIVE_API = SCBridge.driveStart ~= nil and SCBridge.driveSet ~= nil\n"
                 + "    and SCBridge.driveStop ~= nil and SCBridge.driveStatus ~= nil\n"
-                + "    and SCBridge.scanLane ~= nil\n"
+                + "    and SCBridge.scanLane ~= nil and SCBridge.driveFollow ~= nil\n"
+                + "    and SCBridge.driveTurnAround ~= nil\n"
                 + "SC_TEST_DRIVE_REJECTS_NIL = not SCBridge.driveStart(nil, true)\n"
                 + "    and not SCBridge.driveSet(nil, 0, 10, true) and not SCBridge.driveStop(nil)\n"
                 + "    and not SCBridge.driveStatus(nil, {}) and not SCBridge.scanLane(nil, 8, {})\n"
+                + "    and not SCBridge.driveFollow(nil, '1,1,6;9,1,6', 10)\n"
+                + "    and not SCBridge.driveTurnAround(nil, true)\n"
                 + "SC_TEST_ATTACK_TYPES = true\n";
         Object closure = Class.forName("se.krka.kahlua.luaj.compiler.LuaCompiler")
                 .getMethod("loadstring", String.class, String.class, tableClass)
