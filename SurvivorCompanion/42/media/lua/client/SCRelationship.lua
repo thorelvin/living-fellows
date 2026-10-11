@@ -545,6 +545,7 @@ local function backgroundResponse(state)
 end
 
 local doingLabels = {
+    auxiliary_return_to_kitchen = "heading back to the kitchen counter",
     bandage_treatment = "bandaging a wound",
     chris_chase_rascal = "going after Rascal",
     chris_run_to_bin = "checking a trash can",
@@ -556,6 +557,7 @@ local doingLabels = {
     jockey_footrace = "racing",
     merle_approach_grave = "heading to a grave",
     morton_approach_chair = "taking a seat on stage",
+    smoker_approach_chair = "heading to my window chair",
     replace_bandage = "tending a wound",
     survivalist_escape = "getting out of here",
     treat_patient = "treating an injury",
@@ -653,6 +655,9 @@ local doingLabels = {
     move_to_window = "going to a window",
     move_to_light_switch = "turning off the bedroom light",
     none = "taking a breath",
+    oddball_clear_ground_pose = "moving to a clear place to sit",
+    oddball_arthur_bed = "returning to bed",
+    oddball_arthur_floor = "moving beside the bed",
     offscreen_safe_recovery = "getting clear of an obstacle",
     ordered_move = "moving as ordered",
     ordered_retreat = "falling back as ordered",

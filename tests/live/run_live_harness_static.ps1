@@ -15,6 +15,10 @@ $BuildRoot = Join-Path ([System.IO.Path]::GetTempPath()) `
 $Compiler = Join-Path $ProjectRoot 'tests\ui\ReflectLuaCompiler.java'
 $RegressionRunner = Join-Path $ProjectRoot 'tests\gameplay\KahluaTestRunner.java'
 $Lua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCRealSandboxHarness.lua'
+$OddballProbe = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCOddballCoreyEarlProbe.lua'
+$ArthurPackProbe = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCOddballArthurPackProbe.lua'
+$SmokerProbe = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCOddballSmokerProbe.lua'
+$MilliProbe = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCMilliLiveProbe.lua'
 $Shared = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\shared'
 $Client = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\client'
 
@@ -31,6 +35,14 @@ try {
     try {
         & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $Lua
         if ($LASTEXITCODE -ne 0) { throw 'Live harness Kahlua compilation failed.' }
+        & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $OddballProbe
+        if ($LASTEXITCODE -ne 0) { throw 'Oddball live probe Kahlua compilation failed.' }
+        & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $ArthurPackProbe
+        if ($LASTEXITCODE -ne 0) { throw 'Arthur and Pack live probe Kahlua compilation failed.' }
+        & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $SmokerProbe
+        if ($LASTEXITCODE -ne 0) { throw 'Smoker live probe Kahlua compilation failed.' }
+        & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $MilliProbe
+        if ($LASTEXITCODE -ne 0) { throw 'Milli live probe Kahlua compilation failed.' }
 
         # Execute the live harness's landing selection in a clean Kahlua VM.
         # No game process is started and no save is read or changed.
@@ -54,12 +66,22 @@ try {
         $combatFixtureFiles += Join-Path $TestRoot 'live_combat_fixture_regression_harness.lua'
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @combatFixtureFiles
         if ($LASTEXITCODE -ne 0) { throw 'Live combat fixture regression harness failed.' }
+
+        $oddballFiles = @(
+            $OddballProbe,
+            $MilliProbe,
+            (Join-Path $TestRoot 'oddball_corey_earl_probe_regression_harness.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @oddballFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Oddball live probe isolation regression failed.' }
     }
     finally {
         Pop-Location
     }
     & python (Join-Path $TestRoot 'test_live_harness_static.py')
     if ($LASTEXITCODE -ne 0) { throw 'Live harness static contracts failed.' }
+    & (Join-Path $TestRoot 'test_steam_launch_static.ps1')
+    if (-not $?) { throw 'Steam launch ownership checks failed.' }
 }
 finally {
     if (Test-Path -LiteralPath $BuildRoot) {

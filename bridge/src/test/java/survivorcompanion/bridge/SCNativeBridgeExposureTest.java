@@ -4,6 +4,7 @@ package survivorcompanion.bridge;
 import java.lang.reflect.Method;
 import java.lang.reflect.Field;
 import java.lang.reflect.Array;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Verifies the production bootstrap against the real Project Zomboid Kahlua runtime. */
 public final class SCNativeBridgeExposureTest {
@@ -11,6 +12,45 @@ public final class SCNativeBridgeExposureTest {
 
     private static void require(boolean value, String message) {
         if (!value) throw new AssertionError(message);
+    }
+
+    private static void testOnBedRenderLiftIsolation() throws Exception {
+        Class<?> unsafeClass = Class.forName("sun.misc.Unsafe");
+        Field singleton = unsafeClass.getDeclaredField("theUnsafe");
+        singleton.setAccessible(true);
+        Object unsafe = singleton.get(null);
+        Method allocate = unsafeClass.getMethod("allocateInstance", Class.class);
+        SCNativeCompanion actor = (SCNativeCompanion) allocate.invoke(
+                unsafe, SCNativeCompanion.class);
+        SCNativeCompanion other = (SCNativeCompanion) allocate.invoke(
+                unsafe, SCNativeCompanion.class);
+        float physicalZ = actor.getZ();
+        float otherZ = other.getZ();
+        Field renderThread = SCNativeCompanion.class
+                .getDeclaredField("bridgeOnBedRenderThread");
+        renderThread.setAccessible(true);
+        actor.setBridgeOnBedRenderLift(0.18f, null);
+        try {
+            require(Float.compare(actor.getZ(), physicalZ) == 0,
+                    "bed render lift changed physical Z outside render");
+            renderThread.set(actor, Thread.currentThread());
+            require(Math.abs(actor.getZ() - physicalZ - 0.18f) < 0.00001f,
+                    "model-camera render guard did not lift this actor");
+            require(Float.compare(other.getZ(), otherZ) == 0,
+                    "bed render lift leaked to another companion");
+            AtomicReference<Float> concurrentZ = new AtomicReference<>();
+            Thread observer = new Thread(() -> concurrentZ.set(actor.getZ()));
+            observer.start();
+            observer.join();
+            require(Float.compare(concurrentZ.get(), physicalZ) == 0,
+                    "bed render lift leaked to a concurrent physical read");
+        } finally {
+            renderThread.set(actor, null);
+            actor.clearBridgeOnBedRenderLift();
+        }
+        require(Float.compare(actor.getZ(), physicalZ) == 0
+                        && actor.getBridgeOnBedRenderLift() == 0.0f,
+                "bed render lift did not clear without changing physical Z");
     }
 
     public static void main(String[] args) throws Exception {
@@ -81,6 +121,12 @@ public final class SCNativeBridgeExposureTest {
                 + "SC_TEST_PROTOCOL = SCBridge.getProtocol()\n"
                 + "SC_TEST_READY = SCBridge.checkReady()\n"
                 + "SC_TEST_VIEW_API = SCBridge.setViewOffset ~= nil and SCBridge.clearViewOffset ~= nil\n"
+                + "SC_TEST_BED_POSE_API = SCBridge.shiftOnBedPoseTowardPillow ~= nil\n"
+                + "SC_TEST_BED_POSE_REJECTS_NIL = not SCBridge.shiftOnBedPoseTowardPillow(nil, 0, 0, 0)\n"
+                + "SC_TEST_BED_RENDER_LIFT_API = SCBridge.setOnBedRenderLift ~= nil\n"
+                + "SC_TEST_BED_RENDER_LIFT_REJECTS_NIL = not SCBridge.setOnBedRenderLift(nil, 180)\n"
+                + "SC_TEST_EXPEDITION_ZOOM_API = SCBridge.readExpeditionZoom ~= nil and SCBridge.setExpeditionZoomStep ~= nil and SCBridge.restoreExpeditionZoom ~= nil\n"
+                + "SC_TEST_EXPEDITION_ZOOM_REJECTS_UNJOINED = not SCBridge.readExpeditionZoom({}) and not SCBridge.setExpeditionZoomStep(5)\n"
                 + "SC_TEST_STORY_SHELTER_API = SCBridge.setStoryZombieIgnored ~= nil\n"
                 + "SC_TEST_STORY_SHELTER_REJECTS_NIL = not SCBridge.setStoryZombieIgnored(nil, true)\n"
                 + "SC_TEST_ATTACK_TYPES = true\n";
@@ -90,10 +136,37 @@ public final class SCNativeBridgeExposureTest {
         thread.getClass().getMethod("call", Object.class, Object[].class)
                 .invoke(thread, closure, (Object) new Object[0]);
         Method rawget = tableClass.getMethod("rawget", Object.class);
-        require("42.21-isocompanion-15".equals(rawget.invoke(environment, "SC_TEST_PROTOCOL")),
+        require("42.21-isocompanion-16".equals(rawget.invoke(environment, "SC_TEST_PROTOCOL")),
                 "Lua received the wrong native bridge protocol");
         require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_VIEW_API")),
                 "production bridge did not expose the camera offset contract");
+        require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_BED_POSE_API"))
+                        && Boolean.TRUE.equals(rawget.invoke(environment,
+                                "SC_TEST_BED_POSE_REJECTS_NIL")),
+                "production bridge did not expose a guarded settled bed pose shift");
+        require(SCBridge.class.getMethod("shiftOnBedPoseTowardPillow",
+                        SCNativeCompanion.class, int.class, int.class, int.class)
+                        .getReturnType() == boolean.class,
+                "settled bed pose shift changed its Lua-facing signature");
+        require(!SCBridge.shiftOnBedPoseTowardPillow(null, 0, 0, 0)
+                        && SCBridge.getLastFailure().contains("null"),
+                "settled bed pose shift admitted a missing actor");
+        require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_BED_RENDER_LIFT_API"))
+                        && Boolean.TRUE.equals(rawget.invoke(environment,
+                                "SC_TEST_BED_RENDER_LIFT_REJECTS_NIL")),
+                "production bridge did not expose a guarded bed render lift");
+        require(SCBridge.class.getMethod("setOnBedRenderLift",
+                        SCNativeCompanion.class, int.class)
+                        .getReturnType() == boolean.class,
+                "bed render lift changed its Lua-facing signature");
+        require(!SCBridge.setOnBedRenderLift(null, 180)
+                        && SCBridge.getLastFailure().contains("null"),
+                "bed render lift admitted a missing actor");
+        testOnBedRenderLiftIsolation();
+        require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_EXPEDITION_ZOOM_API"))
+                        && Boolean.TRUE.equals(rawget.invoke(environment,
+                                "SC_TEST_EXPEDITION_ZOOM_REJECTS_UNJOINED")),
+                "production bridge did not expose a guarded expedition zoom contract");
         require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_STORY_SHELTER_API")),
                 "production bridge did not expose the owned story zombie shelter API");
         require(Boolean.TRUE.equals(rawget.invoke(environment,
@@ -136,6 +209,10 @@ public final class SCNativeBridgeExposureTest {
                         && playerCamera.getField("rightClickX").getFloat(camera) == 7.0f
                         && playerCamera.getField("rightClickY").getFloat(camera) == -5.0f,
                 "camera offset clear did not restore only the deferred view");
-        System.out.println("NATIVE_BRIDGE_EXPOSURE_PASS protocol=true kahlua=true attack-types=true camera-offset=true version-family-gate=true local-player-gate=true reflection-negative=true");
+        require(!SCBridge.setExpeditionZoomStep(0)
+                        && SCBridge.getLastFailure().contains("1 to 10")
+                        && SCBridge.restoreExpeditionZoom(),
+                "expedition zoom step bounds or idempotent restore changed");
+        System.out.println("NATIVE_BRIDGE_EXPOSURE_PASS protocol=true kahlua=true attack-types=true camera-offset=true bed-pose=true bed-render-lift=true version-family-gate=true local-player-gate=true reflection-negative=true");
     }
 }

@@ -153,7 +153,7 @@ player.x = 100
 player.device.twoWay, player.device.range = false, 0
 delivered = false
 assert(Radio.pulse(group, player, 2000) == false
-    and group.oddball.radioHeard ~= true,
+    and group.oddball.radioHeard ~= true and group.discovered ~= true,
     "a dispatch without native receiver text cannot unlock the reply")
 delivered = true
 deferred = true
@@ -170,7 +170,7 @@ assert(Radio.pulse(group, player, 8002) == false
     "a native callback for the wrong receiving device is ignored")
 queued(-1, -1, player.radio)
 assert(Radio.pulse(group, player, 8003) == true
-    and group.oddball.radioHeard == true,
+    and group.oddball.radioHeard == true and group.discovered == true,
     "the delayed exact receiver hears the call on a receive-only radio")
 assert(#Radio.replyOptions(player) == 0,
     "a receive-only radio hears the call but cannot offer a reply")
@@ -191,6 +191,15 @@ assert(Radio.answer(group.id, player) == false and answered == 0
     and not anyMarker,
     "a silent survivor radio cannot acknowledge the reply")
 survivor.device.volume = 0.8
+player.x = 25
+assert(Radio.answer(group.id, player) == false and answered == 0
+    and not anyMarker,
+    "a scrambled reply near the radio range edge cannot mark a rescue")
+player.x = 117
+assert(Radio.answer(group.id, player) == false and answered == 0
+    and not anyMarker,
+    "a reply within three tiles is not delivered by native radio")
+player.x = 100
 assert(Radio.answer(group.id, player) == true and answered == 1
     and annotations["[LF] Eli Rourke rescue, 90 MHz"].x == 120
     and #Radio.replyOptions(player) == 0,

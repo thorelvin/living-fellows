@@ -45,6 +45,13 @@ local actors = { beta = leader, gamma = follower }
 local actorRuntimes = { beta = {}, gamma = {} }
 local uiDestroyed = false
 local released = false
+local zoomRestores = 0
+SCBridge = {
+    restoreExpeditionZoom = function()
+        zoomRestores = zoomRestores + 1
+        return true
+    end,
+}
 local promotions = 0
 local lastPromotionSlot
 local coldStarts = 0
@@ -206,6 +213,8 @@ follower.x, follower.y = 22, 20
 finished, reason = expedition.finishAtPlayer(player)
 check(finished == true and reason == "returned" and uiDestroyed and released,
     "the team returns even though the saved casualty has no actor")
+check(zoomRestores == 1,
+    "expedition view release restores the previous slot-1 auto-zoom setting")
 check(homecomingCount() == 0,
     "a mission with a lost roster member has no all-survived homecoming line")
 check(expedition.current() == nil, "completed mission relinquishes ownership")

@@ -83,7 +83,7 @@ local required = {
     "OddballRivals", "OddballBledsoe", "OddballWerewolf", "OddballSkeeter", "OddballMerle", "OddballCrabtree",
     "OddballJedediah", "OddballGideon", "OddballRenfro", "OddballGoatman", "OddballTolliver", "OddballSleeper",
     "OddballElmer", "OddballBigChris", "OddballTommy", "OddballExchange", "OddballGordon", "OddballMorton",
-    "OddballMien", "OddballGrinder", "OddballSurvivalist", "OddballVoiceActor", "OddballPyromaniac", "OddballGarageRescue", "OddballDehydrated", "OddballCampStoryteller", "OddballMilli",
+    "OddballMien", "OddballGrinder", "OddballSurvivalist", "OddballVoiceActor", "OddballPyromaniac", "OddballGarageRescue", "OddballDehydrated", "OddballCampStoryteller", "OddballBedridden", "OddballSmoker", "OddballFurryPack", "OddballMilli",
     "ZombieTargeting", "ThreatSet", "PerceptionScan", "Locomotion", "Senses",
     "Navigation", "Positioning", "Combat", "Medical", "Logistics", "Lighting", "Needs", "Downtime",
     "Personality", "PersonalItems", "Relationship", "Objectives", "Journal", "BaseObjectRef", "BaseLife",

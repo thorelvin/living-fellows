@@ -16,6 +16,13 @@ param(
     # they do. Zero runs the ordinary harness checks instead.
     [ValidateRange(0, 3600)][int]$ObserveSeconds = 0,
     [switch]$HiddenWindow,
+    # Launch through the user's Steam client when a direct executable launch
+    # cannot initialize SteamAPI. The direct path remains the default.
+    [switch]$SteamLaunch,
+    # Run an isolated clone with the game's supported offline switch when
+    # Steam cannot start from this desktop session.
+    [switch]$NoSteam,
+    [string]$SteamExe = 'C:\Program Files (x86)\Steam\steam.exe',
     [switch]$LivingFellowsOnly,
     [switch]$UIMenuProbe,
     [switch]$UserOptionsProbe,
@@ -24,6 +31,20 @@ param(
     [switch]$PyreBurnProbe,
     [string]$PyreBurnScreenshot = '',
     [switch]$HygieneProbe,
+    [switch]$OddballCoreyProbe,
+    [switch]$OddballEarlProbe,
+    [switch]$OddballArthurProbe,
+    [switch]$OddballArthurBedSurveyOnly,
+    [switch]$OddballArthurHeadSideTrial,
+    [switch]$OddballArthurPlayerBaseline,
+    [switch]$OddballPackProbe,
+    [switch]$OddballSmokerProbe,
+    [ValidateRange(0, 20000)][int]$OddballSiteX = 0,
+    [ValidateRange(0, 20000)][int]$OddballSiteY = 0,
+    [ValidateRange(0, 20000)][int]$OddballBedX = 0,
+    [ValidateRange(0, 20000)][int]$OddballBedY = 0,
+    [switch]$OddballPoseOnly,
+    [string]$OddballSceneScreenshot = '',
     [string]$HygieneScreenshot = '',
     [string]$HygieneEightDirectionsScreenshotDirectory = '',
     [string]$StrangeFolkPortraitScreenshotDirectory = '',
@@ -151,6 +172,7 @@ param(
     [switch]$TeamRepeatedHandoff,
     [switch]$TeamRadioKitOnly,
     [switch]$TeamExpeditionUiProbe,
+    [switch]$TeamExpeditionZoomOnly,
     [switch]$TeamRadioKitVerifyOnly,
     [ValidateRange(8, 180)][int]$LeaderWatchSeconds = 8,
     [string]$SplitScreenScreenshot = '',
@@ -169,6 +191,45 @@ $GameRoot = [System.IO.Path]::GetFullPath($GameRoot)
 $UserCache = [System.IO.Path]::GetFullPath($UserCache)
 if ($SplitScreenOnly -and ($PathingOnly -or $FactionMapOnly -or $BaseLayoutOnly)) {
     throw '-SplitScreenOnly cannot be combined with another focused mode.'
+}
+if ($OddballCoreyProbe -and $OddballEarlProbe) {
+    throw 'Choose one focused oddball probe per cloned-save run.'
+}
+if ((@($OddballCoreyProbe, $OddballEarlProbe, $OddballArthurProbe,
+    $OddballPackProbe, $OddballSmokerProbe, $MilliProbe) | Where-Object { $_ }).Count -gt 1) {
+    throw 'Choose one focused oddball probe per cloned-save run.'
+}
+if (($OddballSiteX -gt 0) -ne ($OddballSiteY -gt 0) -or
+    (($OddballSiteX -gt 0 -or $OddballSiteY -gt 0) -and
+        -not ($OddballArthurProbe -or $OddballPackProbe -or $OddballSmokerProbe))) {
+    throw '-OddballSiteX and -OddballSiteY must be positive together and require an Arthur, Pack, or Smoker probe.'
+}
+if (($OddballBedX -gt 0) -ne ($OddballBedY -gt 0) -or
+    (($OddballBedX -gt 0 -or $OddballBedY -gt 0) -and -not $OddballArthurProbe)) {
+    throw '-OddballBedX and -OddballBedY must be positive together and require -OddballArthurProbe.'
+}
+if ($OddballPoseOnly -and -not $OddballArthurProbe) {
+    throw '-OddballPoseOnly requires -OddballArthurProbe.'
+}
+if ($OddballArthurPlayerBaseline -and -not $OddballArthurProbe) {
+    throw '-OddballArthurPlayerBaseline requires -OddballArthurProbe.'
+}
+if ($OddballArthurBedSurveyOnly -and -not $OddballArthurProbe) {
+    throw '-OddballArthurBedSurveyOnly requires -OddballArthurProbe.'
+}
+if ($OddballArthurHeadSideTrial -and -not $OddballArthurProbe) {
+    throw '-OddballArthurHeadSideTrial requires -OddballArthurProbe.'
+}
+$captureOddballScene = -not [string]::IsNullOrWhiteSpace($OddballSceneScreenshot)
+if ($captureOddballScene) {
+    if (-not ($OddballArthurProbe -or $OddballPackProbe -or $OddballSmokerProbe) -or $HiddenWindow) {
+        throw '-OddballSceneScreenshot requires an Arthur, Pack, or Smoker probe and a visible game window.'
+    }
+    $OddballSceneScreenshot = [System.IO.Path]::GetFullPath($OddballSceneScreenshot)
+    if (Test-Path -LiteralPath $OddballSceneScreenshot) {
+        throw "Oddball scene screenshot already exists: $OddballSceneScreenshot"
+    }
+    New-Item -ItemType Directory -Path (Split-Path -Parent $OddballSceneScreenshot) -Force | Out-Null
 }
 if ($LeaderSlotOnly -and -not $SplitScreenOnly) {
     throw '-LeaderSlotOnly requires -SplitScreenOnly.'
@@ -443,6 +504,9 @@ if ($TeamRepeatedHandoff -and -not $TeamHandoff) {
 if ($TeamRadioKitOnly -and (-not $LeaderSlotOnly -or $TeamHandoff -or $LeaderRemote)) {
     throw '-TeamRadioKitOnly requires -LeaderSlotOnly without an expedition.'
 }
+if ($TeamExpeditionZoomOnly -and (-not $TeamRadioKitOnly -or -not $TeamExpeditionUiProbe)) {
+    throw '-TeamExpeditionZoomOnly requires -TeamRadioKitOnly and -TeamExpeditionUiProbe.'
+}
 if ($TeamRadioKitVerifyOnly -and (-not $LeaderSlotOnly -or $TeamHandoff -or $LeaderRemote -or $TeamRadioKitOnly)) {
     throw '-TeamRadioKitVerifyOnly requires -LeaderSlotOnly without kit provisioning.'
 }
@@ -595,6 +659,12 @@ if ($VehiclePassengerOnly) {
     $VehiclePassengerScreenshot = [System.IO.Path]::GetFullPath($VehiclePassengerScreenshot)
     New-Item -ItemType Directory -Path (Split-Path -Parent $VehiclePassengerScreenshot) -Force | Out-Null
 }
+if ($SteamLaunch -and $HiddenWindow -and -not $PrepareOnly) {
+    throw '-SteamLaunch needs a visible game window; Steam does not pass Start-Process window style to the game.'
+}
+if ($SteamLaunch -and $NoSteam) {
+    throw '-NoSteam requires the direct Project Zomboid launcher.'
+}
 if ($BaseLayoutOnly -and ($PathingOnly -or $FactionMapOnly -or $captureFactionMap)) {
     throw '-BaseLayoutOnly cannot be combined with pathing or faction-map runs.'
 }
@@ -615,6 +685,83 @@ function Test-ProjectZomboidRunning {
             -ErrorAction SilentlyContinue)
     }
     return $matches.Count -gt 0
+}
+
+function Test-CachedirLaunchArgument {
+    param([string]$CommandLine, [string]$ExpectedCacheRoot)
+    if ([string]::IsNullOrWhiteSpace($CommandLine)) { return $false }
+    $cache = [regex]::Escape($ExpectedCacheRoot)
+    # Steam may quote the complete argument instead of only the path.
+    return $CommandLine -match ('(?i)(?:^|\s)(?:"-cachedir=' + $cache +
+        '"|-cachedir=(?:"' + $cache + '"|' + $cache + '))(?=\s|$)')
+}
+
+function Get-SteamLaunchedClient {
+    param(
+        [int[]]$ExistingProcessIds,
+        [string]$ExpectedExecutable,
+        [string]$ExpectedCacheRoot,
+        [string]$ConsolePath,
+        [datetime]$LaunchUtc
+    )
+    # Steam can pass the request to an already-running client. Its process
+    # handle is not the game's, so discover only a new Project Zomboid PID.
+    $newClients = @{}
+    foreach ($client in @(Get-Process -Name 'ProjectZomboid64' -ErrorAction SilentlyContinue)) {
+        if ($client.Id -notin $ExistingProcessIds) { $newClients[$client.Id] = $client }
+    }
+    $details = @{}
+    try {
+        foreach ($entry in @(Get-CimInstance Win32_Process `
+                -Filter "Name = 'ProjectZomboid64.exe'" -ErrorAction Stop)) {
+            $id = [int]$entry.ProcessId
+            if ($id -in $ExistingProcessIds) { continue }
+            $details[$id] = $entry
+            if (-not $newClients.ContainsKey($id)) {
+                try { $newClients[$id] = [System.Diagnostics.Process]::GetProcessById($id) }
+                catch { }
+            }
+        }
+    } catch {
+        # WMI command lines may be unavailable in a restricted desktop session.
+        # In that case the unique new PID and newly written cloned console are
+        # required together before the harness claims ownership.
+    }
+
+    $argumentMatches = @()
+    $consoleFallback = @()
+    foreach ($id in @($newClients.Keys)) {
+        $client = $newClients[$id]
+        $entry = $details[$id]
+        $actualPath = $null
+        if ($null -ne $entry) { $actualPath = $entry.ExecutablePath }
+        if ([string]::IsNullOrWhiteSpace($actualPath)) {
+            try { $actualPath = $client.Path } catch { }
+        }
+        if (-not [string]::IsNullOrWhiteSpace($actualPath) -and
+            -not [string]::Equals([System.IO.Path]::GetFullPath($actualPath),
+                $ExpectedExecutable, [StringComparison]::OrdinalIgnoreCase)) {
+            continue
+        }
+        $commandLine = if ($null -ne $entry) { $entry.CommandLine } else { $null }
+        if (-not [string]::IsNullOrWhiteSpace($commandLine)) {
+            if (Test-CachedirLaunchArgument $commandLine $ExpectedCacheRoot) {
+                $argumentMatches += $client
+            }
+        } else {
+            $consoleFallback += $client
+        }
+    }
+    if ($argumentMatches.Count -eq 1) { return $argumentMatches[0] }
+    if ($argumentMatches.Count -gt 1) {
+        throw 'More than one new Project Zomboid client uses the isolated cachedir.'
+    }
+    if ($consoleFallback.Count -eq 1 -and
+        (Test-Path -LiteralPath $ConsolePath -PathType Leaf) -and
+        (Get-Item -LiteralPath $ConsolePath).LastWriteTimeUtc -ge $LaunchUtc.AddSeconds(-2)) {
+        return $consoleFallback[0]
+    }
+    return $null
 }
 
 function Add-ModEntry([string]$Text, [string]$ModId) {
@@ -976,6 +1123,20 @@ $config = @(
     ('base_maintenance_probe=' + $BaseMaintenanceProbe.IsPresent.ToString().ToLowerInvariant()),
     ('pyre_burn_probe=' + $PyreBurnProbe.IsPresent.ToString().ToLowerInvariant()),
     ('hygiene_probe=' + $HygieneProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('oddball_corey_probe=' + $OddballCoreyProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('oddball_earl_probe=' + $OddballEarlProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('oddball_arthur_probe=' + $OddballArthurProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('oddball_arthur_bed_survey_only=' + $OddballArthurBedSurveyOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('oddball_arthur_head_side_trial=' + $OddballArthurHeadSideTrial.IsPresent.ToString().ToLowerInvariant()),
+    ('oddball_arthur_player_baseline=' + $OddballArthurPlayerBaseline.IsPresent.ToString().ToLowerInvariant()),
+    ('oddball_pack_probe=' + $OddballPackProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('oddball_smoker_probe=' + $OddballSmokerProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('oddball_site_x=' + $OddballSiteX),
+    ('oddball_site_y=' + $OddballSiteY),
+    ('oddball_bed_x=' + $OddballBedX),
+    ('oddball_bed_y=' + $OddballBedY),
+    ('oddball_pose_only=' + $OddballPoseOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('oddball_scene_screenshot=' + $captureOddballScene.ToString().ToLowerInvariant()),
     ('hygiene_eight_directions=' +
         (-not [string]::IsNullOrWhiteSpace($HygieneEightDirectionsScreenshotDirectory)).ToString().ToLowerInvariant()),
     ('strange_folk_portrait_probe=' + $captureStrangeFolkPortraits.ToString().ToLowerInvariant()),
@@ -1088,6 +1249,7 @@ $config = @(
     ('team_repeated_handoff=' + $TeamRepeatedHandoff.IsPresent.ToString().ToLowerInvariant()),
     ('team_radio_kit_only=' + $TeamRadioKitOnly.IsPresent.ToString().ToLowerInvariant()),
     ('team_expedition_ui_probe=' + $TeamExpeditionUiProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_expedition_zoom_only=' + $TeamExpeditionZoomOnly.IsPresent.ToString().ToLowerInvariant()),
     ('team_radio_kit_verify_only=' + $TeamRadioKitVerifyOnly.IsPresent.ToString().ToLowerInvariant()),
     ('leader_watch_ms=' + ($LeaderWatchSeconds * 1000)),
     ('capture_base_layout=' + $captureBaseLayout.ToString().ToLowerInvariant()),
@@ -1113,10 +1275,17 @@ $manifest = [ordered]@{
     seedSave = $SeedSave
     gameMode = $GameMode
     cacheRoot = $CacheRoot
+    launchMode = if ($SteamLaunch) { 'steam' } else { 'direct' }
     targetSave = $TargetSave
     sourceRelease = ((Get-Content -LiteralPath (Join-Path $sourceMod 'mod.info') |
         Where-Object { $_ -match '^modversion=' }) -replace '^modversion=', '')
     sourceSaveIsReadOnlyInput = $true
+    oddballArthurProbe = $OddballArthurProbe.IsPresent
+    oddballPackProbe = $OddballPackProbe.IsPresent
+    oddballSite = if ($OddballSiteX -gt 0) {
+        @{ x = $OddballSiteX; y = $OddballSiteY }
+    } else { $null }
+    oddballSceneScreenshot = if ($captureOddballScene) { $OddballSceneScreenshot } else { $null }
     sourceBridge = $sourceBridge
     sourceBridgeSha256 = $sourceBridgeHash
     installedBridgeMatches = $installedBridgeHash -eq $sourceBridgeHash
@@ -1172,15 +1341,51 @@ if ($PrepareOnly) {
 }
 
 $argumentLine = '-cachedir="' + $CacheRoot + '" -nosound -novoip -debuglog=+General,+Lua'
-$startOptions = @{
-    FilePath = $gameExe
-    WorkingDirectory = $GameRoot
-    ArgumentList = $argumentLine
-    PassThru = $true
+if ($NoSteam) { $argumentLine += ' -nosteam' }
+if ($SteamLaunch) {
+    $SteamExe = [System.IO.Path]::GetFullPath($SteamExe)
+    if (-not (Test-Path -LiteralPath $SteamExe -PathType Leaf)) {
+        throw "Steam client was not found: $SteamExe"
+    }
+    if (Test-Path -LiteralPath $consolePath -PathType Leaf) {
+        throw "The isolated console already exists before Steam launch: $consolePath"
+    }
+    $existingGameIds = @(Get-Process -Name 'ProjectZomboid64' -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty Id)
+    try {
+        $existingGameIds += @(Get-CimInstance Win32_Process `
+            -Filter "Name = 'ProjectZomboid64.exe'" -ErrorAction Stop |
+            Select-Object -ExpandProperty ProcessId)
+    } catch { }
+    $existingGameIds = @($existingGameIds | Sort-Object -Unique)
+    $launchUtc = [DateTime]::UtcNow
+    # -applaunch passes these game arguments through the desktop Steam client.
+    # Steam's PID may be a short-lived forwarding process, not the game PID.
+    Start-Process -FilePath $SteamExe -WorkingDirectory (Split-Path -Parent $SteamExe) `
+        -ArgumentList ('-applaunch 108600 ' + $argumentLine)
+    $process = $null
+    $launchDeadline = $launchUtc.AddSeconds([Math]::Min($TimeoutSeconds, 120))
+    while ([DateTime]::UtcNow -lt $launchDeadline -and $null -eq $process) {
+        $process = Get-SteamLaunchedClient -ExistingProcessIds $existingGameIds `
+            -ExpectedExecutable $gameExe -ExpectedCacheRoot $CacheRoot `
+            -ConsolePath $consolePath -LaunchUtc $launchUtc
+        if ($null -eq $process) { Start-Sleep -Milliseconds 500 }
+    }
+    if ($null -eq $process) {
+        throw "Steam did not start a Project Zomboid client with the isolated cachedir. Run retained at $RunRoot"
+    }
+    Write-Output "Started Steam-owned Project Zomboid client test pid=$($process.Id)"
+} else {
+    $startOptions = @{
+        FilePath = $gameExe
+        WorkingDirectory = $GameRoot
+        ArgumentList = $argumentLine
+        PassThru = $true
+    }
+    if ($HiddenWindow) { $startOptions.WindowStyle = 'Hidden' }
+    $process = Start-Process @startOptions
+    Write-Output "Started real Project Zomboid client test pid=$($process.Id)"
 }
-if ($HiddenWindow) { $startOptions.WindowStyle = 'Hidden' }
-$process = Start-Process @startOptions
-Write-Output "Started real Project Zomboid client test pid=$($process.Id)"
 
 function Stop-OwnedSandboxProcess {
     param([System.Diagnostics.Process]$OwnedProcess, [string]$Reason)
@@ -1207,6 +1412,7 @@ try {
     $deputyRhondaCaptured = $false
     $lorettaCaptured = $false
     $milliCaptured = $false
+    $oddballSceneCaptured = $false
     $nextProcessSample = [DateTime]::MinValue
     while ([DateTime]::UtcNow -lt $deadline -and -not (Test-Path -LiteralPath $summaryPath -PathType Leaf)) {
         $process.Refresh()
@@ -1244,6 +1450,9 @@ try {
             $clickAttempts++
             if (Invoke-LoadingScreenClick $process) {
                 Write-Output "Sent isolated click-to-start attempt $clickAttempts to pid=$($process.Id)"
+            } elseif ($clickAttempts -in @(1, 5, 10, 20)) {
+                $process.Refresh()
+                Write-Output "Click-to-start unavailable attempt=$clickAttempts pid=$($process.Id) exited=$($process.HasExited) window=$($process.MainWindowHandle) title=$($process.MainWindowTitle)"
             }
             $nextLoadingClick = [DateTime]::UtcNow.AddSeconds(3)
         }
@@ -1316,6 +1525,20 @@ try {
                     ('captured=true' + [Environment]::NewLine), $utf8NoBom)
                 Write-Output "Captured Milli encounter: $MilliScreenshot"
                 $milliCaptured = $true
+            }
+        }
+        if ($captureOddballScene -and -not $oddballSceneCaptured) {
+            $readyPath = Join-Path $SandboxLua 'oddball-scene-ready.txt'
+            if (Test-Path -LiteralPath $readyPath -PathType Leaf) {
+                Start-Sleep -Milliseconds 750
+                if (-not (Save-ClientScreenshot $process $OddballSceneScreenshot)) {
+                    throw "Could not capture oddball scene to $OddballSceneScreenshot"
+                }
+                [System.IO.File]::WriteAllText(
+                    (Join-Path $SandboxLua 'oddball-scene-captured.txt'),
+                    ('captured=true' + [Environment]::NewLine), $utf8NoBom)
+                Write-Output "Captured oddball scene: $OddballSceneScreenshot"
+                $oddballSceneCaptured = $true
             }
         }
         if ($captureFactionMap -and -not $factionMapCaptureCompleted -and
@@ -1525,6 +1748,10 @@ if ($captureLoretta) {
 if ($captureMilli) {
     if (-not $milliCaptured) { throw 'Missing Milli screenshot capture.' }
     Write-Output "Milli screenshot: $MilliScreenshot"
+}
+if ($captureOddballScene -and $status -eq 'PASS') {
+    if (-not $oddballSceneCaptured) { throw 'Missing oddball scene screenshot capture.' }
+    Write-Output "Oddball scene screenshot: $OddballSceneScreenshot"
 }
 if ($status -ne 'PASS') {
     throw "LIVE_SANDBOX_FAIL run=$runId results=$eventsPath"

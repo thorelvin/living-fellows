@@ -41,6 +41,7 @@ local QUANTITIES = {
 -- A building usually sits well within this of its street; name longer
 -- off-road stretches in the review.
 local OFF_ROAD_NOTE = 25
+local ZOOM_STEPS = 10
 
 local function tr(key, ...)
     return SC.UI.text(key, ...)
@@ -53,6 +54,148 @@ local function feedback(detail, message, success)
         and SC.GameplayUtil.nowMs() or 0
     detail.feedbackUntil = now + 6000
     detail.feedbackWrapKey, detail.feedbackWrapLines = nil, nil
+end
+
+local function joinedExpeditionView(mission)
+    return mission ~= nil and mission.leader ~= nil
+        and mission.leader.actor ~= nil
+        and (SC.ViewSession == nil
+            or type(SC.ViewSession.owner) ~= "function"
+            or SC.ViewSession.owner() == "expedition")
+        and type(getSpecificPlayer) == "function"
+        and getSpecificPlayer(1) == mission.leader.actor
+end
+
+local function readExpeditionZoom(mission)
+    if not joinedExpeditionView(mission) or SCBridge == nil
+        or SCBridge.readExpeditionZoom == nil then
+        return nil
+    end
+    local values = {}
+    local called, ready = pcall(SCBridge.readExpeditionZoom, values)
+    if not called or ready ~= true then return nil end
+    local minimum = tonumber(values.min)
+    local maximum = tonumber(values.max)
+    local target = tonumber(values.target)
+    if minimum == nil or maximum == nil or target == nil
+        or minimum ~= minimum or maximum ~= maximum or target ~= target
+        or minimum >= maximum then return nil end
+    return { min = minimum, max = maximum, target = target }
+end
+
+local function zoomStep(values)
+    local fraction = (values.target - values.min) / (values.max - values.min)
+    return math.max(1, math.min(ZOOM_STEPS,
+        math.floor(fraction * (ZOOM_STEPS - 1) + 0.5) + 1))
+end
+
+local function zoomPercent(value)
+    return math.floor(value * 100 + 0.5)
+end
+
+local function setZoomLabel(slider, target)
+    local label = slider and slider.scZoomLabel
+    if label == nil then return end
+    local name = tr("UI_SC_Expedition_ViewZoomValue", zoomPercent(target))
+    if type(label.setName) == "function" then label:setName(name)
+    else label.name = name end
+end
+
+function Planner.viewStructureSignature()
+    local expedition = SC.ExpeditionPrototype
+    local mission = expedition and type(expedition.current) == "function"
+        and expedition.current() or nil
+    if mission == nil then return "expedition:idle" end
+    local viewer = type(getSpecificPlayer) == "function"
+        and getSpecificPlayer(0) or nil
+    local view = expedition and type(expedition.describeForPlayer) == "function"
+        and expedition.describeForPlayer(viewer) or nil
+    local request = view and view.helpRequest or nil
+    return table.concat({ "expedition", tostring(mission.radioSession or mission),
+        joinedExpeditionView(mission) and "joined" or "pending",
+        tostring(view and view.plannedSite or ""),
+        tostring(request and request.mode or ""),
+        tostring(request and request.shelter or ""),
+        tostring(request and request.x or ""),
+        tostring(request and request.y or ""),
+    }, ":")
+end
+
+function Planner.refreshZoom(detail)
+    local slider = detail and detail.expeditionZoomSlider
+    local expedition = SC.ExpeditionPrototype
+    local mission = expedition and type(expedition.current) == "function"
+        and expedition.current() or nil
+    if slider == nil then
+        -- The native view may join before its zoom framebuffer is ready.
+        -- Rebuild once it becomes readable, without polling it for an idle tab.
+        return not (joinedExpeditionView(mission)
+            and readExpeditionZoom(mission) ~= nil)
+    end
+    local values = readExpeditionZoom(mission)
+    if values == nil then return false end
+    setZoomLabel(slider, values.target)
+    if slider.dragInside ~= true then
+        local step = zoomStep(values)
+        slider.scZoomStep = step
+        slider:setCurrentValue(step, true)
+    end
+    return true
+end
+
+function Planner.onZoomSliderChange(detail, value, slider)
+    if slider == nil or slider.scZoomStep == nil then return end
+    local step = math.max(1, math.min(ZOOM_STEPS,
+        math.floor((tonumber(value) or slider.scZoomStep) + 0.5)))
+    if step == slider.scZoomStep then return end
+    local mission = SC.ExpeditionPrototype and SC.ExpeditionPrototype.current
+        and SC.ExpeditionPrototype.current() or nil
+    if not joinedExpeditionView(mission) or SCBridge == nil
+        or SCBridge.setExpeditionZoomStep == nil then
+        slider:setCurrentValue(slider.scZoomStep, true)
+        return
+    end
+    local called, changed = pcall(SCBridge.setExpeditionZoomStep, step)
+    if not called or changed ~= true then
+        slider:setCurrentValue(slider.scZoomStep, true)
+        feedback(detail, tr("UI_SC_Expedition_ViewZoomUnavailable"), false)
+        return
+    end
+    slider.scZoomStep = step
+    local values = readExpeditionZoom(mission)
+    if values then setZoomLabel(slider, values.target)
+    else
+        local target = slider.scZoomMin + (slider.scZoomMax
+            - slider.scZoomMin) * (step - 1) / (ZOOM_STEPS - 1)
+        setZoomLabel(slider, target)
+    end
+end
+
+local function addZoomSlider(detail, panel, y, values)
+    local metrics = detail.metrics or SC.UI.layoutMetrics()
+    y = detail:addSection(panel, y + 8, "UI_SC_Expedition_ViewZoom")
+    local label = ISLabel:new(8, y, metrics.fontHeight,
+        tr("UI_SC_Expedition_ViewZoomValue", zoomPercent(values.target)),
+        0.88, 0.89, 0.83, 1, UIFont.Small, true)
+    label:initialise()
+    panel:addChild(label)
+    y = y + metrics.infoLineHeight
+    local width = math.max(36, panel:getWidth() - 28)
+    local slider = ISSliderPanel:new(8, y, width,
+        metrics.buttonHeight, detail, Planner.onZoomSliderChange)
+    slider:initialise()
+    slider:instantiate()
+    slider:setDoButtons(false)
+    slider:setValues(1, ZOOM_STEPS, 1, 1, true)
+    slider.scZoomStep = zoomStep(values)
+    slider.scExpeditionZoomSlider = true
+    slider.scZoomMin, slider.scZoomMax = values.min, values.max
+    slider.scZoomLabel = label
+    slider:setCurrentValue(slider.scZoomStep, true)
+    slider.tooltip = tr("UI_SC_Expedition_ViewZoomTip")
+    panel:addChild(slider)
+    detail.expeditionZoomSlider = slider
+    return y + metrics.buttonHeight + 7
 end
 
 local function squadRows(detail, group)
@@ -266,6 +409,7 @@ function Planner.onButton(detail, button)
 end
 
 function Planner.build(detail, panel)
+    detail.expeditionZoomSlider = nil
     local draft = detail.expeditionDraft
     if not draft then
         draft = { kind = "scout", style = "stealth", hours = 2,
@@ -280,6 +424,7 @@ function Planner.build(detail, panel)
     local y = detail:addSection(panel, 7, "UI_SC_Tab_Expeditions")
     local expedition = SC.ExpeditionPrototype
     if expedition and expedition.current and expedition.current() then
+        local mission = expedition.current()
         local view = expedition.describeForPlayer(getSpecificPlayer(0))
         y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
             tr("UI_SC_Expedition_Active", view and view.leaderName or "?"))
@@ -302,6 +447,15 @@ function Planner.build(detail, panel)
         else
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
                 tr("UI_SC_Expedition_AwayStatus"))
+        end
+        local zoom = readExpeditionZoom(mission)
+        if zoom then
+            y = addZoomSlider(detail, panel, y, zoom)
+        else
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                tr(joinedExpeditionView(mission)
+                    and "UI_SC_Expedition_ViewZoomUnavailable"
+                    or "UI_SC_Expedition_ViewZoomPending"))
         end
         return y
     end

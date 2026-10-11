@@ -42,6 +42,7 @@ SC.GameplayUtil = {
             room = x <= 20 and y <= 20 and room or nil }
     end,
     isSafeSpawnSquare = function() return true end,
+    isClearActorSpawnSquare = function() return true end,
     canSee = function() return false end,
     nowMs = function() return now end,
     config = function() return true end,

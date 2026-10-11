@@ -101,8 +101,45 @@ local function location(point)
     local x, y, z = number(point.x), number(point.y), number(point.z) or 0
     if not x or not y or z < -2 or z > 2 then return nil end
     local square = U().gridSquare(math.floor(x), math.floor(y), z)
-    if not square or U().isSafeSpawnSquare(square) ~= true then return nil end
+    if not square or U().isClearActorSpawnSquare(square) ~= true then return nil end
     return square, math.floor(x), math.floor(y), z
+end
+
+local function alternateMilliPetLocation(group, slot, records)
+    local story = group and group.oddball
+    local site = story and story.site
+    if not story or story.id ~= "milli_tea_and_trouble"
+        or type(site) ~= "table" or type(site.toySpawns) ~= "table" then
+        return nil
+    end
+    local origin = site.spawn
+    local originSquare = origin and U().gridSquare(origin.x, origin.y,
+        origin.z or 0)
+    local room = originSquare and select(1, U().call(originSquare, "getRoom"))
+    if not room then return nil end
+    local occupied = {}
+    local function reserve(point)
+        if type(point) ~= "table" then return end
+        local x, y, z = number(point.x), number(point.y), number(point.z) or 0
+        if x and y then
+            occupied[math.floor(x) .. ":" .. math.floor(y)
+                .. ":" .. math.floor(z)] = true
+        end
+    end
+    reserve(origin)
+    for index, point in ipairs(site.petSpawns or {}) do
+        if index ~= slot then reserve(point) end
+    end
+    for _, record in pairs(records or {}) do reserve(record) end
+    for _, point in ipairs(site.toySpawns) do
+        local square, x, y, z = location(point)
+        if square and z == (origin.z or 0)
+            and not occupied[x .. ":" .. y .. ":" .. z]
+            and select(1, U().call(square, "getRoom")) == room then
+            return square, x, y, z
+        end
+    end
+    return nil
 end
 
 function Animals.spawn(group, slot, spec, point)
@@ -114,6 +151,9 @@ function Animals.spawn(group, slot, spec, point)
     end
     if records[slot] ~= nil then return true, "animal_slot_already_seeded" end
     local square, x, y, z = location(point)
+    if not square then
+        square, x, y, z = alternateMilliPetLocation(group, slot, records)
+    end
     if not square then return false, "animal_enclosure_unavailable" end
     if not AnimalDefinitions or not AnimalDefinitions.getDef
         or type(addAnimal) ~= "function" or type(getCell) ~= "function" then

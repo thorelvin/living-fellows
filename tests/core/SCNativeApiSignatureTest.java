@@ -66,6 +66,8 @@ public final class SCNativeApiSignatureTest {
         Class<?> globalModData = Class.forName("zombie.world.moddata.GlobalModData");
         Class<?> camera = Class.forName("zombie.iso.IsoCamera");
         Class<?> playerCamera = Class.forName("zombie.iso.PlayerCamera");
+        Class<?> zoomBuffer = Class.forName("zombie.core.textures.MultiTextureFBO2");
+        Class<?> core = Class.forName("zombie.core.Core");
         Class<?> gameCharacter = Class.forName("zombie.characters.IsoGameCharacter");
         Class<?> mainThread = Class.forName("zombie.MainThread");
         Class<?> luaEventManager = Class.forName("zombie.Lua.LuaEventManager");
@@ -124,8 +126,27 @@ public final class SCNativeApiSignatureTest {
                         && bridge.getDeclaredMethod("setViewOffset", float.class, float.class)
                                 .getReturnType() == boolean.class
                         && bridge.getDeclaredMethod("clearViewOffset")
+                                .getReturnType() == boolean.class
+                        && bridge.getDeclaredMethod("readExpeditionZoom", kahluaTable)
+                                .getReturnType() == boolean.class
+                        && bridge.getDeclaredMethod("setExpeditionZoomStep", int.class)
+                                .getReturnType() == boolean.class
+                        && bridge.getDeclaredMethod("restoreExpeditionZoom")
                                 .getReturnType() == boolean.class,
                 "native bulk-read/view signatures changed");
+        Field zoomBufferField = core.getDeclaredField("offscreenBuffer");
+        require(zoomBufferField.getType() == zoomBuffer
+                        && method(zoomBuffer, "getTargetZoom", int.class)
+                                .getReturnType() == float.class
+                        && method(zoomBuffer, "setTargetZoom", int.class, float.class)
+                                .getReturnType() == void.class
+                        && method(zoomBuffer, "getMinZoom").getReturnType() == float.class
+                        && method(zoomBuffer, "getMaxZoom").getReturnType() == float.class
+                        && method(core, "isZoomEnabled").getReturnType() == boolean.class
+                        && method(core, "getAutoZoom", int.class).getReturnType() == boolean.class
+                        && method(core, "setAutoZoom", int.class, boolean.class)
+                                .getReturnType() == void.class,
+                "protocol-16 per-player zoom target contract changed");
         require(camera.getField("cameras").getType().isArray()
                         && camera.getField("cameras").getType().getComponentType() == playerCamera
                         && playerCamera.getField("deferedX").getType() == float.class

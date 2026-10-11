@@ -204,6 +204,11 @@ function Dwight.update(actor, player, runtime, intent, group)
     if not intent or intent.mode ~= "knight_rest" then return false end
     local value = story(group)
     if value.stage ~= "sleeping" then return true, value.stage end
+    local clear, clearReason = U().ensureGroundPoseLocation(actor)
+    if not clear then
+        value.poseStarted = nil
+        return true, clearReason
+    end
     if value.poseStarted == true then return true, "knight_napping" end
     if SC.Actor and type(SC.Actor.setMovement) == "function" then
         local accepted = SC.Actor.setMovement(actor,

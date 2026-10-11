@@ -217,6 +217,11 @@ end
 
 local function modDataOf(actor)
     if actor == nil then return nil end
+    -- Deceased companion profiles are plain Lua tables.  Calling getModData on
+    -- one inside pcall still emits a game error for every surviving witness.
+    if type(actor) == "table" and type(actor.getModData) ~= "function" then
+        return nil
+    end
     local utility = SC.GameplayUtil
     if utility and type(utility.call) == "function" then
         local data, called = utility.call(actor, "getModData")
@@ -311,8 +316,12 @@ function Names.callName(speaker, listener, context)
     local first, last = identityOf(listener)
     if config("nicknamesEnabled", true) == false then return first end
     local record = recordFor(listener)
-    local nickname = record and Names.normalizeRecord(record.nickname)
-        or playerNickname(listener)
+    local nickname
+    if record then
+        nickname = Names.normalizeRecord(record.nickname)
+    else
+        nickname = playerNickname(listener)
+    end
     local speakerRecord = recordFor(speaker)
     local pair = SC.Community and type(SC.Community.relation) == "function"
         and SC.Community.relation(idOf(speaker), idOf(listener), false) or nil

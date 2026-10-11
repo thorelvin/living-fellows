@@ -83,6 +83,16 @@ end
 assert(Names.setPlayerNickname(player, "Roadrunner") == true)
 assert(player.modData.SC_PlayerNickname == "Roadrunner")
 assert(Names.callName("sarah", player) == "Roadrunner")
+local deceased = { id = "deceased", identity = { forename = "Mara", surname = "Stone" } }
+local recordModDataReads = 0
+function deceased:getModData()
+    recordModDataReads = recordModDataReads + 1
+    return { SC_PlayerNickname = "Roadrunner" }
+end
+assert(Names.callName(witness, deceased, { about = true }) == "Mara")
+assert(recordModDataReads == 0)
+assert(Names.callName(witness, { id = "missing", identity = {
+    forename = "Ava", surname = "Reed" } }, { about = true }) == "Ava")
 assert(Names.clearPlayerNickname(player) == true)
 assert(Names.callName("sarah", player) == "Jamie")
 assert(Names.setPlayerNickname(player, "%1") == false)

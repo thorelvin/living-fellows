@@ -1,5 +1,6 @@
 -- SPDX-License-Identifier: MIT
--- Earl sets his own fuel-lined room alight when a player takes a scene can.
+-- Earl sets his own fuel-lined room alight when a player takes a scene can
+-- or attacks him.
 local SC = SurvivorCompanion
 SC.OddballPyromaniac = SC.OddballPyromaniac or {}
 local Pyro = SC.OddballPyromaniac
@@ -14,6 +15,12 @@ local CURSES = {
     "Thieving bastard! You want my fuel? Then watch it burn!",
     "You stole from me! Damn you. I'll light the whole bloody room!",
     "Hands off my cans! Too late now. Fire takes the lot of us!",
+}
+local ATTACK_SHOUTS = {
+    "You want a fight? Then dance in the fire with me!",
+    "Hit me again! I'll turn this whole place into a funeral pyre!",
+    "You brought the spark, you fool! Now watch the walls burn!",
+    "Ha! Blood and gasoline! Let's see which burns brighter!",
 }
 local LAUGHS = {
     "Ha! Ha! That's a fine bright ending!",
@@ -66,13 +73,41 @@ local function seedFuel(group)
             count = count + 1
         else
             local square = postSquare(post)
-            local worldItem = square and select(1, U().call(square,
-                "AddWorldInventoryItem", FUEL, 0.45, 0.45, 0)) or nil
-            local item = worldItem and select(1, U().call(worldItem, "getItem"))
-            local data = item and U().modData(item)
+            -- Build 42 returns the InventoryItem itself from
+            -- AddWorldInventoryItem, not its IsoWorldInventoryObject. Older
+            -- builds spawned a new untagged can every pulse because getItem()
+            -- was called on that InventoryItem. Adopt those cans in saved
+            -- scenes before adding anything new, and tag every duplicate so
+            -- taking any one still starts Earl's warning.
+            local adopted = 0
+            local worldObjects = square and select(1,
+                U().call(square, "getWorldObjects")) or nil
+            if worldObjects then
+                U().each(worldObjects, 512, function(worldObject)
+                    local item = select(1, U().call(worldObject, "getItem"))
+                    if item and U().itemType(item) == FUEL then
+                        local data = U().modData(item)
+                        if data and (data.lfPyroFuelGroupId == nil
+                            or data.lfPyroFuelGroupId == group.id) then
+                            data.lfPyroFuelGroupId = group.id
+                            data.lfPyroFuelIndex = index
+                            adopted = adopted + 1
+                        end
+                    end
+                end)
+            end
+            local item = nil
+            if adopted == 0 and square then
+                item = select(1, U().call(square,
+                    "AddWorldInventoryItem", FUEL, 0.45, 0.45, 0))
+            end
+            local data = item and U().itemType(item) == FUEL
+                and U().modData(item) or nil
             if data then
                 data.lfPyroFuelGroupId = group.id
                 data.lfPyroFuelIndex = index
+            end
+            if adopted > 0 or data then
                 value.fuelSpawned[index] = true
                 count = count + 1
             else
@@ -153,7 +188,7 @@ local function raiseUnhappiness(actor)
         math.max(level, 70))) == true
 end
 
-local function ignite(group, actor, current)
+local function ignite(group, actor, current, openingAlreadyShouted)
     local value = story(group)
     if value.stage ~= "warning" then return false, "not_primed" end
     if not IsoFireManager or type(getCell) ~= "function" then
@@ -180,8 +215,8 @@ local function ignite(group, actor, current)
     value.nextLaughAt = current
     value.clearSince = nil
     group.discovered = true
-    U().say(actor, LAUGHS[1])
-    value.laughIndex = 1
+    if not openingAlreadyShouted then U().say(actor, LAUGHS[1]) end
+    value.laughIndex = openingAlreadyShouted and 0 or 1
     value.nextLaughAt = current + 5500
     return true, "house_ignited"
 end
@@ -305,7 +340,22 @@ function Pyro.action(group, action, player)
     local actor = actorFor(group)
     if not value then return false, "wrong_oddball" end
     if action == "hurt" then
-        if actor then U().say(actor, "Leave me alone with my fire!") end
+        if value.stage == "unmet" or value.stage == "warning" then
+            local current = U().nowMs()
+            value.stage = "warning"
+            value.igniteAt = current
+            group.discovered = true
+            if value.attackTriggered ~= true then
+                value.attackTriggered = true
+                local index = (U().stableHash(group.id) % #ATTACK_SHOUTS) + 1
+                if actor then U().say(actor, ATTACK_SHOUTS[index]) end
+            end
+            -- The weapon-hit event is already proof of an attack. Do not wait
+            -- for a later encounter pulse before lighting the prepared room.
+            local lit, reason = ignite(group, actor, current, true)
+            if not lit then value.igniteAt = current + 1000 end
+            return true, reason
+        end
         return true, "pyromaniac_not_chasing"
     end
     if not near(actor, player, 7) then return false, "pyromaniac_too_far" end

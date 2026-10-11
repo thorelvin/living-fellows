@@ -14,6 +14,15 @@ local waiting = rescue.intentFor(actor, player, { threatCount = 0 }, group)
 assert(waiting and waiting.mode == "garage_broken_leg_wait"
     and rescue.update(actor, player, nil, waiting, group) == true,
     "an untreated leg keeps Eli at the wall instead of falling through to generic wandering")
+actor.seated, T.poseSquareClear, group.oddball.nextPoseAt = false, false, 0
+actor.lastAction = nil
+rescue.update(actor, player, nil, waiting, group)
+assert(actor.lastAction == nil,
+    "Eli does not sit on the floor inside furniture in a restored garage")
+T.poseSquareClear = true
+rescue.update(actor, player, nil, waiting, group)
+assert(actor.seated == true,
+    "Eli can sit after moving to a clear tile in the same garage")
 local radio = actor.secondary
 assert(radio and radio.fullType == "Base.WalkieTalkie2"
     and radio:getDeviceData():getHasBattery()
@@ -86,6 +95,28 @@ assert(group.oddball.rescued and actor.lastAction == "stand_ground"
     "only observed native bandage and splint completion frees Eli")
 assert(rescue.intentFor(actor, player, { threatCount = 0 }, group).mode
     == "oddball_idle", "treated Eli leaves the forced waiting pose")
+actor.inventory:Remove(radio)
+actor.secondary = nil
+local reloaded, reloadReason = rescue.onSpawn(group, actor)
+assert(reloaded == true and reloadReason == "garage_radio_removed"
+    and #actor.inventory.items == 0 and actor.secondary == nil,
+    "reloading after the player takes Eli's radio does not create another")
 local joined = rescue.action(group, "recruit", player)
 assert(joined and T.calls.recruited, "treated Eli may join the player")
+
+-- A destroyed door is a verified breach once the room guard reports it.
+-- Reloading that scene must not leave Eli sheltered or block his treatment.
+local breached = { id = "garage-breached", members = group.members,
+    oddball = { id = "garage_rescue_eli_rourke", stage = "trapped",
+        site = group.oddball.site, roomGuardDone = true,
+        injurySeeded = true, radioReady = true } }
+T.doorLoaded = false
+local breachReady = rescue.onSpawn(breached, actor)
+assert(breachReady == true and actor.sheltered == false,
+    "a guard-confirmed destroyed door survives reload without shelter")
+rescue.pulse(breached, player, T.ms + 1000)
+assert(breached.oddball.doorOpened == true
+    and breached.oddball.stage == "reached"
+    and rescue.menuOptions(breached, player)[2].enabled == true,
+    "a destroyed garage door opens the ordinary treatment flow")
 print("GARAGE_RESCUE_TEST_PASS")

@@ -83,9 +83,11 @@ function door:IsOpen() return self.open end
 function door:isLocked() return self.locked end
 function door:setLocked(value) self.locked = value end
 T.door = door
+T.doorLoaded = true
 
 local U = {}
 SC.GameplayUtil = U
+function U.ensureGroundPoseLocation() return T.poseSquareClear ~= false end
 function U.call(object, method, ...)
     if not object or type(object[method]) ~= "function" then return nil, false end
     return object[method](object, ...), true
@@ -106,7 +108,9 @@ function U.distance(a, b)
 end
 function U.gridSquare(x, y)
     if x == 11 and y == 10 then
-        return { getObjects = function() return { door } end }
+        return { getObjects = function()
+            return T.doorLoaded and { door } or {}
+        end }
     end
     return nil
 end

@@ -156,6 +156,50 @@ assert(kevinGroup.oddball.revealed == true and kevin.immunity == false,
 assert(kevin.variables.Ext == nil
     and kevin.events[#kevin.events] == "ExtFinishing",
     "revealing Kevin must release his mannequin animation")
+
+-- Native-safe furniture can still occupy a mannequin pose tile. Newly
+-- generated spots and older saved spots must both reject that obstruction.
+local previousLoadedSquare = SC.GameplayUtil.loadedSquare
+SC.GameplayUtil.loadedSquare = function(target)
+    return target and SC.GameplayUtil.gridSquare(target.x, target.y,
+        target.z or 0) or nil
+end
+local seatedSquare = SC.GameplayUtil.gridSquare(51, 50, 0)
+seatedSquare.furniture = true
+local otherKevin = SC_TEST_ACTOR(50, 50)
+local otherGroup = { id = "kevin-furniture", oddball = {
+    id = "window_spiffo_kevin", stage = "posing", managerSpawned = true,
+    site = { spawn = { x = 50, y = 50, z = 0 },
+        house = { bounds = { x1 = 50, x2 = 52, y1 = 50, y2 = 50 } } },
+} }
+assert(SC.OddballSpiffo.onSpawn(otherGroup, otherKevin) == true)
+assert(#otherGroup.oddball.poseSpots == 2
+    and otherGroup.oddball.poseSpots[2].x == 52,
+    "new mannequin posts skip furniture on native-safe floor")
+otherGroup.oddball.poseSpots = { { x = 50, y = 50, z = 0 },
+    { x = 51, y = 50, z = 0 } }
+otherGroup.oddball.poseIndex = 1
+C.ms = 30000
+local poseIntent = { mode = "spiffo_pose" }
+SC.OddballSpiffo.update(otherKevin, nil, nil, poseIntent, otherGroup)
+local navBefore = C.nav
+C.ms = 34100
+SC.OddballSpiffo.update(otherKevin, nil, nil, poseIntent, otherGroup)
+assert(C.nav == navBefore,
+    "saved mannequin post must not route into furniture")
+seatedSquare.furniture = false
+C.ms = 38200
+SC.OddballSpiffo.update(otherKevin, nil, nil, poseIntent, otherGroup)
+assert(C.nav == navBefore + 1 and C.lastTarget.x == 51,
+    "clearing the post lets the normal pose route resume")
+seatedSquare.furniture = true
+local cancelBefore = C.cancel
+C.ms = 38300
+SC.OddballSpiffo.update(otherKevin, nil, nil, poseIntent, otherGroup)
+assert(C.cancel > cancelBefore and C.nav == navBefore + 1,
+    "a post furnished during the route is cancelled before posing")
+SC.GameplayUtil.loadedSquare = previousLoadedSquare
+
 local kitchen = {}
 kevinGroup.house = { questContainer = { container = kitchen } }
 kevinGroup.oddball.managerSpawned = false

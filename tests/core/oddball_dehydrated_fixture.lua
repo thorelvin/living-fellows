@@ -42,6 +42,9 @@ function U.distance(a, b)
     return math.sqrt((a.x - b.x) ^ 2 + (a.y - b.y) ^ 2)
 end
 function U.isValidActor(actor) return actor ~= nil end
+function U.ensureGroundPoseLocation()
+    return F.poseSquareClear ~= false, "ground_pose_relocating"
+end
 function U.instanceOf(item, class) return item and item.__class == class end
 function U.nowMs() return F.now end
 function U.say(actor, text)

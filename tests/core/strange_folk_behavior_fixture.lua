@@ -43,6 +43,9 @@ function U.distance(a, b)
 end
 function U.distanceSq(a, b) return U.distance(a, b)^2 end
 function U.isSquareFree() return true end
+function U.isClearActorSpawnSquare(square)
+    return square ~= nil and square.furniture ~= true
+end
 function U.roomName() return "spiffo_dining" end
 function U.edgeBlocked() return false end
 function U.canSee(observer, target)

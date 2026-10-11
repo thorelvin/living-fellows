@@ -15,6 +15,9 @@ local poses, searches, hibernations = {}, {}, 0
 SC.GameplayUtil = {
     nowMs = function() return 1000 end,
     isValidActor = function(value) return value ~= nil end,
+    ensureGroundPoseLocation = function()
+        return knight.clearFloor ~= false, "knight_relocating"
+    end,
     position = function(value) return value.x, value.y, value.z end,
     distance = function(a, b)
         return math.sqrt((a.x - b.x) ^ 2 + (a.y - b.y) ^ 2)
@@ -74,6 +77,14 @@ assert(knight.inv.items[1].kind == "Base.Sword")
 assert(Dwight.update(knight, player, {},
     Dwight.intentFor(knight, player, {}, group), group))
 assert(poses[1] == "sit_ground")
+knight.clearFloor = false
+local beforeBlockedPose = #poses
+local blockedPose, blockedReason = Dwight.update(knight, player, {},
+    Dwight.intentFor(knight, player, {}, group), group)
+assert(blockedPose == true and blockedReason == "knight_relocating"
+    and #poses == beforeBlockedPose and group.oddball.poseStarted == nil,
+    "a saved knight under furniture stands and waits for clear floor")
+knight.clearFloor = true
 assert(Dwight.action(group, "wake_knight", player))
 visible = false
 Dwight.pulse(group, player, 1000)

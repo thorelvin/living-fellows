@@ -667,6 +667,25 @@ public final class SCIsoCompanionControlTest {
             require(accumulator.x == 0 && accumulator.y == 0
                             && (actor.getNextX() != sitX || actor.getNextY() != sitY),
                     "furniture sit animation did not translate the companion body");
+            // Get On Bed is a separate native player state. Its root motion
+            // must move a non-local companion off the entry tile and onto the
+            // mattress just as it does for the player.
+            Object bedState = Class.forName("zombie.ai.states.PlayerOnBedState")
+                    .getMethod("instance").invoke(null);
+            currentField.set(machine, bedState);
+            require(actor.isCompanionFurnitureSeatingActive()
+                            && SCNativeCompanion.OWNER_SEATING.equals(
+                                    actor.getCompanionMovementOwner()),
+                    "on-bed state did not take native movement ownership");
+            actor.setNextX(actor.getX());
+            actor.setNextY(actor.getY());
+            float bedX = actor.getNextX(), bedY = actor.getNextY();
+            accumulator.x = .08f;
+            accumulator.y = 0.0f;
+            consume.invoke(actor);
+            require(accumulator.x == 0 && accumulator.y == 0
+                            && (actor.getNextX() != bedX || actor.getNextY() != bedY),
+                    "on-bed animation did not translate the companion body");
             currentField.set(machine, null);
             require(!actor.isCompanionFurnitureSeatingActive(),
                     "furniture movement ownership survived state exit");

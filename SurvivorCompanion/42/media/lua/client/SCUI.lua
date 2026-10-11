@@ -7,6 +7,7 @@ require "ISUI/ISComboBox"
 require "ISUI/ISLabel"
 require "ISUI/ISScrollingListBox"
 require "ISUI/ISModalDialog"
+require "RadioCom/ISUIRadio/ISSliderPanel"
 pcall(require, "ISUI/ISUI3DModel")
 require "SCUIBounds"
 require "SCUIBridge"
@@ -546,6 +547,9 @@ end
 -- text and selector values must not tear that tree down (especially while a
 -- combo is open); only branches that add/remove controls are structural.
 local function detailStructureSignature(row, tab)
+    if tab == "expeditions" then
+        return SC.UIExpeditions.viewStructureSignature()
+    end
     if tab == "talk" then
         local conversation = row and SC.Interaction.state(row.id) or nil
         return stableSignatureValue({
@@ -2599,6 +2603,10 @@ local function selectedRowValue(detail, formatter)
 end
 
 function SCUIDetail:refreshValues()
+    if self.tab == "expeditions"
+        and SC.UIExpeditions.refreshZoom(self) ~= true then
+        return false
+    end
     for _, binding in ipairs(self.infoBindings or {}) do
         local ok, value = pcall(binding.provider)
         if not ok then return false end

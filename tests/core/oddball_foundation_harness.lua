@@ -60,6 +60,74 @@ SC.OddballRed = {
 SC.Config.testSet("factionRecruitmentEnabled", true)
 SC.Config.testSet("factionTradeDistance", 6)
 
+-- The bakery trio stands on free kitchen floor beside work surfaces. Modded
+-- kitchens without recognizable counters still use safe separated floor posts.
+do
+    local originalGrid, originalObjects, originalInstanceOf =
+        U.gridSquare, U.squareObjects, U.instanceOf
+    local kitchen = { getName = function() return "kitchen" end }
+    local secondKitchen = { getName = function() return "kitchen" end }
+    local tiles = {}
+    local function tile(x, y, objects, z, room)
+        local square = { x = x, y = y, z = z or 0,
+            objects = objects or {},
+            getRoom = function() return room or kitchen end }
+        tiles[x .. ":" .. y .. ":" .. (z or 0)] = square
+        return square
+    end
+    local function fixture(kind)
+        return { getContainer = function()
+            return { getType = function() return kind end }
+        end }
+    end
+    tile(1, 1); tile(3, 1); tile(1, 3)
+    tile(1, 0, { fixture("counter") })
+    tile(4, 1, { fixture("stove") })
+    tile(0, 3, { fixture("counter") })
+    tile(5, 1, nil, 0, secondKitchen)
+    tile(7, 1, nil, 0, secondKitchen)
+    tile(5, 3, nil, 0, secondKitchen)
+    tile(5, 0, { fixture("stove") }, 0, secondKitchen)
+    tile(7, 0, { fixture("stove") }, 0, secondKitchen)
+    tile(5, 4, { fixture("stove") }, 0, secondKitchen)
+    tile(1, 1, nil, 1, kitchen)
+    tile(3, 1, nil, 1, kitchen)
+    tile(1, 0, { fixture("stove") }, 1, kitchen)
+    tile(3, 0, { fixture("stove") }, 1, kitchen)
+    U.gridSquare = function(x, y, z)
+        return tiles[x .. ":" .. y .. ":" .. (z or 0)]
+    end
+    U.squareObjects = function(square, callback)
+        for _, object in ipairs(square.objects) do callback(object) end
+    end
+    U.instanceOf = function() return false end
+    local bakery = { interior = { { x = 5, y = 1, z = 0 },
+        { x = 7, y = 1, z = 0 }, { x = 5, y = 3, z = 0 },
+        { x = 1, y = 1, z = 1 }, { x = 3, y = 1, z = 1 },
+        { x = 1, y = 1, z = 0 }, { x = 3, y = 1, z = 0 },
+        { x = 1, y = 3, z = 0 } } }
+    local posts = SC.Oddballs._auxiliaryKitchenPositionsForTests(
+        bakery, player, true, { x = 1, y = 1, z = 0 })
+    check(posts and #posts == 3 and posts[1].x == 3
+            and posts[2].x == 1 and posts[3].y == 3
+            and posts[1].z == 0 and posts[2].z == 0
+            and posts[3].z == 0,
+        "bakery work posts favor fixtures in only the origin kitchen/floor")
+    for _, square in pairs(tiles) do square.objects = {} end
+    posts = SC.Oddballs._auxiliaryKitchenPositionsForTests(
+        bakery, player, true, { x = 1, y = 1, z = 0 })
+    check(posts and #posts == 3 and posts[1].x == 1,
+        "unfurnished kitchens keep the safe separated spawn fallback")
+    local tooSmall = { interior = { { x = 1, y = 1, z = 0 },
+        { x = 3, y = 1, z = 0 }, { x = 5, y = 1, z = 0 },
+        { x = 1, y = 1, z = 1 } } }
+    check(SC.Oddballs._auxiliaryKitchenPositionsForTests(
+        tooSmall, player, true, { x = 1, y = 1, z = 0 }) == nil,
+        "fallback refuses to borrow a third post from another kitchen or floor")
+    U.gridSquare, U.squareObjects, U.instanceOf =
+        originalGrid, originalObjects, originalInstanceOf
+end
+
 -- The native B42 opening objects expose north/west orientation, not an
 -- instance getOppositeSquare(). Only an opening with a loaded outside square
 -- may make a building eligible as an encounter site.
@@ -382,6 +450,7 @@ local cellA = { getName = function() return "cells" end }
 local cellB = { getName = function() return "prisoncells" end }
 local stationSquares = {
     ["20:20"] = locker, ["21:20"] = cellA, ["22:20"] = cellB,
+    ["23:20"] = locker, ["24:20"] = locker,
 }
 U.gridSquare = function(x, y, z)
     local room = z == 0 and stationSquares[tostring(x) .. ":" .. tostring(y)] or nil
@@ -392,9 +461,11 @@ U.gridSquare = function(x, y, z)
     end
 end
 local stationHouse = { id = "station-20", anchor = { x = 20, y = 20, z = 0 },
-    bounds = { x1 = 20, y1 = 20, x2 = 22, y2 = 20 },
+    bounds = { x1 = 20, y1 = 20, x2 = 24, y2 = 20 },
     interior = { { x = 20, y = 20, z = 0 },
-        { x = 21, y = 20, z = 0 }, { x = 22, y = 20, z = 0 } }, openings = {} }
+        { x = 21, y = 20, z = 0 }, { x = 22, y = 20, z = 0 },
+        { x = 23, y = 20, z = 0 }, { x = 24, y = 20, z = 0 } },
+    openings = {} }
 SC.Factions.oddballHouseAt = function() return stationHouse end
 local deputySite = SC.Oddballs._siteForResidentForTests(
     U.gridSquare(20, 20, 0), player, deputy, "policelocker", true)
@@ -402,6 +473,32 @@ check(deputySite and deputySite.spawn.x == 20
     and #deputySite.captiveSpawns >= 1
     and deputySite.captiveSpawns[1].x ~= deputySite.spawn.x,
     "deputy stands at the checkpoint while captives begin in distinct cells")
+local originalOccupyingObject = U.squareOccupyingObject
+U.squareOccupyingObject = function(square)
+    if square and (square.x == 20 or square.x == 21) then
+        return { name = "partial chair" }
+    end
+    return nil
+end
+local clearDeputySite = SC.Oddballs._siteForResidentForTests(
+    U.gridSquare(20, 20, 0), player, deputy, "policelocker", true)
+check(clearDeputySite and clearDeputySite.spawn.x == 23
+        and clearDeputySite.captiveSpawns[1].x == 22,
+    "scripted residents and captives skip furniture even on native-safe tiles")
+local stagedDeputy = { id = "furniture-test", house = stationHouse,
+    members = { { key = "leader" } },
+    oddball = { site = { spawn = { x = 20, y = 20, z = 0 } } } }
+local wakeSquare = SC.Factions._chooseMemberSquareForTests(stagedDeputy, 1)
+check(wakeSquare and wakeSquare.x == 23,
+    "restored scripted actor moves to clear floor when saved spawn has furniture")
+U.squareOccupyingObject = function(square)
+    return square and square.x == 23 and { name = "partial chair" } or nil
+end
+local room12Coop = SC.Oddballs._otherRoomTileForTests(stationHouse,
+    { x = 20, y = 20, z = 0 })
+check(room12Coop and room12Coop.x == 24,
+    "Room 12 animal post skips the first furnished same-room tile")
+U.squareOccupyingObject = originalOccupyingObject
 local deputyGroup, deputyReason = SC.Factions.createOddballGroup(deputySite,
     deputy, true)
 check(deputyGroup and #deputyGroup.members == 1 + #deputySite.captiveSpawns
@@ -585,8 +682,10 @@ stationSquares["21:20"], stationSquares["22:20"] = locker, locker
 local pyroSite = SC.Oddballs._siteForResidentForTests(
     U.gridSquare(20, 20, 0), player, pyro, "policelocker", true)
 check(pyroSite and #pyroSite.fuelPosts == 2
-    and pyroSite.fuelPosts[1].x ~= pyroSite.spawn.x,
-    "eligible room receives separate visible floor fuel posts")
+    and pyroSite.fuelPosts[1].x ~= pyroSite.spawn.x
+    and (pyroSite.fuelPosts[1].x - pyroSite.fuelPosts[2].x) ^ 2
+        + (pyroSite.fuelPosts[1].y - pyroSite.fuelPosts[2].y) ^ 2 >= 4,
+    "eligible room spreads fuel cans at least two tiles apart")
 local pyroGroup, pyroReason = SC.Factions.createOddballGroup(
     pyroSite, pyro, true)
 check(pyroGroup and #pyroGroup.oddball.site.fuelPosts == 2,
@@ -816,6 +915,520 @@ do
     check(voice == nil, "voice actor is not seeded in an open bedroom")
 end
 
+-- Bedridden Arthur needs a real bed and an intact bedroom before the scene
+-- reserves a post. The four costume ambushers must share one physical room;
+-- a second living room with the same name cannot supply missing members.
+do
+    local previousGrid, previousSquareOf, previousHouseAt =
+        U.gridSquare, U.squareOf, SC.Factions.oddballHouseAt
+    local previousOccupying, previousSeating =
+        U.squareOccupyingObject, SeatingManager
+    local bedroom = { getName = function() return "bedroom" end }
+    local hallway = { getName = function() return "hall" end }
+    local livingA = { getName = function() return "livingroom" end }
+    local livingB = { getName = function() return "livingroom" end }
+    local tiles = {}
+    local function tile(x, y, room)
+        local square = { x = x, y = y, z = 0, room = room, objects = {} }
+        function square:getRoom() return self.room end
+        function square:getObjects() return self.objects end
+        tiles[x .. ":" .. y] = square
+        return square
+    end
+    local bedTile = tile(70, 70, bedroom)
+    local otherBedTile = tile(71, 70, bedroom)
+    local footTile = tile(69, 70, bedroom)
+    local bed = { __class = "IsoObject" }
+    local bedGrid = {}
+    local bedSprite
+    function bedGrid:getSpriteGridPosX(sprite)
+        return sprite == bedSprite and 0 or 1
+    end
+    function bedGrid:getSpriteGridPosY() return 0 end
+    bedSprite = {
+        getName = function() return "furniture_bedding_01_25" end,
+        getSpriteGrid = function() return bedGrid end,
+    }
+    local otherBedSprite = {
+        getName = function() return "furniture_bedding_01_27" end,
+        getSpriteGrid = function() return bedGrid end,
+    }
+    function bed:getName() return "Bed" end
+    function bed:getSprite() return bedSprite end
+    bed.square = bedTile
+    bedTile.objects[1], bedTile.fixtureOccupied = bed, bed
+    local otherBed = { __class = "IsoObject", square = otherBedTile }
+    function otherBed:getName() return "Bed" end
+    function otherBed:getSprite() return otherBedSprite end
+    otherBedTile.objects[1], otherBedTile.fixtureOccupied =
+        otherBed, otherBed
+    SeatingManager = { getInstance = function()
+        return { getFacingDirection = function(_, object)
+            return object.seatingFacing or "W"
+        end }
+    end }
+    -- The real house descriptor omits the bed's occupied square from its
+    -- safe actor posts. Site discovery must still find that bed by its room.
+    local bedroomPosts = { { x = 69, y = 70, z = 0 } }
+    for _, coordinates in ipairs({ { 70, 71 }, { 71, 71 },
+        { 72, 71 }, { 71, 72 } }) do
+        tile(coordinates[1], coordinates[2], bedroom)
+        bedroomPosts[#bedroomPosts + 1] = {
+            x = coordinates[1], y = coordinates[2], z = 0 }
+    end
+    local doorTile = tile(71, 73, hallway)
+    local door = { __class = "IsoDoor", open = false }
+    function door:getNorth() return true end
+    function door:getObjectIndex() return 0 end
+    function door:IsOpen() return self.open end
+    doorTile.objects[1] = door
+    bedroomPosts[#bedroomPosts + 1] = { x = 71, y = 73, z = 0 }
+    local bedroomHouse = { id = "arthur-test-bedroom",
+        anchor = { x = 70, y = 70, z = 0 },
+        bounds = { x1 = 69, x2 = 72, y1 = 70, y2 = 73 },
+        interior = bedroomPosts, openings = {} }
+    U.gridSquare = function(x, y, z)
+        return z == 0 and tiles[x .. ":" .. y] or nil
+    end
+    U.squareOf = function(value) return value and value.square end
+    U.squareOccupyingObject = function(square)
+        return square and square.fixtureOccupied or nil
+    end
+    SC.Factions.oddballHouseAt = function() return bedroomHouse end
+    local arthur = SC.Oddballs.definition("bedridden_arthur_hale")
+    check(arthur and arthur.module == "OddballBedridden"
+        and arthur.kind == "resident" and arthur.recruitment == false,
+        "Arthur is registered as a unique nonrecruitable resident")
+    local normalized, foot, entryReason =
+        SC.Oddballs.nativeBedFootEntry(bed)
+    check(normalized == otherBed and foot and foot.x == 71.5
+        and math.abs(foot.y - 71.3) < 0.001
+        and foot.facing == "W" and foot.entryKind == "HeadLeft"
+        and entryReason == "entry",
+        "Arthur's two-tile bed uses the stock normalized head-side entry")
+    -- The four tiles of a large double bed all face south, although its
+    -- head tiles expose W/E seating positions. The stock context menu uses
+    -- those W/E directions for normalization and the actual entry clip.
+    local doubleGrid = {}
+    function doubleGrid:getSpriteGridPosX(sprite) return sprite.gx end
+    function doubleGrid:getSpriteGridPosY(sprite) return sprite.gy end
+    local south = { get = function(_, key)
+        return key == "Facing" and "S" or nil
+    end }
+    local function doublePart(x, y, gx, gy, seatingFacing, spriteProperty)
+        local square = tile(x, y, bedroom)
+        local sprite = { gx = gx, gy = gy,
+            getSpriteGrid = function() return doubleGrid end }
+        local object = { square = square,
+            seatingFacing = seatingFacing,
+            getSprite = function() return sprite end }
+        if spriteProperty then
+            sprite.getProperties = function() return south end
+        else
+            object.getProperties = function() return south end
+        end
+        square.objects[1], square.fixtureOccupied = object, object
+        return object, square
+    end
+    local leftHead = doublePart(80, 80, 0, 0, "W", false)
+    local leftFoot = doublePart(80, 81, 0, 1, "S", false)
+    local rightHead = doublePart(81, 80, 1, 0, "E", true)
+    local rightFoot = doublePart(81, 81, 1, 1, "S", true)
+    local leftEntry = { tile(79, 81, bedroom),
+        tile(82, 81, bedroom) }
+    local doubleHead, doublePoint, doubleReason =
+        SC.Oddballs.nativeBedFootEntry(leftFoot)
+    check(doubleHead == leftFoot and doubleReason == "entry"
+        and doublePoint and math.abs(doublePoint.x - 79.7) < 0.001
+        and doublePoint.y == 81.5
+        and doublePoint.facing == "S"
+        and doublePoint.entryKind == "HeadRight"
+        and doublePoint.pillow and doublePoint.pillow.x == 80
+        and doublePoint.pillow.y == 80,
+        "double bed uses its S-facing clip and pillow alignment")
+    doubleHead, doublePoint, doubleReason =
+        SC.Oddballs.nativeBedFootEntry(rightHead)
+    check(doubleHead == leftFoot and doubleReason == "entry"
+        and doublePoint and math.abs(doublePoint.x - 79.7) < 0.001
+        and doublePoint.y == 81.5
+        and doublePoint.facing == "S"
+        and doublePoint.entryKind == "HeadRight",
+        "double bed pillow segment resolves to supported lengthwise lane")
+    local rightNormalized, rightPoint =
+        SC.Oddballs.nativeBedFootEntry(rightFoot)
+    check(rightNormalized == leftFoot and rightPoint
+        and math.abs(rightPoint.x - 79.7) < 0.001,
+        "double bed prefers its validated west entry while available")
+    leftEntry[1].fixtureOccupied = { name = "Chair" }
+    local blockedLane, blockedLaneReason
+    blockedLane, doublePoint, blockedLaneReason =
+        SC.Oddballs.nativeBedFootEntry(rightHead)
+    rightNormalized, rightPoint =
+        SC.Oddballs.nativeBedFootEntry(leftHead)
+    check(blockedLane == rightFoot and blockedLaneReason == "entry"
+        and doublePoint and math.abs(doublePoint.x - 82.3) < 0.001
+        and doublePoint.pillow.x == 81
+        and rightNormalized == rightFoot and rightPoint,
+        "blocked west side chooses the east lengthwise bed lane")
+    leftEntry[2].fixtureOccupied = { name = "Chair" }
+    blockedLane, _, blockedLaneReason =
+        SC.Oddballs.nativeBedFootEntry(leftHead)
+    check(blockedLane == nil and blockedLaneReason == "bed_entry_blocked",
+        "blocked double-bed sides reject the lie instead of using floor")
+    leftEntry[2].fixtureOccupied = nil
+    leftEntry[1].fixtureOccupied = nil
+    local function checkOrientations()
+    local orientationCases = {
+        { facing = "N", head = { 300, 301, 0, 1 },
+            foot = { 300, 300, 0, 0 }, entry = { 299.7, 301.5 } },
+        { facing = "S", head = { 304, 300, 0, 0 },
+            foot = { 304, 301, 0, 1 }, entry = { 303.7, 300.5 } },
+        { facing = "W", head = { 309, 300, 1, 0 },
+            foot = { 308, 300, 0, 0 }, entry = { 309.5, 299.7 } },
+        { facing = "E", head = { 313, 300, 0, 0 },
+            foot = { 314, 300, 1, 0 }, entry = { 313.5, 299.7 } },
+    }
+    for _, case in ipairs(orientationCases) do
+        local grid = {}
+        function grid:getSpriteGridPosX(sprite) return sprite.gx end
+        function grid:getSpriteGridPosY(sprite) return sprite.gy end
+        local properties = { get = function(_, key)
+            return key == "Facing" and case.facing or nil
+        end }
+        local function segment(post)
+            local square = tile(post[1], post[2], bedroom)
+            local sprite = { gx = post[3], gy = post[4],
+                getSpriteGrid = function() return grid end,
+                getProperties = function() return properties end }
+            local object = { square = square,
+                seatingFacing = case.facing,
+                getSprite = function() return sprite end }
+            square.objects[1], square.fixtureOccupied = object, object
+            return object
+        end
+        local head = segment(case.head)
+        local footPart = segment(case.foot)
+        tile(math.floor(case.entry[1]),
+            math.floor(case.entry[2]), bedroom)
+        local resolved, point, why =
+            SC.Oddballs.nativeBedFootEntry(footPart)
+        local fromHead, headPoint =
+            SC.Oddballs.nativeBedFootEntry(head)
+        check(resolved == head and fromHead == head
+            and why == "entry" and point and headPoint
+            and math.abs(point.x - case.entry[1]) < 0.001
+            and math.abs(point.y - case.entry[2]) < 0.001
+            and math.abs(headPoint.x - point.x) < 0.001
+            and math.abs(headPoint.y - point.y) < 0.001
+            and point.facing == case.facing,
+            "native bed head entry normalizes a " .. case.facing
+                .. "-facing two-piece bed")
+    end
+    end
+    checkOrientations()
+    -- Four-piece stock double beds place two lengthwise lanes in one sprite
+    -- grid. The entry for one lane must never be inferred from the other.
+    local function checkDoubleOrientations()
+        local cases = {
+            { facing = "N", gx = 0, gy = 1, axis = "y",
+                entries = { { 399.7, 400.5 }, { 402.3, 400.5 } } },
+            { facing = "W", gx = 1, gy = 0, axis = "x",
+                entries = { { 410.5, 399.7 }, { 410.5, 402.3 } } },
+            { facing = "E", gx = 0, gy = 0, axis = "x",
+                entries = { { 420.5, 399.7 }, { 420.5, 402.3 } } },
+        }
+        for _, case in ipairs(cases) do
+            local grid = {}
+            function grid:getSpriteGridPosX(sprite) return sprite.gx end
+            function grid:getSpriteGridPosY(sprite) return sprite.gy end
+            local properties = { get = function(_, key)
+                return key == "Facing" and case.facing or nil
+            end }
+            local headX = case.facing == "N" and 400
+                or case.facing == "W" and 410 or 420
+            local headY = 400
+            local function segment(x, y, gx, gy)
+                local square = tile(x, y, bedroom)
+                local sprite = { gx = gx, gy = gy,
+                    getSpriteGrid = function() return grid end,
+                    getProperties = function() return properties end }
+                local object = { square = square,
+                    seatingFacing = case.facing,
+                    getSprite = function() return sprite end }
+                square.objects[1], square.fixtureOccupied = object, object
+                return object
+            end
+            for lane = 0, 1 do
+                local hx = headX + (case.axis == "y" and lane or 0)
+                local hy = headY + (case.axis == "x" and lane or 0)
+                local fx = hx + (case.facing == "E" and 1
+                    or case.facing == "W" and -1 or 0)
+                local fy = hy + (case.facing == "S" and 1
+                    or case.facing == "N" and -1 or 0)
+                local hGX = case.axis == "x" and case.gx or lane
+                local hGY = case.axis == "y" and case.gy or lane
+                local fGX = hGX + (case.facing == "E" and 1
+                    or case.facing == "W" and -1 or 0)
+                local fGY = hGY + (case.facing == "S" and 1
+                    or case.facing == "N" and -1 or 0)
+                local head = segment(hx, hy, hGX, hGY)
+                local foot = segment(fx, fy, fGX, fGY)
+                local entryX = case.entries[lane + 1][1]
+                local entryY = case.entries[lane + 1][2]
+                tile(math.floor(entryX), math.floor(entryY), bedroom)
+                local resolved, point, why =
+                    SC.Oddballs.nativeBedFootEntry(foot)
+                local fromHead = SC.Oddballs.nativeBedFootEntry(head)
+                check(resolved == head and fromHead == head
+                    and why == "entry" and point
+                    and math.abs(point.x - entryX) < 0.001
+                    and math.abs(point.y - entryY) < 0.001,
+                    "native double bed " .. case.facing
+                        .. " lane " .. lane .. " uses its own head-side entry")
+            end
+        end
+    end
+    checkDoubleOrientations()
+    local arthurSite = SC.Oddballs._siteForResidentForTests(
+        bedTile, player, arthur, "bedroom", true)
+    check(arthurSite and arthurSite.bed.objectIndex == 0
+        and arthurSite.bedroomDoor.objectIndex == 0
+        and (arthurSite.spawn.x ~= bedTile.x
+            or arthurSite.spawn.y ~= bedTile.y)
+        and arthurSite.floor
+        and (arthurSite.floor.x ~= bedTile.x
+            or arthurSite.floor.y ~= bedTile.y)
+        and (arthurSite.floor.x ~= arthurSite.spawn.x
+            or arthurSite.floor.y ~= arthurSite.spawn.y),
+        "Arthur chooses a real bed and two distinct clear bedroom floor posts")
+    local arthurGroup, arthurReason = createRealOddballGroup(
+        arthurSite, arthur, true)
+    check(arthurGroup and arthurGroup.oddball.site.bed
+        and arthurGroup.oddball.site.floor
+        and arthurGroup.oddball.site.bedroomDoor,
+        "Arthur's bed, floor death post, and protected door persist in the group: "
+            .. tostring(arthurReason))
+    local arthurSave = SC.Factions.export()
+    check(arthurSave and SC.Factions.restore(arthurSave) == true
+        and SC.Factions.group(arthurGroup.id).oddball.site.floor,
+        "Arthur's clear death post survives faction save and load")
+    footTile.fixtureOccupied = { name = "Chair" }
+    tiles["70:71"].fixtureOccupied = { name = "Chair" }
+    tiles["71:71"].fixtureOccupied = { name = "Chair" }
+    local blockedBed, _, blockedReason =
+        SC.Oddballs.nativeBedFootEntry(bed)
+    check(blockedBed == nil and blockedReason == "bed_entry_blocked"
+        and SC.Oddballs._siteForResidentForTests(
+            bedTile, player, arthur, "bedroom", true) == nil,
+        "Arthur skips a bed with every native entry post blocked")
+    local secondBedTile = tile(70, 72, bedroom)
+    local secondOtherTile = tiles["71:72"]
+    local secondFootTile = tile(69, 72, bedroom)
+    -- These stock hospital sprites have a bed grid outside the furniture
+    -- bedding family. The object label must still let Arthur find them.
+    bedSprite.getName = function()
+        return "location_community_medical_01_20"
+    end
+    otherBedSprite.getName = function()
+        return "location_community_medical_01_21"
+    end
+    local secondBed = { square = secondBedTile,
+        seatingFacing = "S",
+        getName = function() return "Bed" end,
+        getSprite = function() return bedSprite end }
+    local secondOther = { square = secondOtherTile,
+        getName = function() return "Bed" end,
+        getSprite = function() return otherBedSprite end }
+    secondBedTile.objects[1], secondBedTile.fixtureOccupied =
+        secondBed, secondBed
+    secondOtherTile.objects[1], secondOtherTile.fixtureOccupied =
+        secondOther, secondOther
+    local laterSite = SC.Oddballs._siteForResidentForTests(
+        bedTile, player, arthur, "bedroom", true)
+    check(laterSite and laterSite.bed.x == 70 and laterSite.bed.y == 72
+        and (function()
+            local hospitalBed, hospitalEntry =
+                SC.Oddballs.nativeBedFootEntry(secondBed)
+            return hospitalBed == secondBed and hospitalEntry
+                and hospitalEntry.x == 69.7
+                and hospitalEntry.y == 72.5
+                and hospitalEntry.facing == "S"
+        end)(),
+        "Arthur accepts a hospital bed whose seating faces across its tile Facing")
+    secondBedTile.objects[1], secondBedTile.fixtureOccupied = nil, nil
+    secondOtherTile.objects[1], secondOtherTile.fixtureOccupied = nil, nil
+    tiles["69:72"] = nil
+    footTile.fixtureOccupied = nil
+    tiles["70:71"].fixtureOccupied = nil
+    tiles["71:71"].fixtureOccupied = nil
+    door.open = true
+    check(SC.Oddballs._siteForResidentForTests(bedTile, player,
+        arthur, "bedroom", true) == nil,
+        "an open bedroom door rejects Arthur's protected scene")
+    door.open = false
+    bedTile.objects[1], bedTile.fixtureOccupied = nil, nil
+    check(SC.Oddballs._siteForResidentForTests(bedTile, player,
+        arthur, "bedroom", true) == nil,
+        "Arthur cannot reserve a bedroom without a real bed")
+    bedTile.objects[1], bedTile.fixtureOccupied = bed, bed
+    bedSprite.getSpriteGrid = function() return nil end
+    check(SC.Oddballs._siteForResidentForTests(bedTile, player,
+        arthur, "bedroom", true) == nil,
+        "a bed without the native lying sprite grid cannot consume Arthur's encounter")
+    bedSprite.getSpriteGrid = function() return bedGrid end
+    local windowTile = tiles["72:71"]
+    local window = { __class = "IsoWindow" }
+    function window:getNorth() return true end
+    function window:IsOpen() return true end
+    function window:isSmashed() return false end
+    windowTile.objects[1] = window
+    bedroomHouse.openings = { { kind = "window", x = 72, y = 71,
+        z = 0, objectIndex = 0 } }
+    check(SC.Oddballs._siteForResidentForTests(bedTile, player,
+        arthur, "bedroom", true) == nil,
+        "an open bedroom window rejects Arthur's protected scene")
+    windowTile.objects[1], bedroomHouse.openings = nil, {}
+    local previousFurniture = {}
+    for _, post in ipairs(bedroomPosts) do
+        local square = tiles[post.x .. ":" .. post.y]
+        if square.room == bedroom and square ~= bedTile then
+            previousFurniture[square] = square.fixtureOccupied or false
+            square.fixtureOccupied = { name = "Chair" }
+        end
+    end
+    check(SC.Oddballs._siteForResidentForTests(bedTile, player,
+        arthur, "bedroom", true) == nil,
+        "a real bed without clear bedroom floor cannot host Arthur")
+    for square, fixture in pairs(previousFurniture) do
+        square.fixtureOccupied = fixture ~= false and fixture or nil
+    end
+
+    local smokeRoom = { getName = function() return "livingroom" end }
+    local smokeInside = tile(90, 90, smokeRoom)
+    tile(90, 89, nil)
+    tile(90, 91, smokeRoom)
+    tile(89, 90, smokeRoom)
+    tile(91, 90, smokeRoom)
+    local smokeWindow = { __class = "IsoWindow", locked = true,
+        permaLocked = false }
+    function smokeWindow:getNorth() return true end
+    function smokeWindow:isSmashed() return false end
+    function smokeWindow:isBarricaded() return false end
+    function smokeWindow:isLocked() return self.locked end
+    function smokeWindow:isPermaLocked() return self.permaLocked end
+    smokeInside.objects[1] = smokeWindow
+    local smokeHouse = { id = "smoker-test-house",
+        anchor = { x = 90, y = 90, z = 0 },
+        bounds = { x1 = 89, x2 = 91, y1 = 90, y2 = 91 },
+        interior = { { x = 90, y = 90, z = 0 },
+            { x = 90, y = 91, z = 0 },
+            { x = 89, y = 90, z = 0 },
+            { x = 91, y = 90, z = 0 } },
+        openings = { { kind = "window", x = 90, y = 90,
+            z = 0, objectIndex = 0 } } }
+    SC.Factions.oddballHouseAt = function() return smokeHouse end
+    local smoker = SC.Oddballs.definition("window_smoker_mara_voss")
+    local smokeSite = SC.Oddballs._siteForResidentForTests(
+        smokeInside, player, smoker, "livingroom", true)
+    check(smoker and smoker.module == "OddballSmoker"
+        and smokeSite and smokeSite.chair.x == 90
+        and smokeSite.chair.y == 90
+        and smokeSite.chair.spriteName == "furniture_seating_indoor_01_43"
+        and smokeSite.spawn.x == 89 and smokeSite.spawn.y == 90
+        and smokeSite.lookOut.x == 90 and smokeSite.lookOut.y == 89
+        and smokeSite.window.objectIndex == 0
+        and #smokeInside.objects == 1,
+        "Mara reserves a north-facing chair by the real exterior window without placing it during search")
+    local smokeGroup = createRealOddballGroup(smokeSite, smoker, true)
+    local smokeSave = SC.Factions.export()
+    check(smokeGroup and smokeSave and SC.Factions.restore(smokeSave) == true
+        and SC.Factions.group(smokeGroup.id).oddball.site.window.objectIndex == 0
+        and SC.Factions.group(smokeGroup.id).oddball.site.chair.spriteName
+            == "furniture_seating_indoor_01_43",
+        "Mara's chair and window scene survives faction save and load")
+    check(SC.Oddballs._siteForResidentForTests(
+        smokeInside, player, smoker, "livingroom", true) ~= nil,
+        "an ordinary locked window can be unlocked and opened for Mara")
+    smokeWindow.permaLocked = true
+    check(SC.Oddballs._siteForResidentForTests(
+        smokeInside, player, smoker, "livingroom", true) == nil,
+        "a permanently locked window cannot seed Mara's open-window scene")
+    smokeWindow.permaLocked = false
+    smokeInside.fixtureOccupied = { name = "Table" }
+    check(SC.Oddballs._siteForResidentForTests(
+        smokeInside, player, smoker, "livingroom", true) == nil,
+        "an occupied window tile cannot be overwritten with Mara's chair")
+    smokeInside.fixtureOccupied = nil
+    tiles["89:90"].fixtureOccupied = { name = "Table" }
+    check(SC.Oddballs._siteForResidentForTests(
+        smokeInside, player, smoker, "livingroom", true).spawn.x == 91,
+        "Mara can use the other clear side of the chair")
+    tiles["91:90"].fixtureOccupied = { name = "Table" }
+    check(SC.Oddballs._siteForResidentForTests(
+        smokeInside, player, smoker, "livingroom", true) == nil,
+        "Mara needs a clear native side approach to the chair")
+    tiles["89:90"].fixtureOccupied = nil
+    tiles["91:90"].fixtureOccupied = nil
+
+    local packPosts = { { x = 80, y = 80, z = 0 } }
+    local packStart = tile(80, 80, livingA)
+    for _, coordinates in ipairs({ { 86, 80 }, { 86, 82 },
+        { 86, 84 } }) do
+        tile(coordinates[1], coordinates[2], livingB)
+        packPosts[#packPosts + 1] = {
+            x = coordinates[1], y = coordinates[2], z = 0 }
+    end
+    local chairTile = tile(82, 80, livingA)
+    chairTile.fixtureOccupied = { name = "Chair" }
+    packPosts[#packPosts + 1] = { x = 82, y = 80, z = 0 }
+    for _, coordinates in ipairs({ { 80, 82 }, { 82, 82 },
+        { 84, 82 } }) do
+        tile(coordinates[1], coordinates[2], livingA)
+        packPosts[#packPosts + 1] = {
+            x = coordinates[1], y = coordinates[2], z = 0 }
+    end
+    local packHouse = { id = "spiffo-pack-test-house",
+        anchor = { x = 80, y = 80, z = 0 },
+        bounds = { x1 = 80, x2 = 86, y1 = 80, y2 = 84 },
+        interior = packPosts, openings = {} }
+    SC.Factions.oddballHouseAt = function() return packHouse end
+    local pack = SC.Oddballs.definition("spiffo_dressup_ambush")
+    check(pack and pack.module == "OddballFurryPack"
+        and pack.memberCountMin == 4 and #pack.memberIdentities == 4,
+        "Spiffo ambush registers four named native members")
+    local packSite = SC.Oddballs._siteForResidentForTests(
+        packStart, player, pack, "livingroom", true)
+    local nativeSameRoom, clear, distinct = true, true, {}
+    for _, post in ipairs(packSite and packSite.memberSpawns or {}) do
+        local square = tiles[post.x .. ":" .. post.y]
+        nativeSameRoom = nativeSameRoom and square:getRoom() == livingA
+        clear = clear and U.isClearActorSpawnSquare(square) == true
+        local key = post.x .. ":" .. post.y
+        if distinct[key] then clear = false end
+        distinct[key] = true
+    end
+    check(packSite and #packSite.memberSpawns == 4
+        and nativeSameRoom and clear,
+        "all four ambushers occupy distinct clear tiles in one native living room")
+    local packGroup, packReason = createRealOddballGroup(
+        packSite, pack, true)
+    check(packGroup and #packGroup.members == 4
+        and #packGroup.oddball.site.memberSpawns == 4,
+        "the four ambushers enter one faction group: "
+            .. tostring(packReason))
+    local packSave = SC.Factions.export()
+    check(packSave and SC.Factions.restore(packSave) == true
+        and #SC.Factions.group(packGroup.id).oddball.site.memberSpawns == 4,
+        "four separate member posts survive faction save and load")
+    tiles["84:82"].fixtureOccupied = { name = "Table" }
+    check(SC.Oddballs._siteForResidentForTests(packStart, player,
+        pack, "livingroom", true) == nil,
+        "three same-room clear posts cannot borrow a fourth from another living room")
+    U.gridSquare, U.squareOf, U.squareOccupyingObject, SeatingManager =
+        previousGrid, previousSquareOf, previousOccupying, previousSeating
+    SC.Factions.oddballHouseAt = previousHouseAt
+end
+
 -- A paired story needs two unresolved slots. With one slot left it must wait,
 -- even when its landmark is valid; the same landmark seeds both rivals when
 -- the cap has room.
@@ -890,5 +1503,99 @@ do
     SC.Config.testSet("oddballFirstEligibleDay", oldFirstDay)
     SC.Config.testSet("oddballMaxActive", oldMaxActive)
     SC.Config.testSet("oddballScanSampleBudget", oldBudget)
+end
+
+-- A chair can be placed after the encounter has reserved a spawn tile. The
+-- final queue check must move a single-post resident to clear floor in the
+-- same room, and a fixed multi-actor scene must wait at its authored post.
+do
+    local previousGrid = U.gridSquare
+    local previousOccupying = U.squareOccupyingObject
+    local previousBegin = SC.Actor.beginSpawn
+    local room = { name = "bedroom" }
+    local squares = {}
+    for x = 10, 12 do
+        local square = { x = x, y = 10, z = 0,
+            getRoom = function() return room end }
+        squares[x .. ":10:0"] = square
+    end
+    U.gridSquare = function(x, y, z)
+        return squares[tostring(x) .. ":" .. tostring(y)
+            .. ":" .. tostring(z or 0)]
+    end
+    U.squareOccupyingObject = function(square)
+        return square and square.chair or nil
+    end
+    local house = { id = "queued-chair-fixture",
+        anchor = { x = 10, y = 10, z = 0 },
+        bounds = { x1 = 10, x2 = 12, y1 = 10, y2 = 10, z = 0 },
+        interior = { { x = 10, y = 10, z = 0 },
+            { x = 11, y = 10, z = 0 }, { x = 12, y = 10, z = 0 } },
+        openings = {} }
+    local site = { kind = "resident", room = "bedroom", house = house,
+        anchor = house.anchor, spawn = { x = 10, y = 10, z = 0 } }
+    local definition = { id = "queued_chair_fixture", name = "Queue Guard",
+        archetype = "oddball_resident", memberCountMin = 1,
+        memberCountMax = 1, identity = { forename = "Queue",
+            surname = "Guard", gender = "female" } }
+    SC.Factions.reset()
+    squares["10:10:0"].chair = { name = "Chair" }
+    check(U.isClearActorSpawnSquare(squares["10:10:0"]) == false,
+        "fixture chair occupies a native-safe floor square")
+    local blockedGroup = createRealOddballGroup(site, definition, true)
+    check(blockedGroup == nil,
+        "an occupied post is rejected before it enters the spawn queue")
+    squares["10:10:0"].chair = nil
+    local queuedGroup, queueReason = createRealOddballGroup(
+        site, definition, true)
+    check(queuedGroup ~= nil,
+        "the clear encounter post enters the queue: " .. tostring(queueReason))
+    local begun = {}
+    SC.Actor.beginSpawn = function(square)
+        begun[#begun + 1] = square
+        return { square = square }, "spawn_pending"
+    end
+    squares["10:10:0"].chair = { name = "Chair" }
+    SC.Factions._beginNextSpawnForTests()
+    check(#begun == 0 and queuedGroup.members[1].spawnQueued == true,
+        "a chair added after queueing blocks native spawn at that tile")
+    SC.Factions._beginNextSpawnForTests()
+    check(#begun == 1 and begun[1].x == 11 and begun[1].y == 10
+        and begun[1]:getRoom() == room,
+        "a single-post resident falls back to clear floor in its own room")
+    SC.Factions.reset()
+    squares["10:10:0"].chair = nil
+    local staged = { id = "queued_scene_fixture", name = "Staged Scene",
+        archetype = "oddball_resident", memberCountMin = 2,
+        memberCountMax = 2, identity = definition.identity,
+        memberIdentities = { definition.identity,
+            { forename = "Second", surname = "Guard", gender = "male" } } }
+    site.memberSpawns = { { x = 10, y = 10, z = 0 },
+        { x = 11, y = 10, z = 0 } }
+    local stagedGroup = createRealOddballGroup(site, staged, true)
+    check(stagedGroup ~= nil, "fixed two-member scene queues clear posts")
+    squares["10:10:0"].chair = { name = "Chair" }
+    SC.Factions._beginNextSpawnForTests()
+    check(#begun == 1 and SC.Factions.group(stagedGroup.id) == stagedGroup
+        and stagedGroup.members[1].spawnQueued == false,
+        "a fixed scene waits for its obstructed post without spawning elsewhere")
+    SC.Factions.reset()
+    squares["10:10:0"].chair = nil
+    squares["11:10:0"].chair = { name = "Chair" }
+    site.memberSpawns = nil
+    site.petSpawns = { { x = 11, y = 10, z = 0 },
+        { x = 12, y = 10, z = 0 } }
+    site.toySpawns = { { x = 10, y = 10, z = 0 },
+        { x = 11, y = 10, z = 0 }, { x = 12, y = 10, z = 0 } }
+    local milliDefinition = { id = "milli_tea_and_trouble",
+        name = "Milli", archetype = "oddball_resident",
+        memberCountMin = 1, memberCountMax = 1,
+        identity = definition.identity }
+    local petPostGroup, petPostReason = createRealOddballGroup(
+        site, milliDefinition, true)
+    check(petPostGroup == nil and petPostReason == "milli_pet_posts_unavailable",
+        "a chair appearing on a pet post invalidates that new scene")
+    SC.Actor.beginSpawn = previousBegin
+    U.gridSquare, U.squareOccupyingObject = previousGrid, previousOccupying
 end
 SC_TEST_REPORT = "Oddball foundation PASS: " .. checks .. " checks"

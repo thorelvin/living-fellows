@@ -119,6 +119,7 @@ public class IsoGameCharacter extends IsoMovingObject {
     public void addOnDiedListener(CharacterDiedListener listener, boolean autoRemove) {}
     public void OnDeath() {}
     public boolean isAsleep() { return false; }
+    public boolean isOnBed() { return false; }
     public void setAsleep(boolean asleep) {}
     public void dropHandItems() {}
     public boolean shouldBecomeZombieAfterDeath() { return false; }

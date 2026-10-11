@@ -12307,6 +12307,87 @@ function Harness.probeTeamExpeditionUiRadioWait(current)
         return
     end
     if current - Harness.phaseStartedAt < 1500 then return end
+    if Harness.expeditionZoomChecked ~= true then
+        local before = {}
+        local zoomReady = SCBridge ~= nil
+            and SCBridge.readExpeditionZoom(before) == true
+        if not check("expedition_ui_zoom_camera_ready",
+            zoomReady and tonumber(before.target) ~= nil
+                and tonumber(before.min) < tonumber(before.max),
+            "target=" .. tostring(before.target)
+                .. " min=" .. tostring(before.min)
+                .. " max=" .. tostring(before.max)) then
+            setPhase("finish", current)
+            return
+        end
+        local detail = Harness.expeditionUiDetail
+        detail:rebuild(true)
+        local slider
+        for _, control in ipairs(detail.content.childrenInOrder or {}) do
+            if control.scExpeditionZoomSlider == true then
+                slider = control
+                break
+            end
+        end
+        local afterOpen = {}
+        SCBridge.readExpeditionZoom(afterOpen)
+        if not check("expedition_ui_zoom_slider_preserves_default",
+            slider ~= nil and math.abs(afterOpen.target - before.target) < 0.001,
+            "slider=" .. tostring(slider ~= nil)
+                .. " before=" .. tostring(before.target)
+                .. " after=" .. tostring(afterOpen.target)) then
+            setPhase("finish", current)
+            return
+        end
+        local initialStep = tonumber(slider.scZoomStep)
+        if not check("expedition_ui_zoom_ten_step_control",
+            initialStep ~= nil and initialStep >= 1 and initialStep <= 10,
+            "step=" .. tostring(initialStep)) then
+            setPhase("finish", current)
+            return
+        end
+        local nextStep = initialStep < 10 and initialStep + 1 or initialStep - 1
+        local playerZoom = getCore():getNextZoom(0, 0)
+        -- The saved profile has slot-1 auto-zoom off. Turn it on in this
+        -- disposable run so the restoration assertion proves a state change.
+        if Harness.config.team_expedition_zoom_only == "true" then
+            getCore():setAutoZoom(1, true)
+        end
+        Harness.expeditionAutoZoomBefore = getCore():getAutoZoom(1)
+        slider:setCurrentValue(nextStep)
+        local afterMove = {}
+        local readBack = SCBridge.readExpeditionZoom(afterMove)
+        if not check("expedition_ui_zoom_changes_only_second_view",
+            readBack == true and math.abs(afterMove.target - before.target) > 0.001
+                and math.abs(getCore():getNextZoom(0, 0) - playerZoom) < 0.001
+                and getCore():getAutoZoom(1) == false,
+            "initialStep=" .. tostring(initialStep)
+                .. " before=" .. tostring(before.target)
+                .. " after=" .. tostring(afterMove.target)
+                .. " player=" .. tostring(playerZoom)) then
+            setPhase("finish", current)
+            return
+        end
+        Harness.expeditionZoomChecked = true
+    end
+    if Harness.config.team_expedition_zoom_only == "true" then
+        -- The saved squad starts spread out, so a normal homecoming cannot
+        -- complete here. Exercise the world-exit view teardown instead.
+        local released, reason = SC.ExpeditionPrototype.prepareReset()
+        if not check("expedition_ui_zoom_view_teardown",
+            released == true and getSpecificPlayer(1) == nil,
+            "released=" .. tostring(released)
+                .. " reason=" .. tostring(reason)) then
+            setPhase("finish", current)
+            return
+        end
+        check("expedition_ui_zoom_auto_restored",
+            getCore():getAutoZoom(1) == Harness.expeditionAutoZoomBefore,
+            "before=" .. tostring(Harness.expeditionAutoZoomBefore)
+                .. " after=" .. tostring(getCore():getAutoZoom(1)))
+        setPhase("finish", current)
+        return
+    end
     local leaderRadio = Harness.radioKit and Harness.radioKit.team[1]
     local leaderData = leaderRadio and leaderRadio:getDeviceData()
     local playerRadio = Harness.radioKit and Harness.radioKit.player
@@ -12817,6 +12898,9 @@ local function probeTeamRadioKitWait(current)
         draft.leaderId = recipients[1].id
         draft.kind = "scout"
         draft.style = "stealth"
+        -- This fixture checks the view and planner, so it must not depend on
+        -- the seed save having a mapped road at the squad's starting tile.
+        draft.travelMode = "straight"
         draft.hours = 1
         SC.UIExpeditions.onButton(root.detail,
             { scExpeditionAction = "review" })
@@ -15246,6 +15330,18 @@ Harness.probeHygiene = function(...)
     return externalProbe("SCHygieneProbe", ...)
 end
 
+Harness.probeOddballCoreyEarl = function(...)
+    return externalProbe("SCOddballCoreyEarlProbe", ...)
+end
+
+Harness.probeOddballArthurPack = function(...)
+    return externalProbe("SCOddballArthurPackProbe", ...)
+end
+Harness.probeOddballSmoker = function(...)
+    return externalProbe("SCOddballSmokerProbe", ...)
+end
+Harness.encounterSignals = { write = writeSignal, exists = fileExists }
+
 Harness.probeBaseSecondFloor = function(...)
     return externalProbe("SCBaseSecondFloorProbe", ...)
 end
@@ -15412,7 +15508,16 @@ local function tick()
         Harness.measurePerformance(current)
     end
 
-    if string.sub(tostring(Harness.phase), 1, 6) == "milli_" then
+    if string.sub(tostring(Harness.phase), 1, 7) == "smoker_" then
+        Harness.probeOddballSmoker(Harness, current, check, result,
+            setPhase)
+    elseif string.sub(tostring(Harness.phase), 1, 10) == "encounter_" then
+        Harness.probeOddballArthurPack(Harness, current, check, result,
+            setPhase)
+    elseif string.sub(tostring(Harness.phase), 1, 8) == "oddball_" then
+        Harness.probeOddballCoreyEarl(Harness, current, check, result,
+            setPhase)
+    elseif string.sub(tostring(Harness.phase), 1, 6) == "milli_" then
         Harness.probeMilli(Harness, current, check, result, setPhase)
     elseif string.sub(tostring(Harness.phase), 1, 8) == "loretta_" then
         Harness.probeLoretta(Harness, current, check, result, setPhase)
@@ -16242,7 +16347,16 @@ local function onGameStart()
         finish()
         return
     end
-    if Harness.config.milli_probe == "true" then
+    if Harness.config.oddball_smoker_probe == "true" then
+        setPhase("smoker_prepare", Harness.startedAt)
+    elseif Harness.config.oddball_arthur_probe == "true"
+        or Harness.config.oddball_pack_probe == "true" then
+        setPhase("encounter_prepare", Harness.startedAt)
+    elseif Harness.config.oddball_corey_probe == "true" then
+        setPhase("oddball_corey_setup", Harness.startedAt)
+    elseif Harness.config.oddball_earl_probe == "true" then
+        setPhase("oddball_earl_setup", Harness.startedAt)
+    elseif Harness.config.milli_probe == "true" then
         setPhase("milli_prepare", Harness.startedAt)
     elseif Harness.config.loretta_probe == "true" then
         setPhase("loretta_prepare", Harness.startedAt)

@@ -135,6 +135,7 @@ local function commitReceipt(expected)
     story.radioSourceX = expected.x
     story.radioSourceY = expected.y
     story.radioSourceZ = expected.z
+    expected.group.discovered = true
     U().call(expected.player, "setHaloNote", expected.text)
     return true
 end
@@ -230,9 +231,12 @@ function Radio.answer(groupId, player)
     local source, data = equippedRadio(player, true)
     local survivor = actorFor(group)
     local receiver, receiverData = equippedRadio(survivor, false)
-    if not source or not receiver or not inRange(player, survivor,
+    -- A radio can be nominally in range while the native receiver scrambles
+    -- everything beyond 90% of that range. Do not accept the rescue or mark
+    -- the map for a reply that cannot arrive intact.
+    if not source or not receiver or not deliverable(player, survivor,
         number(call(data, "getTransmitRange")) or 0)
-        or not inRange(player, survivor,
+        or not deliverable(player, survivor,
             number(call(receiverData, "getTransmitRange")) or 0) then
         return false, "radios_out_of_range"
     end

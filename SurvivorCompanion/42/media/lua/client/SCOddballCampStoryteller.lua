@@ -111,7 +111,7 @@ function Camp.siteFor(square, player, allowSeen)
     local fire = point(square)
     if not fire or fire.z ~= 0 or not outside(square)
         or not naturalFloor(square) or not unseen(square, player, allowSeen)
-        or not U().isSafeSpawnSquare(square)
+        or not U().isClearActorSpawnSquare(square)
         or select(1, U().call(square, "getTree")) ~= nil then
         return nil
     end
@@ -133,8 +133,8 @@ function Camp.siteFor(square, player, allowSeen)
         local mid = U().gridSquare(fire.x + offset[1] / 2,
             fire.y + offset[2] / 2, 0)
         if outside(tile) and unseen(tile, player, allowSeen)
-            and U().isSafeSpawnSquare(tile)
-            and outside(mid) and U().isSafeSpawnSquare(mid)
+            and U().isClearActorSpawnSquare(tile)
+            and outside(mid) and U().isClearActorSpawnSquare(mid)
             and select(1, U().call(tile, "getTree")) == nil then
             stand = point(tile)
             break

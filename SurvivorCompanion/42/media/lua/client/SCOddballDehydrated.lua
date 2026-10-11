@@ -326,7 +326,9 @@ function Dehydrated.onSpawn(group, actor)
     end
     if value.waterReceived ~= true and SC.Actor
         and type(SC.Actor.setMovement) == "function" then
-        SC.Actor.setMovement(actor, "walk", { action = "sit_ground" })
+        if U().ensureGroundPoseLocation(actor) then
+            SC.Actor.setMovement(actor, "walk", { action = "sit_ground" })
+        end
     end
     return true, "nate_waiting"
 end
@@ -408,7 +410,6 @@ function Dehydrated.radioOffer(group, player, current)
     local index = ((number(value.radioIndex) or 0) % #RADIO_LINES) + 1
     value.radioIndex = index
     value.nextRadioAt = current + RADIO_INTERVAL_MS
-    group.discovered = true
     return { frequency = CHANNEL, text = RADIO_LINES[index],
         x = point.x, y = point.y, z = point.z or 0,
         guid = "LF-NATE-" .. tostring(group.id),
@@ -443,6 +444,10 @@ function Dehydrated.update(actor, player, runtime, intent, group)
     local value = story(group)
     if not value or not intent or intent.mode ~= "dehydrated_wait" then
         return false, "nate_no_special_move"
+    end
+    if value.waterReceived ~= true then
+        local clear, clearReason = U().ensureGroundPoseLocation(actor)
+        if not clear then return true, clearReason end
     end
     if value.waterReceived ~= true
         and select(1, U().call(actor, "isSitOnGround")) ~= true

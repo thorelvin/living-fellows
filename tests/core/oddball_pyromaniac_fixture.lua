@@ -10,19 +10,27 @@ function U.call(object, method, ...)
     if type(callback) ~= "function" then return nil, false end
     return callback(object, ...), true
 end
+function U.each(items, limit, callback)
+    for index = 1, math.min(#items, limit or #items) do
+        callback(items[index], index)
+    end
+end
 function U.gridSquare(x, y, z)
     local key = tostring(x) .. ":" .. tostring(y) .. ":" .. tostring(z)
     if not F.squares[key] then
-        local square = { x = x, y = y, z = z }
+        local square = { x = x, y = y, z = z, worldObjects = {} }
         function square:AddWorldInventoryItem(kind)
             local item = { kind = kind, data = {} }
             function item:getFullType() return self.kind end
             function item:getModData() return self.data end
             local world = { item = item }
             function world:getItem() return self.item end
+            self.worldObjects[#self.worldObjects + 1] = world
             F.worldItems[#F.worldItems + 1] = world
-            return world
+            -- Build 42 returns InventoryItem; its world object is separate.
+            return item
         end
+        function square:getWorldObjects() return self.worldObjects end
         function square:haveFire() return self.fire == true end
         F.squares[key] = square
     end
@@ -39,6 +47,7 @@ end
 function U.canSee() return true end
 function U.say(actor, line) F.lines[#F.lines + 1] = line end
 function U.stableHash() return 1 end
+function U.nowMs() return F.now end
 function U.stop() F.stopCalls = F.stopCalls + 1; return true end
 function SC.Registry.byId() return { actor = F.earl } end
 function SC.Factions.forceStanding(_, standing)

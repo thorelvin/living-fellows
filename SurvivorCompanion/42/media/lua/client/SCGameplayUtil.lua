@@ -952,6 +952,84 @@ function U.isSafeSpawnSquare(square)
     return true, "safe"
 end
 
+-- Native spawn safety does not reject partial furniture such as chairs and
+-- tables. Authored actors who stand or sit on the ground need an empty floor
+-- tile even when the native constructor would accept the square.
+function U.isClearActorSpawnSquare(square)
+    local safe, reason = U.isSafeSpawnSquare(square)
+    if not safe then return false, reason end
+    if U.squareOccupyingObject(square) ~= nil then
+        return false, "furniture_occupied"
+    end
+    return true, "clear"
+end
+
+-- A saved floor-sitting encounter may load after furniture has been moved onto
+-- its old post. Stand first, then ask normal navigation for nearby clear floor
+-- in the same room; never reissue the ground pose through the chair.
+local groundPoseRecoveryTarget = setmetatable({}, { __mode = "k" })
+function U.ensureGroundPoseLocation(actor)
+    local square = U.squareOf(actor)
+    if not square then return false, "ground_pose_square_unloaded" end
+    if U.squareOccupyingObject(square) == nil then
+        groundPoseRecoveryTarget[actor] = nil
+        return true, "clear"
+    end
+    if select(1, U.call(actor, "isSitOnGround")) == true then
+        U.move(actor, "walk", { action = "stand_ground" })
+        return false, "standing_from_obstructed_ground_pose"
+    end
+    local room, roomKnown = U.call(square, "getRoom")
+    local x, y, z = U.position(square)
+    if not roomKnown or x == nil or y == nil then
+        return false, "ground_pose_room_unavailable"
+    end
+    x, y, z = math.floor(x), math.floor(y), math.floor(z or 0)
+    local candidates, seen = {}, {}
+    local function add(candidate)
+        if not U.isClearActorSpawnSquare(candidate)
+            or select(1, U.call(candidate, "getRoom")) ~= room then return end
+        local cx, cy, cz = U.position(candidate)
+        if cx == nil or cy == nil then return end
+        local key = tostring(math.floor(cx)) .. ":" .. tostring(math.floor(cy))
+            .. ":" .. tostring(math.floor(cz or 0))
+        if seen[key] then return end
+        seen[key] = true
+        candidates[#candidates + 1] = candidate
+    end
+    local saved = groundPoseRecoveryTarget[actor]
+    if saved then add(U.gridSquare(saved.x, saved.y, saved.z)) end
+    for radius = 1, 4 do
+        for dx = -radius, radius do
+            for dy = -radius, radius do
+                if math.max(math.abs(dx), math.abs(dy)) == radius then
+                    add(U.gridSquare(x + dx, y + dy, z))
+                end
+            end
+        end
+    end
+    local navigation = SC.Navigation
+    if #candidates == 0 or type(navigation) ~= "table"
+        or type(navigation.requestAny) ~= "function" then
+        return false, "ground_pose_clear_floor_unavailable"
+    end
+    local moving, reason, selected = navigation.requestAny(actor, candidates, "walk", {
+        action = "oddball_clear_ground_pose", requireSameSquare = true,
+        arrivalDistance = 0.25,
+    })
+    if moving and selected then
+        local tx, ty, tz = U.position(selected)
+        if tx ~= nil and ty ~= nil then
+            groundPoseRecoveryTarget[actor] = { x = math.floor(tx),
+                y = math.floor(ty), z = math.floor(tz or 0) }
+        end
+    elseif not moving then
+        groundPoseRecoveryTarget[actor] = nil
+    end
+    return false, moving and "moving_to_clear_ground_pose"
+        or reason or "ground_pose_clearance_pending"
+end
+
 function U.edgeBlocked(fromSquare, toSquare)
     if not fromSquare or not toSquare then return true end
     local blocked, ok = U.call(fromSquare, "isBlockedTo", toSquare)

@@ -49,6 +49,13 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'User options Kahlua tests failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @files
         if ($LASTEXITCODE -ne 0) { throw 'UI Kahlua tests failed.' }
+        $expeditionZoomFiles = @(
+            (Join-Path $TestRoot 'SCUIExpeditionZoomFixture.lua'),
+            (Join-Path $Client 'SCUIExpeditions.lua'),
+            (Join-Path $TestRoot 'SCUIExpeditionZoomTests.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @expeditionZoomFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Expedition zoom UI tests failed.' }
         $nicknameFiles = @(
             (Join-Path $Client 'SCNames.lua'),
             (Join-Path $Client 'SCUIBridge.lua'),

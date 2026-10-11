@@ -531,6 +531,7 @@ public final class SCSplitScreenProbe {
         IsoPlayer.numPlayers = 1;
         IsoPlayer.setInstance(primary);
         leader = null;
+        restoreZoomAfterRelease();
         return true;
     }
 
@@ -545,6 +546,7 @@ public final class SCSplitScreenProbe {
                 }
                 coldProbe = null;
             }
+            restoreZoomAfterRelease();
             return true;
         }
         IsoPlayer[] slots = IsoPlayer.players;
@@ -584,6 +586,7 @@ public final class SCSplitScreenProbe {
         IsoPlayer.numPlayers = 1;
         IsoPlayer.setInstance(primary);
         leader = null;
+        restoreZoomAfterRelease();
         if (current == coldProbe) {
             if (!SCBridge.disposeColdProbeActor(current)) {
                 throw new IllegalStateException("cold co-op actor cleanup is pending: "
@@ -664,7 +667,18 @@ public final class SCSplitScreenProbe {
         IsoPlayer.numPlayers = 1;
         IsoPlayer.setInstance(primary);
         leader = null;
+        restoreZoomAfterRelease();
         return true;
+    }
+
+    private static void restoreZoomAfterRelease() {
+        // Lua normally restores on ViewSession.released(). Also do it here so
+        // a teardown interrupted between native release and Lua bookkeeping
+        // cannot leave slot 1's auto-zoom option temporarily disabled.
+        if (!SCBridge.restoreExpeditionZoom()) {
+            System.err.println("[SurvivorCompanionBridge] expedition zoom restore pending: "
+                    + SCBridge.getLastFailure());
+        }
     }
 
     public static boolean isReleased() {

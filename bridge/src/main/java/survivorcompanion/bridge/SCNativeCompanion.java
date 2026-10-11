@@ -30,6 +30,7 @@ import zombie.chat.ChatElement;
 import zombie.iso.IsoCamera;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoDirections;
+import zombie.iso.IsoGridSquare;
 import zombie.iso.objects.IsoDeadBody;
 import zombie.iso.objects.IsoWindow;
 import zombie.inventory.types.HandWeapon;
@@ -185,6 +186,11 @@ public final class SCNativeCompanion extends IsoPlayer {
     private final long[] bridgePeeStreamDepthDrawNanos = new long[4];
     private volatile long bridgePeeStreamDepthSubmissionCount;
     private volatile String bridgePeeStreamDepthFailure = "";
+    // The bed pose remains at its native world Z. Only the active model camera
+    // reads this lift while this companion's render call is in progress.
+    private transient volatile float bridgeOnBedRenderLift;
+    private transient volatile IsoGridSquare bridgeOnBedRenderSquare;
+    private transient volatile Thread bridgeOnBedRenderThread;
     private volatile String bridgePostUpdateDiagnostic = "not_run";
     private final MovementProbe bridgeLastMovementProbe = new MovementProbe();
     private final MovementProbe bridgeLastCollisionProbe = new MovementProbe();
@@ -523,10 +529,45 @@ public final class SCNativeCompanion extends IsoPlayer {
         return bridgePeeStreamDepthSubmissionCount;
     }
 
+    void setBridgeOnBedRenderLift(float lift, IsoGridSquare pillowSquare) {
+        bridgeOnBedRenderSquare = pillowSquare;
+        bridgeOnBedRenderLift = lift;
+    }
+
+    void clearBridgeOnBedRenderLift() {
+        bridgeOnBedRenderLift = 0.0f;
+        bridgeOnBedRenderSquare = null;
+    }
+
+    float getBridgeOnBedRenderLift() {
+        return bridgeOnBedRenderLift;
+    }
+
+    @Override
+    public float getZ() {
+        float physicalZ = super.getZ();
+        return bridgeOnBedRenderThread == Thread.currentThread()
+                ? physicalZ + bridgeOnBedRenderLift : physicalZ;
+    }
+
     @Override
     public void render(float x, float y, float z, ColorInfo color,
             boolean bDoChild, boolean bWallLightingPass, Shader shader) {
-        super.render(x, y, z, color, bDoChild, bWallLightingPass, shader);
+        IsoGridSquare pillow = bridgeOnBedRenderSquare;
+        boolean liftModel = bridgeOnBedRenderLift > 0.0f && pillow != null
+                && isOnBed() && getCurrentSquare() == pillow
+                && getMovingSquare() == pillow && square == pillow
+                && (int) Math.floor(getX()) == pillow.getX()
+                && (int) Math.floor(getY()) == pillow.getY();
+        Thread previousRenderThread = bridgeOnBedRenderThread;
+        if (liftModel) bridgeOnBedRenderThread = Thread.currentThread();
+        try {
+            super.render(x, y, z, color, bDoChild, bWallLightingPass, shader);
+        } finally {
+            // The model camera captures virtual getZ() during super.render().
+            // Other world and physics reads must always see the physical Z.
+            if (liftModel) bridgeOnBedRenderThread = previousRenderThread;
+        }
         try {
             int playerIndex = SCWorldPeeStreamRenderer.queue(this, bridgePeeStream);
             if (playerIndex >= 0) {
@@ -850,9 +891,10 @@ public final class SCNativeCompanion extends IsoPlayer {
     }
 
     /**
-     * The furniture sit animation carries its own displacement. SeatingManager
-     * places the actor at an entry point calculated from that displacement, so
-     * dropping root motion leaves the seated model in front of the chair.
+     * Furniture sit and Get On Bed animations carry their own displacement.
+     * The engine places the actor at an entry point calculated from that
+     * displacement, so dropping root motion leaves the model beside the
+     * chair or mattress despite its native seated/on-bed state.
      */
     public boolean isCompanionFurnitureSeatingActive() {
         try {
@@ -870,8 +912,10 @@ public final class SCNativeCompanion extends IsoPlayer {
     }
 
     private static boolean isFurnitureSeatingState(State state) {
-        return state != null
-                && "PlayerSitOnFurnitureState".equals(state.getClass().getSimpleName());
+        if (state == null) return false;
+        String name = state.getClass().getSimpleName();
+        return "PlayerSitOnFurnitureState".equals(name)
+                || "PlayerOnBedState".equals(name);
     }
 
     /** Owner names published to Lua. Ordered most exclusive first. */
@@ -2263,6 +2307,10 @@ public final class SCNativeCompanion extends IsoPlayer {
 
     @Override
     public void update() {
+        if (bridgeOnBedRenderLift > 0.0f
+                && (!isOnBed() || getCurrentSquare() != bridgeOnBedRenderSquare)) {
+            clearBridgeOnBedRenderLift();
+        }
         if (bridgeDisabled) {
             return;
         }
@@ -2668,8 +2716,10 @@ public final class SCNativeCompanion extends IsoPlayer {
         // traversal states) still relies on its root motion to carry the
         // collision body across the portal. PlayerSitOnFurnitureState also
         // needs this movement: SeatingManager's entry point accounts for the
-        // displacement of the sit animation. Discarding the accumulator lets
-        // the animation play while the actor stays in front of the chair.
+        // displacement of the sit animation. PlayerOnBedState likewise moves
+        // from an offset entry post onto the mattress. Discarding either
+        // accumulator lets the animation play while the body stays outside
+        // the furniture despite its native pose flags.
         // Apply it only while a verified native state owns movement;
         // ordinary path/manual locomotion already translates through PFB or
         // MoveForward and must continue to consume without applying a second

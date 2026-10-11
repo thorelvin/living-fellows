@@ -19615,6 +19615,91 @@ do
 end
 
 do
+    local detached = actor("faction-detached", 2, 2)
+    detached.square = nil
+    detached.x, detached.y = 300, 300
+    function detached:isAttacking() return self.attacking == true end
+    local detachedRecord = { actor = detached, runtime = {
+        lastStablePosition = { x = 300, y = 300, z = 0 },
+    } }
+    local safeToHibernate = Factions._detachedMemberSafeToHibernateForTests
+    check(safeToHibernate(detachedRecord, player),
+        "unloaded square-less resident can hibernate from its last verified position")
+    detached.x, detached.y = 2, 2
+    check(not safeToHibernate(detachedRecord, player),
+        "a nearby native position vetoes distant stale position hibernation")
+    detached.x, detached.y = 300, 300
+    detachedRecord.runtime.lastStablePosition = { x = 2, y = 2, z = 0 }
+    check(not safeToHibernate(detachedRecord, player),
+        "nearby or loaded last position cannot bypass faction danger scan")
+    detachedRecord.runtime.lastStablePosition = { x = 300, y = 300, z = 0 }
+    detached.attacking = true
+    check(not safeToHibernate(detachedRecord, player),
+        "detached resident with an active native attack remains present")
+    detached.attacking = false
+    detachedRecord.runtime.combatTarget = {}
+    check(not safeToHibernate(detachedRecord, player),
+        "detached resident with an active combat target remains present")
+    detachedRecord.runtime.combatTarget = nil
+    detached.vehicle = {}
+    check(not safeToHibernate(detachedRecord, player),
+        "vehicle passenger cannot use detached faction hibernation")
+    detached.vehicle = nil
+    makeSquare(300, 300, 0)
+    check(not safeToHibernate(detachedRecord, player),
+        "loaded former position cannot bypass faction danger scan")
+    squares[squareKey(300, 300, 0)] = nil
+    local oldCanSee = SurvivorCompanion.GameplayUtil.canSee
+    SurvivorCompanion.GameplayUtil.canSee = function() return true end
+    local visibleSafe = safeToHibernate(detachedRecord, player)
+    SurvivorCompanion.GameplayUtil.canSee = oldCanSee
+    check(not visibleSafe, "player-visible detached resident is not hibernated")
+    detached.square = makeSquare(300, 300, 0)
+    check(not safeToHibernate(detachedRecord, player),
+        "resident with a live native square uses the normal danger scan")
+    detached.square = nil
+    squares[squareKey(300, 300, 0)] = nil
+    detachedRecord.runtime.lastStablePosition = nil
+    check(not safeToHibernate(detachedRecord, player),
+        "detached resident without a verified position is not retired")
+    detachedRecord.runtime.lastStablePosition = { x = 300, y = 300, z = 0 }
+    detachedRecord.id = detached.id
+    registry[detached.id] = detachedRecord
+    local testMember = { actorId = detached.id, alive = true, hibernated = false }
+    local testGroup = { members = { testMember }, jobs = {},
+        oddball = { site = { kind = "roamer" } } }
+    local oldPersistence = SurvivorCompanion.Persistence
+    SurvivorCompanion.Persistence = oldPersistence or {}
+    local oldCapture = SurvivorCompanion.Persistence.captureRecord
+    local oldRemove = SurvivorCompanion.Actor.remove
+    local oldTradePrepare = SurvivorCompanion.Trade.prepareActorLifecycle
+    local removed = false
+    SurvivorCompanion.Persistence.captureRecord = function(record)
+        check(record == detachedRecord,
+            "detached faction member is captured from its live registry record")
+        return { id = detached.id, position = { x = 300, y = 300, z = 0 } }
+    end
+    SurvivorCompanion.Actor.remove = function(value)
+        removed = value == detached
+        return true
+    end
+    SurvivorCompanion.Trade.prepareActorLifecycle = function() return true end
+    local hibernated, reason = Factions._hibernateMemberForTests(
+        testGroup, testMember, player, true)
+    SurvivorCompanion.Persistence.captureRecord = oldCapture
+    SurvivorCompanion.Persistence = oldPersistence
+    SurvivorCompanion.Actor.remove = oldRemove
+    SurvivorCompanion.Trade.prepareActorLifecycle = oldTradePrepare
+    registry[detached.id] = nil
+    check(hibernated and reason == "hibernated" and removed
+            and testMember.hibernated == true
+            and testMember.snapshot.position.x == 300
+            and testGroup.oddball.site.wake.x == 300,
+        "missing-square recovery captures and hibernates the unloaded resident "
+            .. tostring(reason) .. " removed=" .. tostring(removed))
+end
+
+do
     local entrySquare = cell:getGridSquare(1, 2, 0)
     local outsideSquare = cell:getGridSquare(0, 2, 0)
     local previousObjects = entrySquare.objects
@@ -21409,6 +21494,12 @@ function SurvivorCompanion.__testFactionRestoreTransactions()
 local Factions = SurvivorCompanion.Factions
 local World = SurvivorCompanion.FactionWorld
 local Actor = SurvivorCompanion.Actor
+-- Earlier gameplay cases leave a marked store on this shared test square.
+-- The transaction fixture needs a genuinely clear tile for its spawn ticket.
+local fixtureSquare = cell:getGridSquare(2, 2, 0)
+local fixtureObjects, fixtureSpecialObjects =
+    fixtureSquare.objects, fixtureSquare.specialObjects
+fixtureSquare.objects, fixtureSquare.specialObjects = {}, {}
 local baseline = {
     schema = 1, sequence = 7, lastWorldSpawnDay = 3, lastProductionCheckDay = 4,
     order = { "faction-transaction-a" },
@@ -21581,6 +21672,8 @@ do
 end
 
 Factions.reset()
+fixtureSquare.objects, fixtureSquare.specialObjects =
+    fixtureObjects, fixtureSpecialObjects
 end
 SurvivorCompanion.__testFactionRestoreTransactions()
 SurvivorCompanion.__testFactionRestoreTransactions = nil

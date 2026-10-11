@@ -8,6 +8,10 @@ SealedVoiceFixture = { now = 1000, zombies = {}, groups = {}, released = 0,
 local F = SealedVoiceFixture
 local door = { __class = "IsoDoor", open = false, locked = false }
 F.door = door
+F.doorLoaded = true
+F.voiceDoor = { __class = "IsoDoor", open = false }
+F.voiceDoorLoaded = false
+function F.voiceDoor:IsOpen() return self.open end
 function door:IsOpen() return self.open end
 function door:isLocked() return self.locked end
 function door:setLocked(value) self.locked = value end
@@ -52,7 +56,11 @@ function U.gridSquare(x, y, z)
     local square = { x = x, y = y, z = z }
     function square:getRoom() return nil end
     function square:getObjects()
-        return self.x == 10 and self.y == 10 and { door } or {}
+        if self.x == 20 and self.y == 19 then
+            return F.voiceDoorLoaded and { F.voiceDoor } or {}
+        end
+        return self.x == 10 and self.y == 10
+            and (F.doorLoaded and { door } or {}) or {}
     end
     return square
 end
@@ -67,6 +75,10 @@ function SC.Navigation.request(actor, target, pace, options)
     return true, "retreat_requested"
 end
 function addZombiesInOutfit(x, y, z, count, outfit)
+    if (F.zombieSpawnFailures or 0) > 0 then
+        F.zombieSpawnFailures = F.zombieSpawnFailures - 1
+        return {}
+    end
     local list = {}
     for _ = 1, count do
         local zombie = { x = x, y = y, z = z, outfit = outfit }
@@ -94,5 +106,7 @@ F.caleb = { id = "sealed-group", members = { { actorId = "caleb" } },
             { x = 11, y = 9, z = 0 }, { x = 10, y = 8, z = 0 },
             { x = 11, y = 8, z = 0 } } } } }
 F.vera = { id = "voice-group", members = { { actorId = "vera" } },
-    oddball = { id = "voice_actor_vera_quill" } }
+    oddball = { id = "voice_actor_vera_quill", site = {
+        bedroomDoor = { x = 20, y = 19, z = 0, objectIndex = 0 },
+    } } }
 F.groups = { F.caleb, F.vera }

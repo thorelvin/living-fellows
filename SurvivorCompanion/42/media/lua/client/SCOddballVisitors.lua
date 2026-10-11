@@ -18,12 +18,34 @@ local function story(group)
     return value
 end
 
+local function present(member)
+    return type(member) == "table" and member.alive ~= false
+        and member.away == nil and member.departed ~= true
+end
+
 local function actorFor(group, index)
     local member = group and group.members and group.members[index]
+    if not present(member) then return nil end
     local record = member and member.actorId and SC.Registry
         and SC.Registry.byId(member.actorId) or nil
     return record and record.actor and U().isValidActor(record.actor)
         and record.actor or nil
+end
+
+local function speakerFor(group)
+    for index = 1, #(group.members or {}) do
+        local actor = actorFor(group, index)
+        if actor then return actor end
+    end
+    return nil
+end
+
+local function presentCount(group)
+    local count = 0
+    for _, member in ipairs(group.members or {}) do
+        if present(member) then count = count + 1 end
+    end
+    return count
 end
 
 local function near(group, player)
@@ -99,7 +121,9 @@ local function stashSupplies(group)
             moved = moved + 1
         end
     end
-    return moved > 0, moved > 0 and "supplies_left_in_farm"
+    -- The supplies can have been looted or lost with a dead member. No live
+    -- carrier should remain stuck at the vigil because the cache is empty.
+    return true, moved > 0 and "supplies_left_in_farm"
         or "no_supplies_to_leave"
 end
 
@@ -139,11 +163,14 @@ local function destination(value, index)
     local woods = value.site and value.site.woods
     if not woods then return nil end
     local offsets = { { 0, 0 }, { 1, 0 }, { 0, 1 }, { -1, 0 } }
-    local offset = offsets[index] or offsets[1]
-    local square = U().gridSquare(woods.x + offset[1],
-        woods.y + offset[2], woods.z or 0)
-    if square and U().isSafeSpawnSquare(square) then return square end
-    return U().gridSquare(woods.x, woods.y, woods.z or 0)
+    local preferred = ((tonumber(index) or 1) - 1) % #offsets
+    for step = 0, #offsets - 1 do
+        local offset = offsets[((preferred + step) % #offsets) + 1]
+        local square = U().gridSquare(woods.x + offset[1],
+            woods.y + offset[2], woods.z or 0)
+        if square and U().isSafeSpawnSquare(square) then return square end
+    end
+    return nil
 end
 
 function Visitors.onSpawn(group, actor)
@@ -172,7 +199,7 @@ function Visitors.pulse(group, player, current)
     local value = story(group)
     if not value then return false, "wrong_oddball" end
     current = tonumber(current) or U().nowMs()
-    local leader = actorFor(group, 1)
+    local leader = speakerFor(group)
     if value.stage == "unmet" then value.stage = "waiting" end
     if leader and near(group, player) and value.greeted ~= true then
         value.greeted = true
@@ -182,7 +209,8 @@ function Visitors.pulse(group, player, current)
     end
     if value.stage == "ready" and night() then
         value.stage = "marching"
-        U().say(leader, "Bring the radio to the hill. They'll hear it.")
+        if leader then U().say(leader,
+            "Bring the radio to the hill. They'll hear it.") end
     end
     if value.stage == "marching" then
         local arrived = 0
@@ -192,7 +220,7 @@ function Visitors.pulse(group, player, current)
                 arrived = arrived + 1
             end
         end
-        if arrived == #(group.members or {}) then
+        if presentCount(group) > 0 and arrived == presentCount(group) then
             value.stage = "vigil"
             value.vigilStartedAt = current
             if leader then U().say(leader,
@@ -219,7 +247,9 @@ function Visitors.pulse(group, player, current)
                 arrived = arrived + 1
             end
         end
-        if arrived == #(group.members or {}) then value.stage = "settled" end
+        if presentCount(group) > 0 and arrived == presentCount(group) then
+            value.stage = "settled"
+        end
     end
     return true, value.stage
 end
@@ -248,13 +278,17 @@ function Visitors.update(actor, player, runtime, intent, group)
         if actor == actorFor(group, current) then index = current; break end
     end
     local value = story(group)
-    local target = index and (value.stage == "returning"
-        and value.site and value.site.memberSpawns
-            and U().gridSquare(value.site.memberSpawns[index].x,
-                value.site.memberSpawns[index].y,
-                value.site.memberSpawns[index].z or 0)
-        or destination(value, index))
-    if not target then return false, "woods_path_unloaded" end
+    if not index then return false, "visitor_member_unavailable" end
+    local target
+    if value.stage == "returning" then
+        local post = value.site and value.site.memberSpawns
+            and value.site.memberSpawns[index]
+        target = post and U().gridSquare(post.x, post.y, post.z or 0)
+        if not target then return false, "visitor_home_unloaded" end
+    else
+        target = destination(value, index)
+        if not target then return false, "woods_path_unloaded" end
+    end
     if U().distance(actor, target) <= 2 then return true, "at_woods" end
     if not SC.Navigation or type(SC.Navigation.request) ~= "function" then
         return false, "navigation_unavailable"
@@ -298,7 +332,8 @@ function Visitors.action(group, action, player)
         return SC.Factions.forceStanding(group.id, "Hostile")
     end
     if not near(group, player) then return false, "visitor_too_far" end
-    local leader = actorFor(group, 1)
+    local leader = speakerFor(group)
+    if not leader then return false, "visitors_unavailable" end
     if action == "ask_visitors" then
         U().say(leader,
             "They came for the Suttons in '55. We're not missing the next one.")

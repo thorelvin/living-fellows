@@ -121,6 +121,7 @@ SC.GameplayUtil = {
     stableHash = function() return 0 end,
     gridSquare = function(x, y, z) return { x = x, y = y, z = z } end,
     isSafeSpawnSquare = function(square) return square ~= nil end,
+    isClearActorSpawnSquare = function(square) return square ~= nil end,
     position = function(square) return square.x, square.y, square.z end,
 }
 SC.Actor = { checkBridge = function() return true end }

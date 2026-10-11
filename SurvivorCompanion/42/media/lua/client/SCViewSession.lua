@@ -32,6 +32,14 @@ local function restorePrimaryHud()
     end
 end
 
+local function restoreExpeditionZoom()
+    if SCBridge == nil or SCBridge.restoreExpeditionZoom == nil then return end
+    local ok, restored = pcall(SCBridge.restoreExpeditionZoom)
+    if not ok or restored ~= true then
+        print("Living Fellows: expedition zoom restore failed: " .. tostring(restored))
+    end
+end
+
 function View.owner() return owner end
 function View.slotSqlId() return reusableSlotSqlId end
 
@@ -79,6 +87,7 @@ end
 function View.released(mode, slotId)
     if owner ~= mode then return false, "companion_view_owner_mismatch" end
     if validSlotId(slotId) then reusableSlotSqlId = slotId end
+    if mode == "expedition" then restoreExpeditionZoom() end
     owner = nil
     restorePrimaryHud()
     return true
@@ -100,6 +109,7 @@ function View.restore(saved)
 end
 
 function View.reset()
+    if owner == "expedition" then restoreExpeditionZoom() end
     owner, reusableSlotSqlId = nil, nil
     return true
 end

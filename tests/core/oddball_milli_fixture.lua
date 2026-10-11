@@ -4,7 +4,7 @@
 SurvivorCompanion = { GameplayUtil = {}, Registry = {}, Factions = {},
     OddballAnimals = {}, OddballRoomGuard = {}, Trade = {}, Actor = {},
     FactionRecruitment = {}, Diagnostics = {}, Community = {},
-    BaseLife = {}, ActionSupervisor = {}, Downtime = {} }
+    BaseLife = {}, ActionSupervisor = {}, Downtime = {}, Navigation = {} }
 local SC, U = SurvivorCompanion, SurvivorCompanion.GameplayUtil
 SC_MILLI_FIXTURE = { hour = 100, now = 1000, lines = {}, squares = {},
     animals = {}, spawnCalls = 0, followCalls = 0, guardRegisters = 0,
@@ -187,6 +187,7 @@ function U.squareObjects(tile, visit)
 end
 function U.isSafeSpawnSquare(tile) return tile ~= nil and tile.free == true end
 function U.isSquareFree(tile) return tile ~= nil and tile.free == true end
+function U.squareOccupyingObject(tile) return tile and tile.furniture end
 function U.canSee() return F.visible == true end
 function U.inventory(actor) return actor and actor.inv end
 function U.inventoryItemsDeep(inv) return inv and inv.items or {} end
@@ -298,6 +299,21 @@ function SC.Actor.setMovement(actor, _, intent)
     if intent.action == 'sit_ground' then actor.sitting = true end
     if intent.action == 'stand_ground' then actor.sitting = false end
     return true
+end
+function SC.Navigation.request(actor, square, _, intent)
+    F.pathTarget, F.pathIntent = square, intent
+    return true, 'approaching_clear_floor'
+end
+function SC.Navigation.requestAny(actor, candidates, _, intent)
+    F.pathCandidates, F.pathIntent = candidates, intent
+    for _, square in ipairs(candidates or {}) do
+        if square.unreachable ~= true then
+            F.pathTarget = square
+            return true, 'approaching_clear_floor', square
+        end
+    end
+    F.pathTarget = nil
+    return false, 'no_reachable_interaction_target'
 end
 function SC.Trade.deliverRequirements(group, player, requirements)
     local needed = 0

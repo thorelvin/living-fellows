@@ -140,7 +140,8 @@ local function poseSpots(group)
         for y = math.max(bounds.y1, oy - 6), math.min(bounds.y2, oy + 6) do
             if x ~= ox or y ~= oy then
                 local square = U().gridSquare(x, y, oz)
-                if square and U().isSquareFree(square) and U().roomName(square) then
+                if square and U().isClearActorSpawnSquare(square)
+                    and U().roomName(square) then
                     local label = squareLabel(square)
                     local priority = label == "counter" and 1 or label == "door" and 2
                         or label == "booth" and 3 or label == "window" and 4 or 5
@@ -573,7 +574,8 @@ function Kevin.update(actor, player, runtimeState, intent, group)
     end
     if pose.target then
         local square = U().loadedSquare(pose.target)
-        if square and U().distance(actor, square) <= 0.8 then
+        if square and U().isClearActorSpawnSquare(square)
+            and U().distance(actor, square) <= 0.8 then
             value.poseIndex = pose.targetIndex
             pose.target = nil
             pose.nextAt = current + (tonumber(U().config("oddballPoseStepCooldownMs")) or 4000)
@@ -582,7 +584,8 @@ function Kevin.update(actor, player, runtimeState, intent, group)
             holdMannequin(actor, pose)
             return true, "kevin_new_pose"
         end
-        if not square or watched(player, square) then
+        if not square or not U().isClearActorSpawnSquare(square)
+            or watched(player, square) then
             if SC.Navigation then SC.Navigation.cancel(actor, "pose_destination_seen") end
             pose.target = nil
             pose.nextAt = current + 4000
@@ -607,7 +610,8 @@ function Kevin.update(actor, player, runtimeState, intent, group)
         local index = ((tonumber(value.poseIndex) or 1) + step - 1) % #spots + 1
         local target = spots[index]
         local square = U().loadedSquare(target)
-        if square and U().isSquareFree(square) and not watched(player, square)
+        if square and U().isClearActorSpawnSquare(square)
+            and not watched(player, square)
             and not U().edgeBlocked(U().squareOf(actor), square) then
             pose.target = target
             pose.targetIndex = index

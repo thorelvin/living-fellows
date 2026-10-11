@@ -19,6 +19,15 @@ check(site.house.id == "forest-camp:0:0"
     and site.house.bounds.x1 == -3
     and #site.house.interior >= 1 and #site.house.openings == 0,
     "outdoor camp has a savable faction territory")
+local blockedStand = SC.GameplayUtil.gridSquare(site.spawn.x,
+    site.spawn.y, site.spawn.z)
+blockedStand.furniture = true
+local alternate = Camp.siteFor(SC.GameplayUtil.gridSquare(0, 0, 0),
+    F.player, false)
+check(alternate and (alternate.spawn.x ~= site.spawn.x
+        or alternate.spawn.y ~= site.spawn.y),
+    "a forest camp skips an otherwise safe tile occupied by moveable furniture")
+blockedStand.furniture = false
 F.actor = { actor = true, x = site.spawn.x, y = site.spawn.y, z = 0 }
 F.group = { id = "storyteller-test", members = { { actorId = "silas" } },
     standing = "Wary", oddball = { id = "survivalist05_mid_storyteller",

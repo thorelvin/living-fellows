@@ -52,6 +52,7 @@ local heldBefore = setmetatable({}, { __mode = "k" })
 local nextPoseAt = setmetatable({}, { __mode = "k" })
 local nextDefenseAt = setmetatable({}, { __mode = "k" })
 local nextNightSettleAt = setmetatable({}, { __mode = "k" })
+local nextPetSpawnAt = setmetatable({}, { __mode = "k" })
 
 local function U() return SC.GameplayUtil end
 local function number(value) return tonumber(value) end
@@ -136,6 +137,13 @@ local function bedOn(square)
     end, 64)
     return found
 end
+local function clearFloor(square, spawning)
+    if not square or (spawning and not U().isSafeSpawnSquare(square))
+        or not U().isSquareFree(square) or bedOn(square) then return false end
+    -- Native isFree(true) accepts some chairs and tables because they occupy
+    -- only part of a tile. Milli uses a ground pose, not the furniture seat.
+    return U().squareOccupyingObject(square) == nil
+end
 local function roomTiles(def, house)
     local iso = select(1, U().call(def, "getIsoRoom"))
     local loaded = iso and select(1, U().call(iso, "getSquares"))
@@ -200,7 +208,7 @@ function Milli.siteFor(house, player, allowSeen)
         for _, tile in ipairs(tiles) do
             if tile then
                 hasBed = hasBed or bedOn(tile)
-                if U().isSafeSpawnSquare(tile) and U().isSquareFree(tile)
+                if clearFloor(tile, true)
                     and (allowSeen == true or player == nil
                         or U().canSee(player, tile) ~= true) then
                     local p = point(tile)
@@ -216,6 +224,43 @@ function Milli.siteFor(house, player, allowSeen)
         end
     end
     return nil
+end
+
+local function nearbyClearFloors(actor, value)
+    local origin = U().squareOf(actor)
+    local room = origin and select(1, U().call(origin, "getRoom"))
+    local ax, ay, az = U().position(actor)
+    if not origin or not ax then return nil end
+    local options, seen = {}, {}
+    for _, position in ipairs(value.site and value.site.house
+        and value.site.house.interior or {}) do
+        if math.floor(position.z or 0) == math.floor(az or 0) then
+            local tile = U().gridSquare(position.x, position.y,
+                math.floor(position.z or 0))
+            local tileRoom = tile and select(1, U().call(tile, "getRoom"))
+            local distance = (position.x + 0.5 - ax) ^ 2
+                + (position.y + 0.5 - ay) ^ 2
+            if tileRoom and tileRoom == room and distance <= 36
+                and clearFloor(tile, true) then
+                local key = tostring(position.x) .. ":" .. tostring(position.y)
+                if not seen[key] then
+                    seen[key] = true
+                    options[#options + 1] = { square = tile,
+                        distance = distance, x = position.x, y = position.y }
+                end
+            end
+        end
+    end
+    table.sort(options, function(left, right)
+        if left.distance ~= right.distance then
+            return left.distance < right.distance
+        end
+        if left.y ~= right.y then return left.y < right.y end
+        return left.x < right.x
+    end)
+    local result = {}
+    for _, option in ipairs(options) do result[#result + 1] = option.square end
+    return result
 end
 
 local function inventoryItems(actor)
@@ -727,6 +772,13 @@ function Milli.pulse(group, player, current)
     if value.grudge == true then return true, "milli_hostile" end
     local actor = actorFor(group)
     if not actor then return true, "milli_unloaded" end
+    -- Furniture can block a saved baby post between site selection and the
+    -- first spawn. Keep the scene alive and retry when bedroom floor clears.
+    if value.petsSpawned ~= true and value.keeperDead ~= true
+        and current >= (nextPetSpawnAt[group] or 0) then
+        nextPetSpawnAt[group] = current + 5000
+        seedPets(group, value)
+    end
     local close = near(group, player,
         config("oddballMilliGuardReleaseTiles", 12, 3, 20))
     if value.roomGuardDone == true then value.guardReleased = true end
@@ -805,6 +857,22 @@ function Milli.update(actor, player, runtime, intent, group)
     if not intent or intent.mode ~= "milli_floor" then return false end
     local value = story(group)
     if not value or value.grudge then return false end
+    local square = U().squareOf(actor)
+    if square and not clearFloor(square, false) then
+        if select(1, U().call(actor, "isSitOnGround")) == true then
+            stand(actor)
+            return true, "milli_leaving_occupied_floor"
+        end
+        local targets = nearbyClearFloors(actor, value)
+        if targets and #targets > 0 and SC.Navigation
+            and type(SC.Navigation.requestAny) == "function" then
+            return SC.Navigation.requestAny(actor, targets, "walk", {
+                action = "faction_milli_clear_floor",
+                requireSameSquare = true, arrivalDistance = 0.4,
+            })
+        end
+        return true, "milli_clear_floor_unavailable"
+    end
     if player and (inRoom(group, player) or near(group, player, 6)) then
         return true, "milli_hosting"
     end

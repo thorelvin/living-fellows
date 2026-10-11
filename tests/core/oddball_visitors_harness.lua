@@ -11,6 +11,9 @@ local cache = { items = {} }
 local hours = 23
 local visible = true
 local removed = 0
+local blockedTiles = {}
+local unloadedTiles = {}
+local lastTarget
 local group = { id = "fellowship", standing = "Wary",
     lifecycle = "settled", house = { bounds = { x1 = 0, y1 = 0,
         x2 = 5, y2 = 5 }, anchor = { x = 0, y = 0 } },
@@ -46,6 +49,7 @@ SC.Oddballs = { retire = function(_, reason)
 end }
 SC.Navigation = { request = function(_, square, _, intent)
     assert(square and intent.action == "faction_visitors_woods")
+    lastTarget = square
     return true, "walking"
 end }
 SC.GameplayUtil = {
@@ -59,8 +63,13 @@ SC.GameplayUtil = {
         return visible and observer == player and value ~= player
     end,
     say = function(value, line) value.lastLine = line return true end,
-    gridSquare = function(x, y, z) return { x = x, y = y, z = z } end,
-    isSafeSpawnSquare = function() return true end,
+    gridSquare = function(x, y, z)
+        if unloadedTiles[tostring(x) .. ":" .. tostring(y)] then return nil end
+        return { x = x, y = y, z = z }
+    end,
+    isSafeSpawnSquare = function(square)
+        return blockedTiles[tostring(square.x) .. ":" .. tostring(square.y)] ~= true
+    end,
     inventory = function(value) return value.inv end,
     inventoryItemsDeep = function(inv) return inv.items end,
     itemType = function(item) return item.kind end,
@@ -107,6 +116,19 @@ assert(Visitors.pulse(group, player, 1000))
 assert(group.oddball.stage == "marching")
 assert(Visitors.intentFor(leader, player, {}, group).mode == "visitors_march")
 assert(Visitors.update(leader, player, {}, { mode = "visitors_march" }, group))
+blockedTiles["21:20"] = true
+assert(Visitors.update(believer1, player, {},
+    { mode = "visitors_march" }, group)
+    and lastTarget.x == 20 and lastTarget.y == 21,
+    "a blocked preferred woods tile falls back to a safe nearby post")
+blockedTiles["20:20"] = true
+blockedTiles["20:21"] = true
+blockedTiles["19:20"] = true
+local noPath, noPathReason = Visitors.update(believer1, player, {},
+    { mode = "visitors_march" }, group)
+assert(noPath == false and noPathReason == "woods_path_unloaded",
+    "all blocked woods posts defer navigation instead of targeting an obstacle")
+blockedTiles = {}
 leader.x, leader.y = 20, 20
 believer1.x, believer1.y = 21, 20
 believer2.x, believer2.y = 20, 21
@@ -120,4 +142,56 @@ assert(#cache.items == 7,
     "four original supplies and three exact beacon parts left behind")
 assert(cache.items[5] == radio or cache.items[6] == radio
     or cache.items[7] == radio)
+
+-- A dead leader and a departed follower must not keep the remaining visitor
+-- walking forever. Their still-registered actors must not count as present.
+local survivorGroup = { id = "surviving-visitors", standing = "Wary",
+    lifecycle = "settled", house = group.house,
+    members = { { actorId = "leader", alive = false },
+        { actorId = "believer1", alive = true },
+        { actorId = "believer2", departed = true } },
+    oddball = { id = "silver_visitors_fellowship", stage = "ready",
+        site = group.oddball.site } }
+leader.x, leader.y = 20, 20
+believer1.x, believer1.y = 21, 20
+believer2.x, believer2.y = 0, 1
+player.x, player.y = 1, 1
+visible = true
+assert(Visitors.pulse(survivorGroup, player, 200000))
+assert(survivorGroup.oddball.stage == "vigil"
+    and believer1.lastLine == "The dead aren't a plague. They're the welcome committee.",
+    "only present visitors determine arrival, and a survivor speaks")
+player.x, player.y = 21, 20
+assert(Visitors.pulse(survivorGroup, player, 201000))
+assert(Visitors.action(survivorGroup, "call_it_off", player))
+believer1.x, believer1.y = 1, 0
+unloadedTiles["1:0"] = true
+local returnReady, returnReason = Visitors.update(believer1, player, {},
+    { mode = "visitors_march" }, survivorGroup)
+assert(returnReady == false and returnReason == "visitor_home_unloaded",
+    "an unloaded home post never reroutes a returning visitor to the woods")
+unloadedTiles = {}
+assert(Visitors.pulse(survivorGroup, player, 202000))
+assert(survivorGroup.oddball.stage == "settled",
+    "returning waits only for present visitors")
+survivorGroup.oddball.stage = "vigil"
+survivorGroup.oddball.playerFollowed = false
+survivorGroup.oddball.vigilStartedAt = 202000
+player.x, player.y = 1, 1
+visible = false
+assert(Visitors.pulse(survivorGroup, player, 323000))
+assert(survivorGroup.lifecycle == "destroyed" and removed == 4
+    and survivorGroup.oddball.suppliesLeft == true,
+    "survivors can leave even when the dead leader held the supplies")
+
+-- An unloaded living member is still expected; do not arrive early.
+local waitingGroup = { id = "unloaded-visitors", standing = "Wary",
+    lifecycle = "settled", house = group.house,
+    members = { { actorId = "leader", alive = true },
+        { actorId = "temporarily-unloaded", alive = true } },
+    oddball = { id = "silver_visitors_fellowship", stage = "marching",
+        site = group.oddball.site } }
+assert(Visitors.pulse(waitingGroup, player, 330000))
+assert(waitingGroup.oddball.stage == "marching",
+    "an unloaded living visitor must still hold the march")
 print("Visitors PASS: exact beacon parts, night walk, real cache, unseen exit")

@@ -12,6 +12,8 @@ public class IsoMovingObject extends IsoObject {
     public float getLastY() { return 0; }
     public float setNextX(float value) { return value; }
     public float setNextY(float value) { return value; }
+    public float setLastX(float value) { return value; }
+    public float setLastY(float value) { return value; }
     public void moveUnmodded(float x, float y) {}
     public boolean isCollidedThisFrame() { return false; }
     public boolean isCollidedWithVehicle() { return false; }

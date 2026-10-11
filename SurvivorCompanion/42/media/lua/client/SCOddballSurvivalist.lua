@@ -131,8 +131,17 @@ end
 function Survivalist.onSpawn(group, actor)
     Survivalist.install()
     local value = story(group)
+    if not value or not actor then
+        return false, "sealed_room_unavailable"
+    end
+    -- A load can re-run onSpawn after the player has touched or breached the
+    -- door.  Do not restore the original lock once Caleb has abandoned it.
+    if value.stage == "fleeing" or value.stage == "gone"
+        or value.sealBroken == true or value.roomGuardDone == true then
+        return true, "sealed_room_already_resolved"
+    end
     local door = doorFor(value)
-    if not value or not door or not actor then
+    if not door then
         return false, "sealed_room_unavailable"
     end
     if select(1, U().call(door, "IsOpen")) == true then
@@ -143,13 +152,20 @@ function Survivalist.onSpawn(group, actor)
     if select(1, U().call(door, "isLocked")) ~= true then
         return false, "sealed_door_could_not_lock"
     end
-    if value.hordeSeedAttempted == true then return true, "horde_already_seeded" end
+    local seededCount = math.max(0, math.min(20,
+        math.floor(tonumber(value.hordeCount) or 0)))
+    if value.hordeSeedAttempted == true and seededCount >= 20 then
+        return true, "horde_already_seeded"
+    end
     local posts = value.site and value.site.hordeSpawns or {}
     if #posts < 4 or type(addZombiesInOutfit) ~= "function"
         or not SC.NativeList then return false, "horde_room_unavailable" end
     value.hordeSeedAttempted = true
-    value.hordeCount = 0
-    for index = 1, 20 do
+    value.hordeCount = seededCount
+    -- Persist successful additions, then fill only the deficit on a later
+    -- spawn/load while the seal is intact. A transient native spawn failure
+    -- must not make the promised twenty-zombie room permanently half empty.
+    for index = seededCount + 1, 20 do
         local post = posts[((index - 1) % #posts) + 1]
         local okay, list = pcall(addZombiesInOutfit,
             post.x, post.y, post.z or 0, 1, "Survivalist", 0)
@@ -174,10 +190,12 @@ function Survivalist.pulse(group, player, current)
     local value = story(group)
     if not value then return false, "wrong_oddball" end
     local door = doorFor(value)
-    if not value.sealBroken and (door == nil
-        or select(1, U().call(door, "IsOpen")) == true
-        or select(1, U().call(door, "isLocked")) == false
-        or value.roomGuardDone == true) then
+    -- A streamed-out or reindexed door is temporarily unresolved, not
+    -- evidence that the player broke the seal. The guard can independently
+    -- confirm a breach when the object itself has been removed.
+    if not value.sealBroken and (value.roomGuardDone == true
+        or door and (select(1, U().call(door, "IsOpen")) == true
+            or select(1, U().call(door, "isLocked")) == false)) then
         value.sealBroken = true
         if SC.OddballRoomGuard then SC.OddballRoomGuard.release(group.id) end
         flee(group, player, "The door! You're on your own!")

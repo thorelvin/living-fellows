@@ -2,6 +2,7 @@
 package survivorcompanion.bridge;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -37,6 +38,7 @@ import zombie.characters.action.ActionState;
 import zombie.characters.CharacterTimedActions.BaseAction;
 import zombie.characters.SurvivorFactory;
 import zombie.core.Core;
+import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.core.skinnedmodel.ModelManager;
 import zombie.inventory.InventoryItem;
 import zombie.inventory.types.Clothing;
@@ -51,10 +53,15 @@ import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
 import zombie.iso.IsoWorld;
 import zombie.iso.PlayerCamera;
+import zombie.iso.areas.IsoRoom;
 import zombie.iso.objects.IsoDoor;
 import zombie.iso.objects.GridSquareEdge;
 import zombie.iso.objects.IsoThumpable;
 import zombie.iso.objects.IsoWindow;
+import zombie.iso.sprite.IsoSprite;
+import zombie.iso.sprite.IsoSpriteGrid;
+import zombie.seating.SeatingManager;
+import zombie.util.list.PZArrayList;
 import zombie.vehicles.BaseVehicle;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
@@ -63,7 +70,7 @@ import zombie.worldMap.WorldMap;
 
 /** Narrow Lua-facing authority for creating and owning native companions. */
 public final class SCBridge {
-    public static final String PROTOCOL = "42.21-isocompanion-15";
+    public static final String PROTOCOL = "42.21-isocompanion-16";
     public static final int ITEM_FACT_FOOD = 1;
     public static final int ITEM_FACT_DRAINABLE = 1 << 1;
     public static final int ITEM_FACT_HAND_WEAPON = 1 << 2;
@@ -95,6 +102,7 @@ public final class SCBridge {
     private static final int MAX_OUTFIT_LENGTH = 96;
     private static final int MAX_SPAWN_REQUESTS = 8;
     private static final float MAX_VIEW_OFFSET = 16.0f;
+    private static final int EXPEDITION_ZOOM_STEPS = 10;
     private static final long INVALID_SPAWN_REQUEST = -1L;
     private static final Set<SCNativeCompanion> OWNED = Collections.newSetFromMap(
             new IdentityHashMap<>());
@@ -135,6 +143,10 @@ public final class SCBridge {
         return thread;
     });
     private static volatile String lastFailure = "";
+    // Only the second local view is changed. Its previous auto-zoom setting is
+    // kept until the view closes, including a return, death or world exit.
+    private static Core expeditionZoomCore;
+    private static boolean expeditionAutoZoomBefore;
     /**
      * Package-private fault controls are intentionally unreachable through the
      * public/Kahlua bridge. They let the real-game-JAR control prove that every
@@ -331,8 +343,436 @@ public final class SCBridge {
         }
     }
 
+    /** Read the joined Living Fellows view's target and enabled zoom range. */
+    public static boolean readExpeditionZoom(KahluaTable out) {
+        lastFailure = "";
+        if (!onGameThread()) return failBoolean("expedition zoom requires the game thread");
+        if (out == null) return failBoolean("expedition zoom output is unavailable");
+        if (!hasJoinedExpeditionView()) {
+            return failBoolean("Living Fellows second view has not joined");
+        }
+        try {
+            Core core = Core.getInstance();
+            if (core == null || !core.isZoomEnabled()) {
+                return failBoolean("expedition zoom is disabled");
+            }
+            Object buffer = expeditionZoomBuffer(core);
+            float target = expeditionTargetZoom(buffer);
+            float min = expeditionZoomBound(buffer, "getMinZoom");
+            float max = expeditionZoomBound(buffer, "getMaxZoom");
+            if (!validExpeditionZoomRange(target, min, max)) {
+                return failBoolean("expedition zoom range is unavailable");
+            }
+            put(out, "target", target);
+            put(out, "min", min);
+            put(out, "max", max);
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            return failBoolean("expedition zoom read failed" + messageSuffix(failure.getMessage()));
+        }
+    }
+
+    /** Ten evenly spaced positions across the player's enabled zoom range. */
+    public static boolean setExpeditionZoomStep(int step) {
+        lastFailure = "";
+        if (!onGameThread()) return failBoolean("expedition zoom requires the game thread");
+        if (step < 1 || step > EXPEDITION_ZOOM_STEPS) {
+            return failBoolean("expedition zoom step must be from 1 to 10");
+        }
+        if (!hasJoinedExpeditionView()) {
+            return failBoolean("Living Fellows second view has not joined");
+        }
+        try {
+            Core core = Core.getInstance();
+            if (core == null || !core.isZoomEnabled()) {
+                return failBoolean("expedition zoom is disabled");
+            }
+            if (expeditionZoomCore != null && expeditionZoomCore != core) {
+                return failBoolean("expedition zoom belongs to a previous game session");
+            }
+            Object buffer = expeditionZoomBuffer(core);
+            float current = expeditionTargetZoom(buffer);
+            float min = expeditionZoomBound(buffer, "getMinZoom");
+            float max = expeditionZoomBound(buffer, "getMaxZoom");
+            if (!validExpeditionZoomRange(current, min, max)) {
+                return failBoolean("expedition zoom range is unavailable");
+            }
+            float target = min + (max - min) * (step - 1) / (EXPEDITION_ZOOM_STEPS - 1);
+            boolean firstChange = expeditionZoomCore == null;
+            if (firstChange) {
+                expeditionAutoZoomBefore = core.getAutoZoom(1);
+                core.setAutoZoom(1, false);
+                expeditionZoomCore = core;
+            }
+            try {
+                buffer.getClass().getMethod("setTargetZoom", int.class, float.class)
+                        .invoke(buffer, 1, target);
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+                if (firstChange) restoreExpeditionZoom();
+                throw failure;
+            }
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            return failBoolean("expedition zoom update failed" + messageSuffix(failure.getMessage()));
+        }
+    }
+
+    /** Idempotent even after slot 1 has been released or the world has exited. */
+    public static boolean restoreExpeditionZoom() {
+        lastFailure = "";
+        if (!onGameThread()) return failBoolean("expedition zoom restore requires the game thread");
+        Core core = expeditionZoomCore;
+        if (core == null) return true;
+        try {
+            core.setAutoZoom(1, expeditionAutoZoomBefore);
+            expeditionZoomCore = null;
+            return true;
+        } catch (RuntimeException | LinkageError failure) {
+            return failBoolean("expedition zoom restore failed" + messageSuffix(failure.getMessage()));
+        }
+    }
+
+    private static boolean hasJoinedExpeditionView() {
+        IsoPlayer[] slots = IsoPlayer.players;
+        return SCSplitScreenProbe.acceptsCurrentLayout(slots)
+                && slots[1] != null && SCSplitScreenProbe.isLeader(slots[1]);
+    }
+
+    private static Object expeditionZoomBuffer(Core core) throws ReflectiveOperationException {
+        Field field = Core.class.getDeclaredField("offscreenBuffer");
+        field.setAccessible(true);
+        Object buffer = field.get(core);
+        if (buffer == null
+                || !buffer.getClass().getName().equals("zombie.core.textures.MultiTextureFBO2")) {
+            throw new IllegalStateException("Build 42 zoom framebuffer is unavailable");
+        }
+        return buffer;
+    }
+
+    private static float expeditionTargetZoom(Object buffer) throws ReflectiveOperationException {
+        Method read = buffer.getClass().getMethod("getTargetZoom", int.class);
+        return ((Number) read.invoke(buffer, 1)).floatValue();
+    }
+
+    private static float expeditionZoomBound(Object buffer, String methodName)
+            throws ReflectiveOperationException {
+        // Core.getMinZoom/getMaxZoom return display-scale values multiplied by
+        // Core.tileScale / 2. MultiTextureFBO2.setTargetZoom takes raw zoom
+        // factors, so read the matching raw bounds from that same FBO.
+        Method read = buffer.getClass().getMethod(methodName);
+        return ((Number) read.invoke(buffer)).floatValue();
+    }
+
+    private static boolean validExpeditionZoomRange(float target, float min, float max) {
+        return Float.isFinite(target) && Float.isFinite(min) && Float.isFinite(max)
+                && min > 0.0f && max > min && target > 0.0f;
+    }
+
     private static boolean onGameThread() {
         return Thread.currentThread() == MainThread.mainThread;
+    }
+
+    /**
+     * Temporarily raises only this companion's 3D model while the settled
+     * pillow-tile bed pose is rendered. The actor's physical Z and bed action
+     * stay under native engine control. Pass zero to clear the visual lift.
+     */
+    public static boolean setOnBedRenderLift(SCNativeCompanion actor,
+            int milliTiles) {
+        lastFailure = "";
+        if (!onGameThread()) return failBoolean("bed render lift requires the game thread");
+        if (actor == null) return failBoolean("native companion is null");
+        if (!isOwned(actor)) return failBoolean("native companion is not owned by SCBridge");
+        if (milliTiles < 0 || milliTiles > 250) {
+            return failBoolean("bed render lift must be 0 to 250 milli-tiles");
+        }
+        if (milliTiles == 0) {
+            actor.clearBridgeOnBedRenderLift();
+            return actor.getBridgeOnBedRenderLift() == 0.0f
+                    || failBoolean("bed render lift did not clear");
+        }
+        try {
+            if (actor.isDead() || !actor.isOnBed()
+                    || !actor.getVariableBoolean("OnBedStarted")) {
+                return failBoolean("native companion has not settled into the bed action");
+            }
+            float x = actor.getX(), y = actor.getY(), z = actor.getZ();
+            if (!Float.isFinite(x) || !Float.isFinite(y) || !Float.isFinite(z)
+                    || actor.getCell() == null) {
+                return failBoolean("bed render lift has invalid world coordinates");
+            }
+            int tileX = (int) Math.floor(x);
+            int tileY = (int) Math.floor(y);
+            int tileZ = (int) Math.floor(z);
+            IsoGridSquare pillow = actor.getCell().getGridSquare(tileX, tileY, tileZ);
+            if (pillow == null || pillow.getChunk() == null
+                    || actor.getCurrentSquare() != pillow || actor.square != pillow
+                    || actor.getMovingSquare() != pillow || actor.getSquare() != pillow
+                    || !actor.isExistInTheWorld()
+                    || countIdentity(pillow.getMovingObjects(), actor) != 1) {
+                return failBoolean("bed render lift requires pillow-square membership");
+            }
+            IsoGridSquare foot = actor.getCell().getGridSquare(tileX, tileY + 1,
+                    tileZ);
+            IsoRoom room = pillow.getRoom();
+            if (room == null || foot == null || foot.getChunk() == null
+                    || foot.getRoom() != room
+                    || !completeSouthBedFootprint(actor.getCell(), foot,
+                            pillow, room)) {
+                return failBoolean("bed render lift requires the same complete south-facing bed grid");
+            }
+            actor.setBridgeOnBedRenderLift(milliTiles / 1000.0f, pillow);
+            if (Float.compare(actor.getZ(), z) != 0
+                    || actor.getCurrentSquare() != pillow
+                    || actor.getMovingSquare() != pillow || actor.square != pillow
+                    || !actor.isOnBed()
+                    || !actor.getVariableBoolean("OnBedStarted")) {
+                actor.clearBridgeOnBedRenderLift();
+                return failBoolean("bed render lift changed native physical state");
+            }
+            return true;
+        } catch (RuntimeException | LinkageError failure) {
+            actor.clearBridgeOnBedRenderLift();
+            return failBoolean("bed render lift failed: "
+                    + failure.getClass().getSimpleName()
+                    + messageSuffix(failure.getMessage()));
+        }
+    }
+
+    /**
+     * Adjusts a settled stock bed pose from the south foot tile onto the pillow
+     * tile of the same two-by-two bed. The stock timed action remains in charge
+     * of OnBed/OnBedStarted; the half-tile Y correction places the model at
+     * the midpoint between the observed foot and head poses. A half-tile X
+     * correction places it in the center of the same pillow lane.
+     * All of IsoMovingObject's square references and interpolation coordinates
+     * are changed in the same game-thread turn, without a world detach.
+     */
+    public static boolean shiftOnBedPoseTowardPillow(SCNativeCompanion actor,
+            int targetX, int targetY, int targetZ) {
+        lastFailure = "";
+        if (!onGameThread()) return failBoolean("bed pose shift requires the game thread");
+        if (actor == null) return failBoolean("native companion is null");
+        if (!isOwned(actor)) return failBoolean("native companion is not owned by SCBridge");
+
+        BedPoseBefore before = null;
+        IsoGridSquare target = null;
+        boolean changed = false;
+        try {
+            if (actor.isDead() || !actor.isOnBed()
+                    || !actor.getVariableBoolean("OnBedStarted")) {
+                return failBoolean("native companion has not settled into the bed action");
+            }
+            before = new BedPoseBefore(actor);
+            if (!before.finite()) return failBoolean("bed pose coordinates are not finite");
+            int currentX = (int) Math.floor(before.x);
+            int currentY = (int) Math.floor(before.y);
+            int currentZ = (int) Math.floor(before.z);
+            if (targetX != currentX || targetY != currentY - 1
+                    || targetZ != currentZ) {
+                return failBoolean("bed pose shift must be exactly one tile north");
+            }
+            if (actor.getCell() == null || before.current == null
+                    || before.render != before.current
+                    || before.moving != before.current
+                    || before.current != actor.getCell().getGridSquare(
+                            currentX, currentY, currentZ)
+                    || before.current.getChunk() == null
+                    || !actor.isExistInTheWorld()
+                    || countIdentity(before.current.getMovingObjects(), actor) != 1) {
+                return failBoolean("native companion has inconsistent source-square membership");
+            }
+
+            target = actor.getCell().getGridSquare(targetX, targetY, targetZ);
+            if (target == null || target.getChunk() == null
+                    || target.getCell() != before.current.getCell()
+                    || countIdentity(target.getMovingObjects(), actor) != 0) {
+                return failBoolean("pillow square is unloaded or has inconsistent membership");
+            }
+            IsoRoom room = before.current.getRoom();
+            if (room == null || target.getRoom() != room) {
+                return failBoolean("bed foot and pillow are not in the same room");
+            }
+            if (!completeSouthBedFootprint(actor.getCell(), before.current,
+                    target, room)) {
+                return failBoolean("foot and pillow do not share a complete south-facing two-by-two bed grid");
+            }
+
+            float newX = before.x + 0.5f;
+            float newY = before.y - 0.5f;
+            if ((int) Math.floor(newX) != targetX
+                    || (int) Math.floor(newY) != targetY) {
+                return failBoolean("shifted coordinates do not fall inside pillow square");
+            }
+            changed = true;
+            // setMovingSquare is the native list transfer. The current and
+            // render pointers are separate fields and must follow it.
+            actor.setMovingSquare(target);
+            actor.setCurrentSquare(target);
+            actor.setSquare(target);
+            actor.setX(newX);
+            actor.setY(newY);
+            actor.setNextX(newX);
+            actor.setNextY(newY);
+            actor.setLastX(newX);
+            actor.setLastY(newY);
+            if (!bedPoseShiftMatches(actor, before, target, newX, newY)) {
+                return failBedPoseShiftWithRollback(actor, before, target,
+                        "native bed pose shift did not retain its target state");
+            }
+            return true;
+        } catch (RuntimeException | LinkageError failure) {
+            String reason = "native bed pose shift failed: "
+                    + failure.getClass().getSimpleName()
+                    + messageSuffix(failure.getMessage());
+            return changed && before != null
+                    ? failBedPoseShiftWithRollback(actor, before, target, reason)
+                    : failBoolean(reason);
+        }
+    }
+
+    private static final class BedPoseBefore {
+        final float x, y, z, nextX, nextY, lastX, lastY;
+        final IsoGridSquare current, render, moving;
+
+        BedPoseBefore(SCNativeCompanion actor) {
+            x = actor.getX();
+            y = actor.getY();
+            z = actor.getZ();
+            nextX = actor.getNextX();
+            nextY = actor.getNextY();
+            lastX = actor.getLastX();
+            lastY = actor.getLastY();
+            current = actor.getCurrentSquare();
+            // IsoMovingObject.getSquare() prefers current over IsoObject.square.
+            // Read the public render field directly so a stale render pointer
+            // cannot pass the source membership check.
+            render = actor.square;
+            moving = actor.getMovingSquare();
+        }
+
+        boolean finite() {
+            return Float.isFinite(x) && Float.isFinite(y) && Float.isFinite(z)
+                    && Float.isFinite(nextX) && Float.isFinite(nextY)
+                    && Float.isFinite(lastX) && Float.isFinite(lastY);
+        }
+    }
+
+    private static int countIdentity(ArrayList<?> objects, Object target) {
+        if (objects == null) return -1;
+        int count = 0;
+        for (Object object : objects) if (object == target) count++;
+        return count;
+    }
+
+    private static boolean completeSouthBedFootprint(IsoCell cell,
+            IsoGridSquare foot, IsoGridSquare pillow, IsoRoom room) {
+        SeatingManager seating = SeatingManager.getInstance();
+        PZArrayList<IsoObject> objects = foot.getObjects();
+        if (seating == null || objects == null) return false;
+        // PZArrayList deliberately does not implement iterator(): its
+        // iterator() throws UnsupportedOperationException in Build 42.21.
+        for (int index = 0; index < objects.size(); index++) {
+            IsoObject object = objects.get(index);
+            if (object == null || object.getSquare() != foot
+                    || object.getProperties() == null
+                    || !object.getProperties().has(IsoFlagType.bed)) continue;
+            IsoSprite sprite = object.getSprite();
+            if (sprite == null) continue;
+            IsoSpriteGrid grid = sprite.getSpriteGrid();
+            if (grid == null || grid.getWidth() != 2 || grid.getHeight() != 2
+                    || grid.getSpriteGridPosY(sprite) != 1
+                    || !"S".equals(object.getProperties().get("Facing"))
+                    || !"S".equals(seating.getFacingDirection(object))) continue;
+            int column = grid.getSpriteGridPosX(sprite);
+            if (column != 0 && column != 1) continue;
+            int otherX = foot.getX() + (column == 0 ? 1 : -1);
+            IsoGridSquare otherFoot = cell.getGridSquare(otherX,
+                    foot.getY(), foot.getZ());
+            IsoGridSquare otherPillow = cell.getGridSquare(otherX,
+                    pillow.getY(), pillow.getZ());
+            if (hasBedGridTile(pillow, room, grid, column, 0)
+                    && hasBedGridTile(otherFoot, room, grid, 1 - column, 1)
+                    && hasBedGridTile(otherPillow, room, grid, 1 - column, 0)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasBedGridTile(IsoGridSquare square, IsoRoom room,
+            IsoSpriteGrid grid, int column, int row) {
+        if (square == null || square.getChunk() == null || square.getRoom() != room) {
+            return false;
+        }
+        PZArrayList<IsoObject> objects = square.getObjects();
+        if (objects == null) return false;
+        for (int index = 0; index < objects.size(); index++) {
+            IsoObject object = objects.get(index);
+            if (object == null || object.getSquare() != square
+                    || object.getProperties() == null
+                    || !object.getProperties().has(IsoFlagType.bed)) continue;
+            IsoSprite sprite = object.getSprite();
+            if (sprite != null && sprite.getSpriteGrid() == grid
+                    && grid.getSpriteGridPosX(sprite) == column
+                    && grid.getSpriteGridPosY(sprite) == row
+                    && "S".equals(object.getProperties().get("Facing"))) return true;
+        }
+        return false;
+    }
+
+    private static boolean bedPoseShiftMatches(SCNativeCompanion actor,
+            BedPoseBefore before, IsoGridSquare target, float newX, float newY) {
+        return actor.getCurrentSquare() == target && actor.square == target
+                && actor.getMovingSquare() == target && actor.getSquare() == target
+                && actor.isExistInTheWorld()
+                && countIdentity(before.current.getMovingObjects(), actor) == 0
+                && countIdentity(target.getMovingObjects(), actor) == 1
+                && Float.compare(actor.getX(), newX) == 0
+                && Float.compare(actor.getY(), newY) == 0
+                && Float.compare(actor.getZ(), before.z) == 0
+                && Float.compare(actor.getNextX(), newX) == 0
+                && Float.compare(actor.getLastX(), newX) == 0
+                && Float.compare(actor.getNextY(), newY) == 0
+                && Float.compare(actor.getLastY(), newY) == 0
+                && actor.isOnBed() && actor.getVariableBoolean("OnBedStarted");
+    }
+
+    private static boolean failBedPoseShiftWithRollback(SCNativeCompanion actor,
+            BedPoseBefore before, IsoGridSquare target, String reason) {
+        try {
+            actor.setMovingSquare(before.moving);
+            actor.setCurrentSquare(before.current);
+            actor.setSquare(before.render);
+            actor.setX(before.x);
+            actor.setY(before.y);
+            actor.setZ(before.z);
+            actor.setNextX(before.nextX);
+            actor.setNextY(before.nextY);
+            actor.setLastX(before.lastX);
+            actor.setLastY(before.lastY);
+            if (actor.getCurrentSquare() == before.current
+                    && actor.square == before.render
+                    && actor.getMovingSquare() == before.moving
+                    && countIdentity(before.current.getMovingObjects(), actor) == 1
+                    && (target == null || countIdentity(target.getMovingObjects(), actor) == 0)
+                    && actor.isExistInTheWorld()
+                    && Float.compare(actor.getX(), before.x) == 0
+                    && Float.compare(actor.getY(), before.y) == 0
+                    && Float.compare(actor.getZ(), before.z) == 0
+                    && Float.compare(actor.getNextX(), before.nextX) == 0
+                    && Float.compare(actor.getNextY(), before.nextY) == 0
+                    && Float.compare(actor.getLastX(), before.lastX) == 0
+                    && Float.compare(actor.getLastY(), before.lastY) == 0
+                    && actor.isOnBed() && actor.getVariableBoolean("OnBedStarted")) {
+                return failBoolean(reason + "; previous bed pose restored");
+            }
+            return failBoolean(reason + "; previous bed pose could not be verified");
+        } catch (RuntimeException | LinkageError rollbackFailure) {
+            return failBoolean(reason + "; bed pose rollback failed: "
+                    + rollbackFailure.getClass().getSimpleName()
+                    + messageSuffix(rollbackFailure.getMessage()));
+        }
     }
 
     private static Object luaValue(Object value) {

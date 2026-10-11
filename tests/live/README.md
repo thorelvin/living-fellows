@@ -40,6 +40,18 @@ uses the save named by the real `latestSave.ini`, but only as read-only input:
 .\scripts\Invoke-LiveSandboxTests.ps1
 ```
 
+If a direct executable launch reports `SteamAPI_Init() failed` while the
+desktop Steam shortcut works, add `-SteamLaunch`. This sends the same isolated
+`-cachedir` and test arguments through Steam app 108600. The runner waits for a
+new Project Zomboid process tied to the cloned cache before it controls or
+stops that process; it never treats the Steam process as the game. Steam and the
+harness must run in the same Windows user context. This option does not change
+the user's persistent Steam launch options.
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -SteamLaunch
+```
+
 For the release-isolation run, add `-LivingFellowsOnly`. The cloned world is
 still used as read-only input, but only Living Fellows and the private harness
 are placed in its isolated mod list; no local/Vortex mod junctions are created:
@@ -73,6 +85,29 @@ Use `-PrepareOnly` to inspect the clone without launching the game. Every run is
 retained with a manifest, isolated console, event log, and terminal summary.
 `PASS` means every applicable assertion passed; environment-dependent geometry
 may produce an explicit `SKIP`, never a false pass.
+
+The focused Arthur and Spiffo Pack probes each use a separate cloned-save run.
+They scan a loaded 81 by 81 area for an eligible real bedroom or living room,
+then create the authored encounter there. Arthur's probe waits for the native
+bed pose, checks his bedside menu and dialogue, leaves him alone, then returns
+to verify a native corpse on the bedroom floor. The Pack probe checks all
+four native costumes and empty hands, then enters the den and checks the spoken
+invitation, hostile reveal, and four equipped shivs. A seed near suitable
+houses can use its current location; use `-OddballSiteX` and `-OddballSiteY`
+together to search around another loaded map point. The screenshot option
+captures the bed scene or the four costumes before the Pack reveal:
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -LivingFellowsOnly -OddballArthurProbe `
+    -OddballSceneScreenshot .\build\arthur-live.png
+.\scripts\Invoke-LiveSandboxTests.ps1 -LivingFellowsOnly -OddballPackProbe `
+    -OddballSceneScreenshot .\build\spiffo-pack-live.png
+```
+
+For a targeted Arthur bed pose diagnostic, pair `-OddballBedX` and
+`-OddballBedY` with `-OddballPoseOnly`. The probe records native on-bed flags,
+physical bed occupancy, entry geometry, and the fallback reason, then captures
+the scene and stops before the bedside story.
 
 The runner copies Build 42's `reset-mods-42_00.txt` marker before writing the
 isolated mod list. Without that marker the first boot of a fresh cachedir clears

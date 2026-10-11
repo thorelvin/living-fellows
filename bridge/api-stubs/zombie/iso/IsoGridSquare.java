@@ -9,6 +9,8 @@ import zombie.iso.objects.IsoTree;
 import zombie.iso.objects.IsoWindow;
 import zombie.iso.objects.IsoWindowFrame;
 import zombie.vehicles.BaseVehicle;
+import zombie.iso.areas.IsoRoom;
+import zombie.util.list.PZArrayList;
 
 public class IsoGridSquare {
     public IsoGridSquare(IsoCell cell, SliceY slice, int x, int y, int z) {}
@@ -19,6 +21,8 @@ public class IsoGridSquare {
     public int getY() { return 0; }
     public int getZ() { return 0; }
     public ArrayList<IsoMovingObject> getMovingObjects() { return null; }
+    public PZArrayList<IsoObject> getObjects() { return null; }
+    public IsoRoom getRoom() { return null; }
     public ArrayList<IsoMovingObject> getStaticMovingObjects() { return null; }
     public java.util.List<IsoObject> getSpecialObjects() { return null; }
     public boolean isBlockedTo(IsoGridSquare other) { return false; }

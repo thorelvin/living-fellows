@@ -111,6 +111,12 @@ SC.GameplayUtil = {
     end,
     distance = function() return 0 end,
     nowMs = function() return SC_TEST_CLOCK end,
+    squareOccupyingObject = function() return nil end,
+    isClearActorSpawnSquare = function(square)
+        local utility = SC.GameplayUtil
+        return utility.isSafeSpawnSquare(square) == true
+            and utility.squareOccupyingObject(square) == nil
+    end,
 }
 
 SC.Performance = { record = function() return true end }
@@ -194,7 +200,7 @@ for _, name in ipairs({
     "OddballSleeper", "OddballElmer", "OddballBigChris", "OddballTommy",
     "OddballExchange", "OddballGordon", "OddballMorton", "OddballMien",
     "OddballGrinder", "OddballSurvivalist", "OddballVoiceActor",
-    "OddballPyromaniac", "OddballGarageRescue", "OddballDehydrated", "OddballCampStoryteller", "OddballMilli",
+    "OddballPyromaniac", "OddballGarageRescue", "OddballDehydrated", "OddballCampStoryteller", "OddballBedridden", "OddballSmoker", "OddballFurryPack", "OddballMilli",
     "ZombieTargeting", "ThreatSet", "PerceptionScan", "Locomotion", "Senses", "Topology", "PathSearch", "NavTraffic", "NavTraversal", "Allegiance", "Navigation", "Names",
     "Positioning", "Combat", "Medical", "Logistics", "Lighting", "Needs", "Downtime",
     "Personality", "PersonalItems", "Relationship", "Objectives", "Journal",

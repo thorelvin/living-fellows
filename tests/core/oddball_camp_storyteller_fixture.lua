@@ -47,6 +47,9 @@ function U.nowMs() return F.now end
 function U.isSafeSpawnSquare(square)
     return square ~= nil and square.tree == false
 end
+function U.isClearActorSpawnSquare(square)
+    return U.isSafeSpawnSquare(square) and square.furniture ~= true
+end
 
 local squares = {}
 function U.gridSquare(x, y, z)

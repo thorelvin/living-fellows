@@ -169,6 +169,7 @@ local function syncShelter(actor, wanted)
 end
 local function holdByWall(actor, value, current)
     if value.rescued or not actor then return end
+    if not U().ensureGroundPoseLocation(actor) then return end
     if select(1, U().call(actor, "isSitOnGround")) == true then return end
     if current < number(value.nextPoseAt, 0) then return end
     value.nextPoseAt = current + 12000
@@ -182,7 +183,8 @@ function Rescue.onSpawn(group, actor)
     local value = valueFor(group)
     if not value or not actor then return false, "garage_rescue_unavailable" end
     local door = rescueDoor(value)
-    if value.rescued ~= true and not door then
+    if value.rescued ~= true and not door
+        and value.roomGuardDone ~= true and value.doorOpened ~= true then
         return false, "garage_rescue_door_unavailable" end
     if value.rescued ~= true then
         local part = bodyPart(actor)
@@ -196,18 +198,26 @@ function Rescue.onSpawn(group, actor)
             end
             value.injurySeeded = true
         end
-        if select(1, U().call(door, "IsOpen")) ~= true
+        if door and value.roomGuardDone ~= true
+            and select(1, U().call(door, "IsOpen")) ~= true
             and value.doorUnlocked ~= true then
             U().call(door, "setLocked", true)
             value.doorLocked = select(1, U().call(door, "isLocked")) == true
         end
     end
-    local ready, reason = prepareRadio(actor)
-    if not ready then return false, reason end
-    value.radioReady = true
-    syncShelter(actor, value.rescued ~= true and value.doorOpened ~= true)
+    -- radioReady records the one-time issued kit. If the player later takes
+    -- Eli's walkie, reloading this encounter must not mint a replacement.
+    local radioRemoved = value.radioReady == true and radioItem(actor) == nil
+    if not radioRemoved then
+        local ready, reason = prepareRadio(actor)
+        if not ready then return false, reason end
+        value.radioReady = true
+    end
+    syncShelter(actor, value.rescued ~= true and value.doorOpened ~= true
+        and value.roomGuardDone ~= true)
     holdByWall(actor, value, U().nowMs())
-    return true, "garage_rescue_ready"
+    return true, radioRemoved and "garage_radio_removed"
+        or "garage_rescue_ready"
 end
 
 function Rescue.radioOffer(group, player, current)
@@ -273,7 +283,8 @@ function Rescue.pulse(group, player, current)
         Rescue.onSpawn(group, actor)
     end
     local door = rescueDoor(value)
-    local doorOpen = door and select(1, U().call(door, "IsOpen")) == true
+    local doorOpen = value.roomGuardDone == true
+        or door and select(1, U().call(door, "IsOpen")) == true
     if doorOpen and value.doorOpened ~= true then
         value.doorOpened = true
         value.stage = "reached"

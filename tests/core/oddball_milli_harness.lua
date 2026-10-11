@@ -29,6 +29,58 @@ local fallback = Milli.siteFor(fallbackHouse, nil, true)
 check('large_house_bedroom_fallback', fallback and fallback.spawn
     and fallback.spawn.x >= 14 and fallback.spawn.y == 10)
 
+local chairedHouse = F.house(true, true)
+local kidsRoom = SC.GameplayUtil.gridSquare(10, 10, 0):getRoom()
+for _, x in ipairs({ 12, 13 }) do
+    F.square(x, 10, 0, kidsRoom)
+    chairedHouse.interior[#chairedHouse.interior + 1] = { x = x, y = 10, z = 0 }
+end
+local chair = SC.GameplayUtil.gridSquare(11, 10, 0)
+chair.furniture = { name = 'Chair' }
+check('chair_still_native_spawn_safe',
+    SC.GameplayUtil.isSafeSpawnSquare(chair) == true)
+local chairedSite = Milli.siteFor(chairedHouse, nil, true)
+check('milli_floor_post_avoids_chair', chairedSite and chairedSite.spawn
+    and chairedSite.room == 'kidsbedroom'
+    and not (chairedSite.spawn.x == chair.x
+        and chairedSite.spawn.y == chair.y))
+local petOnChair = false
+for _, post in ipairs(chairedSite and chairedSite.petSpawns or {}) do
+    if post.x == chair.x and post.y == chair.y then petOnChair = true end
+end
+check('baby_posts_avoid_chair', not petOnChair)
+local recoveryGroup, recoveryActor, recoveryPlayer = F.scene(chairedSite)
+local recoveryIntent = Milli.intentFor(recoveryActor, recoveryPlayer,
+    nil, recoveryGroup)
+recoveryActor.x, recoveryActor.y = chair.x, chair.y
+recoveryActor.sitting = true
+local wasSeated = Milli.update(recoveryActor, recoveryPlayer, nil,
+    recoveryIntent, recoveryGroup)
+check('old_save_leaves_chair_before_walking', wasSeated == true
+    and recoveryActor.sitting == false and F.pathTarget == nil)
+local moving, moveReason = Milli.update(recoveryActor, recoveryPlayer, nil,
+    recoveryIntent, recoveryGroup)
+check('old_save_routes_to_clear_floor', moving == true
+    and moveReason == 'approaching_clear_floor'
+    and F.pathTarget and F.pathTarget.furniture == nil
+    and F.pathTarget:getRoom() == kidsRoom)
+local unreachable = F.pathCandidates and F.pathCandidates[1]
+check('old_save_has_alternate_floor_targets', F.pathCandidates
+    and #F.pathCandidates >= 2)
+unreachable.unreachable = true
+F.pathTarget = nil
+local alternateMoving, alternateReason = Milli.update(recoveryActor,
+    recoveryPlayer, nil, recoveryIntent, recoveryGroup)
+check('old_save_routes_around_unreachable_clear_floor',
+    alternateMoving == true and alternateReason == 'approaching_clear_floor'
+    and F.pathTarget and F.pathTarget ~= unreachable
+    and F.pathTarget:getRoom() == kidsRoom)
+recoveryActor.x, recoveryActor.y = F.pathTarget.x, F.pathTarget.y
+check('old_save_sits_after_reaching_clear_floor',
+    Milli.update(recoveryActor, recoveryPlayer, nil,
+        recoveryIntent, recoveryGroup) == true
+    and recoveryActor.sitting == true)
+
 local preferredHouse = F.house(true, true)
 local preferred = Milli.siteFor(preferredHouse, nil, true)
 check('kidsbedroom_preferred', preferred and preferred.spawn
@@ -439,5 +491,32 @@ guestGroup.standing = 'Wary'
 check('guest_access_revoked_with_low_standing',
     Contracts.hasAccess(guestGroup, guestPlayer) == false
     and Contracts.safeRestStatus(guestGroup, guestPlayer) == false)
+
+-- Furniture arriving after the saved posts were chosen may leave no clear
+-- place for a baby on the first tick. Milli retries without making copies.
+local retrySite = Milli.siteFor(F.house(true, true), nil, true)
+local retryGroup, retryActor, retryPlayer = F.scene(retrySite)
+local originalSpawn = SC.OddballAnimals.spawn
+local blockFirstPet = true
+SC.OddballAnimals.spawn = function(...)
+    if blockFirstPet then
+        blockFirstPet = false
+        return false, 'animal_enclosure_unavailable'
+    end
+    return originalSpawn(...)
+end
+local beforeRetrySpawns = F.spawnCalls
+local firstTry = Milli.onSpawn(retryGroup, retryActor)
+check('blocked_first_pet_defers', firstTry == false
+    and retryGroup.oddball.petsSpawned ~= true
+    and F.spawnCalls == beforeRetrySpawns)
+F.now = F.now + 6000
+Milli.pulse(retryGroup, retryPlayer, F.now)
+check('blocked_pet_retries_when_floor_clears',
+    retryGroup.oddball.petsSpawned == true
+    and F.spawnCalls == beforeRetrySpawns + 2)
+Milli.pulse(retryGroup, retryPlayer, F.now + 6000)
+check('pet_retry_does_not_duplicate', F.spawnCalls == beforeRetrySpawns + 2)
+SC.OddballAnimals.spawn = originalSpawn
 
 SC_TEST_REPORT = 'MILLI_PASS checks=' .. checks

@@ -105,6 +105,84 @@ do
     check(U.isSquareFree(stoolSide) == true
             and N.standingSquareClear(worker, stoolSide) == false,
         "a stool with only the sprite Surface property blocks a standing tile")
+    function stoolSide:getCell() return {} end
+    function stoolSide:getChunk() return {} end
+    function stoolSide:isSafeToSpawn() return true end
+    check(U.isSafeSpawnSquare(stoolSide) == true
+            and U.isClearActorSpawnSquare(stoolSide) == false,
+        "a native-safe stool square cannot hold a standing or floor-sitting encounter actor")
+    local openFloor = square(81, 81)
+    function openFloor:getCell() return {} end
+    function openFloor:getChunk() return {} end
+    function openFloor:isSafeToSpawn() return true end
+    check(U.isClearActorSpawnSquare(openFloor) == true,
+        "bare floor remains eligible for encounter placement")
+    local room = {}
+    function stoolSide:getRoom() return room end
+    function openFloor:getRoom() return room end
+    local oldGroundGrid, oldGroundRequest, oldGroundMove =
+        U.gridSquare, N.requestAny, U.move
+    local selected, offered, standRequested
+    U.gridSquare = function(x, y, z)
+        if x == 81 and y == 81 and z == 0 then return openFloor end
+    end
+    N.requestAny = function(_, candidates)
+        offered = candidates
+        for _, candidate in ipairs(candidates) do
+            if candidate.unreachable ~= true then
+                selected = candidate
+                return true, "path_requested", candidate
+            end
+        end
+        selected = nil
+        return false, "no_reachable_interaction_target"
+    end
+    U.move = function(_, _, intent)
+        standRequested = intent.action
+        return true
+    end
+    worker.square, worker.groundSit = stoolSide, true
+    function worker:isSitOnGround() return self.groundSit end
+    local seatedClear, seatedReason = U.ensureGroundPoseLocation(worker)
+    check(seatedClear == false and standRequested == "stand_ground"
+            and seatedReason == "standing_from_obstructed_ground_pose",
+        "a saved floor pose under a stool first requests a native stand")
+    worker.groundSit = false
+    local walkingClear, walkingReason = U.ensureGroundPoseLocation(worker)
+    check(walkingClear == false and selected == openFloor
+            and walkingReason == "moving_to_clear_ground_pose",
+        "the actor routes to clear floor in the same room before sitting again")
+    local earlier = square(80, 79)
+    function earlier:getCell() return {} end
+    function earlier:getChunk() return {} end
+    function earlier:isSafeToSpawn() return true end
+    function earlier:getRoom() return room end
+    U.gridSquare = function(x, y, z)
+        if z ~= 0 then return nil end
+        if x == 80 and y == 79 then return earlier end
+        if x == 81 and y == 81 then return openFloor end
+    end
+    selected = nil
+    U.ensureGroundPoseLocation(worker)
+    check(selected == openFloor,
+        "ground-pose recovery keeps one target when a different floor tile opens")
+    openFloor.unreachable = true
+    selected = nil
+    U.ensureGroundPoseLocation(worker)
+    check(selected == earlier and offered and #offered >= 2,
+        "ground-pose recovery offers alternate same-room floor when its first target is unreachable")
+    openFloor.unreachable = nil
+    worker.square = openFloor
+    check(U.ensureGroundPoseLocation(worker) == true,
+        "the floor pose may begin once the actor reaches clear floor")
+    worker.square = stoolSide
+    selected = nil
+    U.ensureGroundPoseLocation(worker)
+    check(selected == earlier,
+        "recovery forgets its old target after reaching clear floor")
+    U.gridSquare, N.requestAny, U.move = oldGroundGrid,
+        oldGroundRequest, oldGroundMove
+    worker.square = square(0, 0)
     counterWindowSide = square(82, 80)
     local counter = { __class = "IsoObject" }
     function counter:getContainer() return {} end

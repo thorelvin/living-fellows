@@ -144,6 +144,22 @@ function Probe.step(H, current, check, result, setPhase)
                 == "function", "native resident encounter registered") then
             setPhase("finish", current) return
         end
+        -- This save clone may already contain Milli. The shared live-fixture
+        -- helper removes only that authored faction and its unique seed;
+        -- production encounter uniqueness remains unchanged.
+        local oddballFixture = SCRealSandboxHarnessProbes
+            and SCRealSandboxHarnessProbes.SCOddballCoreyEarlProbe
+        local isolate = oddballFixture
+            and oddballFixture.clearExistingOddball
+        local isolated, isolationReason = false, "fixture_isolation_unavailable"
+        if type(isolate) == "function" then
+            isolated, isolationReason = isolate(SC,
+                "milli_tea_and_trouble")
+        end
+        if not check("milli_clone_scene_isolated", isolated,
+            tostring(isolationReason)) then
+            setPhase("finish", current) return
+        end
         H.milliDefinition = definition
         pcall(function() getGameTime():setTimeOfDay(12.0) end)
         if SC.Scheduler then SC.Scheduler.unregister("decision") end
@@ -283,6 +299,14 @@ function Probe.step(H, current, check, result, setPhase)
         end
         if not check("milli_native_floor_sit", sitting == true,
             "EventSitOnGround reached native posture") then
+            setPhase("finish", current) return
+        end
+        local seatedSquare = call(actor, "getSquare")
+        local furniture, furnitureLabel =
+            SC.GameplayUtil.squareOccupyingObject(seatedSquare)
+        if not check("milli_floor_sit_clear_of_furniture",
+            seatedSquare ~= nil and furniture == nil,
+            "furniture=" .. tostring(furnitureLabel)) then
             setPhase("finish", current) return
         end
         H.milliSpeech = {}

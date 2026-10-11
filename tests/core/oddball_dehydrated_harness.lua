@@ -10,6 +10,18 @@ local ready, reason = M.onSpawn(F.group, F.nate)
 check(ready == true and reason == "nate_waiting", "scene enters waiting state")
 check(F.nate.stats.thirst == 0.94 and F.nate.sitting == true,
     "Nate is visibly slumped and severely thirsty")
+F.nate.sitting, F.poseSquareClear = false, false
+local poseCount = #F.poses
+local waitIntent = M.intentFor(F.nate, F.player, {}, F.group)
+local waiting, waitReason = M.update(F.nate, F.player, {},
+    waitIntent, F.group)
+check(waiting == true and waitReason == "ground_pose_relocating"
+        and #F.poses == poseCount,
+    "Nate does not repeat his floor pose inside furniture on a saved scene")
+F.poseSquareClear = true
+M.update(F.nate, F.player, {}, waitIntent, F.group)
+check(F.nate.sitting == true,
+    "Nate resumes the floor pose after moving to clear floor")
 local radio = F.nate.secondary
 check(radio and radio.fullType == "Base.WalkieTalkie2"
     and radio.container == F.nate.inventory
@@ -24,6 +36,8 @@ local offer = M.radioOffer(F.group, F.player, F.now)
 check(offer and offer.frequency == 90000 and offer.x == 11
     and offer.guid == "LF-NATE-rescue-nate-group"
     and offer.replyLabel, "distress identifies real channel and location")
+check(F.group.discovered ~= true,
+    "an unreceived distress offer does not reveal Nate")
 check(M.radioOffer(F.group, F.player, F.now + 1) == nil,
     "radio is not spammed every pulse")
 local answered, answerReason, answerText = M.radioRespond(F.group, F.player)

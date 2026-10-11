@@ -53,7 +53,11 @@ function VoiceActor.pulse(group, player, current)
     if not actor or not player then return false, "voice_actor_unloaded" end
     if not value.bedroomOpen then
         local door = bedroomDoor(value)
-        if door == nil or select(1, U().call(door, "IsOpen")) == true then
+        -- An unloaded square or changed object index is not evidence that
+        -- the player opened the room. Keep its protection until the door is
+        -- visibly open or the room guard has independently confirmed entry.
+        if (door and select(1, U().call(door, "IsOpen")) == true)
+            or value.roomGuardDone == true then
             value.bedroomOpen = true
             if SC.OddballRoomGuard then
                 SC.OddballRoomGuard.release(group.id)

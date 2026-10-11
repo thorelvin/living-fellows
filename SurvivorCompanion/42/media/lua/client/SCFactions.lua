@@ -1319,7 +1319,7 @@ local function chooseMemberSquare(group, memberIndex, excludeEntry, offset)
         local key = spawnPositionKey(position)
         local square = key and not reserved[key]
             and U().gridSquare(position.x, position.y, position.z or 0) or nil
-        if square and U().isSafeSpawnSquare(square) then
+        if square and U().isClearActorSpawnSquare(square) then
             return square, position, "safe"
         end
         -- A prisoner must not respawn loose in another room when the cell is
@@ -1332,7 +1332,7 @@ local function chooseMemberSquare(group, memberIndex, excludeEntry, offset)
         local key = spawnPositionKey(position)
         local square = key and not reserved[key]
             and U().gridSquare(position.x, position.y, position.z or 0) or nil
-        if square and U().isSafeSpawnSquare(square) then
+        if square and U().isClearActorSpawnSquare(square) then
             return square, position, "safe"
         end
         -- Members of a staged scene wake at their own saved post. Do not
@@ -1346,18 +1346,30 @@ local function chooseMemberSquare(group, memberIndex, excludeEntry, offset)
         local key = type(position) == "table" and spawnPositionKey(position) or nil
         local square = key and not reserved[key]
             and U().gridSquare(position.x, position.y, position.z or 0) or nil
-        if square and U().isSafeSpawnSquare(square) then
+        if square and U().isClearActorSpawnSquare(square) then
             return square, position, "safe"
         end
         return nil, nil, "roamer_wake_square_unavailable"
     end
-    if type(group.oddball) == "table" and type(group.oddball.site) == "table"
-        and type(group.oddball.site.spawn) == "table" and (offset or 0) == 0 then
-        local position = group.oddball.site.spawn
+    local authoredSpawn = type(group.oddball) == "table"
+        and type(group.oddball.site) == "table"
+        and type(group.oddball.site.spawn) == "table"
+        and group.oddball.site.spawn or nil
+    local authoredRoom
+    if authoredSpawn then
+        local authoredSquare = U().gridSquare(authoredSpawn.x,
+            authoredSpawn.y, authoredSpawn.z or 0)
+        if not authoredSquare then
+            return nil, nil, "oddball_spawn_square_unloaded"
+        end
+        authoredRoom = select(1, U().call(authoredSquare, "getRoom"))
+    end
+    if authoredSpawn and (offset or 0) == 0 then
+        local position = authoredSpawn
         local key = spawnPositionKey(position)
         local square = key and not reserved[key]
             and U().gridSquare(position.x, position.y, position.z or 0) or nil
-        if square and U().isSafeSpawnSquare(square) then
+        if square and U().isClearActorSpawnSquare(square) then
             return square, position, "safe"
         end
     end
@@ -1368,15 +1380,21 @@ local function chooseMemberSquare(group, memberIndex, excludeEntry, offset)
         local key = spawnPositionKey(position)
         if key and not reserved[key] then
             local square = U().gridSquare(position.x, position.y, position.z or 0)
-            local safe = U().isSafeSpawnSquare(square)
-            if safe then return square, position, "safe" end
+            local safe = U().isClearActorSpawnSquare(square)
+            if safe and (not authoredSpawn or authoredRoom ~= nil
+                and (position.z or 0) == (authoredSpawn.z or 0)
+                and select(1, U().call(square, "getRoom")) == authoredRoom) then
+                return square, position, "safe"
+            end
         end
     end
     return nil, nil, "no_unique_safe_member_square"
 end
 
+Factions._chooseMemberSquareForTests = chooseMemberSquare
+
 local function queueMemberSpawn(group, member, square, snapshot, debugCreated)
-    local safe, safeReason = U().isSafeSpawnSquare(square)
+    local safe, safeReason = U().isClearActorSpawnSquare(square)
     if not safe then return false, "member_square_" .. tostring(safeReason) end
     local x, y, z = U().position(square)
     if x == nil or y == nil then return false, "member_square_unavailable" end
@@ -1646,7 +1664,7 @@ function Factions.createOddballGroup(site, definition, debugCreated)
             local key = spawnPositionKey(post)
             local square = key and U().gridSquare(post.x, post.y,
                 post.z or 0) or nil
-            if key == nil or seen[key] or not U().isSafeSpawnSquare(square)
+            if key == nil or seen[key] or not U().isClearActorSpawnSquare(square)
                 or (post.z or 0) ~= (site.spawn.z or 0)
                 or select(1, U().call(square, "getRoom")) ~= spawnRoom then
                 return nil, "milli_pet_posts_unavailable"
@@ -1670,6 +1688,23 @@ function Factions.createOddballGroup(site, definition, debugCreated)
             toysSeen[key] = true
         end
     end
+    if definition.id == "bedridden_arthur_hale" then
+        local bed, floor, door = site.bed, site.floor, site.bedroomDoor
+        local spawnSquare = U().gridSquare(site.spawn.x, site.spawn.y,
+            site.spawn.z or 0)
+        local room = select(1, U().call(spawnSquare, "getRoom"))
+        local floorSquare = type(floor) == "table" and U().gridSquare(
+            floor.x, floor.y, floor.z or 0) or nil
+        local bedSquare = type(bed) == "table" and U().gridSquare(
+            bed.x, bed.y, bed.z or 0) or nil
+        if room == nil or type(door) ~= "table"
+            or type(bed) ~= "table" or type(bed.objectIndex) ~= "number"
+            or not U().isClearActorSpawnSquare(floorSquare)
+            or select(1, U().call(floorSquare, "getRoom")) ~= room
+            or select(1, U().call(bedSquare, "getRoom")) ~= room then
+            return nil, "arthur_bedroom_unavailable"
+        end
+    end
     if site.memberSpawns ~= nil then
         if definition.captives == true or type(site.memberSpawns) ~= "table"
             or #site.memberSpawns < 2 or #site.memberSpawns > 4
@@ -1685,6 +1720,16 @@ function Factions.createOddballGroup(site, definition, debugCreated)
             if key == nil or seen[key] or not U().isSafeSpawnSquare(square)
                 or index == 1 and key ~= spawnPositionKey(site.spawn) then
                 return nil, "invalid_oddball_member_posts"
+            end
+            if definition.id == "spiffo_dressup_ambush" then
+                local spawnSquare = U().gridSquare(site.spawn.x,
+                    site.spawn.y, site.spawn.z or 0)
+                local room = select(1, U().call(spawnSquare, "getRoom"))
+                if room == nil or not U().isClearActorSpawnSquare(square)
+                    or (position.z or 0) ~= (site.spawn.z or 0)
+                    or select(1, U().call(square, "getRoom")) ~= room then
+                    return nil, "furry_living_room_posts_unavailable"
+                end
             end
             seen[key] = true
         end
@@ -1744,7 +1789,10 @@ function Factions.createOddballGroup(site, definition, debugCreated)
         haunt = site.haunt and stableCopy(site.haunt, 2) or nil,
         hauntKind = site.hauntKind,
         bed = site.bed and stableCopy(site.bed, 2) or nil,
+        floor = site.floor and stableCopy(site.floor, 2) or nil,
         chair = site.chair and stableCopy(site.chair, 2) or nil,
+        window = site.window and stableCopy(site.window, 2) or nil,
+        lookOut = site.lookOut and stableCopy(site.lookOut, 2) or nil,
         bedroom = site.bedroom and stableCopy(site.bedroom, 2) or nil,
         bedroomDoor = site.bedroomDoor and stableCopy(site.bedroomDoor, 2) or nil,
         rescueDoor = site.rescueDoor and stableCopy(site.rescueDoor, 2) or nil,
@@ -1820,11 +1868,23 @@ local function beginNextSpawn()
         end
         return false, "member_square_unloaded"
     end
-    local profile = profileFor(group, member, entry.snapshot)
-    local ticket, reason = SC.Actor.beginSpawn(square, profile)
+    -- Furniture may be moved onto a queued post while the spawn is pending.
+    -- Resolve and check the tile again before the native actor is constructed.
+    local clear, clearReason = U().isClearActorSpawnSquare(square)
+    local ticket, reason
+    if clear then
+        local profile = profileFor(group, member, entry.snapshot)
+        ticket, reason = SC.Actor.beginSpawn(square, profile)
+    else
+        reason = "member_square_" .. tostring(clearReason)
+    end
     if ticket == nil then
         member.spawnFailure = tostring(reason)
-        if discardUnspawnedOddball(group, entry, reason) then return false, reason end
+        -- An obstruction is temporary. Keep the encounter and try a clear
+        -- post in its own room; fixed staged posts wait until they clear.
+        if clear and discardUnspawnedOddball(group, entry, reason) then
+            return false, reason
+        end
         entry.attempts = (entry.attempts or 0) + 1
         if entry.attempts < 3 then
             if advanceSpawnSquare(entry, group) then
@@ -1852,6 +1912,8 @@ local function beginNextSpawn()
     spawnTicket, spawnEntry = ticket, entry
     return true, reason
 end
+
+Factions._beginNextSpawnForTests = beginNextSpawn
 
 local function pollSpawn()
     if spawnTicket == nil then return beginNextSpawn() end
@@ -3016,16 +3078,79 @@ end
 
 Factions._actorHiddenFromPlayerForTests = actorHiddenFromPlayer
 
-local function hibernateMember(group, member, player)
+-- Once a streamed-out resident has no native square, Senses.snapshot cannot
+-- produce the complete observation required by actorHiddenFromPlayer. Allow
+-- that specific recovery to capture and hibernate the actor only when its last
+-- verified position is also unloaded and well outside the player's area.
+local function detachedMemberSafeToHibernate(record, player)
+    local actor = record and record.actor
+    local runtime = record and record.runtime
+    local stable = type(runtime) == "table" and runtime.lastStablePosition or nil
+    if actor == nil or player == nil or type(stable) ~= "table" then return false end
+    local square, squareCalled = U().call(actor, "getCurrentSquare")
+    if not squareCalled or square ~= nil then return false end
+    local vehicle, vehicleCalled = U().call(actor, "getVehicle")
+    if not vehicleCalled or vehicle ~= nil then return false end
+    local attacking, attackCalled = U().call(actor, "isAttacking")
+    if attackCalled and attacking == true then return false end
+    if runtime.combatTarget ~= nil or runtime.combatRole ~= nil
+        or runtime.combatAction ~= nil then return false end
+    local x, y, z = tonumber(stable.x), tonumber(stable.y), tonumber(stable.z)
+    local px, py = U().position(player)
+    if x == nil or y == nil or z == nil or px == nil or py == nil
+        or x ~= x or y ~= y or z ~= z or px ~= px or py ~= py
+        or x == math.huge or x == -math.huge
+        or y == math.huge or y == -math.huge
+        or z == math.huge or z == -math.huge then return false end
+    local distance = U().distance(player, stable)
+    local minimum = math.max(120,
+        tonumber(SC.Config.get("factionHibernationDistance")) or 120)
+    if distance <= minimum or distance ~= distance
+        or distance == math.huge then return false end
+    -- A detached actor may still report native coordinates. A far old stable
+    -- position must never hide one that has since moved near the player.
+    local ax, ay, az = U().position(actor)
+    ax, ay, az = tonumber(ax), tonumber(ay), tonumber(az)
+    if ax and ay and az and ax == ax and ay == ay and az == az
+        and math.abs(ax) ~= math.huge and math.abs(ay) ~= math.huge
+        and math.abs(az) ~= math.huge then
+        if (ax - px) ^ 2 + (ay - py) ^ 2 <= minimum * minimum
+            or U().gridSquare(math.floor(ax), math.floor(ay),
+                math.floor(az)) ~= nil then return false end
+    end
+    if U().gridSquare(math.floor(x), math.floor(y), math.floor(z)) ~= nil then
+        return false
+    end
+    if U().canSee(player, actor) == true then return false end
+    return true
+end
+
+Factions._detachedMemberSafeToHibernateForTests = detachedMemberSafeToHibernate
+
+local function hibernateMember(group, member, player, allowDetachedRecovery)
     local record = member.actorId and SC.Registry.byId(member.actorId) or nil
-    if not record or not record.actor
-        or not actorHiddenFromPlayer(record.actor, player, record.runtime) then
+    if not record or not record.actor then
+        return false, "member_not_safe_to_hibernate"
+    end
+    local safe = actorHiddenFromPlayer(record.actor, player, record.runtime)
+    local detachedSafe = false
+    if not safe and allowDetachedRecovery == true then
+        detachedSafe = detachedMemberSafeToHibernate(record, player)
+        safe = detachedSafe
+    end
+    if not safe then
         return false, "member_not_safe_to_hibernate"
     end
     local wakePosition
     if type(group.oddball) == "table" and group.oddball.site
         and group.oddball.site.kind == "roamer" then
-        local x, y, z = U().position(record.actor)
+        local x, y, z
+        if detachedSafe then
+            local stable = record.runtime.lastStablePosition
+            x, y, z = stable.x, stable.y, stable.z
+        else
+            x, y, z = U().position(record.actor)
+        end
         if not tonumber(x) or not tonumber(y) then
             return false, "roamer_position_unavailable"
         end
@@ -3058,6 +3183,8 @@ local function hibernateMember(group, member, player)
     end
     return true, "hibernated"
 end
+
+Factions._hibernateMemberForTests = hibernateMember
 
 -- A recurring authored roamer may leave only through the same hidden-actor
 -- snapshot path used by normal faction hibernation. This keeps inventory,
@@ -3110,13 +3237,13 @@ function Factions.handleMissingSquare(record, player)
         if member.actorId == record.id then
             if type(group.oddball) == "table" and group.oddball.site
                 and group.oddball.site.kind == "roamer" then
-                return hibernateMember(group, member, player)
+                return hibernateMember(group, member, player, true)
             end
             local square = chooseMemberSquare(group, index)
             if square and SC.Actor.recover(record.actor, square) == true then
                 return true, "recovered_at_territory"
             end
-            return hibernateMember(group, member, player)
+            return hibernateMember(group, member, player, true)
         end
     end
     return false, "faction_member_missing"
