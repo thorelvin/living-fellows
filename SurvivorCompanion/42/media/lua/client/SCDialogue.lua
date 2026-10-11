@@ -13,6 +13,20 @@ Dialogue.VERSION = 1
 -- subsystem the same anti-repetition rules and lets personality influence
 -- wording without changing what an action means.
 local pools = {
+    ["vehicle.hotwire.success"] = { common = {
+        "It's wired and ready.",
+        "There. Turn the key you don't have.",
+        "Engine's ours now. Let's get moving.",
+        "A little spark, a little luck. She's ready.",
+        "That should start without a key. Try it.",
+    } },
+    ["vehicle.hotwire.failure"] = { common = {
+        "That didn't go well...",
+        "No spark. Give me another shot later.",
+        "I found the wires. They didn't like me.",
+        "Not today. This one's fighting back.",
+        "Well, that was a lot of noise for nothing.",
+    } },
     ["downtime.tv.learn"] = {
         common = {
             "This could be useful. Keep that part in mind.",

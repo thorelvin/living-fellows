@@ -4,6 +4,7 @@
 SurvivorCompanion = {}
 local SC = SurvivorCompanion
 clock, boards, exits, attempts = 0, 0, 0, 0
+events, exitBlocked = {}, false
 Perks = { Electricity = "electrical", Mechanics = "mechanics" }
 CharacterTrait = { BURGLAR = "burglar" }
 SC.Call = { method = function(object, name, ...)
@@ -16,6 +17,8 @@ SC.Vehicle = {
     isStationary = function() return true end,
     boardingSquares = function() return { {} } end,
     exit = function(actor, car)
+        if exitBlocked then return false, "door_blocked" end
+        events[#events + 1] = "exit"
         exits = exits + 1
         actor.car, car.driver = nil, nil
         return true
@@ -31,6 +34,11 @@ SC.ExpeditionCar = { boardMember = function(actor, order)
 end }
 SC.BaseWork = { cancel = function() return true end }
 SC.NativeActions = { interruptOwnedActivity = function() return true end }
+SC.Dialogue = { say = function(actor, topic)
+    assert(actor.car == nil, "hotwire result spoken before leaving the car")
+    events[#events + 1] = topic
+    return true
+end }
 actor = {
     electrical = 1, mechanics = 2, burglar = false, car = nil,
     getX = function() return 0 end, getY = function() return 0 end,
@@ -50,6 +58,7 @@ car = {
     isEngineRunning = function() return false end,
     getDriver = function(self) return self.driver end,
     tryHotwire = function(self, level)
+        events[#events + 1] = "attempt"
         attempts = attempts + 1
         assert(level == 1)
         self.hotwired = true

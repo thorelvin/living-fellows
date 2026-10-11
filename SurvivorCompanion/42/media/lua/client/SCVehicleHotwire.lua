@@ -125,11 +125,57 @@ end
 
 local function finish(actor, job, message)
     Hotwire.cancel(actor, "hotwire_finished")
-    note(job, message)
     local carOk, current = call(actor, "getVehicle")
     if carOk and current == job.car and SC.Vehicle and SC.Vehicle.exit then
         SC.Vehicle.exit(actor, job.car, 0, { playerCommand = true })
     end
+    note(job, message)
+end
+
+local function sayResult(actor, succeeded)
+    local topic = succeeded and "vehicle.hotwire.success"
+        or "vehicle.hotwire.failure"
+    if SC.Dialogue and type(SC.Dialogue.say) == "function" then
+        local ok, spoken = pcall(SC.Dialogue.say, actor, topic)
+        if ok and spoken == true then return end
+    end
+    if SC.GameplayUtil and type(SC.GameplayUtil.say) == "function" then
+        SC.GameplayUtil.say(actor, succeeded and "It's wired and ready."
+            or "That didn't go well...")
+    end
+end
+
+local function exitAndReport(actor, job)
+    local carOk, current = call(actor, "getVehicle")
+    if not carOk or current ~= nil and current ~= job.car then
+        Hotwire.cancel(actor, "hotwire_exit_lost")
+        return false, "hotwire_exit_lost"
+    end
+    if current == job.car then
+        if not SC.Vehicle or type(SC.Vehicle.exit) ~= "function" then
+            return true, "hotwire_waiting_for_exit"
+        end
+        local exited = SC.Vehicle.exit(actor, job.car, 0,
+            { playerCommand = true })
+        if exited ~= true then return true, "hotwire_waiting_for_exit" end
+        local verified, after = call(actor, "getVehicle")
+        if not verified or after ~= nil then
+            return true, "hotwire_waiting_for_exit"
+        end
+    end
+    local succeeded, message = job.succeeded, job.message
+    Hotwire.cancel(actor, "hotwire_finished")
+    sayResult(actor, succeeded)
+    note(job, message)
+    return succeeded, succeeded and "hotwired" or "hotwire_failed"
+end
+
+local function completeAttempt(actor, job, succeeded, message)
+    job.phase = "exiting"
+    job.succeeded = succeeded == true
+    job.message = message
+    job.expires = nowMs() + 15000
+    return exitAndReport(actor, job)
 end
 
 -- Called by Decision before the ordinary follow/vehicle-exit policy. The
@@ -137,6 +183,13 @@ end
 function Hotwire.step(actor, snapshot)
     local job = jobs[actor]
     if not job then return nil end
+    if job.phase == "exiting" then
+        if nowMs() > job.expires then
+            Hotwire.cancel(actor, "hotwire_exit_timeout")
+            return false, "hotwire_exit_timeout"
+        end
+        return exitAndReport(actor, job)
+    end
     local car = job.car
     if nowMs() > job.expires then
         finish(actor, job, "Hotwire cancelled: took too long.")
@@ -207,8 +260,8 @@ function Hotwire.step(actor, snapshot)
         local electricOk, electric = call(actor, "getPerkLevel", Perks.Electricity)
         local attemptOk = call(car, "tryHotwire", electricOk and electric or 0)
         if not attemptOk then
-            finish(actor, job, "Hotwire failed: vehicle rejected the attempt.")
-            return false, "hotwire_call_failed"
+            return completeAttempt(actor, job, false,
+                "Hotwire failed: vehicle rejected the attempt.")
         end
         job.phase = "verifying"
         job.readyAt = nowMs() + 1500
@@ -216,10 +269,9 @@ function Hotwire.step(actor, snapshot)
     end
     if job.phase == "verifying" and nowMs() >= job.readyAt then
         local hotOk, hot = call(car, "isHotwired")
-        finish(actor, job, hotOk and hot
-            and "Car hotwired. No key needed to drive it."
-            or "Hotwire failed. You can order another attempt.")
-        return hotOk and hot == true, hotOk and hot and "hotwired" or "hotwire_failed"
+        return completeAttempt(actor, job, hotOk and hot == true,
+            hotOk and hot and "Car hotwired. No key needed to drive it."
+                or "Hotwire failed. You can order another attempt.")
     end
     return true, "hotwire_" .. job.phase
 end

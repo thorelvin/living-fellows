@@ -20,16 +20,29 @@ clock = clock + 1501
 check(Hotwire.step(actor, {}) and car.hotwired and exits == 1
     and actor.car == nil and not Hotwire.active(actor),
     "success is read back and driver exits without any key")
+check(events[#events - 2] == "attempt" and events[#events - 1] == "exit"
+    and events[#events] == "vehicle.hotwire.success",
+    "success line is spoken only after the verified vehicle exit")
 check(not Hotwire.request(actor, car, player),
     "already hotwired car has no hotwire order")
 car.hotwired = false
-car.tryHotwire = function() attempts = attempts + 1 end
+car.tryHotwire = function()
+    events[#events + 1] = "attempt"
+    attempts = attempts + 1
+end
 check(Hotwire.request(actor, car, player), "second attempt can be ordered")
 Hotwire.step(actor, {})
 Hotwire.step(actor, {})
 clock = clock + 4001
 Hotwire.step(actor, {})
 clock = clock + 1501
-check(not Hotwire.step(actor, {}) and attempts == 2 and exits == 2,
-    "failed native roll is reported and companion exits")
+exitBlocked = true
+check(Hotwire.step(actor, {}) and attempts == 2 and exits == 1
+    and Hotwire.active(actor) and events[#events] == "attempt",
+    "blocked door holds the result without speaking")
+exitBlocked = false
+check(not Hotwire.step(actor, {}) and exits == 2
+    and events[#events - 1] == "exit"
+    and events[#events] == "vehicle.hotwire.failure",
+    "failed native roll is spoken after companion exits")
 print("vehicle hotwire checks passed")
