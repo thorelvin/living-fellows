@@ -35,6 +35,7 @@ require "SCAutonomy"
 require "SCCommands"
 require "SCExpeditionRoute"
 require "SCExpeditionCar"
+require "SCVehicleHotwire"
 require "SCExpeditionPrototype"
 require "SCBaseWatch"
 require "SCFactionRecruitment"
@@ -1958,6 +1959,7 @@ function runtime.reset(detach)
     resetModule("diary", SC.Diary, "reset")
     resetModule("life events", SC.LifeEvents, "reset")
     resetModule("expedition", SC.ExpeditionPrototype, "reset")
+    resetModule("vehicle hotwire", SC.VehicleHotwire, "reset")
     resetModule("base watch", SC.BaseWatch, "reset")
     resetModule("companion view", SC.ViewSession, "reset")
 

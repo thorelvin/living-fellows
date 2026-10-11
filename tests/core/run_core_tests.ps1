@@ -194,6 +194,13 @@ try {
         )
         Add-ScJvmStep 'expedition-car' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $expeditionCarFiles 'Expedition car preflight, seat ownership and checked restart harness failed.'
 
+        $hotwireFiles = @(
+            (Join-Path $TestRoot 'vehicle_hotwire_fixture.lua'),
+            (Join-Path $Client 'SCVehicleHotwire.lua'),
+            (Join-Path $TestRoot 'vehicle_hotwire_harness.lua')
+        )
+        Add-ScJvmStep 'vehicle-hotwire' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $hotwireFiles 'Companion hotwire order harness failed.'
+
         $expeditionRestartFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Client 'SCViewSession.lua'),

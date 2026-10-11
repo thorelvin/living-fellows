@@ -1336,6 +1336,54 @@ local function selectedNearbyRow(rows)
     return nil
 end
 
+-- Mirror vanilla's vehicle picker so a click on a car's body resolves that
+-- car, even where its origin square is elsewhere in the footprint.
+function Context.vehicleAtClick(square)
+    local vehicle = square and safeMethod(square, "getVehicleContainer") or nil
+    if vehicle then return vehicle end
+    if IsoObjectPicker and IsoObjectPicker.Instance
+        and type(getMouseXScaled) == "function"
+        and type(getMouseYScaled) == "function" then
+        local ok, picked = pcall(function()
+            return IsoObjectPicker.Instance:PickVehicle(
+                getMouseXScaled(), getMouseYScaled())
+        end)
+        if ok then return picked end
+    end
+    return nil
+end
+
+local function hotwireFromContext(_target, row, vehicle, player)
+    if not row or not vehicle or not SC.Commands then return end
+    local ok, accepted, reason = pcall(SC.Commands.issue, row.id,
+        "hotwire_vehicle", { vehicle = vehicle }, player)
+    if player then
+        safeMethod(player, "setHaloNote", ok and accepted == true
+            and text("UI_SC_Vehicle_HotwireOrdered", row.name)
+            or text("UI_SC_Vehicle_HotwireRejected", tostring(reason or accepted)))
+    end
+end
+
+local function addHotwireMenu(context, rows, vehicle, player)
+    if not vehicle or not SC.VehicleHotwire
+        or type(SC.VehicleHotwire.canHotwire) ~= "function" then return end
+    local eligible = {}
+    for _, row in ipairs(rows or {}) do
+        local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(row.id)
+        if row.recruited == true and record and record.actor
+            and SC.VehicleHotwire.canHotwire(record.actor) then
+            eligible[#eligible + 1] = row
+        end
+    end
+    if #eligible == 0 then return end
+    local hotOk, hot = pcall(function() return vehicle:isHotwired() end)
+    if not hotOk or hot then return end
+    local root = addCategory(context, "UI_SC_Vehicle_CommandHotwire")
+    for _, row in ipairs(eligible) do
+        root:addOption(row.name, nil, hotwireFromContext, row, vehicle, player)
+    end
+end
+
 local function addNamedShortcut(context, row, labelKey, command, payload, player)
     local label = text("UI_SC_Context_NamedAction", row.name, text(labelKey))
     return context:addOption(label, nil, issueFromContext,
@@ -1430,6 +1478,7 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
         end
     end
     local rows, talkRows = nearbyRows(player)
+    local clickedVehicle = Context.vehicleAtClick(clickSquare)
     local clickedCompanion, clickedMatches = clickedCompanionRow(talkRows, worldObjects, clickSquare)
     local factions = talkableFactions(player)
     local oddballs = talkableOddballs(player)
@@ -1450,6 +1499,7 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
         local option = context:addOption(text("UI_SC_Grave_Memorial", memorialName), nil, nil)
         if option then option.notAvailable = true end
     end
+    addHotwireMenu(context, rows, clickedVehicle, player)
     if sealedDoorGroup then
         context:addOption("Touch the sealed door", nil, oddballStoryAction,
             sealedDoorGroup.id, "touch_door", player)

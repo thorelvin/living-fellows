@@ -2758,6 +2758,9 @@ function Decision.update(actor, player, runtime, roundTimestamp)
         if ok and type(value) == "table" then needs = value end
     end
     if not assessment.alive or assessment.health <= 0 or assessment.terminalKnox then
+        if SC.VehicleHotwire and type(SC.VehicleHotwire.cancel) == "function" then
+            SC.VehicleHotwire.cancel(actor, "companion_dead")
+        end
         if SC.Driving and type(SC.Driving.stop) == "function" then
             SC.Driving.stop(actor, "driver_dead")
         end
@@ -2824,6 +2827,15 @@ function Decision.update(actor, player, runtime, roundTimestamp)
             Decision.remarkOnNoise(actor, snapshot, state, current)
             return true, "driving"
         end
+    end
+
+    -- A manual hotwire owns the driver seat until the car resolves its native
+    -- attempt. Run before the ordinary exit policy and follow movement.
+    if SC.VehicleHotwire and SC.VehicleHotwire.active(actor) then
+        local worked, why = SC.VehicleHotwire.step(actor, snapshot)
+        state.current, state.currentKey = "vehicle", "hotwire"
+        state.intent, state.lastHandledAt = why or "hotwire", current
+        return worked == true, state.intent
     end
 
     -- Car expeditions reserve the exact native seat before motion. Drive

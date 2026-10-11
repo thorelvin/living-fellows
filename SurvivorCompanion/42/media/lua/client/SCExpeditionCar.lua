@@ -357,12 +357,13 @@ function Car.boardMember(actor, order, snapshot)
         return false, "wrong_vehicle_or_seat"
     end
     local began, beginReason = SC.Vehicle.beginBoarding(actor, car, seat,
-        { driverSeat = seat == 0 })
+        { driverSeat = seat == 0, playerCommand = order.hotwire == true })
     if began == nil then return false, beginReason end
     local prepared, reason = SC.Vehicle.preflightBoard(actor, car, seat,
         seat == 0)
     if prepared then
         local options = { driverSeat = seat == 0,
+            playerCommand = order.hotwire == true,
             allowVirtualSeat = false, preflight = prepared }
         if seat == 0 then return SC.Vehicle.boardDriver(actor, car, options) end
         return SC.Vehicle.board(actor, car, seat, options)

@@ -1694,6 +1694,13 @@ local handlers = {
     board_vehicle = function(actor, entry, state, payload, player)
         return vehicleAction(actor, entry, state, payload, player, "board_vehicle")
     end,
+    hotwire_vehicle = function(actor, entry, state, payload, player)
+        if not SC.VehicleHotwire or type(SC.VehicleHotwire.request) ~= "function" then
+            return false, "hotwire_unavailable"
+        end
+        return SC.VehicleHotwire.request(actor,
+            type(payload) == "table" and payload.vehicle or nil, player)
+    end,
     exit_vehicle = function(actor, entry, state, payload, player)
         return vehicleAction(actor, entry, state, payload, player, "exit_vehicle")
     end,
@@ -2212,6 +2219,10 @@ local function issueOne(companionId, command, payload, player)
     end
     if SC.Positioning and type(SC.Positioning.cancelConversation) == "function" then
         SC.Positioning.cancelConversation(actor, "conversation_interrupted_by_order")
+    end
+    if command ~= "hotwire_vehicle" and SC.VehicleHotwire
+        and type(SC.VehicleHotwire.cancel) == "function" then
+        SC.VehicleHotwire.cancel(actor, "new_player_order")
     end
     return a, b, c
 end

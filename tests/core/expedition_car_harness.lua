@@ -38,6 +38,11 @@ T.exitBlocked = nil
 T.key = false
 check(select(2, Car.preflight(T.team, T.zone.id, 44, destination))
     == "driver_needs_key", "missing key refuses dispatch")
+T.cars[1].hotwired = true
+check(Car.preflight(T.team, T.zone.id, 44, destination) ~= nil
+    and Car.ensureDriverKey(T.team, T.cars[1]) == true,
+    "hotwired car dispatches and starts without inventing or transferring a key")
+T.cars[1].hotwired = false
 T.key = nil
 local passengerInventory = T.team[2].actor.inventory
 local leaderInventory = T.team[1].actor.inventory

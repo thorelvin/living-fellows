@@ -161,7 +161,7 @@ function T.car(id, x, y)
             x3 = self.x + 1 + inset, y3 = self.y + 1,
             x4 = self.x - 1 + inset, y4 = self.y + 1 }
     end
-    function car:isHotwired() return false end
+    function car:isHotwired() return self.hotwired == true end
     function car:isKeysInIgnition() return false end
     return car
 end
