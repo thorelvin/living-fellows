@@ -207,17 +207,31 @@ final class SCRoadFollower {
         return command;
     }
 
-    /** Distance to the first obstacle in a car-wide strip parallel to the road, or -1. */
+    /**
+     * Distance to the first obstacle in a car-wide strip that runs alongside the
+     * route at a lateral offset, or -1. The strip follows the route round its
+     * corners one straight piece at a time, so a turn ahead is not mistaken for
+     * a road that runs on into whatever lies beyond the junction.
+     */
     private float stripObstacle(SCLaneScan.World world, int z, float startAlong, float lineOffset,
                                 float reach, float halfWidth) {
         // Nothing past the end of the route matters: the car stops there.
         float toEnd = path.length() + ARRIVE_TILES - startAlong;
         reach = Math.min(reach, toEnd);
         if (reach <= 0.1f) return -1.0f;
-        path.pointAt(startAlong, lineOffset, point);
-        SCLaneScan.Result hit = SCLaneScan.scan(world, point[0], point[1], z, point[2], point[3],
-                halfWidth, 0.0f, reach, scanCache);
-        return hit.blocked ? hit.distance : -1.0f;
+        float covered = 0.0f;
+        float at = startAlong;
+        while (covered < reach - 0.05f) {
+            float pieceEnd = Math.min(startAlong + reach, path.nextVertexAlong(at));
+            float piece = Math.max(SCLaneScan.STEP, pieceEnd - at);
+            path.pointAt(at, lineOffset, point);
+            SCLaneScan.Result hit = SCLaneScan.scan(world, point[0], point[1], z, point[2],
+                    point[3], halfWidth, 0.0f, piece, scanCache);
+            if (hit.blocked) return covered + hit.distance;
+            covered += piece;
+            at += piece;
+        }
+        return -1.0f;
     }
 
     private void chooseOffset(SCLaneScan.World world, int z, float halfWidth, float halfLength,

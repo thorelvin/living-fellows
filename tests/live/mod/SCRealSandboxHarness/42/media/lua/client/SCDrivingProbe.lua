@@ -9,7 +9,9 @@
 -- speed and the scene after the crash. With driving_route the probe instead
 -- drives an expedition-planner route: round one wreck and through two
 -- zombies on the way out (a companion's car kills zombies it touches), a
--- three-point turn at the end, and round two wrecks on the way back.
+-- three-point turn at the end, and round two wrecks on the way back. With
+-- driving_turn it drives a planner route from this road round a junction into a
+-- side street.
 -- Telemetry lines start with SC_REAL_SANDBOX|DRIVE. The seed save is never changed.
 
 local Probe = {}
@@ -77,7 +79,8 @@ local function roadFromZone(U, zone, px, py)
     if length < segmentHalf * 2 + 8 or width < 5 or width > 24 then
         return nil, "zone " .. w .. "x" .. h .. " is not a long road"
     end
-    local road = { width = width, zone = x .. "," .. y .. "," .. w .. "x" .. h }
+    local road = { width = width, zone = x .. "," .. y .. "," .. w .. "x" .. h,
+        bx = x, by = y, bw = w, bh = h }
     local lo, hi, along
     if horizontal then
         road.ax, road.ay = 1, 0
@@ -237,6 +240,60 @@ local function maybeCruiseShot(H, test, speed, result)
     end
 end
 
+-- A side street: a Nav zone across this road that meets it, long enough to
+-- drive 26 tiles up, with 33 open tiles of this road before the junction.
+local function findJunction(U, road, px, py)
+    local horizontal = road.ax == 1
+    local bandLo = horizontal and road.by or road.bx
+    local bandHi = bandLo + (horizontal and road.bh or road.bw)
+    local runLo = horizontal and road.bx or road.by
+    local runHi = runLo + (horizontal and road.bw or road.bh)
+    local line = horizontal and road.lineY or road.lineX
+    local seen, best, bestDistance, reasons = {}, nil, nil, {}
+    for radius = 0, 66, 3 do
+        for dx = -radius, radius, 3 do
+            for dy = -radius, radius, 3 do
+                if math.max(math.abs(dx), math.abs(dy)) == radius then
+                    local square = U.gridSquare(px + dx, py + dy, 0)
+                    local zone = square and square:getZone() or nil
+                    if zone ~= nil and not seen[zone] and tostring(call(zone, "getType")) == "Nav" then
+                        seen[zone] = true
+                        local x, y = tonumber(call(zone, "getX")), tonumber(call(zone, "getY"))
+                        local w, h = tonumber(call(zone, "getWidth")), tonumber(call(zone, "getHeight"))
+                        local across = horizontal and h > w or not horizontal and w > h
+                        local sideLo = horizontal and x or y
+                        local sideHi = sideLo + (horizontal and w or h)
+                        local reachLo = horizontal and y or x
+                        local reachHi = reachLo + (horizontal and h or w)
+                        local centre = (sideLo + sideHi) / 2
+                        local touches = reachHi >= bandLo - 2 and reachLo <= bandHi + 2
+                        local roomBefore = centre - 33 >= runLo
+                        local outward = reachLo < bandLo - 20 and -1 or reachHi > bandHi + 20 and 1 or 0
+                        if across and touches and roomBefore and outward ~= 0
+                            and (sideHi - sideLo) >= 5 and (sideHi - sideLo) <= 24 then
+                            local open = horizontal
+                                and corridorOpen(U, centre - 33, line, centre - 4, line, 1, 0)
+                                or corridorOpen(U, line, centre - 33, line, centre - 4, 0, 1)
+                            if open then
+                                local distance = math.abs(centre - (horizontal and px or py))
+                                if best == nil or distance < bestDistance then
+                                    best = { centre = centre, outward = outward,
+                                        width = sideHi - sideLo,
+                                        zone = x .. "," .. y .. "," .. w .. "x" .. h }
+                                    bestDistance = distance
+                                end
+                            elseif #reasons < 3 then
+                                reasons[#reasons + 1] = "approach to " .. x .. "," .. y .. " blocked"
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return best, table.concat(reasons, "; ")
+end
+
 local function setupRoad(H, SC, check, result, setPhase, current)
     local U = SC.GameplayUtil
     if not check("drive_bridge_api", SC.Driving and SC.Driving.available(),
@@ -251,10 +308,41 @@ local function setupRoad(H, SC, check, result, setPhase, current)
             .. " center=" .. fmt(road.cx) .. "," .. fmt(road.cy)) or tostring(why)) then
         setPhase("finish", current) return
     end
+    if H.config.driving_turn == "true" then
+        local junction, junctionWhy = findJunction(U, road, math.floor(px), math.floor(py))
+        if not check("drive_street_junction", junction ~= nil, junction and ("side street "
+                .. junction.zone .. " meets this road at " .. fmt(junction.centre) .. ", running "
+                .. (junction.outward < 0 and "north/west" or "south/east") .. ", "
+                .. junction.width .. " wide") or ("no side street found: " .. tostring(junctionWhy))) then
+            setPhase("finish", current) return
+        end
+        local horizontal = road.ax == 1
+        local line = horizontal and road.lineY or road.lineX
+        local bandLo = horizontal and road.by or road.bx
+        local bandHi = bandLo + (horizontal and road.bh or road.bw)
+        local edge = junction.outward < 0 and bandLo or bandHi
+        local goalAcross = edge + junction.outward * 26
+        -- Start 28 tiles before the junction, heading towards it.
+        if horizontal then
+            road.sx, road.sy = junction.centre - 33, line
+            road.ex, road.ey = junction.centre + 10, line
+            road.cx, road.cy = junction.centre, line
+            road.goal = { x = junction.centre, y = goalAcross }
+        else
+            road.sx, road.sy = line, junction.centre - 33
+            road.ex, road.ey = line, junction.centre + 10
+            road.cx, road.cy = line, junction.centre
+            road.goal = { x = goalAcross, y = junction.centre }
+        end
+        road.junction = junction
+    end
     -- Watch from the roadside, off the lane.
     local normalX, normalY = -road.ay, road.ax
     local watch
-    for _, side in ipairs({ 1, -1 }) do
+    local sides = { 1, -1 }
+    -- At a junction, watch from the far side of the main road, facing the turn.
+    if road.junction then sides = { -road.junction.outward, road.junction.outward } end
+    for _, side in ipairs(sides) do
         local offset = road.width / 2 + 4
         local wx, wy = road.cx + normalX * offset * side, road.cy + normalY * offset * side
         if openSquare(U, wx, wy) then watch = { x = math.floor(wx), y = math.floor(wy) } break end
@@ -399,6 +487,11 @@ local function board(H, SC, check, result, setPhase, current, test)
         setPhase("finish", current) return
     end
     test.startedAt = current
+    if H.config.driving_turn == "true" then
+        test.goal = test.road.goal
+        setPhase("drive_street_plan", current)
+        return
+    end
     if H.config.driving_route == "true" then
         setPhase("drive_route_plan", current)
         return
@@ -725,6 +818,101 @@ local function routeStep(H, SC, current, check, result, setPhase, test)
     end
 end
 
+-- ---------------------------------------------------------------- street to street
+
+local function maxBend(points)
+    local worst = 0
+    for index = 3, #points do
+        local a, b, c = points[index - 2], points[index - 1], points[index]
+        local first = math.atan2(b.y - a.y, b.x - a.x)
+        local second = math.atan2(c.y - b.y, c.x - b.x)
+        worst = math.max(worst, math.abs(wrap(second - first)))
+    end
+    return math.deg(worst)
+end
+
+local function streetStep(H, SC, current, check, result, setPhase, test)
+    local vehicle, actor = test.vehicle, test.actor
+    if H.phase == "drive_street_plan" then
+        if current < (test.nextPlanAt or 0) then return end
+        test.nextPlanAt = current + 2000
+        local route, why = SC.Driving.planRoute(actor, { x = math.floor(test.goal.x),
+            y = math.floor(test.goal.y), z = 0 })
+        if not route then
+            if current - H.phaseStartedAt > 40000 then
+                failTo(H, test, setPhase, result, current, "drive_street_route", tostring(why))
+            end
+            return
+        end
+        local length = 0
+        for index = 2, #route.points do
+            local a, b = route.points[index - 1], route.points[index]
+            length = length + math.sqrt((b.x - a.x) ^ 2 + (b.y - a.y) ^ 2)
+        end
+        local bend = maxBend(route.points)
+        local streets, seenStreet = {}, {}
+        for _, point in ipairs(route.points) do
+            local name = tostring(point.street)
+            if not seenStreet[name] then seenStreet[name] = true; streets[#streets + 1] = name end
+        end
+        local last = route.points[#route.points]
+        if not check("drive_street_route", #route.points >= 3 and bend >= 60,
+            "points=" .. #route.points .. " length=" .. fmt(length) .. " sharpest bend "
+                .. fmt(bend) .. " deg, streets " .. table.concat(streets, " -> ") .. ", ends "
+                .. fmt(last.x) .. "," .. fmt(last.y)) then
+            setPhase("finish", current) return
+        end
+        test.route = route
+        test.routeEnd = { x = last.x, y = last.y }
+        test.startHeading = heading(vehicle)
+        test.legParts = partCondition(vehicle)
+        local following, followWhy = SC.Driving.followRoute(actor, route, ROUTE_KMH)
+        if not check("drive_street_follow_started", following == true, tostring(followWhy)) then
+            setPhase("finish", current) return
+        end
+        setPhase("drive_street_go", current)
+        return
+    end
+
+    if H.phase == "drive_street_go" then
+        local status = SC.Driving.status(actor) or {}
+        local turned = math.deg(wrap(heading(vehicle) - test.startHeading))
+        test.maxTurned = math.max(test.maxTurned or 0, math.abs(turned))
+        if math.abs(turned) >= 35 and math.abs(turned) <= 70 then
+            requestShot(H, test, "corner", result, "turned " .. fmt(turned) .. " deg at "
+                .. fmt(vehicle:getCurrentSpeedKmHour()) .. " km/h")
+        end
+        if status.mode == "blocked" then
+            test.blockedSince = test.blockedSince or current
+            if current - test.blockedSince > 10000 then
+                failTo(H, test, setPhase, result, current, "drive_street_to_street",
+                    "blocked for 10 s at " .. fmt(status.along) .. "/" .. fmt(status.routeLength)
+                        .. ", obstacle " .. fmt(status.blockedAt) .. " tiles ahead")
+                return
+            end
+        else
+            test.blockedSince = nil
+        end
+        if status.mode == "arrived" then
+            local miss = math.sqrt((vehicle:getX() - test.routeEnd.x) ^ 2
+                + (vehicle:getY() - test.routeEnd.y) ^ 2)
+            check("drive_street_to_street", miss <= 4 and math.abs(turned) >= 60,
+                "arrived in " .. tostring(math.floor((current - H.phaseStartedAt) / 100) / 10)
+                    .. " s, " .. fmt(miss) .. " tiles from the route end, turned " .. fmt(turned)
+                    .. " deg, lateral in the new street " .. fmt(status.lateral)
+                    .. " (lane " .. fmt(status.laneOffset) .. "), swerves=" .. tostring(status.swerves)
+                    .. ", car part condition lost " .. fmt(test.legParts - partCondition(vehicle)))
+            setPhase("drive_release", current)
+            return
+        end
+        if current - H.phaseStartedAt > 90000 then
+            failTo(H, test, setPhase, result, current, "drive_street_to_street", "still "
+                .. tostring(status.mode) .. " after 90 s at " .. fmt(status.along) .. "/"
+                .. fmt(status.routeLength))
+        end
+    end
+end
+
 function Probe.step(H, current, check, result, setPhase)
     local SC = SurvivorCompanion
     if H.phase == "drive_setup" then
@@ -747,6 +935,10 @@ function Probe.step(H, current, check, result, setPhase)
     local speed = tonumber(vehicle:getCurrentSpeedKmHour()) or 0
     if string.find(H.phase, "drive_route_", 1, true) == 1 then
         routeStep(H, SC, current, check, result, setPhase, test)
+        return
+    end
+    if string.find(H.phase, "drive_street_", 1, true) == 1 then
+        streetStep(H, SC, current, check, result, setPhase, test)
         return
     end
 

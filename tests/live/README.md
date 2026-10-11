@@ -119,5 +119,12 @@ round two parked cars waiting in its new lane. Screenshots, when asked for, are
     -TimeoutSeconds 900 -DrivingScreenshotDirectory .\build\route-shots
 ```
 
+Add `-DrivingTurn` instead to drive street to street. The probe finds a side
+street that meets the test road, starts the car 28 tiles before the junction,
+and asks the planner for a route 26 tiles up the side street. It checks that the
+route turns at least 60 degrees and that the car takes the corner, arrives
+within 4 tiles of the route end, and keeps to the right-hand lane of the new
+street. The screenshot, when asked for, is `driving-corner.png`.
+
 The run needs the branch's bridge on the game's classpath, so install it first
 with `.\scripts\Install-NativeBridge.ps1`.

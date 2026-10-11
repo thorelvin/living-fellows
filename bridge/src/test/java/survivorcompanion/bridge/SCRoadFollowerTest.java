@@ -124,6 +124,7 @@ public final class SCRoadFollowerTest {
     /** The bridge's per-frame loop, as SCCompanionDriver runs it. */
     private static final class Drive {
         final Road road;
+        SCLaneScan.World world;
         final Car car;
         final SCRoadFollower follower;
         final SCRoadFollower.Command command = new SCRoadFollower.Command();
@@ -134,6 +135,7 @@ public final class SCRoadFollowerTest {
 
         Drive(Road road, Car car, SCRoadFollower follower) {
             this.road = road;
+            this.world = road;
             this.car = car;
             this.follower = follower;
         }
@@ -143,14 +145,14 @@ public final class SCRoadFollowerTest {
             for (int frame = 0; frame < seconds / dt && !until.getAsBoolean(); frame++) {
                 float fx = (float) Math.cos(car.heading);
                 float fy = (float) Math.sin(car.heading);
-                SCLaneScan.Result front = SCLaneScan.scan(road, car.x, car.y, 0, fx, fy,
+                SCLaneScan.Result front = SCLaneScan.scan(world, car.x, car.y, 0, fx, fy,
                         Car.HALF_WIDTH, Car.HALF_LENGTH + 0.1f,
                         SCCompanionDriver.lookAheadFor(follower.cruiseKmh()));
-                SCLaneScan.Result rear = SCLaneScan.scan(road, car.x, car.y, 0, -fx, -fy,
+                SCLaneScan.Result rear = SCLaneScan.scan(world, car.x, car.y, 0, -fx, -fy,
                         Car.HALF_WIDTH, Car.HALF_LENGTH + 0.1f, 4.0f);
                 float frontDistance = front.blocked ? front.distance : -1.0f;
                 float rearDistance = rear.blocked ? rear.distance : -1.0f;
-                follower.update(road, car.x, car.y, 0, fx, fy, car.kmh(), Car.HALF_WIDTH,
+                follower.update(world, car.x, car.y, 0, fx, fy, car.kmh(), Car.HALF_WIDTH,
                         Car.HALF_LENGTH, frontDistance, rearDistance, nowMs, command);
                 SCDriveControl.Input input = command.targetKmh < 0.0f
                         ? SCDriveControl.reverse(car.kmh(), -command.targetKmh, command.steering,
@@ -161,7 +163,7 @@ public final class SCRoadFollowerTest {
                                         : SCDriveControl.HOLD_GAP_TILES);
                 car.step(input, dt);
                 nowMs += (long) (dt * 1000.0f);
-                if (car.collides(road)) {
+                if (car.collides(world)) {
                     collided = true;
                     trace = "collision at " + car.x + "," + car.y + " mode=" + follower.mode();
                     return;
@@ -305,6 +307,53 @@ public final class SCRoadFollowerTest {
                 "reversing stays slow whatever speed is asked");
     }
 
+    /**
+     * A junction: the main road (y 97..104, verges 95..106) meets a side
+     * street (x 56..63, verges 54..65) that runs north or south from it.
+     * Everything else is solid, so cutting a corner hits something.
+     */
+    private static final class Junction implements SCLaneScan.World {
+        final boolean north;
+
+        Junction(boolean north) {
+            this.north = north;
+        }
+
+        @Override
+        public int squareKind(int x, int y, int z) {
+            if (x < 0 || x >= 120 || y < 0 || y >= 200) return SCLaneScan.UNLOADED;
+            boolean main = y >= 95 && y <= 106 && x <= 65;
+            boolean side = x >= 54 && x <= 65 && (north ? y <= 106 : y >= 95);
+            return main || side ? SCLaneScan.CLEAR : SCLaneScan.SOLID;
+        }
+
+        @Override
+        public boolean edgeBlocked(int fromX, int fromY, int toX, int toY, int z) {
+            return false;
+        }
+    }
+
+    private static void streetToStreet(boolean north) {
+        Junction world = new Junction(north);
+        String route = north ? "2,101,8;60,101,8;60,40,8" : "2,101,8;60,101,8;60,160,8";
+        SCRoadFollower follower = new SCRoadFollower(SCDrivePath.parse(route), 10.0f, true);
+        Car car = new Car(6.0f, 103.0f, 0.0f);
+        Drive drive = new Drive(null, car, follower);
+        drive.world = world;
+        drive.run(120.0f, () -> follower.mode() == SCRoadFollower.Mode.ARRIVED);
+        float wanted = north ? (float) (-Math.PI / 2.0) : (float) (Math.PI / 2.0);
+        float endY = north ? 41.5f : 158.5f;
+        require(!drive.collided && follower.mode() == SCRoadFollower.Mode.ARRIVED
+                        && Math.abs(car.y - endY) < 3.0f
+                        && Math.abs(SCTurnAround.wrap(car.heading - wanted)) < 0.35f,
+                "the car turns " + (north ? "left" : "right") + " from one street into the next "
+                        + "without touching the corner: " + drive.trace + " mode=" + follower.mode()
+                        + " at " + car.x + "," + car.y + " heading=" + car.heading);
+        require(Math.abs(follower.lateral() - 2.0f) < 0.8f,
+                "after the turn it keeps to the right-hand lane of the new street: "
+                        + follower.lateral());
+    }
+
     private static void personInLane() {
         // Stopped with someone 2.5 tiles ahead: inside the cruise hold gap.
         Road road = new Road().block(30, 30, 102, 103, SCLaneScan.CHARACTER);
@@ -348,6 +397,8 @@ public final class SCRoadFollowerTest {
         turnRound();
         personInLane();
         tooNarrowToTurn();
+        streetToStreet(true);
+        streetToStreet(false);
         System.out.println("ROAD_FOLLOWER_PASS checks=" + checks);
     }
 }

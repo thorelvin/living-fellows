@@ -100,6 +100,14 @@ final class SCDrivePath {
         return xs.length;
     }
 
+    /** The distance of the next corner after along, or MAX_VALUE past the last one. */
+    float nextVertexAlong(float along) {
+        for (int index = 1; index < cumulative.length - 1; index++) {
+            if (cumulative[index] > along + 0.001f) return cumulative[index];
+        }
+        return Float.MAX_VALUE;
+    }
+
     /** Where a point sits relative to the line: along it, and to the right of it. */
     static final class Projection {
         int segment;
@@ -155,7 +163,9 @@ final class SCDrivePath {
     void pointAt(float along, float offset, float[] out) {
         float distance = Math.max(0.0f, Math.min(length, along));
         int segment = 0;
-        while (segment < xs.length - 2 && cumulative[segment + 1] < distance) segment++;
+        // At a corner itself the outgoing segment applies, so a scan starting there
+        // runs down the new street rather than on past the junction.
+        while (segment < xs.length - 2 && cumulative[segment + 1] <= distance) segment++;
         float ax = xs[segment];
         float ay = ys[segment];
         float dx = xs[segment + 1] - ax;

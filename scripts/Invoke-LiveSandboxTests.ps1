@@ -47,6 +47,8 @@ param(
     # With -DrivingProbe: drive an expedition-planner route round one wreck,
     # turn round, and drive back round two, instead of the mechanics checks.
     [switch]$DrivingRoute,
+    # With -DrivingProbe: drive a planner route round a junction into a side street.
+    [switch]$DrivingTurn,
     # With -DrivingProbe: save driving-cruise.png at cruising speed and
     # driving-crash.png after the crash test into this directory.
     [string]$DrivingScreenshotDirectory = '',
@@ -599,6 +601,8 @@ if ($VehiclePassengerOnly -ne (-not [string]::IsNullOrWhiteSpace($VehiclePasseng
     throw '-VehiclePassengerOnly requires -VehiclePassengerScreenshot.'
 }
 if ($DrivingRoute -and -not $DrivingProbe) { throw '-DrivingRoute requires -DrivingProbe.' }
+if ($DrivingTurn -and -not $DrivingProbe) { throw '-DrivingTurn requires -DrivingProbe.' }
+if ($DrivingTurn -and $DrivingRoute) { throw 'Choose -DrivingRoute or -DrivingTurn, not both.' }
 if (-not [string]::IsNullOrWhiteSpace($DrivingScreenshotDirectory)) {
     if (-not $DrivingProbe) { throw '-DrivingScreenshotDirectory requires -DrivingProbe.' }
     if ($HiddenWindow) { throw '-DrivingScreenshotDirectory requires a visible game window for capture.' }
@@ -1010,6 +1014,7 @@ $config = @(
     ('water_source_probe=' + $WaterSourceProbe.IsPresent.ToString().ToLowerInvariant()),
     ('driving_probe=' + $DrivingProbe.IsPresent.ToString().ToLowerInvariant()),
     ('driving_route=' + $DrivingRoute.IsPresent.ToString().ToLowerInvariant()),
+    ('driving_turn=' + $DrivingTurn.IsPresent.ToString().ToLowerInvariant()),
     ('driving_screenshots=' + (-not [string]::IsNullOrWhiteSpace($DrivingScreenshotDirectory)).ToString().ToLowerInvariant()),
     ('capture_faction_map=' + $captureFactionMap.ToString().ToLowerInvariant()),
     ('faction_map_only=' + $FactionMapOnly.IsPresent.ToString().ToLowerInvariant()),
