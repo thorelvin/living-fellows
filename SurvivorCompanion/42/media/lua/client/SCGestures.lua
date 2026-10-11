@@ -110,7 +110,7 @@ local POOLS = {
         },
         practical = {
             "Sneeze recorded. Dust source likely.",
-            "One sneeze, no fever. Back to work.",
+            "One sneeze. Back to work.",
         },
     },
     ["gestures.sneeze.sneaking"] = {
@@ -147,7 +147,7 @@ local POOLS = {
             "I'll get water. Save your concern for the next one.",
         },
         practical = {
-            "Cough noted. Dry air, no fever yet.",
+            "Cough noted. Cold air, poor timing.",
             "Need warm water and a scarf. Work can wait.",
         },
     },

@@ -18594,6 +18594,12 @@ do
                     offenses[#offenses + 1] = offense
                     print(offense)
                 end
+            elseif type(key) == "number" then
+                failures = failures + 1
+                local offense = "CLEAN_TWIN_LINT " .. topic .. location
+                    .. ": malformed dialogue entry: " .. tostring(entry)
+                offenses[#offenses + 1] = offense
+                print(offense)
             elseif type(entry) == "table" then
                 inspectRows(topic, entry, location)
             end
@@ -18738,7 +18744,7 @@ do
         check(type(pool) == "table" and type(pool.common) == "table",
             "expanded dialogue topic has a common pool: " .. topic)
         for _, voice in ipairs(voices) do
-            local count = #pool.common + #(pool[voice] or {})
+            local count = #Dialogue._candidatesForTests(pool, voice, nil, false)
             check(count >= floor, topic .. "." .. voice .. " floor="
                 .. tostring(floor) .. " actual=" .. tostring(count))
         end
@@ -18786,6 +18792,9 @@ do
                     end
                     seenRaw[raw] = true
                     if type(clean) == "string" then seenClean[clean] = true end
+                elseif type(key) == "number" then
+                    problems[#problems + 1] = location
+                        .. ": malformed dialogue entry: " .. tostring(entry)
                 elseif type(entry) == "table" and key ~= "professions" then
                     lintRows(entry, path .. "." .. tostring(key))
                 end

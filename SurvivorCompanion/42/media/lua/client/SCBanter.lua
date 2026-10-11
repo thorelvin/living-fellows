@@ -121,7 +121,7 @@ local POOLS = {
             "My nerves keep asking for a cigarette. Persistent little clerks.",
             "I'd trade a week's bad television for one smoke.",
             { "Damn craving picked a fine time to get loud.", clean = "Darn craving picked a fine time to get loud." },
-            "Every pocket I check has everything except cigarettes.",
+            "My nerves have reduced the whole apocalypse to one cigarette.",
         },
         brave = { "I can face the dead. Apparently quitting is harder.",
             "Teeth, blood, apocalypse. Somehow the cigarette's what I miss." },
@@ -130,7 +130,7 @@ local POOLS = {
         caring = { "Sorry. I know we have bigger problems. I just need a smoke.",
             "If we find cigarettes, save me one. I'll share the rest." },
         practical = { "Low priority request: cigarettes, when we find some.",
-            "Nicotine supply empty. Add a pack to the next search." },
+            "Nicotine craving active. A smoke would help." },
         stressed = { "I need a cigarette. Badly." },
     },
     ["banter.crowd.yield"] = {
