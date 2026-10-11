@@ -149,10 +149,22 @@ assert(foreignCalls == 2 and companion.primary == nil,
     "the reactivated wrapper did not release the knife")
 
 local gifts = {}
+local spokenTopics = {}
+SurvivorCompanion.Dialogue = {
+    say = function(actor, topic)
+        assert(actor == companion)
+        spokenTopics[#spokenTopics + 1] = topic
+        return true
+    end,
+}
 SurvivorCompanion.Logistics = {
     noteGift = function(actor, item)
         assert(actor == companion)
         gifts[#gifts + 1] = item
+    end,
+    itemCategory = function(item)
+        return item.getCategory and item:getCategory() == "Weapon"
+            and "weapon" or "clothing"
     end,
     equipExactWearable = function(actor, item)
         assert(actor == companion)
@@ -167,9 +179,13 @@ SurvivorCompanion.Combat = {
 }
 local crowbar = newItem(playerInventory)
 function crowbar:getCategory() return "Weapon" end
+function crowbar:getModData() self.data = self.data or {} return self.data end
 ISTransferAction:transferItem(player, crowbar, playerInventory, companionInventory)
 assert(gifts[#gifts] == crowbar and crowbar.container == companionInventory,
     "confirmed gift to companion root did not request a loadout review")
+assert(spokenTopics[#spokenTopics] == "gift.weapon.thanks"
+    and crowbar:getModData().SC_GivenByPlayer == true,
+    "verified player weapon gift earns one thank-you and is marked as player-given")
 local bag = newItem(companionInventory)
 local bagInventory = { items = {}, containingItem = bag }
 function bagInventory:getContainingItem() return self.containingItem end

@@ -485,7 +485,10 @@ class UIStaticContractTests(unittest.TestCase):
             self.assertIn(rows, base)
         self.assertIn('"UI_SC_Base_JobRoleSelector"', base)
         self.assertIn('"set_base_role", "role"', base)
-        self.assertIn('resident and resident.duty and resident.role or "off"', base)
+        self.assertIn('row.order == "base_duty"', base)
+        self.assertIn('selectedRole, BASE_JOB_ROLES', base)
+        self.assertIn('"UI_SC_Base_JobRole_unassigned"', base)
+        self.assertNotIn('self:addInformationLine(panel, y, "UI_SC_Info_Message",\n                UI.text("UI_SC_Base_JobRoleHint"))', base)
         # The role-driven Base view has no per-job controls, except for a job
         # that stopped retrying on its own and now waits for the player.
         stalled = base[base.index("if #stalled > 0 then"):]

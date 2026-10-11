@@ -97,6 +97,12 @@ end
 -- CarNormal using 0.07 tank units for 158.53 tiles at 10/25 km/h. Inflate
 -- that measured rate for manoeuvres, then add the required 50% reserve.
 local fuelPerTile = { ["Base.CarNormal"] = 0.07 / 158.53 * 1.25 }
+-- Other vanilla and modded cars use the same physical driving path. Budget
+-- their fuel conservatively until each script has its own measured rate.
+local defaultFuelPerTile = fuelPerTile["Base.CarNormal"] * 2.5
+local function fuelRate(script)
+    return fuelPerTile[script] or defaultFuelPerTile
+end
 
 -- Step 2 initially supports a short, clear, forward driveway. Survey the
 -- full car-width strip in the loaded cell; a human-sized path is insufficient
@@ -299,8 +305,7 @@ function Car.preflight(records, zoneId, sqlId, destination)
     local accessReady, accessReason = Car.accessReady(vehicle,
         { x = entryX, y = entryY, z = 0 })
     if not accessReady then return nil, accessReason end
-    local rate = fuelPerTile[script]
-    if not rate then return nil, "fuel_model_uncalibrated" end
+    local rate = fuelRate(script)
     local distance = finite(route.roadLength) or 0
     local required = (distance * 2 + access * 2 + 30) * rate * 1.5
     if fuel < required then return nil, "fuel_insufficient" end
@@ -483,8 +488,7 @@ local function departReady(mission, trip, car)
         "getContainerContentAmount") end
     fuel = fuelOk and finite(fuel) or nil
     if fuel == nil then return false, "fuel_unreadable" end
-    local rate = fuelPerTile[trip.script]
-    if not rate then return false, "fuel_model_uncalibrated" end
+    local rate = fuelRate(trip.script)
     local required = (finite(route.roadLength) or 0) * rate
     if trip.leg == "outbound" then required = required * 2 end
     required = (required + 30 * rate) * 1.5
@@ -763,8 +767,7 @@ local function resumeReady(mission, trip, car)
     if tankOk and tank then fuelOk, fuel = call(tank, "getContainerContentAmount") end
     fuel = fuelOk and finite(fuel) or nil
     if fuel == nil then return false, "fuel_unreadable" end
-    local rate = fuelPerTile[trip.script]
-    if not rate then return false, "fuel_model_uncalibrated" end
+    local rate = fuelRate(trip.script)
     local distance = route.roadLength or 0
     if trip.leg == "outbound" then
         distance = distance + math.sqrt((trip.departure.x - trip.siteStop.x)^2

@@ -1097,7 +1097,7 @@ function Logistics.noteGift(actor, item)
     if not actor or not item then return false, "invalid_gift" end
     local gifts = pendingGifts[actor]
     if not gifts then
-        gifts = { items = {}, nextWeaponAt = 0 }
+        gifts = { items = {} }
         pendingGifts[actor] = gifts
     end
     gifts.items[item] = true
@@ -1149,6 +1149,23 @@ function Logistics.status(actor)
     audit.bagUpgrade = selectBagUpgrade(actor, audit)
     audit.clothingUpgrade = selectOwnedClothingUpgrade(actor, audit)
     reviewPendingGifts(actor, audit)
+    -- The vanilla transfer hook cannot see every way an item reaches a
+    -- companion (including restored and mod-inserted inventory). A recruited
+    -- follower should ready any usable carried weapon before meeting a threat,
+    -- even if the leader is still walking. Leave base workers' tools alone.
+    local data, dataOk = U().call(actor, "getModData")
+    local following = dataOk and type(data) == "table"
+        and data.SC_Recruited == true and data.SC_Order == "follow"
+    local weaponDue = current >= (state and tonumber(state.nextWeaponAt) or 0)
+    if weaponDue and SC.Combat and type(SC.Combat.weaponAvailability) == "function"
+        and type(SC.Combat.primaryWeaponUsable) == "function"
+        and SC.Combat.primaryWeaponUsable(actor) ~= true then
+        if following then
+            local _, usable = SC.Combat.weaponAvailability(actor)
+            audit.weaponReady = usable > 0
+        end
+        if audit.giftWeapon == true then audit.weaponReady = true end
+    end
     audit.packMove = selectPackMove(actor, audit)
     -- A move that just failed cools down instead of being proposed again.
     if audit.bagUpgrade and moveMemory.cooling(actor, "wear", audit.bagUpgrade.item, current) then
@@ -1181,7 +1198,7 @@ function Logistics.status(actor)
     end
     audit.surplus = surplus
     audit.shouldUnload = surplus ~= nil
-    audit.shouldManage = audit.giftWeapon == true
+    audit.shouldManage = audit.weaponReady == true
         or audit.bagUpgrade ~= nil or audit.clothingUpgrade ~= nil
         or audit.packMove ~= nil or audit.shouldUnload
     audit.overloaded = audit.capacity > 0 and audit.ratio > audit.hardRatio
@@ -1652,31 +1669,32 @@ function Logistics.update(actor, player, runtime)
         return executeTransaction(actor, existing)
     end
     local audit = Logistics.status(actor)
-    if audit.giftWeapon then
+    if audit.weaponReady then
         local gifts = pendingGifts[actor]
-        local attempted = gifts and tonumber(gifts.nextWeaponAt) or 0
-        if U().nowMs() >= attempted then
-            if gifts then gifts.nextWeaponAt = U().nowMs() + 1500 end
-            local equipped, reason = false, "combat_unavailable"
-            if SC.Combat and type(SC.Combat.equipPreferred) == "function" then
-                equipped, reason = SC.Combat.equipPreferred(actor, "best", {
-                    immediateCommand = false,
-                })
-            end
-            if equipped or reason == "no_usable_weapon" then
-                if gifts then
-                    for item in pairs(gifts.items) do
-                        if Logistics.itemCategory(item) == "weapon" then
-                            gifts.items[item] = nil
-                        end
+        local data, dataOk = U().call(actor, "getModData")
+        local preference = dataOk and type(data) == "table"
+            and data.SC_WeaponPriority or "best"
+        local equipped, reason = false, "combat_unavailable"
+        if SC.Combat and type(SC.Combat.equipPreferred) == "function" then
+            equipped, reason = SC.Combat.equipPreferred(actor, preference, {
+                immediateCommand = false,
+            })
+        end
+        local state = states[actor]
+        if state then
+            state.nextWeaponAt = U().nowMs() + (equipped and 0 or 1500)
+            state.auditAt = -math.huge
+        end
+        if equipped or reason == "no_usable_weapon" then
+            if gifts then
+                for item in pairs(gifts.items) do
+                    if Logistics.itemCategory(item) == "weapon" then
+                        gifts.items[item] = nil
                     end
                 end
-                local state = states[actor]
-                if state then state.auditAt = -math.huge end
             end
-            return equipped, reason
         end
-        return false, "gift_weapon_retry_pending"
+        return equipped, reason
     end
     if audit.bagUpgrade then
         local state = states[actor] or {}

@@ -673,11 +673,84 @@ local function settleNativeSeat(actor, vehicle, seat)
     return true
 end
 
+local function preparePassengerDoor(actor, vehicle, seat)
+    local partOk, part = invoke(vehicle, "getPassengerDoor", seat)
+    -- Some vehicles have no usable door part. Vanilla enters those seats
+    -- directly too; a present door must be opened before native seating.
+    if not partOk or part == nil then return true, nil end
+    local doorOk, door = invoke(part, "getDoor")
+    if not doorOk or door == nil then return true, nil end
+    local lockedOk, locked = invoke(door, "isLocked")
+    if not lockedOk then return false, "passenger door lock state is unavailable" end
+    if locked == true then
+        invoke(vehicle, "toggleLockedDoor", part, actor, false)
+        lockedOk, locked = invoke(door, "isLocked")
+        if not lockedOk then return false, "passenger door lock state is unavailable" end
+        if locked == true and seat == 0 then
+            -- The driver may reach the lock through a broken window. Smash
+            -- only after the ordinary unlock attempt failed, and verify that
+            -- the window really opened before touching the lock directly.
+            local windowPartOk, windowPart = invoke(part, "getChildWindow")
+            local windowOk, window = invoke(windowPart, "getWindow")
+            if not windowOk or window == nil then
+                windowOk, window = invoke(part, "findWindow")
+            end
+            if not windowOk or window == nil then
+                return false, "driver window is unavailable"
+            end
+            local hittableOk, hittable = invoke(window, "isHittable")
+            if not hittableOk then return false, "driver window state is unavailable" end
+            if hittable == true then
+                if windowPartOk and windowPart ~= nil then
+                    invoke(actor, "smashCarWindow", windowPart)
+                end
+                hittableOk, hittable = invoke(window, "isHittable")
+                -- The native attack can be delayed by its animation. Apply
+                -- the same window hit as the vanilla action completion if
+                -- the glass is still intact at this transaction boundary.
+                if hittableOk and hittable == true then
+                    invoke(window, "hit", actor)
+                    hittableOk, hittable = invoke(window, "isHittable")
+                end
+                if not hittableOk or hittable == true then
+                    return false, "driver window could not be smashed"
+                end
+            end
+            invoke(vehicle, "toggleLockedDoor", part, actor, false)
+            lockedOk, locked = invoke(door, "isLocked")
+            if not lockedOk then return false, "driver door lock state is unavailable" end
+            if locked == true then
+                local unlocked = invoke(door, "setLocked", false)
+                if not unlocked then return false, "driver door could not be unlocked" end
+                invoke(vehicle, "transmitPartDoor", part)
+                lockedOk, locked = invoke(door, "isLocked")
+            end
+        end
+        if not lockedOk or locked == true then
+            return false, "passenger door is locked"
+        end
+    end
+    local openOk, opened = invoke(door, "isOpen")
+    if not openOk then return false, "passenger door state is unavailable" end
+    if opened ~= true then
+        local changed = invoke(door, "setOpen", true)
+        if not changed then return false, "passenger door could not be opened" end
+        invoke(vehicle, "transmitPartDoor", part)
+        openOk, opened = invoke(door, "isOpen")
+        if not openOk or opened ~= true then
+            return false, "passenger door did not open"
+        end
+    end
+    return true, part
+end
+
 local function nativeBoard(actor, vehicle, seat)
     local positionOk, inside = invoke(vehicle, "getPassengerPosition", seat, "inside")
     if not positionOk or inside == nil then
         return false, "native vehicle inside passenger position is unavailable", true
     end
+    local doorReady, doorPart = preparePassengerDoor(actor, vehicle, seat)
+    if not doorReady then return false, doorPart, true end
     local enteredOk, entered = invoke(vehicle, "enter", seat, actor)
     if not enteredOk or entered ~= true then
         if rollbackNativeEntry(actor, vehicle) then
@@ -701,6 +774,13 @@ local function nativeBoard(actor, vehicle, seat)
             return false, settleReason .. "; rollback verified", true
         end
         return false, settleReason .. "; rollback was not verified", false
+    end
+    if doorPart ~= nil then
+        local doorOk, door = invoke(doorPart, "getDoor")
+        if doorOk and door ~= nil then
+            invoke(door, "setOpen", false)
+            invoke(vehicle, "transmitPartDoor", doorPart)
+        end
     end
     return true, "native_seat", false
 end

@@ -28,6 +28,7 @@ local originalTransferItem, transferItemWrapper
 local transferHookActive = false
 local inventoryMenuInstalled = false
 local nearbySignatures = setmetatable({}, { __mode = "k" })
+local lastWeaponThanksAt = setmetatable({}, { __mode = "k" })
 
 function Bridge.invalidateNearbyInventoryLabels()
     nearbySignatures = setmetatable({}, { __mode = "k" })
@@ -212,11 +213,25 @@ function Bridge.installTransferHook()
                     and result ~= nil and result ~= item
                     and holds(destination, result) then received = result end
                 if holds(destination, received) and not holds(source, item) then
+                    local data = safeMethod(received, "getModData")
+                    if type(data) == "table" then data.SC_GivenByPlayer = true end
                     if SC.InventoryIndex and type(SC.InventoryIndex.touch) == "function" then
                         SC.InventoryIndex.touch(receiver)
                     end
                     if SC.Logistics and type(SC.Logistics.noteGift) == "function" then
                         SC.Logistics.noteGift(receiver, received)
+                    end
+                    -- The verified transfer is the receipt: a failed or
+                    -- unrelated inventory drag must never earn a thank-you.
+                    if SC.Logistics and type(SC.Logistics.itemCategory) == "function"
+                        and SC.Logistics.itemCategory(received) == "weapon"
+                        and SC.Dialogue and type(SC.Dialogue.say) == "function" then
+                        local now = SC.GameplayUtil and SC.GameplayUtil.nowMs
+                            and SC.GameplayUtil.nowMs() or 0
+                        if now - (lastWeaponThanksAt[receiver] or -math.huge) >= 12000 then
+                            local spoken = SC.Dialogue.say(receiver, "gift.weapon.thanks")
+                            if spoken == true then lastWeaponThanksAt[receiver] = now end
+                        end
                     end
                 end
             end
@@ -243,6 +258,7 @@ end
 function Bridge.removeTransferHook()
     transferOwners = setmetatable({}, { __mode = "kv" })
     nearbySignatures = setmetatable({}, { __mode = "k" })
+    lastWeaponThanksAt = setmetatable({}, { __mode = "k" })
     transferHookActive = false
     if inventoryMenuInstalled and Events and Events.OnFillInventoryObjectContextMenu then
         Events.OnFillInventoryObjectContextMenu.Remove(Bridge.fillInventoryContextMenu)

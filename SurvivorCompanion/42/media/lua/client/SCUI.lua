@@ -1849,6 +1849,95 @@ end
 local SCUIClippedScrollPanel
 local SCUIQuestDialog = ISPanel:derive("SCUIQuestDialog")
 
+local SCUIGiftDialog = ISPanel:derive("SCUIGiftDialog")
+
+function SCUIGiftDialog:new(actor, item, player)
+    local screenWidth, screenHeight = screenSize()
+    local width, height = math.min(420, screenWidth - 32), math.min(190, screenHeight - 32)
+    local object = ISPanel.new(self, math.floor((screenWidth - width) / 2),
+        math.floor((screenHeight - height) / 2), width, height)
+    object.actor, object.item, object.player = actor, item, player
+    object.background = false
+    object.moveWithMouse = true
+    return object
+end
+
+function SCUIGiftDialog:createChildren()
+    ISPanel.createChildren(self)
+    local width = math.min(120, math.floor((self:getWidth() - 48) / 2))
+    local y = self:getHeight() - 44
+    self.acceptButton = ISButton:new(self:getWidth() - width * 2 - 32, y,
+        width, 30, UI.text("UI_SC_Gift_Accept"), self, SCUIGiftDialog.onButton)
+    self.acceptButton.scGiftAction = "accept"
+    self.acceptButton:initialise()
+    self:addChild(self.acceptButton)
+    self.declineButton = ISButton:new(self:getWidth() - width - 16, y,
+        width, 30, UI.text("UI_SC_Gift_Decline"), self, SCUIGiftDialog.onButton)
+    self.declineButton.scGiftAction = "decline"
+    self.declineButton:initialise()
+    self:addChild(self.declineButton)
+end
+
+function SCUIGiftDialog:close()
+    self:removeFromUIManager()
+    if UI._giftDialog == self then UI._giftDialog = nil end
+end
+
+function SCUIGiftDialog:onButton(button)
+    local gifts = SC.CompanionGifts
+    if not gifts then self:close() return end
+    if button.scGiftAction == "decline" then
+        gifts.decline(self.actor, self.player)
+        return
+    end
+    local accepted, reason = gifts.accept(self.actor, self.player)
+    if accepted then
+        playUISound("UIActivatePlayButton")
+    else
+        self.feedback = UI.text("UI_SC_Gift_Failed", UI.humanize(reason))
+    end
+end
+
+function SCUIGiftDialog:prerender()
+    ISPanel.prerender(self)
+    self:drawRect(0, 0, self:getWidth(), self:getHeight(), 0.96, 0.08, 0.09, 0.08)
+    self:drawRectBorder(0, 0, self:getWidth(), self:getHeight(), 0.95, 0.63, 0.57, 0.38)
+    local actorName = SC.GameplayUtil and SC.GameplayUtil.nameOf(self.actor) or "Companion"
+    local itemName = SC.GameplayUtil and SC.GameplayUtil.itemName(self.item) or "item"
+    self:drawText(fitText(UIFont.Medium, UI.text("UI_SC_Gift_Title", actorName),
+        self:getWidth() - 32), 16, 18, 0.96, 0.90, 0.70, 1, UIFont.Medium)
+    self:drawText(fitText(UIFont.Small, UI.text("UI_SC_Gift_Offer", actorName, itemName),
+        self:getWidth() - 32), 16, 70, 0.91, 0.91, 0.87, 1, UIFont.Small)
+    if self.feedback then
+        self:drawText(fitText(UIFont.Small, self.feedback, self:getWidth() - 32),
+            16, 102, 0.96, 0.38, 0.32, 1, UIFont.Small)
+    end
+end
+
+function UI.canOpenGiftOffer()
+    return UI._giftDialog == nil and UI._questDialog == nil
+        and not (SC.MedicalUI and type(SC.MedicalUI.current) == "function"
+            and SC.MedicalUI.current() ~= nil)
+end
+
+function UI.openGiftOffer(actor, item, player)
+    if not UI.canOpenGiftOffer() or not actor or not item or not player then
+        return false, "gift_dialog_busy"
+    end
+    local dialog = SCUIGiftDialog:new(actor, item, player)
+    dialog:initialise()
+    dialog:instantiate()
+    dialog:addToUIManager()
+    dialog:setAlwaysOnTop(true)
+    UI._giftDialog = dialog
+    return true, "gift_dialog_opened"
+end
+
+function UI.closeGiftOffer()
+    if UI._giftDialog then UI._giftDialog:close() end
+    return true
+end
+
 function SCUIQuestDialog:new(factionId, mode, contract)
     local screenWidth, screenHeight = screenSize()
     local width, height = math.min(620, screenWidth - 32), math.min(440, screenHeight - 32)
@@ -2526,7 +2615,7 @@ function SCUIDetail:addBooleanCommand(panel, y, labelKey, command, rowField, sel
 end
 
 function SCUIDetail:addCommandSelector(panel, y, labelKey, currentValue, options,
-        command, payloadKey)
+        command, payloadKey, tooltipKey)
     local metrics = self.metrics or UI.layoutMetrics()
     local availableWidth = math.max(100, panel:getWidth() - 28)
     local label = UI.text(labelKey)
@@ -2588,7 +2677,7 @@ function SCUIDetail:addCommandSelector(panel, y, labelKey, currentValue, options
     combo.scAvailabilityCommand = availabilityCommand
     combo.scAvailabilityPayload = tableHasEntries(availabilityPayload)
         and availabilityPayload or nil
-    combo.tooltip = enabled and label
+    combo.tooltip = enabled and UI.text(tooltipKey or labelKey)
         or (reasonArgument ~= nil and UI.text(reasonKey, reasonArgument) or UI.text(reasonKey))
     panel:addChild(combo)
     panel.scContentWidth = panel:getWidth()
@@ -3597,17 +3686,20 @@ function SCUIDetail:buildBase(panel, row)
         if row then
             local resident = SC.BaseLife and SC.BaseLife.resident
                 and SC.BaseLife.resident(row.id) or nil
+            -- A saved role is only a preference while the companion is off duty.
+            -- Derive the summary and selector from one active assignment so a
+            -- stale resident row cannot say "Generalist | On" beside "No job".
+            local assigned = resident and resident.duty == true
+                and row.order == "base_duty"
+            local selectedRole = assigned and resident.role or "off"
             y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
                 UI.text("UI_SC_Base_Resident", row.name,
-                    UI.text("UI_SC_Base_JobRole_"
-                        .. (resident and resident.role or "generalist")),
-                    resident and UI.booleanText(resident.duty == true)
-                        or UI.booleanText(false)))
+                    UI.text(assigned and ("UI_SC_Base_JobRole_" .. resident.role)
+                        or "UI_SC_Base_JobRole_unassigned"),
+                    UI.booleanText(assigned == true)))
             y = self:addCommandSelector(panel, y, "UI_SC_Base_JobRoleSelector",
-                resident and resident.duty and resident.role or "off",
-                BASE_JOB_ROLES, "set_base_role", "role")
-            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
-                UI.text("UI_SC_Base_JobRoleHint"))
+                selectedRole, BASE_JOB_ROLES, "set_base_role", "role",
+                "UI_SC_Base_JobRoleHint")
             local restriction = SC.BaseLife and SC.BaseLife.restriction
                 and SC.BaseLife.restriction(row.id) or nil
             if restriction then
@@ -5823,6 +5915,11 @@ end
 
 function UI.close()
     if UI._questDialog then UI._questDialog:close() end
+    if SC.CompanionGifts and type(SC.CompanionGifts.reset) == "function" then
+        SC.CompanionGifts.reset()
+    else
+        UI.closeGiftOffer()
+    end
     if SC.BaseVisuals and type(SC.BaseVisuals.setEnabled) == "function" then
         SC.BaseVisuals.setEnabled(false)
     end

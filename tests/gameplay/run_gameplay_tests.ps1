@@ -98,6 +98,7 @@ $LuaFiles += @(
     'SCInfectionCrisis.lua',
     'SCAutonomy.lua',
     'SCCommands.lua',
+    'SCCompanionGifts.lua',
     'SCFactionRecruitment.lua',
     'SCDecision.lua'
     ) | ForEach-Object { Join-Path $ClientRoot $_ }
@@ -193,6 +194,12 @@ try {
         )
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @transferFiles
         if ($LASTEXITCODE -ne 0) { throw 'Companion inventory transfer harness failed.' }
+        $giftFiles = @(
+            (Join-Path $ClientRoot 'SCCompanionGifts.lua'),
+            (Join-Path $TestRoot 'companion_gifts_harness.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @giftFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Companion gift offer harness failed.' }
     }
     finally {
         Pop-Location

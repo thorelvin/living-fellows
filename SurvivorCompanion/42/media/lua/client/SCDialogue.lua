@@ -1892,6 +1892,40 @@ local pools = {
             "That one had a wedding ring. Hope she got out. Hope she got far.",
         } } },
     },
+    ["gift.weapon.thanks"] = {
+        common = {
+            "Thanks. I'll use it when I need it.",
+            "Thanks for trusting me with this.",
+            "I appreciate it. I'll keep it ready.",
+            "Good. I was tired of facing them empty-handed.",
+            "Thank you. This might keep both of us alive.",
+            "I'll take care of it. And I'll use it when it counts.",
+        },
+        brave = { "That's more like it. Thanks!", "Now I can pull my weight. Thanks." },
+        cautious = { "Thanks. I'll save it for when we really need it." },
+        caring = { "Thank you. I'll use it to keep us safe." },
+        practical = { "Received. I'll keep it in working order. Thanks." },
+    },
+    ["gift.offer"] = {
+        common = {
+            "I saved this for you. Would you take it?",
+            "Here. I thought you might like this.",
+            "You've looked after me. Let me give you something back.",
+            "I found something I wanted you to have.",
+        },
+        brave = { "Don't make a fuss. Just take it, all right?" },
+        cautious = { "I've been holding on to this. I trust you with it." },
+        caring = { "You deserve something good for once. Here." },
+        practical = { "I set this aside for you. It might help." },
+    },
+    ["gift.accepted"] = { common = {
+        "Good. I'm glad you took it.", "It's yours. Put it to good use.",
+        "You would have done the same for me.",
+    } },
+    ["gift.declined"] = { common = {
+        "All right. I'll keep it safe.", "No trouble. Maybe another time.",
+        "Fair enough. The offer still meant something to me.",
+    } },
     ["work.cannot"] = { common = {
         "I can't do that safely.", "That won't work from here.",
         "I can't complete that as things stand.", "I need a better setup before I try that.",

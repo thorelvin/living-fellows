@@ -2,11 +2,16 @@
 
 # Changelog
 
-## Unreleased - Experimental car expeditions
+## 0.26.37 - Car expeditions and camp gifts
 
 - Added ground-floor Parking areas to camp marking and overlays. Expeditions now offer **Drive car** alongside walking routes, with a selected car, visible refusal reasons, and checks for real seats, key, fuel, mechanical condition and road access.
 - The squad boards through physical doors, drives under the companion leader's second view, gets out for the site, and returns to the marked parking area. Vehicle failure enters verified foot recovery; blocked exits and unsafe parking hold the mission with a reason.
 - Car missions save their exact vehicle, roster seats, parking snapshot and leg. Reloaded trips check the car and team before automatically re-boarding; explicit holds remain held. The combined native bridge protocol advances to `42.21-isocompanion-20`.
+- Skilled companions can hotwire a parked car from the driver's seat, then get out and report whether it worked. Hotwired cars need no key for companion driving, including vehicles beyond the standard sedan; an uncalibrated vehicle gets a conservative fuel budget.
+- Boarding now opens the real door first. A driver who cannot unlock it breaks the driver window, reaches the lock, opens the door and then enters. Locked passenger doors remain locked when their owner cannot open them.
+- Cars still run down isolated zombies. A group of six or more ahead enters the existing car-width avoidance scan, so the driver steers around it or stops when there is no clear route.
+- Recruited followers ready usable carried weapons before a fight. Unarmed followers split evenly between fighting and withdrawing. Gifts of weapons earn a thank-you, and close companions can rarely walk over and offer a small item with an accept or decline choice.
+- The base role summary agrees with its job selector when a role is not assigned, and the job hint is available on hover.
 
 ## 0.26.36 - Your own companion settings
 

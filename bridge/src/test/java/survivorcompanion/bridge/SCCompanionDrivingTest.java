@@ -211,6 +211,22 @@ public final class SCCompanionDrivingTest {
                 "contact follows the car's heading: facing north, the front is up the map");
     }
 
+    private static void hordeAvoidance() {
+        HashMap<Long, Integer> zombies = new HashMap<>();
+        SCHordeAvoidance.World world = (x, y, z) -> zombies.getOrDefault(Grid.key(x, y), 0);
+        for (int x = 104; x <= 108; x++) zombies.put(Grid.key(x, 100), 1);
+        require(!SCHordeAvoidance.ahead(world, 100.5f, 100.5f, 0, 1, 0, 1, 2.4f),
+                "five zombies ahead remain driveable");
+        zombies.put(Grid.key(109, 100), 1);
+        require(SCHordeAvoidance.ahead(world, 100.5f, 100.5f, 0, 1, 0, 1, 2.4f),
+                "six zombies in the approach trigger the route's obstacle avoidance");
+        zombies.clear();
+        zombies.put(Grid.key(95, 100), 12);
+        zombies.put(Grid.key(106, 106), 12);
+        require(!SCHordeAvoidance.ahead(world, 100.5f, 100.5f, 0, 1, 0, 1, 2.4f),
+                "zombies behind or beside the route do not force a turn");
+    }
+
     private static final class Vehicle extends BaseVehicle {
         final CarController controller = new CarController();
         IsoGameCharacter driver;
@@ -313,6 +329,7 @@ public final class SCCompanionDrivingTest {
         cruiseRules();
         laneScan();
         ramContact();
+        hordeAvoidance();
         playerBoardingAndStatus();
         System.out.println("COMPANION_DRIVING_PASS checks=" + checks);
     }

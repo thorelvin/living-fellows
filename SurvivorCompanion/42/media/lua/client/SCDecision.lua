@@ -628,12 +628,13 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         -- settle, like idle work; being overloaded does not.
         if ok and load and load.shouldManage and commands.temporaryStay ~= true
             and (load.overloaded or load.giftPending == true
+            or load.weaponReady == true
             or not (commands.recruited and commands.order == "follow")
             or leaderSettled(actor, player, current)) then
             -- Overload beats routine follow/work, but never urgent medicine,
             -- needs, retreat, or combat survival.
             add("logistics", load.overloaded and 92
-                or load.giftPending and 82 or 74, false, load)
+                or (load.giftPending or load.weaponReady) and 82 or 74, false, load)
         end
     end
 

@@ -2551,6 +2551,15 @@ local function groundedStrikeBarrier(actor, target, allowWindowStrike)
     return nil
 end
 
+-- Keep an unarmed follower's response stable across decisions and save/load.
+-- Half try to fight by shoving and finishing grounded zombies; half break
+-- contact, using a shove only when the zombie is already at body contact.
+function Combat.unarmedResponse(actor)
+    local utility = U()
+    return utility.stableHash(tostring(utility.idOf(actor)) .. ":unarmed-response:v1") % 2 == 0
+        and "withdraw" or "fight"
+end
+
 local function actionUtilities(actor, player, snapshot, target, weapon, inventory, commands,
         readiness)
     local utility = U()
@@ -2562,16 +2571,23 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
     local fatiguePenalty = (1 - readiness.endurance) * 24
     local actions = {}
     local retreat = retreatUtility(actor, snapshot, weapon, readiness)
+    local unarmedWithdraw = weapon == nil and commands.recruited == true
+        and commands.order == "follow" and Combat.unarmedResponse(actor) == "withdraw"
+    if unarmedWithdraw then
+        retreat = math.max(retreat, groundedTarget(target.actor) and 100
+            or 120 + pressure * 4)
+    end
     actions[#actions + 1] = { kind = "retreat", score = retreat }
     local grounded = groundedTarget(target.actor)
     -- A carried melee weapon is the normal close-range answer. Offering the
     -- generic shove beside it made shove's higher base score beat axes/cleavers.
     -- Firearms may still shove at contact, and unarmed combat still relies on it.
     if not grounded and (not weapon or weapon.ranged)
-        and distance <= (utility.config("combatShoveDistance") or 1.35) then
+        and distance <= (utility.config("combatShoveDistance") or 1.35)
+        and (not unarmedWithdraw or (distance <= 0.8 and target.attacking == true)) then
         actions[#actions + 1] = {
             kind = "shove",
-            score = 62 + pressure * 7 + readiness.strength * 1.3
+            score = (unarmedWithdraw and 140 or 62) + pressure * 7 + readiness.strength * 1.3
                 + readiness.nimble * 0.5 - fatiguePenalty * 0.35
                 + (isolatedFront and 10 or -8),
         }
@@ -2719,7 +2735,7 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
                 }
             end
         end
-    elseif not weapon and not grounded then
+    elseif not weapon and not grounded and not unarmedWithdraw then
         actions[#actions + 1] = { kind = distance <= 1.35 and "shove" or "escape", score = 58 + pressure * 8 }
     end
     if SC.Topology and type(SC.Topology.strikeBarrier) == "function" then

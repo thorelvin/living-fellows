@@ -62,6 +62,7 @@ final class SCCompanionDriver {
     /** How far to look to each side when choosing which way to turn round. */
     private static final float TURN_ROOM_LOOK = 10.0f;
     private static final float TURN_ROOM_ANGLE = (float) Math.toRadians(70.0);
+    private static final long HORDE_AVOID_HOLD_NANOS = 3_000_000_000L;
     /** A companion's car kills any zombie it touches while moving at least this fast. */
     static final float RAM_MIN_KMH = 1.5f;
     /** Squares around the car's centre checked for zombies in contact. */
@@ -73,6 +74,7 @@ final class SCCompanionDriver {
      */
     static final float RAM_MARGIN = 0.5f;
     private int zombiesKilled;
+    private long hordeAvoidUntil;
 
     boolean isActive() {
         return active;
@@ -163,6 +165,7 @@ final class SCCompanionDriver {
         zombiesKilled = 0;
         nextStartAt = 0L;
         nextScanAt = 0L;
+        hordeAvoidUntil = 0L;
         lastScan.copyFrom(new SCLaneScan.Result());
         follower = null;
         turnRequested = false;
@@ -221,6 +224,7 @@ final class SCCompanionDriver {
         vehicle = null;
         follower = null;
         turnRequested = false;
+        hordeAvoidUntil = 0L;
         cruiseKmh = 0.0f;
         steering = 0.0f;
         lastInput = new SCDriveControl.Input(0.0f, false, false, false);
@@ -319,11 +323,17 @@ final class SCCompanionDriver {
         WorldView world = new WorldView(current);
         if (now - nextScanAt >= 0L) {
             nextScanAt = now + SCAN_INTERVAL_NANOS;
+            if (SCHordeAvoidance.ahead(world, x, y, z, headingX, headingY,
+                    body[0], body[1])) {
+                hordeAvoidUntil = now + HORDE_AVOID_HOLD_NANOS;
+            }
+            world.avoidZombies = now - hordeAvoidUntil < 0L;
             lastScan.copyFrom(SCLaneScan.scan(world, x, y, z, headingX, headingY, body[0],
                     body[1] + 0.1f, lookAheadFor(follower.cruiseKmh())));
             lastRearScan.copyFrom(SCLaneScan.scan(world, x, y, z, -headingX, -headingY, body[0],
                     body[1] + 0.1f, REAR_LOOK));
         }
+        world.avoidZombies = now - hordeAvoidUntil < 0L;
         if (turnRequested) {
             turnRequested = false;
             follower.beginTurn((float) Math.atan2(headingY, headingX),
@@ -456,13 +466,26 @@ final class SCCompanionDriver {
     }
 
     /** The loaded world as the lane scan sees it, ignoring the scanning car. */
-    private static final class WorldView implements SCLaneScan.World {
+    private static final class WorldView implements SCLaneScan.World, SCHordeAvoidance.World {
         private final BaseVehicle self;
         private final IsoCell cell;
+        private boolean avoidZombies;
 
         WorldView(BaseVehicle self) {
             this.self = self;
             this.cell = self.getCell();
+        }
+
+        @Override
+        public int liveZombiesAt(int x, int y, int z) {
+            IsoGridSquare square = cell == null ? null : cell.getGridSquare(x, y, z);
+            ArrayList<IsoMovingObject> movers = square == null ? null : square.getMovingObjects();
+            if (movers == null) return 0;
+            int count = 0;
+            for (IsoMovingObject mover : movers) {
+                if (mover instanceof IsoZombie zombie && !zombie.isDead()) count++;
+            }
+            return count;
         }
 
         @Override
@@ -477,8 +500,12 @@ final class SCCompanionDriver {
             if (movers != null) {
                 for (int index = 0; index < movers.size(); index++) {
                     IsoMovingObject mover = movers.get(index);
-                    // Zombies are run down (ramZombies), never braked or steered for.
-                    if (mover instanceof IsoZombie) continue;
+                    // Small groups remain driveable. A dense group ahead makes
+                    // the existing car-width route scan steer around or stop.
+                    if (mover instanceof IsoZombie zombie && !zombie.isDead()) {
+                        if (avoidZombies) return SCLaneScan.CHARACTER;
+                        continue;
+                    }
                     if (mover instanceof IsoGameCharacter character
                             && !character.isDead() && character.getVehicle() == null) {
                         return SCLaneScan.CHARACTER;

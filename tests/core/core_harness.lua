@@ -1398,6 +1398,31 @@ function SC.__testCompanionDriving()
     function car:playPassengerAnim() end
     function car:getCell() return vehicleCell end
     function car:getKeyId() return 4242 end
+    local driverDoor = { locked = true, opened = false }
+    function driverDoor:isLocked() return self.locked end
+    function driverDoor:setLocked(value) self.locked = value end
+    function driverDoor:isOpen() return self.opened end
+    function driverDoor:setOpen(value) self.opened = value end
+    local driverWindow = { intact = true }
+    function driverWindow:isHittable() return self.intact end
+    local windowPart = { getWindow = function() return driverWindow end }
+    local doorPart = { getDoor = function() return driverDoor end,
+        getChildWindow = function() return windowPart end }
+    function car:getPassengerDoor(seat) return seat == 0 and doorPart or nil end
+    function car:toggleLockedDoor()
+        self.unlockAttempts = (self.unlockAttempts or 0) + 1
+        if not driverWindow.intact then driverDoor.locked = false end
+    end
+    function car:transmitPartDoor() self.doorTransmits = (self.doorTransmits or 0) + 1 end
+    local priorSmash = actor.smashCarWindow
+    actor.smashCarWindow = function(_, part)
+        if part == windowPart then driverWindow.intact = false end
+    end
+    local nativeEnter = car.enter
+    car.enter = function(self, seat, candidate)
+        if seat == 0 and not driverDoor.opened then return false end
+        return nativeEnter(self, seat, candidate)
+    end
     local priorSquare, priorPx, priorPy = actor.square, actor.px, actor.py
 
     local followerSeat, followerReason = SC.Vehicle.preflightBoard(actor, car, 0)
@@ -1435,8 +1460,13 @@ function SC.__testCompanionDriving()
     check(boardedDriver and driverReason == "native_seat" and car:getDriver() == actor
             and car.positions[0] == "inside"
             and driverRecord.runtime.vehicle.seat == 0
-            and SC.ActionSupervisor.snapshot(actor).phase == "idle",
-        "the driver's seat uses the verified boarding transaction: " .. tostring(driverReason))
+            and SC.ActionSupervisor.snapshot(actor).phase == "idle"
+            and car.unlockAttempts == 2 and not driverWindow.intact
+            and not driverDoor.locked and not driverDoor.opened
+            and car.doorTransmits >= 2,
+        "the locked driver door first tries its lock, then breaks glass and opens before seating: "
+            .. tostring(driverReason))
+    actor.smashCarWindow = priorSmash
 
     local priorBridge = rawget(_G, "SCBridge")
     check(not SC.Vehicle.hasPlayerAboard(car),
@@ -1775,6 +1805,11 @@ function target:getY() return self.square.y + 0.5 end
 function target:getZ() return self.square.z end
 function target:isOnFloor() return false end
 
+-- The rejection contract needs a shove attempt. A following companion may
+-- instead take its stable unarmed withdrawal policy, so use guard for this
+-- one integration probe and restore Follow afterward.
+check(SC.Commands.issue(record.id, "guard", nil, nil),
+    "combat rejection probe selects a shove-capable order")
 local combatOk, combatReason = SC.Combat.update(actor, nil, {
     snapshot = {
         threats = {{ actor = target, distanceSq = 1, visible = true, attacking = true }},
@@ -1784,6 +1819,8 @@ local combatOk, combatReason = SC.Combat.update(actor, nil, {
 check(not combatOk and string.find(tostring(combatReason), "rejected", 1, true) ~= nil
     and provider.lastRejectedAction == "shove",
     "real Combat -> GameplayUtil -> Actor -> NativeActions chain propagates rejection")
+check(SC.Commands.issue(record.id, "follow", nil, nil),
+    "combat rejection probe restores Follow")
 
 local directProvider = {
     testOnly = true,

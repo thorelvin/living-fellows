@@ -632,6 +632,7 @@ local doingLabels = {
     idle = "keeping watch",
     investigate_sound = "checking a noise",
     missing_tool = "asking for a tool",
+    social_gift = "bringing you a gift",
     lateral_kite = "keeping distance from a threat",
     leave_base = "leaving camp",
     leave_group = "going my own way",

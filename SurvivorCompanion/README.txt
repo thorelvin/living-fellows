@@ -1,7 +1,7 @@
-Living Fellows 0.26.36 - public playtest
+Living Fellows 0.26.37 - public playtest
 
-This playtest adds Options > Mods > Living Fellows: companion chatter, coughs
-and sneezes, ordinary colds, and protection for recruits from your attacks.
+This playtest adds companion driving, hotwiring and car expeditions, alongside
+rare camp gifts and companion loadout improvements.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added

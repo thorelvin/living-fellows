@@ -42,6 +42,11 @@ T.cars[1].hotwired = true
 check(Car.preflight(T.team, T.zone.id, 44, destination) ~= nil
     and Car.ensureDriverKey(T.team, T.cars[1]) == true,
     "hotwired car dispatches and starts without inventing or transferring a key")
+T.cars[1].script = "Base.Van"
+local hotwiredVan = Car.preflight(T.team, T.zone.id, 44, destination)
+check(hotwiredVan ~= nil and hotwiredVan.fuelRequired > ready.fuelRequired,
+    "a hotwired non-CarNormal vehicle uses a conservative fuel budget and can depart")
+T.cars[1].script = "Base.CarNormal"
 T.cars[1].hotwired = false
 T.key = nil
 local passengerInventory = T.team[2].actor.inventory

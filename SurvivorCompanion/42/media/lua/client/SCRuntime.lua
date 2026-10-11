@@ -33,6 +33,7 @@ require "SCCommunity"
 require "SCQuirks"
 require "SCAutonomy"
 require "SCCommands"
+require "SCCompanionGifts"
 require "SCExpeditionRoute"
 require "SCExpeditionCar"
 require "SCVehicleHotwire"
@@ -1121,6 +1122,12 @@ local function banterTask(current)
     end
 end
 
+local function companionGiftTask(current)
+    if SC.CompanionGifts and type(SC.CompanionGifts.pulse) == "function" then
+        SC.CompanionGifts.pulse(player(), SC.Registry.snapshot(), current)
+    end
+end
+
 -- Body language: yawns, stretches, sneezes and workout chatter. Animation only.
 local function gesturesTask(current)
     if SC.Gestures ~= nil and type(SC.Gestures.update) == "function" then
@@ -1186,6 +1193,7 @@ local function registerTasks()
             communityTask, "background" },
         { "banter", SC.Config.get("banterPulseIntervalMs"), 16,
             banterTask, "background", false, false, 5000 },
+        { "companion-gifts", 5000, 15, companionGiftTask, "background" },
         { "gestures", SC.Config.get("gesturesPulseIntervalMs"), 15,
             gesturesTask, "background" },
         { "diary", SC.Config.get("diaryPulseIntervalMs"), 14,
@@ -1946,6 +1954,7 @@ function runtime.reset(detach)
     resetModule("faction contracts", SC.FactionContracts, "reset")
     resetModule("decision", SC.Decision, "resetAll")
     resetModule("ui", SC.UI, "reset")
+    resetModule("companion gifts", SC.CompanionGifts, "reset")
     resetModule("view control", SC.ViewControl, "reset")
     resetModule("steering", SC.Steering, "reset")
     resetModule("base work", SC.BaseWork, "reset")

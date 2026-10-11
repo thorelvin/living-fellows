@@ -10086,7 +10086,13 @@ end
 
 do
 local stompStartClock = clock
-local stompActor = actor("sc-shove-stomp", 8, -7, { inventory = inventory() })
+local stompId = "sc-shove-stomp"
+for serial = 1, 20 do
+    if SurvivorCompanion.GameplayUtil.stableHash(
+        stompId .. ":unarmed-response:v1") % 2 == 1 then break end
+    stompId = "sc-shove-stomp-" .. serial
+end
+local stompActor = actor(stompId, 8, -7, { inventory = inventory() })
 -- Keep this fixture genuinely unarmed; normal command initialization may assign
 -- a keepsake, and the deliberately broad table mock gives every item weapon-like
 -- accessors even though the live Photo/Journal classes are not HandWeapons.
@@ -10130,6 +10136,50 @@ SurvivorCompanion.Combat.reset(stompActor)
 registry[stompActor.id] = nil
 stompZed.dead = true
 clock = stompStartClock
+end
+
+do
+    local responder, withdrawer
+    for index = 1, 40 do
+        local candidate = actor("sc-unarmed-style-" .. index, 8, -7,
+            { inventory = inventory() })
+        local style = SurvivorCompanion.Combat.unarmedResponse(candidate)
+        if style == "fight" and not responder then responder = candidate end
+        if style == "withdraw" and not withdrawer then withdrawer = candidate end
+    end
+    check(responder ~= nil and withdrawer ~= nil
+            and SurvivorCompanion.Combat.unarmedResponse(responder) == "fight"
+            and SurvivorCompanion.Combat.unarmedResponse(withdrawer) == "withdraw",
+        "unarmed follow tactics split by stable companion identity")
+    local testZombie = zombie(9, -7, { attacking = false })
+    local danger = { threats = {}, allies = {}, escapeSquares = {},
+        threatCount = 1, immediateCount = 1, closeImmediateCount = 1,
+        pressure = 1, encircled = false }
+    local target = { actor = testZombie, square = testZombie.square,
+        distanceSq = 1, visible = true, obstructed = false,
+        attacking = false, score = 90 }
+    danger.threats[1] = target
+    local followOrder = { recruited = true, order = "follow",
+        combatDoctrine = "close_defense" }
+    local function scores(person)
+        local readiness = SurvivorCompanion.Combat.readiness(person, danger,
+            nil, followOrder)
+        local actions = SurvivorCompanion.Combat._actionUtilitiesForTests(
+            person, player, danger, target, nil, person.inventory,
+            followOrder, readiness)
+        local found = {}
+        for _, action in ipairs(actions or {}) do
+            found[action.kind] = math.max(found[action.kind] or -math.huge,
+                action.score or -math.huge)
+        end
+        return found
+    end
+    local fighting = scores(responder)
+    local withdrawing = scores(withdrawer)
+    check(fighting.shove ~= nil and withdrawing.retreat ~= nil
+            and withdrawing.shove == nil,
+        "fighting followers offer shoves while withdrawing followers break contact")
+    testZombie.dead = true
 end
 
 do
@@ -10725,8 +10775,9 @@ do
     -- combat decisions so a large party stops oscillating targets, is refreshed on
     -- every offensive action, and is released when the owner disengages.
     local leaseClock = 900000
-    local leaseOwner = actor("sc-lease-owner", 30, 30, { inventory = inventory({ tacticalBat }) })
-    leaseOwner.primary = tacticalBat
+    local leaseBat = item("Base.LeaseBat", "Weapon", { damage = 1.4, range = 1.55 })
+    local leaseOwner = actor("sc-lease-owner", 30, 30, { inventory = inventory({ leaseBat }) })
+    leaseOwner.primary = leaseBat
     local leaseZed = zombie(31, 30, { attacking = true, target = leaseOwner })
     local leaseSnapshot = {
         threats = { { actor = leaseZed, square = leaseZed.square, distanceSq = 1,
@@ -10743,14 +10794,16 @@ do
         immediateCount = 0, closeThreatCount = 0, pressure = 0,
         player = { available = false, danger = 0, immediateThreats = 0 },
     }
-    local leasePeer = actor("sc-lease-peer", 30, 31, { inventory = inventory({ tacticalBat }) })
+    local leasePeer = actor("sc-lease-peer", 30, 31, { inventory = inventory({ leaseBat }) })
 
     clock = leaseClock
-    SurvivorCompanion.Combat.update(leaseOwner, player, { snapshot = leaseSnapshot })
+    local leaseStarted, leaseReason = SurvivorCompanion.Combat.update(
+        leaseOwner, player, { snapshot = leaseSnapshot })
     clock = leaseClock + 1000
     local heldScores = SurvivorCompanion.Combat.scoreTargets(leasePeer, player, leaseSnapshot, nil)
     check(#heldScores == 1 and heldScores[1].claimedByAlly == true,
-        "the engagement lease still holds the target 1s after the owner last engaged (would lapse at 450ms)")
+        "the engagement lease still holds the target 1s after the owner last engaged (would lapse at 450ms): "
+            .. tostring(leaseStarted) .. ":" .. tostring(leaseReason))
 
     clock = leaseClock + 2100
     local lapsedScores = SurvivorCompanion.Combat.scoreTargets(leasePeer, player, leaseSnapshot, nil)
@@ -11004,8 +11057,12 @@ registry[wrongReloader.id] = nil
     local unarmedZed = zombie(9, -8, { attacking = true, target = unarmedActor })
     local defended = SurvivorCompanion.Combat.update(
         unarmedActor, player, { snapshot = combatSnapshot(unarmedZed) })
-    check(defended and unarmedActor.lastIntent.action == "shove",
-        "a firearm-only actor with no ammunition chooses unarmed close defense; got "
+    local dryStyle = SurvivorCompanion.Combat.unarmedResponse(unarmedActor)
+    local dryAction = unarmedActor.lastIntent and unarmedActor.lastIntent.action
+    check(defended and ((dryStyle == "fight" and dryAction == "shove")
+        or (dryStyle == "withdraw"
+            and (dryAction == "corner_escape" or dryAction == "combat_retreat"))),
+        "a firearm-only actor with no ammunition uses its stable unarmed response; got "
             .. tostring(unarmedActor.lastIntent and unarmedActor.lastIntent.action)
             .. ":" .. tostring(unarmedActor.lastIntent and unarmedActor.lastIntent.item
                 and unarmedActor.lastIntent.item.itemType))
@@ -12909,6 +12966,33 @@ check(weaponAudit.packMove == nil
         and not weaponBagInventory:contains(giftedBreadKnife),
     "newly gifted weapons remain at inventory root instead of entering a packing loop")
 SurvivorCompanion.Logistics.reset(weaponCarrier)
+end
+
+do
+    local readyAxe = item("Base.FollowReadyAxe", "Weapon", {
+        damage = 1.7, range = 1.5,
+    })
+    local follower = actor("sc-follow-ready-carried", 8, 3,
+        { inventory = inventory({ readyAxe }) })
+    registry[follower.id] = follower
+    check(SurvivorCompanion.Commands.issue(follower.id, "follow", nil, player),
+        "weapon-ready fixture starts following")
+    local load = SurvivorCompanion.Logistics.status(follower)
+    local equipped, equipReason = SurvivorCompanion.Logistics.update(
+        follower, player, { snapshot = {
+            threats = {}, threatCount = 0, immediateCount = 0, pressure = 0,
+        } })
+    check(load.weaponReady == true and equipped == true
+            and follower:getPrimaryHandItem() == readyAxe,
+        "a follower readies an existing weapon without a gift event: "
+            .. tostring(equipReason))
+    follower:setPrimaryHandItem(nil)
+    SurvivorCompanion.Logistics.reset(follower)
+    check(SurvivorCompanion.Logistics.status(follower).weaponReady == true,
+        "a follower readies its carried weapon again after a loadout reset")
+    SurvivorCompanion.Commands.reset(follower)
+    SurvivorCompanion.Logistics.reset(follower)
+    registry[follower.id] = nil
 end
 
 do
