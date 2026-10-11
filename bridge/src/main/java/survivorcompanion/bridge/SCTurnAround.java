@@ -56,8 +56,12 @@ final class SCTurnAround {
     private String reason = "";
 
     SCTurnAround(float targetHeading, int side) {
-        this.targetHeading = targetHeading;
+        this.targetHeading = wrap(targetHeading);
         this.side = side >= 0 ? 1 : -1;
+    }
+
+    float targetHeading() {
+        return targetHeading;
     }
 
     State state() {

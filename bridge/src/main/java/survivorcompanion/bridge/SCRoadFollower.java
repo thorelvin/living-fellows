@@ -38,6 +38,8 @@ final class SCRoadFollower {
     private static final long SCAN_INTERVAL_MS = 150L;
     private static final long OFFSET_HOLD_MS = 1500L;
     private static final float DEFAULT_WIDTH = 6.0f;
+    private static final float TURN_FIRST_ANGLE = (float) Math.toRadians(120.0);
+    private static final float TURN_FIRST_KMH = 3.0f;
 
     /** One frame of driving: wheel, signed target speed, and which bumper to watch. */
     static final class Command {
@@ -50,6 +52,7 @@ final class SCRoadFollower {
     private SCDrivePath path;
     private final float cruiseKmh;
     private final boolean keepRight;
+    private final boolean preciseArrival;
     private final SCDrivePath.Projection projection = new SCDrivePath.Projection();
     private final float[] point = new float[5];
     private final HashMap<Long, Integer> scanCache = new HashMap<>();
@@ -64,15 +67,25 @@ final class SCRoadFollower {
     private long nextScanAt;
     private int swerves;
     private float blockedAt = -1.0f;
+    private float blockedX;
+    private float blockedY;
     private long stoppedSince = -1L;
     private SCTurnAround turn;
     private boolean followBack;
+    private boolean resumeAfterTurn;
+    private boolean initialAlignmentPending = true;
     private final SCTurnAround.Step turnStep = new SCTurnAround.Step();
 
     SCRoadFollower(SCDrivePath path, float cruiseKmh, boolean keepRight) {
+        this(path, cruiseKmh, keepRight, false);
+    }
+
+    SCRoadFollower(SCDrivePath path, float cruiseKmh, boolean keepRight,
+                   boolean preciseArrival) {
         this.path = path;
         this.cruiseKmh = SCDriveControl.clampCruise(cruiseKmh);
         this.keepRight = keepRight;
+        this.preciseArrival = preciseArrival;
     }
 
     Mode mode() {
@@ -115,6 +128,14 @@ final class SCRoadFollower {
         return blockedAt;
     }
 
+    float blockedX() {
+        return blockedX;
+    }
+
+    float blockedY() {
+        return blockedY;
+    }
+
     SCTurnAround turn() {
         return turn;
     }
@@ -126,6 +147,8 @@ final class SCRoadFollower {
     void beginTurn(float heading, int side, boolean thenFollowBack) {
         turn = new SCTurnAround(SCTurnAround.wrap(heading + (float) Math.PI), side);
         followBack = thenFollowBack;
+        resumeAfterTurn = false;
+        initialAlignmentPending = false;
         mode = Mode.TURNING;
     }
 
@@ -144,10 +167,14 @@ final class SCRoadFollower {
             command.targetKmh = step.targetKmh;
             command.maneuver = true;
             if (turn.state() == SCTurnAround.State.DONE) {
-                if (followBack) {
-                    path = path.reversed();
+                if (followBack || resumeAfterTurn) {
+                    if (followBack) path = path.reversed();
                     segment = -1;
                     offsetChosen = false;
+                    offsetHoldUntil = 0L;
+                    nextScanAt = 0L;
+                    stoppedSince = -1L;
+                    blockedAt = -1.0f;
                     swerves = 0;
                     mode = Mode.FOLLOW;
                 } else {
@@ -165,13 +192,41 @@ final class SCRoadFollower {
         segment = projection.segment;
         along = projection.along;
         lateral = projection.lateral;
+        if (initialAlignmentPending) {
+            path.pointAt(along, 0.0f, point);
+            float routeHeading = (float) Math.atan2(point[3], point[2]);
+            if (Math.abs(SCTurnAround.wrap(routeHeading - heading)) > TURN_FIRST_ANGLE) {
+                if (cruiseKmh <= 0.0f) return command;
+                // A replacement route can lead back from the block. Brake a
+                // rolling car before the slow turn, then keep this new path.
+                if (Math.abs(speedKmh) < TURN_FIRST_KMH) {
+                    turn = new SCTurnAround(routeHeading,
+                            turnSide(world, x, y, z, heading));
+                    followBack = false;
+                    resumeAfterTurn = true;
+                    initialAlignmentPending = false;
+                    mode = Mode.TURNING;
+                    return update(world, x, y, z, headingX, headingY, speedKmh,
+                            halfWidth, halfLength, frontClear, rearClear, nowMs, command);
+                }
+                return command;
+            }
+            initialAlignmentPending = false;
+        }
         float toEnd = path.length() - along;
         boolean stopped = Math.abs(speedKmh) <= SCDriveControl.STOPPED_KMH;
         if (!stopped) stoppedSince = -1L;
         else if (stoppedSince < 0L) stoppedSince = nowMs;
-        if (toEnd <= ARRIVE_TILES || toEnd <= NEAR_END_TILES && stopped
-                && nowMs - stoppedSince >= NEAR_END_STOPPED_MS) {
+        boolean arrived = preciseArrival
+                ? toEnd <= 0.9f && Math.abs(lateral) <= 0.75f && stopped
+                : toEnd <= ARRIVE_TILES || toEnd <= NEAR_END_TILES && stopped
+                    && nowMs - stoppedSince >= NEAR_END_STOPPED_MS;
+        if (arrived) {
             mode = Mode.ARRIVED;
+            return command;
+        }
+        if (preciseArrival && toEnd <= 0.9f) {
+            command.targetKmh = 0.0f;
             return command;
         }
         path.pointAt(along, 0.0f, point);
@@ -202,7 +257,9 @@ final class SCRoadFollower {
                 - Math.atan2(point[3], point[2]))));
         if (bend > CURVE_ANGLE) target = Math.min(target, CURVE_KMH);
         // Ease in to the end of the route.
-        target = Math.min(target, Math.max(3.0f, (path.length() - along) * 1.5f));
+        target = Math.min(target, preciseArrival
+                ? Math.max(2.0f, (path.length() - along) * 0.9f)
+                : Math.max(3.0f, (path.length() - along) * 1.5f));
         command.targetKmh = target;
         return command;
     }
@@ -238,6 +295,19 @@ final class SCRoadFollower {
                               float maxOffset, long nowMs) {
         float behind = Math.max(0.0f, along - halfLength - 1.0f);
         float sideBySide = along - behind + halfLength;
+        if (preciseArrival) {
+            float front = along + halfLength;
+            float ahead = stripObstacle(world, z, front, 0.0f,
+                    AVOID_RANGE, halfWidth);
+            mode = ahead < 0.0f ? Mode.FOLLOW : Mode.BLOCKED;
+            blockedAt = ahead;
+            if (ahead >= 0.0f) {
+                path.pointAt(front + ahead, 0.0f, point);
+                blockedX = point[0];
+                blockedY = point[1];
+            }
+            return;
+        }
         if (Math.abs(offset - laneOffset) > 0.25f && nowMs - offsetHoldUntil >= 0L) {
             // Back into the lane once the wreck is behind and the lane ahead is open.
             if (stripObstacle(world, z, behind, laneOffset, sideBySide + RETURN_CLEAR,
@@ -281,6 +351,23 @@ final class SCRoadFollower {
         } else {
             mode = Mode.BLOCKED;
             blockedAt = ahead;
+            path.pointAt(front + ahead, offset, point);
+            blockedX = point[0];
+            blockedY = point[1];
         }
+    }
+
+    /** Turn towards the more open side; ties go left, across the road. */
+    private static int turnSide(SCLaneScan.World world, float x, float y, int z, float heading) {
+        float angle = (float) Math.toRadians(70.0);
+        float left = room(world, x, y, z, heading - angle);
+        float right = room(world, x, y, z, heading + angle);
+        return right > left + 0.5f ? 1 : -1;
+    }
+
+    private static float room(SCLaneScan.World world, float x, float y, int z, float angle) {
+        SCLaneScan.Result scan = SCLaneScan.scan(world, x, y, z,
+                (float) Math.cos(angle), (float) Math.sin(angle), 0.5f, 0.0f, 10.0f);
+        return scan.blocked ? scan.distance : 11.0f;
     }
 }

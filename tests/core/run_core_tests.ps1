@@ -170,11 +170,36 @@ try {
         )
         Add-ScJvmStep 'view-control' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $viewControlFiles 'Companion Peek camera-control harness failed.'
 
+        $drivingFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCCall.lua'),
+            (Join-Path $Shared 'SCStableValue.lua'),
+            (Join-Path $Shared 'SCConfig.lua'),
+            (Join-Path $TestRoot 'driving_fixture.lua'),
+            (Join-Path $Client 'SCActionSupervisor.lua'),
+            (Join-Path $Client 'SCScheduler.lua'),
+            (Join-Path $Client 'SCExpeditionRoute.lua'),
+            (Join-Path $Client 'SCDriving.lua'),
+            (Join-Path $Client 'SCCommands.lua'),
+            (Join-Path $Client 'SCDecision.lua'),
+            (Join-Path $Client 'SCRuntime.lua'),
+            (Join-Path $TestRoot 'driving_harness.lua')
+        )
+        Add-ScJvmStep 'driving' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $drivingFiles 'Driving ownership, emergency control and bounded replanning harness failed.'
+        $expeditionCarFiles = @(
+            (Join-Path $TestRoot 'expedition_car_fixture.lua'),
+            (Join-Path $Client 'SCExpeditionCar.lua'),
+            (Join-Path $TestRoot 'expedition_car_harness.lua')
+        )
+        Add-ScJvmStep 'expedition-car' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $expeditionCarFiles 'Expedition car preflight, seat ownership and checked restart harness failed.'
+
         $expeditionRestartFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Client 'SCViewSession.lua'),
             (Join-Path $Client 'SCExpeditionRoute.lua'),
             (Join-Path $Client 'SCStairTransition.lua'),
+            (Join-Path $Client 'SCExpeditionCar.lua'),
             (Join-Path $Client 'SCExpeditionPrototype.lua'),
             (Join-Path $TestRoot 'expedition_restart_harness.lua')
         )

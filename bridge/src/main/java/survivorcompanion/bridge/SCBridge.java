@@ -17,6 +17,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.joml.Vector3f;
+
 import se.krka.kahlua.vm.KahluaTable;
 import se.krka.kahlua.vm.LuaClosure;
 import zombie.MainThread;
@@ -51,6 +53,7 @@ import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
 import zombie.iso.IsoWorld;
 import zombie.iso.PlayerCamera;
+import zombie.pathfind.VehiclePoly;
 import zombie.iso.objects.IsoDoor;
 import zombie.iso.objects.GridSquareEdge;
 import zombie.iso.objects.IsoThumpable;
@@ -63,7 +66,7 @@ import zombie.worldMap.WorldMap;
 
 /** Narrow Lua-facing authority for creating and owning native companions. */
 public final class SCBridge {
-    public static final String PROTOCOL = "42.21-isocompanion-16";
+    public static final String PROTOCOL = "42.21-isocompanion-19";
     public static final int ITEM_FACT_FOOD = 1;
     public static final int ITEM_FACT_DRAINABLE = 1 << 1;
     public static final int ITEM_FACT_HAND_WEAPON = 1 << 2;
@@ -761,12 +764,19 @@ public final class SCBridge {
     public static boolean planRoadRouteAvoiding(Object streetsApi,
             double startX, double startY, double targetX, double targetY,
             double avoidX, double avoidY, double avoidRadius, KahluaTable out) {
+        return planRoadRouteAvoidingAll(streetsApi, startX, startY, targetX, targetY,
+                avoidX + "," + avoidY + "," + avoidRadius, out);
+    }
+
+    /** Up to eight temporary blocked areas, encoded as "x,y,r;...". */
+    public static boolean planRoadRouteAvoidingAll(Object streetsApi,
+            double startX, double startY, double targetX, double targetY,
+            String circles, KahluaTable out) {
         if (!onGameThread() || out == null) return false;
         out.wipe();
         long started = System.nanoTime();
-        SCRoadRouter.Result result = SCRoadRouter.routeNativeAvoiding(
-                streetsApi, startX, startY, targetX, targetY,
-                avoidX, avoidY, avoidRadius);
+        SCRoadRouter.Result result = SCRoadRouter.routeNativeAvoidingAll(
+                streetsApi, startX, startY, targetX, targetY, circles);
         putRoadResult(out, result, started);
         return true;
     }
@@ -902,6 +912,56 @@ public final class SCBridge {
         return true;
     }
 
+    /** Bounded slow final parking leg, never a general route substitute. */
+    public static boolean driveApproach(SCNativeCompanion actor, String route,
+                                        double cruiseKmh) {
+        lastFailure = "";
+        String refused = driveRefusal(actor);
+        if (!refused.isEmpty()) return failBoolean(refused);
+        SCCompanionDriver driver = actor.companionDriver();
+        if (!driver.isActive()) return failBoolean("companion is not driving");
+        SCDrivePath path = SCDrivePath.parse(route);
+        if (path == null || path.points() != 2 || path.length() > 15.0f
+                || path.length() < 0.5f || !Double.isFinite(cruiseKmh)
+                || cruiseKmh <= 0.0 || cruiseKmh > 5.0) {
+            return failBoolean("parking approach requires a clear two-point route within 15 tiles");
+        }
+        BaseVehicle vehicle = actor.getVehicle();
+        if (vehicle == null) return failBoolean("parking car is missing");
+        Vector3f forward = vehicle.getForwardVector(new Vector3f());
+        float length = (float) Math.hypot(forward.x, forward.z);
+        SCDrivePath.Projection origin = path.project(vehicle.getX(), vehicle.getY(),
+                -1, null);
+        float[] target = new float[5];
+        path.pointAt(path.length(), 0.0f, target);
+        float dx = target[0] - vehicle.getX();
+        float dy = target[1] - vehicle.getY();
+        float distance = (float) Math.hypot(dx, dy);
+        if (length < 0.9f || distance < 0.5f
+                || Math.abs(origin.lateral) > 1.0f
+                || (forward.x * dx + forward.z * dy) / (length * distance) < 0.75f) {
+            return failBoolean("parking bay requires a clear forward approach");
+        }
+        driver.approach(path, cruiseKmh);
+        return true;
+    }
+
+    /** Copy the engine's actual world-space vehicle polygon into a Lua table. */
+    public static boolean vehicleFootprint(BaseVehicle vehicle, KahluaTable out) {
+        lastFailure = "";
+        if (!onGameThread() || vehicle == null || out == null) {
+            return failBoolean("vehicle footprint needs a loaded car and game thread");
+        }
+        VehiclePoly poly = vehicle.getPoly();
+        if (poly == null) return failBoolean("vehicle polygon is unavailable");
+        out.wipe();
+        put(out, "x1", poly.x1); put(out, "y1", poly.y1);
+        put(out, "x2", poly.x2); put(out, "y2", poly.y2);
+        put(out, "x3", poly.x3); put(out, "y3", poly.y3);
+        put(out, "x4", poly.x4); put(out, "y4", poly.y4);
+        return true;
+    }
+
     /**
      * Turns the car round with a bounded three-point turn. With followBack the
      * companion then drives the same route back.
@@ -968,6 +1028,10 @@ public final class SCBridge {
             put(out, "laneOffset", follower.laneOffset());
             put(out, "swerves", follower.swerves());
             put(out, "blockedAt", follower.blockedAt());
+            if (follower.mode() == SCRoadFollower.Mode.BLOCKED) {
+                put(out, "blockedX", follower.blockedX());
+                put(out, "blockedY", follower.blockedY());
+            }
             SCLaneScan.Result rear = driver.lastRearScan();
             put(out, "rearBlocked", rear.blocked);
             put(out, "rearDistance", rear.distance);
@@ -1030,11 +1094,12 @@ public final class SCBridge {
     }
 
     /** A real player in the car. A promoted companion in a player slot does not count. */
-    private static boolean playerAboard(BaseVehicle vehicle) {
+    static boolean playerAboard(BaseVehicle vehicle) {
+        if (vehicle == null) return false;
         IsoPlayer[] players = IsoPlayer.players;
         if (players == null) return false;
         for (IsoPlayer player : players) {
-            if (player != null && !(player instanceof SCNativeCompanion)
+            if (player != null && !isCompanion(player)
                     && player.getVehicle() == vehicle) {
                 return true;
             }

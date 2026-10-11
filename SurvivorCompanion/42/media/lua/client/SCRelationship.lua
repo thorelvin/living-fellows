@@ -564,6 +564,7 @@ local doingLabels = {
     wear_clothing = "changing equipment",
     equip_weapon = "equipping a weapon",
     board_vehicle = "getting into the vehicle",
+    drive_route = "driving or waiting with the car",
     exit_vehicle = "getting out of the vehicle",
     read = "reading",
     repair = "repairing equipment",

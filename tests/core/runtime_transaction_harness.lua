@@ -265,4 +265,36 @@ do
         "a vehicle passenger is not inserted into an on-foot update slot")
 end
 
-print("RUNTIME_TRANSACTION_KAHLUA_PASS checks=" .. tostring(checks))
+do
+    ready, reason, operational = SC.Runtime.start()
+    check(operational == true and SC.Runtime.isTickAttached(),
+        "runtime restarts before the failed driving-release rollback fixture")
+    local savedDriving, releaseAllowed = SC.Driving, false
+    SC.Driving = { reset = function()
+        return releaseAllowed, releaseAllowed and nil or "injected park refusal"
+    end }
+    local actorDisposals, registryClears, persistenceClears = SC.Actor.disposeCalls,
+        SC.Registry.resetCalls, SC.Persistence.resetCalls
+    local saves, document = SC.Persistence.saveCalls, fixture.document()
+    SC.State.active = true
+    fixture.failTickAdd = true
+    reset, resetReason = SC.Runtime.reset(true)
+    fixture.failTickAdd = false
+    check(reset == false and string.find(tostring(resetReason), "park refusal", 1, true)
+        and string.find(tostring(resetReason), "infrastructure rollback failed", 1, true),
+        "driving release failure reports a failed tick rollback")
+    check(not SC.State.active and SC.State.disabledReason == resetReason
+        and not SC.Runtime.isTickAttached() and fixture.tickCount() == 0,
+        "failed driving rollback disables a runtime whose tick could not be restored")
+    check(SC.Runtime.save() == false and SC.Persistence.saveCalls == saves and fixture.document() == document,
+        "failed driving rollback blocks saves and preserves the prior document")
+    check(SC.Actor.disposeCalls == actorDisposals and SC.Registry.resetCalls == registryClears
+        and SC.Persistence.resetCalls == persistenceClears,
+        "failed driving rollback retains native actor and Lua cleanup references")
+    releaseAllowed = true
+    check(SC.Runtime.reset(true), "disabled driving teardown can be retried after parking succeeds")
+    SC.Driving = savedDriving
+end
+
+SC_TEST_REPORT = "RUNTIME_TRANSACTION_KAHLUA_PASS checks=" .. tostring(checks)
+print(SC_TEST_REPORT)

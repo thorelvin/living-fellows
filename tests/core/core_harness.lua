@@ -1408,8 +1408,16 @@ function SC.__testCompanionDriving()
     check(passengerBoard == false and actor:getVehicle() == nil and car:getDriver() == nil,
         "ordinary boarding cannot be talked into seat zero")
     car.occupants[2] = { stranger = true }
+    check(SC.Vehicle.hasPlayerAboard(car),
+        "a parked driving lease detects a foreign passenger")
     local strangerSeat, strangerReason = SC.Vehicle.preflightDriver(actor, car)
     car.occupants[2] = nil
+    check(not SC.Vehicle.hasPlayerAboard(car),
+        "a known empty car has no player aboard")
+    car.getMaxPassengers = function() return 0 end
+    check(SC.Vehicle.hasPlayerAboard(car),
+        "unknown passenger capacity cannot retain a driving lease")
+    car.getMaxPassengers = function() return 4 end
     check(strangerSeat == nil
             and strangerReason == "someone who is not a companion is in this vehicle",
         "a companion never takes the wheel with the player or a stranger aboard")
@@ -1431,6 +1439,8 @@ function SC.__testCompanionDriving()
         "the driver's seat uses the verified boarding transaction: " .. tostring(driverReason))
 
     local priorBridge = rawget(_G, "SCBridge")
+    check(not SC.Vehicle.hasPlayerAboard(car),
+        "a verified companion driver is not treated as a player boarding")
     local calls = {}
     local bridge = { refuseSet = false }
     function bridge.driveStart(who, haveKey)
@@ -1456,6 +1466,10 @@ function SC.__testCompanionDriving()
     end
     function bridge.driveFollow(who, route, kmh)
         calls[#calls + 1] = { "driveFollow", who, route, kmh }
+        return true
+    end
+    function bridge.driveApproach(who, route, kmh)
+        calls[#calls + 1] = { "driveApproach", who, route, kmh }
         return true
     end
     function bridge.driveTurnAround(who, followBack)
@@ -1657,10 +1671,37 @@ end
 local door, doorReason = SC.Vehicle.reloadedCarSquare(anchor)
 local doorGap = door and reloaded:getEnterSeatDistance(1, door:getX() + 0.5,
     door:getY() + 0.5) or nil
+function reloaded:getEnterSeatDistance(seat, x, y)
+    if seat == 0 then return (x - 0.5) ^ 2 + (y - 0.5) ^ 2 end
+    return vehicle.getEnterSeatDistance(self, seat, x, y)
+end
+local driverDoor, driverDoorReason = SC.Vehicle.reloadedCarSquare({ sqlId = 5, seat = 0 })
+local driverGap = driverDoor and reloaded:getEnterSeatDistance(0,
+    driverDoor:getX() + 0.5, driverDoor:getY() + 0.5) or nil
+reloaded.getEnterSeatDistance = nil
 local missing, missingReason = SC.Vehicle.reloadedCarSquare({ sqlId = 7, seat = 1 })
+local priorArrayList = ArrayList
+local nativeSet = { size = function() return #carList.items end }
+local setCopies = 0
+ArrayList = { new = function(collection)
+    assert(collection == nativeSet, "copy the actual vehicle collection")
+    setCopies = setCopies + 1
+    return carList
+end }
+getCell = function() return { getVehicles = function() return nativeSet end } end
+local setDoor, setDoorReason = SC.Vehicle.reloadedCarSquare({ sqlId = 5, seat = 0 })
+check(setDoor ~= nil and setDoorReason == "car_door" and setCopies == 1,
+    "the driver's door is found in Build 42's non-indexed vehicle Set")
+ArrayList.new = function() error("collection copy unavailable") end
+local failedSetDoor = SC.Vehicle.reloadedCarSquare({ sqlId = 5, seat = 0 })
+check(failedSetDoor == nil, "failed native Set conversion cannot invent a loaded car")
+ArrayList = priorArrayList
 getCell = priorCarCell
 check(door ~= nil and doorReason == "car_door" and doorGap ~= nil and doorGap <= 2.56,
     "the released companion goes to the door of the reloaded car with the same database id")
+check(driverDoor ~= nil and driverDoorReason == "car_door"
+        and driverGap ~= nil and driverGap <= 2.56,
+    "seat zero resolves a safe tile beside the reloaded driver's door")
 check(missing == nil and missingReason == "car_not_loaded",
     "a car that has not loaded again yet leaves the companion waiting")
 actor.setVehicle, actor.setCollidable, actor.ensureUnscheduled = nil, nil, nil
@@ -3576,6 +3617,62 @@ check(SC.Vehicle.contains("sc-virtual-rider")
 SC.Persistence.reset()
 SC.Vehicle.reset()
 
+do
+-- Seat-zero saves restore through the same door lookup as passengers. A car
+-- outside the loaded area falls back to the saved position and never resumes
+-- native seating or driving.
+local priorDoor, priorRestore, priorCell = SC.Vehicle.reloadedCarSquare,
+    SC.Persistence.restoreAt, getCell
+local carLoaded, seenSquare, seenSeat = true, nil, nil
+local doorSquare = vehicleCell:getGridSquare(43, 40, 0)
+local savedSquare = vehicleCell:getGridSquare(40, 40, 0)
+SC.Vehicle.reloadedCarSquare = function(anchor)
+    check(anchor.sqlId == 5 and anchor.seat == 0,
+        "driver save lookup retains database identity and seat zero")
+    seenSeat = anchor.seat
+    return carLoaded and doorSquare or nil, carLoaded and "car_door" or "car_not_loaded"
+end
+getCell = function()
+    return { getGridSquare = function(_, x, y, z)
+        if x == 40 and y == 40 and z == 0 then return savedSquare end
+        return nil
+    end }
+end
+SC.Persistence.restoreAt = function(saved, destination)
+    seenSquare = destination
+    check(saved.vehicle.stored == false and saved.vehicle.seat == 0,
+        "native driver ownership remains explicit until restored on foot")
+    return {}, "restored"
+end
+for _, loaded in ipairs({ true, false }) do
+    SC.Persistence.reset()
+    carLoaded, seenSquare, seenSeat = loaded, nil, nil
+    local data = useWorldData({ SC_SaveV1 = {
+        schema = SC.Identity.saveSchema, companions = {
+            ["sc-driver-on-foot"] = {
+                id = "sc-driver-on-foot", recruited = true,
+                identity = { forename = "Driver", surname = "Test" },
+                position = { x = 40, y = 40, z = 0 }, inventory = {},
+                skills = {}, vitals = {}, order = {},
+                vehicle = { stored = false, seat = 0,
+                    vehicle = { id = 77, sqlId = 5, script = "Base.CarNormal",
+                        x = 40, y = 41, z = 0 } },
+            },
+        },
+    } })
+    check(SC.Persistence.restore({ getModData = function() return data end }),
+        "driver save restores through the normal persistence path")
+    check(seenSeat == 0 and seenSquare == (loaded and doorSquare or savedSquare)
+            and not SC.Persistence.isPending("sc-driver-on-foot")
+            and not SC.Vehicle.contains("sc-driver-on-foot"),
+        loaded and "saved driver restores on foot at the loaded car door"
+            or "unloaded car restores the driver on foot at the saved position")
+end
+SC.Vehicle.reloadedCarSquare, SC.Persistence.restoreAt, getCell =
+    priorDoor, priorRestore, priorCell
+SC.Persistence.reset()
+end
+
 SC.Persistence.reset()
 local cyclicRaw = {
     id = "sc-cyclic-raw", recruited = true,
@@ -4063,5 +4160,274 @@ end)()
         "an unrelated queued action survives a needs cancellation: " .. tostring(#queue.list))
 end)()
 
+
+;(function()
+    -- The car key belongs to the committed on-foot restore, never a spawn
+    -- initializer that can still fail and dispose its actor.
+    local oldCell, oldRestore = getCell, SC.Commands.restore
+    local oldBegin, oldIndexRelease = SC.Actor.beginSpawn, SC.InventoryIndex.release
+    local cars, serial, selected = actionList(), 0, nil
+    local provider = { testOnly = true, kind = "iso-companion" }
+    function provider:isActor(value) return value and value.__keyActor and value.__owned == true end
+    function provider:spawn() selected.actor.__owned = true return selected.actor end
+    function provider:remove(value) value.__owned = false return true end
+    function provider:cancelSpawn() return true end
+    getCell = function()
+        return { getVehicles = function() return cars end, getGridSquare = function() return square end }
+    end
+    SC.Commands.restore = function(value, record)
+        if value.failCommit then return false, "injected post-initialize failure" end
+        local ok, why = oldRestore(value, record)
+        if ok then value.committed = true end
+        return ok, why
+    end
+    check(SC.Actor._setProviderForTests(provider), "key recovery provider installed")
+    local function container()
+        local value = { items = actionList(), adds = 0 }
+        function value:getItems()
+            if self.readFailure then error("injected item-list read failure") end
+            return self.items
+        end
+        function value:Remove(item)
+            self.items:remove(item)
+            if item.container == self then item.container = nil end
+        end
+        function value:haveThisKeyId(id)
+            for _, item in ipairs(self.items.values) do
+                if item.keyId == id then return item end
+            end
+            return nil
+        end
+        function value:AddItem(item)
+            if item ~= self.trackedKey then error("fixture accepts only its existing ignition key") end
+            if item == self.trackedKey then
+                self.adds = self.adds + 1
+                if self.beforeAdd then self.beforeAdd() end
+            end
+            if self.reject then error("injected source rejection") end
+            if self.mode == "duplicate" then return self.duplicate end
+            if item.container then item.container:Remove(item) end
+            if self.mode == "detach_throw" then
+                if self.afterDetach then self.afterDetach() end
+                error("injected detached transfer failure")
+            end
+            item.container = self
+            self.items:add(item)
+            if self.mode == "readback_throw" then self.readFailure = true end
+            if self.mode == "move_wrong" then return self.duplicate end
+            return item
+        end
+        return value
+    end
+    local function fixture(label, mode)
+        serial = serial + 1
+        local source, target = container(), container()
+        local key = { id = 70000 + serial, keyId = 80000 + serial }
+        function key:getID() return self.id end
+        function key:getKeyId() return self.keyId end
+        function key:getContainer() return self.container end
+        key.container = source source.items:add(key)
+        source.trackedKey, target.trackedKey = key, key
+        target.mode, target.duplicate = mode, { id = key.id, keyId = -1 }
+        local car = { sqlId = 90000 + serial, hotSaves = 0, occupants = {} }
+        function car:getSqlId() return self.sqlId end
+        function car:getDriver() return self.occupants[0] end
+        function car:getMaxPassengers() return 4 end
+        function car:getCharacter(seat) return self.occupants[seat] end
+        function car:getKeyId() return key.keyId end
+        function car:getCurrentKey() return source.items:get(0) end
+        function car:isKeysInIgnition() return source.items:size() > 0 end
+        function car:flagForHotSave() self.hotSaves = self.hotSaves + 1 end
+        cars:add(car)
+        local value = setmetatable({ __keyActor = true, __owned = false, __class = "IsoPlayer",
+            data = {}, square = square, characterActions = actionList(), endurance = 1,
+            perks = {}, moodleLevels = {}, dead = false, bodyUnavailable = false,
+        }, { __index = actor })
+        function value:getInventory() return target end
+        function value:getVehicle() return nil end
+        local body = setmetatable({ health = 100, infected = false, infectionTime = -1, mortality = -1 },
+            { __index = needsBody })
+        function value:getBodyDamage() return body end
+        function value:getHealth() return self.health or 100 end
+        function value:setHealth(amount) self.health = amount end
+        function value:getWornItems() return actionList() end
+        function value:getPrimaryHandItem() return rawget(self, "primaryHand") end
+        function value:getSecondaryHandItem() return rawget(self, "secondaryHand") end
+        local saved = { id = "sc-key-" .. label .. "-" .. tostring(serial), recruited = true,
+            identity = { forename = "Key", surname = "Recovery" },
+            position = { x = 0, y = 0, z = 0 }, inventory = {}, skills = {}, vitals = {}, order = {},
+            vehicle = { stored = false, seat = 0, vehicle = { sqlId = car.sqlId } },
+        }
+        local result = { actor = value, saved = saved, source = source, target = target,
+            key = key, car = car }
+        target.beforeAdd = function()
+            result.postCommit = value.committed and SC.Registry.byId(saved.id).actor == value
+            local ready = SC.Vehicle.validateDriverKeyRecovery()
+            local savedDuringMove, reason = SC.Persistence.save({})
+            result.saveGuard = not ready and not savedDuringMove
+                and string.find(tostring(reason), "driver key recovery is unresolved", 1, true)
+            result.saveReason = reason
+        end
+        selected = result
+        return result
+    end
+    local function restore(value, direct)
+        selected = value
+        if direct then SC.Actor.beginSpawn = nil end
+        local restored, why = SC.Persistence.restoreAt(value.saved, square)
+        SC.Actor.beginSpawn = oldBegin
+        check(restored == value.actor, "actual restore commits key fixture: " .. tostring(why))
+        return restored
+    end
+    local function destination(value)
+        return value.key.container == value.target and value.target.items:contains(value.key)
+            and not value.source.items:contains(value.key) and value.car:getCurrentKey() == nil
+            and value.car:isKeysInIgnition() == false
+    end
+    local function source(value)
+        return value.key.container == value.source and value.source.items:contains(value.key)
+            and not value.target.items:contains(value.key) and value.car:getCurrentKey() == value.key
+    end
+    local function retire(value)
+        value.target.mode, value.target.readFailure, value.source.reject = nil, false, false
+        value.car.occupants = {}
+        local settled, why = SC.Vehicle.prepareDriverKeyReset(value.actor)
+        check(settled, "key recovery settles before retirement: " .. tostring(value.saved.id)
+            .. ":" .. tostring(why) .. " source=" .. tostring(value.source.items:size())
+            .. " target=" .. tostring(value.target.items:size()) .. " adds=" .. tostring(value.source.adds))
+        check(SC.Actor.remove(value.actor), "key restore fixture retires safely")
+        cars:remove(value.car)
+    end
+    local sync = fixture("sync") restore(sync, true)
+    check(destination(sync) and sync.target.adds == 1 and sync.car.hotSaves == 1,
+        "synchronous spawn transfers the exact ignition item once and hot-saves its empty source: "
+            .. tostring(sync.target.adds) .. "/" .. tostring(sync.car.hotSaves)
+            .. " source=" .. tostring(source(sync)))
+    check(sync.postCommit and sync.saveGuard,
+        "key transfer follows full commit and blocks reentrant saves: " .. tostring(sync.saveReason))
+    retire(sync)
+    local ready = fixture("ready") restore(ready)
+    check(destination(ready) and ready.target.adds == 1,
+        "ready-ticket restore recovers the same existing ignition key")
+    retire(ready)
+    local failed = fixture("commit-failure") failed.actor.failCommit = true
+    local failedActor = SC.Persistence.restoreAt(failed.saved, square)
+    check(failedActor == nil and source(failed) and failed.target.adds == 0,
+        "failure after native inventory initialization leaves the car key untouched")
+    cars:remove(failed.car)
+
+    local async = fixture("async")
+    provider.requestSpawn = function() provider.polls = 0 return 700 end
+    provider.pollSpawn = function()
+        provider.polls = provider.polls + 1
+        if provider.polls == 1 then return nil, "spawn_pending" end
+        selected.actor.__owned = true return selected.actor
+    end
+    SC.Persistence.reset()
+    local store = useWorldData({ document = { schema = SC.Identity.saveSchema,
+        companions = { [async.saved.id] = async.saved } } })
+    local keyPlayer = { getModData = function() return store end }
+    check(SC.Persistence.restore(keyPlayer) and source(async) and async.target.adds == 0,
+        "deferred restore keeps the real ignition key until its spawn commits")
+    SC.Persistence.restorePulse(keyPlayer)
+    check(destination(async) and async.actor.committed and async.target.adds == 1
+            and not SC.Persistence.isPending(async.saved.id),
+        "actual deferred restore-pulse completion recovers its exact ignition key")
+    provider.requestSpawn, provider.pollSpawn = nil, nil
+    retire(async)
+    SC.Persistence.reset()
+
+    local duplicate = fixture("duplicate", "duplicate") restore(duplicate)
+    check(source(duplicate) and duplicate.car.hotSaves == 0,
+        "duplicate-ID AddItem returning another item never consumes the original ignition key")
+    for _ = 1, 8 do SC_TEST_CLOCK = SC_TEST_CLOCK + 31000 SC.Vehicle.restorePulse() end
+    check(duplicate.target.adds == 6 and source(duplicate) and SC.Vehicle.validateDriverKeyRecovery(),
+        "safe duplicate-ID retries stop after the initial attempt plus five retries")
+    retire(duplicate)
+    local wrong = fixture("wrong-result", "move_wrong") restore(wrong)
+    check(source(wrong) and wrong.source.adds == 1 and wrong.car.hotSaves == 0,
+        "a transfer returning the wrong item compensates the exact moved key to ignition")
+    retire(wrong)
+    local partial = fixture("partial", "detach_throw") partial.source.reject = true restore(partial)
+    check(partial.key.container == nil and not SC.Vehicle.validateDriverKeyRecovery()
+            and not SC.Vehicle.releaseActor(partial.actor) and not SC.Vehicle.reset()
+            and not SC.Persistence.prepareReset(),
+        "a detached key with failed rollback blocks save/reset/retirement and retains recovery authority")
+    partial.source.reject, partial.target.mode = false, nil
+    SC_TEST_CLOCK = SC_TEST_CLOCK + 31000 SC.Vehicle.restorePulse()
+    SC_TEST_CLOCK = SC_TEST_CLOCK + 31000 SC.Vehicle.restorePulse()
+    check(destination(partial) and partial.car.hotSaves == 1 and SC.Vehicle.validateDriverKeyRecovery(),
+        "a retained partial transfer rolls back then recovers without respawning its committed actor")
+    retire(partial)
+    local unreadable = fixture("readback", "readback_throw") unreadable.source.reject = true restore(unreadable)
+    local adds = unreadable.target.adds
+    unreadable.target.readFailure, unreadable.target.mode, unreadable.source.reject = false, nil, false
+    SC_TEST_CLOCK = SC_TEST_CLOCK + 31000 SC.Vehicle.restorePulse()
+    check(destination(unreadable) and unreadable.target.adds == adds and unreadable.car.hotSaves == 1,
+        "readback recovery verifies a completed destination without moving the exact key again")
+    retire(unreadable)
+    local indexFailure = fixture("index")
+    SC.InventoryIndex.release = function() error("injected index-release failure") end
+    restore(indexFailure)
+    check(destination(indexFailure) and SC.Vehicle.validateDriverKeyRecovery(),
+        "post-hot-save index failure retains a safe destination without blocking unrelated saves")
+    SC.InventoryIndex.release = oldIndexRelease
+    SC_TEST_CLOCK = SC_TEST_CLOCK + 31000 SC.Vehicle.restorePulse()
+    check(indexFailure.target.adds == 1 and indexFailure.car.hotSaves == 1,
+        "index cleanup retry repeats neither the key move nor its completed hot-save")
+    retire(indexFailure)
+    local passenger = fixture("passenger") passenger.car.occupants[1] = { __class = "IsoPlayer" }
+    restore(passenger)
+    check(source(passenger) and passenger.target.adds == 0,
+        "a player passenger prevents taking the car's ignition key")
+    retire(passenger)
+    local laterPassenger = fixture("later-passenger", "duplicate") restore(laterPassenger)
+    laterPassenger.car.occupants[1] = { __class = "IsoPlayer" }
+    SC_TEST_CLOCK = SC_TEST_CLOCK + 31000 SC.Vehicle.restorePulse()
+    check(source(laterPassenger) and laterPassenger.target.adds == 1,
+        "a passenger boarding before retry prevents another ignition-key mutation")
+    retire(laterPassenger)
+    local replacement = fixture("replacement", "detach_throw")
+    local otherKey = { keyId = -1, container = replacement.source }
+    replacement.target.afterDetach = function() replacement.source.items:add(otherKey) end
+    restore(replacement)
+    check(replacement.key.container == nil and replacement.car:getCurrentKey() == otherKey
+            and replacement.source.adds == 0 and not SC.Vehicle.prepareDriverKeyReset(replacement.actor),
+        "rollback never inserts the old key into an ignition that acquired another key")
+    replacement.source:Remove(otherKey)
+    replacement.target.afterDetach = nil
+    retire(replacement)
+    local held = fixture("already-held")
+    held.target.haveThisKeyId = function() return { keyId = held.key.keyId } end
+    restore(held)
+    check(source(held) and held.target.adds == 0,
+        "a restored actor already holding a working car key leaves the ignition item untouched")
+    retire(held)
+    local invalidKeyId = fixture("key-id")
+    invalidKeyId.car.getKeyId = function() error("injected key ID read failure") end
+    local queried = 0
+    invalidKeyId.target.haveThisKeyId = function() queried = queried + 1 return nil end
+    restore(invalidKeyId)
+    check(queried == 0 and source(invalidKeyId) and invalidKeyId.target.adds == 0,
+        "an unreadable car key ID cannot reach the native haveThisKeyId query")
+    retire(invalidKeyId)
+    local unloaded = fixture("unloaded") cars:remove(unloaded.car) restore(unloaded)
+    check(source(unloaded) and unloaded.target.adds == 0,
+        "saved-position fallback for an unloaded car never fabricates or takes a key")
+    retire(unloaded)
+    local pulseFixtures = {}
+    for index = 1, 5 do
+        local value = fixture("pulse-" .. tostring(index), "duplicate")
+        restore(value) pulseFixtures[#pulseFixtures + 1] = value
+    end
+    SC_TEST_CLOCK = SC_TEST_CLOCK + 31000 SC.Vehicle.restorePulse()
+    local attempted = 0
+    for _, value in ipairs(pulseFixtures) do attempted = attempted + value.target.adds - 1 end
+    check(attempted == 4, "driver key recovery performs at most four actor retries per pulse")
+    for _, value in ipairs(pulseFixtures) do retire(value) end
+    SC.Commands.restore, SC.Actor.beginSpawn, SC.InventoryIndex.release = oldRestore, oldBegin, oldIndexRelease
+    getCell = oldCell
+    SC.Actor._setProviderForTests(deferredProvider)
+end)()
 
 print("CORE_KAHLUA_PASS checks=" .. tostring(checks))

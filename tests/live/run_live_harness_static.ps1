@@ -15,6 +15,7 @@ $BuildRoot = Join-Path ([System.IO.Path]::GetTempPath()) `
 $Compiler = Join-Path $ProjectRoot 'tests\ui\ReflectLuaCompiler.java'
 $RegressionRunner = Join-Path $ProjectRoot 'tests\gameplay\KahluaTestRunner.java'
 $Lua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCRealSandboxHarness.lua'
+$DrivingLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCDrivingProbe.lua'
 $Shared = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\shared'
 $Client = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\client'
 
@@ -29,7 +30,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Live harness Lua compiler build failed.' }
     Push-Location -LiteralPath $GameRoot
     try {
-        & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $Lua
+        & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $Lua $DrivingLua
         if ($LASTEXITCODE -ne 0) { throw 'Live harness Kahlua compilation failed.' }
 
         # Execute the live harness's landing selection in a clean Kahlua VM.

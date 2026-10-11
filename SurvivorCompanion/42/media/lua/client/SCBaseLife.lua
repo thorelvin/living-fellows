@@ -23,7 +23,7 @@ BaseLife.RESTRICTIONS = { watch = true, quarantine = true, exiled = true }
 BaseLife.ZONE_TYPES = {
     area = true, work = true, rest = true, social = true, guard = true,
     rally = true, quarantine = true, lumber = true, farm = true, fishing = true,
-    burial = true, pyre = true,
+    burial = true, pyre = true, parking = true,
 }
 BaseLife.STORAGE_CATEGORIES = {
     food = true, water = true, medical = true, tools = true, construction = true,
@@ -1086,6 +1086,50 @@ function BaseLife.zoneInsideAreaUnion(zone, areaZones)
     return true
 end
 
+-- Parking may extend onto a driveway, but every marked tile must remain in
+-- the bounded ground-floor band around an actual camp area. The same check is
+-- used by drawing, restore and expedition dispatch.
+function BaseLife.parkingZoneValid(zone, areaZones)
+    if type(zone) ~= "table" or tonumber(zone.z) ~= 0 then
+        return false, "parking_ground_floor_only"
+    end
+    local x1, x2, y1, y2 = tonumber(zone.x1), tonumber(zone.x2),
+        tonumber(zone.y1), tonumber(zone.y2)
+    if not (x1 and x2 and y1 and y2) then return false, "invalid_parking_area" end
+    if x1 ~= math.floor(x1) or x2 ~= math.floor(x2)
+        or y1 ~= math.floor(y1) or y2 ~= math.floor(y2) then
+        return false, "invalid_parking_area"
+    end
+    local tiles = (math.abs(x2 - x1) + 1) * (math.abs(y2 - y1) + 1)
+    if tiles > 256 then return false, "parking_zone_too_large" end
+    if type(areaZones) ~= "table" then
+        local base = activeBase()
+        areaZones = base and base.zones or {}
+    end
+    local grown = {}
+    for _, area in ipairs(areaZones) do
+        if area.kind == "area" and tonumber(area.z) == 0 then
+            grown[#grown + 1] = {
+                kind = "area", z = 0,
+                x1 = area.x1 - 20, x2 = area.x2 + 20,
+                y1 = area.y1 - 20, y2 = area.y2 + 20,
+            }
+        end
+    end
+    if not BaseLife.zoneInsideAreaUnion(zone, grown) then
+        return false, "parking_zone_out_of_reach"
+    end
+    return true
+end
+
+function BaseLife.parkingCornerRelevant(value)
+    local point = position(value)
+    if point == nil or point.z ~= 0 then return false end
+    return BaseLife.parkingZoneValid({
+        x1 = point.x, x2 = point.x, y1 = point.y, y2 = point.y, z = 0,
+    }) == true
+end
+
 -- Reach zones may extend a bounded distance beyond the camp boundary. The
 -- reach band is every camp-area rectangle grown by productionLumberReach
 -- tiles on the same floor. Only a job tied to such a zone may path across it.
@@ -1215,6 +1259,9 @@ function BaseLife.beginZone(kind, square)
     if not activeBase() then return false, "base_missing" end
     local point = position(square)
     if not point then return false, "invalid_zone_corner" end
+    if kind == "parking" and not BaseLife.parkingCornerRelevant(point) then
+        return false, "parking_zone_out_of_reach"
+    end
     draftZone = { kind = kind, first = point }
     return true, "zone_started"
 end
@@ -1248,7 +1295,10 @@ function BaseLife.finishZone(square, name)
         name = name or draftZone.kind, x1 = draftZone.first.x, y1 = draftZone.first.y,
         x2 = second.x, y2 = second.y, z = second.z, createdAt = now(),
     })
-    if BaseLife.REACH_ZONE_KINDS[zone.kind] then
+    if zone.kind == "parking" then
+        local valid, reason = BaseLife.parkingZoneValid(zone, base.zones)
+        if not valid then return false, reason end
+    elseif BaseLife.REACH_ZONE_KINDS[zone.kind] then
         local tiles = (zone.x2 - zone.x1 + 1) * (zone.y2 - zone.y1 + 1)
         local limitKey = zone.kind == "burial" and "productionBurialMaximumTiles"
             or zone.kind == "pyre" and "productionPyreMaximumTiles"
@@ -1309,7 +1359,9 @@ function BaseLife.canRemoveZone(id)
         if areaCount < 1 then return false, "last_base_area" end
         for _, candidate in ipairs(remaining) do
             local contained
-            if BaseLife.REACH_ZONE_KINDS[candidate.kind] then
+            if candidate.kind == "parking" then
+                contained = BaseLife.parkingZoneValid(candidate, remaining)
+            elseif BaseLife.REACH_ZONE_KINDS[candidate.kind] then
                 contained = BaseLife.workZoneReachable(candidate, remaining)
             else
                 contained = candidate.kind == "area"
@@ -4790,6 +4842,15 @@ local function validBaseSource(source, id, path)
                         return restoreFailure(rowPath .. ".target", targetReason or "invalid target")
                     end
                 end
+            end
+        end
+    end
+    for index, zone in ipairs(source.zones) do
+        if zone.kind == "parking" then
+            local valid, parkingReason = BaseLife.parkingZoneValid(zone, source.zones)
+            if not valid then
+                return restoreFailure(path .. ".zones[" .. tostring(index) .. "]",
+                    parkingReason)
             end
         end
     end

@@ -190,6 +190,17 @@ final class SCCompanionDriver {
         turnRequested = false;
     }
 
+    /** Short, centreline-only final approach. Precise stop is still verified
+     * against the complete vehicle footprint by the Lua mission owner. */
+    void approach(SCDrivePath path, double cruise) {
+        follower = new SCRoadFollower(path, (float) Math.min(5.0, cruise),
+                false, true);
+        cruiseKmh = follower.cruiseKmh();
+        steering = 0.0f;
+        autoBrake = true;
+        turnRequested = false;
+    }
+
     /** Turns round on the next frame; with followBack, drives the route back. */
     String turnAround(boolean followBack) {
         if (follower == null) return "companion is not following a route";
@@ -233,6 +244,10 @@ final class SCCompanionDriver {
         }
         if (current == null || current != vehicle || current.getDriver() != actor) {
             stop(actor, "left_driver_seat");
+            return;
+        }
+        if (SCBridge.playerAboard(current)) {
+            stop(actor, "player_aboard");
             return;
         }
         CarController controller = current.getController();

@@ -7,11 +7,13 @@ import re
 ROOT = Path(__file__).resolve().parents[2]
 LUA = ROOT / "tests/live/mod/SCRealSandboxHarness/42/media/lua/client/SCRealSandboxHarness.lua"
 RUNNER = ROOT / "scripts/Invoke-LiveSandboxTests.ps1"
+DRIVING = ROOT / "tests/live/mod/SCRealSandboxHarness/42/media/lua/client/SCDrivingProbe.lua"
 ROOT_INFO = ROOT / "tests/live/mod/SCRealSandboxHarness/mod.info"
 VERSION_INFO = ROOT / "tests/live/mod/SCRealSandboxHarness/42/mod.info"
 
 lua = LUA.read_text(encoding="utf-8")
 runner = RUNNER.read_text(encoding="utf-8")
+driving = DRIVING.read_text(encoding="utf-8")
 root_info = ROOT_INFO.read_text(encoding="utf-8")
 version_info = VERSION_INFO.read_text(encoding="utf-8")
 
@@ -77,6 +79,72 @@ require("game loading took" in runner,
         "runner must wait for the real world load before clicking")
 require("-not (Test-Path -LiteralPath $eventsPath" in runner,
         "loading clicks must stop when the live assertions begin")
+require("[switch]$ExternalUiControl" in runner
+        and "if ($ExternalUiControl) { return $false }" in runner
+        and "if (-not $ExternalUiControl -and $loadingReadyObserved" in runner
+        and "if (-not $ExternalUiControl -and" in runner,
+        "external UI mode must leave the isolated runner active without native clicks, keys, or capture")
+require("[switch]$DrivingWithAi" in runner and "[switch]$DrivingBlocked" in runner
+        and "[switch]$DrivingSaveStage" in runner and "[switch]$DrivingSaveResume" in runner,
+        "all four WP5 driving modes need explicit runner flags")
+require("[switch]$DrivingGateNegativeControl" in runner
+        and "-DrivingGateNegativeControl requires -DrivingProbe -DrivingRoute -DrivingWithAi" in runner
+        and "drivingGateNegativeControl = $DrivingGateNegativeControl.IsPresent" in runner
+        and "Join-Path $SandboxMods" in runner
+        and "'SurvivorCompanion\\42\\media\\lua\\client\\SCDecision.lua'" in runner
+        and "and false and SC.Driving.isDriving(actor) then" in runner
+        and "$matchCount -ne 1" in runner,
+        "driving gate negative control must mutate exactly one disposable cached Decision module")
+require("$drivingExclusiveModes.Count -gt 1" in runner
+        and "-DrivingSaveResume requires -SeedSave" in runner,
+        "driving modes must be exclusive and resume must use a retained clone")
+require("driving_expected_actor_id=" in runner and "SC-driving-stage-proof.txt" in runner
+        and "$postSummaryForcedStop" in runner,
+        "stage proof must be bound to a naturally saved, exited clone")
+actor_id_guard = re.search(r"\$drivingExpected\.actor_id -notmatch '([^']+)'", runner)
+require(actor_id_guard is not None
+        and re.fullmatch(actor_id_guard.group(1), "sc-1.791718786365E9-1-249566") is not None,
+        "resume proof must accept real scientific-notation companion IDs")
+require(actor_id_guard is not None
+        and all(re.fullmatch(actor_id_guard.group(1), unsafe) is None
+                for unsafe in ("../other-save", "sc-1\\other", "sc-1/other", "sc-1$env:HOME")),
+        "resume proof must reject path and shell metacharacters in actor IDs")
+require("LIVE_SANDBOX_SKIP" in runner
+        and 'SKIP|drive_blocked_no_loaded_alternate|' in runner,
+        "no loaded blocked-road alternate must never be reported as PASS")
+require('H.config.driving_with_ai ~= "true"' in driving
+        and 'SC.Scheduler.unregister("decision")' in driving
+        and 'drive_ai_stays_seated_at_outbound_stop' in driving
+        and 'drive_ai_stays_seated_during_turn' in driving
+        and 'drive_ai_stays_seated_after_arrival' in driving,
+        "normal-AI route must keep Decision scheduled and verify each stop")
+require('SC.ExpeditionRoute.planAvoidingAll' in driving
+        and 'loadedAlternate' in driving
+        and 'SC.Driving.begin(test.actor, test.goal)' in driving
+        and 'drive_job_owner_acquired' in driving
+        and 'SC.Driving.drive(actor, test.goal' in driving
+        and 'drive_blocked_replanned_arrival' in driving,
+        "blocked probe must own the seat during preflight, then run the production job")
+require('drive_save_stage_persisted_seat_zero' in driving
+        and 'drive_observer_near_stage_car' in driving
+        and 'observerGap <= 12' in driving
+        and 'ArrayList.new(vehicles)' in driving
+        and 'return nil, count, "set_copy_failed"' in driving
+        and 'local function liveKeyCount(actor, keyId)' in driving
+        and 'liveCount == 0' in driving
+        and 'actorKeyCount == 1' in driving
+        and 'local savedKey = snapshotHasKey(entry and entry.inventory, keyId)' in driving
+        and 'ignitionKeyId == keyId' in driving
+        and 'keyLocation ~= "missing"' in driving
+        and 'ignitionKey or recoveredKey' in driving
+        and 'actorHasKey and actorKeyCount == 1' in driving
+        and 'and ignitionItem == nil' in driving
+        and 'or H.phase == "drive_save_resume_key_wait"' in driving
+        and 'key_location=' in driving
+        and 'driving_expected_key_location=' in runner
+        and 'drive_save_resume_on_foot_at_driver_door' in driving
+        and 'drive_save_resume_no_automatic_drive' in driving,
+        "save stages must verify the persisted seat/key and native reload outcome")
 require("[string]$FactionMapScreenshot" in runner
         and "[switch]$FactionMapOnly" in runner
         and "Invoke-WindowKey $process 0x4D" in runner

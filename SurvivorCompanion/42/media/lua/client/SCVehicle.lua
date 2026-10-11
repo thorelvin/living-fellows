@@ -19,6 +19,7 @@ local manifests = {}
 local lastVehicleShotAt = setmetatable({}, { __mode = "k" })
 local transactions = setmetatable({}, { __mode = "k" })
 local seatResources = {}
+local driverKeyRecoveries = {}
 local stationary
 
 local function traceBoarding(actor, event, detail)
@@ -192,7 +193,7 @@ local function beginTransaction(actor, vehicle, seat, action, intent)
         -- Followers can start from well outside the passenger-door radius and
         -- must queue around other companions. The generic 15 second approach
         -- deadline falsely expired a valid manifest before they reached the car.
-        deadlines = action == "board_vehicle" and { approaching = 45000 } or nil,
+        deadlines = action == "board_vehicle" and { approaching = 60000 } or nil,
         allowedActions = {
             approach_vehicle = true,
             board_vehicle = true,
@@ -786,6 +787,14 @@ local function exitSquare(vehicle, player, seat)
     return squares and squares[1] or nil, reason
 end
 
+function vehicleService.safeExitSquares(vehicle, seat)
+    if vehicle == nil or type(seat) ~= "number" or seat < 0
+        or seat ~= math.floor(seat) then
+        return nil, "invalid_vehicle_seat"
+    end
+    return nearbyVehicleSquares(vehicle, seat, nil)
+end
+
 stationary = function(vehicle)
     local speedOk, speed = invoke(vehicle, "getCurrentSpeedKmHour")
     if not speedOk then return false, "vehicle speed is unavailable" end
@@ -800,12 +809,20 @@ end
 local function strangerAboard(vehicle)
     local countOk, count = invoke(vehicle, "getMaxPassengers")
     count = countOk and math.floor(finite(count, 0)) or 0
-    for seat = 0, math.min(count, 32) - 1 do
+    if not countOk or count < 1 or count > 32 then return true end
+    for seat = 0, count - 1 do
         local ok, occupant = invoke(vehicle, "getCharacter", seat)
         if not ok then return true end
         if occupant ~= nil and not SC.Actor.isCompanion(occupant) then return true end
     end
     return false
+end
+
+-- A parked driving lease must also yield when the player gets in. Unknown
+-- occupancy and foreign occupants count conservatively as a player aboard;
+-- owned companions, including a promoted expedition leader, do not.
+function vehicleService.hasPlayerAboard(vehicle)
+    return strangerAboard(vehicle)
 end
 
 local function multiplayerActive()
@@ -871,23 +888,24 @@ function vehicleService.isStationary(vehicle)
     return stationary(vehicle)
 end
 
-function vehicleService.boardingSquares(actor, vehicle, requestedSeat)
+function vehicleService.boardingSquares(actor, vehicle, requestedSeat, allowDriver)
     if not SC.Actor.isCompanion(actor) then
         return nil, nil, "actor is not an active companion"
     end
     if vehicle == nil then return nil, nil, "vehicle is required" end
     local identity = vehicleIdentity(vehicle)
     if identity == nil then return nil, nil, "vehicle identity is unavailable" end
-    local seat, reason = chooseSeat(vehicle, actor, requestedSeat, identity)
+    local seat, reason = chooseSeat(vehicle, actor, requestedSeat, identity,
+        allowDriver == true)
     if seat == nil then return nil, nil, reason end
     local squares, squareReason = nearbyVehicleSquares(vehicle, seat, actor)
     if squares == nil then return nil, nil, squareReason end
     return squares, seat
 end
 
-function vehicleService.boardingSquare(actor, vehicle, requestedSeat)
+function vehicleService.boardingSquare(actor, vehicle, requestedSeat, allowDriver)
     local squares, seat, reason = vehicleService.boardingSquares(
-        actor, vehicle, requestedSeat)
+        actor, vehicle, requestedSeat, allowDriver)
     return squares and squares[1] or nil, seat, reason
 end
 
@@ -909,6 +927,15 @@ local function loadedVehicleBySqlId(sqlId)
     local listOk, vehicles = invoke(cell, "getVehicles")
     local sizeOk, size = invoke(vehicles, "size")
     if not listOk or not sizeOk then return nil end
+    -- Build 42 returns a Set, not an indexed List. Use the game's exposed
+    -- Collection constructor; Iterator implementation classes are not all
+    -- exposed to Kahlua. Older indexed collections keep their existing path.
+    if method(vehicles, "get") == nil then
+        if finite(size, 0) > 512 then return nil end
+        local copied, list = pcall(function() return ArrayList.new(vehicles) end)
+        if not copied or list == nil then return nil end
+        vehicles = list
+    end
     for index = 0, math.min(math.floor(finite(size, 0)), 512) - 1 do
         local itemOk, vehicle = invoke(vehicles, "get", index)
         local idOk, id = invoke(vehicle, "getSqlId")
@@ -918,6 +945,224 @@ local function loadedVehicleBySqlId(sqlId)
         end
     end
     return nil
+end
+
+function vehicleService.loadedBySqlId(sqlId)
+    sqlId = finite(sqlId, -1)
+    if sqlId < 0 or sqlId ~= math.floor(sqlId) then return nil end
+    return loadedVehicleBySqlId(sqlId)
+end
+
+function vehicleService.loadedVehicles()
+    if type(getCell) ~= "function" then return {} end
+    local ok, cell = pcall(getCell)
+    if not ok or cell == nil then return {} end
+    local listOk, vehicles = invoke(cell, "getVehicles")
+    if not listOk or vehicles == nil then return {} end
+    local sizeOk, size = invoke(vehicles, "size")
+    size = sizeOk and finite(size, -1) or -1
+    if size < 0 or size > 512 then return {} end
+    if method(vehicles, "get") == nil then
+        local copied, list = pcall(function() return ArrayList.new(vehicles) end)
+        if not copied or list == nil then return {} end
+        vehicles = list
+    end
+    local result = {}
+    for index = 0, math.floor(size) - 1 do
+        local got, vehicle = invoke(vehicles, "get", index)
+        if got and vehicle ~= nil then result[#result + 1] = vehicle end
+    end
+    return result
+end
+
+local function exactItemCount(container, item)
+    local called, list = invoke(container, "getItems")
+    if not called or list == nil then return nil end
+    local sizeOk, size = invoke(list, "size")
+    if not sizeOk and type(list) == "table" and method(list, "size") == nil then size = #list end
+    if not sizeOk and method(list, "size") ~= nil then return nil end
+    size = finite(size, nil)
+    if size == nil or size < 0 or size > 4096 or size % 1 ~= 0 then return nil end
+    local count = 0
+    for index = 0, size - 1 do
+        local ok, candidate = invoke(list, "get", index)
+        if not ok and type(list) == "table" and method(list, "get") == nil then
+            ok, candidate = true, list[index + 1]
+        end
+        if not ok then return nil end
+        if candidate == item then count = count + 1 end
+    end
+    return count
+end
+
+local function keyAt(recovery, destination)
+    local ownerOk, owner = invoke(recovery.key, "getContainer")
+    local sourceCount = exactItemCount(recovery.source, recovery.key)
+    local targetCount = exactItemCount(recovery.target, recovery.key)
+    local keyOk, current = invoke(recovery.vehicle, "getCurrentKey")
+    local ignitionOk, ignition = invoke(recovery.vehicle, "isKeysInIgnition")
+    if not ownerOk or sourceCount == nil or targetCount == nil or not keyOk or not ignitionOk then
+        return false
+    end
+    if destination then
+        return owner == recovery.target and targetCount == 1 and sourceCount == 0
+            and current == nil and ignition == false
+    end
+    return owner == recovery.source and sourceCount == 1 and targetCount == 0
+        and current == recovery.key and ignition == true
+end
+
+local function keyVehicleFree(recovery)
+    if loadedVehicleBySqlId(recovery.sqlId) ~= recovery.vehicle then return false end
+    local called, driver = invoke(recovery.vehicle, "getDriver")
+    return called and driver == nil and not strangerAboard(recovery.vehicle)
+end
+
+local function rollbackDriverKey(recovery)
+    if keyAt(recovery, false) then return true end
+    local called, owner = invoke(recovery.key, "getContainer")
+    local currentOk, current = invoke(recovery.vehicle, "getCurrentKey")
+    if not called or owner ~= nil and owner ~= recovery.source and owner ~= recovery.target
+        or not currentOk or current ~= nil and current ~= recovery.key
+        or not keyVehicleFree(recovery) then return false end
+    invoke(recovery.source, "AddItem", recovery.key)
+    return keyAt(recovery, false)
+end
+
+local function completeDriverKey(recovery)
+    if not keyAt(recovery, true) then return false end
+    if not recovery.hotSaved then
+        local saved = invoke(recovery.vehicle, "flagForHotSave")
+        if not saved then return false end
+        recovery.hotSaved = true
+    end
+    if SC.InventoryIndex and type(SC.InventoryIndex.release) == "function" then
+        local released = pcall(SC.InventoryIndex.release, recovery.actor)
+        if not released then return false end
+    end
+    driverKeyRecoveries[recovery.actor] = nil
+    return true
+end
+
+local function advanceDriverKeyUnsafe(recovery, settling)
+    if not settling then recovery.attempts = recovery.attempts + 1 end
+    local reason = "driver_key_transfer_unverified"
+    if keyAt(recovery, true) then
+        if completeDriverKey(recovery) then return true end
+        reason = recovery.hotSaved and "driver_key_index_release_failed" or "driver_key_hot_save_failed"
+    elseif not settling and keyVehicleFree(recovery) and keyAt(recovery, false) then
+        local record = SC.Registry.byId(recovery.id)
+        local footOk, vehicle = invoke(recovery.actor, "getVehicle")
+        local runtime = record and record.runtime
+        if record and record.actor == recovery.actor and SC.Actor.isCompanion(recovery.actor)
+            and footOk and vehicle == nil
+            and not (runtime and (runtime.inactive or runtime.removalPending)) then
+            recovery.uncertain = true
+            local called, returned = invoke(recovery.target, "AddItem", recovery.key)
+            if called and returned == recovery.key then
+                if completeDriverKey(recovery) then return true end
+                if recovery.hotSaved then reason = "driver_key_index_release_failed" end
+            elseif called then reason = "driver_key_id_conflict" end
+        else reason = "driver_key_actor_unavailable" end
+    end
+    local committed = recovery.hotSaved and keyAt(recovery, true)
+    local rolledBack = not committed and rollbackDriverKey(recovery)
+    recovery.uncertain = not committed and not rolledBack
+    recovery.reason = reason
+    if rolledBack and (settling or recovery.attempts >= 6) then
+        driverKeyRecoveries[recovery.actor] = nil
+        return true, reason
+    end
+    recovery.nextAt = (type(getTimestampMs) == "function" and tonumber(getTimestampMs()) or 0)
+        + math.min(30000, 1000 * 2 ^ math.max(0, recovery.attempts - 1))
+    if SC.Diagnostics and SC.Diagnostics.report then
+        pcall(SC.Diagnostics.report, "vehicle-key", recovery.id, reason,
+            "attempt=" .. tostring(recovery.attempts) .. " rollback=" .. tostring(rolledBack))
+    end
+    return false, reason
+end
+
+local function advanceDriverKey(recovery, settling)
+    local called, completed, reason = pcall(advanceDriverKeyUnsafe, recovery, settling)
+    if called then return completed, reason end
+    recovery.uncertain, recovery.reason = true, "driver_key_recovery_error:" .. tostring(completed)
+    recovery.nextAt = (type(getTimestampMs) == "function" and tonumber(getTimestampMs()) or 0) + 1000
+    return false, recovery.reason
+end
+
+-- Only a fully committed, on-foot saved driver may take the car's existing key.
+-- A retry owns the exact objects; it never constructs a replacement key.
+function vehicleService.recoverRestoredDriverKey(actor, saved)
+    if actor == nil or type(saved) ~= "table" then return true, "not_saved_driver" end
+    if driverKeyRecoveries[actor] then return false, "driver_key_recovery_pending" end
+    local seat = saved.vehicle
+    if type(seat) ~= "table" or seat.stored ~= false or seat.seat ~= 0
+        or type(seat.vehicle) ~= "table" then return true, "not_saved_driver" end
+    local record = SC.Registry.byId(saved.id)
+    local footOk, nativeVehicle = invoke(actor, "getVehicle")
+    if not record or record.actor ~= actor or not SC.Actor.isCompanion(actor)
+        or not footOk or nativeVehicle ~= nil
+        or (record.runtime and (record.runtime.inactive or record.runtime.removalPending)) then
+        return true, "driver_not_committed_on_foot"
+    end
+    local sqlId = finite(seat.vehicle.sqlId, nil)
+    local vehicle = sqlId and loadedVehicleBySqlId(sqlId) or nil
+    if vehicle == nil then return true, "car_not_loaded" end
+    local freeOk, driver = invoke(vehicle, "getDriver")
+    if not freeOk or driver ~= nil or strangerAboard(vehicle) then return true, "car_driver_occupied" end
+    local targetOk, target = invoke(actor, "getInventory")
+    local keyIdOk, keyId = invoke(vehicle, "getKeyId")
+    if not targetOk or target == nil or not keyIdOk or finite(keyId, nil) == nil then
+        return false, "driver_key_inventory_unavailable"
+    end
+    local hasOk, heldKey = invoke(target, "haveThisKeyId", keyId)
+    if not hasOk then return false, "driver_key_inventory_unavailable" end
+    if heldKey ~= nil and heldKey ~= false then return true, "driver_already_has_key" end
+    local keyOk, key = invoke(vehicle, "getCurrentKey")
+    if not keyOk or key == nil then return true, "ignition_key_unavailable" end
+    local idOk, itemKeyId = invoke(key, "getKeyId")
+    local sourceOk, source = invoke(key, "getContainer")
+    if not idOk or itemKeyId ~= keyId or not sourceOk or source == nil or source == target then
+        return false, "ignition_key_owner_unavailable"
+    end
+    local recovery = { actor = actor, id = saved.id, vehicle = vehicle, sqlId = sqlId,
+        key = key, source = source, target = target, attempts = 0, nextAt = 0 }
+    if not keyAt(recovery, false) then return false, "ignition_key_owner_unverified" end
+    driverKeyRecoveries[actor] = recovery
+    return advanceDriverKey(recovery, false)
+end
+
+function vehicleService.recoverDriverKeyAfterExit(actor, sqlId)
+    local id = actor and SC.Registry and SC.Registry.idOf(actor)
+    sqlId = finite(sqlId, -1)
+    if id == nil or sqlId < 0 then return false, "driver_key_identity_unavailable" end
+    return vehicleService.recoverRestoredDriverKey(actor, {
+        id = id, vehicle = { stored = false, seat = 0,
+            vehicle = { sqlId = math.floor(sqlId) } },
+    })
+end
+
+function vehicleService.validateDriverKeyRecovery()
+    for _, recovery in pairs(driverKeyRecoveries) do
+        if recovery.uncertain then
+            return false, "driver key recovery is unresolved: " .. tostring(recovery.id)
+                .. ": " .. tostring(recovery.reason)
+        end
+    end
+    return true
+end
+
+function vehicleService.prepareDriverKeyReset(actor)
+    local actors = {}
+    if actor ~= nil then actors[1] = actor
+    else for value in pairs(driverKeyRecoveries) do actors[#actors + 1] = value end end
+    for _, value in ipairs(actors) do
+        local recovery = driverKeyRecoveries[value]
+        if recovery and not advanceDriverKey(recovery, true) then
+            return false, "driver_key_recovery_pending"
+        end
+    end
+    return true
 end
 
 -- Build 42 removes a parked car from the world when its area unloads, and
@@ -981,10 +1226,12 @@ function vehicleService.isSeatReserved(vehicle, seat)
 end
 
 function vehicleService.beginBoarding(actor, vehicle, requestedSeat, intent)
+    intent = type(intent) == "table" and intent or {}
     if vehicle == nil then return nil, "vehicle is required" end
     local identity = vehicleIdentity(vehicle)
     if identity == nil then return nil, "vehicle identity is unavailable" end
-    local seat, reason = chooseSeat(vehicle, actor, requestedSeat, identity)
+    local seat, reason = chooseSeat(vehicle, actor, requestedSeat, identity,
+        intent.driverSeat == true)
     if seat == nil then return nil, reason end
     local stopped, stopReason = stationary(vehicle)
     if stopped ~= true then return nil, stopReason end
@@ -1305,6 +1552,15 @@ function vehicleService.restoreForVehicle(vehicle, player)
 end
 
 function vehicleService.restorePulse()
+    local current = type(getTimestampMs) == "function" and tonumber(getTimestampMs()) or 0
+    local retries = {}
+    for actor, recovery in pairs(driverKeyRecoveries) do
+        if recovery.attempts < 6 and current >= recovery.nextAt then retries[#retries + 1] = actor end
+    end
+    for index, actor in ipairs(retries) do
+        if index > 4 then break end
+        advanceDriverKey(driverKeyRecoveries[actor], false)
+    end
     local restored = 0
     local ids = {}
     for id, stored in pairs(storedById) do
@@ -1398,6 +1654,12 @@ end
 
 function vehicleService.releaseActor(actor)
     if actor == nil then return false end
+    local settled, keyReason = vehicleService.prepareDriverKeyReset(actor)
+    if not settled then return false, keyReason end
+    if SC.Driving and type(SC.Driving.releaseActor) == "function" then
+        local called, stopped = pcall(SC.Driving.releaseActor, actor, "vehicle_release")
+        if not called or stopped ~= true then return false, "drive_release_failed" end
+    end
     lastVehicleShotAt[actor] = nil
     local transaction = transactions[actor]
     if transaction == nil then return true end
@@ -1418,6 +1680,12 @@ function vehicleService.releaseActor(actor)
 end
 
 function vehicleService.reset()
+    local settled, keyReason = vehicleService.prepareDriverKeyReset()
+    if not settled then return false, keyReason end
+    if SC.Driving and type(SC.Driving.reset) == "function" then
+        local called, released = pcall(SC.Driving.reset)
+        if not called or released ~= true then return false, "drive_release_failed" end
+    end
     local activeActors = {}
     for actor in pairs(transactions) do activeActors[#activeActors + 1] = actor end
     for _, actor in ipairs(activeActors) do

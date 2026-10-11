@@ -3,6 +3,15 @@ package survivorcompanion.bridge;
 
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Set;
+import se.krka.kahlua.vm.KahluaTable;
+import zombie.characters.IsoGameCharacter;
+import zombie.characters.IsoPlayer;
+import zombie.characters.SurvivorDesc;
+import zombie.core.physics.CarController;
+import zombie.network.GameClient;
+import zombie.network.GameServer;
+import zombie.vehicles.BaseVehicle;
 
 /** Low-speed cruise rules and the lane scan, against a synthetic grid. */
 public final class SCCompanionDrivingTest {
@@ -202,10 +211,109 @@ public final class SCCompanionDrivingTest {
                 "contact follows the car's heading: facing north, the front is up the map");
     }
 
-    public static void main(String[] args) {
+    private static final class Vehicle extends BaseVehicle {
+        final CarController controller = new CarController();
+        IsoGameCharacter driver;
+
+        @Override public IsoGameCharacter getDriver() { return driver; }
+        @Override public CarController getController() { return controller; }
+        @Override public boolean isEngineRunning() { return true; }
+        @Override public engineStateTypes getEngineState() { return engineStateTypes.Running; }
+    }
+
+    private static final class Table implements KahluaTable {
+        final HashMap<Object, Object> values = new HashMap<>();
+        @Override public Object rawget(Object key) { return values.get(key); }
+        @Override public void rawset(Object key, Object value) { values.put(key, value); }
+        @Override public void rawset(int key, Object value) { values.put(key, value); }
+        @Override public void wipe() { values.clear(); }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void playerBoardingAndStatus() throws Exception {
+        IsoPlayer[] savedPlayers = IsoPlayer.players;
+        boolean savedClient = GameClient.client;
+        boolean savedServer = GameServer.server;
+        var ownedField = SCBridge.class.getDeclaredField("OWNED");
+        ownedField.setAccessible(true);
+        Set<SCNativeCompanion> owned = (Set<SCNativeCompanion>) ownedField.get(null);
+        SCNativeCompanion actor = new SCNativeCompanion(new SurvivorDesc(), null, 0, 0, 0);
+        Vehicle vehicle = new Vehicle();
+        vehicle.driver = actor;
+        actor.setVehicleForTests(vehicle);
+        owned.add(actor);
+        try {
+            IsoPlayer player = new IsoPlayer(null, new SurvivorDesc(), 0, 0, 0, false);
+            IsoPlayer.players = new IsoPlayer[] {player, actor, null, null};
+            require(!SCBridge.playerAboard(vehicle) && !SCBridge.playerAboard(null),
+                    "an owned companion promoted to a player slot does not count as a passenger");
+            player.setVehicleForTests(new Vehicle());
+            require(!SCBridge.playerAboard(vehicle), "a real player in another car does not stop this one");
+            GameClient.client = true;
+            require(!SCBridge.driveStart(actor, true), "client multiplayer cannot take the wheel");
+            GameClient.client = false;
+            GameServer.server = true;
+            require(!SCBridge.driveStart(actor, true), "server multiplayer cannot take the wheel");
+            GameServer.server = false;
+            require(SCBridge.driveStart(actor, true) && SCBridge.driveSet(actor, 0.4, 10, false),
+                    "a seated owned companion can start an ordinary single-player drive");
+            SCCompanionDriver driver = actor.companionDriver();
+            driver.beforeVehicleUpdate(actor, vehicle);
+            require(driver.isActive() && vehicle.controller.clientControls.forward,
+                    "the driving frame still runs with only the promoted owned companion aboard");
+
+            player.setVehicleForTests(vehicle);
+            require(SCBridge.playerAboard(vehicle), "a real player in any passenger seat is aboard");
+            driver.beforeVehicleUpdate(actor, vehicle);
+            require(!driver.isActive() && "player_aboard".equals(driver.reason())
+                            && "idle".equals(driver.state()) && driver.vehicle() == null
+                            && vehicle.controller.parkCallsForTests == 1,
+                    "the next driving frame releases and parks when a real player boards");
+            CarController.ClientControls controls = vehicle.controller.clientControls;
+            require(!controls.forward && !controls.backward && !controls.brake
+                            && controls.steering == 0 && !controls.shift,
+                    "player boarding clears all companion pedal and steering inputs");
+            require(!SCBridge.driveStart(actor, true),
+                    "the shared boarding rule also refuses a fresh drive with the player aboard");
+            player.setVehicleForTests(null);
+            owned.remove(actor);
+            require(SCBridge.playerAboard(vehicle),
+                    "an unowned companion instance in a player slot is not silently ignored");
+            owned.add(actor);
+
+            require(SCBridge.driveStart(actor, true)
+                            && SCBridge.driveFollow(actor, "2,101,8;90,101,8", 10),
+                    "the driver may take another route after the player leaves");
+            Grid grid = new Grid();
+            for (int y = 95; y <= 106; y++) grid.put(30, y, SCLaneScan.VEHICLE);
+            SCRoadFollower follower = driver.follower();
+            follower.update(grid, 18, 103, 0, 1, 0, 0, 0.95f, 2.4f,
+                    -1, -1, 0, null);
+            Table status = new Table();
+            require(follower.mode() == SCRoadFollower.Mode.BLOCKED
+                            && SCBridge.driveStatus(actor, status)
+                            && status.rawget("blockedX") instanceof Double
+                            && Math.abs((Double) status.rawget("blockedX") - 30) < 0.6
+                            && Math.abs((Double) status.rawget("blockedY") - 103) < 0.01,
+                    "the Kahlua driver status carries numeric world coordinates of the block");
+            require(SCBridge.driveStop(actor) && SCBridge.driveStatus(actor, status)
+                            && status.rawget("blockedX") == null && status.rawget("blockedY") == null
+                            && Boolean.FALSE.equals(status.rawget("active")),
+                    "release clears route coordinates so the next job cannot reuse a stale block");
+        } finally {
+            actor.companionDriver().stop(actor, "test_cleanup");
+            owned.remove(actor);
+            IsoPlayer.players = savedPlayers;
+            GameClient.client = savedClient;
+            GameServer.server = savedServer;
+        }
+    }
+
+    public static void main(String[] args) throws Exception {
         cruiseRules();
         laneScan();
         ramContact();
+        playerBoardingAndStatus();
         System.out.println("COMPANION_DRIVING_PASS checks=" + checks);
     }
 }

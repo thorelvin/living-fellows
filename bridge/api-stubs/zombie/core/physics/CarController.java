@@ -10,12 +10,19 @@ public final class CarController {
         public boolean brake;
         public boolean shift;
 
-        public void reset() {}
+        public void reset() {
+            steering = 0.0f;
+            forward = false;
+            backward = false;
+            brake = false;
+            shift = false;
+        }
     }
 
     public final ClientControls clientControls = new ClientControls();
+    public int parkCallsForTests;
 
     public ClientControls getClientControls() { return clientControls; }
 
-    public void park() {}
+    public void park() { parkCallsForTests++; }
 }

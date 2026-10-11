@@ -249,10 +249,59 @@ public final class SCRoadFollowerTest {
                         && Math.abs(drive.car.kmh()) < 0.6f && drive.car.x < 30.0f - 2.4f,
                 "a road blocked edge to edge stops the car short of the block: " + drive.trace
                         + " mode=" + follower.mode() + " x=" + drive.car.x);
+        require(follower.blockedX() >= 29.5f && follower.blockedX() <= 30.5f
+                        && Math.abs(follower.blockedY() - 103.0f) < 0.01f,
+                "a blocked route exposes the obstruction in world coordinates, not its distance: "
+                        + follower.blockedX() + "," + follower.blockedY());
         road.clear(30, 33, 95, 106);
         drive.run(60.0f, () -> follower.mode() == SCRoadFollower.Mode.ARRIVED);
         require(!drive.collided && follower.mode() == SCRoadFollower.Mode.ARRIVED,
                 "once the block is gone the car drives on");
+    }
+
+    private static void newRouteBehind() {
+        String route = "90,101,8;2,101,8";
+        SCRoadFollower follower = new SCRoadFollower(SCDrivePath.parse(route), 10.0f, true);
+        SCDrivePath newPath = follower.path();
+        Drive drive = new Drive(new Road(), new Car(86.0f, 103.0f, 0.0f), follower);
+        drive.run(0.1f, () -> false);
+        require(follower.mode() == SCRoadFollower.Mode.TURNING && follower.turn() != null,
+                "a new route behind a stopped car begins a bounded turn before pursuit");
+        drive.run(120.0f, () -> follower.mode() == SCRoadFollower.Mode.ARRIVED);
+        require(!drive.collided && follower.mode() == SCRoadFollower.Mode.ARRIVED
+                        && drive.car.x < 6.0f && follower.path() == newPath,
+                "the car turns onto the new route, keeps that route, and arrives untouched: "
+                        + drive.trace + " mode=" + follower.mode() + " x=" + drive.car.x);
+
+        SCRoadFollower rolling = new SCRoadFollower(SCDrivePath.parse(route), 10.0f, true);
+        SCRoadFollower.Command command = rolling.update(new Road(), 70, 103, 0, 1, 0,
+                5.0f, Car.HALF_WIDTH, Car.HALF_LENGTH, -1, -1, 0, null);
+        require(rolling.turn() == null && command.targetKmh == 0.0f,
+                "a rolling car brakes before a new backward route starts its turn");
+        rolling.update(new Road(), 70, 103, 0, 1, 0, 2.9f,
+                Car.HALF_WIDTH, Car.HALF_LENGTH, -1, -1, 1000, command);
+        require(rolling.mode() == SCRoadFollower.Mode.TURNING,
+                "the initial route alignment turn begins below three km/h");
+        SCRoadFollower holding = new SCRoadFollower(SCDrivePath.parse(route), 0.0f, true);
+        command = holding.update(new Road(), 70, 103, 0, 1, 0, 0,
+                Car.HALF_WIDTH, Car.HALF_LENGTH, -1, -1, 0, null);
+        require(holding.turn() == null && command.targetKmh == 0.0f,
+                "a zero-cruise route holds even when it points behind the car");
+
+        // A diagonal route needs its own direction, rather than a 180-degree flip.
+        SCRoadFollower diagonal = new SCRoadFollower(
+                SCDrivePath.parse("80,100,8;40,140,8"), 10.0f, true);
+        diagonal.update(new Road(), 80, 100, 0, 1, 0, 0,
+                Car.HALF_WIDTH, Car.HALF_LENGTH, -1, -1, 0, null);
+        require(diagonal.turn() != null && Math.abs(SCTurnAround.wrap(
+                        diagonal.turn().targetHeading() - (float) (3 * Math.PI / 4))) < 0.001f,
+                "the initial turn targets the projected route's actual diagonal heading");
+
+        SCRoadFollower ahead = new SCRoadFollower(SCDrivePath.parse(ROUTE), 10.0f, true);
+        ahead.update(new Road(), 6, 103, 0, 1, 0, 0,
+                Car.HALF_WIDTH, Car.HALF_LENGTH, -1, -1, 0, null);
+        require(ahead.mode() == SCRoadFollower.Mode.FOLLOW && ahead.turn() == null,
+                "a route already facing forward starts ordinary pursuit");
     }
 
     private static Drive turnAndReturn(boolean reverseWheelWrong) {
@@ -387,6 +436,27 @@ public final class SCRoadFollowerTest {
                         + drive.trace + " mode=" + follower.mode() + " legs=" + follower.turn().legs());
     }
 
+    private static void preciseParking() {
+        String route = "12,101,5;25,101,5";
+        SCRoadFollower follower = new SCRoadFollower(SCDrivePath.parse(route),
+                5.0f, false, true);
+        Drive drive = new Drive(new Road(), new Car(12.0f, 101.0f, 0.0f), follower);
+        drive.run(90.0f, () -> follower.mode() == SCRoadFollower.Mode.ARRIVED);
+        require(!drive.collided && follower.mode() == SCRoadFollower.Mode.ARRIVED
+                        && Math.abs(drive.car.x - 25.0f) <= 0.9f
+                        && Math.abs(drive.car.y - 101.0f) <= 0.75f,
+                "precise parking reaches the bay without early road arrival: x="
+                        + drive.car.x + " y=" + drive.car.y + " mode=" + follower.mode());
+        Road obstructed = new Road().block(21, 25, 100, 102, SCLaneScan.VEHICLE);
+        SCRoadFollower blocked = new SCRoadFollower(SCDrivePath.parse(route),
+                5.0f, false, true);
+        Drive stopped = new Drive(obstructed, new Car(12.0f, 101.0f, 0.0f), blocked);
+        stopped.run(30.0f, () -> blocked.mode() == SCRoadFollower.Mode.BLOCKED);
+        require(!stopped.collided && blocked.mode() == SCRoadFollower.Mode.BLOCKED
+                        && blocked.swerves() == 0,
+                "a blocked parking bay stops without swerving into another bay");
+    }
+
     public static void main(String[] args) {
         pathBasics();
         reverseRules();
@@ -394,9 +464,11 @@ public final class SCRoadFollowerTest {
         oneWreck();
         twoWrecks();
         blockedRoad();
+        newRouteBehind();
         turnRound();
         personInLane();
         tooNarrowToTurn();
+        preciseParking();
         streetToStreet(true);
         streetToStreet(false);
         System.out.println("ROAD_FOLLOWER_PASS checks=" + checks);

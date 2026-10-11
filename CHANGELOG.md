@@ -2,6 +2,12 @@
 
 # Changelog
 
+## Unreleased - Experimental car expeditions
+
+- Added ground-floor Parking areas to camp marking and overlays. Expeditions now offer **Drive car** alongside walking routes, with a selected car, visible refusal reasons, and checks for real seats, key, fuel, mechanical condition and road access.
+- The squad boards through physical doors, drives under the companion leader's second view, gets out for the site, and returns to the marked parking area. Vehicle failure enters verified foot recovery; blocked exits and unsafe parking hold the mission with a reason.
+- Car missions save their exact vehicle, roster seats, parking snapshot and leg. Reloaded trips check the car and team before automatically re-boarding; explicit holds remain held. The native bridge protocol advances to `42.21-isocompanion-19`.
+
 ## 0.26.36 - Your own companion settings
 
 - **Options → Mods → Living Fellows** has four settings that apply as soon as you press Apply and are kept on this computer for every save: **Companion chatter** (Normal, Less, Rare), **Coughs and sneezes** (Normal, Rare, Off), **Ordinary colds** (on or off) and **Protect recruited companions from player attacks** (off by default).

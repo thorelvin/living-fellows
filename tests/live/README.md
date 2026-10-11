@@ -102,7 +102,7 @@ lane scan every 250 ms. Add `-DrivingScreenshotDirectory` to capture
 
 ```powershell
 .\scripts\Invoke-LiveSandboxTests.ps1 -DrivingProbe -LivingFellowsOnly -TimeoutSeconds 600 `
-    -DrivingScreenshotDirectory .uild\driving-shots
+    -DrivingScreenshotDirectory .\build\driving-shots
 ```
 
 Add `-DrivingRoute` to drive a route instead. The probe asks the expedition road
@@ -126,5 +126,97 @@ route turns at least 60 degrees and that the car takes the corner, arrives
 within 4 tiles of the route end, and keeps to the right-hand lane of the new
 street. The screenshot, when asked for, is `driving-corner.png`.
 
+WP5 verifies normal companion AI without unregistering Decision. The route
+holds at the outbound wreck for 2.5 real seconds, then checks seat zero again
+through the turn and after arrival. Decision must continue ticking throughout.
+Ambient foot threats must not pull a healthy driver from the wheel, including
+zombie pressure, player danger, and nearby hostile humans. Medical emergencies,
+urgent needs, an explicit retreat order, a faction emergency, or a native grab
+still preempt the drive.
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -DrivingProbe -DrivingRoute -DrivingWithAi `
+    -LivingFellowsOnly -ExternalUiControl -TimeoutSeconds 900
+```
+
+The negative control disables only the cached copy of Decision's driving gate.
+It must fail at the stopped-driver seat check and exit nonzero; a PASS would
+show that the positive probe did not actually depend on the gate.
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -DrivingProbe -DrivingRoute -DrivingWithAi `
+    -DrivingGateNegativeControl -LivingFellowsOnly -ExternalUiControl `
+    -TimeoutSeconds 900
+```
+
+The full-road block mode first asks for an alternate route and samples every
+segment in the loaded world. If no loaded alternate exists, it reports
+`LIVE_SANDBOX_SKIP`, never `LIVE_SANDBOX_PASS`. If one exists, parked cars span
+the road; the production drive job must block, replan around an avoidance
+circle, arrive without contact, and stay in the driver's seat.
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -DrivingProbe -DrivingBlocked `
+    -LivingFellowsOnly -ExternalUiControl -TimeoutSeconds 900
+```
+
+The save test uses two successive disposable clones. Stage saves while the
+companion is moving in seat zero with the exact key verified in its inventory
+or the car's ignition. The observer stands on a clear roadside tile within
+12 tiles of the moving car so the car loads again with the save. Stage then
+waits for the game's normal save and exit. Its
+output prints the **Driving resume seed** path. Use that
+exact retained clone as the second run's `-SeedSave`; Resume creates another
+clone and checks the saved seat record, driver-door placement, key, parked car,
+and absence of an automatic drive after five seconds.
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -DrivingProbe -DrivingSaveStage `
+    -LivingFellowsOnly -ExternalUiControl -TimeoutSeconds 600
+.\scripts\Invoke-LiveSandboxTests.ps1 -DrivingProbe -DrivingSaveResume `
+    -SeedSave 'PATH PRINTED AS DRIVING RESUME SEED' `
+    -LivingFellowsOnly -ExternalUiControl -TimeoutSeconds 600
+```
+
 The run needs the branch's bridge on the game's classpath, so install it first
-with `.\scripts\Install-NativeBridge.ps1`.
+with `.\scripts\Install-NativeBridge.ps1`. Before replacing the installed
+bridge, preserve both its JAR and the installer script from that same version.
+After all clones exit, run the saved installer with
+`-PrebuiltBridgeJar <saved-jar>` to restore the original installation. The
+current branch's installer checks its own protocol and rejects an older JAR;
+it cannot restore a bridge from an earlier version. The click-to-start helper
+targets only the client process it
+started, waits for the world-load log, and stops clicking once live results
+begin; the in-game harness separately checks that game time runs.
+With `-ExternalUiControl`, the runner never sends a click or key to the game
+window and never captures its pixels. A separate UI controller must click the
+Build 42 start gate after the runner prints the world-load message.
+
+## Expedition car probe
+
+`-DrivingProbe -TeamDriveProbe` uses a disposable save clone to mark a parking
+area, select its car, board a three-person squad into native seats, drive to a
+site, leave the car, return, park within the marked area, and get everyone out.
+The car uses a real key and measured fuel. `-DrivingRemote` first checks physical
+driving beyond player 0's loaded area. These probes need the matching branch
+bridge; preserve and restore the installed bridge as described above.
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -DrivingProbe -TeamDriveProbe `
+    -LivingFellowsOnly -ExternalUiControl -NoSteam -TimeoutSeconds 900
+```
+
+The restart probe takes two runs. Stage saves a cloned world mid-drive and
+prints its retained save path. Resume clones that stage save, verifies the
+restored car and team, then checks automatic fresh boarding and the return to
+the marked parking area. Pass the exact stage path to `-SeedSave`; the runner
+also requires its stage proof file. Never use an active playtest save as seed.
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -DrivingProbe -TeamDriveProbe `
+    -TeamDriveRestartStage -LivingFellowsOnly -ExternalUiControl -NoSteam `
+    -TimeoutSeconds 900
+.\scripts\Invoke-LiveSandboxTests.ps1 -DrivingProbe -TeamDriveProbe `
+    -TeamDriveRestartResume -SeedSave 'PATH PRINTED BY STAGE' `
+    -LivingFellowsOnly -ExternalUiControl -NoSteam -TimeoutSeconds 900
+```

@@ -10,8 +10,9 @@
 -- drives an expedition-planner route: round one wreck and through two
 -- zombies on the way out (a companion's car kills zombies it touches), a
 -- three-point turn at the end, and round two wrecks on the way back. With
--- driving_turn it drives a planner route from this road round a junction into a
--- side street.
+-- driving_turn drives from this road round a junction into a side street.
+-- The WP5 modes leave normal Decision enabled, test a blocked-road alternate,
+-- or save a moving seat-zero driver and reload a second disposable clone.
 -- Telemetry lines start with SC_REAL_SANDBOX|DRIVE. The seed save is never changed.
 
 local Probe = {}
@@ -158,6 +159,61 @@ local function holdSteering(test)
     return steering, headingError, lateral
 end
 
+-- Read the same cached inputs that Decision used on its last beat. Do not
+-- rescan the world or assess Needs here: either could change this drive test.
+local function driveDiagnosis(SC, actor, native)
+    local function read(module, method, ...)
+        if type(module) ~= "table" or type(module[method]) ~= "function" then return nil end
+        local ok, value = pcall(module[method], ...)
+        return ok and value or nil
+    end
+    local job = read(SC.Driving, "jobStatus", actor) or {}
+    local decision = read(SC.Decision, "peek", actor) or {}
+    local id = read(SC.Registry, "idOf", actor)
+    local record = id and read(SC.Registry, "byId", id) or nil
+    local runtime = record and record.runtime or {}
+    local snapshot = runtime.snapshot or (runtime.senses and runtime.senses.current)
+        or read(SC.Senses, "cached", actor, runtime) or {}
+    local player = type(snapshot.player) == "table" and snapshot.player or {}
+    local medical = read(SC.Medical, "assessCached", actor, nil, 750) or {}
+    local needs = read(SC.Needs, "peek", actor) or {}
+    local commands = read(SC.Commands, "peek", actor) or {}
+    local token = read(SC.ActionSupervisor, "current", actor) or {}
+    local history = read(SC.ActionSupervisor, "history", actor, 2) or {}
+    local events = {}
+    for _, entry in ipairs(history) do
+        events[#events + 1] = tostring(entry.event) .. "/" .. tostring(entry.owner)
+            .. "/" .. tostring(entry.reason)
+    end
+    local pressure = read(SC.Decision, "_engagementPressure", snapshot)
+    local hunger = tonumber(needs.hunger)
+    local thirst = tonumber(needs.thirst)
+    local U = SC.GameplayUtil
+    local hungerLimit = tonumber(read(U, "config", "needsHungerEmergency")) or 0.82
+    local thirstLimit = tonumber(read(U, "config", "needsThirstEmergency")) or 0.75
+    local needsEmergency = hunger ~= nil and hunger >= hungerLimit
+        or thirst ~= nil and thirst >= thirstLimit
+    return "job=" .. tostring(job.phase) .. "/" .. tostring(job.result)
+        .. "/" .. tostring(job.reason)
+        .. ";native=" .. tostring(native.state) .. "/" .. tostring(native.active)
+        .. "/" .. tostring(native.reason)
+        .. ";decision=" .. tostring(decision.current) .. "/" .. tostring(decision.intent)
+        .. "/runtime:" .. tostring(runtime.lastDecision)
+        .. ";owner=" .. tostring(token.owner) .. "/" .. tostring(token.action)
+        .. ";senses=" .. tostring(snapshot.immediateCount) .. "/"
+        .. tostring(snapshot.threatCount) .. "/" .. fmt(pressure)
+        .. "/human:" .. tostring(snapshot.humanThreat ~= nil)
+        .. "/player:" .. fmt(player.danger) .. "/" .. tostring(player.immediateThreats)
+        .. ";medical=" .. tostring(medical.alive) .. "/" .. fmt(medical.health)
+        .. "/critical:" .. tostring(medical.critical)
+        .. "/downed:" .. tostring(medical.downed)
+        .. "/bleeding:" .. tostring(medical.bleedingCount)
+        .. ";needs=" .. fmt(hunger) .. "/" .. fmt(thirst)
+        .. "/emergency:" .. tostring(needsEmergency)
+        .. ";order=" .. tostring(commands.order)
+        .. ";supervisor=" .. table.concat(events, ",")
+end
+
 local function telemetry(H, test, current, extra)
     if current < (test.nextTraceAt or 0) then return end
     test.nextTraceAt = current + 250
@@ -174,7 +230,9 @@ local function telemetry(H, test, current, extra)
         .. "|engine=" .. tostring(status.engineState)
         .. "|blocked=" .. tostring(status.blocked) .. ":" .. tostring(status.obstacleKind)
         .. ":" .. fmt(status.obstacleDistance)
+        .. "|blocked_point=" .. fmt(status.blockedX) .. "," .. fmt(status.blockedY)
         .. "|game_speed=" .. tostring(speedOk and gameSpeed or "?")
+        .. "|diag=" .. driveDiagnosis(SurvivorCompanion, test.actor, status)
         .. (status.following and ("|mode=" .. tostring(status.mode) .. "|along="
             .. fmt(status.along) .. "/" .. fmt(status.routeLength) .. "|lateral="
             .. fmt(status.lateral) .. "|offset=" .. fmt(status.offset) .. "|swerves="
@@ -186,14 +244,555 @@ local function telemetry(H, test, current, extra)
         .. (extra and ("|" .. extra) or ""))
 end
 
-local function failTo(H, test, setPhase, result, current, name, detail)
+local function flatDistance(ax, ay, bx, by)
+    return math.sqrt((ax - bx) ^ 2 + (ay - by) ^ 2)
+end
+
+local function distanceToSegment(px, py, ax, ay, bx, by)
+    local dx, dy = bx - ax, by - ay
+    local lengthSquared = dx * dx + dy * dy
+    if lengthSquared < 0.001 then return flatDistance(px, py, ax, ay) end
+    local fraction = math.max(0, math.min(1,
+        ((px - ax) * dx + (py - ay) * dy) / lengthSquared))
+    return flatDistance(px, py, ax + dx * fraction, ay + dy * fraction)
+end
+
+-- Reject a mapped alternate whose squares have not been loaded around the
+-- observer. A paper road alone cannot prove a car can make this live detour.
+local function loadedAlternate(U, route, goal, blockX, blockY)
+    local points = route and route.points or nil
+    if type(points) ~= "table" or #points < 2 or #points > 512 then
+        return false, "planner returned no bounded alternate"
+    end
+    local last = points[#points]
+    if type(last.x) ~= "number" or type(last.y) ~= "number" then
+        return false, "alternate has a malformed end point"
+    end
+    if flatDistance(last.x, last.y, goal.x, goal.y) > 8 then
+        return false, "alternate ends short of the goal"
+    end
+    local samples, length = 0, 0
+    for index = 2, #points do
+        local first, second = points[index - 1], points[index]
+        if type(first.x) ~= "number" or type(first.y) ~= "number"
+            or type(second.x) ~= "number" or type(second.y) ~= "number" then
+            return false, "alternate has a malformed point"
+        end
+        if distanceToSegment(blockX, blockY,
+                first.x, first.y, second.x, second.y) < 11 then
+            return false, "alternate still crosses the blocked circle"
+        end
+        local leg = flatDistance(first.x, first.y, second.x, second.y)
+        length = length + leg
+        for step = 0, math.max(1, math.ceil(leg / 4)) do
+            samples = samples + 1
+            if samples > 256 then return false, "alternate exceeds loaded probe bounds" end
+            local fraction = step / math.max(1, math.ceil(leg / 4))
+            local square = U.gridSquare(math.floor(first.x
+                + (second.x - first.x) * fraction),
+                math.floor(first.y + (second.y - first.y) * fraction), 0)
+            if square == nil then
+                return false, "alternate crosses an unloaded square"
+            end
+        end
+    end
+    return true, "points=" .. #points .. " sampled=" .. samples
+        .. " length=" .. fmt(length)
+end
+
+-- The route fixture helpers below are shared by the newer WP5 probes.
+local roadPoint, placeWreck, watchFrom, settled, recordWrecks, untouched
+local failTo, stationary
+
+local function snapshotHasKey(snapshot, wanted)
+    local function visit(node)
+        if type(node) ~= "table" then return false end
+        if type(node.key) == "table" and tonumber(node.key.id) == wanted then
+            return true
+        end
+        for _, child in ipairs(node.children or {}) do
+            if visit(child) then return true end
+        end
+        return false
+    end
+    for _, root in ipairs(snapshot and snapshot.roots or {}) do
+        if visit(root) then return true end
+    end
+    return false
+end
+
+local function snapshotKeyIds(snapshot)
+    local ids = {}
+    local function visit(node)
+        if type(node) ~= "table" or #ids >= 8 then return end
+        if type(node.key) == "table" then
+            ids[#ids + 1] = tostring(node.key.id)
+        end
+        for _, child in ipairs(node.children or {}) do visit(child) end
+    end
+    for _, root in ipairs(snapshot and snapshot.roots or {}) do visit(root) end
+    return table.concat(ids, ",")
+end
+
+-- Count the exact key in the live native inventory, including bags. A
+-- boolean haveThisKeyId check alone cannot catch a duplicated handover.
+local function liveKeyCount(actor, keyId)
+    local inventory = call(actor, "getInventory")
+    if inventory == nil or keyId == nil then return nil end
+    local seen, visited, found = {}, 0, 0
+    local function visit(container, depth)
+        if container == nil or seen[container] or depth > 12 then return false end
+        seen[container] = true
+        local items = call(container, "getItems")
+        local count = tonumber(call(items, "size"))
+        if count == nil or count < 0 or count > 2048 then return false end
+        for index = 0, count - 1 do
+            visited = visited + 1
+            if visited > 2048 then return false end
+            local item = call(items, "get", index)
+            if item == nil then return false end
+            if tonumber(call(item, "getKeyId")) == keyId then
+                found = found + 1
+            end
+            local nested = call(item, "getInventory")
+            if nested ~= nil and not visit(nested, depth + 1) then return false end
+        end
+        return true
+    end
+    return visit(inventory, 0) and found or nil
+end
+
+local function readableLoadedVehicles()
+    local cell = type(getCell) == "function" and getCell() or nil
+    local vehicles = cell and call(cell, "getVehicles") or nil
+    local count = tonumber(call(vehicles, "size"))
+    if count == nil or count < 0 or count > 512 then
+        return nil, count, "invalid_collection_size"
+    end
+    if count > 0 and call(vehicles, "get", 0) == nil then
+        -- Build 42 exposes IsoCell.getVehicles() as a Java Set. Its iterator
+        -- implementation is not reliably exposed to Lua, but the stock game
+        -- uses the Collection constructor to copy Set entries into a List.
+        local copied, list = pcall(function() return ArrayList.new(vehicles) end)
+        if not copied or list == nil or tonumber(call(list, "size")) ~= count then
+            return nil, count, "set_copy_failed"
+        end
+        vehicles = list
+    end
+    return vehicles, count, "readable"
+end
+
+local function loadedCarBySqlId(sqlId)
+    local vehicles, count = readableLoadedVehicles()
+    if vehicles == nil or sqlId == nil then return nil end
+    for index = 0, math.min(count, 512) - 1 do
+        local item = call(vehicles, "get", index)
+        if item and tonumber(call(item, "getSqlId")) == sqlId then
+            return item
+        end
+    end
+    return nil
+end
+
+local function loadedVehicleDiagnostic()
+    local vehicles, count, readReason = readableLoadedVehicles()
+    local entries = {}
+    for index = 0, math.min(count or 0, 32) - 1 do
+        local vehicle = call(vehicles, "get", index)
+        entries[#entries + 1] = tostring(call(vehicle, "getSqlId"))
+            .. "@" .. fmt(call(vehicle, "getX"))
+            .. "," .. fmt(call(vehicle, "getY"))
+    end
+    return count, readReason, table.concat(entries, ";")
+end
+
+local function saveStep(H, SC, current, check, result, setPhase, test)
+    local vehicle, actor = test.vehicle, test.actor
+    if H.phase == "drive_save_start" then
+        test.saveStartX, test.saveStartY = vehicle:getX(), vehicle:getY()
+        local started, why = SC.Driving.drive(actor, test.goal, { speedKmh = 10 })
+        if not check("drive_save_job_started", started == true,
+                tostring(why)) then
+            setPhase("finish", current) return
+        end
+        setPhase("drive_save_moving", current)
+        return
+    end
+    if H.phase == "drive_save_moving" then
+        local job = SC.Driving.jobStatus(actor) or {}
+        if job.phase == "failed" or job.phase == "released" then
+            failTo(H, test, setPhase, result, current,
+                "drive_save_midroute", "job stopped: " .. tostring(job.reason))
+            return
+        end
+        local moved = flatDistance(vehicle:getX(), vehicle:getY(),
+            test.saveStartX, test.saveStartY)
+        local speed = math.abs(tonumber(vehicle:getCurrentSpeedKmHour()) or 0)
+        if job.phase == "following" and moved >= 6 and speed >= 4 then
+            local id = SC.Registry.idOf(actor)
+            local sqlId = tonumber(call(vehicle, "getSqlId"))
+            local keyId = tonumber(call(vehicle, "getKeyId"))
+            local saved, document = SC.Runtime.save()
+            local entry = saved and document and document.companions
+                and document.companions[id] or nil
+            local seat = tonumber(call(vehicle, "getSeat", actor))
+            local savedVehicle = entry and entry.vehicle or nil
+            local nativeIdentity = savedVehicle and savedVehicle.vehicle or nil
+            local nativeDriver = SC.Driving.isDriver(actor)
+            local liveKey = SC.Driving.hasKey(actor, vehicle)
+            local liveCount = liveKeyCount(actor, keyId)
+            local savedKey = snapshotHasKey(entry and entry.inventory, keyId)
+            local ignitionItem = call(vehicle, "getCurrentKey")
+            local ignitionKeyId = tonumber(call(ignitionItem, "getKeyId"))
+            local ignitionKey = call(vehicle, "isKeysInIgnition") == true
+                and ignitionKeyId ~= nil and ignitionKeyId == keyId
+            local keyLocation = liveKey and savedKey and liveCount == 1 and "inventory"
+                or ignitionKey and not savedKey and liveCount == 0
+                    and "ignition" or "missing"
+            local observerX, observerY = SC.GameplayUtil.position(H.player)
+            local observerGap = observerX and observerY and flatDistance(
+                observerX, observerY, vehicle:getX(), vehicle:getY()) or math.huge
+            if not check("drive_save_stage_persisted_seat_zero",
+                    saved == true and type(id) == "string"
+                        and seat == 0 and sqlId ~= nil and sqlId >= 0
+                        and keyId ~= nil and keyId >= 0
+                        and nativeDriver
+                        and observerGap <= 12
+                        and keyLocation ~= "missing"
+                        and savedVehicle and savedVehicle.stored == false
+                        and savedVehicle.seat == 0
+                        and nativeIdentity and nativeIdentity.sqlId == sqlId,
+                    "save=" .. tostring(saved)
+                        .. " id=" .. tostring(id)
+                        .. " seat=" .. tostring(seat)
+                        .. " saved_seat=" .. tostring(savedVehicle and savedVehicle.seat)
+                        .. " sql=" .. tostring(sqlId)
+                        .. " saved_sql=" .. tostring(nativeIdentity and nativeIdentity.sqlId)
+                        .. " key=" .. tostring(keyId)
+                        .. " native_driver=" .. tostring(nativeDriver)
+                        .. " live_key=" .. tostring(liveKey)
+                        .. " live_key_count=" .. tostring(liveCount)
+                        .. " ignition=" .. tostring(call(vehicle, "isKeysInIgnition"))
+                        .. " ignition_key_id=" .. tostring(ignitionKeyId)
+                        .. " key_location=" .. keyLocation
+                        .. " stored=" .. tostring(savedVehicle and savedVehicle.stored)
+                        .. " inventory_schema=" .. tostring(entry and entry.inventory
+                            and entry.inventory.schema)
+                        .. " inventory_roots=" .. tostring(entry and entry.inventory
+                            and entry.inventory.roots and #entry.inventory.roots)
+                        .. " saved_key=" .. tostring(savedKey)
+                        .. " saved_key_ids=" .. snapshotKeyIds(entry and entry.inventory)
+                        .. " observer_gap=" .. fmt(observerGap)
+                        .. " moved=" .. fmt(moved)
+                        .. " speed=" .. fmt(speed)) then
+                setPhase("finish", current) return
+            end
+            local signalled = H.drivingSignals.write(
+                "SurvivorCompanionHarness/driving-save-stage.txt", {
+                    "SC_DRIVING_STAGE_V1",
+                    "actor_id=" .. id,
+                    "sql_id=" .. tostring(sqlId),
+                    "key_id=" .. tostring(keyId),
+                    "key_location=" .. keyLocation,
+                    "car_x=" .. string.format("%.2f", vehicle:getX()),
+                    "car_y=" .. string.format("%.2f", vehicle:getY()),
+                })
+            check("drive_save_stage_proof_written", signalled == true,
+                "seat zero and exact key verified in inventory or native ignition")
+            setPhase("finish", current)
+            return
+        end
+        if current - H.phaseStartedAt > 90000 then
+            failTo(H, test, setPhase, result, current,
+                "drive_save_midroute", "timeout phase=" .. tostring(job.phase)
+                    .. " moved=" .. fmt(moved) .. " speed=" .. fmt(speed))
+        end
+    end
+end
+
+local function resumeStep(H, SC, current, check, result, setPhase)
+    local expected = H.config
+    local id = expected.driving_expected_actor_id
+    local sqlId = tonumber(expected.driving_expected_sql_id)
+    local keyId = tonumber(expected.driving_expected_key_id)
+    local keyLocation = expected.driving_expected_key_location
+    local record = SC.Registry.byId(id)
+    local actor = record and record.actor or nil
+    local vehicle = sqlId and loadedCarBySqlId(sqlId) or nil
+    if actor == nil or vehicle == nil then
+        if current - H.phaseStartedAt > 35000 then
+            local carX = tonumber(expected.driving_expected_car_x)
+            local carY = tonumber(expected.driving_expected_car_y)
+            local carSquare = carX and carY and SC.GameplayUtil.gridSquare(
+                math.floor(carX), math.floor(carY), 0) or nil
+            local loadedCount, readReason, loadedIds = loadedVehicleDiagnostic()
+            result("FAIL", "drive_save_resume_loaded",
+                "actor=" .. tostring(actor) .. " car=" .. tostring(vehicle)
+                    .. " sql=" .. tostring(sqlId)
+                    .. " player=" .. fmt(call(H.player, "getX")) .. ","
+                    .. fmt(call(H.player, "getY"))
+                    .. " actor_pos=" .. fmt(call(actor, "getX")) .. ","
+                    .. fmt(call(actor, "getY"))
+                    .. " saved_car=" .. fmt(carX) .. "," .. fmt(carY)
+                    .. " car_square=" .. tostring(carSquare ~= nil)
+                    .. " loaded_vehicle_count=" .. tostring(loadedCount)
+                    .. " vehicle_read=" .. tostring(readReason)
+                    .. " loaded_vehicles=" .. loadedIds)
+            setPhase("finish", current)
+        end
+        return
+    end
+    local savedDocument = SC.Persistence.lastDocument()
+    local saved = savedDocument and savedDocument.companions
+        and savedDocument.companions[id] or nil
+    local door = SC.Vehicle.reloadedCarSquare({ sqlId = sqlId, seat = 0 })
+    local ax, ay = actor:getX(), actor:getY()
+    local gap = door and flatDistance(ax, ay,
+        door:getX() + 0.5, door:getY() + 0.5) or math.huge
+    if H.phase == "drive_save_resume_wait" then
+        local savedKey = snapshotHasKey(saved and saved.inventory, keyId)
+        local ignitionItem = call(vehicle, "getCurrentKey")
+        local ignitionKeyId = tonumber(call(ignitionItem, "getKeyId"))
+        local ignitionKey = call(vehicle, "isKeysInIgnition") == true
+            and ignitionKeyId ~= nil and ignitionKeyId == keyId
+        local actorHasKey = SC.Driving.hasKey(actor, vehicle)
+        local actorKeyCount = liveKeyCount(actor, keyId)
+        local recoveredKey = actorHasKey and actorKeyCount == 1
+            and ignitionItem == nil
+            and call(vehicle, "isKeysInIgnition") ~= true
+        if not check("drive_save_resume_loaded",
+                saved ~= nil and saved.vehicle ~= nil
+                    and saved.vehicle.stored == false
+                    and saved.vehicle.seat == 0
+                    and saved.vehicle.vehicle
+                    and saved.vehicle.vehicle.sqlId == sqlId
+                    and (keyLocation == "inventory" and savedKey
+                        or keyLocation == "ignition" and not savedKey
+                            and (ignitionKey or recoveredKey))
+                    and vehicle:getKeyId() == keyId,
+                "saved_seat=" .. tostring(saved and saved.vehicle
+                    and saved.vehicle.seat)
+                    .. " saved_sql=" .. tostring(saved and saved.vehicle
+                    and saved.vehicle.vehicle and saved.vehicle.vehicle.sqlId)
+                    .. " car_sql=" .. tostring(sqlId)
+                    .. " key_location=" .. tostring(keyLocation)
+                    .. " saved_key=" .. tostring(savedKey)
+                    .. " ignition=" .. tostring(call(vehicle, "isKeysInIgnition"))
+                    .. " ignition_key_id=" .. tostring(ignitionKeyId)
+                    .. " actor_key=" .. tostring(actorHasKey)
+                    .. " actor_key_count=" .. tostring(actorKeyCount)
+                    .. " recovered_key=" .. tostring(recoveredKey)) then
+            setPhase("finish", current) return
+        end
+        if not check("drive_save_resume_on_foot_at_driver_door",
+                actor:getVehicle() == nil and vehicle:getDriver() == nil
+                    and door ~= nil and gap <= 2.2,
+                "actor=" .. fmt(ax) .. "," .. fmt(ay)
+                    .. " door=" .. tostring(door and door:getX()) .. ","
+                    .. tostring(door and door:getY()) .. " gap=" .. fmt(gap)) then
+            setPhase("finish", current) return
+        end
+        setPhase("drive_save_resume_key_wait", current)
+        return
+    end
+    if H.phase == "drive_save_resume_key_wait" then
+        -- The committed actor may need a bounded retry to take the exact
+        -- ignition item after the car joins the loaded cell. A short delay
+        -- does not turn an absent or duplicated key into a passing result.
+        local keyCount = liveKeyCount(actor, keyId)
+        local exactRecovered = SC.Driving.hasKey(actor, vehicle)
+            and keyCount == 1 and call(vehicle, "getCurrentKey") == nil
+            and call(vehicle, "isKeysInIgnition") ~= true
+        if not exactRecovered and current - H.phaseStartedAt < 15000 then return end
+        local positionError = flatDistance(vehicle:getX(), vehicle:getY(),
+            tonumber(expected.driving_expected_car_x) or -9999,
+            tonumber(expected.driving_expected_car_y) or -9999)
+        if not check("drive_save_resume_key_and_park",
+                exactRecovered and stationary(vehicle) and positionError <= 5,
+                "key=" .. tostring(SC.Driving.hasKey(actor, vehicle))
+                    .. " key_count=" .. tostring(keyCount)
+                    .. " ignition=" .. tostring(call(vehicle, "isKeysInIgnition"))
+                    .. " current_key=" .. tostring(call(vehicle, "getCurrentKey"))
+                    .. " speed=" .. fmt(vehicle:getCurrentSpeedKmHour())
+                    .. " car_shift=" .. fmt(positionError)) then
+            setPhase("finish", current) return
+        end
+        H.driveResumeCarX, H.driveResumeCarY = vehicle:getX(), vehicle:getY()
+        setPhase("drive_save_resume_observe", current)
+        return
+    end
+    if H.phase == "drive_save_resume_observe" then
+        if current - H.phaseStartedAt < 5000 then return end
+        local native = SC.Driving.status(actor) or {}
+        local job = SC.Driving.jobStatus(actor) or {}
+        check("drive_save_resume_no_automatic_drive",
+            actor:getVehicle() == nil and vehicle:getDriver() == nil
+                and stationary(vehicle) and native.active ~= true
+                and (job.phase == nil or job.phase == "released"
+                    or job.phase == "failed")
+                and flatDistance(vehicle:getX(), vehicle:getY(),
+                    H.driveResumeCarX, H.driveResumeCarY) <= 0.3,
+            "native_active=" .. tostring(native.active)
+                .. " job=" .. tostring(job.phase)
+                .. " car_shift=" .. fmt(flatDistance(vehicle:getX(), vehicle:getY(),
+                    H.driveResumeCarX, H.driveResumeCarY)))
+        setPhase("finish", current)
+    end
+end
+
+local function blockedStep(H, SC, current, check, result, setPhase, test)
+    local vehicle, actor = test.vehicle, test.actor
+    if H.phase == "drive_blocked_preflight" then
+        local blockX, blockY = roadPoint(test, vehicle:getX(), vehicle:getY(), 20, 0)
+        local goal = test.goal
+        local planner = SC.ExpeditionRoute and SC.ExpeditionRoute.planAvoidingAll
+        if type(planner) ~= "function" then
+            failTo(H, test, setPhase, result, current,
+                "drive_blocked_planner_available", "planAvoidingAll is unavailable")
+            return
+        end
+        local alternate, why = planner(actor, goal,
+            { { x = blockX, y = blockY, radius = 12 } })
+        local loaded, detail = loadedAlternate(SC.GameplayUtil, alternate,
+            goal, blockX, blockY)
+        if not alternate or not loaded then
+            result("SKIP", "drive_blocked_no_loaded_alternate",
+                tostring(alternate and detail or why or detail)
+                    .. " at " .. fmt(blockX) .. "," .. fmt(blockY))
+            SC.Driving.stop(actor, "probe_no_loaded_alternate")
+            SC.Vehicle.exit(actor, vehicle)
+            setPhase("finish", current)
+            return
+        end
+        test.blockX, test.blockY = blockX, blockY
+        result("PASS", "drive_blocked_loaded_alternate", detail)
+        test.wrecks = {}
+        local count = math.max(3, math.ceil(test.road.width / 2))
+        local direction = test.dirX ~= 0
+            and (test.dirX > 0 and IsoDirections.E or IsoDirections.W)
+            or (test.dirY > 0 and IsoDirections.S or IsoDirections.N)
+        for index = 1, count do
+            local side = (index - 1) * (test.road.width - 1.6) / (count - 1)
+                - (test.road.width - 1.6) / 2
+            local wx, wy = roadPoint(test, vehicle:getX(), vehicle:getY(), 20, side)
+            local wreck, failure = placeWreck(SC, wx, wy, direction)
+            if not wreck then
+                failTo(H, test, setPhase, result, current,
+                    "drive_blocked_fixture_placed", tostring(failure))
+                return
+            end
+            test.wrecks[#test.wrecks + 1] = {
+                name = "blocker_" .. index, vehicle = wreck }
+        end
+        result("PASS", "drive_blocked_fixture_placed",
+            tostring(#test.wrecks) .. " parked cars across "
+                .. fmt(test.road.width) .. " road tiles")
+        watchFrom(H, test, blockX, blockY)
+        setPhase("drive_blocked_settle", current)
+        return
+    end
+    if H.phase == "drive_blocked_settle" then
+        if current - H.phaseStartedAt < 2000 or not settled(test) then
+            if current - H.phaseStartedAt > 12000 then
+                failTo(H, test, setPhase, result, current,
+                    "drive_blocked_fixture_settled", "blocker still moving")
+            end
+            return
+        end
+        recordWrecks(test)
+        local normalX, normalY = -test.dirY, test.dirX
+        local sides = {}
+        for _, blocker in ipairs(test.wrecks) do
+            sides[#sides + 1] = (blocker.vehicle:getX() - test.blockX) * normalX
+                + (blocker.vehicle:getY() - test.blockY) * normalY
+        end
+        table.sort(sides)
+        local largestGap = 0
+        for index = 2, #sides do
+            largestGap = math.max(largestGap, sides[index] - sides[index - 1])
+        end
+        if not check("drive_blocked_fixture_spans_road",
+                #sides >= 3 and sides[1] <= -test.road.width / 2 + 1.2
+                    and sides[#sides] >= test.road.width / 2 - 1.2
+                    and largestGap <= 2.7,
+                "left=" .. fmt(sides[1]) .. " right=" .. fmt(sides[#sides])
+                    .. " gap=" .. fmt(largestGap)
+                    .. " road_width=" .. fmt(test.road.width)) then
+            setPhase("finish", current)
+            return
+        end
+        local started, why = SC.Driving.drive(actor, test.goal, { speedKmh = 10,
+            blockWaitMs = 5000 })
+        if not check("drive_blocked_job_started", started == true,
+                tostring(why)) then
+            setPhase("finish", current) return
+        end
+        setPhase("drive_blocked_running", current)
+        return
+    end
+    if H.phase == "drive_blocked_running" then
+        local job = SC.Driving.jobStatus(actor) or {}
+        local native = SC.Driving.status(actor) or {}
+        test.sawBlocked = test.sawBlocked or job.phase == "blocked"
+            or native.mode == "blocked"
+        test.sawReplan = test.sawReplan or job.phase == "replanning"
+        test.sawTurn = test.sawTurn or native.mode == "turning"
+            or native.turnState ~= nil
+        if job.phase == "failed" then
+            failTo(H, test, setPhase, result, current, "drive_blocked_replanned_arrival",
+                "phase=failed reason=" .. tostring(job.reason)
+                    .. " attempts=" .. tostring(job.attempts))
+            return
+        end
+        local clean, damage = untouched(test)
+        if not clean then
+            failTo(H, test, setPhase, result, current,
+                "drive_blocked_no_contact", tostring(damage))
+            return
+        end
+        if job.phase == "arrived" then
+            local miss = flatDistance(vehicle:getX(), vehicle:getY(),
+                test.goal.x, test.goal.y)
+            local circles = type(job.circles) == "table" and #job.circles or 0
+            check("drive_blocked_replanned_arrival", test.sawBlocked == true
+                    and (test.sawReplan == true or (tonumber(job.attempts) or 0) >= 1)
+                    and (tonumber(job.attempts) or 0) >= 1
+                    and circles >= 1 and miss <= 6 and stationary(vehicle),
+                "blocked=" .. tostring(test.sawBlocked)
+                    .. " replanned=" .. tostring(test.sawReplan)
+                    .. " turn=" .. tostring(test.sawTurn)
+                    .. " attempts=" .. tostring(job.attempts)
+                    .. " circles=" .. tostring(circles)
+                    .. " miss=" .. fmt(miss))
+            setPhase("drive_release", current)
+            return
+        end
+        if current - H.phaseStartedAt > 180000 then
+            failTo(H, test, setPhase, result, current,
+                "drive_blocked_replanned_arrival",
+                "timeout phase=" .. tostring(job.phase)
+                    .. " reason=" .. tostring(job.reason)
+                    .. " attempts=" .. tostring(job.attempts))
+        end
+    end
+end
+
+failTo = function(H, test, setPhase, result, current, name, detail)
     result("FAIL", name, detail)
     if test and test.actor then SurvivorCompanion.Driving.release(test.actor) end
     setPhase("finish", current)
 end
 
-local function stationary(vehicle)
+stationary = function(vehicle)
     return math.abs(tonumber(vehicle:getCurrentSpeedKmHour()) or 99) < 0.6
+end
+
+local function decisionRuns(SC)
+    local stats = SC.Scheduler and SC.Scheduler.getStats and SC.Scheduler.getStats()
+    for _, task in ipairs(stats and stats.tasks or {}) do
+        if task.name == "decision" then return tonumber(task.runs) end
+    end
+    return nil
 end
 
 -- Sum of every part's condition; a crash lowers it through vanilla crash damage.
@@ -300,7 +899,12 @@ local function setupRoad(H, SC, check, result, setPhase, current)
         "SCBridge driving calls are exposed") then
         setPhase("finish", current) return
     end
-    segmentHalf = H.config.driving_route == "true" and ROUTE_SEGMENT_HALF or SEGMENT_HALF
+    segmentHalf = (H.config.driving_route == "true"
+        or H.config.driving_blocked == "true"
+        or H.config.driving_save_stage == "true"
+        or H.config.driving_remote == "true"
+        or H.config.team_drive_probe == "true")
+        and ROUTE_SEGMENT_HALF or SEGMENT_HALF
     local px, py = U.position(H.player)
     local road, why = findRoad(U, math.floor(px), math.floor(py))
     if not check("drive_road_found", road ~= nil, road and ("zone=" .. road.zone
@@ -342,10 +946,31 @@ local function setupRoad(H, SC, check, result, setPhase, current)
     local sides = { 1, -1 }
     -- At a junction, watch from the far side of the main road, facing the turn.
     if road.junction then sides = { -road.junction.outward, road.junction.outward } end
-    for _, side in ipairs(sides) do
-        local offset = road.width / 2 + 4
-        local wx, wy = road.cx + normalX * offset * side, road.cy + normalY * offset * side
-        if openSquare(U, wx, wy) then watch = { x = math.floor(wx), y = math.floor(wy) } break end
+    local saveStage = H.config.driving_save_stage == "true"
+    -- The save/reload probe must keep the stage car streamed when vanilla
+    -- restores the player. The usual route camera sits near the road centre,
+    -- over 30 tiles from this probe's car start, leaving its DB row in meta.
+    local alongs = saveStage and { 8, 6, 10, 4, 12 } or { 0 }
+    for _, along in ipairs(alongs) do
+        local baseX = saveStage and road.sx + road.ax * along or road.cx
+        local baseY = saveStage and road.sy + road.ay * along or road.cy
+        for _, side in ipairs(sides) do
+            local offset = road.width / 2 + 4
+            local wx, wy = baseX + normalX * offset * side,
+                baseY + normalY * offset * side
+            if openSquare(U, wx, wy) then
+                watch = { x = math.floor(wx), y = math.floor(wy) }
+                break
+            end
+        end
+        if watch ~= nil then break end
+    end
+    if saveStage and not check("drive_observer_near_stage_car", watch ~= nil
+            and flatDistance(watch.x, watch.y, road.sx, road.sy) <= 18,
+            watch and ("observer=" .. watch.x .. "," .. watch.y
+                .. " car_start=" .. fmt(road.sx) .. "," .. fmt(road.sy))
+                or "no clear roadside square near saved car") then
+        setPhase("finish", current) return
     end
     if watch then
         pcall(function() H.player:teleportTo(watch.x + 0.5, watch.y + 0.5, 0) end)
@@ -409,6 +1034,10 @@ local function spawnCar(H, SC, result, setPhase, current, test)
     local battery = call(vehicle, "getBattery")
     local cell = battery and call(battery, "getInventoryItem") or nil
     if cell then call(cell, "setCurrentUsesFloat", 1.0) end
+    if H.config.team_drive_probe == "true" then
+        setPhase("drive_team_setup", current)
+        return
+    end
     -- A free square at the driver's door, inside the boarding range.
     local outside = vehicle:getPassengerPosition(0, "outside")
     local door = outside and vehicle:getPassengerPositionWorldPos(outside, Vector3f.new()) or nil
@@ -450,36 +1079,132 @@ local function spawnCar(H, SC, result, setPhase, current, test)
 end
 
 local function board(H, SC, check, result, setPhase, current, test)
+    local settled, settleReason = SC.Vehicle.isStationary(test.vehicle)
+    if settled ~= true then
+        test.settledSince = nil
+        if current - H.phaseStartedAt > 15000 then
+            failTo(H, test, setPhase, result, current, "drive_car_settled",
+                "speed=" .. fmt(test.vehicle:getCurrentSpeedKmHour())
+                    .. " reason=" .. tostring(settleReason))
+        end
+        return
+    end
+    -- addVehicleDebug may settle below the probe's old 0.6 kph tolerance
+    -- briefly, then move again. Boarding uses the stricter SC.Vehicle gate.
+    if test.settledSince == nil then test.settledSince = current return end
+    if current - test.settledSince < 750 then return end
     if not test.actor then
+        -- Keep the deferred spawn unpublished while the car settles. WP5
+        -- leaves Decision running, so publish and board in the same beat.
         local actor, reason = SC.Actor.pollSpawn(test.ticket)
         if not actor then
-            if reason ~= "spawn_pending" or current - H.phaseStartedAt > 12000 then
+            if reason ~= "spawn_pending" or current - H.phaseStartedAt > 15000 then
                 failTo(H, test, setPhase, result, current, "drive_companion_spawn", tostring(reason))
             end
             return
         end
         test.actor = actor
-        -- Decision would walk a fresh companion off to follow the player.
-        SC.Scheduler.unregister("decision")
-        H.phaseStartedAt = current
+        test.actorReadyAt = current
+        -- Legacy mechanics probes isolate the wheel. WP5 keeps normal AI on:
+        -- its production drive owner must prevent a seat exit at every stop.
+        if H.config.driving_with_ai ~= "true"
+            and H.config.driving_blocked ~= "true"
+            and H.config.driving_save_stage ~= "true"
+            and H.config.driving_remote ~= "true" then
+            SC.Scheduler.unregister("decision")
+        end
+    end
+    local normalAiMode = H.config.driving_with_ai == "true"
+        or H.config.driving_blocked == "true"
+        or H.config.driving_save_stage == "true"
+        or H.config.driving_remote == "true"
+    if not normalAiMode and current - test.actorReadyAt < 1200 then return end
+    local prepared, prepareReason = SC.Vehicle.preflightDriver(test.actor, test.vehicle)
+    if prepared == nil then
+        if prepareReason == "vehicle is moving" then
+            test.settledSince = nil
+            return
+        end
+        failTo(H, test, setPhase, result, current, "drive_board_preflight",
+            tostring(prepareReason))
         return
     end
-    if not stationary(test.vehicle) then
+    if test.keyPrepared ~= true then
+        test.keyPrepared = true
+        local key = call(test.vehicle, "createVehicleKey")
+        local inventory = call(test.actor, "getInventory")
+        if key and inventory then
+            test.key = key
+            call(inventory, "AddItem", key)
+        end
+    end
+    local boarded, status = SC.Driving.takeWheel(test.actor, test.vehicle,
+        { preflight = prepared })
+    if boarded ~= true and status == "vehicle is moving" then
+        test.settledSince = nil
         if current - H.phaseStartedAt > 15000 then
             failTo(H, test, setPhase, result, current, "drive_car_settled",
-                "speed=" .. fmt(test.vehicle:getCurrentSpeedKmHour()))
+                "boarding speed=" .. fmt(test.vehicle:getCurrentSpeedKmHour()))
         end
         return
     end
-    if current - H.phaseStartedAt < 1200 then return end
-    local key = call(test.vehicle, "createVehicleKey")
-    local inventory = call(test.actor, "getInventory")
-    if key and inventory then call(inventory, "AddItem", key) end
-    local boarded, status = SC.Driving.takeWheel(test.actor, test.vehicle)
     if not check("drive_board_driver_seat", boarded == true and status == "native_seat"
             and SC.Driving.isDriver(test.actor),
         "status=" .. tostring(status) .. " key=" .. tostring(SC.Driving.hasKey(test.actor))) then
         setPhase("finish", current) return
+    end
+    if H.config.driving_remote == "true" then
+        local road = test.road
+        local horizontal = road.ax == 1
+        local start = horizontal and test.vehicle:getX() or test.vehicle:getY()
+        local lower = horizontal and road.bx or road.by
+        local upper = lower + (horizontal and road.bw or road.bh)
+        local direction = horizontal and test.dirX or test.dirY
+        local finish = math.max(lower + 12, math.min(upper - 12,
+            start + direction * 160))
+        local gx = horizontal and finish or road.lineX
+        local gy = horizontal and road.lineY or finish
+        test.goal = { x = math.floor(gx), y = math.floor(gy), z = 0 }
+        if not check("drive_remote_route_length",
+                math.abs(finish - start) >= 130,
+                "start=" .. fmt(start) .. " goal=" .. fmt(finish)
+                    .. " road=" .. tostring(road.zone)) then
+            setPhase("finish", current) return
+        end
+        local owner, why = SC.Driving.begin(test.actor, test.goal)
+        if not check("drive_remote_seat_owner", owner ~= nil, tostring(why)) then
+            setPhase("finish", current) return
+        end
+        test.remoteStartX, test.remoteStartY = test.vehicle:getX(), test.vehicle:getY()
+        test.remoteStartFuel = tonumber(call(call(test.vehicle, "getPartById", "GasTank"),
+            "getContainerContentAmount"))
+        setPhase("drive_remote_claim", current)
+        return
+    end
+    if H.config.driving_blocked == "true"
+        or H.config.driving_save_stage == "true" then
+        local distance = H.config.driving_blocked == "true" and 52 or 56
+        local gx, gy = roadPoint(test, test.vehicle:getX(), test.vehicle:getY(),
+            distance, 0)
+        test.goal = { x = math.floor(gx), y = math.floor(gy), z = 0 }
+        -- Decision is deliberately active in these probes. Own the stopped
+        -- driver's seat before the block preflight or the next harness tick.
+        local owner, why = SC.Driving.begin(test.actor, test.goal)
+        if not check("drive_job_owner_acquired", owner ~= nil,
+                "goal=" .. test.goal.x .. "," .. test.goal.y
+                    .. " reason=" .. tostring(why)) then
+            setPhase("finish", current) return
+        end
+    end
+    if H.config.driving_blocked == "true" then
+        test.startedAt = current
+        setPhase("drive_blocked_preflight", current)
+        return
+    end
+    if H.config.driving_save_stage == "true" then
+        test.startedAt = current
+        setPhase("drive_save_start", current)
+        return
     end
     local started, why = SC.Driving.start(test.actor)
     if not check("drive_take_wheel", started == true,
@@ -487,6 +1212,20 @@ local function board(H, SC, check, result, setPhase, current, test)
         setPhase("finish", current) return
     end
     test.startedAt = current
+    if H.config.driving_with_ai == "true" then
+        local stats = SC.Scheduler.getStats()
+        for _, task in ipairs(stats and stats.tasks or {}) do
+            if task.name == "decision" then
+                test.decisionRunsAtBoard = task.runs
+                break
+            end
+        end
+        if not check("drive_ai_decision_registered", test.decisionRunsAtBoard ~= nil,
+                "decision task remains scheduled during companion driving") then
+            setPhase("finish", current)
+            return
+        end
+    end
     if H.config.driving_turn == "true" then
         test.goal = test.road.goal
         setPhase("drive_street_plan", current)
@@ -504,7 +1243,7 @@ end
 
 -- A point on this road: along it from a car position, and to the right of the
 -- outbound direction (negative is the other lane).
-local function roadPoint(test, fromX, fromY, along, lateral)
+roadPoint = function(test, fromX, fromY, along, lateral)
     local normalX, normalY = -test.dirY, test.dirX
     local baseX = test.road.ax == 1 and fromX or test.road.lineX
     local baseY = test.road.ax == 1 and test.road.lineY or fromY
@@ -512,7 +1251,7 @@ local function roadPoint(test, fromX, fromY, along, lateral)
         baseY + test.dirY * along + normalY * lateral
 end
 
-local function placeWreck(SC, x, y, direction)
+placeWreck = function(SC, x, y, direction)
     local square = SC.GameplayUtil.gridSquare(math.floor(x), math.floor(y), 0)
     if square == nil then return nil, "unloaded square " .. math.floor(x) .. "," .. math.floor(y) end
     local ok, wreck = pcall(addVehicleDebug, SCRIPT, direction, nil, square)
@@ -527,7 +1266,7 @@ local function moved(item)
 end
 
 -- Watch a stretch of road from the far verge.
-local function watchFrom(H, test, x, y)
+watchFrom = function(H, test, x, y)
     local side = -(test.road.width / 2 + 4)
     local normalX, normalY = -test.dirY, test.dirX
     pcall(function()
@@ -538,7 +1277,7 @@ end
 
 -- No wreck may be touched: each stays put and keeps its parts. The car's own
 -- parts are reported, not judged: running down zombies dents it.
-local function untouched(test)
+untouched = function(test)
     for _, item in ipairs(test.wrecks) do
         local shift = moved(item)
         if shift > 0.15 then return false, item.name .. " moved " .. fmt(shift) .. " tiles" end
@@ -558,14 +1297,14 @@ local function nearestWreck(test)
     return best, bestName
 end
 
-local function settled(test)
+settled = function(test)
     for _, item in ipairs(test.wrecks) do
         if not stationary(item.vehicle) then return false end
     end
     return true
 end
 
-local function recordWrecks(test)
+recordWrecks = function(test)
     for _, item in ipairs(test.wrecks) do
         item.at = { x = item.vehicle:getX(), y = item.vehicle:getY() }
         item.parts = partCondition(item.vehicle)
@@ -631,6 +1370,365 @@ local function driveLeg(H, SC, test, current, check, result, setPhase, name, sho
             .. " after 100 s at " .. fmt(status.along) .. "/" .. fmt(status.routeLength))
     end
     return nil
+end
+
+-- This gate checks both player chunk maps. Distance alone does not prove that
+-- the promoted driver owns the car's streaming area.
+local function remoteChunks(test)
+    local cell = type(getCell) == "function" and getCell() or nil
+    if cell == nil then return nil, nil end
+    local x, y = math.floor(test.vehicle:getX()), math.floor(test.vehicle:getY())
+    local primary, remote = call(cell, "getChunkMap", 0), call(cell, "getChunkMap", 1)
+    return call(primary, "getChunkForGridSquare", x, y),
+        call(remote, "getChunkForGridSquare", x, y)
+end
+
+local function remoteStep(H, SC, current, check, result, setPhase, test)
+    local actor, vehicle = test.actor, test.vehicle
+    if H.phase == "drive_remote_claim" then
+        if not test.remoteClaimed then
+            local accepted, why = SC.ViewSession.claim("expedition", actor)
+            if not check("drive_remote_slot_claimed", accepted == true, tostring(why)) then
+                setPhase("finish", current) return
+            end
+            test.remoteClaimed = true
+        end
+        if type(getSpecificPlayer) ~= "function" or getSpecificPlayer(1) ~= actor then
+            if current - H.phaseStartedAt > 15000 then
+                failTo(H, test, setPhase, result, current,
+                    "drive_remote_slot_ready", "slot 1 did not adopt the seated driver")
+            end
+            return
+        end
+        result("PASS", "drive_remote_slot_ready", "real seated leader owns slot 1")
+        local awayX, awayY = math.floor(vehicle:getX()), math.floor(vehicle:getY()) + 420
+        local moved = pcall(function()
+            H.player:setGodMod(true)
+            H.player:teleportTo(awayX + 0.5, awayY + 0.5, 0)
+        end)
+        if not check("drive_remote_primary_moved", moved,
+                "player 0 target=" .. awayX .. "," .. awayY) then
+            setPhase("finish", current) return
+        end
+        setPhase("drive_remote_wait_stream", current)
+        return
+    end
+    if H.phase == "drive_remote_wait_stream" then
+        local primary, remote = remoteChunks(test)
+        local px, py = SC.GameplayUtil.position(H.player)
+        local gap = px and flatDistance(px, py, vehicle:getX(), vehicle:getY()) or 0
+        if primary == nil and remote ~= nil and gap >= 300 then
+            result("PASS", "drive_remote_chunk_ownership",
+                "primary_chunk=false slot1_chunk=true gap=" .. fmt(gap))
+            local started, why = SC.Driving.drive(actor, test.goal, { speedKmh = 10 })
+            if not check("drive_remote_first_leg_started", started == true,
+                    tostring(why)) then
+                setPhase("finish", current) return
+            end
+            test.remoteMaxSpeed10, test.remoteMaxSpeed25 = 0, 0
+            setPhase("drive_remote_run10", current)
+        elseif current - H.phaseStartedAt > 30000 then
+            failTo(H, test, setPhase, result, current,
+                "drive_remote_chunk_ownership", "primary_chunk=" .. tostring(primary ~= nil)
+                    .. " slot1_chunk=" .. tostring(remote ~= nil)
+                    .. " gap=" .. fmt(gap))
+        end
+        return
+    end
+    if H.phase == "drive_remote_run10" or H.phase == "drive_remote_run25" then
+        local primary, remote = remoteChunks(test)
+        local speed = math.abs(tonumber(vehicle:getCurrentSpeedKmHour()) or 0)
+        local moved = flatDistance(vehicle:getX(), vehicle:getY(),
+            test.remoteStartX, test.remoteStartY)
+        local job = SC.Driving.jobStatus(actor) or {}
+        if primary ~= nil or remote == nil then
+            failTo(H, test, setPhase, result, current,
+                "drive_remote_stream_kept", "primary=" .. tostring(primary ~= nil)
+                    .. " slot1=" .. tostring(remote ~= nil) .. " distance=" .. fmt(moved))
+            return
+        end
+        if job.result == "failed" or job.phase == "stopping" then
+            failTo(H, test, setPhase, result, current,
+                "drive_remote_physics", "job=" .. tostring(job.phase) .. "/"
+                    .. tostring(job.reason) .. " distance=" .. fmt(moved))
+            return
+        end
+        if H.phase == "drive_remote_run10" then
+            test.remoteMaxSpeed10 = math.max(test.remoteMaxSpeed10 or 0, speed)
+            if moved >= 45 then
+                local stopped, why = SC.Driving.stop(actor, "remote_probe_hold")
+                if not check("drive_remote_hold_stopped", stopped == true,
+                        tostring(why)) then setPhase("finish", current) return end
+                local lease, leaseReason = SC.Driving.begin(actor, test.goal)
+                if not check("drive_remote_hold_seat_retained", lease ~= nil,
+                        tostring(leaseReason)) then setPhase("finish", current) return end
+                setPhase("drive_remote_hold", current)
+            end
+        else
+            test.remoteMaxSpeed25 = math.max(test.remoteMaxSpeed25 or 0, speed)
+            if job.result == "arrived" then
+                local fuel = tonumber(call(call(vehicle, "getPartById", "GasTank"),
+                    "getContainerContentAmount"))
+                local used = test.remoteStartFuel and fuel
+                    and test.remoteStartFuel - fuel or nil
+                check("drive_remote_completed",
+                    moved >= 125 and (test.remoteMaxSpeed10 or 0) >= 6
+                        and (test.remoteMaxSpeed25 or 0) >= 15
+                        and used ~= nil and used > 0,
+                    "distance=" .. fmt(moved) .. " max10=" .. fmt(test.remoteMaxSpeed10)
+                        .. " max25=" .. fmt(test.remoteMaxSpeed25)
+                        .. " fuel_used=" .. fmt(used)
+                        .. " elapsed_ms=" .. tostring(current - test.startedAt))
+                setPhase("drive_release", current)
+            end
+        end
+        if current - H.phaseStartedAt > 180000 then
+            failTo(H, test, setPhase, result, current,
+                "drive_remote_completed", "timed out distance=" .. fmt(moved)
+                    .. " job=" .. tostring(job.phase))
+        end
+        return
+    end
+    if H.phase == "drive_remote_hold" then
+        local speed = math.abs(tonumber(vehicle:getCurrentSpeedKmHour()) or 0)
+        if speed <= 0.8 and current - H.phaseStartedAt >= 1000 then
+            result("PASS", "drive_remote_hold_stationary",
+                "speed=" .. fmt(speed) .. " second view="
+                    .. tostring(getSpecificPlayer(1) == actor))
+            local started, why = SC.Driving.drive(actor, test.goal, { speedKmh = 25 })
+            if not check("drive_remote_resume_25", started == true,
+                    tostring(why)) then setPhase("finish", current) return end
+            setPhase("drive_remote_run25", current)
+        elseif current - H.phaseStartedAt > 15000 then
+            failTo(H, test, setPhase, result, current,
+                "drive_remote_hold_stationary", "speed=" .. fmt(speed))
+        end
+    end
+end
+
+local function teamStep(H, SC, current, check, result, setPhase, test)
+    local car = test.vehicle
+    if H.phase == "drive_team_setup" then
+        if current - H.phaseStartedAt < 1200 then return end
+        local x, y = math.floor(car:getX()), math.floor(car:getY())
+        local base = SC.BaseLife.active()
+        if not base then
+            local created, why = SC.BaseLife.create({ x = x, y = y, z = 0 },
+                "Driving probe camp")
+            if not check("team_drive_base_created", created == true,
+                tostring(why)) then setPhase("finish", current) return end
+        end
+        local corners = {
+            { x = x - 8, y = y - 6, z = 0 },
+            { x = x + 8, y = y + 6, z = 0 },
+        }
+        local areaOk, areaWhy = SC.BaseLife.beginZone("area", corners[1])
+        if areaOk then areaOk, areaWhy = SC.BaseLife.finishZone(
+            corners[2], "Driving probe camp") end
+        if not check("team_drive_area_marked", areaOk == true,
+            tostring(areaWhy)) then setPhase("finish", current) return end
+        local parkingOk, parkingWhy = SC.BaseLife.beginZone(
+            "parking", corners[1])
+        if parkingOk then parkingOk, parkingWhy = SC.BaseLife.finishZone(
+            corners[2], "Probe parking") end
+        if not check("team_drive_parking_marked", parkingOk == true,
+            tostring(parkingWhy)) then setPhase("finish", current) return end
+        test.parking = parkingWhy
+        local records = {}
+        for _, record in ipairs(SC.Registry.records()) do
+            if record.actor and SC.Registry.isActive(record.actor, record.id)
+                and SC.Actor.validateNative(record.actor)
+                and not record.actor:isDead() then
+                records[#records + 1] = record
+                if #records == 3 then break end
+            end
+        end
+        if not check("team_drive_roster", #records == 3,
+            "active=" .. tostring(#records)) then
+            setPhase("finish", current) return
+        end
+        test.team = records
+        local used = {}
+        for index, record in ipairs(records) do
+            local doors, _, why = SC.Vehicle.boardingSquares(
+                record.actor, car, index - 1, index == 1)
+            if not doors or #doors == 0 then
+                result("FAIL", "team_drive_door_" .. index, tostring(why))
+                setPhase("finish", current) return
+            end
+            local square
+            for _, candidate in ipairs(doors) do
+                local key = tostring(candidate:getX()) .. ":"
+                    .. tostring(candidate:getY())
+                if not used[key] then square = candidate; used[key] = true; break end
+            end
+            square = square or doors[1]
+            local placed, placementWhy = H.placeCombatActor(record.actor, {
+                x = square:getX() + 0.5, y = square:getY() + 0.5, z = 0 })
+            if not check("team_drive_member_placed_" .. index,
+                placed == true, tostring(placementWhy)) then
+                setPhase("finish", current) return
+            end
+        end
+        local key = call(car, "createVehicleKey")
+        local inventory = call(records[1].actor, "getInventory")
+        if key and inventory then call(inventory, "AddItem", key) end
+        if not check("team_drive_real_key", key ~= nil
+            and SC.Driving.hasKey(records[1].actor, car),
+            "exact generated car key stays with original leader") then
+            setPhase("finish", current) return
+        end
+        local poly = SC.ExpeditionCar.footprint(car)
+        if not check("team_drive_vehicle_poly_readable", poly ~= nil,
+            "bridge footprint accessor") then
+            setPhase("finish", current) return
+        end
+        result("PASS", "team_drive_vehicle_poly",
+            "center=" .. fmt(car:getX()) .. "," .. fmt(car:getY())
+                .. " corners=" .. fmt(poly.x1) .. "," .. fmt(poly.y1)
+                .. ";" .. fmt(poly.x2) .. "," .. fmt(poly.y2)
+                .. ";" .. fmt(poly.x3) .. "," .. fmt(poly.y3)
+                .. ";" .. fmt(poly.x4) .. "," .. fmt(poly.y4))
+        local along = test.road.ax == 1 and car:getX() or car:getY()
+        local lo = test.road.ax == 1 and test.road.bx or test.road.by
+        local hi = lo + (test.road.ax == 1
+            and test.road.bw or test.road.bh)
+        local target = math.max(lo + 12, math.min(hi - 12,
+            along + (test.dirX ~= 0 and test.dirX or test.dirY) * 115))
+        local destination = { x = math.floor(test.road.ax == 1
+            and target or test.road.lineX),
+            y = math.floor(test.road.ay == 1
+                and target or test.road.lineY), z = 0 }
+        local inspected, why = SC.ExpeditionCar.preflight(records,
+            test.parking.id, car:getSqlId(), destination)
+        if not check("team_drive_dispatch_preflight", inspected ~= nil,
+            tostring(why) .. " destination=" .. destination.x
+                .. "," .. destination.y) then
+            setPhase("finish", current) return
+        end
+        local started, startWhy = SC.ExpeditionPrototype.start(records,
+            { kind = "scout", destination = destination,
+                travelMode = "drive", parkingZoneId = test.parking.id,
+                vehicleSqlId = car:getSqlId() })
+        if not check("team_drive_dispatched", started == true,
+            tostring(startWhy)) then setPhase("finish", current) return end
+        test.startedAt, test.lastState = current, nil
+        setPhase("drive_team_running", current)
+        return
+    end
+    if H.phase ~= "drive_team_running" then return end
+    local mission = SC.ExpeditionPrototype.current()
+    local trip = mission and mission.scout and mission.scout.vehicle
+    local state = trip and trip.state or "mission_finished"
+    if test.restartResume and state == "boarding_out" then
+        test.restartSawBoarding = true
+    end
+    if H.config.team_drive_restart_stage == "true"
+        and state == "driving_out" and not test.restartStaged
+        and flatDistance(car:getX(), car:getY(),
+            trip.departure.x, trip.departure.y) >= 10 then
+        local saved, document = SC.Runtime.save()
+        local snapshot = document and document.expedition
+        local nativeSeats = true
+        for index, member in ipairs(test.team) do
+            local seated, actual, seat = SC.Vehicle.isNativeSeated(member.actor)
+            nativeSeats = nativeSeats and seated and actual == car
+                and seat == index - 1
+        end
+        if not check("team_drive_restart_stage_saved",
+            saved == true and snapshot and snapshot.schema == 6
+                and snapshot.scout and snapshot.scout.vehicle
+                and snapshot.scout.vehicle.state == "driving_out"
+                and snapshot.scout.vehicle.sqlId == car:getSqlId()
+                and #snapshot.roster == 3 and nativeSeats,
+            "saved=" .. tostring(saved) .. " state="
+                .. tostring(snapshot and snapshot.scout
+                    and snapshot.scout.vehicle
+                    and snapshot.scout.vehicle.state)
+                .. " seats=" .. tostring(nativeSeats)) then
+            setPhase("finish", current) return
+        end
+        local signalled = H.drivingSignals.write(
+            "SurvivorCompanionHarness/team-drive-stage.txt", {
+                "SC_TEAM_DRIVE_STAGE_V1",
+                "sql_id=" .. tostring(car:getSqlId()),
+                "leader_id=" .. tostring(test.team[1].id),
+                "parking_id=" .. tostring(test.parking.id),
+            })
+        check("team_drive_restart_stage_proof", signalled == true,
+            "schema 6 and all three physical seats saved")
+        test.restartStaged = true
+        setPhase("finish", current)
+        return
+    end
+    if state ~= test.lastState then
+        local fit, fitWhy
+        if state == "parking_home" then
+            fit, fitWhy = SC.ExpeditionCar.fitsParking(
+                car, test.parking, trip.seats)
+        end
+        result("PASS", "team_drive_state_" .. tostring(state),
+            "phase=" .. tostring(mission and mission.scout.phase)
+                .. " blocker=" .. tostring(trip and trip.blocker)
+                .. " parked=" .. tostring(fit)
+                .. " park_reason=" .. tostring(fitWhy)
+                .. " x=" .. fmt(car:getX()) .. " y=" .. fmt(car:getY()))
+        test.lastState = state
+    end
+    if trip and (state == "held" or state == "abandoned"
+        or state == "boarding_rollback" or state == "fallback_unloading") then
+        result("FAIL", "team_drive_full_trip", "state=" .. state
+            .. " blocker=" .. tostring(trip.blocker))
+        setPhase("finish", current) return
+    end
+    if trip and (state == "driving_out" or state == "driving_home") then
+        local allSeated = true
+        for index, member in ipairs(test.team) do
+            local seated, actualCar, seat = SC.Vehicle.isNativeSeated(member.actor)
+            allSeated = allSeated and seated and actualCar == car
+                and seat == index - 1
+        end
+        if not allSeated then
+            result("FAIL", "team_drive_full_roster_seated", state)
+            setPhase("finish", current) return
+        end
+        if state == "driving_out" and not test.shots.team_out then
+            requestShot(H, test, "team_out", result,
+                "three native occupants driving in the second viewport")
+        end
+    end
+    if trip and state == "parked_at_site"
+        and not test.returnRequested
+        and current - H.phaseStartedAt > 3000 then
+        local requested, why = SC.ExpeditionCar.requestReturn(mission,
+            current)
+        if not check("team_drive_return_requested", requested == true,
+            tostring(why)) then setPhase("finish", current) return end
+        test.returnRequested = true
+    end
+    if trip and state == "home_wait" then
+        local parked, reason = SC.ExpeditionCar.fitsParking(
+            car, test.parking, trip.seats)
+        local allOnFoot = true
+        for _, member in ipairs(test.team) do
+            local seated = SC.Vehicle.isNativeSeated(member.actor)
+            allOnFoot = allOnFoot and not seated
+        end
+        check("team_drive_home_parked_and_unloaded", parked
+            and allOnFoot and test.returnRequested == true
+            and (not test.restartResume or test.restartSawBoarding == true),
+            "parked=" .. tostring(parked) .. " reason=" .. tostring(reason)
+                .. " foot=" .. tostring(allOnFoot)
+                .. " fresh_boarding=" .. tostring(test.restartSawBoarding))
+        setPhase("finish", current)
+        return
+    end
+    if current - (test.startedAt or current) > 240000 then
+        result("FAIL", "team_drive_full_trip_timeout",
+            "state=" .. tostring(state) .. " blocker="
+                .. tostring(trip and trip.blocker))
+        setPhase("finish", current)
+    end
 end
 
 local function routeStep(H, SC, current, check, result, setPhase, test)
@@ -703,6 +1801,36 @@ local function routeStep(H, SC, current, check, result, setPhase, test)
         recordWrecks(test)
         test.legParts = partCondition(vehicle)
         test.closest, test.maxSlide = nil, 0
+        if H.config.driving_with_ai == "true" then
+            local held, why = SC.Driving.hold(actor)
+            if not check("drive_ai_hold_behind_wreck", held == true,
+                    "wreck=18 tiles ahead reason=" .. tostring(why)) then
+                setPhase("finish", current) return
+            end
+            setPhase("drive_route_ai_hold", current)
+            return
+        end
+        local following, why = SC.Driving.followRoute(actor, test.route, ROUTE_KMH)
+        if not check("drive_route_follow_started", following == true, tostring(why)) then
+            setPhase("finish", current) return
+        end
+        setPhase("drive_route_out", current)
+        return
+    end
+
+    if H.phase == "drive_route_ai_hold" then
+        if current - H.phaseStartedAt < 2500 then return end
+        local state = SC.Decision.peek(actor) or {}
+        local runs = decisionRuns(SC)
+        if not check("drive_ai_stays_seated_at_outbound_stop",
+                stationary(vehicle) and SC.Driving.isDriver(actor)
+                    and state.current == "driving"
+                    and runs ~= nil and runs > (test.decisionRunsAtBoard or math.huge),
+                "speed=" .. fmt(vehicle:getCurrentSpeedKmHour())
+                    .. " decision=" .. tostring(state.current)
+                    .. " runs=" .. tostring(runs)) then
+            setPhase("finish", current) return
+        end
         local following, why = SC.Driving.followRoute(actor, test.route, ROUTE_KMH)
         if not check("drive_route_follow_started", following == true, tostring(why)) then
             setPhase("finish", current) return
@@ -782,6 +1910,14 @@ local function routeStep(H, SC, current, check, result, setPhase, test)
         end
         if status.mode == "follow" or status.mode == "arrived" or status.mode == "blocked" then
             local turned = math.deg(wrap(heading(vehicle) - test.turnFrom))
+            if H.config.driving_with_ai == "true" then
+                check("drive_ai_stays_seated_during_turn",
+                    SC.Driving.isDriver(actor)
+                        and decisionRuns(SC) ~= nil
+                        and decisionRuns(SC) > (test.decisionRunsAtBoard or math.huge),
+                    "seat=0 decision_runs=" .. tostring(decisionRuns(SC))
+                        .. " turn_legs=" .. tostring(status.turnLegs))
+            end
             check("drive_turnaround", math.abs(math.abs(turned) - 180) <= 25,
                 "turned " .. fmt(turned) .. " deg in " .. tostring(status.turnLegs) .. " legs ("
                     .. (tonumber(status.turnSide) == 1 and "right" or "left") .. " first, reverse wheel "
@@ -814,6 +1950,22 @@ local function routeStep(H, SC, current, check, result, setPhase, test)
                 .. tostring(status.swerves) .. ", widest slide " .. fmt(test.maxSlide)
                 .. " tiles, closest pass " .. fmt(test.closest) .. " tiles to "
                 .. tostring(test.closestName))
+        setPhase(H.config.driving_with_ai == "true"
+            and "drive_route_ai_arrived_hold" or "drive_release", current)
+        return
+    end
+
+    if H.phase == "drive_route_ai_arrived_hold" then
+        if current - H.phaseStartedAt < 2500 then return end
+        local state = SC.Decision.peek(actor) or {}
+        local runs = decisionRuns(SC)
+        check("drive_ai_stays_seated_after_arrival",
+            stationary(vehicle) and SC.Driving.isDriver(actor)
+                and state.current == "driving"
+                and runs ~= nil and runs > (test.decisionRunsAtBoard or math.huge),
+            "speed=" .. fmt(vehicle:getCurrentSpeedKmHour())
+                .. " decision=" .. tostring(state.current)
+                .. " runs=" .. tostring(runs))
         setPhase("drive_release", current)
     end
 end
@@ -916,12 +2068,62 @@ end
 function Probe.step(H, current, check, result, setPhase)
     local SC = SurvivorCompanion
     if H.phase == "drive_setup" then
+        if H.config.team_drive_restart_resume == "true" then
+            setPhase("drive_team_resume_wait", current)
+            return
+        end
         if current - H.phaseStartedAt < 3000 then return end
+        if H.config.driving_save_resume == "true" then
+            setPhase("drive_save_resume_wait", current)
+            return
+        end
         setupRoad(H, SC, check, result, setPhase, current)
+        return
+    end
+    if H.phase == "drive_save_resume_wait"
+        or H.phase == "drive_save_resume_key_wait"
+        or H.phase == "drive_save_resume_observe" then
+        resumeStep(H, SC, current, check, result, setPhase)
+        return
+    end
+    if H.phase == "drive_team_resume_wait" then
+        local mission = SC.ExpeditionPrototype.current()
+        local trip = mission and mission.scout and mission.scout.vehicle
+        local car = trip and SC.Vehicle.loadedBySqlId(trip.sqlId)
+        if mission and trip and car and #mission.roster == 3 then
+            local expected = H.config
+            if not check("team_drive_restart_exact_car_team",
+                tostring(trip.sqlId) == expected.team_drive_expected_sql_id
+                    and mission.roster[1].id
+                        == expected.team_drive_expected_leader_id
+                    and trip.parkingZoneId
+                        == expected.team_drive_expected_parking_id
+                    and trip.state ~= "held"
+                    and trip.state ~= "fallback_unloading",
+                "state=" .. tostring(trip.state) .. " blocker="
+                    .. tostring(trip.blocker) .. " car=" .. tostring(trip.sqlId)) then
+                setPhase("finish", current) return
+            end
+            H.driveTest = { vehicle = car, team = mission.roster,
+                parking = SC.ExpeditionCar.areaById(trip.parkingZoneId),
+                startedAt = current, lastState = nil, shots = {},
+                restartResume = true,
+                restartSawBoarding = trip.state == "boarding_out" }
+            setPhase("drive_team_running", current)
+        elseif current - H.phaseStartedAt > 60000 then
+            result("FAIL", "team_drive_restart_loaded",
+                "mission=" .. tostring(mission ~= nil)
+                    .. " car=" .. tostring(car ~= nil))
+            setPhase("finish", current)
+        end
         return
     end
     local test = H.driveTest
     if test == nil then setPhase("finish", current) return end
+    if string.find(H.phase, "drive_team_", 1, true) == 1 then
+        teamStep(H, SC, current, check, result, setPhase, test)
+        return
+    end
     if H.phase == "drive_spawn_car" then
         spawnCar(H, SC, result, setPhase, current, test)
         return
@@ -932,7 +2134,32 @@ function Probe.step(H, current, check, result, setPhase)
     end
     local vehicle, actor = test.vehicle, test.actor
     telemetry(H, test, current)
+    if (H.config.driving_with_ai == "true"
+        or H.config.driving_blocked == "true"
+        or H.config.driving_save_stage == "true"
+        or H.config.driving_remote == "true")
+        and H.phase ~= "drive_release"
+        and not SC.Driving.isDriver(actor) then
+        local native = SC.Driving.status(actor) or {}
+        failTo(H, test, setPhase, result, current,
+            "drive_job_keeps_native_driver_seat",
+            "companion left seat during " .. tostring(H.phase)
+                .. " diag=" .. driveDiagnosis(SC, actor, native))
+        return
+    end
     local speed = tonumber(vehicle:getCurrentSpeedKmHour()) or 0
+    if string.find(H.phase, "drive_remote_", 1, true) == 1 then
+        remoteStep(H, SC, current, check, result, setPhase, test)
+        return
+    end
+    if string.find(H.phase, "drive_blocked_", 1, true) == 1 then
+        blockedStep(H, SC, current, check, result, setPhase, test)
+        return
+    end
+    if string.find(H.phase, "drive_save_", 1, true) == 1 then
+        saveStep(H, SC, current, check, result, setPhase, test)
+        return
+    end
     if string.find(H.phase, "drive_route_", 1, true) == 1 then
         routeStep(H, SC, current, check, result, setPhase, test)
         return

@@ -16,6 +16,11 @@ param(
     # they do. Zero runs the ordinary harness checks instead.
     [ValidateRange(0, 3600)][int]$ObserveSeconds = 0,
     [switch]$HiddenWindow,
+    # Let a separate UI controller handle the Build 42 start gate. This runner
+    # still owns the isolated save, process, logs, and result checks.
+    [switch]$ExternalUiControl,
+    # Isolated offline probes can launch without Steam's client process.
+    [switch]$NoSteam,
     [switch]$LivingFellowsOnly,
     [switch]$UIMenuProbe,
     [switch]$UserOptionsProbe,
@@ -49,6 +54,22 @@ param(
     [switch]$DrivingRoute,
     # With -DrivingProbe: drive a planner route round a junction into a side street.
     [switch]$DrivingTurn,
+    # Leave normal companion Decision scheduled during the route test.
+    [switch]$DrivingWithAi,
+    # Disposable-cache negative control: remove Decision's driving gate.
+    [switch]$DrivingGateNegativeControl,
+    # Exercise the production job's bounded alternate route around a full block.
+    [switch]$DrivingBlocked,
+    # Save a moving seat-zero driver, then reload its retained clone with Resume.
+    [switch]$DrivingSaveStage,
+    [switch]$DrivingSaveResume,
+    # Step 2 gate: a slot-1 companion drives after player 0 leaves its loaded area.
+    [switch]$DrivingRemote,
+    # Step 2: mark parking and run a three-companion car expedition end to end.
+    [switch]$TeamDriveProbe,
+    # Stage a three-person mission while driving, then reload the retained clone.
+    [switch]$TeamDriveRestartStage,
+    [switch]$TeamDriveRestartResume,
     # With -DrivingProbe: save driving-cruise.png at cruising speed and
     # driving-crash.png after the crash test into this directory.
     [string]$DrivingScreenshotDirectory = '',
@@ -603,6 +624,38 @@ if ($VehiclePassengerOnly -ne (-not [string]::IsNullOrWhiteSpace($VehiclePasseng
 if ($DrivingRoute -and -not $DrivingProbe) { throw '-DrivingRoute requires -DrivingProbe.' }
 if ($DrivingTurn -and -not $DrivingProbe) { throw '-DrivingTurn requires -DrivingProbe.' }
 if ($DrivingTurn -and $DrivingRoute) { throw 'Choose -DrivingRoute or -DrivingTurn, not both.' }
+if ($DrivingWithAi -and (-not $DrivingProbe -or -not $DrivingRoute)) {
+    throw '-DrivingWithAi requires -DrivingProbe -DrivingRoute.'
+}
+if ($DrivingGateNegativeControl -and
+    (-not $DrivingProbe -or -not $DrivingRoute -or -not $DrivingWithAi)) {
+    throw '-DrivingGateNegativeControl requires -DrivingProbe -DrivingRoute -DrivingWithAi.'
+}
+$drivingExclusiveModes = @($DrivingRoute, $DrivingTurn, $DrivingBlocked,
+    $DrivingSaveStage, $DrivingSaveResume, $DrivingRemote, $TeamDriveProbe) | Where-Object { $_.IsPresent }
+if ($drivingExclusiveModes.Count -gt 1) {
+    throw 'Choose one driving route, turn, blocked, save-stage, or save-resume mode.'
+}
+if (($DrivingBlocked -or $DrivingSaveStage -or $DrivingSaveResume -or $DrivingRemote -or $TeamDriveProbe) -and -not $DrivingProbe) {
+    throw 'Driving blocked and save modes require -DrivingProbe.'
+}
+if ($DrivingSaveResume -and [string]::IsNullOrWhiteSpace($SeedSave)) {
+    throw '-DrivingSaveResume requires -SeedSave pointing at a retained stage clone.'
+}
+if (($TeamDriveRestartStage -or $TeamDriveRestartResume) -and
+    (-not $TeamDriveProbe -or -not $DrivingProbe -or
+        $TeamDriveRestartStage.IsPresent -eq $TeamDriveRestartResume.IsPresent)) {
+    throw 'Choose one team-drive restart stage or resume mode with -DrivingProbe -TeamDriveProbe.'
+}
+if ($TeamDriveRestartResume -and [string]::IsNullOrWhiteSpace($SeedSave)) {
+    throw '-TeamDriveRestartResume requires -SeedSave pointing at a retained stage clone.'
+}
+if ($ExternalUiControl -and $HiddenWindow) {
+    throw '-ExternalUiControl requires a visible game window.'
+}
+if ($ExternalUiControl -and -not [string]::IsNullOrWhiteSpace($DrivingScreenshotDirectory)) {
+    throw 'Use the external UI controller for screenshots with -ExternalUiControl.'
+}
 if (-not [string]::IsNullOrWhiteSpace($DrivingScreenshotDirectory)) {
     if (-not $DrivingProbe) { throw '-DrivingScreenshotDirectory requires -DrivingProbe.' }
     if ($HiddenWindow) { throw '-DrivingScreenshotDirectory requires a visible game window for capture.' }
@@ -794,6 +847,7 @@ namespace SCLiveHarness {
 }
 
 function Invoke-LoadingScreenClick([System.Diagnostics.Process]$Process) {
+    if ($ExternalUiControl) { return $false }
     Initialize-WindowInput
     $Process.Refresh()
     if ($Process.HasExited -or $Process.MainWindowHandle -eq [IntPtr]::Zero) { return $false }
@@ -801,6 +855,7 @@ function Invoke-LoadingScreenClick([System.Diagnostics.Process]$Process) {
 }
 
 function Invoke-WindowKey([System.Diagnostics.Process]$Process, [byte]$VirtualKey) {
+    if ($ExternalUiControl) { return $false }
     Initialize-WindowInput
     $Process.Refresh()
     if ($Process.HasExited -or $Process.MainWindowHandle -eq [IntPtr]::Zero) { return $false }
@@ -812,6 +867,7 @@ function Save-ClientScreenshot(
     [System.Diagnostics.Process]$Process,
     [string]$Destination
 ) {
+    if ($ExternalUiControl) { return $false }
     Initialize-WindowInput
     Add-Type -AssemblyName System.Drawing
     $Process.Refresh()
@@ -886,6 +942,44 @@ if (-not (Test-Path -LiteralPath $seedMods -PathType Leaf) -or
     -not (Test-Path -LiteralPath $seedMap -PathType Leaf)) {
     throw 'Seed save must contain mods.txt and map_ver.bin.'
 }
+$drivingStageProof = $null
+$drivingExpected = @{}
+if ($DrivingSaveResume) {
+    $drivingStageProof = Join-Path $SeedSave 'SC-driving-stage-proof.txt'
+    if (-not (Test-Path -LiteralPath $drivingStageProof -PathType Leaf)) {
+        throw '-DrivingSaveResume needs the proof file written after a passing -DrivingSaveStage clone.'
+    }
+    foreach ($line in Get-Content -LiteralPath $drivingStageProof) {
+        if ($line -match '^([a-z_]+)=([A-Za-z0-9:._-]+)$') {
+            $drivingExpected[$matches[1]] = $matches[2]
+        }
+    }
+    if ($drivingExpected.actor_id -notmatch '^[A-Za-z0-9:._-]{1,96}$' -or
+        $drivingExpected.sql_id -notmatch '^[0-9]{1,16}$' -or
+        $drivingExpected.key_id -notmatch '^[0-9]{1,16}$' -or
+        $drivingExpected.key_location -cnotmatch '^(inventory|ignition)$' -or
+        $drivingExpected.car_x -notmatch '^[0-9]+(\.[0-9]+)?$' -or
+        $drivingExpected.car_y -notmatch '^[0-9]+(\.[0-9]+)?$') {
+        throw 'The retained driving stage proof is incomplete or malformed.'
+    }
+}
+$teamDriveExpected = @{}
+if ($TeamDriveRestartResume) {
+    $teamProof = Join-Path $SeedSave 'SC-team-drive-stage-proof.txt'
+    if (-not (Test-Path -LiteralPath $teamProof -PathType Leaf)) {
+        throw '-TeamDriveRestartResume needs the proof file from a passing stage clone.'
+    }
+    foreach ($line in Get-Content -LiteralPath $teamProof) {
+        if ($line -match '^([a-z_]+)=([A-Za-z0-9:._-]+)$') {
+            $teamDriveExpected[$matches[1]] = $matches[2]
+        }
+    }
+    if ($teamDriveExpected.sql_id -notmatch '^[0-9]{1,16}$' -or
+        $teamDriveExpected.leader_id -notmatch '^[A-Za-z0-9:._-]{1,96}$' -or
+        $teamDriveExpected.parking_id -notmatch '^[A-Za-z0-9:._-]{1,128}$') {
+        throw 'The retained team-drive stage proof is incomplete or malformed.'
+    }
+}
 
 $runId = 'SC-Harness-{0}-{1}' -f (Get-Date -Format 'yyyyMMdd-HHmmss'),
     ([guid]::NewGuid().ToString('N')).Substring(0, 8)
@@ -958,6 +1052,24 @@ if ($installedBridgeHash -ne $sourceBridgeHash -and -not $PrepareOnly) {
 }
 Copy-Item -LiteralPath $sourceMod -Destination (Join-Path $SandboxMods 'SurvivorCompanion') -Recurse
 Copy-Item -LiteralPath $harnessMod -Destination (Join-Path $SandboxMods 'SCRealSandboxHarness') -Recurse
+if ($DrivingGateNegativeControl) {
+    $cachedDecision = Join-Path $SandboxMods `
+        'SurvivorCompanion\42\media\lua\client\SCDecision.lua'
+    if (-not (Test-Path -LiteralPath $cachedDecision -PathType Leaf)) {
+        throw "Isolated driving decision module is missing: $cachedDecision"
+    }
+    $decisionText = [System.IO.File]::ReadAllText($cachedDecision)
+    $driveGate = '        and SC.Driving.isDriving(actor) then'
+    $disabledGate = '        and false and SC.Driving.isDriving(actor) then'
+    $matchCount = [regex]::Matches($decisionText,
+        [regex]::Escape($driveGate)).Count
+    if ($matchCount -ne 1) {
+        throw "Expected one isolated driving gate, found $matchCount in $cachedDecision"
+    }
+    [System.IO.File]::WriteAllText($cachedDecision,
+        $decisionText.Replace($driveGate, $disabledGate), $utf8NoBom)
+    Write-Output 'Disabled the driving gate only in the disposable sandbox mod copy.'
+}
 if ($ProjectALifeDamageProbe) {
     if ([string]::IsNullOrWhiteSpace($ProjectALifeModPath) -or
         -not (Test-Path -LiteralPath (Join-Path $ProjectALifeModPath '42.20\mod.info') -PathType Leaf)) {
@@ -1015,6 +1127,23 @@ $config = @(
     ('driving_probe=' + $DrivingProbe.IsPresent.ToString().ToLowerInvariant()),
     ('driving_route=' + $DrivingRoute.IsPresent.ToString().ToLowerInvariant()),
     ('driving_turn=' + $DrivingTurn.IsPresent.ToString().ToLowerInvariant()),
+    ('driving_with_ai=' + $DrivingWithAi.IsPresent.ToString().ToLowerInvariant()),
+    ('driving_blocked=' + $DrivingBlocked.IsPresent.ToString().ToLowerInvariant()),
+    ('driving_save_stage=' + $DrivingSaveStage.IsPresent.ToString().ToLowerInvariant()),
+    ('driving_save_resume=' + $DrivingSaveResume.IsPresent.ToString().ToLowerInvariant()),
+    ('driving_remote=' + $DrivingRemote.IsPresent.ToString().ToLowerInvariant()),
+    ('team_drive_probe=' + $TeamDriveProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_drive_restart_stage=' + $TeamDriveRestartStage.IsPresent.ToString().ToLowerInvariant()),
+    ('team_drive_restart_resume=' + $TeamDriveRestartResume.IsPresent.ToString().ToLowerInvariant()),
+    ('team_drive_expected_sql_id=' + [string]$teamDriveExpected.sql_id),
+    ('team_drive_expected_leader_id=' + [string]$teamDriveExpected.leader_id),
+    ('team_drive_expected_parking_id=' + [string]$teamDriveExpected.parking_id),
+    ('driving_expected_actor_id=' + [string]$drivingExpected.actor_id),
+    ('driving_expected_sql_id=' + [string]$drivingExpected.sql_id),
+    ('driving_expected_key_id=' + [string]$drivingExpected.key_id),
+    ('driving_expected_key_location=' + [string]$drivingExpected.key_location),
+    ('driving_expected_car_x=' + [string]$drivingExpected.car_x),
+    ('driving_expected_car_y=' + [string]$drivingExpected.car_y),
     ('driving_screenshots=' + (-not [string]::IsNullOrWhiteSpace($DrivingScreenshotDirectory)).ToString().ToLowerInvariant()),
     ('capture_faction_map=' + $captureFactionMap.ToString().ToLowerInvariant()),
     ('faction_map_only=' + $FactionMapOnly.IsPresent.ToString().ToLowerInvariant()),
@@ -1144,6 +1273,7 @@ $manifest = [ordered]@{
     sourceBridgeSha256 = $sourceBridgeHash
     installedBridgeMatches = $installedBridgeHash -eq $sourceBridgeHash
     livingFellowsOnly = $LivingFellowsOnly.IsPresent
+    externalUiControl = $ExternalUiControl.IsPresent
     excludedModIds = @($ExcludeModId)
     factionMapScreenshot = if ($captureFactionMap) { $FactionMapScreenshot } else { $null }
     factionMapOnly = $FactionMapOnly.IsPresent
@@ -1152,6 +1282,12 @@ $manifest = [ordered]@{
     companionInventoryScreenshot = if ($CompanionInventoryOnly) { $CompanionInventoryScreenshot } else { $null }
     vehiclePassengerScreenshot = if ($VehiclePassengerOnly) { $VehiclePassengerScreenshot } else { $null }
     drivingScreenshotDirectory = if ([string]::IsNullOrWhiteSpace($DrivingScreenshotDirectory)) { $null } else { $DrivingScreenshotDirectory }
+    drivingWithAi = $DrivingWithAi.IsPresent
+    drivingGateNegativeControl = $DrivingGateNegativeControl.IsPresent
+    drivingBlocked = $DrivingBlocked.IsPresent
+    drivingSaveStage = $DrivingSaveStage.IsPresent
+    drivingSaveResume = $DrivingSaveResume.IsPresent
+    drivingStageProof = $drivingStageProof
     pathingOnly = $PathingOnly.IsPresent
     splitScreenOnly = $SplitScreenOnly.IsPresent
     splitBaseLayoutProbe = $SplitBaseLayoutProbe.IsPresent
@@ -1196,6 +1332,7 @@ if ($PrepareOnly) {
 }
 
 $argumentLine = '-cachedir="' + $CacheRoot + '" -nosound -novoip -debuglog=+General,+Lua'
+if ($NoSteam) { $argumentLine += ' -nosteam' }
 $startOptions = @{
     FilePath = $gameExe
     WorkingDirectory = $GameRoot
@@ -1205,6 +1342,9 @@ $startOptions = @{
 if ($HiddenWindow) { $startOptions.WindowStyle = 'Hidden' }
 $process = Start-Process @startOptions
 Write-Output "Started real Project Zomboid client test pid=$($process.Id)"
+if ($ExternalUiControl) {
+    Write-Output 'External UI control is active: click the Build 42 start gate after world load.'
+}
 
 function Stop-OwnedSandboxProcess {
     param([System.Diagnostics.Process]$OwnedProcess, [string]$Reason)
@@ -1264,7 +1404,8 @@ try {
                 Write-Output 'World load completed; waiting for the Build 42 click-to-start gate.'
             }
         }
-        if ($loadingReadyObserved -and [DateTime]::UtcNow -ge $nextLoadingClick -and
+        if (-not $ExternalUiControl -and $loadingReadyObserved -and
+            [DateTime]::UtcNow -ge $nextLoadingClick -and
             -not (Test-Path -LiteralPath $eventsPath -PathType Leaf)) {
             $clickAttempts++
             if (Invoke-LoadingScreenClick $process) {
@@ -1453,7 +1594,8 @@ try {
             Write-Output "Captured companion inventory screenshot: $CompanionInventoryScreenshot"
             $companionInventoryCaptureCompleted = $true
         }
-        if (-not [string]::IsNullOrWhiteSpace($DrivingScreenshotDirectory)) {
+        if (-not $ExternalUiControl -and
+            -not [string]::IsNullOrWhiteSpace($DrivingScreenshotDirectory)) {
             # The car is moving: capture as soon as the probe signals, no settle delay.
             $readyFiles = @(Get-ChildItem -LiteralPath $SandboxLua -Filter 'driving-*-ready.txt' `
                 -File -ErrorAction SilentlyContinue)
@@ -1502,7 +1644,9 @@ if ($crashProbeCompleted) {
 $summary = Get-Content -LiteralPath $summaryPath
 $statusLine = $summary | Where-Object { $_ -match '^status=' } | Select-Object -First 1
 $status = $statusLine -replace '^status=', ''
-$exitDeadline = [DateTime]::UtcNow.AddSeconds(15)
+$postSummaryForcedStop = $false
+$postSummaryExitSeconds = if ($DrivingSaveStage -or $TeamDriveRestartStage) { 90 } else { 15 }
+$exitDeadline = [DateTime]::UtcNow.AddSeconds($postSummaryExitSeconds)
 while ([DateTime]::UtcNow -lt $exitDeadline) {
     $process.Refresh()
     if ($process.HasExited) { break }
@@ -1510,10 +1654,49 @@ while ([DateTime]::UtcNow -lt $exitDeadline) {
 }
 $process.Refresh()
 if (-not $process.HasExited) {
+    $postSummaryForcedStop = $true
     Stop-OwnedSandboxProcess $process 'post_summary_deadline'
 }
 
 Get-Content -LiteralPath $eventsPath -ErrorAction SilentlyContinue
+if ($DrivingBlocked -and
+    (Select-String -LiteralPath $eventsPath -SimpleMatch 'SKIP|drive_blocked_no_loaded_alternate|' -Quiet)) {
+    if ($status -ne 'PASS') {
+        throw "LIVE_SANDBOX_FAIL run=$runId results=$eventsPath"
+    }
+    Write-Output "Live sandbox run retained for audit: $RunRoot"
+    Write-Output "Live console: $consolePath"
+    Write-Output "LIVE_SANDBOX_SKIP run=$runId reason=no_loaded_alternate results=$eventsPath"
+    return
+}
+if ($DrivingSaveStage -and $status -eq 'PASS') {
+    if ($postSummaryForcedStop) {
+        throw 'The cloned client did not finish its own world save and exit; driving stage is invalid.'
+    }
+    $stageSignal = Join-Path $SandboxLua 'driving-save-stage.txt'
+    if (-not (Test-Path -LiteralPath $stageSignal -PathType Leaf) -or
+        -not (Select-String -LiteralPath $eventsPath -SimpleMatch 'PASS|drive_save_stage_persisted_seat_zero|' -Quiet)) {
+        throw "Driving stage did not write verified seat-zero proof: $stageSignal"
+    }
+    $stageProofDestination = Join-Path $TargetSave 'SC-driving-stage-proof.txt'
+    Copy-Item -LiteralPath $stageSignal -Destination $stageProofDestination
+    Write-Output "Driving resume seed: $TargetSave"
+    Write-Output "Driving stage proof: $stageProofDestination"
+}
+if ($TeamDriveRestartStage -and $status -eq 'PASS') {
+    if ($postSummaryForcedStop) {
+        throw 'The cloned client did not finish its own world save and exit; team-drive stage is invalid.'
+    }
+    $teamStageSignal = Join-Path $SandboxLua 'team-drive-stage.txt'
+    if (-not (Test-Path -LiteralPath $teamStageSignal -PathType Leaf) -or
+        -not (Select-String -LiteralPath $eventsPath -SimpleMatch 'PASS|team_drive_restart_stage_saved|' -Quiet)) {
+        throw "Team-drive stage did not write verified schema-6 proof: $teamStageSignal"
+    }
+    $teamProofDestination = Join-Path $TargetSave 'SC-team-drive-stage-proof.txt'
+    Copy-Item -LiteralPath $teamStageSignal -Destination $teamProofDestination
+    Write-Output "Team-drive resume seed: $TargetSave"
+    Write-Output "Team-drive stage proof: $teamProofDestination"
+}
 if ($PyreBurnProbe) {
     # TakeFullScreenshot writes a PNG without appending an extension to the name.
     $pyreSource = Join-Path (Join-Path $CacheRoot 'Screenshots') ($runId + '-pyre-lit')

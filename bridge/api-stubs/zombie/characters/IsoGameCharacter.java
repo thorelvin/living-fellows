@@ -27,6 +27,7 @@ public class IsoGameCharacter extends IsoMovingObject {
     private boolean performingAttackAnimation;
     private boolean performingShoveAnimation;
     private boolean performingStompAnimation;
+    private BaseVehicle vehicleForTests;
 
     public static class XP {
         public XP(IsoGameCharacter owner, IsoGameCharacter remoteOwner) {}
@@ -78,7 +79,8 @@ public class IsoGameCharacter extends IsoMovingObject {
     public void pathToLocation(int x, int y, int z) {}
     public void pathToCharacter(IsoGameCharacter target) {}
     public void pathToSound(int x, int y, int z) {}
-    public BaseVehicle getVehicle() { return null; }
+    public BaseVehicle getVehicle() { return vehicleForTests; }
+    public void setVehicleForTests(BaseVehicle vehicle) { vehicleForTests = vehicle; }
     public int getWorldObjectIndex() { return -1; }
     public XP getXp() { return null; }
     public float getX() { return 0; }

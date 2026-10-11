@@ -18,6 +18,7 @@ local STYLES = {
 local TRAVEL = {
     { value = "road", key = "UI_SC_Expedition_RoadTravel" },
     { value = "straight", key = "UI_SC_Expedition_StraightTravel" },
+    { value = "drive", key = "UI_SC_Expedition_DriveCar" },
 }
 local TIMES = {
     { value = 1, key = "UI_SC_Expedition_OneHour" },
@@ -88,6 +89,7 @@ local function onSelect(detail, combo)
     draft[combo.scField] = option.value
     draft.preview, draft.previewError = nil, nil
     if combo.scField == "group" then draft.leaderId = nil end
+    if combo.scField == "parkingZoneId" then draft.vehicleSqlId = nil end
     if combo.scField == "group" or combo.scField == "leaderId"
         or combo.scField == "kind" then
         draft.placesLoaded, draft.placeId = false, nil
@@ -180,7 +182,9 @@ local function dispatch(detail)
     local records, reason = currentTeam(detail)
     if not records then return false, reason end
     local options = { turnHomeAfterHours = draft.hours,
-        doctrine = draft.style, travelMode = draft.travelMode }
+        doctrine = draft.style, travelMode = draft.travelMode,
+        parkingZoneId = draft.parkingZoneId,
+        vehicleSqlId = draft.vehicleSqlId }
     if draft.kind == "search" or draft.kind == "fish" then
         options.request = { category = draft.kind == "fish" and "fish"
                 or draft.category,
@@ -248,11 +252,18 @@ function Planner.onButton(detail, button)
                 return
             end
         end
-        local preview = draft.kind == "fish"
-            and SC.ExpeditionPrototype.previewAtFishingBank
-            or SC.ExpeditionPrototype.previewAtPlace
-        draft.preview, draft.previewError = preview(
-            team[1], selectedPlace(draft), draft.travelMode)
+        if draft.travelMode == "drive" then
+            draft.preview, draft.previewError =
+                SC.ExpeditionPrototype.previewDrive(team,
+                    selectedPlace(draft), draft.kind == "fish",
+                    draft.parkingZoneId, draft.vehicleSqlId)
+        else
+            local preview = draft.kind == "fish"
+                and SC.ExpeditionPrototype.previewAtFishingBank
+                or SC.ExpeditionPrototype.previewAtPlace
+            draft.preview, draft.previewError = preview(
+                team[1], selectedPlace(draft), draft.travelMode)
+        end
         draft.review = true
     elseif action == "edit" then
         draft.review = false
@@ -287,6 +298,14 @@ function Planner.build(detail, panel)
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
                 tr("UI_SC_Expedition_PlannedDestination", view.plannedSite))
         end
+        if view and view.vehicleState then
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                tr("UI_SC_Expedition_CarState", view.vehicleState))
+        end
+        if view and view.vehicleIssue then
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                tr("UI_SC_Expedition_CarIssue", view.vehicleIssue))
+        end
         if view and view.helpRequest then
             local request = view.helpRequest
             if request.shelter then
@@ -307,6 +326,14 @@ function Planner.build(detail, panel)
     end
     y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
         tr("UI_SC_Expedition_TestBuild"))
+    local debrief = expedition and expedition.lastDebrief
+        and expedition.lastDebrief() or nil
+    if debrief and debrief.abandonedCarAt then
+        y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+            tr("UI_SC_Expedition_CarAbandoned",
+                math.floor(debrief.abandonedCarAt.x),
+                math.floor(debrief.abandonedCarAt.y)))
+    end
     if not expedition or not expedition.placeCandidates
         or not expedition.fishingBankCandidates
         or SCSplitScreenProbe == nil then
@@ -367,7 +394,19 @@ function Planner.build(detail, panel)
             tr("UI_SC_Expedition_TravelSummary",
                 draft.travelMode == "straight"
                     and tr("UI_SC_Expedition_StraightTravel")
+                    or draft.travelMode == "drive"
+                    and tr("UI_SC_Expedition_DriveCar")
                     or tr("UI_SC_Expedition_RoadTravel")))
+        if draft.travelMode == "drive" then
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                tr("UI_SC_Expedition_DriveOneX"))
+            if draft.preview then
+                y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                    tr("UI_SC_Expedition_DriveFuel",
+                        draft.preview.fuel or "?",
+                        draft.preview.fuelRequired or "?"))
+            end
+        end
         if place and place.knowledge == "map_metadata_unconfirmed" then
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
                 tr("UI_SC_Expedition_MapUnconfirmed"))
@@ -447,6 +486,37 @@ function Planner.build(detail, panel)
         "style", STYLES)
     y = addSelector(detail, panel, y, "UI_SC_Expedition_Travel",
         "travelMode", TRAVEL)
+    if draft.travelMode == "drive" then
+        local areas = SC.ExpeditionCar and SC.ExpeditionCar.parkingAreas()
+            or {}
+        local areaOptions = { { value = nil,
+            key = "UI_SC_Expedition_SelectParking" } }
+        local selectedArea
+        for _, area in ipairs(areas) do
+            areaOptions[#areaOptions + 1] = { value = area.id,
+                label = area.name or ("Parking " .. tostring(area.id)) }
+            if area.id == draft.parkingZoneId then selectedArea = area end
+        end
+        y = addSelector(detail, panel, y, "UI_SC_Expedition_ParkingArea",
+            "parkingZoneId", areaOptions)
+        local cars = selectedArea and SC.ExpeditionCar.candidates(selectedArea)
+            or {}
+        local carOptions = { { value = nil,
+            key = "UI_SC_Expedition_SelectVehicle" } }
+        local chosenPresent = false
+        for _, car in ipairs(cars) do
+            carOptions[#carOptions + 1] = { value = car.sqlId,
+                label = string.format("%s #%d | %d seats | %.1f fuel",
+                    car.script, car.sqlId, car.seats, car.fuel or 0) }
+            if car.sqlId == draft.vehicleSqlId then chosenPresent = true end
+        end
+        if not chosenPresent then draft.vehicleSqlId = nil end
+        if #cars == 1 and draft.vehicleSqlId == nil then
+            draft.vehicleSqlId = cars[1].sqlId
+        end
+        y = addSelector(detail, panel, y, "UI_SC_Expedition_Vehicle",
+            "vehicleSqlId", carOptions)
+    end
     local places = { { value = nil, key = draft.kind == "fish"
         and "UI_SC_Expedition_SelectBank"
         or "UI_SC_Expedition_SelectPlace" } }

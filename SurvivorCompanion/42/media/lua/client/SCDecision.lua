@@ -785,6 +785,9 @@ local function enforceVehicleExitPolicy(actor, player, commands)
     local utility = U()
     local actorVehicle, actorVehicleOk = utility.call(actor, "getVehicle")
     if not actorVehicleOk or actorVehicle == nil then return nil end
+    if SC.ExpeditionCar and SC.ExpeditionCar.ownsSeat(actor, actorVehicle) then
+        return true, "expedition_car_seat"
+    end
     local playerVehicle, playerVehicleOk = utility.call(player, "getVehicle")
     local mustExit = commands.rideWithPlayer == false
         or not playerVehicleOk or playerVehicle == nil or playerVehicle ~= actorVehicle
@@ -2420,6 +2423,15 @@ end
 
 local function ownerNeedsImmediatePreemption(owner, snapshot, assessment, needs, commands,
         policyEmergency)
+    if owner == "drive" then
+        -- Foot combat contacts do not transfer control from a seated driver.
+        -- Medical, needs and explicit control emergencies still park the car;
+        -- an actual zombie grab is handled by the runtime's grabbed branch.
+        return assessment.downed == true or assessment.critical == true
+            or (tonumber(assessment.bleedingCount) or 0) > 0
+            or type(needs) == "table" and needs.emergency == true
+            or commands.order == "retreat" or policyEmergency == true
+    end
     local urgent = survivalNeedsImmediateControl(snapshot, assessment, needs, commands)
     -- Bleeding/critical assessment is the reason a medical owner exists. Treating
     -- it as a fresh survival interrupt made emergency self-care cancel its own rip
@@ -2746,6 +2758,9 @@ function Decision.update(actor, player, runtime, roundTimestamp)
         if ok and type(value) == "table" then needs = value end
     end
     if not assessment.alive or assessment.health <= 0 or assessment.terminalKnox then
+        if SC.Driving and type(SC.Driving.stop) == "function" then
+            SC.Driving.stop(actor, "driver_dead")
+        end
         if not utility.stop(actor) then
             state.intent = "dead_stop_rejected"
             return false, state.intent
@@ -2786,6 +2801,41 @@ function Decision.update(actor, player, runtime, roundTimestamp)
             state.lastHandledAt = current
             return true, state.intent
         end
+    end
+
+    -- A drive owns its parked/waiting seat as well as its moving wheel. Keep
+    -- autonomous combat and the stopped-vehicle exit policy behind that lease.
+    if SC.Driving and type(SC.Driving.isDriving) == "function"
+        and SC.Driving.isDriving(actor) then
+        local factionEmergency = factionNeedsImmediateControl(actor, player, snapshot, commands)
+        if ownerNeedsImmediatePreemption("drive", snapshot, assessment, needs, commands,
+            factionEmergency) then
+            local stopped, stopReason = SC.Driving.stop(actor,
+                factionEmergency and "faction_priority" or "survival_priority")
+            if not stopped then
+                state.current, state.intent = "driving", stopReason or "drive_stop_pending"
+                return false, state.intent
+            end
+        else
+            state.current, state.currentKey = "driving", "drive_route"
+            state.intent, state.lastHandledAt = "driving", current
+            warnAboutThreat(actor, snapshot, commands, state, current, true)
+            warnAboutHeardThreat(actor, snapshot, state, current)
+            Decision.remarkOnNoise(actor, snapshot, state, current)
+            return true, "driving"
+        end
+    end
+
+    -- Car expeditions reserve the exact native seat before motion. Drive
+    -- ownership above still wins for the leader once the wheel is engaged.
+    local carOrder = SC.ExpeditionCar
+        and SC.ExpeditionCar.boardingOrderFor(actor) or nil
+    if carOrder and (tonumber(snapshot.immediateCount) or 0) == 0 then
+        local boarded, boardReason = SC.ExpeditionCar.boardMember(
+            actor, carOrder, snapshot)
+        state.current, state.currentKey = "vehicle", "expedition_board"
+        state.intent, state.lastHandledAt = boardReason or "boarding", current
+        return boarded == true, state.intent
     end
 
     -- A completed hit may remove the final perceived threat before the native

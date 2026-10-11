@@ -4,6 +4,7 @@ package zombie.vehicles;
 import zombie.characters.IsoGameCharacter;
 import zombie.core.physics.CarController;
 import zombie.iso.IsoMovingObject;
+import zombie.pathfind.VehiclePoly;
 import zombie.scripting.objects.VehicleScript;
 
 /** Compile-only Build 42 vehicle surface used by health checks and companion driving. */
@@ -17,6 +18,7 @@ public class BaseVehicle extends IsoMovingObject {
     public IsoGameCharacter getDriver() { return null; }
     public CarController getController() { return null; }
     public VehicleScript getScript() { return null; }
+    public VehiclePoly getPoly() { return null; }
     public float getCurrentSpeedKmHour() { return 0.0f; }
     public org.joml.Vector3f getForwardVector(org.joml.Vector3f out) { return out; }
     public boolean isEngineRunning() { return false; }
