@@ -296,12 +296,12 @@ do
     T.native[actor].state, T.native[actor].mode, T.native[actor].remaining = "arrived", "arrived", 0
     Driving.tick()
     local status = Driving.jobStatus(actor)
-    check(status.phase == "failed" and status.result == "failed" and status.reason == "goal_not_reached"
+    check(status.phase == "arrived" and status.result == "arrived"
         and status.parked and not T.native[actor].active and Driving.isDriving(actor),
-        "native arrival at a distant road exit cannot report arrival at the requested goal")
+        "the road attachment completes before the separate off-road approach")
     local exits = T.exits
     check(SC.Decision.update(actor, player, T.runtime()) and T.exits == exits,
-        "a premature native arrival parks and retains the failed job's seat lease")
+        "road arrival parks and retains the job's seat lease for the next approach")
     Driving.release(actor)
     actor = managed("drive-near-goal-arrival")
     actor.vehicle.x, actor.vehicle.y = goal.x - 5, goal.y + 2.5
@@ -336,6 +336,40 @@ do
     check(status.reason == "streaming_stalled" and #status.circles == 0
         and #T.plans == plans,
         "bounded streaming stall parks for recovery without a fake obstruction")
+    Driving.release(actor)
+end
+
+do
+    T.planEnd = { x = 190, y = 100 }
+    local actor = managed("drive-road-attachment")
+    actor.vehicle.x, actor.vehicle.y = 190, 100
+    T.native[actor].state, T.native[actor].mode = "arrived", "arrived"
+    Driving.tick()
+    check(Driving.jobStatus(actor).result == "arrived",
+        "road leg accepts its routed attachment before the separate driveway approach")
+    Driving.release(actor)
+    T.planEnd = nil
+
+    actor = managed("drive-safety-brake")
+    local plans = #T.plans
+    T.native[actor].state, T.native[actor].mode = "safety_blocked", "follow"
+    T.native[actor].blockedX, T.native[actor].blockedY = 105, 100
+    Driving.tick(100000)
+    Driving.tick(105000)
+    check(Driving.jobStatus(actor).attempts == 1 and #T.plans == plans + 1,
+        "real bumper safety brake enters the bounded route recovery despite FOLLOW")
+    Driving.release(actor)
+
+    actor = managed("drive-physical-stall")
+    plans = #T.plans
+    T.native[actor].engineRunning = true
+    T.native[actor].cruiseKmh = 10
+    T.native[actor].speedKmh = 0
+    Driving.tick(120000)
+    Driving.tick(132000)
+    Driving.tick(137000)
+    check(Driving.jobStatus(actor).attempts == 1 and #T.plans == plans + 1,
+        "an engine-running car without physical displacement cannot follow forever")
     Driving.release(actor)
 end
 

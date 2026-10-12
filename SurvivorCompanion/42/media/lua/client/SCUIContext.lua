@@ -589,6 +589,12 @@ local function talkableOddballs(player)
                 and type(SC.OddballLoretta.canTalkFromVehicle) == "function"
                 and SC.OddballLoretta.canTalkFromVehicle(group, player) then
                 result[#result + 1] = group
+                added = true
+            end
+            if not added and SC.OddballPurdy
+                and type(SC.OddballPurdy.canTalkThroughWindow) == "function"
+                and SC.OddballPurdy.canTalkThroughWindow(group, player) then
+                result[#result + 1] = group
             end
         end
     end

@@ -214,18 +214,20 @@ final class SCRoadFollower {
             initialAlignmentPending = false;
         }
         float toEnd = path.length() - along;
+        path.pointAt(path.length(), 0.0f, point);
+        float physicalEndDistance = (float) Math.hypot(x - point[0], y - point[1]);
         boolean stopped = Math.abs(speedKmh) <= SCDriveControl.STOPPED_KMH;
         if (!stopped) stoppedSince = -1L;
         else if (stoppedSince < 0L) stoppedSince = nowMs;
         boolean arrived = preciseArrival
-                ? toEnd <= 0.9f && Math.abs(lateral) <= 0.75f && stopped
+                ? physicalEndDistance <= 1.0f && stopped
                 : toEnd <= ARRIVE_TILES || toEnd <= NEAR_END_TILES && stopped
                     && nowMs - stoppedSince >= NEAR_END_STOPPED_MS;
         if (arrived) {
             mode = Mode.ARRIVED;
             return command;
         }
-        if (preciseArrival && toEnd <= 0.9f) {
+        if (preciseArrival && physicalEndDistance <= 0.9f) {
             command.targetKmh = 0.0f;
             return command;
         }

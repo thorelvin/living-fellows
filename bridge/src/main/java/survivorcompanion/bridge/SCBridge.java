@@ -73,7 +73,7 @@ import zombie.worldMap.WorldMap;
 
 /** Narrow Lua-facing authority for creating and owning native companions. */
 public final class SCBridge {
-    public static final String PROTOCOL = "42.21-isocompanion-20";
+    public static final String PROTOCOL = "42.21-isocompanion-21";
     public static final int ITEM_FACT_FOOD = 1;
     public static final int ITEM_FACT_DRAINABLE = 1 << 1;
     public static final int ITEM_FACT_HAND_WEAPON = 1 << 2;
@@ -1471,6 +1471,9 @@ public final class SCBridge {
             if (follower.mode() == SCRoadFollower.Mode.BLOCKED) {
                 put(out, "blockedX", follower.blockedX());
                 put(out, "blockedY", follower.blockedY());
+            } else if ("safety_blocked".equals(driver.state())) {
+                put(out, "blockedX", driver.safetyBlockedX());
+                put(out, "blockedY", driver.safetyBlockedY());
             }
             SCLaneScan.Result rear = driver.lastRearScan();
             put(out, "rearBlocked", rear.blocked);

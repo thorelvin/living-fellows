@@ -18,7 +18,9 @@ local function U() return SC.GameplayUtil end
 local function story(group)
     local value = type(group) == "table" and group.oddball or nil
     if type(value) ~= "table" or value.id ~= ID then return nil end
-    value.stage = value.stage or "trash_run"
+    if value.stage == nil or value.stage == "unmet" then
+        value.stage = "trash_run"
+    end
     value.binIndex = math.max(1, math.floor(tonumber(value.binIndex) or 1))
     value.trades = math.max(0, math.floor(tonumber(value.trades) or 0))
     return value
@@ -54,6 +56,43 @@ local function binContainer(group, index)
     if not locator or not SC.Factions then return nil end
     return SC.Factions.resolveQuestContainer(locator,
         nil, nil)
+end
+local function recoverBins(value)
+    -- The first 0.26.38 site copier could discard the complete bin list.
+    -- Rebuild it from the saved shop anchor when those chunks are loaded.
+    local anchor = value.site and value.site.house
+        and value.site.house.anchor
+    if not anchor then return false end
+    local bins, seen = {}, {}
+    for radius = 3, 27, 3 do
+        for angle = 0, 23 do
+            local theta = angle * math.pi / 12
+            local x = math.floor(anchor.x + math.cos(theta) * radius)
+            local y = math.floor(anchor.y + math.sin(theta) * radius)
+            local key = tostring(x) .. ":" .. tostring(y)
+            local square = not seen[key] and U().gridSquare(x, y, 0) or nil
+            seen[key] = true
+            if square and select(1, U().call(square, "getRoom")) == nil then
+                U().squareObjects(square, function(object, index)
+                    local container = select(1,
+                        U().call(object, "getContainer"))
+                    local kind = container and select(1,
+                        U().call(container, "getType"))
+                    kind = string.lower(tostring(kind or ""))
+                    if kind == "bin" or kind == "dumpster" then
+                        bins[#bins + 1] = { x = x, y = y, z = 0,
+                            objectIndex = index, containerType = kind }
+                        return false
+                    end
+                end, 32)
+            end
+            if #bins >= 6 then break end
+        end
+        if #bins >= 6 then break end
+    end
+    if #bins < 2 then return false end
+    value.site.bins = bins
+    return true
 end
 local function ageHours()
     local time = type(getGameTime) == "function" and getGameTime() or nil
@@ -125,6 +164,12 @@ end
 function Chris.pulse(group, player, current)
     local value = story(group)
     if not value then return false, "wrong_oddball" end
+    if not value.site.bins or #value.site.bins == 0 then
+        if current >= (tonumber(value.nextBinRecoveryAt) or 0) then
+            value.nextBinRecoveryAt = current + 30000
+            recoverBins(value)
+        end
+    end
     local actor = actorFor(group)
     if not actor then return false, "chris_unloaded" end
     if SC.OddballAnimals.status(group, 1) == "unseeded"
@@ -214,10 +259,32 @@ function Chris.update(actor, player, runtime, intent, group)
             local items = container and U().inventoryItemsDeep(container, 32, 2)
                 or {}
             local item = items[1]
-            if item and bag then U().transferItemVerified(container, bag, item) end
-            U().say(actor, item and
-                "Finders keepers! Useful trash right here." or
-                "Nothing in this one. Next lid.")
+            if item then
+                if not bag then
+                    if SC.NativeActions and SC.NativeActions.clearVisual then
+                        SC.NativeActions.clearVisual(actor)
+                    end
+                    value.searchingBin = nil
+                    local hour = ageHours()
+                    value.nextSearchHour = hour and hour + 1 / 6 or nil
+                    return false, "trash_bag_unavailable"
+                end
+                local source = select(1, U().call(item, "getContainer"))
+                    or container
+                local moved = U().transferItemVerified(source, bag, item)
+                if not moved then
+                    if SC.NativeActions and SC.NativeActions.clearVisual then
+                        SC.NativeActions.clearVisual(actor)
+                    end
+                    value.searchingBin = nil
+                    local hour = ageHours()
+                    value.nextSearchHour = hour and hour + 1 / 6 or nil
+                    return false, "trash_transfer_failed"
+                end
+                U().say(actor, "Finders keepers! Useful trash right here.")
+            else
+                U().say(actor, "Nothing in this one. Next lid.")
+            end
         end
         if SC.NativeActions and SC.NativeActions.clearVisual then
             SC.NativeActions.clearVisual(actor)

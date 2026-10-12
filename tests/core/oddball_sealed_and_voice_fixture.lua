@@ -9,6 +9,8 @@ local F = SealedVoiceFixture
 local door = { __class = "IsoDoor", open = false, locked = false }
 F.door = door
 F.doorLoaded = true
+F.legacyRoom = {}
+F.legacyRoomLoaded = false
 F.voiceDoor = { __class = "IsoDoor", open = false }
 F.voiceDoorLoaded = false
 function F.voiceDoor:IsOpen() return self.open end
@@ -54,7 +56,13 @@ function U.nowMs() return F.now end
 function U.squareOf(value) return value end
 function U.gridSquare(x, y, z)
     local square = { x = x, y = y, z = z }
-    function square:getRoom() return nil end
+    function square:getRoom()
+        if F.legacyRoomLoaded and self.x >= 10 and self.x <= 11
+            and self.y >= 8 and self.y <= 9 then
+            return F.legacyRoom
+        end
+        return nil
+    end
     function square:getObjects()
         if self.x == 20 and self.y == 19 then
             return F.voiceDoorLoaded and { F.voiceDoor } or {}

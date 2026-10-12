@@ -220,8 +220,10 @@ local function snapshot(job)
     for _, circle in ipairs(job.circles or {}) do
         circles[#circles + 1] = { x = circle.x, y = circle.y, radius = circle.radius }
     end
+    local roadGoal = job.roadGoal
     return { phase = job.phase, result = job.result, reason = job.reason,
-        attempts = job.attempts or 0, circles = circles, parked = job.parked == true }
+        attempts = job.attempts or 0, circles = circles, parked = job.parked == true,
+        roadGoal = roadGoal and { x = roadGoal.x, y = roadGoal.y, z = roadGoal.z } or nil }
 end
 
 nativeStop = function(actor, job)
@@ -380,12 +382,13 @@ local function reachedGoal(job)
         or x < 0 or x > 30000 or y < 0 or y > 30000 then
         return false, "goal_position_unavailable"
     end
-    -- Six world tiles cover the native five-tile near-end window and its normal
-    -- right-lane offset. Road geometry can finish at an access projection far
-    -- from an off-road goal, so projected route progress alone is insufficient.
+    -- The road leg ends at the router's physical road attachment. A driveway
+    -- is a separate, checked parking approach owned by SCExpeditionCar.
     local tolerance = job.precise and 1 or 36
+    local goal = job.precise and job.goal or job.roadGoal
+    if not goal then return false, "road_goal_unavailable" end
     return math.floor(z) == job.goal.z
-        and (x - job.goal.x)^2 + (y - job.goal.y)^2 <= tolerance,
+        and (x - goal.x)^2 + (y - goal.y)^2 <= tolerance,
         "goal_not_reached"
 end
 
@@ -439,13 +442,21 @@ local function planJob(job)
         job.detail = reason
         return parkResult(job, "failed", "no_route")
     end
+    local endpoint = route.points and route.points[#route.points]
+    local roadX = type(endpoint) == "table" and finite(endpoint.x)
+    local roadY = type(endpoint) == "table" and finite(endpoint.y)
+    if not roadX or not roadY then
+        return parkResult(job, "failed", "road_goal_unavailable")
+    end
     local followed, followReason = followNative(job.actor, route, job.speedKmh)
     if not followed then
         job.result, job.reason, job.detail = "failed", "bridge_failure", followReason
         Driving.stop(job.actor, "bridge_failure")
         return false
     end
+    job.roadGoal = { x = roadX, y = roadY, z = job.goal.z }
     job.route, job.phase, job.blockedSince = route, "following", nil
+    job.lastProgressAt, job.lastProgressX, job.lastProgressY = nil, nil, nil
     return true
 end
 
@@ -510,7 +521,31 @@ function Driving.tick(current)
                 parkResult(job, job.pendingResult, job.pendingReason)
             elseif not job.parked then
                 local status = job.nativeStatus
-                local state = status.mode or status.state
+                -- The actual bumper scan can brake a car while the route
+                -- follower still sees a clear lane and reports FOLLOW.
+                local state = status.state == "safety_blocked"
+                    and "blocked" or status.mode or status.state
+                if job.managed and not job.precise and (state == "follow"
+                    or state == "avoiding") and status.engineRunning == true
+                    and (finite(status.cruiseKmh) or 0) > 0 then
+                    local xOk, x = method(job.vehicle, "getX")
+                    local yOk, y = method(job.vehicle, "getY")
+                    x, y = xOk and finite(x), yOk and finite(y)
+                    if x and y then
+                        if not job.lastProgressAt or not job.lastProgressX
+                            or (x - job.lastProgressX)^2
+                                + (y - job.lastProgressY)^2 >= 0.25 then
+                            job.lastProgressAt = current
+                            job.lastProgressX, job.lastProgressY = x, y
+                        elseif current - job.lastProgressAt >= 12000
+                            and math.abs(finite(status.speedKmh) or 0) < 1 then
+                            state = "blocked"
+                            status.blockedX, status.blockedY = x, y
+                        end
+                    end
+                else
+                    job.lastProgressAt = nil
+                end
                 if job.managed and status.state == "engine_failed" then
                     parkResult(job, "failed", "engine_failed")
                 elseif state == "arrived" then

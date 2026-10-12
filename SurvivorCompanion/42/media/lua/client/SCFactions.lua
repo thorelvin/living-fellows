@@ -1799,12 +1799,12 @@ function Factions.createOddballGroup(site, definition, debugCreated)
         sealedRoom = site.sealedRoom and stableCopy(site.sealedRoom, 2) or nil,
         roomDoor = site.roomDoor and stableCopy(site.roomDoor, 2) or nil,
         hordeSpawns = site.hordeSpawns
-            and stableCopy(site.hordeSpawns, 3, { count = 64 }) or nil,
+            and stableCopy(site.hordeSpawns, 3, { count = 128 }) or nil,
         vehicle = site.vehicle and stableCopy(site.vehicle, 3) or nil,
         fuelPosts = site.fuelPosts
             and stableCopy(site.fuelPosts, 3, { count = 32 }) or nil,
         bins = site.bins and stableCopy(site.bins, 3,
-            { count = 12 }) or nil,
+            { count = 40 }) or nil,
         racePost = site.racePost and stableCopy(site.racePost, 2) or nil,
         bunkerDoor = site.bunkerDoor and stableCopy(site.bunkerDoor, 2) or nil,
         bunkerOutside = site.bunkerOutside and stableCopy(site.bunkerOutside, 2) or nil,
@@ -1816,6 +1816,15 @@ function Factions.createOddballGroup(site, definition, debugCreated)
             and stableCopy(site.toySpawns, 3, { count = 128 }) or nil,
         house = compactHouse,
     }
+    -- An exhausted copy budget must not quietly erase a required scene target.
+    -- Keep the failure local to this encounter instead of persisting a scene
+    -- which cannot complete its work after the next load.
+    for _, field in ipairs({ "hordeSpawns", "bins", "animalSpawns",
+        "fuelPosts", "memberSpawns", "petSpawns", "toySpawns" }) do
+        if site[field] ~= nil and storySite[field] == nil then
+            return nil, "oddball_site_copy_failed_" .. field
+        end
+    end
     return createGroup(site.house, 1, debugCreated == true,
         definition.archetype, nil, {
         name = definition.name,
@@ -1975,7 +1984,16 @@ local function pollSpawn()
         if type(group.oddball) == "table" then
             group.oddball.spawned = true
             if SC.Oddballs and type(SC.Oddballs.spawned) == "function" then
-                pcall(SC.Oddballs.spawned, group, actor)
+                local called, ready, setupReason = pcall(SC.Oddballs.spawned,
+                    group, actor)
+                if not called or ready ~= true then
+                    local problem = tostring(called and setupReason or ready)
+                    if member then member.spawnFailure = problem end
+                    if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
+                        SC.Diagnostics.report("faction-spawn", group.id,
+                            "encounter setup deferred", problem)
+                    end
+                end
             end
         end
         appendBounded(group.history, {
@@ -3796,21 +3814,25 @@ local function validGroup(source, id, path)
                 return restoreFailure(path .. ".oddball.site.roomDoor.kind",
                     "expected door")
             end
-            local positions, count = denseArray(story.site.hordeSpawns,
-                path .. ".oddball.site.hordeSpawns", 4, 28)
-            if not positions then return false, count end
-            local seenPosts = {}
-            for index = 1, count do
-                local post = story.site.hordeSpawns[index]
-                local postPath = path .. ".oddball.site.hordeSpawns["
-                    .. tostring(index) .. "]"
-                siteOkay, siteReason = validPosition(post, postPath, false)
-                if not siteOkay then return false, siteReason end
-                local key = spawnPositionKey(post)
-                if seenPosts[key] then
-                    return restoreFailure(postPath, "duplicate horde post")
+            -- Early 0.26.38 saves may lack the list because its copy budget
+            -- was too small. Caleb rebuilds it from the loaded sealed room.
+            if story.site.hordeSpawns ~= nil then
+                local positions, count = denseArray(story.site.hordeSpawns,
+                    path .. ".oddball.site.hordeSpawns", 4, 28)
+                if not positions then return false, count end
+                local seenPosts = {}
+                for index = 1, count do
+                    local post = story.site.hordeSpawns[index]
+                    local postPath = path .. ".oddball.site.hordeSpawns["
+                        .. tostring(index) .. "]"
+                    siteOkay, siteReason = validPosition(post, postPath, false)
+                    if not siteOkay then return false, siteReason end
+                    local key = spawnPositionKey(post)
+                    if seenPosts[key] then
+                        return restoreFailure(postPath, "duplicate horde post")
+                    end
+                    seenPosts[key] = true
                 end
-                seenPosts[key] = true
             end
             if story.hordeCount ~= nil and (not finiteNumber(story.hordeCount)
                 or story.hordeCount < 0 or story.hordeCount > 20) then
@@ -3854,9 +3876,23 @@ local function validGroup(source, id, path)
             return restoreFailure(path .. ".oddball.site.coop.enclosed",
                 "expected boolean")
         end
+        local animalCounts = {
+            ranger_june_whitlock = 10,
+            crabtree_sheep_farm = 6,
+            jedediah_cattle_drive = 4,
+            gideon_mister_buttons = 1,
+            renfro_rat_king = 8,
+            tommy_two_lengths = 1,
+            big_chris_rascal = 1,
+        }
+        local animalCount = animalCounts[story.id]
         if story.site.animalSpawns ~= nil then
+            if animalCount == nil then
+                return restoreFailure(path .. ".oddball.site.animalSpawns",
+                    "animal posts outside animal encounter")
+            end
             local positions, count = denseArray(story.site.animalSpawns,
-                path .. ".oddball.site.animalSpawns", 10, 10)
+                path .. ".oddball.site.animalSpawns", animalCount, animalCount)
             if not positions then return false, count end
             local seenAnimals = {}
             for index = 1, count do
@@ -3865,12 +3901,15 @@ local function validGroup(source, id, path)
                     .. tostring(index) .. "]"
                 siteOkay, siteReason = validPosition(position, positionPath, false)
                 if not siteOkay then return false, siteReason end
-                if position.z ~= 0 then
-                    return restoreFailure(positionPath .. ".z", "rabbits need ground floor")
+                local expectedFloor = story.id == "renfro_rat_king"
+                    and story.site.spawn.z or 0
+                if position.z ~= expectedFloor then
+                    return restoreFailure(positionPath .. ".z",
+                        "animal post on wrong floor")
                 end
                 local key = spawnPositionKey(position)
                 if seenAnimals[key] then
-                    return restoreFailure(positionPath, "duplicate rabbit position")
+                    return restoreFailure(positionPath, "duplicate animal position")
                 end
                 seenAnimals[key] = true
             end
@@ -3927,10 +3966,9 @@ local function validGroup(source, id, path)
             return restoreFailure(path .. ".oddball.site.toySpawns",
                 "toy posts outside Milli encounter")
         end
-        if story.id == "ranger_june_whitlock"
-            and story.site.animalSpawns == nil then
+        if animalCount ~= nil and story.site.animalSpawns == nil then
             return restoreFailure(path .. ".oddball.site.animalSpawns",
-                "June needs ten rabbit sites")
+                "animal encounter needs its spawn posts")
         end
         if story.animals ~= nil then
             if type(story.animals) ~= "table"
@@ -4132,6 +4170,10 @@ local function validGroup(source, id, path)
                 or type(SC.Registry.isValidId) ~= "function"
                 or not SC.Registry.isValidId(member.actorId)))
             or (member.actorId ~= nil and actorIds[member.actorId])
+            or (member.oddballKitPending ~= nil
+                and type(member.oddballKitPending) ~= "boolean")
+            or (member.oddballScenePending ~= nil
+                and type(member.oddballScenePending) ~= "boolean")
             or (member.hibernated == true and type(member.snapshot) ~= "table") then
             return restoreFailure(memberPath, "invalid or duplicate member")
         end

@@ -240,6 +240,7 @@ T.mission.scout.vehicle = Car.copyDescriptor(descriptor, T.team, "leader")
 T.mission.scout.vehicle.state = "fallback_unloading"
 T.mission.scout.vehicle.leg = "outbound"
 T.mission.scout.phase = "fallback_unloading"
+T.mission.scout.returnRequested = nil
 for index, member in ipairs(T.team) do
     member.actor.car, member.actor.seat = T.cars[1], index - 1
     T.cars[1].occupied[index - 1] = member.actor
@@ -265,6 +266,7 @@ local function freshTrip(state, leg)
     T.mission.scout.phase = state
     T.mission.scout.search = { request = { category = "scavenge" } }
     T.mission.scout.search.endReason = nil
+    T.mission.scout.returnRequested = nil
     return trip
 end
 
@@ -345,6 +347,28 @@ check(Car.recoverDeadDriver(T.mission) == true
     "all-dead car trip advances to the ordinary corpse teardown")
 T.team[1].actor.isDead = previousDead
 T.team[2].actor.isDead = mateDead
+
+local longDriveway = freshTrip("parking_home", "home")
+T.cars[1].x, T.cars[1].y = 86, 102
+T.driveStatus = { result = "arrived",
+    roadGoal = { x = 90, y = 102, z = 0 } }
+local roadApproaches = T.approaches
+check(Car.pulse(T.mission, 180000)
+    and longDriveway.approachStage == "road"
+    and T.approaches == roadApproaches + 1,
+    "early road stop centers at the road attachment before a long driveway")
+T.cars[1].x = 90
+T.driveStatus = { result = "arrived",
+    roadGoal = { x = 90, y = 102, z = 0 } }
+check(Car.pulse(T.mission, 181000)
+    and longDriveway.approachStage == nil
+    and longDriveway.approachStartedAt == nil,
+    "verified road centering releases the final parking stage")
+check(Car.pulse(T.mission, 182000)
+    and longDriveway.approachStage == "bay"
+    and T.approaches == roadApproaches + 2,
+    "the checked driveway approach starts from the actual road end")
+T.driveStatus = nil
 
 local recoveringParking = freshTrip("held", "home")
 recoveringParking.resumeState = "parking_home"
@@ -446,5 +470,60 @@ T.team[2].actor = missingMate
 check(Car.pulse(T.mission, 457000)
     and incompleteRoster.state == "abandoned",
     "walking fallback resumes after the full roster is present")
+T.cars = { unloadedCar }
+
+local occupiedBay = freshTrip("held", "home")
+occupiedBay.resumeState = "parking_home"
+occupiedBay.blocker = "parking_bay_occupied"
+check(Car.pulse(T.mission, 458000) and occupiedBay.state == "parking_home",
+    "temporarily occupied parking footprint receives the bounded retry")
+
+local recalledUnload = freshTrip("unloading_site")
+for index, member in ipairs(T.team) do
+    member.actor.car, member.actor.seat = T.cars[1], index - 1
+    T.cars[1].occupied[index - 1] = member.actor
+end
+check(Car.requestReturn(T.mission, 459000, "radio_return")
+    and T.mission.scout.returnRequested == true,
+    "accepted unload-time recall is retained at mission level")
+local originalDead = T.team[1].actor.isDead
+T.team[1].actor.isDead = function() return true end
+check(Car.recoverDeadDriver(T.mission) == true
+    and recalledUnload.state == "abandoned"
+    and T.mission.scout.phase == "inbound",
+    "driver casualty during recalled unload sends living passenger home")
+T.team[1].actor.isDead = originalDead
+T.team[1].actor.car, T.team[2].actor.car = nil, nil
+T.cars[1].occupied = {}
+
+local casualty = T.team[2].actor
+T.team[2].actor = nil
+T.mission.members[casualty] = nil
+T.mission.survivors = { leader = true }
+local survivingDriver = freshTrip("interrupted_by_load", "home")
+survivingDriver.position = { x = T.cars[1].x, y = T.cars[1].y, z = 0 }
+check(Car.pulse(T.mission, 460000)
+    and survivingDriver.state == "boarding_home",
+    "reload reboards a surviving driver without waiting for a saved casualty")
+local missingWithCasualty = freshTrip("interrupted_by_load", "home")
+T.cars = {}
+check(Car.pulse(T.mission, 461000)
+    and Car.pulse(T.mission, 492000)
+    and Car.pulse(T.mission, 493000)
+    and Car.pulse(T.mission, 554000)
+    and missingWithCasualty.state == "abandoned"
+    and T.mission.scout.phase == "inbound",
+    "missing car falls back on foot once every saved survivor is present")
+local missingLiving = freshTrip("interrupted_by_load", "home")
+T.mission.survivors = { leader = true, mate = true }
+check(Car.pulse(T.mission, 555000)
+    and Car.pulse(T.mission, 586000)
+    and Car.pulse(T.mission, 587000)
+    and Car.pulse(T.mission, 648000)
+    and missingLiving.state == "held",
+    "a genuinely missing living passenger still blocks walking fallback")
+T.team[2].actor = casualty
+T.mission.members[casualty] = true
+T.mission.survivors = nil
 T.cars = { unloadedCar }
 print("EXPEDITION_CAR_PASS checks=" .. checks)

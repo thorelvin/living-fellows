@@ -32,6 +32,33 @@ local function doorFor(value)
         and SC.NativeList.get(objects, post.objectIndex)
     return door and U().instanceOf(door, "IsoDoor") and door or nil
 end
+local function recoverHordePosts(value)
+    local site = value.site
+    if site and type(site.hordeSpawns) == "table"
+        and #site.hordeSpawns >= 4 then
+        return true
+    end
+    if not site or type(site.sealedRoom) ~= "table" then return false end
+    local post = site.sealedRoom
+    local center = U().gridSquare(post.x, post.y, post.z or 0)
+    local room = center and select(1, U().call(center, "getRoom"))
+    if not room then return false end
+    local posts = {}
+    for x = post.x - 4, post.x + 4 do
+        for y = post.y - 4, post.y + 4 do
+            local square = U().gridSquare(x, y, post.z or 0)
+            if square and select(1, U().call(square, "getRoom")) == room
+                and U().isSafeSpawnSquare(square) then
+                posts[#posts + 1] = { x = x, y = y, z = post.z or 0 }
+                if #posts == 28 then break end
+            end
+        end
+        if #posts == 28 then break end
+    end
+    if #posts < 4 then return false end
+    site.hordeSpawns = posts
+    return true
+end
 local function near(group, player, radius)
     local actor = actorFor(group)
     return actor and player and U().distance(actor, player) <= radius
@@ -157,7 +184,10 @@ function Survivalist.onSpawn(group, actor)
     if value.hordeSeedAttempted == true and seededCount >= 20 then
         return true, "horde_already_seeded"
     end
-    local posts = value.site and value.site.hordeSpawns or {}
+    if not recoverHordePosts(value) then
+        return false, "horde_room_unavailable"
+    end
+    local posts = value.site.hordeSpawns
     if #posts < 4 or type(addZombiesInOutfit) ~= "function"
         or not SC.NativeList then return false, "horde_room_unavailable" end
     value.hordeSeedAttempted = true
@@ -199,6 +229,15 @@ function Survivalist.pulse(group, player, current)
         value.sealBroken = true
         if SC.OddballRoomGuard then SC.OddballRoomGuard.release(group.id) end
         flee(group, player, "The door! You're on your own!")
+    end
+    if not value.sealBroken and value.stage ~= "fleeing"
+        and value.stage ~= "gone" and not value.site.hordeSpawns
+        and current >= (tonumber(value.nextLegacyHordeRetryAt) or 0) then
+        value.nextLegacyHordeRetryAt = current + 30000
+        local actor = actorFor(group)
+        if actor and recoverHordePosts(value) then
+            Survivalist.onSpawn(group, actor)
+        end
     end
     local actor = actorFor(group)
     if value.stage == "fleeing" then

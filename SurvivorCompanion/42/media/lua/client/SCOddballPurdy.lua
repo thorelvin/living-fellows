@@ -394,6 +394,16 @@ local function upperWindowSight(actor, target)
     return crossedUpperWindow
 end
 
+function Purdy.canTalkThroughWindow(group, player)
+    local state = stateFor(group)
+    if not state or territoryDistance(state, player) > 24 then return false end
+    for index = 1, #(group.members or {}) do
+        local actor = actorFor(group, index)
+        if actor and upperWindowSight(actor, player) then return true end
+    end
+    return false
+end
+
 local function friendlyShotBlocked(actor, target, group, player)
     local allies = {}
     for _, member in ipairs(group.members or {}) do
@@ -531,7 +541,7 @@ end
 function Purdy.menuOptions(group, player)
     local state = stateFor(group)
     if not state then return {} end
-    local nearby = territoryDistance(state, player) <= 24
+    local nearby = Purdy.canTalkThroughWindow(group, player)
     local detail
     if state.tuckerStatus == "placed" and state.tuckerSquare then
         local anchor = siteAnchor(state)
@@ -566,11 +576,13 @@ function Purdy.action(group, action, player, payload)
         setStanding(group, "Hostile")
         return true, "purdy_defends_farm"
     elseif action == "ask_tucker" then
-        if territoryDistance(state, player) > 24 then return false, "too_far_away" end
+        if not Purdy.canTalkThroughWindow(group, player) then
+            return false, "purdy_window_out_of_reach" end
         speak(group, "clue")
         return true, "tucker_clue_told"
     elseif action == "return_tucker" then
-        if territoryDistance(state, player) > 24 then return false, "too_far_away" end
+        if not Purdy.canTalkThroughWindow(group, player) then
+            return false, "purdy_window_out_of_reach" end
         return returnTucker(group, state)
     end
     return false, "unsupported_purdy_action"

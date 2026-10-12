@@ -438,6 +438,20 @@ public final class SCRoadFollowerTest {
 
     private static void preciseParking() {
         String route = "12,101,5;25,101,5";
+        SCRoadFollower edge = new SCRoadFollower(SCDrivePath.parse(route),
+                5.0f, false, true);
+        edge.update(new Road(), 24.15f, 101.70f, 0, 1.0f, 0.0f,
+                0.0f, 1.0f, 2.4f, -1.0f, -1.0f, 1000L,
+                new SCRoadFollower.Command());
+        require(edge.mode() != SCRoadFollower.Mode.ARRIVED,
+                "a stopped car outside the one-tile physical circle cannot report precise arrival");
+        SCRoadFollower overshoot = new SCRoadFollower(SCDrivePath.parse(route),
+                5.0f, false, true);
+        overshoot.update(new Road(), 26.5f, 101.0f, 0, 1.0f, 0.0f,
+                0.0f, 1.0f, 2.4f, -1.0f, -1.0f, 1000L,
+                new SCRoadFollower.Command());
+        require(overshoot.mode() != SCRoadFollower.Mode.ARRIVED,
+                "projection clamping cannot hide a precise-arrival overshoot");
         SCRoadFollower follower = new SCRoadFollower(SCDrivePath.parse(route),
                 5.0f, false, true);
         Drive drive = new Drive(new Road(), new Car(12.0f, 101.0f, 0.0f), follower);

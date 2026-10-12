@@ -8,9 +8,9 @@ local function check(value, message)
 end
 local Survivalist = SC.OddballSurvivalist
 local VoiceActor = SC.OddballVoiceActor
-local seeded = Survivalist.onSpawn(F.caleb, F.records.caleb.actor)
+local seeded, seedReason = Survivalist.onSpawn(F.caleb, F.records.caleb.actor)
 check(seeded == true and F.door.locked and F.door.lockedByKey,
-    "room door is truly locked before horde seeding")
+    "room door is truly locked before horde seeding: " .. tostring(seedReason))
 check(#F.zombies == 20 and F.caleb.oddball.hordeCount == 20,
     "twenty real tagged zombies appear in the sealed room")
 for _, zombie in ipairs(F.zombies) do
@@ -99,4 +99,16 @@ check(partial.oddball.hordeCount == 20
 Survivalist.onSpawn(partial, F.records.caleb.actor)
 check(#F.zombies == beforePartial + 20,
     "a completed horde never duplicates on another load")
+F.legacyRoomLoaded = true
+F.door.open, F.door.locked = false, false
+local legacy = { id = "legacy-sealed-group", members = F.caleb.members,
+    oddball = { id = "survivalist_locked_horde", site = {
+        roomDoor = F.caleb.oddball.site.roomDoor,
+        sealedRoom = { x = 10, y = 9, z = 0 },
+    } } }
+local beforeLegacy = #F.zombies
+check(Survivalist.onSpawn(legacy, F.records.caleb.actor) == true
+    and #legacy.oddball.site.hordeSpawns == 4
+    and #F.zombies == beforeLegacy + 20,
+    "a loaded legacy sealed room rebuilds missing posts and seeds the horde")
 print("PASS: " .. checks .. " sealed-room and voice-actor checks")

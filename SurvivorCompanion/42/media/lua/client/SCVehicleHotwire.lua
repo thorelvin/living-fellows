@@ -7,6 +7,7 @@ local SC = SurvivorCompanion
 SC.VehicleHotwire = SC.VehicleHotwire or {}
 local Hotwire = SC.VehicleHotwire
 local jobs = setmetatable({}, { __mode = "k" })
+local receipts = setmetatable({}, { __mode = "k" })
 
 local function call(object, method, ...)
     if object == nil or not SC.Call then return false, nil end
@@ -68,7 +69,9 @@ end
 
 function Hotwire.request(actor, car, player)
     if not actor or not car or not player then return false, "vehicle_unavailable" end
-    if jobs[actor] then return false, "hotwire_already_ordered" end
+    if jobs[actor] or receipts[actor] then
+        return false, "hotwire_already_ordered"
+    end
     local axOk, ax = call(actor, "getX")
     local ayOk, ay = call(actor, "getY")
     local azOk, az = call(actor, "getZ")
@@ -104,23 +107,33 @@ end
 
 function Hotwire.cancel(actor, reason)
     local job = jobs[actor]
-    if not job then return false end
-    if job.sound then
+    if not job and not receipts[actor] then return false end
+    if job and job.sound then
         local emitterOk, emitter = call(actor, "getEmitter")
         local playingOk, playing = call(emitter, "isPlaying", job.sound)
         if emitterOk and playingOk and playing then
             call(actor, "stopOrTriggerSound", job.sound)
         end
     end
-    if job.phase == "boarding" and SC.Vehicle and SC.Vehicle.cancelTransaction then
+    if job and job.phase == "boarding" and SC.Vehicle and SC.Vehicle.cancelTransaction then
         SC.Vehicle.cancelTransaction(actor, reason or "hotwire_cancelled")
     end
     jobs[actor] = nil
+    if reason ~= "hotwire_exit_timeout" and reason ~= "hotwire_finished" then
+        receipts[actor] = nil
+    end
     return true
 end
 
 function Hotwire.active(actor)
-    return jobs[actor] ~= nil
+    if jobs[actor] then return true end
+    local receipt = receipts[actor]
+    if not receipt then return false end
+    local carOk, current = call(actor, "getVehicle")
+    -- After a minute let ordinary vehicle-exit policy take over. Re-enter this
+    -- step as soon as it succeeds so the deferred voice line is delivered.
+    return not carOk or current ~= receipt.car
+        or nowMs() < receipt.retryUntil
 end
 
 local function finish(actor, job, message)
@@ -166,7 +179,8 @@ local function exitAndReport(actor, job)
     local succeeded, message = job.succeeded, job.message
     Hotwire.cancel(actor, "hotwire_finished")
     sayResult(actor, succeeded)
-    note(job, message)
+    if not job.reported then note(job, message) end
+    receipts[actor] = nil
     return succeeded, succeeded and "hotwired" or "hotwire_failed"
 end
 
@@ -175,6 +189,9 @@ local function completeAttempt(actor, job, succeeded, message)
     job.succeeded = succeeded == true
     job.message = message
     job.expires = nowMs() + 15000
+    receipts[actor] = { car = job.car, player = job.player,
+        succeeded = job.succeeded, message = message,
+        retryUntil = nowMs() + 60000 }
     return exitAndReport(actor, job)
 end
 
@@ -182,11 +199,20 @@ end
 -- companion stays seated while the native engine resolves its attempt.
 function Hotwire.step(actor, snapshot)
     local job = jobs[actor]
-    if not job then return nil end
+    if not job then
+        local receipt = receipts[actor]
+        if receipt then return exitAndReport(actor, receipt) end
+        return nil
+    end
     if job.phase == "exiting" then
         if nowMs() > job.expires then
+            local receipt = receipts[actor]
+            if receipt and not receipt.reported then
+                note(receipt, receipt.message .. " Exit blocked; still trying to leave the car.")
+                receipt.reported = true
+            end
             Hotwire.cancel(actor, "hotwire_exit_timeout")
-            return false, "hotwire_exit_timeout"
+            return true, "hotwire_exit_blocked"
         end
         return exitAndReport(actor, job)
     end
@@ -278,6 +304,7 @@ end
 
 function Hotwire.reset()
     for actor in pairs(jobs) do Hotwire.cancel(actor, "runtime_reset") end
+    for actor in pairs(receipts) do receipts[actor] = nil end
 end
 
 return Hotwire

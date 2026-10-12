@@ -412,9 +412,24 @@ local function sameParkingArea(zone, saved)
         and zone.x2 == saved.x2 and zone.y2 == saved.y2
 end
 
+local function travelMember(mission, member)
+    if mission.survivors ~= nil then
+        return mission.survivors[member.id] == true
+    end
+    local actor = member.actor
+    if actor then
+        local ok, dead = call(actor, "isDead")
+        if ok and dead then return false end
+    end
+    return true
+end
+
 local function teamSeated(mission, trip, car)
     for _, member in ipairs(mission.roster) do
-        if member.actor and mission.members[member.actor] then
+        if travelMember(mission, member) then
+            if not member.actor or not mission.members[member.actor] then
+                return false
+            end
             local seated, current, seat = SC.Vehicle.isNativeSeated(member.actor)
             if not seated or current ~= car or seat ~= trip.seats[member.id] then
                 return false
@@ -445,7 +460,7 @@ local function departReady(mission, trip, car)
         if not installedOk or installed ~= true then
             return false, "seat_unavailable"
         end
-        assigned[seat] = member.actor
+        if travelMember(mission, member) then assigned[seat] = member.actor end
     end
     for seat = 0, count - 1 do
         local occupantOk, occupant = call(car, "getCharacter", seat)
@@ -498,7 +513,8 @@ end
 
 local function teamOnFoot(mission)
     for _, member in ipairs(mission.roster) do
-        if member.actor and mission.members[member.actor] then
+        if travelMember(mission, member) and member.actor
+            and mission.members[member.actor] then
             local seated, vehicle = SC.Vehicle.isNativeSeated(member.actor)
             if seated or vehicle ~= nil then return false end
         end
@@ -508,7 +524,8 @@ end
 
 local function wholeTeamOnFoot(mission)
     for _, member in ipairs(mission.roster or {}) do
-        if not member.actor or not mission.members[member.actor] then
+        if travelMember(mission, member)
+            and (not member.actor or not mission.members[member.actor]) then
             return false
         end
     end
@@ -523,7 +540,8 @@ local function abandonToWalking(mission, trip, car)
     if not x or not y or not z then return false, "leader_position_unavailable" end
     trip.state = "abandoned"
     trip.abandonedAt = car and point(car) or trip.position
-    scout.phase = trip.leg == "home" and "inbound" or "outbound"
+    scout.phase = (scout.returnRequested or trip.returnRequested
+        or trip.leg == "home") and "inbound" or "outbound"
     scout.travelMode = "straight"
     scout.roadRoute, scout.road = nil, nil
     scout.trail = { { x = math.floor(x), y = math.floor(y),
@@ -557,7 +575,8 @@ local function stopAndUnload(mission, trip, car)
     if not teamOnFoot(mission) then return false, "unload_unverified" end
     -- Step 1's exact-item recovery checks the existing ignition key and
     -- returns it only to the original driver after the native exit commits.
-    if leader and SC.Vehicle.recoverDriverKeyAfterExit then
+    if leader and trip.seats[mission.leader.id] == 0
+        and SC.Vehicle.recoverDriverKeyAfterExit then
         local recovered, recoveryReason = SC.Vehicle.recoverDriverKeyAfterExit(
             leader, trip.sqlId)
         if not recovered then return false, recoveryReason end
@@ -627,7 +646,8 @@ function Car.recoverDeadDriver(mission)
     trip.state = "abandoned"
     trip.blocker, trip.resumeState = nil, nil
     if not alreadyWalking and scout.phase ~= "awaiting_player" then
-        scout.phase = trip.leg == "home" and "inbound" or "outbound"
+        scout.phase = (scout.returnRequested or trip.returnRequested
+            or trip.leg == "home") and "inbound" or "outbound"
     end
     scout.travelMode = "straight"
     if not alreadyWalking then
@@ -653,6 +673,7 @@ end
 
 local function recordReturnIntent(scout, reason)
     reason = reason or "radio_return"
+    scout.returnRequested = true
     if scout.search then
         scout.search.endReason = reason
     else
@@ -821,26 +842,29 @@ local function resumeReady(mission, trip, car)
         return false, "too_few_seats"
     end
     for _, member in ipairs(mission.roster) do
-        if not member.actor or not SC.Actor.isCompanion(member.actor) then
-            return false, "restart_team_unavailable"
-        end
-        local deadOk, dead = call(member.actor, "isDead")
-        if not deadOk or dead then return false, "restart_team_unfit" end
-        local health = SC.GameplayUtil.nativeHealth
-            and finite(SC.GameplayUtil.nativeHealth(member.actor))
-        if health and health <= 30 then return false, "restart_team_unfit" end
-        local seat = trip.seats[member.id]
-        if seat == nil or seat >= count then return false, "seat_unavailable" end
-        local installedOk, installed = call(car, "isSeatInstalled", seat)
-        local occupiedOk, occupant = call(car, "getCharacter", seat)
-        local doors, _, doorReason = SC.Vehicle.boardingSquares(member.actor, car,
-            seat, seat == 0)
-        if doorReason == "no safe loaded passenger-door square" then
-            return false, "restart_door_not_loaded"
-        end
-        if not installedOk or installed ~= true or not occupiedOk
-            or occupant ~= nil or not doors or #doors < 1 then
-            return false, "seat_or_door_unavailable"
+        if travelMember(mission, member) then
+            if not member.actor or not SC.Actor.isCompanion(member.actor)
+                or not mission.members[member.actor] then
+                return false, "restart_team_unavailable"
+            end
+            local deadOk, dead = call(member.actor, "isDead")
+            if not deadOk or dead then return false, "restart_team_unfit" end
+            local health = SC.GameplayUtil.nativeHealth
+                and finite(SC.GameplayUtil.nativeHealth(member.actor))
+            if health and health <= 30 then return false, "restart_team_unfit" end
+            local seat = trip.seats[member.id]
+            if seat == nil or seat >= count then return false, "seat_unavailable" end
+            local installedOk, installed = call(car, "isSeatInstalled", seat)
+            local occupiedOk, occupant = call(car, "getCharacter", seat)
+            local doors, _, doorReason = SC.Vehicle.boardingSquares(member.actor, car,
+                seat, seat == 0)
+            if doorReason == "no safe loaded passenger-door square" then
+                return false, "restart_door_not_loaded"
+            end
+            if not installedOk or installed ~= true or not occupiedOk
+                or occupant ~= nil or not doors or #doors < 1 then
+                return false, "seat_or_door_unavailable"
+            end
         end
     end
     for seat = 0, count - 1 do
@@ -848,6 +872,11 @@ local function resumeReady(mission, trip, car)
         if not occupantOk or occupant ~= nil then
             return false, "car_has_other_occupants"
         end
+    end
+    -- The historical seat map is retained, but only a surviving original
+    -- driver can resume steering. Otherwise evacuate the living squad on foot.
+    if not mission.leader or trip.seats[mission.leader.id] ~= 0 then
+        return false, "restart_driver_casualty"
     end
     if not componentReady(car, "Engine") then
         return false, "engine_unusable"
@@ -905,6 +934,7 @@ local restartWaitReason = {
 }
 
 local restartWalkingReason = {
+    restart_driver_casualty = true,
     saved_car_moved = true,
     saved_car_identity_changed = true,
     too_few_seats = true,
@@ -922,6 +952,7 @@ local parkingRetryReason = {
     road_access_not_loaded = true,
     road_access_vehicle_blocked = true,
     parking_bay_blocked = true,
+    parking_bay_occupied = true,
     parking_not_loaded = true,
     parking_exit_blocked = true,
 }
@@ -1143,21 +1174,47 @@ function Car.pulse(mission, now, worldHour)
                 if status and status.result == "failed" then
                     hold(trip, status.reason or "parking_approach_failed")
                 elseif status and status.result == "arrived" then
-                    hold(trip, reason or "parking_footprint_outside_area")
+                    if trip.approachStage == "road" then
+                        -- Native road arrival may stop a few tiles short. First
+                        -- settle at the verified road attachment, then run the
+                        -- separately checked driveway approach next pulse.
+                        trip.approachStage, trip.approachStartedAt = nil, nil
+                    else
+                        hold(trip, reason or "parking_footprint_outside_area")
+                    end
                 elseif now - trip.approachStartedAt > 30000 then
                     SC.Driving.release(mission.leader.actor, "parking_timeout")
                     hold(trip, "parking_approach_timeout")
                 end
             else
-                local clear, why = targetBayClear(car, zone, trip.departure)
-                if clear then clear, why = Car.accessBetween(car,
-                    point(car), trip.departure) end
-                if not clear then hold(trip, why)
+                local at = point(car)
+                local gap = at and math.sqrt((at.x - trip.departure.x)^2
+                    + (at.y - trip.departure.y)^2) or math.huge
+                if gap > 15 then
+                    local status = SC.Driving.jobStatus(mission.leader.actor)
+                    local road = status and status.roadGoal
+                    local roadGap = road and at and math.sqrt(
+                        (at.x - road.x)^2 + (at.y - road.y)^2) or math.huge
+                    if roadGap > 6 then hold(trip, "parking_road_end_unavailable")
+                    else
+                        local started, why = SC.Driving.approach(
+                            mission.leader.actor, road, 30000)
+                        if started then
+                            trip.approachStage, trip.approachStartedAt = "road", now
+                        else hold(trip, why) end
+                    end
                 else
-                    local started, startReason = SC.Driving.approach(
-                        mission.leader.actor, trip.departure, 30000)
-                    if started then trip.approachStartedAt = now
-                    else hold(trip, startReason) end
+                    local clear, why = targetBayClear(car, zone, trip.departure)
+                    if clear then clear, why = Car.accessBetween(car,
+                        at, trip.departure) end
+                    if not clear then hold(trip, why)
+                    else
+                        local started, startReason = SC.Driving.approach(
+                            mission.leader.actor, trip.departure, 30000)
+                        if started then
+                            trip.approachStage, trip.approachStartedAt = "bay", now
+                        else hold(trip, startReason) end
+                    end
                 end
             end
         end
@@ -1175,7 +1232,8 @@ function Car.pulse(mission, now, worldHour)
         if trip.state == "unloading_site" then
             trip.sitePoint = at
             trip.state = "parked_at_site"
-            scout.phase = trip.returnRequested and "inbound" or "outbound"
+            scout.phase = (scout.returnRequested or trip.returnRequested)
+                and "inbound" or "outbound"
             trip.returnRequested = nil
             scout.trail = { { x = math.floor(mission.leader.actor:getX()),
                 y = math.floor(mission.leader.actor:getY()), z = 0 } }

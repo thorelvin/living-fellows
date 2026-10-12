@@ -19,6 +19,7 @@ try {
         & $java -cp "$build;$jar" KahluaTestRunner `
             (Join-Path $PSScriptRoot 'oddball_animal_spawn_fixture.lua') `
             (Join-Path $client 'SCOddballAnimals.lua') `
+            (Join-Path $client 'SCOddballBigChris.lua') `
             (Join-Path $PSScriptRoot 'oddball_animal_spawn_harness.lua')
         if ($LASTEXITCODE -ne 0) { throw 'Oddball animal spawn regression failed' }
     } finally { Pop-Location }

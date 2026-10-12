@@ -326,6 +326,21 @@ check("reconciled_son_keeps_upper_perch", son1.lastNavigation == nil)
 -- Half-tile positions mirror real character coordinates. The player is far
 -- enough south that the shot exits the upper window before dropping a floor.
 player.x, player.y = 4.5, -4.5
+purdy.oddball.tuckerReturned = false
+check("ground_to_upper_window_talk", Purdy.canTalkThroughWindow(purdy, player)
+    and Purdy.menuOptions(purdy, player)[1].enabled == true)
+player.x, player.y = 4.5, 4.5
+check("wrong_side_cannot_talk", not Purdy.canTalkThroughWindow(purdy, player)
+    and Purdy.action(purdy, "ask_tucker", player) == false)
+player.x, player.y = 4.5, -4.5
+windowCrossingsEnabled = false
+check("barricaded_window_cannot_talk",
+    not Purdy.canTalkThroughWindow(purdy, player)
+    and Purdy.action(purdy, "ask_tucker", player) == false)
+windowCrossingsEnabled = true
+player.x, player.y = 40.5, -4.5
+check("far_player_cannot_talk", not Purdy.canTalkThroughWindow(purdy, player))
+player.x, player.y = 4.5, -4.5
 purdy.standing = "Hostile"
 local handled = Purdy.update(son2, player, {},
     Purdy.intentFor(son2, player, {}, purdy), purdy)

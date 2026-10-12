@@ -1052,6 +1052,7 @@ function Expedition.export()
             arriveByHour = mission.scout.arriveByHour,
             departureHour = mission.scout.departureHour,
             endReason = mission.scout.endReason,
+            returnRequested = mission.scout.returnRequested == true or nil,
             road = mission.scout.road and {
                 version = 1, phase = mission.scout.road.phase,
                 fingerprint = mission.scout.road.fingerprint,
@@ -1236,6 +1237,8 @@ function Expedition.restore(saved)
             or (scout.endReason ~= nil
                 and (type(scout.endReason) ~= "string"
                     or #scout.endReason > 64))
+            or (scout.returnRequested ~= nil
+                and scout.returnRequested ~= true)
             or (scout.hordeDetours ~= nil
                 and (type(scout.hordeDetours) ~= "number"
                     or scout.hordeDetours < 0 or scout.hordeDetours > 3
@@ -1276,6 +1279,7 @@ function Expedition.restore(saved)
             arriveByHour = scout.arriveByHour,
             departureHour = scout.departureHour,
             endReason = scout.endReason,
+            returnRequested = scout.returnRequested == true,
             road = scout.road and {
                 version = 1, phase = scout.road.phase,
                 fingerprint = scout.road.fingerprint,

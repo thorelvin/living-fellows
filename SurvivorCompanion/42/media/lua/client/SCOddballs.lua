@@ -652,6 +652,8 @@ local state = freshState()
 local nextScanAt = 0
 local nextRecruitedPulseAt = 0
 local scanSerial = 0
+local pendingSetups = {}
+local seedPersonalKit
 
 local function U() return SC.GameplayUtil end
 
@@ -2494,25 +2496,39 @@ local function siteForResident(square, player, definition, name, allowSeen)
             spawn, 4, name, 2)
         if not site.memberSpawns then return nil end
     elseif definition.id == "sleeping_it_off" then
-        for _, position in ipairs(house.interior or {}) do
-            local tile = U().gridSquare(position.x, position.y,
-                position.z or 0)
-            if roomName(tile) == name and not site.bed then
-                U().squareObjects(tile, function(object, index)
-                    local label = select(1, U().call(object, "getName"))
-                    local sprite = select(1, U().call(object, "getSprite"))
-                    local spriteName = sprite and select(1,
-                        U().call(sprite, "getName")) or ""
-                    label = string.lower(tostring(label or ""))
-                    spriteName = string.lower(tostring(spriteName or ""))
-                    if string.find(label, "bed", 1, true)
-                        or string.find(spriteName,
-                            "furniture_bedding", 1, true) then
-                        site.bed = { x = position.x, y = position.y,
-                            z = position.z or 0, objectIndex = index }
-                        return false
-                    end
-                end, 64)
+        local bounds = house.bounds or {}
+        local spawnTile = U().gridSquare(spawn.x, spawn.y, spawn.z or 0)
+        local spawnRoom = select(1, U().call(spawnTile, "getRoom"))
+        local building = select(1, U().call(spawnTile, "getBuilding"))
+        if not spawnRoom or not bounds.x1 or not bounds.x2
+            or not bounds.y1 or not bounds.y2 then return nil end
+        -- The clear interior posts exclude occupied bed tiles. Inspect the
+        -- room's actual squares while keeping the actor spawn on a clear post.
+        for x = bounds.x1, bounds.x2 do
+            for y = bounds.y1, bounds.y2 do
+                local tile = U().gridSquare(x, y, spawn.z or 0)
+                if tile and roomName(tile) == name
+                    and select(1, U().call(tile, "getRoom")) == spawnRoom
+                    and select(1, U().call(tile, "getBuilding")) == building
+                    and not site.bed then
+                    U().squareObjects(tile, function(object, index)
+                        local label = select(1, U().call(object, "getName"))
+                        local sprite = select(1, U().call(object, "getSprite"))
+                        local spriteName = sprite and select(1,
+                            U().call(sprite, "getName")) or ""
+                        label = string.lower(tostring(label or ""))
+                        spriteName = string.lower(tostring(spriteName or ""))
+                        if (string.find(label, "bed", 1, true)
+                            and not string.find(label, "bedside", 1, true))
+                            or string.find(spriteName,
+                                "furniture_bedding", 1, true) then
+                            site.bed = { x = x, y = y,
+                                z = spawn.z or 0, objectIndex = index }
+                            return false
+                        end
+                    end, 64)
+                end
+                if site.bed then break end
             end
             if site.bed then break end
         end
@@ -3279,6 +3295,58 @@ end
 
 function Oddballs.pulseGroup(group, player, current)
     if type(group) ~= "table" or type(group.oddball) ~= "table" then return false end
+    local setups = pendingSetups[group.id]
+    for _, member in ipairs(group.members or {}) do
+        if member.actorId and (member.oddballKitPending
+            or member.oddballScenePending) then
+            if not setups then
+                setups = {}
+                pendingSetups[group.id] = setups
+            end
+            if not setups[member.actorId] then
+                setups[member.actorId] = {
+                    kit = member.oddballKitPending == true,
+                    module = member.oddballScenePending == true,
+                    nextAt = 0,
+                }
+            end
+        end
+    end
+    for actorId, setup in pairs(setups or {}) do
+        if (tonumber(current) or U().nowMs()) >= setup.nextAt then
+            local record = SC.Registry
+                and type(SC.Registry.byId) == "function"
+                and SC.Registry.byId(actorId)
+            local actor = record and record.actor
+            if actor and U().isValidActor(actor) then
+                setup.nextAt = (tonumber(current) or U().nowMs()) + 30000
+                if setup.kit then
+                    local ready = seedPersonalKit(group, actor)
+                    setup.kit = ready ~= true
+                end
+                if setup.module then
+                    local ready = callModule(group, "onSpawn", group, actor)
+                    setup.module = ready ~= true
+                end
+                for _, member in ipairs(group.members or {}) do
+                    if member.actorId == actorId then
+                        member.oddballKitPending = setup.kit or nil
+                        member.oddballScenePending = setup.module or nil
+                        break
+                    end
+                end
+                if not setup.kit and not setup.module then
+                    setups[actorId] = nil
+                    for _, member in ipairs(group.members or {}) do
+                        if member.actorId == actorId then
+                            member.spawnFailure = nil
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
     roomGuard("pulse", group, player, current)
     local handled, reason = callModule(group, "pulse", group, player, current)
     if SC.OddballDistressRadio
@@ -3386,7 +3454,7 @@ function Oddballs.canRecruit(group)
     return allowed == true
 end
 
-local function seedPersonalKit(group, actor)
+seedPersonalKit = function(group, actor)
     local story = group and group.oddball
     -- Milli's scene module chooses between horse and bottle variants and
     -- seeds exact quantities; the generic kit deduplicates repeated types.
@@ -3418,14 +3486,15 @@ local function seedPersonalKit(group, actor)
     end
     local weapon = kit.weapon and ensure(kit.weapon) or nil
     if kit.weapon and not weapon then return false, "kit_weapon_unavailable" end
-    for _, kind in ipairs(kit.items or {}) do
-        if not ensure(kind) then return false, "kit_item_unavailable:" .. kind end
-    end
     if weapon and kit.equipWeapon ~= false then
         local accepted, called = U().call(actor, "setPrimaryHandItem", weapon)
-        if not called or accepted == false then
+        local equipped, read = U().call(actor, "getPrimaryHandItem")
+        if not called or accepted == false or not read or equipped ~= weapon then
             return false, "kit_weapon_equip_failed"
         end
+    end
+    for _, kind in ipairs(kit.items or {}) do
+        if not ensure(kind) then return false, "kit_item_unavailable:" .. kind end
     end
     story.kitSeeded = true
     return true, "kit_ready"
@@ -3443,14 +3512,33 @@ function Oddballs.spawned(group, actor)
     if state.pending and state.pending.groupId == group.id then state.pending = nil end
     story.spawned = true
     roomGuard("register", group, nil, U().nowMs())
-    if actor ~= nil then
-        local equipped, reason = seedPersonalKit(group, actor)
-        if not equipped and SC.Diagnostics
-            and type(SC.Diagnostics.report) == "function" then
-            SC.Diagnostics.report("oddballs", group.id,
-                "personal kit unavailable", tostring(reason))
+    if actor == nil then return true, story.id end
+    local equipped, kitReason = seedPersonalKit(group, actor)
+    local sceneReady, sceneReason = callModule(group, "onSpawn", group, actor)
+    local kitFailed, sceneFailed = equipped ~= true, sceneReady ~= true
+    for _, member in ipairs(group.members or {}) do
+        if member.actorId == U().idOf(actor) then
+            member.oddballKitPending = kitFailed or nil
+            member.oddballScenePending = sceneFailed or nil
+            break
         end
-        callModule(group, "onSpawn", group, actor)
+    end
+    if kitFailed or sceneFailed then
+        pendingSetups[group.id] = pendingSetups[group.id] or {}
+        pendingSetups[group.id][U().idOf(actor)] = {
+            kit = kitFailed, module = sceneFailed,
+            nextAt = U().nowMs() + 30000,
+        }
+        local reason = kitFailed and kitReason or sceneReason
+        if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
+            SC.Diagnostics.report("oddballs", group.id,
+                kitFailed and "personal kit unavailable" or "scene setup unavailable",
+                tostring(reason))
+        end
+        return false, reason
+    end
+    if pendingSetups[group.id] then
+        pendingSetups[group.id][U().idOf(actor)] = nil
     end
     return true, story.id
 end
@@ -3896,6 +3984,7 @@ function Oddballs.restore(document)
     roomGuard("reset")
     candidate.disabled = nil
     state = candidate
+    pendingSetups = {}
     nextScanAt, nextRecruitedPulseAt, scanSerial = 0, 0, 0
     return true
 end
@@ -3907,6 +3996,7 @@ function Oddballs.reset()
         SC.OddballSurvivalist.remove()
     end
     state = freshState()
+    pendingSetups = {}
     nextScanAt, nextRecruitedPulseAt, scanSerial = 0, 0, 0
     return true
 end

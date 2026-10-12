@@ -715,6 +715,7 @@ for _, entry in ipairs({
 }) do
     local subject = { inventory = {} }
     function subject:setPrimaryHandItem(item) self.primary = item end
+    function subject:getPrimaryHandItem() return self.primary end
     local kitGroup = { oddball = { id = entry.id } }
     check(SC.Oddballs._seedPersonalKitForTests(kitGroup, subject) == true
         and #subject.inventory == entry.count
@@ -744,6 +745,67 @@ check(SC.Oddballs._seedPersonalKitForTests(groupKit, first) == true
 check(SC.Oddballs._seedPersonalKitForTests(groupKit, first) == true
     and #first.inventory == 2,
     "the group personal kit is not duplicated on reawaken")
+;(function()
+    local partial = { inventory = {} }
+    function partial:setPrimaryHandItem(item) self.primary = item end
+    function partial:getPrimaryHandItem() return self.primary end
+    local group = { oddball = { id = "pyromaniac_earl_kessler" } }
+    local originalAdd = U.addItem
+    local missLighter = true
+    U.addItem = function(inventory, kind)
+        if kind == "Base.Lighter" and missLighter then
+            missLighter = false
+            return nil
+        end
+        return originalAdd(inventory, kind)
+    end
+    check(SC.Oddballs._seedPersonalKitForTests(group, partial) == false
+        and partial.primary and partial.primary.kind == "Base.PipeWrench"
+        and group.oddball.kitSeeded ~= true,
+        "a missing optional item leaves the usable weapon equipped for retry")
+    check(SC.Oddballs._seedPersonalKitForTests(group, partial) == true
+        and #partial.inventory == 5 and group.oddball.kitSeeded == true,
+        "a retried partial kit fills its gap without duplicating the weapon")
+    U.addItem = originalAdd
+    local unreadable = { inventory = {} }
+    function unreadable:setPrimaryHandItem(item) self.primary = item end
+    function unreadable:getPrimaryHandItem() return nil end
+    local unreadableGroup = { oddball = { id = "pyromaniac_earl_kessler" } }
+    check(SC.Oddballs._seedPersonalKitForTests(unreadableGroup,
+        unreadable) == false and unreadableGroup.oddball.kitSeeded ~= true,
+        "equipment that cannot be read back is not reported ready")
+end)()
+;(function()
+    local companion = { id = "setup-retry-actor", inventory = {} }
+    function companion:setPrimaryHandItem(item) self.primary = item end
+    function companion:getPrimaryHandItem() return self.primary end
+    local member = { actorId = companion.id }
+    local encounter = { id = "setup-retry-group", members = { member },
+        oddball = { id = "pyromaniac_earl_kessler", site = {} } }
+    local oldModule, oldById, oldValid = SC.OddballPyromaniac,
+        SC.Registry.byId, U.isValidActor
+    local attempts = 0
+    SC.OddballPyromaniac = {
+        onSpawn = function()
+            attempts = attempts + 1
+            return attempts > 1, "temporary_scene_failure"
+        end,
+        pulse = function() return true end,
+    }
+    SC.Registry.byId = function(id)
+        return id == companion.id and { actor = companion } or nil
+    end
+    U.isValidActor = function(value) return value == companion end
+    local ready = SC.Oddballs.spawned(encounter, companion)
+    check(ready == false and member.oddballScenePending == true
+        and encounter.oddball.kitSeeded == true,
+        "a failed scene setup is reported and marked for retry")
+    SC.Oddballs.pulseGroup(encounter, player, U.nowMs() + 30001)
+    check(attempts == 2 and member.oddballScenePending == nil,
+        "a loaded actor completes a deferred scene setup once")
+    SC.OddballPyromaniac, SC.Registry.byId, U.isValidActor =
+        oldModule, oldById, oldValid
+end)()
 U.idOf = priorIdOf
 U.inventory, U.inventoryItemsDeep = priorInventory, priorDeep
 U.itemType, U.addItem = priorItemType, priorAddItem
@@ -757,6 +819,16 @@ check(pyroSave and SC.Factions.restore(pyroSave) == true,
 check(SC.Factions.group(pyroGroup.id).oddball.ignitedAt == 12345
     and SC.Factions.group(pyroGroup.id).oddball.kitSeeded == true,
     "ignition and one-time kit state persist without relighting or duplicates")
+;(function()
+local setupSave = SC.StableValue.copyStrict(pyroSave,
+    { maxDepth = 16, maxEntries = 131072 })
+setupSave.groups[pyroGroup.id].members[1].oddballScenePending = true
+check(SC.Factions.restore(setupSave) == true
+    and SC.Factions.group(pyroGroup.id).members[1].oddballScenePending == true,
+    "a deferred scene setup survives faction save and restore")
+check(SC.Factions.restore(pyroSave) == true,
+    "the original scene remains restorable after setup recovery check")
+end)()
 local duplicateFuelSave = SC.StableValue.copyStrict(pyroSave,
     { maxDepth = 16, maxEntries = 131072 })
 duplicateFuelSave.groups[pyroGroup.id].oddball.site.fuelPosts[2].x =
@@ -765,6 +837,61 @@ duplicateFuelSave.groups[pyroGroup.id].oddball.site.fuelPosts[2].y =
     duplicateFuelSave.groups[pyroGroup.id].oddball.site.fuelPosts[1].y
 check(SC.Factions.restore(duplicateFuelSave) == false,
     "duplicate pyromaniac fuel posts are rejected on restore")
+for _, case in ipairs({
+    { "ranger_june_whitlock", 10 },
+    { "crabtree_sheep_farm", 6 },
+    { "jedediah_cattle_drive", 4 },
+    { "gideon_mister_buttons", 1 },
+    { "renfro_rat_king", 8, -1 },
+    { "tommy_two_lengths", 1 },
+    { "big_chris_rascal", 1 },
+}) do
+    local saved = SC.StableValue.copyStrict(pyroSave,
+        { maxDepth = 16, maxEntries = 131072 })
+    local scene = saved.groups[pyroGroup.id].oddball
+    scene.id = case[1]
+    scene.site.spawn.z = case[3] or 0
+    scene.site.animalSpawns = {}
+    for index = 1, case[2] do
+        scene.site.animalSpawns[index] = {
+            x = 100 + index, y = 200, z = case[3] or 0 }
+    end
+    check(SC.Factions.restore(saved) == true,
+        "the " .. case[1] .. " animal scene survives faction restore")
+    scene.site.animalSpawns[#scene.site.animalSpawns] = nil
+    check(SC.Factions.restore(saved) == false,
+        "the " .. case[1] .. " animal count is enforced")
+end
+check(SC.Factions.restore(pyroSave) == true,
+    "the original scene remains restorable after animal schema checks")
+;(function()
+local probeSite = {
+    kind = "resident", room = "policelocker", anchor = pyroSite.anchor,
+    spawn = pyroSite.spawn,
+    house = { id = "copy-budget-probe-house",
+        anchor = pyroSite.house.anchor, bounds = pyroSite.house.bounds,
+        interior = pyroSite.house.interior, openings = pyroSite.house.openings },
+    bins = {}, hordeSpawns = {},
+}
+for index = 1, 6 do
+    probeSite.bins[index] = { x = index, y = 30, z = 0,
+        objectIndex = 0, containerType = "bin" }
+end
+for index = 1, 20 do
+    probeSite.hordeSpawns[index] = { x = index, y = 40, z = 0 }
+end
+local probeDefinition = { id = "copy_budget_probe", name = "Copy Budget Probe",
+    identity = pyro.identity, archetype = pyro.archetype }
+local copiedGroup, copyReason = SC.Factions.createOddballGroup(
+    probeSite, probeDefinition, true)
+check(copiedGroup and copiedGroup.oddball.site.bins
+    and #copiedGroup.oddball.site.bins == 6
+    and copiedGroup.oddball.site.hordeSpawns
+    and #copiedGroup.oddball.site.hordeSpawns == 20,
+    "largest bin and horde arrays survive scene creation: " .. tostring(copyReason))
+check(SC.Factions.restore(pyroSave) == true,
+    "copy budget probe does not remain in restored game")
+end)()
 U.isSquareFree = previousFree
 stationSquares["21:20"], stationSquares["22:20"] = nil, nil
 check(SC.Oddballs._siteForResidentForTests(
@@ -887,6 +1014,13 @@ do
     check(sealedSave and SC.Factions.restore(sealedSave) == true
         and SC.Factions.group(sealedGroup.id).oddball.site.sealedRoom.x == 40,
         "sealed scene survives faction save and restore")
+    local legacySealed = SC.StableValue.copyStrict(sealedSave,
+        { maxDepth = 16, maxEntries = 131072 })
+    legacySealed.groups[sealedGroup.id].oddball.site.hordeSpawns = nil
+    check(SC.Factions.restore(legacySealed) == true,
+        "a 0.26.38 sealed scene with dropped horde posts still loads")
+    check(SC.Factions.restore(sealedSave) == true,
+        "the complete sealed scene remains restorable")
     local extra = { __class = "IsoDoor" }
     function extra:IsOpen() return true end
     function extra:getNorth() return false end
@@ -1201,6 +1335,14 @@ do
         and (arthurSite.floor.x ~= arthurSite.spawn.x
             or arthurSite.floor.y ~= arthurSite.spawn.y),
         "Arthur chooses a real bed and two distinct clear bedroom floor posts")
+    local sleepingSite = SC.Oddballs._siteForResidentForTests(
+        bedTile, player, SC.Oddballs.definition("sleeping_it_off"),
+        "bedroom", true)
+    check(sleepingSite and sleepingSite.bed
+        and sleepingSite.bed.x == bedTile.x
+        and sleepingSite.bed.y == bedTile.y
+        and sleepingSite.spawn.x ~= bedTile.x,
+        "Sleeping It Off finds the occupied bed tile beside a clear spawn")
     local arthurGroup, arthurReason = createRealOddballGroup(
         arthurSite, arthur, true)
     check(arthurGroup and arthurGroup.oddball.site.bed

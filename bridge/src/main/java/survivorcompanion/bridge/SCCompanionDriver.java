@@ -41,6 +41,8 @@ final class SCCompanionDriver {
     private float cruiseKmh;
     private boolean autoBrake = true;
     private String state = "idle";
+    private float safetyBlockedX;
+    private float safetyBlockedY;
     private String reason = "";
     private int startAttempts;
     private int startCalls;
@@ -87,6 +89,9 @@ final class SCCompanionDriver {
     String state() {
         return state;
     }
+
+    float safetyBlockedX() { return safetyBlockedX; }
+    float safetyBlockedY() { return safetyBlockedY; }
 
     String reason() {
         return reason;
@@ -352,8 +357,18 @@ final class SCCompanionDriver {
         write(controls, input);
         SCRoadFollower.Mode mode = follower.mode();
         if (mode == SCRoadFollower.Mode.FOLLOW) {
-            state = Math.abs(follower.offset() - follower.laneOffset()) > 0.5f
-                    ? "avoiding" : "following";
+            float gap = command.maneuver ? SCDriveControl.MANEUVER_GAP_TILES
+                    : SCDriveControl.HOLD_GAP_TILES;
+            if (command.targetKmh > 0.0f && SCDriveControl.mustStop(speedKmh, front, gap)) {
+                // The route strip may be clear while the real bumper is not.
+                // Report this brake as a block even though the follower is in FOLLOW.
+                state = "safety_blocked";
+                safetyBlockedX = x + headingX * (body[1] + front);
+                safetyBlockedY = y + headingY * (body[1] + front);
+            } else {
+                state = Math.abs(follower.offset() - follower.laneOffset()) > 0.5f
+                        ? "avoiding" : "following";
+            }
         } else {
             state = mode.name().toLowerCase(java.util.Locale.ROOT);
         }

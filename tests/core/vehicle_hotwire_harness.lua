@@ -45,4 +45,29 @@ check(not Hotwire.step(actor, {}) and exits == 2
     and events[#events - 1] == "exit"
     and events[#events] == "vehicle.hotwire.failure",
     "failed native roll is spoken after companion exits")
+
+car.tryHotwire = function(self)
+    attempts = attempts + 1
+    self.hotwired = true
+end
+check(Hotwire.request(actor, car, player), "third attempt starts")
+Hotwire.step(actor, {})
+Hotwire.step(actor, {})
+clock = clock + 4001
+Hotwire.step(actor, {})
+clock = clock + 1501
+exitBlocked = true
+local saidBefore = #events
+check(Hotwire.step(actor, {}) and Hotwire.active(actor),
+    "successful attempt waits for a blocked exit")
+clock = clock + 15001
+check(Hotwire.step(actor, {}) and Hotwire.active(actor)
+    and player.note:find("Car hotwired", 1, true)
+    and #events == saidBefore,
+    "exit timeout reports the verified result without speaking from the car")
+exitBlocked = false
+check(Hotwire.step(actor, {}) and actor.car == nil
+    and events[#events] == "vehicle.hotwire.success"
+    and not Hotwire.active(actor),
+    "the later exit delivers the result line exactly once")
 print("vehicle hotwire checks passed")
