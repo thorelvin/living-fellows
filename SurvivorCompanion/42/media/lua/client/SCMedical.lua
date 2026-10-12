@@ -1632,6 +1632,9 @@ end
 -- searches. Treatment re-reads the capability itself, so a decision acting on
 -- an answer up to a second old costs one refused treat() at most.
 function Medical.canTreatPatient(helper, patient)
+    if not Medical.sameCareGroup(helper, patient) then
+        return false, "different_expedition_group"
+    end
     local active = treatmentState[helper]
     if active and active.patient == patient then return true, "treatment_active" end
     if not U().isValidActor(helper) or not U().isValidActor(patient) then
@@ -1659,6 +1662,21 @@ function Medical.canTreatPatient(helper, patient)
     end
     byPatient[patient] = { at = now, ready = ready, reason = reason }
     return ready, reason
+end
+
+-- A remote expedition and the home group are separate care groups even when
+-- their actors happen to be streamed into the same cell.
+function Medical.sameCareGroup(helper, patient)
+    if helper == nil or patient == nil then return false end
+    if helper == patient then return true end
+    -- A player who reaches the expedition in person may still administer care.
+    if type(getSpecificPlayer) == "function" then
+        local ok, player = pcall(getSpecificPlayer, 0)
+        if ok and helper == player then return true end
+    end
+    local expedition = SC.ExpeditionPrototype
+    if expedition == nil or type(expedition.isMember) ~= "function" then return true end
+    return expedition.isMember(helper) == expedition.isMember(patient)
 end
 
 function Medical.canReplaceDirtyBandage(actor)
@@ -1838,6 +1856,9 @@ end
 
 continueTreatmentApproach = function(helper, state, runtime)
     local utility = U()
+    if not Medical.sameCareGroup(helper, state.patient) then
+        return clearTreatment(helper, state, "different_expedition_group")
+    end
     if not utility.isValidActor(state.patient) then
         return clearTreatment(helper, state, "invalid_target")
     end
@@ -1920,6 +1941,7 @@ end
 function Medical.treat(helper, patient, runtime, options)
     local utility = U()
     if not utility.isValidActor(helper) or not utility.isValidActor(patient) then return false, "invalid_patient" end
+    if not Medical.sameCareGroup(helper, patient) then return false, "different_expedition_group" end
     local active = treatmentState[helper]
     if active then
         if Medical.playerSelfCareActive(active.patient) then
@@ -2126,6 +2148,7 @@ local function rescueCandidate(actor, player, snapshot)
             or care.playerCeasefire == true or care.playerHostile == true)
     local function consider(candidate, relationship)
         if not candidate or candidate == actor or not utility.isValidActor(candidate) then return end
+        if not Medical.sameCareGroup(actor, candidate) then return end
         if candidate == player and avoidPlayer then return end
         if Medical.playerSelfCareActive(candidate) then return end
         if relationship ~= nil and SC.Factions
@@ -2259,6 +2282,10 @@ function Medical.update(actor, player, runtime)
     end
 
     local explicitTarget = rootRuntime.rescueTarget
+    if explicitTarget and not Medical.sameCareGroup(actor, explicitTarget) then
+        explicitTarget = nil
+        rootRuntime.rescueTarget = nil
+    end
     local commands = SC.Commands and SC.Commands.peek and SC.Commands.peek(actor)
     local care = commands and commands.care or nil
     if explicitTarget == player and type(care) == "table"

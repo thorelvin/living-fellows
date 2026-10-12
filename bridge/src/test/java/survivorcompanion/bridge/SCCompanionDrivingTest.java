@@ -66,7 +66,7 @@ public final class SCCompanionDrivingTest {
         require(SCDriveControl.clampCruise(12) == 12.0f,
                 "a low cruise speed is kept as asked");
         require(SCDriveControl.clampCruise(99) == SCDriveControl.MAX_CRUISE_KMH
-                        && SCDriveControl.MAX_CRUISE_KMH <= 25.0f,
+                        && SCDriveControl.MAX_CRUISE_KMH <= 30.0f,
                 "companion cruise never exceeds the low-speed ceiling");
         require(SCDriveControl.clampSteering(Double.NaN) == 0.0f
                         && SCDriveControl.clampSteering(2) == 1.0f

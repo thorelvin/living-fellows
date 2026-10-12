@@ -1027,6 +1027,21 @@ local function destinationsFor(job, item, actor, sourceId)
     return rows
 end
 
+function BaseWork.destinationForCarItem(actor, item)
+    local category = classifyItem(item)
+    for _, kind in ipairs({ category, "general", "output" }) do
+        if kind ~= "memorial" then
+            for _, storage in ipairs(SC.BaseLife.depositStorageRows(kind)) do
+                local container = SC.BaseLife.resolveContainer(storage)
+                if container and destinationHasRoom(container, actor, item) then
+                    return storage, container
+                end
+            end
+        end
+    end
+    return nil, nil, "car_unload_storage_full_or_missing"
+end
+
 local function findTransfer(job, actor)
     local sourceCategory = (type(job.target) == "table" and job.target.sourceCategory)
         or "general"
@@ -1702,6 +1717,18 @@ function BaseWork.update(actor, player, runtime)
                 return true, reason
             end
         end
+    elseif job.type == "unload_vehicle" then
+        if not SC.VehicleUnload or type(SC.VehicleUnload.update) ~= "function" then
+            handled, reason, terminal = false, "vehicle_unload_unavailable", true
+        else
+            local complete
+            handled, reason, terminal, complete = SC.VehicleUnload.update(actor, state, job)
+            if complete then
+                SC.BaseLife.completeJob(job.id, id, reason)
+                state.jobId = nil
+                return true, reason
+            end
+        end
     elseif job.type == "haul" or job.type == "sort" or job.type == "fetch" then
         handled, reason, terminal = updateTransfer(actor, state, job)
     else
@@ -1836,7 +1863,7 @@ function BaseWork.auditMaintenance(player)
     -- Farming participates in the same bounded round-robin as every other
     -- maintenance family. A productive field must not starve bandages,
     -- sorting, routines, or barricade inspection indefinitely.
-    auditPhase = (auditPhase % 6) + 1
+    auditPhase = (auditPhase % 7) + 1
     if auditPhase == 1 then
         if SC.FarmWork and type(SC.FarmWork.audit) == "function" then
             return SC.FarmWork.audit(base, now())
@@ -1862,6 +1889,15 @@ function BaseWork.auditMaintenance(player)
             return SC.BaseLife.auditRoleProduction()
         end
         return false, "role_production_unavailable"
+    end
+    if auditPhase == 7 then
+        if settings.unloadCarInventory ~= true then
+            return false, "automatic_car_unloading_disabled"
+        end
+        if SC.VehicleUnload and type(SC.VehicleUnload.audit) == "function" then
+            return SC.VehicleUnload.audit()
+        end
+        return false, "vehicle_unload_unavailable"
     end
     local maintainerId
     for _, id in ipairs(SC.BaseLife.dutyResidentIds()) do
@@ -1907,6 +1943,11 @@ function BaseWork.cancel(actor, reason)
     if state then
         local settled, cargoReason = settleCargo(actor, state)
         if settled ~= true then return false, cargoReason end
+        local job = state.jobId and SC.BaseLife.job(state.jobId) or nil
+        if job and job.type == "unload_vehicle" and SC.VehicleUnload then
+            local returned, returnReason = SC.VehicleUnload.cancel(actor, job)
+            if returned ~= true then return false, returnReason end
+        end
     end
     if SC.ChefWork and type(SC.ChefWork.cancelActor) == "function" then
         local cancelled, cancelReason = SC.ChefWork.cancelActor(actor,
@@ -1952,6 +1993,15 @@ end
 -- BaseLife calls this before deleting a build row, so cancellation cannot
 -- report success while the exact accepted native action is still executable.
 function BaseWork.cancelJob(jobId, ownerId, reason)
+    local unloadJob = SC.BaseLife and SC.BaseLife.job(jobId) or nil
+    if unloadJob and unloadJob.type == "unload_vehicle" then
+        local worker = ownerId or unloadJob.assignedId
+        local owner = worker and U().resolveActor(worker) or nil
+        if SC.VehicleUnload and type(SC.VehicleUnload.cancel) == "function" then
+            return SC.VehicleUnload.cancel(owner, unloadJob)
+        end
+        return false, "vehicle_unload_cancel_unavailable"
+    end
     local actor = U().resolveActor(ownerId)
     local state = actor and states[actor] or nil
     if ownerId == nil then

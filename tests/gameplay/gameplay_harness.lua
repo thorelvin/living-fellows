@@ -11515,6 +11515,26 @@ do
     local slicedActor = actor("sc-sliced-looter", 0, 4, {})
     registry[slicedActor.id] = slicedActor
     slicedActor.hunger = 0.95
+    local savedNativeActions = SurvivorCompanion.NativeActions
+    local savedMovement = SurvivorCompanion.Actor.setMovement
+    local visualStartedAt
+    SurvivorCompanion.NativeActions = setmetatable({
+        visualStatus = function(candidate, action)
+            if candidate ~= slicedActor or action ~= "loot_container"
+                or not visualStartedAt then return "none" end
+            return clock > visualStartedAt and "completed" or "active"
+        end,
+        clearVisual = function(candidate)
+            if candidate == slicedActor then visualStartedAt = nil end
+            return true
+        end,
+    }, { __index = savedNativeActions or {} })
+    SurvivorCompanion.Actor.setMovement = function(candidate, mode, intent)
+        local okay, reason = savedMovement(candidate, mode, intent)
+        if okay and candidate == slicedActor and intent
+            and intent.action == "loot_container" then visualStartedAt = clock end
+        return okay, reason
+    end
     containerObject(slicedActor.square, { slicedFood })
     SurvivorCompanion.Commands.issue(slicedActor.id, "set_scavenge", true, player)
     local runtime = {
@@ -11542,6 +11562,8 @@ do
         end
     end
     check(acquired, "resumable scavenging completes selection and verified transfer across frames")
+    SurvivorCompanion.Actor.setMovement = savedMovement
+    SurvivorCompanion.NativeActions = savedNativeActions
     SurvivorCompanion.Encounter.reset(slicedActor)
     registry[slicedActor.id] = nil
     SurvivorCompanion.Performance.reset()
@@ -11619,7 +11641,10 @@ do
         if value == openedFood then tookOpenedFood = true end
     end
     check(marked and scavenged and not openedFood.used and not tookOpenedFood,
-        "inside the base, scavenging leaves an unmarked container the player opened alone")
+        "inside the base, scavenging leaves an unmarked container the player opened alone"
+            .. " marked=" .. tostring(marked) .. " scavenged=" .. tostring(scavenged)
+            .. " openedUsed=" .. tostring(openedFood.used)
+            .. " tookOpened=" .. tostring(tookOpenedFood))
     check(foundSafeFood, "scavenging transfers a needed item from marked base storage")
 
     -- Take one item out of shared storage, then revoke withdrawals without

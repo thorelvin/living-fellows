@@ -1444,5 +1444,10 @@
     "UI_SC_ModOptions_Normal": "Normal",
     "UI_SC_ModOptions_Less": "Less",
     "UI_SC_ModOptions_Rare": "Rare",
-    "UI_SC_ModOptions_Off": "Off"
+    "UI_SC_ModOptions_Off": "Off",
+    "UI_SC_Base_UnloadCarInventory": "Unload parked cars automatically",
+    "UI_SC_Base_ParkedCars": "Parked cars",
+    "UI_SC_Base_ParkedCarRow": "%1 | %2 items in trunk",
+    "UI_SC_Base_UnloadToBase": "Unload to base",
+    "UI_SC_Base_UnloadOrdered": "Car unloading added to base jobs"
 }

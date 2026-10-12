@@ -35,6 +35,8 @@ final class SCRoadFollower {
     private static final float PURSUIT_GAIN = 2.2f;
     private static final float CURVE_KMH = 6.0f;
     private static final float CURVE_ANGLE = (float) Math.toRadians(25.0);
+    private static final float GENTLE_CURVE_KMH = 12.0f;
+    private static final float GENTLE_CURVE_ANGLE = (float) Math.toRadians(12.0);
     private static final long SCAN_INTERVAL_MS = 150L;
     private static final long OFFSET_HOLD_MS = 1500L;
     private static final float DEFAULT_WIDTH = 6.0f;
@@ -242,7 +244,7 @@ final class SCRoadFollower {
         if (nowMs - nextScanAt >= 0L) {
             nextScanAt = nowMs + SCAN_INTERVAL_MS;
             scanCache.clear();
-            chooseOffset(world, z, halfWidth, halfLength, maxOffset, nowMs);
+            chooseOffset(world, z, speedKmh, halfWidth, halfLength, maxOffset, nowMs);
         }
         if (mode == Mode.BLOCKED) return command;
 
@@ -252,12 +254,17 @@ final class SCRoadFollower {
         command.steering = Math.max(-1.0f, Math.min(1.0f, PURSUIT_GAIN * aim));
         float target = cruiseKmh;
         if (Math.abs(offset - laneOffset) > 0.5f) target = Math.min(target, AVOID_KMH);
+        float curveLookAhead = Math.max(9.0f,
+                Math.min(24.0f, SCDriveControl.stoppingDistance(speedKmh) + 5.0f));
+        path.pointAt(along + curveLookAhead, 0.0f, point);
         float tangentAheadX = point[2];
         float tangentAheadY = point[3];
         path.pointAt(along, 0.0f, point);
         float bend = Math.abs(SCTurnAround.wrap((float) (Math.atan2(tangentAheadY, tangentAheadX)
                 - Math.atan2(point[3], point[2]))));
         if (bend > CURVE_ANGLE) target = Math.min(target, CURVE_KMH);
+        else if (bend > GENTLE_CURVE_ANGLE)
+            target = Math.min(target, GENTLE_CURVE_KMH);
         // Ease in to the end of the route.
         target = Math.min(target, preciseArrival
                 ? Math.max(2.0f, (path.length() - along) * 0.9f)
@@ -293,14 +300,17 @@ final class SCRoadFollower {
         return -1.0f;
     }
 
-    private void chooseOffset(SCLaneScan.World world, int z, float halfWidth, float halfLength,
+    private void chooseOffset(SCLaneScan.World world, int z, float speedKmh,
+                              float halfWidth, float halfLength,
                               float maxOffset, long nowMs) {
+        float avoidRange = Math.max(AVOID_RANGE,
+                Math.min(24.0f, SCDriveControl.stoppingDistance(speedKmh) + 5.0f));
         float behind = Math.max(0.0f, along - halfLength - 1.0f);
         float sideBySide = along - behind + halfLength;
         if (preciseArrival) {
             float front = along + halfLength;
             float ahead = stripObstacle(world, z, front, 0.0f,
-                    AVOID_RANGE, halfWidth);
+                    avoidRange, halfWidth);
             mode = ahead < 0.0f ? Mode.FOLLOW : Mode.BLOCKED;
             blockedAt = ahead;
             if (ahead >= 0.0f) {
@@ -322,7 +332,7 @@ final class SCRoadFollower {
             }
         }
         float front = along + halfLength;
-        float ahead = stripObstacle(world, z, front, offset, AVOID_RANGE, halfWidth);
+        float ahead = stripObstacle(world, z, front, offset, avoidRange, halfWidth);
         if (ahead < 0.0f) {
             mode = Mode.FOLLOW;
             blockedAt = -1.0f;
@@ -337,7 +347,7 @@ final class SCRoadFollower {
             float candidate = laneOffset + (step % 2 == 1 ? -rank : rank) * OFFSET_STEP;
             if (candidate < -maxOffset - 0.01f || candidate > maxOffset + 0.01f) continue;
             if (Math.abs(candidate - offset) < 0.01f) continue;
-            if (stripObstacle(world, z, behind, candidate, sideBySide + AVOID_RANGE,
+            if (stripObstacle(world, z, behind, candidate, sideBySide + avoidRange,
                     halfWidth) < 0.0f) {
                 best = candidate;
                 break;

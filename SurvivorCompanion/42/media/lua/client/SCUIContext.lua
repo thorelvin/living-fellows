@@ -1390,6 +1390,15 @@ local function addHotwireMenu(context, rows, vehicle, player)
     end
 end
 
+local function unloadVehicleFromContext(_target, vehicleId, player)
+    local okay, accepted, reason = pcall(SC.VehicleUnload.queue, vehicleId)
+    if player then
+        safeMethod(player, "setHaloNote", okay and accepted == true
+            and text("UI_SC_Base_UnloadOrdered")
+            or text("UI_SC_Base_ActionFailed", tostring(reason or accepted)))
+    end
+end
+
 local function addNamedShortcut(context, row, labelKey, command, payload, player)
     local label = text("UI_SC_Context_NamedAction", row.name, text(labelKey))
     return context:addOption(label, nil, issueFromContext,
@@ -1497,7 +1506,7 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
     if #rows == 0 and #factions == 0 and #oddballs == 0 and not baseRelevant
         and watchStatus.watching ~= true and not clickedCompanion
         and not (clickedMatches and #clickedMatches > 1)
-        and not memorialName and not sealedDoorGroup then return end
+        and not memorialName and not sealedDoorGroup and not clickedVehicle then return end
     if test and ISWorldObjectContextMenu and ISWorldObjectContextMenu.setTest then
         return ISWorldObjectContextMenu.setTest()
     end
@@ -1506,6 +1515,15 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
         if option then option.notAvailable = true end
     end
     addHotwireMenu(context, rows, clickedVehicle, player)
+    if clickedVehicle and SC.VehicleUnload
+        and type(SC.VehicleUnload.eligible) == "function"
+        and SC.VehicleUnload.eligible(clickedVehicle) == true then
+        local vehicleId = safeMethod(clickedVehicle, "getSqlId")
+        if vehicleId then
+            context:addOption(text("UI_SC_Base_UnloadToBase"), nil,
+                unloadVehicleFromContext, vehicleId, player)
+        end
+    end
     if sealedDoorGroup then
         context:addOption("Touch the sealed door", nil, oddballStoryAction,
             sealedDoorGroup.id, "touch_door", player)

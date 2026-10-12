@@ -132,6 +132,21 @@ local function commandsFor(actor)
                     missionOrder.tacticalTarget = waypoint
                     missionOrder.doorBashAsLastResort = true
                 end
+                if type(SC.ExpeditionPrototype.supportActiveFor) == "function"
+                    and SC.ExpeditionPrototype.supportActiveFor(actor) then
+                    missionOrder.scavenge = false
+                    missionOrder.expeditionMoving = true
+                    missionOrder.combatMode = "defensive"
+                    local support = SC.ExpeditionPrototype.supportTargetFor(actor)
+                    if support and U().distance(actor, support) > 2.5 then
+                        missionOrder.order = "move_to"
+                        missionOrder.moveMode = "run"
+                        missionOrder.tacticalTarget = support
+                    else
+                        missionOrder.order = "stay"
+                        missionOrder.tacticalTarget = nil
+                    end
+                end
                 return missionOrder
             end
             return value
@@ -194,7 +209,9 @@ local function rescueNeed(actor, player, snapshot, avoidPlayer)
             and assessment.terminalKnox ~= true
     end
     local assess = SC.Medical and (SC.Medical.assessCached or SC.Medical.assess)
-    if player and not avoidPlayer and type(assess) == "function" then
+    if player and not avoidPlayer and type(assess) == "function"
+        and (not SC.Medical or type(SC.Medical.sameCareGroup) ~= "function"
+            or SC.Medical.sameCareGroup(actor, player)) then
         local ok, assessment = pcall(assess, player, nil, 500)
         if ok and assessment and livingPatient(player, assessment)
             and (actionableMedical(player, assessment, false)
@@ -227,7 +244,9 @@ local function rescueNeed(actor, player, snapshot, avoidPlayer)
                     actor, ally.actor, player)
                 stillAllied = ok and value == true
             end
-            if stillAllied then
+            if stillAllied and (not SC.Medical
+                or type(SC.Medical.sameCareGroup) ~= "function"
+                or SC.Medical.sameCareGroup(actor, ally.actor)) then
                 local assessment = medicalAssessment(ally.actor, nil, 500)
                 local splintCount = assessment.needsSplint
                     and SC.Medical and SC.Medical.hasSplint

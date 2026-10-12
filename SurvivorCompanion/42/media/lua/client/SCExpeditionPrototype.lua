@@ -1450,6 +1450,31 @@ function Expedition.isFollower(actor)
     return Expedition.isMember(actor) and mission.leader.actor ~= actor
 end
 
+local missionRecordForActor
+
+function Expedition.supportTargetFor(actor)
+    local support = mission and mission.support
+    if not support or not Expedition.isMember(actor)
+        or SC.GameplayUtil.nowMs() >= support.untilAt then return nil end
+    local member = missionRecordForActor(actor)
+    if not member or support.responders[member.id] ~= true then return nil end
+    local caller = support.actor
+    if not caller or SC.GameplayUtil.isDead(caller)
+        or not SC.GameplayUtil.sameFloor(actor, caller)
+        or SC.GameplayUtil.distance(actor, caller) > 16 then return nil end
+    local x, y, z = SC.GameplayUtil.position(caller)
+    if x == nil then return nil end
+    return { x = math.floor(x), y = math.floor(y), z = math.floor(z) }
+end
+
+function Expedition.supportActiveFor(actor)
+    local support = mission and mission.support
+    if not support or not Expedition.isMember(actor)
+        or SC.GameplayUtil.nowMs() >= support.untilAt then return false end
+    local record = missionRecordForActor(actor)
+    return actor == support.actor or record and support.responders[record.id] == true or false
+end
+
 local function missionRecord(id)
     if mission == nil or type(id) ~= "string" then return nil end
     for _, record in ipairs(mission.roster) do
@@ -1458,7 +1483,7 @@ local function missionRecord(id)
     return nil
 end
 
-local function missionRecordForActor(actor)
+missionRecordForActor = function(actor)
     if mission == nil then return nil end
     for _, record in ipairs(mission.roster) do
         if record.actor == actor then return record end
@@ -1873,6 +1898,7 @@ end
 function Expedition.testSearchFor(actor)
     if mission == nil or mission.terminal or mission.technicalIssue ~= nil
         or not Expedition.isMember(actor) then return false end
+    if Expedition.supportActiveFor(actor) then return false end
     -- The fixed-container probe is leader-only. A real Search belongs to the
     -- whole living squad, with Encounter reserving containers per actor.
     if mission.testSearch == true then return mission.leader.actor == actor end
@@ -3150,6 +3176,7 @@ local function pulseScout()
             startReturnFromSite(scout, "search_deadline")
             return
         end
+        if mission.support and now < mission.support.untilAt then return end
         if not scoutFollowersNearLeader() then return end
         local audit = SC.Logistics and SC.Logistics.audit(
             mission.leader.actor) or nil
@@ -3633,6 +3660,54 @@ function Expedition.finishAtPlayer(player)
     return true, "returned"
 end
 
+local function updateSupportCall()
+    local scout = mission and mission.scout
+    if not scout or scout.phase ~= "searching" then
+        if mission then mission.support = nil end
+        return
+    end
+    local current = SC.GameplayUtil.nowMs()
+    local support = mission.support
+    if support and (current >= support.untilAt or not support.actor
+        or SC.GameplayUtil.isDead(support.actor)) then
+        mission.support = nil
+        support = nil
+    end
+    if not SC.ZombieAttack or type(SC.ZombieAttack.underAttack) ~= "function" then return end
+    for _, record in ipairs(mission.roster) do
+        local actor = record.actor
+        if alive(record) and not SC.GameplayUtil.call(actor, "getVehicle")
+            and SC.ZombieAttack.underAttack(actor, current) == true then
+            if support and support.actor == actor then
+                support.untilAt = math.max(support.untilAt, current + 3000)
+                return
+            end
+            mission.lastSupportCallAt = mission.lastSupportCallAt or {}
+            if not support and current - (mission.lastSupportCallAt[record.id]
+                or -math.huge) >= 20000 then
+                local responders = {}
+                for _, ally in ipairs(mission.roster) do
+                    if ally ~= record and alive(ally)
+                        and SC.GameplayUtil.sameFloor(ally.actor, actor)
+                        and SC.GameplayUtil.distance(ally.actor, actor) <= 12
+                        and not SC.GameplayUtil.call(ally.actor, "getVehicle") then
+                        responders[ally.id] = true
+                    end
+                end
+                if next(responders) then
+                    mission.support = { actor = actor, responders = responders,
+                        untilAt = current + 8000 }
+                    mission.lastSupportCallAt[record.id] = current
+                    if SC.Dialogue and type(SC.Dialogue.say) == "function" then
+                        SC.Dialogue.say(actor, "expedition.support_call")
+                    end
+                    return
+                end
+            end
+        end
+    end
+end
+
 function Expedition.pulse()
     if mission == nil then return false, "no_mission" end
     if mission.terminal then return false, mission.terminal end
@@ -3807,6 +3882,7 @@ function Expedition.pulse()
         end
     end
     if alive(mission.leader) then
+        updateSupportCall()
         updateWaypointCohesion()
         pulseScout()
         if mission == nil then return true, "returned" end

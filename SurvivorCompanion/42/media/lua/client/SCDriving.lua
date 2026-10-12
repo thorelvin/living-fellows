@@ -442,6 +442,23 @@ local function planJob(job)
         job.detail = reason
         return parkResult(job, "failed", "no_route")
     end
+    if job.stopShortTiles > 0 and type(route.points) == "table" then
+        local last = route.points[#route.points]
+        local before = route.points[#route.points - 1]
+        if last and before then
+            local dx, dy = last.x - before.x, last.y - before.y
+            local length = math.sqrt(dx * dx + dy * dy)
+            -- Keep the original planner path and its junction choices. Only
+            -- shorten a sufficiently long last straight so the car turns
+            -- away from roadside poles after the squad walks to the site.
+            if length >= job.stopShortTiles + 2 then
+                last.x = last.x - dx / length * job.stopShortTiles
+                last.y = last.y - dy / length * job.stopShortTiles
+                route.roadLength = math.max(0,
+                    (tonumber(route.roadLength) or 0) - job.stopShortTiles)
+            end
+        end
+    end
     local endpoint = route.points and route.points[#route.points]
     local roadX = type(endpoint) == "table" and finite(endpoint.x)
     local roadY = type(endpoint) == "table" and finite(endpoint.y)
@@ -475,7 +492,9 @@ function Driving.drive(actor, goal, options)
     if not goal then Driving.stop(actor, "invalid_drive_goal") return false, "invalid_drive_goal" end
     local job = jobs[actor]
     job.managed, job.phase = true, "planning"
-    job.speedKmh = math.max(0, math.min(25, finite(options.speedKmh) or 10))
+    job.speedKmh = math.max(0, math.min(30, finite(options.speedKmh) or 10))
+    job.stopShortTiles = math.max(0,
+        math.min(10, finite(options.stopShortTiles) or 0))
     job.blockWaitMs = math.max(1000, math.min(30000, finite(options.blockWaitMs) or 5000))
     if options.circles ~= nil then
         if type(options.circles) ~= "table" or #options.circles > 8 then

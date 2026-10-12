@@ -439,6 +439,42 @@ local function teamSeated(mission, trip, car)
     return true
 end
 
+local function unlockSquadDoors(mission, trip, car)
+    local leader = mission.leader and mission.leader.actor
+    if not leader then return false, "driver_unavailable" end
+    local seated, vehicle, seat = SC.Vehicle.isNativeSeated(leader)
+    if not SC.Driving.hasKey(leader, car)
+        and not (seated and vehicle == car and seat == 0) then
+        -- With no key, let the driver enter first. Someone inside the car
+        -- can then unlock the other doors without giving away the key.
+        return true
+    end
+    for _, member in ipairs(mission.roster) do
+        local assigned = trip.seats[member.id]
+        if assigned ~= nil and assigned > 0 and travelMember(mission, member) then
+            local partOk, part = call(car, "getPassengerDoor", assigned)
+            local doorOk, door = call(part, "getDoor")
+            if partOk and part and doorOk and door then
+                local lockedOk, locked = call(door, "isLocked")
+                if not lockedOk then return false, "passenger_door_unreadable" end
+                if locked then
+                    call(car, "toggleLockedDoor", part, leader, false)
+                    lockedOk, locked = call(door, "isLocked")
+                    if lockedOk and locked then
+                        local changed = call(door, "setLocked", false)
+                        if changed then call(car, "transmitPartDoor", part) end
+                        lockedOk, locked = call(door, "isLocked")
+                    end
+                    if not lockedOk or locked then
+                        return false, "passenger_door_locked"
+                    end
+                end
+            end
+        end
+    end
+    return true
+end
+
 local function departReady(mission, trip, car)
     if not teamSeated(mission, trip, car) then return false, "team_not_seated" end
     local scriptOk, script = call(car, "getScriptName")
@@ -1091,6 +1127,8 @@ function Car.pulse(mission, now, worldHour)
             trip.boardStartedAt = now
             return true
         end
+        local unlocked, unlockReason = unlockSquadDoors(mission, trip, car)
+        if not unlocked then hold(trip, unlockReason) return true end
         if not teamSeated(mission, trip, car) then
             if now - (trip.boardStartedAt or now) > 120000 then
                 trip.state = "boarding_rollback"
@@ -1105,7 +1143,8 @@ function Car.pulse(mission, now, worldHour)
         end
         local goal = trip.leg == "home" and trip.departure or trip.siteStop
         local started, reason = SC.Driving.drive(mission.leader.actor,
-            goal, { speedKmh = 10 })
+            goal, { speedKmh = 30,
+                stopShortTiles = trip.leg == "outbound" and 10 or 0 })
         if not started then
             if type(reason) == "string"
                 and reason:sub(1, 9) == "deferred:" then

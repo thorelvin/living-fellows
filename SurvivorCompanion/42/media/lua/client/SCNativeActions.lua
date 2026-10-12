@@ -147,7 +147,7 @@ local ropeActions = { climb_sheet_rope = true, climb_down_sheet_rope = true }
 -- timed action has demonstrably entered the actor's native action queue.  Using
 -- the real transfer/medical/craft actions here would apply each effect twice.
 local visualActionSpecs = {
-    loot_container = { animation = "Loot", event = "EventLootItem", lootPosition = "", ticks = 90,
+    loot_container = { animation = "Loot", event = "EventLootItem", lootPosition = "", ticks = 180,
         sound = "RummageInInventory" },
     remove_broken_glass = { animation = "Loot", event = "EventLootItem",
         lootPosition = "Mid", ticks = 100, sound = "RemoveBrokenGlass" },

@@ -376,4 +376,31 @@ do
     Perks = savedPerks
 end
 
+do
+    local savedExpedition = SC.ExpeditionPrototype
+    local savedSpecificPlayer = getSpecificPlayer
+    local homeMedic = patient(100)
+    local awayPatient = patient(70, { part(false, true) })
+    local awayMedic = patient(100)
+    SC.ExpeditionPrototype = {
+        isMember = function(value)
+            return value == awayPatient or value == awayMedic
+        end,
+    }
+    check(not M.sameCareGroup(homeMedic, awayPatient)
+            and M.sameCareGroup(awayMedic, awayPatient)
+            and M.sameCareGroup(homeMedic, homeMedic),
+        "medical care stays within the home group or the same expedition")
+    local allowed, reason = M.canTreatPatient(homeMedic, awayPatient)
+    check(not allowed and reason == "different_expedition_group",
+        "a base medic cannot reserve remote expedition first aid")
+    getSpecificPlayer = function(index)
+        return index == 0 and homeMedic or nil
+    end
+    check(M.sameCareGroup(homeMedic, awayPatient),
+        "the player can treat an expedition member reached in person")
+    getSpecificPlayer = savedSpecificPlayer
+    SC.ExpeditionPrototype = savedExpedition
+end
+
 SC_TEST_REPORT = "MEDICAL_LIVENESS_REGRESSION_PASS checks=" .. checks

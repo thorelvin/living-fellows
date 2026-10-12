@@ -110,7 +110,49 @@ local function roadFromZone(U, zone, px, py)
     return nil, "zone " .. road.zone .. " blocked: " .. tostring(failure)
 end
 
-local function findRoad(U, px, py)
+local function pavedRoadTile(U, x, y)
+    local square = U.gridSquare(math.floor(x), math.floor(y), 0)
+    local floor = call(square, "getFloor")
+    local sprite = call(floor, "getSprite")
+    local name = call(sprite, "getName")
+    return type(name) == "string"
+        and string.find(name, "blends_street_", 1, true) ~= nil
+end
+
+local function findPavedRoad(U, px, py)
+    local half = segmentHalf
+    for radius = 0, 66, 3 do
+        for dx = -radius, radius, 3 do
+            for dy = -radius, radius, 3 do
+                if math.max(math.abs(dx), math.abs(dy)) == radius then
+                    local x, y = px + dx, py + dy
+                    if pavedRoadTile(U, x, y) then
+                        for _, axis in ipairs({ { 1, 0 }, { 0, 1 } }) do
+                            local ax, ay = axis[1], axis[2]
+                            if pavedRoadTile(U, x - ax * 10, y - ay * 10)
+                                and pavedRoadTile(U, x + ax * 10, y + ay * 10)
+                                and corridorOpen(U, x - ax * half,
+                                    y - ay * half, x + ax * half,
+                                    y + ay * half, ax, ay) then
+                                return {
+                                    width = 5, zone = "paved-road-tiles",
+                                    ax = ax, ay = ay, cx = x, cy = y,
+                                    sx = x - ax * half, sy = y - ay * half,
+                                    ex = x + ax * half, ey = y + ay * half,
+                                    lineX = ax == 0 and x or nil,
+                                    lineY = ay == 0 and y or nil,
+                                }
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function findRoad(U, px, py, allowPavement)
     local seen, reasons = {}, {}
     for radius = 0, 66, 3 do
         for dx = -radius, radius, 3 do
@@ -129,6 +171,10 @@ local function findRoad(U, px, py)
                 end
             end
         end
+    end
+    if allowPavement then
+        local road = findPavedRoad(U, px, py)
+        if road then return road end
     end
     return nil, table.concat(reasons, "; ")
 end
@@ -899,14 +945,40 @@ local function setupRoad(H, SC, check, result, setPhase, current)
         "SCBridge driving calls are exposed") then
         setPhase("finish", current) return
     end
-    segmentHalf = (H.config.driving_route == "true"
+    segmentHalf = H.config.team_drive_scavenge_probe == "true" and 18 or
+        (H.config.driving_route == "true"
         or H.config.driving_blocked == "true"
         or H.config.driving_save_stage == "true"
         or H.config.driving_remote == "true"
         or H.config.team_drive_probe == "true")
         and ROUTE_SEGMENT_HALF or SEGMENT_HALF
     local px, py = U.position(H.player)
-    local road, why = findRoad(U, math.floor(px), math.floor(py))
+    local road, why = findRoad(U, math.floor(px), math.floor(py),
+        H.config.team_drive_scavenge_probe == "true")
+    if road and H.config.team_drive_scavenge_probe == "true" then
+        local _, routeWhy, native = SC.ExpeditionRoute.planFromPoint(
+            { x = road.cx, y = road.cy, z = 0 },
+            { x = road.cx + road.ax * 150,
+                y = road.cy + road.ay * 150, z = 0 })
+        local entryX, entryY = native and tonumber(native.entryX),
+            native and tonumber(native.entryY)
+        if entryX and entryY then
+            -- The street database is authoritative for car routing. A road
+            -- floor sprite may be a driveway parallel to that street.
+            road.cx = entryX + road.ax * (segmentHalf - 5)
+            road.cy = entryY + road.ay * (segmentHalf - 5)
+            road.sx = road.cx - road.ax * segmentHalf
+            road.sy = road.cy - road.ay * segmentHalf
+            road.ex = road.cx + road.ax * segmentHalf
+            road.ey = road.cy + road.ay * segmentHalf
+            road.lineX = road.ax == 0 and road.cx or nil
+            road.lineY = road.ay == 0 and road.cy or nil
+            road.zone = road.zone .. "+mapped-street"
+        else
+            why = "mapped street entry unavailable: " .. tostring(routeWhy)
+            road = nil
+        end
+    end
     if not check("drive_road_found", road ~= nil, road and ("zone=" .. road.zone
             .. " axis=" .. road.ax .. "," .. road.ay .. " width=" .. road.width
             .. " center=" .. fmt(road.cx) .. "," .. fmt(road.cy)) or tostring(why)) then
@@ -958,7 +1030,10 @@ local function setupRoad(H, SC, check, result, setPhase, current)
             local offset = road.width / 2 + 4
             local wx, wy = baseX + normalX * offset * side,
                 baseY + normalY * offset * side
-            if openSquare(U, wx, wy) then
+            local square = U.gridSquare(math.floor(wx), math.floor(wy), 0)
+            if square and openSquare(U, wx, wy)
+                and U.isSquareFree(square)
+                and square:getRoofHideBuilding() == nil then
                 watch = { x = math.floor(wx), y = math.floor(wy) }
                 break
             end
@@ -989,13 +1064,18 @@ local function spawnCar(H, SC, result, setPhase, current, test)
     local road = test.road
     test.spawnAttempts = test.spawnAttempts + 1
     local flip = test.spawnAttempts > 1
+    local westScavenge = H.config.team_drive_scavenge_probe == "true"
+        and H.config.team_drive_obstacle_probe ~= "true"
     local dirX, dirY = road.ax, road.ay
-    if flip then dirX, dirY = -dirX, -dirY end
-    local startX = (flip and road.ex or road.sx) + dirX * 5
-    local startY = (flip and road.ey or road.sy) + dirY * 5
+    if flip or westScavenge then dirX, dirY = -dirX, -dirY end
+    local startX = westScavenge and road.sx + road.ax * 5
+        or (flip and road.ex or road.sx) + dirX * 5
+    local startY = westScavenge and road.sy + road.ay * 5
+        or (flip and road.ey or road.sy) + dirY * 5
     local square = U.gridSquare(math.floor(startX), math.floor(startY), 0)
-    local direction = road.ax == 1 and (flip and IsoDirections.W or IsoDirections.E)
-        or (flip and IsoDirections.N or IsoDirections.S)
+    local facingBack = flip or westScavenge
+    local direction = road.ax == 1 and (facingBack and IsoDirections.W or IsoDirections.E)
+        or (facingBack and IsoDirections.N or IsoDirections.S)
     local ok, vehicle = pcall(addVehicleDebug, SCRIPT, direction, nil, square)
     -- addVehicleDebug sets the car's square only when the spawn spot is valid;
     -- its collision shape is not registered until its first update.
@@ -1506,6 +1586,117 @@ local function remoteStep(H, SC, current, check, result, setPhase, test)
     end
 end
 
+local function scavengeDestination(H, SC, test, records, car)
+    local places, why = SC.ExpeditionPlaces.nearby(
+        math.floor(car:getX()), math.floor(car:getY()), 200, 4096, true)
+    if not places then return nil, nil, nil, tostring(why) end
+    local candidates = {}
+    for _, place in ipairs(places) do
+        if place.groundFloor and place.bounds
+            and place.bounds.x2 - place.bounds.x >= 3
+            and place.bounds.y2 - place.bounds.y >= 3
+            and place.bounds.x2 - place.bounds.x <= 16
+            and place.bounds.y2 - place.bounds.y <= 16 then
+            place.knowledge = "map_metadata_unconfirmed"
+            local approach = SC.ExpeditionPlaces.plannedApproach(
+                place, records[1].actor)
+            if approach then
+                local distance = flatDistance(car:getX(), car:getY(),
+                    approach.x, approach.y)
+                if distance >= 140 and distance <= 160 then
+                    local lateral = math.abs((approach.x - car:getX())
+                        * -test.dirY + (approach.y - car:getY()) * test.dirX)
+                    candidates[#candidates + 1] = {
+                        place = place, destination = {
+                            x = approach.x, y = approach.y, z = 0 },
+                        distance = distance,
+                        score = math.abs(distance - 150) + lateral * 0.05,
+                    }
+                end
+            end
+        end
+    end
+    table.sort(candidates, function(left, right)
+        return left.score < right.score
+    end)
+    local failures, best, alternatives = {}, nil, {}
+    for index = 1, math.min(16, #candidates) do
+        local candidate = candidates[index]
+        local inspected, reason = SC.ExpeditionCar.preflight(records,
+            test.parking.id, car:getSqlId(), candidate.destination)
+        if inspected then
+            local route = inspected.route or {}
+            local siteWalk = flatDistance(candidate.destination.x,
+                candidate.destination.y, inspected.exit.x,
+                inspected.exit.y)
+            local cost = (tonumber(route.roadLength) or 9999)
+                + (tonumber(route.inferredJunctions) or 0) * 15
+                + candidate.score * 0.5
+                + math.max(0, siteWalk - 16) * 12
+            if H.config.team_drive_obstacle_probe == "true"
+                and candidate.place.id == "6143:5412:6158:5422" then
+                cost = cost - 1000
+            end
+            alternatives[#alternatives + 1] = candidate.place.id
+                .. ":" .. fmt(cost) .. ":walk=" .. fmt(siteWalk)
+            if not best or cost < best.cost then
+                best = { candidate = candidate, inspected = inspected,
+                    cost = cost }
+            end
+        end
+        if not inspected and #failures < 4 then
+            local _, routeReason, native = SC.ExpeditionRoute.planFromPoint(
+                { x = car:getX(), y = car:getY(), z = 0 },
+                candidate.destination)
+            failures[#failures + 1] = tostring(reason) .. "@"
+                .. fmt(candidate.destination.x) .. ","
+                .. fmt(candidate.destination.y) .. " entry="
+                .. fmt(native and native.entryX) .. ","
+                .. fmt(native and native.entryY) .. " route="
+                .. tostring(routeReason)
+        end
+    end
+    if best then
+        return best.candidate.destination, best.candidate.place,
+            best.inspected, "site=" .. best.candidate.place.id
+                .. " distance=" .. fmt(best.candidate.distance)
+                .. " route_choices=" .. table.concat(alternatives, ";")
+    end
+    return nil, nil, nil, "buildings_140_160=" .. tostring(#candidates)
+        .. " route_reasons=" .. table.concat(failures, ",")
+end
+
+local function seedScavengeSource(SC, site, destination)
+    local U = SC.GameplayUtil
+    local best, bestDistance
+    for x = site.bounds.x, site.bounds.x2 do
+        for y = site.bounds.y, site.bounds.y2 do
+            local distance = flatDistance(x, y,
+                destination.x, destination.y)
+            if distance <= 8 and (bestDistance == nil
+                or distance < bestDistance) then
+                local square = U.gridSquare(x, y, 0)
+                if square and SC.ExpeditionPlaces.siteContainsPoint(
+                    site.id, x, y, 0) then
+                    U.squareObjects(square, function(object)
+                        local container = call(object, "getContainer")
+                        if container and SC.Encounter.mayTakeFrom(container)
+                            == true then
+                            best = { container = container, square = square }
+                            bestDistance = distance
+                        end
+                    end, 40)
+                end
+            end
+        end
+    end
+    if not best then return nil, "no_loaded_site_container_within_search_radius" end
+    local item = call(best.container, "AddItem", "Base.Bandage")
+    if not item then return nil, "native_supply_item_add_failed" end
+    return { square = best.square, container = best.container,
+        item = item }
+end
+
 local function teamStep(H, SC, current, check, result, setPhase, test)
     local car = test.vehicle
     if H.phase == "drive_team_setup" then
@@ -1589,30 +1780,56 @@ local function teamStep(H, SC, current, check, result, setPhase, test)
                 .. ";" .. fmt(poly.x2) .. "," .. fmt(poly.y2)
                 .. ";" .. fmt(poly.x3) .. "," .. fmt(poly.y3)
                 .. ";" .. fmt(poly.x4) .. "," .. fmt(poly.y4))
-        local along = test.road.ax == 1 and car:getX() or car:getY()
-        local lo = test.road.ax == 1 and test.road.bx or test.road.by
-        local hi = lo + (test.road.ax == 1
-            and test.road.bw or test.road.bh)
-        local target = math.max(lo + 12, math.min(hi - 12,
-            along + (test.dirX ~= 0 and test.dirX or test.dirY) * 115))
-        local destination = { x = math.floor(test.road.ax == 1
-            and target or test.road.lineX),
-            y = math.floor(test.road.ay == 1
-                and target or test.road.lineY), z = 0 }
-        local inspected, why = SC.ExpeditionCar.preflight(records,
-            test.parking.id, car:getSqlId(), destination)
+        local scavenge = H.config.team_drive_scavenge_probe == "true"
+        local destination, site, inspected, why
+        if scavenge then
+            destination, site, inspected, why = scavengeDestination(
+                H, SC, test, records, car)
+        else
+            local along = test.road.ax == 1 and car:getX() or car:getY()
+            local lo = test.road.ax == 1 and test.road.bx or test.road.by
+            local hi = lo + (test.road.ax == 1
+                and test.road.bw or test.road.bh)
+            local target = math.max(lo + 12, math.min(hi - 12,
+                along + (test.dirX ~= 0 and test.dirX or test.dirY) * 115))
+            destination = { x = math.floor(test.road.ax == 1
+                and target or test.road.lineX),
+                y = math.floor(test.road.ay == 1
+                    and target or test.road.lineY), z = 0 }
+            inspected, why = SC.ExpeditionCar.preflight(records,
+                test.parking.id, car:getSqlId(), destination)
+        end
         if not check("team_drive_dispatch_preflight", inspected ~= nil,
-            tostring(why) .. " destination=" .. destination.x
-                .. "," .. destination.y) then
+            tostring(why) .. " destination=" .. tostring(destination
+                and destination.x) .. "," .. tostring(destination
+                and destination.y)) then
             setPhase("finish", current) return
         end
+        if scavenge then
+            local distance = flatDistance(car:getX(), car:getY(),
+                destination.x, destination.y)
+            if not check("team_drive_scavenge_150_tiles",
+                distance >= 140 and distance <= 160 and site ~= nil,
+                "site=" .. tostring(site and site.id)
+                    .. " stop=" .. fmt(inspected and inspected.exit and inspected.exit.x)
+                    .. "," .. fmt(inspected and inspected.exit and inspected.exit.y)
+                    .. " distance=" .. fmt(distance)
+                    .. " road=" .. fmt(inspected.route
+                        and inspected.route.roadLength)) then
+                setPhase("finish", current) return
+            end
+        end
         local started, startWhy = SC.ExpeditionPrototype.start(records,
-            { kind = "scout", destination = destination,
+            { kind = scavenge and "search" or "scout",
+                destination = destination, site = site,
+                request = scavenge and { category = "medicine", quantity = 1 }
+                    or nil, radius = scavenge and 8 or nil,
                 travelMode = "drive", parkingZoneId = test.parking.id,
                 vehicleSqlId = car:getSqlId() })
         if not check("team_drive_dispatched", started == true,
             tostring(startWhy)) then setPhase("finish", current) return end
-        test.startedAt, test.lastState = current, nil
+        test.startedAt, test.lastState, test.scavenge = current, nil, scavenge
+        test.scavengeSite, test.scavengeDestination = site, destination
         setPhase("drive_team_running", current)
         return
     end
@@ -1620,6 +1837,63 @@ local function teamStep(H, SC, current, check, result, setPhase, test)
     local mission = SC.ExpeditionPrototype.current()
     local trip = mission and mission.scout and mission.scout.vehicle
     local state = trip and trip.state or "mission_finished"
+    if H.config.team_drive_obstacle_probe == "true"
+        and state == "parked_at_site" and not test.returnRequested then
+        local requested, why = SC.ExpeditionCar.requestReturn(mission,
+            current, "roadside_turn_probe")
+        if not check("team_drive_obstacle_return_requested",
+            requested == true, tostring(why)) then
+            setPhase("finish", current) return
+        end
+        test.returnRequested = true
+    end
+    if test.scavenge and mission and mission.scout then
+        local scout = mission.scout
+        if scout.phase ~= test.lastScavengePhase then
+            result("PASS", "team_drive_scavenge_phase_" .. tostring(scout.phase),
+                "car=" .. state .. " x=" .. fmt(car:getX())
+                    .. " y=" .. fmt(car:getY()))
+            test.lastScavengePhase = scout.phase
+        end
+        if scout.phase == "searching" and not test.scavengeSource then
+            local source, why = seedScavengeSource(SC,
+                test.scavengeSite, test.scavengeDestination)
+            if not check("team_drive_scavenge_real_container",
+                source ~= nil, source and ("source="
+                    .. source.square:getX() .. ","
+                    .. source.square:getY()) or tostring(why)) then
+                setPhase("finish", current) return
+            end
+            test.scavengeSource = source
+            test.searchStartedAt = current
+            result("PASS", "team_drive_scavenge_supplies_staged",
+                "source=" .. source.square:getX() .. ","
+                    .. source.square:getY() .. " native_items=1")
+        end
+        local acquisitions = scout.search and scout.search.acquisitions or {}
+        if #acquisitions ~= (test.lastAcquisitionCount or 0) then
+            result("PASS", "team_drive_scavenge_acquisitions",
+                "count=" .. tostring(#acquisitions)
+                    .. " requested=1")
+            test.lastAcquisitionCount = #acquisitions
+        end
+        if #acquisitions >= 1 and not test.scavengeLootComplete then
+            test.scavengeLootComplete = true
+            local receipt = acquisitions[1]
+            check("team_drive_scavenge_verified_item", true,
+                "type=" .. tostring(receipt.itemType)
+                    .. " source=" .. tostring(receipt.source
+                        and receipt.source.x) .. ","
+                    .. tostring(receipt.source and receipt.source.y)
+                    .. " native container-to-companion receipt")
+        end
+        if test.searchStartedAt and not test.scavengeLootComplete
+            and current - test.searchStartedAt > 120000 then
+            result("FAIL", "team_drive_scavenge_verified_item",
+                "search timed out with " .. #acquisitions .. " receipts")
+            setPhase("finish", current) return
+        end
+    end
     if test.restartResume and state == "boarding_out" then
         test.restartSawBoarding = true
     end
@@ -1677,11 +1951,75 @@ local function teamStep(H, SC, current, check, result, setPhase, test)
     end
     if trip and (state == "held" or state == "abandoned"
         or state == "boarding_rollback" or state == "fallback_unloading") then
+        if test.scavenge then
+            local driver = test.team and test.team[1] and test.team[1].actor
+            local drive = driver and SC.Driving.status(driver) or {}
+            result("PASS", "team_drive_failure_diagnostics",
+                "mode=" .. tostring(drive.mode)
+                    .. " state=" .. tostring(drive.state)
+                    .. " turn=" .. tostring(drive.turnState)
+                    .. " legs=" .. tostring(drive.turnLegs)
+                    .. " reason=" .. tostring(drive.turnReason)
+                    .. " obstacle=" .. tostring(drive.obstacleKind)
+                    .. " car=" .. fmt(car:getX()) .. "," .. fmt(car:getY()))
+            if trip.blocker == "player_aboard" then
+                for slot = 0, 3 do
+                    local player = getSpecificPlayer(slot)
+                    if player then
+                        result("PASS", "team_drive_player_slot_" .. slot,
+                            "name=" .. tostring(call(player, "getFullName"))
+                                .. " companion=" .. tostring(SC.Actor.isCompanion(player))
+                                .. " in_car=" .. tostring(call(player, "getVehicle") == car))
+                    end
+                end
+            end
+            if H.config.team_drive_obstacle_probe == "true" then
+                local U = SC.GameplayUtil
+                local lines = 0
+                for x = math.floor(car:getX()) - 6, math.floor(car:getX()) + 6 do
+                    for y = math.floor(car:getY()) - 6, math.floor(car:getY()) + 6 do
+                        local square = U.gridSquare(x, y, 0)
+                        if square then
+                            local floor = call(square, "getFloor")
+                            U.squareObjects(square, function(object)
+                                if object ~= floor and lines < 60 then
+                                    local sprite = call(object, "getSprite")
+                                    result("PASS", "team_drive_nearby_object",
+                                        x .. "," .. y .. " sprite="
+                                            .. tostring(call(sprite, "getName"))
+                                            .. " class=" .. tostring(call(object, "getObjectName"))
+                                            .. " solid=" .. tostring(call(square, "isSolid"))
+                                            .. " trans=" .. tostring(call(square, "isSolidTrans")))
+                                    lines = lines + 1
+                                end
+                            end, 40)
+                        end
+                    end
+                end
+            end
+        end
         result("FAIL", "team_drive_full_trip", "state=" .. state
             .. " blocker=" .. tostring(trip.blocker))
         setPhase("finish", current) return
     end
     if trip and (state == "driving_out" or state == "driving_home") then
+        if state == "driving_home" and test.scavenge
+            and H.config.team_drive_obstacle_probe == "true"
+            and current >= (test.nextTurnTrace or 0) then
+            local drive = SC.Driving.status(test.team[1].actor) or {}
+            result("PASS", "team_drive_return_trace",
+                "mode=" .. tostring(drive.mode)
+                    .. " state=" .. tostring(drive.state)
+                    .. " turn=" .. tostring(drive.turnState)
+                    .. " legs=" .. tostring(drive.turnLegs)
+                    .. " side=" .. tostring(drive.turnSide)
+                    .. " reason=" .. tostring(drive.turnReason)
+                    .. " front=" .. tostring(drive.obstacleDistance)
+                    .. " rear=" .. tostring(drive.rearDistance)
+                    .. " heading=" .. fmt(math.deg(heading(car)))
+                    .. " x=" .. fmt(car:getX()) .. " y=" .. fmt(car:getY()))
+            test.nextTurnTrace = current + 2500
+        end
         local allSeated = true
         for index, member in ipairs(test.team) do
             local seated, actualCar, seat = SC.Vehicle.isNativeSeated(member.actor)
@@ -1697,7 +2035,7 @@ local function teamStep(H, SC, current, check, result, setPhase, test)
                 "three native occupants driving in the second viewport")
         end
     end
-    if trip and state == "parked_at_site"
+    if not test.scavenge and trip and state == "parked_at_site"
         and not test.returnRequested
         and current - H.phaseStartedAt > 3000 then
         local requested, why = SC.ExpeditionCar.requestReturn(mission,
@@ -1715,7 +2053,9 @@ local function teamStep(H, SC, current, check, result, setPhase, test)
             allOnFoot = allOnFoot and not seated
         end
         check("team_drive_home_parked_and_unloaded", parked
-            and allOnFoot and test.returnRequested == true
+            and allOnFoot and (test.returnRequested == true
+                or test.scavenge and test.scavengeLootComplete == true
+                or H.config.team_drive_obstacle_probe == "true")
             and (not test.restartResume or test.restartSawBoarding == true),
             "parked=" .. tostring(parked) .. " reason=" .. tostring(reason)
                 .. " foot=" .. tostring(allOnFoot)
@@ -1723,7 +2063,8 @@ local function teamStep(H, SC, current, check, result, setPhase, test)
         setPhase("finish", current)
         return
     end
-    if current - (test.startedAt or current) > 240000 then
+    if current - (test.startedAt or current)
+        > (test.scavenge and 420000 or 240000) then
         result("FAIL", "team_drive_full_trip_timeout",
             "state=" .. tostring(state) .. " blocker="
                 .. tostring(trip and trip.blocker))

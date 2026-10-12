@@ -1567,6 +1567,8 @@ local function runBaseManagementAction(target, action, payload)
         method, arguments = SC.BaseLife.cancelJob, { payload.id }
     elseif action == "retry_job" then
         method, arguments = SC.BaseLife.retryJob, { payload.id }
+    elseif action == "unload_vehicle" and SC.VehicleUnload then
+        method, arguments = SC.VehicleUnload.queue, { payload.vehicleId }
     elseif action == "build_blueprint" and SC.ConstructionPlanner then
         method, arguments = SC.ConstructionPlanner.buildSegment,
             { playerForUI(), payload.id }
@@ -3749,6 +3751,23 @@ function SCUIDetail:buildBase(panel, row)
             policies.routines ~= false)
         y = self:addBaseToggle(panel, y, "UI_SC_Base_MaintenanceToggle", "autoMaintenance",
             policies.autoMaintenance ~= false)
+        y = self:addBaseToggle(panel, y, "UI_SC_Base_UnloadCarInventory",
+            "unloadCarInventory", policies.unloadCarInventory == true)
+        if SC.VehicleUnload and type(SC.VehicleUnload.rows) == "function" then
+            local cars = SC.VehicleUnload.rows()
+            if #cars > 0 then
+                y = self:addSection(panel, y + 4, "UI_SC_Base_ParkedCars")
+                for _, car in ipairs(cars) do
+                    y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                        UI.text("UI_SC_Base_ParkedCarRow", car.name, car.count))
+                    if car.count > 0 then
+                        y = self:addBaseManagementAction(panel, y,
+                            UI.text("UI_SC_Base_UnloadToBase"),
+                            "unload_vehicle", { vehicleId = car.id })
+                    end
+                end
+            end
+        end
         y = self:addSection(panel, y + 4, "UI_SC_Base_Section_Staffing")
         for _, residentRow in ipairs(base.residentRows or {}) do
             y = self:addInformationLine(panel, y, "UI_SC_Base_StaffingRow",

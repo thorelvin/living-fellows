@@ -31,7 +31,8 @@ BaseLife.STORAGE_CATEGORIES = {
     output = true, memorial = true, farming = true,
 }
 BaseLife.JOB_TYPES = {
-    haul = true, sort = true, fetch = true, repair = true, replace_bandage = true,
+    haul = true, sort = true, fetch = true, unload_vehicle = true,
+    repair = true, replace_bandage = true,
     craft_supply = true, barricade = true, maintain = true, build = true,
     gather_materials = true, production = true, farm = true, cook = true,
 }
@@ -108,14 +109,15 @@ local JOB_STATES = {
     manual = true, completed = true, cancelled = true,
 }
 local roleAffinity = {
-    generalist = { haul = 4, sort = 4, fetch = 4, gather_materials = 5,
+    generalist = { haul = 4, sort = 4, fetch = 4, unload_vehicle = 5, gather_materials = 5,
         repair = 3, replace_bandage = 2,
         craft_supply = 3, barricade = 2, maintain = 2, build = 2, production = 5 },
     guard = { barricade = 4, maintain = 2, haul = 1, fetch = 1, gather_materials = 1,
         production = 1 },
     builder = { build = 10, barricade = 9, maintain = 8, repair = 5,
         gather_materials = 6, fetch = 3, production = 7 },
-    quartermaster = { haul = 10, sort = 10, fetch = 9, gather_materials = 8,
+    quartermaster = { haul = 10, sort = 10, fetch = 9, unload_vehicle = 12,
+        gather_materials = 8,
         craft_supply = 4, production = 4 },
     medic = { replace_bandage = 10, fetch = 5, haul = 1, production = 2 },
     farmer = { farm = 30, haul = 3, sort = 2, fetch = 3, production = 2 },
@@ -750,6 +752,7 @@ local function normalizeBase(source)
             workOutsideAtNight = settings.workOutsideAtNight == true,
             routines = settings.routines ~= false,
             autoMaintenance = settings.autoMaintenance ~= false,
+            unloadCarInventory = settings.unloadCarInventory == true,
             blueprints = settings.blueprints ~= false,
             stockTargets = stockTargets,
         },
@@ -3811,7 +3814,7 @@ function BaseLife.cancelJob(id)
         if okay ~= true then return false, reason or "chef_recovery_pending" end
     end
     local transferJob = job.type == "haul" or job.type == "sort"
-        or job.type == "fetch"
+        or job.type == "fetch" or job.type == "unload_vehicle"
     if (job.type == "build" and job.reservedBy ~= nil) or transferJob then
         if not SC.BaseWork or type(SC.BaseWork.cancelJob) ~= "function" then
             return false, "base_work_cancel_unavailable"
@@ -4121,6 +4124,7 @@ function BaseLife.setPolicy(key, value)
         if not WORKLOAD_POLICIES[value] then return false, "invalid_workload_policy" end
         base.settings.workload = value
     elseif key == "routines" or key == "autoMaintenance"
+        or key == "unloadCarInventory"
         or key == "workOutsideAtNight" then
         if type(value) ~= "boolean" then return false, "invalid_boolean_policy" end
         base.settings[key] = value
@@ -4759,6 +4763,10 @@ local function validBaseSource(source, id, path)
     if type(source.settings.routines) ~= "boolean"
         or type(source.settings.autoMaintenance) ~= "boolean" then
         return restoreFailure(path .. ".settings", "policy flags must be boolean")
+    end
+    if source.settings.unloadCarInventory ~= nil
+        and type(source.settings.unloadCarInventory) ~= "boolean" then
+        return restoreFailure(path .. ".settings.unloadCarInventory", "expected boolean")
     end
     if source.settings.workOutsideAtNight ~= nil
         and type(source.settings.workOutsideAtNight) ~= "boolean" then

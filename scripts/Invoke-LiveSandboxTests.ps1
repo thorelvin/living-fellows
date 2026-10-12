@@ -86,6 +86,10 @@ param(
     [switch]$DrivingRemote,
     # Step 2: mark parking and run a three-companion car expedition end to end.
     [switch]$TeamDriveProbe,
+    # Send the same squad to a real building roughly 150 tiles away to search.
+    [switch]$TeamDriveScavengeProbe,
+    # Revisit the roadside stop that previously stranded the team during its turn.
+    [switch]$TeamDriveObstacleProbe,
     # Stage a three-person mission while driving, then reload the retained clone.
     [switch]$TeamDriveRestartStage,
     [switch]$TeamDriveRestartResume,
@@ -702,6 +706,12 @@ if ($drivingExclusiveModes.Count -gt 1) {
 if (($DrivingBlocked -or $DrivingSaveStage -or $DrivingSaveResume -or $DrivingRemote -or $TeamDriveProbe) -and -not $DrivingProbe) {
     throw 'Driving blocked and save modes require -DrivingProbe.'
 }
+if ($TeamDriveScavengeProbe -and (-not $TeamDriveProbe -or -not $DrivingProbe)) {
+    throw '-TeamDriveScavengeProbe requires -DrivingProbe -TeamDriveProbe.'
+}
+if ($TeamDriveObstacleProbe -and -not $TeamDriveScavengeProbe) {
+    throw '-TeamDriveObstacleProbe requires -TeamDriveScavengeProbe.'
+}
 if ($DrivingSaveResume -and [string]::IsNullOrWhiteSpace($SeedSave)) {
     throw '-DrivingSaveResume requires -SeedSave pointing at a retained stage clone.'
 }
@@ -1293,6 +1303,8 @@ $config = @(
     ('driving_save_resume=' + $DrivingSaveResume.IsPresent.ToString().ToLowerInvariant()),
     ('driving_remote=' + $DrivingRemote.IsPresent.ToString().ToLowerInvariant()),
     ('team_drive_probe=' + $TeamDriveProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_drive_scavenge_probe=' + $TeamDriveScavengeProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_drive_obstacle_probe=' + $TeamDriveObstacleProbe.IsPresent.ToString().ToLowerInvariant()),
     ('team_drive_restart_stage=' + $TeamDriveRestartStage.IsPresent.ToString().ToLowerInvariant()),
     ('team_drive_restart_resume=' + $TeamDriveRestartResume.IsPresent.ToString().ToLowerInvariant()),
     ('team_drive_expected_sql_id=' + [string]$teamDriveExpected.sql_id),

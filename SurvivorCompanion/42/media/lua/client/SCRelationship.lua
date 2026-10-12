@@ -642,6 +642,7 @@ local doingLabels = {
     move_to_tv = "finding a place to watch television",
     move_to_radio = "heading to the radio",
     move_to_base_storage = "heading to storage",
+    move_to_car_trunk = "heading to the parked car",
     move_to_camp_storage = "heading to storage",
     move_to_clean_stain = "heading to a stain",
     move_to_corpse = "going to a body",

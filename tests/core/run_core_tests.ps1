@@ -201,6 +201,13 @@ try {
         )
         Add-ScJvmStep 'vehicle-hotwire' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $hotwireFiles 'Companion hotwire order harness failed.'
 
+        $vehicleUnloadFiles = @(
+            (Join-Path $TestRoot 'vehicle_unload_fixture.lua'),
+            (Join-Path $Client 'SCVehicleUnload.lua'),
+            (Join-Path $TestRoot 'vehicle_unload_harness.lua')
+        )
+        Add-ScJvmStep 'vehicle-unload' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $vehicleUnloadFiles 'Parked car cargo transfer and recovery harness failed.'
+
         $expeditionRestartFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Client 'SCViewSession.lua'),

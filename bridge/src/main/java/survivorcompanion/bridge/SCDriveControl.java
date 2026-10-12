@@ -10,7 +10,7 @@ package survivorcompanion.bridge;
  */
 final class SCDriveControl {
     /** Companion driving is new: it cruises slowly and never faster than this. */
-    static final float MAX_CRUISE_KMH = 25.0f;
+    static final float MAX_CRUISE_KMH = 30.0f;
     /** Reversing is only ever a slow manoeuvre. */
     static final float MAX_REVERSE_KMH = 6.0f;
     /** A requested speed below this but above zero still moves the car. */

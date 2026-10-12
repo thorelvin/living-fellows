@@ -151,6 +151,14 @@ local function nativeVisualStatus(actor, expectedAction)
     return status, actionName
 end
 
+local function visualAdapterAbsent()
+    local adapter = SC.NativeActions
+    -- Gameplay fixtures provide status stubs but no native action dispatcher.
+    -- A live dispatcher that is present but broken must fail closed.
+    return type(adapter) ~= "table"
+        or type(adapter.dispatch) ~= "function"
+end
+
 local function clearNativeVisual(actor)
     if SC.NativeActions and type(SC.NativeActions.clearVisual) == "function" then
         pcall(SC.NativeActions.clearVisual, actor)
@@ -1358,7 +1366,8 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
         if square and siteNear and inSelectedSite(siteId, square)
             and (commands.scavengeMissionId == nil
                 or not expeditionSourceOnCooldown(state, square, current))
-            and (not player or utility.distanceSq(player, square) <= radius * radius)
+            and (commands.scavengeMissionId ~= nil or not player
+                or utility.distanceSq(player, square) <= radius * radius)
             and not behindLockedDoor(actor, square, current) then
             local squareInside = insideBase(square)
             utility.squareObjects(square, function(object)
@@ -2339,6 +2348,7 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
     if task.phase == "animate" then
         local visualState = nativeVisualStatus(actor, "loot_container")
         if visualState == "active" then
+            task.visualObserved = true
             local service = supervisor()
             if service and task.supervisorToken and type(service.progress) == "function" then
                 service.progress(task.supervisorToken, "visual:active", { visual = visualState })
@@ -2346,6 +2356,13 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
             return true, "looting"
         end
         if visualState == "completed" then
+            if not task.visualObserved and not visualAdapterAbsent() then
+                resetScavengeTarget(actor, state, {
+                    reason = "loot_animation_unobserved", phase = "failed",
+                    cooldown = true, memoryResult = "animation_failed", time = time,
+                })
+                return false, "loot_animation_unobserved"
+            end
             clearNativeVisual(actor)
             local service = supervisor()
             if service and task.supervisorToken
@@ -2360,14 +2377,15 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
             })
             return false, "loot_animation_" .. tostring(visualState)
         else
-            local service = supervisor()
-            if service and task.supervisorToken
-                and type(service.markVisualVerified) == "function" then
-                service.markVisualVerified(task.supervisorToken, {
-                    action = "loot_container", tracked = false,
+            if visualAdapterAbsent() then
+                setTaskPhase(actor, state, task, "commit", "animation_fixture_unavailable")
+            else
+                resetScavengeTarget(actor, state, {
+                    reason = "loot_animation_untracked", phase = "failed",
+                    cooldown = true, memoryResult = "animation_failed", time = time,
                 })
+                return false, "loot_animation_untracked"
             end
-            setTaskPhase(actor, state, task, "commit", "animation_untracked_complete")
         end
     elseif task.phase == "settle" then
         local reachable, reachStatus, containerX, containerY = containerReach(actor, task)
@@ -2412,25 +2430,37 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
         end
         local visualState = nativeVisualStatus(actor, "loot_container")
         if visualState == "active" then
+            task.visualObserved = true
             state.lootPhase = "visual"
             setTaskPhase(actor, state, task, "animate", "looting")
             return true, "looting"
         elseif visualState == "completed" then
+            if not visualAdapterAbsent() then
+                resetScavengeTarget(actor, state, {
+                    reason = "loot_animation_unobserved", phase = "failed",
+                    cooldown = true, memoryResult = "animation_failed", time = time,
+                })
+                return false, "loot_animation_unobserved"
+            end
             clearNativeVisual(actor)
+            setTaskPhase(actor, state, task, "commit", "animation_fixture_complete")
         elseif visualState ~= nil then
             resetScavengeTarget(actor, state, {
                 reason = "loot_animation_" .. tostring(visualState), phase = "failed",
                 cooldown = true, memoryResult = "animation_failed", time = time,
             })
             return false, "loot_animation_" .. tostring(visualState)
+        else
+            if visualAdapterAbsent() then
+                setTaskPhase(actor, state, task, "commit", "animation_fixture_unavailable")
+            else
+                resetScavengeTarget(actor, state, {
+                    reason = "loot_animation_untracked", phase = "failed",
+                    cooldown = true, memoryResult = "animation_failed", time = time,
+                })
+                return false, "loot_animation_untracked"
+            end
         end
-        if service and task.supervisorToken
-            and type(service.markVisualVerified) == "function" then
-            service.markVisualVerified(task.supervisorToken, {
-                action = "loot_container", tracked = visualState ~= nil,
-            })
-        end
-        setTaskPhase(actor, state, task, "commit", "animation_completed")
     end
 
     if task.phase == "commit" then

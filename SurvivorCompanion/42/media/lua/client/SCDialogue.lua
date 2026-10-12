@@ -903,6 +903,15 @@ local pools = {
         "No stain left. The smell will take longer.",
         "One small job done. I'll take it.",
     } },
+    ["expedition.support_call"] = {
+        common = {
+            "I need support here! Now!", "They're on me! Help me clear this room!",
+            "Squad, to me! I've got company!", "I need a hand over here!",
+        },
+        brave = { "To me! We finish this together!" },
+        cautious = { "Close in, but watch the exits!" },
+        stressed = { "Help! Right now, please!" },
+    },
     ["expedition.departure"] = {
         common = {
             "Gather up, people. We're heading out.",
