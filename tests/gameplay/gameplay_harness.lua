@@ -5592,6 +5592,37 @@ check(socialDistance >= 1.2 and socialDistance <= 2.8,
 
 ;(function()
     local positioning = SurvivorCompanion.Positioning
+    local navigation = SurvivorCompanion.Navigation
+    local speaker = actor("sc-talk-near-speaker", 10, 10, {})
+    local partner = actor("sc-talk-near-partner", 10, 11, {})
+    local replies = 0
+    check(positioning.beginConversation(speaker, partner, {
+            action = "status", onReady = function() replies = replies + 1; return true end,
+        }), "a companion one tile away can stage a conversation")
+    check(positioning.updateConversation(speaker, {}) and replies == 1
+            and speaker.lastIntent.action == "conversation_pose",
+        "a visible companion one tile away answers without searching for a wider gap")
+
+    partner.square = cell:getGridSquare(10, 12, 0)
+    local between = cell:getGridSquare(10, 11, 0)
+    between.vehicleContainer = { id = "parked-car" }
+    check(navigation.conversationAccess(speaker, partner),
+        "a visible parked vehicle between nearby people does not block speech")
+    check(positioning.beginConversation(speaker, partner, {
+            action = "opinion", onReady = function() replies = replies + 1; return true end,
+        }) and positioning.updateConversation(speaker, {}) and replies == 2,
+        "nearby conversation completes across a visible vehicle footprint")
+    between.vehicleContainer = nil
+
+    partner.square = speaker.square
+    check(positioning.beginConversation(speaker, partner, {
+            action = "status", onReady = function() replies = replies + 1; return true end,
+        }) and positioning.updateConversation(speaker, {}) and replies == 3,
+        "two people sharing a crowded tile can still talk without repositioning")
+end)()
+
+;(function()
+    local positioning = SurvivorCompanion.Positioning
     local decision = SurvivorCompanion.Decision
     local speaker = actor("sc-talk-stop-boundary", 22, 18, {})
     local partner = actor("sc-talk-stop-partner", 22, 20, {})

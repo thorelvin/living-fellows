@@ -1340,7 +1340,6 @@ function Positioning.updateConversation(actor, snapshot)
     end
 
     local partner = conversation.partner
-    local minimum = utility.config("conversationMinimumDistance") or 1.2
     local maximum = utility.config("conversationMaximumDistance") or 2.8
     local partnerDistance = utility.distance(actor, partner)
     if not utility.sameFloor(actor, partner) then
@@ -1354,7 +1353,10 @@ function Positioning.updateConversation(actor, snapshot)
     local accessBlocked = conversation.onReady and SC.Navigation
         and type(SC.Navigation.conversationAccess) == "function"
         and not SC.Navigation.conversationAccess(actor, partner)
-    if partnerDistance > maximum or partnerDistance < minimum or accessBlocked then
+    -- The preferred personal-space ring is for approaching from afar. Someone
+    -- already beside the player can answer even when there is no room to step
+    -- back, which is common near shelves, vehicles and other companions.
+    if partnerDistance > maximum or accessBlocked then
         if not SC.Navigation or type(SC.Navigation.request) ~= "function"
             or type(SC.Navigation.conversationStandAccessible) ~= "function" then
             Positioning.cancelConversation(actor, "conversation_navigation_unavailable")

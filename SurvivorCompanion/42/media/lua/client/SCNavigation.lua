@@ -1856,14 +1856,25 @@ function Navigation.openSegment(actor, targetX, targetY, targetZ, options)
     return actualOpenSegment(actor, targetX, targetY, targetZ or actorZ, options) == true
 end
 
--- Direct talk requires an unobstructed, walkable line between the two actors.
--- The partner may occupy the final square; a closed door, window, fence, wall
--- or intervening person may not be treated as a ready conversation position.
+-- Speech needs a clear line of sight, not a walkable route through the other
+-- person's tile. A vehicle, chair or low obstacle can block a route while the
+-- two people can still plainly see and speak to each other. The direct route
+-- remains a fallback when the square LOS probe is unavailable or conservative.
+function Navigation.conversationSightLine(from, to)
+    local utility = U()
+    local fromSquare = utility.squareOf(from)
+    local toSquare = utility.squareOf(to)
+    if not fromSquare or not toSquare then return false end
+    return utility.canSee(fromSquare, toSquare) == true
+        or utility.canSee(toSquare, fromSquare) == true
+end
+
 function Navigation.conversationAccess(actor, partner)
     local utility = U()
     if not utility or not utility.sameFloor(actor, partner) then return false end
     local x, y, z = utility.position(partner)
     if x == nil then return false end
+    if Navigation.conversationSightLine(actor, partner) then return true end
     return actualOpenSegment(actor, x, y, z, {
         actor = actor, allowedBlocker = partner,
         allowOpenDoor = true, directWalkOnly = true,
@@ -1882,6 +1893,7 @@ function Navigation.conversationStandAccessible(actor, standSquare, partner)
     local sx, sy, sz = utility.position(standSquare)
     local px, py, pz = utility.position(partner)
     if sx == nil or px == nil then return false end
+    if Navigation.conversationSightLine(standSquare, partner) then return true end
     return actualOpenSegment({ x = math.floor(sx) + 0.5,
         y = math.floor(sy) + 0.5, z = sz }, px, py, pz, {
         actor = actor, allowedBlocker = partner,
