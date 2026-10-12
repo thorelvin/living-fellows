@@ -876,9 +876,10 @@ local function doFollow(actor, player, rootRuntime, commands, snapshot)
             if type(SC.Vehicle.cancelTransaction) == "function" then
                 SC.Vehicle.cancelTransaction(actor, assignmentReason or "vehicle_assignment_lost")
             end
-            if assignmentReason == "vehicle_capacity_wait" then
+            if assignmentReason == "vehicle_capacity_wait"
+                or assignmentReason == "vehicle_entry_seat_wait" then
                 if not utility.stop(actor) then return false, "vehicle_capacity_wait_stop_rejected" end
-                return true, "vehicle_capacity_wait"
+                return true, assignmentReason
             end
             return false, "vehicle_manifest_rejected:" .. tostring(assignmentReason)
         end

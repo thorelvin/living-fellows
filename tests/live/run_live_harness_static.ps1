@@ -20,6 +20,7 @@ $ArthurPackProbe = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\cl
 $SmokerProbe = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCOddballSmokerProbe.lua'
 $MilliProbe = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCMilliLiveProbe.lua'
 $DrivingLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCDrivingProbe.lua'
+$SixSeatLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCSixSeatProbe.lua'
 $Shared = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\shared'
 $Client = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\client'
 
@@ -34,7 +35,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Live harness Lua compiler build failed.' }
     Push-Location -LiteralPath $GameRoot
     try {
-        & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $Lua $DrivingLua
+        & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $Lua $DrivingLua $SixSeatLua
         if ($LASTEXITCODE -ne 0) { throw 'Live harness Kahlua compilation failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $OddballProbe
         if ($LASTEXITCODE -ne 0) { throw 'Oddball live probe Kahlua compilation failed.' }

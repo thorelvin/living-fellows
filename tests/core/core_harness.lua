@@ -1150,6 +1150,184 @@ if firstAssignment ~= nil then
     manifestVehicle.occupants[firstAssignment.seat] = nil
 end
 SC.Vehicle.invalidateManifests(manifestVehicle)
+
+-- VanSeats has six installed seats, but its two rear seats have no outside
+-- entry area. A follower must take a middle door and switch inside, freeing
+-- that door seat for the fourth and fifth companions.
+do
+local sixSeatVan = {
+    id = 88, script = "Base.VanSeats", x = 1, y = 0, z = 0, speed = 0,
+    occupants = {}, positions = {},
+}
+function sixSeatVan:getId() return self.id end
+function sixSeatVan:getScriptName() return self.script end
+function sixSeatVan:getX() return self.x end
+function sixSeatVan:getY() return self.y end
+function sixSeatVan:getZ() return self.z end
+function sixSeatVan:getCell() return vehicleCell end
+function sixSeatVan:getMaxPassengers() return 6 end
+function sixSeatVan:isSeatInstalled(seat) return seat >= 0 and seat < 6 end
+function sixSeatVan:isSeatOccupied(seat) return self.occupants[seat] ~= nil end
+function sixSeatVan:getCharacter(seat) return self.occupants[seat] end
+function sixSeatVan:getSeat(candidate)
+    for seat, occupant in pairs(self.occupants) do
+        if occupant == candidate then return seat end
+    end
+    return -1
+end
+function sixSeatVan:getCurrentSpeedKmHour() return self.speed end
+function sixSeatVan:getScript()
+    return { getPassenger = function(_, seat)
+        return { getPositionById = function(_, position)
+            if position ~= "outside" then return nil end
+            local area = seat < 4 and "Seat" .. tostring(seat)
+                or "Seat" .. tostring(seat - 2)
+            return { getArea = function() return area end }
+        end }
+    end }
+end
+function sixSeatVan:getPassengerPosition(seat, position)
+    if seat < 0 or seat >= 6 then return nil end
+    if position == "inside" then return { position = position } end
+    if position == "outside" then
+        local area = seat < 4 and "Seat" .. tostring(seat)
+            or "Seat" .. tostring(seat - 2)
+        return { getArea = function() return area end }
+    end
+end
+function sixSeatVan:getEnterSeatDistance(seat, x, y)
+    if self.singleDoor and seat ~= 1 then return -1 end
+    if seat >= 4 then return -1 end
+    return (x - 1.5) ^ 2 + (y - 0.5) ^ 2
+end
+function sixSeatVan:canSwitchSeat(from, to)
+    return from == 1 and (to == 2 or to == 3)
+        or (from == 2 or from == 3) and to == 1
+        or (from == 2 or from == 3) and (to == 4 or to == 5)
+        or (from == 4 or from == 5) and (to == 2 or to == 3)
+end
+function sixSeatVan:switchSeat(candidate, to)
+    local from = self:getSeat(candidate)
+    if from < 0 or self.occupants[to] ~= nil or not self:canSwitchSeat(from, to) then
+        return
+    end
+    self.occupants[from], self.occupants[to] = nil, candidate
+    self.positions[to], self.positions[from] = "inside", nil
+end
+function sixSeatVan:enter(seat, candidate)
+    if self.occupants[seat] ~= nil then return false end
+    self.occupants[seat], candidate.vehicle = candidate, self
+    self.positions[seat] = "outside"
+    return true
+end
+function sixSeatVan:exit(candidate)
+    local seat = self:getSeat(candidate)
+    if seat < 0 then return false end
+    self.occupants[seat], self.positions[seat], candidate.vehicle = nil, nil, nil
+    return true
+end
+function sixSeatVan:setCharacterPosition(candidate, seat, position)
+    if self.occupants[seat] == candidate then self.positions[seat] = position end
+end
+function sixSeatVan:transmitCharacterPosition() end
+function sixSeatVan:playPassengerAnim() end
+function sixSeatVan:getPassengerDoor() return nil end
+local previousPlayerVehicle = manifestPlayer.vehicle
+manifestPlayer.vehicle = sixSeatVan
+SC.Vehicle.invalidateManifests()
+local rearWait, rearWaitReason = SC.Vehicle.assignmentFor(
+    manifestActors[4], sixSeatVan, manifestPlayer)
+check(rearWait == nil and rearWaitReason == "vehicle_entry_seat_wait",
+    "six-seat rear passengers wait for an occupied middle doorway")
+sixSeatVan.occupants[0] = manifestPlayer
+for seat = 1, 3 do
+    sixSeatVan.occupants[seat] = manifestActors[seat]
+    manifestActors[seat].vehicle = sixSeatVan
+    sixSeatVan.positions[seat] = "inside"
+end
+local fourth = SC.Vehicle.assignmentFor(manifestActors[4], sixSeatVan, manifestPlayer)
+check(fourth and fourth.seat == 2 and sixSeatVan:getCharacter(4) == manifestActors[2]
+        and sixSeatVan:getCharacter(2) == nil,
+    "first middle passenger switches to rear and frees the fourth seat")
+manifestActors[4].px, manifestActors[4].py = 1.5, 0.5
+local fourthBoarded, fourthReason = SC.Vehicle.board(manifestActors[4], sixSeatVan, 2, {})
+check(fourthBoarded and fourthReason == "native_seat"
+        and sixSeatVan:getCharacter(2) == manifestActors[4]
+        and sixSeatVan.positions[2] == "inside",
+    "fourth companion boards the freed middle door in a native inside seat")
+local fifth = SC.Vehicle.assignmentFor(manifestActors[5], sixSeatVan, manifestPlayer)
+local fifthDoor = fifth and fifth.seat or -1
+check((fifthDoor == 2 or fifthDoor == 3)
+        and sixSeatVan:getCharacter(5) ~= nil
+        and sixSeatVan:getCharacter(fifthDoor) == nil,
+    "another middle passenger switches to rear and frees the fifth door seat")
+manifestActors[5].px, manifestActors[5].py = 1.5, 0.5
+local fifthBoarded, fifthReason = SC.Vehicle.board(manifestActors[5], sixSeatVan,
+    fifthDoor, {})
+check(fifthBoarded and fifthReason == "native_seat"
+        and sixSeatVan:getCharacter(fifthDoor) == manifestActors[5]
+        and sixSeatVan.positions[fifthDoor] == "inside"
+        and sixSeatVan:getCharacter(1) ~= nil
+        and sixSeatVan:getCharacter(2) ~= nil
+        and sixSeatVan:getCharacter(3) ~= nil
+        and sixSeatVan:getCharacter(4) ~= nil
+        and sixSeatVan:getCharacter(5) ~= nil,
+    "five companions occupy five distinct inside seats of the six-seat van")
+local rearBlocked, rearBlockedReason = SC.Vehicle.exit(manifestActors[2], sixSeatVan)
+check(not rearBlocked and rearBlockedReason == "vehicle_exit_access_wait"
+        and sixSeatVan:getCharacter(4) == manifestActors[2],
+    "rear passenger stays seated while both middle door seats are occupied")
+local middleExited, middleExitReason = SC.Vehicle.exit(manifestActors[5], sixSeatVan)
+check(middleExited and middleExitReason == "native_exit",
+    "a middle passenger exits to open the rear passenger's path")
+local rearExited, rearExitReason = SC.Vehicle.exit(manifestActors[2], sixSeatVan)
+check(rearExited and rearExitReason == "native_exit"
+        and manifestActors[2]:getVehicle() == nil,
+    "rear passenger switches through the freed middle seat and exits")
+for seat = 0, 5 do
+    local passenger = sixSeatVan.occupants[seat]
+    if passenger then passenger.vehicle = nil end
+    sixSeatVan.occupants[seat] = nil
+end
+sixSeatVan.singleDoor = true
+sixSeatVan.occupants[0] = manifestPlayer
+for index = 1, 5 do
+    manifestActors[index].px, manifestActors[index].py = 1.5, 0.5
+end
+SC.Vehicle.invalidateManifests(sixSeatVan)
+for index = 1, 5 do
+    local passenger = manifestActors[index]
+    local assignment, assignmentReason = SC.Vehicle.assignmentFor(passenger, sixSeatVan, manifestPlayer)
+    local boarded, status
+    if assignment then
+        boarded, status = SC.Vehicle.board(passenger,
+            sixSeatVan, assignment.seat, {})
+    end
+    check(boarded == true and status == "native_seat"
+            and assignment.seat == 1,
+        "single-door van routes companion " .. index .. " through the front passenger door"
+            .. " (assigned=" .. tostring(assignment and assignment.seat)
+            .. ", reason=" .. tostring(assignmentReason)
+            .. ", board=" .. tostring(boarded)
+            .. ", status=" .. tostring(status) .. ")")
+end
+local allInside = true
+for seat = 1, 5 do
+    allInside = allInside and sixSeatVan:getCharacter(seat) ~= nil
+end
+check(allInside, "single-door van fills all five passenger seats through native switches")
+for seat = 1, 5 do
+    local passenger = sixSeatVan:getCharacter(seat)
+    local exited = passenger and SC.Vehicle.exit(passenger, sixSeatVan)
+    check(exited == true and passenger:getVehicle() == nil,
+        "single-door van passenger " .. seat .. " exits through free seat links")
+end
+manifestPlayer.vehicle = previousPlayerVehicle
+for index = 1, 5 do
+    manifestActors[index].px, manifestActors[index].py = nil, nil
+end
+SC.Vehicle.invalidateManifests(sixSeatVan)
+end
 for _, candidate in ipairs(manifestActors) do SC.Registry.unregister(candidate) end
 local laterRecruit = setmetatable({
     __owned = true,

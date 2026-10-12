@@ -14215,7 +14215,9 @@ local function passengerPreferredZone(square)
 end
 
 local function passengerSeatFixture(vehicle, U, z)
-    if vehicle == nil or tostring(vehicle:getScriptName()) ~= "Base.CarNormal" then
+    local expected = Harness.config.six_seat_probe == "true"
+        and "Base.VanSeats" or "Base.CarNormal"
+    if vehicle == nil or tostring(vehicle:getScriptName()) ~= expected then
         return nil
     end
     for seat = 1, math.min(vehicle:getMaxPassengers() - 1, 3) do
@@ -14273,6 +14275,7 @@ function Harness.beginVehiclePassenger(current)
         return false
     end
     local attempts, abortSearch = 0, false
+    local attemptLimit = 6
     -- A car occupies more than its origin tile. Prefer real navigation or
     -- parking zones, but accept any fully outdoor 7x7 patch in the clone.
     for preferredPass = 1, 2 do
@@ -14286,8 +14289,10 @@ function Harness.beginVehiclePassenger(current)
                         if center and preferred == (preferredPass == 1)
                             and passengerOpenPatch(U, x, y, 3) then
                             attempts = attempts + 1
+                            local script = Harness.config.six_seat_probe == "true"
+                                and "Base.VanSeats" or "Base.CarNormal"
                             local ok, created = pcall(addVehicle,
-                                "Base.CarNormal", x, y, 0)
+                                script, x, y, 0)
                             if ok and created then
                                 local vx, vy = math.floor(created:getX()),
                                     math.floor(created:getY())
@@ -14317,15 +14322,15 @@ function Harness.beginVehiclePassenger(current)
                             else
                                 fixtureFailure = tostring(created)
                             end
-                            if attempts >= 6 then break end
+                            if attempts >= attemptLimit then break end
                         end
                     end
                 end
-                if vehicle or abortSearch or attempts >= 6 then break end
+                if vehicle or abortSearch or attempts >= attemptLimit then break end
             end
-            if vehicle or abortSearch or attempts >= 6 then break end
+            if vehicle or abortSearch or attempts >= attemptLimit then break end
         end
-        if vehicle or abortSearch or attempts >= 6 then break end
+        if vehicle or abortSearch or attempts >= attemptLimit then break end
     end
     if not check("vehicle_passenger_fixture", vehicle ~= nil,
         vehicle and ("vehicle=" .. tostring(vehicle:getScriptName())
@@ -14391,7 +14396,8 @@ function Harness.probeVehiclePassenger(current)
         end
         Harness.passengerActor = actor
         SC.Scheduler.unregister("decision")
-        setPhase("vehicle_passenger_wait_stationary", current)
+        setPhase(Harness.config.six_seat_probe == "true"
+            and "six_seat_setup" or "vehicle_passenger_wait_stationary", current)
         return
     end
     if Harness.phase == "vehicle_passenger_wait_stationary" then
@@ -15353,6 +15359,9 @@ end
 Harness.probeDriving = function(...)
     return externalProbe("SCDrivingProbe", ...)
 end
+Harness.probeSixSeat = function(...)
+    return externalProbe("SCSixSeatProbe", ...)
+end
 Harness.drivingSignals = { write = writeSignal, exists = fileExists }
 
 Harness.probeStrangeFolkPortrait = function(...)
@@ -16202,6 +16211,9 @@ local function tick()
         Harness.probeFurniturePose(current)
     elseif Harness.phase == "vehicle_passenger_begin" then
         Harness.beginVehiclePassenger(current)
+    elseif Harness.phase == "six_seat_setup" or Harness.phase == "six_seat_spawn"
+        or Harness.phase == "six_seat_board" or Harness.phase == "six_seat_exit" then
+        Harness.probeSixSeat(Harness, current, check, result, setPhase)
     elseif Harness.phase == "vehicle_passenger_spawn"
         or Harness.phase == "vehicle_passenger_wait_stationary"
         or Harness.phase == "vehicle_passenger_settle"
@@ -16416,7 +16428,8 @@ local function onGameStart()
         setPhase("companion_inventory_begin", Harness.startedAt)
     elseif Harness.config.furniture_pose_only == "true" then
         setPhase("furniture_pose_begin", Harness.startedAt)
-    elseif Harness.config.vehicle_passenger_only == "true" then
+    elseif Harness.config.vehicle_passenger_only == "true"
+        or Harness.config.six_seat_probe == "true" then
         setPhase("vehicle_passenger_begin", Harness.startedAt)
     elseif Harness.config.woodcutter_only == "true" then
         setPhase("woodcutter_probe", Harness.startedAt)

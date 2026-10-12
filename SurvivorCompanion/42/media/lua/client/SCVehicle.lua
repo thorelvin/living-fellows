@@ -261,6 +261,51 @@ local function doorDistanceSquared(vehicle, seat, x, y)
     return distance >= 0 and distance or nil
 end
 
+local nearbyVehicleSquares
+
+local function exteriorArea(vehicle, seat)
+    local scriptOk, script = invoke(vehicle, "getScript")
+    if scriptOk and script ~= nil then
+        local passengerOk, passenger = invoke(script, "getPassenger", seat)
+        if passengerOk and passenger ~= nil then
+            local positionOk, position = invoke(passenger,
+                "getPositionById", "outside")
+            if positionOk then
+                if position == nil then return nil, true end
+                local areaOk, area = invoke(position, "getArea")
+                if areaOk then return area, true end
+            end
+        end
+    end
+    local positionOk, position = invoke(vehicle,
+        "getPassengerPosition", seat, "outside")
+    if not positionOk then return nil, false end
+    -- A provider may omit this accessor even when native seat distance and
+    -- exit-square checks work. Only a missing scripted outside position is
+    -- authoritative evidence that the seat has no exterior entry.
+    if position == nil then return nil, false end
+    local areaOk, area = invoke(position, "getArea")
+    return areaOk and area or nil, areaOk
+end
+
+-- A VanSeats rear seat inherits the middle-door area even though it must be
+-- reached by switching seats. Use script areas, since the native position
+-- accessor may return nil for a middle seat after it becomes occupied.
+local function hasExteriorEntry(vehicle, seat)
+    local area, known = exteriorArea(vehicle, seat)
+    if not known then return true end -- Lightweight providers.
+    if type(area) ~= "string" or area == "" then return false end
+    for otherSeat = 0, seat - 1 do
+            local otherArea = select(1, exteriorArea(vehicle, otherSeat))
+            local switchOk, canSwitch = invoke(vehicle,
+                "canSwitchSeat", otherSeat, seat)
+            if otherArea == area and switchOk and canSwitch == true then
+                return false
+            end
+    end
+    return true
+end
+
 local function availableSeat(vehicle, identity, seat, actorId)
     local installedOk, installed = invoke(vehicle, "isSeatInstalled", seat)
     local occupiedOk, occupied = invoke(vehicle, "isSeatOccupied", seat)
@@ -535,6 +580,95 @@ local function manifestFor(vehicle, player)
     return manifest
 end
 
+local function directEntryAvailable(vehicle, seat, actor)
+    if not hasExteriorEntry(vehicle, seat) then return false end
+    local cellOk, cell = invoke(vehicle, "getCell")
+    if not cellOk or cell == nil then return true end -- Lightweight providers.
+    return select(1, nearbyVehicleSquares(vehicle, seat, actor)) ~= nil
+end
+
+local function passengerDoorLocked(vehicle, seat)
+    local partOk, part = invoke(vehicle, "getPassengerDoor", seat)
+    local doorOk, door = false, nil
+    if partOk and part ~= nil then doorOk, door = invoke(part, "getDoor") end
+    if not doorOk or door == nil then return false end
+    local lockedOk, locked = invoke(door, "isLocked")
+    return lockedOk and locked == true
+end
+
+-- Shift seated companions along native seat-switch links until a real outside
+-- door becomes free for the waiting companion. VanSeats may need two hops:
+-- front passenger -> middle -> rear.
+local function openInteriorSeat(manifest, waitingActor, targetSeat)
+    local vehicle = manifest.vehicle
+    local waitingId = SC.Registry.idOf(waitingActor)
+    if waitingId == nil or select(1, stationary(vehicle)) ~= true then return nil end
+    local occupiedOk, occupied = invoke(vehicle, "isSeatOccupied", targetSeat)
+    if not occupiedOk or occupied ~= false then return nil end
+    local count = manifest.seatCount
+    local function findPath(toSeat, seen)
+        if seen[toSeat] then return nil end
+        seen[toSeat] = true
+        for fromSeat = 1, count - 1 do
+            local donorId = manifest.assignmentBySeat[fromSeat]
+            local donor = donorId and manifest.actors[donorId] or nil
+            local actorOk, current = invoke(vehicle, "getCharacter", fromSeat)
+            local switchOk, canSwitch = invoke(vehicle,
+                "canSwitchSeat", fromSeat, toSeat)
+            if not seen[fromSeat] and donor ~= nil and donor ~= waitingActor
+                and actorOk and current == donor
+                and eligibleFollower(donor, vehicle)
+                and not transactionIsCurrent(transactions[donor])
+                and switchOk and canSwitch == true then
+                local direct = directEntryAvailable(vehicle, fromSeat, waitingActor)
+                if direct then return { fromSeat, toSeat } end
+                local earlier = findPath(fromSeat, seen)
+                if earlier then
+                    earlier[#earlier + 1] = toSeat
+                    return earlier
+                end
+            end
+        end
+        seen[toSeat] = nil
+        return nil
+    end
+    local path = findPath(targetSeat, {})
+    if path == nil then return nil end
+    for index = #path - 1, 1, -1 do
+        local fromSeat, toSeat = path[index], path[index + 1]
+        local donorId = manifest.assignmentBySeat[fromSeat]
+        local displacedId = manifest.assignmentBySeat[toSeat]
+        local donor = donorId and manifest.actors[donorId] or nil
+        local emptyOk, empty = invoke(vehicle, "isSeatOccupied", toSeat)
+        if donor == nil or not emptyOk or empty ~= false then return nil end
+        local switchOk = invoke(vehicle, "switchSeat", donor, toSeat)
+        local seatOk, actualSeat = invoke(vehicle, "getSeat", donor)
+        local actorOk, occupant = invoke(vehicle, "getCharacter", toSeat)
+        local oldOk, oldOccupant = invoke(vehicle, "getCharacter", fromSeat)
+        if not switchOk or not seatOk or tonumber(actualSeat) ~= toSeat
+            or not actorOk or occupant ~= donor or not oldOk
+            or oldOccupant ~= nil then return nil end
+        invoke(vehicle, "playPassengerAnim", toSeat, "idle")
+        manifest.assignments[donorId] = toSeat
+        manifest.assignmentBySeat[toSeat] = donorId
+        manifest.assignmentBySeat[fromSeat] = displacedId
+        if displacedId ~= nil then manifest.assignments[displacedId] = fromSeat end
+        reservations[seatKey(manifest.identity, toSeat)] = donorId
+        reservations[seatKey(manifest.identity, fromSeat)] = displacedId
+        local record = SC.Registry.byId(donorId)
+        if record then
+            record.runtime = type(record.runtime) == "table" and record.runtime or {}
+            record.runtime.vehicle = { native = true, vehicle = vehicle,
+                seat = toSeat }
+        end
+        traceBoarding(donor, "switched_inside",
+            "from=" .. tostring(fromSeat) .. " to=" .. tostring(toSeat))
+    end
+    local entry = manifest.assignments[waitingId]
+    if entry ~= path[1] then return nil end
+    return entry
+end
+
 function vehicleService.invalidateManifests(vehicle)
     if vehicle ~= nil then
         local key = keyFor(vehicleIdentity(vehicle))
@@ -559,6 +693,14 @@ function vehicleService.assignmentFor(actor, vehicle, player)
             capacity = manifest.capacity,
             waiting = manifest.waiting,
         }
+    end
+    if not directEntryAvailable(vehicle, seat, actor)
+        or (seat > 1 and passengerDoorLocked(vehicle, seat)) then
+        seat = openInteriorSeat(manifest, actor, seat)
+        if seat == nil then return nil, "vehicle_entry_seat_wait", {
+            assigned = manifest.assigned, capacity = manifest.capacity,
+            waiting = manifest.waiting,
+        } end
     end
     return {
         seat = seat,
@@ -795,7 +937,7 @@ local function safeSquare(square)
         and floorOk and floor == true and freeOk and free == true
 end
 
-local function nearbyVehicleSquares(vehicle, seat, actor)
+nearbyVehicleSquares = function(vehicle, seat, actor)
     local xOk, x = invoke(vehicle, "getX")
     local yOk, y = invoke(vehicle, "getY")
     local zOk, z = invoke(vehicle, "getZ")
@@ -865,6 +1007,77 @@ end
 local function exitSquare(vehicle, player, seat)
     local squares, reason = nearbyVehicleSquares(vehicle, seat, player)
     return squares and squares[1] or nil, reason
+end
+
+local function moveToExteriorExitSeat(actor, vehicle, seat, identity)
+    local countOk, count = invoke(vehicle, "getMaxPassengers")
+    count = countOk and math.floor(finite(count, -1)) or -1
+    if count < 2 or count > 32 then return nil, "vehicle_exit_access_wait" end
+    local id = SC.Registry.idOf(actor)
+    local function findPath(fromSeat, seen)
+        if seen[fromSeat] then return nil end
+        if hasExteriorEntry(vehicle, fromSeat)
+            and select(1, exitSquare(vehicle, nil, fromSeat)) ~= nil then
+            return { fromSeat }
+        end
+        seen[fromSeat] = true
+        for toSeat = 1, count - 1 do
+            local installedOk, installed = invoke(vehicle, "isSeatInstalled", toSeat)
+            local occupiedOk, occupied = invoke(vehicle, "isSeatOccupied", toSeat)
+            local canOk, canSwitch = invoke(vehicle,
+                "canSwitchSeat", fromSeat, toSeat)
+            local reservation = seatKey(identity, toSeat)
+            local reservedBy = reservation and reservations[reservation] or nil
+            if not seen[toSeat] and installedOk and installed == true
+                and occupiedOk and occupied == false and canOk
+                and canSwitch == true and (reservedBy == nil or reservedBy == id) then
+                local onward = findPath(toSeat, seen)
+                if onward then
+                    table.insert(onward, 1, fromSeat)
+                    return onward
+                end
+            end
+        end
+        seen[fromSeat] = nil
+        return nil
+    end
+    local path = findPath(seat, {})
+    if path == nil then return nil, "vehicle_exit_access_wait" end
+    if #path == 1 then return seat end
+    if SC.Actor.stop(actor) ~= true then return nil, "vehicle_exit_stop_failed" end
+    local key = keyFor(identity)
+    local manifest = key and manifests[key] or nil
+    for index = 2, #path do
+        local fromSeat, toSeat = path[index - 1], path[index]
+        local switchOk = invoke(vehicle, "switchSeat", actor, toSeat)
+        local seatOk, actualSeat = invoke(vehicle, "getSeat", actor)
+        local actorOk, occupant = invoke(vehicle, "getCharacter", toSeat)
+        if not switchOk or not seatOk or tonumber(actualSeat) ~= toSeat
+            or not actorOk or occupant ~= actor then
+            return nil, "vehicle_exit_seat_switch_failed"
+        end
+        invoke(vehicle, "playPassengerAnim", toSeat, "idle")
+        local oldReservation = seatKey(identity, fromSeat)
+        if oldReservation and reservations[oldReservation] == id then
+            reservations[oldReservation] = nil
+        end
+        local reservation = seatKey(identity, toSeat)
+        if reservation then reservations[reservation] = id end
+        if manifest and manifest.assignments[id] == fromSeat then
+            manifest.assignments[id] = toSeat
+            manifest.assignmentBySeat[fromSeat] = nil
+            manifest.assignmentBySeat[toSeat] = id
+        end
+        local record = SC.Registry.byId(id)
+        if record then
+            record.runtime = type(record.runtime) == "table" and record.runtime or {}
+            record.runtime.vehicle = { native = true, vehicle = vehicle,
+                seat = toSeat }
+        end
+        traceBoarding(actor, "switched_for_exit",
+            "from=" .. tostring(fromSeat) .. " to=" .. tostring(toSeat))
+    end
+    return path[#path]
 end
 
 function vehicleService.safeExitSquares(vehicle, seat)
@@ -1499,6 +1712,9 @@ function vehicleService.exit(actor, vehicle, requestedSeat, intent)
     local identity = vehicleIdentity(vehicle)
     if not seatOk or finite(seat, -1) < 0 then return false, "native vehicle seat is invalid" end
     seat = math.floor(seat)
+    local exteriorSeat, exteriorReason = moveToExteriorExitSeat(actor, vehicle, seat, identity)
+    if exteriorSeat == nil then return false, exteriorReason end
+    seat = exteriorSeat
     local transaction = transactions[actor]
     if not transactionIsCurrent(transaction) or transaction.action ~= "exit_vehicle"
         or transaction.vehicle ~= vehicle or transaction.seat ~= seat then
