@@ -1794,10 +1794,16 @@ local function actualOpenSegmentWithinBatch(actor, targetX, targetY, targetZ, op
             -- occupant at all: a companion or zombie standing on open ground
             -- leaves it true. Ask the dynamic question instead, excluding the
             -- mover itself and the particles the utility already filters out.
-            if options.directWalkOnly == true
-                and (Navigation.edgeAffordance(previous, square) ~= nil
-                    or U().movingBlocker(square, options.actor) ~= nil) then
-                return false
+            if options.directWalkOnly == true then
+                local edge = Navigation.edgeAffordance(previous, square)
+                local openDoor = options.allowOpenDoor == true and edge
+                    and edge.kind == "door" and edge.object ~= nil
+                    and objectOpen(edge.object)
+                local blocker = U().movingBlocker(square, options.actor)
+                if (edge ~= nil and not openDoor)
+                    or (blocker ~= nil and blocker ~= options.allowedBlocker) then
+                    return false
+                end
             end
             local passable = passableEdge(previous, square,
                 options.vegetationScale, options)
@@ -1836,6 +1842,20 @@ function Navigation.openSegment(actor, targetX, targetY, targetZ, options)
     options.directWalkOnly = true
     local _, _, actorZ = U().position(actor)
     return actualOpenSegment(actor, targetX, targetY, targetZ or actorZ, options) == true
+end
+
+-- Direct talk requires an unobstructed, walkable line between the two actors.
+-- The partner may occupy the final square; a closed door, window, fence, wall
+-- or intervening person may not be treated as a ready conversation position.
+function Navigation.conversationAccess(actor, partner)
+    local utility = U()
+    if not utility or not utility.sameFloor(actor, partner) then return false end
+    local x, y, z = utility.position(partner)
+    if x == nil then return false end
+    return actualOpenSegment(actor, x, y, z, {
+        actor = actor, allowedBlocker = partner,
+        allowOpenDoor = true, directWalkOnly = true,
+    }) == true
 end
 
 -- Aim sustained manual travel several proven-open tiles ahead. The route and

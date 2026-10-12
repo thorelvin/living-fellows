@@ -625,6 +625,7 @@ local function actor(id, x, y, options)
     function value:getForwardDirectionX() return self.forwardX end
     function value:getForwardDirectionY() return self.forwardY end
     function value:isMoving() return self.moving == true end
+    function value:isAsleep() return self.asleep == true end
     function value:isRunning() return self.running == true end
     function value:isSprinting() return self.sprinting == true end
     function value:isSneaking() return self.sneaking == true end
@@ -5603,6 +5604,41 @@ check(socialDistance >= 1.2 and socialDistance <= 2.8,
     check(positioning.updateConversation(speaker, {}) and replies == 1,
         "the reply commits once after native stop accepts ownership")
 
+    local between = cell:getGridSquare(22, 19, 0)
+    speaker.square.blocked[between], between.blocked[speaker.square] = true, true
+    check(positioning.beginConversation(speaker, partner, {
+            action = "needs", onReady = function() replies = replies + 1; return true end,
+        }), "a nearby request may stage before checking the intervening barrier")
+    local inaccessible, accessReason = positioning.updateConversation(speaker, {})
+    speaker.square.blocked[between], between.blocked[speaker.square] = nil, nil
+    check(not inaccessible and accessReason == "conversation_access_blocked"
+            and replies == 1,
+        "a nearby visible partner behind a solid barrier cannot commit direct talk")
+    local door = { open = false }
+    function door:IsOpen() return self.open end
+    function door:isLocked() return false end
+    local originalDoorTo, originalGetDoor = speaker.square.isDoorTo, between.getDoor
+    speaker.square.isDoorTo = function(_, square) return square == between end
+    between.getDoor = function() return door end
+    check(not SurvivorCompanion.Navigation.conversationAccess(speaker, partner),
+        "a shut door blocks nearby direct talk even when the companion can see the player")
+    door.open = true
+    check(SurvivorCompanion.Navigation.conversationAccess(speaker, partner),
+        "an open doorway permits direct talk")
+    speaker.square.isDoorTo, between.getDoor = originalDoorTo, originalGetDoor
+    local originalWindowTo, originalGetWindow = speaker.square.isWindowTo,
+        between.getWindow
+    speaker.square.isWindowTo = function(_, square) return square == between end
+    between.getWindow = function() return { IsOpen = function() return true end } end
+    check(not SurvivorCompanion.Navigation.conversationAccess(speaker, partner),
+        "a window remains a traversal barrier for direct talk")
+    speaker.square.isWindowTo, between.getWindow = originalWindowTo,
+        originalGetWindow
+    between.solid = true
+    check(not SurvivorCompanion.Navigation.conversationAccess(speaker, partner),
+        "solid furniture between the pair blocks direct talk")
+    between.solid = nil
+
     local farReason
     positioning.beginConversation(speaker, partner, {
         action = "needs", onCancel = function(reason) farReason = reason end,
@@ -7111,34 +7147,66 @@ end
 -- reaches the same 1.2-2.8 tile ring used during ordinary decisions.
 function finishPendingConversation(subject, partner)
     local previousSquare = subject.square
-    subject.square = cell:getGridSquare(partner.square.x,
-        partner.square.y + 2, partner.square.z)
+    local previousPartnerSquare = partner.square
+    partner.square = cell:getGridSquare(50, -50, partner.square.z)
+    subject.square = cell:getGridSquare(52, -50, partner.square.z)
     local accepted, reason = SurvivorCompanion.Positioning.updateConversation(subject,
         { threatCount = 0, immediateCount = 0, allies = {} })
     subject.square = previousSquare
+    partner.square = previousPartnerSquare
     return accepted, reason
 end
 
 function talkAtArrival(id, action, partner)
     local subject = assert(registry[id])
     local previousSquare = subject.square
-    subject.square = cell:getGridSquare(partner.square.x,
-        partner.square.y + 2, partner.square.z)
+    local previousPartnerSquare = partner.square
+    partner.square = cell:getGridSquare(50, -50, partner.square.z)
+    subject.square = cell:getGridSquare(52, -50, partner.square.z)
     local beforeSpeech = subject.lastSpeech
     local accepted, reason = SurvivorCompanion.Commands.conversation(id, action, partner)
     check(not accepted or subject.lastSpeech == beforeSpeech,
         "conversation request must not speak before arrival")
     if accepted then finishPendingConversation(subject, partner) end
     subject.square = previousSquare
+    partner.square = previousPartnerSquare
     return accepted, accepted and subject.lastSpeech or reason
 end
 
 local statusOK = SurvivorCompanion.Commands.issue(fellow.id, "status", nil, player)
 if statusOK then finishPendingConversation(fellow, player) end
-check(statusOK and fellow.lastSpeech and SurvivorCompanion.UI.lastStatus.id == fellow.id, "status speaks on the companion and emits readable UI data")
+check(statusOK and fellow.lastSpeech and SurvivorCompanion.UI.lastStatus.id == fellow.id,
+    "status speaks on the companion and emits readable UI data")
+check(SurvivorCompanion.Dialogue.lastSpokenTopic(fellow) == "conversation.status"
+        and SurvivorCompanion.Dialogue.lastSpokenAt(fellow) == clock,
+    "direct status replies enter the shared dialogue quiet window")
 check(talkAtArrival(fellow.id, "needs", player)
     and talkAtArrival(fellow.id, "opinion", player),
     "contextual needs and opinion conversations speak successfully")
+check(SurvivorCompanion.Dialogue.lastSpokenTopic(fellow) == "conversation.opinion",
+    "later direct replies replace the shared speech topic")
+function runResolvedSpeechRegression()
+    local dialogue = SurvivorCompanion.Dialogue
+    local utility = SurvivorCompanion.GameplayUtil
+    local originalSay = utility.say
+    local before = dialogue.lastSpokenAt(fellow)
+    utility.say = function() return false end
+    local refused = dialogue.emitResolved(fellow, "conversation.refused", "No receipt.")
+    check(not refused and dialogue.lastSpokenAt(fellow) == before,
+        "rejected overhead without a transcript does not claim speech")
+    local transcript = SurvivorCompanion.Interaction.state(fellow.id)
+    local priorLines = #transcript.lines
+    local accepted = talkAtArrival(fellow.id, "memory", player)
+    utility.say = originalSay
+    check(accepted and #transcript.lines == priorLines + 2
+            and transcript.lines[#transcript.lines].speaker == "companion"
+            and dialogue.lastSpokenTopic(fellow) == "conversation.memory"
+            and dialogue.lastSpokenAt(fellow) == clock
+            and dialogue.lastDisplayUntil(fellow) == clock,
+        "one UI-only direct reply gets one transcript and a truthful speech receipt")
+end
+runResolvedSpeechRegression()
+runResolvedSpeechRegression = nil
 do
     local doingToken = assert(SurvivorCompanion.ActionSupervisor.begin(fellow, {
         owner = "scavenge", action = "scavenge", targetKey = "shelf:test",
@@ -23418,7 +23486,10 @@ end)()
     }
     local meetingAt = p0 + 300000
     clock = meetingAt
+    local savedMeetingHash = SurvivorCompanion.GameplayUtil.stableHash
+    SurvivorCompanion.GameplayUtil.stableHash = function() return 0 end
     local greeted, greetingTopic = banter.update(player, meetingRecords, meetingAt)
+    SurvivorCompanion.GameplayUtil.stableHash = savedMeetingHash
     local stagedGreeting = SurvivorCompanion.Positioning.activeConversation(greeter) ~= nil
         and SurvivorCompanion.Positioning.activeConversation(newcomer) ~= nil
     clock = meetingAt + 3000
@@ -23428,6 +23499,8 @@ end)()
     banter.update(player, meetingRecords, clock)
     check(greeted == true and greetingTopic == "banter.meeting.hello"
             and stagedGreeting and answered == true and answerTopic == "banter.meeting.reply"
+            and greeter.lastSpeech == "Hey there. I am " .. greeter.id
+                .. ". We are not looking for trouble."
             and dialogue.lastSpokenTopic(greeter) == "banter.meeting.hello"
             and dialogue.lastSpokenTopic(newcomer) == "banter.meeting.reply"
             and (greeter.speechCalls or 0) + (newcomer.speechCalls or 0) == callsAfterMeeting,
@@ -23454,16 +23527,115 @@ end)()
     }
     local campAt = meetingAt + 100000
     clock = campAt
+    local savedCampHash = SurvivorCompanion.GameplayUtil.stableHash
+    SurvivorCompanion.GameplayUtil.stableHash = function() return 0 end
     local chatted, campTopic = banter.update(player, campRecords, campAt)
     local stagedCampTalk = SurvivorCompanion.Positioning.activeConversation(camperA) ~= nil
         and SurvivorCompanion.Positioning.activeConversation(camperB) ~= nil
     clock = campAt + 3000
     local replied, replyTopic = banter.update(player, campRecords, clock)
+    SurvivorCompanion.GameplayUtil.stableHash = savedCampHash
     check(chatted == true and campTopic == "banter.camp.open" and stagedCampTalk
             and replied == true and replyTopic == "banter.camp.reply"
+            and string.find(camperA.lastSpeech or "", "you holding up all right?", 1, true)
+            and string.find(camperB.lastSpeech or "", "Still here. That counts for a lot", 1, true)
             and dialogue.lastSpokenTopic(camperA) == "banter.camp.open"
             and dialogue.lastSpokenTopic(camperB) == "banter.camp.reply",
-        "two settled camp residents start a bounded face-to-face conversation without waiting for the player to idle")
+        "two settled camp residents start a bounded face-to-face conversation without waiting for the player to idle: "
+            .. tostring(camperA.lastSpeech) .. " / " .. tostring(camperB.lastSpeech))
+    do
+        local _, quietConversation, advanceExchange = banter._socialForTests()
+        local function start(at)
+            banter.reset()
+            SurvivorCompanion.Positioning.reset(camperA)
+            SurvivorCompanion.Positioning.reset(camperB)
+            clock = at
+            return quietConversation(player, campRecords, at)
+        end
+        camperA.moving = true
+        check(not start(campAt + 500000),
+            "walking companions do not enter stationary camp conversation")
+        camperA.moving = false
+        local movingMethod = camperA.isMoving
+        camperA.isMoving = nil
+        check(not start(campAt + 700000),
+            "unreadable movement state declines optional stationary conversation")
+        camperA.isMoving = movingMethod
+        camperA.asleep = true
+        check(not start(campAt + 900000),
+            "a sleeping speaker does not enter ordinary camp conversation")
+        camperA.asleep = false
+        camperB.asleep = true
+        check(not start(campAt + 1100000),
+            "a sleeping listener does not enter ordinary camp conversation")
+        camperB.asleep = false
+        local started = start(campAt + 1300000)
+        camperB.asleep = true
+        clock = campAt + 1303000
+        local spoke, reason = advanceExchange(campRecords, clock)
+        check(started and not spoke and reason == "conversation_interrupted",
+            "falling asleep after an opener cancels its pending reply")
+        camperB.asleep = false
+        started = start(campAt + 1500000)
+        local originalCanSee = SurvivorCompanion.GameplayUtil.canSee
+        SurvivorCompanion.GameplayUtil.canSee = function() return false end
+        clock = campAt + 1503000
+        spoke, reason = advanceExchange(campRecords, clock)
+        SurvivorCompanion.GameplayUtil.canSee = originalCanSee
+        check(started and not spoke and reason == "conversation_interrupted",
+            "a lost line of contact cancels an ordinary reply")
+        started = start(campAt + 1700000)
+        local originalOwner = SurvivorCompanion.ActionSupervisor.current
+        SurvivorCompanion.ActionSupervisor.current = function(value)
+            if value == camperB then return { owner = "base_work", action = "haul" } end
+            return originalOwner(value)
+        end
+        clock = campAt + 1703000
+        spoke, reason = advanceExchange(campRecords, clock)
+        SurvivorCompanion.ActionSupervisor.current = originalOwner
+        check(started and not spoke and reason == "conversation_interrupted",
+            "a new work owner cancels an ordinary reply")
+        started = start(campAt + 1800000)
+        SurvivorCompanion.Positioning.beginConversation(camperB, player,
+            { action = "needs", timeoutMs = 30000 })
+        clock = campAt + 1803000
+        spoke, reason = advanceExchange(campRecords, clock)
+        check(started and not spoke and reason == "conversation_interrupted"
+                and SurvivorCompanion.Positioning.activeConversation(camperB).action
+                    == "needs",
+            "a player-requested answer replaces ambient talk without losing its pose")
+        banter.reset()
+        SurvivorCompanion.Positioning.reset(camperB)
+        clock = campAt + 1850000
+        SurvivorCompanion.Positioning.beginConversation(camperA, player,
+            { action = "status", timeoutMs = 30000 })
+        check(not quietConversation(player, campRecords, clock),
+            "ambient chatter cannot replace a staged player question")
+        SurvivorCompanion.Positioning.reset(camperA)
+        started = start(campAt + 1900000)
+        clock = campAt + 1900100
+        dialogue.emitResolved(camperB, "conversation.status", "I'm needed elsewhere.")
+        clock = campAt + 1903000
+        spoke, reason = advanceExchange(campRecords, clock)
+        check(started and not spoke and reason == "conversation_interrupted",
+            "a direct answer takes priority over a pending ambient reply")
+        started = start(campAt + 2100000)
+        local originalHostility = SurvivorCompanion.Factions.isHostileBetween
+        SurvivorCompanion.Factions.isHostileBetween = function() return true end
+        clock = campAt + 2103000
+        spoke, reason = advanceExchange(campRecords, clock)
+        SurvivorCompanion.Factions.isHostileBetween = originalHostility
+        check(started and not spoke and reason == "conversation_interrupted",
+            "new hostility cancels a pending camp exchange")
+        started = start(campAt + 2300000)
+        clock = campAt + 2303000
+        spoke, reason = advanceExchange({ campRecords[1] }, clock)
+        check(started and not spoke and reason == "conversation_interrupted",
+            "a missing participant cancels a pending reply")
+        banter.reset()
+        SurvivorCompanion.Positioning.reset(camperA)
+        SurvivorCompanion.Positioning.reset(camperB)
+    end
     -- Followers count as camp company, and the camp includes the work zones
     -- in its reach band: two followers standing in the logging area talk
     -- like residents at the core.
@@ -23529,6 +23701,26 @@ end)()
         "resting companions can chat without a pose that interrupts their seats")
     local function tableConversationRegression()
     banter.reset()
+    local beatCount, beatSpec = banter._pairedForTests()
+    for _, stem in ipairs({ "banter.camp", "banter.shelter", "banter.meeting",
+            "banter.books", "banter.table.tea", "banter.table.meal",
+            "banter.table.chores", "banter.table.rain", "banter.table.before",
+            "banter.table.tomorrow", "banter.table.little_things" }) do
+        local opener = stem == "banter.meeting" and stem .. ".hello" or stem .. ".open"
+        local count = beatCount(opener)
+        check(count > 0, "paired conversation has open beats: " .. stem)
+        for index = 1, count do
+            local first = beatSpec(opener, index)
+            local answer = beatSpec(stem .. ".reply", index)
+            local closing = string.find(stem, "banter.table.", 1, true)
+                and beatSpec(stem .. ".close", index) or true
+            check(first and first.common and #first.common == 1
+                    and answer and answer.common and #answer.common == 1
+                    and closing and (closing == true or #closing.common == 1),
+                "each selected beat retains its matching answer and optional close: "
+                    .. stem .. "/" .. tostring(index))
+        end
+    end
     local tableSquare = cell:getGridSquare(4, 4, 0)
     local priorTableRoom = tableSquare.room
     tableSquare.room = shelterRoom
@@ -23569,6 +23761,10 @@ end)()
     clock = clock + 3000
     local tableReply, tableReplyTopic = advanceExchange(shelterRecords, clock)
     clock = clock + 3000
+    local earlyClose, earlyReason = advanceExchange(shelterRecords, clock)
+    check(not earlyClose and earlyReason == "conversation_waiting",
+        "the same speaker's table closing line waits for the opener's readable display window")
+    clock = math.max(clock, banter._partyForTests().exchange.nextAt)
     local tableClose, tableCloseTopic = advanceExchange(shelterRecords, clock)
     check(tableOpen and theme and tableReply and tableClose
             and tableReplyTopic == "banter.table." .. theme .. ".reply"

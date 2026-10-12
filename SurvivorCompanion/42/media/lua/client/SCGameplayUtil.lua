@@ -2073,16 +2073,21 @@ function U.nameOf(actor)
     return "Survivor"
 end
 
-function U.say(actor, textValue)
-    if actor == nil or textValue == nil then return false end
-    if not U.isCompanion(actor) then return false end
+function U.speechDisplayMillis(textValue)
     local line = tostring(textValue)
     local minimum = tonumber(U.config("dialogueDisplayMinMs")) or 8000
     local maximum = math.max(minimum, tonumber(U.config("dialogueDisplayMaxMs")) or 15000)
     local base = tonumber(U.config("dialogueDisplayBaseMs")) or 5000
     local perCharacter = tonumber(U.config("dialogueDisplayPerCharacterMs")) or 70
-    local duration = math.floor(math.max(minimum,
+    return math.floor(math.max(minimum,
         math.min(maximum, base + #line * perCharacter)))
+end
+
+function U.say(actor, textValue)
+    if actor == nil or textValue == nil then return false end
+    if not U.isCompanion(actor) then return false end
+    local line = tostring(textValue)
+    local duration = U.speechDisplayMillis(line)
     -- Owned native companions extend the newest actor-local line using a
     -- real-time clock. Older/test providers simply ignore this optional hook.
     U.call(actor, "setCompanionSpeechDisplayMillis", duration)

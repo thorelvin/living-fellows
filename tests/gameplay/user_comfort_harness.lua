@@ -34,6 +34,8 @@ check(beforeTable == "camp_conversation_cooldown"
 
 local first = { id = "first", commands = { recruited = true } }
 local second = { id = "second", commands = { recruited = true } }
+function first:isAsleep() return false end
+function second:isAsleep() return false end
 party.exchange = {
     first = first, second = second, secondCommands = second.commands,
     replyTopic = "banter.camp.reply", kind = "camp",

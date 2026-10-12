@@ -12,6 +12,7 @@ SC.GameplayUtil = {
     isValidActor = function(actor) return actor ~= nil end,
     isDead = function(actor) return actor.dead == true end,
     sameFloor = function() return true end,
+    canSee = function() return true end,
     distance = function() return 1 end,
     stableHash = function() return 0 end,
     roomName = function() return SC.ComfortTestRoom end,
@@ -32,6 +33,7 @@ SC.GameplayUtil = {
 
 SC.Dialogue = {
     register = function() end,
+    lastSpokenTopic = function(actor) return actor.lastTopic end,
     say = function(actor, topic)
         actor.lastTopic = topic
         return true

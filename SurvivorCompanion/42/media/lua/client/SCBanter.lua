@@ -109,7 +109,7 @@ local POOLS = {
             "I can judge the gaps again. Let's keep one open." },
         caring = { "Thank you for staying close. I am all right now.",
             "You stayed. That helped more than you probably know." },
-        practical = { "Breathing normal. I am functional again.",
+        practical = { "Okay. I can think straight again.",
             "Grip steady. Breathing controlled. Ready to continue." },
     },
     ["banter.interior.nicotine"] = {
@@ -129,8 +129,8 @@ local POOLS = {
             "A smoke can wait. Keep an eye on the next counter." },
         caring = { "Sorry. I know we have bigger problems. I just need a smoke.",
             "If we find cigarettes, save me one. I'll share the rest." },
-        practical = { "Low priority request: cigarettes, when we find some.",
-            "Nicotine craving active. A smoke would help." },
+        practical = { "If you find cigarettes, save me one.",
+            "I'm getting twitchy. Let me know if you find cigarettes." },
         stressed = { "I need a cigarette. Badly." },
     },
     ["banter.crowd.yield"] = {
@@ -167,11 +167,11 @@ local POOLS = {
         common = {
             "Still here. That counts for a lot, %1.",
             "Ask me again after coffee, %1. Real coffee.",
-            "Honestly? Better now that somebody asked.",
-            "I was thinking about home. The old one, not this place.",
-            "Tired, but not ready to give up. Not even close.",
-            "Something not about zombies? I miss terrible television.",
+            "I miss terrible television. There, no zombies in that sentence.",
+            "For a minute, it almost does feel normal.",
             "If this ends tomorrow, I sleep until next week.",
+            "We could talk about the old days. I miss complaining about TV.",
+            "I can sit a minute. It's good to hear your voice.",
             "We made it back. I will take that victory, %1.",
         },
         brave = { "Doing fine, %1. The dead should be worried about us." },
@@ -225,7 +225,7 @@ local POOLS = {
             "Good to meet you, %1. I do not want trouble either.",
             "Hello. Been a rough few days, but I am still here.",
             "Hey. Thanks for saying something before pointing a weapon.",
-            "Hi there. I have not heard a friendly voice in a while.",
+            "Just me for now. It's good to hear a friendly voice.",
             "Good to meet you. Let us both keep this calm.",
             "Hello, %1. Nice to remember people can still be polite.",
             "Hey. Alive, tired, and glad to see company.",
@@ -740,9 +740,8 @@ for topic, specification in pairs(SC.IntrusiveLines or {}) do
     POOLS[topic] = specification
 end
 
--- Each table exchange keeps one subject for all three turns. The speaker's
--- voice selector still picks a line within that subject; independent topics
--- would make a reply about supper answer a question about the roof.
+-- Each table theme has six indexed beats. An exchange selects one beat and
+-- keeps its opener, answer and closing line together.
 local TABLE_TALKS = {
     tea = {
         open = {
@@ -755,19 +754,19 @@ local TABLE_TALKS = {
         },
         reply = {
             "Cold tea and company beat hot tea alone.",
-            "I'll take a cup. Just keep Bandit out of the muffins.",
-            "Pour me one. I'll pretend the stove still works.",
-            "Only if Dumpling isn't sitting in the cup again.",
-            "I'll drink it. Dumpling can supervise from somewhere other than my lap.",
-            "Milli's reused that bag enough to give it a pension.",
+            "One more cup from one bag? Milli would be proud.",
+            "Pour me one. I'll drink while it's quiet.",
+            "Suspicious or not, I'll take a cup.",
+            "Then I'll judge the kettle after one sip.",
+            "Pour me one before Bandit gets all the biscuits.",
         },
         close = {
             "Put the kettle back by Milli. She'll want it tomorrow.",
             "That was almost an ordinary afternoon. I'll take it.",
-            "Best cup since the power went. Don't tell Milli it was the only one.",
+            "Best cup I've had today. Don't tell Milli it was the only one.",
             "Rinse the cups. Milli counts them every night.",
-            "Keep Bandit away from the cups. We're short on crockery and patience.",
-            "Dumpling approves of the empty kettle. No steam to argue with.",
+            "The kettle has nothing left to say now.",
+            "Bandit can have the crumbs. We keep the cups.",
         },
     },
     meal = {
@@ -781,19 +780,19 @@ local TABLE_TALKS = {
         },
         reply = {
             "Hot soup would do. Something with a spoon and no hurry.",
-            "I'd take eggs and toast. Burn the toast if you like.",
+            "Even eggs and toast would feel better with company.",
+            "Roast potatoes and anything fresh would do.",
+            "I miss complaining about supper. I'd take any of it now.",
             "Beans taste better when someone stays to eat with you.",
-            "A tomato from the garden would make this feel like a feast.",
-            "I'd settle for tea that stayed hot until the last sip.",
             "Bread, if we ever get the flour. I'd even wash the dishes.",
         },
         close = {
-            "Then that's a plan. One decent meal, all of us at this table.",
-            "I'll save you the good spoon if we ever find one.",
+            "I'd like that. One decent meal, all of us at this table.",
+            "I'll save you a seat if we ever get that breakfast.",
             "For now, pass the tin. Company helps.",
             "Funny how much a plate can make a place feel like home.",
             "We should eat together more often, even when the menu's grim.",
-            "I'll remember that order if the world ever opens a diner again.",
+            "Maybe we'll smell fresh bread here again.",
         },
     },
     chores = {
@@ -807,18 +806,18 @@ local TABLE_TALKS = {
         },
         reply = {
             "My hands are sore, but the wall's still standing.",
+            "I hear you. Every repair seems to invite another.",
             "A bucket buys us time. Dry boards will take longer.",
             "We can do one job at a time. That's how we got this far.",
             "I'd trade a week's sweeping for one working mop.",
-            "Tomorrow I'll check the hinges. They sound like a warning bell.",
             "The place has more faults than people. We'll catch up.",
         },
         close = {
-            "All right. Finish the tea first, then we'll see what needs doing.",
+            "Take a breather first, then we'll see what needs doing.",
             "That can be tomorrow's problem. Tonight the walls held.",
             "Put it on the list. I'll help when these legs remember their job.",
             "You're right. A house gets fixed one stubborn piece at a time.",
-            "We'll leave the bucket out and call it engineering.",
+            "Leave the broom for tomorrow. It'll still be there.",
             "Good. Nobody has to carry the whole place alone.",
         },
     },
@@ -832,19 +831,19 @@ local TABLE_TALKS = {
             "The rain makes every light in this room look warmer.",
         },
         reply = {
-            "At least rain keeps the dust down on the road.",
+            "I hear it too. At least we're on the dry side.",
             "If the shutters hold, I can almost sleep to it.",
+            "I miss that too. A warm room and nowhere urgent to be.",
+            "Let it knock. I'd rather stay here with you.",
             "Wet fields might give us something to grow next month.",
-            "Storms used to mean a day indoors and a pot on the stove.",
-            "I checked the window. No leak there yet.",
-            "Cold rain's honest. It tells you what kind of day you're having.",
+            "Makes me want to stay in this chair a little longer.",
         },
         close = {
             "We'll listen from this side of the glass, then.",
             "Maybe the morning will smell clean, for once.",
-            "If the roof lets go, wake me. Otherwise let it sing.",
+            "Maybe we can make a warm room of this one.",
             "A dry chair and someone to talk to. I'll take it.",
-            "There's worse company than weather. Much worse.",
+            "If the ground drinks enough, maybe the garden will too.",
             "We'll put another log on before the cold gets ideas.",
         },
     },
@@ -868,9 +867,9 @@ local TABLE_TALKS = {
         close = {
             "Keep telling me those things. I don't want to forget the sound.",
             "The old days weren't perfect. They were ours.",
-            "We'll make a new Sunday here when we can.",
+            "If we ever find a diner again, I'll buy the bad coffee.",
             "Maybe that's why I like this table. It gives the memories a place.",
-            "I can almost hear that kitchen when you talk about it.",
+            "I can see that yellow light when you talk about it.",
             "Thanks. For a minute, I remembered something besides July.",
         },
     },
@@ -889,7 +888,7 @@ local TABLE_TALKS = {
             "A short run for food beats a long one with tired legs.",
             "Those tracks can wait until we can see both ends of the road.",
             "Leave the tools where everybody can find them. We'll take turns.",
-            "Let's sleep on it and decide with a little daylight.",
+            "Then we take turns. Nobody has to lose a day waiting.",
         },
         close = {
             "Fair. We'll make the call after breakfast.",
@@ -897,7 +896,7 @@ local TABLE_TALKS = {
             "No heroic detours, then. We get what we need and come home.",
             "That sounds like a plan people might survive.",
             "We'll leave a note by the door so nobody misses it.",
-            "Good. It's easier to face tomorrow when it has a shape.",
+            "Good. We'll write down who gets it first.",
         },
     },
     little_things = {
@@ -919,9 +918,9 @@ local TABLE_TALKS = {
         },
         close = {
             "We should hold on to the little things. They add up.",
-            "Maybe that's what makes this place ours.",
-            "You can have the blue cup next time.",
-            "If I start humming, you have permission to complain.",
+            "I hope the bird comes back tomorrow.",
+            "I'll keep the blue cup a little longer, then.",
+            "If it stops creaking, then I'll worry.",
             "I needed that thought more than I knew.",
             "All right. One quiet minute, then back to the world.",
         },
@@ -940,6 +939,72 @@ for theme, stages in pairs(TABLE_TALKS) do
     for stage, lines in pairs(stages) do
         POOLS["banter.table." .. theme .. "." .. stage] = { common = lines }
     end
+end
+
+-- The two book pools have many independently authored voice lines. These five
+-- short beats keep the question and its answer together when used as a pair.
+local BOOK_BEATS = {
+    { "%1, what are you reading these days?", "An old paperback. I keep rereading the good parts, %1." },
+    { "I found a good page today, %1. Want to hear it in my own words?", "Please. Tell me the part that stayed with you." },
+    { "%1, if you could keep one book, which would it be?", "The one my mother read to me. I still remember her voice." },
+    { "This book made me think of you, %1. In a good way.", "In a good way? Then you can tell me why." },
+    { "%1, tell me whether you agree with this: people can change.", "I think they can. It takes more than saying it, though." },
+}
+
+local PAIRED_VOICES = {
+    ["banter.camp.open"] = {
+        [1] = { caring = { "%1, you have been quiet. I wanted to make sure you are okay." },
+            practical = { "Supplies are counted and the place is standing. How are you, %1?" } },
+    },
+    ["banter.camp.reply"] = {
+        [1] = { brave = { "Doing fine, %1. The dead should be worried about us." },
+            practical = { "Fed, dry, and breathing. That is a good day now." } },
+    },
+    ["banter.shelter.open"] = {
+        [2] = { caring = { "You look tired, %1. Talk to me." } },
+    },
+    ["banter.shelter.reply"] = {
+        [2] = { caring = { "I'm tired, but I'm glad you're here, %1." } },
+    },
+    ["banter.meeting.hello"] = {
+        [1] = {
+            brave = { "Hey! Nice to meet somebody with a pulse. I am %1." },
+            cautious = { "Hello. Stay where I can see you, please. I am %1." },
+            caring = { "Hi. It's good to see you standing. I am %1." },
+            practical = { "Hello. We can talk before anybody makes a bad decision. I am %1." },
+        },
+    },
+    ["banter.meeting.reply"] = {
+        [1] = {
+            brave = { "Good to meet you, %1. I can handle myself." },
+            cautious = { "Hello, %1. I'll keep my hands where you can see them." },
+            caring = { "Hi, %1. It's good to see another person." },
+            practical = { "Hello, %1. Talking first works for me." },
+        },
+    },
+}
+
+local function pairedBeatCount(topic)
+    if topic == "banter.books.open" then return #BOOK_BEATS end
+    local pool = POOLS[topic]
+    return pool and type(pool.common) == "table" and #pool.common or 0
+end
+
+local function pairedSpec(topic, beat)
+    if type(beat) ~= "number" then return nil end
+    if topic == "banter.books.open" or topic == "banter.books.reply" then
+        local pair = BOOK_BEATS[beat]
+        return pair and { common = { pair[topic == "banter.books.open" and 1 or 2] } }
+            or nil
+    end
+    local pool = POOLS[topic]
+    local line = pool and type(pool.common) == "table" and pool.common[beat] or nil
+    if line == nil then return nil end
+    local result = { common = { line } }
+    for voice, lines in pairs((PAIRED_VOICES[topic] or {})[beat] or {}) do
+        result[voice] = lines
+    end
+    return result
 end
 
 -- Room definition names (Build 42 Distributions) grouped into one set of lines.
@@ -984,7 +1049,7 @@ local PLACE_LINES = {
     police = {
         common = {
             "Evidence locker. Somebody's finally getting away with it.",
-            "The coffee's still in the pot. Nobody's that brave.",
+            "If there's coffee left in the pot, nobody's been brave enough to try it.",
             "Wanted posters. Most of these fellas are walking around dead now. Still wanted.",
             "The sign says 'Serve and Protect'. Somebody should tell the sign.",
             "Nobody's answering the desk bell. Best service this place ever gave me.",
@@ -994,8 +1059,8 @@ local PLACE_LINES = {
         },
         professions = {
             policeofficer = {
-                "Twelve years I signed for everything in this room. Look at it now.",
-                "My old desk's through there. Don't touch the stapler. It's evidence.",
+                "Feels like every station I ever worked in. I know where I'd look first.",
+                "A desk like this used to mean paperwork. Now I'd settle for a working radio.",
             },
             securityguard = { "Real cops. I used to wave at these guys from the mall." },
         },
@@ -1008,7 +1073,7 @@ local PLACE_LINES = {
             "Cells kept people in. Right now I'd settle for keeping things out.",
         },
         professions = {
-            policeofficer = { "I booked half the county into these cells. Now look who's visiting." },
+            policeofficer = { "I used to bring people to cells like these. I never liked the sound of the locks." },
         },
     },
     church = {
@@ -1079,8 +1144,8 @@ local PLACE_LINES = {
     gunstore = {
         common = {
             "Second Amendment's still standing. The rest of us, less so.",
-            "Empty racks. Everybody had the same idea, just faster.",
-            "A gun shop in Kentucky with no guns left. Now I've seen everything.",
+            "Check the racks. Somebody else may have had the same idea first.",
+            "A gun shop in Kentucky. Let's see what was left behind.",
             "Loud is the enemy. Remember that before you fall in love in here.",
         },
         professions = {
@@ -1115,8 +1180,8 @@ local PLACE_LINES = {
             { "Damn place still smells like bad news and disinfectant.", clean = "Darn place still smells like bad news and disinfectant." },
         },
         professions = {
-            doctor = { "Triage tags on the floor. Red, red, red. We never had enough hands." },
-            nurse = { "Double shifts in this wing. I still dream about the call buttons." },
+            doctor = { "I remember triage tags. We never had enough hands for every patient." },
+            nurse = { "Hospitals like this ran on double shifts. I still dream about the call buttons." },
         },
     },
     morgue = {
@@ -1128,7 +1193,7 @@ local PLACE_LINES = {
         },
         professions = {
             doctor = { "Tags on the toes. We used to be so organized." },
-            nurse = { "We wheeled them down here one at a time. Then we stopped counting." },
+            nurse = { "I used to wheel patients down corridors like this. I can still hear the wheels." },
         },
     },
     dentist = {
@@ -1148,7 +1213,7 @@ local PLACE_LINES = {
         },
         professions = {
             chef = { "I wouldn't feed this grill to a raccoon. And I've fed raccoons." },
-            burgerflipper = { "I worked a fryer like this for three summers. I can still hear the timer." },
+            burgerflipper = { "I worked fryers for three summers. I can still hear the timer." },
         },
     },
     jays = {
@@ -1160,7 +1225,7 @@ local PLACE_LINES = {
         },
         professions = {
             chef = { "Twelve herbs and spices my foot. It was salt and prayer." },
-            burgerflipper = { "Same fryer, same grease, different bird. I know this kitchen." },
+            burgerflipper = { "Every fast-food kitchen smells familiar. I know how to work a fryer." },
         },
     },
     grocery = {
@@ -1213,7 +1278,7 @@ local PLACE_LINES = {
             "Everybody runs from fire. These folks ran toward it. Toward everything.",
         },
         professions = {
-            fireofficer = { "My crew's lockers are down the hall. I'm not opening them." },
+            fireofficer = { "Lockers like these used to belong to people I knew. I don't want to open any." },
         },
     },
     army = {
@@ -1287,7 +1352,7 @@ local PLACE_LINES = {
             "Leg day's every day now. Running counts.",
         },
         professions = {
-            fitnessinstructor = { "I used to yell 'one more rep' in here. Now I yell 'run'." },
+            fitnessinstructor = { "I used to yell 'one more rep' in gyms like this. Now I yell 'run'." },
         },
     },
     music = {
@@ -1490,8 +1555,9 @@ local function speak(actor, topic, commands, arguments, options)
     registerPools()
     local settings = type(options) == "table" and options or {}
     settings.state = commands
+    local specification = settings.specification
     local ok, spoken, line, detail = pcall(SC.Dialogue.say,
-        actor, topic, nil, arguments, settings)
+        actor, topic, specification, arguments, settings)
     return ok and spoken == true, line, detail
 end
 
@@ -1500,6 +1566,11 @@ local function lastSpokenAt(actor)
         return tonumber(SC.Dialogue.lastSpokenAt(actor))
     end
     return nil
+end
+
+local function awake(actor)
+    local asleep, known = U().call(actor, "isAsleep")
+    return known and asleep == false
 end
 
 local function calm(snapshot)
@@ -1532,7 +1603,8 @@ end
 local function available(record, player, current, radius, speechOnly)
     local actor = type(record) == "table" and record.actor or nil
     local utility = U()
-    if actor == nil or not utility.isValidActor(actor) or utility.isDead(actor) then return nil end
+    if actor == nil or not utility.isValidActor(actor) or utility.isDead(actor)
+        or not awake(actor) then return nil end
     local commands = commandState(actor)
     if commands.recruited ~= true then return nil end
     if not calm(recordSnapshot(record)) then return nil end
@@ -1542,6 +1614,9 @@ local function available(record, player, current, radius, speechOnly)
     if not speechOnly and SC.ActionSupervisor
         and type(SC.ActionSupervisor.current) == "function"
         and SC.ActionSupervisor.current(actor) ~= nil then return nil end
+    if not speechOnly and SC.Positioning
+        and type(SC.Positioning.activeConversation) == "function"
+        and SC.Positioning.activeConversation(actor) ~= nil then return nil end
     local spokenAt = lastSpokenAt(actor)
     if spokenAt and current - spokenAt < config("banterSpeakerQuietMs", 15000) then return nil end
     return commands
@@ -1587,6 +1662,7 @@ local function freeSurvivor(record, current)
     local actor = type(record) == "table" and record.actor or nil
     local utility = U()
     if not actor or not utility.isValidActor(actor) or utility.isDead(actor)
+        or not awake(actor)
         or not calm(recordSnapshot(record)) then return nil end
     if SC.ActionSupervisor and type(SC.ActionSupervisor.current) == "function"
         and SC.ActionSupervisor.current(actor) ~= nil then return nil end
@@ -1597,64 +1673,164 @@ local function freeSurvivor(record, current)
     return commandState(actor)
 end
 
-local function faceConversation(first, second, action, firstEmote, secondEmote)
+local function faceConversation(first, second, action, firstEmote, secondEmote,
+        exchangeId)
     if SC.Positioning and type(SC.Positioning.beginConversation) == "function" then
-        pcall(SC.Positioning.beginConversation, first, second,
-            { action = action, emote = firstEmote })
-        pcall(SC.Positioning.beginConversation, second, first,
-            { action = action, emote = secondEmote })
-        return
+        local firstOk, firstAccepted = pcall(SC.Positioning.beginConversation,
+            first, second, { action = action, emote = firstEmote,
+                exchangeId = exchangeId, timeoutMs = 30000 })
+        if not firstOk or firstAccepted ~= true then return false end
+        local secondOk, secondAccepted = pcall(SC.Positioning.beginConversation,
+            second, first, { action = action, emote = secondEmote,
+                exchangeId = exchangeId, timeoutMs = 30000 })
+        if not secondOk or secondAccepted ~= true then
+            SC.Positioning.cancelConversation(first, "conversation_rejected")
+            return false
+        end
+        return true
     end
     U().move(first, "walk", { action = "face_conversation", target = second,
         socialMovement = true, stableFacing = true })
     U().move(second, "walk", { action = "face_conversation", target = first,
         socialMovement = true, stableFacing = true })
+    return true
 end
 
 local tableServesPair
+local quietAction = {
+    sit = true, rest_bed = true, rest_floor = true,
+    read = true, write_diary = true,
+    window_watch = true, tv_watch = true, gear_check = true, radio_check = true,
+    tidy_camp = true, weather_recovery = true, clean_base = true,
+}
 
 local function beginExchange(first, second, openTopic, replyTopic,
         firstCommands, secondCommands, current, kind, faceToFace)
-    local salt = kind .. ":open:" .. pairKey(first, second) .. ":" .. tostring(current)
-    if not speak(first, openTopic, firstCommands,
-        { callName(first, second, { salt = salt }) }, {
-        salt = salt,
-    }) then return false, "conversation_speech_rejected" end
-    if faceToFace ~= false then
-        faceConversation(first, second, kind,
-            kind == "meeting" and "wave" or "yes", "yes")
+    local key = pairKey(first, second)
+    local salt = kind .. ":open:" .. key .. ":" .. tostring(current)
+    local count = pairedBeatCount(openTopic)
+    local beat = count > 0 and math.abs(tonumber(U().stableHash(salt)) or 0)
+        % count + 1 or nil
+    local exchangeId = key .. ":" .. tostring(current)
+    local posed = faceToFace ~= false
+    if posed and not faceConversation(first, second, kind,
+        kind == "meeting" and "wave" or "yes", "yes", exchangeId) then
+        return false, "conversation_position_unavailable"
     end
+    local firstArgument = kind == "meeting" and tostring(
+        SC.Names and type(SC.Names.displayName) == "function"
+            and SC.Names.displayName(first, false) or U().nameOf(first))
+        or callName(first, second, { salt = salt })
+    local spoken, line, detail = speak(first, openTopic, firstCommands,
+        { firstArgument }, { salt = salt, specification = pairedSpec(openTopic, beat) })
+    if not spoken then
+        if posed and SC.Positioning then
+            SC.Positioning.cancelConversation(first, "conversation_speech_rejected")
+            SC.Positioning.cancelConversation(second, "conversation_speech_rejected")
+        end
+        return false, "conversation_speech_rejected"
+    end
+    local beatDelay = config("companionConversationReplyMs", 2800)
     party.exchange = {
-        first = first, second = second, replyTopic = replyTopic,
-        secondCommands = secondCommands, nextAt = current
-            + config("companionConversationReplyMs", 2800),
-        expiresAt = current + config("companionConversationTimeoutMs", 9000),
-        kind = kind,
+        id = exchangeId, first = first, second = second, replyTopic = replyTopic,
+        firstCommands = firstCommands, secondCommands = secondCommands,
+        firstRecruited = firstCommands.recruited == true,
+        secondRecruited = secondCommands.recruited == true,
+        firstSpokenAt = lastSpokenAt(first), firstSpokenTopic = openTopic,
+        secondSpokenAt = lastSpokenAt(second),
+        secondSpokenTopic = SC.Dialogue.lastSpokenTopic(second),
+        firstReadableUntil = type(detail) == "table" and detail.displayUntil
+            or current + (U().speechDisplayMillis and U().speechDisplayMillis(line) or 8000),
+        beat = beat, faceToFace = posed,
+        nextAt = current + beatDelay,
+        expiresAt = current + math.max(config("companionConversationTimeoutMs", 9000),
+            beatDelay + 5000), kind = kind,
     }
     party.lastFlavorAt = current
     return true, openTopic
+end
+
+local function exchangeParticipantReady(record, actor, other, exchange, recruited)
+    local utility = U()
+    if not record or not utility.isValidActor(actor) or utility.isDead(actor)
+        or not awake(actor) or not calm(recordSnapshot(record)) then return false end
+    if recruited ~= nil and (commandState(actor).recruited == true) ~= recruited then
+        return false
+    end
+    if exchange.kind ~= "intrusive" then
+        local supervisor = SC.ActionSupervisor
+        local token = supervisor and type(supervisor.current) == "function"
+            and supervisor.current(actor) or nil
+        if token ~= nil and (exchange.faceToFace or exchange.kind == "meeting"
+            or token.owner ~= "downtime" or quietAction[token.action] ~= true) then
+            return false
+        end
+        local positioning = SC.Positioning
+        local pose = positioning and type(positioning.activeConversation) == "function"
+            and positioning.activeConversation(actor) or nil
+        if exchange.faceToFace then
+            if not pose or pose.exchangeId ~= exchange.id
+                or pose.partner ~= other then return false end
+        elseif pose then
+            return false
+        end
+    end
+    return true
+end
+
+local function speechUnchanged(actor, priorAt, priorTopic)
+    if priorAt == nil then return true end
+    local now = lastSpokenAt(actor) or -math.huge
+    if now > priorAt then return false end
+    return now < priorAt or SC.Dialogue.lastSpokenTopic(actor) == priorTopic
+end
+
+local function releaseExchangePositions(exchange, reason)
+    if not exchange.faceToFace or not SC.Positioning
+        or type(SC.Positioning.activeConversation) ~= "function"
+        or type(SC.Positioning.cancelConversation) ~= "function" then return end
+    for _, actor in ipairs({ exchange.first, exchange.second }) do
+        local pose = SC.Positioning.activeConversation(actor)
+        if pose and pose.exchangeId == exchange.id then
+            SC.Positioning.cancelConversation(actor, reason)
+        end
+    end
 end
 
 local function exchangePulse(records, current)
     local exchange = party.exchange
     if type(exchange) ~= "table" then return false, "no_exchange", false end
     if current >= (exchange.expiresAt or 0) then
+        releaseExchangePositions(exchange, "conversation_timed_out")
         party.exchange = nil
         return false, "conversation_expired", false
     end
     local firstRecord = recordForActor(records, exchange.first)
     local secondRecord = recordForActor(records, exchange.second)
-    if not firstRecord or not secondRecord or not calm(recordSnapshot(firstRecord))
-        or not calm(recordSnapshot(secondRecord)) or U().isDead(exchange.first)
-        or U().isDead(exchange.second)
+    if not exchangeParticipantReady(firstRecord, exchange.first, exchange.second,
+            exchange, exchange.firstRecruited)
+        or not exchangeParticipantReady(secondRecord, exchange.second, exchange.first,
+            exchange, exchange.secondRecruited)
+        or not speechUnchanged(exchange.first, exchange.firstSpokenAt,
+            exchange.firstSpokenTopic)
+        or not speechUnchanged(exchange.second, exchange.secondSpokenAt,
+            exchange.secondSpokenTopic)
         or not U().sameFloor(exchange.first, exchange.second)
         or U().distance(exchange.first, exchange.second)
-            > config("campConversationDistance", 8) then
+            > config("campConversationDistance", 8)
+        or (exchange.kind ~= "intrusive" and not (U().canSee(exchange.first,
+            exchange.second) or U().canSee(exchange.second, exchange.first)))
+        or (exchange.kind ~= "intrusive" and SC.Factions
+            and type(SC.Factions.isHostileBetween) == "function"
+            and SC.Factions.isHostileBetween(exchange.first, exchange.second,
+                exchange.player)) then
+        releaseExchangePositions(exchange, "conversation_interrupted")
         party.exchange = nil
         return false, "conversation_interrupted", false
     end
     if exchange.kind == "table" and not tableServesPair(exchange.first,
         exchange.second, exchange.tableObject) then
+        releaseExchangePositions(exchange, "table_conversation_interrupted")
         party.exchange = nil
         return false, "table_conversation_interrupted", false
     end
@@ -1662,6 +1838,7 @@ local function exchangePulse(records, current)
         local replyCommands = freeSurvivor(secondRecord, current)
         if not replyCommands or replyCommands.recruited ~= true
             or select(1, U().call(exchange.second, "isMoving")) == true then
+            releaseExchangePositions(exchange, "intrusive_reply_busy")
             party.exchange = nil
             return false, "intrusive_reply_busy", false
         end
@@ -1670,32 +1847,43 @@ local function exchangePulse(records, current)
     local closing = exchange.stage == "close"
     local speaker = closing and exchange.first or exchange.second
     local topic = closing and exchange.closeTopic or exchange.replyTopic
-    local commands = closing and exchange.firstCommands or exchange.secondCommands
+    local commands = commandState(speaker)
     local other = closing and exchange.second or exchange.first
     local salt = exchange.kind .. ":" .. (closing and "close" or "reply") .. ":"
         .. pairKey(exchange.first, exchange.second) .. ":" .. tostring(current)
     local spoken, _, detail = speak(speaker, topic, commands,
         { callName(speaker, other, { salt = salt }) }, {
             salt = salt,
+            specification = pairedSpec(topic, exchange.beat),
             excludedLines = exchange.kind == "intrusive"
                 and party.intrusiveRecentSet or nil,
             recentLimit = exchange.kind == "intrusive"
                 and config("intrusiveRecentLimit", 60) or nil,
         })
     if not spoken then
+        releaseExchangePositions(exchange, "conversation_reply_rejected")
         party.exchange = nil
         return false, "conversation_reply_rejected", false
     end
     party.lastFlavorAt = current
+    if closing then
+        exchange.firstSpokenAt = lastSpokenAt(speaker)
+        exchange.firstSpokenTopic = topic
+    else
+        exchange.secondSpokenAt = lastSpokenAt(speaker)
+        exchange.secondSpokenTopic = topic
+    end
     if exchange.kind == "intrusive" then
         intrusiveRemember(type(detail) == "table" and detail.lineKey)
     end
     if not closing and exchange.closeTopic then
         exchange.stage = "close"
-        exchange.nextAt = current + config("companionConversationReplyMs", 2800)
-        exchange.expiresAt = current + 12000
+        exchange.nextAt = math.max(current + config("companionConversationReplyMs", 2800),
+            tonumber(exchange.firstReadableUntil) or current)
+        exchange.expiresAt = exchange.nextAt + 5000
         return true, topic, true
     end
+    releaseExchangePositions(exchange, "conversation_finished")
     party.exchange = nil
     return true, topic, false
 end
@@ -1733,6 +1921,7 @@ local function greetingPulse(player, records, current)
                             "banter.meeting.hello", "banter.meeting.reply",
                             firstCommands, secondCommands, current, "meeting")
                         if spoken then
+                            party.exchange.player = player
                             rememberPair("metPairs", "metPairCount", key, current,
                                 math.max(16, math.floor(config("meetingGreetingMemoryLimit", 128))))
                             return true, topic
@@ -1770,13 +1959,6 @@ local function shelteredTogether(first, second)
     local secondBuilding = select(1, U().call(secondRoom, "getBuilding"))
     return firstBuilding ~= nil and firstBuilding == secondBuilding
 end
-
-local quietAction = {
-    sit = true, rest_bed = true, rest_floor = true,
-    read = true, write_diary = true,
-    window_watch = true, tv_watch = true, gear_check = true, radio_check = true,
-    tidy_camp = true, weather_recovery = true, clean_base = true,
-}
 
 local function isTableFurniture(object)
     local sprite = select(1, U().call(object, "getSprite"))
@@ -1847,6 +2029,8 @@ end
 local function availableForQuietTalk(record, player, current, radius)
     local commands = available(record, player, current, radius, true)
     if not commands then return nil end
+    if SC.Positioning and type(SC.Positioning.activeConversation) == "function"
+        and SC.Positioning.activeConversation(record.actor) ~= nil then return nil end
     local supervisor = SC.ActionSupervisor
     local token = supervisor and type(supervisor.current) == "function"
         and supervisor.current(record.actor) or nil
@@ -1867,10 +2051,11 @@ local function campConversationPulse(player, records, current)
     for _, record in ipairs(records or {}) do
         local commands, freeToFace = availableForQuietTalk(record, player, current,
             config("meetingGreetingPlayerDistance", 14))
-        local moving, movingOk = record.actor and U().call(record.actor, "isMoving")
+        local moving, movingOk
+        if record.actor then moving, movingOk = U().call(record.actor, "isMoving") end
         if commands and (atCamp(record.actor)
             or select(1, U().call(U().squareOf(record.actor), "getRoom")) ~= nil)
-            and not (movingOk and moving == true)
+            and movingOk and moving == false
             and current - (actorState(record.actor).lastCampTalkAt or -math.huge)
                 >= actorCooldown then
             candidates[#candidates + 1] = {
@@ -1955,11 +2140,14 @@ local function campConversationPulse(player, records, current)
                     conversationKind,
                     not tableObject and first.freeToFace and second.freeToFace)
                 if spoken then
+                    party.exchange.player = player
                     if tableObject then
                         party.exchange.tableObject = tableObject
                         party.exchange.closeTopic = closeTopic
                         party.exchange.firstCommands = first.commands
-                        party.exchange.expiresAt = current + 18000
+                        party.exchange.expiresAt = math.max(current + 18000,
+                            party.exchange.firstReadableUntil
+                                + config("companionConversationReplyMs", 2800) + 5000)
                         if SC.Gestures
                             and type(SC.Gestures.seatedConversation) == "function"
                             and roll(config("tableConversationGestureChancePercent", 40),
@@ -2881,6 +3069,10 @@ end
 
 function Banter._socialForTests()
     return greetingPulse, campConversationPulse, exchangePulse
+end
+
+function Banter._pairedForTests()
+    return pairedBeatCount, pairedSpec
 end
 
 function Banter._partyForTests()

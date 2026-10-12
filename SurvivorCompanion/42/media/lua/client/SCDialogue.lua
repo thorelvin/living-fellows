@@ -3776,17 +3776,41 @@ function Dialogue.choose(actor, topic, specification, arguments, options)
     }
 end
 
+-- Resolved direct replies must use the same speech history as selected barks.
+-- A transcript receipt is valid only after Interaction.finish has accepted it;
+-- an overhead failure on its own never claims that a line was spoken.
+function Dialogue.emitResolved(actor, topic, line, options)
+    if type(topic) ~= "string" or topic == "" or type(line) ~= "string"
+        or line == "" then return false, "invalid_resolved_speech" end
+    options = type(options) == "table" and options or {}
+    local utility = U()
+    local overhead = utility and type(utility.say) == "function"
+        and utility.say(actor, line) == true
+    local transcript = options.transcriptAccepted == true
+    if not overhead and not transcript then return false, "speech_rejected" end
+    local current = utility and type(utility.nowMs) == "function"
+        and utility.nowMs() or 0
+    local duration = utility and type(utility.speechDisplayMillis) == "function"
+        and utility.speechDisplayMillis(line) or 8000
+    local runtime = runtimeFor(actor)
+    runtime.lastSpokenAt = current
+    runtime.lastSpokenTopic = topic
+    runtime.lastDisplayUntil = overhead and current + duration or current
+    return true, line, {
+        channel = overhead and "overhead" or "transcript",
+        spokenAt = current, displayUntil = runtime.lastDisplayUntil,
+    }
+end
+
 function Dialogue.say(actor, topic, specification, arguments, options)
     local line, detail = Dialogue.choose(actor, topic, specification, arguments, options)
     if not line then return false, detail end
-    if not U() or type(U().say) ~= "function" then return false, "speech_unavailable" end
-    local spoken = U().say(actor, line)
-    if spoken == true then
-        local runtime = runtimeFor(actor)
-        runtime.lastSpokenAt = U() and type(U().nowMs) == "function" and U().nowMs() or 0
-        runtime.lastSpokenTopic = topic
+    local spoken, result, receipt = Dialogue.emitResolved(actor, topic, line)
+    if spoken and type(detail) == "table" then
+        detail.channel = receipt.channel
+        detail.displayUntil = receipt.displayUntil
     end
-    return spoken == true, spoken == true and line or "speech_rejected", detail
+    return spoken, result, detail
 end
 
 local toolRequestNext = setmetatable({}, { __mode = "k" })
@@ -3868,6 +3892,10 @@ end
 
 function Dialogue.lastSpokenAt(actor)
     return tonumber(runtimeFor(actor).lastSpokenAt) or -math.huge
+end
+
+function Dialogue.lastDisplayUntil(actor)
+    return tonumber(runtimeFor(actor).lastDisplayUntil) or -math.huge
 end
 
 function Dialogue.lastSpokenTopic(actor)

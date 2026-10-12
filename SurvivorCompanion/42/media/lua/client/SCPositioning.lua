@@ -1293,6 +1293,7 @@ function Positioning.beginConversation(actor, partner, options)
         posed = false,
         onReady = type(options) == "table" and options.onReady or nil,
         onCancel = type(options) == "table" and options.onCancel or nil,
+        exchangeId = type(options) == "table" and options.exchangeId or nil,
     }
     return true, "conversation_staged"
 end
@@ -1362,6 +1363,13 @@ function Positioning.updateConversation(actor, snapshot)
             snapshot = snapshot,
             socialMovement = true,
         })
+    end
+
+    if conversation.onReady and (not SC.Navigation
+        or type(SC.Navigation.conversationAccess) ~= "function"
+        or not SC.Navigation.conversationAccess(actor, partner)) then
+        Positioning.cancelConversation(actor, "conversation_access_blocked")
+        return false, "conversation_access_blocked"
     end
 
     -- Native stop must accept ownership before dialogue commits any speech or

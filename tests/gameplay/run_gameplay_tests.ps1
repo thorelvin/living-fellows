@@ -98,6 +98,7 @@ $LuaFiles += @(
     'SCInfectionCrisis.lua',
     'SCAutonomy.lua',
     'SCCommands.lua',
+    'SCInteraction.lua',
     'SCCompanionGifts.lua',
     'SCFactionRecruitment.lua',
     'SCDecision.lua'

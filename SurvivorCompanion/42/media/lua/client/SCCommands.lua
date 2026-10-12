@@ -2084,7 +2084,6 @@ local function commitConversation(actor, entry, state, id, action, player)
     if action == "encourage" and SC.Autonomy and type(SC.Autonomy.offerSupport) == "function" then
         pcall(SC.Autonomy.offerSupport, actor)
     end
-    U().say(actor, sentence)
     if action == "status" and not (SC.UI and SC.UI.instance
         and SC.UI.instance.selectedTab == "talk") then
         if not callUI("showStatus", description) then callUI("open", "Overview", id, description) end
@@ -2115,8 +2114,18 @@ local function showConversation(actor, entry, state, id, action, player)
             or not U().sameFloor(actor, player) then
             return false
         end
+        if not SC.Navigation or type(SC.Navigation.conversationAccess) ~= "function"
+            or not SC.Navigation.conversationAccess(actor, player) then
+            return false
+        end
         if SC.ExpeditionPrototype and SC.ExpeditionPrototype.isMember(actor) then
             return false
+        end
+        if SC.Interaction and type(SC.Interaction.state) == "function" then
+            local session = SC.Interaction.state(id)
+            if session.action ~= action or session.state ~= "approaching" then
+                return false
+            end
         end
         local accepted, result, emote = commitConversation(actor, entry,
             stateFor(actor, entry), id, action, player)
@@ -2125,9 +2134,15 @@ local function showConversation(actor, entry, state, id, action, player)
             local conversation = SC.Positioning.activeConversation(actor)
             if conversation then conversation.emote = emote end
         end
-        if SC.Interaction then
-            SC.Interaction.finish(id, action, accepted and result or nil,
-                not accepted and result or nil)
+        local transcriptAccepted = SC.Interaction
+            and SC.Interaction.finish(id, action, accepted and result or nil,
+                not accepted and result or nil) == true
+        if accepted then
+            local emitted = SC.Dialogue and type(SC.Dialogue.emitResolved) == "function"
+                and SC.Dialogue.emitResolved(actor, "conversation." .. action, result, {
+                    transcriptAccepted = transcriptAccepted,
+                })
+            if not emitted then accepted = false end
         end
         if SC.UI and type(SC.UI.refresh) == "function" then SC.UI.refresh() end
         return accepted == true

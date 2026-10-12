@@ -139,6 +139,7 @@ local interruptionKeys = {
     conversation_partner_unavailable = "UI_SC_Talk_PartnerUnavailable",
     conversation_position_unavailable = "UI_SC_Talk_PathUnavailable",
     conversation_navigation_unavailable = "UI_SC_Talk_PathUnavailable",
+    conversation_access_blocked = "UI_SC_Talk_PathUnavailable",
     conversation_rejected = "UI_SC_Talk_Cancelled",
     conversation_cancelled = "UI_SC_Talk_Cancelled",
     conversation_replaced = "UI_SC_Talk_Cancelled",
@@ -156,7 +157,7 @@ end
 
 function Interaction.finish(id, action, reply, reason)
     local item = session(id)
-    if item.action ~= action then return end
+    if item.action ~= action then return false end
     item.state = reason and "interrupted" or "replied"
     item.action = nil
     if not reason then
@@ -164,6 +165,7 @@ function Interaction.finish(id, action, reply, reason)
     end
     Interaction.note(id, reason and "system" or "companion",
         reason and Interaction.reasonText(reason) or reply)
+    return true
 end
 
 function Interaction.issue(row, action, player)
