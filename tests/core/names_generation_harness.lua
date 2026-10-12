@@ -127,6 +127,7 @@ SC.GameplayUtil = {
 SC.Actor = { checkBridge = function() return true end }
 local house = {
     id = "names-house", anchor = { x = 10, y = 10, z = 0 },
+    roomGroup = "barn",
     bounds = { x1 = 9, y1 = 9, x2 = 12, y2 = 12, z = 0 },
     interior = {
         { x = 10, y = 10, z = 0 }, { x = 11, y = 10, z = 0 },
@@ -152,7 +153,12 @@ check(group.members[1].identity.surname == group.members[2].identity.surname
 check(group.members[1].identity.forename ~= group.members[2].identity.forename
     and group.members[2].identity.forename ~= group.members[3].identity.forename,
     "unspawned family members need distinct given names")
+check(group.members[1].identity.outfit ~= group.members[2].identity.outfit
+    and group.members[1].identity.outfit ~= group.members[3].identity.outfit
+    and group.members[2].identity.outfit ~= group.members[3].identity.outfit,
+    "barn household members should not all be dressed in the same overalls")
 
+house.roomGroup = nil
 local exceptionRoll = 0
 ZombRand = function(minimum, maximum)
     if maximum ~= nil then return minimum end

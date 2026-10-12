@@ -363,6 +363,34 @@ local themedOutfits = {
     hunting = { "Hunter" },
 }
 
+-- These themed names exist only in the male 42.21 outfit catalog. The engine
+-- silently leaves a female descriptor undressed when asked for one of them.
+-- Ordinary outfits below have entries for both sexes and remain the fallback.
+local maleOnlyThemedOutfits = {
+    ArmyInstructor = true, GuitarGuy = true, Hunter = true,
+    Inmate = true, InmateEscaped = true, InmateKhaki = true,
+    Mechanic = true, MetalWorker = true, Priest = true, PrisonGuard = true,
+}
+
+local function compatibleThemedPool(pool, gender)
+    if not pool or gender ~= "female" then return pool end
+    local compatible = {}
+    for _, outfit in ipairs(pool) do
+        if not maleOnlyThemedOutfits[outfit] then
+            compatible[#compatible + 1] = outfit
+        end
+    end
+    return #compatible > 0 and compatible or nil
+end
+
+local function unusedOutfits(pool, used)
+    local available = {}
+    for _, outfit in ipairs(pool or {}) do
+        if not used[outfit] then available[#available + 1] = outfit end
+    end
+    return available
+end
+
 local roomAliases = {
     policestation = "police", policeoffice = "police", cells = "prison",
     jail = "prison", prisoncell = "prison", chapel = "church",
@@ -551,7 +579,7 @@ end
 
 function spawn.generateIdentity(options)
     options = type(options) == "table" and options or { roomGroup = options }
-    local themedPool = themedOutfits[normalizeRoomGroup(options.roomGroup) or ""]
+    local roomPool = themedOutfits[normalizeRoomGroup(options.roomGroup) or ""]
     local usedGiven, usedSurnames = livingNameUsage(options)
     local forcedSurname = options.surname or options.familySurname
     local allowSurnameReuse = options.allowSurnameReuse == true
@@ -614,8 +642,15 @@ function spawn.generateIdentity(options)
     end
     if chosen == nil then return nil, "identity_name_pool_exhausted" end
     lastGeneratedIdentityKey = pairKey(chosen.name, surname)
-    local outfitPool = themedPool and randomBetween(1, 100) <= 60
+    local themedPool = compatibleThemedPool(roomPool, chosen.gender)
+    local preferredPool = themedPool and randomBetween(1, 100) <= 60
         and themedPool or survivorOutfits
+    local usedOutfits = type(options.usedOutfits) == "table" and options.usedOutfits or {}
+    local outfitPool = unusedOutfits(preferredPool, usedOutfits)
+    -- A household may exhaust a one- or two-outfit room theme. Give its next
+    -- member ordinary clothes instead of putting the same uniform on everyone.
+    if #outfitPool == 0 then outfitPool = unusedOutfits(survivorOutfits, usedOutfits) end
+    if #outfitPool == 0 then outfitPool = survivorOutfits end
     return {
         forename = chosen.name,
         surname = surname,

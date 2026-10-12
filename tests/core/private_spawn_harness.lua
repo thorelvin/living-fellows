@@ -90,6 +90,20 @@ check(SC.Spawn.isThemedRoom("farmstorage")
 local farmIdentity = SC.Spawn.generateIdentity({ roomGroup = "farmstorage" })
 check(farmIdentity.outfit == "Farmer",
     "themed survivor near a farm can wear the farm outfit")
+local garageIdentity = SC.Spawn.generateIdentity({ roomGroup = "garage" })
+check(garageIdentity.gender == "female" and garageIdentity.outfit == "Generic01",
+    "female garage survivor receives an ordinary outfit instead of a missing male outfit")
+local prisonIdentity = SC.Spawn.generateIdentity({ roomGroup = "prison" })
+check(prisonIdentity.gender == "female" and prisonIdentity.outfit == "Generic01",
+    "a room with only male outfit names falls back to ordinary female clothing")
+local secondBarnIdentity = SC.Spawn.generateIdentity({ roomGroup = "barn",
+    usedOutfits = { Farmer = true } })
+check(secondBarnIdentity.outfit == "Redneck",
+    "a second barn member uses the other themed outfit when Farmer is taken")
+local thirdBarnIdentity = SC.Spawn.generateIdentity({ roomGroup = "barn",
+    usedOutfits = { Farmer = true, Redneck = true } })
+check(thirdBarnIdentity.outfit == "Generic01",
+    "a third barn member falls back to ordinary clothing instead of repeating overalls")
 ZombRand = function(_, maximum) return maximum - 1 end
 local ordinaryIdentity = SC.Spawn.generateIdentity({ roomGroup = "farmstorage" })
 check(ordinaryIdentity.outfit == "Evacuee",

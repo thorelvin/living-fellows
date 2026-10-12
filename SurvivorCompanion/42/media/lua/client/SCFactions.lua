@@ -1515,7 +1515,7 @@ local function createGroup(house, size, debugCreated, archetype, loadoutOverride
         end
     end
     local familySurname
-    local usedFirstNames, usedSurnames = {}, {}
+    local usedFirstNames, usedSurnames, usedOutfits = {}, {}, {}
     for index = 1, size do
         local captive = isOddball and index > 1 and oddballSpec.state.captives == true
         local authoredIdentity = isOddball and not captive
@@ -1533,6 +1533,7 @@ local function createGroup(house, size, debugCreated, archetype, loadoutOverride
             allowSurnameReuse = shareFamilySurname,
             usedFirstNames = usedFirstNames,
             usedSurnames = usedSurnames,
+            usedOutfits = usedOutfits,
         }
         local identity = authoredIdentity
             or SC.Spawn and type(SC.Spawn.generateIdentity) == "function"
@@ -1547,6 +1548,9 @@ local function createGroup(house, size, debugCreated, archetype, loadoutOverride
         end
         if type(identity.surname) == "string" then
             usedSurnames[identity.surname] = true
+        end
+        if type(identity.outfit) == "string" then
+            usedOutfits[identity.outfit] = true
         end
         group.members[#group.members + 1] = {
             key = "member-" .. tostring(index),
