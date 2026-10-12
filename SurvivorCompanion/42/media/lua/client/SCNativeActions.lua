@@ -3670,6 +3670,24 @@ function actions.visualStatus(actor, expectedAction)
     return "interrupted", record.actionName, record.startedAt
 end
 
+-- A job may cancel only the exact timed action it started. Another job can
+-- acquire a fresh loot visual on the same actor after the old job blocks.
+function actions.visualToken(actor, expectedAction)
+    local record = actor and activeVisual[actor] or nil
+    if type(record) ~= "table" or (expectedAction ~= nil
+        and record.actionName ~= expectedAction) then return nil end
+    return record.timedAction
+end
+
+function actions.cancelVisualOwned(actor, token, reason)
+    if token == nil then return false, "visual_token_missing" end
+    local record = actor and activeVisual[actor] or nil
+    if type(record) ~= "table" or record.timedAction ~= token then
+        return true, "visual_no_longer_owned"
+    end
+    return actions.cancelVisual(actor, reason)
+end
+
 -- One public ownership view covers every native activity that can legitimately
 -- own a player animation.  Callers no longer need to guess whether a visual,
 -- needs action, construction action, or an unfamiliar vanilla action is the

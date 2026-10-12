@@ -175,6 +175,30 @@ local function clearVisual(actor)
     end
 end
 
+local function visualToken(actor)
+    if SC.NativeActions and type(SC.NativeActions.visualToken) == "function" then
+        return SC.NativeActions.visualToken(actor, "loot_container")
+    end
+    return nil
+end
+
+local function cancelOwnedVisual(actor, state)
+    local token = state.trunkVisualToken or state.storageVisualToken
+    if not token then
+        if (state.phase == "taking" or state.visualAt ~= nil)
+            and visualStatus(actor) == "active" then
+            return false, "car_unload_visual_ownership_unknown"
+        end
+        return true
+    end
+    if not SC.NativeActions
+        or type(SC.NativeActions.cancelVisualOwned) ~= "function" then
+        return false, "car_unload_visual_ownership_unknown"
+    end
+    return SC.NativeActions.cancelVisualOwned(actor, token,
+        "car_unload_cancelled")
+end
+
 function Unload.update(actor, baseState, job)
     local target = type(job.target) == "table" and job.target or {}
     local vehicle = SC.Vehicle and SC.Vehicle.loadedBySqlId(target.vehicleId)
@@ -197,31 +221,48 @@ function Unload.update(actor, baseState, job)
             state.phase, state.item = "select", nil
             return false, why, true
         end
+        if state.visualAt ~= nil and state.storageVisualToken ~= nil
+            and visualToken(actor) ~= state.storageVisualToken then
+            return false, "car_storage_visual_changed", true
+        end
         local moved, reason = SC.BaseWork.depositToStorage(
             actor, state, storage, container, item)
-        if moved then
+        if moved == true and reason == "base_supply_returned" then
+            if U().inventoryContains(container, item) ~= true
+                or U().inventoryContains(U().inventory(actor), item) ~= false
+                or call(item, "getContainer") ~= container then
+                return false, "car_delivery_unverified", true
+            end
             mark(item, nil)
             state.phase, state.item, state.visualAt = "select", nil, nil
+            state.storageVisualToken = nil
             return true, "car_item_stored"
         end
-        -- Walking to the shelf and playing its loot pose are both pending
-        -- states. Keep the lease and the exact item marker until delivery.
-        return false, reason or "car_item_delivery_pending"
+        if moved == true and reason == "base_storage_looting" then
+            state.storageVisualToken = visualToken(actor)
+        end
+        -- Accepted navigation and an active loot pose are progress, not a
+        -- verified deposit. Keep their lease and exact recovery marker.
+        return moved == true, reason or "car_item_delivery_pending"
     end
     if not eligible then return false, info, true end
     if info.zoneId ~= target.zoneId then
         return false, "car_parking_area_changed", true
     end
     if state.phase == "taking" then
+        if state.trunkVisualToken ~= nil
+            and visualToken(actor) ~= state.trunkVisualToken then
+            return false, "car_trunk_visual_changed", true
+        end
         local status = visualStatus(actor)
         if status == "active" then return true, "car_trunk_looting" end
         if status ~= "completed" then
-            state.phase, state.item = "select", nil
+            state.phase, state.item, state.trunkVisualToken = "select", nil, nil
             return false, "car_unload_visual_" .. tostring(status), true
         end
         clearVisual(actor)
         item = state.item
-        state.phase, state.item = "select", nil
+        state.phase, state.item, state.trunkVisualToken = "select", nil, nil
         if not item or not U().inventoryContains(info.trunk, item) then
             return false, "car_trunk_item_changed", true
         end
@@ -232,18 +273,30 @@ function Unload.update(actor, baseState, job)
         return true, "car_item_carried"
     end
     item = nil
-    for _, candidate in ipairs(U().inventoryItems(info.trunk, 4096)) do
+    local trunkItems = U().inventoryItems(info.trunk, 4096)
+    local storageFound, capacityBlocked = false, false
+    for _, candidate in ipairs(trunkItems) do
         local storage = SC.BaseWork.destinationForCarItem(actor, candidate)
         if storage and (itemMarker(candidate) == nil
             or itemMarker(candidate) == job.id) then
-            item = candidate
-            break
+            storageFound = true
+            local room = SC.WorkTransport
+                and type(SC.WorkTransport.hasRoom) == "function"
+                and SC.WorkTransport.hasRoom(U().inventory(actor), actor, candidate)
+            if room == true then
+                item = candidate
+                break
+            end
+            capacityBlocked = true
         end
     end
     if not item then
-        if #U().inventoryItems(info.trunk, 4096) == 0 then
+        if #trunkItems == 0 then
             states[actor] = nil
             return true, "car_trunk_unloaded", false, true
+        end
+        if storageFound and capacityBlocked then
+            return false, "car_unload_worker_capacity", true
         end
         return false, "car_unload_storage_full_or_missing", true
     end
@@ -268,13 +321,36 @@ function Unload.update(actor, baseState, job)
         return false, "car_unload_visual_" .. tostring(status), true
     end
     state.phase, state.item = "taking", item
+    state.trunkVisualToken = visualToken(actor)
     return true, "car_trunk_looting"
+end
+
+-- A blocked job may choose another worker only when its first worker holds
+-- neither marked cargo nor an unclaimed native loot action for this job.
+function Unload.releaseAffinity(actor, job)
+    if not actor or not job then return false end
+    if markedCargo(actor, job.id) then return false end
+    local state = states[actor]
+    if state and state.jobId == job.id then
+        if state.phase == "taking" then return false end
+        local token = state.storageVisualToken or state.trunkVisualToken
+        if token and visualToken(actor) == token then return false end
+        states[actor] = nil
+    end
+    if job.assignedId == U().idOf(actor) then job.assignedId = nil end
+    return true
 end
 
 function Unload.cancel(actor, job)
     if not job then return true end
     if not actor then
         return job.assignedId == nil, "car_unload_worker_unavailable"
+    end
+    local state = states[actor]
+    local ownedState = state and state.jobId == job.id and state or nil
+    if ownedState then
+        local cancelled, cancelReason = cancelOwnedVisual(actor, ownedState)
+        if cancelled ~= true then return false, cancelReason end
     end
     local item = markedCargo(actor, job.id)
     if item then
@@ -286,10 +362,8 @@ function Unload.cancel(actor, job)
         if not restored then return false, reason end
         mark(item, nil)
     end
-    if SC.NativeActions and type(SC.NativeActions.cancelVisual) == "function" then
-        pcall(SC.NativeActions.cancelVisual, actor, "car_unload_cancelled")
-    end
-    states[actor] = nil
+    if ownedState then states[actor] = nil end
+    if job.assignedId == U().idOf(actor) then job.assignedId = nil end
     return true
 end
 

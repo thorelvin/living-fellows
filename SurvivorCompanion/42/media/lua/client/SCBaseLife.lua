@@ -2528,14 +2528,25 @@ local function automaticProductionZone(base, schema, operation)
     return selected
 end
 
--- Work may continue in the reach band outside the camp when it is bound to a
--- lumber area, to a burial ground or pyre that actually lies outside the
--- camp, or when body collection includes the lumber areas.
+-- Work may continue in the reach band outside camp when tied to a validated
+-- parking area, lumber area, burial ground or pyre. Body collection can also
+-- use lumber areas when its order explicitly allows that source.
 function BaseLife.jobAllowsWorkReach(job)
     if type(job) ~= "table" or type(job.target) ~= "table" then return false end
     local base = activeBase()
     local order
-    if job.type == "farm" then
+    if job.type == "unload_vehicle" then
+        local target = job.target
+        local zone = findById(base and base.zones or {}, target.zoneId)
+        local x, y, z = tonumber(target.x), tonumber(target.y), tonumber(target.z)
+        local vehicleId = tonumber(target.vehicleId)
+        return zone ~= nil and zone.kind == "parking"
+            and BaseLife.parkingZoneValid(zone, base.zones) == true
+            and vehicleId ~= nil and vehicleId >= 0
+            and vehicleId % 1 == 0 and x ~= nil and y ~= nil
+            and z == zone.z and x >= zone.x1 and x <= zone.x2
+            and y >= zone.y1 and y <= zone.y2
+    elseif job.type == "farm" then
         local zone = findById(base and base.zones or {}, job.target.zoneId)
         return zone ~= nil and zone.kind == "farm"
             and not BaseLife.zoneInsideAreaUnion(zone, base.zones)
@@ -3720,6 +3731,14 @@ function BaseLife.claimJob(actorId)
         end
         if job.state == "pending" or (job.state == "blocked" and job.retryAt <= current
             and not BaseLife.jobParked(job)) then
+            -- A restored or expired unload may still name its first worker.
+            -- Let another resident claim it once that worker is loaded and
+            -- the exact cargo/action recovery check says there is no owner.
+            if job.type == "unload_vehicle" and job.assignedId ~= nil
+                and SC.VehicleUnload
+                and type(SC.VehicleUnload.releaseAffinity) == "function" then
+                SC.VehicleUnload.releaseAffinity(U().resolveActor(job.assignedId), job)
+            end
             local score = jobScore(actorId, job)
             if bestScore == nil or score > bestScore
                 or (score == bestScore and tostring(job.id) < tostring(best.id)) then
@@ -3749,6 +3768,14 @@ end
 function BaseLife.releaseJob(id, actorId, reason)
     local job = BaseLife.job(id)
     if not job or (actorId ~= nil and job.reservedBy ~= actorId) then return false, "job_not_owned" end
+    if job.type == "unload_vehicle" and job.assignedId ~= nil then
+        local owner = U().resolveActor(job.assignedId)
+        if not SC.VehicleUnload or type(SC.VehicleUnload.cancel) ~= "function" then
+            return false, "vehicle_unload_cancel_unavailable"
+        end
+        local settled, settleReason = SC.VehicleUnload.cancel(owner, job)
+        if settled ~= true then return false, settleReason end
+    end
     job.state, job.reservedBy, job.leaseUntil = "pending", nil, 0
     job.blocker = reason and cleanText(reason, "released", 160) or nil
     job.updatedAt = now()
@@ -3761,6 +3788,10 @@ function BaseLife.blockJob(id, actorId, reason, retryMs)
     -- Keep the worker for the report: a playtest log said a barricade timed
     -- out twice but not whose approach failed.
     local worker = actorId or job.reservedBy
+    if job.type == "unload_vehicle" and worker ~= nil and SC.VehicleUnload
+        and type(SC.VehicleUnload.releaseAffinity) == "function" then
+        SC.VehicleUnload.releaseAffinity(U().resolveActor(worker), job)
+    end
     job.state, job.reservedBy, job.leaseUntil = "blocked", nil, 0
     job.blocker = cleanText(reason, "blocked", 160)
     job.attempts, job.updatedAt = (job.attempts or 0) + 1, now()
@@ -4078,15 +4109,18 @@ function BaseLife.setDuty(actorId, enabled)
         local okay, reason = cancelChefJobsFor(actorId)
         if okay ~= true then return false, reason end
     end
-    if enabled ~= true and SC.WorkTransport
-        and type(SC.WorkTransport.yieldActor) == "function" then
-        pcall(SC.WorkTransport.yieldActor, actorId, "left_base_duty")
+    if enabled ~= true then
+        local job = BaseLife.jobFor(actorId)
+        if job then
+            local released, releaseReason = BaseLife.releaseJob(job.id, actorId,
+                "left_base_duty")
+            if released ~= true then return false, releaseReason end
+        end
+        if SC.WorkTransport and type(SC.WorkTransport.yieldActor) == "function" then
+            pcall(SC.WorkTransport.yieldActor, actorId, "left_base_duty")
+        end
     end
     resident.duty = enabled == true
-    if not resident.duty then
-        local job = BaseLife.jobFor(actorId)
-        if job then BaseLife.releaseJob(job.id, actorId, "left_base_duty") end
-    end
     return true, resident
 end
 

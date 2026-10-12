@@ -1558,8 +1558,8 @@ function BaseWork.update(actor, player, runtime)
         SC.Fishing.cancel(actor, "camp_fishing_paused")
     end
     if not SC.BaseLife.isInside(actor) then
-        -- Lumber work may continue in the bounded reach band outside the
-        -- camp; every other job walks back to the rally point first.
+        -- Only jobs admitted by BaseLife may continue in the bounded reach
+        -- band; other workers return to the rally point first.
         local reachable = type(SC.BaseLife.withinWorkReach) == "function"
             and SC.BaseLife.withinWorkReach(actor) == true
         if reachable and not job then job = select(1, SC.BaseLife.claimJob(id)) end

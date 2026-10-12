@@ -1585,6 +1585,79 @@ do
         "the exact shovel returns to its marked source container: " .. tostring(reason))
 end
 
+-- Parking may legally sit beyond the camp edge. The real BaseWork outer guard
+-- must keep the unloading job in control there, and a settled blocked order
+-- must become claimable by a second resident.
+do
+    local ctx = setup({ workers = 2 })
+    for x = 13, 20 do
+        for y = 0, 2 do makeSquare(x, y, 0) end
+    end
+    local parking = { id = "parking:driveway", kind = "parking",
+        x1 = 17, x2 = 18, y1 = 0, y2 = 2, z = 0 }
+    ctx.base.zones[#ctx.base.zones + 1] = parking
+    local target = { vehicleId = 41, zoneId = parking.id, x = 17, y = 1, z = 0 }
+    check(SC.BaseLife.parkingZoneValid(parking, ctx.base.zones) == true
+        and SC.BaseLife.jobAllowsWorkReach({ type = "unload_vehicle", target = target })
+            == true,
+        "validated driveway parking admits bounded unloading work")
+    check(SC.BaseLife.jobAllowsWorkReach({ type = "unload_vehicle",
+        target = { vehicleId = 41, zoneId = parking.id,
+            x = 50, y = 1, z = 0 } }) == false,
+        "an unrelated car target cannot borrow driveway reach")
+    local previousUnload = SC.VehicleUnload
+    local updates, releases, cancelled = 0, 0, 0
+    SC.VehicleUnload = {
+        update = function()
+            updates = updates + 1
+            return true, "car_unload_probe"
+        end,
+        cancel = function(_, job)
+            cancelled = cancelled + 1
+            job.assignedId = nil
+            return true
+        end,
+        releaseAffinity = function(_, job)
+            releases = releases + 1
+            job.assignedId = nil
+            return true
+        end,
+    }
+    ctx.base.settings.workOutsideAtNight = true
+    local queued, job = SC.BaseLife.enqueueJob({ type = "unload_vehicle",
+        priority = 3, target = target })
+    check(queued and SC.BaseLife.claimJob(ctx.id) == job,
+        "driveway car job is claimed by its first worker")
+    job.assignedId = ctx.id
+    ctx.actor.square, ctx.actor.x, ctx.actor.y, ctx.actor.z =
+        sq(17, 1), 17, 1, 0
+    local handled, reason = tick(ctx)
+    check(handled and reason == "car_unload_probe" and updates == 1,
+        "BaseWork continues unloading outside camp instead of returning home")
+    ctx.actor.square, ctx.actor.x, ctx.actor.y = sq(12, 1), 12, 1
+    handled, reason = tick(ctx)
+    check(handled and reason == "car_unload_probe" and updates == 2,
+        "the same unloading lease continues after returning across the boundary")
+    local released = SC.BaseLife.releaseJob(job.id, ctx.id, "worker_reassigned")
+    check(released and cancelled == 1 and job.assignedId == nil,
+        "releasing a clean unload settles its first-worker affinity")
+    job.assignedId = ctx.id -- a restored pending row with stale affinity
+    check(SC.BaseLife.claimJob(ctx.actors[2].modData.SC_Id) == job
+        and releases == 1 and job.assignedId == nil,
+        "a restored cargo-free unload becomes claimable by another resident")
+    check(SC.BaseLife.releaseJob(job.id, ctx.actors[2].modData.SC_Id) == true,
+        "second resident can release the claimed order")
+    check(SC.BaseLife.claimJob(ctx.id) == job, "first worker can reclaim pending order")
+    job.assignedId = ctx.id
+    check(SC.BaseLife.blockJob(job.id, ctx.id, "capacity") == true
+        and releases == 2 and job.assignedId == nil,
+        "a cargo-free blocked unload releases temporary worker affinity")
+    check(SC.BaseLife.retryJob(job.id) == true
+        and SC.BaseLife.claimJob(ctx.actors[2].modData.SC_Id) == job,
+        "second resident can claim the retried unload")
+    SC.VehicleUnload = previousUnload
+end
+
 do
     local ctx = setup()
     local shovel = makeItem("Base.Shovel", { tags = { diggrave = true } })
