@@ -1,4 +1,4 @@
-Living Fellows 0.26.38 - public playtest
+Living Fellows 0.26.39 - public playtest
 
 This playtest adds companion driving, hotwiring and car expeditions, alongside
 rare camp gifts and companion loadout improvements.

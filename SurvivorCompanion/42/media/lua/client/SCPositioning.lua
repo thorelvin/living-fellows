@@ -1252,7 +1252,7 @@ function Positioning.updateHoldAwareness(actor, leader, snapshot)
     return accepted == true, reason or "rear_scan_rejected"
 end
 
-local function conversationTarget(actor, partner, snapshot)
+local function conversationTarget(actor, partner, snapshot, excludeCurrent)
     local utility = U()
     local px, py, pz = utility.position(partner)
     local ax, ay = utility.position(actor)
@@ -1270,6 +1270,10 @@ local function conversationTarget(actor, partner, snapshot)
         snapshot, utility.config("conversationCompanionSpacing") or 1.15, function(square)
             local distance = utility.distance(square, partner)
             return distance >= minimum and distance <= maximum
+                and (not excludeCurrent or not utility.sameSquare(actor, square))
+                and SC.Navigation
+                and type(SC.Navigation.conversationStandAccessible) == "function"
+                and SC.Navigation.conversationStandAccessible(actor, square, partner)
         end)
 end
 
@@ -1347,15 +1351,21 @@ function Positioning.updateConversation(actor, snapshot)
         Positioning.cancelConversation(actor, "conversation_partner_too_far")
         return false, "conversation_partner_too_far"
     end
-    if partnerDistance > maximum or partnerDistance < minimum then
-        local target = conversationTarget(actor, partner, snapshot)
-        if not target then
-            Positioning.cancelConversation(actor, "conversation_position_unavailable")
-            return false, "conversation_position_unavailable"
-        end
-        if not SC.Navigation or type(SC.Navigation.request) ~= "function" then
+    local accessBlocked = conversation.onReady and SC.Navigation
+        and type(SC.Navigation.conversationAccess) == "function"
+        and not SC.Navigation.conversationAccess(actor, partner)
+    if partnerDistance > maximum or partnerDistance < minimum or accessBlocked then
+        if not SC.Navigation or type(SC.Navigation.request) ~= "function"
+            or type(SC.Navigation.conversationStandAccessible) ~= "function" then
             Positioning.cancelConversation(actor, "conversation_navigation_unavailable")
             return false, "conversation_navigation_unavailable"
+        end
+        local target = conversationTarget(actor, partner, snapshot, accessBlocked)
+        if not target then
+            local reason = accessBlocked and "conversation_access_blocked"
+                or "conversation_position_unavailable"
+            Positioning.cancelConversation(actor, reason)
+            return false, reason
         end
         return SC.Navigation.request(actor, target, "walk", {
             action = "conversation_approach",
@@ -1366,8 +1376,7 @@ function Positioning.updateConversation(actor, snapshot)
     end
 
     if conversation.onReady and (not SC.Navigation
-        or type(SC.Navigation.conversationAccess) ~= "function"
-        or not SC.Navigation.conversationAccess(actor, partner)) then
+        or type(SC.Navigation.conversationAccess) ~= "function") then
         Positioning.cancelConversation(actor, "conversation_access_blocked")
         return false, "conversation_access_blocked"
     end

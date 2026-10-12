@@ -5575,15 +5575,18 @@ check(not SurvivorCompanion.Positioning.updateConversation(formationLeft, {
     }) and formationLeft.lastIntent == nil,
     "danger interrupts social positioning before it can own another movement intent")
 
-local socialApproach = actor("social-approach", 20, 12, {})
+local socialPartner = actor("social-partner", 40, 40,
+    { className = "IsoPlayer", recruited = false })
+local socialApproach = actor("social-approach", 40, 32, {})
 registry[socialApproach.id] = socialApproach
-check(SurvivorCompanion.Positioning.beginConversation(socialApproach, positioningLeader, {
+check(SurvivorCompanion.Positioning.beginConversation(socialApproach, socialPartner, {
         action = "opinion", emote = "shrug", stress = 50,
-    }) and SurvivorCompanion.Positioning.updateConversation(socialApproach, formationSnapshot)
+    }) and SurvivorCompanion.Positioning.updateConversation(socialApproach,
+        { threats = {}, allies = {}, player = { actor = socialPartner, danger = 0 } })
     and socialApproach.lastIntent.action == "conversation_approach",
     "a distant speaker approaches a reserved social ring instead of talking from the horizon")
 local socialDistance = SurvivorCompanion.GameplayUtil.distance(
-    socialApproach.lastIntent.targetSquare, positioningLeader)
+    socialApproach.lastIntent.targetSquare, socialPartner)
 check(socialDistance >= 1.2 and socialDistance <= 2.8,
     "conversation approach target remains inside the configured minimum/maximum ring")
 
@@ -5609,11 +5612,23 @@ check(socialDistance >= 1.2 and socialDistance <= 2.8,
     check(positioning.beginConversation(speaker, partner, {
             action = "needs", onReady = function() replies = replies + 1; return true end,
         }), "a nearby request may stage before checking the intervening barrier")
-    local inaccessible, accessReason = positioning.updateConversation(speaker, {})
+    local repositioned, accessReason = positioning.updateConversation(speaker, {})
+    check(repositioned and speaker.lastIntent.action == "conversation_approach"
+            and replies == 1 and positioning.activeConversation(speaker),
+        "a blocked direct line moves to a nearby clear speaking square before replying")
+    check(SurvivorCompanion.Navigation.conversationStandAccessible(speaker,
+            speaker.lastIntent.targetSquare, partner),
+        "the replacement speaking square has a clear line to the player")
+    speaker.square = speaker.lastIntent.targetSquare
+    check(positioning.updateConversation(speaker, {}) and replies == 2,
+        "the conversation replies after reaching the clear speaking square")
+    speaker.square = cell:getGridSquare(22, 18, 0)
     speaker.square.blocked[between], between.blocked[speaker.square] = nil, nil
-    check(not inaccessible and accessReason == "conversation_access_blocked"
-            and replies == 1,
-        "a nearby visible partner behind a solid barrier cannot commit direct talk")
+    local bystander = actor("sc-talk-bystander", 22, 20, {})
+    partner.square.moving[#partner.square.moving + 1] = bystander
+    check(SurvivorCompanion.Navigation.conversationAccess(speaker, partner),
+        "another person sharing the partner's tile does not block nearby speech")
+    table.remove(partner.square.moving)
     local door = { open = false }
     function door:IsOpen() return self.open end
     function door:isLocked() return false end

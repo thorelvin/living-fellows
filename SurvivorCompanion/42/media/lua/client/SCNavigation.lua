@@ -1799,9 +1799,21 @@ local function actualOpenSegmentWithinBatch(actor, targetX, targetY, targetZ, op
                 local openDoor = options.allowOpenDoor == true and edge
                     and edge.kind == "door" and edge.object ~= nil
                     and objectOpen(edge.object)
-                local blocker = U().movingBlocker(square, options.actor)
+                local blocker, blockerKind = U().movingBlocker(square, options.actor)
+                local squareX, squareY = U().position(square)
+                -- A conversation stops beside its partner; it does not enter
+                -- that tile. Another person sharing the partner's tile must
+                -- not be mistaken for an intervening body. Zombies, animals
+                -- and pushable objects still block the direct line.
+                local partnerSquareCrowd = options.allowGoalCharacterCrowd == true
+                    and squareX == math.floor(targetX)
+                    and squareY == math.floor(targetY)
+                    and (blockerKind == "player_crowd"
+                        or blockerKind == "companion_crowd"
+                        or blockerKind == "actor_crowd")
                 if (edge ~= nil and not openDoor)
-                    or (blocker ~= nil and blocker ~= options.allowedBlocker) then
+                    or (blocker ~= nil and blocker ~= options.allowedBlocker
+                        and not partnerSquareCrowd) then
                     return false
                 end
             end
@@ -1855,6 +1867,26 @@ function Navigation.conversationAccess(actor, partner)
     return actualOpenSegment(actor, x, y, z, {
         actor = actor, allowedBlocker = partner,
         allowOpenDoor = true, directWalkOnly = true,
+        allowGoalCharacterCrowd = true,
+    }) == true
+end
+
+-- When two people are already within speaking distance but a vehicle,
+-- furniture or a wall clips the direct line, Positioning may ask for another
+-- standing square. Check the line from that square's centre while retaining
+-- the real companion as the topology and crowd owner. The square's getX/Y
+-- report its corner, which can otherwise reject an open side of a doorway.
+function Navigation.conversationStandAccessible(actor, standSquare, partner)
+    local utility = U()
+    if not utility or not utility.sameFloor(standSquare, partner) then return false end
+    local sx, sy, sz = utility.position(standSquare)
+    local px, py, pz = utility.position(partner)
+    if sx == nil or px == nil then return false end
+    return actualOpenSegment({ x = math.floor(sx) + 0.5,
+        y = math.floor(sy) + 0.5, z = sz }, px, py, pz, {
+        actor = actor, allowedBlocker = partner,
+        allowOpenDoor = true, directWalkOnly = true,
+        allowGoalCharacterCrowd = true,
     }) == true
 end
 

@@ -2,6 +2,11 @@
 
 # Changelog
 
+## 0.26.39 - Clearer companion conversations
+
+- A companion already close enough to talk can move around nearby furniture, vehicles, or walls to find a clear speaking position instead of ending the conversation immediately.
+- Another person standing with the conversation partner no longer blocks a clear line of speech. The Talk panel distinguishes a blocked approach from missing navigation.
+
 ## 0.26.38 - Car expedition recovery
 
 - A car expedition can recover when its driver dies: it stops the car, gets living passengers out through verified exits, chooses a new leader, and continues on foot. A blocked exit waits and reports why.
