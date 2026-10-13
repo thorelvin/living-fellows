@@ -4,6 +4,7 @@
 
 ## 0.26.40 - Camp storage, survivor spacing and route fixes
 
+- Reduced the hygiene effect layer to a one-pixel mouse-transparent element so it cannot cover world right-click aiming or ground menus. The stream and shower effects keep their screen-space drawing behind windows.
 - Standalone updates now accept verified Living Fellows launcher entries after another mod changes the launcher file, without rewriting those changes. Uninstall removes only Living Fellows' launcher class and bridge JAR when other settings changed, preserving third-party VM options and classpath entries.
 - Added Clothes as a marked camp storage category. Sorting and car unloading place clothing there while keeping already filed clothing in place.
 - Camp storage overlays stay steady during routine refreshes; removed marks still clear promptly.

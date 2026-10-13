@@ -338,11 +338,6 @@ function Effects.ensureOverlay()
     if not overlayClass then
         overlayClass = ISUIElement:derive("SCHygieneOverlay")
         function overlayClass:render()
-            local core = type(getCore) == "function" and getCore() or nil
-            local width = number(call(core, "getScreenWidth"), 1)
-            local height = number(call(core, "getScreenHeight"), 1)
-            if self:getWidth() ~= width then self:setWidth(width) end
-            if self:getHeight() ~= height then self:setHeight(height) end
             local ok, reason = pcall(Effects.renderScreen, self)
             if not ok then
                 local now = SC.GameplayUtil and SC.GameplayUtil.nowMs
@@ -359,10 +354,11 @@ function Effects.ensureOverlay()
             end
         end
     end
-    local core = type(getCore) == "function" and getCore() or nil
-    overlay = overlayClass:new(0, 0,
-        number(call(core, "getScreenWidth"), 1),
-        number(call(core, "getScreenHeight"), 1))
+    -- drawLineAbsolute and the projected polygons use screen coordinates and
+    -- do not need a screen-sized UI element. A full-screen element can make
+    -- the engine treat world right-clicks as UI input even with mouse events
+    -- disabled, preventing aim and context menus.
+    overlay = overlayClass:new(0, 0, 1, 1)
     overlay:initialise()
     overlay:setWantMouseEvents(false)
     overlay:addToUIManager()

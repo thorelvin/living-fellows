@@ -262,12 +262,15 @@ do
     local element = {}
     function element:derive()
         local class = {}
-        function class:new()
-            local overlay = {}
+        function class:new(x, y, width, height)
+            local overlay = { x = x, y = y, width = width, height = height }
             for _, name in ipairs({ "initialise", "setWantMouseEvents",
                 "addToUIManager", "backMost", "bringToTop", "removeFromUIManager" }) do
-                overlay[name] = function() calls[#calls + 1] = name end
+                overlay[name] = function(_, value)
+                    calls[#calls + 1] = { name = name, value = value }
+                end
             end
+            calls[#calls + 1] = { name = "new", value = overlay }
             return overlay
         end
         return class
@@ -280,14 +283,22 @@ do
     sc.HygieneEffects.remove()
     calls = {}
     local created = sc.HygieneEffects.ensureOverlay()
-    local sentBack, broughtForward = false, false
-    for _, name in ipairs(calls) do
-        if name == "backMost" then sentBack = true end
-        if name == "bringToTop" then broughtForward = true end
+    local sentBack, broughtForward, noninteractive, tiny = false, false, false, false
+    for _, entry in ipairs(calls) do
+        if entry.name == "backMost" then sentBack = true end
+        if entry.name == "bringToTop" then broughtForward = true end
+        if entry.name == "setWantMouseEvents" and entry.value == false then
+            noninteractive = true
+        end
+        if entry.name == "new" then
+            local item = entry.value
+            tiny = item.x == 0 and item.y == 0
+                and item.width == 1 and item.height == 1
+        end
     end
-    assert(created == true and sentBack and not broughtForward,
-        "the hygiene overlay is placed behind other UI, never brought to the top: "
-            .. table.concat(calls, ","))
+    assert(created == true and sentBack and not broughtForward
+        and noninteractive and tiny,
+        "the hygiene effect must draw from a tiny, mouse-transparent element behind UI")
     sc.HygieneEffects.remove()
     ISUIElement, getCore, require = oldElement, oldCore, oldRequire
 end
