@@ -7018,6 +7018,21 @@ function windowTo:isWindowTo(other) return other == windowFrom end
 function windowTo:getWindow(north) if north == false then return testWindow end end
 local windowActor = actor("sc-window", 3, 2, {})
 registry[windowActor.id] = windowActor
+do
+    local priorDoorOpen = testDoor.open
+    testDoor.open = true
+    local openDoor = SurvivorCompanion.Topology.classifyEdge(
+        windowActor, doorFrom, doorTo, {})
+    local intactWindow = SurvivorCompanion.Topology.classifyEdge(
+        windowActor, windowFrom, windowTo, {})
+    local windowPassable, windowCost = SurvivorCompanion.Navigation._passableEdgeForTests(
+        windowFrom, windowTo, 1, { actor = windowActor })
+    check(openDoor.traversable and intactWindow.traversable and windowPassable
+            and openDoor.cost == 1 and intactWindow.cost >= 30
+            and windowCost >= openDoor.cost + 25,
+        "an intact window remains usable but costs more than a nearby open-door detour")
+    testDoor.open = priorDoorOpen
+end
 SurvivorCompanion.Navigation.request(windowActor, windowTo, "walk", { snapshot = { threats = {} } })
 check(windowActor.lastIntent.action == "open_window", "safe window route chooses opening over smashing")
 clock = clock + 1400
@@ -13819,8 +13834,11 @@ do
     end
 end
 local spawnSquare = SurvivorCompanion.Encounter.chooseSpawnSquare(player, {})
-check(spawnSquare ~= nil and spawnSquare.hidden == true and SurvivorCompanion.GameplayUtil.isSquareFree(spawnSquare),
-    "production spawn chooser returns a loaded, unseen, valid square")
+check(spawnSquare ~= nil and spawnSquare.hidden == true
+        and SurvivorCompanion.GameplayUtil.isSquareFree(spawnSquare)
+        and SurvivorCompanion.GameplayUtil.distance(spawnSquare, player) >= 50
+        and SurvivorCompanion.GameplayUtil.distance(spawnSquare, player) <= 110,
+    "production spawn chooser returns a loaded, unseen square within the doubled range")
 
 do
     local recruit = actor("sc-recruit-sound", -3, 4, { recruited = false })
@@ -18232,6 +18250,7 @@ do
     end
     local weaponsShelf, weaponsRow = shelf("weapons")
     local craftingShelf, craftingRow = shelf("crafting")
+    local clothesShelf, clothesRow = shelf("clothing")
     local function sortOnly(value, category)
         source.container.items = { value }
         value.container = source.container
@@ -18257,6 +18276,20 @@ do
             and not weaponsShelf.container:contains(shelvedHammer),
         "sorting leaves a hammer in Tools storage although the engine calls it a weapon: "
             .. tostring(hammerReason))
+    local spareCoat = item("Base.Jacket_Padded", "Clothing")
+    local _, coatMoved, coatReason = sortOnly(spareCoat, "general")
+    check(coatMoved and coatReason == "base_transfer_complete"
+            and clothesShelf.container:contains(spareCoat),
+        "sorting moves spare clothing from General into marked Clothes storage")
+    clothesShelf.container:Remove(spareCoat)
+    local _, coatResorted, coatStayReason = sortOnly(spareCoat, "clothing")
+    check(not coatResorted and coatStayReason == "no_sortable_supply"
+            and source.container:contains(spareCoat),
+        "sorting leaves clothing already in marked Clothes storage")
+    BaseLife.setStorageCategory(sourceRow.id, "general")
+    local carClothes = SurvivorCompanion.BaseWork.destinationForCarItem(sorter, spareCoat)
+    check(carClothes == clothesRow,
+        "unloaded car clothing uses marked Clothes storage")
     local shelvedShells = item("Base.ShotgunShells", "Item", { displayCategory = "Ammo" })
     local _, shellsMoved, shellsReason = sortOnly(shelvedShells, "ammunition")
     check(not shellsMoved and source.container:contains(shelvedShells)

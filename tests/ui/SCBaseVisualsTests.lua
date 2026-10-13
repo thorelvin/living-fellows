@@ -113,6 +113,26 @@ assert(#fixture.legend == 4 and fixture.legend[1].value == "Base layout"
     "the legend must name each visible zone kind and storage category in its color")
 fixture.legend = {}
 
+fixture.foodObject.calls = {}
+fixture.clock = fixture.clock + 500
+Events.OnPreUIDraw.callback()
+assert(#fixture.foodObject.calls == 0,
+    "refreshing an unchanged base must not clear its storage outline between frames")
+local foodStorage = table.remove(fixture.summary.storageRows, 1)
+fixture.clock = fixture.clock + 500
+Events.OnPreUIDraw.callback()
+local removedOutline = fixture.foodObject.calls[#fixture.foodObject.calls]
+assert(removedOutline and removedOutline.name == "setOutlineHighlight"
+        and removedOutline.args[2] == false,
+    "removing a marked storage must still clear its old outline")
+table.insert(fixture.summary.storageRows, 1, foodStorage)
+fixture.clock = fixture.clock + 500
+fixture.labels = {}
+Events.OnRenderTick.callback()
+assert(fixture.foodObject.calls[#fixture.foodObject.calls - 1].args[2] == true,
+    "restoring marked storage must re-enable its outline")
+fixture.lines, fixture.fills, fixture.labels, fixture.legend = {}, {}, {}, {}
+
 local parkingVisual = { id = "zone:parking", kind = "parking", name = "Parking area",
     x1 = 20, y1 = 10, x2 = 22, y2 = 12, z = 0 }
 fixture.summary.zoneRows[#fixture.summary.zoneRows + 1] = parkingVisual

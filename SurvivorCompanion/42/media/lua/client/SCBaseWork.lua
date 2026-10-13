@@ -969,7 +969,13 @@ local function classifyItem(item)
     category = string.lower(tostring(category or ""))
     if SC.FarmWork and type(SC.FarmWork.isFarmingSupply) == "function"
         and SC.FarmWork.isFarmingSupply(item) == true then return "farming", true end
-    local shelf = DISPLAY_CATEGORIES[displayCategory(item)]
+    local display = displayCategory(item)
+    local isClothing, clothingKnown = invoke(item, "IsClothing")
+    if category == "clothing" or display == "clothing"
+        or (clothingKnown and isClothing == true) then
+        return "clothing", true
+    end
+    local shelf = DISPLAY_CATEGORIES[display]
     if shelf then return shelf, true end
     if category == "food" then return "food", true end
     if category == "literature" then return "literature", true end

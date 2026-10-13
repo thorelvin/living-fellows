@@ -1265,7 +1265,7 @@ local function passableEdge(fromSquare, toSquare, vegetationScale, options)
                 or windowInvincible(object) and not objectOpen(object) then
                 return false, math.huge, "window_blocked", object
             end
-            baseCost = objectOpen(object) and 2.5 or (windowSmashed(object) and 4 or 5)
+            baseCost = objectOpen(object) and 2.5 or (windowSmashed(object) and 4 or 35)
         elseif kind == "window_frame" then
             if not object or not canClimbThrough(object, options.actor) then
                 return false, math.huge, "window_frame_blocked", object

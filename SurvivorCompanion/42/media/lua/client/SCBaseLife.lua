@@ -27,7 +27,8 @@ BaseLife.ZONE_TYPES = {
 }
 BaseLife.STORAGE_CATEGORIES = {
     food = true, water = true, medical = true, tools = true, construction = true,
-    crafting = true, literature = true, weapons = true, ammunition = true, general = true,
+    crafting = true, literature = true, weapons = true, ammunition = true, clothing = true,
+    general = true,
     output = true, memorial = true, farming = true,
 }
 BaseLife.JOB_TYPES = {

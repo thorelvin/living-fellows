@@ -2589,7 +2589,10 @@ function Encounter.chooseSpawnSquare(player, runtime)
     local utility = U()
     if not utility.isValidActor(player) then return nil, "invalid_player" end
     local px, py, pz = utility.position(player)
-    local minimum, maximum, attempts = 22, 45, 96
+    local minimum = math.max(1, math.floor(tonumber(utility.config("spawnMinDistance")) or 50))
+    local maximum = math.max(minimum,
+        math.floor(tonumber(utility.config("spawnMaxDistance")) or 110))
+    local attempts = 96
     local seed = utility.stableHash(tostring(math.floor(px)) .. ":" .. tostring(math.floor(py)) .. ":" .. tostring(math.floor(now() / 10000)))
     local best, bestScore
     for index = 1, attempts do
@@ -2604,9 +2607,13 @@ function Encounter.chooseSpawnSquare(player, runtime)
         elseif side == 1 then dx, dy = -distance, offset
         elseif side == 2 then dx, dy = offset, distance
         else dx, dy = offset, -distance end
-        local square = utility.gridSquare(px + dx, py + dy, pz)
-        local score = spawnSquareScore(square, player)
-        if score and (not bestScore or score > bestScore) then best, bestScore = square, score end
+        -- The square-ring sampler can put a diagonal candidate much farther
+        -- away than its chosen radius. Keep actual distance inside the range.
+        if dx * dx + dy * dy <= maximum * maximum then
+            local square = utility.gridSquare(px + dx, py + dy, pz)
+            local score = spawnSquareScore(square, player)
+            if score and (not bestScore or score > bestScore) then best, bestScore = square, score end
+        end
     end
     return best, (not best) and "no_valid_loaded_square" or nil
 end

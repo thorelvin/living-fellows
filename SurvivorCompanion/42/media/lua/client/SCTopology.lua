@@ -960,8 +960,10 @@ local function classifyEdge(actor, fromSquare, toSquare, options)
         if not climbable and not canPrepare then
             result.reason = "window_not_climbable" return result
         end
+        -- Preparing an intact window can end in broken glass. Prefer a
+        -- reasonably nearby door even when crossing the window is shorter.
         result.cost = Topology.objectOpen(object) and 2.5
-            or (Topology.windowSmashed(object) and 4 or 5)
+            or (Topology.windowSmashed(object) and 4 or 35)
         result.requiresNative = true
     elseif kind == "window_frame" then
         if object == nil then result.reason = "window_frame_blocked" return result end

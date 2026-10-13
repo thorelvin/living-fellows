@@ -98,7 +98,7 @@ local storageCategory = {
     weapon = "weapons", ammunition = "ammunition", tools = "tools",
     construction = "construction", crafting = "crafting",
     farming = "farming",
-    literature = "literature", clothing = "general", container = "general",
+    literature = "literature", clothing = "clothing", container = "general",
     general = "general", trash = "general",
 }
 

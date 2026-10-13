@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.26.40 - Camp storage, survivor spacing and route fixes
+
+- Added Clothes as a marked camp storage category. Sorting and car unloading place clothing there while keeping already filed clothing in place.
+- Camp storage overlays stay steady during routine refreshes; removed marks still clear promptly.
+- Companions strongly prefer a nearby open door over breaking through an intact closed window.
+- Random survivors appear farther from the player. Recruitment slows future survivor attempts progressively as the group grows, while preserving the sandbox encounter frequency setting.
+
 ## 0.26.39 - Clearer companion conversations
 
 - A companion already close enough to talk can move around nearby furniture, vehicles, or walls to find a clear speaking position instead of ending the conversation immediately.

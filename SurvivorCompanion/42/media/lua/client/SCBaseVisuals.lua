@@ -50,6 +50,7 @@ local STORAGE_COLORS = {
     literature = { r = 0.42, g = 0.62, b = 1.00 },
     weapons = { r = 0.92, g = 0.08, b = 0.08 },
     ammunition = { r = 0.80, g = 0.32, b = 0.10 },
+    clothing = { r = 0.70, g = 0.48, b = 0.90 },
     general = { r = 0.90, g = 0.90, b = 0.84 },
     output = { r = 0.96, g = 0.30, b = 0.78 },
     memorial = { r = 0.62, g = 0.66, b = 0.78 },
@@ -180,28 +181,41 @@ local function refreshCache(force)
     local current = now()
     if force ~= true and current < refreshDue and cachedZ == pz then return true end
     refreshDue, cachedZ = current + REFRESH_MILLIS, pz
-    clearHighlights()
     cachedZones, cachedStorages = {}, {}
-    if not SC.BaseLife then return false end
+    if not SC.BaseLife then clearHighlights() return false end
     local source = type(SC.BaseLife.visualRows) == "function"
         and SC.BaseLife.visualRows or SC.BaseLife.summary
-    if type(source) ~= "function" then return false end
+    if type(source) ~= "function" then clearHighlights() return false end
     local ok, summary = pcall(source)
-    if not ok or type(summary) ~= "table" or summary.configured ~= true then return false end
+    if not ok or type(summary) ~= "table" or summary.configured ~= true then
+        clearHighlights()
+        return false
+    end
     for _, zone in ipairs(type(summary.zoneRows) == "table" and summary.zoneRows or {}) do
         if nearPlayer(zone, px, py, pz) then
             cachedZones[#cachedZones + 1] = zone
         end
     end
+    local nextHighlights = {}
+    local retained = {}
     for _, storage in ipairs(type(summary.storageRows) == "table" and summary.storageRows or {}) do
         if nearPlayer(storage, px, py, pz) then
             local object = resolveStorage(storage)
             if object then
                 cachedStorages[#cachedStorages + 1] = { record = storage, object = object }
-                highlightedObjects[#highlightedObjects + 1] = object
+                if not retained[object] then
+                    nextHighlights[#nextHighlights + 1] = object
+                    retained[object] = true
+                end
             end
         end
     end
+    -- Clearing and immediately re-enabling the same outline every cache
+    -- refresh makes storage flash, especially when UI and world ticks interleave.
+    for _, object in ipairs(highlightedObjects) do
+        if not retained[object] then clearObject(object) end
+    end
+    highlightedObjects = nextHighlights
     return true
 end
 

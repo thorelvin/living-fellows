@@ -178,6 +178,7 @@ local BASE_STORAGE_CATEGORIES = {
     { id = "literature", key = "UI_SC_Base_Storage_literature" },
     { id = "weapons", key = "UI_SC_Base_Storage_weapons" },
     { id = "ammunition", key = "UI_SC_Base_Storage_ammunition" },
+    { id = "clothing", key = "UI_SC_Base_Storage_clothing" },
     { id = "general", key = "UI_SC_Base_Storage_general" },
     { id = "output", key = "UI_SC_Base_Storage_output" },
     { id = "memorial", key = "UI_SC_Base_Storage_memorial" },

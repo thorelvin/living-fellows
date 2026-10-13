@@ -1088,7 +1088,7 @@ local function addBaseMenu(context, square, containerTarget, barricadeTarget, pl
         local storageMenu = ISContextMenu:getNew(menu)
         menu:addSubMenu(storageOption, storageMenu)
         for _, category in ipairs({ "food", "water", "medical", "tools", "construction",
-            "crafting", "literature", "weapons", "ammunition", "general", "output",
+            "crafting", "literature", "weapons", "ammunition", "clothing", "general", "output",
             "memorial", "farming" }) do
             storageMenu:addOption(text("UI_SC_Base_Storage_" .. category), nil, baseAction,
                 "storage", { object = containerTarget, category = category }, player)

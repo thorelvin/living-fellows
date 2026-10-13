@@ -951,6 +951,29 @@ function spawn.debugPulse(player, runtime, current)
     return actor ~= nil, actor or reason
 end
 
+function spawn.productionDelayMultiplier()
+    local recruited = 0
+    for _, record in ipairs(SC.Registry.records()) do
+        local actor = record.actor
+        if record.recruited == true and actor ~= nil
+            and not (type(record.runtime) == "table" and record.runtime.inactive == true) then
+            local alive = true
+            if type(actor.isDead) == "function" then
+                local ok, dead = pcall(actor.isDead, actor)
+                alive = ok and dead ~= true
+            end
+            if alive then recruited = recruited + 1 end
+        end
+    end
+    if SC.Vehicle and type(SC.Vehicle.storedCount) == "function" then
+        recruited = recruited + math.max(0, tonumber(SC.Vehicle.storedCount()) or 0)
+    end
+    recruited = math.min(recruited, tonumber(SC.Config.get("maxCompanions")) or 16)
+    -- One recruit barely slows new arrivals; a settled group slows them much
+    -- more. The sandbox encounter frequency remains the base interval.
+    return 1 + recruited / 4 + recruited * recruited / 16
+end
+
 function spawn.productionPulse(player, runtime, current)
     if SC.Config.get("productionEncounterEnabled") ~= true then
         return false, "production encounters disabled"
@@ -963,10 +986,13 @@ function spawn.productionPulse(player, runtime, current)
     end
     current = current or nowMs()
     if productionStartedAt == nil then productionStartedAt = current end
-    if current - productionStartedAt < SC.Config.get("productionSpawnInitialDelayMs") then
+    local delayMultiplier = spawn.productionDelayMultiplier()
+    if current - productionStartedAt
+        < SC.Config.get("productionSpawnInitialDelayMs") * delayMultiplier then
         return false, "production encounter initial delay"
     end
-    if current - lastProductionAttempt < SC.Config.get("productionSpawnCooldownMs") then
+    if current - lastProductionAttempt
+        < SC.Config.get("productionSpawnCooldownMs") * delayMultiplier then
         return false, "production encounter cooldown"
     end
     if player == nil then return false, "player is unavailable" end

@@ -67,4 +67,40 @@ check(recovered == true and attempts == 3 and recoveringRuntime.active == true
     and recoveringRuntime.disabledReason == nil,
     "production cadence recovers after delayed native bridge exposure")
 
+check(SC.Config.get("spawnMinDistance") == 50
+        and SC.Config.get("spawnMaxDistance") == 110
+        and SC.Config.get("encounterDespawnRadius") > 110,
+    "production survivors spawn at doubled range without immediate distance despawn")
+local recruitedRecords = {}
+local stored = 0
+SC.Registry.records = function() return recruitedRecords end
+SC.Vehicle.storedCount = function() return stored end
+local function recruit()
+    recruitedRecords[#recruitedRecords + 1] = {
+        recruited = true, actor = { isDead = function() return false end },
+    }
+end
+check(SC.Spawn.productionDelayMultiplier() == 1,
+    "an empty group retains the sandbox encounter cadence")
+for _ = 1, 4 do recruit() end
+check(SC.Spawn.productionDelayMultiplier() == 3,
+    "four recruited companions triple the encounter delay")
+for _ = 5, 8 do recruit() end
+check(SC.Spawn.productionDelayMultiplier() == 7,
+    "large groups slow new survivor arrivals faster than small groups")
+recruitedRecords[8].actor.isDead = function() return true end
+recruitedRecords[7].runtime = { inactive = true }
+stored = 2
+check(SC.Spawn.productionDelayMultiplier() == 7,
+    "dead and inactive companions are excluded while vehicle-stored companions count")
+stored = 0
+while #recruitedRecords > 4 do table.remove(recruitedRecords) end
+SC.Spawn.reset()
+check(SC.Spawn.productionPulse(player, { active = true }, 1000000) == false
+        and SC.Spawn.productionPulse(player, { active = true }, 1179999) == false
+        and SC.Spawn.productionPulse(player, { active = true }, 1180000) == true
+        and SC.Spawn.productionPulse(player, { active = true }, 2079999) == false
+        and SC.Spawn.productionPulse(player, { active = true }, 2080000) == true,
+    "recruited-group delay applies after loading and between production attempts")
+
 print("PRODUCTION_SPAWN_KAHLUA_PASS checks=" .. tostring(checks))

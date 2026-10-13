@@ -718,7 +718,7 @@ local valueData = {
 
     encounterIntervalMs = 1000,
     encounterActiveRadius = 75,
-    encounterDespawnRadius = 95,
+    encounterDespawnRadius = 150,
     -- Unrecruited survivors scavenge independently around their own position.
     -- Unarmed survivors revisit the search more aggressively until they find a
     -- usable melee weapon; armed survivors still forage before recruitment.
@@ -1417,8 +1417,8 @@ local valueData = {
     productionSpawnInitialDelayMs = 60000,
     productionSpawnCooldownMs = 300000,
     maxNeutralEncounters = 1,
-    spawnMinDistance = 25,
-    spawnMaxDistance = 55,
+    spawnMinDistance = 50,
+    spawnMaxDistance = 110,
     spawnSampleCount = 48,
     spawnLocalSafetyRadius = 3,
     spawnMaxNearbyZombies = 2,
