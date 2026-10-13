@@ -155,6 +155,24 @@ local baseline, baselineBest = scoresFor(0)
 local fiveMore, fiveBest = scoresFor(5)
 local twentyMore, twentyBest = scoresFor(20)
 
+-- The sensing pass reports each immediate zombie in directionalPressure too.
+-- Overrun must count that attacker once, or a three-person squad drops its
+-- attack every time one zombie comes within arm's reach.
+local quietPressure = snapshotWith(0)
+quietPressure.immediateCount, quietPressure.closeImmediateCount = 0, 0
+quietPressure.closeThreatCount, quietPressure.directionalPressure = 0, 0
+local singlePressure = snapshotWith(0)
+singlePressure.immediateCount, singlePressure.closeImmediateCount = 1, 1
+singlePressure.closeThreatCount, singlePressure.directionalPressure = 1, 1.8
+local quietRisk = SC.Combat.assessOverrun(fighter, quietPressure, weapon,
+    { combatMode = "defensive", morale = 70 })
+local singleRisk = SC.Combat.assessOverrun(fighter, singlePressure, weapon,
+    { combatMode = "defensive", morale = 70 })
+check(math.abs(singleRisk.risk - quietRisk.risk - 12) < 0.01,
+    "one nearby zombie contributes one immediate-count term, not two")
+check(singleRisk.overrun == false,
+    "a healthy armed fighter does not retreat solely from one nearby zombie")
+
 check(baselineBest ~= nil, "the fixture produces a scored action at all")
 check(baselineBest == fiveBest and baselineBest == twentyBest,
     "the chosen action is the same with 0, 5 and 20 idle zombies in the distance: "
@@ -318,6 +336,31 @@ if type(claimed) == "function" then
     check(SC.Combat.engagementAim(second, zombie, 1.2, 1000) == nil,
         "companions already apart are not shuffled around further")
 
+    -- A third recruited fighter is a reserve claim, but a zombie in open
+    -- ground has another side to attack from. It must not wait for the first
+    -- two to finish while a companion is being bitten.
+    local third = character("sc-flank-third", 19.3, 20.5)
+    local thirdRole = claimed(zombie, third, 1000, "cohort-flank",
+        nil, "tracking", 1.2)
+    check(thirdRole == "reserve", "the third fighter starts as reserve")
+    local thirdX, thirdY = SC.Combat.engagementAim(third, zombie, 1.2, 1000)
+    check(thirdX ~= nil and math.abs(thirdY - 20.5) > 0.8,
+        "a reserve finds a third open strike lane rather than the occupied two")
+    check(SC.Combat.shouldYieldEngagement(third, zombie, 1.2, 1000) == false,
+        "a reserve with a clear third lane may join the fight")
+    check(SC.Combat._roleMayAttackForTests(third, "reserve", nil,
+        { kind = "melee" }, { actor = zombie, distanceSq = 2.0 },
+        { immediateCount = 1 }) == true,
+        "a reserve in melee range may strike through a clear friendly-fire lane")
+    openEverywhere = false
+    check(SC.Combat.shouldYieldEngagement(third, zombie, 1.2, 1000) == true,
+        "without a proven third route the reserve yields the shared lane")
+    third.x, third.y = 16.5, 20.5
+    check(SC.Combat.shouldYieldEngagement(third, zombie, 1.2, 1000) == false,
+        "a distant reserve may approach before the crowded-lane check")
+    third.x, third.y = 19.3, 20.5
+    openEverywhere = true
+
     -- Ground that is not provably open is never crossed to flank.
     second.x, second.y = 19.4, 20.6
     openEverywhere = false
@@ -326,6 +369,23 @@ if type(claimed) == "function" then
     openEverywhere = true
 end
 SC.Navigation.openSegment = priorOpenSegment
+
+-- A pushed-down zombie can fail character CanSee even though its occupied
+-- square is visible. The short floor-sight fallback must remain local and
+-- reject an unseen square, an upright zombie, or one outside pursuit range.
+local sightActor = character("sc-floor-sight", 40.5, 40.5)
+local sightZombie = character("z-floor-sight", 41.5, 40.5, "IsoZombie")
+function sightZombie:isOnFloor() return true end
+local priorCanSee = U.canSee
+U.canSee = function(_, value) return value == sightZombie:getSquare() end
+check(SC.Combat._canSeeCombatTargetForTests(sightActor, sightZombie,
+    sightZombie:getSquare(), 1) == true,
+    "a nearby fallen zombie remains visible by square LOS")
+U.canSee = function() return false end
+check(SC.Combat._canSeeCombatTargetForTests(sightActor, sightZombie,
+    sightZombie:getSquare(), 1) == false,
+    "a blocked square does not admit a blind floor attack")
+U.canSee = priorCanSee
 
 -- The grounded pair keeps one finisher while their relative distance changes
 -- during the sidestep. After the short lease it may choose again.

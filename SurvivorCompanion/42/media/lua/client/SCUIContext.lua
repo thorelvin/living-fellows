@@ -1144,7 +1144,11 @@ local function nearbyRows(player)
         return rows, talkRows
     end
     for _, entry in pairs(living) do
-        local row = SC.UI and SC.UI.describeEntry and SC.UI.describeEntry(entry, player) or nil
+        local serviceDriver = SC.TaxiService
+            and type(SC.TaxiService.isDriver) == "function"
+            and SC.TaxiService.isDriver(entry) == true
+        local row = not serviceDriver and SC.UI and SC.UI.describeEntry
+            and SC.UI.describeEntry(entry, player) or nil
         local recruited = row and row.recruited == true
         local validRecord = row and row.id and row.id ~= ""
         if row and row.id and row.id ~= "" and SC.Registry
@@ -1494,6 +1498,12 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
     end
     local rows, talkRows = nearbyRows(player)
     local clickedVehicle = Context.vehicleAtClick(clickSquare)
+    local riddenCar = safeMethod(player, "getVehicle")
+    local taxiRide = playerIndex == 0 and riddenCar ~= nil
+        and SC.TaxiService and type(SC.TaxiService.isBookedPassenger) == "function"
+        and SC.TaxiService.isBookedPassenger(player, riddenCar) == true
+        and type(SC.TaxiService.current) == "function"
+        and (SC.TaxiService.current() or {}).phase == "ready_to_depart"
     local clickedCompanion, clickedMatches = clickedCompanionRow(talkRows, worldObjects, clickSquare)
     local factions = talkableFactions(player)
     local oddballs = talkableOddballs(player)
@@ -1506,13 +1516,39 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
     if #rows == 0 and #factions == 0 and #oddballs == 0 and not baseRelevant
         and watchStatus.watching ~= true and not clickedCompanion
         and not (clickedMatches and #clickedMatches > 1)
-        and not memorialName and not sealedDoorGroup and not clickedVehicle then return end
+        and not memorialName and not sealedDoorGroup and not clickedVehicle
+        and not taxiRide then return end
     if test and ISWorldObjectContextMenu and ISWorldObjectContextMenu.setTest then
         return ISWorldObjectContextMenu.setTest()
     end
     if memorialName then
         local option = context:addOption(text("UI_SC_Grave_Memorial", memorialName), nil, nil)
         if option then option.notAvailable = true end
+    end
+    if taxiRide then
+        local root = context:addOptionOnTop(text("UI_SC_Taxi_Menu"))
+        local menu = ISContextMenu:getNew(context)
+        context:addSubMenu(root, menu)
+        menu:addOption(text("UI_SC_Taxi_MapHint"), nil,
+            function() safeMethod(player, "setHaloNote",
+                text("UI_SC_Taxi_MapHintDetail")) end)
+        local destinations = SC.TaxiService.destinations(player, nil) or {}
+        for _, destination in ipairs(destinations) do
+            menu:addOption(text("UI_SC_Taxi_DriveTo",
+                tostring(destination.name),
+                tostring(destination.required or "?")), nil,
+                Context.taxiCabAction, player, "depart", destination.id)
+        end
+        local rows = SC.TaxiCab and SC.TaxiCab.looseItems(riddenCar) or nil
+        for _, row in ipairs(rows or {}) do
+            local value = SC.TaxiFares and SC.TaxiFares.valueFor(row.item)
+            if value then
+                menu:addOption(text("UI_SC_Taxi_Offer",
+                    tostring(safeMethod(row.item, "getDisplayName")
+                        or row.itemType), tostring(value)), nil,
+                    Context.taxiCabAction, player, "offer", row.item)
+            end
+        end
     end
     addHotwireMenu(context, rows, clickedVehicle, player)
     if clickedVehicle and SC.VehicleUnload
@@ -1686,6 +1722,147 @@ local function answerDistressFromRadio(_target, player, groupId)
     return okay and accepted == true, reason
 end
 
+local function taxiRadioAction(_target, player, radio, action, payload)
+    local booking, service = SC.TaxiBooking, SC.TaxiService
+    if not booking or booking.dispatchReady ~= true or not service
+        or type(service[action]) ~= "function" then return false end
+    local primary = type(getSpecificPlayer) == "function"
+        and getSpecificPlayer(0) or nil
+    if player ~= primary then return false end
+    local okay, accepted, reason, state = pcall(service[action],
+        player, radio, payload)
+    local feedbackKeys = {
+        booking_received = "UI_SC_Taxi_booking_received",
+        already_booked = "UI_SC_Taxi_already_booked",
+        awaiting_pickup = "UI_SC_Taxi_awaiting_pickup",
+        pickup_updated = "UI_SC_Taxi_pickup_updated",
+        booking_cancelled = "UI_SC_Taxi_booking_cancelled",
+        no_booking = "UI_SC_Taxi_no_booking",
+        pickup_locked = "UI_SC_Taxi_pickup_locked",
+        not_a_radio = "UI_SC_Taxi_not_a_radio",
+        radio_not_owned = "UI_SC_Taxi_radio_not_owned",
+        radio_not_portable = "UI_SC_Taxi_radio_not_portable",
+        radio_receive_only = "UI_SC_Taxi_radio_receive_only",
+        radio_off = "UI_SC_Taxi_radio_off",
+        radio_flat = "UI_SC_Taxi_radio_flat",
+        radio_muted = "UI_SC_Taxi_radio_muted",
+        caller_position_unavailable = "UI_SC_Taxi_caller_position_unavailable",
+        taxi_dispatched = "UI_SC_Taxi_booking_received",
+        cab_unloaded_or_missing = "UI_SC_Taxi_cab_unloaded",
+        searching = "UI_SC_Taxi_searching",
+        driver_pending = "UI_SC_Taxi_driver_pending",
+        board_driver = "UI_SC_Taxi_board_driver",
+        pickup_drive = "UI_SC_Taxi_pickup_drive",
+        waiting_board = "UI_SC_Taxi_waiting_board",
+        ready_to_depart = "UI_SC_Taxi_ready_to_depart",
+        in_transit = "UI_SC_Taxi_in_transit",
+        waiting_exit = "UI_SC_Taxi_waiting_exit",
+        finishing = "UI_SC_Taxi_finishing",
+        departing = "UI_SC_Taxi_departing",
+        retiring = "UI_SC_Taxi_retiring",
+        departure_held = "UI_SC_Taxi_departure_held",
+        held = "UI_SC_Taxi_held",
+        taxi_departed = "UI_SC_Taxi_departed",
+        fare_offered = "UI_SC_Taxi_fare_offered",
+        already_offered = "UI_SC_Taxi_already_offered",
+    }
+    local key = feedbackKeys[okay and reason or nil] or "UI_SC_Taxi_unavailable"
+    local message = text(key)
+    if message == key then message = text("UI_SC_Taxi_unavailable") end
+    if accepted == true and action == "status" and state
+        and state.reason == "customer_property_in_cab" then
+        message = text("UI_SC_Taxi_luggage_waiting")
+    elseif accepted == true and action == "status" and state
+        and state.reason == "passengers_still_aboard" then
+        message = text("UI_SC_Taxi_passengers_waiting")
+    elseif accepted == true and action == "status" and state
+        and state.phase == "searching" and state.reason then
+        message = message .. " " .. text("UI_SC_Taxi_MoveRoadside")
+    elseif accepted == true and state and state.requestedAt then
+        message = message .. " (" .. tostring(state.requestedAt.x) .. ", "
+            .. tostring(state.requestedAt.y) .. ")"
+    elseif accepted == true and action == "status" and state and state.pickup then
+        message = message .. " " .. text("UI_SC_Taxi_PickupAt",
+            tostring(math.floor(state.pickup.x)),
+            tostring(math.floor(state.pickup.y)))
+    end
+    if accepted ~= true and reason == "fare_waiting" and type(state) == "table" then
+        message = text("UI_SC_Taxi_fare_waiting",
+            tostring(state.required), tostring(state.offered or 0))
+    elseif accepted ~= true and type(reason) == "string"
+        and feedbackKeys[reason] == nil then
+        message = "Markus: " .. reason:gsub("_", " ")
+    end
+    safeMethod(player, "setHaloNote", message)
+    return okay and accepted == true, reason
+end
+
+function Context.taxiCabAction(_target, player, action, payload)
+    return taxiRadioAction(nil, player, nil, action, payload)
+end
+
+local function addTaxiRadioOptions(context, player, radio)
+    local booking, service = SC.TaxiBooking, SC.TaxiService
+    if not booking or booking.dispatchReady ~= true
+        or not service
+        or player ~= (type(getSpecificPlayer) == "function"
+            and getSpecificPlayer(0) or nil) then return end
+    local current = service.current()
+    local car = safeMethod(player, "getVehicle")
+    local boarded = current and car ~= nil and service.isBookedPassenger
+        and service.isBookedPassenger(player, car) == true
+    -- Once the trip starts there are no radio commands to show a seated
+    -- passenger. Do not leave an empty taxi submenu in the inventory menu.
+    if boarded and current.phase ~= "ready_to_depart" then return end
+    local root = context:addOptionOnTop(text("UI_SC_Taxi_Menu"))
+    local menu = ISContextMenu:getNew(context)
+    context:addSubMenu(root, menu)
+    if current then
+        if not boarded then
+            menu:addOption(text("UI_SC_Taxi_Status"), nil,
+                taxiRadioAction, player, radio, "status")
+        end
+        if current.phase == "searching" then
+            menu:addOption(text("UI_SC_Taxi_Update"), nil,
+                taxiRadioAction, player, radio, "updatePickup")
+        end
+        if not boarded and (current.phase == "searching" or current.phase == "pickup_drive"
+            or current.phase == "waiting_board"
+            or current.phase == "ready_to_depart"
+            or current.phase == "held") then
+            menu:addOption(text("UI_SC_Taxi_Cancel"), nil,
+                taxiRadioAction, player, radio, "cancel")
+        end
+        if current.phase == "ready_to_depart" then
+            menu:addOption(text("UI_SC_Taxi_MapHint"), nil,
+                function() safeMethod(player, "setHaloNote",
+                    text("UI_SC_Taxi_MapHintDetail")) end)
+            local destinations = service.destinations(player, radio) or {}
+            for _, destination in ipairs(destinations) do
+                local label = text("UI_SC_Taxi_DriveTo",
+                    tostring(destination.name),
+                    tostring(destination.required or "?"))
+                menu:addOption(label, nil, taxiRadioAction,
+                    player, radio, "depart", destination.id)
+            end
+            local car = SC.TaxiCab and select(2, SC.TaxiCab.recover())
+            local rows = car and SC.TaxiCab.looseItems(car) or nil
+            for _, row in ipairs(rows or {}) do
+                local value = SC.TaxiFares and SC.TaxiFares.valueFor(row.item)
+                if value then
+                    menu:addOption(text("UI_SC_Taxi_Offer",
+                        tostring(safeMethod(row.item, "getDisplayName")
+                            or row.itemType), tostring(value)), nil,
+                        taxiRadioAction, player, radio, "offer", row.item)
+                end
+            end
+        end
+    else
+        menu:addOption(text("UI_SC_Taxi_Call"), nil,
+            taxiRadioAction, player, radio, "request")
+    end
+end
+
 function Context.fillRadioContextMenu(playerIndex, context, items)
     local expedition = SC.ExpeditionPrototype
     local mission = expedition and type(expedition.current) == "function"
@@ -1724,20 +1901,25 @@ function Context.fillRadioContextMenu(playerIndex, context, items)
             end
         end
     end
-    for _, entry in ipairs(items) do
-        if equippedRadio(entry) then
-            addRadioOptions()
-            return
+    local selectedRadio, equipped = nil, false
+    local function consider(item)
+        if not item or not SC.GameplayUtil
+            or not SC.GameplayUtil.instanceOf(item, "Radio") then return end
+        if not selectedRadio then selectedRadio = item end
+        if SC.TaxiBooking and type(SC.TaxiBooking.checkRadio) == "function"
+            and select(1, SC.TaxiBooking.checkRadio(player, item)) == true then
+            selectedRadio = item
         end
+        if equippedRadio(item) then equipped = true end
+    end
+    for _, entry in ipairs(items) do
+        consider(entry)
         if type(entry) == "table" and type(entry.items) == "table" then
-            for _, item in ipairs(entry.items) do
-                if equippedRadio(item) then
-                    addRadioOptions()
-                    return
-                end
-            end
+            for _, item in ipairs(entry.items) do consider(item) end
         end
     end
+    if selectedRadio then addTaxiRadioOptions(context, player, selectedRadio) end
+    if equipped then addRadioOptions() end
 end
 
 function Context.install()

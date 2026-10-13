@@ -1,7 +1,7 @@
-Living Fellows 0.26.40 - public playtest
+Living Fellows 0.26.41 - public playtest
 
-This playtest adds companion driving, hotwiring and car expeditions, alongside
-rare camp gifts and companion loadout improvements.
+This playtest adds Markus's radio-booked taxi, stronger companion combat and
+formation behavior, and safer boarding of the player's locked passenger door.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added

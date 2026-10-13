@@ -68,6 +68,20 @@ param(
     [switch]$WaterSourceProbe,
     # A companion drives a spawned car on a straight road near the observer.
     [switch]$DrivingProbe,
+    # Stage A of Markus's taxi: real player remains in a native passenger seat.
+    [switch]$TaxiPassengerProbe,
+    # Markus radio booking through a hidden physical pickup and free road ride.
+    [switch]$TaxiCallProbe,
+    # A repeat booking from a completed fare: 200+ tiles, paid with gold necklace.
+    [switch]$TaxiCallLongPaid,
+    # Reproduce a repeat pickup across the road and record the native turn.
+    [switch]$TaxiTurnDiagnostic,
+    # Save the booked player and Markus during the physical taxi ride.
+    [switch]$TaxiCallStage,
+    # Resume that same taxi, actor, passenger, booking, and fare in a new game.
+    [switch]$TaxiCallResume,
+    # Resume the paid taxi stage from its retained clone to prove a cold reload.
+    [switch]$TaxiRecoveryResume,
     # With -DrivingProbe: drive an expedition-planner route round one wreck,
     # turn round, and drive back round two, instead of the mechanics checks.
     [switch]$DrivingRoute,
@@ -689,6 +703,30 @@ if ($VehiclePassengerOnly -ne (-not [string]::IsNullOrWhiteSpace($VehiclePasseng
     throw '-VehiclePassengerOnly requires -VehiclePassengerScreenshot.'
 }
 if ($DrivingRoute -and -not $DrivingProbe) { throw '-DrivingRoute requires -DrivingProbe.' }
+if ($TaxiPassengerProbe -and -not $DrivingProbe) {
+    throw '-TaxiPassengerProbe requires -DrivingProbe.'
+}
+if ($TaxiCallProbe -and -not $DrivingProbe) {
+    throw '-TaxiCallProbe requires -DrivingProbe.'
+}
+if ($TaxiCallStage -and -not $TaxiCallProbe) {
+    throw '-TaxiCallStage requires -TaxiCallProbe.'
+}
+if ($TaxiCallLongPaid -and (-not $TaxiCallProbe -or $TaxiCallStage)) {
+    throw '-TaxiCallLongPaid requires -TaxiCallProbe without -TaxiCallStage.'
+}
+if ($TaxiCallLongPaid -and [string]::IsNullOrWhiteSpace($SeedSave)) {
+    throw '-TaxiCallLongPaid requires a completed first-fare -SeedSave.'
+}
+if ($TaxiTurnDiagnostic -and -not $TaxiCallLongPaid) {
+    throw '-TaxiTurnDiagnostic requires -TaxiCallLongPaid.'
+}
+if ($TaxiCallResume -and -not $DrivingProbe) {
+    throw '-TaxiCallResume requires -DrivingProbe.'
+}
+if ($TaxiRecoveryResume -and -not $DrivingProbe) {
+    throw '-TaxiRecoveryResume requires -DrivingProbe.'
+}
 if ($DrivingTurn -and -not $DrivingProbe) { throw '-DrivingTurn requires -DrivingProbe.' }
 if ($DrivingTurn -and $DrivingRoute) { throw 'Choose -DrivingRoute or -DrivingTurn, not both.' }
 if ($DrivingWithAi -and (-not $DrivingProbe -or -not $DrivingRoute)) {
@@ -699,7 +737,9 @@ if ($DrivingGateNegativeControl -and
     throw '-DrivingGateNegativeControl requires -DrivingProbe -DrivingRoute -DrivingWithAi.'
 }
 $drivingExclusiveModes = @($DrivingRoute, $DrivingTurn, $DrivingBlocked,
-    $DrivingSaveStage, $DrivingSaveResume, $DrivingRemote, $TeamDriveProbe) | Where-Object { $_.IsPresent }
+    $DrivingSaveStage, $DrivingSaveResume, $DrivingRemote, $TeamDriveProbe,
+    $TaxiPassengerProbe, $TaxiCallProbe, $TaxiCallResume,
+    $TaxiRecoveryResume) | Where-Object { $_.IsPresent }
 if ($drivingExclusiveModes.Count -gt 1) {
     throw 'Choose one driving route, turn, blocked, save-stage, or save-resume mode.'
 }
@@ -714,6 +754,12 @@ if ($TeamDriveObstacleProbe -and -not $TeamDriveScavengeProbe) {
 }
 if ($DrivingSaveResume -and [string]::IsNullOrWhiteSpace($SeedSave)) {
     throw '-DrivingSaveResume requires -SeedSave pointing at a retained stage clone.'
+}
+if ($TaxiRecoveryResume -and [string]::IsNullOrWhiteSpace($SeedSave)) {
+    throw '-TaxiRecoveryResume requires -SeedSave pointing at a retained taxi stage clone.'
+}
+if ($TaxiCallResume -and [string]::IsNullOrWhiteSpace($SeedSave)) {
+    throw '-TaxiCallResume requires -SeedSave pointing at a retained taxi call stage clone.'
 }
 if (($TeamDriveRestartStage -or $TeamDriveRestartResume) -and
     (-not $TeamDriveProbe -or -not $DrivingProbe -or
@@ -1100,6 +1146,41 @@ if (-not (Test-Path -LiteralPath $seedMods -PathType Leaf) -or
 }
 $drivingStageProof = $null
 $drivingExpected = @{}
+$taxiExpected = @{}
+$taxiCallExpected = @{}
+if ($TaxiCallResume) {
+    $taxiCallProof = Join-Path $SeedSave 'SC-taxi-call-stage-proof.txt'
+    if (-not (Test-Path -LiteralPath $taxiCallProof -PathType Leaf)) {
+        throw '-TaxiCallResume needs the proof file from a passing taxi call stage.'
+    }
+    foreach ($line in Get-Content -LiteralPath $taxiCallProof) {
+        if ($line -match '^([a-z_]+)=([A-Za-z0-9:._-]+)$') {
+            $taxiCallExpected[$matches[1]] = $matches[2]
+        }
+    }
+    if ($taxiCallExpected.sql_id -notmatch '^[0-9]{1,16}$' -or
+        $taxiCallExpected.driver_id -notmatch '^[A-Za-z0-9:._-]{1,96}$' -or
+        $taxiCallExpected.booking_generation -notmatch '^[0-9]{1,10}$' -or
+        $taxiCallExpected.receipt_id -notmatch '^markus-fare:[0-9]{1,10}$') {
+        throw 'The retained taxi call stage proof is incomplete or malformed.'
+    }
+}
+if ($TaxiRecoveryResume) {
+    $taxiProof = Join-Path $SeedSave 'SC-taxi-stage-proof.txt'
+    if (-not (Test-Path -LiteralPath $taxiProof -PathType Leaf)) {
+        throw '-TaxiRecoveryResume needs the proof file from a passing taxi passenger clone.'
+    }
+    foreach ($line in Get-Content -LiteralPath $taxiProof) {
+        if ($line -match '^([a-z_]+)=([A-Za-z0-9:._-]+)$') {
+            $taxiExpected[$matches[1]] = $matches[2]
+        }
+    }
+    if ($taxiExpected.sql_id -notmatch '^[0-9]{1,16}$' -or
+        $taxiExpected.ring_id -notmatch '^[0-9]{1,16}$' -or
+        $taxiExpected.receipt_id -notmatch '^markus-fare:[0-9]{1,10}$') {
+        throw 'The retained taxi stage proof is incomplete or malformed.'
+    }
+}
 if ($DrivingSaveResume) {
     $drivingStageProof = Join-Path $SeedSave 'SC-driving-stage-proof.txt'
     if (-not (Test-Path -LiteralPath $drivingStageProof -PathType Leaf)) {
@@ -1295,6 +1376,20 @@ $config = @(
     ('base_second_floor_probe=' + $BaseSecondFloorProbe.IsPresent.ToString().ToLowerInvariant()),
     ('water_source_probe=' + $WaterSourceProbe.IsPresent.ToString().ToLowerInvariant()),
     ('driving_probe=' + $DrivingProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('taxi_passenger_probe=' + $TaxiPassengerProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('taxi_call_probe=' + $TaxiCallProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('taxi_call_long_paid=' + $TaxiCallLongPaid.IsPresent.ToString().ToLowerInvariant()),
+    ('taxi_turn_diagnostic=' + $TaxiTurnDiagnostic.IsPresent.ToString().ToLowerInvariant()),
+    ('taxi_call_stage=' + $TaxiCallStage.IsPresent.ToString().ToLowerInvariant()),
+    ('taxi_call_resume=' + $TaxiCallResume.IsPresent.ToString().ToLowerInvariant()),
+    ('taxi_call_expected_sql_id=' + [string]$taxiCallExpected.sql_id),
+    ('taxi_call_expected_driver_id=' + [string]$taxiCallExpected.driver_id),
+    ('taxi_call_expected_booking_generation=' + [string]$taxiCallExpected.booking_generation),
+    ('taxi_call_expected_receipt_id=' + [string]$taxiCallExpected.receipt_id),
+    ('taxi_recovery_resume=' + $TaxiRecoveryResume.IsPresent.ToString().ToLowerInvariant()),
+    ('taxi_expected_sql_id=' + [string]$taxiExpected.sql_id),
+    ('taxi_expected_ring_id=' + [string]$taxiExpected.ring_id),
+    ('taxi_expected_receipt_id=' + [string]$taxiExpected.receipt_id),
     ('driving_route=' + $DrivingRoute.IsPresent.ToString().ToLowerInvariant()),
     ('driving_turn=' + $DrivingTurn.IsPresent.ToString().ToLowerInvariant()),
     ('driving_with_ai=' + $DrivingWithAi.IsPresent.ToString().ToLowerInvariant()),
@@ -1879,7 +1974,8 @@ $summary = Get-Content -LiteralPath $summaryPath
 $statusLine = $summary | Where-Object { $_ -match '^status=' } | Select-Object -First 1
 $status = $statusLine -replace '^status=', ''
 $postSummaryForcedStop = $false
-$postSummaryExitSeconds = if ($DrivingSaveStage -or $TeamDriveRestartStage) { 90 } else { 15 }
+$postSummaryExitSeconds = if ($DrivingSaveStage -or $TeamDriveRestartStage -or
+    $TaxiPassengerProbe -or $TaxiCallStage) { 90 } else { 15 }
 $exitDeadline = [DateTime]::UtcNow.AddSeconds($postSummaryExitSeconds)
 while ([DateTime]::UtcNow -lt $exitDeadline) {
     $process.Refresh()
@@ -1893,6 +1989,83 @@ if (-not $process.HasExited) {
 }
 
 Get-Content -LiteralPath $eventsPath -ErrorAction SilentlyContinue
+if ($TaxiPassengerProbe -and $status -eq 'PASS') {
+    foreach ($proof in @(
+        'taxi_real_car_claim_and_stock',
+        'taxi_native_containers_and_recovery',
+        'taxi_first_ride_free_reserved',
+        'taxi_player_ride_physical',
+        'taxi_real_free_fare_settled_once',
+        'taxi_real_car_rebound_after_ledger_reload',
+        'taxi_second_visit_keeps_same_native_car',
+        'taxi_paid_exact_native_item_reserved',
+        'taxi_paid_item_settles_once',
+        'taxi_native_save_contains_exact_cab_and_fare',
+        'taxi_cold_recovery_stage_written'
+    )) {
+        $found = Select-String -LiteralPath $eventsPath -SimpleMatch `
+            ('PASS|' + $proof + '|') -Quiet
+        if (-not $found) {
+            throw "Taxi live proof did not complete $proof; run retained at $RunRoot."
+        }
+    }
+}
+if ($TaxiCallProbe -and -not $TaxiCallStage -and -not $TaxiTurnDiagnostic -and $status -eq 'PASS') {
+    $callProofs = @('taxi_call_accepted_once',
+        'taxi_call_native_cab_and_driver',
+        'taxi_call_service_driver_not_recruited',
+        'taxi_call_physical_pickup',
+        'taxi_call_booked_passenger_boarded',
+        'taxi_call_real_ride')
+    if ($TaxiCallLongPaid) {
+        $callProofs += @('taxi_call_gold_necklace_reserved',
+            'taxi_call_straight_cruise_50',
+            'taxi_call_long_paid_ride_settled',
+            'taxi_call_departed_and_despawned')
+    } else {
+        $callProofs += @('taxi_call_free_fare_settled',
+            'taxi_call_departed_and_despawned')
+    }
+    foreach ($proof in $callProofs) {
+        if (-not (Select-String -LiteralPath $eventsPath -SimpleMatch `
+                ('PASS|' + $proof + '|') -Quiet)) {
+            throw "Taxi call proof did not complete $proof; run retained at $RunRoot."
+        }
+    }
+}
+if ($TaxiTurnDiagnostic -and $status -eq 'PASS' -and
+    -not (Select-String -LiteralPath $eventsPath -SimpleMatch `
+        'PASS|taxi_turn_bad_pickup_route_skipped|' -Quiet)) {
+    throw "Taxi turn diagnostic did not skip the degenerate pickup route; run retained at $RunRoot."
+}
+if ($TaxiCallStage -and $status -eq 'PASS') {
+    foreach ($proof in @('taxi_call_booked_passenger_boarded',
+        'taxi_call_stage_saved')) {
+        if (-not (Select-String -LiteralPath $eventsPath -SimpleMatch `
+                ('PASS|' + $proof + '|') -Quiet)) {
+            throw "Taxi call stage proof did not complete $proof; run retained at $RunRoot."
+        }
+    }
+}
+if ($TaxiCallResume -and $status -eq 'PASS') {
+    foreach ($proof in @('taxi_call_resume_exact_native_party',
+        'taxi_call_resume_arrived_and_settled')) {
+        if (-not (Select-String -LiteralPath $eventsPath -SimpleMatch `
+                ('PASS|' + $proof + '|') -Quiet)) {
+            throw "Taxi call resume proof did not complete $proof; run retained at $RunRoot."
+        }
+    }
+}
+if ($TaxiRecoveryResume -and $status -eq 'PASS') {
+    foreach ($proof in @('taxi_cold_recovery_same_native_car',
+        'taxi_cold_recovery_exact_paid_ring')) {
+        $found = Select-String -LiteralPath $eventsPath -SimpleMatch `
+            ('PASS|' + $proof + '|') -Quiet
+        if (-not $found) {
+            throw "Taxi cold recovery did not complete $proof; run retained at $RunRoot."
+        }
+    }
+}
 if ($DrivingBlocked -and
     (Select-String -LiteralPath $eventsPath -SimpleMatch 'SKIP|drive_blocked_no_loaded_alternate|' -Quiet)) {
     if ($status -ne 'PASS') {
@@ -1916,6 +2089,32 @@ if ($DrivingSaveStage -and $status -eq 'PASS') {
     Copy-Item -LiteralPath $stageSignal -Destination $stageProofDestination
     Write-Output "Driving resume seed: $TargetSave"
     Write-Output "Driving stage proof: $stageProofDestination"
+}
+if ($TaxiPassengerProbe -and $status -eq 'PASS') {
+    if ($postSummaryForcedStop) {
+        throw 'The cloned client did not finish its own world save and exit; taxi stage is invalid.'
+    }
+    $taxiStageSignal = Join-Path $SandboxLua 'taxi-save-stage.txt'
+    if (-not (Test-Path -LiteralPath $taxiStageSignal -PathType Leaf)) {
+        throw "Taxi stage did not write exact cab and fare proof: $taxiStageSignal"
+    }
+    $taxiProofDestination = Join-Path $TargetSave 'SC-taxi-stage-proof.txt'
+    Copy-Item -LiteralPath $taxiStageSignal -Destination $taxiProofDestination
+    Write-Output "Taxi recovery seed: $TargetSave"
+    Write-Output "Taxi stage proof: $taxiProofDestination"
+}
+if ($TaxiCallStage -and $status -eq 'PASS') {
+    if ($postSummaryForcedStop) {
+        throw 'The cloned client did not finish its world save and exit; taxi call stage is invalid.'
+    }
+    $signal = Join-Path $SandboxLua 'taxi-call-stage.txt'
+    if (-not (Test-Path -LiteralPath $signal -PathType Leaf)) {
+        throw "Taxi call stage did not write its exact native party proof: $signal"
+    }
+    $destination = Join-Path $TargetSave 'SC-taxi-call-stage-proof.txt'
+    Copy-Item -LiteralPath $signal -Destination $destination
+    Write-Output "Taxi call resume seed: $TargetSave"
+    Write-Output "Taxi call stage proof: $destination"
 }
 if ($TeamDriveRestartStage -and $status -eq 'PASS') {
     if ($postSummaryForcedStop) {

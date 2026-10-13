@@ -13,10 +13,19 @@ local originalMiniMapRender = nil
 local miniMapRenderWrapper = nil
 local originalWorldMapRender = nil
 local worldMapRenderWrapper = nil
+local originalWorldMapRightMouseUp = nil
+local worldMapRightMouseUpWrapper = nil
 local factionHouseTexture = nil
 
 local function U()
     return SC.GameplayUtil
+end
+
+local function taxiText(key, ...)
+    if SC.UI and type(SC.UI.text) == "function" then
+        return SC.UI.text(key, ...)
+    end
+    return type(getText) == "function" and getText(key, ...) or key
 end
 
 local function firstName(record)
@@ -228,8 +237,53 @@ function CompanionMap.install()
         reportOverlayFailure("faction-worldmap", "faction world-map overlay",
             ok, rendered, reason, "worldmap_api_unavailable")
     end
+    originalWorldMapRightMouseUp = ISWorldMap.onRightMouseUp
+    worldMapRightMouseUpWrapper = function(self, x, y)
+        local consumed = type(originalWorldMapRightMouseUp) == "function"
+            and originalWorldMapRightMouseUp(self, x, y) or false
+        -- Vanilla uses the same event for map symbols. Leave their menu alone.
+        if consumed then return consumed end
+        local service = SC.TaxiService
+        local player = type(getSpecificPlayer) == "function"
+            and getSpecificPlayer(0) or nil
+        if not SC.TaxiBooking or SC.TaxiBooking.dispatchReady ~= true
+            or not service or not player or (self.playerNum or 0) ~= 0
+            or type(service.previewPoint) ~= "function"
+            or not self.mapAPI or not ISContextMenu then return consumed end
+        local worldX = self.mapAPI:uiToWorldX(x, y)
+        local worldY = self.mapAPI:uiToWorldY(x, y)
+        if type(worldX) ~= "number" or type(worldY) ~= "number" then
+            return consumed
+        end
+        local target = { x = worldX, y = worldY, z = 0 }
+        local selected = service.previewPoint(player, target)
+        if not selected then return consumed end
+        local context = ISContextMenu.get(0,
+            x + self:getAbsoluteX(), y + self:getAbsoluteY())
+        if not context then return consumed end
+        context:addOption(taxiText("UI_SC_Taxi_MapDrive",
+            tostring(selected.required)),
+            nil, function()
+                local okay, reason, detail = service.departToPoint(player,
+                    nil, target)
+                local message
+                if okay then
+                    message = taxiText("UI_SC_Taxi_departed")
+                elseif reason == "fare_waiting" and type(detail) == "table" then
+                    message = taxiText("UI_SC_Taxi_fare_waiting",
+                        tostring(detail.required), tostring(detail.offered or 0))
+                else
+                    message = taxiText("UI_SC_Taxi_MapFailure")
+                end
+                if type(player.setHaloNote) == "function" then
+                    player:setHaloNote(message)
+                end
+            end)
+        return true
+    end
     ISMiniMapInner.render = miniMapRenderWrapper
     ISWorldMap.render = worldMapRenderWrapper
+    ISWorldMap.onRightMouseUp = worldMapRightMouseUpWrapper
     installed = true
     return true, "installed"
 end
@@ -237,7 +291,8 @@ end
 function CompanionMap.remove()
     if not installed then return true, "not_installed" end
     if type(ISMiniMapInner) ~= "table" or ISMiniMapInner.render ~= miniMapRenderWrapper
-        or type(ISWorldMap) ~= "table" or ISWorldMap.render ~= worldMapRenderWrapper then
+        or type(ISWorldMap) ~= "table" or ISWorldMap.render ~= worldMapRenderWrapper
+        or ISWorldMap.onRightMouseUp ~= worldMapRightMouseUpWrapper then
         if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
             SC.Diagnostics.report("companion-map", nil,
                 "map hooks removal deferred", "another wrapper owns a render chain")
@@ -246,8 +301,10 @@ function CompanionMap.remove()
     end
     ISMiniMapInner.render = originalMiniMapRender
     ISWorldMap.render = originalWorldMapRender
+    ISWorldMap.onRightMouseUp = originalWorldMapRightMouseUp
     originalMiniMapRender, miniMapRenderWrapper = nil, nil
     originalWorldMapRender, worldMapRenderWrapper = nil, nil
+    originalWorldMapRightMouseUp, worldMapRightMouseUpWrapper = nil, nil
     factionHouseTexture, installed = nil, false
     return true, "removed"
 end

@@ -15,6 +15,8 @@ public class BaseVehicle extends IsoMovingObject {
     }
 
     public int getSeat(IsoGameCharacter character) { return -1; }
+    public int getMaxPassengers() { return 0; }
+    public IsoGameCharacter getCharacter(int seat) { return null; }
     public IsoGameCharacter getDriver() { return null; }
     public CarController getController() { return null; }
     public VehicleScript getScript() { return null; }

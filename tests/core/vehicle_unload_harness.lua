@@ -137,4 +137,11 @@ check(Unload.audit() == true and #T.base.jobs == 1,
 T.car.stationary = false
 check(Unload.eligible(T.car) == false,
     "moving vehicle is excluded from base unloading")
+T.car.stationary = true
+SC.TaxiCab = { isOwned = function(value) return value == T.car end }
+check(select(2, Unload.eligible(T.car)) == "service_cab_reserved"
+        and #Unload.rows() == 0,
+    "Markus's cab stays out of parked-car unloading")
+check(select(2, Unload.queue(T.car.id)) == "service_cab_reserved",
+    "manual unload cannot strip the service cab")
 print("VEHICLE_UNLOAD_PASS checks=" .. tostring(checks))

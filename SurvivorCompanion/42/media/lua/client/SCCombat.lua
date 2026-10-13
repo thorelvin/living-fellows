@@ -665,6 +665,28 @@ function Combat.claimPartner(target, actor, now)
     return nil, mine.role
 end
 
+local function engagementPeers(target, actor, now, spacing)
+    local mine = actorClaims[actor]
+    if not mine or mine.target ~= target then return {}, nil end
+    local claim = cohortClaim(target, mine.cohort, now or U().nowMs())
+    local peers = {}
+    local reach = math.max(1.6, (tonumber(spacing) or 0) + 0.9)
+    for _, role in ipairs({ "primary", "support" }) do
+        local holder = claim and claim[role]
+        local peer = holder and holder.actor
+        if peer and peer ~= actor and U().sameFloor(actor, peer)
+            and U().distanceSq(peer, target) <= reach * reach then
+            peers[#peers + 1] = peer
+        end
+    end
+    return peers, mine.role
+end
+
+local function angleGap(left, right)
+    local gap = math.abs(left - right) % (math.pi * 2)
+    return gap > math.pi and math.pi * 2 - gap or gap
+end
+
 -- A doorway, a corner or a corridor offers exactly one place to stand and
 -- swing. When the far side is not reachable there is no second position to take
 -- -- and walking in anyway put two companions on the same tile, where they
@@ -673,27 +695,31 @@ end
 function Combat.shouldYieldEngagement(actor, targetActor, spacing, now)
     local utility = U()
     if actor == nil or targetActor == nil then return false end
-    local partner, role = Combat.claimPartner(targetActor, actor, now)
-    if partner == nil or role == "primary" then return false end
-    if not utility.sameFloor(actor, partner) then return false end
-    -- The holder has to actually be on the zombie. A partner still walking in
-    -- from across the room is not occupying the only lane yet.
-    local reach = math.max(0.6, (tonumber(spacing) or 0) + 0.6)
-    if utility.distanceSq(partner, targetActor) > reach * reach then return false end
+    local peers, role = engagementPeers(targetActor, actor, now, spacing)
+    if #peers == 0 or role == "primary" then return false end
     -- A separate position exists, so there is room for both.
     if Combat.engagementAim(actor, targetActor, spacing, now) ~= nil then return false end
-    -- Already standing apart and in reach: this is a working two-sided fight.
+    -- Already standing apart from every committed attacker: the reserve has a
+    -- usable third lane and should close in instead of waiting for a bite.
     local ax, ay = utility.position(actor)
     local tx, ty = utility.position(targetActor)
-    local px, py = utility.position(partner)
-    if ax == nil or tx == nil or px == nil then return false end
+    if ax == nil or tx == nil then return false end
+    -- A companion several tiles away is not crowding a swing yet. Let it
+    -- close before deciding whether the final approach shares a blocked lane.
+    local crowdRadius = math.max(1.7, (tonumber(spacing) or 0) + 0.6)
+    if (ax - tx) ^ 2 + (ay - ty) ^ 2 > crowdRadius * crowdRadius then
+        return false
+    end
     local mine = math.atan2(ay - ty, ax - tx)
-    local theirs = math.atan2(py - ty, px - tx)
-    local separation = math.abs(mine - theirs) % (math.pi * 2)
-    if separation > math.pi then separation = math.pi * 2 - separation end
     local minimum = math.rad(math.max(15, math.min(180,
         tonumber(utility.config("combatFlankSeparationDegrees")) or 75)))
-    return separation < minimum
+    for _, peer in ipairs(peers) do
+        local px, py = utility.position(peer)
+        if px and angleGap(mine, math.atan2(py - ty, px - tx)) < minimum then
+            return true
+        end
+    end
+    return false
 end
 
 -- Two companions sent at the same zombie both walked at its centre tile, so
@@ -711,27 +737,56 @@ function Combat.engagementAim(actor, targetActor, spacing, now)
     spacing = tonumber(spacing) or 0
     if spacing <= 0 then return nil end
 
-    local partner, role = Combat.claimPartner(targetActor, actor, now)
-    -- The committed attacker does not move aside for the newcomer.
-    if partner == nil or role == "primary" then return nil end
-    if not utility.sameFloor(actor, partner) then return nil end
-    local px, py = utility.position(partner)
-    if px == nil then return nil end
-
+    local peers, role = engagementPeers(targetActor, actor, now, spacing)
+    -- The committed attacker does not move aside for the newcomers.
+    if #peers == 0 or role == "primary" then return nil end
     local mine = math.atan2(ay - ty, ax - tx)
-    local theirs = math.atan2(py - ty, px - tx)
-    local separation = math.abs(mine - theirs) % (math.pi * 2)
-    if separation > math.pi then separation = math.pi * 2 - separation end
     local minimum = math.rad(math.max(15, math.min(180,
         tonumber(utility.config("combatFlankSeparationDegrees")) or 75)))
-    -- Already on different sides: leave a working approach alone.
-    if separation >= minimum then return nil end
-
-    local wanted = theirs + math.pi
-    local aimX, aimY = tx + math.cos(wanted) * spacing, ty + math.sin(wanted) * spacing
+    local bearings, separated = {}, true
+    for _, peer in ipairs(peers) do
+        local px, py = utility.position(peer)
+        if px then
+            local bearing = math.atan2(py - ty, px - tx)
+            bearings[#bearings + 1] = bearing
+            if angleGap(mine, bearing) < minimum then separated = false end
+        end
+    end
+    if separated or #bearings == 0 then return nil end
     if SC.Navigation == nil or type(SC.Navigation.openSegment) ~= "function" then return nil end
-    if not SC.Navigation.openSegment(actor, aimX, aimY, tz) then return nil end
-    return aimX, aimY
+    -- One holder prefers the opposite side. With two holders, try each open
+    -- quadrant; no third companion is sent to the supporter's occupied flank.
+    local candidates = {}
+    if #bearings == 1 then
+        local opposite = bearings[1] + math.pi
+        local x = tx + math.cos(opposite) * spacing
+        local y = ty + math.sin(opposite) * spacing
+        if role == "support" and SC.Navigation.openSegment(actor, x, y, tz) then
+            return x, y
+        end
+        candidates[1] = opposite
+    end
+    for step = 1, 8 do
+        candidates[#candidates + 1] = mine + step * math.pi / 4
+    end
+    local bestX, bestY, bestDistance
+    for _, bearing in ipairs(candidates) do
+        local clear = true
+        for _, occupied in ipairs(bearings) do
+            if angleGap(bearing, occupied) < minimum then clear = false; break end
+        end
+        if clear then
+            local x = tx + math.cos(bearing) * spacing
+            local y = ty + math.sin(bearing) * spacing
+            if SC.Navigation.openSegment(actor, x, y, tz) then
+                local distance = (x - ax) ^ 2 + (y - ay) ^ 2
+                if bestDistance == nil or distance < bestDistance then
+                    bestX, bestY, bestDistance = x, y, distance
+                end
+            end
+        end
+    end
+    return bestX, bestY
 end
 
 local claimTarget
@@ -812,6 +867,22 @@ local function groundedTarget(target)
     return boolCall(target, "isOnFloor") or boolCall(target, "isProne")
         or boolCall(target, "isCrawling")
 end
+
+-- A prone zombie's model can fail the character-to-character CanSee check
+-- while its occupied square is plainly visible. A very near floor target may
+-- use square LOS instead; the strike barrier and native floor hit still decide
+-- whether an actual attack can connect.
+local function canSeeCombatTarget(actor, target, targetSquare, distanceSq)
+    local utility = U()
+    if utility.canSee(actor, target) then return true end
+    local reach = utility.config("combatStompPursuitDistance") or 3.25
+    return groundedTarget(target) and targetSquare ~= nil
+        and (distanceSq or utility.distanceSq(actor, target)) <= reach * reach
+        and utility.sameFloor(actor, target)
+        and utility.canSee(actor, targetSquare)
+end
+
+Combat._canSeeCombatTargetForTests = canSeeCombatTarget
 
 -- A native player swing owns locomotion until its animation exits. Re-running
 -- spacing utility during that window made the companion submit approach and
@@ -1530,6 +1601,9 @@ function Combat.scoreTargets(actor, player, snapshot, previousTarget)
         local sightCandidate = (threat.visible ~= false and threat.obstructed ~= true)
             or threat.attacking == true or threat.breaching == true
             or (tonumber(threat.distanceSq) or math.huge) <= liveSightRadius * liveSightRadius
+            or (threat.actor and (tonumber(threat.distanceSq) or math.huge)
+                    <= (utility.config("combatStompPursuitDistance") or 3.25) ^ 2
+                and groundedTarget(threat.actor))
         local facts, nativeZombie, gone, sameFloor = nil, false, true, false
         if sightCandidate and threat.actor then
             facts = SC.ZombieFacts and SC.ZombieFacts.get(threat.actor) or nil
@@ -1651,7 +1725,8 @@ function Combat.scoreTargets(actor, player, snapshot, previousTarget)
         if not record or checked[record.actor] or checkedCount >= limit then return end
         checked[record.actor] = true
         checkedCount = checkedCount + 1
-        if utility.canSee(actor, record.actor) then
+        if canSeeCombatTarget(actor, record.actor, record.square,
+            record.distanceSq) then
             record.liveLosValidated = true
         end
     end
@@ -1683,7 +1758,8 @@ local function addNearbyGrounded(actor, player, snapshot, scored)
                 if not seen[value] and utility.isZombie(value) and not utility.isDead(value)
                     and not utility.isCorpseProxy(value)
                     and utility.sameFloor(actor, value)
-                    and utility.canSee(actor, value)
+                    and canSeeCombatTarget(actor, value, square,
+                        utility.distanceSq(actor, value))
                     and (boolCall(value, "isOnFloor") or boolCall(value, "isProne")) then
                     seen[value] = true
                     local record = {
@@ -2115,8 +2191,14 @@ function Combat.assessOverrun(actor, snapshot, weapon, commands, options)
     -- This fixed order is also the deterministic tie-break order. Keep it in
     -- the same order as the arithmetic below so a spoken refusal reports the
     -- actual largest positive term rather than a flavour-selected excuse.
+    -- directionalPressure already includes 1.8 per immediate zombie. The next
+    -- term counts those same zombies at 12 each; charging both made a healthy
+    -- armed squad repeatedly retreat from one attacker. Keep the residual
+    -- pressure from other close contacts and occupied bearings.
+    local directional = tonumber(snapshot.directionalPressure)
+        or tonumber(snapshot.pressure) or 0
     local risk = contribution("directional_pressure",
-            (tonumber(snapshot.directionalPressure) or tonumber(snapshot.pressure) or 0) * 10)
+            math.max(0, directional - immediate * 1.8) * 10)
         + contribution("immediate_count", immediate * 12)
         + contribution("close_pressure", math.max(0, close - capacity) * 8)
         + contribution("occupied_sectors", math.max(0, occupied - 1) * 12)
@@ -2445,7 +2527,8 @@ local function tryShoveFollowUp(actor, state, snapshot, now, commands)
     if type(followUp) ~= "table" then return nil, nil end
     local target = followUp.target
     if not target or U().isGoneTarget(target) or not U().isZombie(target)
-        or not U().sameFloor(actor, target) or not U().canSee(actor, target) then
+        or not U().sameFloor(actor, target)
+        or not canSeeCombatTarget(actor, target, U().squareOf(target)) then
         state.shoveFollowUp = nil
         return nil, "shove_followup_invalid"
     end
@@ -3193,7 +3276,13 @@ local function roleMayAttack(actor, role, claim, chosen, target, snapshot)
         or distanceSq <= (U().config("combatShoveDistance") or 1.35) ^ 2
         or snapshot.encircled == true
         or (tonumber(snapshot.closeImmediateCount) or tonumber(snapshot.immediateCount) or 0) > 1
-    if role == "reserve" then return emergency end
+    -- Claims choose who leads; they must not prevent a third fighter already in
+    -- a clear physical attack lane from striking. The friendly-fire corridor
+    -- and native hit geometry remain authoritative after this check.
+    if role == "reserve" then
+        return emergency or chosen.kind == "melee" or chosen.kind == "shove"
+            or chosen.kind == "stomp" or chosen.kind == "shoot"
+    end
     if chosen.kind == "shoot" then return true end
     if emergency then return true end
     local primary = claim and claim.primary and claim.primary.actor or nil
@@ -3206,6 +3295,8 @@ local function roleMayAttack(actor, role, claim, chosen, target, snapshot)
     return string.find(lower, "grapple", 1, true) ~= nil
         or string.find(lower, "grab", 1, true) ~= nil
 end
+
+Combat._roleMayAttackForTests = roleMayAttack
 
 local function clearAimPreparation(state)
     state.aimTarget = nil
@@ -4286,12 +4377,9 @@ function Combat.update(actor, player, runtime)
             state.attackAnchor = nil
         end
     end
-    if combatRole == "reserve" and (chosen.kind == "approach" or chosen.kind == "kite")
-        and target.attacking ~= true
-        and (target.distanceSq or math.huge)
-            > (utility.config("combatShoveDistance") or 1.35) ^ 2 then
-        chosen = { kind = "hold_range", score = chosen.score, reserveGuard = true }
-    end
+    -- A reserve may take a third open lane. execute(approach) still proves the
+    -- route, yields if a committed attacker owns its current lane, and refuses
+    -- to cross a blocked segment.
     if (chosen.kind == "shoot" or chosen.kind == "melee"
         or chosen.kind == "shove" or chosen.kind == "stomp")
         and not roleMayAttack(actor, combatRole, cohortClaimRecord,

@@ -20,6 +20,16 @@ local function managed(id, options)
 end
 
 do
+    local actor = managed("taxi-corner-speed", { speedKmh = 20,
+        cornerSpeedScale = 2 })
+    check(T.tunedFollow and T.tunedFollow.actor == actor
+        and T.tunedFollow.speed == 20 and T.tunedFollow.scale == 2,
+        "taxi route forwards its corner setting to the native bridge")
+    Driving.release(actor)
+    T.tunedFollow = nil
+end
+
+do
     for _, entry in ipairs({ "begin", "drive" }) do
         local actor = T.actor("drive-urgent-" .. entry)
         local savedNativeActions, held, urgentToken = SC.NativeActions, true, nil

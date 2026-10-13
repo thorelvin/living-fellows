@@ -276,11 +276,20 @@ end
 -- serviceable and the local player is present.
 local function serviceRecord(record, current, currentPlayer)
     record.runtime = type(record.runtime) == "table" and record.runtime or {}
+    -- Markus is a registered native actor so vehicle control and save recovery
+    -- can find him, but his movement belongs to the taxi visit, not follow,
+    -- wander, faction, or base-work decisions.
+    local taxiDriver = SC.TaxiService
+        and type(SC.TaxiService.isDriver) == "function"
+        and SC.TaxiService.isDriver(record.actor) == true
     -- A companion pinned by a zombie grab cannot act until it is freed. Skip its
     -- decision (movement/combat) and cancel any in-flight action, but still fall
     -- through to the targeting/attack resolve below so the grab is sustained,
     -- rescued, or dragged down.
-    if SC.ZombieAttack and type(SC.ZombieAttack.isGrabbed) == "function"
+    if taxiDriver then
+        record.runtime.lastDecision = "taxi_service"
+        record.runtime.lastDecisionHandled = true
+    elseif SC.ZombieAttack and type(SC.ZombieAttack.isGrabbed) == "function"
         and SC.ZombieAttack.isGrabbed(record.actor) == true then
         record.runtime.lastDecision = "grabbed_by_zombies"
         record.runtime.lastDecisionHandled = false
@@ -1173,6 +1182,12 @@ local function registerTasks()
             end
             return true
         end, "normal" },
+        { "taxi-service", 250, 59, function(current)
+            if SC.TaxiService and type(SC.TaxiService.tick) == "function" then
+                return SC.TaxiService.tick(current)
+            end
+            return true
+        end, "normal" },
         { "restore", 1000, 50, restoreTask, "high" },
         { "trade-recovery", SC.Config.get("tradeRecoveryIntervalMs"), 45,
             tradeRecoveryTask, "high" },
@@ -1968,6 +1983,10 @@ function runtime.reset(detach)
     resetModule("diary", SC.Diary, "reset")
     resetModule("life events", SC.LifeEvents, "reset")
     resetModule("expedition", SC.ExpeditionPrototype, "reset")
+    resetModule("taxi booking", SC.TaxiBooking, "reset")
+    resetModule("taxi cab", SC.TaxiCab, "reset")
+    resetModule("taxi fares", SC.TaxiFares, "reset")
+    resetModule("taxi service", SC.TaxiService, "reset")
     resetModule("vehicle hotwire", SC.VehicleHotwire, "reset")
     resetModule("base watch", SC.BaseWatch, "reset")
     resetModule("companion view", SC.ViewSession, "reset")

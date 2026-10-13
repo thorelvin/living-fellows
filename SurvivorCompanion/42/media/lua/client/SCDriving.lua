@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
--- Companion driving at low speed. The native bridge presses the car's own
+-- Companion driving at bounded speed. The native bridge presses the car's own
 -- pedals and wheel every frame (SCCompanionDriver) and stops for anything its
 -- lane scan finds ahead. SCVehicle owns getting in and out of the seat.
 -- SCDriving owns a supervisor lease while the runtime polls bounded route jobs.
@@ -65,11 +65,20 @@ function Driving.available()
     local api = bridge()
     if api == nil then return false end
     for _, name in ipairs({ "driveStart", "driveSet", "driveStop", "driveStatus", "scanLane",
-        "driveFollow", "driveApproach", "driveTurnAround" }) do
+        "driveFollow", "driveFollowTuned", "driveApproach", "driveTurnAround" }) do
         local ok, callback = pcall(function() return api[name] end)
         if not ok or callback == nil then return false end
     end
     return true
+end
+
+function Driving.passengerAvailable()
+    if not Driving.available() then return false end
+    local api = bridge()
+    local exposed, callback = pcall(function()
+        return api and api.driveStartWithPassenger
+    end)
+    return exposed and callback ~= nil
 end
 
 -- True when the companion sits in seat zero of its car.
@@ -102,23 +111,30 @@ function Driving.takeWheel(actor, vehicle, intent)
 end
 
 local function startNative(job)
-    local accepted, reason = call("driveStart", job.actor, Driving.hasKey(job.actor) == true)
+    local accepted, reason
+    if job.passenger then
+        accepted, reason = call("driveStartWithPassenger", job.actor,
+            job.passenger, Driving.hasKey(job.actor) == true)
+    else
+        accepted, reason = call("driveStart", job.actor,
+            Driving.hasKey(job.actor) == true)
+    end
     if not accepted then Driving.stop(job.actor, "bridge_failure") return false, reason end
     job.nativeStarted = true
     return true
 end
 
 -- Puts the seated driver under bridge control, held still.
-function Driving.start(actor)
+function Driving.start(actor, passenger)
     local allowed, why = motionAllowed(actor)
     if not allowed then return false, why end
     if not Driving.isDriver(actor) then return false, "companion is not in the driver's seat" end
-    local token, why = Driving.begin(actor)
+    local token, why = Driving.begin(actor, nil, passenger)
     if not token then return false, why end
     return startNative(jobs[actor])
 end
 
--- Cruise at a low speed (km/h, capped natively) with steering in [-1, 1],
+-- Cruise at a bounded speed (km/h, capped natively) with steering in [-1, 1],
 -- where -1 is the player's left key. Obstacle braking stays on unless the
 -- caller passes false.
 function Driving.cruise(actor, kmh, steering, brakeForObstacles)
@@ -164,11 +180,17 @@ function Driving.routeText(points)
     return table.concat(parts, ";")
 end
 
-local function followNative(actor, route, kmh)
+local function followNative(actor, route, kmh, cornerSpeedScale)
     local points = type(route) == "table" and (route.points or route) or nil
     local text, why = Driving.routeText(points)
     if not text then return false, why end
-    local followed, reason = call("driveFollow", actor, text, tonumber(kmh) or 10)
+    local followed, reason
+    if cornerSpeedScale and cornerSpeedScale > 1 then
+        followed, reason = call("driveFollowTuned", actor, text,
+            tonumber(kmh) or 10, cornerSpeedScale)
+    else
+        followed, reason = call("driveFollow", actor, text, tonumber(kmh) or 10)
+    end
     if followed and jobs[actor] then jobs[actor].phase, jobs[actor].result = "following", nil end
     return followed, reason
 end
@@ -257,9 +279,43 @@ local function playerAboard(vehicle)
     return false
 end
 
-function Driving.begin(actor, goal)
+local function bookedPassengerAboard(vehicle, passenger)
+    if vehicle == nil or passenger == nil then return false end
+    local okay, seats = method(vehicle, "getMaxPassengers")
+    seats = okay and finite(seats) or nil
+    if not seats or seats < 2 or seats > 32 then return false end
+    local present = false
+    for seat = 0, seats - 1 do
+        local read, occupant = method(vehicle, "getCharacter", seat)
+        if not read then return false end
+        if occupant == passenger then
+            if seat == 0 then return false end
+            present = true
+        elseif occupant ~= nil and (not SC.Actor
+            or type(SC.Actor.isCompanion) ~= "function"
+            or SC.Actor.isCompanion(occupant) ~= true) then
+            return false
+        end
+    end
+    local read, current = method(passenger, "getVehicle")
+    return present and read and current == vehicle
+end
+
+function Driving.begin(actor, goal, passenger)
     if not Driving.isDriver(actor) then return nil, "not_driver" end
-    if playerAboard(vehicleOf(actor)) then return nil, "player_aboard" end
+    local vehicle = vehicleOf(actor)
+    if passenger then
+        if not bookedPassengerAboard(vehicle, passenger) then
+            return nil, "booked_passenger_not_seated"
+        end
+        local api = bridge()
+        local exposed, callback = pcall(function()
+            return api and api.driveStartWithPassenger
+        end)
+        if not exposed or callback == nil then
+            return nil, "passenger_driving_bridge_unavailable"
+        end
+    elseif playerAboard(vehicle) then return nil, "player_aboard" end
     local initialStatus, statusReason = Driving.status(actor)
     if not initialStatus then return nil, statusReason or "driving_bridge_unavailable" end
     local x = type(goal) == "table" and finite(goal.x) or nil
@@ -274,7 +330,8 @@ function Driving.begin(actor, goal)
     if not supervisor or type(supervisor.begin) ~= "function" then
         return nil, "driving_supervisor_unavailable"
     end
-    local job = { actor = actor, vehicle = vehicleOf(actor), api = bridge(),
+    local job = { actor = actor, vehicle = vehicle, api = bridge(),
+        passenger = passenger,
         nativeStatus = initialStatus, nativeStarted = initialStatus.active == true,
         goal = goal and { x = x, y = y, z = 0 } or nil,
         phase = "waiting", attempts = 0, circles = {} }
@@ -340,7 +397,9 @@ function Driving.isDriving(actor)
         and SC.GameplayUtil.isDead(actor) == true
     local reason = dead and "driver_dead"
         or not Driving.isDriver(actor) and "left_driver_seat"
-        or playerAboard(job.vehicle) and "player_aboard"
+        or job.passenger and not bookedPassengerAboard(job.vehicle, job.passenger)
+            and "booked_passenger_left"
+        or not job.passenger and playerAboard(job.vehicle) and "player_aboard"
         or (not supervisor or not supervisor.isCurrent(job.token)) and "drive_owner_lost"
     if reason then
         local stopped = Driving.stop(actor, reason)
@@ -465,7 +524,8 @@ local function planJob(job)
     if not roadX or not roadY then
         return parkResult(job, "failed", "road_goal_unavailable")
     end
-    local followed, followReason = followNative(job.actor, route, job.speedKmh)
+    local followed, followReason = followNative(job.actor, route,
+        job.speedKmh, job.cornerSpeedScale)
     if not followed then
         job.result, job.reason, job.detail = "failed", "bridge_failure", followReason
         Driving.stop(job.actor, "bridge_failure")
@@ -487,12 +547,18 @@ function Driving.drive(actor, goal, options)
     if prior and (type(goal) ~= "table" or not finite(goal.x) or not finite(goal.y)
         or goal.z ~= 0 or not prior.goal or prior.goal.x ~= finite(goal.x)
         or prior.goal.y ~= finite(goal.y)) then return false, "drive_goal_changed" end
-    local token, why = Driving.begin(actor, goal)
+    local token, why = Driving.begin(actor, goal, options.passenger)
     if not token then return false, why end
     if not goal then Driving.stop(actor, "invalid_drive_goal") return false, "invalid_drive_goal" end
     local job = jobs[actor]
     job.managed, job.phase = true, "planning"
-    job.speedKmh = math.max(0, math.min(30, finite(options.speedKmh) or 10))
+    -- The booked player's cab ride can use the native 50 km/h ceiling;
+    -- ordinary companion and expedition drives keep their 30 km/h limit.
+    local ceiling = job.passenger and 50 or 30
+    job.speedKmh = math.max(0, math.min(ceiling,
+        finite(options.speedKmh) or 10))
+    job.cornerSpeedScale = math.max(1, math.min(2,
+        finite(options.cornerSpeedScale) or 1))
     job.stopShortTiles = math.max(0,
         math.min(10, finite(options.stopShortTiles) or 0))
     job.blockWaitMs = math.max(1000, math.min(30000, finite(options.blockWaitMs) or 5000))

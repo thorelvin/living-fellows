@@ -950,7 +950,9 @@ local function setupRoad(H, SC, check, result, setPhase, current)
         or H.config.driving_blocked == "true"
         or H.config.driving_save_stage == "true"
         or H.config.driving_remote == "true"
-        or H.config.team_drive_probe == "true")
+        or H.config.team_drive_probe == "true"
+        or H.config.taxi_passenger_probe == "true"
+        or H.config.taxi_call_probe == "true")
         and ROUTE_SEGMENT_HALF or SEGMENT_HALF
     local px, py = U.position(H.player)
     local road, why = findRoad(U, math.floor(px), math.floor(py),
@@ -1055,10 +1057,11 @@ local function setupRoad(H, SC, check, result, setPhase, current)
         or "observer left where it stood")
     H.driveTest = { road = road, startedAt = current, watch = watch, spawnAttempts = 0,
         shots = {} }
-    setPhase("drive_spawn_car", current)
+    setPhase(H.config.taxi_call_probe == "true"
+        and "drive_taxi_call_start" or "drive_spawn_car", current)
 end
 
-local function spawnCar(H, SC, result, setPhase, current, test)
+local function spawnCar(H, SC, check, result, setPhase, current, test)
     if current - H.phaseStartedAt < 2000 then return end
     local U = SC.GameplayUtil
     local road = test.road
@@ -1076,7 +1079,9 @@ local function spawnCar(H, SC, result, setPhase, current, test)
     local facingBack = flip or westScavenge
     local direction = road.ax == 1 and (facingBack and IsoDirections.W or IsoDirections.E)
         or (facingBack and IsoDirections.N or IsoDirections.S)
-    local ok, vehicle = pcall(addVehicleDebug, SCRIPT, direction, nil, square)
+    local script = H.config.taxi_passenger_probe == "true"
+        and "Base.CarTaxi" or SCRIPT
+    local ok, vehicle = pcall(addVehicleDebug, script, direction, nil, square)
     -- addVehicleDebug sets the car's square only when the spawn spot is valid;
     -- its collision shape is not registered until its first update.
     if not ok or vehicle == nil or vehicle:getSquare() == nil then
@@ -1105,7 +1110,15 @@ local function spawnCar(H, SC, result, setPhase, current, test)
     test.lineX = road.lineX or vehicle:getX()
     test.lineY = road.lineY or vehicle:getY()
     if road.ax == 1 then test.lineX = vehicle:getX() else test.lineY = vehicle:getY() end
-    result("PASS", "drive_car_spawned", SCRIPT .. " at " .. fmt(vehicle:getX()) .. ","
+    if H.config.taxi_passenger_probe == "true"
+        and not check("taxi_stock_script_and_seats",
+            call(vehicle, "getScriptName") == "Base.CarTaxi"
+                and (tonumber(call(vehicle, "getMaxPassengers")) or 0) == 4,
+            "script=" .. tostring(call(vehicle, "getScriptName"))
+                .. " seats=" .. tostring(call(vehicle, "getMaxPassengers"))) then
+        setPhase("finish", current) return
+    end
+    result("PASS", "drive_car_spawned", script .. " at " .. fmt(vehicle:getX()) .. ","
         .. fmt(vehicle:getY()) .. " facing " .. fmt(fx) .. "," .. fmt(fy)
         .. " (" .. tostring(direction) .. ", heading " .. fmt(math.deg(theta)) .. " deg)")
     -- Fuel and battery, so the engine test measures driving, not a dead car.
@@ -1190,7 +1203,8 @@ local function board(H, SC, check, result, setPhase, current, test)
         if H.config.driving_with_ai ~= "true"
             and H.config.driving_blocked ~= "true"
             and H.config.driving_save_stage ~= "true"
-            and H.config.driving_remote ~= "true" then
+            and H.config.driving_remote ~= "true"
+            and H.config.taxi_passenger_probe ~= "true" then
             SC.Scheduler.unregister("decision")
         end
     end
@@ -1198,6 +1212,7 @@ local function board(H, SC, check, result, setPhase, current, test)
         or H.config.driving_blocked == "true"
         or H.config.driving_save_stage == "true"
         or H.config.driving_remote == "true"
+        or H.config.taxi_passenger_probe == "true"
     if not normalAiMode and current - test.actorReadyAt < 1200 then return end
     local prepared, prepareReason = SC.Vehicle.preflightDriver(test.actor, test.vehicle)
     if prepared == nil then
@@ -1232,6 +1247,10 @@ local function board(H, SC, check, result, setPhase, current, test)
             and SC.Driving.isDriver(test.actor),
         "status=" .. tostring(status) .. " key=" .. tostring(SC.Driving.hasKey(test.actor))) then
         setPhase("finish", current) return
+    end
+    if H.config.taxi_passenger_probe == "true" then
+        setPhase("drive_taxi_board_player", current)
+        return
     end
     if H.config.driving_remote == "true" then
         local road = test.road
@@ -2406,9 +2425,938 @@ local function streetStep(H, SC, current, check, result, setPhase, test)
     end
 end
 
+local function taxiStep(H, SC, current, check, result, setPhase, test)
+    local car, actor, player = test.vehicle, test.actor, H.player
+    if H.phase == "drive_taxi_board_player" then
+        if not check("taxi_passenger_bridge_available",
+                SC.Driving.passengerAvailable(), "service bridge entry is exposed") then
+            setPhase("finish", current) return
+        end
+        -- Exercise the staged fare and recovery ledgers against this native
+        -- taxi before the passenger gets in. This clone can safely discard the
+        -- synthetic booking when the probe ends.
+        if not test.taxiLedgerPrepared then
+            local Booking, Cab, Fare = SC.TaxiBooking, SC.TaxiCab, SC.TaxiFares
+            local px, py = player:getX(), player:getY()
+            if not check("taxi_ledgers_available",
+                    Booking ~= nil and Cab ~= nil and Fare ~= nil,
+                    "booking, cab and fare modules loaded") then
+                setPhase("finish", current) return
+            end
+            Booking.reset()
+            Cab.reset()
+            Fare.reset()
+            local restored = Booking.restore({ schema = 1,
+                nextGeneration = 2, active = { generation = 1,
+                    phase = "awaiting_pickup", requestedAt = {
+                        x = math.floor(px), y = math.floor(py), z = 0 } } })
+            local prepared, token = Cab.prepareSpawn(1)
+            if not check("taxi_spawn_token_single_use", restored and prepared
+                    and Cab.prepareSpawn(1) == false,
+                    "booking=1 token=" .. tostring(token)) then
+                setPhase("finish", current) return
+            end
+            local claimed, reason = Cab.claimSpawn(car, token)
+            if not check("taxi_real_car_claim_and_stock", claimed == true
+                    and Fare.hasBaseline(car:getSqlId()),
+                    "sql=" .. tostring(call(car, "getSqlId"))
+                        .. " status=" .. tostring(reason)) then
+                setPhase("finish", current) return
+            end
+            local rows, rowsReason = Cab.looseItems(car)
+            local recovered, recoveredCar = Cab.recover()
+            if not check("taxi_native_containers_and_recovery",
+                    rows ~= nil and recovered == true and recoveredCar == car,
+                    "containers=" .. tostring(rows and #rows)
+                        .. " reason=" .. tostring(rowsReason or recoveredCar)) then
+                setPhase("finish", current) return
+            end
+            test.taxiLedgerPrepared = true
+        end
+        local seatPosition = call(car, "getPassengerPosition", 1, "outside")
+        local door = seatPosition and call(car, "getPassengerPositionWorldPos",
+            seatPosition, Vector3f.new()) or nil
+        if not check("taxi_real_passenger_door", door ~= nil,
+                "seat 1 outside position is present") then
+            setPhase("finish", current) return
+        end
+        local dx, dy = door:x(), door:y()
+        local moved = pcall(function()
+            player:setGodMod(true)
+            player:teleportTo(dx, dy, 0)
+        end)
+        if not check("taxi_player_reaches_car", moved,
+                "native player teleported to the passenger door in the clone") then
+            setPhase("finish", current) return
+        end
+        local reserved, reserveReason = SC.TaxiFares.reserve(player, car, 250)
+        if not check("taxi_first_ride_free_reserved",
+                reserved == true and SC.TaxiFares.current().promotion == true,
+                tostring(reserveReason)) then
+            setPhase("finish", current) return
+        end
+        local entered, accepted = pcall(car.enter, car, 1, player)
+        local inside = call(car, "getPassengerPosition", 1, "inside")
+        if entered and accepted == true and inside then
+            call(car, "setCharacterPosition", player, 1, "inside")
+            call(car, "transmitCharacterPosition", 1, "inside")
+            call(car, "playPassengerAnim", 1, "idle")
+        end
+        if not check("taxi_player_native_passenger_seat",
+                entered and accepted == true and player:getVehicle() == car
+                    and car:getSeat(player) == 1 and getSpecificPlayer(0) == player
+                    and car:getDriver() == actor,
+                "entered=" .. tostring(accepted) .. " seat="
+                    .. tostring(call(car, "getSeat", player))) then
+            setPhase("finish", current) return
+        end
+        local ordinary, ordinaryReason = SC.Driving.start(actor)
+        if not check("taxi_ordinary_drive_still_rejected",
+                ordinary == false and ordinaryReason == "player_aboard",
+                tostring(ordinaryReason)) then
+            setPhase("finish", current) return
+        end
+        local started, why = SC.Driving.start(actor, player)
+        if not check("taxi_service_drive_started", started == true,
+                tostring(why)) then
+            setPhase("finish", current) return
+        end
+        test.taxiStartX, test.taxiStartY = car:getX(), car:getY()
+        local cruising, cruiseReason = SC.Driving.cruise(actor, 10, 0)
+        if not check("taxi_passenger_cruise_requested", cruising == true,
+                tostring(cruiseReason)) then
+            setPhase("finish", current) return
+        end
+        setPhase("drive_taxi_cruise", current)
+        return
+    end
+    if H.phase == "drive_taxi_cruise" then
+        local distance = flatDistance(car:getX(), car:getY(),
+            test.taxiStartX, test.taxiStartY)
+        local native = SC.Driving.status(actor) or {}
+        if not SC.Driving.isDriving(actor) or player:getVehicle() ~= car
+            or getSpecificPlayer(0) ~= player then
+            failTo(H, test, setPhase, result, current,
+                "taxi_passenger_drive_kept_owner",
+                "distance=" .. fmt(distance) .. " state=" .. tostring(native.state)
+                    .. " reason=" .. tostring(native.reason))
+            return
+        end
+        if distance >= 22 then
+            result("PASS", "taxi_player_ride_physical",
+                "distance=" .. fmt(distance) .. " speed="
+                    .. fmt(car:getCurrentSpeedKmHour()) .. " player_slot=0")
+            SC.Driving.hold(actor)
+            setPhase("drive_taxi_stop", current)
+        elseif current - H.phaseStartedAt > 35000 then
+            failTo(H, test, setPhase, result, current,
+                "taxi_player_ride_physical",
+                "distance=" .. fmt(distance) .. " state=" .. tostring(native.state)
+                    .. " reason=" .. tostring(native.reason))
+        end
+        return
+    end
+    if H.phase == "drive_taxi_stop" then
+        if SC.Vehicle.isStationary(car) ~= true then
+            if current - H.phaseStartedAt > 15000 then
+                failTo(H, test, setPhase, result, current,
+                    "taxi_passenger_safe_stop", "speed="
+                        .. fmt(car:getCurrentSpeedKmHour()))
+            end
+            return
+        end
+        local released = SC.Driving.release(actor)
+        if not check("taxi_passenger_safe_stop", released == true
+            and (SC.Driving.status(actor) or {}).active == false,
+            "driver released at " .. fmt(car:getCurrentSpeedKmHour())) then
+            setPhase("finish", current) return
+        end
+        local exited, accepted = pcall(car.exit, car, player)
+        if not check("taxi_player_can_exit", exited and accepted == true
+            and player:getVehicle() == nil,
+            "native exit=" .. tostring(accepted)) then
+            setPhase("finish", current) return
+        end
+        local outside = call(car, "getPassengerPosition", 1, "outside")
+        local door = outside and call(car, "getPassengerPositionWorldPos",
+            outside, Vector3f.new()) or nil
+        if door then pcall(player.teleportTo, player, door:x(), door:y(), 0) end
+        local driverExited, reason = SC.Vehicle.exit(actor, car)
+        if not check("taxi_driver_can_exit", driverExited == true,
+            tostring(reason)) then
+            setPhase("finish", current) return
+        end
+        local Booking, Cab, Fare = SC.TaxiBooking, SC.TaxiCab, SC.TaxiFares
+        local committed, fareReason = Fare.commit(car)
+        check("taxi_real_free_fare_settled_once", committed == true
+            and Fare.quote(250).required == 3,
+            tostring(fareReason))
+        local savedBooking, savedCab, savedFares = Booking.export(),
+            Cab.export(), Fare.export()
+        Booking.reset()
+        Cab.reset()
+        Fare.reset()
+        local restored = Booking.restore(savedBooking)
+            and Cab.restore(savedCab) and Fare.restore(savedFares)
+        local recovered, recoveredCar = Cab.recover()
+        check("taxi_real_car_rebound_after_ledger_reload",
+            restored and recovered == true and recoveredCar == car,
+            "sql=" .. tostring(car:getSqlId())
+                .. " recovered=" .. tostring(recoveredCar))
+        local sameCar = Cab.current().sqlId == car:getSqlId()
+        local closed = Booking.restore({ schema = 1, nextGeneration = 3,
+            active = { generation = 2, phase = "awaiting_pickup",
+                requestedAt = { x = math.floor(player:getX()),
+                    y = math.floor(player:getY()), z = 0 } } })
+        local revisited, visitReason = Cab.beginVisit(car, 2)
+        check("taxi_second_visit_keeps_same_native_car",
+            sameCar and closed and revisited == true
+                and Cab.current().sqlId == car:getSqlId(),
+            tostring(visitReason))
+        if revisited == true then
+            local glove = call(car, "getPartById", "GloveBox")
+            local container = call(glove, "getItemContainer")
+            local ring = call(container, "AddItem",
+                "Base.Ring_Left_RingFinger_Gold")
+            local ringId = tonumber(call(ring, "getID"))
+            if not check("taxi_native_payment_item_created",
+                    ring ~= nil and ringId and ringId > 0,
+                    "part=" .. tostring(glove and call(glove, "getId"))
+                        .. " item_id=" .. tostring(ringId)) then
+                setPhase("finish", current) return
+            end
+            local offered, offerReason = Fare.offer(player, car, ring)
+            local reserved, reserveReason = Fare.reserve(player, car, 250)
+            local paid = Fare.current()
+            if not check("taxi_paid_exact_native_item_reserved",
+                    offered == true and reserved == true and paid
+                        and paid.paidValue == 3 and #paid.items == 1
+                        and paid.items[1].itemId == ringId,
+                    "offer=" .. tostring(offerReason) .. " reserve="
+                        .. tostring(reserveReason)) then
+                setPhase("finish", current) return
+            end
+            local settled, settleReason = Fare.commit(car)
+            local repeated, repeatReason = Fare.commit(car)
+            check("taxi_paid_item_settles_once",
+                settled == true and repeated == true
+                    and repeatReason == "already_committed"
+                    and Fare.retirementStatus(car) == true,
+                tostring(settleReason) .. "/" .. tostring(repeatReason))
+            local saved, document = SC.Runtime.save()
+            local persisted = saved == true and document
+                and document.taxiBooking and document.taxiCab
+                and document.taxiFares and document.taxiCab.record
+                and document.taxiCab.record.sqlId == car:getSqlId()
+                and document.taxiFares.receipt
+                and document.taxiFares.receipt.phase == "committed"
+                and document.taxiFares.receipt.items[1]
+                and document.taxiFares.receipt.items[1].itemId == ringId
+            if not check("taxi_native_save_contains_exact_cab_and_fare",
+                    persisted == true,
+                    "save=" .. tostring(saved) .. " sql="
+                        .. tostring(document and document.taxiCab
+                            and document.taxiCab.record
+                            and document.taxiCab.record.sqlId)
+                        .. " ring=" .. tostring(ringId)) then
+                setPhase("finish", current) return
+            end
+            local signalled = H.drivingSignals.write(
+                "SurvivorCompanionHarness/taxi-save-stage.txt", {
+                    "SC_TAXI_STAGE_V1",
+                    "sql_id=" .. tostring(car:getSqlId()),
+                    "ring_id=" .. tostring(ringId),
+                    "receipt_id=" .. tostring(Fare.current().id),
+                })
+            check("taxi_cold_recovery_stage_written", signalled == true,
+                "native cab and exact paid ring retained in clone")
+        end
+        setPhase("finish", current)
+    end
+end
+
+local function taxiRecoveryStep(H, SC, current, check, result, setPhase)
+    local expectedSql = tonumber(H.config.taxi_expected_sql_id)
+    local expectedRing = tonumber(H.config.taxi_expected_ring_id)
+    local expectedReceipt = H.config.taxi_expected_receipt_id
+    local booking = SC.TaxiBooking and SC.TaxiBooking.current()
+    local cab = SC.TaxiCab and SC.TaxiCab.current()
+    local fare = SC.TaxiFares and SC.TaxiFares.current()
+    local recovered, vehicle = SC.TaxiCab.recover()
+    if not recovered or not booking or not cab or not fare then
+        if current - H.phaseStartedAt > 45000 then
+            result("FAIL", "taxi_cold_recovery_loaded",
+                "booking=" .. tostring(booking ~= nil)
+                    .. " cab=" .. tostring(cab ~= nil)
+                    .. " fare=" .. tostring(fare ~= nil)
+                    .. " recovery=" .. tostring(vehicle))
+            setPhase("finish", current)
+        end
+        return
+    end
+    if not check("taxi_cold_recovery_same_native_car",
+            cab.sqlId == expectedSql and vehicle:getSqlId() == expectedSql
+                and SC.TaxiCab.matches(vehicle),
+            "expected=" .. tostring(expectedSql) .. " actual="
+                .. tostring(vehicle:getSqlId())) then
+        setPhase("finish", current) return
+    end
+    local rows, reason = SC.TaxiCab.looseItems(vehicle)
+    local ring
+    for _, row in ipairs(rows or {}) do
+        if row.itemId == expectedRing then ring = row.item; break end
+    end
+    local data = ring and call(ring, "getModData")
+    check("taxi_cold_recovery_exact_paid_ring",
+        rows ~= nil and fare.phase == "committed"
+            and fare.id == expectedReceipt and #fare.items == 1
+            and fare.items[1].itemId == expectedRing
+            and ring ~= nil and type(data) == "table"
+            and data.LF_TaxiPaid == expectedReceipt
+            and SC.TaxiFares.retirementStatus(vehicle) == true,
+        "ring=" .. tostring(ring and call(ring, "getID"))
+            .. " phase=" .. tostring(fare.phase)
+            .. " rows=" .. tostring(rows and #rows)
+            .. " reason=" .. tostring(reason))
+    setPhase("finish", current)
+end
+
+local function taxiCallStep(H, SC, current, check, result, setPhase)
+    local test = H.driveTest
+    local service = SC.TaxiService
+    if H.phase == "drive_taxi_call_start" then
+        if current - H.phaseStartedAt < 1000 then return end
+        if H.config.taxi_call_long_paid == "true" then
+            local prior = SC.TaxiFares.current()
+            local owned = SC.TaxiCab.current()
+            local quote = SC.TaxiFares.quote(250)
+            if not check("taxi_call_prior_free_fare_persisted",
+                prior and prior.phase == "committed"
+                    and prior.promotion == true and owned and owned.sqlId
+                    and quote and quote.required == 3,
+                "prior=" .. tostring(prior and prior.phase)
+                    .. " promotion=" .. tostring(prior and prior.promotion)
+                    .. " cab=" .. tostring(owned and owned.sqlId)
+                    .. " due=" .. tostring(quote and quote.required)) then
+                setPhase("finish", current) return
+            end
+            test.taxiOriginalSql = owned.sqlId
+            local recovered, parkedCar = SC.TaxiCab.recover()
+            if not check("taxi_call_repeat_cab_loaded",
+                recovered == true and parkedCar ~= nil,
+                "saved=" .. tostring(owned.sqlId)) then
+                setPhase("finish", current) return
+            end
+            if H.config.taxi_turn_diagnostic ~= "true" then
+            -- Book the repeat ride from a clear verge near the saved cab so
+            -- the paid journey test does not depend on the old pickup road.
+            local road = test.road
+            local normalX, normalY = -road.ay, road.ax
+            local verge = road.width / 2 + 4
+            local nextStop
+            for _, ahead in ipairs({ 14, 18, 22, 10 }) do
+                for _, side in ipairs({ 1, -1 }) do
+                    local wx = math.floor(parkedCar:getX()
+                        + road.ax * ahead + normalX * verge * side)
+                    local wy = math.floor(parkedCar:getY()
+                        + road.ay * ahead + normalY * verge * side)
+                    local square = SC.GameplayUtil.gridSquare(wx, wy, 0)
+                    if square and openSquare(SC.GameplayUtil, wx, wy)
+                        and SC.GameplayUtil.isSquareFree(square) then
+                        nextStop = { x = wx, y = wy }
+                        break
+                    end
+                end
+                if nextStop then break end
+            end
+            if not check("taxi_call_repeat_verge_found", nextStop ~= nil,
+                "cab=" .. fmt(parkedCar:getX()) .. ","
+                    .. fmt(parkedCar:getY())) then
+                setPhase("finish", current) return
+            end
+            H.player:teleportTo(nextStop.x + 0.5, nextStop.y + 0.5, 0)
+            result("PASS", "taxi_call_repeat_verge_placed",
+                nextStop.x .. "," .. nextStop.y
+                    .. " cab=" .. fmt(parkedCar:getX()) .. ","
+                    .. fmt(parkedCar:getY()))
+            else
+                result("PASS", "taxi_turn_original_pickup_retained",
+                    "cab=" .. fmt(parkedCar:getX()) .. ","
+                        .. fmt(parkedCar:getY()) .. " player="
+                        .. fmt(H.player:getX()) .. ","
+                        .. fmt(H.player:getY()))
+            end
+        end
+        local inventory = call(H.player, "getInventory")
+        local radio = inventory and call(inventory, "AddItem", "Base.WalkieTalkie2")
+        local data = radio and call(radio, "getDeviceData")
+        if data and call(data, "getHasBattery") ~= true then
+            local battery = call(inventory, "AddItem", "Base.Battery")
+            if battery then call(data, "addBattery", battery) end
+        end
+        if data then call(data, "setIsTurnedOn", true) end
+        if not check("taxi_call_native_radio_ready",
+            radio ~= nil and SC.TaxiBooking.checkRadio(H.player, radio) == true,
+            "radio=" .. tostring(radio)
+                .. " power=" .. tostring(call(data, "getPower"))) then
+            setPhase("finish", current) return
+        end
+        test.radio = radio
+        local accepted, reason = service.request(H.player, radio)
+        local booked = SC.TaxiBooking.current()
+        local repeated, repeatReason = service.request(H.player, radio)
+        if not check("taxi_call_accepted_once", accepted == true
+            and repeated == true and repeatReason == "already_booked"
+            and booked ~= nil and SC.TaxiBooking.current().generation
+                == booked.generation,
+            "request=" .. tostring(reason) .. " repeat=" .. tostring(repeatReason)) then
+            setPhase("finish", current) return
+        end
+        setPhase("drive_taxi_call_pickup", current)
+        return
+    end
+    local state = service.current()
+    local owned, car = SC.TaxiCab.recover()
+    if H.config.taxi_turn_diagnostic == "true" and car and state
+        and state.pickup and state.phase == "pickup_drive"
+        and not test.taxiRouteSourcesLogged then
+        local chauffeur = call(car, "getDriver")
+        local actorX, actorY
+        if chauffeur then
+            actorX, actorY = SC.GameplayUtil.position(chauffeur)
+        end
+        local byActor, actorWhy, actorNative = chauffeur
+            and SC.ExpeditionRoute.plan(chauffeur, state.pickup, true)
+        local byCar, carWhy, carNative = SC.ExpeditionRoute.planFromPoint(
+            { x = car:getX(), y = car:getY(), z = 0 }, state.pickup, true)
+        local native = chauffeur and SC.Driving.status(chauffeur)
+        test.taxiRouteSourcesLogged = true
+        test.taxiBadRouteSkipped = native
+            and tonumber(native.routeLength)
+            and tonumber(native.routeLength) >= 8
+        result("PASS", "taxi_turn_route_sources",
+            "actor=" .. fmt(actorX) .. "," .. fmt(actorY)
+                .. " car=" .. fmt(car:getX()) .. "," .. fmt(car:getY())
+                .. " pickup=" .. fmt(state.pickup.x) .. ","
+                .. fmt(state.pickup.y)
+                .. " actor_route=" .. fmt(byActor and byActor.roadLength)
+                .. ":" .. tostring(actorWhy)
+                .. " actor_exit=" .. fmt(actorNative and actorNative.exitX)
+                .. "," .. fmt(actorNative and actorNative.exitY)
+                .. " car_route=" .. fmt(byCar and byCar.roadLength)
+                .. ":" .. tostring(carWhy)
+                .. " car_exit=" .. fmt(carNative and carNative.exitX)
+                .. "," .. fmt(carNative and carNative.exitY)
+                .. " driver_route=" .. fmt(native and native.routeLength))
+    end
+    if H.config.taxi_turn_diagnostic == "true" and car then
+        local chauffeur = call(car, "getDriver")
+        local native = chauffeur and SC.Driving.status(chauffeur)
+        if native then
+            local signature = tostring(native.turnState) .. ":"
+                .. tostring(native.turnLegs) .. ":"
+                .. tostring(native.turnReason)
+            if native.turnState and signature ~= test.taxiTurnSignature then
+                test.taxiTurnSignature = signature
+                test.taxiTurnLast = "mode=" .. tostring(native.mode)
+                    .. " turn=" .. signature
+                    .. " x=" .. fmt(car:getX())
+                    .. " y=" .. fmt(car:getY())
+                    .. " along=" .. fmt(native.along)
+                    .. " route=" .. fmt(native.routeLength)
+                    .. " front=" .. fmt(native.obstacleDistance)
+                    .. " rear=" .. fmt(native.rearDistance)
+                result("PASS", "taxi_turn_observation", test.taxiTurnLast)
+            end
+        end
+    end
+    if owned and car and not test.taxiCallStartX then
+        test.taxiCallStartX, test.taxiCallStartY = car:getX(), car:getY()
+    end
+    if state and state.phase == "held" then
+        if H.config.taxi_turn_diagnostic == "true" then
+            result(test.taxiBadRouteSkipped and state.reason ~= "turn_failed"
+                    and "PASS" or "FAIL",
+                "taxi_turn_bad_pickup_route_skipped",
+                "reason=" .. tostring(state.reason)
+                    .. " last=" .. tostring(test.taxiTurnLast)
+                    .. " car=" .. tostring(car and (fmt(car:getX())
+                        .. "," .. fmt(car:getY()))))
+            setPhase("finish", current) return
+        end
+        local driver = test.actor or (car and call(car, "getDriver"))
+        local native = driver and SC.Driving.status(driver)
+        local job = driver and SC.Driving.jobStatus(driver)
+        result("FAIL", "taxi_call_service_held",
+            tostring(state.reason) .. " car="
+                .. tostring(car and (fmt(car:getX()) .. "," .. fmt(car:getY())))
+                .. " max=" .. fmt(test.taxiMaxActualKmh)
+                .. " straight=" .. fmt(test.taxiMaxStraightKmh)
+                .. " native=" .. tostring(native and native.state)
+                .. "/" .. tostring(native and native.mode)
+                .. " obstacle=" .. tostring(native and native.obstacleKind)
+                .. "@" .. fmt(native and native.obstacleDistance)
+                .. " hit=" .. fmt(native and native.obstacleX)
+                .. "," .. fmt(native and native.obstacleY)
+                .. " job=" .. tostring(job and job.reason)
+                .. ":" .. tostring(job and job.detail)
+                .. " last=" .. tostring(test.taxiLastBlock))
+        setPhase("finish", current) return
+    end
+    if H.phase == "drive_taxi_call_pickup" then
+        if state and state.phase == "searching"
+            and current - H.phaseStartedAt > 12000 then
+            if H.config.taxi_turn_diagnostic == "true" then
+                result("PASS", "taxi_turn_bad_pickup_route_rejected",
+                    tostring(state.reason)
+                        .. " car=" .. tostring(car and (fmt(car:getX())
+                            .. "," .. fmt(car:getY()))))
+                setPhase("finish", current)
+                return
+            end
+            result("FAIL", "taxi_call_pickup_site_unavailable",
+                tostring(state.reason))
+            setPhase("finish", current)
+            return
+        end
+        if state and state.phase == "waiting_board" then
+            if H.config.taxi_turn_diagnostic == "true" then
+                result("PASS", "taxi_turn_diagnostic_arrived",
+                    tostring(test.taxiTurnLast))
+                setPhase("finish", current) return
+            end
+            local driver = call(car, "getDriver")
+            if not check("taxi_call_native_cab_and_driver",
+                car ~= nil and SC.TaxiCab.matches(car)
+                    and driver ~= nil and SC.Actor.isCompanion(driver),
+                "car=" .. tostring(car) .. " driver=" .. tostring(driver)) then
+                setPhase("finish", current) return
+            end
+              local driverId = SC.Registry.idOf(driver)
+              local driverRecord = driverId and SC.Registry.byId(driverId)
+              if not check("taxi_call_service_driver_not_recruited",
+                  service.isDriver(driver) == true and driverRecord ~= nil
+                      and driverRecord.recruited ~= true,
+                  "driver_id=" .. tostring(driverId)
+                      .. " recruited=" .. tostring(driverRecord
+                          and driverRecord.recruited)) then
+                  setPhase("finish", current) return
+              end
+            local distance = test.taxiCallStartX and flatDistance(
+                test.taxiCallStartX, test.taxiCallStartY,
+                car:getX(), car:getY()) or 0
+            if not check("taxi_call_physical_pickup",
+                H.config.taxi_call_long_paid == "true" or distance >= 10,
+                "distance=" .. fmt(distance)
+                    .. " sql=" .. tostring(call(car, "getSqlId"))) then
+                setPhase("finish", current) return
+            end
+            test.vehicle, test.actor = car, driver
+            setPhase("drive_taxi_call_board", current)
+        elseif current - H.phaseStartedAt > 75000 then
+            result("FAIL", "taxi_call_pickup_timeout",
+                "phase=" .. tostring(state and state.phase)
+                    .. " reason=" .. tostring(state and state.reason))
+            setPhase("finish", current)
+        end
+        return
+    end
+    if H.phase == "drive_taxi_call_board" then
+        local outside = car:getPassengerPosition(1, "outside")
+        local door = outside and car:getPassengerPositionWorldPos(
+            outside, Vector3f.new())
+        if not check("taxi_call_passenger_door", door ~= nil,
+            "seat one exterior") then setPhase("finish", current) return end
+        local moved = pcall(function()
+            H.player:teleportTo(door:x(), door:y(), 0)
+        end)
+        if not check("taxi_call_player_walks_to_door", moved,
+            "native passenger door") then setPhase("finish", current) return end
+        local boarded = car:enter(1, H.player)
+        if not check("taxi_call_booked_passenger_boarded",
+            boarded == true and car:getCharacter(1) == H.player
+                and H.player:getVehicle() == car,
+            "native seat one") then setPhase("finish", current) return end
+        setPhase("drive_taxi_call_depart", current)
+        return
+    end
+    if H.phase == "drive_taxi_call_depart" then
+        if not state or state.phase ~= "ready_to_depart" then
+            if current - H.phaseStartedAt > 10000 then
+                result("FAIL", "taxi_call_ready_timeout", tostring(state and state.phase))
+                setPhase("finish", current)
+            end
+            return
+        end
+        local pickup = state.pickup
+        local axis = test.road
+        local target, longPreview, previewReasons
+        if H.config.taxi_call_long_paid == "true" then
+            previewReasons = {}
+            for _, distance in ipairs({ 220, 240, 270, 300, 350, 400 }) do
+                for _, sign in ipairs({ 1, -1 }) do
+                    local candidate = { x = pickup.x + axis.ax * sign * distance,
+                        y = pickup.y + axis.ay * sign * distance, z = 0 }
+                    local preview, why = service.previewPoint(H.player, candidate)
+                    if preview and preview.roadTiles >= 200
+                        and preview.roadTiles <= 500
+                        and preview.required == 3 then
+                        target, longPreview = candidate, preview
+                        break
+                    end
+                    if #previewReasons < 8 then
+                        previewReasons[#previewReasons + 1] = tostring(distance * sign)
+                            .. ":" .. tostring(why or preview and preview.roadTiles)
+                    end
+                end
+                if target then break end
+            end
+            if not check("taxi_call_200_tile_route_found", target ~= nil,
+                table.concat(previewReasons, ",")) then
+                setPhase("finish", current) return
+            end
+            if not check("taxi_call_repeat_same_native_cab",
+                car:getSqlId() == test.taxiOriginalSql,
+                "saved=" .. tostring(test.taxiOriginalSql)
+                    .. " now=" .. tostring(car:getSqlId())) then
+                setPhase("finish", current) return
+            end
+            local glove = call(car, "getPartById", "GloveBox")
+            local container = call(glove, "getItemContainer")
+            local necklace = call(container, "AddItem", "Base.Necklace_Gold")
+            local necklaceId = tonumber(call(necklace, "getID"))
+            if not check("taxi_call_gold_necklace_deposited",
+                necklace and necklaceId and necklaceId > 0,
+                "glovebox=" .. tostring(container)
+                    .. " necklace=" .. tostring(necklaceId)) then
+                setPhase("finish", current) return
+            end
+            local offered, offerReason = service.offer(H.player, test.radio, necklace)
+            if not check("taxi_call_gold_necklace_offered", offered == true,
+                tostring(offerReason)) then
+                setPhase("finish", current) return
+            end
+            test.taxiGoldNecklaceId = necklaceId
+        else
+            local along = axis.ax == 1 and pickup.x or pickup.y
+            local positive = axis.ax == 1 and axis.ex or axis.ey
+            local negative = axis.ax == 1 and axis.sx or axis.sy
+            local direction = math.abs(positive - along) >= math.abs(along - negative)
+                and 1 or -1
+            target = { x = pickup.x + axis.ax * direction * 28,
+                y = pickup.y + axis.ay * direction * 28, z = 0 }
+        end
+        local started, why = service.departToPoint(H.player, test.radio, target)
+        if not check("taxi_call_paid_departure_started", started == true,
+            "reason=" .. tostring(why) .. " target=" .. fmt(target.x)
+                .. "," .. fmt(target.y)) then
+            setPhase("finish", current) return
+        end
+        if longPreview then
+            local receipt = SC.TaxiFares.current()
+            if not check("taxi_call_gold_necklace_reserved",
+                receipt and receipt.phase == "reserved"
+                    and receipt.promotion == false and receipt.required == 3
+                    and receipt.paidValue == 3 and #receipt.items == 1
+                    and receipt.items[1].itemId == test.taxiGoldNecklaceId
+                    and longPreview.roadTiles >= 200,
+                "road=" .. tostring(longPreview.roadTiles)
+                    .. " fare=" .. tostring(receipt and receipt.paidValue)
+                    .. " item=" .. tostring(receipt and receipt.items
+                        and receipt.items[1] and receipt.items[1].itemId)) then
+                setPhase("finish", current) return
+            end
+            test.taxiLongRouteTiles = longPreview.roadTiles
+            test.taxiLongTravel = 0
+            test.taxiLongPreviousX, test.taxiLongPreviousY = car:getX(), car:getY()
+        end
+        test.taxiCallDepartX, test.taxiCallDepartY = car:getX(), car:getY()
+        setPhase("drive_taxi_call_ride", current)
+        return
+    end
+    if H.phase == "drive_taxi_call_ride" then
+        if H.config.taxi_call_long_paid == "true" then
+            local x, y = car:getX(), car:getY()
+            if test.taxiLongPreviousX then
+                test.taxiLongTravel = (test.taxiLongTravel or 0)
+                    + flatDistance(test.taxiLongPreviousX, test.taxiLongPreviousY, x, y)
+            end
+            test.taxiLongPreviousX, test.taxiLongPreviousY = x, y
+            local drive = test.actor and SC.Driving.status(test.actor)
+            if drive then
+                test.taxiMaxRequestedKmh = math.max(
+                    test.taxiMaxRequestedKmh or 0,
+                    tonumber(drive.cruiseKmh) or 0)
+                local speed = math.abs(tonumber(drive.speedKmh) or 0)
+                test.taxiMaxActualKmh = math.max(
+                    test.taxiMaxActualKmh or 0, speed)
+                if math.abs(tonumber(drive.steering) or 0) <= 0.2 then
+                    test.taxiMaxStraightKmh = math.max(
+                        test.taxiMaxStraightKmh or 0, speed)
+                end
+                if drive.blocked == true or drive.state == "safety_blocked"
+                    or drive.mode == "blocked" then
+                    test.taxiLastBlock = "car=" .. fmt(x) .. "," .. fmt(y)
+                        .. " speed=" .. fmt(speed)
+                        .. " kind=" .. tostring(drive.obstacleKind)
+                        .. "@" .. fmt(drive.obstacleDistance)
+                        .. " hit=" .. fmt(drive.obstacleX)
+                        .. "," .. fmt(drive.obstacleY)
+                        .. " mode=" .. tostring(drive.mode)
+                        .. " state=" .. tostring(drive.state)
+                    if not test.taxiFirstBlockLogged then
+                        result("PASS", "taxi_speed_first_block", test.taxiLastBlock)
+                        test.taxiFirstBlockLogged = true
+                    end
+                end
+            end
+        end
+        if H.config.taxi_call_stage == "true" and state
+            and state.phase == "in_transit"
+            and flatDistance(test.taxiCallDepartX, test.taxiCallDepartY,
+                car:getX(), car:getY()) >= 8 then
+            local fare = SC.TaxiFares.current()
+            local saved, document = SC.Runtime.save()
+            local persisted = saved == true and document
+                and document.taxiService and document.taxiService.visit
+                and document.taxiService.visit.phase == "in_transit"
+                and document.taxiService.visit.cabSqlId == car:getSqlId()
+                and document.taxiBooking and document.taxiBooking.active
+                and document.taxiBooking.active.generation
+                    == state.bookingGeneration
+                and fare and fare.phase == "reserved"
+                and document.taxiFares and document.taxiFares.receipt
+                and document.taxiFares.receipt.id == fare.id
+                and car:getDriver() == test.actor
+                and car:getCharacter(1) == H.player
+            if not check("taxi_call_stage_saved", persisted == true,
+                "save=" .. tostring(saved) .. " phase="
+                    .. tostring(document and document.taxiService
+                        and document.taxiService.visit
+                        and document.taxiService.visit.phase)
+                    .. " fare=" .. tostring(fare and fare.id)) then
+                setPhase("finish", current) return
+            end
+            local signalled = H.drivingSignals.write(
+                "SurvivorCompanionHarness/taxi-call-stage.txt", {
+                    "SC_TAXI_CALL_STAGE_V1",
+                    "sql_id=" .. tostring(car:getSqlId()),
+                    "driver_id=" .. tostring(SC.Registry.idOf(test.actor)),
+                    "booking_generation=" .. tostring(state.bookingGeneration),
+                    "receipt_id=" .. tostring(fare.id),
+                })
+            check("taxi_call_stage_proof_written", signalled == true,
+                "booked native player and driver in moving cab")
+            setPhase("finish", current)
+            return
+        end
+        if state and state.phase == "waiting_exit" then
+            local distance = flatDistance(test.taxiCallDepartX,
+                test.taxiCallDepartY, car:getX(), car:getY())
+            if not check("taxi_call_real_ride", distance >= 8
+                and H.player:getVehicle() == car,
+                "distance=" .. fmt(distance) .. " travel="
+                    .. fmt(test.taxiLongTravel or distance)) then
+                setPhase("finish", current) return
+            end
+            if H.config.taxi_call_long_paid == "true"
+                and not check("taxi_call_long_physical_distance",
+                    (test.taxiLongTravel or 0) >= 200,
+                    "travel=" .. fmt(test.taxiLongTravel or 0)
+                        .. " planned=" .. tostring(test.taxiLongRouteTiles)) then
+                setPhase("finish", current) return
+            end
+            if H.config.taxi_call_long_paid == "true"
+                and not check("taxi_call_straight_cruise_50",
+                    (test.taxiMaxRequestedKmh or 0) >= 50
+                        and (test.taxiMaxStraightKmh or 0) >= 45,
+                    "requested=" .. fmt(test.taxiMaxRequestedKmh)
+                        .. " straight=" .. fmt(test.taxiMaxStraightKmh)
+                        .. " max=" .. fmt(test.taxiMaxActualKmh)) then
+                setPhase("finish", current) return
+            end
+            local exited = car:exit(H.player)
+            if not check("taxi_call_native_passenger_exit", exited == true
+                and H.player:getVehicle() == nil,
+                "native exit") then setPhase("finish", current) return end
+            setPhase("drive_taxi_call_settle", current)
+        elseif current - H.phaseStartedAt >
+            (H.config.taxi_call_long_paid == "true" and 180000 or 90000) then
+            result("FAIL", "taxi_call_ride_timeout", tostring(state and state.phase))
+            setPhase("finish", current)
+        end
+        return
+    end
+    if H.phase == "drive_taxi_call_settle" then
+        local visit = service.current()
+        if visit and (visit.phase == "finishing"
+            or visit.phase == "departing" or visit.phase == "retiring") then
+            local fare = SC.TaxiFares.current()
+            if H.config.taxi_call_long_paid == "true" then
+                local rows = SC.TaxiCab.looseItems(car)
+                local count, paid = 0, false
+                for _, row in ipairs(rows or {}) do
+                    if row.itemId == test.taxiGoldNecklaceId then
+                        count = count + 1
+                        local data = call(row.item, "getModData")
+                        paid = data and data.LF_TaxiPaid == fare.id
+                    end
+                end
+                local settled = check("taxi_call_long_paid_ride_settled",
+                    fare and fare.phase == "committed"
+                        and fare.promotion == false and fare.paidValue == 3
+                        and count == 1 and paid == true
+                        and (test.taxiLongTravel or 0) >= 200
+                        and SC.TaxiBooking.current() ~= nil,
+                    "travel=" .. fmt(test.taxiLongTravel or 0)
+                        .. " planned=" .. tostring(test.taxiLongRouteTiles)
+                        .. " paid=" .. tostring(paid)
+                        .. " count=" .. tostring(count)
+                        .. " fare=" .. tostring(fare and fare.phase))
+                if settled then
+                    test.taxiPostExitX, test.taxiPostExitY = car:getX(), car:getY()
+                    test.taxiPostExitDriverId = SC.TaxiService.export().driverId
+                    setPhase("drive_taxi_call_post_exit", current)
+                    return
+                end
+            else
+                check("taxi_call_free_fare_settled",
+                    fare and fare.phase == "committed"
+                        and fare.promotion == true
+                        and SC.TaxiBooking.current() ~= nil,
+                    "fare=" .. tostring(fare and fare.phase)
+                        .. " driver=" .. tostring(car:getDriver()))
+                test.taxiPostExitX, test.taxiPostExitY = car:getX(), car:getY()
+                test.taxiPostExitDriverId = SC.TaxiService.export().driverId
+                setPhase("drive_taxi_call_post_exit", current)
+                return
+            end
+        elseif current - H.phaseStartedAt > 15000 then
+            result("FAIL", "taxi_call_settlement_timeout",
+                tostring(visit and visit.phase))
+            setPhase("finish", current)
+        end
+    end
+    if H.phase == "drive_taxi_call_post_exit" then
+        local cab = test.vehicle
+        local recovered, nativeCar = SC.TaxiCab.recover()
+        local driverRecord = SC.Registry.byId(test.taxiPostExitDriverId)
+        local movement = cab and flatDistance(test.taxiPostExitX,
+            test.taxiPostExitY, cab:getX(), cab:getY())
+        if service.current() == nil then
+            check("taxi_call_departed_and_despawned",
+                cab ~= nil and movement >= 30
+                    and cab:isRemovedFromWorld() == true
+                    and recovered == false and nativeCar ~= cab
+                    and SC.TaxiCab.current() == nil
+                    and SC.TaxiBooking.current() == nil
+                    and driverRecord == nil,
+            "cab_movement=" .. fmt(movement)
+                .. " cab_loaded=" .. tostring(recovered)
+                .. " same_cab=" .. tostring(nativeCar == cab)
+                .. " driver_registered=" .. tostring(driverRecord ~= nil)
+                .. " service=" .. tostring(SC.TaxiService.current()
+                    and SC.TaxiService.current().phase))
+            setPhase("finish", current)
+        elseif current - H.phaseStartedAt > 90000 then
+            local visit = service.current()
+            result("FAIL", "taxi_call_departure_timeout",
+                "movement=" .. fmt(movement)
+                    .. " phase=" .. tostring(visit and visit.phase)
+                    .. " reason=" .. tostring(visit and visit.reason))
+            setPhase("finish", current)
+        end
+    end
+end
+
+local function taxiCallResumeStep(H, SC, current, check, result, setPhase)
+    local state = SC.TaxiService and SC.TaxiService.current()
+    local booking = SC.TaxiBooking and SC.TaxiBooking.current()
+    local fare = SC.TaxiFares and SC.TaxiFares.current()
+    local owned, car
+    if SC.TaxiCab then owned, car = SC.TaxiCab.recover() end
+    local expected = H.config
+    local driver = car and car:getDriver()
+    if H.driveTest and state == nil then
+        check("taxi_call_resume_arrived_and_settled",
+            fare and fare.phase == "committed"
+                and fare.id == expected.taxi_call_expected_receipt_id
+                and booking == nil and car:getDriver() == nil,
+            "fare=" .. tostring(fare and fare.phase)
+                .. " driver=" .. tostring(driver))
+        setPhase("finish", current)
+        return
+    end
+    if not state or not booking or not fare or not owned or not driver then
+        if current - H.phaseStartedAt > 60000 then
+            local _, recoverReason = SC.TaxiCab.recover()
+            local playerCar = H.player and H.player:getVehicle()
+            local nearby = SC.Vehicle and SC.Vehicle.loadedVehicles()
+            result("FAIL", "taxi_call_resume_loaded",
+                "service=" .. tostring(state and state.phase)
+                    .. " booking=" .. tostring(booking ~= nil)
+                    .. " fare=" .. tostring(fare and fare.phase)
+                    .. " car=" .. tostring(car)
+                    .. " driver=" .. tostring(driver)
+                    .. " reason=" .. tostring(recoverReason)
+                    .. " player_car=" .. tostring(playerCar)
+                    .. " player_sql=" .. tostring(playerCar and playerCar:getSqlId())
+                    .. " loaded_count=" .. tostring(nearby and #nearby))
+            setPhase("finish", current)
+        end
+        return
+    end
+    if not H.driveTest then
+        local driverId = SC.Registry.idOf(driver)
+        if not check("taxi_call_resume_exact_native_party",
+            tostring(car:getSqlId()) == expected.taxi_call_expected_sql_id
+                and driverId == expected.taxi_call_expected_driver_id
+                and SC.TaxiService.isDriver(driver) == true
+                and tostring(state.bookingGeneration)
+                    == expected.taxi_call_expected_booking_generation
+                and booking.generation == state.bookingGeneration
+                and fare.id == expected.taxi_call_expected_receipt_id
+                and fare.phase == "reserved"
+                and car:getCharacter(1) == H.player
+                and H.player:getVehicle() == car,
+            "sql=" .. tostring(car:getSqlId())
+                .. " driver=" .. tostring(driverId)
+                .. " booking=" .. tostring(booking.generation)
+                .. " fare=" .. tostring(fare.id)
+                .. " phase=" .. tostring(state.phase)) then
+            setPhase("finish", current) return
+        end
+        H.driveTest = { vehicle = car, actor = driver,
+            taxiCallResumeX = car:getX(), taxiCallResumeY = car:getY() }
+    end
+    if state.phase == "held" then
+        result("FAIL", "taxi_call_resume_held", tostring(state.reason))
+        setPhase("finish", current)
+    elseif state.phase == "waiting_exit" and not H.driveTest.passengerExited then
+        local exited = car:exit(H.player)
+        if not check("taxi_call_resume_native_exit",
+            exited == true and H.player:getVehicle() == nil,
+            "passenger left at destination") then
+            setPhase("finish", current) return
+        end
+        H.driveTest.passengerExited = true
+    elseif current - H.phaseStartedAt > 120000 then
+        result("FAIL", "taxi_call_resume_timeout", tostring(state.phase))
+        setPhase("finish", current)
+    end
+end
+
 function Probe.step(H, current, check, result, setPhase)
     local SC = SurvivorCompanion
     if H.phase == "drive_setup" then
+        if H.config.taxi_call_resume == "true" then
+            setPhase("drive_taxi_call_resume_wait", current)
+            return
+        end
+        if H.config.taxi_recovery_resume == "true" then
+            setPhase("drive_taxi_recovery_wait", current)
+            return
+        end
         if H.config.team_drive_restart_resume == "true" then
             setPhase("drive_team_resume_wait", current)
             return
@@ -2459,6 +3407,19 @@ function Probe.step(H, current, check, result, setPhase)
         end
         return
     end
+    if H.phase == "drive_taxi_recovery_wait" then
+        taxiRecoveryStep(H, SC, current, check, result, setPhase)
+        return
+    end
+    if H.phase == "drive_taxi_call_resume_wait" then
+        taxiCallResumeStep(H, SC, current, check, result, setPhase)
+        return
+    end
+    if H.config.taxi_call_probe == "true"
+        and string.find(H.phase, "drive_taxi_call_", 1, true) == 1 then
+        taxiCallStep(H, SC, current, check, result, setPhase)
+        return
+    end
     local test = H.driveTest
     if test == nil then setPhase("finish", current) return end
     if string.find(H.phase, "drive_team_", 1, true) == 1 then
@@ -2466,7 +3427,7 @@ function Probe.step(H, current, check, result, setPhase)
         return
     end
     if H.phase == "drive_spawn_car" then
-        spawnCar(H, SC, result, setPhase, current, test)
+        spawnCar(H, SC, check, result, setPhase, current, test)
         return
     end
     if H.phase == "drive_spawn_companion" then
@@ -2489,6 +3450,10 @@ function Probe.step(H, current, check, result, setPhase)
         return
     end
     local speed = tonumber(vehicle:getCurrentSpeedKmHour()) or 0
+    if string.find(H.phase, "drive_taxi_", 1, true) == 1 then
+        taxiStep(H, SC, current, check, result, setPhase, test)
+        return
+    end
     if string.find(H.phase, "drive_remote_", 1, true) == 1 then
         remoteStep(H, SC, current, check, result, setPhase, test)
         return

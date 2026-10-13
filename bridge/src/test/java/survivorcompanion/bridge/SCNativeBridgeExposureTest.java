@@ -132,8 +132,11 @@ public final class SCNativeBridgeExposureTest {
                 + "SC_TEST_DRIVE_API = SCBridge.driveStart ~= nil and SCBridge.driveSet ~= nil\n"
                 + "    and SCBridge.driveStop ~= nil and SCBridge.driveStatus ~= nil\n"
                 + "    and SCBridge.scanLane ~= nil and SCBridge.driveFollow ~= nil\n"
+                + "    and SCBridge.driveFollowTuned ~= nil\n"
                 + "    and SCBridge.driveApproach ~= nil\n"
                 + "    and SCBridge.driveTurnAround ~= nil\n"
+                + "SC_TEST_PASSENGER_DRIVE_API = SCBridge.driveStartWithPassenger ~= nil\n"
+                + "SC_TEST_PASSENGER_DRIVE_REJECTS_NIL = not SCBridge.driveStartWithPassenger(nil, nil, true)\n"
                 + "SC_TEST_ROAD_AVOIDANCE_API = SCBridge.planRoadRouteAvoidingAll ~= nil\n"
                 + "local avoided = {}\n"
                 + "SC_TEST_ROAD_AVOIDANCE_CALL = SCBridge.planRoadRouteAvoidingAll(\n"
@@ -144,6 +147,7 @@ public final class SCNativeBridgeExposureTest {
                 + "    and not SCBridge.driveSet(nil, 0, 10, true) and not SCBridge.driveStop(nil)\n"
                 + "    and not SCBridge.driveStatus(nil, {}) and not SCBridge.scanLane(nil, 8, {})\n"
                 + "    and not SCBridge.driveFollow(nil, '1,1,6;9,1,6', 10)\n"
+                + "    and not SCBridge.driveFollowTuned(nil, '1,1,6;9,1,6', 10, 2)\n"
                 + "    and not SCBridge.driveApproach(nil, '1,1,5;9,1,5', 5)\n"
                 + "    and not SCBridge.driveTurnAround(nil, true)\n"
                 + "SC_TEST_ATTACK_TYPES = true\n";
@@ -153,7 +157,7 @@ public final class SCNativeBridgeExposureTest {
         thread.getClass().getMethod("call", Object.class, Object[].class)
                 .invoke(thread, closure, (Object) new Object[0]);
         Method rawget = tableClass.getMethod("rawget", Object.class);
-        require("42.21-isocompanion-21".equals(rawget.invoke(environment, "SC_TEST_PROTOCOL")),
+        require("42.21-isocompanion-23".equals(rawget.invoke(environment, "SC_TEST_PROTOCOL")),
                 "Lua received the wrong native bridge protocol");
         require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_VIEW_API")),
                 "production bridge did not expose the camera offset contract");
@@ -191,6 +195,10 @@ public final class SCNativeBridgeExposureTest {
                 "Lua could not call the story zombie shelter API or it accepted nil");
         require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_DRIVE_API")),
                 "production bridge did not expose the companion driving API");
+        require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_PASSENGER_DRIVE_API"))
+                        && Boolean.TRUE.equals(rawget.invoke(environment,
+                                "SC_TEST_PASSENGER_DRIVE_REJECTS_NIL")),
+                "Lua could not call the guarded passenger driving entry");
         require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_ROAD_AVOIDANCE_API"))
                         && Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_ROAD_AVOIDANCE_CALL")),
                 "Lua could not call the bounded multi-circle planner or invalid text was accepted");

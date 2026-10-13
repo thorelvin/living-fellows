@@ -1420,6 +1420,14 @@ local function scheduledSubsystemDefinitions()
         { field = "viewSlot", owner = SC.ViewSession, depth = 2, entries = 16 },
         { field = "expedition", owner = SC.ExpeditionPrototype,
             depth = 8, entries = 1024 },
+        { field = "taxiBooking", owner = SC.TaxiBooking,
+            depth = 4, entries = 32 },
+        { field = "taxiCab", owner = SC.TaxiCab,
+            depth = 4, entries = 32 },
+        { field = "taxiFares", owner = SC.TaxiFares,
+            depth = 8, entries = 2048 },
+        { field = "taxiService", owner = SC.TaxiService,
+            depth = 6, entries = 128 },
         { field = "baseWatch", owner = SC.BaseWatch, depth = 3, entries = 32 },
     }
 end
@@ -4037,6 +4045,9 @@ function persistence.restore(player)
         infectionCrisis = "infection-crisis", community = "community",
         diaries = "diary", tradeRecovery = "trade-recovery",
         viewSlot = "companion-view", expedition = "expedition",
+        taxiBooking = "taxi-booking",
+        taxiCab = "taxi-cab", taxiFares = "taxi-fares",
+        taxiService = "taxi-service",
         baseWatch = "base-watch",
     }
     for _, definition in ipairs(subsystemDefinitions) do
@@ -4070,6 +4081,18 @@ function persistence.restore(player)
         elseif definition.field == "oddballs" and SC.Oddballs
             and type(SC.Oddballs.restore) == "function" then
             SC.Oddballs.restore(nil)
+        elseif definition.field == "taxiBooking" and SC.TaxiBooking
+            and type(SC.TaxiBooking.restore) == "function" then
+            SC.TaxiBooking.restore(nil)
+        elseif definition.field == "taxiCab" and SC.TaxiCab
+            and type(SC.TaxiCab.restore) == "function" then
+            SC.TaxiCab.restore(nil)
+        elseif definition.field == "taxiFares" and SC.TaxiFares
+            and type(SC.TaxiFares.restore) == "function" then
+            SC.TaxiFares.restore(nil)
+        elseif definition.field == "taxiService" and SC.TaxiService
+            and type(SC.TaxiService.restore) == "function" then
+            SC.TaxiService.restore(nil)
         end
     end
 

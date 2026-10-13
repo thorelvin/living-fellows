@@ -914,11 +914,18 @@ local function commitBandage(patient, assessment, wound, bandage, inventory,
         local rolledBack = rollbackEmergencyBandage(inventory, emergencyTransaction) and nativeRestored
         return false, rolledBack and "native_bandage_unverified" or "treatment_rollback_failed"
     end
-    if not utility.consumeItem(inventory, bandage) then
+    -- A dressing is transferred onto the body, not "used" in the inventory.
+    -- Base.Bandage and ripped sheets have ReplaceOnUse=...Dirty: Use() would
+    -- put a dirty copy straight back in the pack while the clean one is still
+    -- on the wound. Vanilla ISApplyBandage removes the exact item instead.
+    if not inventoryRemove(inventory, bandage) then
         local nativeRestored = restoreBandage(assessment.bodyDamage, wound, previous)
-        local rolledBack = rollbackEmergencyBandage(inventory, emergencyTransaction) and nativeRestored
+        local itemRestored = restoreInventoryItem(inventory, bandage)
+        local rolledBack = rollbackEmergencyBandage(inventory, emergencyTransaction)
+            and nativeRestored and itemRestored
         return false, rolledBack and "bandage_consume_failed" or "treatment_rollback_failed"
     end
+    utility.touchInventoryIndex(inventory)
     -- Last, after everything that can still fail. Stopping the bleed earlier
     -- meant a dressing whose consumption failed rolled back the bandage and the
     -- clothing but left the wound cured: the treatment reported failure while

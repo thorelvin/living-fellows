@@ -23,6 +23,7 @@ public final class SCRoadFollowerTest {
         /** First and last open row: the verges by default, the road alone when walled. */
         int firstOpen = 95;
         int lastOpen = 106;
+        int endX = 120;
 
         static long key(int x, int y) {
             return ((long) x << 32) ^ (y & 0xffffffffL);
@@ -44,7 +45,7 @@ public final class SCRoadFollowerTest {
 
         @Override
         public int squareKind(int x, int y, int z) {
-            if (x < 0 || x >= 120) return SCLaneScan.UNLOADED;
+            if (x < 0 || x >= endX) return SCLaneScan.UNLOADED;
             if (y < firstOpen || y > lastOpen) return SCLaneScan.SOLID;
             return kinds.getOrDefault(key(x, y), SCLaneScan.CLEAR);
         }
@@ -91,7 +92,7 @@ public final class SCRoadFollowerTest {
             } else {
                 speed = approachZero(speed, 1.0f * dt);
             }
-            speed = Math.max(-6.0f / 3.6f, Math.min(25.0f / 3.6f, speed));
+            speed = Math.max(-6.0f / 3.6f, Math.min(60.0f / 3.6f, speed));
             heading += speed / WHEELBASE * (float) Math.tan(wheel) * dt;
             x += speed * (float) Math.cos(heading) * dt;
             y += speed * (float) Math.sin(heading) * dt;
@@ -131,6 +132,7 @@ public final class SCRoadFollowerTest {
         long nowMs;
         boolean collided;
         float maxAbsLateral;
+        float maxSpeedKmh;
         String trace = "";
 
         Drive(Road road, Car car, SCRoadFollower follower) {
@@ -162,6 +164,7 @@ public final class SCRoadFollowerTest {
                                         ? SCDriveControl.MANEUVER_GAP_TILES
                                         : SCDriveControl.HOLD_GAP_TILES);
                 car.step(input, dt);
+                maxSpeedKmh = Math.max(maxSpeedKmh, car.kmh());
                 nowMs += (long) (dt * 1000.0f);
                 if (car.collides(world)) {
                     collided = true;
@@ -216,6 +219,38 @@ public final class SCRoadFollowerTest {
                         && Math.abs(drive.follower.lateral() - 2.0f) < 0.6f,
                 "an open road is driven to the end in the right-hand lane: " + drive.trace
                         + " lateral=" + drive.follower.lateral());
+    }
+
+    private static void fastStraightAndEarlyBend() {
+        Road longRoad = new Road();
+        longRoad.endX = 300;
+        SCRoadFollower straight = new SCRoadFollower(
+                SCDrivePath.parse("2,101,8;220,101,8"), 50.0f, true);
+        Drive drive = new Drive(longRoad, new Car(6.0f, 103.0f, 0.0f), straight);
+        drive.run(45.0f, () -> straight.mode() == SCRoadFollower.Mode.ARRIVED);
+        require(!drive.collided && straight.mode() == SCRoadFollower.Mode.ARRIVED
+                        && drive.maxSpeedKmh >= 48.0f,
+                "clear straight road reaches taxi cruise and stops at its end: speed="
+                        + drive.maxSpeedKmh + " " + drive.trace);
+
+        SCRoadFollower bend = new SCRoadFollower(SCDrivePath.parse(
+                "10,101,8;70,101,8;70,110,8;110,110,8"), 50.0f, true);
+        SCRoadFollower.Command command = bend.update(longRoad,
+                35.0f, 103.0f, 0, 1.0f, 0.0f, 50.0f, 0.95f, 2.4f,
+                -1.0f, -1.0f, 1000L, new SCRoadFollower.Command());
+        require(bend.mode() == SCRoadFollower.Mode.FOLLOW
+                        && command.targetKmh <= SCRoadFollower.AVOID_KMH,
+                "at 50 km/h the first sharp bend is found within braking distance "
+                        + "even when another bend follows it: target=" + command.targetKmh);
+        SCRoadFollower taxiBend = new SCRoadFollower(SCDrivePath.parse(
+                "10,101,8;70,101,8;70,110,8;110,110,8"), 50.0f, true, false, 2.0f);
+        SCRoadFollower.Command taxiCommand = taxiBend.update(longRoad,
+                35.0f, 103.0f, 0, 1.0f, 0.0f, 50.0f, 0.95f, 2.4f,
+                -1.0f, -1.0f, 1000L, new SCRoadFollower.Command());
+        require(Math.abs(command.targetKmh - 6.0f) < 0.01f
+                        && Math.abs(taxiCommand.targetKmh - 12.0f) < 0.01f,
+                "taxi corner cap doubles while normal driving stays at six: "
+                        + command.targetKmh + "/" + taxiCommand.targetKmh);
     }
 
     private static void oneWreck() {
@@ -475,6 +510,7 @@ public final class SCRoadFollowerTest {
         pathBasics();
         reverseRules();
         clearRoad();
+        fastStraightAndEarlyBend();
         oneWreck();
         twoWrecks();
         blockedRoad();

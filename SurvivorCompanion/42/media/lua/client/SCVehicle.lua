@@ -828,6 +828,36 @@ local function preparePassengerDoor(actor, vehicle, seat)
         invoke(vehicle, "toggleLockedDoor", part, actor, false)
         lockedOk, locked = invoke(door, "isLocked")
         if not lockedOk then return false, "passenger door lock state is unavailable" end
+        if locked == true and seat > 0 and eligibleFollower(actor, vehicle) then
+            -- A follower outside cannot unlock the player's locked car with
+            -- its own key. The local player is already inside and can release
+            -- the passenger lock from the cabin without breaking a window.
+            local rider
+            if type(getSpecificPlayer) == "function" then
+                for index = 0, 3 do
+                    local ok, candidate = pcall(getSpecificPlayer, index)
+                    if ok and candidate ~= nil
+                        and select(2, invoke(candidate, "getVehicle")) == vehicle then
+                        rider = candidate
+                        break
+                    end
+                end
+            end
+            if rider ~= nil then
+                invoke(vehicle, "toggleLockedDoor", part, rider, false)
+                lockedOk, locked = invoke(door, "isLocked")
+                if not lockedOk then return false, "passenger door lock state is unavailable" end
+                if locked == true then
+                    -- Match the in-car unlock control when the native toggle
+                    -- requires a key even though the owner is seated inside.
+                    if not invoke(door, "setLocked", false) then
+                        return false, "passenger door could not be unlocked from inside"
+                    end
+                    invoke(vehicle, "transmitPartDoor", part)
+                    lockedOk, locked = invoke(door, "isLocked")
+                end
+            end
+        end
         if locked == true and seat == 0 then
             -- The driver may reach the lock through a broken window. Smash
             -- only after the ordinary unlock attempt failed, and verify that
@@ -1129,7 +1159,8 @@ local function multiplayerActive()
     return false
 end
 
-function vehicleService.preflightBoard(actor, vehicle, requestedSeat, allowDriver)
+function vehicleService.preflightBoard(actor, vehicle, requestedSeat, allowDriver,
+    permittedPassenger)
     if not SC.Actor.isCompanion(actor) then
         return nil, "actor is not an active companion"
     end
@@ -1151,7 +1182,28 @@ function vehicleService.preflightBoard(actor, vehicle, requestedSeat, allowDrive
     if seat == nil then return nil, seatReason end
     if seat == 0 then
         if multiplayerActive() then return nil, "companion driving is single-player only" end
-        if strangerAboard(vehicle) then
+        local taxiPassenger = permittedPassenger ~= nil
+            and SC.TaxiService ~= nil
+            and type(SC.TaxiService.isDriver) == "function"
+            and SC.TaxiService.isDriver(actor) == true
+            and type(SC.TaxiService.isBookedPassenger) == "function"
+            and SC.TaxiService.isBookedPassenger(permittedPassenger, vehicle) == true
+        local foreign = strangerAboard(vehicle)
+        if taxiPassenger then
+            foreign = false
+            local countOk, count = invoke(vehicle, "getMaxPassengers")
+            count = countOk and math.floor(finite(count, 0)) or 0
+            if count < 2 or count > 32 then foreign = true end
+            for index = 0, count - 1 do
+                local ok, occupant = invoke(vehicle, "getCharacter", index)
+                if not ok or (occupant ~= nil and occupant ~= permittedPassenger
+                    and not SC.Actor.isCompanion(occupant)) then
+                    foreign = true
+                    break
+                end
+            end
+        end
+        if foreign then
             return nil, "someone who is not a companion is in this vehicle"
         end
     end
@@ -1574,7 +1626,7 @@ function vehicleService.board(actor, vehicle, requestedSeat, intent)
         requestedSeat = supplied.seat
     end
     local prepared, prepareReason = vehicleService.preflightBoard(actor, vehicle, requestedSeat,
-        intent.driverSeat == true)
+        intent.driverSeat == true, intent.taxiPassenger)
     if prepared == nil then
         vehicleService.failTransaction(actor, "vehicle_board_preflight_failed", {
             reason = prepareReason,
@@ -1687,15 +1739,17 @@ end
 
 -- The driver's seat, for a companion about to drive (SC.Driving). Same
 -- transaction, verification and rollback as a passenger seat; ride-along
--- boarding still refuses seat zero. Never with the player or a stranger aboard.
+-- boarding still refuses seat zero. Only Markus may board with the exact
+-- booked player already in a passenger seat; strangers still block boarding.
 function vehicleService.boardDriver(actor, vehicle, intent)
     intent = type(intent) == "table" and intent or {}
     intent.driverSeat = true
     return vehicleService.board(actor, vehicle, 0, intent)
 end
 
-function vehicleService.preflightDriver(actor, vehicle)
-    return vehicleService.preflightBoard(actor, vehicle, 0, true)
+function vehicleService.preflightDriver(actor, vehicle, permittedPassenger)
+    return vehicleService.preflightBoard(actor, vehicle, 0, true,
+        permittedPassenger)
 end
 
 function vehicleService.exit(actor, vehicle, requestedSeat, intent)

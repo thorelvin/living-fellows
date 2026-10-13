@@ -44,6 +44,10 @@ require "SCFactionWorld"
 require "SCFactionBehavior"
 require "SCOddballRoomGuard"
 require "SCOddballDistressRadio"
+require "SCTaxiBooking"
+require "SCTaxiCab"
+require "SCTaxiFares"
+require "SCTaxiService"
 require "SCOddballs"
 require "SCOddballRed"
 require "SCOddballSpiffo"
@@ -198,8 +202,9 @@ local requiredModules = {
     "NativeActions", "Performance",
     "ActionSupervisor", "Actor", "Persistence", "Vehicle", "Spawn", "GameplayUtil", "Names", "Topology",
     "BaseObjectRef", "PathSearch", "NavTraffic", "NavTraversal",
+    "TaxiCab", "TaxiFares", "TaxiService",
     "Background", "Dialogue", "Allegiance", "Factions", "Trade", "FactionLife", "FactionContracts", "FactionWorld",
-    "FactionBehavior", "OddballRoomGuard", "OddballDistressRadio", "Oddballs", "OddballRed", "OddballSpiffo", "OddballWendell", "OddballGale", "OddballButch", "OddballCecil", "OddballAnimals", "OddballHollis", "OddballRoom12", "OddballJune", "OddballDefenseLeague", "OddballAshby", "OddballSins", "OddballKris", "OddballEbb", "OddballPrentice", "OddballLusk", "OddballVelma", "OddballCorey", "OddballDwight", "OddballRoyce", "OddballMose", "OddballAmos", "OddballLester", "OddballVisitors", "OddballTupelo", "OddballAuxiliary", "OddballRivals", "OddballBledsoe", "OddballWerewolf", "OddballSkeeter", "OddballMerle", "OddballCrabtree", "OddballJedediah", "OddballGideon", "OddballRenfro", "OddballGoatman", "OddballTolliver", "OddballSleeper", "OddballElmer", "OddballBigChris", "OddballTommy", "OddballExchange", "OddballGordon", "OddballMorton", "OddballMien", "OddballGrinder", "OddballSurvivalist", "OddballVoiceActor", "OddballPyromaniac", "OddballGarageRescue", "OddballDehydrated", "OddballCampStoryteller", "OddballBedridden", "OddballSmoker", "OddballFurryPack", "OddballMilli",
+    "FactionBehavior", "OddballRoomGuard", "OddballDistressRadio", "TaxiBooking", "Oddballs", "OddballRed", "OddballSpiffo", "OddballWendell", "OddballGale", "OddballButch", "OddballCecil", "OddballAnimals", "OddballHollis", "OddballRoom12", "OddballJune", "OddballDefenseLeague", "OddballAshby", "OddballSins", "OddballKris", "OddballEbb", "OddballPrentice", "OddballLusk", "OddballVelma", "OddballCorey", "OddballDwight", "OddballRoyce", "OddballMose", "OddballAmos", "OddballLester", "OddballVisitors", "OddballTupelo", "OddballAuxiliary", "OddballRivals", "OddballBledsoe", "OddballWerewolf", "OddballSkeeter", "OddballMerle", "OddballCrabtree", "OddballJedediah", "OddballGideon", "OddballGoatman", "OddballTolliver", "OddballSleeper", "OddballElmer", "OddballBigChris", "OddballTommy", "OddballExchange", "OddballGordon", "OddballMorton", "OddballMien", "OddballGrinder", "OddballSurvivalist", "OddballVoiceActor", "OddballPyromaniac", "OddballGarageRescue", "OddballDehydrated", "OddballCampStoryteller", "OddballBedridden", "OddballSmoker", "OddballFurryPack", "OddballMilli",
     "OddballDeputy", "OddballSilas", "OddballRusty", "OddballLonnie",
     "OddballVirgil", "OddballClem", "OddballPurdy",
     "ZombieTargeting", "ThreatSet", "PerceptionScan",

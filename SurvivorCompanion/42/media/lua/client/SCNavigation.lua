@@ -1292,7 +1292,12 @@ local function passableEdge(fromSquare, toSquare, vegetationScale, options)
         if movingKind == "pushable_object" then
             return false, math.huge, "pushable_object", moving
         end
-        if moving then crowdCost = utility.config("navigationCrowdPenalty") or 9 end
+        -- Formation selection asks whether the ground is open, not whether a
+        -- teammate happens to be crossing it on this pulse. The actual route
+        -- still scores crowds normally. Pushable objects remain blockers.
+        if moving and options.ignoreLivingCrowds ~= true then
+            crowdCost = utility.config("navigationCrowdPenalty") or 9
+        end
     end
     local memoryPenalty, familiarity = routeMemoryAdjustment(
         options.routeMemory, fromSquare, toSquare, options.now,
@@ -5461,6 +5466,8 @@ local function routeTargetSignature(goalSquare, intent)
         .. (moving and "moving" or tostring(squareKey(goalSquare))) .. "|"
         .. tostring(semanticTarget) .. "|" .. tostring(intent.item or "none")
         .. "|" .. tostring(explicit) .. "|token=" .. tostring(tokenSerial(intent) or "none")
+        .. ((intent.action == "follow_formation" or intent.action == "regroup")
+            and "|formation=" .. tostring(intent.formationMode or "none") or "")
 end
 
 local function clearTerminalEpisode(actor, state, reason, now)

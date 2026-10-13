@@ -1723,7 +1723,13 @@ local function inventorySummary(actor)
             local itemType = string.lower(utility.itemType(item))
             local category, categoryOk = utility.call(item, "getCategory")
             category = categoryOk and string.lower(tostring(category)) or ""
-            if string.find(itemType, "bandage", 1, true) or string.find(itemType, "rippedsheet", 1, true) then
+            local dressing = string.find(itemType, "bandage", 1, true)
+                or string.find(itemType, "rippedsheet", 1, true)
+            local dirty, dirtyOk = utility.call(item, "isDirty")
+            local bloody, bloodyOk = utility.call(item, "isBloody")
+            if dressing and not string.find(itemType, "dirty", 1, true)
+                and not (dirtyOk and dirty == true)
+                and not (bloodyOk and bloody == true) then
                 counts.bandages = counts.bandages + 1
             end
             if category == "food" then counts.food = counts.food + 1 end
@@ -2184,6 +2190,10 @@ end
 local function issueOne(companionId, command, payload, player)
     local actor, entry, reason = resolve(companionId)
     if not actor then return false, reason end
+    if SC.TaxiService and type(SC.TaxiService.isDriver) == "function"
+        and SC.TaxiService.isDriver(actor) == true then
+        return false, "taxi_driver_not_recruitable"
+    end
     if SC.BaseWatch and SC.BaseWatch.isRemoteResident
         and SC.BaseWatch.isRemoteResident(actor, player) then
         return false, "base_watch_radio_required"

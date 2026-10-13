@@ -4,6 +4,7 @@ package survivorcompanion.bridge;
 import java.util.ArrayList;
 import org.joml.Vector3f;
 import zombie.characters.IsoGameCharacter;
+import zombie.characters.IsoPlayer;
 import zombie.characters.IsoZombie;
 import zombie.core.physics.CarController;
 import zombie.iso.IsoCell;
@@ -36,6 +37,7 @@ final class SCCompanionDriver {
 
     private boolean active;
     private BaseVehicle vehicle;
+    private IsoPlayer authorizedPassenger;
     private boolean haveKey;
     private float steering;
     private float cruiseKmh;
@@ -159,6 +161,7 @@ final class SCCompanionDriver {
         if (current.getController() == null) return "vehicle has no controller";
         active = true;
         vehicle = current;
+        authorizedPassenger = null;
         haveKey = actorHasKey;
         steering = 0.0f;
         cruiseKmh = 0.0f;
@@ -177,6 +180,17 @@ final class SCCompanionDriver {
         return "";
     }
 
+    /** The taxi exception is tied to one seated local player and this car. */
+    String startWithPassenger(IsoGameCharacter actor, BaseVehicle current,
+                              IsoPlayer passenger, boolean actorHasKey) {
+        if (!SCBridge.isAuthorizedDrivePassenger(current, passenger)) {
+            return "booked player is not in a passenger seat";
+        }
+        String failure = start(actor, current, actorHasKey);
+        if (failure.isEmpty()) authorizedPassenger = passenger;
+        return failure;
+    }
+
     /** Hand driving: a set wheel and speed. Ends any route being followed. */
     void set(double steeringValue, double cruise, boolean brakeForObstacles) {
         follower = null;
@@ -191,7 +205,12 @@ final class SCCompanionDriver {
      * brakes for anything the lane scan finds. Obstacle braking stays on.
      */
     void follow(SCDrivePath path, double cruise) {
-        follower = new SCRoadFollower(path, (float) cruise, true);
+        follow(path, cruise, 1.0);
+    }
+
+    void follow(SCDrivePath path, double cruise, double cornerSpeedScale) {
+        follower = new SCRoadFollower(path, (float) cruise, true,
+                false, (float) cornerSpeedScale);
         cruiseKmh = follower.cruiseKmh();
         steering = 0.0f;
         autoBrake = true;
@@ -227,6 +246,7 @@ final class SCCompanionDriver {
         boolean wasActive = active;
         active = false;
         vehicle = null;
+        authorizedPassenger = null;
         follower = null;
         turnRequested = false;
         hordeAvoidUntil = 0L;
@@ -255,7 +275,12 @@ final class SCCompanionDriver {
             stop(actor, "left_driver_seat");
             return;
         }
-        if (SCBridge.playerAboard(current)) {
+        if (authorizedPassenger != null
+                && !SCBridge.isAuthorizedDrivePassenger(current, authorizedPassenger)) {
+            stop(actor, "booked_passenger_left");
+            return;
+        }
+        if (authorizedPassenger == null && SCBridge.playerAboard(current)) {
             stop(actor, "player_aboard");
             return;
         }

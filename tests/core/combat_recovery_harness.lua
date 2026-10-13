@@ -16,7 +16,8 @@ function weapon:getMinRange() return 0.61 end
 function weapon:getCondition() return 10 end
 function weapon:getConditionMax() return 10 end
 function weapon:isRanged() return false end
-local actor = { x = 0, y = 0, z = 0, primary = weapon, vars = {}, attacks = 0 }
+local actor = { x = 0, y = 0, z = 0, primary = weapon, vars = {}, attacks = 0,
+    forwardX = 1, forwardY = 0 }
 function actor:getX() return self.x end
 function actor:getY() return self.y end
 function actor:getZ() return self.z end
@@ -33,7 +34,9 @@ function actor:getVariableBoolean(name) return self.vars[name] == true end
 function actor:getVariableString(name) return tostring(self.vars[name] or "") end
 function actor:setVariable(name, value) self.vars[name] = value end
 function actor:faceLocationF() return true end
-function actor:setForwardDirection() end
+function actor:setForwardDirection(x, y) self.forwardX, self.forwardY = x, y end
+function actor:getForwardDirectionX() return self.forwardX end
+function actor:getForwardDirectionY() return self.forwardY end
 function actor:setRunning(value) self.running = value end
 function actor:setSprinting(value) self.sprinting = value end
 function actor:setSneaking(value) self.sneaking = value end

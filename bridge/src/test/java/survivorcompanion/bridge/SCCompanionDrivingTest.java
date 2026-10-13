@@ -65,9 +65,9 @@ public final class SCCompanionDrivingTest {
                 "a tiny cruise request still moves the car");
         require(SCDriveControl.clampCruise(12) == 12.0f,
                 "a low cruise speed is kept as asked");
-        require(SCDriveControl.clampCruise(99) == SCDriveControl.MAX_CRUISE_KMH
-                        && SCDriveControl.MAX_CRUISE_KMH <= 30.0f,
-                "companion cruise never exceeds the low-speed ceiling");
+        require(SCDriveControl.clampCruise(50) == 50.0f
+                        && SCDriveControl.clampCruise(99) == 50.0f,
+                "the native controller accepts a 50 km/h taxi request but no more");
         require(SCDriveControl.clampSteering(Double.NaN) == 0.0f
                         && SCDriveControl.clampSteering(2) == 1.0f
                         && SCDriveControl.clampSteering(-3) == -1.0f
@@ -112,7 +112,9 @@ public final class SCCompanionDrivingTest {
         require(!creep.forward() && !creep.brake(),
                 "a stopped car does not creep closer than the hold gap");
         require(SCCompanionDriver.lookAheadFor(25.0f) > SCDriveControl.stoppingDistance(25.0f)
-                        && SCCompanionDriver.lookAheadFor(0.0f) >= 8.0f,
+                        && SCCompanionDriver.lookAheadFor(0.0f) >= 8.0f
+                        && SCLaneScan.MAX_LOOK_AHEAD
+                            >= SCCompanionDriver.lookAheadFor(50.0f),
                 "the lane scan always looks further than the car needs to stop");
     }
 
@@ -179,7 +181,12 @@ public final class SCCompanionDrivingTest {
         require(both.blocked && both.kind == SCLaneScan.TREE && both.hitX == 105,
                 "the nearest hit on any ray wins");
 
-        Grid distant = new Grid().put(140, 100, SCLaneScan.VEHICLE);
+        Grid stoppingRange = new Grid().put(150, 100, SCLaneScan.VEHICLE);
+        SCLaneScan.Result visible = SCLaneScan.scan(stoppingRange,
+                100.5f, 100.5f, 0, 1.0f, 0.0f, 1.0f, 2.4f, 100.0f);
+        require(visible.blocked && visible.kind == SCLaneScan.VEHICLE,
+                "a taxi at 50 km/h can see a vehicle inside its braking range");
+        Grid distant = new Grid().put(170, 100, SCLaneScan.VEHICLE);
         SCLaneScan.Result capped = SCLaneScan.scan(distant, 100.5f, 100.5f, 0, 1.0f, 0.0f,
                 1.0f, 2.4f, 100.0f);
         require(!capped.blocked, "the scan never looks past its bounded reach");

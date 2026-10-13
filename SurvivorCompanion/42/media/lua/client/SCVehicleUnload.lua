@@ -50,6 +50,10 @@ local function parked(vehicle)
 end
 
 function Unload.eligible(vehicle)
+    if SC.TaxiCab and type(SC.TaxiCab.isOwned) == "function"
+        and SC.TaxiCab.isOwned(vehicle) then
+        return false, "service_cab_reserved"
+    end
     local id = tonumber(call(vehicle, "getSqlId"))
     if not id or id < 0 or id % 1 ~= 0 then
         return false, "car_identity_unavailable"

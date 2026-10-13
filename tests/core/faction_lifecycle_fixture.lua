@@ -187,7 +187,7 @@ for _, name in ipairs({
     "Background", "Dialogue", "NativeTraversalActions", "NativeVisualActions",
     "NativeCombatActions", "NativeWorkActions", "NativeMovementActions",
     "Trade", "FactionLife", "FactionWorld",
-    "FactionBehavior", "Oddballs", "OddballDistressRadio", "OddballRed", "OddballSpiffo", "OddballWendell", "OddballDeputy",
+    "FactionBehavior", "Oddballs", "OddballDistressRadio", "TaxiBooking", "TaxiCab", "TaxiFares", "TaxiService", "OddballRed", "OddballSpiffo", "OddballWendell", "OddballDeputy",
     "OddballSilas", "OddballRusty", "OddballLonnie", "OddballVirgil", "OddballClem", "OddballPurdy",
     "OddballGale", "OddballButch", "OddballCecil", "OddballAnimals", "OddballHollis",
     "OddballRoom12", "OddballJune", "OddballDefenseLeague", "OddballAshby",

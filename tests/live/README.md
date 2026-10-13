@@ -121,6 +121,30 @@ as the harness writes its first live assertion.
 
 ## Companion driving probe
 
+The Markus passenger proof uses the same isolated driving fixture with the
+real player in native seat 1. It verifies that ordinary driving still refuses
+the passenger, the service-only bridge entry drives a short straight leg with
+player slot 0 unchanged, and both occupants can exit after stopping. It also
+claims a native taxi, checks its real part containers, settles the first free
+ride, and pays the second fare with an exact loose jewelry item:
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -DrivingProbe -TaxiPassengerProbe `
+    -LivingFellowsOnly -NoSteam -TimeoutSeconds 300
+```
+
+The runner prints a retained **Taxi recovery seed** path. Reload that clone in
+a new game process to verify the same native vehicle SQL ID and paid item ID:
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -DrivingProbe -TaxiRecoveryResume `
+    -SeedSave '<Taxi recovery seed path>' `
+    -LivingFellowsOnly -NoSteam -TimeoutSeconds 300
+```
+
+This proves the fare and cab recovery layer. Public radio dispatch, pickup,
+route service and vehicle retirement remain behind the booking gate.
+
 `-DrivingProbe` checks real car mechanics with a companion at the wheel. It looks
 for a straight Nav-zone road within about 66 tiles of the observer, moves the
 observer to the roadside, spawns a `Base.CarNormal`, and spawns a companion at

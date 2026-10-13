@@ -112,6 +112,10 @@ SCBridge = {
         state.active, state.state, state.mode = true, "following", "follow"
         return true
     end,
+    driveFollowTuned = function(actor, route, speed, scale)
+        T.tunedFollow = { actor = actor, route = route, speed = speed, scale = scale }
+        return SCBridge.driveFollow(actor, route, speed)
+    end,
     driveApproach = function(actor)
         T.approaches = (T.approaches or 0) + 1
         local state = T.native[actor]

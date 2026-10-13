@@ -1327,6 +1327,83 @@ for index = 1, 5 do
     manifestActors[index].px, manifestActors[index].py = nil, nil
 end
 SC.Vehicle.invalidateManifests(sixSeatVan)
+-- The stock Masterson Horizon (Base.SmallCar02) has four seats but only two
+-- side doors. Rear passengers must enter through a front seat and switch.
+do
+    local horizon = setmetatable({ id = 89, script = "Base.SmallCar02",
+        x = 1, y = 0, z = 0, speed = 0, occupants = {}, positions = {} },
+        { __index = sixSeatVan })
+    function horizon:getMaxPassengers() return 4 end
+    function horizon:isSeatInstalled(seat) return seat >= 0 and seat < 4 end
+    function horizon:getScript()
+        return { getPassenger = function(_, seat)
+            return { getPositionById = function(_, position)
+                if position ~= "outside" then return nil end
+                return { getArea = function()
+                    return seat < 2 and "SeatFront" .. tostring(seat) or nil
+                end }
+            end }
+        end }
+    end
+    function horizon:getPassengerPosition(seat, position)
+        if seat < 0 or seat >= 4 then return nil end
+        if position == "inside" then return { position = position } end
+        return seat < 2 and { getArea = function()
+            return "SeatFront" .. tostring(seat)
+        end } or nil
+    end
+    function horizon:getEnterSeatDistance(seat, x, y)
+        if seat > 1 then return -1 end
+        return (x - 1.5)^2 + (y - 0.5)^2
+    end
+    function horizon:canSwitchSeat(from, to)
+        return from ~= to and from >= 0 and from < 4
+            and to >= 0 and to < 4
+    end
+    local door = { locked = true, opened = false }
+    function door:isLocked() return self.locked end
+    function door:setLocked(value) self.locked = value end
+    function door:isOpen() return self.opened end
+    function door:setOpen(value) self.opened = value end
+    function horizon:getPassengerDoor(seat)
+        return seat == 1 and { getDoor = function() return door end } or nil
+    end
+    function horizon:toggleLockedDoor() end
+    function horizon:transmitPartDoor() end
+    local savedSpecificPlayer = getSpecificPlayer
+    getSpecificPlayer = function(index)
+        return index == 0 and manifestPlayer or nil
+    end
+    manifestPlayer.vehicle, horizon.occupants[0] = horizon, manifestPlayer
+    SC.Vehicle.invalidateManifests()
+    for index = 1, 3 do
+        local passenger = manifestActors[index]
+        passenger.px, passenger.py = 1.5, 0.5
+        local assignment, assignmentReason = SC.Vehicle.assignmentFor(
+            passenger, horizon, manifestPlayer)
+        check(assignment and assignment.seat == 1,
+            "Masterson Horizon routes passenger " .. index
+                .. " through its front door: " .. tostring(assignmentReason))
+        local boarded, reason = SC.Vehicle.board(passenger, horizon, 1, {})
+        check(boarded and reason == "native_seat"
+                and horizon:getCharacter(1) == passenger
+                and not door.locked and not door.opened,
+            "Masterson Horizon boards passenger " .. index
+                .. " through the player-unlocked door: " .. tostring(reason))
+    end
+    check(horizon:getCharacter(1) == manifestActors[3]
+            and horizon:getCharacter(2) == manifestActors[1]
+            and horizon:getCharacter(3) == manifestActors[2],
+        "all three companions occupy the three passenger seats")
+    for index = 1, 3 do
+        local passenger = manifestActors[index]
+        horizon.occupants[horizon:getSeat(passenger)] = nil
+        passenger.vehicle, passenger.px, passenger.py = nil, nil, nil
+    end
+    manifestPlayer.vehicle = previousPlayerVehicle
+    getSpecificPlayer = savedSpecificPlayer
+    SC.Vehicle.invalidateManifests(horizon)
+end
 end
 for _, candidate in ipairs(manifestActors) do SC.Registry.unregister(candidate) end
 local laterRecruit = setmetatable({
@@ -1523,6 +1600,47 @@ end
 SC.__testVehiclePolicyStatus()
 SC.__testVehiclePolicyStatus = nil
 
+do
+    local savedSpecificPlayer = getSpecificPlayer
+    local savedDoor = vehicle.getPassengerDoor
+    local savedToggle = vehicle.toggleLockedDoor
+    local door = { locked = true, opened = false }
+    function door:isLocked() return self.locked end
+    function door:setLocked(value) self.locked = value end
+    function door:isOpen() return self.opened end
+    function door:setOpen(value) self.opened = value end
+    local part = { getDoor = function() return door end }
+    vehicle.getPassengerDoor = function(_, seat)
+        return seat == 1 and part or nil
+    end
+    vehicle.toggleLockedDoor = function()
+        -- The companion has no key and the native player toggle can also
+        -- decline on some vehicles. The in-car lock control is the fallback.
+    end
+    getSpecificPlayer = function() return nil end
+    local denied, deniedReason = SC.Vehicle.board(actor, vehicle, 1, {})
+    check(not denied and deniedReason == "passenger door is locked"
+            and door.locked and actor:getVehicle() == nil,
+        "a locked two-seat passenger door stays locked without a local player aboard")
+    SC.ActionSupervisor.resetRetry(actor, "next_fault_case", "board_vehicle")
+    manifestPlayer.vehicle = vehicle
+    getSpecificPlayer = function(index)
+        return index == 0 and manifestPlayer or nil
+    end
+    local boardedLocked, lockedReason = SC.Vehicle.board(actor, vehicle, 1, {})
+    check(boardedLocked and lockedReason == "native_seat"
+            and not door.locked and not door.opened
+            and vehicle.passenger == actor,
+        "a follower boards the locked passenger seat when the player is inside")
+    local exitedLocked = SC.Vehicle.exit(actor, vehicle)
+    check(exitedLocked and actor:getVehicle() == nil,
+        "the locked-door fixture leaves its passenger on foot")
+    manifestPlayer.vehicle = nil
+    getSpecificPlayer = savedSpecificPlayer
+    vehicle.getPassengerDoor = savedDoor
+    vehicle.toggleLockedDoor = savedToggle
+end
+
 -- Companion driving: the driver's seat goes only through boardDriver, never to
 -- a follower and never with a stranger aboard; SC.Driving forwards to the bridge.
 function SC.__testCompanionDriving()
@@ -1655,6 +1773,10 @@ function SC.__testCompanionDriving()
         calls[#calls + 1] = { "driveStart", who, haveKey }
         return true
     end
+    function bridge.driveStartWithPassenger(who, passenger, haveKey)
+        calls[#calls + 1] = { "driveStartWithPassenger", who, passenger, haveKey }
+        return true
+    end
     function bridge.driveSet(who, steering, kmh, brakeForObstacles)
         calls[#calls + 1] = { "driveSet", who, steering, kmh, brakeForObstacles }
         return not bridge.refuseSet
@@ -1674,6 +1796,10 @@ function SC.__testCompanionDriving()
     end
     function bridge.driveFollow(who, route, kmh)
         calls[#calls + 1] = { "driveFollow", who, route, kmh }
+        return true
+    end
+    function bridge.driveFollowTuned(who, route, kmh, scale)
+        calls[#calls + 1] = { "driveFollowTuned", who, route, kmh, scale }
         return true
     end
     function bridge.driveApproach(who, route, kmh)
@@ -1734,6 +1860,26 @@ function SC.__testCompanionDriving()
         "turning round asks the bridge to drive the route back")
     check(Driving.release(actor) and calls[#calls][1] == "driveStop",
         "letting go of the wheel stops native driving")
+    local bookedPlayer = { vehicle = nil }
+    function bookedPlayer:getVehicle() return self.vehicle end
+    check(car:enter(1, bookedPlayer), "the booked player boards a real passenger seat")
+    local ordinary, ordinaryWhy = Driving.start(actor)
+    check(ordinary == false and ordinaryWhy == "player_aboard",
+        "ordinary companion driving still refuses a real passenger")
+    local booked, bookedWhy = Driving.start(actor, bookedPlayer)
+    check(booked == true and calls[#calls][1] == "driveStartWithPassenger"
+            and calls[#calls][2] == actor and calls[#calls][3] == bookedPlayer,
+        "only an exact seated passenger reaches the service bridge entry: "
+            .. tostring(bookedWhy))
+    car.occupants[2] = { stranger = true }
+    check(not Driving.isDriving(actor) and calls[#calls][1] == "driveStop",
+        "an unexpected passenger revokes the active service drive")
+    car.occupants[2] = nil
+    local rebooked = Driving.start(actor, bookedPlayer)
+    check(rebooked == true, "the exact player may start again after the stranger leaves")
+    car:exit(bookedPlayer)
+    check(not Driving.isDriving(actor) and calls[#calls][1] == "driveStop",
+        "the service drive stops when its booked player exits")
     rawset(_G, "SCBridge", nil)
     local offline, offlineReason = Driving.cruise(actor, 10, 0)
     check(not Driving.available() and offline == false
@@ -2354,15 +2500,40 @@ do
         and actor.targetOnGround == nil,
         "a rejected attack clears the aim target, floor aim, and downed-target residue")
     actor.attackModelReady = true
+    -- A retreating actor may still face its old run direction. Model the
+    -- game's coarse faceLocationF turn without changing that precise vector;
+    -- the hit arc must be corrected before DoAttack starts the shove.
+    local originalFaceLocation = actor.faceLocationF
+    local originalDoAttack = actor.DoAttack
+    actor.forwardX, actor.forwardY = -1, 0
+    actor.faceLocationF = function(self)
+        self.turning = true
+        return true
+    end
+    actor.DoAttack = function(self, ...)
+        self.facingAtAttack = { self.forwardX, self.forwardY }
+        return originalDoAttack(self, ...)
+    end
+    local facingDx, facingDy = target:getX() - actor:getX(), target:getY() - actor:getY()
+    local facingLength = math.sqrt(facingDx * facingDx + facingDy * facingDy)
+    local expectedX, expectedY = facingDx / facingLength, facingDy / facingLength
     local attackOk, attackReason = SC.Actor.setMovement(actor, "walk", {
         action = "shove", target = target,
     })
+    actor.faceLocationF = originalFaceLocation
+    actor.DoAttack = originalDoAttack
     check(attackOk and attackReason == "attack_started" and actor.attackType == AttackType.SHOVE
         and actor.doShove == true and actor.doGrapple == false
         and actor.companionAimTarget == target
         and actor.authorizedHandToHandAction ~= false
         and actor.authorizedHandToHand ~= false,
         "direct-native adapter preflights, authorizes, starts, and keeps aim on the started swing")
+    check(actor.facingAtAttack and actor.facingAtAttack[1] * expectedX
+            + actor.facingAtAttack[2] * expectedY > 0.98,
+        "a backward-running companion faces the zombie before shove animation starts"
+            .. " (target=" .. tostring(expectedX) .. "," .. tostring(expectedY)
+            .. " at attack=" .. tostring(actor.facingAtAttack and actor.facingAtAttack[1])
+            .. "," .. tostring(actor.facingAtAttack and actor.facingAtAttack[2]) .. ")")
     actor.attackStarted = false
     local meleeOk, meleeReason = SC.Actor.setMovement(actor, "walk", {
         action = "attack_melee", target = target, weapon = twoHandedWeapon,

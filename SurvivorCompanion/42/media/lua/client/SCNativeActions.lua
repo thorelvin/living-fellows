@@ -3395,6 +3395,29 @@ local function attack(actor, action, intent, provider)
     if not typeOk then
         return fail("native attack type could not be selected")
     end
+    -- Retreat and ordinary path movement own the forward vector until an
+    -- attack starts. faceLocationF above changes the coarse sprite direction,
+    -- but the precise hit arc can still point along the old run vector for the
+    -- first shove frame. Set and verify it before DoAttack enters SwipeState.
+    local actorX, actorY = position(actor)
+    local targetX, targetY = position(target)
+    local dx = actorX and targetX and targetX - actorX or nil
+    local dy = actorY and targetY and targetY - actorY or nil
+    local length = dx and math.sqrt(dx * dx + dy * dy) or 0
+    -- Overlapping actors have no meaningful bearing; keep the game's current
+    -- facing in that case so an otherwise valid close shove is not discarded.
+    if length >= 0.001 then
+        local wantedX, wantedY = dx / length, dy / length
+        if not invoke(actor, "setForwardDirection", wantedX, wantedY) then
+            return fail("native attack facing could not be set")
+        end
+        local xOk, actualX = invoke(actor, "getForwardDirectionX")
+        local yOk, actualY = invoke(actor, "getForwardDirectionY")
+        if not xOk or not yOk or (tonumber(actualX) or 0) * wantedX
+            + (tonumber(actualY) or 0) * wantedY < 0.98 then
+            return fail("native attack facing was not retained")
+        end
+    end
     local started, result = invoke(actor, "DoAttack", 0)
     local stateOk, attackStarted = invoke(actor, "isAttackStarted")
     -- Build 42's IsoPlayer.DoAttack deliberately returns false after handing

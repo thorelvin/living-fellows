@@ -97,6 +97,14 @@ $stages = @(
         -Script (Join-Path $ProjectRoot 'tests\core\run_oddball_milli_tests.ps1') `
         -Arguments @('-GameRoot', $GameRoot) `
         -Failure 'Strange Folk Milli Wilson encounter tests failed.'),
+    (New-ScPowerShellStep -Name 'taxi-booking' `
+        -Script (Join-Path $ProjectRoot 'tests\core\run_taxi_booking_tests.ps1') `
+        -Arguments @('-GameRoot', $GameRoot) `
+        -Failure 'Markus taxi radio booking tests failed.'),
+    (New-ScPowerShellStep -Name 'taxi-fare-recovery' `
+        -Script (Join-Path $ProjectRoot 'tests\core\run_taxi_fare_recovery_tests.ps1') `
+        -Arguments @('-GameRoot', $GameRoot) `
+        -Failure 'Markus taxi fare and cab recovery tests failed.'),
     (New-ScPowerShellStep -Name 'oddball-animal-spawn' `
         -Script (Join-Path $ProjectRoot 'tests\core\run_oddball_animal_spawn_tests.ps1') `
         -Arguments @('-GameRoot', $GameRoot) `
@@ -164,7 +172,7 @@ Invoke-ScParallelSteps -Steps $stages -Throttle $Jobs -Label 'gate stages'
 $gate.Stop()
 Write-Output ("PROJECT_TEST_PASS pz-runtime=true source=true core=true " +
     "strange-folk-behavior=true oddball-foundation=true oddball-room-guard=true oddball-wendell=true " +
-    "oddball-deputy=true oddball-loretta=true oddball-milli=true oddball-animal-spawn=true " +
+    "oddball-deputy=true oddball-loretta=true oddball-milli=true taxi-booking=true taxi-fare-recovery=true oddball-animal-spawn=true " +
     "oddball-silas-rusty=true oddball-lonnie-virgil=true " +
     "oddball-clem-purdy=true oddball-phase2=true oddball-encounters=true gameplay=true " +
     "navigation-stability=true perception-topology=true strike-barrier=true ui=true live-harness-static=true " +

@@ -53,6 +53,7 @@ final class SCRoadFollower {
 
     private SCDrivePath path;
     private final float cruiseKmh;
+    private final float cornerSpeedScale;
     private final boolean keepRight;
     private final boolean preciseArrival;
     private final SCDrivePath.Projection projection = new SCDrivePath.Projection();
@@ -84,8 +85,15 @@ final class SCRoadFollower {
 
     SCRoadFollower(SCDrivePath path, float cruiseKmh, boolean keepRight,
                    boolean preciseArrival) {
+        this(path, cruiseKmh, keepRight, preciseArrival, 1.0f);
+    }
+
+    SCRoadFollower(SCDrivePath path, float cruiseKmh, boolean keepRight,
+                   boolean preciseArrival, float cornerSpeedScale) {
         this.path = path;
         this.cruiseKmh = SCDriveControl.clampCruise(cruiseKmh);
+        this.cornerSpeedScale = Float.isFinite(cornerSpeedScale)
+                ? Math.max(1.0f, Math.min(2.0f, cornerSpeedScale)) : 1.0f;
         this.keepRight = keepRight;
         this.preciseArrival = preciseArrival;
     }
@@ -255,16 +263,22 @@ final class SCRoadFollower {
         float target = cruiseKmh;
         if (Math.abs(offset - laneOffset) > 0.5f) target = Math.min(target, AVOID_KMH);
         float curveLookAhead = Math.max(9.0f,
-                Math.min(24.0f, SCDriveControl.stoppingDistance(speedKmh) + 5.0f));
-        path.pointAt(along + curveLookAhead, 0.0f, point);
-        float tangentAheadX = point[2];
-        float tangentAheadY = point[3];
+                Math.min(64.0f, SCDriveControl.stoppingDistance(speedKmh) + 5.0f));
         path.pointAt(along, 0.0f, point);
-        float bend = Math.abs(SCTurnAround.wrap((float) (Math.atan2(tangentAheadY, tangentAheadX)
-                - Math.atan2(point[3], point[2]))));
-        if (bend > CURVE_ANGLE) target = Math.min(target, CURVE_KMH);
-        else if (bend > GENTLE_CURVE_ANGLE)
-            target = Math.min(target, GENTLE_CURVE_KMH);
+        float headingAhead = (float) Math.atan2(point[3], point[2]);
+        float vertex = path.nextVertexAlong(along);
+        // A fast car needs its braking distance before the first bend. Check
+        // each junction in that range so two bends cannot cancel each other.
+        for (int bends = 0; bends < 16 && vertex - along <= curveLookAhead; bends++) {
+            path.pointAt(vertex + 0.01f, 0.0f, point);
+            float nextHeading = (float) Math.atan2(point[3], point[2]);
+            float bend = Math.abs(SCTurnAround.wrap(nextHeading - headingAhead));
+            if (bend > CURVE_ANGLE) target = Math.min(target, CURVE_KMH * cornerSpeedScale);
+            else if (bend > GENTLE_CURVE_ANGLE)
+                target = Math.min(target, GENTLE_CURVE_KMH * cornerSpeedScale);
+            headingAhead = nextHeading;
+            vertex = path.nextVertexAlong(vertex + 0.01f);
+        }
         // Ease in to the end of the route.
         target = Math.min(target, preciseArrival
                 ? Math.max(2.0f, (path.length() - along) * 0.9f)

@@ -73,7 +73,7 @@ import zombie.worldMap.WorldMap;
 
 /** Narrow Lua-facing authority for creating and owning native companions. */
 public final class SCBridge {
-    public static final String PROTOCOL = "42.21-isocompanion-21";
+    public static final String PROTOCOL = "42.21-isocompanion-23";
     public static final int ITEM_FACT_FOOD = 1;
     public static final int ITEM_FACT_DRAINABLE = 1 << 1;
     public static final int ITEM_FACT_HAND_WEAPON = 1 << 2;
@@ -1316,9 +1316,32 @@ public final class SCBridge {
         }
     }
 
+
+    /** Starts a service journey for exactly one real player already in a passenger seat. */
+    public static boolean driveStartWithPassenger(SCNativeCompanion actor,
+                                                   IsoPlayer passenger, boolean haveKey) {
+        lastFailure = "";
+        String refused = driveRefusal(actor);
+        if (!refused.isEmpty()) return failBoolean(refused);
+        try {
+            BaseVehicle vehicle = actor.getVehicle();
+            if (vehicle == null || vehicle.getDriver() != actor) {
+                return failBoolean("companion is not in the driver's seat");
+            }
+            if (!isAuthorizedDrivePassenger(vehicle, passenger)) {
+                return failBoolean("booked player is not in a passenger seat");
+            }
+            String failure = actor.companionDriver().startWithPassenger(actor, vehicle,
+                    passenger, haveKey);
+            return failure.isEmpty() || failBoolean(failure);
+        } catch (RuntimeException | LinkageError failure) {
+            return failBoolean("passenger drive start failed: " + failure.getClass().getSimpleName());
+        }
+    }
+
     /**
      * Steering in [-1, 1] (-1 is the left key) and a cruise speed in km/h. Zero
-     * stops and holds; anything else is held to SCDriveControl's low-speed band.
+     * stops and holds; anything else is held to SCDriveControl's speed ceiling.
      * With brakeForObstacles the car stops for anything the lane scan finds.
      */
     public static boolean driveSet(SCNativeCompanion actor, double steering, double cruiseKmh,
@@ -1338,7 +1361,17 @@ public final class SCBridge {
      * stops when the road is blocked edge to edge, and stops at the end.
      */
     public static boolean driveFollow(SCNativeCompanion actor, String route, double cruiseKmh) {
+        return driveFollowTuned(actor, route, cruiseKmh, 1.0);
+    }
+
+    /** Route follower with a bounded corner-speed multiplier for Markus's cab. */
+    public static boolean driveFollowTuned(SCNativeCompanion actor, String route,
+                                           double cruiseKmh, double cornerSpeedScale) {
         lastFailure = "";
+        if (!Double.isFinite(cornerSpeedScale)
+                || cornerSpeedScale < 1.0 || cornerSpeedScale > 2.0) {
+            return failBoolean("corner speed scale must be between 1 and 2");
+        }
         String refused = driveRefusal(actor);
         if (!refused.isEmpty()) return failBoolean(refused);
         SCCompanionDriver driver = actor.companionDriver();
@@ -1348,7 +1381,7 @@ public final class SCBridge {
             return failBoolean("route must be 2 to " + SCDrivePath.MAX_POINTS
                     + " points of x,y,width inside the map");
         }
-        driver.follow(path, cruiseKmh);
+        driver.follow(path, cruiseKmh, cornerSpeedScale);
         return true;
     }
 
@@ -1548,6 +1581,33 @@ public final class SCBridge {
             }
         }
         return false;
+    }
+
+    /** Reject unknown occupants; a booked passenger never grants another player a ride. */
+    static boolean isAuthorizedDrivePassenger(BaseVehicle vehicle, IsoPlayer passenger) {
+        if (vehicle == null || passenger == null || isCompanion(passenger)
+                || passenger.getVehicle() != vehicle) return false;
+        IsoPlayer[] players = IsoPlayer.players;
+        boolean local = false;
+        if (players != null) {
+            for (IsoPlayer player : players) {
+                if (player == passenger) local = true;
+                else if (player != null && !isCompanion(player)
+                        && player.getVehicle() == vehicle) return false;
+            }
+        }
+        if (!local) return false;
+        int seat = vehicle.getSeat(passenger);
+        int count = vehicle.getMaxPassengers();
+        if (seat <= 0 || count < 2 || count > 32 || seat >= count
+                || vehicle.getCharacter(seat) != passenger) return false;
+        for (int index = 0; index < count; index++) {
+            IsoGameCharacter occupant = vehicle.getCharacter(index);
+            if (occupant != null && occupant != passenger && !isCompanion(occupant)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public static String checkActor(SCNativeCompanion actor) {

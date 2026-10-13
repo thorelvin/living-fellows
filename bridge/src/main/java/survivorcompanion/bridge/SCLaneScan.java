@@ -27,7 +27,9 @@ final class SCLaneScan {
     };
     /** Sampling step along a ray, in tiles. Below 1 so no square is skipped. */
     static final float STEP = 0.4f;
-    static final float MAX_LOOK_AHEAD = 32.0f;
+    // The 50 km/h taxi needs roughly 40 tiles to stop. Leave enough range
+    // for its reaction margin without treating an unchecked road as clear.
+    static final float MAX_LOOK_AHEAD = 64.0f;
     /** Clearance outside the body for the side rays, in tiles. */
     static final float SIDE_MARGIN = 0.2f;
     private static final int MAX_SQUARES = 512;

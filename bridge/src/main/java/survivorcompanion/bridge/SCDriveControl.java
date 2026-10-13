@@ -2,15 +2,15 @@
 package survivorcompanion.bridge;
 
 /**
- * Low-speed cruise rules for a companion at the wheel. A companion presses the
+ * Cruise rules for a companion at the wheel. A companion presses the
  * same four inputs a player does (steer, gas, reverse, brake); this class only
  * decides which, from the car's speed, the requested cruise speed and the
  * distance to the nearest obstacle the lane scan found. It uses no game types,
  * so the core gate checks it directly.
  */
 final class SCDriveControl {
-    /** Companion driving is new: it cruises slowly and never faster than this. */
-    static final float MAX_CRUISE_KMH = 30.0f;
+    /** Absolute controller ceiling. Managed non-passenger trips remain capped at 30. */
+    static final float MAX_CRUISE_KMH = 50.0f;
     /** Reversing is only ever a slow manoeuvre. */
     static final float MAX_REVERSE_KMH = 6.0f;
     /** A requested speed below this but above zero still moves the car. */

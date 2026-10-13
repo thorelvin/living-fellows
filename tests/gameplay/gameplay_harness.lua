@@ -5240,6 +5240,79 @@ local _, flankContext = SurvivorCompanion.Positioning.formationTarget(
 SurvivorCompanion.Navigation._fastOpenRouteForRequest = originalFastOpenRoute
 check(flankContext and flankContext.mode == "open",
     "a reachable side slot fans out even when the player's own tile is crowded")
+local transientCrowd = actor("sc-crossing-follower", 44, 30, {})
+local originalMovingBlocker = SurvivorCompanion.GameplayUtil.movingBlocker
+SurvivorCompanion.GameplayUtil.movingBlocker = function(square, mover, options)
+    if square and square.x == 44 and square.y >= 27 and square.y <= 33 then
+        return transientCrowd, "companion_crowd"
+    end
+    return originalMovingBlocker(square, mover, options)
+end
+SurvivorCompanion.Positioning.reset(interceptFollower)
+local _, crowdedFlank = SurvivorCompanion.Positioning.formationTarget(
+    interceptFollower, interceptLeader, interceptCommands, {
+        threats = {},
+        allies = { { actor = transientCrowd } },
+        player = { actor = interceptLeader, danger = 0 },
+    })
+SurvivorCompanion.GameplayUtil.movingBlocker = originalMovingBlocker
+check(crowdedFlank and crowdedFlank.mode == "open",
+    "a crossing squadmate does not switch an otherwise open flank to the leader trail")
+SurvivorCompanion.GameplayUtil.movingBlocker = function(square, mover, options)
+    if square and square.x == 44 and square.y >= 27 and square.y <= 33 then
+        return transientCrowd, "pushable_object"
+    end
+    return originalMovingBlocker(square, mover, options)
+end
+SurvivorCompanion.Positioning.reset(interceptFollower)
+local _, blockedFlank = SurvivorCompanion.Positioning.formationTarget(
+    interceptFollower, interceptLeader, interceptCommands, {
+        threats = {}, allies = {},
+        player = { actor = interceptLeader, danger = 0 },
+    })
+SurvivorCompanion.GameplayUtil.movingBlocker = originalMovingBlocker
+check(blockedFlank and blockedFlank.mode ~= "open"
+        and blockedFlank.shape == "column",
+    "a pushable obstruction still keeps followers out of the open flank: "
+        .. tostring(blockedFlank and blockedFlank.mode))
+SurvivorCompanion.Positioning.reset(transientCrowd)
+for index = #transientCrowd.square.moving, 1, -1 do
+    if transientCrowd.square.moving[index] == transientCrowd then
+        table.remove(transientCrowd.square.moving, index)
+    end
+end
+local modeFollower = actor("sc-follow-mode-change", 36, 28, {})
+local modeGoal = cell:getGridSquare(40, 28, 0)
+local modeSnapshot = {
+    threats = {}, allies = {}, player = { actor = interceptLeader, danger = 0 },
+}
+local trailAccepted = SurvivorCompanion.Navigation.request(modeFollower,
+    modeGoal, "walk", {
+        action = "follow_formation", player = interceptLeader,
+        followRecovery = true, formationMode = "trail",
+        followTrack = { modeGoal }, snapshot = modeSnapshot,
+    })
+local modeState = SurvivorCompanion.Navigation.peek(modeFollower)
+local oldTrailPath = modeState and modeState.path
+check(trailAccepted and modeState.pathReason == "player_track_route"
+        and oldTrailPath ~= nil,
+    "follow navigation starts with a player trail when formation is in trail mode")
+clock = clock + 100
+local flankAccepted = SurvivorCompanion.Navigation.request(modeFollower,
+    modeGoal, "walk", {
+        action = "follow_formation", player = interceptLeader,
+        followRecovery = true, formationMode = "open", snapshot = modeSnapshot,
+    })
+modeState = SurvivorCompanion.Navigation.peek(modeFollower)
+check(flankAccepted and modeState.path ~= oldTrailPath
+        and modeState.pathReason == "fast_open_route",
+    "switching to an open flank discards the old trail even when its goal square is unchanged")
+SurvivorCompanion.Navigation.reset(modeFollower)
+for index = #modeFollower.square.moving, 1, -1 do
+    if modeFollower.square.moving[index] == modeFollower then
+        table.remove(modeFollower.square.moving, index)
+    end
+end
 check(SurvivorCompanion.Commands.issue(interceptFollower.id,
         "set_follow_fan_out", { scope = "team", enabled = false }, interceptLeader)
         and SurvivorCompanion.Commands.teamFollowFanOut(interceptLeader) == false,
@@ -7096,11 +7169,17 @@ do
     local hiddenDressing = item("Base.Bandage", "Medical")
     function hiddenDressing:isHidden() return true end
     fellow.inventory:AddItem(hiddenDressing)
+    -- Changing a dressing consumes one clean bandage and returns its dirty
+    -- predecessor. The supply counter must fall instead of counting both.
+    local dirtyBandage = item("Base.BandageDirty", "Medical")
+    local dirtyRag = item("Base.RippedSheetsDirty", "Medical")
+    fellow.inventory:AddItem(dirtyBandage)
+    fellow.inventory:AddItem(dirtyRag)
     local description = SurvivorCompanion.Commands.describe(fellow.id, player)
     check(fellow.modData.SC_Order == orderBefore, "describe must not write command state or mod data")
     check(description.id == fellow.id and description.actor == fellow and description.health == 100, "describe core identity and native health")
     check(description.supplies.bandages == 1 and description.personality ~= nil,
-        "supply summary counts only dressings visible in the inventory pane")
+        "supply summary counts only clean visible dressings, not returned dirty ones")
     local describedLoad = SurvivorCompanion.Logistics.audit(fellow)
     check(description.loadRole == describedLoad.role
             and description.loadWeight == describedLoad.weight
@@ -7111,6 +7190,8 @@ do
         and description.mood ~= nil and description.currentNeed ~= nil,
         "describe exposes persistent relationship, mood, need, and background summaries")
     fellow.inventory:Remove(hiddenDressing)
+    fellow.inventory:Remove(dirtyBandage)
+    fellow.inventory:Remove(dirtyRag)
 end
 local invalidDistance = SurvivorCompanion.Commands.issue(fellow.id, "set_follow_distance", 4, player)
 check(not invalidDistance, "invalid follow distance is rejected")
@@ -7626,7 +7707,9 @@ do
 end
 
 local treated, treatmentReason = SurvivorCompanion.Medical.treat(fellow, player, { snapshot = { threats = {}, immediateCount = 0, escapeSquares = { { square = fellow.square } } } })
-check(treated and woundedPart.isBandaged and helperBandage.used, "native body part bandaging consumes a real supply")
+check(treated and woundedPart.isBandaged and helperBandage.container == nil
+        and not helperBandage.used,
+    "native body part bandaging transfers the dressing without Use replacement")
 
 do
 -- Navigation legitimately selects diagonal interaction squares. Medical's
@@ -7643,7 +7726,8 @@ local diagonalMedic = actor("sc-diagonal-medic", 13, 13, {
 local diagonalTreated = SurvivorCompanion.Medical.treat(diagonalMedic,
     diagonalPatient, { snapshot = { threats = {}, immediateCount = 0,
         escapeSquares = { { square = diagonalMedic.square } } } })
-check(diagonalTreated and diagonalWound.isBandaged and diagonalBandage.used,
+check(diagonalTreated and diagonalWound.isBandaged and diagonalBandage.container == nil
+        and not diagonalBandage.used,
     "a medic arrived on a diagonal interaction square begins treatment")
 end
 
@@ -7665,7 +7749,8 @@ check(ready and readyReason == "ready" and context.wound.part == patientWound
         and context.bandage == playerBandage,
     "player-bandage preflight resolves the companion's wound and a bandage from the player's inventory")
 local applied, applyReason = SurvivorCompanion.Medical.applyPlayerBandage(woundedCompanion, caretaker)
-check(applied and applyReason == "bandaged" and patientWound.isBandaged and playerBandage.used,
+check(applied and applyReason == "bandaged" and patientWound.isBandaged
+        and playerBandage.container == nil and not playerBandage.used,
     "the player's bandage is applied to the companion's wound and consumed from the player's inventory")
 local cachedAfterBandage = SurvivorCompanion.Medical.assessCached(woundedCompanion)
 check(cachedAfterBandage.needsBandage == false
@@ -7705,7 +7790,8 @@ local ragCarer = actor("sc-hand-bandage-dirty", 12, 13, { inventory = inventory(
 local ragReady = SurvivorCompanion.Medical.playerBandagePreflight(ragCompanion, ragCarer)
 local ragApplied, ragReason = SurvivorCompanion.Medical.applyPlayerBandage(ragCompanion, ragCarer)
 check(ragReady and ragApplied and ragReason == "bandaged" and ragWound.isBandaged
-        and ragWound.dirty == true and (tonumber(ragWound.bandageLife) or -1) == 0 and dirtyRag.used,
+        and ragWound.dirty == true and (tonumber(ragWound.bandageLife) or -1) == 0
+        and dirtyRag.container == nil and not dirtyRag.used,
     "a dirty rag from the player's inventory dresses a bleeding companion, already soiled: "
         .. tostring(ragReason))
 
@@ -7728,7 +7814,8 @@ check(neckAssessment.openWounds == 1 and neckAssessment.needsDressing == true
         and neckAssessment.needsBandage == false
         and not dirtyNeckOk and dirtyNeckReason == "no_bandage"
         and neckReady and neckContext.wound.part == neckCut
-        and neckApplied and neckCut.isBandaged and not neckCut.dirty and neckBandage.used,
+        and neckApplied and neckCut.isBandaged and not neckCut.dirty
+        and neckBandage.container == nil and not neckBandage.used,
     "a neck cut that stopped bleeding undressed can be dressed, with a clean dressing only: "
         .. tostring(dirtyNeckReason))
 end
@@ -7820,7 +7907,8 @@ local goodCompanion = actor("sc-verify-good-patient", 12, 12, { body = bodyDamag
 local goodBandage = item("Base.Bandage", "Medical")
 local goodPlayer = actor("sc-verify-good-player", 12, 13, { inventory = inventory({ goodBandage }) })
 local goodOk, goodReason = SurvivorCompanion.Medical.applyPlayerBandage(goodCompanion, goodPlayer)
-check(goodOk and goodReason == "bandaged" and goodWound.isBandaged and goodBandage.used,
+check(goodOk and goodReason == "bandaged" and goodWound.isBandaged
+        and goodBandage.container == nil and not goodBandage.used,
     "an effectful native setter applies the bandage and consumes the dressing once")
 check(goodWound.isBleeding == false,
     "a bandaged wound is no longer bleeding")
@@ -7941,7 +8029,7 @@ local rejectedTreatment = SurvivorCompanion.Medical.treat(rejectedMedic, rejecte
 check(not rejectedTreatment and not rejectedPart.isBandaged and rejectedBandage.uses == 1,
     "rejected medical action neither mutates the wound nor consumes a bandage")
 
-local failingBandage = item("Base.Bandage", "Medical", { rejectUse = true })
+local failingBandage = item("Base.Bandage", "Medical")
 local dirtyPart = bodyPart({
     name = "LowerLeg_L", isBandaged = true, dirty = true, bandageLife = 0,
     bandageType = "Base.DirtyBandage",
@@ -7949,6 +8037,7 @@ local dirtyPart = bodyPart({
 local rollbackMedic = actor("sc-medical-rollback", 7, 3, {
     body = bodyDamage(70, { dirtyPart }), inventory = inventory({ failingBandage }),
 })
+rollbackMedic.inventory.rejectRemoveItem = failingBandage
 registry[rollbackMedic.id] = rollbackMedic
 local failedReplacement = SurvivorCompanion.Medical.replaceDirtyBandage(rollbackMedic)
 check(not failedReplacement and dirtyPart.isBandaged and dirtyPart.dirty and failingBandage.uses == 1,
@@ -8349,7 +8438,8 @@ visualStates[stagedMedic].status = "completed"
 local stagedFinished, stagedFinishReason = SurvivorCompanion.Medical.treat(
     stagedMedic, stagedMedic, {})
 check(stagedFinished and stagedFinishReason == "bandaged"
-        and stagedPart.isBandaged and stagedBandage.used
+        and stagedPart.isBandaged and stagedBandage.container == nil
+        and not stagedBandage.used
         and resultNotes[#resultNotes].source == "medical_treatment",
     "completed medical animation commits and verifies exactly one bandage result")
 
@@ -8462,7 +8552,7 @@ local ownedFinished, ownedFinishedReason = SurvivorCompanion.Downtime.update(
     }, "replace_bandage")
 check(ownedFinished and ownedFinishedReason == "bandaged"
         and ownedDirtyPart.isBandaged and not ownedDirtyPart.dirty
-        and ownedCleanBandage.used
+        and ownedCleanBandage.container == nil and not ownedCleanBandage.used
         and SurvivorCompanion.ActionSupervisor.snapshot(ownedDirtyActor).phase == "idle",
     "Medical completes and verifies the sole dirty-bandage transaction")
 
@@ -8492,7 +8582,8 @@ do
     check(assessed.openWounds == 1 and assessed.needsBandage == false
             and started and startReason == "treatment_animation_started"
             and finished and finishReason == "bandaged"
-            and openPart.isBandaged and not openPart.dirty and openBandage.used,
+            and openPart.isBandaged and not openPart.dirty
+            and openBandage.container == nil and not openBandage.used,
         "a neck cut that stopped bleeding undressed is dressed as quiet-time wound care: "
             .. tostring(startReason) .. "/" .. tostring(finishReason))
 end
@@ -9884,8 +9975,9 @@ end
 check(SurvivorCompanion.Combat.peek(roleActors[1]).combatRole == "primary"
         and SurvivorCompanion.Combat.peek(roleActors[2]).combatRole == "support"
         and SurvivorCompanion.Combat.peek(roleActors[3]).combatRole == "reserve"
-        and roleActors[3].lastIntent.action == "ready_weapon",
-    "one cohort assigns one primary, one support, and a guarding reserve per target")
+        and roleActors[3].lastIntent.action ~= "ready_weapon",
+    "one cohort assigns a primary and support while the reserve joins the fight: "
+        .. tostring(roleActors[3].lastIntent.action))
 roleTarget.square = cell:getGridSquare(11, 10, 0)
 clock = clock + 100
 roleSnapshot.time = clock
@@ -26664,8 +26756,9 @@ end)()
 ;(function()    local failWound = bodyPart({ name = "Hand_R", isBleeding = true, bleedingTime = 40 })
     local failCompanion = actor("sc-consume-fail-patient", 48, 48,
         { body = bodyDamage(70, { failWound }) })
-    local failBandage = item("Base.Bandage", "Medical", { rejectUse = true })
+    local failBandage = item("Base.Bandage", "Medical")
     local failInventory = inventory({ failBandage })
+    failInventory.rejectRemoveItem = failBandage
     local failPlayer = actor("sc-consume-fail-player", 48, 49, { inventory = failInventory })
     local failOk, failReason = SurvivorCompanion.Medical.applyPlayerBandage(
         failCompanion, failPlayer)
@@ -28270,14 +28363,17 @@ check(string.find(
     local replaceStarted = SurvivorCompanion.Medical.replaceDirtyBandage(recycler)
     if visuals[recycler] then visuals[recycler].status = "completed" end
     local replaced, replaceReason = SurvivorCompanion.Medical.replaceDirtyBandage(recycler)
-    local returnedDirty = false
+    local returnedDirty = 0
     for _, carried in ipairs(recycler.inventory.items) do
-        if carried.itemType == "Base.BandageDirty" then returnedDirty = true end
+        if carried.itemType == "Base.BandageDirty" then
+            returnedDirty = returnedDirty + 1
+        end
     end
     check(replaceStarted and replaced and soiledPart.isBandaged
-            and not soiledPart.dirty and returnedDirty
-            and freshDressing.used and replaceReason == "bandaged",
-        "replacing a dirty dressing returns it for downtime cleaning")
+            and not soiledPart.dirty and returnedDirty == 1
+            and freshDressing.container == nil and not freshDressing.used
+            and replaceReason == "bandaged",
+        "replacing a dirty dressing returns exactly one soiled item for cleaning")
 
     local friendBandage = item("Base.Bandage", "Medical")
     local friendWound = bodyPart({ name = "Hand_L", isBleeding = true,

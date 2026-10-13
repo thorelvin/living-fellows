@@ -812,19 +812,20 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
         and distanceToLeader <= 14 then clearOpenFormation = true end
     if clearOpenFormation and not sharedRoad and SC.Navigation
         and type(SC.Navigation._fastOpenRouteForRequest) == "function" then
-        -- Prove the route to the flank slot itself. A straight line to the
-        -- player's occupied tile can fail even when the companion has a clear
-        -- path beside them, leaving player-led teams in trail mode outdoors.
-        -- Fences and portals still fail this proof and keep the safe trail.
+        -- Prove static open ground to the flank. A teammate crossing the line
+        -- must not turn the whole group into a trail; Navigation still handles
+        -- the live crowd while routing to the chosen slot. Portals, fences and
+        -- pushable objects remain real blockers and keep the safe trail.
         local interceptSquare = utility.gridSquare(targetX, targetY, pz)
+        local proofOptions = { actor = actor, ignoreLivingCrowds = true }
         local ok, route = pcall(SC.Navigation._fastOpenRouteForRequest,
-            utility.squareOf(actor), interceptSquare, {})
+            utility.squareOf(actor), interceptSquare, proofOptions)
         if not ok or route == nil then
-            -- A companion or prop can occupy the direct flank line for one
-            -- pulse. The old leader route is still a valid open-ground proof
-            -- when it succeeds; Navigation will choose the actual slot path.
+            -- Static geometry can make the direct flank line miss a safe
+            -- detour. Use the leader line as the fallback proof, then let
+            -- Navigation choose the actual route to the flank slot.
             ok, route = pcall(SC.Navigation._fastOpenRouteForRequest,
-                utility.squareOf(actor), utility.squareOf(leader), {})
+                utility.squareOf(actor), utility.squareOf(leader), proofOptions)
         end
         clearOpenFormation = ok and route ~= nil
     elseif clearOpenFormation and not sharedRoad then

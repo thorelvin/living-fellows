@@ -2,6 +2,14 @@
 
 # Changelog
 
+## 0.26.41 - Markus's taxi and companion response
+
+- Markus Sloane can be booked over a walkie-talkie. He drives to a safe pickup, takes a quoted fare, follows the destination you mark on the world map, then drives away and despawns after everyone and their belongings are out of the cab. His car and booking recover across save/load without creating a second taxi.
+- The boarded passenger can use **Markus's Taxi** from the car's right-click menu to choose a destination or offer fare. Markus asks for a map destination after a short wait; the radio no longer asks where he is once you are aboard. He approaches at 20 km/h and takes taxi corners at twice the ordinary corner target speed.
+- Markus stays out of the regular companion roster and cannot be recruited. Pickup unlocks the passenger door, and companions following a player already seated in a locked car can use its front passenger door. A Masterson Horizon regression covers its two side doors and three passenger seats.
+- Follow formations keep their fan-out while the player moves on open ground. Companions face a zombie before starting a shove, can support one another around a target, and react to nearby downed zombies and threats with fewer idle holds.
+- Driving and encounter test harnesses gained taxi booking, fare, persistence, seat, corner-speed, and long-route coverage. The native bridge protocol is `42.21-isocompanion-23`; update its JAR and Lua payload together.
+
 ## 0.26.40 - Camp storage, survivor spacing and route fixes
 
 - Reduced the hygiene effect layer to a one-pixel mouse-transparent element so it cannot cover world right-click aiming or ground menus. The stream and shower effects keep their screen-space drawing behind windows.

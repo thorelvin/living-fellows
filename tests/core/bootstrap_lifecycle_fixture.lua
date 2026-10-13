@@ -74,7 +74,7 @@ local required = {
     "ActionSupervisor", "Actor",
     "Persistence", "Vehicle", "Spawn", "GameplayUtil", "Names", "Topology", "PathSearch", "NavTraffic", "NavTraversal",
     "Background", "Dialogue", "Allegiance", "Trade", "FactionLife",
-    "FactionWorld", "FactionBehavior", "OddballRoomGuard", "OddballDistressRadio", "Oddballs", "OddballRed", "OddballSpiffo", "OddballWendell", "OddballDeputy",
+    "FactionWorld", "FactionBehavior", "OddballRoomGuard", "OddballDistressRadio", "TaxiBooking", "TaxiCab", "TaxiFares", "TaxiService", "Oddballs", "OddballRed", "OddballSpiffo", "OddballWendell", "OddballDeputy",
     "OddballSilas", "OddballRusty", "OddballLonnie", "OddballVirgil", "OddballClem", "OddballPurdy",
     "OddballGale", "OddballButch", "OddballCecil", "OddballAnimals", "OddballHollis", "OddballRoom12",
     "OddballJune", "OddballDefenseLeague", "OddballAshby", "OddballSins", "OddballKris", "OddballEbb",

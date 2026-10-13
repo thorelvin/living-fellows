@@ -5330,6 +5330,19 @@ function SCUIRoot:saveSettings()
     self.settings = settings
 end
 
+local function taxiDriverEntry(value)
+    if not value or not SC.TaxiService
+        or type(SC.TaxiService.isDriver) ~= "function" then return false end
+    local actor = type(value) == "table" and value.actor or nil
+    if type(value) == "table" and actor == nil and type(value.id) == "string"
+        and SC.Registry and type(SC.Registry.byId) == "function" then
+        local record = SC.Registry.byId(value.id)
+        actor = record and record.actor
+    end
+    if type(value) ~= "table" then actor = value end
+    return actor ~= nil and SC.TaxiService.isDriver(actor) == true
+end
+
 function SCUIRoot:refreshRoster(preferredId, description, preserveScroll, deferDetailRefresh)
     if not self.roster then
         return
@@ -5383,6 +5396,9 @@ function SCUIRoot:refreshRoster(preferredId, description, preserveScroll, deferD
                 }, player)
             end
         end
+    end
+    for index = #entries, 1, -1 do
+        if taxiDriverEntry(entries[index]) then table.remove(entries, index) end
     end
     for index, row in ipairs(entries) do
         row.name = UI.displayName(row, row.name)
