@@ -311,22 +311,22 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <p class="subtitle">A Complete Guide to Living with the Fellows of Knox County</p>
   <p class="divider">· · · ✚ · · ·</p>
   <p class="edition">Living Fellows — Project Zomboid Build 42.21.0 Edition</p>
-  <p class="version">Release 0.26.38 — First Edition, Eleventh Printing — You won't die... alone.</p>
+  <p class="version">Release 0.26.40 — First Edition, Twelfth Printing — You won't die... alone.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2.5rem;"><span class="callout-label">Note — </span>
-<strong>What changed in this printing</strong> — release 0.26.38:
+<strong>What changed in this printing</strong> — release 0.26.40:
 <ul style="margin-top:0.5rem;margin-bottom:0;">
-  <li><a href="#ch17"><strong>Drive an expedition.</strong></a> Mark a parking area, choose <strong>Drive car</strong>, select a car, and review its seats, fuel and road access. A squad checks the car and team again after a reload.</li>
-  <li><a href="#ch17_car_recovery"><strong>Car recovery.</strong></a> A failed drive or blocked return gives the squad a short chance to recover, then it gets out and continues on foot when safe. If the driver dies, the living passengers are evacuated before a new leader takes over.</li>
-  <li><a href="#ch9d_gifts"><strong>Small gifts.</strong></a> A close companion may rarely bring you a real item at camp and offer it in a window. You can accept or decline.</li>
-  <li>0.26.38 uses native bridge protocol <code>42.21-isocompanion-20</code>. <a href="#appC">More → Support</a> reports a bridge mismatch and now includes an active car expedition's state, leg and blocker.</li>
+  <li><a href="#ch9b"><strong>Conversations find a way.</strong></a> A companion already nearby can move around people and obstacles to reach a clear speaking place. The Talk log shows recent lines first.</li>
+  <li><a href="#ch11"><strong>Camp storage gained Clothes.</strong></a> Sorting and car unloading file clothing there; the base layout no longer flashes during routine refreshes.</li>
+  <li><a href="#appB"><strong>New survivors keep their distance.</strong></a> They appear 50 to 110 tiles away. Each recruit lengthens the next attempt's wait, especially in a large group.</li>
+  <li><a href="#appC"><strong>Installer and input fixes.</strong></a> Standalone updates and uninstalls preserve verified launcher changes made by other mods. The hygiene effect layer no longer covers the world with a mouse hit area. 0.26.40 uses native bridge protocol <code>42.21-isocompanion-21</code>.</li>
 </ul>
-<p style="margin:0.6rem 0 0;">Also in this playtest: <a href="#appB_mod">companion chatter and comfort settings</a>, <a href="#ch18c">sixty-five Strange Folk</a> with <a href="#ch18c_calls">calls for help</a> on 90 MHz, the hands-on <a href="#ch3b">Medical Check</a>, and <a href="#ch11">25 by 25 camps</a>.</p>
+<p style="margin:0.6rem 0 0;">Since the last Workshop printing: <a href="#ch17">car expeditions</a>, <a href="#appB_mod">companion chatter and comfort settings</a>, <a href="#ch18c">sixty-five Strange Folk</a> with <a href="#ch18c_calls">calls for help</a> on 90 MHz, the hands-on <a href="#ch3b">Medical Check</a>, and <a href="#ch11">25 by 25 camps</a>.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2.5rem;"><span class="callout-label">Note — </span>
-<strong>About this manual</strong> — it covers what the companion panel does not explain: how the fellows think, what they need from you, and the rules they follow when nobody is giving orders. Everything here describes release 0.26.38 and was checked against the mod itself. Living Fellows is a <strong>public playtest</strong>: back up important saves, and send logs when something goes wrong (<a href="#appD">Appendix D</a>). The mod lives at <a href="https://github.com/thorelvin/living-fellows">github.com/thorelvin/living-fellows</a>. The <em>Overheard</em> quotes are real lines from the mod's own voice pools.
+<strong>About this manual</strong> — it covers what the companion panel does not explain: how the fellows think, what they need from you, and the rules they follow when nobody is giving orders. Everything here describes release 0.26.40 and was checked against the mod itself. Living Fellows is a <strong>public playtest</strong>: back up important saves, and send logs when something goes wrong (<a href="#appD">Appendix D</a>). The mod lives at <a href="https://github.com/thorelvin/living-fellows">github.com/thorelvin/living-fellows</a>. The <em>Overheard</em> quotes are real lines from the mod's own voice pools.
 </div>
 
 <!-- TABLE OF CONTENTS -->
@@ -463,7 +463,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <strong>Another Steam library:</strong> <code>.\Install.bat -GameRoot "D:\SteamLibrary\steamapps\common\ProjectZomboid"</code>
 </div>
 
-<p>It installs the mod under <code>%USERPROFILE%\Zomboid\mods\SurvivorCompanion</code>, keeps its bridge under <code>%LOCALAPPDATA%\LivingFellows</code>, and backs up <code>ProjectZomboid64.json</code> before changing it. It never edits <code>projectzomboid.jar</code>. <strong>Uninstall.bat</strong>, run from the same folder, removes everything and restores the original launcher settings.</p>
+<p>It installs the mod under <code>%USERPROFILE%\Zomboid\mods\SurvivorCompanion</code>, keeps its bridge under <code>%LOCALAPPDATA%\LivingFellows</code>, and backs up <code>ProjectZomboid64.json</code> before changing it. It never edits <code>projectzomboid.jar</code>. <strong>Uninstall.bat</strong>, run from the same folder, removes Living Fellows' files and launcher entries. If another mod has changed the launcher since installation, the uninstaller keeps that mod's settings.</p>
 
 <h3>Back Up Your Save</h3>
 <p>Companions, households, relationships, contracts, bases and production orders are saved with the world, so they outlive your character. That also means the mod is woven into the save. Before installing or updating:</p>
@@ -525,7 +525,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </table>
 
 <h3>Talking</h3>
-<p>Use the <span class="menu">Talk</span> button above the tabs, or right-click a nearby companion and choose <span class="menu">Talk to [name]</span>. Pick a topic and a line, and the companion walks into speaking distance before it answers. The talk view keeps recent dialogue and says so when something interrupts. Every line you can choose, and what it does, is in <a href="#ch9b">Chapter 9b</a>. The same right-click menu offers Follow, Stay, Regroup and Retreat, and a link to the full Orders panel.</p>
+<p>Use the <span class="menu">Talk</span> button above the tabs, or right-click a nearby companion and choose <span class="menu">Talk to [name]</span>. Pick a topic and a line, and the companion walks into speaking distance before it answers. If someone or something stands between you, it looks for another clear place nearby. The talk view shows the newest words at the top and says so when something interrupts. Every line you can choose, and what it does, is in <a href="#ch9b">Chapter 9b</a>. The same right-click menu offers Follow, Stay, Regroup and Retreat, and a link to the full Orders panel.</p>
 
 <div class="lore-pull"><span class="lore-label">Overheard — </span>Doing fine. Tell me what comes next.<span class="who">— a companion asked how they are</span></div>
 
@@ -677,7 +677,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Rear guard</strong></td><td>Behind the group</td><td>A cautious survivor who watches the way you came</td></tr>
 </table>
 
-<p>On the move they check blind corners, climb fences and walls with the player's own actions, route around vehicles, furniture and crowds, and remember the way back outside. When danger closes in they back off or strafe on safe ground, and they turn and run when they are overrun.</p>
+<p>On the move they check blind corners, climb fences and walls with the player's own actions, route around vehicles, furniture and crowds, and remember the way back outside. They strongly prefer a nearby open door to breaking an intact window. When danger closes in they back off or strafe on safe ground, and they turn and run when they are overrun.</p>
 
 <h3>What They Can See</h3>
 <p>In clear conditions a companion spots zombies up to <strong>24 tiles</strong> away, but each one has to see the target for itself. Walls, closed doors and other floors block sight. Noise behind a wall produces only an uncertain warning, never a confident callout.</p>
@@ -1043,12 +1043,14 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <div class="lore-pull"><span class="lore-label">Overheard — </span>That helped more than I expected.<span class="who">— after "Reassure them"</span></div>
 
 <h3>When a Conversation Fails</h3>
+<p>A companion already close enough to talk tries nearby positions around furniture, vehicles and other people before giving up. A bystander standing beside them does not by itself block a clear line of speech. <em>Recent words</em> puts the newest message first.</p>
 <table>
   <tr><th>You'll see</th><th>Why</th></tr>
   <tr><td>Danger interrupted the conversation.</td><td>A threat took priority</td></tr>
   <tr><td>An order interrupted the conversation.</td><td>You gave an order mid-conversation</td></tr>
   <tr><td>Move to the same floor to talk.</td><td>Speech doesn't carry through floors</td></tr>
   <tr><td>There is no clear place to stand and talk.</td><td>No reachable spot next to you</td></tr>
+  <tr><td>Something blocks the way between you. Move to open ground and try again.</td><td>The approach is blocked; try from open ground</td></tr>
   <tr><td>We couldn't get close enough to talk.</td><td>They tried and couldn't reach you in time</td></tr>
   <tr><td>This companion is on an expedition. Use the radio for orders.</td><td>See <a href="#ch17">Chapter 17</a></td></tr>
 </table>
@@ -1519,10 +1521,10 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p><strong>Mind the loaded ground.</strong> The game keeps only the ground around you loaded: about 100 tiles across on a small screen, and about 150 at 1080p or larger. Companions can't work on ground that isn't loaded, so the far end of a very big camp waits until someone is near it. While you're away, Base Watch keeps the same range loaded around its watcher (<a href="#ch14c">Ch 14c</a>). In practice, a camp up to about 90 tiles across can be worked all at once.</p>
 
 <h3>Seeing the Layout</h3>
-<p>Press <kbd>Insert</kbd> (rebindable under Options, Key bindings, Living Fellows), or use the right-click menu or the button in the Base tab, to show the base layout. Each zone gets a see-through floor tint and outline in its colour, registered storage gets a tile and outline in its category colour, and a legend lists what is on screen. With the layout showing, right-click a zone to remove it. A zone that is still needed says why instead.</p>
+<p>Press <kbd>Insert</kbd> (rebindable under Options, Key bindings, Living Fellows), or use the right-click menu or the button in the Base tab, to show the base layout. Each zone gets a see-through floor tint and outline in its colour, registered storage gets a tile and outline in its category colour, and a legend lists what is on screen. The markings stay steady during routine refreshes. With the layout showing, right-click a zone to remove it. A zone that is still needed says why instead.</p>
 
 <h3>Marking Storage</h3>
-<p>Right-click a container inside the camp, choose <span class="menu">Mark storage as...</span> and pick a category. Companions help themselves from marked storage and leave unmarked containers to you. Sorting empties General and Work output storage into the right categories, and fixes clear mistakes elsewhere: a pistol filed under Tools moves to Weapons. A shelf keeps anything that could belong on it, so hammers, axes and shovels may stay in Tools or Weapons, and shells, magazines and medicine stay where you put them. You can give each marked container a reserve, and companions leave that many items in it (<a href="#ch14b">Chapter 14b</a>).</p>
+<p>Right-click a container inside the camp, choose <span class="menu">Mark storage as...</span> and pick a category. Companions help themselves from marked storage and leave unmarked containers to you. Sorting empties General and Work output storage into the right categories, including clothing into Clothes, and fixes clear mistakes elsewhere: a pistol filed under Tools moves to Weapons. The car-unloading job also files clothing under Clothes. A shelf keeps anything that could belong on it, so hammers, axes and shovels may stay in Tools or Weapons, and shells, magazines and medicine stay where you put them. You can give each marked container a reserve, and companions leave that many items in it (<a href="#ch14b">Chapter 14b</a>).</p>
 
 <table>
   <tr><th></th><th>Category</th><th>What goes in it</th></tr>
@@ -1532,6 +1534,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/4/46/Toolbox.png" alt=""></td><td><strong>Tools</strong></td><td>Hammers, saws, axes, shovels</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/0d/Plank.png" alt=""></td><td><strong>Construction</strong></td><td>Planks, nails, logs</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/d/d2/Sheet.png" alt=""></td><td><strong>Crafting</strong></td><td>Materials for repairs and crafting</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/6/6b/Thread.png" alt=""></td><td><strong>Clothes</strong></td><td>Clothing and wearable gear</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/f/f3/Book.png" alt=""></td><td><strong>Books &amp; magazines</strong></td><td>The camp library (<a href="#ch14">Ch 14</a>)</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/0c/Machete.png" alt=""></td><td><strong>Weapons</strong></td><td>Spare weapons</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/6/61/Shotgun.png" alt=""></td><td><strong>Ammunition</strong></td><td>Rounds and magazines</td></tr>
@@ -2130,7 +2133,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 18c -->
 <h2 class="chapter" id="ch18c"><img class="ico" src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Chapter 18c: Strange Folk<span class="stage stage-end">Strangers</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<div class="callout callout-tip"><span class="callout-label">Note — </span>Strange Folk arrived in 0.26.35. Release 0.26.38 uses native bridge protocol <code>42.21-isocompanion-20</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Strange Folk arrived in 0.26.35. Release 0.26.40 uses native bridge protocol <code>42.21-isocompanion-21</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
 
 <p>Not every stranger is a household looking for supplies. Sixty-five hand-made characters live in Knox County: a butcher with a back room, a deputy still running her checkpoint, a grandmother guarding a child's bedroom with a broken bottle, a man who smeared himself in the dead so they'd leave him alone. Each one is a one-off with their own rules, voice and ending. They use the same standing, trade, combat, navigation and recruitment rules as other survivors, and their animals are real Build 42 animals with names that survive saves.</p>
 
@@ -2278,7 +2281,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <table>
   <tr><th>Option</th><th>Range</th><th>Default</th><th>Effect</th></tr>
   <tr><td>Spawn independent survivors</td><td>on / off</td><td>on</td><td>Whether new independent survivors appear</td></tr>
-  <tr><td>Independent survivor frequency</td><td>Very rare, Rare, Normal, Frequent</td><td>Normal</td><td>The minimum real-time gap between encounters</td></tr>
+  <tr><td>Independent survivor frequency</td><td>Very rare, Rare, Normal, Frequent</td><td>Normal</td><td>The base real-time gap between attempts. Each living recruit lengthens it; the increase grows faster with a large group.</td></tr>
   <tr><td>Maximum active companions</td><td>1–16</td><td>16</td><td>Limit for new recruits and encounters</td></tr>
   <tr><td>Companion hunger and thirst rate</td><td>0–2</td><td>0.5</td><td>0 turns it off; 1 matches the player</td></tr>
   <tr><td>Spawn new survivor households</td><td>on / off</td><td>on</td><td>Whether new households appear</td></tr>
@@ -2299,6 +2302,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td>Rare famous namesakes</td><td>on / off</td><td>off</td><td>A very few new survivors may share an exact name with a fictional zombie-story character</td></tr>
   <tr><td>Expedition destination choices</td><td>All nearby, Known places only</td><td>All nearby</td><td>All nearby includes buildings from map data you haven't visited; Known places only lists buildings whose interiors you've seen</td></tr>
 </table>
+<p>Independent survivors normally appear 50 to 110 tiles away, outside your immediate view. The group-size slowdown affects new independent survivor attempts, not the separate Strange Folk schedule.</p>
 <div class="callout callout-tip"><span class="callout-label">Note — </span>Lowering a limit never deletes companions, households or camps already in the save. Turning diaries off never removes a book or its pages.</div>
 
 <h3 id="appB_mod">Mod Options</h3>
@@ -2333,8 +2337,11 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h3>The standalone install broke after reinstalling the game</h3>
 <p>Reinstalling or repairing Project Zomboid restores the game's own launcher file, while Living Fellows' install record stays behind. <code>Install.bat</code> usually recovers on its own. If Support still shows the launcher as inactive, close the game and open <code>ProjectZomboid64.json</code> in the game folder. If its <code>mainClass</code> is <code>zombie/gameStates/MainScreenState</code> and its <code>classpath</code> has no <code>SurvivorCompanionBridge.jar</code>, rename <code>%LOCALAPPDATA%\LivingFellows\bridge</code> to <code>bridge-before-game-reinstall</code> and run <code>Install.bat</code> from the latest standalone package. Keep the renamed folder as a backup. If either check fails, send the launcher file and the install error with a Support report before changing anything.</p>
 
+<h3>Another mod changed the launcher</h3>
+<p>With the game closed, run the latest standalone <code>Install.bat</code>. It accepts a launcher that still contains verified Living Fellows entries and preserves the other mod's settings. <code>Uninstall.bat</code> removes only Living Fellows' launcher class and bridge JAR if another mod changed the file after installation. If either script refuses because ownership is unclear, keep the launcher and install records intact and send the exact error and <span class="menu">More → Support</span> report.</p>
+
 <h3>Standalone uninstall can't restore the launcher</h3>
-<p>Close Project Zomboid and rerun <code>Uninstall.bat</code> from the same release folder. Its backup lives under <code>%LOCALAPPDATA%\LivingFellows</code>; don't delete that folder until the uninstall succeeds.</p>
+<p>Close Project Zomboid and rerun <code>Uninstall.bat</code> from the latest standalone release folder. It preserves verified third-party launcher settings; its backup lives under <code>%LOCALAPPDATA%\LivingFellows</code>. Don't delete that folder until the uninstall succeeds.</p>
 
 <h3>Mods that may conflict</h3>
 <p>Mods that replace player actor construction, animation ownership, pathfinding, vehicle passenger state, UI key bindings, or the same launcher <code>mainClass</code> may conflict. If another mod uses <kbd>Home</kbd>, <kbd>Insert</kbd> or the keypad keys, rebind them under Living Fellows.</p>
@@ -2348,7 +2355,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p><span class="menu">More → Support</span> is the first place to look when something is wrong, and the report it copies is the most useful thing to attach to a bug report.</p>
 <table>
   <tr><th>Line</th><th>What a healthy game shows</th></tr>
-  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.38</td></tr>
+  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.40</td></tr>
   <tr><td>Game build / supported build</td><td>42.21.0 on both sides</td></tr>
   <tr><td>Runtime active</td><td>Yes. If not, <strong>Runtime disabled reason</strong> says why.</td></tr>
   <tr><td>Native bridge status, actor provider, bridge protocol</td><td>The bridge is ready, and its protocol matches the expected one. A mismatch means an old or mixed install.</td></tr>
@@ -2375,7 +2382,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <p class="appendix-label">Appendix D</p>
 <h2 class="chapter" id="appD">Reporting a Problem <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
-<p>Use the bug report form on the project's GitHub page. Include:</p>
+<p>Use the bug report form on the <a href="https://github.com/thorelvin/living-fellows/issues">project's GitHub page</a>, or bring the report to the <a href="https://discord.gg/vPK7faQVt">Living Fellows Discord</a>. Include:</p>
 <ul class="checklist">
   <li>Living Fellows version and installation method</li>
   <li>The exact Project Zomboid version</li>
@@ -2568,7 +2575,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CARD END -->
 
 <div class="page-footer">
-  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.38 &nbsp;·&nbsp; First Edition, Eleventh Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
+  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.40 &nbsp;·&nbsp; First Edition, Twelfth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
 </div>
 <script>
 (function () {
