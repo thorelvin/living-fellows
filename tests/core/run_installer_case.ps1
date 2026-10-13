@@ -161,16 +161,79 @@ switch ($Case) {
     $ownedManifest | ConvertTo-Json -Depth 12 |
         Set-Content -LiteralPath $ownedManifestPath -Encoding utf8
     $before = Get-InstallFixtureSnapshot $fixture
-    $refused = $false
-    try {
+    if ($Variant -eq 'missing') {
+        $refused = $false
+        try {
+            & $NativeInstall -ProjectRoot $ProjectRoot -GameRoot $fixture.game `
+                -BridgeRoot $fixture.bridge -ConfigBackupRoot $fixture.configBackups `
+                -PrebuiltBridgeJar $PrebuiltJar | Out-Null
+        } catch {
+            $refused = $_.Exception.Message -like '*installedConfigSha256*refusing update*'
+        }
+        if (-not $refused -or (Get-InstallFixtureSnapshot $fixture) -ne $before) {
+            throw 'Native update accepted or mutated a missing installedConfigSha256 fixture.'
+        }
+    } else {
         & $NativeInstall -ProjectRoot $ProjectRoot -GameRoot $fixture.game `
             -BridgeRoot $fixture.bridge -ConfigBackupRoot $fixture.configBackups `
             -PrebuiltBridgeJar $PrebuiltJar | Out-Null
-    } catch {
-        $refused = $_.Exception.Message -like '*installedConfigSha256*refusing update*'
+        $updated = Get-Content -LiteralPath $ownedManifestPath -Raw -Encoding utf8 | ConvertFrom-Json
+        $currentHash = (Get-FileHash -LiteralPath $fixture.config -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($updated.installedConfigSha256 -ne $currentHash) {
+            throw 'Native update did not refresh a stale launcher hash after verifying ownership.'
+        }
     }
-    if (-not $refused -or (Get-InstallFixtureSnapshot $fixture) -ne $before) {
-        throw "Native update accepted or mutated an installedConfigSha256 $Variant fixture."
+}
+
+'shared-launcher' {
+    $originalWithAgent = (Get-ScOriginalLauncherConfig | ConvertFrom-Json)
+    $originalWithAgent.vmArgs += '-agentlib:zbNative'
+    $fixture = New-StandaloneInstallFixture $Sandbox ('shared-launcher-' + $Variant) `
+        ($originalWithAgent | ConvertTo-Json -Depth 12)
+    Install-StandaloneFixture $ProjectRoot $fixture $StandalonePreparedPayload $PrebuiltJar
+    $shared = Get-Content -LiteralPath $fixture.config -Raw -Encoding utf8 | ConvertFrom-Json
+    $shared.classpath += 'pzopt/aot/pzopt.jar'
+    $shared.vmArgs += @('-XX:+UseZGC', '-Xmx4096m')
+    $shared | Add-Member -NotePropertyName windows -NotePropertyValue ([pscustomobject]@{
+        gameArguments = @('-Dforeign.option=keep')
+    })
+    $shared | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $fixture.config -Encoding utf8
+    $sharedHash = (Get-FileHash -LiteralPath $fixture.config -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($Variant -eq 'update') {
+        Install-StandaloneFixture $ProjectRoot $fixture $StandalonePreparedPayload $PrebuiltJar
+        if ((Get-FileHash -LiteralPath $fixture.config -Algorithm SHA256).Hash.ToLowerInvariant() -ne $sharedHash) {
+            throw 'Standalone update rewrote a launcher edited by another mod.'
+        }
+    }
+    & $StandaloneUninstall -ProjectRoot $ProjectRoot -ModsRoot $fixture.mods `
+        -InstallDataRoot $fixture.data | Out-Null
+    $restored = Get-Content -LiteralPath $fixture.config -Raw -Encoding utf8 | ConvertFrom-Json
+    $ownedJar = (Join-Path $fixture.bridge 'SurvivorCompanionBridge.jar').Replace('\', '/')
+    if ($restored.mainClass -ne 'zombie/gameStates/MainScreenState' -or
+        @($restored.classpath | Where-Object { ([string]$_).Replace('\', '/') -eq $ownedJar }).Count -ne 0 -or
+        $restored.classpath -notcontains 'pzopt/aot/pzopt.jar' -or
+        $restored.vmArgs -notcontains '-agentlib:zbNative' -or
+        $restored.vmArgs -notcontains '-XX:+UseZGC' -or
+        $restored.vmArgs -notcontains '-Xmx4096m' -or
+        $restored.windows.gameArguments -notcontains '-Dforeign.option=keep') {
+        throw 'Selective standalone uninstall did not preserve other launcher settings.'
+    }
+}
+
+'shared-launcher-ambiguous' {
+    $fixture = New-StandaloneFixture 'shared-launcher-ambiguous'
+    Install-StandaloneFixture $ProjectRoot $fixture $StandalonePreparedPayload $PrebuiltJar
+    $config = Get-Content -LiteralPath $fixture.config -Raw -Encoding utf8 | ConvertFrom-Json
+    $config.classpath += $config.classpath[-1]
+    $config | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $fixture.config -Encoding utf8
+    $before = Get-StandaloneFixtureSnapshot $fixture
+    $refused = $false
+    try {
+        & $StandaloneUninstall -ProjectRoot $ProjectRoot -ModsRoot $fixture.mods `
+            -InstallDataRoot $fixture.data | Out-Null
+    } catch { $refused = $_.Exception.Message -like '*classpath ownership is missing or duplicated*' }
+    if (-not $refused -or (Get-StandaloneFixtureSnapshot $fixture) -ne $before) {
+        throw 'Ambiguous launcher ownership was not refused before standalone mutation.'
     }
 }
 

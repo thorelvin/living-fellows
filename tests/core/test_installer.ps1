@@ -207,8 +207,12 @@ try {
     }
     Add-InstallerCase 'standalone-deep-corrupt'
     Add-InstallerCase 'standalone-success'
+    foreach ($mode in @('uninstall', 'update')) {
+        Add-InstallerCase 'shared-launcher' $mode
+    }
+    Add-InstallerCase 'shared-launcher-ambiguous'
 
-    $expectedCases = 36
+    $expectedCases = 39
     if ($cases.Count -ne $expectedCases) {
         # A case list that quietly shrinks is a coverage loss that still
         # reports a pass, so the count is part of the contract.

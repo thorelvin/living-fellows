@@ -352,7 +352,7 @@ Remove one copy. Keep only one `SurvivorCompanion` mod folder, restart the game,
 
 ### Standalone uninstall cannot restore the launcher
 
-Close Project Zomboid and rerun `Uninstall.bat` from the same release folder. Its backup lives under `%LOCALAPPDATA%\LivingFellows`; do not delete that folder until the uninstall succeeds.
+Close Project Zomboid and rerun `Uninstall.bat` from the latest complete release folder. The 0.26.40 installer can remove its own launcher entries while preserving options and classpath entries added by other mods after installation. It still refuses an ambiguous launcher, such as a missing or duplicated Living Fellows bridge entry. Its backup lives under `%LOCALAPPDATA%\LivingFellows`; do not delete that folder until the uninstall succeeds.
 
 ### Standalone install says the owned bridge manifest exists but SCLauncher is inactive
 

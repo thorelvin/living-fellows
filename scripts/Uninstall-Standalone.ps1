@@ -240,12 +240,22 @@ while (-not [string]::IsNullOrWhiteSpace($generationPath)) {
 }
 
 $nativeState = $null
+$nativeExpectedHash = ''
+$nativeCurrentHash = ''
 $nativeUninstaller = Join-Path $ProjectRoot 'scripts\Uninstall-NativeBridge.ps1'
 if ($chain.Count -gt 0 -and -not (Test-Path -LiteralPath $bridgeManifest -PathType Leaf)) {
     throw 'The standalone mod chain exists but its native rollback manifest is missing; no files were changed.'
 }
 if (Test-Path -LiteralPath $bridgeManifest -PathType Leaf) {
-    & $nativeUninstaller -BridgeRoot $BridgeRoot -PreflightOnly | Out-Null
+    $nativePlan = [string](& $nativeUninstaller -BridgeRoot $BridgeRoot -PreflightOnly)
+    if ($nativePlan -notmatch '(?:^|\s)currentHash=([a-f0-9]{64})(?:\s|$)') {
+        throw 'Native uninstall preflight did not report the current launcher hash.'
+    }
+    $nativeCurrentHash = $Matches[1]
+    if ($nativePlan -notmatch '(?:^|\s)expectedHash=([a-f0-9]{64})(?:\s|$)') {
+        throw 'Native uninstall preflight did not report the restored launcher hash.'
+    }
+    $nativeExpectedHash = $Matches[1]
     $nativeState = Get-Content -LiteralPath $bridgeManifest -Raw -Encoding utf8 |
         ConvertFrom-Json
 }
@@ -279,7 +289,8 @@ try {
     Copy-Item -LiteralPath $configPath -Destination $configSnapshot
     $configSnapshotHash = Get-StandaloneHash $configSnapshot
     if ([string]::IsNullOrWhiteSpace($configSnapshotHash) -or
-        (Get-StandaloneHash $configPath) -ne $configSnapshotHash) {
+        (Get-StandaloneHash $configPath) -ne $configSnapshotHash -or
+        $configSnapshotHash -ne $nativeCurrentHash) {
         throw 'Standalone launcher snapshot verification failed.'
     }
     $snapshotReady = $true
@@ -304,7 +315,8 @@ try {
     }
 
     if (Test-Path -LiteralPath $bridgeManifest -PathType Leaf) {
-        & $nativeUninstaller -BridgeRoot $BridgeRoot | Out-Null
+        & $nativeUninstaller -BridgeRoot $BridgeRoot `
+            -ExpectedCurrentConfigSha256 $nativeCurrentHash | Out-Null
     }
     Invoke-StandaloneFault 'standalone-native-rollback'
 
@@ -325,10 +337,8 @@ try {
         if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
             throw "Launcher configuration is missing after uninstall: $configPath"
         }
-        $originalHash = [string]$nativeState.originalConfigSha256
-        if ([string]::IsNullOrWhiteSpace($originalHash) -or
-            (Get-StandaloneHash $configPath) -ne $originalHash.ToLowerInvariant()) {
-            throw 'Standalone uninstall did not restore the exact original launcher hash.'
+        if ((Get-StandaloneHash $configPath) -ne $nativeExpectedHash) {
+            throw 'Standalone uninstall did not restore the planned launcher hash.'
         }
     }
     Invoke-StandaloneFault 'standalone-postcondition'

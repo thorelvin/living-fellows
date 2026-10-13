@@ -106,6 +106,7 @@ $manifestPath = Join-Path $BridgeRoot 'install-manifest.json'
 $targetJar = Join-Path $BridgeRoot 'SurvivorCompanionBridge.jar'
 $targetJarArgument = $targetJar.Replace('\', '/')
 $configText = Get-Content -LiteralPath $configPath -Raw -Encoding utf8
+$configHashAtStart = Get-HashOrEmpty $configPath
 $config = $configText | ConvertFrom-Json
 if ($null -eq $config.classpath) { throw 'ProjectZomboid64.json has no classpath array.' }
 
@@ -124,6 +125,7 @@ if ($config.mainClass -ne $OriginalMain -and $config.mainClass -ne $WrapperMain)
     throw "Refusing to replace an unknown Project Zomboid mainClass: $($config.mainClass)"
 }
 $recoveredGameReinstall = $false
+$preserveLauncherEdits = $false
 if ($existingManifest) {
     $ownedBridgeRoot = if ([string]::IsNullOrWhiteSpace([string]$existingManifest.bridgeRoot)) {
         Split-Path -Parent ([string]$existingManifest.bridgeJar)
@@ -145,14 +147,12 @@ if ($existingManifest) {
         if ([string]::IsNullOrWhiteSpace($recordedInstalledConfigHash)) {
             throw 'Owned native bridge manifest has no installedConfigSha256; refusing update before mutation.'
         }
-        $currentInstalledConfigHash = Get-HashOrEmpty $configPath
-        if (-not $recordedInstalledConfigHash.Equals($currentInstalledConfigHash,
-                [System.StringComparison]::OrdinalIgnoreCase)) {
-            throw 'Launcher configuration hash no longer matches installedConfigSha256; refusing update before mutation.'
-        }
         if ($classpathMatches.Count -ne 1) {
             throw 'SCLauncher classpath ownership is missing or duplicated; refusing update.'
         }
+        $preserveLauncherEdits = [bool]$existingManifest.preserveLauncherEdits -or
+            -not $recordedInstalledConfigHash.Equals($configHashAtStart,
+                [System.StringComparison]::OrdinalIgnoreCase)
     } else {
         # Steam restores ProjectZomboid64.json on reinstall but leaves the
         # user's LocalAppData ownership manifest behind. A vanilla launcher
@@ -239,12 +239,16 @@ $originalConfigHash = if ($existingManifest -and -not $recoveredGameReinstall -a
     Get-HashOrEmpty $configPath
 }
 
-$newClasspath = @($config.classpath | Where-Object {
-    -not ([string]$_).Equals($targetJarArgument, [System.StringComparison]::OrdinalIgnoreCase)
-})
-$newClasspath += $targetJarArgument
-$config.mainClass = $WrapperMain
-$config.classpath = @($newClasspath)
+$reuseCurrentConfig = $existingManifest -and -not $recoveredGameReinstall
+if (-not $reuseCurrentConfig) {
+    $newClasspath = @($config.classpath | Where-Object {
+        -not ([string]$_).Replace('\', '/').Equals($targetJarArgument,
+            [System.StringComparison]::OrdinalIgnoreCase)
+    })
+    $newClasspath += $targetJarArgument
+    $config.mainClass = $WrapperMain
+    $config.classpath = @($newClasspath)
+}
 
 $transactionRoot = Join-Path $BridgeRoot ('.install-transaction.' + [guid]::NewGuid().ToString('N'))
 $priorRoot = Join-Path $transactionRoot 'prior'
@@ -266,7 +270,11 @@ $priorConfigHash = Get-HashOrEmpty $priorConfig
 $priorJarHash = Get-HashOrEmpty $priorJar
 $priorManifestHash = Get-HashOrEmpty $priorManifest
 
-[System.IO.File]::WriteAllText($stagedConfig, ($config | ConvertTo-Json -Depth 12), $utf8NoBom)
+if ($reuseCurrentConfig) {
+    Copy-Item -LiteralPath $priorConfig -Destination $stagedConfig
+} else {
+    [System.IO.File]::WriteAllText($stagedConfig, ($config | ConvertTo-Json -Depth 100), $utf8NoBom)
+}
 Get-Content -LiteralPath $stagedConfig -Raw -Encoding utf8 | ConvertFrom-Json | Out-Null
 Copy-Item -LiteralPath $builtJar -Destination $stagedJar
 $stagedJarHash = Get-HashOrEmpty $stagedJar
@@ -280,6 +288,7 @@ $manifest = [ordered]@{
     gameRoot = $GameRoot
     gameConfig = $configPath
     installedConfigSha256 = $installedConfigHash
+    preserveLauncherEdits = $preserveLauncherEdits
     bridgeRoot = $BridgeRoot
     bridgeJar = $targetJar
     bridgeSha256 = $stagedJarHash
@@ -299,13 +308,18 @@ Get-Content -LiteralPath $stagedManifest -Raw -Encoding utf8 | ConvertFrom-Json 
 $committed = $false
 try {
     Invoke-Fault 'native-config-stage'
+    if ((Get-HashOrEmpty $configPath) -ne $configHashAtStart) {
+        throw 'Launcher configuration changed during install; refusing to overwrite it.'
+    }
     if (-not $priorBackupExisted) {
         Copy-Item -LiteralPath $priorConfig -Destination $backupPath
         if ((Get-HashOrEmpty $backupPath) -ne $originalConfigHash) {
             throw 'Original launcher backup verification failed.'
         }
     }
-    Copy-Item -LiteralPath $stagedConfig -Destination $configPath -Force
+    if (-not $reuseCurrentConfig) {
+        Copy-Item -LiteralPath $stagedConfig -Destination $configPath -Force
+    }
     Invoke-Fault 'native-config-replace'
     Copy-Item -LiteralPath $stagedJar -Destination $targetJar -Force
     Invoke-Fault 'native-jar-replace'

@@ -3,7 +3,8 @@
 [CmdletBinding()]
 param(
     [string]$BridgeRoot = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'LivingFellowsDev\NativeBridge'),
-    [switch]$PreflightOnly
+    [switch]$PreflightOnly,
+    [string]$ExpectedCurrentConfigSha256 = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -62,13 +63,21 @@ $installedConfigHash = [string]$manifest.installedConfigSha256
 if ([string]::IsNullOrWhiteSpace($installedConfigHash)) {
     throw 'Native bridge manifest has no installedConfigSha256; refusing automatic rollback.'
 }
-if ($configHash -ne $installedConfigHash.ToLowerInvariant()) {
-    throw 'Launcher configuration changed after installation; refusing automatic rollback.'
+if ($ExpectedCurrentConfigSha256 -and $configHash -ne $ExpectedCurrentConfigSha256.ToLowerInvariant()) {
+    throw 'Launcher configuration changed after uninstall preflight; refusing automatic rollback.'
 }
 $config = Get-Content -LiteralPath $configPath -Raw -Encoding utf8 | ConvertFrom-Json
 $wrapper = [string]$manifest.wrapperMainClass
 if ($config.mainClass -ne $wrapper) {
     throw "Launcher mainClass changed after installation; refusing automatic rollback: $($config.mainClass)"
+}
+$jarArgument = $bridgeJar.Replace('\', '/')
+$classpathMatches = @($config.classpath | Where-Object {
+    ([string]$_).Replace('\', '/').Equals($jarArgument,
+        [System.StringComparison]::OrdinalIgnoreCase)
+})
+if ($classpathMatches.Count -ne 1) {
+    throw 'SCLauncher classpath ownership is missing or duplicated; refusing automatic rollback.'
 }
 $originalBackup = [System.IO.Path]::GetFullPath([string]$manifest.originalConfigBackup)
 if (-not (Test-Path -LiteralPath $originalBackup -PathType Leaf)) {
@@ -88,8 +97,35 @@ if ([string]$original.mainClass -ne [string]$manifest.originalMainClass -or
     throw 'Original launcher backup does not preserve the true original main class.'
 }
 
+$mode = if (-not [bool]$manifest.preserveLauncherEdits -and
+    $configHash -eq $installedConfigHash.ToLowerInvariant()) { 'exact' } else { 'selective' }
+$expectedHash = $originalHash
+$updatedConfigText = ''
+if ($mode -eq 'selective') {
+    # Keep later VM and classpath edits from other mods; remove only our entries.
+    $config.mainClass = [string]$manifest.originalMainClass
+    $config.classpath = @($config.classpath | Where-Object {
+        -not ([string]$_).Replace('\', '/').Equals($jarArgument,
+            [System.StringComparison]::OrdinalIgnoreCase)
+    })
+    $updatedConfigText = $config | ConvertTo-Json -Depth 100
+    $roundTrip = $updatedConfigText | ConvertFrom-Json
+    if ([string]$roundTrip.mainClass -ne [string]$manifest.originalMainClass -or
+        @($roundTrip.classpath | Where-Object {
+            ([string]$_).Replace('\', '/').Equals($jarArgument,
+                [System.StringComparison]::OrdinalIgnoreCase)
+        }).Count -ne 0) {
+        throw 'Selective launcher rollback failed validation.'
+    }
+    $hasher = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $expectedHash = [System.BitConverter]::ToString(
+            $hasher.ComputeHash($utf8NoBom.GetBytes($updatedConfigText))).Replace('-', '').ToLowerInvariant()
+    } finally { $hasher.Dispose() }
+}
+
 if ($PreflightOnly) {
-    Write-Output "NATIVE_BRIDGE_UNINSTALL_PREFLIGHT_PASS config=$configPath jar=$bridgeJar"
+    Write-Output "NATIVE_BRIDGE_UNINSTALL_PREFLIGHT_PASS config=$configPath jar=$bridgeJar mode=$mode currentHash=$configHash expectedHash=$expectedHash"
     return
 }
 
@@ -97,18 +133,28 @@ $transactionRoot = Join-Path $BridgeRoot ('.uninstall-transaction.' + [guid]::Ne
 New-Item -ItemType Directory -Path $transactionRoot -Force | Out-Null
 $currentConfigBackup = Join-Path $transactionRoot 'ProjectZomboid64.managed.json'
 $currentManifestBackup = Join-Path $transactionRoot 'install-manifest.json'
-$stagedOriginal = Join-Path $transactionRoot 'ProjectZomboid64.original.json'
+$stagedOriginal = Join-Path $transactionRoot 'ProjectZomboid64.restored.json'
 Copy-Item -LiteralPath $configPath -Destination $currentConfigBackup
 Copy-Item -LiteralPath $manifestPath -Destination $currentManifestBackup
-Copy-Item -LiteralPath $originalBackup -Destination $stagedOriginal
+if ($mode -eq 'exact') {
+    Copy-Item -LiteralPath $originalBackup -Destination $stagedOriginal
+} else {
+    [System.IO.File]::WriteAllText($stagedOriginal, $updatedConfigText, $utf8NoBom)
+}
+if ((Get-HashOrEmpty $stagedOriginal) -ne $expectedHash) {
+    throw 'Staged launcher rollback hash mismatch.'
+}
 $disabledManifest = Join-Path $BridgeRoot `
     ('install-manifest.uninstalled.' + (Get-Date -Format 'yyyyMMdd-HHmmss') `
         + '-' + ([guid]::NewGuid().ToString('N')).Substring(0, 8) + '.json')
 
 try {
+    if ((Get-HashOrEmpty $configPath) -ne $configHash) {
+        throw 'Launcher configuration changed during uninstall; refusing automatic rollback.'
+    }
     Copy-Item -LiteralPath $stagedOriginal -Destination $configPath -Force
-    if ((Get-HashOrEmpty $configPath) -ne $originalHash) {
-        throw 'Original launcher configuration restore hash mismatch.'
+    if ((Get-HashOrEmpty $configPath) -ne $expectedHash) {
+        throw 'Launcher configuration restore hash mismatch.'
     }
     Move-Item -LiteralPath $manifestPath -Destination $disabledManifest
 }
@@ -142,4 +188,4 @@ finally {
     }
 }
 
-Write-Output "NATIVE_BRIDGE_UNINSTALL_PASS config=$configPath retainedJar=$bridgeJar restoredHash=$originalHash"
+Write-Output "NATIVE_BRIDGE_UNINSTALL_PASS config=$configPath retainedJar=$bridgeJar mode=$mode restoredHash=$expectedHash"
