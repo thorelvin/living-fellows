@@ -123,8 +123,18 @@ param(
     [switch]$GiftedEquipmentProbe,
     # Repeated native squad-versus-zombie survival trials in a cloned save.
     [switch]$SquadCombatProbe,
+    [switch]$SquadCombatFrontOnly,
+    [switch]$SquadCombatSingleCase,
+    [ValidateRange(1, 6)][int]$SquadCombatCaseIndex = 1,
+    [ValidateSet('Base.Crowbar', 'Base.Pen', 'Base.HuntingKnife', 'Base.Shovel', 'Base.GardenHoe')]
+    [string]$SquadCombatWeaponType = 'Base.Crowbar',
+    [string]$SquadCombatBackupWeaponType = '',
+    [switch]$SquadCombatPhoto,
+    [switch]$SquadCombatNearObserver,
+    [switch]$SquadCombatRadioLure,
+    [switch]$SquadCombatBaseline,
     [ValidateRange(1, 5)][int]$SquadCombatTrials = 3,
-    [ValidateRange(30, 120)][int]$SquadCombatSeconds = 55,
+    [ValidateRange(30, 300)][int]$SquadCombatSeconds = 55,
     [switch]$FurniturePoseOnly,
     [switch]$VehiclePassengerOnly,
     [switch]$SixSeatProbe,
@@ -776,6 +786,18 @@ if ($TeamDriveRestartResume -and [string]::IsNullOrWhiteSpace($SeedSave)) {
 if ($ExternalUiControl -and $HiddenWindow) {
     throw '-ExternalUiControl requires a visible game window.'
 }
+if ($SquadCombatPhoto -and -not $SquadCombatProbe) {
+    throw '-SquadCombatPhoto requires -SquadCombatProbe.'
+}
+if ($SquadCombatNearObserver -and -not $SquadCombatProbe) {
+    throw '-SquadCombatNearObserver requires -SquadCombatProbe.'
+}
+if ($SquadCombatRadioLure -and -not $SquadCombatProbe) {
+    throw '-SquadCombatRadioLure requires -SquadCombatProbe.'
+}
+if ($SquadCombatSingleCase -and -not $SquadCombatProbe) {
+    throw '-SquadCombatSingleCase requires -SquadCombatProbe.'
+}
 if ($ExternalUiControl -and -not [string]::IsNullOrWhiteSpace($DrivingScreenshotDirectory)) {
     throw 'Use the external UI controller for screenshots with -ExternalUiControl.'
 }
@@ -1293,6 +1315,19 @@ if ($installedBridgeHash -ne $sourceBridgeHash -and -not $PrepareOnly) {
 }
 Copy-Item -LiteralPath $sourceMod -Destination (Join-Path $SandboxMods 'SurvivorCompanion') -Recurse
 Copy-Item -LiteralPath $harnessMod -Destination (Join-Path $SandboxMods 'SCRealSandboxHarness') -Recurse
+if ($SquadCombatBaseline) {
+    if (-not $SquadCombatProbe) { throw 'SquadCombatBaseline requires SquadCombatProbe.' }
+    foreach ($relative in @(
+        'SurvivorCompanion/42/media/lua/client/SCCombat.lua',
+        'SurvivorCompanion/42/media/lua/client/SCNativeActions.lua')) {
+        $baselineText = & git -C $ProjectRoot show "HEAD:$relative"
+        if ($LASTEXITCODE -ne 0) { throw "Could not load combat baseline: $relative" }
+        $targetPath = Join-Path $SandboxMods ($relative -replace '/', '\')
+        [System.IO.File]::WriteAllText($targetPath,
+            (($baselineText -join "`n") + "`n"),
+            [System.Text.UTF8Encoding]::new($false))
+    }
+}
 if ($DrivingGateNegativeControl) {
     $cachedDecision = Join-Path $SandboxMods `
         'SurvivorCompanion\42\media\lua\client\SCDecision.lua'
@@ -1520,6 +1555,15 @@ $config = @(
     ('companion_transfer_probe=' + $CompanionTransferProbe.IsPresent.ToString().ToLowerInvariant()),
     ('gifted_equipment_probe=' + $GiftedEquipmentProbe.IsPresent.ToString().ToLowerInvariant()),
     ('squad_combat_probe=' + $SquadCombatProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('squad_combat_front_only=' + $SquadCombatFrontOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('squad_combat_single_case=' + $SquadCombatSingleCase.IsPresent.ToString().ToLowerInvariant()),
+    ('squad_combat_case_index=' + $SquadCombatCaseIndex),
+    ('squad_combat_weapon_type=' + $SquadCombatWeaponType),
+    ('squad_combat_backup_weapon_type=' + $SquadCombatBackupWeaponType),
+    ('squad_combat_photo=' + $SquadCombatPhoto.IsPresent.ToString().ToLowerInvariant()),
+    ('squad_combat_near_observer=' + $SquadCombatNearObserver.IsPresent.ToString().ToLowerInvariant()),
+    ('squad_combat_radio_lure=' + $SquadCombatRadioLure.IsPresent.ToString().ToLowerInvariant()),
+    ('squad_combat_baseline=' + $SquadCombatBaseline.IsPresent.ToString().ToLowerInvariant()),
     ('squad_combat_trials=' + $SquadCombatTrials),
     ('squad_combat_seconds=' + $SquadCombatSeconds),
     ('furniture_pose_only=' + $FurniturePoseOnly.IsPresent.ToString().ToLowerInvariant()),
@@ -1557,6 +1601,15 @@ $manifest = [ordered]@{
     installedBridgeMatches = $installedBridgeHash -eq $sourceBridgeHash
     livingFellowsOnly = $LivingFellowsOnly.IsPresent
     squadCombatProbe = $SquadCombatProbe.IsPresent
+    squadCombatFrontOnly = $SquadCombatFrontOnly.IsPresent
+    squadCombatSingleCase = $SquadCombatSingleCase.IsPresent
+    squadCombatCaseIndex = $SquadCombatCaseIndex
+    squadCombatWeaponType = $SquadCombatWeaponType
+    squadCombatBackupWeaponType = $SquadCombatBackupWeaponType
+    squadCombatPhoto = $SquadCombatPhoto.IsPresent
+    squadCombatNearObserver = $SquadCombatNearObserver.IsPresent
+    squadCombatRadioLure = $SquadCombatRadioLure.IsPresent
+    squadCombatBaseline = $SquadCombatBaseline.IsPresent
     squadCombatTrials = $SquadCombatTrials
     squadCombatSeconds = $SquadCombatSeconds
     externalUiControl = $ExternalUiControl.IsPresent

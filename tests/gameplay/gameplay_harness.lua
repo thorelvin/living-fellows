@@ -1027,6 +1027,25 @@ do
             and normalZombie:getTarget() == normalCompanion
             and normalZombie.lastSpottedForced == false,
         "normal-range targeting preserves the zombie's ordinary sight calculation")
+    local firstPursuit = Targeting.scan(normalCompanion, clock + 2000,
+        { normalZombie })
+    local _, _, pursuitDetail = Targeting.scan(normalCompanion, clock + 3600,
+        { normalZombie })
+    check(firstPursuit and pursuitDetail.refreshed == 1
+            and normalZombie.pathToCharacterCalls == 1
+            and normalZombie.pathTarget == normalCompanion,
+        "a motionless zombie with a valid companion target renews native pursuit once")
+    local _, _, cooldownDetail = Targeting.scan(normalCompanion, clock + 4000,
+        { normalZombie })
+    check(cooldownDetail.refreshed == 0
+            and normalZombie.pathToCharacterCalls == 1,
+        "native pursuit refresh is rate limited")
+    normalZombie.target = player
+    local _, _, alternateDetail = Targeting.scan(normalCompanion, clock + 4400,
+        { normalZombie })
+    check(alternateDetail.refreshed == 0
+            and normalZombie.pathToCharacterCalls == 1,
+        "pursuit refresh never overrides a living alternate target")
 
     local alifeNpc = zombie(4, 1, {})
     alifeNpc.modData.ProjectALifeOwned = true
@@ -9740,7 +9759,7 @@ cleaverActor.worldX = 14.25
 cleaverSnapshot.threats[1].distanceSq = 0.75 * 0.75
 local insideDefendActions = SurvivorCompanion.Combat._actionUtilitiesForTests(
     cleaverActor, player, cleaverSnapshot, cleaverSnapshot.threats[1],
-    { item = cleaver, ranged = false, damage = 1.6, range = 1,
+    { item = cleaver, ranged = false, equipped = true, damage = 1.6, range = 1,
         conditionRatio = 1, staminaCost = 1, weight = 1 },
     cleaverActor.inventory, { combatDoctrine = "close_defense" })
 local offeredWeaponStrike, offeredShove = false, false
@@ -9928,6 +9947,9 @@ end)()
             score = 110 - index,
         }
     end
+    -- The upright zombie is within reach of the prone group, so finishing any
+    -- of those three would expose the fighter to an immediate standing grab.
+    scanTargets[4].x, scanTargets[4].y = 7, 10.8
     local scanSnapshot = {
         threats = scanThreats, immediateCount = 4, closeImmediateCount = 4,
         closeThreatCount = 4, occupiedThreatSectors = 1, pressure = 0,
@@ -10176,24 +10198,32 @@ do
     swordZed.health = 100
     function swordZed:getHealth() return self.health end
     function swordZed:isOnFloor() return true end
+    swordActor.attackReceiptSerial = 0
+    function swordActor:getCompanionAttackReceiptSerial()
+        return self.attackReceiptSerial
+    end
     SurvivorCompanion.Combat.peek(swordActor).target = swordZed
 
     clock = clock + 1
     check(SurvivorCompanion.Combat.holdNativeAttack(swordActor, rejectedRuntime) == true,
         "an attack on a living target is held normally at first")
 
-    -- A slow fight must never be cut short: damage resets the watchdog.
+    -- A native collision receipt resets the watchdog, whether its particular
+    -- hit dealt damage or not. Zombie bleeding alone is not swing progress.
     local stallWindow = SurvivorCompanion.Config.values.combatStalledAttackLeaseMs
     clock = clock + stallWindow - 100
+    swordActor.attackReceiptSerial = 1
     swordZed.health = 80
     local dmgHeld, dmgReason = SurvivorCompanion.Combat.holdNativeAttack(
         swordActor, rejectedRuntime)
-    check(dmgHeld == true, "damage landing resets the stall watchdog")
+    check(dmgHeld == true, "native collision receipt resets the stall watchdog")
     clock = clock + stallWindow - 100
     check(SurvivorCompanion.Combat.holdNativeAttack(swordActor, rejectedRuntime) == true,
-        "a slow but progressing fight is not cut short")
+        "a slow fight with a recent native collision is not cut short")
 
-    -- No damage at all for the whole window: genuinely stalled.
+    -- Falling health without another collision can be residual damage from a
+    -- prior hit; it must not hold the companion in a frozen swing forever.
+    swordZed.health = 60
     clock = clock + stallWindow + 1
     local stalled, stalledReason = SurvivorCompanion.Combat.holdNativeAttack(
         swordActor, rejectedRuntime)
@@ -10201,10 +10231,12 @@ do
             and swordActor.staleAttackCleared == true
             and SurvivorCompanion.Combat.peek(swordActor).target == nil
             and rejectedRuntime.combatTarget == nil,
-        "an attack that lands no damage on a living target eventually releases")
+        "an attack with no new collision on a living target releases even when health falls")
 
     swordZed.getHealth, swordZed.isOnFloor = nil, nil
     swordZed.health = nil
+    swordActor.getCompanionAttackReceiptSerial = nil
+    swordActor.attackReceiptSerial = nil
     SurvivorCompanion.NativeActions = nativeBeforeStall
     swordActor.attackStarted, swordActor.attackAnimation = false, false
 end
@@ -10383,11 +10415,13 @@ do
     danger.threats[1] = target
     local followOrder = { recruited = true, order = "follow",
         combatDoctrine = "close_defense" }
-    local function scores(person)
-        local readiness = SurvivorCompanion.Combat.readiness(person, danger,
+    local function scores(person, situation, opponent, health)
+        situation, opponent = situation or danger, opponent or target
+        local readiness = SurvivorCompanion.Combat.readiness(person, situation,
             nil, followOrder)
+        if health then readiness.health = health end
         local actions = SurvivorCompanion.Combat._actionUtilitiesForTests(
-            person, player, danger, target, nil, person.inventory,
+            person, player, situation, opponent, nil, person.inventory,
             followOrder, readiness)
         local found = {}
         for _, action in ipairs(actions or {}) do
@@ -10398,10 +10432,41 @@ do
     end
     local fighting = scores(responder)
     local withdrawing = scores(withdrawer)
-    check(fighting.shove ~= nil and withdrawing.retreat ~= nil
-            and withdrawing.shove == nil,
-        "fighting followers offer shoves while withdrawing followers break contact")
+    check(fighting.shove ~= nil and withdrawing.shove ~= nil
+            and withdrawing.shove > withdrawing.retreat,
+        "even a normally withdrawing follower shoves one isolated zombie")
+    local farZombie = zombie(11, -7, { attacking = false })
+    local farTarget = { actor = farZombie, square = farZombie.square,
+        distanceSq = 9, visible = true, obstructed = false,
+        attacking = false, score = 90 }
+    local farDanger = { threats = { farTarget }, allies = {}, escapeSquares = {},
+        threatCount = 1, immediateCount = 0, closeImmediateCount = 0,
+        pressure = 1, encircled = false }
+    local closing = scores(withdrawer, farDanger, farTarget)
+    check(closing.approach ~= nil and closing.approach > (closing.retreat or 0),
+        "unarmed follower closes to shove range after its last weapon breaks")
+    local ambientZombie = zombie(18, -7, { attacking = false })
+    farDanger.threatCount = 2
+    farDanger.threats[2] = { actor = ambientZombie,
+        square = ambientZombie.square, distanceSq = 100,
+        visible = true, obstructed = false, score = 20 }
+    local ambientClosing = scores(withdrawer, farDanger, farTarget)
+    check(ambientClosing.approach ~= nil,
+        "a distant ambient zombie does not cancel the isolated shove plan")
+    local extraZombie = zombie(10, -7, { attacking = false })
+    danger.threatCount = 2
+    danger.threats[2] = { actor = extraZombie, square = extraZombie.square,
+        distanceSq = 4, visible = true, obstructed = false, score = 80 }
+    local multiple = scores(withdrawer)
+    check(multiple.retreat ~= nil and multiple.shove == nil,
+        "with a second zombie, a withdrawing follower does not commit to a shove")
+    local wounded = scores(withdrawer, farDanger, farTarget, 40)
+    check(wounded.approach == nil,
+        "a wounded unarmed follower does not close on a zombie")
     testZombie.dead = true
+    farZombie.dead = true
+    ambientZombie.dead = true
+    extraZombie.dead = true
 end
 
 do
@@ -11186,9 +11251,10 @@ check(not (wrongReloader.lastIntent and wrongReloader.lastIntent.action == "relo
 registry[wrongReloader.id] = nil
 
 (function()
-    local function combatSnapshot(target)
+    local function combatSnapshot(target, distanceSq)
         return {
-            threats = { { actor = target, square = target.square, distanceSq = 1,
+            threats = { { actor = target, square = target.square,
+                distanceSq = distanceSq or 1,
                 visible = true, obstructed = false, attacking = true, score = 80 } },
             allies = {}, escapeSquares = {}, threatCount = 1, immediateCount = 1,
             closeImmediateCount = 1, closeThreatCount = 1,
@@ -11215,9 +11281,9 @@ registry[wrongReloader.id] = nil
     })
     fallbackActor.primary = dryRifle
     rangedDoctrine(fallbackActor)
-    local fallbackZed = zombie(9, -2, { attacking = true, target = fallbackActor })
+    local fallbackZed = zombie(11, -2, { attacking = true, target = fallbackActor })
     local fallbackHandled = SurvivorCompanion.Combat.update(
-        fallbackActor, player, { snapshot = combatSnapshot(fallbackZed) })
+        fallbackActor, player, { snapshot = combatSnapshot(fallbackZed, 9) })
     check(fallbackHandled and fallbackActor.lastIntent.action == "equip_weapon"
             and fallbackActor.lastIntent.item == fallbackAxe,
         "an empty firearm without compatible ammunition falls back to usable melee")
@@ -11234,12 +11300,38 @@ registry[wrongReloader.id] = nil
     })
     brokenActor.primary = brokenRifle
     rangedDoctrine(brokenActor)
-    local brokenZed = zombie(9, -4, { attacking = true, target = brokenActor })
+    local brokenZed = zombie(11, -4, { attacking = true, target = brokenActor })
     local brokenHandled = SurvivorCompanion.Combat.update(
-        brokenActor, player, { snapshot = combatSnapshot(brokenZed) })
+        brokenActor, player, { snapshot = combatSnapshot(brokenZed, 9) })
     check(brokenHandled and brokenActor.lastIntent.action == "equip_weapon"
             and brokenActor.lastIntent.item == brokenAxe,
         "a broken firearm cannot suppress a usable melee fallback")
+
+    local brokenPen = item("Base.BrokenPenBackup", "Weapon", {
+        damage = 0.1, range = 0.8, condition = 0, conditionMax = 2,
+    })
+    local spareCrowbar = item("Base.SpareCrowbar", "Weapon", {
+        damage = 1.8, range = 1.5, condition = 10, conditionMax = 10,
+    })
+    local swapActor = actor("sc-broken-pen-swap", 8, -12, {
+        inventory = inventory({ brokenPen, spareCrowbar }),
+    })
+    swapActor.primary = brokenPen
+    local swapZed = zombie(10, -12, { attacking = false, target = swapActor })
+    local spaced = SurvivorCompanion.Combat.update(swapActor, player,
+        { snapshot = combatSnapshot(swapZed, 4) })
+    check(spaced and swapActor.lastIntent.action == "backstep"
+            and swapActor.primary == brokenPen,
+        "a companion creates space before equipping a backup for its broken pen")
+    local swapClock = clock
+    clock = clock + 300
+    swapActor.square = cell:getGridSquare(6, -12, 0)
+    local drawn = SurvivorCompanion.Combat.update(swapActor, player,
+        { snapshot = combatSnapshot(swapZed, 16) })
+    check(drawn and swapActor.lastIntent.action == "equip_weapon"
+            and swapActor.primary == spareCrowbar,
+        "once clear of the zombie, a companion equips its usable backup")
+    clock = swapClock
 
     local jammedRifle = item("Base.JammedRifle", "Weapon", {
         ranged = true, damage = 2, range = 10, ammo = 0, maxAmmo = 5,
@@ -11279,18 +11371,15 @@ registry[wrongReloader.id] = nil
     local unarmedZed = zombie(9, -8, { attacking = true, target = unarmedActor })
     local defended = SurvivorCompanion.Combat.update(
         unarmedActor, player, { snapshot = combatSnapshot(unarmedZed) })
-    local dryStyle = SurvivorCompanion.Combat.unarmedResponse(unarmedActor)
     local dryAction = unarmedActor.lastIntent and unarmedActor.lastIntent.action
-    check(defended and ((dryStyle == "fight" and dryAction == "shove")
-        or (dryStyle == "withdraw"
-            and (dryAction == "corner_escape" or dryAction == "combat_retreat"))),
-        "a firearm-only actor with no ammunition uses its stable unarmed response; got "
+    check(defended and dryAction == "shove",
+        "a firearm-only actor with no ammunition shoves an isolated zombie; got "
             .. tostring(unarmedActor.lastIntent and unarmedActor.lastIntent.action)
             .. ":" .. tostring(unarmedActor.lastIntent and unarmedActor.lastIntent.item
                 and unarmedActor.lastIntent.item.itemType))
 
     for _, value in ipairs({ fallbackActor, fallbackZed, brokenActor, brokenZed,
-            jamActor, jamZed, unarmedActor, unarmedZed }) do
+            jamActor, jamZed, unarmedActor, unarmedZed, swapActor, swapZed }) do
         if value.square and value.square.moving then
             for index = #value.square.moving, 1, -1 do
                 if value.square.moving[index] == value then table.remove(value.square.moving, index) end

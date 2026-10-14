@@ -20,6 +20,7 @@ local targetClaims = setmetatable({}, { __mode = "k" })
 local actorClaims = setmetatable({}, { __mode = "k" })
 local groundedLaneClaims = setmetatable({}, { __mode = "k" })
 local groundedLaneLoggedAt = setmetatable({}, { __mode = "k" })
+local targetHealthObservations = setmetatable({}, { __mode = "k" })
 local retreatPlans = {}
 local lastGroupCombatBarkAt = -math.huge
 
@@ -562,6 +563,10 @@ local function consumeCombatEvents(actor, state)
             state.lastCombatEvidence = evidence
             state.lastCombatEvidenceReason = eventReason
             state.lastCombatEvidenceAt = U().nowMs()
+            if evidence.anticipatorySwing == true then
+                state.postSwingBackstepUntil = state.lastCombatEvidenceAt + 900
+                state.attackAnchor = nil
+            end
             if evidence.result == "no_effect" then
                 state.noEffectCollisions = state.noEffectTarget == evidence.target
                     and (state.noEffectCollisions or 0) + 1 or 1
@@ -570,6 +575,22 @@ local function consumeCombatEvents(actor, state)
                 -- A successful first hit on B must not inherit failures from A.
                 state.noEffectCollisions = 0
                 state.noEffectTarget = evidence.target
+                -- Preserve the pre-hit health before the next targeting pulse.
+                -- Otherwise the first observation of a wounded zombie becomes
+                -- its apparent maximum and nobody recognizes it as finishable.
+                if evidence.target ~= nil then
+                    local before = tonumber(evidence.healthBefore)
+                    local after = tonumber(evidence.healthAfter)
+                    if before and after and before > 0 and after >= 0 then
+                        local observed = targetHealthObservations[evidence.target]
+                            or { nextAt = -math.huge }
+                        observed.maximum = math.max(
+                            tonumber(observed.maximum) or before, before)
+                        observed.health = after
+                        observed.nextAt = -math.huge
+                        targetHealthObservations[evidence.target] = observed
+                    end
+                end
             end
             if evidence.floorAttack == true and evidence.action == "attack_melee"
                 and evidence.target ~= nil then
@@ -1059,6 +1080,7 @@ function Combat.holdNativeAttack(actor, runtime)
             state.stalledHoldSince = nil
             state.stalledHoldTarget = nil
             state.stalledHoldHealth = nil
+            state.stalledHoldReceipt = nil
         end
         return nil, "no_native_attack"
     end
@@ -1095,6 +1117,8 @@ function Combat.holdNativeAttack(actor, runtime)
             clearEngagement(state, actor)
             state.active, state.target, state.retreating = false, nil, false
             state.nativeAttackOrphanSince, state.nativeAttackOrphanTarget = nil, nil
+            state.stalledHoldTarget, state.stalledHoldSince = nil, nil
+            state.stalledHoldHealth, state.stalledHoldReceipt = nil, nil
             state.aimTarget, state.aimStartedAt, state.aimRequiredMs = nil, nil, nil
             state.lastOffensiveTarget, state.lastOffensiveAt = nil, nil
             rootRuntime.combatTarget, rootRuntime.combatAction = nil, nil
@@ -1116,29 +1140,33 @@ function Combat.holdNativeAttack(actor, runtime)
         zombie that never died, still treating it as a live threat, and nothing
         in the log recorded it.
 
-        This is a progress watchdog, not a blanket timer. Progress is the
-        target actually losing health; a slow fight keeps resetting the clock
-        and is never cut short. Only a genuinely stalled episode -- an attack
-        in progress, a living target, and no damage at all for the configured
-        window -- releases, and it releases through the same verified path the
-        dead-target branch uses, touching only this mod's own lease.
+        This is a progress watchdog, not a blanket timer. A native collision
+        receipt proves the attack animation advanced; target health does not.
+        A wounded zombie can continue losing health without another swing,
+        leaving an actor frozen forever if that damage resets this timer.
+        Only a genuinely stalled episode releases through the same verified
+        path the dead-target branch uses, touching only this mod's own lease.
 
         Reactions, grapples, knockdowns and death already returned
         native_attack_interrupted above, so none of those can reach here.
         ]]
-        -- Assign the multi-return to a local before tonumber: select() in
-        -- argument position forwards U.call's ok flag as tonumber's BASE
-        -- argument, which throws. Same trap SCZombieAttack documents.
+        -- Assign each multi-return before tonumber: select() in argument
+        -- position also forwards U.call's ok flag as tonumber's BASE argument.
         local healthValue = select(1, U().call(target, "getHealth"))
         local health = tonumber(healthValue)
+        local receiptValue = select(1, U().call(actor,
+            "getCompanionAttackReceiptSerial"))
+        local receipt = tonumber(receiptValue)
         if state.stalledHoldTarget ~= target then
             state.stalledHoldTarget = target
             state.stalledHoldSince = now
             state.stalledHoldHealth = health
-        elseif health ~= nil and state.stalledHoldHealth ~= nil
-            and health < state.stalledHoldHealth - 0.001 then
-            -- Damage landed: the episode is progressing.
+            state.stalledHoldReceipt = receipt
+        elseif receipt ~= nil and state.stalledHoldReceipt ~= nil
+            and receipt > state.stalledHoldReceipt then
+            -- A new completed native collision, including one with no effect.
             state.stalledHoldSince = now
+            state.stalledHoldReceipt = receipt
             state.stalledHoldHealth = health
         elseif now - (state.stalledHoldSince or now)
             >= (tonumber(U().config("combatStalledAttackLeaseMs")) or 8000) then
@@ -1151,7 +1179,7 @@ function Combat.holdNativeAttack(actor, runtime)
             clearEngagement(state, actor)
             state.active, state.target, state.retreating = false, nil, false
             state.stalledHoldTarget, state.stalledHoldSince = nil, nil
-            state.stalledHoldHealth = nil
+            state.stalledHoldHealth, state.stalledHoldReceipt = nil, nil
             state.aimTarget, state.aimStartedAt, state.aimRequiredMs = nil, nil, nil
             rootRuntime.combatTarget, rootRuntime.combatAction = nil, nil
             rootRuntime.combatRole, rootRuntime.combatCohort = nil, nil
@@ -1162,6 +1190,7 @@ function Combat.holdNativeAttack(actor, runtime)
                 "action=stalled_attack_release native=" .. tostring(released)
                     .. " reason=" .. tostring(releaseReason)
                     .. " targetHealth=" .. tostring(health)
+                    .. " receipt=" .. tostring(receipt)
                     .. " onFloor=" .. tostring(boolCall(target, "isOnFloor")))
             return nil, released and "stalled_attack_released"
                 or "stalled_attack_lease_expired"
@@ -1515,6 +1544,36 @@ local function threatScore(threat, actor, player, snapshot)
     return score, bearing, facingDot
 end
 
+-- Team members share one short health sample per zombie. A damaged target is
+-- easier to finish than six equally fresh ones, but this preference is local
+-- and bounded so a rescue, attacker at contact, or overrun still wins. No
+-- native health read occurs for distant sightings or on every combat pulse.
+local function woundedTargetScore(zombie, distanceSq, now)
+    if zombie == nil or (tonumber(distanceSq) or math.huge) > 3.25 ^ 2 then
+        return 0
+    end
+    local observed = targetHealthObservations[zombie]
+    if observed == nil then
+        observed = { nextAt = -math.huge }
+        targetHealthObservations[zombie] = observed
+    end
+    if now >= observed.nextAt then
+        local value = select(1, U().call(zombie, "getHealth"))
+        local health = tonumber(value)
+        if health ~= nil and health > 0 then
+            observed.maximum = math.max(tonumber(observed.maximum) or health, health)
+            observed.health = health
+        end
+        observed.nextAt = now + 600
+    end
+    local maximum, health = tonumber(observed.maximum), tonumber(observed.health)
+    if maximum == nil or health == nil or maximum <= 0
+        or health >= maximum - 0.05 then return 0 end
+    return U().clamp((maximum - health) / maximum * 100, 0, 64)
+end
+
+Combat._woundedTargetScoreForTests = woundedTargetScore
+
 local function sampleTargetMotion(state, actor, target, distance, now)
     state.motionTracks = state.motionTracks or setmetatable({}, { __mode = "k" })
     local utility = U()
@@ -1602,6 +1661,13 @@ function Combat.scoreTargets(actor, player, snapshot, previousTarget)
     end
     local liveSightRadius = utility.config("combatLiveSightRadius") or 2.5
     local actorX, actorY, actorZ = utility.position(actor)
+    local heldForFocus = type(state.weaponCache) == "table"
+        and state.weaponCache.item
+        or select(1, utility.call(actor, "getPrimaryHandItem"))
+    local heldReach = heldForFocus
+        and select(2, Combat.meleeRange(actor, heldForFocus)) or nil
+    local woundFocusRadius = math.min(2.35,
+        math.max(1.55, (heldReach or 0.95) + 0.6))
     for index = 1, math.min(#snapshot.threats, utility.config("perceptionThreatLimit") or 32) do
         local threat = snapshot.threats[index]
         -- Treat the snapshot as a bounded candidate list. Native LOS is checked
@@ -1664,6 +1730,25 @@ function Combat.scoreTargets(actor, player, snapshot, previousTarget)
             record.obstructed = false
             record.rescue = Combat._rescuing(actor, threat.actor, pinnedAllies)
             local score, bearing, facingDot = threatScore(record, actor, player, snapshot)
+            local immediate = tonumber(snapshot.reachableImmediateCount)
+                or tonumber(snapshot.closeImmediateCount) or 0
+            if snapshot.encircled ~= true and immediate <= 2
+                and (immediate == 0
+                    or record.distanceSq <= woundFocusRadius * woundFocusRadius)
+                and not (type(snapshot.squadPlan) == "table"
+                    and snapshot.squadPlan.mode == "disengage") then
+                record.woundedScore = woundedTargetScore(threat.actor,
+                    record.distanceSq, now)
+                -- An injured zombie at the edge of this weapon's reach is
+                -- worth finishing, but not worth ignoring a fresh attacker
+                -- already at body contact. Near misses keep the full bonus;
+                -- the added outer ring gets only a bounded tie-break.
+                if immediate > 0 and record.distanceSq > 1.55 ^ 2 then
+                    record.woundedScore = math.min(20,
+                        record.woundedScore * 0.4)
+                end
+                score = score + record.woundedScore
+            end
             if designation and designation.actor == threat.actor then
                 if designation.mode == "focus" then
                     record.playerDesignation = "focus"
@@ -2227,6 +2312,60 @@ function Combat.readiness(actor, snapshot, weapon, commands)
     }
 end
 
+-- A lone armed fighter may take one outer-edge swing while peeling a small
+-- group, provided only one zombie can reach them now and the others have not
+-- come around the flank. Use the equipped weapon's actual band; a pen cannot
+-- make the same opening as a crowbar or shovel. This is a bounded geometry
+-- check over the perception snapshot, not another world scan.
+local function guardedKiteOpening(actor, snapshot, target, weapon, readiness,
+        immediate, close, occupied)
+    if not target or not target.actor or target.visible == false
+        or target.obstructed == true or target.attacking == true
+        or target.bearing ~= "front" or not weapon or weapon.ranged
+        or weapon.equipped == false or (tonumber(weapon.condition) or 0) <= 0
+        or immediate > 1 or close < 2 or close > 3 or occupied > 2
+        or readiness.health < 90 or readiness.staminaCritical == true
+        or snapshot.encircled == true or #(snapshot.escapeSquares or {}) == 0
+        or snapshot.squadPlan and snapshot.squadPlan.mode == "disengage" then
+        return false
+    end
+    local _, maximum = Combat.meleeRange(actor, weapon.item)
+    if not maximum or maximum - (tonumber(weapon.minRange) or 0.15) < 0.55 then
+        return false
+    end
+    local utility = U()
+    local ax, ay = utility.position(actor)
+    local tx, ty = utility.position(target.actor)
+    if ax == nil or tx == nil then return false end
+    local fx, fy = tx - ax, ty - ay
+    local distance = math.sqrt(fx * fx + fy * fy)
+    if distance < (tonumber(weapon.minRange) or 0.15) + 0.08
+        or distance > maximum + math.min(0.85, maximum * 0.7)
+        or (distance > maximum and (tonumber(target.closingSpeed) or 0) < 0.65) then
+        return false
+    end
+    for index = 1, math.min(#(snapshot.threats or {}), 32) do
+        local threat = snapshot.threats[index]
+        if threat.actor and threat.actor ~= target.actor
+            and threat.visible ~= false and threat.obstructed ~= true then
+            local zx, zy = utility.position(threat.actor)
+            if zx ~= nil then
+                local dx, dy = zx - ax, zy - ay
+                local otherDistance = math.sqrt(dx * dx + dy * dy)
+                if otherDistance <= maximum + 0.75
+                    or otherDistance < maximum + 1.6
+                        and (dx * fx + dy * fy)
+                            < 0.45 * otherDistance * distance then
+                    return false
+                end
+            end
+        end
+    end
+    return true
+end
+
+Combat._guardedKiteOpeningForTests = guardedKiteOpening
+
 function Combat.assessOverrun(actor, snapshot, weapon, commands, options)
     snapshot = type(snapshot) == "table" and snapshot or {}
     commands = type(commands) == "table" and commands or commandState(actor)
@@ -2322,6 +2461,20 @@ function Combat.assessOverrun(actor, snapshot, weapon, commands, options)
     local woundedWithdrawal = assessment.health <= 55
         and (immediate >= 1 or close >= 2)
     local squadMode = snapshot.squadPlan and snapshot.squadPlan.mode
+    -- With allies beside them and every contact still outside grab range,
+    -- front-line fighters can hold the outer weapon edge for one exchange.
+    -- The allowance disappears as soon as any zombie reaches contact, the
+    -- group spreads around them, or the only escape lane closes.
+    if immediate == 0 and close >= 2 and close <= 4
+        and occupied <= 2 and support >= 1 and not noEscape
+        and snapshot.encircled ~= true and squadMode ~= "disengage"
+        and assessment.health >= 85 and readiness.staminaCritical ~= true then
+        threshold = threshold + 10
+    end
+    if guardedKiteOpening(actor, snapshot, options.target, weapon,
+        readiness, immediate, close, occupied) then
+        threshold = threshold + 16
+    end
     -- Giving ground is a stance, not a compulsory retreat by every member.
     -- Let local bite risk choose which fighter must move on this pulse.
     local squadWithdrawal = squadMode == "disengage"
@@ -2405,6 +2558,130 @@ local function retreatUtility(actor, snapshot, weapon, readiness)
     local support = readiness.support * 4
     value = value - math.min(support, U().config("combatAllySupportMax") or 12)
     return value
+end
+
+-- Start a weapon swing while a zombie is closing into reach. The native hit
+-- occurs later in the animation; waiting until contact gives the zombie the
+-- first grab. Only a visible frontal target gets this narrow extra start band.
+local function pressureBehindSwing(actor, snapshot, target)
+    local utility = U()
+    local ax, ay = utility.position(actor)
+    local tx, ty = utility.position(target.actor)
+    if not ax or not tx then return true end
+    local forwardX, forwardY = tx - ax, ty - ay
+    local forwardLength = math.sqrt(forwardX * forwardX + forwardY * forwardY)
+    if forwardLength < 0.001 then return true end
+    for index = 1, math.min(#(snapshot.threats or {}), 32) do
+        local threat = snapshot.threats[index]
+        if threat.actor and threat.actor ~= target.actor
+            and threat.visible ~= false and threat.obstructed ~= true then
+            local zx, zy = utility.position(threat.actor)
+            if zx then
+                local dx, dy = zx - ax, zy - ay
+                local distanceSq = dx * dx + dy * dy
+                if distanceSq <= 25 and distanceSq > 0.01
+                    and dx * forwardX + dy * forwardY
+                        <= 0.25 * math.sqrt(distanceSq) * forwardLength then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
+-- Two zombies can enter the same swing arc while the fighter backs away. Do
+-- not treat every second contact as a flank: permit this only if both are still
+-- beyond weapon reach, in a narrow forward cone, and an escape square exists.
+-- This scan runs only for the two-immediate-contact case and is bounded by the
+-- same perception candidate limit as the rest of combat.
+local function frontalPairSwingSafe(actor, snapshot, target, maximum)
+    if #(snapshot.escapeSquares or {}) == 0 then return false end
+    local utility = U()
+    local ax, ay = utility.position(actor)
+    local tx, ty = utility.position(target.actor)
+    if ax == nil or tx == nil then return false end
+    local fx, fy = tx - ax, ty - ay
+    local forwardLength = math.sqrt(fx * fx + fy * fy)
+    if forwardLength < 0.01 then return false end
+    local otherFront = 0
+    -- The reach of a crowbar and a shovel differs, but an immediate zombie is
+    -- urgent inside 2.25 tiles for either weapon. Include that whole envelope
+    -- before deciding that this is only a pair.
+    local dangerRadius = math.max(2.25, maximum + 0.8)
+    for index = 1, math.min(#(snapshot.threats or {}), 32) do
+        local threat = snapshot.threats[index]
+        if threat.actor and threat.actor ~= target.actor
+            and threat.visible ~= false and threat.obstructed ~= true then
+            local zx, zy = utility.position(threat.actor)
+            if zx ~= nil then
+                local dx, dy = zx - ax, zy - ay
+                local distanceSq = dx * dx + dy * dy
+                if distanceSq <= dangerRadius * dangerRadius then
+                    local distance = math.sqrt(distanceSq)
+                    if threat.attacking == true or distance <= maximum + 0.08
+                        or dx * fx + dy * fy
+                            < 0.8 * distance * forwardLength then
+                        return false
+                    end
+                    otherFront = otherFront + 1
+                end
+            end
+        end
+    end
+    return otherFront == 1
+end
+
+function Combat.anticipatoryMeleeWindow(actor, player, snapshot, target, weapon,
+        readiness, allowWaiting)
+    if not target or not target.actor or not weapon or weapon.ranged
+        or weapon.equipped == false
+        or (tonumber(weapon.condition) or 0) <= 0
+        or target.visible ~= true or target.obstructed == true
+        or target.attacking == true or target.bearing ~= "front"
+        or snapshot.encircled == true
+        or snapshot.squadPlan and snapshot.squadPlan.mode == "disengage"
+        or readiness.staminaCritical == true
+        or (tonumber(readiness.health) or 0) < 75 then return nil end
+    local immediate = tonumber(snapshot.reachableImmediateCount)
+        or tonumber(snapshot.closeImmediateCount) or 0
+    local sectors = tonumber(snapshot.reachableThreatSectors)
+        or tonumber(snapshot.occupiedThreatSectors) or 0
+    if immediate > 2 or sectors > 2
+        or pressureBehindSwing(actor, snapshot, target) then return nil end
+    local closing = tonumber(target.closingSpeed) or 0
+    if closing < 0.65 then return nil end
+    local minimum, maximum = Combat.meleeRange(actor, weapon.item)
+    if not maximum then return nil end
+    local nativeMinimum = math.max(0.15, tonumber(weapon.minRange)
+        or (minimum and minimum + (U().config("combatMeleeInnerTolerance") or 0.15))
+        or 0.15)
+    local usableBand = math.max(0, maximum - nativeMinimum)
+    -- Short stabbing tools have almost no interval between native minimum and
+    -- maximum reach. They can still counter one zombie, but trying to time a
+    -- pair swing with that narrow band presents the fighter for a grab.
+    if immediate == 2 and (sectors > 1
+        or (tonumber(readiness.health) or 0) < 85
+        or usableBand < 0.55
+        or not frontalPairSwingSafe(actor, snapshot, target, maximum)) then
+        return nil
+    end
+    local distance = math.sqrt(U().distanceSq(actor, target.actor))
+    -- The collision happens partway through the native swing, after a closing
+    -- walker has advanced. Start the animation while there is still space to
+    -- finish it; the weapon's usable band keeps this small for short blades.
+    local lead = math.min(U().clamp(closing * 0.52, 0.08, 0.55),
+        math.max(0.08, usableBand * 0.65),
+        math.max(0.08, maximum * 0.32))
+    local waitBand = math.min(1.1, math.max(0.35, maximum * 0.7))
+    if distance <= maximum + 0.05
+        or distance > maximum + (allowWaiting and waitBand or lead)
+        or not U().sameFloor(actor, target.actor)
+        or lineBlockedByFriendly(actor, target.actor, player, snapshot, "melee") then
+        return nil
+    end
+    if distance > maximum + lead then return nil, allowWaiting == true end
+    return lead
 end
 
 local function findGroundedThreat(scored, range)
@@ -2720,6 +2997,31 @@ function Combat.unarmedResponse(actor)
         and "withdraw" or "fight"
 end
 
+-- A broken last weapon still leaves a healthy fighter with a safe answer to
+-- one isolated zombie. Use the existing perception snapshot; do not turn an
+-- unarmed companion into a pursuer when a second threat can join the exchange.
+local function isolatedUnarmedFight(actor, snapshot, target, readiness)
+    if not target or not target.actor or target.visible == false
+        or target.obstructed == true or readiness.health < 65
+        or readiness.staminaCritical == true or snapshot.encircled == true
+        or snapshot.squadPlan and snapshot.squadPlan.mode == "disengage"
+        or (tonumber(snapshot.incomingCount) or 0) > 1
+        or (tonumber(snapshot.reachableCloseCount)
+            or tonumber(snapshot.closeThreatCount) or 0) > 1 then return false end
+    local utility = U()
+    for index = 1, math.min(#(snapshot.threats or {}), 32) do
+        local other = snapshot.threats[index]
+        if other.actor and other.actor ~= target.actor
+            and other.visible ~= false and other.obstructed ~= true
+            and not utility.isGoneTarget(other.actor)
+            and (tonumber(other.distanceSq)
+                or utility.distanceSq(actor, other.actor)) <= 36 then
+            return false
+        end
+    end
+    return utility.sameFloor(actor, target.actor)
+end
+
 local function actionUtilities(actor, player, snapshot, target, weapon, inventory, commands,
         readiness)
     local utility = U()
@@ -2731,8 +3033,11 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
     local fatiguePenalty = (1 - readiness.endurance) * 24
     local actions = {}
     local retreat = retreatUtility(actor, snapshot, weapon, readiness)
+    local soloUnarmed = weapon == nil
+        and isolatedUnarmedFight(actor, snapshot, target, readiness)
     local unarmedWithdraw = weapon == nil and commands.recruited == true
-        and commands.order == "follow" and Combat.unarmedResponse(actor) == "withdraw"
+        and commands.order == "follow" and not soloUnarmed
+        and Combat.unarmedResponse(actor) == "withdraw"
     if unarmedWithdraw then
         retreat = math.max(retreat, groundedTarget(target.actor) and 100
             or 120 + pressure * 4)
@@ -2750,14 +3055,24 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
         and (not unarmedWithdraw or (distance <= 0.8 and target.attacking == true)) then
         actions[#actions + 1] = {
             kind = "shove",
-            score = (unarmedWithdraw and 140 or 62) + pressure * 7 + readiness.strength * 1.3
+            score = (unarmedWithdraw and 140 or soloUnarmed and 98 or 62)
+                + pressure * 7 + readiness.strength * 1.3
                 + readiness.nimble * 0.5 - fatiguePenalty * 0.35
                 + (isolatedFront and 10 or -8),
         }
     end
-    if grounded and readiness.immediate <= 1 and isolatedFront
-        and (not SC.CombatSquad
-            or SC.CombatSquad.safeFinisher(actor, target.actor, snapshot)) then
+    -- Aggregate immediate pressure also counts prone zombies. Use the bounded
+    -- posture-aware check for a floor finisher, so two knocked-down walkers do
+    -- not prevent the fighter finishing either before they stand back up.
+    local floorClear = false
+    if grounded then
+        if SC.CombatSquad and type(SC.CombatSquad.safeFinisher) == "function" then
+            floorClear = SC.CombatSquad.safeFinisher(actor, target.actor, snapshot)
+        else
+            floorClear = readiness.immediate <= 1 and isolatedFront
+        end
+    end
+    if grounded and floorClear then
         local finisher = Combat.groundedFinisher(actor, target.actor, weapon, readiness, commands)
         local barrier = finisher.kind ~= "hold_range"
             and groundedStrikeBarrier(actor, target.actor,
@@ -2837,6 +3152,12 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
             local swingMin = spacing and spacing.minimum or 0.15
             local swingMax = spacing and spacing.maximum or (utility.config("combatMeleeDistance") or 1.7)
             local defend = spacing and spacing.defend or swingMin
+            local anticipatoryLead, anticipatoryWait
+            if distance > swingMax and squadMode ~= "disengage" then
+                anticipatoryLead, anticipatoryWait =
+                    Combat.anticipatoryMeleeWindow(actor, player, snapshot,
+                        target, weapon, readiness, true)
+            end
             if distance < defend then
                 -- Defend before contact crosses native minimum reach. A shove
                 -- creates space when a zombie already attacks or is too close;
@@ -2881,6 +3202,24 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
                         - pressure * 3 - fatiguePenalty
                         - math.max(0, readiness.weaponCost - 1.5) * 3,
                 }
+            elseif anticipatoryLead then
+                actions[#actions + 1] = {
+                    kind = "melee", anticipatorySwing = true,
+                    anticipatoryLead = anticipatoryLead,
+                    closingSpeed = target.closingSpeed,
+                    score = 98 + weapon.damage * 5
+                        + readiness.combatSkill * 1.8
+                        + readiness.weaponQuality * 8
+                        - pressure * 2 - fatiguePenalty,
+                }
+            elseif anticipatoryWait then
+                -- Let the closing zombie come to the weapon instead of
+                -- walking into its grab. Keep facing it for the early swing.
+                actions[#actions + 1] = {
+                    kind = "hold_range", closingWait = true,
+                    score = 92 + readiness.combatSkill * 1.2
+                        - pressure * 2 - fatiguePenalty,
+                }
             elseif isolatedFront and readiness.staminaCritical ~= true then
                 -- Beyond swing reach: advance to the outer swing edge under guard;
                 -- the next tick resumes the swing/kite exchange from there.
@@ -2900,8 +3239,43 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
                 }
             end
         end
-    elseif not weapon and not grounded and not unarmedWithdraw then
-        actions[#actions + 1] = { kind = distance <= 1.35 and "shove" or "escape", score = 58 + pressure * 8 }
+    elseif not weapon and not grounded and soloUnarmed
+        and distance > (utility.config("combatShoveDistance") or 1.35)
+        and distance <= 6 then
+        -- Close only to the outer shove band, then let the native shove and
+        -- existing short stomp follow-up own the rest of the exchange.
+        actions[#actions + 1] = {
+            kind = "approach", minimumDistance = 1.15,
+            score = 94 + readiness.nimble * 0.6 - pressure * 2
+                - fatiguePenalty * 0.3,
+        }
+    elseif not weapon and not grounded and not unarmedWithdraw
+        and not soloUnarmed then
+        actions[#actions + 1] = {
+            kind = distance <= 1.35 and "shove" or "escape",
+            score = 58 + pressure * 8,
+        }
+    end
+    if weapon and not weapon.equipped and not grounded
+        and target.visible ~= false and target.obstructed ~= true
+        and utility.sameFloor(actor, target.actor) then
+        -- A backup weapon is already selected by responsiveWeapon, including
+        -- after the held pen breaks. Make room before drawing it: the native
+        -- equip command otherwise runs in the zombie's grab range. At body
+        -- contact, shove first; beyond it, step back to the new weapon's band.
+        local drawDistance = math.max(2.2,
+            math.min(3.1, (tonumber(weapon.range) or 1.5) + 0.7))
+        if distance <= 0.9 and target.attacking == true then
+            actions[#actions + 1] = {
+                kind = "shove", drawSpacing = true,
+                score = 154 + pressure * 2,
+            }
+        elseif distance < drawDistance then
+            actions[#actions + 1] = {
+                kind = "backstep", drawSpacing = true,
+                score = 132 + pressure * 2,
+            }
+        end
     end
     if SC.Topology and type(SC.Topology.strikeBarrier) == "function" then
         local barrier
@@ -3024,6 +3398,7 @@ local function tacticalAssessment(actor, state, snapshot, target, weapon, comman
     local overrun = Combat.assessOverrun(actor, snapshot, weapon, commands, {
         playerRequested = designationActive == true,
         pushed = designationActive == true and designation.pushed == true,
+        target = target,
     })
     if snapshotTime ~= nil then
         state.tacticalCache = {
@@ -3297,7 +3672,8 @@ local function selectViablePair(actor, player, snapshot, scored, commands, state
                 target = target, weapon = weapon, inventory = inventory,
                 readiness = readiness, action = action, distance = distance,
                 score = (tonumber(action.score) or 0)
-                    + (tonumber(target.score) or 0) * 0.35,
+                    + (tonumber(target.score) or 0) * 0.35
+                    + (tonumber(target.woundedScore) or 0) * 0.65,
             }
             if action.kind == "retreat" or action.kind == "escape" then
                 if target == preferredTarget and (retreatPair == nil
@@ -3800,8 +4176,44 @@ local function executeRetreatCounter(actor, player, snapshot, target, weapon, co
             > (utility.config("combatRetreatCoverFireMaxRisk") or 76) then return false end
 
     local distance = math.sqrt(target.distanceSq or utility.distanceSq(actor, target.actor))
+    local meleeMinimum, meleeMaximum
+    if weapon and not weapon.ranged then
+        meleeMinimum, meleeMaximum = Combat.meleeRange(actor, weapon.item)
+    end
+    local counterOuterEdge = meleeMaximum and math.max(
+        (meleeMinimum or 0) + 0.12, meleeMaximum - 0.22) or math.huge
     local accepted, action
-    if distance <= (utility.config("combatShoveDistance") or 1.35)
+    local anticipatoryLead = weapon and weapon.equipped
+        and Combat.anticipatoryMeleeWindow(actor, player, snapshot,
+            target, weapon, overrun.readiness) or nil
+    if anticipatoryLead then
+        accepted = utility.move(actor, "walk", {
+            action = "attack_melee", weapon = weapon.item,
+            target = target.actor, retreatCounter = true,
+            anticipatorySwing = true, anticipatoryLead = anticipatoryLead,
+            closingSpeed = target.closingSpeed,
+            combatDoctrine = commands.combatDoctrine,
+        })
+        action = "retreat_anticipatory_melee"
+    elseif weapon and weapon.equipped and not weapon.ranged
+        and (tonumber(weapon.condition) or 0) > 0
+        and (tonumber(overrun.readiness.health) or 0) >= 75
+        and (tonumber(snapshot.reachableCloseCount)
+            or tonumber(snapshot.closeThreatCount) or 0) <= 1
+        and #(snapshot.escapeSquares or {}) > 0
+        and target.bearing == "front" and target.attacking ~= true
+        and target.visible == true and target.obstructed ~= true
+        and utility.sameFloor(actor, target.actor)
+        and distance >= counterOuterEdge and distance <= (meleeMaximum or 0)
+        and not pressureBehindSwing(actor, snapshot, target)
+        and not lineBlockedByFriendly(actor, target.actor, player, snapshot, "melee") then
+        accepted = utility.move(actor, "walk", {
+            action = "attack_melee", weapon = weapon.item,
+            target = target.actor, retreatCounter = true,
+            combatDoctrine = commands.combatDoctrine,
+        })
+        action = "retreat_melee"
+    elseif distance <= (utility.config("combatShoveDistance") or 1.35)
         and utility.sameFloor(actor, target.actor)
         and not lineBlockedByFriendly(actor, target.actor, player, snapshot, "melee") then
         -- One controlled shove buys the next movement decision room to turn.
@@ -3827,7 +4239,10 @@ local function executeRetreatCounter(actor, player, snapshot, target, weapon, co
     end
     if accepted ~= true then return false end
     state.lastRetreatCounterAt = now
-    if action == "retreat_cover_fire" then claimTarget(target.actor, actor, now) end
+    if action == "retreat_cover_fire" or action == "retreat_anticipatory_melee"
+        or action == "retreat_melee" then
+        claimTarget(target.actor, actor, now)
+    end
     return true, action
 end
 
@@ -3866,6 +4281,33 @@ local function executeLastStand(actor, player, snapshot, target, weapon)
 end
 Combat._executeLastStandForTests = executeLastStand
 
+-- Backpedal for a short pulse while the zombie approaches the outer swing
+-- edge. A full-speed retreat here can keep the target out of reach forever;
+-- an intermittent quarter-speed step preserves the player's facing and gives
+-- the zombie time to close. Navigation proves the backward segment first.
+local function closingBackpedal(actor, snapshot, target, weapon, state, now)
+    if not target or not target.actor or not weapon
+        or now - (state.lastClosingBackpedalAt or -100000) < 900
+        or pressureBehindSwing(actor, snapshot, target)
+        or not SC.Navigation or type(SC.Navigation.combatVector) ~= "function" then
+        return false
+    end
+    local _, maximum = Combat.meleeRange(actor, weapon.item)
+    local distance = math.sqrt(U().distanceSq(actor, target.actor))
+    if not maximum or distance > maximum
+        + math.min(0.85, math.max(0.35, maximum * 0.7)) then return false end
+    local dx, dy, steered = SC.Navigation.combatVector(
+        actor, target.actor, "backstep", snapshot)
+    if dx == nil or dy == nil then return false end
+    local moved = U().move(actor, "walk", {
+        action = "backstep", target = target.actor, awayFrom = target.actor,
+        dx = dx, dy = dy, keepFacing = true, weaponReady = true,
+        movementDistanceScale = 0.25, microSteered = steered == true,
+    })
+    if moved then state.lastClosingBackpedalAt = now end
+    return moved == true
+end
+
 local function execute(actor, player, snapshot, target, weapon, action, commands, state)
     local utility = U()
     state = state or stateFor(actor)
@@ -3902,7 +4344,8 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         utility.stop(actor)
         return false, "finisher_unsafe"
     end
-    if weapon and not weapon.equipped and action.kind ~= "shove" and action.kind ~= "stomp" then
+    if weapon and not weapon.equipped and action.kind ~= "shove"
+        and action.kind ~= "stomp" and action.drawSpacing ~= true then
         if not equipWeapon(actor, weapon.item, { nextAction = action.kind }) then
             return false, "equip_rejected"
         end
@@ -3935,6 +4378,9 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
             action = "attack_melee", weapon = weapon.item, target = targetActor,
             floorAttack = action.floorAttack == true,
             groundedAttack = action.floorAttack == true,
+            anticipatorySwing = action.anticipatorySwing == true,
+            anticipatoryLead = action.anticipatoryLead,
+            closingSpeed = action.closingSpeed,
             combatDoctrine = commands and commands.combatDoctrine,
         })
     elseif action.kind == "shove" then
@@ -4070,10 +4516,16 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
             microSteered = steered == true,
         })
     elseif action.kind == "hold_range" then
-        accepted, nativeReason = utility.move(actor, "walk", {
-            action = "ready_weapon", target = targetActor, facingTarget = targetActor,
-            keepFacing = true, weaponReady = true, combatSpacingHold = true,
-        })
+        if action.closingWait == true and closingBackpedal(actor,
+            snapshot, target, weapon, state, utility.nowMs()) then
+            accepted, nativeReason = true, "anticipatory_backpedal"
+        else
+            accepted, nativeReason = utility.move(actor, "walk", {
+                action = "ready_weapon", target = targetActor,
+                facingTarget = targetActor, keepFacing = true,
+                weaponReady = true, combatSpacingHold = true,
+            })
+        end
     else
         return false, "unknown_action"
     end
@@ -4102,7 +4554,13 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         clearFinisherRoll(state, targetActor)
     end
     return true, action.kind == "hold_range" and action.recoveryReason
-        and "combat_recovery_wait" or action.kind
+        and "combat_recovery_wait"
+        or action.kind == "hold_range" and nativeReason == "anticipatory_backpedal"
+            and "anticipatory_backpedal"
+        or action.kind == "hold_range" and action.closingWait == true
+            and "anticipatory_wait"
+        or action.kind == "melee" and action.anticipatorySwing == true
+            and "anticipatory_melee" or action.kind
 end
 
 local function vehicleCombat(actor, player, snapshot, target, weapon, inventory, commands)
@@ -4364,8 +4822,37 @@ function Combat.update(actor, player, runtime)
     if overrun.overrun then state.retreatUntil = now + (utility.config("combatOverrunHoldMs") or 2600) end
     local keepRetreating = now < (state.retreatUntil or 0)
         and overrun.risk >= (utility.config("combatOverrunRecoveryRisk") or 38)
+    if state.postSwingBackstepUntil and now >= state.postSwingBackstepUntil then
+        state.postSwingBackstepUntil = nil
+    end
     if overrun.overrun or keepRetreating then
         clearAimPreparation(state)
+        local _, closingWait = Combat.anticipatoryMeleeWindow(actor, player,
+            snapshot, target, weapon, overrun.readiness, true)
+        if closingWait and not state.postSwingBackstepUntil
+            and (tonumber(overrun.risk) or math.huge)
+                <= (utility.config("combatRetreatCoverFireMaxRisk") or 76)
+            and #(snapshot.escapeSquares or {}) > 0 then
+            if closingBackpedal(actor, snapshot, target, weapon, state, now) then
+                state.active, state.target = true, target.actor
+                state.lastAction, state.lastActionAt = "anticipatory_backpedal", now
+                rootRuntime.combatTarget = target.actor
+                rootRuntime.combatAction = "anticipatory_backpedal"
+                return true, "anticipatory_backpedal"
+            end
+            local held = utility.move(actor, "walk", {
+                action = "ready_weapon", target = target.actor,
+                facingTarget = target.actor, keepFacing = true,
+                weaponReady = true, combatSpacingHold = true,
+            })
+            if held then
+                state.active, state.target = true, target.actor
+                state.lastAction, state.lastActionAt = "anticipatory_wait", now
+                rootRuntime.combatTarget = target.actor
+                rootRuntime.combatAction = "anticipatory_wait"
+                return true, "anticipatory_wait"
+            end
+        end
         local probe = state.cornerEscapeProbe
         if probe and #(snapshot.escapeSquares or {}) == 0 then
             local x, y = utility.position(actor)
@@ -4439,6 +4926,26 @@ function Combat.update(actor, player, runtime)
         return ok, ok and "overrun_retreat" or reason
     end
     state.cornerEscapeProbe = nil
+    if state.postSwingBackstepUntil then
+        if now >= state.postSwingBackstepUntil or not target
+            or (target.distanceSq or utility.distanceSq(actor, target.actor))
+                >= 2.4 * 2.4 or groundedTarget(target.actor) then
+            state.postSwingBackstepUntil = nil
+        else
+            local ready = nativeCombatReadiness(actor, "attack_melee")
+            if ready then
+                local withdrew = execute(actor, player, snapshot, target,
+                    weapon, { kind = "backstep" }, commands, state)
+                if withdrew then
+                    state.active, state.target = true, target.actor
+                    state.lastAction, state.lastActionAt = "post_swing_backstep", now
+                    rootRuntime.combatTarget = target.actor
+                    rootRuntime.combatAction = "post_swing_backstep"
+                    return true, "post_swing_backstep"
+                end
+            end
+        end
+    end
 
     phaseStarted = performance and performance.preciseNowMs()
     local pair = selectViablePair(actor, player, snapshot, scored, commands, state,
@@ -4661,6 +5168,7 @@ function Combat.reset(actor)
         actorClaims = setmetatable({}, { __mode = "k" })
         groundedLaneClaims = setmetatable({}, { __mode = "k" })
         groundedLaneLoggedAt = setmetatable({}, { __mode = "k" })
+        targetHealthObservations = setmetatable({}, { __mode = "k" })
         retreatPlans = {}
         if SC.CombatSquad then SC.CombatSquad.reset() end
         lastGroupCombatBarkAt = -math.huge

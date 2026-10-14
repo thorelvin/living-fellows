@@ -71,12 +71,189 @@ function weaponItem:getFullType() return "Base.Axe" end
 function weaponItem:getType() return "Axe" end
 function weaponItem:getCondition() return 10 end
 function weaponItem:getConditionMax() return 10 end
+function weaponItem:getCategory() return "Weapon" end
+function weaponItem:getMaxDamage() return 2.0 end
+function weaponItem:getMaxRange() return 1.5 end
+function weaponItem:getMinRange() return 0.3 end
 
 local fighter = character("sc-horde-fighter", 10.5, 10.5)
 local player = character("sc-horde-player", 11.5, 10.5)
 local weapon = { item = weaponItem, ranged = false, damage = 2.0, range = 1.5,
-    minRange = 0.3, conditionRatio = 1, sharpness = 1, staminaCost = 1, weight = 1.5 }
+    minRange = 0.3, condition = 10, conditionRatio = 1,
+    sharpness = 1, staminaCost = 1, weight = 1.5 }
 
+local woundedZombie = character("z-wounded-priority", 12, 10.5, "IsoZombie")
+woundedZombie.damage.health = 2
+local woundedScore = SC.Combat._woundedTargetScoreForTests
+check(woundedScore(woundedZombie, 2.25, 1000) == 0,
+    "a fresh zombie gets no finish preference")
+woundedZombie.damage.health = 0.5
+check(woundedScore(woundedZombie, 2.25, 1600) > 20,
+    "a badly wounded nearby zombie gets a bounded finish preference")
+check(woundedScore(woundedZombie, 25, 1600) == 0,
+    "a wounded distant zombie does not pull the fighter into danger")
+woundedZombie.damage.health = 2
+check(woundedScore(woundedZombie, 2.25, 2200) == 0,
+    "a recovered health reading clears the finish preference")
+
+local earlyZombie = character("z-early-swing", 12.3, 10.5, "IsoZombie")
+local earlyThreat = { actor = earlyZombie, visible = true,
+    obstructed = false, attacking = false, bearing = "front", closingSpeed = 1.0 }
+local earlySnapshot = { allies = {}, threats = { earlyThreat },
+    reachableImmediateCount = 1, reachableThreatSectors = 1,
+    encircled = false }
+local earlyReady = { health = 100, staminaCritical = false }
+check(SC.Combat.anticipatoryMeleeWindow(fighter, nil, earlySnapshot,
+    earlyThreat, weapon, earlyReady) ~= nil,
+    "a closing frontal zombie permits a narrow swing before contact")
+earlyZombie.x = 12.8
+local earlyLead, earlyWait = SC.Combat.anticipatoryMeleeWindow(fighter,
+    nil, earlySnapshot, earlyThreat, weapon, earlyReady, true)
+check(earlyLead == nil and earlyWait == true,
+    "the fighter faces a closing zombie instead of walking into its reach")
+earlyZombie.x = 12.3
+earlyThreat.closingSpeed = 0
+check(SC.Combat.anticipatoryMeleeWindow(fighter, nil, earlySnapshot,
+    earlyThreat, weapon, earlyReady) == nil,
+    "a stationary zombie does not invite an out-of-range swing")
+earlyThreat.closingSpeed = 1.0
+earlyReady.health = 55
+check(SC.Combat.anticipatoryMeleeWindow(fighter, nil, earlySnapshot,
+    earlyThreat, weapon, earlyReady) == nil,
+    "an injured fighter withdraws instead of starting an early swing")
+earlyReady.health = 100
+earlySnapshot.reachableImmediateCount = 2
+check(SC.Combat.anticipatoryMeleeWindow(fighter, nil, earlySnapshot,
+    earlyThreat, weapon, earlyReady) == nil,
+    "an unverified second immediate zombie rules out the anticipatory swing")
+local pairZombie = character("z-frontal-pair", 12.45, 10.5, "IsoZombie")
+earlySnapshot.threats[2] = { actor = pairZombie, visible = true,
+    obstructed = false, attacking = false }
+earlySnapshot.reachableThreatSectors = 1
+earlySnapshot.escapeSquares = { { square = square(9, 10), danger = 0 } }
+check(SC.Combat.anticipatoryMeleeWindow(fighter, nil, earlySnapshot,
+    earlyThreat, weapon, earlyReady) ~= nil,
+    "two closing frontal zombies outside weapon reach permit a guarded early swing")
+earlySnapshot.threats[3] = { actor = character("z-third-visible", 18, 10.5,
+    "IsoZombie"), visible = true, obstructed = false }
+check(SC.Combat.anticipatoryMeleeWindow(fighter, nil, earlySnapshot,
+    earlyThreat, weapon, earlyReady) ~= nil,
+    "a distant visible zombie does not suppress a safe local pair swing")
+earlySnapshot.squadPlan = { mode = "give_ground" }
+local pairActions = SC.Combat._actionUtilitiesForTests(fighter, nil,
+    earlySnapshot, earlyThreat, weapon, nil,
+    { combatDoctrine = "close_defense", morale = 70 })
+local pairSwingOffered = false
+for _, action in ipairs(pairActions or {}) do
+    if action.kind == "melee" and action.anticipatorySwing == true then
+        pairSwingOffered = true
+    end
+end
+check(pairSwingOffered,
+    "giving ground still offers an early swing against the local frontal pair")
+earlySnapshot.squadPlan = nil
+local thirdZombie = character("z-third-close", 13.1, 10.5, "IsoZombie")
+earlySnapshot.threats[3] = { actor = thirdZombie, visible = true,
+    obstructed = false, attacking = false }
+earlyReady.close = 3
+check(SC.Combat.anticipatoryMeleeWindow(fighter, nil, earlySnapshot,
+    earlyThreat, weapon, earlyReady) ~= nil,
+    "a third zombie outside the weapon's danger envelope does not suppress a safe swing")
+thirdZombie.x = 12.55
+earlySnapshot.reachableImmediateCount = 3
+check(SC.Combat.anticipatoryMeleeWindow(fighter, nil, earlySnapshot,
+    earlyThreat, weapon, earlyReady) == nil,
+    "three immediate zombies still require withdrawal")
+earlySnapshot.reachableImmediateCount = 2
+earlySnapshot.threats[3] = nil
+earlyReady.close = nil
+pairZombie.x = 11.9
+check(SC.Combat.anticipatoryMeleeWindow(fighter, nil, earlySnapshot,
+    earlyThreat, weapon, earlyReady) == nil,
+    "a second zombie already inside weapon reach cancels the early swing")
+pairZombie.x, pairZombie.y = 10.7, 12.3
+check(SC.Combat.anticipatoryMeleeWindow(fighter, nil, earlySnapshot,
+    earlyThreat, weapon, earlyReady) == nil,
+    "a flanking second zombie cancels the early swing")
+pairZombie.x, pairZombie.y = 12.45, 10.5
+earlySnapshot.escapeSquares = {}
+check(SC.Combat.anticipatoryMeleeWindow(fighter, nil, earlySnapshot,
+    earlyThreat, weapon, earlyReady) == nil,
+    "without an escape lane the pair cannot be swung into safely")
+earlySnapshot.threats[2] = nil
+earlySnapshot.reachableImmediateCount = 1
+local rearZombie = character("z-behind-early-swing", 9.5, 10.5, "IsoZombie")
+earlySnapshot.threats[2] = { actor = rearZombie, visible = true,
+    obstructed = false }
+check(SC.Combat.anticipatoryMeleeWindow(fighter, nil, earlySnapshot,
+    earlyThreat, weapon, earlyReady) == nil,
+    "a nearby zombie behind the fighter cancels the early swing")
+earlySnapshot.threats[2] = nil
+local function rangedFixture(fullType, maximum, minimum)
+    local item = setmetatable({}, { __index = weaponItem })
+    function item:getFullType() return fullType end
+    function item:getType() return string.match(fullType, "%.(.+)$") end
+    function item:getMaxRange() return maximum end
+    function item:getMinRange() return minimum end
+    return item, { item = item, ranged = false, condition = 10,
+        equipped = true, minRange = minimum }
+end
+local penItem, penWeapon = rangedFixture("Base.Pen", 0.8, 0.61)
+local crowbarItem, crowbarWeapon = rangedFixture("Base.Crowbar", 1.25, 0.61)
+local shovelItem, shovelWeapon = rangedFixture("Base.Shovel", 1.6, 0.61)
+local _, penMax = SC.Combat.meleeRange(fighter, penItem)
+local _, crowbarMax = SC.Combat.meleeRange(fighter, crowbarItem)
+local _, shovelMax = SC.Combat.meleeRange(fighter, shovelItem)
+check(penMax < crowbarMax and crowbarMax < shovelMax,
+    "native weapon reach sets the pen, crowbar and shovel swing bands")
+earlySnapshot.escapeSquares = { { square = square(9, 10), danger = 0 } }
+earlySnapshot.reachableImmediateCount = 1
+earlySnapshot.reachableThreatSectors = 1
+for _, row in ipairs({ { crowbarWeapon, crowbarMax },
+    { shovelWeapon, shovelMax } }) do
+    earlyZombie.x = 10.5 + row[2] + 0.2
+    pairZombie.x = earlyZombie.x + 0.1
+    earlySnapshot.threats[2] = { actor = pairZombie, visible = true,
+        obstructed = false, attacking = false }
+    earlySnapshot.reachableImmediateCount = 2
+    check(SC.Combat.anticipatoryMeleeWindow(fighter, nil, earlySnapshot,
+        earlyThreat, row[1], earlyReady) ~= nil,
+        "a frontal pair permits an early swing at the weapon's own reach")
+end
+earlyZombie.x = 10.5 + penMax + 0.17
+pairZombie.x = earlyZombie.x + 0.1
+check(SC.Combat.anticipatoryMeleeWindow(fighter, nil, earlySnapshot,
+    earlyThreat, penWeapon, earlyReady) == nil,
+    "a pen's narrow striking band does not permit a two-zombie early swing")
+earlySnapshot.threats[2] = nil
+earlySnapshot.reachableImmediateCount = 1
+check(SC.Combat.anticipatoryMeleeWindow(fighter, nil, earlySnapshot,
+    earlyThreat, penWeapon, earlyReady) ~= nil,
+    "a pen can still counter one closing zombie inside its short lead")
+earlyZombie.x = 10.5 + crowbarMax + 0.15
+pairZombie.x = 12.85
+thirdZombie.x, thirdZombie.y = 13.6, 10.5
+earlySnapshot.threats[2] = { actor = pairZombie, visible = true,
+    obstructed = false, attacking = false }
+earlySnapshot.threats[3] = { actor = thirdZombie, visible = true,
+    obstructed = false, attacking = false }
+local guarded = SC.Combat._guardedKiteOpeningForTests
+check(guarded(fighter, earlySnapshot, earlyThreat, crowbarWeapon,
+    earlyReady, 1, 3, 1) == true,
+    "a crowbar fighter may swing while two followers remain behind the leading zombie")
+check(guarded(fighter, earlySnapshot, earlyThreat, penWeapon,
+    earlyReady, 1, 3, 1) == false,
+    "a pen does not grant a guarded opening against three zombies")
+thirdZombie.x, thirdZombie.y = 10.5, 13.0
+check(guarded(fighter, earlySnapshot, earlyThreat, crowbarWeapon,
+    earlyReady, 1, 3, 2) == false,
+    "a nearby flanker cancels the crowbar opening")
+thirdZombie.x, thirdZombie.y = 13.6, 10.5
+check(guarded(fighter, earlySnapshot, earlyThreat, crowbarWeapon,
+    earlyReady, 3, 3, 1) == false,
+    "three immediate attackers require retreat even with a crowbar")
+earlySnapshot.threats[2], earlySnapshot.threats[3] = nil, nil
+earlyZombie.x = 12.3
 -- Two zombies genuinely in the fight, and nothing else about them changes.
 local nearA = character("z-near-a", 11.4, 10.5, "IsoZombie")
 local nearB = character("z-near-b", 10.5, 11.4, "IsoZombie")
@@ -173,6 +350,26 @@ check(math.abs(singleRisk.risk - quietRisk.risk - 12) < 0.01,
 check(singleRisk.overrun == false,
     "a healthy armed fighter does not retreat solely from one nearby zombie")
 
+local frontPressure = snapshotWith(0)
+frontPressure.reachableCloseCount = 4
+frontPressure.reachableImmediateCount = 0
+frontPressure.reachableThreatSectors = 1
+frontPressure.closeThreatCount = 4
+frontPressure.immediateCount = 0
+frontPressure.squadPlan = { mode = "hold", supportCount = 1 }
+local supportedFront = SC.Combat.assessOverrun(fighter, frontPressure,
+    weapon, { combatMode = "defensive", morale = 70 })
+frontPressure.squadPlan.supportCount = 0
+local unsupportedFront = SC.Combat.assessOverrun(fighter, frontPressure,
+    weapon, { combatMode = "defensive", morale = 70 })
+check(supportedFront.threshold >= unsupportedFront.threshold + 10,
+    "supported fighters may hold the outer edge before a frontal group reaches contact")
+frontPressure.squadPlan.supportCount = 1
+frontPressure.reachableImmediateCount = 1
+local contactFront = SC.Combat.assessOverrun(fighter, frontPressure,
+    weapon, { combatMode = "defensive", morale = 70 })
+check(contactFront.threshold < supportedFront.threshold,
+    "the guarded outer-edge allowance ends when a zombie reaches contact")
 check(baselineBest ~= nil, "the fixture produces a scored action at all")
 check(baselineBest == fiveBest and baselineBest == twentyBest,
     "the chosen action is the same with 0, 5 and 20 idle zombies in the distance: "
@@ -733,8 +930,12 @@ check(squad.safeFinisher(three, quietFinisher.threats[1].actor,
     "a second grounded zombie does not block a safe finisher")
 quietFinisher.threats[2].gettingUp = true
 check(squad.safeFinisher(three, quietFinisher.threats[1].actor,
+    quietFinisher) == true,
+    "a zombie still on the ground while getting up leaves a finisher opening")
+quietFinisher.threats[2].posture = "upright"
+check(squad.safeFinisher(three, quietFinisher.threats[1].actor,
     quietFinisher) == false,
-    "a zombie getting up blocks the finisher")
+    "the opening closes as soon as the other zombie is upright")
 
 local crowdFront = {}
 for index = 1, 4 do

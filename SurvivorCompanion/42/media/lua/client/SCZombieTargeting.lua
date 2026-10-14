@@ -7,6 +7,7 @@ if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGa
 SC.ZombieTargeting = SC.ZombieTargeting or {}
 local Targeting = SC.ZombieTargeting
 local scanState = setmetatable({}, { __mode = "k" })
+local pursuitState = setmetatable({}, { __mode = "k" })
 
 local function U()
     return SC.GameplayUtil
@@ -73,6 +74,42 @@ local function clearSight(zombie, actor)
     return U().canSee(zombie, U().squareOf(actor))
 end
 
+-- Build 42 can keep a detached companion in a zombie's target pointer while
+-- its local-player-only visibility update stops the actual path. Reissue the
+-- native path only after this particular zombie has stood still for a while.
+-- The ordinary 350 ms targeting scan already owns the bounded candidate list;
+-- this adds no world search and no synthetic movement or damage.
+local function maintainStalledPursuit(zombie, actor, current)
+    local distance = U().distance(zombie, actor)
+    if distance <= 3 or distance > math.min(14,
+        tonumber(U().config("zombieTargetRadius")) or 18)
+        or select(1, U().call(zombie, "isOnFloor")) == true then
+        pursuitState[zombie] = nil
+        return false
+    end
+    local x, y = U().position(zombie)
+    if x == nil then return false end
+    local state = pursuitState[zombie]
+    if state == nil or state.actor ~= actor then
+        pursuitState[zombie] = {
+            actor = actor, x = x, y = y,
+            stationarySince = current, nextAt = current + 1500,
+        }
+        return false
+    end
+    if (x - state.x) ^ 2 + (y - state.y) ^ 2 >= 0.15 ^ 2 then
+        state.x, state.y = x, y
+        state.stationarySince = current
+        return false
+    end
+    if current - state.stationarySince < 1500 or current < state.nextAt
+        or select(1, U().call(zombie, "getTarget")) ~= actor
+        or not clearSight(zombie, actor) then return false end
+    state.nextAt = current + 2000
+    local _, pathOk = U().call(zombie, "pathToCharacter", actor)
+    return pathOk == true
+end
+
 local function mayChallengeCurrentTarget(zombie, actor, actorDistance)
     local current, targetOk = U().call(zombie, "getTarget")
     if not targetOk or not validCurrentTarget(current) then return true, current end
@@ -134,20 +171,28 @@ function Targeting.scan(actor, current, suppliedZombies)
     local zombies = suppliedZombies
     if zombies == nil then return false, "zombie_candidates_unavailable" end
     local maximum = U().config("zombieTargetMaxChecks") or 128
-    local checked, visible, targeted = 0, 0, 0
+    local checked, visible, targeted, refreshed = 0, 0, 0, 0
     U().each(zombies, maximum, function(zombie)
         checked = checked + 1
         local accepted, reason = Targeting.consider(zombie, actor)
         if reason ~= "outside_target_radius" and reason ~= "line_of_sight_blocked"
             and reason ~= "invalid_zombie" then visible = visible + 1 end
         if accepted then targeted = targeted + 1 end
+        if reason == "already_targeted" and refreshed < 2
+            and maintainStalledPursuit(zombie, actor, current) then
+            refreshed = refreshed + 1
+        elseif reason ~= "already_targeted" then
+            pursuitState[zombie] = nil
+        end
     end)
     state.checked, state.visible, state.targeted = checked, visible, targeted
+    state.refreshed = refreshed
     state.lastAt = current
     return true, targeted > 0 and "zombies_targeted_companion" or "target_scan_complete", {
         checked = checked,
         visible = visible,
         targeted = targeted,
+        refreshed = refreshed,
     }
 end
 
@@ -157,7 +202,10 @@ end
 
 function Targeting.reset(actor)
     if actor ~= nil then scanState[actor] = nil
-    else scanState = setmetatable({}, { __mode = "k" }) end
+    else
+        scanState = setmetatable({}, { __mode = "k" })
+        pursuitState = setmetatable({}, { __mode = "k" })
+    end
     return true
 end
 

@@ -1,7 +1,7 @@
-Living Fellows 0.26.41 - public playtest
+Living Fellows 0.26.42 - public playtest
 
-This playtest adds Markus's radio-booked taxi, stronger companion combat and
-formation behavior, and safer boarding of the player's locked passenger door.
+This playtest improves squad combat against small zombie groups, weapon-range
+timing, downed-zombie finishing, and backup-weapon use after a break.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added

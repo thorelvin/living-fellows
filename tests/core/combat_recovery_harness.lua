@@ -336,6 +336,7 @@ local readiness = {
     footing = { crowd = 0, tree = false }, staminaCritical = false,
 }
 local _, _, record = SC.Combat.meleeRange(actor, weapon)
+record.equipped = true
 local function choices(distance, closing, attacking)
     return SC.Combat._actionUtilitiesForTests(actor, nil,
         { pressure = 1, escapeSquares = {}, encircled = false },

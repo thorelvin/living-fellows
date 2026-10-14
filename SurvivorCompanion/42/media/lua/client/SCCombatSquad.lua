@@ -278,8 +278,16 @@ function Squad.safeFinisher(actor, target, snapshot)
         if index > 64 then break end
         if threat.actor and threat.actor ~= target and threat.obstructed ~= true then
             local tx, ty, tz = tonumber(threat.x), tonumber(threat.y), tonumber(threat.z)
+            if tx == nil then tx, ty, tz = position(threat.actor) end
+            local posture = threat.posture
+            if posture == nil and SC.ZombieFacts then
+                local facts = SC.ZombieFacts.get(threat.actor)
+                posture = facts and facts.posture
+            end
+            -- Getting up is still a floor animation. Treat the zombie as a
+            -- standing threat as soon as its posture actually becomes upright.
             if tx and (tz == nil or math.floor(tz) == math.floor(az or 0))
-                and (threat.posture ~= "downed" or threat.gettingUp == true) then
+                and posture ~= "downed" then
                 local closing = math.max(0, tonumber(threat.closingSpeed) or 0)
                 local reach = 2.25 + math.min(2, closing * 1.5)
                 if distanceSq(ax, ay, tx, ty) <= reach * reach then return false end

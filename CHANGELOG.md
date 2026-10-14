@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.26.42 - Safer squad fighting
+
+- Companions coordinate their attack lanes around small zombie groups, backpedal into weapon-specific swing range, and begin a swing as a zombie closes instead of waiting for a grab.
+- A lone fighter can use guarded kiting attacks against up to three zombies. A fallen or rising zombie can be finished while other nearby zombies remain down, provided no standing threat can reach the fighter.
+- If a pen or other last weapon breaks against one isolated zombie, a healthy companion can close to shove range and stomp it. When a usable backup is carried, the companion first makes room, then equips it and resumes fighting.
+- Combat and live test harnesses now check native hit effects, survivor health, weapon timing, backup equipping, and actual arena outcomes in cloned saves. The native bridge protocol remains `42.21-isocompanion-23`.
+
 ## 0.26.41 - Markus's taxi and companion response
 
 - Markus Sloane can be booked over a walkie-talkie. He drives to a safe pickup, takes a quoted fare, follows the destination you mark on the world map, then drives away and despawns after everyone and their belongings are out of the cab. His car and booking recover across save/load without creating a second taxi.

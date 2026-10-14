@@ -371,7 +371,15 @@ local function nativeAttackRange(actor, action, intent)
         if intent.floorAttack ~= true and distance < (minimum or 0) then
             return false, "attack target is inside minimum melee range"
         end
-        if distance > maximum then return false, "attack target is outside melee range" end
+        if distance > maximum then
+            local lead = tonumber(intent.anticipatoryLead) or 0
+            local closing = tonumber(intent.closingSpeed) or 0
+            if intent.anticipatorySwing ~= true or intent.floorAttack == true
+                or closing < 0.65 or lead < 0.08 or lead > 0.55
+                or distance > maximum + lead then
+                return false, "attack target is outside melee range"
+            end
+        end
         return true
     end
 
@@ -2993,6 +3001,7 @@ function actions.pollCombatEvents(actor)
         return false, tostring(record.action) .. "_collision_" .. receiptOutcome, {
             result = receiptOutcome,
             action = record.action, target = record.target, weapon = record.weapon,
+            anticipatorySwing = record.anticipatorySwing == true,
             serial = serial, receiptSerial = receiptSerial, cause = cause,
             maybePartial = receiptOutcome == "failed_maybe_partial",
             floorAttack = record.floorAttack == true, source = "native",
@@ -3033,6 +3042,7 @@ function actions.pollCombatEvents(actor)
         local result = nativeLanded and "landed" or "no_effect"
         return true, tostring(record.action) .. "_collision_" .. result, {
             result = result,
+            anticipatorySwing = record.anticipatorySwing == true,
             receiptSerial = receiptSerial,
             overflow = receiptsSince > 1,
             eventsSincePoll = receiptsSince,
@@ -3057,6 +3067,7 @@ function actions.pollCombatEvents(actor)
             or tostring(record.action) .. "_collision_timeout"
         return false, reason, {
             result = "aborted", action = record.action, target = record.target,
+            anticipatorySwing = record.anticipatorySwing == true,
             weapon = record.weapon, serial = serial,
             floorAttack = record.floorAttack == true,
             source = "native",
@@ -3442,6 +3453,7 @@ local function attack(actor, action, intent, provider)
             or select(2, invoke(intent.target, "isProne")) == true
         pendingCombat[actor] = {
             action = action,
+            anticipatorySwing = intent.anticipatorySwing == true,
             target = intent.target,
             weapon = intent.weapon,
             collisionSerial = collisionSerial,
