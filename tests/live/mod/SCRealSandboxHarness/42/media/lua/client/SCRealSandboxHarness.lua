@@ -2184,6 +2184,8 @@ local function cleanupTestZombiesNear(target, radius)
     return #nearby
 end
 
+Harness.clearZombiesNear = cleanupTestZombiesNear
+
 local function classLabel(value)
     if value == nil then return "none" end
     if type(getClassSimpleName) == "function" then
@@ -15332,6 +15334,10 @@ Harness.probeGiftedEquipment = function(...)
     return externalProbe("SCGiftedEquipmentProbe", ...)
 end
 
+Harness.probeSquadCombat = function(...)
+    return externalProbe("SCSquadCombatLiveProbe", ...)
+end
+
 Harness.probeHygiene = function(...)
     return externalProbe("SCHygieneProbe", ...)
 end
@@ -15545,6 +15551,8 @@ local function tick()
         Harness.probeMedicalCheck(Harness, current, check, result, setPhase)
     elseif string.sub(tostring(Harness.phase), 1, 17) == "gifted_equipment_" then
         Harness.probeGiftedEquipment(Harness, current, check, result, setPhase)
+    elseif string.sub(tostring(Harness.phase), 1, 13) == "squad_combat_" then
+        Harness.probeSquadCombat(Harness, current, check, result, setPhase)
     elseif Harness.phase == "ui_menu_probe" or Harness.phase == "ui_menu_capture"
         or Harness.phase == "ui_menu_capture_bottom" then
         Harness.probeUIMenus(current)
@@ -16366,7 +16374,9 @@ local function onGameStart()
         finish()
         return
     end
-    if Harness.config.oddball_smoker_probe == "true" then
+    if Harness.config.squad_combat_probe == "true" then
+        setPhase("squad_combat_setup", Harness.startedAt)
+    elseif Harness.config.oddball_smoker_probe == "true" then
         setPhase("smoker_prepare", Harness.startedAt)
     elseif Harness.config.oddball_arthur_probe == "true"
         or Harness.config.oddball_pack_probe == "true" then

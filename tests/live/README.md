@@ -86,6 +86,22 @@ retained with a manifest, isolated console, event log, and terminal summary.
 `PASS` means every applicable assertion passed; environment-dependent geometry
 may produce an explicit `SKIP`, never a false pass.
 
+To measure squad survival against native zombies in a disposable cloned save,
+run three trials each of 3 companions versus 6 zombies, 5 versus 10, and
+5 versus 12. Every companion receives a crowbar and a Stay order. Zombies
+spawn around the squad and target its members. The result file records living
+companions, zombie kills, and offensive actions after 55 real seconds per
+trial. A passing harness validates that combat occurred and measurements were
+written; it does not imply a target survival rate.
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -SquadCombatProbe -SquadCombatTrials 3 `
+    -SquadCombatSeconds 55 -LivingFellowsOnly -NoSteam -TimeoutSeconds 900
+```
+
+Read `cache/Lua/SurvivorCompanionHarness/squad-combat-results.txt` in the
+retained run directory for individual trial results.
+
 The focused Arthur and Spiffo Pack probes each use a separate cloned-save run.
 They scan a loaded 81 by 81 area for an eligible real bedroom or living room,
 then create the authored encounter there. Arthur's probe waits for the native

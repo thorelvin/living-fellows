@@ -121,6 +121,10 @@ param(
     [switch]$CompanionInventoryOnly,
     [switch]$CompanionTransferProbe,
     [switch]$GiftedEquipmentProbe,
+    # Repeated native squad-versus-zombie survival trials in a cloned save.
+    [switch]$SquadCombatProbe,
+    [ValidateRange(1, 5)][int]$SquadCombatTrials = 3,
+    [ValidateRange(30, 120)][int]$SquadCombatSeconds = 55,
     [switch]$FurniturePoseOnly,
     [switch]$VehiclePassengerOnly,
     [switch]$SixSeatProbe,
@@ -1515,6 +1519,9 @@ $config = @(
     ('companion_inventory_only=' + $CompanionInventoryOnly.IsPresent.ToString().ToLowerInvariant()),
     ('companion_transfer_probe=' + $CompanionTransferProbe.IsPresent.ToString().ToLowerInvariant()),
     ('gifted_equipment_probe=' + $GiftedEquipmentProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('squad_combat_probe=' + $SquadCombatProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('squad_combat_trials=' + $SquadCombatTrials),
+    ('squad_combat_seconds=' + $SquadCombatSeconds),
     ('furniture_pose_only=' + $FurniturePoseOnly.IsPresent.ToString().ToLowerInvariant()),
     ('vehicle_passenger_only=' + $VehiclePassengerOnly.IsPresent.ToString().ToLowerInvariant()),
     ('six_seat_probe=' + $SixSeatProbe.IsPresent.ToString().ToLowerInvariant()),
@@ -1549,6 +1556,9 @@ $manifest = [ordered]@{
     sourceBridgeSha256 = $sourceBridgeHash
     installedBridgeMatches = $installedBridgeHash -eq $sourceBridgeHash
     livingFellowsOnly = $LivingFellowsOnly.IsPresent
+    squadCombatProbe = $SquadCombatProbe.IsPresent
+    squadCombatTrials = $SquadCombatTrials
+    squadCombatSeconds = $SquadCombatSeconds
     externalUiControl = $ExternalUiControl.IsPresent
     excludedModIds = @($ExcludeModId)
     factionMapScreenshot = if ($captureFactionMap) { $FactionMapScreenshot } else { $null }
