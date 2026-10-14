@@ -51,6 +51,7 @@ $LuaFiles += @(
     'SCBackground.lua',
     'SCThreatSet.lua',
     'SCCombatThreatModel.lua',
+    'SCCombatSquad.lua',
     'SCPerceptionScan.lua',
     'SCZombieFacts.lua',
     'SCSenses.lua',

@@ -929,7 +929,7 @@ def main() -> int:
     require("if moveX == nil and target.rescue ~= true" not in approach_guard,
             "approach coordination is gated on a missing movement vector again")
     require("if target.rescue ~= true" in approach_guard
-            and "Combat.shouldYieldEngagement(actor, targetActor, desired, now)"
+            and "Combat.shouldYieldEngagement(actor, targetActor, desired, now,"
             in approach_guard,
             "approach coordination no longer runs before the movement vector")
     # A climbable barrier keeps the approach alive so execution can route it.

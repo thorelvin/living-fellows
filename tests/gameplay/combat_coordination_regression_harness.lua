@@ -626,4 +626,168 @@ if type(SC.Combat._sharedRetreatSquareForTests) == "function" then
         "the reservation still names the companion that holds it")
 end
 
+-- A shared plan must distinguish a fight the team can give ground through
+-- from one it should leave. These are bounded snapshots, not world scans.
+local squad = SC.CombatSquad
+local originalUsable = SC.Combat.primaryWeaponUsable
+local originalOpen = SC.Navigation.openSegment
+SC.Combat.primaryWeaponUsable = function() return true end
+SC.Navigation.openSegment = function() return true end
+local function groupFight(memberCount, threatCount, start)
+    squad.reset()
+    local leader = character("squad-leader-" .. tostring(start), start, 80)
+    local allies = {}
+    for index = 2, memberCount do
+        local ally = character("squad-ally-" .. tostring(start) .. ":" .. index,
+            start + (index % 3) * 0.8, 80 + math.floor(index / 3) * 0.8)
+        allies[#allies + 1] = { actor = ally, relationship = "party_ally",
+            health = 100 }
+    end
+    local threats = {}
+    for index = 1, threatCount do
+        local angle = (index - 1) * 2 * math.pi / threatCount
+        local x, y = start + math.cos(angle) * 3,
+            80 + math.sin(angle) * 3
+        local zombie = character("squad-zombie-" .. tostring(start) .. ":" .. index,
+            x, y, "IsoZombie")
+        threats[#threats + 1] = { actor = zombie, x = x, y = y,
+            z = 0, visible = true, obstructed = false, posture = "upright",
+            distanceSq = 9 }
+    end
+    local snapshot = { allies = allies, threats = threats }
+    local plan = squad.forActor(leader, player, snapshot,
+        "party:combat-test:home", start * 100)
+    return leader, snapshot, plan
+end
+
+local solo = character("squad-solo", 130, 80)
+check(squad.forActor(solo, player, { allies = {}, threats = {
+    { actor = nearA, x = 130.8, y = 80, z = 0, visible = true },
+} }, "party:combat-test:home", 1000) == nil,
+    "solo fighters keep their local combat behavior")
+local three, threeSnapshot, threePlan = groupFight(3, 6, 140)
+check(threePlan and threePlan.mode == "give_ground" and threePlan.capable == 3,
+    "three armed companions facing six give ground together")
+local exchange = snapshotWith(0)
+exchange.threats = { exchange.threats[1] }
+exchange.immediateAttackers = { exchange.threats[1] }
+exchange.immediateCount, exchange.closeImmediateCount = 1, 1
+exchange.closeThreatCount, exchange.directionalPressure = 1, 1.8
+exchange.localPressure = SC.CombatThreatModel.localPressure(1, 1, 1)
+exchange.squadPlan = { mode = "give_ground", supportCount = 2 }
+local exchangeActions = SC.Combat._actionUtilitiesForTests(
+    fighter, player, exchange, exchange.threats[1], weapon,
+    nil, { combatDoctrine = "close_defense", morale = 70 }, nil)
+local retreatScore, strikeScore = -math.huge, -math.huge
+for _, action in ipairs(exchangeActions or {}) do
+    if action.kind == "retreat" then retreatScore = action.score end
+    if action.kind == "melee" or action.kind == "shove" then
+        strikeScore = math.max(strikeScore, action.score)
+    end
+end
+check(strikeScore > retreatScore,
+    "giving ground still permits a healthy fighter to strike at a safe opening")
+local _, _, threeEight = groupFight(3, 8, 160)
+check(threeEight and threeEight.mode == "give_ground",
+    "three armed companions facing eight still fight while yielding ground")
+local hurtLeader, hurtSnapshot = groupFight(3, 8, 170)
+hurtSnapshot.allies[1].health = 35
+squad.reset()
+local hurtPlan = squad.forActor(hurtLeader, player, hurtSnapshot,
+    "party:combat-test:home", 17001)
+check(hurtPlan and hurtPlan.capable == 2 and hurtPlan.mode == "disengage",
+    "an injured fighter is not counted as usable support against eight")
+local _, _, fiveTen = groupFight(5, 10, 180)
+check(fiveTen and fiveTen.mode == "give_ground",
+    "five armed companions facing ten coordinate their withdrawal")
+local fiveLeader, fiveSnapshot, fiveTwelve = groupFight(5, 12, 200)
+check(fiveTwelve and fiveTwelve.mode == "give_ground",
+    "five armed companions facing twelve do not auto-disengage")
+local cachedPlan = squad.forActor(fiveLeader, player, fiveSnapshot,
+    "party:combat-test:home", 20100)
+check(cachedPlan and cachedPlan.refreshedAt == fiveTwelve.refreshedAt,
+    "the shared plan is reused inside its 250 millisecond planning window")
+local refreshedPlan = squad.forActor(fiveLeader, player, fiveSnapshot,
+    "party:combat-test:home", 20260)
+check(refreshedPlan and refreshedPlan.refreshedAt == 20260,
+    "the plan refreshes after 250 milliseconds")
+local _, _, fiveThirteen = groupFight(5, 13, 220)
+check(fiveThirteen and fiveThirteen.mode == "disengage",
+    "a larger crowd makes the same team disengage")
+local crowdedFinisher = { threats = {
+    threeSnapshot.threats[1],
+    { actor = threeSnapshot.threats[2].actor, x = 140.8, y = 80,
+        z = 0, posture = "upright", obstructed = false },
+} }
+check(squad.safeFinisher(three, crowdedFinisher.threats[1].actor,
+    crowdedFinisher) == false,
+    "a surrounding upright attacker blocks a floor finisher")
+local quietFinisher = { threats = {
+    { actor = threeSnapshot.threats[1].actor, x = 143, y = 80,
+        z = 0, posture = "downed" },
+    { actor = threeSnapshot.threats[2].actor, x = 140.6, y = 80,
+        z = 0, posture = "downed" },
+} }
+check(squad.safeFinisher(three, quietFinisher.threats[1].actor,
+    quietFinisher) == true,
+    "a second grounded zombie does not block a safe finisher")
+quietFinisher.threats[2].gettingUp = true
+check(squad.safeFinisher(three, quietFinisher.threats[1].actor,
+    quietFinisher) == false,
+    "a zombie getting up blocks the finisher")
+
+local crowdFront = {}
+for index = 1, 4 do
+    crowdFront[index] = { actor = character("front-" .. index,
+        241 + index * 0.1, 80 + index * 0.1, "IsoZombie"),
+        x = 241 + index * 0.1, y = 80 + index * 0.1,
+        z = 0, posture = "upright" }
+end
+local reachableFront = SC.CombatThreatModel.reachable(crowdFront, 240, 80, 0)
+check(reachableFront.close == 4 and reachableFront.surrounded == false,
+    "four zombies on one side are pressure, not encirclement")
+local ring = {}
+for index = 1, 4 do
+    local angle = (index - 1) * math.pi * 0.5
+    ring[index] = { actor = character("ring-" .. index,
+        240 + math.cos(angle), 80 + math.sin(angle), "IsoZombie"),
+        x = 240 + math.cos(angle), y = 80 + math.sin(angle), z = 0 }
+end
+check(SC.CombatThreatModel.reachable(ring, 240, 80, 0).surrounded == true,
+    "a four-sided ring is actual encirclement")
+ring[1].obstructed = true
+check(SC.CombatThreatModel.reachable(ring, 240, 80, 0).surrounded == false,
+    "a solid barrier opens the encirclement assessment")
+ring[1].obstructed = false
+ring[2].posture = "downed"
+ring[3].posture = "crawler"; ring[3].x = 243
+check(SC.CombatThreatModel.reachable(ring, 240, 80, 0).close == 2,
+    "downed and distant crawling zombies do not inflate reachable pressure")
+local flankActor = character("squad-flank", 250, 80)
+local flankTarget = character("squad-flank-target", 252, 80, "IsoZombie")
+local flankBlocker = character("squad-flank-blocker", 251, 80, "IsoZombie")
+check(squad.safePosition(flankActor, flankTarget, 252, 81, 0, {
+    threats = { { actor = flankBlocker, x = 251, y = 80, z = 0,
+        posture = "upright" } }, allies = {},
+}, 25000) == false,
+    "a flank is refused when the path crosses another upright zombie")
+local laneActor = character("upright-lane-actor", 260, 80)
+local laneTarget = character("upright-lane-target", 263, 80, "IsoZombie")
+local laneBlocker = character("upright-lane-blocker", 261, 80)
+local laneX, laneY = SC.Combat._uprightLaneYieldForTests(laneActor,
+    laneTarget, laneBlocker, { threats = {}, allies = {
+        { actor = laneBlocker },
+    } }, 25000)
+check(laneX ~= nil and laneY ~= nil and math.abs(laneY) > 0.5,
+    "a fighter whose melee lane is blocked tries a proven side step")
+squad.reset()
+local granted = 0
+for index = 1, 10 do
+    if squad.positionProbe(26000) then granted = granted + 1 end
+end
+check(granted == 8, "a frame grants at most eight costly position proofs")
+SC.Combat.primaryWeaponUsable = originalUsable
+SC.Navigation.openSegment = originalOpen
+squad.reset()
+
 print("COMBAT_COORDINATION_REGRESSION_PASS checks=" .. tostring(checks))

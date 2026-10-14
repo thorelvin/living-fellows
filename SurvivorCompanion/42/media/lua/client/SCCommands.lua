@@ -1769,6 +1769,20 @@ local function currentIntent(actor)
     return nil
 end
 
+local function currentSquadPlan(actor)
+    local combat = SC.Combat and type(SC.Combat.peek) == "function"
+        and SC.Combat.peek(actor) or nil
+    local plan = combat and combat.squadPlan or nil
+    if type(plan) ~= "table" or U().nowMs() >= (plan.expires or 0) then
+        return nil
+    end
+    if plan.mode == "disengage" then return "Withdrawing together" end
+    if plan.mode == "give_ground" then return "Giving ground together" end
+    if plan.protected then return "Covering " .. U().nameOf(plan.protected) end
+    if plan.target then return "Engaging " .. U().nameOf(plan.target) end
+    return nil
+end
+
 local function woundSummaries(wounds)
     local result = {}
     for index = 1, math.min(type(wounds) == "table" and #wounds or 0, 32) do
@@ -1939,6 +1953,7 @@ function Commands.describe(companionId, player)
             and actionSummary.action or currentActivity(actor, state),
         actionSummary = actionSummary,
         intent = currentIntent(actor),
+        combatPlan = currentSquadPlan(actor),
         combatMode = state.combatMode,
         combatDoctrine = state.combatDoctrine,
         holdFire = state.holdFire,

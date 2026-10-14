@@ -10342,7 +10342,8 @@ local approachedStomp, approachedStompReason = SurvivorCompanion.Combat.update(
 check(approachedStomp and approachedStompReason == "approach_stomp_after_shove"
         and stompActor.lastIntent.action == "combat_approach"
         and stompActor.lastIntent.stompFollowUp == true,
-    "a shove-displaced grounded zombie is approached instead of losing the stomp follow-up")
+    "a shove-displaced grounded zombie is approached instead of losing the stomp follow-up: "
+        .. tostring(approachedStompReason))
 clock = clock + 100
 stompZed.square = cell:getGridSquare(9, -7, 0)
 stompActor.worldX = 9.0

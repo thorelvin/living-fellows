@@ -151,6 +151,7 @@ try {
         (Join-Path $Client 'SCJournal.lua'),
         (Join-Path $Client 'SCCommands.lua'),
         (Join-Path $Client 'SCCombatThreatModel.lua'),
+        (Join-Path $Client 'SCCombatSquad.lua'),
             (Join-Path $Client 'SCCombat.lua'),
         (Join-Path $Client 'SCSupport.lua'),
         (Join-Path $TestRoot 'action_supervisor_harness.lua'),

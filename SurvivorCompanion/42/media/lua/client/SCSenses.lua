@@ -137,6 +137,7 @@ local function threatRecord(actor, player, zombie, actorSquare)
         breaching = breaching,
         targeting = targeting,
         attacking = attacking,
+        gettingUp = facts.gettingUp == true,
         posture = posture,
         grounded = posture == "crawler" or posture == "downed",
         -- Transitional compatibility for older combat/debug consumers.
@@ -1363,7 +1364,9 @@ function Senses.snapshot(actor, player, runtime)
     -- longer follows from an empty escape list plus two zombies anywhere in
     -- sight -- a search that has not run is not proof of being surrounded.
     sampleThreatMotion(actor, state, threats, now)
+    local observerX, observerY, observerZ = U.position(actor)
     SC.CombatThreatModel.apply(snapshot, {
+        actorX = observerX, actorY = observerY, actorZ = observerZ,
         immediateCount = #immediate,
         closeThreatCount = closeThreatCount,
         closeImmediateCount = closeImmediateCount,
@@ -1624,7 +1627,9 @@ function Senses.refreshImmediate(actor, player, snapshot, runtime)
     snapshot.lastHeardDanger = heardThreats[1]
     snapshot.player = playerCondition(player, threats, actor)
     sampleThreatMotion(actor, state, threats, now)
+    local observerX, observerY, observerZ = U.position(actor)
     SC.CombatThreatModel.apply(snapshot, {
+        actorX = observerX, actorY = observerY, actorZ = observerZ,
         immediateCount = immediateVisibleCount,
         closeThreatCount = closeCount,
         closeImmediateCount = closeImmediate,

@@ -39,6 +39,7 @@ local function compute(zombie)
         or truthyCall(zombie, "isZombieAttacking")
         or truthyCall(zombie, "getVariableBoolean", "bAttack")
     local climbing = truthyCall(zombie, "isClimbing")
+    local gettingUp = truthyCall(zombie, "isGettingUp")
     if not attacking or not climbing then
         local state = select(1, utility.call(zombie, "getCurrentState"))
         local name = state ~= nil and string.lower(tostring(state)) or ""
@@ -56,7 +57,7 @@ local function compute(zombie)
         square = square, floor = floor,
         posture = sitting and "sitting" or crawling and "crawler"
             or onFloor and "downed" or "standing",
-        attacking = attacking == true,
+        attacking = attacking == true, gettingUp = gettingUp == true,
         climbing = climbing == true,
         target = select(1, utility.call(zombie, "getTarget")),
     }

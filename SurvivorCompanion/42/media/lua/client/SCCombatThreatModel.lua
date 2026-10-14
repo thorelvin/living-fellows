@@ -22,7 +22,7 @@ local SC = SurvivorCompanion
 SC.CombatThreatModel = SC.CombatThreatModel or {}
 local Model = SC.CombatThreatModel
 
-Model.VERSION = 1
+Model.VERSION = 2
 
 local function U() return SC.GameplayUtil end
 
@@ -65,7 +65,10 @@ function Model.incoming(threats, horizonMs)
     horizonMs = math.max(1, finite(horizonMs, Model.horizonMs()))
     local count, earliest = 0, nil
     for _, threat in ipairs(type(threats) == "table" and threats or {}) do
-        if type(threat) == "table" and threat.close ~= true then
+        if type(threat) == "table" and threat.close ~= true
+            and (finite(threat.distanceSq, math.huge) > 4.5 * 4.5)
+            and threat.obstructed ~= true
+            and (threat.posture ~= "downed" or threat.gettingUp == true) then
             local closing = finite(threat.closingSpeed, 0)
             local arrival = finite(threat.timeToImpactMs, nil)
             if closing > 0.01 and arrival ~= nil and arrival >= 0 and arrival <= horizonMs then
@@ -75,6 +78,55 @@ function Model.incoming(threats, horizonMs)
         end
     end
     return count, count * 0.35, earliest
+end
+
+-- The sensing pass already has coordinates, posture and LOS. Classify only
+-- those bounded records; never initiate a new world scan to judge a crowd.
+function Model.reachable(threats, x, y, z)
+    if x == nil or y == nil then return nil end
+    local immediate, close, bearings, sectors, seen = 0, 0, {}, {}, 0
+    for _, threat in ipairs(type(threats) == "table" and threats or {}) do
+        if type(threat) == "table" and threat.actor ~= nil then
+            local tx, ty = finite(threat.x, nil), finite(threat.y, nil)
+            if tx ~= nil and ty ~= nil then
+                seen = seen + 1
+                local tz = finite(threat.z, z)
+                local dx, dy = tx - x, ty - y
+                local distanceSq = dx * dx + dy * dy
+                local posture = threat.posture
+                local grounded = posture == "downed" and threat.gettingUp ~= true
+                local crawler = posture == "crawler"
+                local accessible = threat.obstructed ~= true
+                    and (z == nil or tz == nil or math.floor(z) == math.floor(tz))
+                local closeEnough = distanceSq <= 4.5 * 4.5
+                    and (not crawler or distanceSq <= 2 * 2)
+                local urgent = distanceSq <= 2.25 * 2.25
+                    and (not crawler or distanceSq <= 1.4 * 1.4)
+                if accessible and not grounded and closeEnough then
+                    close = close + 1
+                    local angle = math.atan2(dy, dx)
+                    bearings[#bearings + 1] = angle
+                    sectors[math.floor((angle + math.pi) / (math.pi / 4))] = true
+                    if urgent then immediate = immediate + 1 end
+                end
+            end
+        end
+    end
+    if seen == 0 then return nil end
+    local surrounded, occupied = false, 0
+    for _ in pairs(sectors) do occupied = occupied + 1 end
+    if #bearings >= 3 then
+        table.sort(bearings)
+        local widest = bearings[1] + 2 * math.pi - bearings[#bearings]
+        for index = 2, #bearings do
+            widest = math.max(widest, bearings[index] - bearings[index - 1])
+        end
+        -- A free half-circle is a useful withdrawal direction, even when
+        -- zombies happen to occupy three of the old four compass bins.
+        surrounded = widest < math.pi
+    end
+    return { immediate = immediate, close = close,
+        occupied = occupied, surrounded = surrounded }
 end
 
 -- What is left is awareness. It is deliberately not a number anybody multiplies
@@ -108,6 +160,13 @@ function Model.derive(observation)
     local occupied = math.max(0, finite(observation.occupiedThreatSectors, 0))
 
     local horizon = math.max(1, finite(observation.horizonMs, Model.horizonMs()))
+    local reachable = Model.reachable(observation.threats,
+        finite(observation.actorX, nil), finite(observation.actorY, nil),
+        finite(observation.actorZ, nil))
+    if reachable then
+        immediate, close, closeImmediate = reachable.immediate,
+            reachable.close, reachable.immediate
+    end
     local incomingCount, incomingPressure, earliest = Model.incoming(observation.threats, horizon)
     local localPressure = Model.localPressure(immediate, close, closeImmediate)
     local ambientCount = math.max(0, visible - close - incomingCount)
@@ -115,6 +174,9 @@ function Model.derive(observation)
 
     return {
         localPressure = localPressure,
+        reachableImmediateCount = reachable and immediate or nil,
+        reachableCloseCount = reachable and close or nil,
+        reachableThreatSectors = reachable and reachable.occupied or nil,
         incomingCount = incomingCount,
         incomingPressure = incomingPressure,
         earliestContactMs = earliest,
@@ -125,7 +187,8 @@ function Model.derive(observation)
         escapeCandidates = candidates,
         -- Proven multi-sided pressure only. An unknown route is handled by
         -- escapeStatus, which the retreat calculation reads separately.
-        encircled = closeImmediate >= 3 or occupied >= 3,
+        encircled = reachable and reachable.surrounded
+            or (not reachable and (closeImmediate >= 3 or occupied >= 3)),
     }
 end
 
@@ -146,6 +209,9 @@ function Model.apply(snapshot, observation)
     if type(snapshot) ~= "table" then return nil end
     local derived = Model.derive(observation)
     snapshot.localPressure = derived.localPressure
+    snapshot.reachableImmediateCount = derived.reachableImmediateCount
+    snapshot.reachableCloseCount = derived.reachableCloseCount
+    snapshot.reachableThreatSectors = derived.reachableThreatSectors
     snapshot.incomingCount = derived.incomingCount
     snapshot.incomingPressure = derived.incomingPressure
     snapshot.earliestContactMs = derived.earliestContactMs

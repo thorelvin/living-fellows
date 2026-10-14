@@ -741,6 +741,7 @@ local function copySummary(row, summary)
     row.activity = summary.activity or row.activity
     row.actionSummary = summary.actionSummary or row.actionSummary
     row.intent = summary.intent or row.intent
+    row.combatPlan = summary.combatPlan
     row.combatDoctrine = summary.combatDoctrine or summary.combat_doctrine or row.combatDoctrine
     row.combatStance = summary.combatStance or summary.combatMode
         or summary.combat_mode or row.combatStance
@@ -3344,6 +3345,10 @@ function SCUIDetail:buildStatus(panel, row)
             selectedRowValue(self, function(value)
                 return UI.stateText(value.intent or value.activity)
             end))
+        if row.combatPlan then
+            y = self:addInformationLine(panel, y, "UI_SC_Info_CombatPlan",
+                selectedRowValue(self, function(value) return value.combatPlan end))
+        end
         y = self:addInformationLine(panel, y, "UI_SC_Info_Distance",
             selectedRowValue(self, function(value) return UI.distanceText(value.distance) end))
         y = self:addSection(panel, y + 4, "UI_SC_Section_RelationshipSummary")
