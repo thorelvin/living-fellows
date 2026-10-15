@@ -4,8 +4,8 @@ SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
 SC.VehicleRefuel = SC.VehicleRefuel or {}
 local Refuel = SC.VehicleRefuel
+local Fuel = SC.BaseFuel
 
-local MARKER = "LF_RefuelJobId"
 local states = setmetatable({}, { __mode = "k" })
 local EPSILON = 0.02
 
@@ -19,41 +19,8 @@ end
 local function amount(object, method)
     return tonumber(call(object, method))
 end
-local function marker(item)
-    local data = item and U().modData(item) or nil
-    return type(data) == "table" and data[MARKER] or nil
-end
-local function mark(item, jobId)
-    local data = item and U().modData(item) or nil
-    if type(data) ~= "table" or (data[MARKER] ~= nil and data[MARKER] ~= jobId) then
-        return false
-    end
-    data[MARKER] = jobId
-    return data[MARKER] == jobId
-end
-local function clearMark(item, jobId)
-    local data = item and U().modData(item) or nil
-    if type(data) ~= "table" or data[MARKER] ~= jobId then return false end
-    data[MARKER] = nil
-    return data[MARKER] == nil
-end
-local function petrol()
-    local okay, value = pcall(function() return Fluid.Petrol end)
-    return okay and value or nil
-end
-
--- The stock action transfers the whole fluid amount. Reject mixtures before
--- handing it a can, including a gasoline-rich mixture.
-function Refuel.gasAmount(item)
-    local fluid, gas = call(item, "getFluidContainer"), petrol()
-    if not fluid or not gas or call(fluid, "contains", gas) ~= true
-        or call(fluid, "isMixture") ~= false then return 0 end
-    local total = amount(fluid, "getAmount")
-    local pure = tonumber(call(fluid, "getSpecificFluidAmount", gas))
-    if not total or not pure or total <= EPSILON
-        or math.abs(total - pure) > EPSILON then return 0 end
-    return total
-end
+local marker, mark, clearMark = Fuel.marker, Fuel.mark, Fuel.clearMark
+Refuel.gasAmount = Fuel.gasAmount
 
 local function parked(vehicle)
     if not SC.ExpeditionCar then return nil end
@@ -104,38 +71,7 @@ function Refuel.eligible(vehicle, manual, allowFull)
         x = math.floor(x), y = math.floor(y), z = z }
 end
 
-local function sourceCan(actor)
-    local rows = SC.BaseLife.storageRows(nil, true)
-    if actor then
-        table.sort(rows, function(a, b)
-            local aObject = SC.BaseLife.resolveObject(a)
-            local bObject = SC.BaseLife.resolveObject(b)
-            local aDistance = U().distanceSq(actor, aObject)
-            local bDistance = U().distanceSq(actor, bObject)
-            if aDistance ~= bDistance then return aDistance < bDistance end
-            return tostring(a.id) < tostring(b.id)
-        end)
-    end
-    for _, storage in ipairs(rows) do
-        local container = SC.BaseLife.resolveContainer(storage)
-        if container then
-            local availableByType = {}
-            for _, item in ipairs(U().inventoryItems(container, 4096)) do
-                local kind = U().itemType(item)
-                if kind ~= nil and availableByType[kind] == nil then
-                    availableByType[kind] = SC.BaseLife.availableCountExact(storage, kind)
-                end
-                if kind ~= nil and Refuel.gasAmount(item) > 0 and marker(item) == nil
-                    and availableByType[kind] > 0
-                    and not (SC.WorkTransport and SC.WorkTransport.foreignProtected
-                        and SC.WorkTransport.foreignProtected(item, actor) == true) then
-                    return storage, container, item
-                end
-            end
-        end
-    end
-    return nil
-end
+local sourceCan = Fuel.sourceCan
 
 local function openJob(vehicleId)
     local base = SC.BaseLife.active()
@@ -189,28 +125,7 @@ function Refuel.audit()
     return false, "no_parked_car_needs_fuel"
 end
 
-local function sourceFor(job)
-    local target = job.target
-    local storage = target.sourceStorageId
-        and SC.BaseLife.storage(target.sourceStorageId) or nil
-    return storage, storage and SC.BaseLife.resolveContainer(storage) or nil
-end
-local function matching(item, job)
-    if not item or marker(item) ~= job.id then return false end
-    local nativeId = call(item, "getID")
-    return job.target.itemId == nil or tostring(nativeId) == tostring(job.target.itemId)
-end
-local function itemFor(job, actor)
-    local inventory = U().inventory(actor)
-    for _, item in ipairs(U().inventoryItems(inventory, 1024)) do
-        if matching(item, job) then return item, true end
-    end
-    local _, container = sourceFor(job)
-    for _, item in ipairs(U().inventoryItems(container, 4096)) do
-        if matching(item, job) then return item, false end
-    end
-    return nil
-end
+local sourceFor, itemFor = Fuel.sourceFor, Fuel.itemFor
 local function accessSquares(actor, vehicle, part)
     local area = call(part, "getArea")
     local centre = area and call(vehicle, "getAreaCenter", area) or nil
@@ -229,7 +144,13 @@ local function accessSquares(actor, vehicle, part)
                         math.floor(y) + dy, math.floor(z))
                     if square and U().isSquareFree(square)
                         and not U().safehouseBlocker(square, actor)
-                        and SC.BaseLife.withinWorkReach(square) then
+                        and SC.BaseLife.withinWorkReach(square)
+                        -- requestAny can stop 0.15 tiles from the square's
+                        -- centre. Every accepted arrival must still be within
+                        -- the 1.6-tile fuel interaction radius.
+                        and (math.floor(x) + dx + 0.5 - x) ^ 2
+                            + (math.floor(y) + dy + 0.5 - y) ^ 2
+                            <= 1.45 ^ 2 then
                         result[#result + 1] = square
                     end
                 end
@@ -327,6 +248,9 @@ function Refuel.update(actor, baseState, job)
     local stage = target.stage or "selecting"
     target.stageStartedAt = tonumber(target.stageStartedAt) or U().nowMs()
     if stage ~= "refueling" and U().nowMs() - target.stageStartedAt > 90000 then
+        -- The job is blocked after this return. Start a fresh approach clock
+        -- when it is claimed again, while keeping the exact can and receipt.
+        target.stageStartedAt = nil
         return false, "car_refuel_" .. stage .. "_timeout", true
     end
     if stage == "selecting" then
@@ -398,7 +322,7 @@ function Refuel.update(actor, baseState, job)
         if not Refuel.atFuelSide(actor, vehicle, info.part) then
             local moving, reason = SC.Navigation.requestAny(actor, squares, "walk", {
                 action = "move_to_car_fuel", vehicle = vehicle,
-                targetSquare = squares[1], arrivalDistance = 0.85,
+                targetSquare = squares[1], arrivalDistance = 0.15,
                 workCampOnly = true, workReach = true,
             })
             return moving == true, reason or "approaching_car_fuel",

@@ -1047,6 +1047,27 @@ do
             and normalZombie.pathToCharacterCalls == 1,
         "pursuit refresh never overrides a living alternate target")
 
+    for _, challengerFirst in ipairs({ false, true }) do
+        local pursued = actor("sc-pursued-" .. tostring(challengerFirst), 8, 0, {})
+        local challenger = actor("sc-challenger-" .. tostring(challengerFirst), 9, 0, {})
+        local stalled = zombie(0, 0, {})
+        stalled.target = pursued
+        for index = 0, 9 do
+            local at = clock + 10000 + index * 350
+            if challengerFirst then Targeting.scan(challenger, at, { stalled }) end
+            Targeting.scan(pursued, at, { stalled })
+            if not challengerFirst then Targeting.scan(challenger, at, { stalled }) end
+        end
+        check(stalled.pathToCharacterCalls == 1 and stalled.pathTarget == pursued,
+            "another companion cannot erase a stationary target's pursuit timer")
+        for _, temporary in ipairs({ pursued, challenger, stalled }) do
+            local moving = temporary.square and temporary.square.moving or {}
+            for index = #moving, 1, -1 do
+                if moving[index] == temporary then table.remove(moving, index) end
+            end
+        end
+    end
+
     local alifeNpc = zombie(4, 1, {})
     alifeNpc.modData.ProjectALifeOwned = true
     alifeNpc.modData.ProjectALifeUID = "playtest-alife-npc"

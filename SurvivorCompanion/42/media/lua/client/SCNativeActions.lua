@@ -24,6 +24,7 @@ require "TimedActions/ISEatFoodAction"
 require "TimedActions/ISDrinkFromBottle"
 require "TimedActions/ISDrinkFluidAction"
 require "TimedActions/ISTakeWaterAction"
+require "TimedActions/ISAddFuel"
 require "TimedActions/ISCleanBlood"
 require "TimedActions/ISWearClothing"
 require "Vehicles/TimedActions/ISPathFindAction"
@@ -2122,6 +2123,50 @@ function actions.startVehicleRefuel(actor, vehicle, part, item, jobId)
         return type(nativeValid) ~= "function" or nativeValid(self) == true
     end
     return queueTrackedWork(actor, timedAction, record, "vehicle_refuel")
+end
+
+-- The stock generator action owns the fluid transfer. Snapshot its immediate
+-- completion rather than comparing distant tank readings: an activated
+-- generator burns fuel while the companion is pouring.
+function actions.startGeneratorRefuel(actor, generator, item, jobId)
+    if actor == nil or generator == nil or item == nil
+        or type(ISAddFuel) ~= "table" or type(ISAddFuel.new) ~= "function" then
+        return false, "generator_refuel_action_unavailable"
+    end
+    local record, reason = prepareWorkInventory(actor, { item }, item, nil)
+    if not record then return false, reason end
+    local created, timedAction = pcall(ISAddFuel.new,
+        ISAddFuel, actor, generator, item)
+    if not created or not timedAction or type(timedAction.complete) ~= "function" then
+        restoreWorkInventory(actor, record)
+        return false, "generator_refuel_action_creation_failed"
+    end
+    local nativeValid, nativeComplete = timedAction.isValid, timedAction.complete
+    timedAction.isValid = function(self)
+        if not SC.GeneratorRefuel
+            or type(SC.GeneratorRefuel.canContinue) ~= "function"
+            or SC.GeneratorRefuel.canContinue(actor, generator, item, jobId) ~= true then
+            return false
+        end
+        return type(nativeValid) ~= "function" or nativeValid(self) == true
+    end
+    timedAction.complete = function(self)
+        local fluidOkay, fluid = invoke(item, "getFluidContainer")
+        local fuelOkay, fuelBefore = invoke(generator, "getFuel")
+        local canOkay, canBefore = false, nil
+        if fluidOkay then canOkay, canBefore = invoke(fluid, "getAmount") end
+        local result = nativeComplete(self)
+        local afterFuelOkay, fuelAfter = invoke(generator, "getFuel")
+        local afterCanOkay, canAfter = invoke(fluid, "getAmount")
+        if fuelOkay and canOkay and afterFuelOkay and afterCanOkay
+            and SC.GeneratorRefuel
+            and type(SC.GeneratorRefuel.recordTransfer) == "function" then
+            SC.GeneratorRefuel.recordTransfer(jobId, generator, item,
+                fuelBefore, canBefore, fuelAfter, canAfter)
+        end
+        return result
+    end
+    return queueTrackedWork(actor, timedAction, record, "generator_refuel")
 end
 
 -- Queue one stock Build 42 farming action while retaining the same exclusive

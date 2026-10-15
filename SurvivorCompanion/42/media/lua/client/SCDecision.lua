@@ -2838,13 +2838,32 @@ function Decision.update(actor, player, runtime, roundTimestamp)
         end
     end
 
+    -- A convoy emergency must hold its follow-car order suspended until the
+    -- survival action releases control. Otherwise the next branch restarts
+    -- the wheel immediately after Driving.stop() succeeds.
+    local convoyEmergency = ownerNeedsImmediatePreemption("drive", snapshot,
+        assessment, needs, commands,
+        factionNeedsImmediateControl(actor, player, snapshot, commands))
+    if SC.Convoy and type(SC.Convoy.suspendForSurvival) == "function" then
+        local token = SC.ActionSupervisor and SC.ActionSupervisor.current
+            and SC.ActionSupervisor.current(actor) or nil
+        local wasSuspended = SC.Convoy.isSurvivalSuspended(actor)
+        local medicalStillActive = wasSuspended and token and token.owner == "medical"
+        local needsStillActive = false
+        if wasSuspended and SC.NativeActions
+            and type(SC.NativeActions.needsStatus) == "function" then
+            needsStillActive = SC.NativeActions.needsStatus(actor) == true
+        end
+        SC.Convoy.suspendForSurvival(actor,
+            convoyEmergency or medicalStillActive or needsStillActive)
+    end
+
     -- A drive owns its parked/waiting seat as well as its moving wheel. Keep
     -- autonomous combat and the stopped-vehicle exit policy behind that lease.
     if SC.Driving and type(SC.Driving.isDriving) == "function"
         and SC.Driving.isDriving(actor) then
         local factionEmergency = factionNeedsImmediateControl(actor, player, snapshot, commands)
-        if ownerNeedsImmediatePreemption("drive", snapshot, assessment, needs, commands,
-            factionEmergency) then
+        if convoyEmergency then
             local stopped, stopReason = SC.Driving.stop(actor,
                 factionEmergency and "faction_priority" or "survival_priority")
             if not stopped then

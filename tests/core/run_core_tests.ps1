@@ -213,10 +213,19 @@ try {
 
         $vehicleRefuelFiles = @(
             (Join-Path $TestRoot 'vehicle_refuel_fixture.lua'),
+            (Join-Path $Client 'SCBaseFuel.lua'),
             (Join-Path $Client 'SCVehicleRefuel.lua'),
             (Join-Path $TestRoot 'vehicle_refuel_harness.lua')
         )
         Add-ScJvmStep 'vehicle-refuel' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $vehicleRefuelFiles 'Parked car refueling and recovery harness failed.'
+
+        $generatorRefuelFiles = @(
+            (Join-Path $TestRoot 'generator_refuel_fixture.lua'),
+            (Join-Path $Client 'SCBaseFuel.lua'),
+            (Join-Path $Client 'SCGeneratorRefuel.lua'),
+            (Join-Path $TestRoot 'generator_refuel_harness.lua')
+        )
+        Add-ScJvmStep 'generator-refuel' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $generatorRefuelFiles 'Generator refueling, stock action receipt and recovery harness failed.'
 
         $expeditionRestartFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),

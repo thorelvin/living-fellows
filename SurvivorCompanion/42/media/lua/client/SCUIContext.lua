@@ -1456,6 +1456,16 @@ local function refuelVehicleFromContext(_target, vehicleId, player)
     end
 end
 
+local function refuelGeneratorFromContext(_target, generator, player)
+    local okay, accepted, reason = pcall(SC.GeneratorRefuel.queue,
+        generator, true)
+    if player then
+        safeMethod(player, "setHaloNote", okay and accepted == true
+            and text("UI_SC_Base_GeneratorRefuelOrdered")
+            or text("UI_SC_Base_ActionFailed", tostring(reason or accepted)))
+    end
+end
+
 local function addNamedShortcut(context, row, labelKey, command, payload, player)
     local label = text("UI_SC_Context_NamedAction", row.name, text(labelKey))
     return context:addOption(label, nil, issueFromContext,
@@ -1551,6 +1561,16 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
     end
     local rows, talkRows = nearbyRows(player)
     local clickedVehicle = Context.vehicleAtClick(clickSquare)
+    local clickedGenerator = clickSquare and safeMethod(clickSquare,
+        "getGenerator") or nil
+    if not clickedGenerator then
+        for _, object in ipairs(worldObjects or {}) do
+            if SC.GameplayUtil.instanceOf(object, "IsoGenerator") then
+                clickedGenerator = object
+                break
+            end
+        end
+    end
     local riddenCar = safeMethod(player, "getVehicle")
     local taxiRide = playerIndex == 0 and riddenCar ~= nil
         and SC.TaxiService and type(SC.TaxiService.isBookedPassenger) == "function"
@@ -1570,6 +1590,7 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
         and watchStatus.watching ~= true and not clickedCompanion
         and not (clickedMatches and #clickedMatches > 1)
         and not memorialName and not sealedDoorGroup and not clickedVehicle
+        and not clickedGenerator
         and not taxiRide then return end
     if test and ISWorldObjectContextMenu and ISWorldObjectContextMenu.setTest then
         return ISWorldObjectContextMenu.setTest()
@@ -1630,6 +1651,23 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
                     tooltip.description = tostring(reason)
                     option.toolTip = tooltip
                 end
+            end
+        end
+    end
+    if clickedGenerator and SC.GeneratorRefuel
+        and type(SC.GeneratorRefuel.eligible) == "function" then
+        local eligible, reason = SC.GeneratorRefuel.eligible(clickedGenerator, true)
+        local option = context:addOption(
+            text("UI_SC_Base_RefuelGeneratorFromBase"), nil,
+            refuelGeneratorFromContext, clickedGenerator, player)
+        if not eligible and option then
+            option.notAvailable = true
+            if type(ISToolTip) == "table" then
+                local tooltip = ISToolTip:new()
+                tooltip:initialise()
+                tooltip:setVisible(false)
+                tooltip.description = tostring(reason)
+                option.toolTip = tooltip
             end
         end
     end

@@ -104,13 +104,29 @@ function Convoy.release(actor, reason)
     return true
 end
 
+function Convoy.suspendForSurvival(actor, suspended)
+    if selected(actor) == nil then return false end
+    local session = suspended and runtime(actor) or sessions[actor]
+    if session then session.survivalSuspended = suspended == true or nil end
+    return true
+end
+
+function Convoy.isSurvivalSuspended(actor)
+    local session = sessions[actor]
+    return session ~= nil and session.survivalSuspended == true
+end
+
 function Convoy.ownsSeat(actor, car, player)
     local assigned = selected(actor)
     if assigned ~= nil and sql(car) == assigned then
         local session = sessions[actor]
         return (session ~= nil or playerCar(player) ~= nil)
-            and not (session and (session.failed or session.parked))
+            and not (session and (session.failed or session.parked
+                or session.survivalSuspended))
     end
+    local order = state(actor)
+    if not order or order.recruited ~= true or order.order ~= "follow"
+        or order.rideWithPlayer == false then return false end
     if playerCar(player) == nil then return false end
     for _, other in ipairs(SC.Registry.living()) do
         if selected(other) == sql(car) and value(car, "getDriver") == other then
@@ -160,6 +176,7 @@ function Convoy.step(actor, player, snapshot)
     local id = selected(actor)
     if id == nil then return nil end
     local session = runtime(actor)
+    if session.survivalSuspended then return nil, "survival_priority" end
     local lead = playerCar(player)
     if session.failed then
         return value(actor, "getVehicle") ~= nil and true or nil, "follow_car_lost"
@@ -223,24 +240,39 @@ function Convoy.boardOverflow(actor, player, snapshot)
     table.sort(waiting, function(a, b)
         return tostring(SC.Registry.idOf(a)) < tostring(SC.Registry.idOf(b))
     end)
-    local waitingIds = {}
-    for _, other in ipairs(waiting) do waitingIds[SC.Registry.idOf(other)] = true end
-    local seats = {}
+    local waitingById = {}
+    for _, other in ipairs(waiting) do
+        waitingById[tostring(SC.Registry.idOf(other))] = other
+    end
+    local assigned, free = {}, {}
     local count = tonumber(value(car, "getMaxPassengers")) or 0
     for candidate = 1, math.min(count, 32) - 1 do
         if value(car, "isSeatInstalled", candidate) == true then
             local reserved, owner = SC.Vehicle.isSeatReserved(car, candidate)
             local occupant = value(car, "getCharacter", candidate)
-            if occupant == nil and (not reserved or waitingIds[owner])
-                or occupant and waitingIds[SC.Registry.idOf(occupant)] then
-                seats[#seats + 1] = candidate
+            if occupant then
+                -- A native occupant owns its actual seat, regardless of roster order.
+                if waitingById[tostring(SC.Registry.idOf(occupant))] == occupant then
+                    assigned[occupant] = candidate
+                end
+            elseif reserved then
+                local reservedActor = waitingById[tostring(owner)]
+                if reservedActor and not assigned[reservedActor] then
+                    assigned[reservedActor] = candidate
+                end
+            else
+                free[#free + 1] = candidate
             end
         end
     end
-    local seat
-    for index, other in ipairs(waiting) do
-        if other == actor then seat = seats[index] break end
+    local nextFree = 1
+    for _, other in ipairs(waiting) do
+        if not assigned[other] and free[nextFree] then
+            assigned[other] = free[nextFree]
+            nextFree = nextFree + 1
+        end
     end
+    local seat = assigned[actor]
     if not seat then return nil end
     local boarded, why = board(actor, car, seat, snapshot)
     return boarded == true, why or "boarding_follow_car"

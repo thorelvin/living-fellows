@@ -596,6 +596,19 @@ do
     Convoy.tick(started + 11000)
     check(Driving.isDriving(actor) and T.motionCalls >= calls,
         "a parked player car does not falsely mark the convoy blocked")
+    actor.bleeding = true
+    local exitsBeforeCare = T.exits
+    SC.Decision.update(actor, localPlayer, T.runtime())
+    check(not Driving.isDriving(actor) and Convoy.isSurvivalSuspended(actor)
+        and T.exits == exitsBeforeCare + 1,
+        "bleeding convoy driver parks and reaches the safe-exit policy")
+    SC.Decision.update(actor, localPlayer, T.runtime())
+    check(not Driving.isDriving(actor) and Convoy.isSurvivalSuspended(actor),
+        "the follow-car order cannot restart during the same emergency")
+    actor.bleeding = false
+    SC.Decision.update(actor, localPlayer, T.runtime())
+    check(not Convoy.isSurvivalSuspended(actor) and Driving.isDriving(actor),
+        "convoy resumes after the emergency clears")
     -- A lead car can finish just beyond the desired following gap. The driver
     -- must still park and leave the car when the player gets out.
     lead.x = 150
@@ -607,6 +620,82 @@ do
     Convoy.reset()
     getPlayer, SC.Commands.peek, SC.Registry.living = oldPlayer, oldPeek, oldLiving
     SC.Vehicle.loadedBySqlId = oldLoaded
+end
+
+do
+    local Convoy = SC.Convoy
+    local driver = T.actor("overflow-driver")
+    local earlier = T.actor("overflow-A")
+    local seated = T.actor("overflow-B")
+    local car = driver.vehicle
+    car.sqlId = 777
+    function car:getSqlId() return self.sqlId end
+    function car:getMaxPassengers() return 3 end
+    function car:isSeatInstalled(seat) return seat == 1 or seat == 2 end
+    function car:getCharacter(seat) return seat == 1 and seated or nil end
+    seated.vehicle, earlier.vehicle = car, nil
+    local lead = { x = 110, y = 100, z = 0 }
+    local localPlayer = { x = 110, y = 100, z = 0, vehicle = lead }
+    function localPlayer:getVehicle() return self.vehicle end
+    function lead:getDriver() return localPlayer end
+    local oldPeek, oldLiving, oldLoaded = SC.Commands.peek,
+        SC.Registry.living, SC.Vehicle.loadedBySqlId
+    local oldAssignment, oldReserved, oldSeated = SC.Vehicle.assignmentFor,
+        SC.Vehicle.isSeatReserved, SC.Vehicle.isNativeSeated
+    local oldBegin, oldPreflight, oldBoard = SC.Vehicle.beginBoarding,
+        SC.Vehicle.preflightBoard, SC.Vehicle.board
+    local optOut, boardedSeat = false, nil
+    SC.Commands.peek = function(candidate)
+        return { recruited = true, order = "follow",
+            followCarSqlId = candidate == driver and 777 or nil,
+            rideWithPlayer = candidate ~= seated or not optOut }
+    end
+    SC.Registry.living = function() return { driver, earlier, seated } end
+    SC.Vehicle.loadedBySqlId = function(id) return id == 777 and car or nil end
+    SC.Vehicle.assignmentFor = function() return nil, "vehicle_capacity_wait" end
+    SC.Vehicle.isSeatReserved = function() return false end
+    SC.Vehicle.isNativeSeated = function(candidate)
+        if candidate == seated then return true, car, 1 end
+        return false
+    end
+    SC.Vehicle.beginBoarding = function() return { supervisorToken = 1 } end
+    SC.Vehicle.preflightBoard = function(_, _, seat) return { seat = seat } end
+    SC.Vehicle.board = function(_, _, seat)
+        boardedSeat = seat
+        return true, "boarded"
+    end
+    check(Convoy.boardOverflow(earlier, localPlayer, {}) == true
+        and boardedSeat == 2,
+        "a new follower uses the free seat instead of displacing a seated follower")
+    check(Convoy.ownsSeat(seated, car, localPlayer),
+        "an opted-in overflow passenger owns the seated follow-car place")
+    optOut = true
+    check(not Convoy.ownsSeat(seated, car, localPlayer),
+        "ride opt-out releases an overflow passenger's seat for safe exit")
+    seated.data.SC_RideWithPlayer = false
+    SC.Commands.reset(seated)
+    local oldStationary, moving = SC.Vehicle.isStationary, true
+    SC.Vehicle.isStationary = function()
+        return not moving, moving and "vehicle is moving" or nil
+    end
+    local exitsBeforeOptOut = T.exits
+    local waiting, waitReason = SC.Decision.update(seated, localPlayer, T.runtime())
+    check(waiting and waitReason == "waiting_for_safe_exit"
+        and T.exits == exitsBeforeOptOut,
+        "an opted-out passenger waits inside a moving follow car")
+    moving = false
+    local exited, exitReason = SC.Decision.update(seated, localPlayer, T.runtime())
+    check(exited and exitReason == "exiting_vehicle"
+        and T.exits == exitsBeforeOptOut + 1,
+        "an opted-out passenger exits once the follow car stops")
+    SC.Vehicle.isStationary = oldStationary
+    SC.Commands.peek, SC.Registry.living, SC.Vehicle.loadedBySqlId =
+        oldPeek, oldLiving, oldLoaded
+    SC.Vehicle.assignmentFor, SC.Vehicle.isSeatReserved,
+        SC.Vehicle.isNativeSeated = oldAssignment, oldReserved, oldSeated
+    SC.Vehicle.beginBoarding, SC.Vehicle.preflightBoard, SC.Vehicle.board =
+        oldBegin, oldPreflight, oldBoard
+    Convoy.reset()
 end
 SC_TEST_REPORT = "DRIVING_HARNESS_PASS checks=" .. tostring(checks)
 print(SC_TEST_REPORT)

@@ -182,7 +182,15 @@ function Targeting.scan(actor, current, suppliedZombies)
             and maintainStalledPursuit(zombie, actor, current) then
             refreshed = refreshed + 1
         elseif reason ~= "already_targeted" then
-            pursuitState[zombie] = nil
+            -- A rejected challenger must not erase the current target's
+            -- stationary timer. Only a real target change invalidates it.
+            local pursuit = pursuitState[zombie]
+            if pursuit then
+                local target, targetOk = U().call(zombie, "getTarget")
+                if targetOk and target ~= pursuit.actor then
+                    pursuitState[zombie] = nil
+                end
+            end
         end
     end)
     state.checked, state.visible, state.targeted = checked, visible, targeted

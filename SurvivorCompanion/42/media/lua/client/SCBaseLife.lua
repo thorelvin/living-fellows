@@ -33,7 +33,7 @@ BaseLife.STORAGE_CATEGORIES = {
 }
 BaseLife.JOB_TYPES = {
     haul = true, sort = true, fetch = true, unload_vehicle = true,
-    refuel_vehicle = true,
+    refuel_vehicle = true, refuel_generator = true,
     repair = true, replace_bandage = true,
     craft_supply = true, barricade = true, maintain = true, build = true,
     gather_materials = true, production = true, farm = true, cook = true,
@@ -2537,7 +2537,11 @@ function BaseLife.jobAllowsWorkReach(job)
     if type(job) ~= "table" or type(job.target) ~= "table" then return false end
     local base = activeBase()
     local order
-    if job.type == "refuel_vehicle" then
+    if job.type == "refuel_generator" then
+        local target = job.target
+        return type(target.objectId) == "string"
+            and BaseLife.withinWorkReach(target)
+    elseif job.type == "refuel_vehicle" then
         local target = job.target
         local vehicleId = tonumber(target.vehicleId)
         return vehicleId ~= nil and vehicleId >= 0 and vehicleId % 1 == 0
@@ -3741,11 +3745,12 @@ function BaseLife.claimJob(actorId)
             -- A restored or expired unload may still name its first worker.
             -- Let another resident claim it once that worker is loaded and
             -- the exact cargo/action recovery check says there is no owner.
-            local vehicleWork = job.type == "unload_vehicle" and SC.VehicleUnload
-                or job.type == "refuel_vehicle" and SC.VehicleRefuel or nil
-            if vehicleWork and job.assignedId ~= nil
-                and type(vehicleWork.releaseAffinity) == "function" then
-                vehicleWork.releaseAffinity(U().resolveActor(job.assignedId), job)
+            local fuelWork = job.type == "unload_vehicle" and SC.VehicleUnload
+                or job.type == "refuel_vehicle" and SC.VehicleRefuel
+                or job.type == "refuel_generator" and SC.GeneratorRefuel or nil
+            if fuelWork and job.assignedId ~= nil
+                and type(fuelWork.releaseAffinity) == "function" then
+                fuelWork.releaseAffinity(U().resolveActor(job.assignedId), job)
             end
             local score = jobScore(actorId, job)
             if bestScore == nil or score > bestScore
@@ -3776,14 +3781,15 @@ end
 function BaseLife.releaseJob(id, actorId, reason)
     local job = BaseLife.job(id)
     if not job or (actorId ~= nil and job.reservedBy ~= actorId) then return false, "job_not_owned" end
-    local vehicleWork = job.type == "unload_vehicle" and SC.VehicleUnload
-        or job.type == "refuel_vehicle" and SC.VehicleRefuel or nil
-    if vehicleWork and job.assignedId ~= nil then
+    local fuelWork = job.type == "unload_vehicle" and SC.VehicleUnload
+        or job.type == "refuel_vehicle" and SC.VehicleRefuel
+        or job.type == "refuel_generator" and SC.GeneratorRefuel or nil
+    if fuelWork and job.assignedId ~= nil then
         local owner = U().resolveActor(job.assignedId)
-        if type(vehicleWork.cancel) ~= "function" then
-            return false, "vehicle_work_cancel_unavailable"
+        if type(fuelWork.cancel) ~= "function" then
+            return false, "fuel_work_cancel_unavailable"
         end
-        local settled, settleReason = vehicleWork.cancel(owner, job)
+        local settled, settleReason = fuelWork.cancel(owner, job)
         if settled ~= true then return false, settleReason end
     end
     job.state, job.reservedBy, job.leaseUntil = "pending", nil, 0
@@ -3798,11 +3804,12 @@ function BaseLife.blockJob(id, actorId, reason, retryMs)
     -- Keep the worker for the report: a playtest log said a barricade timed
     -- out twice but not whose approach failed.
     local worker = actorId or job.reservedBy
-    local vehicleWork = job.type == "unload_vehicle" and SC.VehicleUnload
-        or job.type == "refuel_vehicle" and SC.VehicleRefuel or nil
-    if worker ~= nil and vehicleWork
-        and type(vehicleWork.releaseAffinity) == "function" then
-        vehicleWork.releaseAffinity(U().resolveActor(worker), job)
+    local fuelWork = job.type == "unload_vehicle" and SC.VehicleUnload
+        or job.type == "refuel_vehicle" and SC.VehicleRefuel
+        or job.type == "refuel_generator" and SC.GeneratorRefuel or nil
+    if worker ~= nil and fuelWork
+        and type(fuelWork.releaseAffinity) == "function" then
+        fuelWork.releaseAffinity(U().resolveActor(worker), job)
     end
     job.state, job.reservedBy, job.leaseUntil = "blocked", nil, 0
     job.blocker = cleanText(reason, "blocked", 160)
@@ -3858,7 +3865,7 @@ function BaseLife.cancelJob(id)
     end
     local transferJob = job.type == "haul" or job.type == "sort"
         or job.type == "fetch" or job.type == "unload_vehicle"
-        or job.type == "refuel_vehicle"
+        or job.type == "refuel_vehicle" or job.type == "refuel_generator"
     if (job.type == "build" and job.reservedBy ~= nil) or transferJob then
         if not SC.BaseWork or type(SC.BaseWork.cancelJob) ~= "function" then
             return false, "base_work_cancel_unavailable"

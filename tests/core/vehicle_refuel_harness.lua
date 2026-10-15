@@ -53,6 +53,42 @@ check(Refuel.releaseAffinity(T.actor, job) == false,
     "a carrying worker cannot lose the receipt to another worker")
 check(Refuel.canContinue(T.actor, T.car, T.part, can, job.id) == true,
     "native work is valid at the fuel-side square")
+T.clock(T.clock() + 90001)
+working, reason = update(job)
+check(not working and reason == "car_refuel_carrying_timeout"
+    and job.target.stageStartedAt == nil
+    and T.actor.inventory.items[1] == can
+    and can.data.LF_RefuelJobId == job.id,
+    "a timed-out carrying attempt retains its exact can and renews on retry")
+T.clock(T.clock() + 200000)
+local savedPosition, savedGrid, savedNavigation = SC.GameplayUtil.position,
+    SC.GameplayUtil.gridSquare, SC.Navigation.requestAny
+local actorX, actorY = 13.5, 10.5
+SC.GameplayUtil.position = function(value)
+    if value == T.actor then return actorX, actorY, 0 end
+    return savedPosition(value)
+end
+SC.GameplayUtil.gridSquare = function(x, y, z)
+    return { x = x, y = y, z = z }
+end
+SC.Navigation.requestAny = function(_, goals, _, intent)
+    check(#goals > 0 and intent.arrivalDistance == 0.15,
+        "fuel navigation uses precise terminal arrival")
+    for _, goal in ipairs(goals) do
+        local centreX, centreY = goal.x + 0.5, goal.y + 0.5
+        check(math.sqrt((centreX - 10) ^ 2 + (centreY - 10) ^ 2)
+            + intent.arrivalDistance <= 1.600001,
+            "every accepted terminal goal lies within fuel range")
+    end
+    actorX, actorY = goals[1].x + 0.5, goals[1].y + 0.5
+    return true, "arrived"
+end
+working, reason = update(job)
+check(working and reason == "arrived"
+    and Refuel.atFuelSide(T.actor, T.car, T.part) == true,
+    "a worker outside fuel range reaches a usable fuel-side goal")
+SC.GameplayUtil.position, SC.GameplayUtil.gridSquare, SC.Navigation.requestAny =
+    savedPosition, savedGrid, savedNavigation
 working, reason = update(job)
 check(working and reason == "car_refuel_action_started" and T.nativeActive(),
     "the worker starts one native fueling action")
@@ -61,6 +97,12 @@ working, reason = update(job)
 check(working and reason == "car_refuel_verified" and T.part.current == 32
     and can.fluid.amount == 0 and job.target.stage == "returning",
     "tank gain and can loss must agree before return")
+T.clock(T.clock() + 90001)
+working, reason = update(job)
+check(not working and reason == "car_refuel_returning_timeout"
+    and job.target.stageStartedAt == nil and T.actor.inventory.items[1] == can,
+    "a timed-out return retains the same can")
+T.clock(T.clock() + 200000)
 T.deferReturn(true)
 working, reason = update(job)
 check(working and reason == "approaching_base_storage"

@@ -1749,6 +1749,18 @@ function BaseWork.update(actor, player, runtime)
                 return true, reason
             end
         end
+    elseif job.type == "refuel_generator" then
+        if not SC.GeneratorRefuel or type(SC.GeneratorRefuel.update) ~= "function" then
+            handled, reason, terminal = false, "generator_refuel_unavailable", true
+        else
+            local complete
+            handled, reason, terminal, complete = SC.GeneratorRefuel.update(actor, state, job)
+            if complete then
+                SC.BaseLife.completeJob(job.id, id, reason)
+                state.jobId = nil
+                return true, reason
+            end
+        end
     elseif job.type == "haul" or job.type == "sort" or job.type == "fetch" then
         handled, reason, terminal = updateTransfer(actor, state, job)
     else
@@ -1760,7 +1772,8 @@ function BaseWork.update(actor, player, runtime)
             or string.find(tostring(reason or ""), "outcome_unknown", 1, true) ~= nil
             or string.find(tostring(reason or ""), "chef_native", 1, true) ~= nil
             or reason == "chef_heating_receipt_missing")
-        local uncertainRefuel = job.type == "refuel_vehicle"
+        local uncertainRefuel = (job.type == "refuel_vehicle"
+                or job.type == "refuel_generator")
             and (string.find(tostring(reason or ""), "uncertain", 1, true) ~= nil
                 or string.find(tostring(reason or ""), "unreadable", 1, true) ~= nil
                 or string.find(tostring(reason or ""), "missing", 1, true) ~= nil)
@@ -1887,7 +1900,7 @@ function BaseWork.auditMaintenance(player)
     -- Farming participates in the same bounded round-robin as every other
     -- maintenance family. A productive field must not starve bandages,
     -- sorting, routines, or barricade inspection indefinitely.
-    auditPhase = (auditPhase % 8) + 1
+    auditPhase = (auditPhase % 9) + 1
     if auditPhase == 1 then
         if SC.FarmWork and type(SC.FarmWork.audit) == "function" then
             return SC.FarmWork.audit(base, now())
@@ -1928,6 +1941,12 @@ function BaseWork.auditMaintenance(player)
             return SC.VehicleRefuel.audit()
         end
         return false, "vehicle_refuel_unavailable"
+    end
+    if auditPhase == 9 then
+        if SC.GeneratorRefuel and type(SC.GeneratorRefuel.audit) == "function" then
+            return SC.GeneratorRefuel.audit()
+        end
+        return false, "generator_refuel_unavailable"
     end
     local maintainerId
     for _, id in ipairs(SC.BaseLife.dutyResidentIds()) do
@@ -1974,10 +1993,11 @@ function BaseWork.cancel(actor, reason)
         local settled, cargoReason = settleCargo(actor, state)
         if settled ~= true then return false, cargoReason end
         local job = state.jobId and SC.BaseLife.job(state.jobId) or nil
-        local vehicleWork = job and (job.type == "unload_vehicle" and SC.VehicleUnload
-            or job.type == "refuel_vehicle" and SC.VehicleRefuel) or nil
-        if vehicleWork then
-            local returned, returnReason = vehicleWork.cancel(actor, job)
+        local fuelWork = job and (job.type == "unload_vehicle" and SC.VehicleUnload
+            or job.type == "refuel_vehicle" and SC.VehicleRefuel
+            or job.type == "refuel_generator" and SC.GeneratorRefuel) or nil
+        if fuelWork then
+            local returned, returnReason = fuelWork.cancel(actor, job)
             if returned ~= true then return false, returnReason end
         end
     end
@@ -2027,15 +2047,17 @@ end
 function BaseWork.cancelJob(jobId, ownerId, reason)
     local unloadJob = SC.BaseLife and SC.BaseLife.job(jobId) or nil
     if unloadJob and (unloadJob.type == "unload_vehicle"
-        or unloadJob.type == "refuel_vehicle") then
+        or unloadJob.type == "refuel_vehicle"
+        or unloadJob.type == "refuel_generator") then
         local worker = ownerId or unloadJob.assignedId
         local owner = worker and U().resolveActor(worker) or nil
-        local vehicleWork = unloadJob.type == "unload_vehicle"
-            and SC.VehicleUnload or SC.VehicleRefuel
-        if vehicleWork and type(vehicleWork.cancel) == "function" then
-            return vehicleWork.cancel(owner, unloadJob)
+        local fuelWork = unloadJob.type == "unload_vehicle"
+            and SC.VehicleUnload or unloadJob.type == "refuel_vehicle"
+            and SC.VehicleRefuel or SC.GeneratorRefuel
+        if fuelWork and type(fuelWork.cancel) == "function" then
+            return fuelWork.cancel(owner, unloadJob)
         end
-        return false, "vehicle_work_cancel_unavailable"
+        return false, "fuel_work_cancel_unavailable"
     end
     local actor = U().resolveActor(ownerId)
     local state = actor and states[actor] or nil
@@ -2088,9 +2110,10 @@ function BaseWork.reconcileExpiredJob(job, ownerId)
         or job.type == "cook" then
         return false, "expired_job_subsystem_owned"
     end
-    if job.type == "refuel_vehicle" and type(job.target) == "table"
+    if (job.type == "refuel_vehicle" or job.type == "refuel_generator")
+        and type(job.target) == "table"
         and job.target.stage ~= nil then
-        return false, "expired_car_refuel_receipt_pending"
+        return false, "expired_refuel_receipt_pending"
     end
     local actor = U().resolveActor(ownerId)
     if actor == nil then return false, "expired_job_actor_missing" end
