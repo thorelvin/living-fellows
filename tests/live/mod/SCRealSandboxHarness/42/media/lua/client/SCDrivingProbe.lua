@@ -950,6 +950,7 @@ local function setupRoad(H, SC, check, result, setPhase, current)
         or H.config.driving_blocked == "true"
         or H.config.driving_save_stage == "true"
         or H.config.driving_remote == "true"
+        or H.config.convoy_probe == "true"
         or H.config.team_drive_probe == "true"
         or H.config.taxi_passenger_probe == "true"
         or H.config.taxi_call_probe == "true")
@@ -1107,6 +1108,7 @@ local function spawnCar(H, SC, check, result, setPhase, current, test)
         return
     end
     test.vehicle, test.dirX, test.dirY = vehicle, dirX, dirY
+    test.spawnDirection = direction
     test.lineX = road.lineX or vehicle:getX()
     test.lineY = road.lineY or vehicle:getY()
     if road.ax == 1 then test.lineX = vehicle:getX() else test.lineY = vehicle:getY() end
@@ -1204,6 +1206,7 @@ local function board(H, SC, check, result, setPhase, current, test)
             and H.config.driving_blocked ~= "true"
             and H.config.driving_save_stage ~= "true"
             and H.config.driving_remote ~= "true"
+            and H.config.convoy_probe ~= "true"
             and H.config.taxi_passenger_probe ~= "true" then
             SC.Scheduler.unregister("decision")
         end
@@ -1212,6 +1215,7 @@ local function board(H, SC, check, result, setPhase, current, test)
         or H.config.driving_blocked == "true"
         or H.config.driving_save_stage == "true"
         or H.config.driving_remote == "true"
+        or H.config.convoy_probe == "true"
         or H.config.taxi_passenger_probe == "true"
     if not normalAiMode and current - test.actorReadyAt < 1200 then return end
     local prepared, prepareReason = SC.Vehicle.preflightDriver(test.actor, test.vehicle)
@@ -1232,6 +1236,18 @@ local function board(H, SC, check, result, setPhase, current, test)
             test.key = key
             call(inventory, "AddItem", key)
         end
+    end
+    if H.config.convoy_probe == "true" then
+        pcall(function() H.player:teleportTo(test.actor:getX() + 3,
+            test.actor:getY() + 3, 0) end)
+        local accepted, why = SC.Commands.issue(SC.Registry.idOf(test.actor),
+            "assign_follow_car", { vehicle = test.vehicle }, H.player)
+        if not check("convoy_player_order_accepted", accepted == true,
+                tostring(why) .. " car_sql=" .. tostring(call(test.vehicle, "getSqlId"))) then
+            setPhase("finish", current) return
+        end
+        setPhase("drive_convoy_lead_setup", current)
+        return
     end
     local boarded, status = SC.Driving.takeWheel(test.actor, test.vehicle,
         { preflight = prepared })
@@ -3346,6 +3362,153 @@ local function taxiCallResumeStep(H, SC, current, check, result, setPhase)
     end
 end
 
+local function convoyStep(H, SC, current, check, result, setPhase, test)
+    local follower, actor, player = test.vehicle, test.actor, H.player
+    if H.phase == "drive_convoy_lead_setup" then
+        local U = SC.GameplayUtil
+        local x = follower:getX() + test.dirX * 23
+        local y = follower:getY() + test.dirY * 23
+        local square = U.gridSquare(math.floor(x), math.floor(y), 0)
+        local ok, lead = pcall(addVehicleDebug, SCRIPT,
+            test.spawnDirection, nil, square)
+        if not check("convoy_lead_car_spawned",
+                ok and lead ~= nil and lead:getSquare() ~= nil,
+                "x=" .. fmt(x) .. " y=" .. fmt(y)) then
+            setPhase("finish", current) return
+        end
+        test.lead = lead
+        if call(lead, "getController") == nil then call(lead, "createPhysics") end
+        local tank = call(lead, "getPartById", "GasTank")
+        if tank then call(tank, "setContainerContentAmount",
+            call(tank, "getContainerCapacity") or 0) end
+        local battery = call(lead, "getBattery")
+        local cell = battery and call(battery, "getInventoryItem") or nil
+        if cell then call(cell, "setCurrentUsesFloat", 1.0) end
+        local outside = call(lead, "getPassengerPosition", 0, "outside")
+        local door = outside and call(lead, "getPassengerPositionWorldPos",
+            outside, Vector3f.new()) or nil
+        if door then
+            pcall(function() player:teleportTo(door:x(), door:y(), 0) end)
+        end
+        local entered, accepted = pcall(lead.enter, lead, 0, player)
+        if entered and accepted == true then
+            call(lead, "setCharacterPosition", player, 0, "inside")
+            call(lead, "transmitCharacterPosition", 0, "inside")
+            call(lead, "playPassengerAnim", 0, "idle")
+        end
+        if not check("convoy_real_player_in_lead_seat",
+                entered and accepted == true and player:getVehicle() == lead
+                    and lead:getDriver() == player and getSpecificPlayer(0) == player,
+                "entered=" .. tostring(accepted)
+                    .. " seat=" .. tostring(call(lead, "getSeat", player))) then
+            setPhase("finish", current) return
+        end
+        test.leadStartX, test.leadStartY = lead:getX(), lead:getY()
+        test.followStartX, test.followStartY = follower:getX(), follower:getY()
+        test.topSpeed = 0
+        setPhase("drive_convoy_wait_board", current)
+        return
+    end
+    local lead = test.lead
+    if H.phase == "drive_convoy_wait_board" then
+        local seated = actor:getVehicle() == follower
+            and SC.Driving.isDriver(actor) and SC.Driving.isDriving(actor)
+        if seated then
+            result("PASS", "convoy_companion_drives_assigned_car",
+                "seat=0 car_sql=" .. tostring(call(follower, "getSqlId")))
+            setPhase("drive_convoy_move", current)
+        elseif current - H.phaseStartedAt > 25000 then
+            failTo(H, test, setPhase, result, current, "convoy_companion_boarding",
+                "vehicle=" .. tostring(actor:getVehicle())
+                    .. " driver=" .. tostring(call(follower, "getDriver")))
+        end
+        return
+    end
+    if H.phase == "drive_convoy_move" then
+        local moved = SCConvoyHarness and SCConvoyHarness.driveLead(player, true)
+        if not moved then
+            failTo(H, test, setPhase, result, current,
+                "convoy_player_car_motion", "lead position was not writable")
+            return
+        end
+        local leadTravel = flatDistance(lead:getX(), lead:getY(),
+            test.leadStartX, test.leadStartY)
+        local followTravel = flatDistance(follower:getX(), follower:getY(),
+            test.followStartX, test.followStartY)
+        local gap = flatDistance(lead:getX(), lead:getY(),
+            follower:getX(), follower:getY())
+        test.topSpeed = math.max(test.topSpeed,
+            math.abs(tonumber(follower:getCurrentSpeedKmHour()) or 0))
+        if leadTravel >= 12 then
+            setPhase("drive_convoy_follow_settle", current)
+        elseif current - H.phaseStartedAt > 90000 then
+            failTo(H, test, setPhase, result, current,
+                "convoy_player_car_moved",
+                "lead=" .. fmt(leadTravel) .. " follower=" .. fmt(followTravel)
+                    .. " lead_engine=" .. tostring(call(lead, "getEngineState")))
+        end
+        return
+    end
+    if H.phase == "drive_convoy_follow_settle" then
+        local leadTravel = flatDistance(lead:getX(), lead:getY(),
+            test.leadStartX, test.leadStartY)
+        local followTravel = flatDistance(follower:getX(), follower:getY(),
+            test.followStartX, test.followStartY)
+        local gap = flatDistance(lead:getX(), lead:getY(),
+            follower:getX(), follower:getY())
+        test.topSpeed = math.max(test.topSpeed,
+            math.abs(tonumber(follower:getCurrentSpeedKmHour()) or 0))
+        if followTravel >= 5 and gap >= 5 and gap <= 22 then
+            check("convoy_native_follow_distance", test.topSpeed <= 50.5,
+                "lead=" .. fmt(leadTravel) .. " follower=" .. fmt(followTravel)
+                    .. " gap=" .. fmt(gap) .. " top=" .. fmt(test.topSpeed))
+            setPhase("drive_convoy_stop", current)
+        elseif current - H.phaseStartedAt > 25000 then
+            local status = SC.Driving.status(actor) or {}
+            failTo(H, test, setPhase, result, current,
+                "convoy_native_follow_distance",
+                "lead=" .. fmt(leadTravel) .. " follower=" .. fmt(followTravel)
+                    .. " gap=" .. fmt(gap) .. " top=" .. fmt(test.topSpeed)
+                    .. " drive=" .. tostring(status.state)
+                    .. " mode=" .. tostring(status.mode))
+        end
+        return
+    end
+    if H.phase == "drive_convoy_stop" then
+        if SCConvoyHarness then SCConvoyHarness.driveLead(player, false) end
+        if SC.Vehicle.isStationary(lead) ~= true then
+            if current - H.phaseStartedAt > 15000 then
+                failTo(H, test, setPhase, result, current,
+                    "convoy_player_car_stopped",
+                    fmt(lead:getCurrentSpeedKmHour()))
+            end
+            return
+        end
+        local exited, accepted = pcall(lead.exit, lead, player)
+        if not check("convoy_player_exits_lead_car",
+                exited and accepted == true and player:getVehicle() == nil,
+                "exit=" .. tostring(accepted)) then
+            setPhase("finish", current) return
+        end
+        setPhase("drive_convoy_rejoin", current)
+        return
+    end
+    if H.phase == "drive_convoy_rejoin" then
+        if actor:getVehicle() == nil and not SC.Driving.isDriving(actor) then
+            check("convoy_companion_parks_and_rejoins",
+                SC.Vehicle.isStationary(follower) == true,
+                "gap=" .. fmt(flatDistance(lead:getX(), lead:getY(),
+                    follower:getX(), follower:getY())))
+            setPhase("finish", current)
+        elseif current - H.phaseStartedAt > 30000 then
+            failTo(H, test, setPhase, result, current,
+                "convoy_companion_parks_and_rejoins",
+                "seat=" .. tostring(actor:getVehicle())
+                    .. " speed=" .. fmt(follower:getCurrentSpeedKmHour()))
+        end
+    end
+end
+
 function Probe.step(H, current, check, result, setPhase)
     local SC = SurvivorCompanion
     if H.phase == "drive_setup" then
@@ -3422,6 +3585,11 @@ function Probe.step(H, current, check, result, setPhase)
     end
     local test = H.driveTest
     if test == nil then setPhase("finish", current) return end
+    if H.config.convoy_probe == "true"
+        and string.find(H.phase, "drive_convoy_", 1, true) == 1 then
+        convoyStep(H, SC, current, check, result, setPhase, test)
+        return
+    end
     if string.find(H.phase, "drive_team_", 1, true) == 1 then
         teamStep(H, SC, current, check, result, setPhase, test)
         return

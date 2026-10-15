@@ -134,6 +134,7 @@ try {
         (Join-Path $Client 'SCActor.lua'),
         (Join-Path $Client 'SCVehicle.lua'),
         (Join-Path $Client 'SCDriving.lua'),
+        (Join-Path $Client 'SCConvoy.lua'),
         (Join-Path $Client 'SCPerformance.lua'),
         (Join-Path $Client 'SCScheduler.lua'),
         (Join-Path $Client 'SCPersistence.lua'),
@@ -182,6 +183,7 @@ try {
             (Join-Path $Client 'SCScheduler.lua'),
             (Join-Path $Client 'SCExpeditionRoute.lua'),
             (Join-Path $Client 'SCDriving.lua'),
+            (Join-Path $Client 'SCConvoy.lua'),
             (Join-Path $Client 'SCCommands.lua'),
             (Join-Path $Client 'SCDecision.lua'),
             (Join-Path $Client 'SCRuntime.lua'),
@@ -208,6 +210,13 @@ try {
             (Join-Path $TestRoot 'vehicle_unload_harness.lua')
         )
         Add-ScJvmStep 'vehicle-unload' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $vehicleUnloadFiles 'Parked car cargo transfer and recovery harness failed.'
+
+        $vehicleRefuelFiles = @(
+            (Join-Path $TestRoot 'vehicle_refuel_fixture.lua'),
+            (Join-Path $Client 'SCVehicleRefuel.lua'),
+            (Join-Path $TestRoot 'vehicle_refuel_harness.lua')
+        )
+        Add-ScJvmStep 'vehicle-refuel' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $vehicleRefuelFiles 'Parked car refueling and recovery harness failed.'
 
         $expeditionRestartFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),

@@ -27,12 +27,15 @@ require "SCGatherWork"
 require "SCFarmWork"
 require "SCChefWork"
 require "SCBaseWork"
+require "SCVehicleUnload"
+require "SCVehicleRefuel"
 require "SCInfectionCrisis"
 require "SCLifeEvents"
 require "SCCommunity"
 require "SCQuirks"
 require "SCAutonomy"
 require "SCCommands"
+require "SCConvoy"
 require "SCCompanionGifts"
 require "SCExpeditionRoute"
 require "SCExpeditionCar"
@@ -1182,6 +1185,9 @@ local function registerTasks()
             end
             return true
         end, "normal" },
+        { "convoy", 250, 60, function(current)
+            return SC.Convoy.tick(current)
+        end, "normal" },
         { "taxi-service", 250, 59, function(current)
             if SC.TaxiService and type(SC.TaxiService.tick) == "function" then
                 return SC.TaxiService.tick(current)
@@ -1914,6 +1920,7 @@ function runtime.reset(detach)
             return false, detail
         end
     end
+    if SC.Convoy and type(SC.Convoy.reset) == "function" then SC.Convoy.reset() end
     if SC.Actor ~= nil and type(SC.Actor.disposeAll) == "function" then
         local ok, disposed, reason = pcall(SC.Actor.disposeAll)
         if not ok or disposed ~= true then

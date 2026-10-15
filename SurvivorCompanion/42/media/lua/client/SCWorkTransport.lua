@@ -281,6 +281,7 @@ function Transport.foreignProtected(item, actor)
         return true, "quest_item_owned"
     end
     if data.LF_FarmReceiptId ~= nil then return true, "farm_item_owned" end
+    if data.LF_RefuelJobId ~= nil then return true, "refuel_item_owned" end
     if data.LF_ProductionOrderId ~= nil then return true, "production_item_owned" end
     local workReceiptId = markerOf(item)
     if workReceiptId ~= nil then

@@ -73,7 +73,7 @@ import zombie.worldMap.WorldMap;
 
 /** Narrow Lua-facing authority for creating and owning native companions. */
 public final class SCBridge {
-    public static final String PROTOCOL = "42.21-isocompanion-23";
+    public static final String PROTOCOL = "42.21-isocompanion-24";
     public static final int ITEM_FACT_FOOD = 1;
     public static final int ITEM_FACT_DRAINABLE = 1 << 1;
     public static final int ITEM_FACT_HAND_WEAPON = 1 << 2;
@@ -1382,6 +1382,26 @@ public final class SCBridge {
                     + " points of x,y,width inside the map");
         }
         driver.follow(path, cruiseKmh, cornerSpeedScale);
+        return true;
+    }
+
+    /** Follow a player's rolling vehicle trail, retaining the current wheel owner. */
+    public static boolean driveFollowVehicle(SCNativeCompanion actor, BaseVehicle lead,
+                                             String route, double cruiseKmh) {
+        lastFailure = "";
+        String refused = driveRefusal(actor);
+        if (!refused.isEmpty()) return failBoolean(refused);
+        if (lead == null || lead == actor.getVehicle() || lead.getDriver() == null)
+            return failBoolean("lead vehicle has no player driver");
+        if (!(lead.getDriver() instanceof IsoPlayer))
+            return failBoolean("lead vehicle has no player driver");
+        if (!Double.isFinite(cruiseKmh) || cruiseKmh <= 0.0 || cruiseKmh > 50.0)
+            return failBoolean("convoy speed must be 1 to 50 km/h");
+        SCCompanionDriver driver = actor.companionDriver();
+        if (!driver.isActive()) return failBoolean("companion is not driving");
+        SCDrivePath path = SCDrivePath.parse(route);
+        if (path == null) return failBoolean("invalid convoy trail");
+        driver.followVehicle(lead, path, cruiseKmh);
         return true;
     }
 

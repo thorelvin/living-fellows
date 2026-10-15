@@ -37,6 +37,7 @@ final class SCCompanionDriver {
 
     private boolean active;
     private BaseVehicle vehicle;
+    private BaseVehicle convoyLead;
     private IsoPlayer authorizedPassenger;
     private boolean haveKey;
     private float steering;
@@ -194,6 +195,7 @@ final class SCCompanionDriver {
     /** Hand driving: a set wheel and speed. Ends any route being followed. */
     void set(double steeringValue, double cruise, boolean brakeForObstacles) {
         follower = null;
+        convoyLead = null;
         turnRequested = false;
         steering = SCDriveControl.clampSteering(steeringValue);
         cruiseKmh = SCDriveControl.clampCruise(cruise);
@@ -209,6 +211,7 @@ final class SCCompanionDriver {
     }
 
     void follow(SCDrivePath path, double cruise, double cornerSpeedScale) {
+        convoyLead = null;
         follower = new SCRoadFollower(path, (float) cruise, true,
                 false, (float) cornerSpeedScale);
         cruiseKmh = follower.cruiseKmh();
@@ -217,9 +220,23 @@ final class SCCompanionDriver {
         turnRequested = false;
     }
 
+    void followVehicle(BaseVehicle lead, SCDrivePath path, double cruise) {
+        if (follower == null || convoyLead != lead
+                || follower.mode() == SCRoadFollower.Mode.TURN_FAILED) {
+            follower = new SCRoadFollower(path, (float) cruise, false);
+        } else {
+            follower.retarget(path);
+        }
+        convoyLead = lead;
+        cruiseKmh = follower.cruiseKmh();
+        autoBrake = true;
+        turnRequested = false;
+    }
+
     /** Short, centreline-only final approach. Precise stop is still verified
      * against the complete vehicle footprint by the Lua mission owner. */
     void approach(SCDrivePath path, double cruise) {
+        convoyLead = null;
         follower = new SCRoadFollower(path, (float) Math.min(5.0, cruise),
                 false, true);
         cruiseKmh = follower.cruiseKmh();
@@ -246,6 +263,7 @@ final class SCCompanionDriver {
         boolean wasActive = active;
         active = false;
         vehicle = null;
+        convoyLead = null;
         authorizedPassenger = null;
         follower = null;
         turnRequested = false;
@@ -373,6 +391,23 @@ final class SCCompanionDriver {
         float rear = lastRearScan.blocked ? lastRearScan.distance : -1.0f;
         follower.update(world, x, y, z, headingX, headingY, speedKmh, body[0], body[1],
                 front, rear, now / 1_000_000L, command);
+        if (convoyLead != null) {
+            if (convoyLead == current || (convoyLead.getDriver() != null
+                    && !(convoyLead.getDriver() instanceof IsoPlayer))
+                    || convoyLead.getZ() != current.getZ()) {
+                command.targetKmh = 0.0f;
+            } else {
+                float[] leadBody = bodySize(convoyLead);
+                float clearGap = (float) Math.hypot(convoyLead.getX() - x,
+                        convoyLead.getY() - y) - body[1] - leadBody[1];
+                float leadSpeed = Math.max(0.0f, convoyLead.getCurrentSpeedKmHour());
+                float closing = Math.max(0.0f, speedKmh - leadSpeed);
+                float brakingGap = 12.0f + SCDriveControl.stoppingDistance(closing);
+                if (clearGap <= 12.0f) command.targetKmh = 0.0f;
+                else if (clearGap <= brakingGap)
+                    command.targetKmh = Math.min(command.targetKmh, leadSpeed);
+            }
+        }
         steering = command.steering;
         SCDriveControl.Input input = command.targetKmh < 0.0f
                 ? SCDriveControl.reverse(speedKmh, -command.targetKmh, command.steering, rear)

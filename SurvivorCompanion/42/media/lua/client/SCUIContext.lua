@@ -1394,11 +1394,64 @@ local function addHotwireMenu(context, rows, vehicle, player)
     end
 end
 
+local function convoyFromContext(_target, row, vehicle, player, cancel)
+    local command = cancel and "cancel_follow_car" or "assign_follow_car"
+    local accepted, reason = SC.Commands.issue(row.id, command,
+        cancel and nil or { vehicle = vehicle }, player)
+    if player then
+        safeMethod(player, "setHaloNote", accepted
+            and text(cancel and "UI_SC_Vehicle_FollowCarCancelled"
+                or "UI_SC_Vehicle_FollowCarAssigned", row.name)
+            or text("UI_SC_Vehicle_FollowCarRejected", tostring(reason)))
+    end
+end
+
+local function addConvoyMenu(context, rows, vehicle, player)
+    if not vehicle or not SC.Convoy or not SC.Commands then return end
+    local root = addCategory(context, "UI_SC_Vehicle_CommandFollowCar")
+    local carId = safeMethod(vehicle, "getSqlId")
+    for _, row in ipairs(rows or {}) do
+        if row.recruited == true then
+            local actor = SC.Registry.byId(row.id)
+            actor = actor and actor.actor or nil
+            local state = actor and SC.Commands.peek(actor) or nil
+            local assigned = state and tonumber(state.followCarSqlId) == tonumber(carId)
+            if assigned then
+                root:addOption(text("UI_SC_Vehicle_CancelFollowCar", row.name), nil,
+                    convoyFromContext, row, vehicle, player, true)
+            else
+                local available, reason = SC.Convoy.preflight(actor, vehicle, player)
+                local option = root:addOption(row.name, nil,
+                    convoyFromContext, row, vehicle, player, false)
+                if not available then
+                    option.notAvailable = true
+                    if type(ISToolTip) == "table" then
+                        local tooltip = ISToolTip:new()
+                        tooltip:initialise()
+                        tooltip:setVisible(false)
+                        tooltip.description = tostring(reason)
+                        option.toolTip = tooltip
+                    end
+                end
+            end
+        end
+    end
+end
+
 local function unloadVehicleFromContext(_target, vehicleId, player)
     local okay, accepted, reason = pcall(SC.VehicleUnload.queue, vehicleId)
     if player then
         safeMethod(player, "setHaloNote", okay and accepted == true
             and text("UI_SC_Base_UnloadOrdered")
+            or text("UI_SC_Base_ActionFailed", tostring(reason or accepted)))
+    end
+end
+
+local function refuelVehicleFromContext(_target, vehicleId, player)
+    local okay, accepted, reason = pcall(SC.VehicleRefuel.queue, vehicleId, true)
+    if player then
+        safeMethod(player, "setHaloNote", okay and accepted == true
+            and text("UI_SC_Base_RefuelOrdered")
             or text("UI_SC_Base_ActionFailed", tostring(reason or accepted)))
     end
 end
@@ -1551,6 +1604,7 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
         end
     end
     addHotwireMenu(context, rows, clickedVehicle, player)
+    addConvoyMenu(context, rows, clickedVehicle, player)
     if clickedVehicle and SC.VehicleUnload
         and type(SC.VehicleUnload.eligible) == "function"
         and SC.VehicleUnload.eligible(clickedVehicle) == true then
@@ -1558,6 +1612,25 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
         if vehicleId then
             context:addOption(text("UI_SC_Base_UnloadToBase"), nil,
                 unloadVehicleFromContext, vehicleId, player)
+        end
+    end
+    if clickedVehicle and SC.VehicleRefuel
+        and type(SC.VehicleRefuel.eligible) == "function" then
+        local vehicleId = safeMethod(clickedVehicle, "getSqlId")
+        local eligible, reason = SC.VehicleRefuel.eligible(clickedVehicle, true)
+        if vehicleId then
+            local option = context:addOption(text("UI_SC_Base_RefuelFromBase"),
+                nil, refuelVehicleFromContext, vehicleId, player)
+            if not eligible and option then
+                option.notAvailable = true
+                if type(ISToolTip) == "table" then
+                    local tooltip = ISToolTip:new()
+                    tooltip:initialise()
+                    tooltip:setVisible(false)
+                    tooltip.description = tostring(reason)
+                    option.toolTip = tooltip
+                end
+            end
         end
     end
     if sealedDoorGroup then

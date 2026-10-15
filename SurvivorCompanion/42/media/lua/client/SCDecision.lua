@@ -808,6 +808,9 @@ local function enforceVehicleExitPolicy(actor, player, commands)
     if SC.ExpeditionCar and SC.ExpeditionCar.ownsSeat(actor, actorVehicle) then
         return true, "expedition_car_seat"
     end
+    if SC.Convoy and SC.Convoy.ownsSeat(actor, actorVehicle, player) then
+        return true, "follow_car_seat"
+    end
     local playerVehicle, playerVehicleOk = utility.call(player, "getVehicle")
     local mustExit = commands.rideWithPlayer == false
         or not playerVehicleOk or playerVehicle == nil or playerVehicle ~= actorVehicle
@@ -858,6 +861,9 @@ local function doFollow(actor, player, rootRuntime, commands, snapshot)
         }) then return false, "policy_exit_vehicle_rejected" end
         return true, "exiting_vehicle"
     elseif playerVehicleOk and playerVehicle and actorVehicleOk and actorVehicle ~= nil then
+        if SC.Convoy and SC.Convoy.ownsSeat(actor, actorVehicle, player) then
+            return true, "following_in_other_car"
+        end
         if not SC.Vehicle or type(SC.Vehicle.isStationary) ~= "function" then
             return false, "vehicle_adapter_unavailable"
         end
@@ -897,6 +903,11 @@ local function doFollow(actor, player, rootRuntime, commands, snapshot)
             end
             if assignmentReason == "vehicle_capacity_wait"
                 or assignmentReason == "vehicle_entry_seat_wait" then
+                if assignmentReason == "vehicle_capacity_wait" and SC.Convoy then
+                    local handled, convoyReason = SC.Convoy.boardOverflow(
+                        actor, player, snapshot)
+                    if handled ~= nil then return handled, convoyReason end
+                end
                 if not utility.stop(actor) then return false, "vehicle_capacity_wait_stop_rejected" end
                 return true, assignmentReason
             end
@@ -2869,6 +2880,15 @@ function Decision.update(actor, player, runtime, roundTimestamp)
         state.current, state.currentKey = "vehicle", "expedition_board"
         state.intent, state.lastHandledAt = boardReason or "boarding", current
         return boarded == true, state.intent
+    end
+
+    if SC.Convoy and (tonumber(snapshot.immediateCount) or 0) == 0 then
+        local convoyHandled, convoyReason = SC.Convoy.step(actor, player, snapshot)
+        if convoyHandled ~= nil then
+            state.current, state.currentKey = "vehicle", "follow_car"
+            state.intent, state.lastHandledAt = convoyReason or "follow_car", current
+            return convoyHandled == true, state.intent
+        end
     end
 
     -- A completed hit may remove the final perceived threat before the native

@@ -125,6 +125,12 @@ try {
 
     Push-Location -LiteralPath $GameRoot
     try {
+        $needsFiles = @(
+            (Join-Path $ClientRoot 'SCNeeds.lua'),
+            (Join-Path $TestRoot 'needs_rate_regression_harness.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @needsFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Companion needs rate regression harness failed.' }
         if (-not $NicknamesOnly) {
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @LuaFiles
             if ($LASTEXITCODE -ne 0) { throw 'Gameplay Kahlua integration harness failed.' }

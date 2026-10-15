@@ -1221,6 +1221,15 @@ do
     check(math.sqrt(dx * dx + dy * dy) <= reach + 0.001,
         "the advance never reaches past its bound: " .. tostring(math.sqrt(dx * dx + dy * dy)))
 
+    local occupyingObject = U.squareOccupyingObject
+    U.squareOccupyingObject = function(candidate)
+        if candidate.x == 1 and candidate.y == 0 then return { kind = "office_desk" } end
+        return nil
+    end
+    check(N._provisionalAdvance(actor, advanceState, square(8, 0), {}, 1000) == nil,
+        "a partial furniture collider blocks direct planning steps toward a corner")
+    U.squareOccupyingObject = occupyingObject
+
     check(N._provisionalAdvance(actor, advanceState, square(0, 0), {}, 1000) == nil,
         "a goal already underfoot is not worth advancing toward")
 

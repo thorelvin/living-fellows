@@ -352,6 +352,8 @@ local function defaultState(source, recruited)
             rideWithPlayer = order.rideWithPlayer == nil
                 and SC.Config.get("defaultRideWithPlayer") ~= false
                 or order.rideWithPlayer == true,
+            followCarSqlId = order.followCarSqlId ~= nil
+                and boundedNumber(order.followCarSqlId, nil, 0, 2147483647, true) or nil,
             movementMode = moveModes[order.movementMode] and order.movementMode
                 or (recruited == true and "copy" or "walk"),
             movementModeVersion = boundedNumber(order.movementModeVersion,
@@ -472,6 +474,7 @@ function registry.register(actor, record)
         allowOverload = state.order.allowOverload,
         scavenge = state.order.scavenge,
         rideWithPlayer = state.order.rideWithPlayer,
+        followCarSqlId = state.order.followCarSqlId,
         moveMode = state.order.movementMode,
         combatMode = state.order.combatStance,
         combatDoctrine = state.order.combatDoctrine,

@@ -31,6 +31,7 @@ param(
     [switch]$UserOptionsProbe,
     [switch]$MedicalCheckProbe,
     [switch]$BaseMaintenanceProbe,
+    [switch]$VehicleRefuelProbe,
     [switch]$PyreBurnProbe,
     [string]$PyreBurnScreenshot = '',
     [switch]$HygieneProbe,
@@ -68,6 +69,8 @@ param(
     [switch]$WaterSourceProbe,
     # A companion drives a spawned car on a straight road near the observer.
     [switch]$DrivingProbe,
+    # Real player drives one car while an assigned companion follows in another.
+    [switch]$ConvoyProbe,
     # Stage A of Markus's taxi: real player remains in a native passenger seat.
     [switch]$TaxiPassengerProbe,
     # Markus radio booking through a hidden physical pickup and free road ride.
@@ -717,6 +720,7 @@ if ($VehiclePassengerOnly -ne (-not [string]::IsNullOrWhiteSpace($VehiclePasseng
     throw '-VehiclePassengerOnly requires -VehiclePassengerScreenshot.'
 }
 if ($DrivingRoute -and -not $DrivingProbe) { throw '-DrivingRoute requires -DrivingProbe.' }
+if ($ConvoyProbe -and -not $DrivingProbe) { throw '-ConvoyProbe requires -DrivingProbe.' }
 if ($TaxiPassengerProbe -and -not $DrivingProbe) {
     throw '-TaxiPassengerProbe requires -DrivingProbe.'
 }
@@ -751,7 +755,7 @@ if ($DrivingGateNegativeControl -and
     throw '-DrivingGateNegativeControl requires -DrivingProbe -DrivingRoute -DrivingWithAi.'
 }
 $drivingExclusiveModes = @($DrivingRoute, $DrivingTurn, $DrivingBlocked,
-    $DrivingSaveStage, $DrivingSaveResume, $DrivingRemote, $TeamDriveProbe,
+    $DrivingSaveStage, $DrivingSaveResume, $DrivingRemote, $TeamDriveProbe, $ConvoyProbe,
     $TaxiPassengerProbe, $TaxiCallProbe, $TaxiCallResume,
     $TaxiRecoveryResume) | Where-Object { $_.IsPresent }
 if ($drivingExclusiveModes.Count -gt 1) {
@@ -1381,6 +1385,7 @@ $config = @(
     ('user_options_probe=' + $UserOptionsProbe.IsPresent.ToString().ToLowerInvariant()),
     ('medical_check_probe=' + $MedicalCheckProbe.IsPresent.ToString().ToLowerInvariant()),
     ('base_maintenance_probe=' + $BaseMaintenanceProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('vehicle_refuel_probe=' + $VehicleRefuelProbe.IsPresent.ToString().ToLowerInvariant()),
     ('pyre_burn_probe=' + $PyreBurnProbe.IsPresent.ToString().ToLowerInvariant()),
     ('hygiene_probe=' + $HygieneProbe.IsPresent.ToString().ToLowerInvariant()),
     ('oddball_corey_probe=' + $OddballCoreyProbe.IsPresent.ToString().ToLowerInvariant()),
@@ -1415,6 +1420,7 @@ $config = @(
     ('base_second_floor_probe=' + $BaseSecondFloorProbe.IsPresent.ToString().ToLowerInvariant()),
     ('water_source_probe=' + $WaterSourceProbe.IsPresent.ToString().ToLowerInvariant()),
     ('driving_probe=' + $DrivingProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('convoy_probe=' + $ConvoyProbe.IsPresent.ToString().ToLowerInvariant()),
     ('taxi_passenger_probe=' + $TaxiPassengerProbe.IsPresent.ToString().ToLowerInvariant()),
     ('taxi_call_probe=' + $TaxiCallProbe.IsPresent.ToString().ToLowerInvariant()),
     ('taxi_call_long_paid=' + $TaxiCallLongPaid.IsPresent.ToString().ToLowerInvariant()),
@@ -1713,7 +1719,13 @@ if ($SteamLaunch) {
         PassThru = $true
     }
     if ($HiddenWindow) { $startOptions.WindowStyle = 'Hidden' }
-    $process = Start-Process @startOptions
+    $priorConvoyHarness = $env:SC_LIVE_CONVOY_HARNESS
+    try {
+        if ($ConvoyProbe) { $env:SC_LIVE_CONVOY_HARNESS = '1' }
+        $process = Start-Process @startOptions
+    } finally {
+        $env:SC_LIVE_CONVOY_HARNESS = $priorConvoyHarness
+    }
     Write-Output "Started real Project Zomboid client test pid=$($process.Id)"
 }
 if ($ExternalUiControl) {

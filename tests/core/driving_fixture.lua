@@ -64,6 +64,11 @@ SC.GameplayUtil = {
 SC.Vehicle = {
     hasPlayerAboard = function(vehicle) return vehicle.playerAboard == true end,
     isStationary = function() return true end,
+    exit = function(actor)
+        T.exits = T.exits + 1
+        actor.vehicle = nil
+        return true
+    end,
 }
 SC.Medical = { assess = function(actor)
     return { health = 100, alive = not actor.dead, downed = actor.downed == true, critical = actor.critical == true,
@@ -114,6 +119,10 @@ SCBridge = {
     end,
     driveFollowTuned = function(actor, route, speed, scale)
         T.tunedFollow = { actor = actor, route = route, speed = speed, scale = scale }
+        return SCBridge.driveFollow(actor, route, speed)
+    end,
+    driveFollowVehicle = function(actor, leader, route, speed)
+        T.convoyFollow = { actor = actor, leader = leader, route = route, speed = speed }
         return SCBridge.driveFollow(actor, route, speed)
     end,
     driveApproach = function(actor)

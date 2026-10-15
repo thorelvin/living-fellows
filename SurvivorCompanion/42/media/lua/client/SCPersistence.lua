@@ -1319,6 +1319,7 @@ function persistence.captureRecord(record, vehicleState)
             scavenge = order.scavenge ~= false,
             allowOverload = order.allowOverload == true,
             rideWithPlayer = order.rideWithPlayer ~= false,
+            followCarSqlId = finite(order.followCarSqlId, nil),
             movementMode = text(order.movementMode,
                 record.recruited == true and "copy" or "walk", 16),
             movementModeVersion = math.max(0,

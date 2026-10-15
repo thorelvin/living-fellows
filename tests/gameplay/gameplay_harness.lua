@@ -16359,9 +16359,9 @@ check(SurvivorCompanion.Needs.updateRates(rateActor, rateRuntime, clock),
 clock = clock + 1001
 rateActor.hunger, rateActor.thirst = 0.50, 0.40
 check(SurvivorCompanion.Needs.updateRates(rateActor, rateRuntime, clock)
-    and math.abs(rateActor.hunger - 0.45) < 0.001
-    and math.abs(rateActor.thirst - 0.35) < 0.001,
-    "positive native hunger and thirst deltas are rebated to exactly half speed")
+    and math.abs(rateActor.hunger - (0.40 + 0.10 / 3)) < 0.001
+    and math.abs(rateActor.thirst - (0.30 + 0.10 / 3)) < 0.001,
+    "positive native hunger and thirst deltas advance at one third player speed")
 rateActor.hunger = 0.20
 clock = clock + 1001
 check(SurvivorCompanion.Needs.updateRates(rateActor, rateRuntime, clock)
@@ -16370,8 +16370,37 @@ check(SurvivorCompanion.Needs.updateRates(rateActor, rateRuntime, clock)
 rateActor.hunger = 1.0
 clock = clock + 1001
 check(SurvivorCompanion.Needs.updateRates(rateActor, rateRuntime, clock)
-    and math.abs(rateActor.hunger - 0.60) < 0.001,
-    "accelerated-time positive hunger deltas are still halved")
+    and math.abs(rateActor.hunger - (0.20 + 0.80 / 3)) < 0.001,
+    "accelerated-time positive hunger deltas are still scaled")
+do
+    local originalGameTime = getGameTime
+    local syntheticHour = originalGameTime():getWorldAgeHours()
+    getGameTime = function()
+        local game = originalGameTime()
+        game.getWorldAgeHours = function() return syntheticHour end
+        return game
+    end
+    local idleActor = actor("sc-needs-idle-growth", 29, 20, {})
+    local idleRuntime = {}
+    idleActor.hunger, idleActor.thirst = 0.20, 0.20
+    check(SurvivorCompanion.Needs.updateRates(idleActor, idleRuntime, clock),
+        "non-local companion starts from its real native stats")
+    syntheticHour = syntheticHour + 4
+    clock = clock + 1001
+    check(SurvivorCompanion.Needs.updateRates(idleActor, idleRuntime, clock)
+        and math.abs(idleActor.hunger - (0.20 + 4 * 0.0000096 * 3600 / 3)) < 0.001
+        and math.abs(idleActor.thirst - (0.20 + 4 * 0.0000080 * 3600 / 3)) < 0.001,
+        "non-local companion gains hunger and thirst from four game hours without native growth")
+    local grownHunger, grownThirst = idleActor.hunger, idleActor.thirst
+    idleActor.hunger, idleActor.thirst = 0.10, 0.08
+    syntheticHour = syntheticHour + 1
+    clock = clock + 1001
+    check(SurvivorCompanion.Needs.updateRates(idleActor, idleRuntime, clock)
+        and idleActor.hunger == 0.10 and idleActor.thirst == 0.08
+        and grownHunger > idleActor.hunger and grownThirst > idleActor.thirst,
+        "native food and water reductions are preserved across elapsed game time")
+    getGameTime = originalGameTime
+end
 do
     local utility = SurvivorCompanion.GameplayUtil
     local originalStat = utility.characterStatValue
@@ -16386,7 +16415,7 @@ do
         finishNeeds = function() finishes = finishes + 1 end,
     }
     local sampled = SurvivorCompanion.Needs.assess(rateActor, rateRuntime)
-    check(math.abs(sampled.hunger - 0.60) < 0.001 and statReads == 0,
+    check(math.abs(sampled.hunger - (0.20 + 0.80 / 3)) < 0.001 and statReads == 0,
         "ordinary needs assessment reuses the one-second native stat sample")
     rateActor.hunger = 0.15
     SurvivorCompanion.NativeActions.needsStatus = function() return false, "eat" end

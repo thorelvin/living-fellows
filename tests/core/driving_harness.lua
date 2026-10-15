@@ -562,5 +562,51 @@ do
         and Driving.jobStatus(first) == nil and Driving.jobStatus(second) == nil,
         "runtime teardown releases every driver and leaves no resumable job")
 end
+
+do
+    local Convoy = SC.Convoy
+    local actor = T.actor("convoy-driver")
+    local follower = actor.vehicle
+    follower.sqlId = 501
+    function follower:getSqlId() return self.sqlId end
+    local lead = { x = 110, y = 100, z = 0 }
+    local localPlayer = { x = 110, y = 100, z = 0, vehicle = lead }
+    function localPlayer:getVehicle() return self.vehicle end
+    function lead:getDriver() return localPlayer.vehicle and localPlayer or nil end
+    local oldPlayer, oldPeek, oldLiving = getPlayer, SC.Commands.peek, SC.Registry.living
+    local oldLoaded = SC.Vehicle.loadedBySqlId
+    getPlayer = function() return localPlayer end
+    SC.Commands.peek = function(candidate)
+        if candidate == actor then
+            return { recruited = true, order = "follow", followCarSqlId = 501 }
+        end
+        return nil
+    end
+    SC.Registry.living = function() return { actor } end
+    SC.Vehicle.loadedBySqlId = function(id) return id == 501 and follower or nil end
+    Convoy.activate(actor)
+    check(Convoy.step(actor, localPlayer, {}) == true and Driving.isDriving(actor),
+        "assigned driver takes the native wheel while the player is in another car")
+    local started = SC_TEST_CLOCK + 1000
+    Convoy.tick(started)
+    check(T.convoyFollow and T.convoyFollow.actor == actor
+        and T.convoyFollow.leader == lead and T.convoyFollow.speed == 50,
+        "rolling route targets the player's car at the convoy speed cap")
+    local calls = T.motionCalls
+    Convoy.tick(started + 11000)
+    check(Driving.isDriving(actor) and T.motionCalls >= calls,
+        "a parked player car does not falsely mark the convoy blocked")
+    -- A lead car can finish just beyond the desired following gap. The driver
+    -- must still park and leave the car when the player gets out.
+    lead.x = 150
+    localPlayer.vehicle = nil
+    local exits = T.exits
+    Convoy.tick(started + 11500)
+    check(not Driving.isDriving(actor) and T.exits == exits + 1,
+        "on player exit beyond the gap limit, the follower parks and gets out")
+    Convoy.reset()
+    getPlayer, SC.Commands.peek, SC.Registry.living = oldPlayer, oldPeek, oldLiving
+    SC.Vehicle.loadedBySqlId = oldLoaded
+end
 SC_TEST_REPORT = "DRIVING_HARNESS_PASS checks=" .. tostring(checks)
 print(SC_TEST_REPORT)

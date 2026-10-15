@@ -15318,6 +15318,10 @@ Harness.probeBaseMaintenance = function(...)
     return externalProbe("SCBaseMaintenanceProbe", ...)
 end
 
+Harness.probeVehicleRefuel = function(...)
+    return externalProbe("SCVehicleRefuelProbe", ...)
+end
+
 Harness.probePyreBurn = function(...)
     return externalProbe("SCPyreBurnProbe", ...)
 end
@@ -15609,6 +15613,8 @@ local function tick()
         end
     elseif string.find(tostring(Harness.phase), "base_maintenance_", 1, true) == 1 then
         Harness.probeBaseMaintenance(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "vehicle_refuel_", 1, true) == 1 then
+        Harness.probeVehicleRefuel(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "pyre_burn_", 1, true) == 1 then
         Harness.probePyreBurn(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "hygiene_", 1, true) == 1 then
@@ -16405,6 +16411,8 @@ local function onGameStart()
         setPhase("fishing_map_list", Harness.startedAt)
     elseif Harness.config.base_maintenance_probe == "true" then
         setPhase("base_maintenance_setup", Harness.startedAt)
+    elseif Harness.config.vehicle_refuel_probe == "true" then
+        setPhase("vehicle_refuel_setup", Harness.startedAt)
     elseif Harness.config.pyre_burn_probe == "true" then
         setPhase("pyre_burn_setup", Harness.startedAt)
     elseif Harness.config.hygiene_probe == "true" then

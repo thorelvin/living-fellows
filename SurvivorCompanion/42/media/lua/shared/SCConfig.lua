@@ -1194,9 +1194,9 @@ local valueData = {
     objectiveActivityModifierCap = 6,
     objectiveItemModifierCap = 12,
 
-    -- Native hunger/thirst still advance so moodles, nutrition and item effects
-    -- remain vanilla.  SCNeeds only rebates half of each positive sampled delta.
-    needsRateMultiplier = 0.5,
+    -- Companions advance their native hunger/thirst stats at one third of the
+    -- player's rate; the native non-local update skips both increases.
+    needsRateMultiplier = 1 / 3,
     needsRateSampleMs = 1000,
     needsNaturalDeltaLimit = 1.0,
     needsHungerThreshold = 0.55,

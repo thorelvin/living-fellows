@@ -27,6 +27,7 @@ require "TimedActions/ISTakeWaterAction"
 require "TimedActions/ISCleanBlood"
 require "TimedActions/ISWearClothing"
 require "Vehicles/TimedActions/ISPathFindAction"
+require "Vehicles/TimedActions/ISAddGasolineToVehicle"
 require "TimedActions/ISRestAction"
 require "Farming/ISUI/ISFarmingMenu"
 require "Farming/TimedActions/ISPlowAction"
@@ -2094,6 +2095,33 @@ local function queueTrackedWork(actor, timedAction, record, kind)
     record.startedAt = nowMs()
     activeWork[actor] = record
     return true, tostring(kind) .. "_timed_action_started"
+end
+
+-- Use the same stock timed action as a player. Its fluid and tank updates are
+-- performed by the game; VehicleRefuel verifies both readings afterwards.
+function actions.startVehicleRefuel(actor, vehicle, part, item, jobId)
+    if actor == nil or vehicle == nil or part == nil or item == nil
+        or type(ISAddGasolineToVehicle) ~= "table"
+        or type(ISAddGasolineToVehicle.new) ~= "function" then
+        return false, "vehicle_refuel_action_unavailable"
+    end
+    local record, reason = prepareWorkInventory(actor, { item }, item, nil)
+    if not record then return false, reason end
+    local created, timedAction = pcall(ISAddGasolineToVehicle.new,
+        ISAddGasolineToVehicle, actor, part, item)
+    if not created or not timedAction then
+        restoreWorkInventory(actor, record)
+        return false, "vehicle_refuel_action_creation_failed"
+    end
+    local nativeValid = timedAction.isValid
+    timedAction.isValid = function(self)
+        if not SC.VehicleRefuel or type(SC.VehicleRefuel.canContinue) ~= "function"
+            or SC.VehicleRefuel.canContinue(actor, vehicle, part, item, jobId) ~= true then
+            return false
+        end
+        return type(nativeValid) ~= "function" or nativeValid(self) == true
+    end
+    return queueTrackedWork(actor, timedAction, record, "vehicle_refuel")
 end
 
 -- Queue one stock Build 42 farming action while retaining the same exclusive

@@ -65,7 +65,7 @@ function Driving.available()
     local api = bridge()
     if api == nil then return false end
     for _, name in ipairs({ "driveStart", "driveSet", "driveStop", "driveStatus", "scanLane",
-        "driveFollow", "driveFollowTuned", "driveApproach", "driveTurnAround" }) do
+        "driveFollow", "driveFollowTuned", "driveFollowVehicle", "driveApproach", "driveTurnAround" }) do
         local ok, callback = pcall(function() return api[name] end)
         if not ok or callback == nil then return false end
     end
@@ -202,6 +202,19 @@ function Driving.followRoute(actor, route, kmh)
     local allowed, reason = motionAllowed(actor)
     if not allowed then return false, reason end
     return followNative(actor, route, kmh)
+end
+
+-- A live leader car supplies a rolling trail; the bridge retargets its current
+-- follower instead of constructing a fresh steering controller each pulse.
+function Driving.followVehicle(actor, leaderVehicle, route, kmh)
+    local allowed, reason = motionAllowed(actor)
+    if not allowed then return false, reason end
+    if not Driving.isDriving(actor) then return false, "driver_not_owned" end
+    local points = type(route) == "table" and (route.points or route) or nil
+    local encoded, why = Driving.routeText(points)
+    if not encoded then return false, why end
+    return call("driveFollowVehicle", actor, leaderVehicle, encoded,
+        math.min(50, math.max(1, tonumber(kmh) or 30)))
 end
 
 -- Turns round with a three-point turn; with followBack, drives the route back.

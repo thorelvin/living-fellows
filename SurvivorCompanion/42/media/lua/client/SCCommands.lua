@@ -264,6 +264,8 @@ local function snapshotState(actor, entry)
             valueFrom(entry, { "allowOverload" }, persistedOrder.allowOverload == true)) == true,
         rideWithPlayer = valueFrom(data, { "SC_RideWithPlayer" },
             valueFrom(entry, { "rideWithPlayer" }, persistedOrder.rideWithPlayer ~= false)) ~= false,
+        followCarSqlId = tonumber(valueFrom(data, { "SC_FollowCarSqlId" },
+            valueFrom(entry, { "followCarSqlId" }, persistedOrder.followCarSqlId))),
         workMode = valueFrom(data, { "SC_WorkMode" },
             valueFrom(entry, { "workMode" }, persistedOrder.workMode or "auto")),
         moveMode = valueFrom(data, { "SC_MoveMode" },
@@ -503,6 +505,7 @@ local function writeStable(actor, entry, state)
         data.SC_Scavenge = state.scavenge
         data.SC_AllowOverload = state.allowOverload
         data.SC_RideWithPlayer = state.rideWithPlayer
+        data.SC_FollowCarSqlId = state.followCarSqlId
         data.SC_MoveMode = state.moveMode
         data.SC_MoveModeVersion = state.moveModeVersion
         data.SC_CombatMode = state.combatMode
@@ -555,6 +558,7 @@ local function writeStable(actor, entry, state)
                 scavenge = state.scavenge,
                 allowOverload = state.allowOverload,
                 rideWithPlayer = state.rideWithPlayer,
+                followCarSqlId = state.followCarSqlId,
                 movementMode = state.moveMode,
                 movementModeVersion = state.moveModeVersion,
                 combatStance = state.combatMode,
@@ -600,6 +604,7 @@ local function writeStable(actor, entry, state)
         entry.scavenge = state.scavenge
         entry.allowOverload = state.allowOverload
         entry.rideWithPlayer = state.rideWithPlayer
+        entry.followCarSqlId = state.followCarSqlId
         entry.moveMode = state.moveMode
         entry.moveModeVersion = state.moveModeVersion
         entry.combatMode = state.combatMode
@@ -1102,6 +1107,34 @@ end
 
 local function handleFollow(actor, entry, state, payload, player)
     return setOrder(actor, entry, state, "follow")
+end
+
+local function handleAssignFollowCar(actor, entry, state, payload, player)
+    if not SC.Convoy then return false, "convoy_unavailable" end
+    local vehicle = type(payload) == "table" and payload.vehicle or nil
+    local sqlId, reason = SC.Convoy.preflight(actor, vehicle, player)
+    if not sqlId then return false, reason end
+    clearWorkState(state)
+    state.order, state.anchor = "follow", nil
+    state.rideWithPlayer = true
+    state.followCarSqlId = sqlId
+    markCommand(actor, entry, state)
+    SC.Convoy.activate(actor)
+    if SC.Vehicle and SC.Vehicle.invalidateManifests then
+        SC.Vehicle.invalidateManifests()
+    end
+    return true, "follow_car_assigned"
+end
+
+local function handleCancelFollowCar(actor, entry, state)
+    if state.followCarSqlId == nil then return false, "no_follow_car" end
+    state.followCarSqlId = nil
+    markCommand(actor, entry, state)
+    if SC.Convoy then SC.Convoy.release(actor, "player_cancelled") end
+    if SC.Vehicle and SC.Vehicle.invalidateManifests then
+        SC.Vehicle.invalidateManifests()
+    end
+    return true, "follow_car_cancelled"
 end
 
 local function handleCautiousFollow(actor, entry, state)
@@ -1651,6 +1684,8 @@ end
 local handlers = {
     bandage = handleBandage,
     follow = handleFollow,
+    assign_follow_car = handleAssignFollowCar,
+    cancel_follow_car = handleCancelFollowCar,
     cautious_follow = handleCautiousFollow,
     stay = handleStay,
     guard = handleGuard,
@@ -1963,6 +1998,7 @@ function Commands.describe(companionId, player)
         scavengeStatus = scavengeStatus,
         allowOverload = state.allowOverload,
         rideWithPlayer = state.rideWithPlayer,
+        followCarSqlId = state.followCarSqlId,
         vehicleStatus = vehicleStatus,
         workMode = state.workMode,
         group = state.group,
@@ -2190,6 +2226,12 @@ local driveControlCommands = {
     barricade = true, remove_barricade = true, dismantle = true,
     board_vehicle = true, exit_vehicle = true, dismiss = true, recruit = true,
     open_health = true, bandage = true, faction_membership = true,
+    assign_follow_car = true, cancel_follow_car = true,
+}
+local convoyClearingCommands = {
+    follow = true, cautious_follow = true, stay = true, guard = true,
+    regroup = true, retreat = true, move_to = true, base_duty = true,
+    board_vehicle = true, exit_vehicle = true, dismiss = true,
 }
 
 local function preemptDrivingForOrder(actor, command)
@@ -2256,6 +2298,14 @@ local function issueOne(companionId, command, payload, player)
         restoreStorage(actor, entry, storageBefore)
         if not ok then return false, a end
         return false, b
+    end
+    if convoyClearingCommands[command] and state.followCarSqlId ~= nil then
+        state.followCarSqlId = nil
+        markCommand(actor, entry, state)
+        if SC.Convoy then SC.Convoy.release(actor, "new_player_order") end
+        if SC.Vehicle and SC.Vehicle.invalidateManifests then
+            SC.Vehicle.invalidateManifests()
+        end
     end
     if SC.Positioning and type(SC.Positioning.cancelConversation) == "function" then
         SC.Positioning.cancelConversation(actor, "conversation_interrupted_by_order")
@@ -3171,6 +3221,7 @@ function Commands.export(actor)
         scavenge = detached.scavenge,
         allowOverload = detached.allowOverload,
         rideWithPlayer = detached.rideWithPlayer,
+        followCarSqlId = detached.followCarSqlId,
         workMode = detached.workMode,
         workTarget = detached.workTarget,
         returnOrder = detached.returnOrder,

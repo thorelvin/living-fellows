@@ -762,6 +762,10 @@ end
 
 local function isProtected(actor, item)
     if not actor or not item then return true end
+    local itemData = select(1, U().call(item, "getModData"))
+    if type(itemData) == "table" and itemData.LF_RefuelJobId ~= nil then
+        return true
+    end
     local category = select(1, U().call(item, "getCategory"))
     local fullType = U().itemType(item)
     if tostring(category) == "Literature" or string.find(

@@ -375,6 +375,7 @@ local function eligibleFollower(actor, vehicle)
     local state = commandState(actor)
     if type(state) ~= "table" or state.recruited ~= true
         or state.rideWithPlayer == false
+        or state.followCarSqlId ~= nil
         or (state.order ~= "follow" and state.order ~= "regroup") then return false end
     local vehicleOk, current = invoke(actor, "getVehicle")
     return vehicleOk and (current == nil or current == vehicle)

@@ -180,6 +180,19 @@ lane scan every 250 ms. Add `-DrivingScreenshotDirectory` to capture
     -DrivingScreenshotDirectory .\build\driving-shots
 ```
 
+`-DrivingProbe -ConvoyProbe` checks a recruited companion assigned to a second
+car. The disposable save seats the real player in a lead car, applies native
+accelerator and brake inputs through a harness-only bridge helper, and verifies
+that the companion boards the assigned driver seat, follows under native
+vehicle physics within the speed and distance limits, parks when the player
+exits, then leaves its own car. The helper is exposed only when the runner sets
+`SC_LIVE_CONVOY_HARNESS=1` for that game process. Install this branch's native
+bridge before the run and restore the previous local bridge afterward.
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -DrivingProbe -ConvoyProbe
+```
+
 Add `-DrivingRoute` to drive a route instead. The probe asks the expedition road
 planner for a route 70 tiles down the same road and parks a car in the
 companion's lane 18 tiles on, with two still zombies 36 and 40 tiles on. The

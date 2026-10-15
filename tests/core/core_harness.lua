@@ -565,11 +565,13 @@ ritualState.tales = {
 }
 ritualState.flavor = { version = 1, placesSeen = { police = true }, storiesTold = {},
     lastWorkoutDay = 11 }
+ritualState.followCarSqlId = 501
 check(SC.Commands.persist(actor), "personal ritual state commits through Commands")
 local commandSnapshot, commandSnapshotReason = SC.Persistence.captureRecord(record)
 check(commandSnapshot ~= nil and commandSnapshotReason == nil
     and commandSnapshot.order.current == "guard"
     and commandSnapshot.order.followDistance == 8
+    and commandSnapshot.order.followCarSqlId == 501
     and commandSnapshot.order.scavenge == false
     and commandSnapshot.order.movementMode == "jog"
     and commandSnapshot.order.movementModeVersion == 2
@@ -615,11 +617,12 @@ check(commandSnapshot ~= nil and commandSnapshotReason == nil
 for _, key in ipairs({
     "SC_Order", "SC_FollowDistance", "SC_Scavenge", "SC_MoveMode", "SC_CombatMode",
     "SC_CombatDoctrine", "SC_HoldFire", "SC_WeaponPriority", "SC_Group", "SC_Trust", "SC_Bond",
-    "SC_Morale", "SC_Stress", "SC_TimeTogetherMs", "SC_WorkMode",
+    "SC_Morale", "SC_Stress", "SC_TimeTogetherMs", "SC_WorkMode", "SC_FollowCarSqlId",
 }) do actor.data[key] = nil end
 SC.Commands.reset(actor)
 local restoredCommandState = SC.Commands.peek(actor)
 check(restoredCommandState.order == "guard" and restoredCommandState.followDistance == 8
+    and restoredCommandState.followCarSqlId == 501
     and restoredCommandState.scavenge == false and restoredCommandState.moveMode == "jog"
     and restoredCommandState.combatMode == "defensive"
     and restoredCommandState.combatDoctrine == "ranged_support"
@@ -637,6 +640,8 @@ check(restoredCommandState.order == "guard" and restoredCommandState.followDista
     and restoredCommandState.flavor.lastWorkoutDay == 11
     and restoredCommandState.background.occupation == "mechanics",
     "Registry persistence schema rehydrates independent policies without transient actor mod-data")
+restoredCommandState.followCarSqlId = nil
+check(SC.Commands.persist(actor), "test follow-car assignment clears after restore")
 
 local barricadeObject = { square = square, objectIndex = 0, data = {} }
 function barricadeObject:getSquare() return self.square end
@@ -1786,7 +1791,7 @@ function SC.__testCompanionDriving()
         return true
     end
     function bridge.driveStatus(who, out)
-        out.state, out.speedKmh = "cruising", 9
+        out.state, out.speedKmh, out.active = "cruising", 9, true
         return true
     end
     function bridge.scanLane(who, lookAhead, out)
@@ -1800,6 +1805,10 @@ function SC.__testCompanionDriving()
     end
     function bridge.driveFollowTuned(who, route, kmh, scale)
         calls[#calls + 1] = { "driveFollowTuned", who, route, kmh, scale }
+        return true
+    end
+    function bridge.driveFollowVehicle(who, leader, route, kmh)
+        calls[#calls + 1] = { "driveFollowVehicle", who, leader, route, kmh }
         return true
     end
     function bridge.driveApproach(who, route, kmh)
@@ -1851,9 +1860,16 @@ function SC.__testCompanionDriving()
     check(Driving.followRoute(actor, route, 12) and calls[#calls][1] == "driveFollow"
             and calls[#calls][3] == "5.00,6.00,8.0;45.00,6.00,8.0" and calls[#calls][4] == 12,
         "following a planner route hands the bridge its points and cruise speed")
+    local convoyAccepted, convoyReason = Driving.followVehicle(actor, car, route, 50)
+    check(convoyAccepted
+            and calls[#calls][1] == "driveFollowVehicle"
+            and calls[#calls][3] == car and calls[#calls][5] == 50,
+        "convoy trail keeps the lead vehicle identity and its 50 km/h ceiling: "
+            .. tostring(convoyReason) .. " last=" .. tostring(calls[#calls][1]))
+    local priorCalls = #calls
     local refusedRoute, refusedRouteReason = Driving.followRoute(actor, { points = {} }, 12)
     check(refusedRoute == false and refusedRouteReason == "route has fewer than two points"
-            and calls[#calls][1] == "driveFollow",
+            and #calls == priorCalls,
         "an empty route never reaches the bridge")
     check(Driving.turnAround(actor, true) and calls[#calls][1] == "driveTurnAround"
             and calls[#calls][3] == true,

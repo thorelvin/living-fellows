@@ -1805,6 +1805,11 @@ local function actualOpenSegmentWithinBatch(actor, targetX, targetY, targetZ, op
                     and edge.kind == "door" and edge.object ~= nil
                     and objectOpen(edge.object)
                 local blocker, blockerKind = U().movingBlocker(square, options.actor)
+                -- A chair, desk or cooler can leave its tile statically free
+                -- while its collision shape blocks a bare movement vector.
+                -- The full route may weigh a passage around it; an unfinished
+                -- route's provisional step must not walk into that shape.
+                local furniture = U().squareOccupyingObject(square)
                 local squareX, squareY = U().position(square)
                 -- A conversation stops beside its partner; it does not enter
                 -- that tile. Another person sharing the partner's tile must
@@ -1817,6 +1822,7 @@ local function actualOpenSegmentWithinBatch(actor, targetX, targetY, targetZ, op
                         or blockerKind == "companion_crowd"
                         or blockerKind == "actor_crowd")
                 if (edge ~= nil and not openDoor)
+                    or furniture ~= nil
                     or (blocker ~= nil and blocker ~= options.allowedBlocker
                         and not partnerSquareCrowd) then
                     return false
@@ -8007,12 +8013,15 @@ function Navigation.status(actor)
             and math.max(0, state.terminalRetryAt - current) or nil,
         blockerType = blocker and blocker.type or nil,
         blockerSquare = blocker and blocker.squareKey or nil,
+        lastMovementReason = state.lastMovementReason,
         blockerEvidenceClass = blocker and blocker.evidenceClass or nil,
         blockerConfidence = blocker and blocker.confidence or nil,
         pathFailureClass = state.pathFailure and state.pathFailure.failureClass or nil,
         nativeFallbackAllowed = state.pathFailure
             and state.pathFailure.nativeFallbackAllowed == true or nil,
         pathReason = state.pathReason,
+        pathSearchAgeMs = state.pathSearch and state.pathSearch.startedAt
+            and math.max(0, current - state.pathSearch.startedAt) or nil,
         expandedNodes = state.expandedNodes or 0,
         lastPlanDurationMs = state.lastPlanDurationMs,
         lastFirstMotionMs = state.lastFirstMotionMs,

@@ -106,6 +106,21 @@ final class SCRoadFollower {
         return path;
     }
 
+    /** Replace the short rolling trail without discarding steering and obstacle state. */
+    void retarget(SCDrivePath next) {
+        if (next == null) return;
+        path = next;
+        segment = -1;
+        if (mode == Mode.ARRIVED || mode == Mode.BLOCKED) {
+            mode = Mode.FOLLOW;
+            blockedAt = -1.0f;
+            stoppedSince = -1L;
+            initialAlignmentPending = true;
+        }
+        scanCache.clear();
+        nextScanAt = 0L;
+    }
+
     float cruiseKmh() {
         return cruiseKmh;
     }

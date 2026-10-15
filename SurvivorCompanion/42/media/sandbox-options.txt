@@ -33,7 +33,7 @@ option LivingFellows.CompanionNeedsRate
     type = double,
     min = 0,
     max = 2,
-    default = 0.5,
+    default = 0.3333333333333333,
     page = LivingFellows,
     translation = LivingFellows_CompanionNeedsRate,
 }

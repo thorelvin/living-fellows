@@ -85,6 +85,10 @@ final class SCExposure {
             setExposed.invoke(exposer, type);
             expose.invoke(exposer, type, environment);
         }
+        if ("1".equals(System.getenv("SC_LIVE_CONVOY_HARNESS"))) {
+            setExposed.invoke(exposer, SCConvoyHarness.class);
+            expose.invoke(exposer, SCConvoyHarness.class, environment);
+        }
         return rawget.invoke(environment, "SCBridge") != null
                 && hasRequiredAttackTypes(tableClass, rawget,
                         rawget.invoke(environment, "AttackType"));

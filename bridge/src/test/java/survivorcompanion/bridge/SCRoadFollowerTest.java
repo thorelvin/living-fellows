@@ -506,6 +506,22 @@ public final class SCRoadFollowerTest {
                 "a blocked parking bay stops without swerving into another bay");
     }
 
+    private static void rollingConvoyTrail() {
+        SCRoadFollower follower = new SCRoadFollower(
+                SCDrivePath.parse("10,101,6;30,101,6"), 50.0f, false);
+        Road road = new Road();
+        SCRoadFollower.Command command = new SCRoadFollower.Command();
+        follower.update(road, 20.0f, 101.0f, 0, 1.0f, 0.0f,
+                20.0f, 0.95f, 2.4f, -1.0f, -1.0f, 1000L, command);
+        follower.retarget(SCDrivePath.parse("17,101,6;30,101,6;45,101,6"));
+        follower.update(road, 21.0f, 101.0f, 0, 1.0f, 0.0f,
+                20.0f, 0.95f, 2.4f, -1.0f, -1.0f, 1200L, command);
+        require(follower.mode() == SCRoadFollower.Mode.FOLLOW
+                        && follower.path().points() == 3 && follower.along() > 3.0f
+                        && command.targetKmh > 0.0f,
+                "a rolling player trail extends the route without stopping the car");
+    }
+
     public static void main(String[] args) {
         pathBasics();
         reverseRules();
@@ -519,6 +535,7 @@ public final class SCRoadFollowerTest {
         personInLane();
         tooNarrowToTurn();
         preciseParking();
+        rollingConvoyTrail();
         streetToStreet(true);
         streetToStreet(false);
         System.out.println("ROAD_FOLLOWER_PASS checks=" + checks);

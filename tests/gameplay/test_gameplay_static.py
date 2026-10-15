@@ -530,8 +530,9 @@ def main() -> int:
     require("needsRateMultiplier" in sources["SCNeeds.lua"]
             and '"HUNGER"' in sources["SCNeeds.lua"]
             and '"THIRST"' in sources["SCNeeds.lua"]
-            and "delta * multiplier" in sources["SCNeeds.lua"],
-            "half-rate native hunger/thirst delta compensation missing")
+            and "nativeOrGameTimeDelta * multiplier" in sources["SCNeeds.lua"]
+            and "state.sampledWorldHour" in sources["SCNeeds.lua"],
+            "companion hunger/thirst game-time growth or native delta scaling missing")
     require("isSafeFood" in sources["SCNeeds.lua"]
             and "isSafeWaterItem" in sources["SCNeeds.lua"]
             and "needsWaterSquareBudget" in sources["SCNeeds.lua"],

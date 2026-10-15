@@ -115,6 +115,18 @@ local function companionActionEvidence()
             id = tostring(id),
             name = redact(name),
             summary = SC.ActionSupervisor.summary(actor),
+            position = safeCall(function()
+                local x, y, z = actor:getX(), actor:getY(), actor:getZ()
+                return string.format("%.2f:%.2f:%d", x, y, math.floor(z))
+            end, "unavailable"),
+            navigation = safeCall(function()
+                return SC.Navigation and SC.Navigation.status
+                    and SC.Navigation.status(actor) or nil
+            end, {}),
+            baseJob = safeCall(function()
+                return SC.BaseLife and SC.BaseLife.jobFor
+                    and SC.BaseLife.jobFor(id) or nil
+            end, nil),
             history = type(SC.ActionSupervisor.history) == "function"
                 and SC.ActionSupervisor.history(actor, 20) or {},
         }
@@ -329,12 +341,34 @@ function support.summary(force)
     end
     for _, actor in ipairs(data.companionActions or {}) do
         local current = actor.summary or {}
+        local navigation = actor.navigation or {}
         lines[#lines + 1] = "Companion action " .. tostring(actor.id) .. " ("
             .. tostring(actor.name) .. "): " .. tostring(current.owner or "none") .. "/"
             .. tostring(current.action or "idle") .. "/" .. tostring(current.phase or "idle")
             .. ", target " .. tostring(current.targetLabel or "none")
             .. ", age " .. tostring(math.floor((tonumber(current.ageMs) or 0) / 1000))
             .. "s, reservations " .. tostring(current.reservationCount or 0)
+        lines[#lines + 1] = "Companion navigation " .. tostring(actor.id)
+            .. ": position " .. tostring(actor.position or "unavailable")
+            .. ", phase " .. tostring(navigation.phase or "idle")
+            .. ", action " .. tostring(navigation.action or "none")
+            .. ", target " .. tostring(navigation.target or "none")
+            .. ", blocker " .. tostring(navigation.blockerType or "none")
+            .. "@" .. tostring(navigation.blockerSquare or "none")
+            .. ", path " .. tostring(navigation.pathFailureClass
+                or navigation.pathReason or "none")
+            .. ", search " .. tostring(navigation.pathSearchAgeMs or "none")
+            .. " ms/" .. tostring(navigation.expandedNodes or 0) .. " nodes"
+            .. ", recovery " .. tostring(navigation.stuckAttempts or 0)
+            .. ", last plan " .. tostring(navigation.lastPlanDurationMs or "none")
+            .. " ms, move " .. tostring(navigation.lastMovementReason or "none")
+            .. ", terminal " .. tostring(navigation.terminalReason or "none")
+        if type(actor.baseJob) == "table" then
+            lines[#lines + 1] = "Companion base job " .. tostring(actor.id)
+                .. ": " .. tostring(actor.baseJob.id or "unknown")
+                .. "/" .. tostring(actor.baseJob.type or "unknown")
+                .. "/" .. tostring(actor.baseJob.state or "unknown")
+        end
         local failure = current.lastFailure
         if type(failure) == "table" then
             lines[#lines + 1] = "Companion last failure " .. tostring(actor.id) .. ": "

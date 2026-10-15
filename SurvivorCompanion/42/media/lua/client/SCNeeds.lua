@@ -572,7 +572,42 @@ local function setStat(actor, name, value)
     return afterOk and type(after) == "number" and math.abs(after - value) <= 0.001
 end
 
-local function compensatePositiveDelta(actor, state, field, statName, currentValue)
+-- IsoGameCharacter.calculateStats only advances awake hunger and thirst for
+-- IsoPlayer.getInstance() in single player. A bridge companion runs that
+-- generic update but is deliberately not the local player, so supply the
+-- missing native stat growth from elapsed game time. Vanilla's per-tick rate
+-- divided by GameTime's per-tick world-hour advance is 3600.
+local function hourlyNeedGain(actor, statName)
+    local asleep = select(1, U().call(actor, "isAsleep")) == true
+    if statName == "HUNGER" and not asleep and MoodleType
+        and MoodleType.FOOD_EATEN then
+        local moodles = select(1, U().call(actor, "getMoodles"))
+        local fedLevel = select(1, U().call(moodles,
+            "getMoodleLevel", MoodleType.FOOD_EATEN))
+        fedLevel = tonumber(fedLevel) or 0
+        if fedLevel > 0 then return 0 end
+    end
+    local key = statName == "HUNGER"
+        and (asleep and "HungerIncreaseWhileAsleep" or "HungerIncrease")
+        or (asleep and "ThirstSleepingIncrease" or "ThirstIncrease")
+    local fallback = statName == "HUNGER"
+        and (asleep and 0.0000010 or 0.0000096)
+        or (asleep and 0.0000010 or 0.0000080)
+    local globals = type(ZomboidGlobals) == "table" and ZomboidGlobals or nil
+    local base = tonumber(globals and globals[key]) or fallback
+    local sandbox = SandboxOptions and SandboxOptions.instance
+    local sandboxRate = select(1, U().call(sandbox,
+        "getStatsDecreaseMultiplier"))
+    sandboxRate = tonumber(sandboxRate) or 1
+    local actorMethod = statName == "HUNGER"
+        and "getHungerMultiplier" or "getThirstMultiplier"
+    local actorRate = select(1, U().call(actor, actorMethod))
+    actorRate = tonumber(actorRate) or 1
+    return math.max(0, base * 3600 * sandboxRate * actorRate)
+end
+
+local function compensatePositiveDelta(actor, state, field, statName,
+    currentValue, elapsedHours)
     local previous = state[field]
     if type(previous) ~= "number" then
         state[field] = currentValue
@@ -580,10 +615,14 @@ local function compensatePositiveDelta(actor, state, field, statName, currentVal
     end
     local delta = currentValue - previous
     local limit = U().config("needsNaturalDeltaLimit") or 1.0
-    if delta > 0 and delta <= limit then
-        local multiplier = U().clamp(U().config("needsRateMultiplier") or 0.5, 0, 1)
-        local adjusted = previous + delta * multiplier
-        if setStat(actor, statName, adjusted) then currentValue = adjusted end
+    if delta >= 0 and delta <= limit then
+        local nativeOrGameTimeDelta = math.max(delta,
+            hourlyNeedGain(actor, statName) * elapsedHours)
+        local multiplier = U().clamp(U().config("needsRateMultiplier") or (1 / 3), 0, 2)
+        local adjusted = U().clamp(previous + nativeOrGameTimeDelta * multiplier, 0, 1)
+        if adjusted ~= currentValue and setStat(actor, statName, adjusted) then
+            currentValue = adjusted
+        end
     end
     -- Negative deltas are native food/drink effects and remain fully applied.
     state[field] = currentValue
@@ -597,11 +636,17 @@ function Needs.updateRates(actor, runtime, current)
     local sampleMs = U().config("needsRateSampleMs") or 1000
     if current < (state.nextRateSampleAt or 0) then return true, "needs_rate_deferred" end
     state.nextRateSampleAt = current + sampleMs
+    local hour = worldHour()
+    local elapsedHours = hour and state.sampledWorldHour
+        and math.max(0, math.min(24, hour - state.sampledWorldHour)) or 0
+    state.sampledWorldHour = hour
     local hunger = U().characterStatValue(actor, "HUNGER", 0)
     local thirst = U().characterStatValue(actor, "THIRST", 0)
     local fatigue = U().characterStatValue(actor, "FATIGUE", 0)
-    hunger = compensatePositiveDelta(actor, state, "sampledHunger", "HUNGER", hunger)
-    thirst = compensatePositiveDelta(actor, state, "sampledThirst", "THIRST", thirst)
+    hunger = compensatePositiveDelta(actor, state, "sampledHunger", "HUNGER",
+        hunger, elapsedHours)
+    thirst = compensatePositiveDelta(actor, state, "sampledThirst", "THIRST",
+        thirst, elapsedHours)
     state.hunger, state.thirst, state.fatigue = hunger, thirst, fatigue
     Needs.narrate(actor, runtime, current, {
         hunger = hunger, thirst = thirst, fatigue = fatigue,
