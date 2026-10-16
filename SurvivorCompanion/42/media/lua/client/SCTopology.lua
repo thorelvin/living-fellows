@@ -561,20 +561,12 @@ local function strikePiercesTransparentWall(actor, weapon, action)
 end
 
 local function strikeEdgeBarrier(fromSquare, toSquare, canPierce, allowClosedWindow)
-    local transparent, known = U().call(fromSquare, "getTransparentWallTo", toSquare)
-    if not known or transparent == nil then
-        transparent = select(1, U().call(toSquare, "getTransparentWallTo", fromSquare))
-    end
-    if transparent ~= nil then
-        return not canPierce(), "transparent_wall"
-    end
     local object, kind = Topology.barrierBetween(fromSquare, toSquare)
-    if kind == "open" or kind == "same" or kind == "window_frame" then
-        return false
-    end
+    -- The transparent-wall probe may still report an opened gate. The concrete
+    -- edge object is authoritative for the door's current state.
+    if kind == "door" and object ~= nil and Topology.objectOpen(object)
+        and not Topology.objectBarricaded(object) then return false end
     if kind == "door" then
-        if object ~= nil and Topology.objectOpen(object)
-            and not Topology.objectBarricaded(object) then return false end
         return true, "closed_door"
     end
     if kind == "window" then
@@ -590,7 +582,7 @@ local function strikeEdgeBarrier(fromSquare, toSquare, canPierce, allowClosedWin
         -- classifies those first; for a real fence only the low vaultable edge
         -- permits a normal strike. Tall fences need the native piercing rule.
         if object ~= nil and callBoolean(object, "isTallHoppable") then
-            return true, "high_fence"
+            return not canPierce(), "high_fence"
         end
         local low, lowKnown = U().call(object, "isHoppable")
         if lowKnown and low == true then return false end
@@ -599,6 +591,14 @@ local function strikeEdgeBarrier(fromSquare, toSquare, canPierce, allowClosedWin
             if object == nil or not lowKnown or low == true then return false end
         end
         return true, "fence"
+    end
+    if kind == "window_frame" or kind == "same" then return false end
+    local transparent, known = U().call(fromSquare, "getTransparentWallTo", toSquare)
+    if not known or transparent == nil then
+        transparent = select(1, U().call(toSquare, "getTransparentWallTo", fromSquare))
+    end
+    if transparent ~= nil then
+        return not canPierce(), "transparent_wall"
     end
     if kind == "blocked" then return true, "wall" end
     return false
@@ -617,8 +617,18 @@ function Topology.strikeBarrier(actor, target, action, weapon, options)
     if fx == nil or tx == nil then return false end
     if fz ~= tz then return true, "different_floor" end
     if fx == tx and fy == ty then return false end
+    local directOpenDoor = math.abs(fx - tx) + math.abs(fy - ty) == 1
+    if directOpenDoor then
+        local door, kind = Topology.barrierBetween(fromSquare, toSquare)
+        directOpenDoor = kind == "door" and door ~= nil
+            and Topology.objectOpen(door) and not Topology.objectBarricaded(door)
+    end
     local losBlocked, losReason = strikeLosBlocked(fromSquare, toSquare)
-    if losBlocked then return true, losReason end
+    -- LOS can lag a door opening. The bounded edge ray below rechecks every
+    -- door; it still rejects a genuinely closed one farther down the swing.
+    if losBlocked and not directOpenDoor and losReason ~= "closed_door" then
+        return true, losReason
+    end
 
     local pierces
     local function canPierce()
@@ -629,7 +639,8 @@ function Topology.strikeBarrier(actor, target, action, weapon, options)
     end
     local targetTransparent, targetKnown = U().call(target,
         "isTransparentWallTo", actor)
-    if targetKnown and targetTransparent == true and not canPierce() then
+    if not directOpenDoor and targetKnown and targetTransparent == true
+        and not canPierce() then
         return true, "transparent_wall"
     end
 

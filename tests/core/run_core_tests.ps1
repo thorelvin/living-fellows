@@ -219,6 +219,14 @@ try {
         )
         Add-ScJvmStep 'vehicle-refuel' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $vehicleRefuelFiles 'Parked car refueling and recovery harness failed.'
 
+        $vehicleUpkeepFiles = @(
+            (Join-Path $TestRoot 'vehicle_refuel_fixture.lua'),
+            (Join-Path $TestRoot 'vehicle_upkeep_fixture.lua'),
+            (Join-Path $Client 'SCVehicleUpkeep.lua'),
+            (Join-Path $TestRoot 'vehicle_upkeep_harness.lua')
+        )
+        Add-ScJvmStep 'vehicle-upkeep' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $vehicleUpkeepFiles 'Parked car washing and tire inflation harness failed.'
+
         $generatorRefuelFiles = @(
             (Join-Path $TestRoot 'generator_refuel_fixture.lua'),
             (Join-Path $Client 'SCBaseFuel.lua'),

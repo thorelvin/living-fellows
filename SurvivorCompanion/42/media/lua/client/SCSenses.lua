@@ -77,6 +77,46 @@ end
 
 Senses._breachingZombieForTests = breachingZombie
 
+local function protectedEdgeBetween(actor, zombie)
+    local topology = SC.Topology
+    if not topology or type(topology.strikeBarrier) ~= "function" then return false end
+    local actorSquare, zombieSquare = util().squareOf(actor), util().squareOf(zombie)
+    if not actorSquare or not zombieSquare then return false end
+    local ax, ay, az = util().position(actorSquare)
+    local zx, zy, zz = util().position(zombieSquare)
+    if ax == nil or zx == nil or az ~= zz then return false end
+    if math.abs(ax - zx) + math.abs(ay - zy) == 1
+        and type(topology.barrierBetween) == "function" then
+        local object, kind = topology.barrierBetween(actorSquare, zombieSquare)
+        if kind == "door" and object
+            and (not topology.objectOpen(object)
+                or topology.objectBarricaded(object)) then
+            return true
+        end
+        if kind == "fence" then
+            local tall, known = util().call(object, "isTallHoppable")
+            if known and tall == true then return true end
+            local low, lowKnown = util().call(actorSquare, "isHoppableTo", zombieSquare)
+            if lowKnown and low == false then return true end
+        end
+    end
+    local blocked, reason = topology.strikeBarrier(actor, zombie, "shove")
+    return blocked == true and (reason == "closed_door"
+        or reason == "high_fence" or reason == "fence")
+end
+
+local function safelySeparated(actor, player, zombie, facts, breaching)
+    if breaching or not protectedEdgeBetween(actor, zombie) then return false end
+    -- A zombie pursuing another companion may already be on that companion's
+    -- side. Keep it actionable until the squad geometry can prove otherwise.
+    if facts.target ~= nil and facts.target ~= actor and facts.target ~= player then
+        return false
+    end
+    if player == nil then return true end
+    local blocked = SC.Topology.strikeBarrier(player, zombie, "shove")
+    return blocked == true
+end
+
 local function threatRecord(actor, player, zombie, actorSquare)
     local U = util()
     local facts = SC.ZombieFacts.get(zombie)
@@ -108,6 +148,8 @@ local function threatRecord(actor, player, zombie, actorSquare)
         and (facts.target == actor or facts.target == player)
     local posture = facts.posture or "dead"
     local breaching = breachingZombie(zombie, posture, facts.climbing)
+    local safeBarrier = distanceSq <= 36
+        and safelySeparated(actor, player, zombie, facts, breaching)
     local playerDistanceSq = math.huge
     if player ~= nil and zombieX ~= nil then
         local px, py, pz = U.position(player)
@@ -134,6 +176,7 @@ local function threatRecord(actor, player, zombie, actorSquare)
         visible = visible,
         obstructed = blocked,
         fenced = fenced,
+        safeBarrier = safeBarrier,
         breaching = breaching,
         targeting = targeting,
         attacking = attacking,

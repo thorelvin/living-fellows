@@ -18,6 +18,7 @@ end
 
 function ThreatSet.isImmediate(record, immediateRadiusSq, attackCommitRadius)
     if type(record) ~= "table" then return false end
+    if record.safeBarrier == true then return false end
     if (tonumber(record.distanceSq) or math.huge) <= immediateRadiusSq then return true end
     local cap = tonumber(attackCommitRadius) or 1.5
     return record.attacking == true

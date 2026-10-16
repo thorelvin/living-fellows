@@ -29,6 +29,8 @@ require "TimedActions/ISCleanBlood"
 require "TimedActions/ISWearClothing"
 require "Vehicles/TimedActions/ISPathFindAction"
 require "Vehicles/TimedActions/ISAddGasolineToVehicle"
+require "Vehicles/TimedActions/ISInflateTire"
+require "Vehicles/TimedActions/ISWashVehicle"
 require "TimedActions/ISRestAction"
 require "Farming/ISUI/ISFarmingMenu"
 require "Farming/TimedActions/ISPlowAction"
@@ -2167,6 +2169,119 @@ function actions.startGeneratorRefuel(actor, generator, item, jobId)
         return result
     end
     return queueTrackedWork(actor, timedAction, record, "generator_refuel")
+end
+
+function actions.startTireInflation(actor, vehicle, part, pump, jobId, targetPsi)
+    if not actor or not part or not pump or not targetPsi
+        or type(ISInflateTire) ~= "table"
+        or type(ISInflateTire.new) ~= "function" then
+        return false, "tire_inflation_action_unavailable"
+    end
+    local record, reason = prepareWorkInventory(actor, { pump }, pump, nil)
+    if not record then return false, reason end
+    local created, action = pcall(ISInflateTire.new, ISInflateTire,
+        actor, part, pump, targetPsi)
+    if not created or not action then
+        restoreWorkInventory(actor, record)
+        return false, "tire_inflation_action_creation_failed"
+    end
+    local nativeValid = action.isValid
+    action.isValid = function(self)
+        return SC.VehicleUpkeep
+            and SC.VehicleUpkeep.canContinue(actor, vehicle, pump, jobId,
+                part:getArea(), part) == true
+            and (type(nativeValid) ~= "function" or nativeValid(self) == true)
+    end
+    return queueTrackedWork(actor, action, record, "inflate_tires")
+end
+
+function actions.startVehicleAreaApproach(actor, vehicle, area, jobId)
+    if not actor or not vehicle or not area
+        or type(ISPathFindAction) ~= "table"
+        or type(ISPathFindAction.pathToVehicleArea) ~= "function" then
+        return false, "vehicle_area_path_unavailable"
+    end
+    local record, reason = prepareWorkInventory(actor, {}, nil, nil)
+    if not record then return false, reason end
+    local created, action = pcall(ISPathFindAction.pathToVehicleArea,
+        ISPathFindAction, actor, vehicle, area)
+    if not created or not action then
+        restoreWorkInventory(actor, record)
+        return false, "vehicle_area_path_creation_failed"
+    end
+    -- The companion queue treats the player's unlimited (-1) duration as
+    -- immediately complete. The path action still force-completes on arrival.
+    action.maxTime = 5400
+    local nativeValid = action.isValid
+    action.isValid = function(self)
+        return SC.VehicleUpkeep
+            and SC.VehicleUpkeep.canApproach(actor, vehicle, jobId) == true
+            and (type(nativeValid) ~= "function" or nativeValid(self) == true)
+    end
+    return queueTrackedWork(actor, action, record, "vehicle_area_approach")
+end
+
+function actions.startVehicleWash(actor, vehicle, areaId, area, item, jobId)
+    if not actor or not vehicle or not item or not areaId or not area
+        or type(ISWashVehicle) ~= "table"
+        or type(ISWashVehicle.new) ~= "function" then
+        return false, "vehicle_wash_action_unavailable"
+    end
+    local record, reason = prepareWorkInventory(actor, { item }, nil, nil)
+    if not record then return false, reason end
+    local created, action = pcall(ISWashVehicle.new, ISWashVehicle,
+        actor, vehicle, areaId, area)
+    if not created or not action then
+        restoreWorkInventory(actor, record)
+        return false, "vehicle_wash_action_creation_failed"
+    end
+    -- The stock action uses maxTime=-1 for a player. The native companion
+    -- queue completes that duration immediately, before updateWashing runs.
+    -- A bounded segment still uses the stock animation and wash updates;
+    -- VehicleUpkeep reads back progress and queues another segment if needed.
+    local instantOkay, instant = invoke(actor, "isTimedActionInstant")
+    action.maxTime = instantOkay and instant == true and 1 or 1800
+    local nativeValid, nativeRemove = action.isValid, action.removeBlood
+    action.isValid = function(self)
+        return SC.VehicleUpkeep
+            and SC.VehicleUpkeep.canContinue(actor, vehicle, item, jobId, area)
+                == true
+            and (type(nativeValid) ~= "function" or nativeValid(self) == true)
+    end
+    -- Vanilla scans every water container in the actor's inventory. The job
+    -- has borrowed one exact container and must never spend personal water.
+    action.useWater = function(_, units)
+        local okay, fluid = invoke(item, "getFluidContainer")
+        if not okay or not fluid then return end
+        local hasAmount, amount = invoke(fluid, "getAmount")
+        if not hasAmount then return end
+        local spent = math.min(tonumber(units) or 0, tonumber(amount) or 0)
+        if spent <= 0 then return end
+        invoke(fluid, "adjustAmount", amount - spent)
+        if type(sendItemStats) == "function" then pcall(sendItemStats, item) end
+    end
+    action.removeBlood = function(self, bloodRemoved, waterUsed)
+        local okay, fluid = invoke(item, "getFluidContainer")
+        local hasAmount, amount = false, nil
+        if okay and fluid then
+            hasAmount, amount = invoke(fluid, "getAmount")
+        end
+        local units = hasAmount and math.min(math.floor(tonumber(amount) or 0),
+            tonumber(waterUsed) or 0) or 0
+        if units < 1 then
+            if type(self.forceStop) == "function" then self:forceStop() end
+            return
+        end
+        return nativeRemove(self, math.min(tonumber(bloodRemoved) or 0,
+            units * ISWashVehicle.BLOOD_PER_WATER), units)
+    end
+    -- The native perform() automatically queues the next car side, which
+    -- escapes the base-job receipt. This job selects and verifies each side.
+    action.perform = function(self)
+        if self.sound then self.character:stopOrTriggerSound(self.sound) end
+        return ISBaseTimedAction.perform(self)
+    end
+    return queueTrackedWork(actor, action, record, "wash_vehicle")
 end
 
 -- Queue one stock Build 42 farming action while retaining the same exclusive

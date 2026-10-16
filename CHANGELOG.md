@@ -2,6 +2,14 @@
 
 # Changelog
 
+## 0.26.43 - Camp upkeep and steadier following
+
+- Base-duty companions can refuel parked cars and generators from marked camp storage. Parked cars can also have their tires inflated and bodywork washed using stored supplies. Vehicle and generator context menus offer one-time work orders.
+- Companions following the player no longer stop to fight zombies safely separated by tall fences or closed doors. Open doors use their current state during combat and route checks, so an old blocked sight result does not hold up the squad.
+- Moving formations track the predicted follow point inside a tile, reducing repeated pauses on open ground. The final short movement checks native collision before advancing.
+- A companion can follow a player-driven car in another vehicle, and hunger and thirst advance at one-third of the player's rate. Cloned-save harnesses cover car work, squad routing, and door entry.
+- The native bridge protocol is `42.21-isocompanion-24`; update its JAR and Lua payload together.
+
 ## 0.26.42 - Safer squad fighting
 
 - Companions coordinate their attack lanes around small zombie groups, backpedal into weapon-specific swing range, and begin a swing as a zombie closes instead of waiting for a grab.

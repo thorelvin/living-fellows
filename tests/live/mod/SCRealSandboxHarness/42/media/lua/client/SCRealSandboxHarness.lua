@@ -15321,6 +15321,9 @@ end
 Harness.probeVehicleRefuel = function(...)
     return externalProbe("SCVehicleRefuelProbe", ...)
 end
+Harness.probeVehicleUpkeep = function(...)
+    return externalProbe("SCVehicleUpkeepProbe", ...)
+end
 Harness.probeGeneratorRefuel = function(...)
     return externalProbe("SCGeneratorRefuelProbe", ...)
 end
@@ -15618,6 +15621,8 @@ local function tick()
         Harness.probeBaseMaintenance(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "vehicle_refuel_", 1, true) == 1 then
         Harness.probeVehicleRefuel(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "vehicle_upkeep_", 1, true) == 1 then
+        Harness.probeVehicleUpkeep(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "generator_refuel_", 1, true) == 1 then
         Harness.probeGeneratorRefuel(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "pyre_burn_", 1, true) == 1 then
@@ -16418,6 +16423,8 @@ local function onGameStart()
         setPhase("base_maintenance_setup", Harness.startedAt)
     elseif Harness.config.vehicle_refuel_probe == "true" then
         setPhase("vehicle_refuel_setup", Harness.startedAt)
+    elseif Harness.config.vehicle_upkeep_probe == "true" then
+        setPhase("vehicle_upkeep_setup", Harness.startedAt)
     elseif Harness.config.generator_refuel_probe == "true" then
         setPhase("generator_refuel_setup", Harness.startedAt)
     elseif Harness.config.pyre_burn_probe == "true" then

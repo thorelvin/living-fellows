@@ -1362,7 +1362,50 @@ do
             and string.sub(fencedReason, 1, 8) == "barrier:",
         "a fence across the approach is reported as something to climb, not a dead end: "
             .. tostring(fencedReason))
+    local openDoor = { opened = true }
+    function openDoor:IsOpen() return self.opened end
+    SC.Topology.barrierBetween = function(from, to)
+        if from ~= nil and to ~= nil and from.x == 60 and from.y == 4 then
+            return openDoor, "door"
+        end
+        return nil, "open"
+    end
+    local doorX = N.combatVector(actor, quarry, "approach", nil)
+    check(doorX ~= nil and doorX > 0,
+        "combat steering crosses an already open doorway")
+    openDoor.opened = false
+    local closedX, _, _, closedReason = N.combatVector(actor, quarry, "approach", nil)
+    check(closedX == nil and closedReason == "barrier:door",
+        "combat steering rechecks a door that closes")
+    SC.Topology.barrierBetween = savedBarrier
     actor.x, actor.y = savedX, savedY
+end
+
+do
+    local oldX, oldY = actor.x, actor.y
+    local oldProbe, oldMove = actor.isCompanionMovementClear, U.move
+    actor.x, actor.y = 60.2, 4.5
+    local goal = square(60, 4)
+    local moveIntent
+    actor.isCompanionMovementClear = function() return true end
+    U.move = function(_, _, intent) moveIntent = intent return true end
+    local route = { path = { goal }, pathGoalSquare = goal }
+    local moved, reason = N.moveFormationIntercept(actor, goal, goal,
+        { x = 60.8, y = 4.5, z = 0 },
+        { mode = "walk", action = "follow_formation" }, route, 1000)
+    check(moved == true and reason == "moving_formation_intercept"
+            and moveIntent.direct == true and moveIntent.continuousFollow == true
+            and math.abs(moveIntent.dx - 0.6) < 0.001 and route.path == nil,
+        "a moving formation crosses the remaining distance inside its goal tile")
+    moveIntent = nil
+    actor.isCompanionMovementClear = function() return false end
+    local blocked = N.moveFormationIntercept(actor, goal, goal,
+        { x = 60.8, y = 4.5, z = 0 },
+        { mode = "walk", action = "follow_formation" }, {}, 1100)
+    check(blocked == nil and moveIntent == nil,
+        "an in-tile formation advance needs native collision clearance")
+    actor.x, actor.y = oldX, oldY
+    actor.isCompanionMovementClear, U.move = oldProbe, oldMove
 end
 
 SC_TEST_REPORT = "NAVIGATION_STABILITY_REGRESSION_PASS checks=" .. tostring(checks)

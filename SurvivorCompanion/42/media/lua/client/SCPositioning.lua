@@ -979,6 +979,8 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
         participants = roster,
         followTrack = followTrack,
         interceptPosition = interceptPosition,
+        movingLeader = (movingOk and moving == true)
+            or (missionLeader and current - (leaderState.lastMovedAt or -math.huge) <= 650),
     }
 end
 
@@ -998,13 +1000,18 @@ function Positioning.cqbRole(actor, leader)
         entry and entry.columnIndex or slot, #followers
 end
 
-function Positioning.shouldHold(actor, target)
+function Positioning.shouldHold(actor, target, formation)
     if not actor or not target then return false end
     local state = stateFor(actor)
-    local enter = U().config("formationArrivalDistance") or 0.9
-    local leave = math.max(enter + 0.25, U().config("formationReleaseDistance") or 1.55)
-    local withinLeave, distance = U().arrived(actor, target, {
-        targetKind = "square", distance = leave,
+    local moving = type(formation) == "table" and formation.mode == "open"
+        and formation.movingLeader == true
+        and type(formation.interceptPosition) == "table"
+    local point = moving and formation.interceptPosition or target
+    local enter = moving and 0.35 or (U().config("formationArrivalDistance") or 0.9)
+    local leave = moving and 0.8
+        or math.max(enter + 0.25, U().config("formationReleaseDistance") or 1.55)
+    local withinLeave, distance = U().arrived(actor, point, {
+        targetKind = moving and "world" or "square", distance = leave,
     })
     if state.holdingFormation then
         if withinLeave then

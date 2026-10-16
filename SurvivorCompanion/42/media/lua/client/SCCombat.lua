@@ -3026,6 +3026,14 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
         readiness)
     local utility = U()
     local distance = math.sqrt(target.distanceSq or utility.distanceSq(actor, target.actor))
+    if target.safeBarrier == true
+        and (commands.order == "follow" or commands.order == "regroup") then
+        local canStrike = weapon and not weapon.ranged and weapon.item
+            and SC.Topology and type(SC.Topology.strikeBarrier) == "function"
+            and not SC.Topology.strikeBarrier(actor, target.actor,
+                "melee", weapon.item)
+        if not canStrike then return {}, distance end
+    end
     local pressure = Combat._engagementPressure(snapshot)
     readiness = readiness or Combat.readiness(actor, snapshot, weapon, commands)
     local isolatedFront = readiness.close <= 1 and readiness.occupiedSectors <= 1
@@ -4952,7 +4960,28 @@ function Combat.update(actor, player, runtime)
         now, preference, target)
     if phaseStarted then performance.record("combat.select-pair", nil,
         performance.preciseNowMs() - phaseStarted) end
-    if not pair then return false, "no_viable_target_action" end
+    if not pair then
+        local safeBarrierOnly = #scored > 0
+            and (commands.order == "follow" or commands.order == "regroup")
+        if safeBarrierOnly then
+            for _, candidate in ipairs(scored) do
+                if candidate.safeBarrier ~= true then
+                    safeBarrierOnly = false
+                    break
+                end
+            end
+        end
+        if state.active then utility.stop(actor) end
+        state.active, state.target, state.lastAction = false, nil, nil
+        state.retreating = false
+        clearAimPreparation(state)
+        utility.call(actor, "setCompanionAimTarget", nil)
+        releaseActorClaims(actor)
+        clearEngagement(state, actor)
+        rootRuntime.combatTarget, rootRuntime.combatAction = nil, nil
+        return false, safeBarrierOnly and "safe_barrier_target"
+            or "no_viable_target_action"
+    end
     target, weapon, inventory = pair.target, pair.weapon, pair.inventory
     local readiness = pair.readiness or overrun.readiness
     local chosen = pair.action

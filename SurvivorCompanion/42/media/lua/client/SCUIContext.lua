@@ -1456,6 +1456,16 @@ local function refuelVehicleFromContext(_target, vehicleId, player)
     end
 end
 
+local function upkeepVehicleFromContext(_target, kind, vehicleId, player)
+    local okay, accepted, reason = pcall(SC.VehicleUpkeep.queue,
+        kind, vehicleId, true)
+    if player then
+        safeMethod(player, "setHaloNote", okay and accepted == true
+            and text("UI_SC_Base_UpkeepOrdered")
+            or text("UI_SC_Base_ActionFailed", tostring(reason or accepted)))
+    end
+end
+
 local function refuelGeneratorFromContext(_target, generator, player)
     local okay, accepted, reason = pcall(SC.GeneratorRefuel.queue,
         generator, true)
@@ -1650,6 +1660,31 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
                     tooltip:setVisible(false)
                     tooltip.description = tostring(reason)
                     option.toolTip = tooltip
+                end
+            end
+        end
+    end
+    if clickedVehicle and SC.VehicleUpkeep
+        and type(SC.VehicleUpkeep.eligible) == "function" then
+        local vehicleId = safeMethod(clickedVehicle, "getSqlId")
+        if vehicleId then
+            for _, row in ipairs({
+                { kind = "inflate_tires", key = "UI_SC_Base_InflateTires" },
+                { kind = "wash_vehicle", key = "UI_SC_Base_WashCar" },
+            }) do
+                local eligible, reason = SC.VehicleUpkeep.eligible(row.kind,
+                    clickedVehicle, true)
+                local option = context:addOption(text(row.key), nil,
+                    upkeepVehicleFromContext, row.kind, vehicleId, player)
+                if not eligible and option then
+                    option.notAvailable = true
+                    if type(ISToolTip) == "table" then
+                        local tooltip = ISToolTip:new()
+                        tooltip:initialise()
+                        tooltip:setVisible(false)
+                        tooltip.description = tostring(reason)
+                        option.toolTip = tooltip
+                    end
                 end
             end
         end

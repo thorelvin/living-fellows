@@ -4369,6 +4369,12 @@ function Navigation.combatVector(actor, target, kind, snapshot)
             and not sameSquare(sourceSquare, neighbour) then
             local affordance = Navigation.edgeAffordance(sourceSquare, neighbour)
             local affordanceKind = type(affordance) == "table" and affordance.kind or nil
+            if affordanceKind == "door" and affordance.object
+                and SC.Topology and type(SC.Topology.objectOpen) == "function"
+                and SC.Topology.objectOpen(affordance.object)
+                and not SC.Topology.objectBarricaded(affordance.object) then
+                affordanceKind = nil
+            end
             if affordanceKind ~= nil then
                 clear = false
                 -- A barrier a person can cross is a different answer from a
@@ -6333,6 +6339,33 @@ function Navigation.stairFallbackGoal(actor, state, goalSquare, now, intent)
 end
 Navigation._stairFallbackGoalForTests = Navigation.stairFallbackGoal
 
+-- Finish a moving open-formation slot inside its reserved square. Native path
+-- requests target the square centre and cannot make this final small advance.
+function Navigation.moveFormationIntercept(actor, sourceSquare, goalSquare,
+        intercept, intent, state, now)
+    if not intercept or intent.stealthAvoidance == true
+        or not sameSquare(sourceSquare, goalSquare) then return nil end
+    local utility = U()
+    local ax, ay, az = utility.position(actor)
+    local ix, iy = tonumber(intercept.x), tonumber(intercept.y)
+    if not ax or not ix or not iy then return nil end
+    local clear, probed = utility.call(actor, "isCompanionMovementClear",
+        ix, iy, az or 0)
+    if not probed or clear ~= true
+        or not actualOpenSegment(actor, ix, iy, az or 0, {
+            actor = actor, now = now, directWalkOnly = true,
+        }) then return nil end
+    intent.dx, intent.dy = ix - ax, iy - ay
+    intent.direct = true
+    intent.collisionValidated = true
+    intent.continuousFollow = true
+    local moved, reason = utility.move(actor, intent.mode, intent)
+    if not moved then return false, reason or "formation_intercept_rejected" end
+    state.path, state.pathGoalSquare, state.pathSearch = nil, nil, nil
+    state.goalSquare, state.goalAction = goalSquare, intent.action
+    return true, "moving_formation_intercept"
+end
+
 function Navigation.request(actor, target, movementMode, intent)
     local utility = U()
     if not utility or not utility.isValidActor(actor) then return false, "invalid_actor" end
@@ -6423,9 +6456,20 @@ function Navigation.request(actor, target, movementMode, intent)
         end
     end
 
-    local reachedGoal = utility.arrived(actor, goalSquare, {
-        targetKind = "square",
-        distance = tonumber(requestIntent.arrivalDistance)
+    local intercept = requestIntent.movingFormation == true
+        and not goalAdjusted and type(requestIntent.interceptPosition) == "table"
+        and requestIntent.interceptPosition or nil
+    if intercept then
+        local gx, gy = utility.position(goalSquare)
+        local ix, iy = tonumber(intercept.x), tonumber(intercept.y)
+        if not gx or not gy or not ix or not iy
+            or math.floor(ix) ~= math.floor(gx)
+            or math.floor(iy) ~= math.floor(gy) then intercept = nil end
+    end
+    local reachedGoal = utility.arrived(actor, intercept or goalSquare, {
+        targetKind = intercept and "world" or "square",
+        distance = intercept and 0.35
+            or tonumber(requestIntent.arrivalDistance)
             or utility.config("navigationArrivalDistance") or 0.6,
     })
     -- The ordinary arrival radius includes a small vertical tolerance. On a
@@ -6484,6 +6528,15 @@ function Navigation.request(actor, target, movementMode, intent)
     local postureReady, postureAccepted, postureReason =
         SC.Navigation._readyForNavigation(actor)
     if postureReady ~= true then return postureAccepted == true, postureReason end
+
+    -- The reserved formation square can already contain the follower while its
+    -- predicted world point is still ahead. Finish that short in-tile distance
+    -- with a checked vector; a native path to the tile centre would stop here.
+    if intercept then
+        local moved, reason = SC.Navigation.moveFormationIntercept(actor,
+            sourceSquare, goalSquare, intercept, requestIntent, state, now)
+        if moved ~= nil then return moved, reason end
+    end
 
     local goalChanged = changedGoal(state, goalSquare)
     local ownershipChanged = previousTokenSerial ~= currentTokenSerial

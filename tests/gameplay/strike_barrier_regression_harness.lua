@@ -91,6 +91,10 @@ local function fixture(kind, options)
         function door:IsOpen() return self.opened end
         from.door, to.door = door, door
         from.blocked, to.blocked = not door.opened, not door.opened
+        if options.transparent then
+            from.transparentWall, to.transparentWall = door, door
+            target.transparentWallTo = actor
+        end
     elseif kind == "window" then
         local pane = { __class = "IsoWindow", opened = options.open == true,
             smashed = options.smashed == true,
@@ -135,6 +139,9 @@ strike("door", { open = false, los = "Clear" }, "melee", ordinary, true,
     "closed visible door blocks melee")
 strike("door", { open = true, los = "Clear" }, "melee", ordinary, false,
     "open door permits melee")
+strike("door", { open = true, los = "ClearThroughClosedDoor", transparent = true },
+    "melee", ordinary, false,
+    "the current open door wins over a stale closed-door LOS result")
 strike("window", { open = false, los = "Clear" }, "melee", ordinary, true,
     "closed visible window blocks melee")
 local freeFire = { allowClosedWindow = true }
@@ -204,15 +211,16 @@ local readiness = {
     combatSkill = 5, weaponQuality = 1, weaponCost = 1, confidence = 50,
     escapeClearance = 3,
 }
-local function plannedActions(kind, options, item, doctrine)
+local function plannedActions(kind, options, item, doctrine, order, safeBarrier)
     local actor, target = fixture(kind, options)
     local chosenWeapon = { item = item, ranged = false, damage = 1,
         conditionRatio = 1, equipped = true }
-    local record = { actor = target, distanceSq = 1, score = 20, bearing = "front" }
+    local record = { actor = target, distanceSq = 1, score = 20,
+        bearing = "front", safeBarrier = safeBarrier }
     local snapshot = { pressure = 0, encircled = false, escapeSquares = { square(-1, 0) } }
     local actions = Combat._actionUtilitiesForTests(actor, nil, snapshot,
         record, chosenWeapon, nil,
-        { holdFire = false, combatDoctrine = doctrine }, readiness)
+        { holdFire = false, combatDoctrine = doctrine, order = order }, readiness)
     local melee, route
     for _, action in ipairs(actions) do
         if action.kind == "melee" then melee = action end
@@ -229,6 +237,14 @@ check(openMelee ~= nil and openRoute == nil,
 local spearMelee, spearRoute = plannedActions("high_fence", { los = "Clear" }, spear)
 check(spearMelee ~= nil and spearRoute == nil,
     "planner preserves native piercing melee through transparent high fence")
+local safeMelee, safeRoute = plannedActions("high_fence", { los = "Clear" },
+    ordinary, "close_defense", "follow", true)
+check(safeMelee == nil and safeRoute == nil,
+    "Follow does not pursue a safely fenced zombie")
+local piercedMelee = plannedActions("high_fence", { los = "Clear" },
+    spear, "close_defense", "follow", true)
+check(piercedMelee ~= nil,
+    "a native fence-piercing weapon remains usable during Follow")
 local defenseMelee, defenseRoute = plannedActions("window",
     { open = false, los = "Clear" }, ordinary, "close_defense")
 check(defenseMelee == nil and defenseRoute ~= nil,

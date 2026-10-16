@@ -90,6 +90,44 @@ check(T.withReadBatch(T.classifyEdge, observer, origin, destination, {}).travers
 door.open, door.locked = false, true
 check(not T.withReadBatch(T.classifyEdge, observer, origin, destination, {}).traversable,
     "a door locked between slices cannot retain cached passability")
+do
+    local zombie = actor(1.5, 0.5, 0, "IsoZombie")
+    local originalFacts = SC.ZombieFacts.get
+    local factsSquare, factsX = destination, 1.5
+    SC.ZombieFacts.get = function()
+        return { square = factsSquare, x = factsX, y = 0.5, z = 0,
+            floor = 0, posture = "standing", climbing = false,
+            attacking = false, target = observer }
+    end
+    local protected = S._threatRecordForTests(observer, observer, zombie, origin)
+    check(protected.safeBarrier == true
+            and not SC.ThreatSet.isImmediate(protected, 4, 1.5),
+        "a closed door does not make a nearby zombie immediately attackable")
+    door.open, door.locked = true, false
+    local crossed = S._threatRecordForTests(observer, observer, zombie, origin)
+    check(crossed.safeBarrier ~= true
+            and SC.ThreatSet.isImmediate(crossed, 4, 1.5),
+        "an opened door restores immediate threat classification")
+    local originalBarrier = T.barrierBetween
+    local highFence = {}
+    function highFence:isTallHoppable() return true end
+    T.barrierBetween = function(from, to)
+        if from == origin and to == destination then return highFence, "fence" end
+        return originalBarrier(from, to)
+    end
+    local fenced = S._threatRecordForTests(observer, observer, zombie, origin)
+    check(fenced.safeBarrier == true
+            and not SC.ThreatSet.isImmediate(fenced, 4, 1.5),
+        "a tall fence keeps the adjacent zombie outside immediate danger")
+    zombie.x, factsSquare, factsX = 0.7, origin, 0.7
+    local crossedFence = S._threatRecordForTests(observer, observer, zombie, origin)
+    check(crossedFence.safeBarrier ~= true
+            and SC.ThreatSet.isImmediate(crossedFence, 4, 1.5),
+        "a zombie reaching the squad's side of the fence becomes immediate")
+    T.barrierBetween = originalBarrier
+    SC.ZombieFacts.get = originalFacts
+    door.open, door.locked = false, true
+end
 origin.portals[destination] = nil
 destination.vehicle = {}
 check(T.withReadBatch(T.classifyEdge, observer, origin, destination, {}).affordance == "vehicle",

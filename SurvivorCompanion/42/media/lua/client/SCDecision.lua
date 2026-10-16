@@ -1011,7 +1011,8 @@ local function doFollow(actor, player, rootRuntime, commands, snapshot)
     if not target then return false, "no_formation_target" end
     local leaderDistance = utility.distance(actor, player)
     local desired = commands.followDistance or 3
-    if commands.order ~= "regroup" and SC.Positioning.shouldHold(actor, target) then
+    if commands.order ~= "regroup"
+        and SC.Positioning.shouldHold(actor, target, formation) then
         -- A formation hold ends the previous follow route. Stopping the native
         -- actor alone leaves its Lua lease active (and its status stuck at
         -- native_path/moving) until another request services that lease.
@@ -1065,6 +1066,9 @@ local function doFollow(actor, player, rootRuntime, commands, snapshot)
         trailRevision = formation and formation.trailRevision or nil,
         followTrack = formation and formation.followTrack or nil,
         interceptPosition = formation and formation.interceptPosition or nil,
+        movingFormation = formation and formation.mode == "open"
+            and formation.movingLeader == true
+            and formation.interceptPosition ~= nil,
         portalKey = formation and formation.portalKey or nil,
         portal = formation and formation.portal or nil,
         columnIndex = formation and formation.columnIndex or nil,
@@ -2104,7 +2108,8 @@ end
 -- still follows: alone in an aiming hold is the worse place to be.
 local dutyFallbackRanks = { base_work = 4, tactical = 3, scavenge = 2, downtime = 1 }
 function Decision._targetlessFollowCandidate(selected, failure, snapshot, candidates, commands)
-    if failure ~= "no_credible_target" or type(selected) ~= "table"
+    if (failure ~= "no_credible_target"
+            and failure ~= "safe_barrier_target") or type(selected) ~= "table"
         or selected.kind ~= "combat"
         or (selected.emergency == true and selected.criticalOnly ~= true) then
         return nil

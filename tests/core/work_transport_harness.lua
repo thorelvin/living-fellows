@@ -1529,8 +1529,8 @@ do
         if auditReason ~= "farm_always_productive" then nonFarmResults = nonFarmResults + 1 end
     end
     SC.FarmWork = priorFarm
-    check(farmCalls == 2 and nonFarmResults == 8,
-        "always-productive farming receives one fair slot while four maintenance families still run")
+    check(farmCalls == 1 and nonFarmResults == 9,
+        "productive farming receives one fair slot while other maintenance families run")
 end
 
 local gatherMetrics = SC.GatherWork.diagnostics()

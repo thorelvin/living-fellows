@@ -5490,6 +5490,30 @@ check(SurvivorCompanion.Positioning.shouldHold(formationLeft, settledHeadingTarg
 formationLeft.square = cell:getGridSquare(settledHeadingTarget.x + 2, settledHeadingTarget.y, 0)
 check(not SurvivorCompanion.Positioning.shouldHold(formationLeft, settledHeadingTarget),
     "formation hold releases only after the wider hysteresis boundary")
+do
+    local point = { x = settledHeadingTarget.x + 0.5,
+        y = settledHeadingTarget.y + 0.5, z = 0 }
+    local movingFormation = { mode = "open", movingLeader = true,
+        interceptPosition = point }
+    formationLeft.square = settledHeadingTarget
+    formationLeft.worldX = point.x + 0.6
+    check(not SurvivorCompanion.Positioning.shouldHold(
+        formationLeft, settledHeadingTarget, movingFormation),
+        "moving formation does not stop merely on entering the destination tile")
+    formationLeft.worldX = point.x + 0.2
+    check(SurvivorCompanion.Positioning.shouldHold(
+        formationLeft, settledHeadingTarget, movingFormation),
+        "moving formation holds close to its predicted world point")
+    formationLeft.worldX = point.x + 0.6
+    check(SurvivorCompanion.Positioning.shouldHold(
+        formationLeft, settledHeadingTarget, movingFormation),
+        "moving formation retains its short release band")
+    formationLeft.worldX = point.x + 0.9
+    check(not SurvivorCompanion.Positioning.shouldHold(
+        formationLeft, settledHeadingTarget, movingFormation),
+        "moving formation resumes once its point has moved away")
+    formationLeft.worldX = nil
+end
 local guardedMode, guardedPosture = SurvivorCompanion.Positioning.followMode("walk", 80, 4)
 check(guardedMode == "sneak" and guardedPosture == "guarded",
     "high stress selects guarded human locomotion without a zombie animation")

@@ -1,7 +1,7 @@
-Living Fellows 0.26.42 - public playtest
+Living Fellows 0.26.43 - public playtest
 
-This playtest improves squad combat against small zombie groups, weapon-range
-timing, downed-zombie finishing, and backup-weapon use after a break.
+This playtest adds camp car and generator upkeep, improves following through
+open ground and doors, and keeps squads from chasing unreachable zombies.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added

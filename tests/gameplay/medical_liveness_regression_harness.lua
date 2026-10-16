@@ -267,6 +267,14 @@ do
             and not attacked.followCalls,
         "an immediate attacker keeps the defensive hold regardless of leash time or distance: "
             .. tostring(attackedResult))
+    SC.Combat = { update = function() return false, "safe_barrier_target" end }
+    local protected, protectedRuntime = patient(100), fencedRuntime(false)
+    protectedRuntime.snapshot.threats[1].safeBarrier = true
+    local protectedHandled, protectedResult = holdTicks(
+        protected, nearLeader, protectedRuntime, 2)
+    check(protectedHandled and protectedResult == "followed"
+            and (protected.followCalls or 0) > 0,
+        "a safely blocked zombie cannot interrupt Follow")
     -- Combat that finds nothing it may engage (every zombie out of reach or not
     -- credible for the doctrine) is not a failed defense: a follower keeps
     -- moving with its leader instead of freezing into a guarded hold.
