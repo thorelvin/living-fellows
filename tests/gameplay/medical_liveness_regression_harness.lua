@@ -411,4 +411,61 @@ do
     SC.ExpeditionPrototype = savedExpedition
 end
 
+do
+    local savedPeek = SC.Commands.peek
+    local savedMode = SC.Positioning.playerMoveMode
+    local savedRoute = SC.Navigation._fastOpenRouteForRequest
+    local savedNow = U.nowMs
+    local savedPlayer = getSpecificPlayer
+    local time, routeOpen = 60000, true
+    local runner = patient(100)
+    -- Native path actions may advance the player while isMoving stays false.
+    function runner:isMoving() return false end
+    local medic = patient(100)
+    local squadMate = patient(70, { part(false, true) })
+    local baseResident = patient(70, { part(false, true) })
+    squadMate.x, baseResident.x = 2, 2
+    local follow = { recruited = true, order = "follow", group = "Alpha" }
+    SC.Commands.peek = function(value)
+        if value == medic or value == squadMate then return follow end
+        return { recruited = true, order = "base", group = "Alpha" }
+    end
+    SC.Positioning.playerMoveMode = function() return "jog" end
+    SC.Navigation._fastOpenRouteForRequest = function()
+        return routeOpen and { square } or nil
+    end
+    U.nowMs = function() return time end
+    getSpecificPlayer = function(index) return index == 0 and runner or nil end
+    check(not M.travelRescueEligible(medic, baseResident, runner),
+        "a running follower does not leave the road for a base resident")
+    check(M.travelRescueEligible(medic, squadMate, runner),
+        "nearby squadmates remain eligible for care while the leader runs")
+    medic.x, squadMate.x = 4, 6
+    check(M.travelRescueEligible(medic, squadMate, runner),
+        "a medic beside a wounded running squadmate can still help")
+    medic.x, squadMate.x = 4, 8
+    check(not M.travelRescueEligible(medic, squadMate, runner),
+        "a running medic does not chase a casualty outside the tight squad")
+    medic.x, squadMate.x = 8, 6
+    check(not M.travelRescueEligible(medic, squadMate, runner),
+        "a medic already behind the runner must catch up before helping")
+    medic.x, squadMate.x = nil, 2
+    runner.x = 20
+    check(not M.travelRescueEligible(medic, squadMate, runner),
+        "a squadmate left behind the running leader cannot pull a medic back")
+    local accepted, reason = M.treat(medic, squadMate)
+    check(not accepted and reason == "travel_rescue_deferred",
+        "direct medical delegation also refuses a casualty left behind")
+    runner.x = nil
+    squadMate.x = 12
+    check(not M.travelRescueEligible(medic, squadMate, runner),
+        "a distant squadmate cannot pull a medic off the running leader")
+    squadMate.x, routeOpen, time = 2, false, time + 400
+    check(not M.travelRescueEligible(medic, squadMate, runner),
+        "a blocked direct route is deferred during a running follow")
+    SC.Commands.peek, SC.Positioning.playerMoveMode = savedPeek, savedMode
+    SC.Navigation._fastOpenRouteForRequest, U.nowMs = savedRoute, savedNow
+    getSpecificPlayer = savedPlayer
+end
+
 SC_TEST_REPORT = "MEDICAL_LIVENESS_REGRESSION_PASS checks=" .. checks

@@ -210,6 +210,8 @@ local function rescueNeed(actor, player, snapshot, avoidPlayer)
     end
     local assess = SC.Medical and (SC.Medical.assessCached or SC.Medical.assess)
     if player and not avoidPlayer and type(assess) == "function"
+        and (not SC.Medical or type(SC.Medical.travelRescueEligible) ~= "function"
+            or SC.Medical.travelRescueEligible(actor, player, player))
         and (not SC.Medical or type(SC.Medical.sameCareGroup) ~= "function"
             or SC.Medical.sameCareGroup(actor, player)) then
         local ok, assessment = pcall(assess, player, nil, 500)
@@ -246,7 +248,10 @@ local function rescueNeed(actor, player, snapshot, avoidPlayer)
             end
             if stillAllied and (not SC.Medical
                 or type(SC.Medical.sameCareGroup) ~= "function"
-                or SC.Medical.sameCareGroup(actor, ally.actor)) then
+                or SC.Medical.sameCareGroup(actor, ally.actor))
+                and (not SC.Medical
+                    or type(SC.Medical.travelRescueEligible) ~= "function"
+                    or SC.Medical.travelRescueEligible(actor, ally.actor, player)) then
                 local assessment = medicalAssessment(ally.actor, nil, 500)
                 local splintCount = assessment.needsSplint
                     and SC.Medical and SC.Medical.hasSplint
@@ -1043,7 +1048,7 @@ local function doFollow(actor, player, rootRuntime, commands, snapshot)
     end
     local mode, posture = SC.Positioning.followMode(
         commands.moveMode or "copy", commands.stress, leaderDistance, player, desired,
-        actor, commands.commandSerial)
+        actor, commands.commandSerial, formation and formation.slotLag)
     if not SC.Navigation or type(SC.Navigation.request) ~= "function" then return false, "navigation_unavailable" end
     return SC.Navigation.request(actor, target, mode, {
         action = commands.order == "regroup" and "regroup" or "follow_formation",
@@ -1063,6 +1068,7 @@ local function doFollow(actor, player, rootRuntime, commands, snapshot)
         movementPriority = 20,
         stressPosture = posture,
         formationMode = formation and formation.mode or nil,
+        formationShape = formation and formation.shape or nil,
         trailRevision = formation and formation.trailRevision or nil,
         followTrack = formation and formation.followTrack or nil,
         interceptPosition = formation and formation.interceptPosition or nil,
@@ -3095,6 +3101,19 @@ function Decision.update(actor, player, runtime, roundTimestamp)
                 state.intent = cancelReason or "needs_preempt_failed"
                 return false, state.intent
             end
+        end
+    end
+    -- A running leader can leave a medic's old approach behind. Release its
+    -- route before Follow requests a new one, including the patient claim.
+    if selected.kind ~= "medical" and SC.Medical
+        and type(SC.Medical.peek) == "function"
+        and type(SC.Medical.travelRescueEligible) == "function"
+        and type(SC.Medical.cancel) == "function" then
+        local treatment = SC.Medical.peek(actor)
+        if treatment and treatment.patient ~= actor
+            and not SC.Medical.travelRescueEligible(
+                actor, treatment.patient, player) then
+            SC.Medical.cancel(actor, "travel_rescue_deferred")
         end
     end
     local navigationSerial = SC.Navigation

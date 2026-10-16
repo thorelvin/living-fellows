@@ -4,6 +4,9 @@
 
 ## 0.26.43 - Camp upkeep and steadier following
 
+- Moving Follow squads keep a stable close column on clear ground, use short jog bursts to regain their assigned slots, and return to the safe trail through doors and obstacles. Living teammates are handled as moving traffic during route checks.
+- The companion scheduler and navigation search slice now have 3 ms budgets. A test-only loading-gate agent starts isolated live harness runs without a manual click.
+- Medics following a running player only break formation for nearby reachable casualties; failed approaches receive a short retry cooldown.
 - Base-duty companions can refuel parked cars and generators from marked camp storage. Parked cars can also have their tires inflated and bodywork washed using stored supplies. Vehicle and generator context menus offer one-time work orders.
 - Companions following the player no longer stop to fight zombies safely separated by tall fences or closed doors. Open doors use their current state during combat and route checks, so an old blocked sight result does not hold up the squad.
 - Moving formations track the predicted follow point inside a tile, reducing repeated pauses on open ground. The final short movement checks native collision before advancing.

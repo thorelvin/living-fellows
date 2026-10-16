@@ -24,7 +24,7 @@ end
 -- The only canonical value table. Section/key calls are translated through
 -- aliases below, so a setting is never copied into several defaults tables.
 local valueData = {
-    frameBudgetMs = 2,
+    frameBudgetMs = 3,
     performanceSampleWindow = 120,
     performancePerceptionUnitsPerFrame = 72,
     performanceNavigationNodesPerFrame = 64,
@@ -263,7 +263,7 @@ local valueData = {
     navigationArrivalDistance = 0.6,
     navigationMicroDistance = 1.45,
     navigationNodeBudget = 220,
-    navigationSliceBudgetMs = 2,
+    navigationSliceBudgetMs = 3,
     uiRefreshSliceBudgetMs = 0.5,
     uiRefreshMaximumLagMs = 500,
     uiRefreshCadenceMs = 500,

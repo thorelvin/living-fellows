@@ -45,7 +45,7 @@ do
             .. tostring(lenientReason))
 end
 local immutable = pcall(function() SC.Config.defaults.frameBudgetMs = 99 end)
-check(not immutable and SC.Config.get("frameBudgetMs") == 2, "configuration is immutable")
+check(not immutable and SC.Config.get("frameBudgetMs") == 3, "configuration is immutable")
 do
     local priorSandbox = SandboxVars
     SandboxVars = { LivingFellows = {

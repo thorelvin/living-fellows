@@ -5491,6 +5491,21 @@ formationLeft.square = cell:getGridSquare(settledHeadingTarget.x + 2, settledHea
 check(not SurvivorCompanion.Positioning.shouldHold(formationLeft, settledHeadingTarget),
     "formation hold releases only after the wider hysteresis boundary")
 do
+    formationLeft.square = settledHeadingTarget
+    local movingTrail = { mode = "trail", movingLeader = true,
+        leaderDistance = 10, desiredDistance = 3 }
+    check(not SurvivorCompanion.Positioning.shouldHold(
+        formationLeft, settledHeadingTarget, movingTrail),
+        "a moving leader seven-plus tiles away releases a reached trail breadcrumb")
+    movingTrail.leaderDistance = 4
+    check(SurvivorCompanion.Positioning.shouldHold(
+        formationLeft, settledHeadingTarget, movingTrail),
+        "trail hold remains available when the follower is close to its leader")
+    movingTrail.leaderDistance = 10
+    SurvivorCompanion.Positioning.shouldHold(
+        formationLeft, settledHeadingTarget, movingTrail)
+end
+do
     local point = { x = settledHeadingTarget.x + 0.5,
         y = settledHeadingTarget.y + 0.5, z = 0 }
     local movingFormation = { mode = "open", movingLeader = true,
@@ -5501,18 +5516,37 @@ do
         formationLeft, settledHeadingTarget, movingFormation),
         "moving formation does not stop merely on entering the destination tile")
     formationLeft.worldX = point.x + 0.2
-    check(SurvivorCompanion.Positioning.shouldHold(
+    check(not SurvivorCompanion.Positioning.shouldHold(
         formationLeft, settledHeadingTarget, movingFormation),
-        "moving formation holds close to its predicted world point")
+        "moving formation keeps pacing beside its predicted world point")
     formationLeft.worldX = point.x + 0.6
-    check(SurvivorCompanion.Positioning.shouldHold(
+    check(not SurvivorCompanion.Positioning.shouldHold(
         formationLeft, settledHeadingTarget, movingFormation),
-        "moving formation retains its short release band")
+        "moving formation does not restart its path within the former hold band")
     formationLeft.worldX = point.x + 0.9
     check(not SurvivorCompanion.Positioning.shouldHold(
         formationLeft, settledHeadingTarget, movingFormation),
         "moving formation resumes once its point has moved away")
     formationLeft.worldX = nil
+end
+do
+    local slotFollower = actor("sc-slot-catch-up", 20, 20, {})
+    local burst, reason, active = SurvivorCompanion.Positioning.followMode(
+        "walk", 0, 5, player, 3, slotFollower, 77, 1.3)
+    local committed, _, stillActive = SurvivorCompanion.Positioning.followMode(
+        "walk", 0, 5, player, 3, slotFollower, 77, 0.7)
+    local settled, _, released = SurvivorCompanion.Positioning.followMode(
+        "walk", 0, 5, player, 3, slotFollower, 77, 0.3)
+    check(burst == "jog" and reason == "slot_catch_up" and active == true
+            and committed == "jog" and stillActive == true
+            and settled == "walk" and released == false,
+        "open formation catches its assigned slot with a stable jog burst")
+    player.sneaking = true
+    local stealth = SurvivorCompanion.Positioning.followMode(
+        "copy", 0, 9, player, 3, slotFollower, 77, 2)
+    player.sneaking = false
+    check(stealth == "sneak", "slot catch-up preserves copied Sneak")
+    SurvivorCompanion.Positioning.reset(slotFollower)
 end
 local guardedMode, guardedPosture = SurvivorCompanion.Positioning.followMode("walk", 80, 4)
 check(guardedMode == "sneak" and guardedPosture == "guarded",
@@ -8551,6 +8585,11 @@ check(not approachDone and approachDoneReason == "approach_timeout"
         and SurvivorCompanion.Medical.peek(strandedMedic) == nil
         and not strandedPart.isBandaged and not strandedBandage.used,
     "an approach that never settles times out, clears the treatment, and spends no supply")
+check(not SurvivorCompanion.Medical.rescueRouteReady(strandedMedic, strandedPatient),
+    "a failed medical approach cools down the same unreachable patient")
+clock = clock + 5001
+check(SurvivorCompanion.Medical.rescueRouteReady(strandedMedic, strandedPatient),
+    "the medical route retry becomes available after its short cooldown")
 SurvivorCompanion.NativeActions = previousNativeActions
 registry[strandedPatient.id] = nil
 registry[strandedMedic.id] = nil

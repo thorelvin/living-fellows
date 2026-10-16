@@ -147,6 +147,19 @@ param(
     [switch]$WoodcutterOnly,
     [switch]$PostedStreamOnly,
     [switch]$PathingOnly,
+    # Cloned-save 50-tile player road run with per-second Follow gap trace.
+    [switch]$FollowRoadProbe,
+    # Compare the same road run with the team's open formation enabled.
+    [switch]$FollowRoadFanOut,
+    # Move unrelated recruits to a safe Stay point so their care needs cannot
+    # pull the measured trio off the route in a movement-only comparison.
+    [switch]$FollowRoadIsolated,
+    # Diagnostic A/B: use committed Follow/medical modules in the disposable
+    # sandbox while retaining the current live probe and runner.
+    [switch]$FollowRoadBaseline,
+    # Permit a diagnostic run with the same bridge bytecode when only the
+    # packaged release label changed. All other JAR differences still fail.
+    [switch]$AllowManifestVersionMismatch,
     [switch]$PlaceMetadataOnly,
     [switch]$SplitScreenOnly,
     [switch]$SplitBaseLayoutProbe,
@@ -983,6 +996,9 @@ namespace SCLiveHarness {
         private static extern IntPtr GetForegroundWindow();
 
         [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+        [DllImport("user32.dll")]
         private static extern bool BringWindowToTop(IntPtr hWnd);
 
         [DllImport("user32.dll")]
@@ -1074,6 +1090,17 @@ namespace SCLiveHarness {
             SetCursorPos(original.X, original.Y);
             return true;
         }
+
+        // The game polls its own mouse state and ignores posted window clicks.
+        // Foreground input is retained for Steam-owned visible test clients.
+        public static string ClickOwnedClientCentre(IntPtr hWnd, uint processId) {
+            if (hWnd == IntPtr.Zero) return "missing_window";
+            uint owner;
+            if (GetWindowThreadProcessId(hWnd, out owner) == 0 || owner != processId)
+                return "window_owner_mismatch";
+            if (ClickClientCentre(hWnd)) return "foreground";
+            return "window_not_foreground";
+        }
     }
 }
 '@
@@ -1081,11 +1108,12 @@ namespace SCLiveHarness {
 }
 
 function Invoke-LoadingScreenClick([System.Diagnostics.Process]$Process) {
-    if ($ExternalUiControl) { return $false }
+    if ($ExternalUiControl) { return 'external_control' }
     Initialize-WindowInput
     $Process.Refresh()
-    if ($Process.HasExited -or $Process.MainWindowHandle -eq [IntPtr]::Zero) { return $false }
-    return [SCLiveHarness.WindowInput]::ClickClientCentre($Process.MainWindowHandle)
+    if ($Process.HasExited) { return 'process_exited' }
+    return [SCLiveHarness.WindowInput]::ClickOwnedClientCentre(
+        $Process.MainWindowHandle, [uint32]$Process.Id)
 }
 
 function Invoke-WindowKey([System.Diagnostics.Process]$Process, [byte]$VirtualKey) {
@@ -1316,11 +1344,75 @@ if (-not (Test-Path -LiteralPath $sourceBridge -PathType Leaf)) {
 $installedBridgeHash = (Get-FileHash -LiteralPath $bridgePath -Algorithm SHA256).Hash
 $sourceBridgeHash = (Get-FileHash -LiteralPath $sourceBridge -Algorithm SHA256).Hash
 if ($installedBridgeHash -ne $sourceBridgeHash -and -not $PrepareOnly) {
-    throw 'The installed native bridge does not match the source candidate. ' +
-        'Run Install-Local.ps1 -NativeBridge before the real sandbox harness.'
+    $versionOnly = $false
+    if ($AllowManifestVersionMismatch) {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $installedArchive = [IO.Compression.ZipFile]::OpenRead($bridgePath)
+        $sourceArchive = [IO.Compression.ZipFile]::OpenRead($sourceBridge)
+        try {
+            $installedEntries = @{}
+            foreach ($entry in $installedArchive.Entries) {
+                $installedEntries[$entry.FullName] = $entry
+            }
+            $versionOnly = $installedEntries.Count -eq $sourceArchive.Entries.Count
+            foreach ($entry in $sourceArchive.Entries) {
+                if (-not $versionOnly) { break }
+                $other = $installedEntries[$entry.FullName]
+                if ($null -eq $other) { $versionOnly = $false; break }
+                $sourceStream = $entry.Open()
+                $installedStream = $other.Open()
+                try {
+                    $sourceMemory = [IO.MemoryStream]::new()
+                    $installedMemory = [IO.MemoryStream]::new()
+                    $sourceStream.CopyTo($sourceMemory)
+                    $installedStream.CopyTo($installedMemory)
+                    if ($entry.FullName -eq 'META-INF/MANIFEST.MF') {
+                        $sourceText = [Text.Encoding]::UTF8.GetString($sourceMemory.ToArray())
+                        $installedText = [Text.Encoding]::UTF8.GetString($installedMemory.ToArray())
+                        $pattern = '(?m)^Implementation-Version:[^\r\n]*'
+                        $sourceText = [regex]::Replace($sourceText, $pattern,
+                            'Implementation-Version: RELEASE')
+                        $installedText = [regex]::Replace($installedText, $pattern,
+                            'Implementation-Version: RELEASE')
+                        $versionOnly = $sourceText -ceq $installedText
+                    } else {
+                        $versionOnly = [System.Collections.StructuralComparisons]::
+                            StructuralEqualityComparer.Equals(
+                                $sourceMemory.ToArray(), $installedMemory.ToArray())
+                    }
+                } finally {
+                    $sourceStream.Dispose()
+                    $installedStream.Dispose()
+                }
+            }
+        } finally {
+            $installedArchive.Dispose()
+            $sourceArchive.Dispose()
+        }
+    }
+    if (-not $versionOnly) {
+        throw 'The installed native bridge does not match the source candidate. ' +
+            'Run Install-Local.ps1 -NativeBridge before the real sandbox harness.'
+    }
+    Write-Output 'Installed bridge class bytes match source; only the manifest release label differs.'
 }
 Copy-Item -LiteralPath $sourceMod -Destination (Join-Path $SandboxMods 'SurvivorCompanion') -Recurse
 Copy-Item -LiteralPath $harnessMod -Destination (Join-Path $SandboxMods 'SCRealSandboxHarness') -Recurse
+if ($FollowRoadBaseline) {
+    if (-not $FollowRoadProbe) { throw 'FollowRoadBaseline requires FollowRoadProbe.' }
+    foreach ($relative in @(
+        'SurvivorCompanion/42/media/lua/client/SCDecision.lua',
+        'SurvivorCompanion/42/media/lua/client/SCMedical.lua',
+        'SurvivorCompanion/42/media/lua/client/SCPositioning.lua')) {
+        $baselineText = & git -C $ProjectRoot show "HEAD:$relative"
+        if ($LASTEXITCODE -ne 0) { throw "Could not load Follow baseline: $relative" }
+        $targetPath = Join-Path $SandboxMods ($relative -replace '/', '\')
+        [System.IO.File]::WriteAllText($targetPath,
+            (($baselineText -join "`n") + "`n"),
+            [System.Text.UTF8Encoding]::new($false))
+    }
+    Write-Output 'Restored committed Follow and medical modules in the disposable sandbox.'
+}
 if ($SquadCombatBaseline) {
     if (-not $SquadCombatProbe) { throw 'SquadCombatBaseline requires SquadCombatProbe.' }
     foreach ($relative in @(
@@ -1464,6 +1556,9 @@ $config = @(
     ('capture_faction_map=' + $captureFactionMap.ToString().ToLowerInvariant()),
     ('faction_map_only=' + $FactionMapOnly.IsPresent.ToString().ToLowerInvariant()),
     ('pathing_only=' + $PathingOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('follow_road_probe=' + $FollowRoadProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('follow_road_fan_out=' + $FollowRoadFanOut.IsPresent.ToString().ToLowerInvariant()),
+    ('follow_road_isolated=' + $FollowRoadIsolated.IsPresent.ToString().ToLowerInvariant()),
     ('place_metadata_only=' + $PlaceMetadataOnly.IsPresent.ToString().ToLowerInvariant()),
     ('split_screen_only=' + $SplitScreenOnly.IsPresent.ToString().ToLowerInvariant()),
     ('split_base_layout_probe=' + $SplitBaseLayoutProbe.IsPresent.ToString().ToLowerInvariant()),
@@ -1682,6 +1777,40 @@ if ($PrepareOnly) {
 
 $argumentLine = '-cachedir="' + $CacheRoot + '" -nosound -novoip -debuglog=+General,+Lua'
 if ($NoSteam) { $argumentLine += ' -nosteam' }
+$autoGateAgent = -not $SteamLaunch -and -not $ExternalUiControl
+$gateAgentMarker = Join-Path $RunRoot 'loading-gate-agent.txt'
+$gateAgentJar = Join-Path $RunRoot 'loading-gate-agent.jar'
+if ($autoGateAgent) {
+    # Build a disposable helper rather than changing the installed launcher or
+    # shipping a loading-screen bypass with Living Fellows. PZ reads its own
+    # mouse state, so background WM_LBUTTONDOWN posts cannot pass this gate.
+    $javaTools = 'C:\Program Files\Java\jdk-24\bin'
+    $javac = Join-Path $javaTools 'javac.exe'
+    if (-not (Test-Path -LiteralPath $javac -PathType Leaf)) {
+        throw 'The isolated loading gate requires JDK 24 javac.exe.'
+    }
+    $agentClasses = Join-Path $RunRoot 'loading-gate-classes'
+    New-Item -ItemType Directory -Path $agentClasses -Force | Out-Null
+    $agentSource = Join-Path $ProjectRoot 'tests\live\auto_start\SCLoadingGateAgent.java'
+    & $javac -encoding UTF-8 -d $agentClasses $agentSource
+    if ($LASTEXITCODE -ne 0) { throw 'Could not compile the isolated loading-gate agent.' }
+    # Write the JAR in place. jar.exe stages a temp file and its cross-directory
+    # move is denied in a restricted desktop session.
+    $zip = [System.IO.Compression.ZipFile]::Open($gateAgentJar,
+        [System.IO.Compression.ZipArchiveMode]::Create)
+    try {
+        $manifestEntry = $zip.CreateEntry('META-INF/MANIFEST.MF')
+        $stream = $manifestEntry.Open()
+        try {
+            $manifestBytes = [System.Text.Encoding]::ASCII.GetBytes(
+                "Manifest-Version: 1.0`r`nPremain-Class: survivorcompanion.harness.SCLoadingGateAgent`r`n`r`n")
+            $stream.Write($manifestBytes, 0, $manifestBytes.Length)
+        } finally { $stream.Dispose() }
+        $agentClass = Join-Path $agentClasses 'survivorcompanion\harness\SCLoadingGateAgent.class'
+        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $agentClass,
+            'survivorcompanion/harness/SCLoadingGateAgent.class') | Out-Null
+    } finally { $zip.Dispose() }
+}
 if ($SteamLaunch) {
     $SteamExe = [System.IO.Path]::GetFullPath($SteamExe)
     if (-not (Test-Path -LiteralPath $SteamExe -PathType Leaf)) {
@@ -1716,10 +1845,23 @@ if ($SteamLaunch) {
     }
     Write-Output "Started Steam-owned Project Zomboid client test pid=$($process.Id)"
 } else {
+    $directExecutable = $gameExe
+    $directArguments = $argumentLine
+    if ($autoGateAgent) {
+        $directExecutable = Join-Path $GameRoot 'jre64\bin\javaw.exe'
+        if (-not (Test-Path -LiteralPath $directExecutable -PathType Leaf)) {
+            throw "Bundled game Java runtime is missing: $directExecutable"
+        }
+        $gameClassPath = ($launcher.classpath -join ';')
+        $directArguments = (($launcher.vmArgs -join ' ') +
+            ' -XX:+UseZGC -javaagent:"' + $gateAgentJar + '"=' +
+            $gateAgentMarker + ' -cp "' + $gameClassPath +
+            '" survivorcompanion.bridge.SCLauncher ' + $argumentLine)
+    }
     $startOptions = @{
-        FilePath = $gameExe
+        FilePath = $directExecutable
         WorkingDirectory = $GameRoot
-        ArgumentList = $argumentLine
+        ArgumentList = $directArguments
         PassThru = $true
     }
     if ($HiddenWindow) { $startOptions.WindowStyle = 'Hidden' }
@@ -1730,7 +1872,7 @@ if ($SteamLaunch) {
     } finally {
         $env:SC_LIVE_CONVOY_HARNESS = $priorConvoyHarness
     }
-    Write-Output "Started real Project Zomboid client test pid=$($process.Id)"
+    Write-Output "Started real Project Zomboid client test pid=$($process.Id) mode=$(if ($autoGateAgent) { 'isolated-java' } else { 'game-exe' })"
 }
 if ($ExternalUiControl) {
     Write-Output 'External UI control is active: click the Build 42 start gate after world load.'
@@ -1792,18 +1934,30 @@ try {
                 -SimpleMatch 'game loading took' -Quiet
             if ($loadingReadyObserved) {
                 $nextLoadingClick = [DateTime]::UtcNow.AddMilliseconds(750)
-                Write-Output 'World load completed; waiting for the Build 42 click-to-start gate.'
+                if ($autoGateAgent) {
+                    Write-Output 'World load completed; isolated loading-gate agent owns start.'
+                } else {
+                    Write-Output 'World load completed; waiting for the Build 42 click-to-start gate.'
+                }
             }
         }
-        if (-not $ExternalUiControl -and $loadingReadyObserved -and
+        if ($autoGateAgent -and (Test-Path -LiteralPath $gateAgentMarker -PathType Leaf) -and
+            (Select-String -LiteralPath $gateAgentMarker -Pattern '^agent_failed:' -Quiet)) {
+            throw "Isolated loading-gate agent failed; inspect $gateAgentMarker"
+        }
+        if (-not $ExternalUiControl -and -not $autoGateAgent -and $loadingReadyObserved -and
             [DateTime]::UtcNow -ge $nextLoadingClick -and
             -not (Test-Path -LiteralPath $eventsPath -PathType Leaf)) {
             $clickAttempts++
-            if (Invoke-LoadingScreenClick $process) {
-                Write-Output "Sent isolated click-to-start attempt $clickAttempts to pid=$($process.Id)"
+            $clickResult = Invoke-LoadingScreenClick $process
+            if ($clickResult -eq 'foreground') {
+                Write-Output "Sent isolated click-to-start attempt $clickAttempts mode=$clickResult pid=$($process.Id)"
             } elseif ($clickAttempts -in @(1, 5, 10, 20)) {
                 $process.Refresh()
-                Write-Output "Click-to-start unavailable attempt=$clickAttempts pid=$($process.Id) exited=$($process.HasExited) window=$($process.MainWindowHandle) title=$($process.MainWindowTitle)"
+                Write-Output "Click-to-start unavailable attempt=$clickAttempts reason=$clickResult pid=$($process.Id) exited=$($process.HasExited) window=$($process.MainWindowHandle) title=$($process.MainWindowTitle)"
+            }
+            if ($clickAttempts -ge 20) {
+                throw "Click-to-start did not begin the isolated game after $clickAttempts attempts (last=$clickResult)."
             }
             $nextLoadingClick = [DateTime]::UtcNow.AddSeconds(3)
         }

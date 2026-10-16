@@ -398,9 +398,41 @@ local function followerSlot(actor, leader, current)
         commands and commands.group or nil)
     if slots[actor] then
         local entry = followers[slots[actor]]
-        return entry.columnIndex or slots[actor], followers, entry
+        return entry.columnIndex or slots[actor], followers, entry, slots[actor]
     end
     return (U().stableHash(U().idOf(actor)) % #formationOffsets) + 1, followers, nil
+end
+
+local function travellingColumnIndex(actor, roster, leaderState, px, py,
+        forwardX, forwardY, current, group)
+    local key = rosterGroupKey(group)
+    leaderState.lineOrders = leaderState.lineOrders or {}
+    local order = leaderState.lineOrders[key]
+    if order == nil or current >= (order.expires or 0)
+        or order.count ~= #roster or order.ranks[actor] == nil then
+        local followers = {}
+        for _, entry in ipairs(roster) do
+            local ax, ay = U().position(entry.actor)
+            followers[#followers + 1] = {
+                actor = entry.actor,
+                id = tostring(entry.id),
+                lag = ax and ((px - ax) * forwardX + (py - ay) * forwardY)
+                    or math.huge,
+            }
+        end
+        table.sort(followers, function(a, b)
+            local aBand, bBand = math.floor(a.lag * 2), math.floor(b.lag * 2)
+            if aBand ~= bBand then return aBand < bBand end
+            return a.id < b.id
+        end)
+        order = { ranks = setmetatable({}, { __mode = "k" }),
+            count = #roster, expires = current + 500 }
+        for index, entry in ipairs(followers) do
+            order.ranks[entry.actor] = index
+        end
+        leaderState.lineOrders[key] = order
+    end
+    return order.ranks[actor]
 end
 
 local function cohortKey(actor, leader)
@@ -436,6 +468,7 @@ local function sampleLeader(leader, current, roster, cohort)
         local discontinuity = jumpSq > 36 or vehicle ~= state.vehicle
         if discontinuity then
             state.trail = {}
+            state.lineOrders = nil
             state.revision = (state.revision or 0) + 1
             state.totalDistance = 0
             state.latestPortal = nil
@@ -695,7 +728,7 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
     local px, py, pz = utility.position(leader)
     if not px then return nil end
     local current = utility.nowMs()
-    local slot, roster, fireteamMember = followerSlot(actor, leader, current)
+    local slot, roster, fireteamMember, denseSlot = followerSlot(actor, leader, current)
     local cohort = cohortKey(actor, leader)
     local leaderState = sampleLeader(leader, current, roster, cohort)
     local forwardX, forwardY = leaderState.headingX or 0, leaderState.headingY or -1
@@ -735,11 +768,23 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
             end
         end
     end
-    local localOffset = travelling
-        and travellingOffset(fireteamMember, slot, #roster, threatNearby)
-        or cqbOpenOffset(fireteamMember, slot)
     local desiredDistance = tonumber(commands.followDistance) or 3
-    local scale = commands.order == "regroup" and 0.75
+    local fanOut = missionLeader or commands.followFanOut == true
+        or SC.Commands and type(SC.Commands.teamFollowFanOut) == "function"
+            and SC.Commands.teamFollowFanOut(leader) == true
+    local lineTravel = not fanOut and commands.order ~= "regroup"
+        and movingOk and moving == true
+    local lineIndex = lineTravel and travellingColumnIndex(actor, roster,
+        leaderState, px, py, forwardX, forwardY, current, commands.group)
+        or denseSlot or slot
+    local localOffset = lineTravel
+        and { 0, math.max(1.6, desiredDistance - 1.25)
+                + math.max(0, lineIndex - 1) * 1.25 }
+        or travelling
+            and travellingOffset(fireteamMember, slot, #roster, threatNearby)
+            or cqbOpenOffset(fireteamMember, slot)
+    local scale = lineTravel and 1
+        or commands.order == "regroup" and 0.75
         or travelling and math.max(0.9, math.min(1.3,
             desiredDistance / 3))
         or desiredDistance == 1 and 0.5
@@ -754,6 +799,16 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
         if predictionLength > maximumLead and predictionLength > 0.001 then
             local scaleDown = maximumLead / predictionLength
             predictionX, predictionY = predictionX * scaleDown, predictionY * scaleDown
+        end
+        if lineTravel then
+            -- A close column slot must not predict through the player's body.
+            local forwardLead = predictionX * forwardX + predictionY * forwardY
+            local allowed = math.max(0, localOffset[2]
+                - (tonumber(utility.config("formationSeparation")) or 1.25))
+            if forwardLead > allowed and forwardLead > 0 then
+                local factor = allowed / forwardLead
+                predictionX, predictionY = predictionX * factor, predictionY * factor
+            end
         end
     end
     local road = type(commands.expeditionRoad) == "table"
@@ -789,12 +844,11 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
     local stairRejoin = type(descent) == "table"
         and pz <= descent.lowerZ + 0.2
         and followerZ ~= nil and followerZ > descent.lowerZ + 0.2
-    local fanOut = missionLeader or commands.followFanOut == true
-        or SC.Commands and type(SC.Commands.teamFollowFanOut) == "function"
-            and SC.Commands.teamFollowFanOut(leader) == true
-    local clearOpenFormation = fanOut and utility.sameFloor(actor, leader)
+    local clearOpenFormation = (fanOut or lineTravel)
+        and utility.sameFloor(actor, leader)
         and distanceToLeader <= (tonumber(
             utility.config("formationOpenInterceptDistance")) or 14)
+    local openProofReason = clearOpenFormation and "pending" or "distance_or_floor"
     if road and road.column == true then clearOpenFormation = false end
     -- The road geometry already establishes a common, wide corridor. Two
     -- members on the same straight segment may use flank slots even when the
@@ -810,7 +864,7 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
     if fanOut and sharedRoad and not (road and road.column == true)
         and utility.sameFloor(actor, leader)
         and distanceToLeader <= 14 then clearOpenFormation = true end
-    if clearOpenFormation and not sharedRoad and SC.Navigation
+    if clearOpenFormation and (not sharedRoad or lineTravel) and SC.Navigation
         and type(SC.Navigation._fastOpenRouteForRequest) == "function" then
         -- Prove static open ground to the flank. A teammate crossing the line
         -- must not turn the whole group into a trail; Navigation still handles
@@ -818,19 +872,21 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
         -- pushable objects remain real blockers and keep the safe trail.
         local interceptSquare = utility.gridSquare(targetX, targetY, pz)
         local proofOptions = { actor = actor, ignoreLivingCrowds = true }
-        local ok, route = pcall(SC.Navigation._fastOpenRouteForRequest,
+        local ok, route, reason = pcall(SC.Navigation._fastOpenRouteForRequest,
             utility.squareOf(actor), interceptSquare, proofOptions)
-        if not ok or route == nil then
+        if fanOut and (not ok or route == nil) then
             -- Static geometry can make the direct flank line miss a safe
             -- detour. Use the leader line as the fallback proof, then let
             -- Navigation choose the actual route to the flank slot.
-            ok, route = pcall(SC.Navigation._fastOpenRouteForRequest,
+            ok, route, reason = pcall(SC.Navigation._fastOpenRouteForRequest,
                 utility.squareOf(actor), utility.squareOf(leader), proofOptions)
         end
         clearOpenFormation = ok and route ~= nil
-    elseif clearOpenFormation and not sharedRoad then
+        openProofReason = clearOpenFormation and "clear" or tostring(reason or "route_unavailable")
+    elseif clearOpenFormation and (not sharedRoad or lineTravel) then
         clearOpenFormation = utility.canSee(actor, leader)
             or utility.canSee(actor, utility.squareOf(leader))
+        openProofReason = clearOpenFormation and "visible" or "not_visible"
     end
     local portalHoldMs = tonumber(utility.config("formationPortalHoldMs")) or 1200
     local passageActive = false
@@ -854,6 +910,7 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
     local portalColumn = passageActive or current < portalColumnUntil
     if portalColumn then
         clearOpenFormation = false
+        openProofReason = "portal_column"
     end
     if not clearOpenFormation then
         if portalColumn then
@@ -865,8 +922,8 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
     end
     local mode = clearOpenFormation and current >= (state.trailModeUntil or 0)
         and "open" or "trail"
-    local shape = mode == "open" and (travelling
-        and (threatNearby and "combat_spread" or "wedge") or "hold")
+    local shape = mode == "open" and (lineTravel and "column"
+        or travelling and (threatNearby and "combat_spread" or "wedge") or "hold")
         or "column"
     local target, portal, followTrack, interceptPosition
     if stairRejoin then
@@ -913,6 +970,18 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
     end
     if not target then
         if mode == "open" then
+            if lineTravel then
+                -- A moving teammate can briefly occupy the next column slot.
+                -- Keep that slot stable and let Navigation handle the body as
+                -- dynamic traffic; picking a random lateral square on every
+                -- pulse sends the rear follower through repeated replans.
+                local ideal = utility.gridSquare(targetX, targetY, pz)
+                if ideal and utility.isSquareFree(ideal)
+                    and utility.distance(ideal, leader) >= minimum
+                    and canReserve(actor, ideal, current) then
+                    target = ideal
+                end
+            end
             local roadPredicate = road and road.first and road.last
                 and function(square)
                     local sx, sy = utility.position(square)
@@ -921,11 +990,11 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
                         and lineDistance(sx, sy, road.first, road.last)
                             <= road.width * 0.5 - 0.5
                 end or nil
-            target = roadPredicate and availableTarget(actor,
+            target = target or (roadPredicate and availableTarget(actor,
                 targetX, targetY, pz, snapshot, minimum, roadPredicate)
                 or availableTarget(actor,
                     targetX, targetY, pz, snapshot, minimum,
-                    sameLeaderRoom)
+                    sameLeaderRoom))
         else
             mode = "bootstrap"
             target = availableTarget(actor, px, py, pz, snapshot,
@@ -938,29 +1007,43 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
         and utility.sameFloor(previous, target)
         and utility.distance(previous, target) <= retainDistance
         and sameLeaderRoom(previous)
-        and utility.isSquareFree(previous) and allyClear(actor, previous, snapshot, minimum)
+        and utility.isSquareFree(previous)
+        and (lineTravel or allyClear(actor, previous, snapshot, minimum))
         and canReserve(actor, previous, current) then
         -- The continuous ideal point often straddles a tile boundary as a player
         -- slows or turns. Keep the previous valid slot across one neighbouring
         -- tile; release it once the formation has genuinely moved farther away.
         target = previous
     end
+    local slotLag
     if target then
         local idealSquare = mode == "open"
             and utility.gridSquare(targetX, targetY, pz) or nil
         if idealSquare and reservationKey(idealSquare) == reservationKey(target) then
             interceptPosition = { x = targetX, y = targetY, z = pz }
         end
+        if mode == "open" then
+            local ax, ay = utility.position(actor)
+            local gx, gy = interceptPosition and interceptPosition.x,
+                interceptPosition and interceptPosition.y
+            if gx == nil then gx, gy = utility.position(target) end
+            if ax ~= nil and gx ~= nil then
+                slotLag = (gx - ax) * forwardX + (gy - ay) * forwardY
+            end
+        end
         state.slot = slot
         state.targetKey = reservationKey(target)
         state.targetSquare = target
         state.predictionX, state.predictionY = predictionX, predictionY
         state.predictionDistance = math.sqrt(predictionX * predictionX + predictionY * predictionY)
+        state.slotLag = slotLag
+        state.openProofReason = openProofReason
         state.formationMode = mode
         state.formationShape = shape
         state.trailRevision = leaderState.revision or 0
         state.portalKey = portal and portal.key or nil
         state.columnIndex = slot
+        state.travelIndex = lineTravel and lineIndex or nil
         state.cqbRole = fireteamMember and fireteamMember.cqbRole or nil
         state.fireteamSize = fireteamMember and fireteamMember.fireteamSize or #roster
         state.cohortKey = cohort
@@ -979,8 +1062,11 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
         participants = roster,
         followTrack = followTrack,
         interceptPosition = interceptPosition,
+        slotLag = slotLag,
         movingLeader = (movingOk and moving == true)
-            or (missionLeader and current - (leaderState.lastMovedAt or -math.huge) <= 650),
+            or current - (leaderState.lastMovedAt or -math.huge) <= 650,
+        leaderDistance = distanceToLeader,
+        desiredDistance = desiredDistance,
     }
 end
 
@@ -1000,12 +1086,32 @@ function Positioning.cqbRole(actor, leader)
         entry and entry.columnIndex or slot, #followers
 end
 
+local function followCatchUpDistance(desiredDistance)
+    local far = U().config("followFarDistance") or 18
+    local desired = tonumber(desiredDistance) or 3
+    return desired == 1 and 5 or math.min(far, math.max(7, desired + 4))
+end
+
 function Positioning.shouldHold(actor, target, formation)
     if not actor or not target then return false end
     local state = stateFor(actor)
+    -- A trail breadcrumb is an intermediate waypoint. Reaching it must not
+    -- park a follower while the moving player is already pulling away.
+    if type(formation) == "table" and formation.mode == "trail"
+        and formation.movingLeader == true
+        and (tonumber(formation.leaderDistance) or 0)
+            >= followCatchUpDistance(formation.desiredDistance) then
+        state.holdingFormation = false
+        return false
+    end
     local moving = type(formation) == "table" and formation.mode == "open"
         and formation.movingLeader == true
-        and type(formation.interceptPosition) == "table"
+    if moving then
+        -- A moving slot is a pacing target, not a place to stop. The old
+        -- arrival hold restarted the native route every few steps.
+        state.holdingFormation = false
+        return false
+    end
     local point = moving and formation.interceptPosition or target
     local enter = moving and 0.35 or (U().config("formationArrivalDistance") or 0.9)
     local leave = moving and 0.8
@@ -1072,12 +1178,13 @@ function Positioning.syncCopiedPosture(actor, player, requested)
 end
 
 function Positioning.followMode(requested, stress, leaderDistance, player, desiredDistance,
-        actor, commandSerial)
+        actor, commandSerial, slotLag)
     local mode = Positioning.resolveMoveMode(requested, player)
-    local far = U().config("followFarDistance") or 18
     local desired = tonumber(desiredDistance) or 3
-    local catchUp = desired == 1 and 5 or math.min(far, math.max(7, desired + 4))
-    local hardCatchUp = leaderDistance >= catchUp
+    local catchUp = followCatchUpDistance(desired)
+    local slotError = tonumber(slotLag)
+    local hardCatchUp = slotError ~= nil and slotError > 1
+        or slotError == nil and leaderDistance >= catchUp
     local state = actor and stateFor(actor) or nil
     if state then
         -- A real command or a different leader invalidates an old run commitment.
@@ -1095,9 +1202,19 @@ function Positioning.followMode(requested, stress, leaderDistance, player, desir
         local playerMode = Positioning.playerMoveMode(player)
         local leaderRunning = playerMode == "jog"
         local mirrorsLeaderSpeed = requested == "copy" or requested == "sneak"
-        local reason = hardCatchUp
-            and (desired == 1 and "stay_close_catch_up" or "catch_up")
-            or (leaderRunning and mirrorsLeaderSpeed and "leader_run_catch_up" or nil)
+        local stealth = requested == "sneak"
+            or requested == "copy" and playerMode == "sneak"
+        if slotError ~= nil and (slotError <= 0.4 or stealth) then
+            clearCatchUp(state)
+        end
+        local reason
+        if slotError ~= nil then
+            if not stealth and hardCatchUp then reason = "slot_catch_up" end
+        else
+            reason = hardCatchUp
+                and (desired == 1 and "stay_close_catch_up" or "catch_up")
+                or (leaderRunning and mirrorsLeaderSpeed and "leader_run_catch_up" or nil)
+        end
         if reason ~= nil and state.catchUpActive ~= true
             and current >= (tonumber(state.catchUpRetryAt) or 0) then
             state.catchUpActive = true
@@ -1123,10 +1240,12 @@ function Positioning.followMode(requested, stress, leaderDistance, player, desir
                 return "jog", state.catchUpReason or "catch_up_committed", true
             end
         end
-    elseif hardCatchUp then
+    elseif hardCatchUp and not (slotError ~= nil and mode == "sneak") then
         return "jog", desired == 1 and "stay_close_catch_up" or "catch_up", true
     end
-    if leaderDistance > 8 and mode == "sneak" then return "walk", "closing_distance" end
+    if slotError == nil and leaderDistance > 8 and mode == "sneak" then
+        return "walk", "closing_distance"
+    end
     if requested ~= "copy" and tonumber(stress) and tonumber(stress) >= 72
         and leaderDistance <= 8 then
         return "sneak", "guarded"
@@ -1441,9 +1560,12 @@ function Positioning.debug(actor)
         velocityY = state.velocityY or 0,
         formationMode = state.formationMode,
         formationShape = state.formationShape,
+        slotLag = state.slotLag,
+        openProofReason = state.openProofReason,
         trailRevision = state.trailRevision,
         portalKey = state.portalKey,
         columnIndex = state.columnIndex,
+        travelIndex = state.travelIndex,
         cqbRole = state.cqbRole,
         fireteamSize = state.fireteamSize,
         cohortKey = state.cohortKey,

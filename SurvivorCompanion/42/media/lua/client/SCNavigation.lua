@@ -6812,8 +6812,19 @@ function Navigation.request(actor, target, movementMode, intent)
                         "navigationStationaryFastRouteMaximumSteps") or 24
                     SC.WorkRoutes.count("navigation.stationary-fast.lookups")
                 end
+                -- In a verified open-ground column, a moving teammate on a
+                -- route square is traffic handled by tacticalStep, not a
+                -- static reason to start a new A-star search every pulse.
+                -- Keep ordinary routes and the planner's crowd costs intact.
+                local columnFlow = requestIntent.formationMode == "open"
+                    and requestIntent.formationShape == "column"
+                local priorIgnoreLivingCrowds = pathOptions.ignoreLivingCrowds
+                if columnFlow then pathOptions.ignoreLivingCrowds = true end
                 immediatePath = SC.Navigation._fastOpenRouteForRequest(
                     sourceSquare, goalSquare, pathOptions)
+                if columnFlow then
+                    pathOptions.ignoreLivingCrowds = priorIgnoreLivingCrowds
+                end
                 if immediatePath ~= nil then
                     immediateReason = stationaryRouting
                         and "fast_stationary_route" or "fast_open_route"

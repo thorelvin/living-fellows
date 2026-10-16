@@ -81,9 +81,16 @@ require("-not (Test-Path -LiteralPath $eventsPath" in runner,
         "loading clicks must stop when the live assertions begin")
 require("[switch]$ExternalUiControl" in runner
         and "if ($ExternalUiControl) { return $false }" in runner
-        and "if (-not $ExternalUiControl -and $loadingReadyObserved" in runner
+        and "if (-not $ExternalUiControl -and -not $autoGateAgent -and $loadingReadyObserved" in runner
         and "if (-not $ExternalUiControl -and" in runner,
         "external UI mode must leave the isolated runner active without native clicks, keys, or capture")
+require("$autoGateAgent = -not $SteamLaunch -and -not $ExternalUiControl" in runner
+        and "jre64\\bin\\javaw.exe" in runner
+        and "-javaagent:" in runner
+        and "loading-gate-agent.jar" in runner
+        and "agent_failed:" in runner
+        and "survivorcompanion.harness.SCLoadingGateAgent" in runner,
+        "direct isolated runs must attach the test-only unattended loading gate")
 require("[switch]$DrivingWithAi" in runner and "[switch]$DrivingBlocked" in runner
         and "[switch]$DrivingSaveStage" in runner and "[switch]$DrivingSaveResume" in runner,
         "all four WP5 driving modes need explicit runner flags")

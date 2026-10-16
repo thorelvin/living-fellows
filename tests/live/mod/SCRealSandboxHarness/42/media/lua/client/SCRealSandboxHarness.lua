@@ -1473,7 +1473,10 @@ end
 local function probeAimedEscape(current)
     local SC = SurvivorCompanion
     local utility = SC.GameplayUtil
-    if current - Harness.phaseStartedAt < 900 then
+    -- A 180-degree aim turn can occupy the first second before the native
+    -- forward locomotion clip takes over. Observe the completed turn.
+    local observationMs = 1600
+    if current - Harness.phaseStartedAt < observationMs then
         refreshManualProbe(current, Harness.aimedEscapeInput)
     end
     local names = select(1,
@@ -1487,7 +1490,7 @@ local function probeAimedEscape(current)
     elseif Harness.aimedEscapeAnimationNames == "" and lowered ~= "" then
         Harness.aimedEscapeAnimationNames = names
     end
-    if current - Harness.phaseStartedAt < 900 then return end
+    if current - Harness.phaseStartedAt < observationMs then return end
     local x, y = position(Harness.actor)
     local dx = (x or Harness.aimedEscapeStartX) - Harness.aimedEscapeStartX
     local dy = (y or Harness.aimedEscapeStartY) - Harness.aimedEscapeStartY
@@ -15324,6 +15327,9 @@ end
 Harness.probeVehicleUpkeep = function(...)
     return externalProbe("SCVehicleUpkeepProbe", ...)
 end
+Harness.probeFollowRoad = function(...)
+    return externalProbe("SCFollowRoadProbe", ...)
+end
 Harness.probeGeneratorRefuel = function(...)
     return externalProbe("SCGeneratorRefuelProbe", ...)
 end
@@ -15623,6 +15629,8 @@ local function tick()
         Harness.probeVehicleRefuel(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "vehicle_upkeep_", 1, true) == 1 then
         Harness.probeVehicleUpkeep(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "follow_road_", 1, true) == 1 then
+        Harness.probeFollowRoad(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "generator_refuel_", 1, true) == 1 then
         Harness.probeGeneratorRefuel(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "pyre_burn_", 1, true) == 1 then
@@ -16390,7 +16398,9 @@ local function onGameStart()
         finish()
         return
     end
-    if Harness.config.squad_combat_probe == "true" then
+    if Harness.config.follow_road_probe == "true" then
+        setPhase("follow_road_prepare", Harness.startedAt)
+    elseif Harness.config.squad_combat_probe == "true" then
         setPhase("squad_combat_setup", Harness.startedAt)
     elseif Harness.config.oddball_smoker_probe == "true" then
         setPhase("smoker_prepare", Harness.startedAt)

@@ -9,6 +9,8 @@ SC.Medical = SC.Medical or {}
 local Medical = SC.Medical
 local downed = setmetatable({}, { __mode = "k" })
 local treatmentState = setmetatable({}, { __mode = "k" })
+local travelRouteProof = setmetatable({}, { __mode = "k" })
+local rescueRouteRetry = setmetatable({}, { __mode = "k" })
 -- Companions the player is bandaging right now; they hold still until the
 -- player's timed action ends or stops refreshing the hold.
 local receivingCare = setmetatable({}, { __mode = "k" })
@@ -1072,6 +1074,17 @@ local function releaseTreatmentResources(helper, state, reason)
 end
 
 local function clearTreatment(helper, state, reason, detail)
+    if state and state.patient and state.patient ~= helper
+        and state.phase == "approaching"
+        and reason ~= "danger_preempted" and reason ~= "travel_rescue_deferred"
+        and reason ~= "patient_taken_over" and reason ~= "player_self_care_started" then
+        local retries = rescueRouteRetry[helper]
+        if not retries then
+            retries = setmetatable({}, { __mode = "k" })
+            rescueRouteRetry[helper] = retries
+        end
+        retries[state.patient] = U().nowMs() + 5000
+    end
     local rolledBack, finalReason = releaseTreatmentResources(helper, state, reason)
     if not rolledBack then
         finalReason = "treatment_rollback_failed"
@@ -1634,6 +1647,56 @@ local function treatmentCapability(helper, patient, options)
     }
 end
 
+-- Keep a moving Follow squad together while still allowing immediate care for
+-- someone already beside it. Only the short route proof needs a small cache.
+function Medical.travelRescueEligible(helper, patient, player)
+    if not helper or not patient or helper == patient or not player then return true end
+    local commands = SC.Commands and SC.Commands.peek and SC.Commands.peek(helper)
+    if not commands or (commands.order ~= "follow" and commands.order ~= "regroup")
+        or not SC.Positioning or type(SC.Positioning.playerMoveMode) ~= "function"
+        or SC.Positioning.playerMoveMode(player) ~= "jog" then return true end
+    -- A runner can still be treated when a helper is already alongside them.
+    if patient == player then return U().distance(helper, patient) <= 3 end
+    local patientCommands = SC.Commands.peek(patient)
+    if not patientCommands or patientCommands.recruited ~= true
+        or (patientCommands.order ~= "follow" and patientCommands.order ~= "regroup")
+        or patientCommands.group ~= commands.group
+        or not U().sameFloor(helper, patient)
+        -- Care during a run is for someone already alongside the squad. A
+        -- larger search radius makes successive medics chase one casualty
+        -- while the player continues down the road.
+        or U().distance(helper, patient) > 3
+        or U().distance(player, helper) > 6
+        or U().distance(player, patient) > 6 then return false end
+    local source, goal = U().squareOf(helper), U().squareOf(patient)
+    if not source or not goal then return false end
+    local routeFn = SC.Navigation and SC.Navigation._fastOpenRouteForRequest
+    if type(routeFn) ~= "function" then return true end
+    local sourceKey, goalKey = U().squareKey(source), U().squareKey(goal)
+    local byPatient = travelRouteProof[helper]
+    local cached = byPatient and byPatient[patient]
+    local now = U().nowMs()
+    if cached and cached.source == sourceKey and cached.goal == goalKey
+        and now < cached.untilAt then return cached.open end
+    local ok, route = pcall(routeFn, source, goal, {
+        actor = helper, ignoreLivingCrowds = true, allowOccupiedGoal = true,
+    })
+    local open = ok and route ~= nil
+    if not byPatient then
+        byPatient = setmetatable({}, { __mode = "k" })
+        travelRouteProof[helper] = byPatient
+    end
+    byPatient[patient] = {
+        source = sourceKey, goal = goalKey, open = open, untilAt = now + 350,
+    }
+    return open
+end
+
+function Medical.rescueRouteReady(helper, patient)
+    local retries = helper and rescueRouteRetry[helper]
+    return not retries or not retries[patient] or U().nowMs() >= retries[patient]
+end
+
 -- Decisions ask this every beat, for themselves and for each casualty, and
 -- every answer is a fresh body assessment plus bandage, splint and clothing
 -- searches. Treatment re-reads the capability itself, so a decision acting on
@@ -1646,6 +1709,9 @@ function Medical.canTreatPatient(helper, patient)
     if active and active.patient == patient then return true, "treatment_active" end
     if not U().isValidActor(helper) or not U().isValidActor(patient) then
         return false, "invalid_patient"
+    end
+    if helper ~= patient and not Medical.rescueRouteReady(helper, patient) then
+        return false, "rescue_route_cooldown"
     end
     local now = U().nowMs()
     -- A fresh supply check cannot make this helper eligible while somebody
@@ -1893,6 +1959,23 @@ continueTreatmentApproach = function(helper, state, runtime)
             > (utility.config("medicalApproachTimeoutMs") or 8000) then
         return clearTreatment(helper, state, "approach_timeout")
     end
+    local distance = utility.distance(helper, state.patient)
+    if distance + 0.35 < (state.bestApproachDistance or math.huge) then
+        state.bestApproachDistance = distance
+        state.lastApproachProgressAt = utility.nowMs()
+    elseif state.phase == "approaching" and state.patient ~= helper
+        and state.lastApproachProgressAt
+        and utility.nowMs() - state.lastApproachProgressAt > 3000 then
+        local player = type(getSpecificPlayer) == "function"
+            and getSpecificPlayer(0) or nil
+        local commands = SC.Commands and SC.Commands.peek
+            and SC.Commands.peek(helper) or nil
+        if commands and (commands.order == "follow" or commands.order == "regroup")
+            and player and SC.Positioning
+            and SC.Positioning.playerMoveMode(player) == "jog" then
+            return clearTreatment(helper, state, "approach_stalled")
+        end
+    end
     if Medical.inContact(helper, state.patient) then
         utility.stop(helper)
         local settled, settleReason = supervisedTransition(state, "settling", {
@@ -1950,6 +2033,17 @@ function Medical.treat(helper, patient, runtime, options)
     if not utility.isValidActor(helper) or not utility.isValidActor(patient) then return false, "invalid_patient" end
     if not Medical.sameCareGroup(helper, patient) then return false, "different_expedition_group" end
     local active = treatmentState[helper]
+    -- Decision can delegate directly to treat() without running Medical.update.
+    -- Recheck the active patient here so an approach started beside a moving
+    -- squad is released as soon as that squad outruns the medic.
+    local localPlayer = type(getSpecificPlayer) == "function"
+        and getSpecificPlayer(0) or nil
+    local rescuePatient = active and active.patient or patient
+    if rescuePatient ~= helper
+        and not Medical.travelRescueEligible(helper, rescuePatient, localPlayer) then
+        if active then Medical.cancel(helper, "travel_rescue_deferred") end
+        return false, "travel_rescue_deferred"
+    end
     if active then
         if Medical.playerSelfCareActive(active.patient) then
             Medical.cancel(helper, "player_self_care_started")
@@ -1968,6 +2062,9 @@ function Medical.treat(helper, patient, runtime, options)
     end
     if Medical.playerSelfCareActive(patient) then
         return false, "player_self_care_started"
+    end
+    if helper ~= patient and not Medical.rescueRouteReady(helper, patient) then
+        return false, "rescue_route_cooldown"
     end
     options = type(options) == "table" and options or {}
     local capability, capabilityReason = treatmentCapability(helper, patient, options)
@@ -2156,6 +2253,8 @@ local function rescueCandidate(actor, player, snapshot)
     local function consider(candidate, relationship)
         if not candidate or candidate == actor or not utility.isValidActor(candidate) then return end
         if not Medical.sameCareGroup(actor, candidate) then return end
+        if not Medical.travelRescueEligible(actor, candidate, player)
+            or not Medical.rescueRouteReady(actor, candidate) then return end
         if candidate == player and avoidPlayer then return end
         if Medical.playerSelfCareActive(candidate) then return end
         if relationship ~= nil and SC.Factions
@@ -2202,6 +2301,11 @@ function Medical.update(actor, player, runtime)
     local utility = U()
     if not utility or not utility.isValidActor(actor) then return false, "invalid_actor" end
     local active = treatmentState[actor]
+    if active and active.patient ~= actor
+        and not Medical.travelRescueEligible(actor, active.patient, player) then
+        Medical.cancel(actor, "travel_rescue_deferred")
+        return false, "travel_rescue_deferred"
+    end
     if active and Medical.playerSelfCareActive(active.patient) then
         Medical.cancel(actor, "player_self_care_started")
         return false, "player_self_care_started"
@@ -2289,7 +2393,9 @@ function Medical.update(actor, player, runtime)
     end
 
     local explicitTarget = rootRuntime.rescueTarget
-    if explicitTarget and not Medical.sameCareGroup(actor, explicitTarget) then
+    if explicitTarget and (not Medical.sameCareGroup(actor, explicitTarget)
+        or not Medical.travelRescueEligible(actor, explicitTarget, player)
+        or not Medical.rescueRouteReady(actor, explicitTarget)) then
         explicitTarget = nil
         rootRuntime.rescueTarget = nil
     end
