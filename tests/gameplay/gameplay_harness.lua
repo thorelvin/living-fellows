@@ -16772,6 +16772,51 @@ check(campStatus == "taken" and campActor.inventory:contains(campFood)
     and not campContainer:contains(campFood),
     "reserved camp-storage transfer is transactional and limited to the selected item")
 
+do
+    local seeker = actor("sc-furniture-supply", 30, 22, {})
+    registry[seeker.id] = seeker
+    local shelfSquare = cell:getGridSquare(32, 22, 0)
+    local meal = item("Base.ShelfMeal", "Food", { hungerChange = -0.25 })
+    local shelf = containerObject(shelfSquare, { meal })
+    shelfSquare.solid = true
+    SurvivorCompanion.Encounter.markPlayerOpened(shelf)
+    local originalRequestAny = SurvivorCompanion.Navigation.requestAny
+    local route
+    SurvivorCompanion.Navigation.requestAny = function(_, targets, _, intent)
+        route = { targets = targets, intent = intent }
+        return true, "moving"
+    end
+    local status = SurvivorCompanion.Encounter.takePlayerSupply(seeker, "needs_food",
+        function(candidate) return candidate == meal end,
+        { snapshot = { immediateCount = 0, pressure = 0 } })
+    check(status == "in_progress" and route and #route.targets > 0
+            and route.intent.requireSameSquare == true
+            and route.intent.action == "move_to_camp_storage"
+            and route.targets[1] ~= shelfSquare,
+        "camp supply paths to a free interaction side of occupied furniture")
+    if route and route.targets[1] then seeker.square = route.targets[1] end
+    local taken = SurvivorCompanion.Encounter.takePlayerSupply(seeker, "needs_food",
+        function(candidate) return candidate == meal end,
+        { snapshot = { immediateCount = 0, pressure = 0 } })
+    check(taken == "taken" and seeker.inventory:contains(meal),
+        "camp supply transfers after reaching the container's usable side")
+    local secondMeal = item("Base.ShelfMealTwo", "Food", { hungerChange = -0.25 })
+    shelf:AddItem(secondMeal)
+    seeker.square = cell:getGridSquare(30, 22, 0)
+    SurvivorCompanion.Navigation.requestAny = function()
+        return false, "invalid_destination"
+    end
+    local rejected, rejection = SurvivorCompanion.Encounter.takePlayerSupply(
+        seeker, "needs_food", function(candidate) return candidate == secondMeal end,
+        { snapshot = { immediateCount = 0, pressure = 0 } })
+    check(rejected == "error" and rejection == "invalid_destination",
+        "a rejected camp supply route reports failure instead of waiting forever")
+    SurvivorCompanion.Navigation.requestAny = originalRequestAny
+    SurvivorCompanion.Encounter.reset(seeker)
+    shelfSquare.solid = false
+    registry[seeker.id] = nil
+end
+
 local unknownStorageActor = actor("sc-unknown-storage", -50, -50, {})
 registry[unknownStorageActor.id] = unknownStorageActor
 local unknownFood = item("Base.UnknownMeal", "Food", { hungerChange = -0.25 })

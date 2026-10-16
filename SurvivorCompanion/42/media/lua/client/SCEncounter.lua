@@ -503,21 +503,32 @@ function Encounter.takePlayerSupply(actor, supplyKey, predicate, options)
         state.supply = supply
     end
 
-    if ownerDistance(actor, supply.owner) > 1.45 then
-        local square = utility.squareOf(supply.owner)
-        if not square or not SC.Navigation or type(SC.Navigation.request) ~= "function" then
+    -- A container's own tile is often occupied by the furniture holding it.
+    -- Approach a usable side instead, and never transfer through a wall just
+    -- because the actor is within the old distance threshold.
+    local atSupply, targets, accessReason = utility.directInteractionAccess(
+        actor, supply.owner, { snapshot = snapshot })
+    if atSupply ~= true then
+        if accessReason == "no_interaction_targets" or not SC.Navigation
+            or type(SC.Navigation.requestAny) ~= "function" then
             releasePlayerSupply(actor, state)
-            return "error", "camp_supply_navigation_unavailable"
+            return "error", accessReason == "no_interaction_targets"
+                and accessReason or "camp_supply_navigation_unavailable"
         end
-        local accepted, reason = SC.Navigation.request(actor, square,
+        local accepted, reason = SC.Navigation.requestAny(actor, targets,
             options.moveMode or "walk", {
                 action = "move_to_camp_storage",
                 container = supply.container,
                 item = supply.item,
+                object = supply.owner,
                 snapshot = snapshot,
+                arrivalDistance = 0.35,
+                requireSameSquare = true,
+                continuousApproach = true,
             })
         if accepted then return "in_progress", reason or "approaching_camp_storage" end
-        return "in_progress", reason or "camp_supply_path_wait"
+        releasePlayerSupply(actor, state)
+        return "error", reason or "camp_supply_path_failed"
     end
 
     if SC.PersonalItems and SC.PersonalItems.isProtected(

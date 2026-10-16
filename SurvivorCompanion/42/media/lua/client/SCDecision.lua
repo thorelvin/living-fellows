@@ -2178,6 +2178,12 @@ function Decision._noteSafetyHold(actor, player, snapshot, kind, failure, state,
         if distance ~= nil and (nearest == nil or distance < nearest) then nearest = distance end
     end
     local leader = player and tonumber(utility.distance(actor, player)) or nil
+    local needsState = kind == "needs" and SC.Needs
+        and type(SC.Needs.peek) == "function" and SC.Needs.peek(actor) or nil
+    local hunger = kind == "needs" and tonumber(needsState and needsState.hunger)
+        or nil
+    local thirst = kind == "needs" and tonumber(needsState and needsState.thirst)
+        or nil
     utility.diagnostic("safety-hold", actor,
         "kind=" .. tostring(kind or "unknown")
             .. " failure=" .. tostring(failure or "none")
@@ -2188,6 +2194,10 @@ function Decision._noteSafetyHold(actor, player, snapshot, kind, failure, state,
                 and tonumber(snapshot.immediateCount) or 0)
             .. " nearest=" .. (nearest and string.format("%.1f", nearest) or "none")
             .. " leader=" .. (leader and string.format("%.1f", leader) or "none")
+            .. (kind == "needs" and (" hunger="
+                .. (hunger and string.format("%.0f%%", hunger * 100) or "unknown")
+                .. " thirst="
+                .. (thirst and string.format("%.0f%%", thirst * 100) or "unknown")) or "")
             .. " heldMs=" .. tostring(math.floor(current
                 - (tonumber(state.safetyHoldSince) or current)))
             .. " order=" .. tostring(order or "unknown"))
