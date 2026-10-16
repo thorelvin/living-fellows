@@ -105,6 +105,15 @@ $ConfigBackupRoot = Normalize-Path $ConfigBackupRoot
 $manifestPath = Join-Path $BridgeRoot 'install-manifest.json'
 $targetJar = Join-Path $BridgeRoot 'SurvivorCompanionBridge.jar'
 $targetJarArgument = $targetJar.Replace('\', '/')
+$launcherJarArgument = 'LivingFellowsBridge.jar'
+$launcherJar = Join-Path $GameRoot $launcherJarArgument
+function Test-BridgeClasspathEntry([string]$Entry) {
+    $normalized = $Entry.Replace('\', '/')
+    return $normalized.Equals($targetJarArgument,
+        [System.StringComparison]::OrdinalIgnoreCase) -or
+        $normalized.Equals($launcherJarArgument,
+            [System.StringComparison]::OrdinalIgnoreCase)
+}
 $configText = Get-Content -LiteralPath $configPath -Raw -Encoding utf8
 $configHashAtStart = Get-HashOrEmpty $configPath
 $config = $configText | ConvertFrom-Json
@@ -139,8 +148,7 @@ if ($existingManifest) {
         throw 'Existing native bridge manifest does not own this normalized game/config/bridge path set.'
     }
     $classpathMatches = @($config.classpath | Where-Object {
-        ([string]$_).Replace('\', '/').Equals($targetJarArgument,
-            [System.StringComparison]::OrdinalIgnoreCase)
+        Test-BridgeClasspathEntry ([string]$_)
     })
     if ($config.mainClass -eq $WrapperMain) {
         $recordedInstalledConfigHash = [string]$existingManifest.installedConfigSha256
@@ -174,6 +182,18 @@ if ($existingManifest) {
     if ([string]$existingManifest.bridgeSha256 -ne $currentJarHash) {
         throw 'Owned native bridge JAR hash no longer matches its manifest; refusing update.'
     }
+    if ($existingManifest.launcherJar) {
+        if (-not (Test-SamePath ([string]$existingManifest.launcherJar) $launcherJar) -or
+            [string]::IsNullOrWhiteSpace([string]$existingManifest.launcherJarSha256)) {
+            throw 'Existing launcher JAR ownership does not match this game root.'
+        }
+        if ((Test-Path -LiteralPath $launcherJar -PathType Leaf) -and
+            (Get-HashOrEmpty $launcherJar) -ne [string]$existingManifest.launcherJarSha256) {
+            throw 'Owned game-local launcher JAR changed; refusing update.'
+        }
+    } elseif (Test-Path -LiteralPath $launcherJar) {
+        throw "Unmanaged game-local launcher JAR already exists: $launcherJar"
+    }
     if ([string]$existingManifest.originalMainClass -eq $WrapperMain -or
         [string]::IsNullOrWhiteSpace([string]$existingManifest.originalMainClass)) {
         throw 'Owned manifest does not preserve the true original launcher main class.'
@@ -194,6 +214,9 @@ if ($existingManifest) {
             throw 'Original successful-install launcher backup is not vanilla; refusing reinstall recovery.'
         }
     }
+}
+elseif (Test-Path -LiteralPath $launcherJar) {
+    throw "Unmanaged game-local launcher JAR already exists: $launcherJar"
 }
 
 $buildOutput = $null
@@ -239,13 +262,15 @@ $originalConfigHash = if ($existingManifest -and -not $recoveredGameReinstall -a
     Get-HashOrEmpty $configPath
 }
 
-$reuseCurrentConfig = $existingManifest -and -not $recoveredGameReinstall
+$reuseCurrentConfig = $existingManifest -and -not $recoveredGameReinstall -and
+    $classpathMatches.Count -eq 1 -and
+    ([string]$classpathMatches[0]).Replace('\', '/').Equals($launcherJarArgument,
+        [System.StringComparison]::OrdinalIgnoreCase)
 if (-not $reuseCurrentConfig) {
     $newClasspath = @($config.classpath | Where-Object {
-        -not ([string]$_).Replace('\', '/').Equals($targetJarArgument,
-            [System.StringComparison]::OrdinalIgnoreCase)
+        -not (Test-BridgeClasspathEntry ([string]$_))
     })
-    $newClasspath += $targetJarArgument
+    $newClasspath += $launcherJarArgument
     $config.mainClass = $WrapperMain
     $config.classpath = @($newClasspath)
 }
@@ -256,18 +281,25 @@ $stagedRoot = Join-Path $transactionRoot 'staged'
 New-Item -ItemType Directory -Path $priorRoot, $stagedRoot -Force | Out-Null
 $priorConfig = Join-Path $priorRoot 'ProjectZomboid64.json'
 $priorJar = Join-Path $priorRoot 'SurvivorCompanionBridge.jar'
+$priorLauncherJar = Join-Path $priorRoot $launcherJarArgument
 $priorManifest = Join-Path $priorRoot 'install-manifest.json'
 $stagedConfig = Join-Path $stagedRoot 'ProjectZomboid64.json'
 $stagedJar = Join-Path $stagedRoot 'SurvivorCompanionBridge.jar'
+$stagedLauncherJar = Join-Path $stagedRoot $launcherJarArgument
 $stagedManifest = Join-Path $stagedRoot 'install-manifest.json'
 Copy-Item -LiteralPath $configPath -Destination $priorConfig
 $priorJarExisted = Test-Path -LiteralPath $targetJar -PathType Leaf
+$priorLauncherJarExisted = Test-Path -LiteralPath $launcherJar -PathType Leaf
 $priorManifestExisted = Test-Path -LiteralPath $manifestPath -PathType Leaf
 $priorBackupExisted = Test-Path -LiteralPath $backupPath -PathType Leaf
 if ($priorJarExisted) { Copy-Item -LiteralPath $targetJar -Destination $priorJar }
+if ($priorLauncherJarExisted) {
+    Copy-Item -LiteralPath $launcherJar -Destination $priorLauncherJar
+}
 if ($priorManifestExisted) { Copy-Item -LiteralPath $manifestPath -Destination $priorManifest }
 $priorConfigHash = Get-HashOrEmpty $priorConfig
 $priorJarHash = Get-HashOrEmpty $priorJar
+$priorLauncherJarHash = Get-HashOrEmpty $priorLauncherJar
 $priorManifestHash = Get-HashOrEmpty $priorManifest
 
 if ($reuseCurrentConfig) {
@@ -277,10 +309,11 @@ if ($reuseCurrentConfig) {
 }
 Get-Content -LiteralPath $stagedConfig -Raw -Encoding utf8 | ConvertFrom-Json | Out-Null
 Copy-Item -LiteralPath $builtJar -Destination $stagedJar
+Copy-Item -LiteralPath $builtJar -Destination $stagedLauncherJar
 $stagedJarHash = Get-HashOrEmpty $stagedJar
 $installedConfigHash = Get-HashOrEmpty $stagedConfig
 $manifest = [ordered]@{
-    schemaVersion = 2
+    schemaVersion = 3
     owner = $Owner
     installedAtUtc = if ($existingManifest -and -not $recoveredGameReinstall) { [string]$existingManifest.installedAtUtc } else { [DateTime]::UtcNow.ToString('o') }
     updatedAtUtc = [DateTime]::UtcNow.ToString('o')
@@ -292,6 +325,9 @@ $manifest = [ordered]@{
     bridgeRoot = $BridgeRoot
     bridgeJar = $targetJar
     bridgeSha256 = $stagedJarHash
+    launcherJar = $launcherJar
+    launcherJarSha256 = $stagedJarHash
+    launcherClasspathEntry = $launcherJarArgument
     bridgeProtocol = $ExpectedProtocol
     supportedGameVersion = $ExpectedSupportedGame
     compiledGameVersion = $ExpectedCompiledGame
@@ -322,12 +358,14 @@ try {
     }
     Invoke-Fault 'native-config-replace'
     Copy-Item -LiteralPath $stagedJar -Destination $targetJar -Force
+    Copy-Item -LiteralPath $stagedLauncherJar -Destination $launcherJar -Force
     Invoke-Fault 'native-jar-replace'
     Copy-Item -LiteralPath $stagedManifest -Destination $manifestPath -Force
     Invoke-Fault 'native-manifest-write'
 
     if ((Get-HashOrEmpty $configPath) -ne $installedConfigHash -or
         (Get-HashOrEmpty $targetJar) -ne $stagedJarHash -or
+        (Get-HashOrEmpty $launcherJar) -ne $stagedJarHash -or
         (Get-HashOrEmpty $manifestPath) -ne (Get-HashOrEmpty $stagedManifest)) {
         throw 'Native bridge install postcondition hash mismatch.'
     }
@@ -342,6 +380,13 @@ catch {
         if ($priorJarExisted) { Copy-Item -LiteralPath $priorJar -Destination $targetJar -Force }
         elseif (Test-Path -LiteralPath $targetJar) { Remove-Item -LiteralPath $targetJar -Force }
     } catch { $rollbackFailures += "JAR restore: $($_.Exception.Message)" }
+    try {
+        if ($priorLauncherJarExisted) {
+            Copy-Item -LiteralPath $priorLauncherJar -Destination $launcherJar -Force
+        } elseif (Test-Path -LiteralPath $launcherJar) {
+            Remove-Item -LiteralPath $launcherJar -Force
+        }
+    } catch { $rollbackFailures += "game-local JAR restore: $($_.Exception.Message)" }
     try {
         if ($priorManifestExisted) { Copy-Item -LiteralPath $priorManifest -Destination $manifestPath -Force }
         elseif (Test-Path -LiteralPath $manifestPath) { Remove-Item -LiteralPath $manifestPath -Force }
@@ -358,6 +403,11 @@ catch {
     if ($priorJarExisted -ne (Test-Path -LiteralPath $targetJar -PathType Leaf) -or
         ($priorJarExisted -and (Get-HashOrEmpty $targetJar) -ne $priorJarHash)) {
         $rollbackFailures += 'JAR rollback presence/hash mismatch'
+    }
+    if ($priorLauncherJarExisted -ne (Test-Path -LiteralPath $launcherJar -PathType Leaf) -or
+        ($priorLauncherJarExisted -and
+            (Get-HashOrEmpty $launcherJar) -ne $priorLauncherJarHash)) {
+        $rollbackFailures += 'game-local JAR rollback presence/hash mismatch'
     }
     if ($priorManifestExisted -ne (Test-Path -LiteralPath $manifestPath -PathType Leaf) -or
         ($priorManifestExisted -and (Get-HashOrEmpty $manifestPath) -ne $priorManifestHash)) {

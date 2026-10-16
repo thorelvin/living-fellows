@@ -90,7 +90,7 @@ The installer finds Steam automatically. If Windows denies access to the game fo
 .\Install.bat -GameRoot "D:\SteamLibrary\steamapps\common\ProjectZomboid"
 ```
 
-It installs the mod under `%USERPROFILE%\Zomboid\mods\SurvivorCompanion`, keeps its bridge under `%LOCALAPPDATA%\LivingFellows`, and backs up `ProjectZomboid64.json` before changing it. It never edits `projectzomboid.jar`. Keep the extracted folder so you can run **Uninstall.bat** to remove the mod and restore the launcher. See [INSTALL.md](INSTALL.md) for the debug playtest variant.
+It installs the mod under `%USERPROFILE%\Zomboid\mods\SurvivorCompanion`, keeps its bridge data under `%LOCALAPPDATA%\LivingFellows`, places an owned `LivingFellowsBridge.jar` beside the game executable for Steam launch, and backs up `ProjectZomboid64.json` before changing it. It never edits `projectzomboid.jar`. Keep the extracted folder so you can run **Uninstall.bat** to remove the mod, its game-local JAR, and restore the launcher. See [INSTALL.md](INSTALL.md) for the debug playtest variant.
 
 ## First five minutes
 

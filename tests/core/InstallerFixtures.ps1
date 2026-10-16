@@ -92,6 +92,7 @@ function Install-StandaloneFixture([string]$ProjectRoot, $Fixture,
 function Get-InstallFixtureSnapshot($Fixture) {
     return Get-TreeSnapshot @{
         config = $Fixture.config
+        launcherJar = (Join-Path $Fixture.game 'LivingFellowsBridge.jar')
         bridge = $Fixture.bridge
         target = $Fixture.target
         managedBackups = $Fixture.backups
@@ -102,6 +103,7 @@ function Get-InstallFixtureSnapshot($Fixture) {
 function Get-StandaloneFixtureSnapshot($Fixture) {
     return Get-TreeSnapshot @{
         config = $Fixture.config
+        launcherJar = (Join-Path $Fixture.game 'LivingFellowsBridge.jar')
         target = $Fixture.target
         installData = $Fixture.data
     }

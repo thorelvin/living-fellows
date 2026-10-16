@@ -124,6 +124,66 @@ switch ($Case) {
     }
 }
 
+'schema2-migration' {
+    $fixture = New-Fixture 'schema2-migration'
+    $originalHash = (Get-FileHash -LiteralPath $fixture.config -Algorithm SHA256).Hash.ToLowerInvariant()
+    & $NativeInstall -ProjectRoot $ProjectRoot -GameRoot $fixture.game `
+        -BridgeRoot $fixture.bridge -ConfigBackupRoot $fixture.configBackups `
+        -PrebuiltBridgeJar $PrebuiltJar | Out-Null
+    $manifestPath = Join-Path $fixture.bridge 'install-manifest.json'
+    $gameJar = Join-Path $fixture.game 'LivingFellowsBridge.jar'
+    $legacyJar = (Join-Path $fixture.bridge 'SurvivorCompanionBridge.jar').Replace('\', '/')
+    $config = Get-Content -LiteralPath $fixture.config -Raw -Encoding utf8 | ConvertFrom-Json
+    $config.classpath = @($config.classpath | ForEach-Object {
+        if ($_ -eq 'LivingFellowsBridge.jar') { $legacyJar } else { $_ }
+    })
+    $config | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $fixture.config -Encoding utf8
+    Remove-Item -LiteralPath $gameJar -Force
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding utf8 | ConvertFrom-Json
+    foreach ($field in @('launcherJar', 'launcherJarSha256', 'launcherClasspathEntry')) {
+        $manifest.PSObject.Properties.Remove($field)
+    }
+    $manifest.schemaVersion = 2
+    $manifest.installedConfigSha256 =
+        (Get-FileHash -LiteralPath $fixture.config -Algorithm SHA256).Hash.ToLowerInvariant()
+    $manifest | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $manifestPath -Encoding utf8
+    & $NativeInstall -ProjectRoot $ProjectRoot -GameRoot $fixture.game `
+        -BridgeRoot $fixture.bridge -ConfigBackupRoot $fixture.configBackups `
+        -PrebuiltBridgeJar $PrebuiltJar | Out-Null
+    $updated = Get-Content -LiteralPath $fixture.config -Raw -Encoding utf8 | ConvertFrom-Json
+    $updatedManifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding utf8 |
+        ConvertFrom-Json
+    if ($updated.classpath -notcontains 'LivingFellowsBridge.jar' -or
+        $updated.classpath -contains $legacyJar -or
+        $updatedManifest.schemaVersion -ne 3 -or
+        (Get-FileHash -LiteralPath $gameJar -Algorithm SHA256).Hash.ToLowerInvariant() -ne
+            [string]$updatedManifest.launcherJarSha256) {
+        throw 'Schema 2 launcher did not migrate to an owned relative JAR.'
+    }
+    & (Join-Path $ProjectRoot 'scripts\Uninstall-NativeBridge.ps1') `
+        -BridgeRoot $fixture.bridge | Out-Null
+    if ((Get-FileHash -LiteralPath $fixture.config -Algorithm SHA256).Hash.ToLowerInvariant() -ne
+            $originalHash -or (Test-Path -LiteralPath $gameJar)) {
+        throw 'Migrated launcher did not uninstall to its original state.'
+    }
+}
+
+'unmanaged-game-jar' {
+    $fixture = New-Fixture 'unmanaged-game-jar'
+    Set-Content -LiteralPath (Join-Path $fixture.game 'LivingFellowsBridge.jar') `
+        -Value 'unrelated file' -Encoding utf8
+    $before = Get-InstallFixtureSnapshot $fixture
+    $refused = $false
+    try {
+        & $NativeInstall -ProjectRoot $ProjectRoot -GameRoot $fixture.game `
+            -BridgeRoot $fixture.bridge -ConfigBackupRoot $fixture.configBackups `
+            -PrebuiltBridgeJar $PrebuiltJar | Out-Null
+    } catch { $refused = $_.Exception.Message -like '*Unmanaged game-local launcher JAR*' }
+    if (-not $refused -or (Get-InstallFixtureSnapshot $fixture) -ne $before) {
+        throw 'Installer changed an unmanaged game-local JAR.'
+    }
+}
+
 'target-corruption' {
     $fixture = New-Fixture ('target-corruption-' + $Variant)
     if ($Variant -eq 'update') {

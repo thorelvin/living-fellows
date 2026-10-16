@@ -57,6 +57,21 @@ if (-not (Test-Path -LiteralPath $bridgeJar -PathType Leaf) -or
     (Get-HashOrEmpty $bridgeJar) -ne [string]$manifest.bridgeSha256) {
     throw 'Owned native bridge JAR is missing or changed; refusing automatic launcher rollback.'
 }
+$launcherJar = ''
+$launcherJarExisted = $false
+if ($manifest.launcherJar) {
+    $launcherJar = [System.IO.Path]::GetFullPath([string]$manifest.launcherJar)
+    if (-not (Same-Path $launcherJar (Join-Path $gameRoot 'LivingFellowsBridge.jar')) -or
+        [string]$manifest.launcherClasspathEntry -ne 'LivingFellowsBridge.jar' -or
+        [string]$manifest.launcherJarSha256 -ne [string]$manifest.bridgeSha256) {
+        throw 'Owned game-local launcher JAR manifest is inconsistent.'
+    }
+    $launcherJarExisted = Test-Path -LiteralPath $launcherJar -PathType Leaf
+    if ($launcherJarExisted -and
+        (Get-HashOrEmpty $launcherJar) -ne [string]$manifest.launcherJarSha256) {
+        throw 'Owned game-local launcher JAR changed; refusing automatic rollback.'
+    }
+}
 
 $configHash = Get-HashOrEmpty $configPath
 $installedConfigHash = [string]$manifest.installedConfigSha256
@@ -71,7 +86,8 @@ $wrapper = [string]$manifest.wrapperMainClass
 if ($config.mainClass -ne $wrapper) {
     throw "Launcher mainClass changed after installation; refusing automatic rollback: $($config.mainClass)"
 }
-$jarArgument = $bridgeJar.Replace('\', '/')
+$jarArgument = if ($launcherJar) { 'LivingFellowsBridge.jar' }
+    else { $bridgeJar.Replace('\', '/') }
 $classpathMatches = @($config.classpath | Where-Object {
     ([string]$_).Replace('\', '/').Equals($jarArgument,
         [System.StringComparison]::OrdinalIgnoreCase)
@@ -132,9 +148,13 @@ if ($PreflightOnly) {
 $transactionRoot = Join-Path $BridgeRoot ('.uninstall-transaction.' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $transactionRoot -Force | Out-Null
 $currentConfigBackup = Join-Path $transactionRoot 'ProjectZomboid64.managed.json'
+$currentLauncherJarBackup = Join-Path $transactionRoot 'LivingFellowsBridge.jar'
 $currentManifestBackup = Join-Path $transactionRoot 'install-manifest.json'
 $stagedOriginal = Join-Path $transactionRoot 'ProjectZomboid64.restored.json'
 Copy-Item -LiteralPath $configPath -Destination $currentConfigBackup
+if ($launcherJarExisted) {
+    Copy-Item -LiteralPath $launcherJar -Destination $currentLauncherJarBackup
+}
 Copy-Item -LiteralPath $manifestPath -Destination $currentManifestBackup
 if ($mode -eq 'exact') {
     Copy-Item -LiteralPath $originalBackup -Destination $stagedOriginal
@@ -156,6 +176,9 @@ try {
     if ((Get-HashOrEmpty $configPath) -ne $expectedHash) {
         throw 'Launcher configuration restore hash mismatch.'
     }
+    if ($launcherJarExisted) {
+        Remove-Item -LiteralPath $launcherJar -Force
+    }
     Move-Item -LiteralPath $manifestPath -Destination $disabledManifest
 }
 catch {
@@ -164,12 +187,21 @@ catch {
     try { Copy-Item -LiteralPath $currentConfigBackup -Destination $configPath -Force }
     catch { $rollbackFailures += "config restore: $($_.Exception.Message)" }
     try {
+        if ($launcherJarExisted) {
+            Copy-Item -LiteralPath $currentLauncherJarBackup -Destination $launcherJar -Force
+        }
+    } catch { $rollbackFailures += "game-local JAR restore: $($_.Exception.Message)" }
+    try {
         if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
             Copy-Item -LiteralPath $currentManifestBackup -Destination $manifestPath
         }
     } catch { $rollbackFailures += "manifest restore: $($_.Exception.Message)" }
     if ((Get-HashOrEmpty $configPath) -ne (Get-HashOrEmpty $currentConfigBackup)) {
         $rollbackFailures += 'config rollback hash mismatch'
+    }
+    if ($launcherJarExisted -and
+        (Get-HashOrEmpty $launcherJar) -ne (Get-HashOrEmpty $currentLauncherJarBackup)) {
+        $rollbackFailures += 'game-local JAR rollback hash mismatch'
     }
     if ((Get-HashOrEmpty $manifestPath) -ne (Get-HashOrEmpty $currentManifestBackup)) {
         $rollbackFailures += 'manifest rollback hash mismatch'

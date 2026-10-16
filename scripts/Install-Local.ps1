@@ -172,6 +172,7 @@ $nativeSnapshotReady = $false
 $nativeConfigPath = Join-Path $GameRoot 'ProjectZomboid64.json'
 $nativeManifestPath = Join-Path ([System.IO.Path]::GetFullPath($BridgeRoot)) 'install-manifest.json'
 $nativeJarPath = Join-Path ([System.IO.Path]::GetFullPath($BridgeRoot)) 'SurvivorCompanionBridge.jar'
+$nativeGameJarPath = Join-Path $GameRoot 'LivingFellowsBridge.jar'
 $nativeBridgeRootExisted = Test-Path -LiteralPath $BridgeRoot -PathType Container
 $effectiveConfigBackupRoot = if ([string]::IsNullOrWhiteSpace($ConfigBackupRoot)) {
     Join-Path $ProjectRoot 'build\game-config-backups'
@@ -287,16 +288,22 @@ try {
     New-Item -ItemType Directory -Path $outerPrior -Force | Out-Null
     $priorNativeConfig = Join-Path $outerPrior 'ProjectZomboid64.json'
     $priorNativeJar = Join-Path $outerPrior 'SurvivorCompanionBridge.jar'
+    $priorNativeGameJar = Join-Path $outerPrior 'LivingFellowsBridge.jar'
     $priorNativeManifest = Join-Path $outerPrior 'install-manifest.json'
     Copy-Item -LiteralPath $nativeConfigPath -Destination $priorNativeConfig
     $priorNativeJarExisted = Test-Path -LiteralPath $nativeJarPath -PathType Leaf
+    $priorNativeGameJarExisted = Test-Path -LiteralPath $nativeGameJarPath -PathType Leaf
     $priorNativeManifestExisted = Test-Path -LiteralPath $nativeManifestPath -PathType Leaf
     if ($priorNativeJarExisted) { Copy-Item -LiteralPath $nativeJarPath -Destination $priorNativeJar }
+    if ($priorNativeGameJarExisted) {
+        Copy-Item -LiteralPath $nativeGameJarPath -Destination $priorNativeGameJar
+    }
     if ($priorNativeManifestExisted) {
         Copy-Item -LiteralPath $nativeManifestPath -Destination $priorNativeManifest
     }
     $priorNativeConfigHash = Get-InstallHash $priorNativeConfig
     $priorNativeJarHash = Get-InstallHash $priorNativeJar
+    $priorNativeGameJarHash = Get-InstallHash $priorNativeGameJar
     $priorNativeManifestHash = Get-InstallHash $priorNativeManifest
     if (Test-Path -LiteralPath $effectiveConfigBackupRoot -PathType Container) {
         $nativeBackupNamesBefore = @(Get-ChildItem -LiteralPath $effectiveConfigBackupRoot -File |
@@ -366,7 +373,8 @@ try {
     }
     $committedBridgeJar = Join-Path $Target '42\media\java\SurvivorCompanionBridge.jar'
     if ((Get-InstallHash $committedBridgeJar) -ne $selectedBridgeHash -or
-        (Get-InstallHash $nativeJarPath) -ne $selectedBridgeHash) {
+        (Get-InstallHash $nativeJarPath) -ne $selectedBridgeHash -or
+        (Get-InstallHash $nativeGameJarPath) -ne $selectedBridgeHash) {
         throw 'Installed payload and launcher bridge JAR hashes are not identical.'
     }
     $committedNativeManifest = Get-Content -LiteralPath $nativeManifestPath -Raw -Encoding utf8 |
@@ -374,6 +382,9 @@ try {
     if ([string]$committedNativeManifest.owner -ne 'SurvivorCompanion.NativeBridge' -or
         -not (Test-InstallSamePath ([string]$committedNativeManifest.bridgeRoot) $BridgeRoot) -or
         -not (Test-InstallSamePath ([string]$committedNativeManifest.bridgeJar) $nativeJarPath) -or
+        -not (Test-InstallSamePath ([string]$committedNativeManifest.launcherJar) $nativeGameJarPath) -or
+        [string]$committedNativeManifest.launcherClasspathEntry -ne 'LivingFellowsBridge.jar' -or
+        [string]$committedNativeManifest.launcherJarSha256 -ne $selectedBridgeHash -or
         [string]$committedNativeManifest.bridgeSha256 -ne $selectedBridgeHash -or
         [string]$committedNativeManifest.installedConfigSha256 -ne
             (Get-InstallHash $nativeConfigPath)) {
@@ -412,6 +423,13 @@ catch {
             }
         } catch { $rollbackFailures += "bridge JAR restore: $($_.Exception.Message)" }
         try {
+            if ($priorNativeGameJarExisted) {
+                Copy-Item -LiteralPath $priorNativeGameJar -Destination $nativeGameJarPath -Force
+            } elseif (Test-Path -LiteralPath $nativeGameJarPath) {
+                Remove-Item -LiteralPath $nativeGameJarPath -Force
+            }
+        } catch { $rollbackFailures += "game-local bridge JAR restore: $($_.Exception.Message)" }
+        try {
             if ($priorNativeManifestExisted) {
                 Copy-Item -LiteralPath $priorNativeManifest -Destination $nativeManifestPath -Force
             } elseif (Test-Path -LiteralPath $nativeManifestPath) {
@@ -432,6 +450,12 @@ catch {
         if ($priorNativeJarExisted -ne (Test-Path -LiteralPath $nativeJarPath -PathType Leaf) -or
             ($priorNativeJarExisted -and (Get-InstallHash $nativeJarPath) -ne $priorNativeJarHash)) {
             $rollbackFailures += 'bridge JAR rollback presence/hash mismatch'
+        }
+        if ($priorNativeGameJarExisted -ne
+            (Test-Path -LiteralPath $nativeGameJarPath -PathType Leaf) -or
+            ($priorNativeGameJarExisted -and
+                (Get-InstallHash $nativeGameJarPath) -ne $priorNativeGameJarHash)) {
+            $rollbackFailures += 'game-local bridge JAR rollback presence/hash mismatch'
         }
         if ($priorNativeManifestExisted -ne
             (Test-Path -LiteralPath $nativeManifestPath -PathType Leaf) -or

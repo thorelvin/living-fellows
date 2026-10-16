@@ -293,6 +293,25 @@ try {
         $configSnapshotHash -ne $nativeCurrentHash) {
         throw 'Standalone launcher snapshot verification failed.'
     }
+    $launcherJarPath = ''
+    $launcherJarSnapshot = Join-Path $snapshotRoot 'LivingFellowsBridge.jar'
+    $launcherJarExisted = $false
+    if ($nativeState.launcherJar) {
+        $launcherJarPath = Normalize-StandalonePath ([string]$nativeState.launcherJar)
+        $gameRoot = Normalize-StandalonePath ([string]$nativeState.gameRoot)
+        $expectedLauncherJar = Join-Path $gameRoot 'LivingFellowsBridge.jar'
+        if (-not (Test-StandaloneSamePath $launcherJarPath $expectedLauncherJar)) {
+            throw 'Standalone launcher JAR path is outside its game root.'
+        }
+        $launcherJarExisted = Test-Path -LiteralPath $launcherJarPath -PathType Leaf
+        if ($launcherJarExisted) {
+            Copy-Item -LiteralPath $launcherJarPath -Destination $launcherJarSnapshot
+            if ((Get-StandaloneHash $launcherJarSnapshot) -ne
+                [string]$nativeState.launcherJarSha256) {
+                throw 'Standalone launcher JAR snapshot verification failed.'
+            }
+        }
+    }
     $snapshotReady = $true
     Invoke-StandaloneFault 'standalone-snapshot'
     $mutationStarted = $true
@@ -340,6 +359,9 @@ try {
         if ((Get-StandaloneHash $configPath) -ne $nativeExpectedHash) {
             throw 'Standalone uninstall did not restore the planned launcher hash.'
         }
+        if ($launcherJarPath -and (Test-Path -LiteralPath $launcherJarPath)) {
+            throw 'Standalone uninstall left its game-local launcher JAR behind.'
+        }
     }
     Invoke-StandaloneFault 'standalone-postcondition'
     $committed = $true
@@ -359,6 +381,22 @@ catch {
         catch { $rollbackFailures += "launcher restore: $($_.Exception.Message)" }
         if ((Get-StandaloneHash $configPath) -ne $configSnapshotHash) {
             $rollbackFailures += 'launcher rollback hash mismatch'
+        }
+        if ($launcherJarPath) {
+            try {
+                if ($launcherJarExisted) {
+                    Copy-Item -LiteralPath $launcherJarSnapshot -Destination $launcherJarPath -Force
+                } elseif (Test-Path -LiteralPath $launcherJarPath) {
+                    Remove-Item -LiteralPath $launcherJarPath -Force
+                }
+            } catch { $rollbackFailures += "game-local launcher JAR restore: $($_.Exception.Message)" }
+            if ($launcherJarExisted -ne
+                (Test-Path -LiteralPath $launcherJarPath -PathType Leaf) -or
+                ($launcherJarExisted -and
+                    (Get-StandaloneHash $launcherJarPath) -ne
+                    [string]$nativeState.launcherJarSha256)) {
+                $rollbackFailures += 'game-local launcher JAR rollback hash mismatch'
+            }
         }
         try {
             Get-ChildItem -LiteralPath $ModsRoot -Force -Directory -ErrorAction SilentlyContinue |

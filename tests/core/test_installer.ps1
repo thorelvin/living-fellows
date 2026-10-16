@@ -88,15 +88,18 @@ try {
     $compiledBridge = Join-Path $ProjectRoot 'build\native-bridge\SurvivorCompanionBridge.jar'
     $payloadBridge = Join-Path $Target '42\media\java\SurvivorCompanionBridge.jar'
     $launcherBridge = Join-Path $BridgeRoot 'SurvivorCompanionBridge.jar'
+    $gameLauncherBridge = Join-Path $GameRoot 'LivingFellowsBridge.jar'
     $compiledHash = (Get-FileHash -LiteralPath $compiledBridge -Algorithm SHA256).Hash.ToLowerInvariant()
     if ((Get-FileHash -LiteralPath $payloadBridge -Algorithm SHA256).Hash.ToLowerInvariant() -ne
             $compiledHash -or
         (Get-FileHash -LiteralPath $launcherBridge -Algorithm SHA256).Hash.ToLowerInvariant() -ne
+            $compiledHash -or
+        (Get-FileHash -LiteralPath $gameLauncherBridge -Algorithm SHA256).Hash.ToLowerInvariant() -ne
             $compiledHash) {
-        throw 'Direct native development install did not use the current compiled bridge in both targets.'
+        throw 'Direct native development install did not use the current compiled bridge in all targets.'
     }
     $patchedConfig = Get-Content -LiteralPath $gameConfig -Raw -Encoding utf8 | ConvertFrom-Json
-    $bridgeJar = (Join-Path $BridgeRoot 'SurvivorCompanionBridge.jar').Replace('\', '/')
+    $bridgeJar = 'LivingFellowsBridge.jar'
     $launcherInvalid = $patchedConfig.mainClass -ne 'survivorcompanion/bridge/SCLauncher'
     $launcherInvalid = $launcherInvalid -or $patchedConfig.classpath -notcontains $bridgeJar
     $launcherInvalid = $launcherInvalid -or -not (Test-Path -LiteralPath (Join-Path $BridgeRoot 'install-manifest.json'))
@@ -140,6 +143,7 @@ try {
     $restoredConfig = Get-Content -LiteralPath $gameConfig -Raw -Encoding utf8 | ConvertFrom-Json
     $launcherNotRestored = $restoredConfig.mainClass -ne 'zombie/gameStates/MainScreenState'
     $launcherNotRestored = $launcherNotRestored -or $restoredConfig.classpath -contains $bridgeJar
+    $launcherNotRestored = $launcherNotRestored -or (Test-Path -LiteralPath $gameLauncherBridge)
     if ($launcherNotRestored) {
         throw 'Final uninstall did not restore the launcher configuration.'
     }
@@ -198,7 +202,8 @@ try {
     }
     foreach ($case in @('derived-bridge', 'missing-native-final-generation',
             'missing-native-installed-config-hash', 'manifestless-wrapper',
-            'game-reinstall-recovery', 'stale-protocol')) {
+            'game-reinstall-recovery', 'stale-protocol',
+            'schema2-migration', 'unmanaged-game-jar')) {
         Add-InstallerCase $case
     }
     foreach ($boundary in @('standalone-snapshot', 'standalone-generation-remove',
@@ -212,7 +217,7 @@ try {
     }
     Add-InstallerCase 'shared-launcher-ambiguous'
 
-    $expectedCases = 39
+    $expectedCases = 41
     if ($cases.Count -ne $expectedCases) {
         # A case list that quietly shrinks is a coverage loss that still
         # reports a pass, so the count is part of the contract.
