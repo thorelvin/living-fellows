@@ -868,10 +868,13 @@ local function classifyEdge(actor, fromSquare, toSquare, options)
         -- The native isFree(true) fact includes living bodies. A teammate in
         -- front of a Follow column must remain dynamic traffic, not turn the
         -- road square into a permanent wall for both the open-route proof and
-        -- the pathfinder. Recheck static geometry only when a real living body
-        -- explains the native failure; furniture and pushables stay blocked.
+        -- the pathfinder. Recheck static geometry only when a teammate or the
+        -- player explains the native failure. A zombie, a stranger, an animal,
+        -- furniture and pushables stay blocked; a column-flow route ignores
+        -- crowd cost, so treating a zombie as traffic planned a path through it.
         local occupant, kind = U().movingBlocker(toSquare, actor)
-        if occupant ~= nil and kind ~= "pushable_object"
+        if occupant ~= nil
+            and (kind == "companion_crowd" or kind == "player_crowd")
             and U().isSquareFree(toSquare)
             and U().squareOccupyingObject(toSquare) == nil then
             squareFree = true

@@ -331,7 +331,18 @@ end
 
 -- A blocked job may choose another worker only when its first worker holds
 -- neither marked cargo nor an unclaimed native loot action for this job.
+-- A worker who died or was removed has left the registry and can never
+-- finish its unload; a dormant worker keeps its record and may come back.
+local function workerGone(job)
+    return SC.BaseFuel and type(SC.BaseFuel.workerGone) == "function"
+        and SC.BaseFuel.workerGone(job) == true or false
+end
+
 function Unload.releaseAffinity(actor, job)
+    if job and not actor and workerGone(job) then
+        job.assignedId = nil
+        return true
+    end
     if not actor or not job then return false end
     if markedCargo(actor, job.id) then return false end
     local state = states[actor]
@@ -348,6 +359,7 @@ end
 function Unload.cancel(actor, job)
     if not job then return true end
     if not actor then
+        if job.assignedId ~= nil and workerGone(job) then job.assignedId = nil end
         return job.assignedId == nil, "car_unload_worker_unavailable"
     end
     local state = states[actor]

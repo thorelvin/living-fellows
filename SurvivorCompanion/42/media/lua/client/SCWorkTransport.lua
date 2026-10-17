@@ -281,7 +281,13 @@ function Transport.foreignProtected(item, actor)
         return true, "quest_item_owned"
     end
     if data.LF_FarmReceiptId ~= nil then return true, "farm_item_owned" end
-    if data.LF_RefuelJobId ~= nil then return true, "refuel_item_owned" end
+    -- Refuel and car-upkeep chores reserve one exact item by job id; a marker
+    -- whose job no longer names that item is stale and reserves nothing.
+    if (data.LF_RefuelJobId ~= nil or data.LF_UpkeepJobId ~= nil)
+        and (not SC.BaseFuel or type(SC.BaseFuel.reserved) ~= "function"
+            or SC.BaseFuel.reserved(item) == true) then
+        return true, "refuel_item_owned"
+    end
     if data.LF_ProductionOrderId ~= nil then return true, "production_item_owned" end
     local workReceiptId = markerOf(item)
     if workReceiptId ~= nil then

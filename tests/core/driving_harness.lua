@@ -697,5 +697,76 @@ do
         oldBegin, oldPreflight, oldBoard
     Convoy.reset()
 end
+do
+    -- A follow car that cannot work is given up: one note, the wheel
+    -- released and the assignment dropped, so the companion is not parked in
+    -- that car or barred from the player's seats until a new order.
+    local Convoy = SC.Convoy
+    local actor = T.actor("convoy-lost")
+    local car = actor.vehicle
+    car.sqlId = 611
+    function car:getSqlId() return self.sqlId end
+    local lead = { x = 110, y = 100, z = 0 }
+    local halos = 0
+    local localPlayer = { x = 110, y = 100, z = 0, vehicle = lead }
+    function localPlayer:getVehicle() return self.vehicle end
+    function localPlayer:setHaloNote() halos = halos + 1 end
+    function lead:getDriver() return localPlayer.vehicle == lead and localPlayer or nil end
+    local oldPlayer, oldLiving, oldLoaded = getPlayer, SC.Registry.living,
+        SC.Vehicle.loadedBySqlId
+    local loaded = true
+    getPlayer = function() return localPlayer end
+    SC.Registry.living = function() return { actor } end
+    SC.Vehicle.loadedBySqlId = function(id) return loaded and id == 611 and car or nil end
+    local function assign()
+        actor.data.SC_FollowCarSqlId = 611
+        SC.Commands.reset(actor)
+        Convoy.reset()
+        Convoy.activate(actor)
+    end
+    assign()
+    check(SC.Commands.peek(actor).followCarSqlId == 611,
+        "the companion's command state names its follow car")
+    check(Convoy.step(actor, localPlayer, {}) == true and Driving.isDriving(actor),
+        "the assigned driver takes the wheel behind the player's car")
+    local follow = SCBridge.driveFollowVehicle
+    SCBridge.driveFollowVehicle = function() return false end
+    local started = SC_TEST_CLOCK + 20000
+    Convoy.tick(started)
+    SCBridge.driveFollowVehicle = follow
+    for pulse = 1, 8 do Convoy.tick(started + pulse * 250) end
+    check(halos == 1, "a failed follow car is reported once, not on every convoy tick")
+    check(not Driving.isDriving(actor)
+        and SC.Commands.peek(actor).followCarSqlId == nil
+        and actor.data.SC_FollowCarSqlId == nil,
+        "a failed follow car releases the wheel and the saved assignment")
+    check(Convoy.step(actor, localPlayer, {}) == nil,
+        "the released companion is no longer held by the convoy")
+
+    -- The car is outside the loaded area while the player drives another one.
+    assign()
+    actor.vehicle, loaded = nil, false
+    local handled, reason = Convoy.step(actor, localPlayer, {})
+    check(handled == nil and reason == "follow_car_unloaded"
+        and SC.Commands.peek(actor).followCarSqlId == 611,
+        "an unreachable follow car does not freeze the companion in place")
+    local savedClock = SC_TEST_CLOCK
+    SC_TEST_CLOCK = SC_TEST_CLOCK + 5000
+    Convoy.step(actor, localPlayer, {})
+    SC_TEST_CLOCK = savedClock
+    check(SC.Commands.peek(actor).followCarSqlId == nil,
+        "an out-of-reach follow car is released while the player drives off")
+
+    -- The player drives the follow car; the companion should ride with them.
+    assign()
+    loaded, car.driver, localPlayer.vehicle = true, localPlayer, car
+    local before = halos
+    handled, reason = Convoy.step(actor, localPlayer, {})
+    check(handled == nil and SC.Commands.peek(actor).followCarSqlId == nil
+        and halos == before,
+        "a player taking the follow car quietly hands it over")
+    Convoy.reset()
+    getPlayer, SC.Registry.living, SC.Vehicle.loadedBySqlId = oldPlayer, oldLiving, oldLoaded
+end
 SC_TEST_REPORT = "DRIVING_HARNESS_PASS checks=" .. tostring(checks)
 print(SC_TEST_REPORT)

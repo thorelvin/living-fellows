@@ -2851,6 +2851,23 @@ function Commands.peek(actor)
     return states[actor] or stateFor(actor)
 end
 
+-- The convoy gives up a follow car that cannot work. That is not a new player
+-- order: keep the companion's current activity and drop only the assignment.
+function Commands.releaseFollowCar(actor, reason)
+    if not actor then return false, "actor_missing" end
+    local state = states[actor] or stateFor(actor)
+    if type(state) ~= "table" or state.followCarSqlId == nil then
+        return false, "no_follow_car"
+    end
+    state.followCarSqlId = nil
+    local _, entry = U().resolveActor(U().idOf(actor))
+    writeStable(actor, entry, state)
+    if SC.Vehicle and type(SC.Vehicle.invalidateManifests) == "function" then
+        SC.Vehicle.invalidateManifests()
+    end
+    return true, reason or "follow_car_released"
+end
+
 -- A base restriction can change independently of a player command. Refresh its
 -- native hit marker immediately when a companion is exiled or welcomed back.
 function Commands.refreshPlayerAttackProtection(actor)

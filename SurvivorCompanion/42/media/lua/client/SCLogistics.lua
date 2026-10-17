@@ -763,7 +763,10 @@ end
 local function isProtected(actor, item)
     if not actor or not item then return true end
     local itemData = select(1, U().call(item, "getModData"))
-    if type(itemData) == "table" and itemData.LF_RefuelJobId ~= nil then
+    if type(itemData) == "table" and (itemData.LF_RefuelJobId ~= nil
+        or itemData.LF_UpkeepJobId ~= nil) and (not SC.BaseFuel
+            or type(SC.BaseFuel.reserved) ~= "function"
+            or SC.BaseFuel.reserved(item) == true) then
         return true
     end
     local category = select(1, U().call(item, "getCategory"))

@@ -124,6 +124,61 @@ check(select(2, Upkeep.queue("wash_vehicle", T.car.id, false))
     == "base_wash_water_missing",
     "filled clean containers alone never supply a car wash")
 
+-- A pump still marked by a job that no longer exists is free to borrow.
+T.base.jobs = {}
+T.tires[1].current = 20
+T.storage.reserve = 0
+T.storage.container.items = { pump }
+T.actor.inventory.items = {}
+pump.data.LF_UpkeepJobId = "job:gone"
+local staleQueued, staleJob = Upkeep.queue("inflate_tires", T.car.id, true)
+check(staleQueued == true, "an upkeep job queues: " .. tostring(staleJob))
+okay, reason = Upkeep.update(T.actor, {}, staleJob)
+check(okay and reason == "upkeep_supply_carried"
+    and pump.data.LF_UpkeepJobId == staleJob.id,
+    "a stale upkeep marker no longer hides the camp's tire pump")
+T.actor.inventory.items = {}
+okay, reason = Upkeep.update(T.actor, {}, staleJob)
+check(okay and reason == "upkeep_supply_lost" and staleJob.target.stage == nil,
+    "a pump taken from the worker drops the receipt instead of blocking it")
+
+-- A worker who dies carrying the supply leaves the registry; a dormant one does not.
+local registered = { worker = true }
+SC.Registry = { byId = function(id) return registered[id] and {} or nil end }
+staleJob.target.stage, staleJob.target.sourceStorageId = "carrying", T.storage.id
+staleJob.target.itemId, staleJob.assignedId, staleJob.reservedBy = 99, "worker", "worker"
+check(Upkeep.cancel(nil, staleJob) == false
+    and Upkeep.releaseAffinity(nil, staleJob) == false,
+    "an unloaded worker keeps its upkeep receipt")
+staleJob.assignedId, staleJob.reservedBy = "ghost", "ghost"
+check(Upkeep.releaseAffinity(nil, staleJob) == true
+    and staleJob.assignedId == nil and staleJob.target.stage == nil,
+    "a dead worker's upkeep receipt is released for another resident")
+SC.Registry = nil
+
+-- Cancelling an older chore must not stop the worker's action for a newer one.
+T.base.jobs = {}
+T.resetNative()
+T.actor.inventory.items = {}
+T.storage.container.items = { pump }
+pump.data.LF_UpkeepJobId = nil
+T.tires[1].current = 20
+local _, older = Upkeep.queue("inflate_tires", T.car.id, true)
+okay, reason = Upkeep.update(T.actor, {}, older)
+check(okay and reason == "upkeep_supply_carried", "the older tire job holds the pump")
+T.blood.Front = 0.25
+local bucket = T.item(5, "Base.Bucket", 8, true)
+T.waterStorage.container.items = { bucket }
+local _, newer = Upkeep.queue("wash_vehicle", T.car.id, true)
+Upkeep.update(T.actor, {}, newer)
+Upkeep.update(T.actor, {}, newer)
+check(T.native() and T.native().kind == "wash_vehicle" and T.native().active,
+    "the newer wash owns the worker's native action")
+check(Upkeep.cancel(T.actor, older) == true and T.native() and T.native().active
+        and SC.GameplayUtil.inventoryContains(T.storage.container, pump),
+    "cancelling the older tire job returns its pump without stopping the newer wash")
+T.resetNative()
+
 T.car.occupied = true
 check(select(2, Upkeep.eligible("wash_vehicle", T.car, true))
     == "car_occupied", "occupied car is excluded")

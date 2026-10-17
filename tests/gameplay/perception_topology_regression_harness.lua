@@ -181,6 +181,29 @@ check(not T.withReadBatch(T.classifyEdge, observer, origin, destination, {}).tra
     "native edge facts never survive into a later read batch")
 destination.solid = false
 
+-- A body on the square fails native isFree(true). Only a teammate or the
+-- player is moving traffic; a zombie standing there remains a blocked edge,
+-- or a column route that ignores crowd cost would plan straight through it.
+local savedBlocker, blockerKind = U.movingBlocker, "zombie_crowd"
+U.movingBlocker = function() return {}, blockerKind end
+SCBridge = { fillEdgeFacts = function(_, _, _, out)
+    for key in pairs(out) do out[key] = nil end
+    out.tree, out.fire, out.brokenGlass = false, false, false
+    out.squareFree = false
+    out.barrierKind = "open"
+    out.nativeBlocked = false
+    out.stairsFrom, out.stairsTo = false, false
+    out.slopeFrom, out.slopeTo = false, false
+    return true
+end }
+check(not T.withReadBatch(T.classifyEdge, observer, origin, destination, {}).traversable,
+    "a zombie standing on a square keeps the native blocked edge")
+blockerKind = "companion_crowd"
+check(T.withReadBatch(T.classifyEdge, observer, origin, destination, {}).traversable == true,
+    "a teammate on the square stays dynamic traffic for the route")
+U.movingBlocker = savedBlocker
+SCBridge = originalSCBridge
+
 -- A coherent protocol-8 zombie copy is immediately complete and shared for
 -- its 250 ms cadence. Overflow must reject a partial prefix and use the sliced
 -- roster, which cannot claim negative evidence from the discarded prefix.

@@ -83,6 +83,21 @@ check(cancelled and T.trunk.items[1] == second and #T.inventory.items == 0
 nextJob.assignedId = "missing_worker"
 check(Unload.cancel(nil, nextJob) == false,
     "missing assigned worker cannot silently discard a recovery receipt")
+-- A dormant worker keeps its registry record; one who died has none, and its
+-- unload must not stay unclaimable and uncancellable for good.
+local registered = { missing_worker = true }
+SC.Registry = { byId = function(id) return registered[id] and {} or nil end }
+check(Unload.cancel(nil, nextJob) == false
+        and Unload.releaseAffinity(nil, nextJob) == false
+        and nextJob.assignedId == "missing_worker",
+    "an unloaded worker keeps its unload assignment")
+nextJob.assignedId = "dead_worker"
+check(Unload.releaseAffinity(nil, nextJob) == true and nextJob.assignedId == nil,
+    "a dead worker's unload can be claimed by another resident")
+nextJob.assignedId = "dead_worker"
+check(Unload.cancel(nil, nextJob) == true and nextJob.assignedId == nil,
+    "a dead worker's unload can be cancelled")
+SC.Registry = nil
 nextJob.assignedId = nil
 
 -- A blocked old order may be cancelled after the actor has started a newer

@@ -206,6 +206,7 @@ try {
 
         $vehicleUnloadFiles = @(
             (Join-Path $TestRoot 'vehicle_unload_fixture.lua'),
+            (Join-Path $Client 'SCBaseFuel.lua'),
             (Join-Path $Client 'SCVehicleUnload.lua'),
             (Join-Path $TestRoot 'vehicle_unload_harness.lua')
         )
@@ -222,6 +223,7 @@ try {
         $vehicleUpkeepFiles = @(
             (Join-Path $TestRoot 'vehicle_refuel_fixture.lua'),
             (Join-Path $TestRoot 'vehicle_upkeep_fixture.lua'),
+            (Join-Path $Client 'SCBaseFuel.lua'),
             (Join-Path $Client 'SCVehicleUpkeep.lua'),
             (Join-Path $TestRoot 'vehicle_upkeep_harness.lua')
         )
@@ -357,6 +359,8 @@ try {
             (Join-Path $Client 'SCWorkTransport.lua'),
             (Join-Path $Client 'SCGatherWork.lua'),
             (Join-Path $Client 'SCBaseWork.lua'),
+            (Join-Path $Client 'SCBaseFuel.lua'),
+            (Join-Path $Client 'SCVehicleRefuel.lua'),
             (Join-Path $TestRoot 'work_transport_harness.lua')
         )
         Add-ScJvmStep 'work-transport' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $workTransportFiles 'Gathering/transport ownership integration harness failed.'

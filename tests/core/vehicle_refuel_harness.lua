@@ -151,6 +151,78 @@ check(not working and done and reason == "car_refuel_conservation_uncertain"
     and can.data.LF_RefuelJobId == uncertain.id
     and T.actor.inventory.items[1] == can,
     "uncertain amount keeps both the exact can and receipt")
+local function stored(item)
+    for _, value in ipairs(T.storage.container.items) do
+        if value == item then return true end
+    end
+    return false
+end
+check(Refuel.cancel(T.actor, uncertain) == true and stored(can)
+    and #T.actor.inventory.items == 0 and can.data.LF_RefuelJobId == nil,
+    "the player can still cancel an uncertain receipt, and the can goes home")
+
+-- The player takes the reserved can before the worker reaches it.
+T.base.jobs = {}
+T.part.current = 10
+local spare = T.item(7, 10)
+can.fluid.amount = 10
+T.storage.container.items = { can, spare }
+local _, taken = Refuel.queue(T.car.id, true)
+taken.target.sourceStorageId, taken.target.itemId = T.storage.id, can:getID()
+can.data.LF_RefuelJobId = taken.id
+table.remove(T.storage.container.items, 1)
+working, reason = update(taken)
+check(working and reason == "car_refuel_can_reselecting"
+    and taken.target.sourceStorageId == nil,
+    "a reserved can the player took is replaced, not waited on for an hour")
+working, reason = update(taken)
+check(working and reason == "car_refuel_can_carried"
+    and T.actor.inventory.items[1] == spare and spare.data.LF_RefuelJobId == taken.id,
+    "the job carries on with another stored can")
+
+-- The player takes the can out of the worker's own inventory.
+T.actor.inventory.items = {}
+working, reason = update(taken)
+check(working and reason == "car_refuel_can_lost" and taken.target.stage == nil,
+    "a can taken from the worker drops the receipt instead of blocking it")
+check(Refuel.cancel(T.actor, taken) == true,
+    "a job whose can is gone can always be cancelled")
+
+-- A worker who dies carrying the can leaves the registry; a dormant one does not.
+local registered = { worker = true }
+SC.Registry = { byId = function(id) return registered[id] and {} or nil end }
+T.base.jobs = {}
+T.actor.inventory.items, T.storage.container.items = {}, { can }
+can.data.LF_RefuelJobId = nil
+local _, orphan = Refuel.queue(T.car.id, true)
+orphan.target.stage, orphan.target.sourceStorageId = "carrying", T.storage.id
+orphan.target.itemId, orphan.assignedId, orphan.reservedBy = 99, "worker", "worker"
+check(Refuel.cancel(nil, orphan) == false and orphan.target.stage == "carrying"
+    and Refuel.releaseAffinity(nil, orphan) == false,
+    "an unloaded worker keeps its refuel receipt")
+orphan.assignedId, orphan.reservedBy = "ghost", "ghost"
+check(Refuel.releaseAffinity(nil, orphan) == true and orphan.assignedId == nil
+    and orphan.target.stage == nil and orphan.target.sourceStorageId == nil,
+    "a dead worker's receipt is released so another resident can claim the job")
+orphan.target.stage, orphan.assignedId = "returning", "ghost"
+check(Refuel.cancel(nil, orphan) == true,
+    "a dead worker's refuel job can be cancelled")
+SC.Registry = nil
+
+-- The player unmarks the can's storage while the worker carries it home.
+T.base.jobs = {}
+T.storage.container.items = { can }
+can.data.LF_RefuelJobId = nil
+local _, homeless = Refuel.queue(T.car.id, true)
+T.actor.inventory.items, T.storage.container.items = { can }, {}
+homeless.target.stage, homeless.target.sourceStorageId = "returning", "general:gone"
+homeless.target.itemId = can:getID()
+can.data.LF_RefuelJobId = homeless.id
+working, reason, _, done = update(homeless)
+check(working and done and reason == "car_refuel_source_removed"
+    and T.actor.inventory.items[1] == can and can.data.LF_RefuelJobId == nil,
+    "a can whose storage was removed stays with the worker, unreserved")
+T.actor.inventory.items = {}
 
 T.car.engine = true
 check(select(2, Refuel.eligible(T.car, true)) == "car_engine_on",

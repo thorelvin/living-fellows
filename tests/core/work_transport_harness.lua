@@ -1533,6 +1533,89 @@ do
         "productive farming receives one fair slot while other maintenance families run")
 end
 
+-- Camp chores reserve one exact item by job id. The reservation counts in
+-- every camp system only while its open job still names that item, and a
+-- worker who died mid-chore never leaves its job or the camp uncancellable.
+do
+    local ctx = setup("logs", 1)
+    local pump = makeItem("Base.TirePump")
+    ctx.storageObject.container:AddItem(pump)
+    local queued, upkeep = SC.BaseLife.enqueueJob({ type = "inflate_tires", priority = 2,
+        target = { vehicleId = 7, x = 0, y = 0, z = 0,
+            sourceStorageId = ctx.storage.id, itemId = pump.nativeId } })
+    check(queued == true and upkeep ~= nil, "an upkeep chore queues")
+    pump.modData.LF_UpkeepJobId = upkeep.id
+    check(SC.WorkTransport.foreignProtected(pump, ctx.actor) == true
+            and SC.BaseWork.choreReserved(pump) == true,
+        "a live upkeep reservation protects its exact pump from other camp work")
+    upkeep.target.itemId = nil
+    check(not SC.WorkTransport.foreignProtected(pump, ctx.actor)
+            and not SC.BaseWork.choreReserved(pump),
+        "a marker whose job no longer names the item reserves nothing")
+    local can = makeItem("Base.PetrolCan")
+    can.modData.LF_RefuelJobId = "job:999"
+    check(not SC.WorkTransport.foreignProtected(can, ctx.actor)
+            and not SC.BaseWork.choreReserved(can),
+        "a refuel marker left by a finished job no longer hides the can")
+
+    -- The worker carrying a can for a refuel job dies and leaves the registry.
+    -- Until the save restore commits, and while a saved companion waits to be
+    -- respawned, an unregistered worker is not yet known to be gone.
+    local dead = "sc-work-dead-" .. tostring(contextSerial)
+    local priorStatus, priorPending = SC.Persistence.restoreStatus, SC.Persistence.isPending
+    local restoring, waiting = false, nil
+    SC.Persistence.restoreStatus = function() return not restoring end
+    SC.Persistence.isPending = function(id) return id == waiting end
+    local refuelQueued, refuel = SC.BaseLife.enqueueJob({ type = "refuel_vehicle",
+        priority = 2, assignedId = dead,
+        target = { vehicleId = 8, x = 0, y = 0, z = 0, stage = "carrying",
+            sourceStorageId = ctx.storage.id, itemId = can.nativeId } })
+    check(refuelQueued == true and refuel.assignedId == dead,
+        "a refuel receipt names its carrying worker")
+    can.modData.LF_RefuelJobId = refuel.id
+    refuel.state, refuel.reservedBy, refuel.leaseUntil = "active", dead, 0
+    restoring = true
+    check(SC.BaseWork.reconcileExpiredJob(refuel, dead) == false
+            and refuel.target.stage == "carrying",
+        "a worker is not presumed dead while the save is still restoring")
+    restoring, waiting = false, dead
+    check(SC.BaseWork.reconcileExpiredJob(refuel, dead) == false
+            and refuel.target.stage == "carrying",
+        "a saved companion waiting to be respawned keeps its receipt")
+    waiting = nil
+    local settled, settledReason = SC.BaseWork.reconcileExpiredJob(refuel, dead)
+    check(settled == true and refuel.target.stage == nil and refuel.assignedId == nil,
+        "an expired receipt whose worker died is released for another worker: "
+            .. tostring(settledReason))
+    refuel.state, refuel.reservedBy = "active", dead
+    refuel.target.stage, refuel.assignedId = "carrying", dead
+    refuel.target.sourceStorageId, refuel.target.itemId = ctx.storage.id, can.nativeId
+    ctx.storageObject.container:AddItem(can)
+    check(SC.BaseLife.cancelJob(refuel.id) == true and can.modData.LF_RefuelJobId == nil,
+        "the player can cancel a dead worker's refuel job, and its stored can is unmarked")
+
+    -- A dormant worker keeps its record and may still bring the can back.
+    local sleeper = ctx.actor.modData.SC_Id
+    local record = SC.Registry.byId(sleeper)
+    local _, kept = SC.BaseLife.enqueueJob({ type = "refuel_vehicle", priority = 2,
+        assignedId = sleeper,
+        target = { vehicleId = 9, x = 0, y = 0, z = 0, stage = "carrying",
+            sourceStorageId = ctx.storage.id, itemId = can.nativeId } })
+    kept.state, kept.reservedBy, kept.leaseUntil = "active", sleeper, 0
+    local liveActor = record.actor
+    record.actor = nil
+    check(SC.BaseWork.reconcileExpiredJob(kept, sleeper) == false
+            and kept.target.stage == "carrying" and kept.assignedId == sleeper,
+        "an unloaded worker keeps its receipt until it can settle it")
+    record.actor = liveActor
+
+    local _, sorting = SC.BaseLife.enqueueJob({ type = "sort", priority = 2 })
+    sorting.state, sorting.reservedBy, sorting.leaseUntil = "active", dead, 0
+    check(SC.BaseWork.reconcileExpiredJob(sorting, dead) == true,
+        "an expired ordinary job of a dead worker is released instead of held forever")
+    SC.Persistence.restoreStatus, SC.Persistence.isPending = priorStatus, priorPending
+end
+
 local gatherMetrics = SC.GatherWork.diagnostics()
 local transportMetrics = SC.WorkTransport.diagnostics()
 check(type(transportMetrics.pendingReceipts) == "number"

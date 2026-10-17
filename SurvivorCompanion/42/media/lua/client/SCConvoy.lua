@@ -104,6 +104,25 @@ function Convoy.release(actor, reason)
     return true
 end
 
+-- Give the assignment up once the follow car cannot work: a failed drive, a
+-- car beyond the loaded area, or the player taking it. Kept, it parked the
+-- companion in that car and barred it from the player's own seats.
+local function abandon(actor, player, session, reason, quiet)
+    if SC.Driving and SC.Driving.isDriving(actor) then
+        local stopped = SC.Driving.release(actor, reason or "convoy_abandoned")
+        if stopped ~= true then return false end
+    end
+    if session then
+        session.parked, session.requested = true, false
+        if not quiet and not session.notified then
+            session.notified = true
+            notify(player, actor, reason)
+        end
+    end
+    return SC.Commands and type(SC.Commands.releaseFollowCar) == "function"
+        and SC.Commands.releaseFollowCar(actor, reason) == true or false
+end
+
 function Convoy.suspendForSurvival(actor, suspended)
     if selected(actor) == nil then return false end
     local session = suspended and runtime(actor) or sessions[actor]
@@ -184,8 +203,25 @@ function Convoy.step(actor, player, snapshot)
     if session.parked and lead == nil then return nil end
     if lead == nil and session.requested ~= true then return nil end
     local car = SC.Vehicle.loadedBySqlId(id)
-    if not car then return true, "follow_car_unloaded" end
-    if car == lead then return false, "follow_car_is_player_car" end
+    if not car then
+        -- A car outside the loaded area cannot be boarded. Keep following on
+        -- foot, and release it once the player has driven off in another car.
+        if lead and value(actor, "getVehicle") == nil then
+            session.unreachableSince = session.unreachableSince or now()
+            if now() - session.unreachableSince >= 5000 then
+                abandon(actor, player, session, "follow_car_out_of_reach")
+            end
+        else
+            session.unreachableSince = nil
+        end
+        return nil, "follow_car_unloaded"
+    end
+    session.unreachableSince = nil
+    if car == lead then
+        -- The player is driving the follow car; the companion rides along.
+        abandon(actor, player, session, "player_took_follow_car", true)
+        return nil, "follow_car_is_player_car"
+    end
     local current = value(actor, "getVehicle")
     if current and current ~= car then
         if SC.Vehicle.isStationary(current) ~= true then
@@ -392,8 +428,7 @@ function Convoy.tick(current)
                     end
                 end
                 if session.failed then
-                    Convoy.release(actor, session.failed)
-                    notify(player, actor, session.failed)
+                    abandon(actor, player, session, session.failed)
                 end
             end
         end

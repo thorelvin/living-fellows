@@ -30,22 +30,13 @@ end
 local function number(object, method, ...)
     return tonumber(call(object, method, ...))
 end
-local function marker(item)
-    local data = item and U().modData(item)
-    return type(data) == "table" and data[MARKER] or nil
-end
-local function mark(item, id)
-    local data = item and U().modData(item)
-    if type(data) ~= "table" or data[MARKER] ~= nil then return false end
-    data[MARKER] = id
-    return data[MARKER] == id
-end
-local function clearMark(item, id)
-    local data = item and U().modData(item)
-    if type(data) ~= "table" or data[MARKER] ~= id then return false end
-    data[MARKER] = nil
-    return data[MARKER] == nil
-end
+-- SCBaseFuel owns the shared chore-reservation rules: a marker counts only
+-- while its open job still names the item, so a stale one never hides it.
+local function marker(item) return SC.BaseFuel.marker(item, MARKER) end
+local function mark(item, id) return SC.BaseFuel.mark(item, id, MARKER) end
+local function clearMark(item, id) return SC.BaseFuel.clearMark(item, id, MARKER) end
+local NATIVE_KINDS = { wash_vehicle = true, wash_vehicle_fill = true,
+    inflate_tires = true, vehicle_area_approach = true }
 local function water(item)
     local fluid = call(item, "getFluidContainer")
     local amount = number(fluid, "getAmount") or 0
@@ -133,7 +124,7 @@ local function supply(kind, actor)
             local items = U().inventoryItems(container, math.huge)
             for _, item in ipairs(items) do
                 local itemType = U().itemType(item)
-                if itemType and (marker(item) ~= nil or (SC.WorkTransport
+                if itemType and (SC.BaseFuel.reserved(item) or (SC.WorkTransport
                     and SC.WorkTransport.foreignProtected
                     and SC.WorkTransport.foreignProtected(item, actor) == true)) then
                     protectedByType[itemType] = (protectedByType[itemType] or 0) + 1
@@ -141,7 +132,7 @@ local function supply(kind, actor)
             end
             for _, item in ipairs(items) do
                 local itemType = U().itemType(item)
-                if itemType and marker(item) == nil
+                if itemType and not SC.BaseFuel.reserved(item)
                     and not (SC.WorkTransport and SC.WorkTransport.foreignProtected
                         and SC.WorkTransport.foreignProtected(item, actor) == true) then
                     if available[itemType] == nil then
@@ -425,6 +416,11 @@ local function clearTarget(target)
     target.actionStartedAt, target.stageStartedAt = nil, nil
     target.attempts = nil
 end
+-- Drop a receipt that has nothing left to protect.
+local function dropReceipt(target)
+    clearTarget(target)
+    target.finishReason = nil
+end
 local function settle(job, item, vehicle)
     local target = job.target
     if not vehicle or target.before == nil then return false, "upkeep_receipt_unreadable" end
@@ -479,7 +475,16 @@ function Upkeep.update(actor, baseState, job)
         if target.sourceStorageId then
             storage = SC.BaseLife.storage(target.sourceStorageId)
             container = storage and SC.BaseLife.resolveContainer(storage)
-            if not item then return false, "upkeep_supply_missing", true end
+            if not item then
+                -- The reserved supply is gone: the player took it, or it
+                -- moved. Choose another rather than retrying for it forever.
+                if SC.BaseFuel.sourceState(job) == "unloaded" then
+                    return false, "base_storage_unloaded", true
+                end
+                target.sourceStorageId, target.itemId = nil, nil
+                target.sourceKind, target.sinkFilled = nil, nil
+                return true, "upkeep_supply_reselecting"
+            end
         else
             local sourceKind
             storage, container, item, sourceKind = supply(job.type, actor)
@@ -517,7 +522,18 @@ function Upkeep.update(actor, baseState, job)
         return taken == true, reason or "upkeep_supply_pending",
             taken ~= true and reason ~= "approaching_base_storage"
     end
-    if not item then return false, "upkeep_supply_missing", true end
+    if not item then
+        if SC.BaseFuel.sourceState(job) == "unloaded" then
+            return false, "base_storage_unloaded", true
+        end
+        -- Neither the worker nor the loaded storage holds the supply any more
+        -- (the player took it from the worker). Start over with another.
+        local stopped, why = SC.BaseFuel.stopNative(actor, NATIVE_KINDS,
+            "upkeep_supply_lost")
+        if stopped ~= true then return false, why, true end
+        dropReceipt(target)
+        return true, "upkeep_supply_lost"
+    end
     local vehicle = SC.Vehicle and SC.Vehicle.loadedBySqlId(target.vehicleId)
     if stage == "seeking_water" then
         if not carried then return false, "upkeep_supply_not_carried", true end
@@ -685,9 +701,15 @@ function Upkeep.update(actor, baseState, job)
         return true, "upkeep_action_started"
     end
     if stage ~= "returning" then return false, "upkeep_stage_invalid", true end
-    local storage = target.sourceStorageId and SC.BaseLife.storage(target.sourceStorageId)
-    local container = storage and SC.BaseLife.resolveContainer(storage)
-    if not storage or not container then return false, "base_storage_unloaded", true end
+    local home, storage, container = SC.BaseFuel.sourceState(job)
+    if home == "removed" then
+        -- The player unmarked the supply's storage. The worker keeps it,
+        -- unreserved, and ordinary camp hauling decides where it goes.
+        if not clearMark(item, job.id) then return false, "upkeep_marker_uncertain", true end
+        dropReceipt(target)
+        return true, "upkeep_source_removed", false, true
+    end
+    if home ~= "loaded" then return false, "base_storage_unloaded", true end
     if carried then
         local returned, reason = SC.BaseWork.returnToStorage(actor, baseState,
             storage, container, item)
@@ -717,66 +739,55 @@ function Upkeep.update(actor, baseState, job)
 end
 function Upkeep.releaseAffinity(actor, job)
     if not job or not job.assignedId then return true end
-    if not actor then return false end
+    if not actor then
+        -- A worker who died or was removed can never finish this receipt.
+        return SC.BaseFuel.workerGone(job) and Upkeep.cancel(nil, job) == true or false
+    end
     local item, carried = itemFor(job, actor)
     if carried or job.target.stage == "working" or (SC.NativeActions
-        and (SC.NativeActions.workKind(actor) == "wash_vehicle"
-            or SC.NativeActions.workKind(actor) == "wash_vehicle_fill"
-            or SC.NativeActions.workKind(actor) == "inflate_tires"
-            or SC.NativeActions.workKind(actor) == "vehicle_area_approach")) then
+        and NATIVE_KINDS[SC.NativeActions.workKind(actor) or ""]) then
         return false
     end
     if item and marker(item) ~= job.id then return false end
     job.assignedId, states[actor] = nil, nil
     return true
 end
+-- Cancelling refuses only while the supply may still come back: a dormant
+-- worker, an unloaded storage or a native action that will not stop. It never
+-- waits on pressure or blood readings; the supply simply goes home.
 function Upkeep.cancel(actor, job)
     if not job then return true end
+    local target = job.target
     if not actor then
-        return job.target.stage == nil, job.target.stage == nil
-            and "upkeep_not_started" or "upkeep_worker_unavailable"
+        if target.stage ~= nil and not SC.BaseFuel.workerGone(job) then
+            return false, "upkeep_worker_unavailable"
+        end
+        SC.BaseFuel.clearStoredMark(job, MARKER)
+        dropReceipt(target)
+        job.assignedId = nil
+        return true, "upkeep_receipt_released"
     end
     local item, carried = itemFor(job, actor)
-    if SC.NativeActions.workKind(actor) == "vehicle_area_approach" then
+    -- Stop only this job's own action; the worker may be on a newer chore.
+    if states[actor] == job.id
+        and NATIVE_KINDS[SC.NativeActions.workKind(actor) or ""] then
         local stopped, reason = SC.NativeActions.cancelWork(actor,
             "upkeep_cancelled")
         if stopped ~= true then return false, reason end
     end
-    if SC.NativeActions.workKind(actor) == "wash_vehicle_fill" then
-        local stopped, reason = SC.NativeActions.cancelWork(actor,
-            "upkeep_cancelled")
-        if stopped ~= true then return false, reason end
-    end
-    if job.target.stage == "working" then
-        local kind = job.type == "inflate_tires" and "inflate_tires"
-            or "wash_vehicle"
-        if SC.NativeActions.workKind(actor) == kind then
-            local stopped, reason = SC.NativeActions.cancelWork(actor,
-                "upkeep_cancelled")
-            if stopped ~= true then return false, reason end
-        end
-        if not item then return false, "upkeep_supply_missing" end
-        local vehicle = SC.Vehicle and SC.Vehicle.loadedBySqlId(job.target.vehicleId)
-        local settled, reason = settle(job, item, vehicle)
-        if not settled then return false, reason end
-    end
+    local home, storage, container = SC.BaseFuel.sourceState(job)
+    if home == "unloaded" then return false, "base_storage_unloaded" end
     if item then
-        local storage = job.target.sourceStorageId
-            and SC.BaseLife.storage(job.target.sourceStorageId)
-        local container = storage and SC.BaseLife.resolveContainer(storage)
-        if not container then return false, "base_storage_unloaded" end
-        if carried then
+        if home == "loaded" and carried then
             local returned, reason = SC.BaseWork.restoreToStorage(actor,
                 storage, container, item)
             if returned ~= true then return false, reason end
-        elseif U().inventoryContains(container, item) ~= true then
+        elseif home == "loaded" and U().inventoryContains(container, item) ~= true then
             return false, "upkeep_supply_owner_uncertain"
         end
         if not clearMark(item, job.id) then return false, "upkeep_marker_uncertain" end
-    elseif job.target.sourceStorageId then
-        return false, "upkeep_supply_missing"
     end
-    clearTarget(job.target)
+    dropReceipt(target)
     job.assignedId, states[actor] = nil, nil
     return true
 end

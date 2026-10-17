@@ -11,6 +11,9 @@
 - Companions following the player no longer stop to fight zombies safely separated by tall fences or closed doors. Open doors use their current state during combat and route checks, so an old blocked sight result does not hold up the squad.
 - Moving formations track the predicted follow point inside a tile, reducing repeated pauses on open ground. The final short movement checks native collision before advancing.
 - A companion can follow a player-driven car in another vehicle, and hunger and thirst advance at one-third of the player's rate. Cloned-save harnesses cover car work, squad routing, and door entry.
+- A follow car that cannot keep up is handed back. A blocked road, a dead engine, a car left outside the loaded area or the player taking that car now ends the assignment with one note, and the companion rides with the player again instead of sitting in the parked car or being refused a seat.
+- Camp car and generator chores no longer jam. A worker who dies mid-chore, a can or pump the player takes, or a storage that is unmarked no longer leaves a job that retries hourly forever or refuses to be cancelled, and abandoning the camp is never blocked by one. A borrowed item's reservation counts only while its job still names it, the tire pump and wash water are protected from hauling and sorting like gas cans, and a fuel or wash reading that does not add up no longer stops the player cancelling the job.
+- Route checks treat only teammates and the player as moving traffic. A zombie standing on a square is a blocked square again, so a Follow column never plans its path through one.
 - The native bridge protocol is `42.21-isocompanion-24`; update its JAR and Lua payload together.
 
 ## 0.26.42 - Safer squad fighting

@@ -352,7 +352,7 @@ local function findSource(actor, requirement)
                     end
                     for _, item in ipairs(items) do
                         if U().itemType(item) == itemType
-                            and not (U().modData(item) or {}).LF_RefuelJobId
+                            and not BaseWork.choreReserved(item)
                             and sourceItemAvailable(storage, itemType)
                             and not (SC.PersonalItems and SC.PersonalItems.isProtected
                                 and SC.PersonalItems.isProtected(item, actor, "base_build")) then
@@ -1059,7 +1059,7 @@ local function findTransfer(job, actor)
             local items, scanStart = storageItemSlice(container)
             for _, item in ipairs(items) do
                 local itemType = U().itemType(item)
-                if not (U().modData(item) or {}).LF_RefuelJobId
+                if not BaseWork.choreReserved(item)
                     and not (SC.PersonalItems and SC.PersonalItems.isProtected
                     and SC.PersonalItems.isProtected(item, actor, "base_haul")) then
                     local needsSorting = job.type ~= "sort"
@@ -2144,6 +2144,22 @@ end
 -- An expired active lease is only reclaimable after the former worker has no
 -- native action, transfer, cargo, or subsystem-owned recovery obligation.
 -- The caller leaves unsafe rows with their old owner for explicit recovery.
+-- Refuel and car-upkeep chores reserve one exact item by job id. A marker
+-- whose job no longer names that item is stale and reserves nothing.
+function BaseWork.choreReserved(item)
+    local data = U().modData(item) or {}
+    if data.LF_RefuelJobId == nil and data.LF_UpkeepJobId == nil then return false end
+    return not SC.BaseFuel or type(SC.BaseFuel.reserved) ~= "function"
+        or SC.BaseFuel.reserved(item) == true
+end
+
+-- A worker that died or was removed for good (SCBaseFuel owns the rule: a
+-- dormant or not-yet-restored companion still counts as present).
+function BaseWork.workerUnregistered(id)
+    return SC.BaseFuel and type(SC.BaseFuel.workerIdGone) == "function"
+        and SC.BaseFuel.workerIdGone(id) == true or false
+end
+
 function BaseWork.reconcileExpiredJob(job, ownerId)
     if type(job) ~= "table" or type(ownerId) ~= "string" then
         return false, "expired_job_owner_missing"
@@ -2156,10 +2172,22 @@ function BaseWork.reconcileExpiredJob(job, ownerId)
         or job.type == "inflate_tires" or job.type == "wash_vehicle")
         and type(job.target) == "table"
         and job.target.stage ~= nil then
-        return false, "expired_refuel_receipt_pending"
+        -- Only the chore can release a receipt whose worker is gone for good.
+        local work = job.type == "refuel_vehicle" and SC.VehicleRefuel
+            or job.type == "refuel_generator" and SC.GeneratorRefuel
+            or SC.VehicleUpkeep
+        if not BaseWork.workerUnregistered(ownerId) or not work
+            or type(work.releaseAffinity) ~= "function"
+            or work.releaseAffinity(nil, job) ~= true then
+            return false, "expired_refuel_receipt_pending"
+        end
     end
     local actor = U().resolveActor(ownerId)
-    if actor == nil then return false, "expired_job_actor_missing" end
+    if actor == nil then
+        -- Nothing of a dead or removed worker remains to settle.
+        if BaseWork.workerUnregistered(ownerId) then return true, "expired_job_worker_gone" end
+        return false, "expired_job_actor_missing"
+    end
     if SC.NativeActions and type(SC.NativeActions.isWorkActive) == "function"
         and SC.NativeActions.isWorkActive(actor) == true then
         return false, "expired_job_native_active"

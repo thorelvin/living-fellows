@@ -241,6 +241,12 @@ local function clearCargo(target)
     target.canBefore, target.receipt, target.refuelAttempts = nil, nil, nil
     target.actionStartedAt, target.stageStartedAt = nil, nil
 end
+local NATIVE_KINDS = { generator_refuel = true }
+-- Drop a receipt that has nothing left to protect.
+local function dropReceipt(target)
+    clearCargo(target)
+    target.finishReason, target.filled = nil, nil
+end
 
 function Refuel.update(actor, baseState, job)
     local target = job.target
@@ -261,7 +267,15 @@ function Refuel.update(actor, baseState, job)
         local storage, container
         if target.sourceStorageId then
             storage, container = Fuel.sourceFor(job)
-            if not item then return false, "generator_refuel_can_missing", true end
+            if not item then
+                -- The reserved can is gone: the player took it, or it moved.
+                -- Choose another rather than retrying for this one forever.
+                if Fuel.sourceState(job) == "unloaded" then
+                    return false, "base_storage_unloaded", true
+                end
+                target.sourceStorageId, target.itemId = nil, nil
+                return true, "generator_refuel_can_reselecting"
+            end
         else
             storage, container, item = Fuel.sourceCan(actor)
             if not item then return true, "generator_refuel_fuel_exhausted", false, true end
@@ -285,7 +299,18 @@ function Refuel.update(actor, baseState, job)
         return taken == true, reason or "generator_refuel_can_pending",
             taken ~= true and reason ~= "approaching_base_storage"
     end
-    if not item then return false, "generator_refuel_can_missing", true end
+    if not item then
+        if Fuel.sourceState(job) == "unloaded" then
+            return false, "base_storage_unloaded", true
+        end
+        -- Neither the worker nor the loaded storage holds the can any more
+        -- (the player took it from the worker). Start over with another.
+        local stopped, why = Fuel.stopNative(actor, NATIVE_KINDS,
+            "generator_refuel_can_lost")
+        if stopped ~= true then return false, why, true end
+        dropReceipt(target)
+        return true, "generator_refuel_can_lost"
+    end
     if stage == "refueling" then
         local native = SC.NativeActions
         if native and native.workKind(actor) == "generator_refuel" then
@@ -346,8 +371,17 @@ function Refuel.update(actor, baseState, job)
     if stage ~= "returning" then
         return false, "generator_refuel_stage_invalid", true
     end
-    local storage, container = Fuel.sourceFor(job)
-    if not storage or not container then return false, "base_storage_unloaded", true end
+    local home, storage, container = Fuel.sourceState(job)
+    if home == "removed" then
+        -- The player unmarked the can's storage. The worker keeps the can,
+        -- unreserved, and ordinary camp hauling decides where it goes.
+        if not Fuel.clearMark(item, job.id) then
+            return false, "generator_refuel_marker_uncertain", true
+        end
+        dropReceipt(target)
+        return true, "generator_refuel_source_removed", false, true
+    end
+    if home ~= "loaded" then return false, "base_storage_unloaded", true end
     if carried then
         local returned, reason = SC.BaseWork.returnToStorage(actor, baseState,
             storage, container, item)
@@ -387,7 +421,10 @@ end
 
 function Refuel.releaseAffinity(actor, job)
     if not job or not job.assignedId then return true end
-    if not actor then return false end
+    if not actor then
+        -- A worker who died or was removed can never finish this receipt.
+        return Fuel.workerGone(job) and Refuel.cancel(nil, job) == true or false
+    end
     local item, carried = Fuel.itemFor(job, actor)
     if carried or job.target.stage == "refueling" or (SC.NativeActions
         and SC.NativeActions.workKind(actor) == "generator_refuel") then return false end
@@ -397,41 +434,44 @@ function Refuel.releaseAffinity(actor, job)
     return true
 end
 
+-- Cancelling refuses only while the can may still come back: a dormant
+-- worker, an unloaded storage or a native action that will not stop. It never
+-- waits on fuel readings; nothing more is poured and the can goes home.
 function Refuel.cancel(actor, job)
     if not job then return true end
+    local target = job.target
     if not actor then
-        return job.target.stage == nil,
-            job.target.stage == nil and "generator_refuel_not_started"
-                or "generator_refuel_worker_unavailable"
+        if target.stage ~= nil and not Fuel.workerGone(job) then
+            return false, "generator_refuel_worker_unavailable"
+        end
+        Fuel.clearStoredMark(job)
+        dropReceipt(target)
+        job.assignedId = nil
+        return true, "generator_refuel_receipt_released"
     end
     local item, carried = Fuel.itemFor(job, actor)
-    if job.target.stage == "refueling" then
-        if SC.NativeActions.workKind(actor) == "generator_refuel" then
-            local stopped, reason = SC.NativeActions.cancelWork(actor,
-                "generator_refuel_cancelled")
-            if stopped ~= true then return false, reason end
-        end
-        if not item then return false, "generator_refuel_can_missing" end
-        local settled, reason = settleFuel(job, item)
-        if not settled then return false, reason end
+    -- Stop only this job's own pour; the worker may be on a newer chore.
+    local owned = states[actor] and states[actor].jobId == job.id
+    if owned and SC.NativeActions.workKind(actor) == "generator_refuel" then
+        local stopped, reason = SC.NativeActions.cancelWork(actor,
+            "generator_refuel_cancelled")
+        if stopped ~= true then return false, reason end
     end
+    local home, storage, container = Fuel.sourceState(job)
+    if home == "unloaded" then return false, "base_storage_unloaded" end
     if item then
-        local storage, container = Fuel.sourceFor(job)
-        if not storage or not container then return false, "base_storage_unloaded" end
-        if carried then
+        if home == "loaded" and carried then
             local returned, reason = SC.BaseWork.restoreToStorage(actor,
                 storage, container, item)
             if returned ~= true then return false, reason end
-        elseif U().inventoryContains(container, item) ~= true then
+        elseif home == "loaded" and U().inventoryContains(container, item) ~= true then
             return false, "generator_refuel_can_owner_uncertain"
         end
         if not Fuel.clearMark(item, job.id) then
             return false, "generator_refuel_marker_uncertain"
         end
-    elseif job.target.sourceStorageId then
-        return false, "generator_refuel_can_missing"
     end
-    clearCargo(job.target)
+    dropReceipt(target)
     job.assignedId = nil
     states[actor] = nil
     return true
