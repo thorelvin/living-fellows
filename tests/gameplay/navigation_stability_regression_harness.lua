@@ -571,6 +571,32 @@ do
             toSquare, 100000, memory.blockedSquareCount, memory) == nil
             and memory.blockedSquareCount == 0,
         "expiry closes the square lookup gate")
+    local previousX, previousY = actor.x, actor.y
+    actor.x, actor.y = toSquare.x + 0.5, toSquare.y + 0.5
+    N._blacklistSquareForTests(memory, toSquare, "player_crowd", actor,
+        1000, "dynamic_square", "high", 30000)
+    check(N._squareBlacklistEntryForTests(memory.blockedSquares,
+            toSquare, 6000, memory.blockedSquareCount, memory) ~= nil,
+        "an occupied player tile remains excluded while a detour search runs")
+    actor.x, actor.y = toSquare.x + 1.5, toSquare.y + 0.5
+    check(N._squareBlacklistEntryForTests(memory.blockedSquares,
+            toSquare, 6001, memory.blockedSquareCount, memory) == nil
+            and memory.blockedSquareCount == 0,
+        "the route reopens immediately when the player leaves the tile")
+    actor.x, actor.y = toSquare.x + 0.5, toSquare.y + 0.5
+    local companionBefore = U.isCompanion
+    U.isCompanion = function(value) return value == actor end
+    check(N.rememberCrowdedSquare(memory, actor, toSquare, 7000)
+            and memory.blockedSquares[U.squareKey(toSquare)].type == "companion_crowd"
+            and N._squareBlacklistEntryForTests(memory.blockedSquares,
+                toSquare, 9000, memory.blockedSquareCount, memory) ~= nil,
+        "a companion occupying a doorway is excluded during the detour search")
+    actor.x = toSquare.x + 1.5
+    check(N._squareBlacklistEntryForTests(memory.blockedSquares,
+            toSquare, 9001, memory.blockedSquareCount, memory) == nil,
+        "the doorway reopens when the companion moves away")
+    U.isCompanion = companionBefore
+    actor.x, actor.y = previousX, previousY
     N._rememberRouteEdgeForTests(memory, fromSquare, toSquare,
         true, "open", nil, 1000)
     penalty, familiarity = N._routeMemoryAdjustmentForTests(

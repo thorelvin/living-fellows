@@ -225,11 +225,11 @@ local function sweepBlockedEdges(state, now)
 end
 
 local function blacklistSquare(state, square, blockerType, object, now,
-        evidenceClass, confidence)
+        evidenceClass, confidence, durationOverride)
     local key = squareKey(square)
     if not key then return nil end
     state.blockedSquares = state.blockedSquares or {}
-    local duration = blockerDuration(evidenceClass)
+    local duration = tonumber(durationOverride) or blockerDuration(evidenceClass)
     state.blockedSquares[key] = {
         type = blockerType or "unknown", object = object,
         evidenceClass = evidenceClass or "unknown",
@@ -250,12 +250,32 @@ local function blacklistSquare(state, square, blockerType, object, now,
 end
 
 Navigation._blacklistSquareForTests = blacklistSquare
+function Navigation.rememberCrowdedSquare(state, blocker, square, now)
+    local utility = U()
+    if blocker == nil or not utility.sameSquare(blocker, square) then return false end
+    local companion = utility.isCompanion(blocker)
+    if not companion and not utility.instanceOf(blocker, "IsoPlayer") then return false end
+    blacklistSquare(state, square,
+        companion and "companion_crowd" or "player_crowd", blocker, now,
+        "dynamic_square", "high", companion and 10000 or 30000)
+    return true
+end
 
 local function squareBlacklistEntry(blockedSquares, square, now, count, owner)
     if type(blockedSquares) ~= "table" or count == 0 then return nil end
     local key = squareKey(square)
     local entry = key and blockedSquares[key] or nil
-    if entry and (tonumber(entry.expires) or 0) > (now or U().nowMs()) then return entry end
+    if entry and (tonumber(entry.expires) or 0) > (now or U().nowMs()) then
+        -- A person standing in a passage is a temporary obstruction. Keep the
+        -- detour long enough for an incremental search to finish, but release
+        -- it immediately when that person leaves the tile.
+        if (entry.type ~= "player_crowd" and entry.type ~= "companion_crowd")
+            or entry.object == nil
+            or (U().isValidActor(entry.object) and not U().isDead(entry.object)
+                and U().sameSquare(entry.object, square)) then
+            return entry
+        end
+    end
     if entry and key then
         blockedSquares[key] = nil
         if owner then owner.blockedSquareCount = math.max(0, owner.blockedSquareCount - 1) end
@@ -7445,11 +7465,24 @@ function Navigation.request(actor, target, movementMode, intent)
         local companionBlocker = utility.isCompanion(blocker)
         local ownRightOfWay = companionBlocker and hasRightOfWay(actor, requestIntent, blocker)
         local yieldAfter = utility.config("navigationYieldMs") or 900
+        if blockerType == "player_crowd" and waited >= yieldAfter
+            and utility.sameSquare(blocker, nextSquare) then
+            -- The route planner only charges a modest crowd cost, so it can
+            -- repeatedly choose the shortest route through a player who is
+            -- standing still. Temporarily exclude that tile and search for a
+            -- real way around; the memory clears as soon as the player moves.
+            SC.Navigation.rememberCrowdedSquare(state, blocker, nextSquare, now)
+            state.path, state.pathGoalSquare, state.pathSearch = nil, nil, nil
+            state.pathIndex, state.nextRepathAt = 1, 0
+            if not utility.stop(actor) then return false, "player_crowd_stop_rejected" end
+            return true, "rerouting_around_player"
+        end
         -- In open terrain the moving actor first steps around silently. A spoken
         -- "move" request is appropriate only after that failed, while a true
         -- door/fence/stair choke may request clearance sooner.
         if ownRightOfWay and not crowdChoke and waited >= yieldAfter
             and lateralYield(actor, state, sourceSquare, nextSquare, requestIntent, now) then
+            SC.Navigation.rememberCrowdedSquare(state, blocker, nextSquare, now)
             recordMovement(actor, "silent_lateral_avoidance", {
                 blocker = blockerType, nextSquare = nextSquare,
                 status = "avoided:" .. tostring(utility.idOf(blocker)),
@@ -7489,11 +7522,19 @@ function Navigation.request(actor, target, movementMode, intent)
         end
         if waited >= yieldAfter
             and lateralYield(actor, state, sourceSquare, nextSquare, requestIntent, now) then
+            SC.Navigation.rememberCrowdedSquare(state, blocker, nextSquare, now)
             blacklistEdge(state, sourceSquare, nextSquare, blockerType, blocker, now,
                 "dynamic_square", "high")
             recordBlocker(actor, state, blockerType, blocker, nextSquare, nil,
                 "lateral_yield", now, "dynamic_square", "high")
             return true, "yielding_personal_space"
+        end
+        if waited >= (utility.config("navigationTrafficDeadlockMs") or 2200)
+            and SC.Navigation.rememberCrowdedSquare(state, blocker, nextSquare, now) then
+            state.path, state.pathGoalSquare, state.pathSearch = nil, nil, nil
+            state.pathIndex, state.nextRepathAt = 1, 0
+            if not utility.stop(actor) then return false, "crowd_detour_stop_rejected" end
+            return true, "rerouting_around_crowd"
         end
         if not utility.stop(actor) then return false, "personal_space_stop_rejected" end
         return true, "holding_personal_space"
@@ -7747,7 +7788,7 @@ end
 -- to the same container or work spot used to arrive on the same tile and stay
 -- there overlapping. This is only a preference: when every tile is taken the
 -- full list stays, so a crowded spot never fails a task outright.
-function Navigation._preferUnclaimedGoals(actor, valid)
+function Navigation._preferUnclaimedGoals(actor, valid, snapshot)
     if type(valid) ~= "table" or #valid <= 1 then return valid end
     local utility = U()
     local taken = {}
@@ -7760,6 +7801,13 @@ function Navigation._preferUnclaimedGoals(actor, valid)
             local chosen = otherState.multiGoalSelected
             if chosen then taken[squareKey(chosen)] = true end
         end
+    end
+    local player = type(snapshot) == "table" and type(snapshot.player) == "table"
+        and snapshot.player.actor or nil
+    if player and player ~= actor and utility.isValidActor(player)
+        and utility.sameFloor(player, actor) then
+        local here = utility.squareOf(player)
+        if here then taken[squareKey(here)] = true end
     end
     local preferred = {}
     for _, square in ipairs(valid) do
@@ -7794,7 +7842,7 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
         end
     end
     if #valid == 0 then return false, "no_interaction_targets" end
-    valid = Navigation._preferUnclaimedGoals(actor, valid)
+    valid = Navigation._preferUnclaimedGoals(actor, valid, intent.snapshot)
     local arrival = tonumber(intent.arrivalDistance) or 0.85
     for _, square in ipairs(valid) do
         local arrived = intent.requireSameSquare == true

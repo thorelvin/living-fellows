@@ -22966,6 +22966,12 @@ end)()
     local preferred = navigation._preferUnclaimedGoals(seeker, { occupied, open })
     check(#preferred == 1 and preferred[1] == open,
         "a companion choosing among interaction tiles skips the one another companion stands on")
+    local playerTile = cell:getGridSquare(13, -3, 0)
+    local playerAtGoal = actor("player-at-goal", 13, -3, {})
+    preferred = navigation._preferUnclaimedGoals(seeker,
+        { occupied, playerTile, open }, { player = { actor = playerAtGoal } })
+    check(#preferred == 1 and preferred[1] == open,
+        "base work skips the player's tile when another interaction spot is available")
     local chooser = actor("sc-goal-chooser", 8, -1, {})
     navigation._stateForTests(chooser).multiGoalSelected = open
     preferred = navigation._preferUnclaimedGoals(seeker, { occupied, open })
