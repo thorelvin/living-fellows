@@ -311,22 +311,22 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <p class="subtitle">A Complete Guide to Living with the Fellows of Knox County</p>
   <p class="divider">· · · ✚ · · ·</p>
   <p class="edition">Living Fellows — Project Zomboid Build 42.21.0 Edition</p>
-  <p class="version">Release 0.26.40 — First Edition, Twelfth Printing — You won't die... alone.</p>
+  <p class="version">Release 0.26.44 — First Edition, Thirteenth Printing — You won't die... alone.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2.5rem;"><span class="callout-label">Note — </span>
-<strong>What changed in this printing</strong> — release 0.26.40:
+<strong>What changed in this printing</strong> — through release 0.26.44:
 <ul style="margin-top:0.5rem;margin-bottom:0;">
-  <li><a href="#ch9b"><strong>Conversations find a way.</strong></a> A companion already nearby can move around people and obstacles to reach a clear speaking place. The Talk log shows recent lines first.</li>
-  <li><a href="#ch11"><strong>Camp storage gained Clothes.</strong></a> Sorting and car unloading file clothing there; the base layout no longer flashes during routine refreshes.</li>
-  <li><a href="#appB"><strong>New survivors keep their distance.</strong></a> They appear 50 to 110 tiles away. Each recruit lengthens the next attempt's wait, especially in a large group.</li>
-  <li><a href="#appC"><strong>Installer and input fixes.</strong></a> Standalone updates and uninstalls preserve verified launcher changes made by other mods. The hygiene effect layer no longer covers the world with a mouse hit area. 0.26.40 uses native bridge protocol <code>42.21-isocompanion-21</code>.</li>
+  <li><a href="#ch4_field"><strong>Work beside your squad.</strong></a> Following companions can harvest ripe crops or chop nearby trees outside camp, then carry the produce or load it into your recent nearby car.</li>
+  <li><a href="#ch5c"><strong>More ways to travel.</strong></a> A companion can drive a second car behind yours; Markus Sloane's radio-booked taxi can take you to a road stop you mark on the world map.</li>
+  <li><a href="#ch6"><strong>Safer fights and closer following.</strong></a> Companions coordinate against small groups, time a retreating swing to meet closing zombies, and regain formation after a short jog.</li>
+  <li><a href="#ch14b"><strong>Camp vehicles and power.</strong></a> Base-duty residents can refuel parked cars and generators, inflate tires and wash parked cars using marked supplies. Blocked chores now report and recover more clearly.</li>
 </ul>
-<p style="margin:0.6rem 0 0;">Since the last Workshop printing: <a href="#ch17">car expeditions</a>, <a href="#appB_mod">companion chatter and comfort settings</a>, <a href="#ch18c">sixty-five Strange Folk</a> with <a href="#ch18c_calls">calls for help</a> on 90 MHz, the hands-on <a href="#ch3b">Medical Check</a>, and <a href="#ch11">25 by 25 camps</a>.</p>
+<p style="margin:0.6rem 0 0;">Also current: <a href="#ch17">car expeditions</a>, <a href="#appB_mod">companion chatter and comfort settings</a>, <a href="#ch18c">sixty-five Strange Folk</a> with <a href="#ch18c_calls">calls for help</a> on 90 MHz, the hands-on <a href="#ch3b">Medical Check</a>, and <a href="#ch11">25 by 25 camps</a>. This release uses native bridge protocol <code>42.21-isocompanion-24</code>.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2.5rem;"><span class="callout-label">Note — </span>
-<strong>About this manual</strong> — it covers what the companion panel does not explain: how the fellows think, what they need from you, and the rules they follow when nobody is giving orders. Everything here describes release 0.26.40 and was checked against the mod itself. Living Fellows is a <strong>public playtest</strong>: back up important saves, and send logs when something goes wrong (<a href="#appD">Appendix D</a>). The mod lives at <a href="https://github.com/thorelvin/living-fellows">github.com/thorelvin/living-fellows</a>. The <em>Overheard</em> quotes are real lines from the mod's own voice pools.
+<strong>About this manual</strong> — it covers what the companion panel does not explain: how the fellows think, what they need from you, and the rules they follow when nobody is giving orders. Everything here describes release 0.26.44 and was checked against the mod itself. Living Fellows is a <strong>public playtest</strong>: back up important saves, and send logs when something goes wrong (<a href="#appD">Appendix D</a>). The mod lives at <a href="https://github.com/thorelvin/living-fellows">github.com/thorelvin/living-fellows</a>. The <em>Overheard</em> quotes are real lines from the mod's own voice pools.
 </div>
 
 <!-- TABLE OF CONTENTS -->
@@ -613,6 +613,11 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <div class="callout callout-warn"><span class="callout-label">Take care — </span>A companion is not a remote-controlled gun. Doctrine, Hold Fire, line of sight, safe attack choice and overrun judgement all still apply, and a companion may refuse a bad instruction rather than obey it blindly. A <strong>push</strong> costs that companion morale and stress, works better when trust and bond are high, never overrides a missing escape route or missing support, and is remembered differently if it succeeds or gets them hurt.</div>
 
+<h3 id="ch4_field">One-off Field Work Away from Camp</h3>
+<p>With recruited companions on Follow, right-click a ground tile near you and choose <span class="menu">Living Fellows → Squad → Harvest nearby ripe crops</span> or <span class="menu">Chop nearby trees (up to five)</span>. The tile is the centre of an eight-tile work radius. Followers within 16 tiles join the same order, claim different targets, and use the game's farming or tree-chopping actions. Camp-owned areas are left to the regular base jobs.</p>
+<p>If the last non-taxi car you rode, as driver or passenger, is parked within 20 tiles of the work centre, the squad loads its gathered items into that car. A woodcutter can borrow an axe from its trunk and return it when finished. Without a nearby car, the workers carry what they gather; they stop taking wood when their packs are nearly full. If the selected car's trunk is locked, full or unavailable, the order pauses with a reason instead of switching cars or leaving cargo on the ground.</p>
+<p>The <span class="menu">Squad</span> panel shows progress and offers <strong>Stop field work and regroup</strong> or <strong>Resume field work</strong> when paused. An immediate threat interrupts work. Walking more than 16 tiles from the marked centre ends the order and brings the followers back to you.</p>
+
 <h3>Assigned Objectives</h3>
 <p>Right-click a recruited companion and choose <span class="menu">Assign objective</span> to set a concrete priority: medical supplies, reading material, gear, shelter, or a proper meal. Their own personal goal is kept and comes back once your objective is met (<a href="#ch9d">Chapter 9d</a>).</p>
 
@@ -667,7 +672,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 5 -->
 <h2 class="chapter" id="ch5"><img class="ico" src="https://pzwiki.net/w/images/4/4d/Flashlight.png" alt="">Chapter 5: Moving Together<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<p>Followers keep their place instead of stacking on your heels. By default a team you lead walks in single file along your path. Turn on <span class="menu">Team fans out while following</span> (Orders, Combat; it applies to the whole team) and on clear open ground they spread into fireteam slots instead: a close fighter at point, firearm support in the middle, and a cautious survivor at the rear. Doors, windows, fences, stairs and narrow streets put them back in file, one at a time, and they spread out again on the other side. An expedition squad always uses the fireteam shape.</p>
+<p>Followers keep their place instead of stacking on your heels. By default a team you lead walks in single file along your path. Turn on <span class="menu">Team fans out while following</span> (Orders, Combat; it applies to the whole team) and on clear open ground they spread into fireteam slots instead: a close fighter at point, firearm support in the middle, and a cautious survivor at the rear. Doors, windows, fences, stairs and narrow streets put them back in file, one at a time, and they spread out again on the other side. The moving team aims for stable nearby slots and uses short jogs to catch up when clear ground opens. An expedition squad always uses the fireteam shape.</p>
 
 <table>
   <tr><th>Fireteam role</th><th>Where they stand</th><th>Who fits it</th></tr>
@@ -762,10 +767,16 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </table>
 <p class="tbl-note">Expedition squads may travel by car when you choose <strong>Drive car</strong> in the mission planner (<a href="#ch17">Chapter 17</a>).</p>
 
+<h3>Another Car Behind Yours</h3>
+<p>Right-click a usable second car and choose <span class="menu">Drive this car and follow me</span> for a recruited companion. One companion-driven follow car can be assigned at a time. When you enter and drive your own car, its driver follows by road instead of trying to take a passenger seat. If the route fails, the engine dies, or that car is left too far behind, the assignment ends with a reason and the companion returns to ordinary Ride with player behaviour.</p>
+
+<h3>Markus's Taxi</h3>
+<p>With a powered portable walkie-talkie that can transmit, right-click it and choose <span class="menu">Markus's Taxi → Call for pickup</span>. Markus Sloane finds a safe road stop and brings his cab there. Enter a passenger seat, then right-click inside the cab or right-click a road on the world map to give him a destination. He asks for the map location if you wait too long. Offer jewelry toward the quoted fare through the same taxi menu. At the destination, everyone leaves the cab with their belongings; Markus then drives away. The radio menu can report his approach or cancel a pending pickup.</p>
+
 <!-- CH 6 -->
 <h2 class="chapter" id="ch6"><img class="ico" src="https://pzwiki.net/w/images/4/40/BaseballBat.png" alt="">Chapter 6: Combat and the Rules of Engagement<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<p>Companions fight with the game's own attack animations and weapon timings. Before every swing or shot they weigh their wounds, stamina, panic, pain, morale, skill and weapon condition against the support around them and the routes out. They split targets, avoid friendly fire, shove when it is safe, finish zombies on the ground, and cover a retreat.</p>
+<p>Companions fight with the game's own attack animations and weapon timings. Before every swing or shot they weigh their wounds, stamina, panic, pain, morale, skill and weapon condition against the support around them and the routes out. They split targets, avoid friendly fire, shove when it is safe, finish zombies on the ground, and cover a retreat. Against a small group, they can backpedal into the reach of their particular weapon and start a swing as a zombie closes. A lone fighter with room to retreat can kite up to three zombies, while nearby companions use separate attack lanes. Downed or rising zombies can be finished when no standing threat can reach the fighter. If a last weapon breaks against one isolated zombie, a healthy companion can make room for another carried weapon or close to shove and stomp.</p>
 
 <figure class="plate">
   <img loading="lazy" decoding="async" src="https://pzwiki.net/w/images/7/73/Idle_Zombie_Horde.png" alt="A crowd of zombies standing in the front yard of a white house beside a parked station wagon.">
@@ -872,7 +883,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 8 -->
 <h2 class="chapter" id="ch8"><img class="ico" src="https://pzwiki.net/w/images/0/0c/Bandage.png" alt="">Chapter 8: Needs, Medicine and Death<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<p>Companions get hungry, thirsty and tired on the game's own needs. By default hunger and thirst rise at <strong>half</strong> the player's rate; the sandbox page can set anything from off to twice the player's rate. They eat, drink, fetch from camp storage, and look after themselves, but they can only use what the world gives them.</p>
+<p>Companions get hungry, thirsty and tired on the game's own needs. By default hunger and thirst rise at <strong>one-third</strong> the player's rate; the sandbox page can set anything from off to twice the player's rate. They eat, drink, fetch from camp storage, and look after themselves, but they can only use what the world gives them.</p>
 
 <h3>When They Speak Up</h3>
 <p>A companion says something once when a need crosses a threshold, and again only if it gets worse. It waits out danger and the usual speech cooldowns, and can raise the same need again only after it has improved and come back. Asking about their status in Talk still gets a direct answer.</p>
@@ -1641,6 +1652,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/2/2f/FishingRod.png" alt=""></td><td><strong>Angler</strong></td><td>A fishing bank, a rod and bait</td><td>Fishes the bank and stores the catch in marked Food storage (<a href="#ch15b">Ch 15b</a>).</td></tr>
 </table>
 <p>Each camp audit checks every production role, so one busy worker no longer holds up another, and body disposal no longer waits behind the woodpile. Quartermasters, medics, guards and generalists use the ordinary base chores. How much of that work they take on, and who keeps watch, is set by the base policies (<a href="#ch14b">Chapter 14b</a>).</p>
+<p>Any available resident on base duty can also take the shared car and generator chores; you do not assign a separate refueller or mechanic role. Park a car in the marked Parking area, stock the needed supplies, and read its job status in the camp ledger (<a href="#ch14b">Chapter 14b</a>).</p>
 
 <div class="lore-pull"><span class="lore-label">Overheard — </span>Three planks from one log. The math still works.<span class="who">— a carpenter</span></div>
 
@@ -1725,6 +1737,10 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>The status lines count jobs pending, active and blocked, and planned construction is listed with its state and what it is <strong>blocked by</strong> (<a href="#ch13">Ch 13</a>). A blocked job tries again on its own, waiting twice as long after each failure: 10 seconds, then 20, 40 and so on, up to ten minutes.</p>
 <p>After <strong>six failures in a row</strong> a job stops trying and appears under <strong>Stalled jobs</strong>, with its worker, the reason, and two buttons: <span class="menu">Retry blocked job</span> gives it a fresh run, and <span class="menu">Cancel job</span> removes it after a confirmation. Gathering and production jobs follow their own order's controls instead.</p>
 <div class="callout callout-warn"><span class="callout-label">Take care — </span>A cancel can be refused while a job can't safely stop, such as a Chef's pot still on the heat, or a carried item that can't be put back yet. The reason is shown; try again once it has settled.</div>
+
+<h3>Parked Cars and Generators</h3>
+<p>Available base-duty residents can refuel a car parked in the marked Parking area and a generator within camp work reach when either falls below half a tank. They take fuel from marked camp storage. They can also inflate a parked car's tires with a stored pump and wash its bodywork with tainted water, or fill an empty vessel at a suitable camp sink. Stored clean drinking water is left for people. These are shared chores, independent of the resident's selected job.</p>
+<p>Right-click an eligible car or generator for a one-time order: <span class="menu">Refuel car from base</span>, <span class="menu">Inflate tires from base</span>, <span class="menu">Wash car from base</span>, or <span class="menu">Refuel generator from base</span>. A full tank, inflated tires, missing supplies or a target outside camp reach gives a reason. If a tool, can, target or worker goes missing during a job, the camp records the problem rather than keeping the item reserved forever.</p>
 
 <h3>Zones, Storage and Maintenance</h3>
 <ul>
@@ -2133,7 +2149,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 18c -->
 <h2 class="chapter" id="ch18c"><img class="ico" src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Chapter 18c: Strange Folk<span class="stage stage-end">Strangers</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<div class="callout callout-tip"><span class="callout-label">Note — </span>Strange Folk arrived in 0.26.35. Release 0.26.40 uses native bridge protocol <code>42.21-isocompanion-21</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Strange Folk arrived in 0.26.35. Release 0.26.44 uses native bridge protocol <code>42.21-isocompanion-24</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
 
 <p>Not every stranger is a household looking for supplies. Sixty-five hand-made characters live in Knox County: a butcher with a back room, a deputy still running her checkpoint, a grandmother guarding a child's bedroom with a broken bottle, a man who smeared himself in the dead so they'd leave him alone. Each one is a one-off with their own rules, voice and ending. They use the same standing, trade, combat, navigation and recruitment rules as other survivors, and their animals are real Build 42 animals with names that survive saves.</p>
 
@@ -2271,7 +2287,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td>Game's Rotate building key</td><td>Turn a blueprint before you place it</td><td class="tbl-note">The game's own binding</td></tr>
   <tr><td>Right-click a companion</td><td>Talk to [name], Watch, Follow, Stay, Regroup, Retreat, Assign objective; a Chef on duty also offers Cook me a meal. Medical Check examines them and opens their body-part panel; Give nickname... names them.</td><td class="tbl-note"></td></tr>
   <tr><td>Right-click the world</td><td><span class="menu">Living Fellows</span>: Move here, object actions, target actions, care, squad signals, base life, households</td><td class="tbl-note"></td></tr>
-  <tr><td>Right-click the world → Living Fellows → Squad</td><td>Whistle, Hold, Fall back, Cease fire, Fire</td><td class="tbl-note">Hand signs need line of sight (<a href="#ch5b">Ch 5b</a>)</td></tr>
+  <tr><td>Right-click the world → Living Fellows → Squad</td><td>Whistle, Hold, Fall back, Cease fire, Fire; harvest or chop near a ground tile</td><td class="tbl-note">Hand signs need line of sight; field work needs recruited followers (<a href="#ch5b">Ch 5b</a>, <a href="#ch4_field">Ch 4</a>)</td></tr>
   <tr><td>Right-click your radio</td><td>Return immediately (expeditions)</td><td class="tbl-note">Needs a received transmission</td></tr>
 </table>
 
@@ -2283,7 +2299,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td>Spawn independent survivors</td><td>on / off</td><td>on</td><td>Whether new independent survivors appear</td></tr>
   <tr><td>Independent survivor frequency</td><td>Very rare, Rare, Normal, Frequent</td><td>Normal</td><td>The base real-time gap between attempts. Each living recruit lengthens it; the increase grows faster with a large group.</td></tr>
   <tr><td>Maximum active companions</td><td>1–16</td><td>16</td><td>Limit for new recruits and encounters</td></tr>
-  <tr><td>Companion hunger and thirst rate</td><td>0–2</td><td>0.5</td><td>0 turns it off; 1 matches the player</td></tr>
+  <tr><td>Companion hunger and thirst rate</td><td>0–2</td><td>0.33</td><td>0 turns it off; 1 matches the player</td></tr>
   <tr><td>Spawn new survivor households</td><td>on / off</td><td>on</td><td>Whether new households appear</td></tr>
   <tr><td>Household daily spawn chance</td><td>0–100%</td><td>8%</td><td>Checked on an eligible day</td></tr>
   <tr><td>Maximum new households</td><td>0–12</td><td>3</td><td>Stops new households at this count</td></tr>
@@ -2355,7 +2371,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p><span class="menu">More → Support</span> is the first place to look when something is wrong, and the report it copies is the most useful thing to attach to a bug report.</p>
 <table>
   <tr><th>Line</th><th>What a healthy game shows</th></tr>
-  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.40</td></tr>
+  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.44</td></tr>
   <tr><td>Game build / supported build</td><td>42.21.0 on both sides</td></tr>
   <tr><td>Runtime active</td><td>Yes. If not, <strong>Runtime disabled reason</strong> says why.</td></tr>
   <tr><td>Native bridge status, actor provider, bridge protocol</td><td>The bridge is ready, and its protocol matches the expected one. A mismatch means an old or mixed install.</td></tr>
@@ -2443,6 +2459,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li>Follow distance: close, 2, 3, 5 or 8 tiles. Movement: Copy player, Walk, Sneak, Run.</li>
   <li>New recruits: Follow, Copy player, Ride with player, Scavenge when safe.</li>
   <li><span class="k">Dismiss</span> is confirmed by name; it waits only for a fight for their life or an action that can't be stopped.</li>
+  <li><span class="k">Squad field work</span>: right-click ground to harvest ripe crops or chop up to five nearby trees; stop or resume from Squad.</li>
 </ul>
 <p class="tbl-note">Ch 4</p>
 </div>
@@ -2528,6 +2545,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="k">Angler</td><td>Fishing bank, rod and bait</td></tr>
 </table>
 <p>Outdoor work pauses 21:00–06:00 unless allowed. Tired residents sleep before the next job.</p>
+<p>Any available base-duty resident can refuel parked cars and camp generators, inflate tires and wash cars from marked supplies.</p>
 <p class="tbl-note">Ch 14, 15, 15b, 16</p>
 </div>
 
@@ -2575,7 +2593,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CARD END -->
 
 <div class="page-footer">
-  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.40 &nbsp;·&nbsp; First Edition, Twelfth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
+  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.44 &nbsp;·&nbsp; First Edition, Thirteenth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
 </div>
 <script>
 (function () {
