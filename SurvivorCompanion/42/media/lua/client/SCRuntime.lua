@@ -1161,6 +1161,12 @@ local function vehicleTask()
     end
     local ok, currentVehicle = invoke(currentPlayer, "getVehicle")
     if not ok then return end
+    if SC.FieldWork and SC.FieldWork.leaderPulse then
+        SC.FieldWork.leaderPulse(currentPlayer)
+    end
+    if currentVehicle ~= nil and SC.FieldWork then
+        SC.FieldWork.observePlayerVehicle(currentVehicle)
+    end
     if lastPlayerVehicle ~= nil and currentVehicle == nil then
         -- Retry the just-exited vehicle's stranded passengers on later pulses within
         -- a bounded window, instead of consuming the exit after a single attempt: a

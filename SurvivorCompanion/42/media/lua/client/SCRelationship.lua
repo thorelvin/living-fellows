@@ -712,6 +712,7 @@ local doingLabels = {
 
 local doingPrefixes = {
     farm_ = "tending the farm",
+    field_ = "working nearby",
     logistics_ = "organizing supplies",
     faction_ = "handling household business",
     return_to_ = "heading back",

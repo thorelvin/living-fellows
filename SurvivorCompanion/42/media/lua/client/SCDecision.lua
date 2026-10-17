@@ -676,6 +676,12 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         add("encounter", threatCount > 0 and 84 or 48, threatCount > 0)
     else
         local alert = threatCount == 0 and recentSharedAlert(actor, snapshot, state, current) or nil
+        if not bleeding and not selfMedicalNeed and threatCount == 0
+            and immediate == 0 and humanThreat == nil
+            and commands.order == "follow" and SC.FieldWork
+            and SC.FieldWork.wants(actor, player, commands) then
+            add("field_work", 93, false)
+        end
         if alert then
             local closeRadius = U().config("sharedAlertCloseRadius") or 8
             local distanceSq = tonumber(alert.distanceSq) or U().distanceSq(actor, alert)
@@ -1964,6 +1970,10 @@ local function delegate(candidate, actor, player, rootRuntime, commands, snapsho
         return callSubsystem("base-work", actor, function()
             return SC.BaseWork.update(actor, player, rootRuntime)
         end)
+    elseif candidate.kind == "field_work" then
+        return callSubsystem("field-work", actor, function()
+            return SC.FieldWork.update(actor, player)
+        end)
     elseif candidate.kind == "fishing" then
         if not SC.Fishing or type(SC.Fishing.update) ~= "function" then
             return false, "fishing_unavailable"
@@ -2228,6 +2238,8 @@ local function candidateInterval(candidate)
         return 250
     elseif candidate.kind == "base_work" then
         return 250
+    elseif candidate.kind == "field_work" then
+        return 250
     elseif candidate.kind == "fishing" then
         return 250
     elseif candidate.kind == "logistics" then
@@ -2248,6 +2260,7 @@ local retainedApproachKinds = {
     logistics = true, infection_crisis = true, encounter = true,
     scavenge = true, downtime = true, needs = true,
     base_work = true, fishing = true, faction = true, purposeful_idle = true,
+    field_work = true,
     joy_response = true, ritual = true,
 }
 
@@ -2781,6 +2794,12 @@ function Decision.update(actor, player, runtime, roundTimestamp)
     else
         snapshot.humanThreat = nil
     end
+    if SC.FieldWork and SC.FieldWork.interrupt
+        and ((tonumber(snapshot.threatCount) or 0) > 0
+            or (tonumber(snapshot.immediateCount) or 0) > 0
+            or snapshot.humanThreat ~= nil) then
+        SC.FieldWork.interrupt(actor)
+    end
     if SC.Encounter and type(SC.Encounter.formationRejoinRequired) == "function"
         and type(SC.Encounter.cancelScavenge) == "function" then
         local rejoin, rejoinReason = SC.Encounter.formationRejoinRequired(
@@ -3075,6 +3094,10 @@ function Decision.update(actor, player, runtime, roundTimestamp)
         else
             state.baseWorkEmergencyPending = nil
         end
+    end
+    if previous == "field_work" and selected.kind ~= "field_work"
+        and not recheck and SC.FieldWork and SC.FieldWork.interrupt then
+        SC.FieldWork.interrupt(actor)
     end
     if previous == "fishing" and selected.kind ~= "fishing" and not recheck
         and SC.Fishing and type(SC.Fishing.cancel) == "function" then

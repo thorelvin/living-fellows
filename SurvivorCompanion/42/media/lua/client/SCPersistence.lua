@@ -1430,6 +1430,7 @@ local function scheduledSubsystemDefinitions()
         { field = "taxiService", owner = SC.TaxiService,
             depth = 6, entries = 128 },
         { field = "baseWatch", owner = SC.BaseWatch, depth = 3, entries = 32 },
+        { field = "fieldWork", owner = SC.FieldWork, depth = 9, entries = 4096 },
     }
 end
 

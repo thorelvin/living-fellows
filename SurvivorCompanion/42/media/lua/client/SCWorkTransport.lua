@@ -253,6 +253,9 @@ end
 function Transport.isCargoProtected(item, actorOrId, operation)
     local data = itemData(item)
     if not data then return false end
+    if data.LF_FieldOrder ~= nil or data.LF_FieldBorrowedAxe ~= nil then
+        return true
+    end
     if data.LF_ProductionOrderId ~= nil then
         return operation ~= "production_deposit" and operation ~= "production_release"
     end
@@ -281,6 +284,9 @@ function Transport.foreignProtected(item, actor)
         return true, "quest_item_owned"
     end
     if data.LF_FarmReceiptId ~= nil then return true, "farm_item_owned" end
+    if data.LF_FieldOrder ~= nil or data.LF_FieldBorrowedAxe ~= nil then
+        return true, "field_item_owned"
+    end
     -- Refuel and car-upkeep chores reserve one exact item by job id; a marker
     -- whose job no longer names that item is stale and reserves nothing.
     if (data.LF_RefuelJobId ~= nil or data.LF_UpkeepJobId ~= nil)

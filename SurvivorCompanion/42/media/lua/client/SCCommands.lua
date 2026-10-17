@@ -2729,6 +2729,11 @@ end
 
 function Commands.issue(companionId, command, payload, player)
     if type(payload) == "table" and payload.scope == "team" then
+        if command == "stop_field_work" and SC.FieldWork then
+            return SC.FieldWork.stop("stopped_by_player")
+        elseif command == "resume_field_work" and SC.FieldWork then
+            return SC.FieldWork.resume()
+        end
         if command == "set_combat_doctrine" then
             return issueTeamDoctrine(payload, player)
         elseif command == "set_follow_fan_out" then

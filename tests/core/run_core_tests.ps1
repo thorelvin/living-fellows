@@ -386,6 +386,14 @@ try {
         )
         Add-ScJvmStep 'production' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $productionFiles 'Base production (fell/saw/dig/bury) integration harness failed.'
 
+        $fieldWorkFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Client 'SCFieldWork.lua'),
+            (Join-Path $TestRoot 'field_work_harness.lua')
+        )
+        Add-ScJvmStep 'field-work' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $fieldWorkFiles 'Off-base squad work and cargo harness failed.'
+
         $farmingFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),

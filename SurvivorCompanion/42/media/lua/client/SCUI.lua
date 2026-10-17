@@ -4070,6 +4070,24 @@ function SCUIDetail:buildGroups(panel, row)
     y = self:addCommandSelector(panel, y, "UI_SC_Select_Group",
         row and (row.group or "") or "", GROUPS, "set_group", "group")
     y = self:addSection(panel, y + 4, "UI_SC_Section_GroupOrders")
+    local field = SC.FieldWork and SC.FieldWork.status and SC.FieldWork.status()
+    if field then
+        local destination = field.carId and UI.text("UI_SC_Field_Car", field.carId)
+            or UI.text("UI_SC_Field_Carry")
+        local progress = tostring(field.completed or 0)
+            .. (field.targetCount and "/" .. tostring(field.targetCount) or "")
+        local detail = UI.text("UI_SC_Field_Summary", field.kind, field.phase,
+            progress, destination, field.blocker or "-")
+        y = self:addInformationLine(panel, y, "UI_SC_Field_Status", detail)
+        if field.phase == "working" or field.phase == "paused" then
+            y = self:addCommand(panel, y, "UI_SC_Field_Stop", "stop_field_work",
+                { scope = "team" })
+        end
+        if field.phase == "paused" then
+            y = self:addCommand(panel, y, "UI_SC_Field_Resume", "resume_field_work",
+                { scope = "team" })
+        end
+    end
     local group = row and row.group or nil
     y = self:addCommand(panel, y, "UI_SC_Action_GroupFollow", "follow", { scope = "group", group = group })
     y = self:addCommand(panel, y, "UI_SC_Action_GroupStay", "stay", { scope = "group", group = group })

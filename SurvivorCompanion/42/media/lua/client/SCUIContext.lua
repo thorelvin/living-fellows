@@ -1546,7 +1546,14 @@ local function addCompanionCare(menu, row, player)
     addViews(menu, row, player)
 end
 
-local function addSquadMenu(menu, player)
+local function fieldAction(_target, kind, square, player)
+    local ok, reason = SC.FieldWork.start(kind, square, player)
+    safeMethod(player, "setHaloNote", text(ok and "UI_SC_Field_Started"
+        or "UI_SC_Field_Rejected", tostring(reason)))
+    if SC.UI and SC.UI.refresh then SC.UI.refresh() end
+end
+
+local function addSquadMenu(menu, player, square)
     for _, descriptor in ipairs({
         { key = "UI_SC_Action_WhistleRegroup", signal = "whistle" },
         { key = "UI_SC_Action_HandSignHold", signal = "hold" },
@@ -1556,6 +1563,27 @@ local function addSquadMenu(menu, player)
     }) do
         menu:addOption(text(descriptor.key), nil, issueSignalFromContext,
             descriptor.signal, player)
+    end
+    if square and SC.FieldWork and SC.FieldWork.available(player) then
+        local status = SC.FieldWork.status()
+        if status and (status.phase == "working" or status.phase == "paused") then
+            menu:addOption(text("UI_SC_Field_Stop"), nil, function()
+                SC.FieldWork.stop("stopped_by_player")
+                if SC.UI and SC.UI.refresh then SC.UI.refresh() end
+            end)
+            if status.phase == "paused" then
+                menu:addOption(text("UI_SC_Field_Resume"), nil, function()
+                    local ok, reason = SC.FieldWork.resume()
+                    safeMethod(player, "setHaloNote", text(ok and "UI_SC_Field_Started"
+                        or "UI_SC_Field_Rejected", tostring(reason)))
+                end)
+            end
+        else
+            menu:addOption(text("UI_SC_Field_Harvest"), nil,
+                fieldAction, "harvest", square, player)
+            menu:addOption(text("UI_SC_Field_Chop"), nil,
+                fieldAction, "chop", square, player)
+        end
     end
 end
 
@@ -1601,6 +1629,8 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
         end
     end
     local rows, talkRows = nearbyRows(player)
+    local fieldAvailable = clickSquare and SC.FieldWork
+        and SC.FieldWork.available(player) == true
     local clickedVehicle = Context.vehicleAtClick(clickSquare)
     local clickedGenerator = clickSquare and safeMethod(clickSquare,
         "getGenerator") or nil
@@ -1632,7 +1662,7 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
         and not (clickedMatches and #clickedMatches > 1)
         and not memorialName and not sealedDoorGroup and not clickedVehicle
         and not clickedGenerator
-        and not taxiRide then return end
+        and not taxiRide and not fieldAvailable then return end
     if test and ISWorldObjectContextMenu and ISWorldObjectContextMenu.setTest then
         return ISWorldObjectContextMenu.setTest()
     end
@@ -1750,7 +1780,7 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
     end
 
     if #rows == 0 and #factions == 0 and #oddballs == 0
-        and not baseRelevant then return end
+        and not baseRelevant and not fieldAvailable then return end
 
     local rootOption = context:addOption(text("UI_SC_Context_LivingFellows"), nil, nil)
     local rootMenu = ISContextMenu:getNew(context)
@@ -1802,8 +1832,8 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
         end
     end
 
-    if #rows > 0 then
-        addSquadMenu(addCategory(rootMenu, "UI_SC_Context_Squad"), player)
+    if #rows > 0 or fieldAvailable then
+        addSquadMenu(addCategory(rootMenu, "UI_SC_Context_Squad"), player, clickSquare)
     end
     if baseRelevant then
         addBaseMenu(rootMenu, clickSquare, containerTarget, barricadeTarget, player)
