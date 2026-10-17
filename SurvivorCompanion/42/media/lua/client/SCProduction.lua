@@ -1243,12 +1243,13 @@ local function approachSquare(actor, square, action, avoid, reach, dragging)
         return "failed", "navigation_unavailable"
     end
     local treeWork = action == "move_to_production_tree"
+    local bodyWork = action == "move_to_production_body"
     local graveWork = action == "move_to_production_grave"
         or action == "drag_body_to_grave"
     local graveInRoom = graveWork and select(1, invoke(square, "isInARoom")) == true
     local offered = type(SC.Navigation.interactionTargets) == "function"
         and SC.Navigation.interactionTargets(actor, square,
-            graveWork and { requireDirectAccess = true } or nil) or {}
+            (graveWork or bodyWork) and { requireDirectAccess = true } or nil) or {}
     local targets = {}
     for _, target in ipairs(type(offered) == "table" and offered or {}) do
         -- Navigation's generic interaction helper may offer the object's own
@@ -1260,15 +1261,21 @@ local function approachSquare(actor, square, action, avoid, reach, dragging)
         local cardinal = tx ~= nil and sx ~= nil
             and math.abs(math.floor(tx) - math.floor(sx))
                 + math.abs(math.floor(ty) - math.floor(sy)) == 1
+        local nativeReach, reachKnown = true, false
+        if bodyWork then
+            nativeReach, reachKnown = invoke(target, "canReachTo", square)
+        end
         local targetInRoom = graveWork and select(1, invoke(target, "isInARoom")) == true
         if not U().sameSquare(target, square) and standingTree == nil
-            and (not treeWork or cardinal) and (not graveWork or
+            and (not treeWork and not bodyWork or cardinal)
+            and (not bodyWork or not reachKnown or nativeReach == true)
+            and (not graveWork or
                 (cardinal and targetInRoom == graveInRoom))
             and not avoided(target, avoid) then
             targets[#targets + 1] = target
         end
     end
-    if #targets == 0 and not graveWork then
+    if #targets == 0 and not graveWork and not bodyWork then
         local free = freeAdjacent(square, actor, avoid, treeWork)
         targets = free and { free } or {}
     end
@@ -1285,9 +1292,16 @@ local function approachSquare(actor, square, action, avoid, reach, dragging)
     -- Tile adjacency alone is not arrival: the actor can be at the edge of
     -- that tile while Navigation still owns an approach around vegetation.
     -- Starting a work animation there cuts off the retained movement route.
-    if adjacentTo(actor, square, treeWork) and reached ~= nil
+    local actorSquare = U().squareOf(actor)
+    local nativeReach, reachKnown = true, false
+    if bodyWork and actorSquare then
+        nativeReach, reachKnown = invoke(actorSquare, "canReachTo", square)
+    end
+    if adjacentTo(actor, square, treeWork or bodyWork) and reached ~= nil
         and U().sameSquare(actor, reached) then
-        return "arrived", "production_in_range"
+        if not bodyWork or not reachKnown or nativeReach == true then
+            return "arrived", "production_in_range"
+        end
     end
     return "pending", reason or "production_approaching"
 end

@@ -57,6 +57,48 @@ check(F.completedJobs == 1 and waterCan.container == farmContainer
         and F.receipts[1].phase == "returned",
     "the job completes only after exact return settlement")
 
+-- The stock action can leave its queue before the crop global object arrives.
+fresh()
+actor = F.actor("worker-a", 0, 1)
+plant = F.plant({ waterLvl = 20, waterNeeded = 60 })
+F.square(1, 1, plant)
+F.addStorage("storage:farm", "farming", { can(11, 2) })
+waterJob = F.job("water", 1, 1, { id = "job:delayed-water", actorId = actor.id, uses = 2 })
+FarmWork.update(actor, {}, waterJob, {})
+handled, reason = FarmWork.update(actor, {}, waterJob, {})
+check(handled == true and reason == "farm_water_started",
+    "the delayed crop test starts a real watering action")
+F.native[actor].active = false
+handled, reason = FarmWork.update(actor, {}, waterJob, {})
+check(handled == true and reason == "farm_action_verifying",
+    "a native action waits briefly for the crop update")
+F.clock = F.clock + 1000
+plant.waterLvl = 40
+handled, reason = FarmWork.update(actor, {}, waterJob, {})
+check(handled == true and reason == "farm_action_complete",
+    "a delayed water update completes rather than blocking the farm job")
+
+-- A reservation restored from a save is not a live action: reclaim its can.
+fresh()
+actor = F.actor("worker-a", 0, 1)
+local strandedCan = can(12, 2)
+actor.inventory:AddItem(strandedCan)
+farmStorage, farmContainer = F.addStorage("storage:farm", "farming", {})
+local resumedJob = F.job("water", 1, 1, {
+    id = "job:resumed-water", actorId = actor.id, uses = 2,
+})
+strandedCan.modData[FarmWork.ITEM_MARKER] = "farm-receipt:1"
+F.receipts[1] = {
+    id = "farm-receipt:1", jobId = resumedJob.id, actorId = actor.id,
+    kind = "borrowed", itemType = "Base.WateredCan",
+    nativeId = strandedCan.nativeId, sourceStorageId = farmStorage.id,
+    phase = "borrowed",
+}
+FarmWork.audit(F.base)
+check(strandedCan.container == farmContainer
+        and F.receipts[1].phase == "returned" and F.restoreCalls == 1,
+    "reload recovery returns a borrowed can even if its job remains reserved")
+
 -- LF-02 replant variant: the shovel must be home before sow borrows a seed.
 fresh()
 actor = F.actor("worker-a", 0, 1)

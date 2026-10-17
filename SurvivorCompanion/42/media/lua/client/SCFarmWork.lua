@@ -730,10 +730,9 @@ local function missingBorrowWasConsumed(receipt)
 end
 
 local function receiptActivelyOwned(receipt)
-    local job = SC.BaseLife and SC.BaseLife.job and SC.BaseLife.job(receipt.jobId) or nil
-    if receipt.phase ~= "recovery" and job
-        and (job.state == "reserved" or job.state == "active")
-        and job.reservedBy == receipt.actorId then return true end
+    -- A job reservation survives save/load, but the in-memory farm action
+    -- does not. Only a live state holding this exact receipt proves ownership;
+    -- otherwise recovery must return the supply even when the job is active.
     for actor, state in pairs(states) do
         if receipt.phase ~= "recovery" and actorId(actor) == receipt.actorId
             and state.jobId == receipt.jobId then
@@ -990,6 +989,22 @@ local function borrowSupply(actor, baseState, job, state, predicate, categories,
             actor, predicate, categories, scanKey)
         if not storage then
             if scanStatus == "scanning" then return true, "farm_supply_scanning", false end
+            if scanKey == "water" then
+                local rows, itemCount, samples = storageItemRows(categories), 0, {}
+                for _, row in ipairs(rows) do
+                    local items, count = rowItems(row)
+                    itemCount = itemCount + count
+                    for index = 0, math.min(count, 4 - #samples) - 1 do
+                        local item = select(1, listGet(items, index))
+                        if item then samples[#samples + 1] = U().itemType(item) end
+                    end
+                end
+                print("[SurvivorCompanion/farm-supply] job=" .. tostring(job.id)
+                    .. " operation=" .. tostring(job.target and job.target.operation)
+                    .. " usable_water_container=none storage_rows="
+                    .. tostring(#rows) .. " items=" .. tostring(itemCount)
+                    .. " sample=" .. table.concat(samples, ","))
+            end
             if scanKey == "dig_tool" and state.toolSpeechAttempted ~= true then
                 state.toolSpeechAttempted = true
                 speak(actor, "farm.tool.trouble", nil, tostring(job.id) .. ":tool")
@@ -1471,8 +1486,24 @@ local function finishAction(actor, baseState, job, state, square)
     end
     local finished, reason = SC.NativeActions.finishWork(actor)
     if finished ~= true then return false, reason or "farm_action_finish_failed", true end
+    if not actionProof(square, job.target, work) then
+        -- Farming changes arrive through the game's global-object update. A
+        -- finished native action can precede the updated crop reading briefly.
+        work.finishedAt = work.finishedAt or now()
+        if now() - work.finishedAt < 2500 then
+            return true, "farm_action_verifying"
+        end
+        local plant = plantOn(square)
+        print("[SurvivorCompanion/farm-proof] job=" .. tostring(job.id)
+            .. " operation=" .. tostring(work.operation)
+            .. " before=" .. tostring(work.before)
+            .. " water_after=" .. tostring(plant and plant.waterLvl)
+            .. " item=" .. tostring(work.item and U().itemType(work.item))
+            .. " uses_after=" .. tostring(work.item and waterUses(work.item)))
+        state.work = nil
+        return false, "farm_action_incomplete", true
+    end
     state.work = nil
-    if not actionProof(square, job.target, work) then return false, "farm_action_incomplete", true end
 
     if work.operation == "harvest" then
         local collected, collectReason = collectHarvest(actor, job, state, work.inventorySnapshot)

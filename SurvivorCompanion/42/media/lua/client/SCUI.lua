@@ -5095,6 +5095,55 @@ end
 
 local SCUIRoot = ISPanel:derive("SCUIRoot")
 
+-- Private playtest builds record the UI hit area when a sustained right-click
+-- does not put the local player into aim. This keeps an intermittent input
+-- blocker observable after it clears, without changing mouse ownership.
+local rightHoldStartedAt, rightHoldReported = nil, false
+
+local function probeRightMouseBlocker()
+    if not (SC.Config and type(SC.Config.get) == "function"
+        and SC.Config.get("debugSpawnEnabled") == true)
+        or type(isMouseButtonDown) ~= "function" then return end
+    if not isMouseButtonDown(1) then
+        rightHoldStartedAt, rightHoldReported = nil, false
+        return
+    end
+    local now = type(getTimestampMs) == "function" and getTimestampMs() or 0
+    if not rightHoldStartedAt then rightHoldStartedAt = now; return end
+    if rightHoldReported or now - rightHoldStartedAt < 350 then return end
+    rightHoldReported = true
+    local player = type(getSpecificPlayer) == "function" and getSpecificPlayer(0) or nil
+    if not player or safeMethod(player, "getVehicle") ~= nil
+        or safeMethod(player, "isAiming") == true then return end
+    local mx = type(getMouseX) == "function" and getMouseX() or -1
+    local my = type(getMouseY) == "function" and getMouseY() or -1
+    local hits = {}
+    local elements = UIManager and type(UIManager.getUI) == "function"
+        and UIManager.getUI() or nil
+    local count = elements and tonumber(safeMethod(elements, "size")) or 0
+    for index = count - 1, 0, -1 do
+        local element = safeMethod(elements, "get", index)
+        if element and safeMethod(element, "isVisible") == true
+            and (safeMethod(element, "isCapture") == true
+                or safeMethod(element, "isPointOver", mx, my) == true) then
+            local tableValue = safeMethod(element, "getTable")
+            local name = tableValue and tableValue.Type or tostring(element)
+            hits[#hits + 1] = tostring(name) .. "@"
+                .. tostring(safeMethod(element, "getX")) .. ","
+                .. tostring(safeMethod(element, "getY")) .. ":"
+                .. tostring(safeMethod(element, "getWidth")) .. "x"
+                .. tostring(safeMethod(element, "getHeight"))
+                .. (safeMethod(element, "isCapture") == true and ":captured" or "")
+            if #hits == 5 then break end
+        end
+    end
+    print("[SurvivorCompanion/input] right_hold_no_aim mouse="
+        .. tostring(mx) .. "," .. tostring(my)
+        .. " panel=" .. tostring(UI.instance and UI.instance.collapsed
+            and "collapsed" or "expanded")
+        .. " ui=" .. (#hits > 0 and table.concat(hits, " | ") or "none"))
+end
+
 function SCUIRoot:new(rect, settings)
     local object = ISPanel.new(self, rect.x, rect.y, rect.width, rect.height)
     object.settings = settings or {}
@@ -5646,6 +5695,7 @@ function SCUIRoot:onMouseUpOutside(x, y)
 end
 
 function SCUIRoot:prerender()
+    probeRightMouseBlocker()
     local sw, sh = screenSize()
     if sw ~= self.lastScreenWidth or sh ~= self.lastScreenHeight then
         self:applyScreenBounds()
@@ -5752,6 +5802,7 @@ function SCUICollapsedLauncher:onMouseUpOutside(x, y)
 end
 
 function SCUICollapsedLauncher:prerender()
+    probeRightMouseBlocker()
     local sw, sh = screenSize()
     if sw ~= self.lastScreenWidth or sh ~= self.lastScreenHeight then
         self:applyScreenBounds()

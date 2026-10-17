@@ -1660,6 +1660,45 @@ end
 
 do
     local ctx = setup()
+    createGrave(-2, -3, 0, false)
+    local bodySquare = sq(4, -4)
+    makeBody(bodySquare)
+    local blockedSide, reachableSide = sq(3, -4), sq(4, -3)
+    function blockedSide:canReachTo() return false end
+    function reachableSide:canReachTo() return true end
+    local originalTargets, originalRequestAny = SC.Navigation.interactionTargets,
+        SC.Navigation.requestAny
+    local sawReachableApproach = false
+    SC.Navigation.interactionTargets = function(actor, target, options)
+        if target == bodySquare then
+            check(options and options.requireDirectAccess == true,
+                "corpse pickup asks for a clear interaction edge")
+            return { blockedSide, reachableSide }
+        end
+        return originalTargets(actor, target, options)
+    end
+    SC.Navigation.requestAny = function(actor, candidates, mode, intent)
+        if intent.action == "move_to_production_body" then
+            sawReachableApproach = #candidates == 1 and candidates[1] == reachableSide
+        end
+        return originalRequestAny(actor, candidates, mode, intent)
+    end
+    start(ctx, {
+        operation = "collect_bodies", zoneId = ctx.burial.id, requested = 1,
+        settings = { fromLumber = false },
+    })
+    for _ = 1, 30 do
+        tick(ctx)
+        if sawReachableApproach then break end
+    end
+    SC.Navigation.interactionTargets, SC.Navigation.requestAny =
+        originalTargets, originalRequestAny
+    check(sawReachableApproach,
+        "corpse pickup excludes a neighboring tile that native canReachTo rejects")
+end
+
+do
+    local ctx = setup()
     local shovel = makeItem("Base.Shovel", { tags = { diggrave = true } })
     ctx.toolsObject.container:AddItem(shovel)
     local originalWithdraw = SC.BaseWork.withdrawFromStorage
