@@ -251,6 +251,85 @@ check(SC.BaseFuel.prepareActorRetirement(T.actor) == true
     "a dead worker's can and pump stay on the body without their job markers")
 T.actor.inventory.items = {}
 
+-- Death is finalized while a marked source container is unloaded. The can
+-- stays on the body, but the receipt no longer holds actor retirement.
+local savedContainer = T.storage.container
+T.storage.container = nil
+local deadJob = { id = "job:dead", type = "refuel_vehicle",
+    assignedId = "worker", reservedBy = "worker",
+    target = { stage = "carrying", sourceStorageId = T.storage.id,
+        itemId = can:getID() } }
+T.actor.inventory.items = { can }
+can.data.LF_RefuelJobId = deadJob.id
+T.actor.dead = true
+local retired, retiredReason = Refuel.cancel(T.actor, deadJob)
+check(retired and retiredReason == "car_refuel_worker_retired"
+    and deadJob.target.stage == nil and deadJob.assignedId == nil
+    and can.data.LF_RefuelJobId == nil
+    and T.actor.inventory.items[1] == can,
+    "dead worker relinquishes the can receipt with storage unloaded")
+check(Refuel.cancel(T.actor, deadJob) == true
+    and T.actor.inventory.items[1] == can,
+    "repeating death cleanup leaves the same physical can on the body")
+T.actor.dead, T.storage.container = false, savedContainer
+
+-- Saved inventories create new native item IDs. Only the unique marked item
+-- belonging to the restored worker may acquire the old job's reservation.
+local restoredJob = { id = "job:restored", type = "refuel_vehicle",
+    assignedId = "worker", reservedBy = "worker",
+    state = "active", target = { itemId = 101, stage = "carrying" } }
+T.base.jobs = { restoredJob }
+can.id, can.data.LF_RefuelJobId = 202, restoredJob.id
+check(SC.BaseFuel.liveMarker(can) == nil,
+    "old native ID does not accidentally reserve the restored item")
+check(SC.BaseFuel.rebindRestoredItems(T.actor) == true
+    and restoredJob.target.itemId == 202
+    and SC.BaseFuel.liveMarker(can) == restoredJob.id,
+    "restored item's native ID is rebound through its job and worker marker")
+local duplicate = T.item(203, 1)
+duplicate.data.LF_RefuelJobId = restoredJob.id
+T.actor.inventory.items = { can, duplicate }
+restoredJob.target.itemId = 101
+SC.BaseFuel.rebindRestoredItems(T.actor)
+check(restoredJob.target.itemId == 101,
+    "duplicate chore markers do not select an ambiguous replacement")
+
+-- Inventory restoration may put the marked item back inside a carried bag.
+-- Normalize that exact object into the worker's root inventory before the
+-- chore's existing transfer receipt tries to return it to camp storage.
+local U = SC.GameplayUtil
+local oldDeep, oldTransfer = U.inventoryItemsDeep, U.transferItemVerified
+local bag = { items = {} }
+function bag:getItemContainer() return self.nested end
+bag.nested = { items = { can } }
+function can:getContainer() return bag.nested end
+T.actor.inventory.items = { bag }
+restoredJob.target.itemId = 101
+U.inventoryItemsDeep = function()
+    return { bag, can }
+end
+U.transferItemVerified = function(source, destination, item)
+    if source ~= bag.nested or destination ~= T.actor.inventory
+        or item ~= can then return false end
+    source.items, destination.items = {}, { bag, can }
+    return true
+end
+check(SC.BaseFuel.rebindRestoredItems(T.actor) == true
+    and SC.BaseFuel.liveMarker(can) == restoredJob.id
+    and U.inventoryContains(T.actor.inventory, can) == true
+    and #bag.nested.items == 0,
+    "nested restored chore supply moves to the root without copying it")
+U.inventoryItemsDeep, U.transferItemVerified = oldDeep, oldTransfer
+local sourceCopy = T.item(101, 1)
+sourceCopy.data.LF_RefuelJobId = restoredJob.id
+T.storage.container.items = { sourceCopy }
+restoredJob.target.sourceStorageId, restoredJob.target.itemId = T.storage.id, 101
+check(SC.BaseFuel.rebindRestoredItems(T.actor) == false
+    and restoredJob.target.itemId == 101,
+    "a marked source copy prevents rebinding the worker's other copy")
+T.storage.container.items = {}
+T.actor.inventory.items = {}
+
 T.car.engine = true
 check(select(2, Refuel.eligible(T.car, true)) == "car_engine_on",
     "running engines are excluded")

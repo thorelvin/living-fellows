@@ -1036,6 +1036,74 @@ local dx, dy = N.combatVector(mover, target, "backstep", {
 })
 check(dx == nil or not U.bodyBlocksSegment(rear, mover, dx * 0.45, dy * 0.45, 0.6),
     "backstep does not enter the second zombie's body")
+
+local crowdedFrom, crowdedTo = square(0, 0), square(1, 0)
+local crowdedWalker, friendly, zombie = actor(), actor(), actor()
+crowdedWalker.square = crowdedFrom
+friendly.square, friendly.x, friendly.y = crowdedTo, 1.5, 0.5
+zombie.square, zombie.x, zombie.y = crowdedTo, 1.5, 0.5
+function zombie:isZombie() return true end
+local oldCompanion = U.isCompanion
+U.isCompanion = function(value)
+    return value == friendly or oldCompanion(value)
+end
+crowdedTo.moving = { friendly, zombie }
+function crowdedTo:isFree() return false end
+local found, kind = U.movingBlocker(crowdedTo, crowdedWalker,
+    { preferNonFriendly = true })
+check(found == zombie and kind == "zombie_crowd",
+    "a friendly first in native occupancy does not mask a zombie")
+local oldBridge = SCBridge
+SCBridge = { fillEdgeFacts = function(_, _, toSquare, out)
+    for key in pairs(out) do out[key] = nil end
+    out.squareFree, out.barrierKind = toSquare ~= crowdedTo, "open"
+    out.tree, out.fire, out.brokenGlass = false, false, false
+    return true
+end }
+local mixedEdge = SC.Topology.withReadBatch(SC.Topology.classifyEdge,
+    crowdedWalker, crowdedFrom, crowdedTo)
+check(mixedEdge.traversable == false,
+    "mixed friendly and zombie occupancy is not an open route")
+crowdedTo.moving = { zombie, friendly }
+mixedEdge = SC.Topology.withReadBatch(SC.Topology.classifyEdge,
+    crowdedWalker, crowdedFrom, crowdedTo)
+check(mixedEdge.traversable == false,
+    "mixed occupancy blocks the route in either enumeration order")
+U.isCompanion = oldCompanion
+crowdedTo.moving = { friendly, zombie }
+mixedEdge = SC.Topology.withReadBatch(SC.Topology.classifyEdge,
+    crowdedWalker, crowdedFrom, crowdedTo)
+check(mixedEdge.traversable == false,
+    "player and zombie sharing a square also remain blocked")
+U.isCompanion = function(value)
+    return value == friendly or oldCompanion(value)
+end
+local pushable = { __class = "IsoPushableObject" }
+function pushable:isCollidable() return true end
+crowdedTo.moving = { friendly, pushable }
+mixedEdge = SC.Topology.withReadBatch(SC.Topology.classifyEdge,
+    crowdedWalker, crowdedFrom, crowdedTo)
+check(mixedEdge.traversable == false,
+    "a colliding pushable behind a friendly cannot become traffic")
+crowdedTo.moving = { friendly, zombie }
+fastGrid["1:0"] = crowdedTo
+check(N._fastOpenRouteForTests(fastGrid["0:0"], fastGrid["2:0"],
+        { actor = crowdedWalker, now = current }) == nil,
+    "the fast open-route path rejects mixed disallowed occupancy")
+crowdedTo.moving = { friendly }
+mixedEdge = SC.Topology.withReadBatch(SC.Topology.classifyEdge,
+    crowdedWalker, crowdedFrom, crowdedTo)
+check(mixedEdge.traversable == true,
+    "a friendly-only crowd remains dynamic traffic")
+SCBridge = oldBridge
+U.isCompanion = oldCompanion
+
+local yieldState = { yieldBlocker = friendly, yieldSince = current - 3100,
+    lastAttemptTo = crowdedTo, lastProgressAt = current - 5000 }
+local recovering = N._recoverFromStuckForTests(crowdedWalker, yieldState,
+    square(3, 0), "walk", { action = "follow_formation" }, current)
+check(recovering == false and yieldState.yieldSince ~= nil,
+    "generic recovery gives a known crowd blocker its detour deadline")
 U.gridSquare = oldGrid
 getTimestampMs = oldClock
 T.reset()

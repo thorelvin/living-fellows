@@ -120,6 +120,27 @@ check(Upkeep.cancel(T.actor, sinkJob) == true
     "the partly used bucket returns to its marked storage")
 T.base.jobs = {}
 T.blood.Front = 0.25
+emptyBucket.fluid.amount = 0
+local _, movedZone = Upkeep.queue("wash_vehicle", T.car.id, true)
+T.waterStorage.container.items = {}
+T.actor.inventory.items = { emptyBucket }
+emptyBucket.fluid.amount = 8
+emptyBucket.data.LF_UpkeepJobId = movedZone.id
+movedZone.target.stage = "carrying"
+movedZone.target.sourceStorageId = T.waterStorage.id
+movedZone.target.sourceKind = "sink"
+movedZone.target.sinkFilled = true
+movedZone.target.itemId = emptyBucket:getID()
+movedZone.target.zoneId = "old-parking-zone"
+okay, reason = Upkeep.update(T.actor, {}, movedZone)
+check(okay and reason == "upkeep_returning_supply"
+    and movedZone.target.stage == "returning"
+    and emptyBucket.fluid.amount == 8,
+    "a moved parking zone returns a full bucket without seeking another fill")
+check(Upkeep.cancel(T.actor, movedZone) == true,
+    "moved-zone wash releases its bucket receipt")
+T.base.jobs = {}
+T.blood.Front = 0.25
 check(select(2, Upkeep.queue("wash_vehicle", T.car.id, false))
     == "base_wash_water_missing",
     "filled clean containers alone never supply a car wash")
@@ -155,6 +176,21 @@ check(Upkeep.releaseAffinity(nil, staleJob) == true
     and staleJob.assignedId == nil and staleJob.target.stage == nil,
     "a dead worker's upkeep receipt is released for another resident")
 SC.Registry = nil
+
+local savedContainer = T.storage.container
+T.storage.container = nil
+staleJob.target.stage, staleJob.target.sourceStorageId = "carrying", T.storage.id
+staleJob.target.itemId, staleJob.assignedId = pump:getID(), "worker"
+pump.data.LF_UpkeepJobId = staleJob.id
+T.actor.inventory.items = { pump }
+T.actor.dead = true
+local retired, retiredReason = Upkeep.cancel(T.actor, staleJob)
+check(retired and retiredReason == "upkeep_worker_retired"
+    and staleJob.target.stage == nil and staleJob.assignedId == nil
+    and T.actor.inventory.items[1] == pump
+    and pump.data.LF_UpkeepJobId == nil,
+    "dead upkeep worker releases its pump receipt with storage unloaded")
+T.actor.dead, T.storage.container = false, savedContainer
 
 -- Cancelling an older chore must not stop the worker's action for a newer one.
 T.base.jobs = {}

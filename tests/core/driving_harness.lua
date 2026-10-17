@@ -743,6 +743,27 @@ do
     check(Convoy.step(actor, localPlayer, {}) == nil,
         "the released companion is no longer held by the convoy")
 
+    -- A blocked follower must eventually release its car even when the lead
+    -- stops far ahead; leader motion is not evidence of follower progress.
+    assign()
+    lead.x, lead.y = 110, 100
+    check(Convoy.step(actor, localPlayer, {}) == true,
+        "reassigned follower resumes the same car")
+    local savedFollow = Driving.followVehicle
+    Driving.followVehicle = function() return true end
+    local stalledAt = SC_TEST_CLOCK + 1000
+    Convoy.tick(stalledAt)
+    lead.x = 140
+    Convoy.tick(stalledAt + 1000)
+    Convoy.tick(stalledAt + 12000)
+    check(SC.Commands.peek(actor).followCarSqlId == nil
+        and not Driving.isDriving(actor),
+        "stationary distant leader no longer masks a stalled follow car: assignment="
+            .. tostring(SC.Commands.peek(actor).followCarSqlId)
+            .. " driving=" .. tostring(Driving.isDriving(actor))
+            .. " car=" .. tostring(car.x) .. " lead=" .. tostring(lead.x))
+    Driving.followVehicle = savedFollow
+
     -- The car is outside the loaded area while the player drives another one.
     assign()
     actor.vehicle, loaded = nil, false

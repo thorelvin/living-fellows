@@ -872,7 +872,8 @@ local function classifyEdge(actor, fromSquare, toSquare, options)
         -- player explains the native failure. A zombie, a stranger, an animal,
         -- furniture and pushables stay blocked; a column-flow route ignores
         -- crowd cost, so treating a zombie as traffic planned a path through it.
-        local occupant, kind = U().movingBlocker(toSquare, actor)
+        local occupant, kind = U().movingBlocker(toSquare, actor,
+            { preferNonFriendly = true })
         if occupant ~= nil
             and (kind == "companion_crowd" or kind == "player_crowd")
             and U().isSquareFree(toSquare)

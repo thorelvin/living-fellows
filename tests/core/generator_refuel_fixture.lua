@@ -62,6 +62,7 @@ SC.GameplayUtil = {
     inventoryContains = contains,
     itemType = function(item) return item.kind end,
     idOf = function(value) return value.id end,
+    isDead = function(value) return value and value.dead == true end,
     squareOf = function(value) return value == actor and actor.square or value end,
     position = function(value)
         return value and value.x, value and value.y, value and value.z

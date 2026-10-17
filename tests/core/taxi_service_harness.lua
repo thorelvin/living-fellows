@@ -362,6 +362,7 @@ caller.vehicle, car.seats[1], car.seats[0] = car, caller, nil
 car.removed, loaded = false, car
 chauffeur = nil
 local restoredDriver, restoreTicket
+local expectedRecoveryPassenger = caller
 SC.TaxiCab.current = function()
     return { ownershipToken = "markus:1:1", sqlId = 771 }
 end
@@ -395,14 +396,15 @@ function car:getPassengerPositionWorldPos()
 end
 function car:getEnterSeatDistance() return 1 end
 SC.Vehicle.preflightDriver = function(actor, vehicle, passenger)
-    check(actor == chauffeur and vehicle == car and passenger == caller,
+    check(actor == chauffeur and vehicle == car
+        and passenger == expectedRecoveryPassenger,
         "preflight with the booked passenger already seated")
     return { driver = actor }
 end
 SC.Driving.hasKey = function() return true end
 SC.Driving.takeWheel = function(actor, vehicle, intent)
     check(actor == chauffeur and vehicle == car
-        and intent.taxiPassenger == caller,
+        and intent.taxiPassenger == expectedRecoveryPassenger,
         "board exact recovered driver without moving passenger")
     car.seats[0], actor.vehicle = actor, car
     return true
@@ -424,6 +426,91 @@ check(Service.tick(7000) and car.seats[0] == restoredDriver
     "same ride resumes with stable driver identity")
 check(Service.isBookedPassenger(caller, car),
     "driver boarding exception is limited to the booked passenger")
+
+-- The passenger can save at arrival and leave before the first restored tick.
+-- Markus must still respawn so the committed fare can lead to a departure.
+booking = { generation = 1, phase = "waiting_exit" }
+caller.vehicle, car.seats[1], car.seats[0] = nil, nil, nil
+chauffeur, restoreTicket, expectedRecoveryPassenger = nil, nil, nil
+resumed.visit.phase = "waiting_exit"
+local fareBeforeReload = fareCommitted
+check(Service.restore(resumed) and Service.tick(1000)
+    and Service.tick(6000) and Service.tick(7000)
+    and car.seats[0] == chauffeur
+    and Service.current().phase == "finishing"
+    and fareCommitted == fareBeforeReload + 1,
+    "arrival reload restores Markus and settles the fare after passenger exit")
+
+booking = { generation = 1, phase = "payment_due" }
+car.seats[0], chauffeur, restoreTicket = nil, nil, nil
+resumed.visit.phase = "payment_due"
+fareBeforeReload = fareCommitted
+check(Service.restore(resumed) and Service.tick(1000)
+    and Service.tick(6000) and Service.tick(7000)
+    and car.seats[0] == chauffeur
+    and Service.current().phase == "finishing"
+    and fareCommitted == fareBeforeReload + 1,
+    "payment-due reload also restores Markus and commits only once")
+
+-- A visible dead-end leg must backtrack to the dropoff junction and take its
+-- connected side road, rather than retrying an outward-only goal forever.
+car.x, car.y = 360, 300
+getPlayerScreenWidth = function() return 4000 end
+getPlayerScreenHeight = function() return 4000 end
+SC.ExpeditionRoute.planFromPoint = function(origin, target)
+    if origin.x > 340 and math.abs(target.x - 300) < 2
+        and math.abs(target.y - 300) < 2 then
+        return { roadLength = 60 }, nil,
+            { entryX = origin.x, entryY = origin.y,
+                exitX = 300, exitY = 300 }
+    end
+    if origin.x < 310 and target.y < 275 then
+        return { roadLength = 48 }, nil,
+            { entryX = origin.x, entryY = origin.y,
+                exitX = 300, exitY = 252 }
+    end
+    return nil
+end
+SC.Driving.drive = function(actor, target)
+    check(actor == chauffeur, "dead-end departure uses Markus")
+    driveCalls, activeJob = driveCalls + 1, {}
+    return true
+end
+local deadEnd = { schema = 1, driverId = "markus-driver",
+    visit = { bookingGeneration = 1, phase = "finishing",
+        cabToken = "markus:1:1", cabSqlId = 771,
+        driverId = "markus-driver",
+        dropoff = { x = 300, y = 300, z = 0 },
+        departureGoal = { x = 348, y = 300, z = 0 } } }
+booking = { generation = 1, phase = "finishing" }
+check(Service.restore(deadEnd) and Service.tick(1000)
+    and Service.current().phase == "departing"
+    and Service.current().departureBacktracked == true
+    and Service.current().departureGoal.x == 300,
+    "visible dead end returns to its connected junction")
+car.x, car.y = 300, 300
+activeJob.result = "arrived"
+check(Service.tick(2000) and Service.tick(4000)
+    and Service.current().phase == "departing"
+    and Service.current().departureGoal.y == 252,
+    "taxi takes an unvisited side road after backtracking")
+
+-- An actually disconnected road must not retry the same failed probe forever.
+local noRoad = { schema = 1, driverId = "markus-driver",
+    visit = { bookingGeneration = 1, phase = "finishing",
+        cabToken = "markus:1:1", cabSqlId = 771,
+        driverId = "markus-driver",
+        dropoff = { x = 300, y = 300, z = 0 },
+        departureBacktracked = true } }
+SC.ExpeditionRoute.planFromPoint = function() return nil end
+car.x, car.y = 360, 300
+check(Service.restore(noRoad), "disconnected road recovery restores")
+for _, time in ipairs({ 1000, 6000, 11000, 16000 }) do
+    check(Service.tick(time), "unavailable departure probe stays controlled")
+end
+check(Service.current().phase == "departure_held"
+    and Service.current().departureAttempts == 4,
+    "repeated no-goal departure attempts have a bounded hold")
 
 Service.reset()
 local invalid = { schema = 1, driverId = "markus-driver",

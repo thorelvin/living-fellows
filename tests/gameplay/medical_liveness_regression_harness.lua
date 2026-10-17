@@ -463,6 +463,23 @@ do
     squadMate.x, routeOpen, time = 2, false, time + 400
     check(not M.travelRescueEligible(medic, squadMate, runner),
         "a blocked direct route is deferred during a running follow")
+    local savedExpedition = SC.ExpeditionPrototype
+    local expeditionLeader = patient(100)
+    SC.ExpeditionPrototype = {
+        isMember = function(value)
+            return value == medic or value == squadMate
+                or value == expeditionLeader
+        end,
+        current = function() return { leader = { actor = expeditionLeader } } end,
+    }
+    SC.Positioning.playerMoveMode = function(value)
+        return value == runner and "jog" or "walk"
+    end
+    medic.x, squadMate.x, routeOpen = 4, 8, true
+    local _, expeditionReason = M.treat(medic, squadMate)
+    check(expeditionReason ~= "travel_rescue_deferred",
+        "a distant running player cannot defer a stationary expedition medic")
+    SC.ExpeditionPrototype = savedExpedition
     SC.Commands.peek, SC.Positioning.playerMoveMode = savedPeek, savedMode
     SC.Navigation._fastOpenRouteForRequest, U.nowMs = savedRoute, savedNow
     getSpecificPlayer = savedPlayer

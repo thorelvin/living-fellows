@@ -465,6 +465,13 @@ function Refuel.cancel(actor, job)
             "generator_refuel_cancelled")
         if stopped ~= true then return false, reason end
     end
+    if U().isDead(actor) then
+        Fuel.prepareActorRetirement(actor)
+        Fuel.clearStoredMark(job)
+        dropReceipt(target)
+        job.assignedId, states[actor] = nil, nil
+        return true, "generator_refuel_worker_retired"
+    end
     local home, storage, container = Fuel.sourceState(job)
     if home == "unloaded" then return false, "base_storage_unloaded" end
     if item then

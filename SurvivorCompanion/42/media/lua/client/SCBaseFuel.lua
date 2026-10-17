@@ -88,6 +88,78 @@ function Fuel.prepareActorRetirement(actor)
     return true
 end
 
+-- Companion inventories are reconstructed on load, which assigns new native
+-- item IDs. Rebind only a uniquely marked item owned by this restored worker;
+-- the persistent job ID and worker reservation are the stable evidence.
+function Fuel.rebindRestoredItems(actor)
+    local id = actor and U().idOf(actor) or nil
+    local inventory = actor and U().inventory(actor) or nil
+    if id == nil or inventory == nil or not SC.BaseLife then return false end
+    local items = type(U().inventoryItemsDeep) == "function"
+        and U().inventoryItemsDeep(inventory, 1024, 24)
+        or U().inventoryItems(inventory, 1024)
+    local matches, conflicts = {}, {}
+    local markerKeys = { Fuel.MARKER, Fuel.UPKEEP_MARKER }
+    for _, item in ipairs(items) do
+        local data = U().modData(item)
+        if type(data) == "table" then
+            for _, key in ipairs(markerKeys) do
+                local jobId = data[key]
+                local job = jobId and SC.BaseLife.job(jobId) or nil
+                local target = job and job.target or nil
+                if target and target.itemId ~= nil
+                    and job.state ~= "completed" and job.state ~= "cancelled"
+                    and (job.assignedId == id or job.reservedBy == id) then
+                    if matches[jobId] and matches[jobId] ~= item then
+                        conflicts[jobId] = true
+                    else
+                        matches[jobId] = item
+                    end
+                end
+            end
+        end
+    end
+    local recovered = true
+    for jobId, item in pairs(matches) do
+        local job = SC.BaseLife.job(jobId)
+        local home, _, container = Fuel.sourceState(job)
+        local sourceConflict = false
+        if home == "loaded" then
+            for _, stored in ipairs(U().inventoryItems(container, 4096)) do
+                if stored ~= item and (Fuel.marker(stored, Fuel.MARKER) == jobId
+                    or Fuel.marker(stored, Fuel.UPKEEP_MARKER) == jobId) then
+                    sourceConflict = true
+                    break
+                end
+            end
+        end
+        if conflicts[jobId] or sourceConflict then
+            recovered = false
+        else
+            -- A borrowed item placed in a bag still belongs to this worker,
+            -- but all three chore runners transfer from the root inventory.
+            -- Move that exact object into the root before renewing its ID.
+            local root = U().inventoryContains(inventory, item) == true
+            local source = not root and call(item, "getContainer") or nil
+            if not root then
+                if not source or type(U().transferItemVerified) ~= "function"
+                    or U().transferItemVerified(source, inventory, item) ~= true then
+                    recovered = false
+                else
+                    root = true
+                end
+            end
+            local nativeId = call(item, "getID")
+            if root and nativeId ~= nil and job and job.target then
+                job.target.itemId = nativeId
+            else
+                recovered = false
+            end
+        end
+    end
+    return recovered
+end
+
 -- Where the exact borrowed item belongs: "loaded" with its storage and
 -- container, "unloaded" (it may still be there), "removed" (the player
 -- unmarked that storage) or "none" (nothing borrowed yet).

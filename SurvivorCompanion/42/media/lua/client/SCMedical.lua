@@ -1649,6 +1649,17 @@ end
 
 -- Keep a moving Follow squad together while still allowing immediate care for
 -- someone already beside it. Only the short route proof needs a small cache.
+local function travelLeader(helper)
+    local expedition = SC.ExpeditionPrototype
+    if expedition and type(expedition.isMember) == "function"
+        and expedition.isMember(helper) == true then
+        local mission = type(expedition.current) == "function"
+            and expedition.current() or nil
+        return mission and mission.leader and mission.leader.actor or nil
+    end
+    return type(getSpecificPlayer) == "function" and getSpecificPlayer(0) or nil
+end
+
 function Medical.travelRescueEligible(helper, patient, player)
     if not helper or not patient or helper == patient or not player then return true end
     local commands = SC.Commands and SC.Commands.peek and SC.Commands.peek(helper)
@@ -1966,8 +1977,7 @@ continueTreatmentApproach = function(helper, state, runtime)
     elseif state.phase == "approaching" and state.patient ~= helper
         and state.lastApproachProgressAt
         and utility.nowMs() - state.lastApproachProgressAt > 3000 then
-        local player = type(getSpecificPlayer) == "function"
-            and getSpecificPlayer(0) or nil
+        local player = travelLeader(helper)
         local commands = SC.Commands and SC.Commands.peek
             and SC.Commands.peek(helper) or nil
         if commands and (commands.order == "follow" or commands.order == "regroup")
@@ -2036,8 +2046,7 @@ function Medical.treat(helper, patient, runtime, options)
     -- Decision can delegate directly to treat() without running Medical.update.
     -- Recheck the active patient here so an approach started beside a moving
     -- squad is released as soon as that squad outruns the medic.
-    local localPlayer = type(getSpecificPlayer) == "function"
-        and getSpecificPlayer(0) or nil
+    local localPlayer = travelLeader(helper)
     local rescuePatient = active and active.patient or patient
     if rescuePatient ~= helper
         and not Medical.travelRescueEligible(helper, rescuePatient, localPlayer) then

@@ -839,6 +839,10 @@ function U.movingBlocker(square, actor, options)
                 local animal, ok = U.call(other, "isAnimal")
                 kind = (not ok or animal == true) and "animal_crowd" or "actor_crowd"
             else kind = "actor_crowd" end
+            if options and options.preferNonFriendly == true
+                and (kind == "companion_crowd" or kind == "player_crowd") then
+                return
+            end
             return false
         end
     end, 24)

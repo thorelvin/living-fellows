@@ -629,10 +629,11 @@ function Upkeep.update(actor, baseState, job)
         if not carried then return false, "upkeep_supply_not_carried", true end
         local okay, info, need = Upkeep.eligible(job.type, vehicle,
             target.manual == true, true)
-        if not okay or (target.zoneId and info.zoneId ~= target.zoneId)
-            or not need or (job.type == "wash_vehicle"
-                and washWater(item, target) < 1) then
-            if okay and need and job.type == "wash_vehicle"
+        local zoneChanged = okay and target.zoneId and info.zoneId ~= target.zoneId
+        local waterMissing = job.type == "wash_vehicle"
+            and washWater(item, target) < 1
+        if not okay or zoneChanged or not need or waterMissing then
+            if okay and not zoneChanged and need and waterMissing
                 and target.sourceKind == "sink" then
                 target.stage, target.stageStartedAt = "seeking_water", U().nowMs()
                 return true, "wash_sink_refill_needed"
@@ -782,6 +783,13 @@ function Upkeep.cancel(actor, job)
         local stopped, reason = SC.NativeActions.cancelWork(actor,
             "upkeep_cancelled")
         if stopped ~= true then return false, reason end
+    end
+    if U().isDead(actor) then
+        SC.BaseFuel.prepareActorRetirement(actor)
+        SC.BaseFuel.clearStoredMark(job, MARKER)
+        dropReceipt(target)
+        job.assignedId, states[actor] = nil, nil
+        return true, "upkeep_worker_retired"
     end
     local home, storage, container = SC.BaseFuel.sourceState(job)
     if home == "unloaded" then return false, "base_storage_unloaded" end

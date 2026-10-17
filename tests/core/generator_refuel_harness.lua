@@ -189,6 +189,20 @@ check(Refuel.releaseAffinity(nil, uncertain) == true
     and uncertain.assignedId == nil and uncertain.target.stage == nil,
     "a dead worker's generator receipt is released for another resident")
 SC.Registry = nil
+local savedContainer = T.storage.container
+T.storage.container = nil
+uncertain.target.stage, uncertain.target.sourceStorageId = "carrying", T.storage.id
+uncertain.target.itemId, uncertain.assignedId = can:getID(), "worker"
+can.data.LF_RefuelJobId = uncertain.id
+T.actor.inventory.items = { can }
+T.actor.dead = true
+local retired, retiredReason = Refuel.cancel(T.actor, uncertain)
+check(retired and retiredReason == "generator_refuel_worker_retired"
+    and uncertain.target.stage == nil and uncertain.assignedId == nil
+    and T.actor.inventory.items[1] == can
+    and can.data.LF_RefuelJobId == nil,
+    "dead generator worker releases its can receipt with storage unloaded")
+T.actor.dead, T.storage.container = false, savedContainer
 T.base.jobs = {}
 SC.BaseFuel.clearMark(can, uncertain.id)
 T.actor.inventory.items = {}

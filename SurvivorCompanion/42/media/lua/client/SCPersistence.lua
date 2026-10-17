@@ -3603,6 +3603,13 @@ local function initializeRestoredActor(actor, input, saved)
 end
 
 local function postCommittedRestore(actor, saved)
+    if actor and SC.BaseFuel and type(SC.BaseFuel.rebindRestoredItems) == "function" then
+        local called, rebound = pcall(SC.BaseFuel.rebindRestoredItems, actor)
+        if not called or rebound ~= true then
+            SC.Diagnostics.report("base-fuel", saved.id,
+                "restored chore item identity recovery deferred", tostring(rebound))
+        end
+    end
     if actor and SC.Vehicle and type(SC.Vehicle.recoverRestoredDriverKey) == "function" then
         local called, recovered, reason = pcall(SC.Vehicle.recoverRestoredDriverKey, actor, saved)
         if not called or recovered ~= true then

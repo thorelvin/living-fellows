@@ -429,7 +429,6 @@ function Convoy.tick(current)
                         session.lastX, session.lastY, session.lastMove = x, y, current
                     elseif session.lastUpdate > 0 and session.leadLastMove
                         and current - session.lastMove > 10000
-                        and current - session.leadLastMove < 2000
                         and distance(car, lead) > 25 then
                         session.failed = "road_blocked"
                     end

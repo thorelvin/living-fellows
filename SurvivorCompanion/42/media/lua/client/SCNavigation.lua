@@ -5842,6 +5842,15 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
             state.directStallNativeUntil = now + 10000
         end
     end
+    -- Give a known moving body a dispatch at the traffic deadlock deadline.
+    -- Generic recovery runs earlier in this function than the crowd detour;
+    -- clearing yieldSince here otherwise restarts the same wait indefinitely.
+    -- The next request need not land within one frame of the deadline.
+    if state.yieldBlocker and state.yieldSince
+        and state.lastAttemptTo
+        and utility.sameSquare(state.yieldBlocker, state.lastAttemptTo) then
+        return false, nil, nil
+    end
     if state.nativeRecoveryDue ~= true
         and now - (state.lastProgressAt or now) < stuckDelay then
         return false, nil, nil
@@ -7756,18 +7765,13 @@ function Navigation.interactionTargets(actor, objectOrSquare, options)
         and not utility.safehouseBlocker(centre, actor) then
         candidates[1] = centre
     end
-    if options.avoidDoorThreshold == true and #candidates > 1 then
-        local awayFromDoor = {}
-        for _, square in ipairs(candidates) do
-            if not Navigation.doorThresholdSquare(square) then
-                awayFromDoor[#awayFromDoor + 1] = square
-            end
-        end
-        if #awayFromDoor > 0 then candidates = awayFromDoor end
-    end
     table.sort(candidates, function(first, second)
         local firstScore, secondScore = approachScore(actor, first, options),
             approachScore(actor, second, options)
+        if options.avoidDoorThreshold == true then
+            if Navigation.doorThresholdSquare(first) then firstScore = firstScore + 6 end
+            if Navigation.doorThresholdSquare(second) then secondScore = secondScore + 6 end
+        end
         if firstScore == secondScore then return tostring(squareKey(first)) < tostring(squareKey(second)) end
         return firstScore < secondScore
     end)

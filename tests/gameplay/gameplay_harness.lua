@@ -6733,12 +6733,12 @@ do
     local clearTargets = SurvivorCompanion.Navigation.interactionTargets(
         doorActor, shelf, { requireDirectAccess = true,
             avoidDoorThreshold = true })
-    local choseThreshold = false
-    for _, square in ipairs(clearTargets) do
-        if square == doorTo then choseThreshold = true end
+    local thresholdIndex
+    for index, square in ipairs(clearTargets) do
+        if square == doorTo then thresholdIndex = index end
     end
-    check(#clearTargets > 0 and not choseThreshold,
-        "scavengers stand beside a shelf instead of occupying a doorway when another side is usable")
+    check(#clearTargets > 1 and thresholdIndex ~= nil and thresholdIndex > 1,
+        "scavengers prefer open shelf sides but retain a doorway fallback")
 
     local utility = SurvivorCompanion.GameplayUtil
     local originalSquareFree = utility.isSquareFree

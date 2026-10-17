@@ -571,6 +571,8 @@ local function snapshot()
         roadTiles = visit.roadTiles,
         dropoff = copyPoint(visit.dropoff),
         departureGoal = copyPoint(visit.departureGoal),
+        departurePreviousGoal = copyPoint(visit.departurePreviousGoal),
+        departureBacktracked = visit.departureBacktracked,
         departureAttempts = visit.departureAttempts,
         removalRequested = visit.removalRequested,
         cabBlood = copyCabBlood(visit.cabBlood),
@@ -903,7 +905,8 @@ local function departureHeading(car)
 end
 
 -- Prefer the road ahead, but permit a side street or diagonal when the road
--- bends. Each leg must carry the cab farther from the delivered customer.
+-- bends. A dead end may require one return to the dropoff junction before a
+-- different outward leg is available.
 local function departureGoal(car)
     local origin = point(car)
     if not origin or not SC.ExpeditionRoute
@@ -944,12 +947,31 @@ local function departureGoal(car)
                     and (not visit.dropoff or distanceSquared(exit, visit.dropoff)
                         > distanceSquared(origin, visit.dropoff) + 100)
                     and (not visit.departureGoal
-                        or distanceSquared(exit, visit.departureGoal) >= 100) then
+                        or distanceSquared(exit, visit.departureGoal) >= 100)
+                    and (not visit.departurePreviousGoal
+                        or distanceSquared(exit, visit.departurePreviousGoal) >= 100) then
                     local goal = { x = exit.x, y = exit.y, z = 0 }
                     if outsideViews(goal.x, goal.y) then return goal end
                     fallback = fallback or goal
                 end
             end
+        end
+    end
+    if not fallback and not visit.departureBacktracked and visit.dropoff
+        and distanceSquared(origin, visit.dropoff) >= 625 then
+        local route, _, native = SC.ExpeditionRoute.planFromPoint(
+            origin, visit.dropoff, true)
+        local entry = native and { x = tonumber(native.entryX),
+            y = tonumber(native.entryY) }
+        local exit = native and { x = tonumber(native.exitX),
+            y = tonumber(native.exitY) }
+        local length = route and tonumber(route.roadLength)
+        if entry and exit and finite(entry.x) and finite(entry.y)
+            and finite(exit.x) and finite(exit.y)
+            and length and length >= 25 and length <= 140
+            and distanceSquared(entry, origin) <= 144
+            and distanceSquared(exit, visit.dropoff) <= 64 then
+            return { x = exit.x, y = exit.y, z = 0 }, true
         end
     end
     return fallback, fallback and nil or "departure_road_unavailable"
@@ -974,8 +996,17 @@ local function startDeparture(current)
     end
     local clear, why = SC.TaxiFares.retirementStatus(car)
     if not clear then visit.reason = why return true end
-    local goal, goalReason = departureGoal(car)
-    if not goal then visit.reason = goalReason return true end
+    local goal, backtrackingOrReason = departureGoal(car)
+    local goalReason = type(backtrackingOrReason) == "string"
+        and backtrackingOrReason or nil
+    if not goal then
+        visit.departureAttempts = (visit.departureAttempts or 0) + 1
+        visit.reason = goalReason
+        if visit.departureAttempts >= 4 then
+            visit.phase = "departure_held"
+        end
+        return true
+    end
     local released, releaseReason = SC.Driving.release(chauffeur,
         "taxi_depart_after_dropoff")
     if not released then visit.reason = releaseReason return true end
@@ -985,7 +1016,9 @@ local function startDeparture(current)
         { speedKmh = 30, cornerSpeedScale = 2,
             blockWaitMs = 6000 })
     if not started then visit.reason = driveReason return true end
+    visit.departurePreviousGoal = copyPoint(visit.departureGoal)
     visit.departureGoal, visit.phase, visit.reason = goal, "departing", nil
+    if backtrackingOrReason == true then visit.departureBacktracked = true end
     visit.departureAttempts = (visit.departureAttempts or 0) + 1
     return true
 end
@@ -1402,6 +1435,13 @@ function Service.restore(saved)
                     or not finite(candidate.departureGoal.x)
                     or not finite(candidate.departureGoal.y)
                     or candidate.departureGoal.z ~= 0)
+            or candidate.departurePreviousGoal ~= nil
+                and (type(candidate.departurePreviousGoal) ~= "table"
+                    or not finite(candidate.departurePreviousGoal.x)
+                    or not finite(candidate.departurePreviousGoal.y)
+                    or candidate.departurePreviousGoal.z ~= 0)
+            or candidate.departureBacktracked ~= nil
+                and type(candidate.departureBacktracked) ~= "boolean"
             or candidate.departureAttempts ~= nil
                 and (not finite(candidate.departureAttempts)
                     or candidate.departureAttempts < 0
@@ -1426,6 +1466,8 @@ function Service.restore(saved)
             roadTiles = candidate.roadTiles,
             dropoff = copyPoint(candidate.dropoff),
             departureGoal = copyPoint(candidate.departureGoal),
+            departurePreviousGoal = copyPoint(candidate.departurePreviousGoal),
+            departureBacktracked = candidate.departureBacktracked,
             departureAttempts = candidate.departureAttempts,
             removalRequested = candidate.removalRequested,
             cabBlood = copyCabBlood(candidate.cabBlood),
@@ -1443,6 +1485,8 @@ function Service.restore(saved)
         or candidate.phase == "in_transit"
         or candidate.phase == "waiting_board"
         or candidate.phase == "ready_to_depart"
+        or candidate.phase == "waiting_exit"
+        or candidate.phase == "payment_due"
         or candidate.phase == "finishing"
         or candidate.phase == "departing")
     resumeDriverAt = 0
