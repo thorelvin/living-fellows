@@ -64,7 +64,9 @@ SC.GameplayUtil = {
     inventoryContains = contains,
     itemType = function(item) return item.kind end,
     idOf = function(value) return value.id end,
-    squareOf = function(value) return value == actor and square or value end,
+    squareOf = function(value)
+        return value == actor and square or value and (value.square or value) or nil
+    end,
     gridSquare = function() return square end,
     isSquareFree = function() return true end,
     safehouseBlocker = function() return false end,

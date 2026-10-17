@@ -7,6 +7,20 @@ function actor:getX() return self.square.x + 0.5 end
 function actor:getY() return self.square.y + 0.5 end
 local second = { id = "water:1", category = "water", reserve = 0,
     container = { items = {} } }
+local sink = { square = actor.square, amount = 10 }
+function sink:getSquare() return self.square end
+function sink:isWaterSource() return true end
+function sink:getFluidAmount() return self.amount end
+function sink:isTaintedWater() return false end
+actor.square.objects = { sink }
+T.base.zones = { { kind = "area", x1 = actor.square.x,
+    x2 = actor.square.x, y1 = actor.square.y,
+    y2 = actor.square.y, z = actor.square.z } }
+SC.GameplayUtil.squareObjects = function(square, callback)
+    for _, object in ipairs(square.objects or {}) do
+        if callback(object) == false then break end
+    end
+end
 local tires = {
     { id = "TireFrontLeft", current = 20, capacity = 35, area = "TireFrontLeft" },
     { id = "TireFrontRight", current = 20, capacity = 35, area = "TireFrontRight" },
@@ -49,6 +63,11 @@ SC.NativeActions.startVehicleWash = function(_, _, areaId, area, item)
         item = item, active = true }
     return true
 end
+SC.NativeActions.startVehicleWashFill = function(_, item, source)
+    native = { kind = "wash_vehicle_fill", item = item,
+        source = source, active = true }
+    return true
+end
 SC.NativeActions.workKind = function() return native and native.kind end
 SC.NativeActions.isWorkActive = function() return native and native.active or false end
 SC.NativeActions.finishWork = function()
@@ -61,9 +80,13 @@ SC.NativeActions.cancelWork = function() native = nil return true end
 local function item(id, kind, amount, tainted)
     local result = { id = id, kind = kind, data = {} }
     function result:getID() return self.id end
+    function result:getDisplayCategory()
+        return kind == "Base.WaterBottle" and "Water" or "WaterContainer"
+    end
     if kind ~= "Base.TirePump" then
-        local fluid = { amount = amount, tainted = tainted }
+        local fluid = { amount = amount, tainted = tainted, capacity = 10 }
         function fluid:getAmount() return self.amount end
+        function fluid:getCapacity() return self.capacity end
         function fluid:contains(value)
             return self.amount > 0 and value == (self.tainted
                 and Fluid.TaintedWater or Fluid.Water)
@@ -75,7 +98,7 @@ local function item(id, kind, amount, tainted)
 end
 SC_UPKEEP_TEST = {
     car = car, actor = actor, storage = storage, waterStorage = second,
-    base = T.base, tires = tires, blood = blood, item = item,
+    base = T.base, tires = tires, blood = blood, item = item, sink = sink,
     native = function() return native end,
     finish = function(delta)
         if not native then return end
@@ -91,4 +114,11 @@ SC_UPKEEP_TEST = {
         native.active = false
     end,
     resetNative = function() native = nil end,
+    finishFill = function(quantity)
+        if not native or native.kind ~= "wash_vehicle_fill" then return end
+        local filled = math.min(quantity or 8, native.source.amount)
+        native.source.amount = native.source.amount - filled
+        native.item.fluid.amount = native.item.fluid.amount + filled
+        native.active = false
+    end,
 }

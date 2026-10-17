@@ -2605,7 +2605,7 @@ local function taxiStep(H, SC, current, check, result, setPhase, test)
         local Booking, Cab, Fare = SC.TaxiBooking, SC.TaxiCab, SC.TaxiFares
         local committed, fareReason = Fare.commit(car)
         check("taxi_real_free_fare_settled_once", committed == true
-            and Fare.quote(250).required == 3,
+            and Fare.quote(250).required == 1.5,
             tostring(fareReason))
         local savedBooking, savedCab, savedFares = Booking.export(),
             Cab.export(), Fare.export()
@@ -2749,7 +2749,7 @@ local function taxiCallStep(H, SC, current, check, result, setPhase)
             if not check("taxi_call_prior_free_fare_persisted",
                 prior and prior.phase == "committed"
                     and prior.promotion == true and owned and owned.sqlId
-                    and quote and quote.required == 3,
+                    and quote and quote.required == 1.5,
                 "prior=" .. tostring(prior and prior.phase)
                     .. " promotion=" .. tostring(prior and prior.promotion)
                     .. " cab=" .. tostring(owned and owned.sqlId)
@@ -2968,11 +2968,85 @@ local function taxiCallStep(H, SC, current, check, result, setPhase)
                 setPhase("finish", current) return
             end
             test.vehicle, test.actor = car, driver
-            setPhase("drive_taxi_call_board", current)
+            setPhase(H.config.taxi_defense_probe == "true"
+                and "drive_taxi_call_defense" or "drive_taxi_call_board", current)
         elseif current - H.phaseStartedAt > 75000 then
             result("FAIL", "taxi_call_pickup_timeout",
                 "phase=" .. tostring(state and state.phase)
                     .. " reason=" .. tostring(state and state.reason))
+            setPhase("finish", current)
+        end
+        return
+    end
+    if H.phase == "drive_taxi_call_defense" then
+        local driver = test.actor
+        local gun = call(driver, "getPrimaryHandItem")
+        local ammo = tonumber(call(gun, "getCurrentAmmoCount"))
+        if ammo == nil and not test.taxiDefenseTargets then
+            if current - H.phaseStartedAt > 5000 then
+                result("FAIL", "taxi_driver_armed_at_pickup",
+                    "gun=" .. tostring(gun and call(gun, "getFullType")))
+                setPhase("finish", current)
+            end
+            return
+        end
+        if not test.taxiDefenseTargets then
+            -- The waiting cab is parked on an open road. Place inert targets
+            -- on both sides, since the car may face either road direction.
+            local _, fx, fy = heading(car)
+            local nx, ny = -fy, fx
+            test.taxiDefenseTargets = {}
+            for _, side in ipairs({ -1, 1 }) do
+                for _, distance in ipairs({ 5, 7 }) do
+                    local x = car:getX() + nx * side * distance
+                    local y = car:getY() + ny * side * distance
+                    if openSquare(SC.GameplayUtil, x, y) then
+                        local zombie = placeZombie(x, y)
+                        if zombie then
+                            test.taxiDefenseTargets[#test.taxiDefenseTargets + 1] = {
+                                actor = zombie,
+                                health = tonumber(call(zombie, "getHealth")),
+                            }
+                        end
+                    end
+                end
+            end
+            if not check("taxi_driver_defense_targets_placed",
+                #test.taxiDefenseTargets > 0,
+                "car=" .. fmt(car:getX()) .. "," .. fmt(car:getY())) then
+                setPhase("finish", current) return
+            end
+            test.taxiDefenseAmmo = ammo
+            test.taxiDefenseStartedAt = current
+            return
+        end
+        local hurt = false
+        for _, target in ipairs(test.taxiDefenseTargets) do
+            local health = tonumber(call(target.actor, "getHealth"))
+            if call(target.actor, "isDead") == true
+                or target.health and health and health < target.health then
+                hurt = true
+            end
+        end
+        if test.taxiDefenseAmmo and ammo and ammo < test.taxiDefenseAmmo
+            and hurt then
+            result("PASS", "taxi_driver_defended_pickup",
+                "ammo=" .. tostring(test.taxiDefenseAmmo) .. "->"
+                    .. tostring(ammo) .. " targets="
+                    .. tostring(#test.taxiDefenseTargets))
+            for _, target in ipairs(test.taxiDefenseTargets) do
+                call(target.actor, "removeFromWorld")
+                call(target.actor, "removeFromSquare")
+            end
+            setPhase("drive_taxi_call_board", current)
+        elseif current - (test.taxiDefenseStartedAt or current) > 15000 then
+            local id = SC.Registry.idOf(driver)
+            local record = id and SC.Registry.byId(id)
+            result("FAIL", "taxi_driver_defended_pickup",
+                "ammo=" .. tostring(test.taxiDefenseAmmo) .. "->"
+                    .. tostring(ammo) .. " gun=" .. tostring(gun and call(gun,
+                        "getFullType")) .. " decision=" .. tostring(record
+                        and record.runtime and record.runtime.lastDecision))
             setPhase("finish", current)
         end
         return
@@ -3016,7 +3090,7 @@ local function taxiCallStep(H, SC, current, check, result, setPhase)
                     local preview, why = service.previewPoint(H.player, candidate)
                     if preview and preview.roadTiles >= 200
                         and preview.roadTiles <= 500
-                        and preview.required == 3 then
+                        and preview.required == 1.5 then
                         target, longPreview = candidate, preview
                         break
                     end
@@ -3072,7 +3146,8 @@ local function taxiCallStep(H, SC, current, check, result, setPhase)
             local receipt = SC.TaxiFares.current()
             if not check("taxi_call_gold_necklace_reserved",
                 receipt and receipt.phase == "reserved"
-                    and receipt.promotion == false and receipt.required == 3
+                    and receipt.promotion == false and receipt.required == 1.5
+                    and receipt.overpay == 1.5
                     and receipt.paidValue == 3 and #receipt.items == 1
                     and receipt.items[1].itemId == test.taxiGoldNecklaceId
                     and longPreview.roadTiles >= 200,

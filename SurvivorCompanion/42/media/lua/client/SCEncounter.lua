@@ -1508,6 +1508,19 @@ cleanupScavengeTarget = function(actor, state, options)
             expires = (options.time or now()) + (U().config("scavengeStatusHoldMs") or 8000),
         }
         debugTrace(actor, task, state.lastStatus.phase, options.reason)
+        if state.lastStatus.phase == "failed" then
+            local ax, ay, az = U().position(actor)
+            print("[SurvivorCompanion/scavenge-failure] actor="
+                .. tostring(U().idOf(actor))
+                .. " reason=" .. tostring(options.reason or "unknown")
+                .. " navigation=" .. tostring(task.lastNavigationStatus or "none")
+                .. " actorSquare=" .. tostring(ax and math.floor(ax) or "?")
+                .. ":" .. tostring(ay and math.floor(ay) or "?")
+                .. ":" .. tostring(az and math.floor(az) or "?")
+                .. " targetSquare=" .. tostring(task.containerX and math.floor(task.containerX) or "?")
+                .. ":" .. tostring(task.containerY and math.floor(task.containerY) or "?")
+                .. ":" .. tostring(task.containerZ and math.floor(task.containerZ) or "?"))
+        end
     end
     clearTaskFields(state)
 end
@@ -2199,6 +2212,7 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
     end
     local targets = SC.Navigation.interactionTargets(actor, task.owner, {
         snapshot = snapshot, requireDirectAccess = true,
+        avoidDoorThreshold = true,
     })
     if #targets == 0 then
         resetScavengeTarget(actor, state, {
@@ -2247,6 +2261,7 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
             preferVerifiedPath = task.scavengeMissionId ~= nil,
             supervisorToken = task.supervisorToken,
         })
+        task.lastNavigationStatus = status
         local service = supervisor()
         if service and task.supervisorToken and type(service.progress) == "function" then
             service.progress(task.supervisorToken,

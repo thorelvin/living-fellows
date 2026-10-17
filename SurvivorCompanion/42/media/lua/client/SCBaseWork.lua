@@ -1119,6 +1119,9 @@ local function returnCargo(actor, cargo)
     if container == nil then
         return false, "haul_source_storage_changed"
     end
+    if not destinationHasRoom(container, actor, cargo.item) then
+        return false, "destination_full"
+    end
     local moved, reason
     if SC.WorkTransport and type(SC.WorkTransport.transferVerified) == "function" then
         moved, reason = SC.WorkTransport.transferVerified(
@@ -1176,9 +1179,10 @@ local function updateTransfer(actor, state, job)
                     item = cargo.item, phase = "deposit",
                 }
             else
-                local returned = returnCargo(actor, cargo)
+                local returned, reason = returnCargo(actor, cargo)
                 if returned then state.cargo = nil end
-                return false, returned and "haul_cargo_returned" or "haul_destinations_full", true
+                return false, returned and "haul_destinations_full"
+                    or reason or "haul_cargo_return_failed", true
             end
         else
             state.cargo = nil
@@ -1220,6 +1224,16 @@ local function updateTransfer(actor, state, job)
         }
     end
     if not U().inventoryContains(U().inventory(actor), transfer.item) then
+        local _, ownership = cargoContainer(actor, state.cargo)
+        if ownership == "owned" then
+            -- Another inventory action put the exact cargo into a carried bag.
+            -- Return it through its verified owner instead of reporting it lost.
+            local returned, reason = returnCargo(actor, state.cargo)
+            if returned then state.cargo, state.transfer = nil, nil end
+            return false, returned and "haul_cargo_returned" or reason, true
+        end
+        if ownership == "unknown" then return false, "haul_cargo_owner_unknown", true end
+        state.cargo, state.transfer = nil, nil
         return false, "hauled_item_missing", true
     end
     -- Sorting uses the same approach, visible interaction, capacity check,
@@ -1238,12 +1252,16 @@ local function updateTransfer(actor, state, job)
                 return true, "haul_destination_changed"
             end
         end
-        local returned = returnCargo(actor, state.cargo)
+        local returned, returnReason = returnCargo(actor, state.cargo)
         if returned then
             state.cargo, state.transfer = nil, nil
-            return false, "haul_cargo_returned", true
+            return false, moveReason == "destination_full"
+                and "haul_destinations_full" or "haul_cargo_returned", true
         end
-        return false, moveReason or "base_deposit_failed", true
+        -- The return failure now owns the recovery decision. For example, a
+        -- destination marker may be disabled while the source fills too; the
+        -- source's capacity blocker must keep this exact cargo retryable.
+        return false, returnReason or moveReason or "base_deposit_failed", true
     end
     state.cargo = nil
     SC.BaseLife.completeJob(job.id, actorId(actor), "hauled")

@@ -111,6 +111,29 @@ local JOB_STATES = {
     pending = true, reserved = true, active = true, blocked = true,
     manual = true, completed = true, cancelled = true,
 }
+-- These farm blockers describe changing world conditions, not failed work.
+-- A plot can stream out while the player is away and supplies can arrive
+-- later. Neither should permanently park an automatically queued farm job.
+local TRANSIENT_FARM_BLOCKERS = {
+    farm_target_unloaded = 30000,
+    farm_supply_missing = 120000,
+    unsafe_area = 30000,
+    farm_outside_night = 120000,
+}
+-- Sorting can become temporarily impossible when the player fills or changes
+-- a marked shelf during a haul. A safely returned item is not failed work.
+local TRANSIENT_SORT_BLOCKERS = {
+    no_sortable_supply = 60000,
+    haul_destinations_full = 60000,
+    haul_cargo_returned = 30000,
+    destination_full = 60000,
+}
+local function transientJobDelay(job, reason)
+    if type(job) ~= "table" then return nil end
+    if job.type == "farm" then return TRANSIENT_FARM_BLOCKERS[reason] end
+    if job.type == "sort" then return TRANSIENT_SORT_BLOCKERS[reason] end
+    return nil
+end
 local roleAffinity = {
     generalist = { haul = 4, sort = 4, fetch = 4, unload_vehicle = 5, gather_materials = 5,
         repair = 3, replace_bandage = 2,
@@ -3738,6 +3761,12 @@ function BaseLife.claimJob(actorId)
     if existing then return existing, "existing_job" end
     local best, bestScore
     for _, job in ipairs(base.jobs) do
+        -- Older saves may already have parked a farm job after repeated
+        -- streaming/supply failures. Migrate it on the next work scan.
+        if job.state == "blocked" and (job.attempts or 0) > 0
+            and transientJobDelay(job, job.blocker) then
+            job.attempts, job.retryAt, job.updatedAt = 0, current, current
+        end
         if (job.state == "reserved" or job.state == "active")
             and job.leaseUntil <= current then
             releaseExpiredJob(job)
@@ -3821,13 +3850,19 @@ function BaseLife.blockJob(id, actorId, reason, retryMs)
     end
     job.state, job.reservedBy, job.leaseUntil = "blocked", nil, 0
     job.blocker = cleanText(reason, "blocked", 160)
-    job.attempts, job.updatedAt = (job.attempts or 0) + 1, now()
+    local transientDelay = transientJobDelay(job, reason)
+    job.attempts = transientDelay and 0 or (job.attempts or 0) + 1
+    job.updatedAt = now()
     -- Each failure doubles the wait, up to the cap; a caller's longer delay
     -- (a Chef receipt check) is its own cap. A parked job is skipped by
     -- claimJob until the player retries or cancels it.
     local delay = math.max(1000, integer(retryMs, U().config("baseJobRetryMs") or 10000))
-    local cap = math.max(delay, tonumber(U().config("baseJobRetryMaxMs")) or 600000)
-    job.retryAt = now() + math.min(cap, delay * 2 ^ math.min(job.attempts - 1, 16))
+    if transientDelay then
+        job.retryAt = now() + math.max(delay, transientDelay)
+    else
+        local cap = math.max(delay, tonumber(U().config("baseJobRetryMaxMs")) or 600000)
+        job.retryAt = now() + math.min(cap, delay * 2 ^ math.min(job.attempts - 1, 16))
+    end
     if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
         SC.Diagnostics.report("base-job", job.id,
             "blocked " .. tostring(job.type), worker ~= nil
@@ -4020,6 +4055,7 @@ end
 function BaseLife.jobParked(job)
     return type(job) == "table" and job.state == "blocked"
         and not orderOwnedJob(job)
+        and not transientJobDelay(job, job.blocker)
         and (tonumber(job.attempts) or 0)
             >= (tonumber(U().config("baseJobParkAfterFailures")) or 6)
 end

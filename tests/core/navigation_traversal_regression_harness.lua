@@ -773,6 +773,36 @@ for _, goal in ipairs({ square(1, 0), square(-1, 0), square(0, 1), square(0, -1)
         and intent.movementArrivalTolerance < 0.18 and intent.movementTargetTtlMs == 750,
         "door alignment sends a bounded exact endpoint in every orientation")
 end
+do
+    mover.x, mover.y, mover.lastIntent = 0.5, 0.5, nil
+    mover.facingX, mover.facingY = 0, -1
+    function mover:getForwardDirectionX() return self.facingX end
+    function mover:getForwardDirectionY() return self.facingY end
+    function mover:faceLocationF(x, y)
+        self.facingTarget = { x = x, y = y }
+        return true
+    end
+    local facingState = {}
+    local source, destination = square(0, 0), square(1, 0)
+    local aligned, status = SC.NavTraversal.alignDoorApproach(
+        mover, source, destination, { action = "follow_formation" },
+        "door", {}, facingState)
+    check(aligned == nil and status == "turning_door_approach"
+            and mover.facingTarget and mover.facingTarget.x > mover.x,
+        "a sideways follower faces through the opening before crossing")
+    mover.facingX, mover.facingY = 1, 0
+    check(SC.NavTraversal.alignDoorApproach(
+            mover, source, destination, { action = "follow_formation" },
+            "door", {}, facingState) == true,
+        "the aligned follower immediately hands crossing to native movement")
+    mover.facingX, mover.facingY = 0, -1
+    SC.NavTraversal.alignDoorApproach(mover, source, destination,
+        { action = "regroup" }, "door", {}, facingState)
+    facingState.doorFacingUntil = 0
+    check(SC.NavTraversal.alignDoorApproach(mover, source, destination,
+            { action = "regroup" }, "door", {}, facingState) == true,
+        "door facing timeout cannot hold a regrouping companion forever")
+end
 mover.x, mover.y, mover.lastIntent = 0.5, 0.20, nil
 local fenceAligned = SC.NavTraversal.alignDoorApproach(
     mover, square(0, 0), square(0, 1), {}, "fence", {})

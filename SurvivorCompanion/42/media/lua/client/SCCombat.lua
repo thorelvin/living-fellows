@@ -185,6 +185,11 @@ local function clearRejection(state, runtime)
 end
 
 local function commandState(actor)
+    if SC.TaxiService and type(SC.TaxiService.canDefend) == "function"
+        and SC.TaxiService.canDefend(actor) == true then
+        return { combatMode = "defensive", combatDoctrine = "weapons_free",
+            holdFire = false, weaponPriority = "firearm" }
+    end
     local commands = SC.Commands
     if type(commands) == "table" and type(commands.peek) == "function" then
         local ok, value = pcall(commands.peek, actor)

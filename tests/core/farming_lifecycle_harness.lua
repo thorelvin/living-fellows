@@ -22,7 +22,7 @@ local function seed(id)
 end
 
 local function can(id, amount)
-    return F.item("Base.WateringCan", id, { fluidAmount = amount, fluidCapacity = 10 })
+    return F.item("Base.WateredCan", id, { fluidAmount = amount, fluidCapacity = 8 })
 end
 
 -- LF-01/LF-02: active ownership survives audits and a pending return cannot settle the job.
@@ -113,6 +113,37 @@ handled, reason = FarmWork.update(actor, {}, refill, {})
 check(handled == true and reason == "farm_approaching"
         and F.navigationRequests[#F.navigationRequests].square == secondSourceSquare,
     "an exhausted selected source resumes bounded scanning at the next source")
+
+-- A routine (non-emergency) watering job can refill its empty can at a sink.
+fresh()
+actor = F.actor("worker-a", 0, 1)
+plant = F.plant({ waterLvl = 10, waterNeeded = 60 })
+F.square(1, 1, plant)
+local sinkSquare = F.square(2, 0, nil)
+local sink = F.waterSource(sinkSquare, false)
+function sink:getObjectName() return "Sink" end
+emptyCan = can(31, 0)
+F.addStorage("storage:farm", "farming", { emptyCan })
+refill = F.job("water", 1, 1, {
+    id = "job:sink-refill", actorId = actor.id, uses = 3,
+})
+handled, reason = FarmWork.update(actor, {}, refill, {})
+check(handled == true and reason == "farm_supply_taken"
+        and emptyCan.container == actor.inventory,
+    "a real Build 42 watering can is borrowed for a routine water job")
+for _ = 1, 20 do
+    handled, reason = FarmWork.update(actor, {}, refill, {})
+    if reason == "farm_approaching" then break end
+end
+check(handled == true and reason == "farm_approaching"
+        and F.navigationRequests[#F.navigationRequests].square == sinkSquare,
+    "routine watering selects a clean sink when no tainted source exists")
+actor.x, actor.y = 1, 0
+handled, reason = FarmWork.update(actor, {}, refill, {})
+check(handled == true and F.nativeStarts[#F.nativeStarts].intent.operation == "fill_water"
+        and F.nativeStarts[#F.nativeStarts].intent.item == emptyCan
+        and F.nativeStarts[#F.nativeStarts].intent.object == sink,
+    "the can is filled at the sink through the native action")
 
 -- LF-04: cancelling a supply-free harvest stops its live native action.
 fresh()

@@ -1959,6 +1959,33 @@ local thirdShot = SC.Vehicle.claimPassengerShot(actor, {}, "ranged_support")
 check(firstShot == true and not secondShot and secondShotReason == "vehicle_fire_lane_busy"
         and thirdShot == true,
     "passengers share a bounded firing cadence instead of firing simultaneously")
+do
+    local priorTaxiService = SC.TaxiService
+    fireVehicle.passengerSeat = 0
+    function fireVehicle:getSeat(candidate)
+        return candidate == self.passenger and self.passengerSeat or -1
+    end
+    function fireVehicle:getCharacter(seat)
+        return seat == self.passengerSeat and self.passenger or nil
+    end
+    function fireVehicle:getPassengerDoor(seat)
+        return seat == self.passengerSeat and fireDoor or nil
+    end
+    local ordinaryDriver, ordinaryReason = SC.Vehicle.canPassengerFire(actor,
+        {}, "weapons_free")
+    SC.TaxiService = { canDefend = function(candidate, vehicle)
+        return candidate == actor and vehicle == fireVehicle
+    end }
+    local stoppedTaxiDriver = SC.Vehicle.canPassengerFire(actor, {}, "weapons_free")
+    fireVehicle.speed = 1
+    local movingTaxiDriver, movingReason = SC.Vehicle.canPassengerFire(actor,
+        {}, "weapons_free")
+    check(not ordinaryDriver and ordinaryReason == "vehicle_fire_requires_passenger_seat"
+            and stoppedTaxiDriver == true and not movingTaxiDriver
+            and movingReason == "vehicle_too_fast_to_fire",
+        "only the verified stationary taxi driver may use the driver window")
+    SC.TaxiService = priorTaxiService
+end
 actor.vehicle = nil
 local nativeSeatRecord = {
     id = "sc-native-seat",

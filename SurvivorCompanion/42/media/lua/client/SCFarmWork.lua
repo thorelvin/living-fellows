@@ -253,6 +253,7 @@ function FarmWork.isFarmingSupply(item)
     local kind = string.lower(U().itemType(item))
     if U().itemHasTag(item, "DIG_PLOW") or U().itemHasTag(item, "COMPOST") then return true end
     if string.find(kind, "wateringcan", 1, true)
+        or string.find(kind, "wateredcan", 1, true)
         or string.find(kind, "compostbag", 1, true)
         or string.find(kind, "gardeningspray", 1, true)
         or string.find(kind, "slugrepellent", 1, true)
@@ -1291,17 +1292,17 @@ local function waterSearchZones(activeZone)
     return result
 end
 
-local function findWaterSource(state, activeZone, emergency)
+local function findWaterSource(state, activeZone)
     local rows = waterSearchZones(activeZone)
     state.waterCursor = state.waterCursor or { zone = 1, index = 0 }
     for _ = 1, math.max(1, math.floor(config("farmScanSquaresPerSlice", 16))) do
         local row = rows[state.waterCursor.zone]
         if not row then
             state.waterCursor = { zone = 1, index = 0 }
-            if emergency and state.cleanWaterCandidate then
+            if state.cleanWaterCandidate then
                 local candidate = state.cleanWaterCandidate
                 state.cleanWaterCandidate = nil
-                return candidate
+                if waterSourceUsable(candidate) then return candidate end
             end
             state.cleanWaterCandidate = nil
             return nil, "water_source_missing"
@@ -1320,8 +1321,11 @@ local function findWaterSource(state, activeZone, emergency)
                 local label = string.lower(U().objectLabel(object))
                 local preferred = taintedOk and tainted == true
                     or string.find(label, "rain", 1, true) ~= nil
-                if preferred then return object end
-                if emergency and not state.cleanWaterCandidate then
+                if preferred then
+                    state.cleanWaterCandidate = nil
+                    return object
+                end
+                if not state.cleanWaterCandidate then
                     state.cleanWaterCandidate = object
                 end
             end
@@ -1513,7 +1517,16 @@ function FarmWork.update(actor, baseState, job, runtime)
         zoneById(type(job.target) == "table" and job.target.zoneId or nil)
     if not zone then return false, "farm_zone_missing", true end
     local square = U().gridSquare(target.x, target.y, target.z)
-    if not square then return false, "farm_target_unloaded", true end
+    if not square then
+        local ax, ay, az = U().position(actor)
+        print("[SurvivorCompanion][farm-target] missing_square job="
+            .. tostring(job.id) .. " target=" .. pointKey(target.x, target.y, target.z)
+            .. " actor=" .. pointKey(ax, ay, az)
+            .. " zone=" .. tostring(zone.id)
+            .. " inside_camp=" .. tostring(SC.BaseLife.isInside(target))
+            .. " cell_available=" .. tostring(U().cell() ~= nil))
+        return false, "farm_target_unloaded", true
+    end
     local state = stateFor(actor, job)
     if SC.BaseLife.isOutdoorSquare(square) == true and not daylight()
         and (SC.BaseLife.policies() or {}).workOutsideAtNight ~= true then
@@ -1638,7 +1651,7 @@ function FarmWork.update(actor, baseState, job, runtime)
         local source, reason = state.waterSource, nil
         if not waterSourceUsable(source) then
             state.waterSource = nil
-            source, reason = findWaterSource(state, zone, target.emergency == true)
+            source, reason = findWaterSource(state, zone)
             if not source then return reason == "water_source_scanning", reason,
                 reason ~= "water_source_scanning" end
             state.waterSource = source

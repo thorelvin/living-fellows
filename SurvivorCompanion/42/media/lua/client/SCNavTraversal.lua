@@ -294,7 +294,7 @@ function Traversal.occupiesDoorway(value, entry)
     return math.abs(progress) < clearance and lateral <= 0.55
 end
 
-function Traversal.alignDoorApproach(actor, fromSquare, toSquare, intent, affordance, context)
+function Traversal.alignDoorApproach(actor, fromSquare, toSquare, intent, affordance, context, state)
     local utility = U()
     local entry = { fromSquare = fromSquare, toSquare = toSquare }
     local progress, lateral, forwardX, forwardY = Traversal.doorGeometry(entry, actor)
@@ -308,6 +308,38 @@ function Traversal.alignDoorApproach(actor, fromSquare, toSquare, intent, afford
     -- climb position for the native action.
     if lateral <= tolerance and (not fence
         or math.abs(progress + setback) <= normalTolerance) then
+        -- A moving formation should face through the door before the native
+        -- crossing takes over. The old room sweep could leave the actor facing
+        -- sideways; repeating that turn on every Follow pulse stalled entry.
+        if not fence and state and intent and (intent.action == "follow_formation"
+            or intent.action == "regroup") then
+            local facingX, hasX = utility.call(actor, "getForwardDirectionX")
+            local facingY, hasY = utility.call(actor, "getForwardDirectionY")
+            if hasX and hasY and type(facingX) == "number"
+                and type(facingY) == "number"
+                and facingX * forwardX + facingY * forwardY < 0.75 then
+                local key = tostring(fromSquare) .. ">" .. tostring(toSquare)
+                local now = utility.nowMs()
+                if state.doorFacingKey ~= key then
+                    state.doorFacingKey = key
+                    state.doorFacingUntil = now + 400
+                end
+                if now < (state.doorFacingUntil or 0) then
+                    local actorX, actorY = utility.position(actor)
+                    if actorX ~= nil then
+                        local requested, accepted = utility.call(actor,
+                            "faceLocationF", actorX + forwardX * 2,
+                            actorY + forwardY * 2)
+                        if accepted and requested ~= false then
+                            return nil, "turning_door_approach"
+                        end
+                    end
+                end
+            else
+                state.doorFacingKey = nil
+                state.doorFacingUntil = nil
+            end
+        end
         return true, "door_approach_aligned"
     end
 

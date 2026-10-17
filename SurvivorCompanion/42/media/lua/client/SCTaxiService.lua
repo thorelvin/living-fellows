@@ -12,6 +12,9 @@ local resumePending = false
 local resumeDriverAt = 0
 local nextDepartureAt, retiringCar = 0, nil
 local destinationReminderAt = nil
+local lastTraceSignature = nil
+local lastDefenseTrace = nil
+local serviceRounds, driverGun = 15, nil
 local PICKUP_LINES = {
     "Markus Sloane. Your ride's here. Mind the paint; it's mostly blood.",
     "Get in. The meter's broken, but my prices aren't.",
@@ -75,6 +78,138 @@ function Service.isDriver(actor)
     return type(data) == "table" and owned ~= nil
         and type(data.LF_MarkusDriver) == "string"
         and data.LF_MarkusDriver == owned.ownershipToken
+end
+
+-- A waiting cab has released its driving lease. Only that stopped, owned cab
+-- may let Markus use the normal seated firearm path through the driver window.
+function Service.canDefend(actor, vehicle)
+    if not visit or visit.phase ~= "waiting_board"
+        or not Service.isDriver(actor) or not SC.Driving
+        or SC.Driving.isDriver(actor) ~= true then return false end
+    local car = vehicle or call(actor, "getVehicle")
+    if not car or call(actor, "getVehicle") ~= car
+        or SC.TaxiCab.matches(car) ~= true
+        or call(player(), "getVehicle") == car
+        or SC.Vehicle.isStationary(car) ~= true then return false end
+    local speed = tonumber(call(car, "getCurrentSpeedKmHour"))
+    return speed ~= nil and math.abs(speed) <= 0.5
+end
+
+local function markedGun(actor)
+    if driverGun and call(driverGun, "getContainer") == call(actor, "getInventory") then
+        return driverGun
+    end
+    driverGun = nil
+    local inventory = call(actor, "getInventory")
+    local items = inventory and call(inventory, "getItems")
+    local count = tonumber(call(items, "size")) or 0
+    for index = 0, math.min(count, 64) - 1 do
+        local item = call(items, "get", index)
+        local data = item and call(item, "getModData")
+        if type(data) == "table" and data.LF_MarkusServiceGun == true
+            and call(item, "getFullType") == "Base.Pistol" then
+            driverGun = item
+            return item
+        end
+    end
+    return nil
+end
+
+local function updateRounds(actor)
+    local gun = actor and markedGun(actor)
+    local count = gun and tonumber(call(gun, "getCurrentAmmoCount"))
+    if count and count >= 0 then
+        serviceRounds = math.min(serviceRounds, math.floor(count))
+    end
+    return gun
+end
+
+local function armDriver(actor)
+    if not Service.canDefend(actor) then return false, "taxi_not_parked" end
+    local data = call(actor, "getModData")
+    if type(data) ~= "table" then return false, "driver_marker_missing" end
+    local gun = updateRounds(actor)
+    if not gun then
+        if data.LF_MarkusArmed == true then return false, "driver_gun_missing" end
+        local inventory = call(actor, "getInventory")
+        gun = inventory and call(inventory, "AddItem", "Base.Pistol")
+        if not gun then return false, "driver_gun_unavailable" end
+        local gunData = call(gun, "getModData")
+        if type(gunData) ~= "table" then return false, "driver_gun_marker_missing" end
+        gunData.LF_MarkusServiceGun = true
+        call(gun, "setContainsClip", true)
+        call(gun, "setCurrentAmmoCount", serviceRounds)
+        call(gun, "setRoundChambered", serviceRounds > 0)
+        call(gun, "setJammed", false)
+        data.LF_MarkusArmed = true
+        driverGun = gun
+    end
+    if serviceRounds <= 0 then return false, "driver_out_of_ammo" end
+    if call(actor, "getPrimaryHandItem") ~= gun then
+        call(actor, "setPrimaryHandItem", gun)
+        if call(actor, "getPrimaryHandItem") ~= gun then
+            return false, "driver_gun_not_equipped"
+        end
+    end
+    return true, "driver_armed"
+end
+
+function Service.pulseDefense(actor, human, runtime, current)
+    if not Service.canDefend(actor) then return false, "taxi_service" end
+    local armed, reason = armDriver(actor)
+    if not armed then return false, reason end
+    local door = call(call(actor, "getVehicle"), "getPassengerDoor", 0)
+    local window = call(door, "findWindow")
+    if not window then return false, "driver_window_unavailable" end
+    runtime = type(runtime) == "table" and runtime or {}
+    local utility = U()
+    current = tonumber(current) or now()
+    local snapshot = type(runtime.senses) == "table" and runtime.senses.current
+        or runtime.snapshot
+    if utility.isDue(actor, "taxi-perception", 500, current)
+        and SC.Senses and type(SC.Senses.snapshot) == "function" then
+        local safe, observed = utility.safeSubsystem("taxi-senses", actor,
+            SC.Senses.snapshot, actor, human, runtime)
+        if safe and type(observed) == "table" then snapshot = observed end
+    end
+    if type(snapshot) ~= "table" then return false, "taxi_perception_pending" end
+    if SC.Senses and type(SC.Senses.refreshImmediate) == "function" then
+        local safe, observed = utility.safeSubsystem("taxi-senses-reflex", actor,
+            SC.Senses.refreshImmediate, actor, human, snapshot, runtime)
+        if safe and type(observed) == "table" then snapshot = observed end
+    end
+    runtime.snapshot = snapshot
+    if (tonumber(snapshot.threatCount) or #(snapshot.threats or {})) < 1 then
+        return false, "taxi_no_threat"
+    end
+    if call(window, "isHittable") == true then
+        if call(window, "isDestroyed") == true then
+            return false, "driver_window_blocked"
+        end
+        call(window, "setOpen", true)
+        call(call(actor, "getVehicle"), "transmitPartWindow", door)
+        if call(window, "isHittable") == true then
+            return false, "driver_window_closed"
+        end
+    end
+    if not SC.Combat or type(SC.Combat.update) ~= "function" then
+        return false, "taxi_combat_unavailable"
+    end
+    local handled, combatReason = SC.Combat.update(actor, human, runtime)
+    updateRounds(actor)
+    return handled, combatReason
+end
+local pulseDefense = Service.pulseDefense
+function Service.pulseDefense(actor, human, runtime, current)
+    local handled, reason = pulseDefense(actor, human, runtime, current)
+    if reason ~= lastDefenseTrace then
+        if reason ~= "taxi_service" and reason ~= "taxi_no_threat" then
+            print("[SurvivorCompanion/taxi] defense " .. tostring(reason)
+                .. " rounds=" .. tostring(serviceRounds))
+        end
+        lastDefenseTrace = reason
+    end
+    return handled, reason
 end
 local function recordDriver(actor)
     local id = SC.Registry and SC.Registry.idOf and SC.Registry.idOf(actor)
@@ -466,6 +601,8 @@ function Service.request(actor, radio)
     local accepted, reason, booking = SC.TaxiBooking.request(actor, radio)
     if not accepted then return false, reason end
     if visit then return true, "already_booked", snapshot() end
+    -- The next physical pickup is a new fare with a fresh, finite magazine.
+    serviceRounds, driverGun, lastDefenseTrace = 15, nil, nil
     visit = { bookingGeneration = booking.generation,
         phase = "searching", driverId = persistentDriverId }
     nextSearchAt = 0
@@ -765,8 +902,8 @@ local function departureHeading(car)
     return 1, 0
 end
 
--- Prefer the road ahead, but permit a safe side street if the current road
--- ends. The native route must really start at this cab and end near the probe.
+-- Prefer the road ahead, but permit a side street or diagonal when the road
+-- bends. Each leg must carry the cab farther from the delivered customer.
 local function departureGoal(car)
     local origin = point(car)
     if not origin or not SC.ExpeditionRoute
@@ -776,9 +913,15 @@ local function departureGoal(car)
     local hx, hy = departureHeading(car)
     local directions = { { hx, hy }, { -hy, hx },
         { hy, -hx }, { -hx, -hy } }
+    local diagonal = 0.70710678118655
+    local bends = { { (hx - hy) * diagonal, (hy + hx) * diagonal },
+        { (hx + hy) * diagonal, (hy - hx) * diagonal },
+        { (-hx - hy) * diagonal, (-hy + hx) * diagonal },
+        { (-hx + hy) * diagonal, (-hy - hx) * diagonal } }
     local fallback
-    for _, radius in ipairs({ 48, 36, 64 }) do
-        for _, direction in ipairs(directions) do
+    for index, radius in ipairs({ 48, 36, 64, 48, 64 }) do
+        local probes = index <= 3 and directions or bends
+        for _, direction in ipairs(probes) do
             local target = { x = origin.x + direction[1] * radius,
                 y = origin.y + direction[2] * radius, z = 0 }
             if target.x >= 0 and target.x <= 30000
@@ -798,6 +941,8 @@ local function departureGoal(car)
                     and distanceSquared(entry, origin) <= 144
                     and distanceSquared(exit, target) <= 64
                     and distanceSquared(exit, origin) >= 625
+                    and (not visit.dropoff or distanceSquared(exit, visit.dropoff)
+                        > distanceSquared(origin, visit.dropoff) + 100)
                     and (not visit.departureGoal
                         or distanceSquared(exit, visit.departureGoal) >= 100) then
                     local goal = { x = exit.x, y = exit.y, z = 0 }
@@ -985,9 +1130,14 @@ function Service.tick(current)
             if not started then visit.reason = why return true end
         elseif visit.phase == "waiting_board"
             or visit.phase == "ready_to_depart" then
-            local passenger = bookedPassenger(player(), car) and player() or nil
-            local started, why = SC.Driving.start(chauffeur, passenger)
-            if not started then fail(why) return false end
+            -- The parked cab does not need a driving lease. Keeping one here
+            -- prevents a defensive firearm action while Markus waits outside.
+            if type(SC.Driving.isDriving) == "function"
+                and SC.Driving.isDriving(chauffeur) then
+                local released, why = SC.Driving.release(chauffeur,
+                    "taxi_waiting_for_passenger")
+                if not released then visit.reason = why return true end
+            end
         end
         resumePending = false
         resumeDriverAt = 0
@@ -1055,6 +1205,9 @@ function Service.tick(current)
             local car = cab()
             local opened, doorReason = car and pickupDoor(car, true)
             if not opened then visit.reason = doorReason return true end
+            local released, releaseReason = SC.Driving.release(chauffeur,
+                "taxi_waiting_for_passenger")
+            if not released then visit.reason = releaseReason return true end
             visit.phase, visit.reason = "waiting_board", nil
             SC.TaxiBooking.advance(visit.bookingGeneration, "at_pickup")
             if U().say then
@@ -1141,6 +1294,11 @@ function Service.tick(current)
         local job = SC.Driving.jobStatus(chauffeur)
         if job and (job.result == "arrived" or job.result == "failed") then
             SC.Driving.release(chauffeur, "taxi_departure_leg_ended")
+            if job.result == "arrived" then
+                -- A visible arrival is progress, not a failed departure. Keep
+                -- finding outward legs until the cab has left every viewport.
+                visit.departureAttempts = 0
+            end
             if (visit.departureAttempts or 0) >= 4 then
                 visit.phase = "departure_held"
                 visit.reason = job.reason or "cab_still_in_view"
@@ -1167,8 +1325,27 @@ function Service.tick(current)
     return true
 end
 
+-- One line per state change makes a field report distinguish a fare hold,
+-- missing road, failed native drive, and a cab that is still in view.
+local tickVisit = Service.tick
+function Service.tick(current)
+    local result = tickVisit(current)
+    local phase = visit and visit.phase or "none"
+    local reason = visit and visit.reason or "none"
+    local attempts = visit and visit.departureAttempts or 0
+    local signature = tostring(phase) .. ":" .. tostring(reason)
+        .. ":" .. tostring(attempts)
+    if signature ~= lastTraceSignature then
+        print("[SurvivorCompanion/taxi] visit " .. signature)
+        lastTraceSignature = signature
+    end
+    return result
+end
+
 function Service.export()
-    return { schema = 1, driverId = persistentDriverId, visit = snapshot() }
+    if visit then updateRounds(findDriver()) end
+    return { schema = 1, driverId = persistentDriverId,
+        serviceRounds = serviceRounds, visit = snapshot() }
 end
 
 function Service.restore(saved)
@@ -1179,11 +1356,18 @@ function Service.restore(saved)
         resumeDriverAt = 0
         nextDepartureAt, retiringCar = 0, nil
         destinationReminderAt = nil
+        lastTraceSignature = nil
+        serviceRounds, driverGun, lastDefenseTrace = 15, nil, nil
         return true
     end
     if type(saved) ~= "table" or saved.schema ~= 1
         or saved.driverId ~= nil and (type(saved.driverId) ~= "string"
-            or saved.driverId == "") then return false, "invalid_taxi_service" end
+            or saved.driverId == "")
+        or saved.serviceRounds ~= nil and (type(saved.serviceRounds) ~= "number"
+            or saved.serviceRounds < 0 or saved.serviceRounds > 15
+            or saved.serviceRounds ~= math.floor(saved.serviceRounds)) then
+        return false, "invalid_taxi_service"
+    end
     local candidate = saved.visit
     if candidate then
         if type(candidate) ~= "table"
@@ -1264,6 +1448,8 @@ function Service.restore(saved)
     resumeDriverAt = 0
     nextDepartureAt, retiringCar = 0, nil
     destinationReminderAt = nil
+    lastTraceSignature = nil
+    serviceRounds, driverGun, lastDefenseTrace = saved.serviceRounds or 15, nil, nil
     return true
 end
 
@@ -1274,6 +1460,8 @@ function Service.reset()
     resumeDriverAt = 0
     nextDepartureAt, retiringCar = 0, nil
     destinationReminderAt = nil
+    lastTraceSignature = nil
+    serviceRounds, driverGun, lastDefenseTrace = 15, nil, nil
     return true
 end
 

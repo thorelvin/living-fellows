@@ -39,6 +39,13 @@ local function integer(value)
     return type(value) == "number" and value == value and value >= 0
         and value <= 2147483647 and value == math.floor(value)
 end
+
+-- Jewelry keeps its whole-number value, while half-price rides and carried
+-- change may use one half unit. Existing whole-number save values still load.
+local function halfUnit(value)
+    return type(value) == "number" and value == value and value >= 0
+        and value <= 2147483647 and value * 2 == math.floor(value * 2)
+end
 local function copyEntry(entry)
     return { itemId = entry.itemId, itemType = entry.itemType,
         partId = entry.partId, value = entry.value,
@@ -189,7 +196,7 @@ function Fare.quote(roadTiles)
     local distance = tonumber(roadTiles)
     if not distance or distance ~= distance or distance < 0
         or distance == math.huge then return nil, "fare_route_unavailable" end
-    local base = distance <= 100 and 1 or distance <= 500 and 3 or 6
+    local base = distance <= 100 and 0.5 or distance <= 500 and 1.5 or 3
     if not firstRideUsed then
         return { baseFare = base, required = 0, creditUsed = 0,
             promotion = true }
@@ -257,7 +264,8 @@ local function selectFare(entries, required)
         end
         maximum = maximum + entry.value
     end
-    for sum = required, maximum do
+    -- Jewelry values are whole units, while fares and credit may be halves.
+    for sum = math.ceil(required), maximum do
         if choices[sum] then return choices[sum], sum end
     end
     return nil, maximum
@@ -497,7 +505,7 @@ function Fare.restore(saved)
     end
     if type(saved) ~= "table" or saved.schema ~= 1
         or type(saved.firstRideUsed) ~= "boolean"
-        or not integer(saved.credit) or not integer(saved.nextReceipt)
+        or not halfUnit(saved.credit) or not integer(saved.nextReceipt)
         or saved.nextReceipt < 1 or type(saved.offers) ~= "table"
         or type(saved.paidItems) ~= "table"
         or type(saved.serviceItems) ~= "table"
@@ -544,9 +552,11 @@ function Fare.restore(saved)
             or not integer(candidate.bookingGeneration)
             or not integer(candidate.visitGeneration)
             or not integer(candidate.vehicleSqlId)
-            or not integer(candidate.baseFare) or not integer(candidate.required)
-            or not integer(candidate.creditUsed) or not integer(candidate.paidValue)
-            or not integer(candidate.overpay)
+            or not halfUnit(candidate.baseFare)
+            or not halfUnit(candidate.required)
+            or not halfUnit(candidate.creditUsed)
+            or not integer(candidate.paidValue)
+            or not halfUnit(candidate.overpay)
             or type(candidate.promotion) ~= "boolean"
             or type(candidate.items) ~= "table" or #candidate.items > 64
             or candidate.vehicleSqlId ~= saved.baselineSqlId

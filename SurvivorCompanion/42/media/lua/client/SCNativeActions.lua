@@ -2284,6 +2284,35 @@ function actions.startVehicleWash(actor, vehicle, areaId, area, item, jobId)
     return queueTrackedWork(actor, action, record, "wash_vehicle")
 end
 
+-- Fill the job's borrowed empty vessel from a fixed clean source. The native
+-- take-water action accounts for both the sink and container fluid exactly.
+function actions.startVehicleWashFill(actor, item, source, jobId)
+    if not actor or not item or not source
+        or type(ISTakeWaterAction) ~= "table"
+        or type(ISTakeWaterAction.new) ~= "function" then
+        return false, "wash_sink_action_unavailable"
+    end
+    local record, reason = prepareWorkInventory(actor, { item }, nil, nil)
+    if not record then return false, reason end
+    local created, action = pcall(ISTakeWaterAction.new, ISTakeWaterAction,
+        actor, item, source, false)
+    if not created or not action then
+        restoreWorkInventory(actor, record)
+        return false, "wash_sink_action_creation_failed"
+    end
+    if (tonumber(action.waterUnit) or 0) < 1 then
+        restoreWorkInventory(actor, record)
+        return false, "wash_sink_carry_capacity_low"
+    end
+    local nativeValid = action.isValid
+    action.isValid = function(self)
+        return SC.VehicleUpkeep and SC.VehicleUpkeep.canFill(
+            actor, item, source, jobId) == true
+            and (type(nativeValid) ~= "function" or nativeValid(self) == true)
+    end
+    return queueTrackedWork(actor, action, record, "wash_vehicle_fill")
+end
+
 -- Queue one stock Build 42 farming action while retaining the same exclusive
 -- timed-action ownership and hand/inventory restoration used by production.
 -- The caller selects policy and supplies; this adapter only validates and

@@ -77,6 +77,8 @@ param(
     [switch]$TaxiPassengerProbe,
     # Markus radio booking through a hidden physical pickup and free road ride.
     [switch]$TaxiCallProbe,
+    # Real parked-driver firing at an inert zombie before the passenger boards.
+    [switch]$TaxiDefenseProbe,
     # A repeat booking from a completed fare: 200+ tiles, paid with gold necklace.
     [switch]$TaxiCallLongPaid,
     # Reproduce a repeat pickup across the road and record the native turn.
@@ -742,6 +744,9 @@ if ($TaxiPassengerProbe -and -not $DrivingProbe) {
 if ($TaxiCallProbe -and -not $DrivingProbe) {
     throw '-TaxiCallProbe requires -DrivingProbe.'
 }
+if ($TaxiDefenseProbe -and -not $TaxiCallProbe) {
+    throw '-TaxiDefenseProbe requires -TaxiCallProbe.'
+}
 if ($TaxiCallStage -and -not $TaxiCallProbe) {
     throw '-TaxiCallStage requires -TaxiCallProbe.'
 }
@@ -1166,9 +1171,11 @@ $launcher = Get-Content -LiteralPath $gameConfig -Raw -Encoding utf8 | ConvertFr
 if ($launcher.mainClass -ne 'survivorcompanion/bridge/SCLauncher') {
     throw 'The native SCLauncher is not installed; run Install-Local.ps1 -NativeBridge first.'
 }
-$bridgeClassPath = @($launcher.classpath | Where-Object { $_ -match 'SurvivorCompanion.*Bridge.*\.jar' })
+$bridgeClassPath = @($launcher.classpath | Where-Object {
+    $_ -match '^(?:SurvivorCompanion|LivingFellows).*Bridge.*\.jar$'
+})
 if ($bridgeClassPath.Count -ne 1) {
-    throw 'ProjectZomboid64.json does not contain exactly one SurvivorCompanion bridge classpath entry.'
+    throw 'ProjectZomboid64.json does not contain exactly one Living Fellows bridge classpath entry.'
 }
 $bridgePath = $bridgeClassPath[0].Replace('/', '\')
 if (-not [System.IO.Path]::IsPathRooted($bridgePath)) { $bridgePath = Join-Path $GameRoot $bridgePath }
@@ -1519,6 +1526,7 @@ $config = @(
     ('convoy_probe=' + $ConvoyProbe.IsPresent.ToString().ToLowerInvariant()),
     ('taxi_passenger_probe=' + $TaxiPassengerProbe.IsPresent.ToString().ToLowerInvariant()),
     ('taxi_call_probe=' + $TaxiCallProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('taxi_defense_probe=' + $TaxiDefenseProbe.IsPresent.ToString().ToLowerInvariant()),
     ('taxi_call_long_paid=' + $TaxiCallLongPaid.IsPresent.ToString().ToLowerInvariant()),
     ('taxi_turn_diagnostic=' + $TaxiTurnDiagnostic.IsPresent.ToString().ToLowerInvariant()),
     ('taxi_call_stage=' + $TaxiCallStage.IsPresent.ToString().ToLowerInvariant()),
@@ -2250,6 +2258,7 @@ if ($TaxiCallProbe -and -not $TaxiCallStage -and -not $TaxiTurnDiagnostic -and $
         'taxi_call_physical_pickup',
         'taxi_call_booked_passenger_boarded',
         'taxi_call_real_ride')
+    if ($TaxiDefenseProbe) { $callProofs += 'taxi_driver_defended_pickup' }
     if ($TaxiCallLongPaid) {
         $callProofs += @('taxi_call_gold_necklace_reserved',
             'taxi_call_straight_cruise_50',

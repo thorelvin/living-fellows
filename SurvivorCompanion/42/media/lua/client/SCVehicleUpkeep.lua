@@ -17,6 +17,8 @@ local WASH_AREAS = {
     { id = "Right", area = "SeatFrontRight" },
 }
 local states = setmetatable({}, { __mode = "k" })
+local sinkScans = setmetatable({}, { __mode = "k" })
+local avoidedSinks = setmetatable({}, { __mode = "k" })
 
 local function U() return SC.GameplayUtil end
 local function call(object, method, ...)
@@ -54,8 +56,76 @@ local function water(item)
         and call(fluid, "contains", Fluid.Water) == true
     return (tainted or clean) and amount or 0, tainted == true
 end
+local function washWater(item, target)
+    local amount, tainted = water(item)
+    if tainted or target and target.sourceKind == "sink"
+        and target.sinkFilled == true then return amount end
+    return 0
+end
+local function emptyWaterVessel(item)
+    local fluid = call(item, "getFluidContainer")
+    local amount = number(fluid, "getAmount")
+    local capacity = number(fluid, "getCapacity")
+    local category = string.lower(tostring(call(item, "getDisplayCategory") or ""))
+    return amount ~= nil and amount < EPSILON and capacity and capacity >= 1
+        and (category == "watercontainer" or category == "water")
+end
+local function cleanSink(object)
+    local square = U().squareOf(object)
+    return square ~= nil and SC.BaseLife.withinWorkReach(square) == true
+        and call(object, "isWaterSource") == true
+        and (number(object, "getFluidAmount") or 0) >= 1
+        and call(object, "isTaintedWater") == false
+        and (avoidedSinks[object] or 0) <= U().nowMs()
+end
+-- Search at most one small slice per work tick. The cached source is rechecked
+-- before use; a dry sink or a newly blocked approach never remains selected.
+local function findCleanSink()
+    local base = SC.BaseLife.active()
+    if not base then return nil, "base_missing" end
+    local scan = sinkScans[base]
+    if scan and cleanSink(scan.source) then return scan.source end
+    if not scan or scan.done and U().nowMs() - (scan.finishedAt or 0) >= 30000 then
+        scan = { zones = {}, zone = 1, index = 0 }
+        for _, area in ipairs(base.zones or {}) do
+            if area.kind == "area" then scan.zones[#scan.zones + 1] = area end
+        end
+        sinkScans[base] = scan
+    end
+    if scan.done then return nil, "wash_sink_missing" end
+    scan.source = nil
+    for _ = 1, 128 do
+        local area = scan.zones[scan.zone]
+        if not area then
+            scan.done, scan.finishedAt = true, U().nowMs()
+            return nil, "wash_sink_missing"
+        end
+        local width = area.x2 - area.x1 + 1
+        local total = width * (area.y2 - area.y1 + 1)
+        if scan.index >= total then
+            scan.zone, scan.index = scan.zone + 1, 0
+        else
+            local offset = scan.index
+            scan.index = offset + 1
+            local square = U().gridSquare(area.x1 + offset % width,
+                area.y1 + math.floor(offset / width), area.z)
+            if square then
+                U().squareObjects(square, function(object)
+                    if cleanSink(object) then scan.source = object return false end
+                end, 48)
+                if scan.source then return scan.source end
+            end
+        end
+    end
+    return nil, "wash_sink_scanning"
+end
+local function avoidSink(source)
+    avoidedSinks[source] = U().nowMs() + 60000
+    local base = SC.BaseLife.active()
+    if base then sinkScans[base] = nil end
+end
 local function supply(kind, actor)
-    local best, score
+    local best, score, empty, emptyScore
     for _, storage in ipairs(SC.BaseLife.storageRows(nil, true)) do
         local container = SC.BaseLife.resolveContainer(storage)
         if container then
@@ -82,15 +152,21 @@ local function supply(kind, actor)
                     local quantity, tainted = water(item)
                     local usable = kind == "inflate_tires"
                         and itemType == "Base.TirePump"
-                        or kind == "wash_vehicle" and quantity >= 1
+                        or kind == "wash_vehicle" and tainted and quantity >= 1
                     if usable and available[itemType] > 0 then
-                        local rank = kind == "wash_vehicle"
-                            and (tainted and 0 or 100000) or 0
                         local distance = actor and U().distanceSq(actor,
                             SC.BaseLife.resolveObject(storage)) or 0
-                        rank = rank + (tonumber(distance) or 0)
+                        local rank = tonumber(distance) or 0
                         if not best or rank < score then
                             best, score = { storage, container, item }, rank
+                        end
+                    elseif kind == "wash_vehicle" and available[itemType] > 0
+                        and emptyWaterVessel(item) then
+                        local rank = actor and U().distanceSq(actor,
+                            SC.BaseLife.resolveObject(storage)) or 0
+                        rank = tonumber(rank) or 0
+                        if not empty or rank < emptyScore then
+                            empty, emptyScore = { storage, container, item }, rank
                         end
                     end
                 end
@@ -98,6 +174,12 @@ local function supply(kind, actor)
         end
     end
     if best then return best[1], best[2], best[3] end
+    if empty then
+        local source, reason = findCleanSink()
+        if source or reason == "wash_sink_scanning" then
+            return empty[1], empty[2], empty[3], "sink"
+        end
+    end
     return nil
 end
 local function itemFor(job, actor)
@@ -313,7 +395,17 @@ function Upkeep.canContinue(actor, vehicle, item, jobId, area, part)
         return call(vehicle, "getPartById", call(part, "getId")) == part
             and call(part, "getInventoryItem") ~= nil
     end
-    return water(item) >= 1
+    return washWater(item, job.target) >= 1
+end
+function Upkeep.canFill(actor, item, source, jobId)
+    local job = SC.BaseLife and SC.BaseLife.job(jobId)
+    return job and job.type == "wash_vehicle"
+        and job.reservedBy == U().idOf(actor)
+        and job.target.stage == "filling_water"
+        and job.target.sourceKind == "sink"
+        and marker(item) == jobId
+        and U().inventoryContains(U().inventory(actor), item) == true
+        and cleanSink(source) == true or false
 end
 function Upkeep.canApproach(actor, vehicle, jobId)
     local job = SC.BaseLife and SC.BaseLife.job(jobId)
@@ -327,6 +419,7 @@ function Upkeep.canApproach(actor, vehicle, jobId)
 end
 local function clearTarget(target)
     target.stage, target.sourceStorageId, target.itemId = nil, nil, nil
+    target.sourceKind, target.sinkFilled, target.fillBefore = nil, nil, nil
     target.partId, target.areaId, target.area = nil, nil, nil
     target.before, target.waterBefore = nil, nil
     target.actionStartedAt, target.stageStartedAt = nil, nil
@@ -376,7 +469,8 @@ function Upkeep.update(actor, baseState, job)
     local item, carried = itemFor(job, actor)
     local stage = target.stage or "selecting"
     target.stageStartedAt = tonumber(target.stageStartedAt) or U().nowMs()
-    if stage ~= "working" and U().nowMs() - target.stageStartedAt > 90000 then
+    if stage ~= "working" and stage ~= "filling_water"
+        and U().nowMs() - target.stageStartedAt > 90000 then
         target.stageStartedAt = nil
         return false, "upkeep_" .. stage .. "_timeout", true
     end
@@ -387,20 +481,32 @@ function Upkeep.update(actor, baseState, job)
             container = storage and SC.BaseLife.resolveContainer(storage)
             if not item then return false, "upkeep_supply_missing", true end
         else
-            storage, container, item = supply(job.type, actor)
+            local sourceKind
+            storage, container, item, sourceKind = supply(job.type, actor)
             if not item then return true, "upkeep_supply_exhausted", false, true end
             if not mark(item, job.id) then return false, "upkeep_supply_reserved", true end
             target.sourceStorageId, target.itemId = storage.id, call(item, "getID")
+            target.sourceKind = sourceKind or (job.type == "wash_vehicle" and "tainted" or nil)
+        end
+        -- Older jobs may have reserved a clean drinking container. Return it
+        -- without washing; only tainted water or a sink-filled vessel qualifies.
+        if job.type == "wash_vehicle" and target.sourceKind ~= "sink"
+            and washWater(item, target) < 1 then
+            target.stage, target.finishReason = "returning", "clean_water_reserved"
+            target.stageStartedAt = U().nowMs()
+            return true, "upkeep_returning_supply"
         end
         if carried then
-            target.stage, target.stageStartedAt = "carrying", U().nowMs()
+            target.stage = target.sourceKind == "sink" and "seeking_water" or "carrying"
+            target.stageStartedAt = U().nowMs()
             return true, "upkeep_supply_carried"
         end
         if not storage or not container then return false, "base_storage_unloaded", true end
         local taken, reason = SC.BaseWork.withdrawFromStorage(actor, baseState,
             storage, container, item)
         if U().inventoryContains(U().inventory(actor), item) == true then
-            target.stage, target.stageStartedAt = "carrying", U().nowMs()
+            target.stage = target.sourceKind == "sink" and "seeking_water" or "carrying"
+            target.stageStartedAt = U().nowMs()
             return true, "upkeep_supply_carried"
         end
         if reason == "base_storage_action_rejected" then
@@ -413,6 +519,68 @@ function Upkeep.update(actor, baseState, job)
     end
     if not item then return false, "upkeep_supply_missing", true end
     local vehicle = SC.Vehicle and SC.Vehicle.loadedBySqlId(target.vehicleId)
+    if stage == "seeking_water" then
+        if not carried then return false, "upkeep_supply_not_carried", true end
+        local source, searchReason = findCleanSink()
+        if not source then
+            if searchReason == "wash_sink_scanning" then
+                return true, searchReason
+            end
+            target.stage, target.finishReason = "returning", "base_wash_sink_missing"
+            target.stageStartedAt = U().nowMs()
+            return true, "upkeep_returning_supply"
+        end
+        local at, targets, accessReason = U().directInteractionAccess(actor, source)
+        if at ~= true then
+            if accessReason == "no_interaction_targets" then
+                avoidSink(source)
+                return true, "wash_sink_retry"
+            end
+            local moving, reason = SC.Navigation.requestAny(actor, targets,
+                "walk", { action = "move_to_wash_water", object = source,
+                    targetSquare = U().squareOf(source), arrivalDistance = 0.35,
+                    requireSameSquare = true, continuousApproach = true,
+                    workCampOnly = true, workReach = true })
+            if moving ~= true then
+                avoidSink(source)
+                return true, "wash_sink_retry"
+            end
+            return true, reason or "approaching_wash_sink"
+        end
+        target.fillBefore = number(call(item, "getFluidContainer"), "getAmount") or 0
+        target.stage, target.stageStartedAt = "filling_water", U().nowMs()
+        target.actionStartedAt = U().nowMs()
+        local started, reason = SC.NativeActions.startVehicleWashFill(
+            actor, item, source, job.id)
+        if started ~= true then
+            target.stage, target.fillBefore = "seeking_water", nil
+            return false, reason or "wash_sink_fill_rejected", true
+        end
+        return true, "wash_sink_fill_started"
+    end
+    if stage == "filling_water" then
+        local native = SC.NativeActions
+        if native.workKind(actor) == "wash_vehicle_fill" then
+            if native.isWorkActive(actor) == true then
+                if U().nowMs() - (tonumber(target.actionStartedAt) or 0)
+                    < 120000 then return true, "wash_sink_fill_active" end
+                local stopped, reason = native.cancelWork(actor, "wash_sink_fill_timeout")
+                if stopped ~= true then return false, reason, true end
+            else
+                local finished, reason = native.finishWork(actor)
+                if finished ~= true then return false, reason, true end
+            end
+        end
+        local amount = water(item)
+        target.stage, target.stageStartedAt = amount >= 1
+            and "carrying" or "seeking_water", U().nowMs()
+        if amount > (tonumber(target.fillBefore) or 0) + EPSILON then
+            target.sinkFilled = true
+        end
+        target.fillBefore, target.actionStartedAt = nil, nil
+        return true, amount >= 1 and target.sinkFilled
+            and "wash_sink_filled" or "wash_sink_fill_retry"
+    end
     if stage == "working" then
         local native = SC.NativeActions
         local kind = job.type == "inflate_tires" and "inflate_tires"
@@ -438,7 +606,13 @@ function Upkeep.update(actor, baseState, job)
         local okay, info, need = Upkeep.eligible(job.type, vehicle,
             target.manual == true, true)
         if not okay or (target.zoneId and info.zoneId ~= target.zoneId)
-            or not need or (job.type == "wash_vehicle" and water(item) < 1) then
+            or not need or (job.type == "wash_vehicle"
+                and washWater(item, target) < 1) then
+            if okay and need and job.type == "wash_vehicle"
+                and target.sourceKind == "sink" then
+                target.stage, target.stageStartedAt = "seeking_water", U().nowMs()
+                return true, "wash_sink_refill_needed"
+            end
             target.stage, target.stageStartedAt = "returning", U().nowMs()
             target.finishReason = not okay and info or not need and "upkeep_complete"
                 or "wash_water_exhausted"
@@ -547,6 +721,7 @@ function Upkeep.releaseAffinity(actor, job)
     local item, carried = itemFor(job, actor)
     if carried or job.target.stage == "working" or (SC.NativeActions
         and (SC.NativeActions.workKind(actor) == "wash_vehicle"
+            or SC.NativeActions.workKind(actor) == "wash_vehicle_fill"
             or SC.NativeActions.workKind(actor) == "inflate_tires"
             or SC.NativeActions.workKind(actor) == "vehicle_area_approach")) then
         return false
@@ -563,6 +738,11 @@ function Upkeep.cancel(actor, job)
     end
     local item, carried = itemFor(job, actor)
     if SC.NativeActions.workKind(actor) == "vehicle_area_approach" then
+        local stopped, reason = SC.NativeActions.cancelWork(actor,
+            "upkeep_cancelled")
+        if stopped ~= true then return false, reason end
+    end
+    if SC.NativeActions.workKind(actor) == "wash_vehicle_fill" then
         local stopped, reason = SC.NativeActions.cancelWork(actor,
             "upkeep_cancelled")
         if stopped ~= true then return false, reason end

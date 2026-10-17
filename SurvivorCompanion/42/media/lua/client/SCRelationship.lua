@@ -658,6 +658,7 @@ local doingLabels = {
     chef_serve_player = "bringing you a meal",
     move_to_treat = "going to treat someone",
     move_to_water_source = "heading to water",
+    move_to_wash_water = "filling a container for car washing",
     move_to_window = "going to a window",
     move_to_light_switch = "turning off the bedroom light",
     none = "taking a breath",

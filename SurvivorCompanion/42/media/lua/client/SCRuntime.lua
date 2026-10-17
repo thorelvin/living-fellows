@@ -293,8 +293,11 @@ local function serviceRecord(record, current, currentPlayer)
     -- through to the targeting/attack resolve below so the grab is sustained,
     -- rescued, or dragged down.
     if taxiDriver then
-        record.runtime.lastDecision = "taxi_service"
-        record.runtime.lastDecisionHandled = true
+        local guarded, handled, reason = SC.Diagnostics.guard("taxi-defense",
+            record.id, SC.TaxiService.pulseDefense, record.actor,
+            currentPlayer, record.runtime, current)
+        record.runtime.lastDecision = guarded and reason or handled
+        record.runtime.lastDecisionHandled = guarded and handled == true
     elseif SC.ZombieAttack and type(SC.ZombieAttack.isGrabbed) == "function"
         and SC.ZombieAttack.isGrabbed(record.actor) == true then
         record.runtime.lastDecision = "grabbed_by_zombies"

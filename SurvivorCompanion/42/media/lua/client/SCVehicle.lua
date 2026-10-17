@@ -756,7 +756,11 @@ function vehicleService.canPassengerFire(actor, target, doctrine)
         return false, "vehicle_fire_blocked_by_doctrine"
     end
     local seated, vehicle, seat = vehicleService.isNativeSeated(actor)
-    if not seated or vehicle == nil or seat == nil or seat < 1 then
+    local taxiDriver = seated and seat == 0 and SC.TaxiService
+        and type(SC.TaxiService.canDefend) == "function"
+        and SC.TaxiService.canDefend(actor, vehicle) == true
+    if not seated or vehicle == nil or seat == nil
+        or (seat < 1 and not taxiDriver) then
         return false, "vehicle_fire_requires_passenger_seat"
     end
     local doorOk, door = invoke(vehicle, "getPassengerDoor", seat)
@@ -768,7 +772,7 @@ function vehicleService.canPassengerFire(actor, target, doctrine)
     local speedOk, speed = invoke(vehicle, "getCurrentSpeedKmHour")
     if not speedOk then return false, "vehicle_speed_unavailable" end
     speed = math.abs(finite(speed, math.huge))
-    local maximum = doctrine == "ranged_support"
+    local maximum = taxiDriver and 0.5 or doctrine == "ranged_support"
         and finite(SC.Config.get("vehicleRangedSupportMaxSpeedKph"), 15)
         or finite(SC.Config.get("vehicleWeaponsFreeMaxSpeedKph"), 30)
     if speed > maximum then return false, "vehicle_too_fast_to_fire" end

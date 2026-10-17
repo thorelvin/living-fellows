@@ -123,7 +123,7 @@ check(Fare.reserve(player, vehicle, 250) == true, "reserve free ride again")
 check(Fare.commit(vehicle) == true, "safe dropoff consumes promotion")
 check(select(2, Fare.commit(vehicle)) == "already_committed",
     "second settlement has no extra credit")
-check(Fare.quote(250).required == 3, "next ride charged")
+check(Fare.quote(250).required == 1.5, "next ride charged half price")
 check(select(2, Fare.retirementStatus(vehicle)) == "customer_property_in_cab",
     "unselected deposit blocks retirement")
 glove.items.values = { serviceRing }
@@ -143,13 +143,16 @@ check(Fare.offer(player, vehicle, gold) == true, "gold in glovebox")
 check(Fare.offer(player, vehicle, silver) == true, "silver in trunk")
 check(Fare.reserve(player, vehicle, 250) == true, "paid reservation")
 local receipt = Fare.current()
-check(receipt.paidValue == 3 and #receipt.items == 1
+check(receipt.required == 1.5 and receipt.paidValue == 3
+    and receipt.overpay == 1.5 and #receipt.items == 1
     and receipt.items[1].itemId == 303, "lowest sufficient set")
 check(Fare.verify(vehicle) == true, "native custody verified")
 glove.items.values = { serviceRing }
 trunk.items.values[#trunk.items.values + 1] = gold
 check(Fare.verify(vehicle) == true, "fare moved between cab containers")
 check(Fare.commit(vehicle) == true, "paid item settled once")
+check(Fare.quote(250).required == 0,
+    "overpayment becomes credit toward the next ride")
 check(select(2, Fare.offer(player, vehicle, gold)) == "fare_item_protected",
     "committed piece cannot pay again")
 
@@ -159,6 +162,8 @@ check(Booking.restore(saveBooking) and Cab.restore(saveCab)
     and Fare.restore(saveFare), "reload all three ledgers")
 check(Cab.recover() == true and Fare.current().phase == "committed",
     "recover same native cab and receipt")
+check(Fare.quote(501).required == 1.5,
+    "half-unit credit survives save reload")
 loaded = nil
 player.vehicle = vehicle
 check(Cab.recover() == true,
@@ -186,7 +191,7 @@ check(Cab.beginVisit(vehicle, Booking.current().generation) == true,
 local interrupted = item(405, "Base.Ring_Left_RingFinger_Gold")
 glove.items.values[#glove.items.values + 1] = interrupted
 check(Fare.offer(player, vehicle, interrupted) == true
-    and Fare.reserve(player, vehicle, 250) == true,
+    and Fare.reserve(player, vehicle, 501) == true,
     "exact item reserved for third fare")
 local partial = Fare.export()
 partial.receipt.phase = "settlement_pending"
@@ -198,7 +203,7 @@ check(select(2, Fare.cancel(vehicle)) == "fare_released"
     and interrupted.data.LF_TaxiReceipt == nil,
     "cancellation clears only the interrupted payment")
 check(Fare.offer(player, vehicle, interrupted) == true
-    and Fare.reserve(player, vehicle, 250) == true,
+    and Fare.reserve(player, vehicle, 501) == true,
     "released item can fund a new receipt")
 local malformed = Fare.export()
 malformed.receipt.paidValue = malformed.receipt.paidValue + 1
@@ -234,7 +239,7 @@ local savedAppearance = Cab.export()
 check(Cab.reset() and Cab.restore(savedAppearance),
     "cab appearance survives a cold save reload")
 check(Cab.current() == nil and Fare.current() == nil
-    and Fare.quote(250).required == 3,
+    and Fare.quote(250).required == 0,
     "next cab keeps fare history without stale vehicle identity")
 check(Booking.cancel(player, radio) and Booking.request(player, radio),
     "new booking after verified taxi departure")

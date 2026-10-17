@@ -3038,9 +3038,9 @@ local function handleWindowFrame(actor, frame, fromSquare, toSquare, now, intent
         actor, frame, fromSquare, toSquare, now, intent, traversalContext)
 end
 
-local function alignDoorApproach(actor, fromSquare, toSquare, intent, affordance)
+local function alignDoorApproach(actor, fromSquare, toSquare, intent, affordance, state)
     return V().alignDoorApproach(
-        actor, fromSquare, toSquare, intent, affordance, traversalContext)
+        actor, fromSquare, toSquare, intent, affordance, traversalContext, state)
 end
 
 local function handleFence(actor, object, fromSquare, toSquare, intent)
@@ -3332,12 +3332,16 @@ local function checkRoomEntry(actor, state, sourceSquare, nextSquare, intent, no
     -- reaching the selected room. Running the generic threshold sweep as well
     -- made the actor stop twice at the door and left stale door-path ownership.
     if type(intent) == "table" and (intent.action == "check_room"
+        or intent.action == "follow_formation" or intent.action == "regroup"
         or quietContinuousApproach(intent)) then
         state.roomEntryKey = nil
         state.roomEntryObserveUntil = nil
         state.roomEntrySweepPhase = nil
-        return true, intent.action == "check_room"
-            and "explicit_room_check" or "continuous_room_approach"
+        if intent.action == "check_room" then return true, "explicit_room_check" end
+        if intent.action == "follow_formation" or intent.action == "regroup" then
+            return true, "formation_room_approach"
+        end
+        return true, "continuous_room_approach"
     end
     local sourceRoom, destinationRoom = roomOf(sourceSquare), roomOf(nextSquare)
     local entering = destinationRoom ~= nil and destinationRoom ~= sourceRoom
@@ -3623,6 +3627,8 @@ local function selectRecoveryWaypoint(actor, state, actorSquare, goalSquare, int
             if kind == "open" and select(1, passableEdge(actorSquare, square)) == true
                 and utility.isSquareFree(square)
                 and not utility.edgeBlocked(actorSquare, square)
+                and not edgeBlacklistEntry(state.blockedEdges, actorSquare, square,
+                    now, actor, state.blockedEdgeCount, state)
                 and not personalSpaceBlocker(actor, square, intent and intent.snapshot) then
                 state.recoveryWaypoint = square
                 state.recoveryWaypointExpires = now
@@ -3694,6 +3700,8 @@ local function clearMovementTransients(actor, state)
     state.roomEntryKey = nil
     state.roomEntryObserveUntil = nil
     state.roomEntrySweepPhase = nil
+    state.doorFacingKey = nil
+    state.doorFacingUntil = nil
     state.stairObserveKey = nil
     state.stairObserveUntil = nil
     state.stairSpacingSince = nil
@@ -5588,6 +5596,24 @@ local function directRouteNoNetMotion(actor, state, now, delayMs)
 end
 Navigation._directRouteNoNetMotionForTests = directRouteNoNetMotion
 
+-- A whole-goal native fallback can leave lastAttemptTo many tiles away. A
+-- physical stall belongs to the first local step, which the next route search
+-- can actually avoid. The same rule handles a failed one-tile recovery move.
+function Navigation.stalledLocalStep(fromSquare, attemptedTo, goalSquare)
+    local utility = U()
+    if fromSquare == nil then return nil end
+    local target = attemptedTo
+    if target == nil or sameSquare(fromSquare, target) then target = goalSquare end
+    if target == nil or sameSquare(fromSquare, target) then return nil end
+    if adjacentStep(fromSquare, target) then return target end
+    local fx, fy, fz = utility.position(fromSquare)
+    local tx, ty = utility.position(target)
+    if fx == nil or tx == nil then return nil end
+    local stepX = tx > fx and 1 or (tx < fx and -1 or 0)
+    local stepY = ty > fy and 1 or (ty < fy and -1 or 0)
+    return utility.gridSquare(fx + stepX, fy + stepY, fz)
+end
+
 function Navigation._directStallNeedsNativeEdgeForTests(state, goalSquare, now)
     return state.directStallNativeGoalKey == squareKey(goalSquare)
         and now <= (tonumber(state.directStallNativeUntil) or 0)
@@ -5770,12 +5796,31 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
             math.max(5000, stuckDelay * 2)) then
         state.nativeRecoveryDue = true
         state.lastMovementReason = "direct_route_no_net_motion"
-        -- MoveForward can acknowledge a pulse while the collision capsule
-        -- shuffles in place. Replanning the same open edge with the same
-        -- direct mover repeats the stall; give the next validated edge to
-        -- PathFindBehavior2 instead.
-        state.directStallNativeGoalKey = squareKey(goalSquare)
-        state.directStallNativeUntil = now + 10000
+        local localStep = Navigation.stalledLocalStep(actorSquare, attemptedTo, goalSquare)
+        if localStep then
+            attemptedFrom, attemptedTo = actorSquare, localStep
+            state.lastAttemptFrom, state.lastAttemptTo = actorSquare, localStep
+            preview = classifyMovementBlocker(actor, actorSquare, localStep,
+                state.lastMovementReason)
+            -- The old unknown-edge memory lasted only 500 ms. At the next
+            -- request the planner selected this same corner again, even after
+            -- minutes of accepted movement without translation. Keep this
+            -- observed physical failure long enough to find another route.
+            if preview.passageOnly ~= true and preview.dynamic ~= true then
+                blacklistEdge(state, actorSquare, localStep, preview.type,
+                    preview.object, now, preview.evidenceClass,
+                    preview.confidence, 30000)
+                state.verifiedPathAttemptKey = nil
+            else
+                -- A moving blocker or a door threshold can clear without a
+                -- detour. Let the engine take the validated next edge.
+                state.directStallNativeGoalKey = squareKey(goalSquare)
+                state.directStallNativeUntil = now + 10000
+            end
+        else
+            state.directStallNativeGoalKey = squareKey(goalSquare)
+            state.directStallNativeUntil = now + 10000
+        end
     end
     if state.nativeRecoveryDue ~= true
         and now - (state.lastProgressAt or now) < stuckDelay then
@@ -5887,6 +5932,8 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
         local passable = square and select(1, passableEdge(actorSquare, square)) == true
         if square and kind == "open" and passable and utility.isSquareFree(square)
             and not utility.edgeBlocked(actorSquare, square)
+            and not edgeBlacklistEntry(state.blockedEdges, actorSquare, square,
+                now, actor, state.blockedEdgeCount, state)
             and not personalSpaceBlocker(actor, square, intent and intent.snapshot)
             and reserveStep(square, actor, state, intent or {}, now) then
             local accepted = utility.move(actor, "walk", {
@@ -7336,7 +7383,7 @@ function Navigation.request(actor, target, movementMode, intent)
     if tacticalAccepted == nil then return true, tacticalStatus end
     if kind == "door" or kind == "fence" then
         local aligned, alignmentStatus = alignDoorApproach(
-            actor, sourceSquare, nextSquare, requestIntent, kind)
+            actor, sourceSquare, nextSquare, requestIntent, kind, state)
         if aligned == false then
             rememberFailure(actor, state, sourceSquare, nextSquare,
                 alignmentStatus or (kind .. "_approach_rejected"), now,
@@ -7599,6 +7646,25 @@ local function directInteractionEdge(actor, square, centre)
     return kind == "door" and object ~= nil and objectOpen(object) == true
 end
 
+-- A looter who stops on either side of a door holds up the whole squad. When
+-- the object has another usable side, stand there instead. Keep doorway tiles
+-- as a fallback for cramped rooms where they are the only real use position.
+function Navigation.doorThresholdSquare(square)
+    local utility = U()
+    local x, y, z = utility.position(square)
+    if x == nil then return false end
+    for direction = 1, 4 do
+        local dx = direction == 1 and -1 or direction == 2 and 1 or 0
+        local dy = direction == 3 and -1 or direction == 4 and 1 or 0
+        local neighbor = utility.gridSquare(x + dx, y + dy, z)
+        if neighbor ~= nil then
+            local _, kind = barrierBetween(square, neighbor)
+            if kind == "door" then return true end
+        end
+    end
+    return false
+end
+
 -- Return human-usable positions around a world object/square. Fixed world
 -- interactions can request cardinal, line-of-contact candidates so a nearby
 -- square across a wall is never mistaken for a usable side of the object.
@@ -7648,6 +7714,15 @@ function Navigation.interactionTargets(actor, objectOrSquare, options)
         and utility.isSquareFree(centre)
         and not utility.safehouseBlocker(centre, actor) then
         candidates[1] = centre
+    end
+    if options.avoidDoorThreshold == true and #candidates > 1 then
+        local awayFromDoor = {}
+        for _, square in ipairs(candidates) do
+            if not Navigation.doorThresholdSquare(square) then
+                awayFromDoor[#awayFromDoor + 1] = square
+            end
+        end
+        if #awayFromDoor > 0 then candidates = awayFromDoor end
     end
     table.sort(candidates, function(first, second)
         local firstScore, secondScore = approachScore(actor, first, options),

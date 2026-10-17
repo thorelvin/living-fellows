@@ -4839,6 +4839,33 @@ check(entryAdvanced and entryActor.lastIntent and entryActor.lastIntent.roomEntr
 SurvivorCompanion.Navigation.reset(entryActor)
 registry[entryActor.id] = nil
 
+do
+    local movingGoal = cell:getGridSquare(17, 0, 0)
+    movingGoal.room = entryRoom
+    for _, followAction in ipairs({ "follow_formation", "regroup" }) do
+        local follower = actor("sc-room-entry-" .. followAction, 13, 0, {})
+        registry[follower.id] = follower
+        for _, goal in ipairs({ entryGoal, movingGoal }) do
+            local accepted, reason = SurvivorCompanion.Navigation.request(
+                follower, goal, "walk", {
+                    action = followAction, snapshot = { allies = {} },
+                })
+            check(accepted and reason ~= "checking_room_entry"
+                    and reason ~= "checking_room_entry_left"
+                    and reason ~= "checking_room_entry_right"
+                    and follower.lastIntent
+                    and follower.lastIntent.action ~= "room_sweep"
+                    and (goal ~= entryGoal
+                        or follower.lastIntent.action == followAction),
+                "moving " .. followAction
+                    .. " crosses a room threshold without restarting a sweep")
+        end
+        SurvivorCompanion.Navigation.reset(follower)
+        registry[follower.id] = nil
+    end
+    movingGoal.room = nil
+end
+
 local cruiseActor = actor("sc-room-entry-scavenge", 13, 0, {})
 registry[cruiseActor.id] = cruiseActor
 local cruiseAccepted, cruiseReason = SurvivorCompanion.Navigation.request(
@@ -6698,6 +6725,30 @@ do
     end
     check(not admittedClosedDoorSide and admittedDiagonal,
         "direct interaction excludes the closed-door side but admits an open diagonal corner")
+end
+do
+    local shelfSquare = cell:getGridSquare(2, 2, 0)
+    local shelf = { square = shelfSquare }
+    function shelf:getSquare() return self.square end
+    local clearTargets = SurvivorCompanion.Navigation.interactionTargets(
+        doorActor, shelf, { requireDirectAccess = true,
+            avoidDoorThreshold = true })
+    local choseThreshold = false
+    for _, square in ipairs(clearTargets) do
+        if square == doorTo then choseThreshold = true end
+    end
+    check(#clearTargets > 0 and not choseThreshold,
+        "scavengers stand beside a shelf instead of occupying a doorway when another side is usable")
+
+    local utility = SurvivorCompanion.GameplayUtil
+    local originalSquareFree = utility.isSquareFree
+    utility.isSquareFree = function(square) return square == doorTo end
+    local onlyThreshold = SurvivorCompanion.Navigation.interactionTargets(
+        doorActor, shelf, { requireDirectAccess = true,
+            avoidDoorThreshold = true })
+    utility.isSquareFree = originalSquareFree
+    check(#onlyThreshold == 1 and onlyThreshold[1] == doorTo,
+        "a doorway remains a usable fallback when the shelf has no other accessible side")
 end
 check(SurvivorCompanion.Navigation.requestAny(
         doorActor, { doorTo }, "walk", {
@@ -18440,6 +18491,7 @@ do
         assignedId = sorter.id })
     local firstScan, firstReason = SurvivorCompanion.BaseWork.update(sorter, player, {})
     check(queuedFirst and not firstScan and firstReason == "no_sortable_supply"
+            and firstJob.attempts == 0 and not BaseLife.jobParked(firstJob)
             and source.container:contains(sourceItem),
         "the first bounded sorting scan leaves later items for a subsequent pass")
     BaseLife.cancelJob(firstJob.id)
@@ -18457,6 +18509,7 @@ do
     if visual then visual.status = "completed" end
     local deposited, refusal = SurvivorCompanion.BaseWork.update(sorter, player, {})
     check(not deposited and refusal == "haul_cargo_returned"
+            and sortJob.attempts == 0 and not BaseLife.jobParked(sortJob)
             and source.container:contains(sourceItem)
             and not store.container:contains(sourceItem)
             and not sorter.inventory:contains(sourceItem),
@@ -18478,6 +18531,71 @@ do
         "sorting completes through the shared marked-storage deposit transaction")
     store.container:Remove(sourceItem)
     source.container:AddItem(sourceItem)
+    SurvivorCompanion.BaseWork.reset(sorter)
+    local queuedFull, fullJob = BaseLife.enqueueJob({ type = "sort", priority = 9,
+        assignedId = sorter.id })
+    local startedFull = SurvivorCompanion.BaseWork.update(sorter, player, {})
+    if visual then visual.status = "completed" end
+    local tookFull = SurvivorCompanion.BaseWork.update(sorter, player, {})
+    store.container.capacity = 0
+    if visual then visual.status = "completed" end
+    local depositedFull, fullReason = SurvivorCompanion.BaseWork.update(sorter, player, {})
+    check(queuedFull and startedFull and tookFull and not depositedFull
+            and fullReason == "haul_destinations_full" and fullJob.attempts == 0
+            and not BaseLife.jobParked(fullJob) and source.container:contains(sourceItem)
+            and not sorter.inventory:contains(sourceItem),
+        "a shelf filling during sorting returns cargo and waits without parking the job")
+    store.container.capacity = 50
+    BaseLife.cancelJob(fullJob.id)
+
+    SurvivorCompanion.BaseWork.reset(sorter)
+    local queuedBothFull, bothFullJob = BaseLife.enqueueJob({ type = "sort", priority = 9,
+        assignedId = sorter.id })
+    local startedBothFull = SurvivorCompanion.BaseWork.update(sorter, player, {})
+    if visual then visual.status = "completed" end
+    local tookBothFull = SurvivorCompanion.BaseWork.update(sorter, player, {})
+    store.container.capacity, source.container.capacity = 0, 0
+    if visual then visual.status = "completed" end
+    local depositedBothFull, bothFullReason = SurvivorCompanion.BaseWork.update(sorter, player, {})
+    check(queuedBothFull and startedBothFull and tookBothFull and not depositedBothFull
+            and bothFullReason == "destination_full" and bothFullJob.attempts == 0
+            and not BaseLife.jobParked(bothFullJob)
+            and sorter.inventory:contains(sourceItem)
+            and not source.container:contains(sourceItem),
+        "sorting retains its exact cargo when both destination and return shelf fill: "
+            .. tostring(bothFullReason) .. " / " .. tostring(bothFullJob.attempts)
+            .. " / " .. tostring(sorter.inventory:contains(sourceItem))
+            .. " / " .. tostring(source.container:contains(sourceItem)))
+    source.container.capacity = 1000
+    local restoredBothFull = SurvivorCompanion.BaseWork.cancel(sorter, "test_shelves_reopened")
+    check(restoredBothFull and source.container:contains(sourceItem)
+            and not sorter.inventory:contains(sourceItem),
+        "held sorting cargo returns to its marked source once capacity reopens")
+    store.container.capacity = 50
+    BaseLife.cancelJob(bothFullJob.id)
+
+    SurvivorCompanion.BaseWork.reset(sorter)
+    local queuedBag, bagJob = BaseLife.enqueueJob({ type = "sort", priority = 9,
+        assignedId = sorter.id })
+    local startedBag = SurvivorCompanion.BaseWork.update(sorter, player, {})
+    if visual then visual.status = "completed" end
+    local tookBag = SurvivorCompanion.BaseWork.update(sorter, player, {})
+    local nestedInventory = inventory()
+    local nestedBag = item("Base.Bag_Schoolbag", "Container",
+        { nestedInventory = nestedInventory })
+    function nestedInventory:getContainingItem() return nestedBag end
+    sorter.inventory:AddItem(nestedBag)
+    sorter.inventory:Remove(sourceItem)
+    nestedInventory:AddItem(sourceItem)
+    if visual then visual.status = "completed" end
+    local depositedBag, bagReason = SurvivorCompanion.BaseWork.update(sorter, player, {})
+    check(queuedBag and startedBag and tookBag and not depositedBag
+            and bagReason == "haul_cargo_returned" and bagJob.attempts == 0
+            and source.container:contains(sourceItem)
+            and not nestedInventory:contains(sourceItem),
+        "sorting returns exact cargo from a carried bag instead of reporting it missing")
+    BaseLife.cancelJob(bagJob.id)
+    sorter.inventory:Remove(nestedBag)
     SurvivorCompanion.BaseWork.reset(sorter)
     local queuedCargo, cargoJob = BaseLife.enqueueJob({ type = "sort", priority = 9,
         assignedId = sorter.id })
@@ -18937,6 +19055,29 @@ do
         BaseLife.releaseJob(claimedParked.id, fellow.id, "fixture_cleanup")
     end
     BaseLife.cancelJob(loopJob.id)
+end
+do
+    local queuedFarm, farmJob = BaseLife.enqueueJob({ type = "farm", priority = 5,
+        target = { x = 3, y = 2, z = 0, operation = "water", zoneId = "zone:fixture" } })
+    for _ = 1, 8 do
+        BaseLife.blockJob(farmJob.id, nil, "farm_target_unloaded", 10000)
+    end
+    check(queuedFarm and farmJob.attempts == 0
+            and farmJob.retryAt - clock == 30000 and not BaseLife.jobParked(farmJob),
+        "a streamed-out farm plot never parks its automatic job")
+    BaseLife.blockJob(farmJob.id, nil, "farm_supply_missing", 10000)
+    check(farmJob.attempts == 0 and farmJob.retryAt - clock == 120000,
+        "a farm job waits for supplies without consuming failure attempts")
+    -- Existing saves may contain jobs parked by the old retry policy.
+    farmJob.attempts, farmJob.retryAt = 6, clock + 600000
+    local claimedFarm = BaseLife.claimJob(fellow.id)
+    check(farmJob.attempts == 0 and farmJob.retryAt <= clock
+            and not BaseLife.jobParked(farmJob),
+        "claiming work wakes a legacy farm job parked by temporary conditions")
+    if claimedFarm and claimedFarm.state == "reserved" then
+        BaseLife.releaseJob(claimedFarm.id, fellow.id, "fixture_cleanup")
+    end
+    BaseLife.cancelJob(farmJob.id)
 end
 local queuedCancel, cancelledJob = BaseLife.enqueueJob({
     type = "repair", priority = 1, target = { x = 2, y = 2, z = 0 },

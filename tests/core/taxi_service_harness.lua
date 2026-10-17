@@ -17,17 +17,25 @@ function car:getSeat(actor)
 end
 function car:getCharacter(seat) return self.seats[seat] end
 function car:getMaxPassengers() return 4 end
+function car:getCurrentSpeedKmHour() return self.speed or 0 end
 function car:getSqlId() return 771 end
 function car:isRemovedFromWorld() return self.removed == true end
 local passengerDoor = { locked = true, opened = true }
+local driverWindow = { hittable = true }
+function driverWindow:isHittable() return self.hittable end
+function driverWindow:isDestroyed() return false end
+function driverWindow:setOpen(open) self.hittable = not open end
+local driverDoor = { findWindow = function() return driverWindow end }
 function passengerDoor:isLocked() return self.locked end
 function passengerDoor:setLocked(value) self.locked = value end
 function passengerDoor:isOpen() return self.opened end
 function passengerDoor:setOpen(value) self.opened = value end
 function car:getPassengerDoor(seat)
+    if seat == 0 then return driverDoor end
     return seat == 1 and { getDoor = function() return passengerDoor end } or nil
 end
 function car:transmitPartDoor() end
+function car:transmitPartWindow() end
 
 local caller = { x = 100, y = 200, z = 0, vehicle = car }
 function caller:getVehicle() return self.vehicle end
@@ -36,6 +44,28 @@ car.seats[1] = caller
 local chauffeur = { vehicle = car, data = { LF_MarkusDriver = "markus:1:1" } }
 function chauffeur:getVehicle() return self.vehicle end
 function chauffeur:getModData() return self.data end
+function chauffeur:getPrimaryHandItem() return self.primary end
+function chauffeur:setPrimaryHandItem(item) self.primary = item end
+local gunItems = { values = {} }
+function gunItems:size() return #self.values end
+function gunItems:get(index) return self.values[index + 1] end
+local driverInventory = { items = gunItems }
+function driverInventory:getItems() return self.items end
+function driverInventory:AddItem(fullType)
+    check(fullType == "Base.Pistol", "Markus receives only his service pistol")
+    local item = { data = {}, container = self, ammo = 0 }
+    function item:getFullType() return "Base.Pistol" end
+    function item:getModData() return self.data end
+    function item:getContainer() return self.container end
+    function item:getCurrentAmmoCount() return self.ammo end
+    function item:setCurrentAmmoCount(count) self.ammo = count end
+    function item:setContainsClip(value) self.clip = value end
+    function item:setRoundChambered(value) self.chambered = value end
+    function item:setJammed(value) self.jammed = value end
+    self.items.values[#self.items.values + 1] = item
+    return item
+end
+function chauffeur:getInventory() return driverInventory end
 car.seats[0] = chauffeur
 local spoken = {}
 
@@ -49,6 +79,10 @@ SC.GameplayUtil = {
         return value.x, value.y, value.z
     end,
     nowMs = function() return 1000 end,
+    isDue = function() return true end,
+    safeSubsystem = function(_, _, callback, ...)
+        return true, callback(...)
+    end,
     say = function(actor, line)
         check(actor == chauffeur, "Markus speaks his own line")
         spoken[#spoken + 1] = line
@@ -75,6 +109,8 @@ SC.TaxiBooking = {
 local loaded = car
 local cabRetired = 0
 SC.TaxiCab = {
+    current = function() return { ownershipToken = "markus:1:1" } end,
+    matches = function(vehicle) return vehicle == car end,
     recover = function()
         return loaded ~= nil, loaded or "cab_unloaded_or_missing"
     end,
@@ -207,6 +243,36 @@ local saved = { schema = 1, driverId = "markus-driver",
         cabToken = "markus:1:1", cabSqlId = 771,
         driverId = "markus-driver",
         pickup = { x = 100, y = 200, z = 0 } } }
+local parked = { schema = 1, driverId = "markus-driver",
+    visit = { bookingGeneration = 1, phase = "waiting_board",
+        cabToken = "markus:1:1", cabSqlId = 771,
+        driverId = "markus-driver", pickup = { x = 100, y = 200, z = 0 } } }
+SC.Senses = {
+    snapshot = function() return { threats = { { actor = {} } }, threatCount = 1 } end,
+    refreshImmediate = function(_, _, snapshot) return snapshot end,
+}
+local defensiveShots = 0
+SC.Combat = { update = function(actor)
+    check(actor == chauffeur and driverWindow.hittable == false,
+        "driver uses the opened side window")
+    defensiveShots = defensiveShots + 1
+    actor.primary.ammo = actor.primary.ammo - 1
+    return true, "vehicle_shoot"
+end }
+caller.vehicle, car.seats[1] = nil, nil
+check(Service.restore(parked) and Service.canDefend(chauffeur, car),
+    "parked Markus may defend the waiting cab")
+local defense = {}
+check(Service.pulseDefense(chauffeur, caller, defense, 1000) == true
+    and defensiveShots == 1 and chauffeur.primary.ammo == 14
+    and Service.export().serviceRounds == 14,
+    "real service pistol fires through open driver window and spends ammo")
+car.speed = 1
+check(not Service.canDefend(chauffeur, car), "moving taxi driver cannot shoot")
+car.speed = 0
+caller.vehicle, car.seats[1] = car, caller
+check(not Service.canDefend(chauffeur, car),
+    "driver does not fire across the booked passenger")
 check(Service.restore(saved), "restore waiting taxi")
 check(Service.tick(1000), "reattach exact driver and cab")
 check(Service.tick(10999) and #spoken == 0,
@@ -264,9 +330,24 @@ check(Service.tick(12000) and Service.current().phase == "finishing"
 luggageBlocked = false
 check(Service.tick(17000) and Service.current().phase == "departing"
     and car.seats[0] == chauffeur, "Markus drives away after dropoff")
-car.x = 298.5
+-- A wide viewport can still show the cab at the end of a successful leg.
+-- He must continue outward rather than counting this as a failed attempt.
+getPlayerScreenWidth = function() return 4000 end
+getPlayerScreenHeight = function() return 4000 end
+car.x, car.y = Service.current().departureGoal.x,
+    Service.current().departureGoal.y
 activeJob.result = "arrived"
-check(Service.tick(18000) and Service.current() == nil and booking == nil
+check(Service.tick(18000) and Service.current().phase == "finishing"
+    and Service.current().departureAttempts == 0,
+    "successful visible leg does not exhaust departure retries")
+check(Service.tick(21000) and Service.current().phase == "departing"
+    and driveCalls == 4, "Markus continues driving beyond the visible leg")
+getPlayerScreenWidth = function() return 500 end
+getPlayerScreenHeight = function() return 500 end
+car.x, car.y = Service.current().departureGoal.x,
+    Service.current().departureGoal.y
+activeJob.result = "arrived"
+check(Service.tick(22000) and Service.current() == nil and booking == nil
     and actorRetired == 1 and loaded == nil and car.removed == true,
     "cab despawns after moving out of view")
 check(cabRetired == 1 and fareRetired == 1,
@@ -339,7 +420,7 @@ check(Service.tick(1000) and restoreTicket == nil,
 check(Service.tick(6000) and restoreTicket ~= nil,
     "spawn one replacement only after cab recovery")
 check(Service.tick(7000) and car.seats[0] == restoredDriver
-    and driveCalls == 4 and Service.current().phase == "in_transit",
+    and driveCalls == 5 and Service.current().phase == "in_transit",
     "same ride resumes with stable driver identity")
 check(Service.isBookedPassenger(caller, car),
     "driver boarding exception is limited to the booked passenger")

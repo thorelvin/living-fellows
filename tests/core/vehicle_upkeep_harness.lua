@@ -79,6 +79,51 @@ check(Upkeep.cancel(T.actor, washJob) == true
     and tainted.data.LF_UpkeepJobId == nil,
     "cancellation returns the partly used water without duplication")
 
+T.base.jobs = {}
+tainted.fluid.amount = 0
+local cleanBefore = clean.fluid.amount
+local emptyBucket = T.item(4, "Base.BucketEmpty", 0, false)
+T.waterStorage.container.items = { emptyBucket }
+local sinkQueued, sinkJob = Upkeep.queue("wash_vehicle", T.car.id, false)
+check(sinkQueued and sinkJob.target.sourceStorageId == nil,
+    "an empty vessel and sink allow a wash without stored tainted water")
+Upkeep.update(T.actor, {}, sinkJob)
+check(T.actor.inventory.items[1] == emptyBucket
+    and sinkJob.target.sourceKind == "sink"
+    and clean.fluid.amount == cleanBefore,
+    "clean drinking water stays in storage while an empty bucket is borrowed")
+local fillStarted, fillReason = Upkeep.update(T.actor, {}, sinkJob)
+check(fillStarted and fillReason == "wash_sink_fill_started"
+    and T.native().kind == "wash_vehicle_fill"
+    and Upkeep.canFill(T.actor, emptyBucket, T.sink, sinkJob.id),
+    "the borrowed bucket is filled at the clean sink through a native action")
+T.finishFill(8)
+T.resetNative()
+local filled, filledReason = Upkeep.update(T.actor, {}, sinkJob)
+check(filled and filledReason == "wash_sink_filled"
+    and sinkJob.target.sinkFilled and emptyBucket.fluid.amount == 8
+    and T.sink.amount == 2,
+    "a completed sink fill is verified before washing")
+local washStarted = Upkeep.update(T.actor, {}, sinkJob)
+check(washStarted and T.native().kind == "wash_vehicle"
+    and Upkeep.canContinue(T.actor, T.car, emptyBucket,
+        sinkJob.id, "Engine"),
+    "sink-filled bucket can wash a parked car")
+T.finish(2)
+T.resetNative()
+Upkeep.update(T.actor, {}, sinkJob)
+check(clean.fluid.amount == cleanBefore and T.sink.amount == 2
+    and emptyBucket.fluid.amount == 6,
+    "vehicle wash spends sink water but no clean drinking container")
+check(Upkeep.cancel(T.actor, sinkJob) == true
+    and T.waterStorage.container.items[1] == emptyBucket,
+    "the partly used bucket returns to its marked storage")
+T.base.jobs = {}
+T.blood.Front = 0.25
+check(select(2, Upkeep.queue("wash_vehicle", T.car.id, false))
+    == "base_wash_water_missing",
+    "filled clean containers alone never supply a car wash")
+
 T.car.occupied = true
 check(select(2, Upkeep.eligible("wash_vehicle", T.car, true))
     == "car_occupied", "occupied car is excluded")

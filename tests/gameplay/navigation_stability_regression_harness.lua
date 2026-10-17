@@ -438,6 +438,13 @@ do
     direct.lastMovementReason = "path_started"
     check(N._directRouteNoNetMotionForTests(actor, direct, 7001, 5000) == true,
         "a native provider path acknowledgement still exposes direct-route no-motion")
+    check(N.stalledLocalStep(square(10, 2), square(18, 6), square(18, 6))
+            == square(11, 3)
+            and N.stalledLocalStep(square(10, 2), square(9, 2), square(18, 6))
+                == square(9, 2)
+            and N.stalledLocalStep(square(10, 2), square(10, 2), square(18, 6))
+                == square(11, 3),
+        "whole-goal and failed recovery attempts identify the physical local edge")
     direct.directStallNativeGoalKey = "12:5:0"
     direct.directStallNativeUntil = 9000
     check(N._directStallNeedsNativeEdgeForTests(direct, square(12, 5), 7001) == true
@@ -452,6 +459,47 @@ do
     check(N._directRouteNoNetMotionForTests(actor, direct, 13000, 5000) == false,
         "an old movement command cannot trigger direct-route recovery")
     actor.x, actor.y = savedX, savedY
+end
+
+-- A base worker at a corner used to report the same no-motion recovery every
+-- twelve seconds. The generic unknown edge lasted half a second, so the next
+-- route selected the identical edge. The physical stall must survive long
+-- enough to route around it, including when the last attempt was a whole-goal
+-- native fallback rather than an adjacent step.
+do
+    local savedStop = U.stop
+    U.stop = function() return true end
+    actor.x, actor.y = 10.3, 2.2
+    local corner = {
+        path = { square(10, 2), square(11, 3) },
+        blockedEdges = {}, blockedSquares = {}, routeMemory = {},
+        lastAttemptFrom = square(10, 2), lastAttemptTo = square(18, 6),
+        lastDirectMotionCommandAt = 7000,
+        directMotionAnchorX = 10.3, directMotionAnchorY = 2.2,
+        directMotionAnchorZ = 0, directMotionAnchorAt = 1000,
+        lastProgressAt = 7000,
+    }
+    local handled, accepted = N._recoverFromStuckForTests(actor, corner,
+        square(18, 6), "walk", { action = "move_to_base_storage" }, 7000)
+    check(handled and accepted and corner.blockedEdges["10:2:0>11:3:0"] ~= nil
+            and corner.blockedEdges["10:2:0>18:6:0"] == nil,
+        "physical stall remembers a local corner edge instead of a useless whole-goal edge")
+    check(N._edgeBlacklistEntryForTests(corner.blockedEdges, square(10, 2),
+            square(11, 3), 25000, actor, corner.blockedEdgeCount, corner) ~= nil,
+        "a corner stall stays avoided across repeated base-work decisions")
+    local around = N.findPath(square(10, 2), square(18, 6), {
+        actor = actor, blockedEdges = corner.blockedEdges,
+        blockedSquares = corner.blockedSquares, routeMemory = corner.routeMemory,
+        nodeBudget = 300, now = 8000,
+    })
+    check(type(around) == "table" and #around > 1
+            and around[2] ~= square(11, 3),
+        "the next route takes a different first step around the stalled corner")
+    check(N._edgeBlacklistEntryForTests(corner.blockedEdges, square(10, 2),
+            square(11, 3), 37001, actor, corner.blockedEdgeCount, corner) == nil,
+        "the physical-stall detour expires so a changed scene can be retried")
+    U.stop = savedStop
+    actor.x, actor.y = 0.5, 0.5
 end
 
 -- The same playtest stood still before taking its first step in woodland. The
