@@ -977,8 +977,10 @@ local function classifyItem(item)
         return "clothing", true
     end
     local shelf = DISPLAY_CATEGORIES[display]
+    if shelf == "food" or category == "food" then
+        return SC.BaseLife.foodStorageCategory(item), true
+    end
     if shelf then return shelf, true end
-    if category == "food" then return "food", true end
     if category == "literature" then return "literature", true end
     if string.find(itemType, "water", 1, true) or string.find(itemType, "bottle", 1, true) then return "water", true end
     if string.find(itemType, "bandage", 1, true) or string.find(itemType, "rippedsheet", 1, true)
@@ -1004,6 +1006,9 @@ local STAGING_CATEGORIES = { general = true, output = true }
 local function belongsIn(item, category)
     if STAGING_CATEGORIES[category] then return false end
     local wanted, certain = classifyItem(item)
+    if wanted == "food" or wanted == "fresh_food" then
+        wanted = SC.BaseLife.foodDepositCategory(item)
+    end
     if not certain or wanted == category then return true end
     return (category == "tools" or category == "weapons") and isHandTool(item)
 end
@@ -1022,6 +1027,9 @@ end
 local function destinationsFor(job, item, actor, sourceId)
     local category = type(job.target) == "table" and job.target.destinationCategory
         or classifyItem(item)
+    if category == "food" or category == "fresh_food" then
+        category = SC.BaseLife.foodDepositCategory(item)
+    end
     local rows = {}
     for _, destination in ipairs(SC.BaseLife.depositStorageRows(category)) do
         if destination.id ~= sourceId then
@@ -1036,6 +1044,9 @@ end
 
 function BaseWork.destinationForCarItem(actor, item)
     local category = classifyItem(item)
+    if category == "food" or category == "fresh_food" then
+        category = SC.BaseLife.foodDepositCategory(item)
+    end
     for _, kind in ipairs({ category, "general", "output" }) do
         if kind ~= "memorial" then
             for _, storage in ipairs(SC.BaseLife.depositStorageRows(kind)) do

@@ -63,7 +63,8 @@ function F.item(fullType, nativeId, options)
     options = options or {}
     local item = {
         fullType = fullType, nativeId = nativeId, modData = {}, tags = options.tags or {},
-        category = options.category, fluidAmount = options.fluidAmount,
+        category = options.category, offAgeMax = options.offAgeMax,
+        fluidAmount = options.fluidAmount,
         fluidCapacity = options.fluidCapacity, nestedInventory = options.inventory,
     }
     function item:getFullType() return self.fullType end
@@ -72,6 +73,7 @@ function F.item(fullType, nativeId, options)
     function item:getModData() return self.modData end
     function item:getContainer() return self.container end
     function item:getCategory() return self.category end
+    function item:getOffAgeMax() return self.offAgeMax end
     function item:getInventory() return self.nestedInventory end
     function item:hasTag(tag) return self.tags[tostring(tag)] == true end
     function item:isBroken() return false end
@@ -271,6 +273,16 @@ SC.BaseLife = {
             end
         end
         return result
+    end,
+    foodStorageCategory = function(item)
+        local days = item and item:getOffAgeMax()
+        return days and days > 0 and days <= 30 and "fresh_food" or "food"
+    end,
+    foodDepositRows = function(item)
+        local preferred = SC.BaseLife.foodStorageCategory(item)
+        local rows = SC.BaseLife.depositStorageRows(preferred)
+        if #rows > 0 then return rows end
+        return SC.BaseLife.depositStorageRows(preferred == "food" and "fresh_food" or "food")
     end,
     storageReserve = function(storage, itemType)
         return (storage.reserves and storage.reserves[itemType]) or storage.reserve or 0

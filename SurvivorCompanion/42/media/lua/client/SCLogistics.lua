@@ -1262,6 +1262,9 @@ storageFor = function(actor, item, category, dedicatedOnly)
     if not SC.BaseLife or type(SC.BaseLife.storageRows) ~= "function"
         or type(SC.BaseLife.resolveContainer) ~= "function" then return nil end
     local wanted = storageCategory[category] or "general"
+    if wanted == "food" and type(SC.BaseLife.foodDepositCategory) == "function" then
+        wanted = SC.BaseLife.foodDepositCategory(item)
+    end
     local categories = dedicatedOnly and { wanted }
         or wanted == "general" and { "general", "output" }
         or { wanted, "general", "output" }

@@ -42,6 +42,7 @@ local ZONE_COLORS = {
 
 local STORAGE_COLORS = {
     food = { r = 0.25, g = 0.86, b = 0.25 },
+    fresh_food = { r = 0.12, g = 0.80, b = 0.62 },
     water = { r = 0.12, g = 0.72, b = 1.00 },
     medical = { r = 1.00, g = 0.20, b = 0.20 },
     tools = { r = 0.96, g = 0.78, b = 0.15 },
@@ -731,7 +732,7 @@ end
 
 local LEGEND_ZONES = { "area", "parking", "work", "lumber", "farm", "fishing", "burial", "pyre", "rest", "social",
     "guard", "rally", "quarantine" }
-local LEGEND_STORAGE = { "food", "water", "medical", "tools", "construction", "crafting",
+local LEGEND_STORAGE = { "food", "fresh_food", "water", "medical", "tools", "construction", "crafting",
     "literature", "weapons", "ammunition", "general", "output", "memorial", "farming" }
 
 local function layoutKeyName()

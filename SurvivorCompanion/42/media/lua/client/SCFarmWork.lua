@@ -802,9 +802,10 @@ local function recoverPending(limit)
                 storage = storageById(receipt.sourceStorageId)
                 container = storage and SC.BaseLife.resolveContainer(storage) or nil
             else
-                local rows = type(SC.BaseLife.depositStorageRows) == "function"
-                    and SC.BaseLife.depositStorageRows(receipt.destinationCategory or "food")
-                    or SC.BaseLife.storageRows(receipt.destinationCategory or "food", false)
+                local category = receipt.destinationCategory or "food"
+                local rows = (category == "food" or category == "fresh_food")
+                    and SC.BaseLife.foodDepositRows(item)
+                    or SC.BaseLife.depositStorageRows(category)
                 for _, row in ipairs(rows) do
                     local candidate = SC.BaseLife.resolveContainer(row)
                     local room = candidate and (not SC.WorkTransport
@@ -1091,7 +1092,8 @@ local function outputCategory(item)
             or complete ~= true or count < reserve then return "farming" end
     end
     local category = select(1, invoke(item, "getCategory"))
-    return string.lower(tostring(category or "")) == "food" and "food" or "output"
+    return string.lower(tostring(category or "")) == "food"
+        and SC.BaseLife.foodStorageCategory(item) or "output"
 end
 
 local function plausibleHarvestOutput(item, target)
@@ -1239,9 +1241,9 @@ local function depositOutputs(actor, baseState, state)
     local output = state.outputs and state.outputs[1] or nil
     if not output then state.outputs = nil return true, "farm_outputs_deposited" end
     local storage, container
-    local rows = type(SC.BaseLife.depositStorageRows) == "function"
-        and SC.BaseLife.depositStorageRows(output.category)
-        or SC.BaseLife.storageRows(output.category, false)
+    local rows = (output.category == "food" or output.category == "fresh_food")
+        and SC.BaseLife.foodDepositRows(output.item)
+        or SC.BaseLife.depositStorageRows(output.category)
     for _, row in ipairs(rows) do
         local candidate = SC.BaseLife.resolveContainer(row)
         local room = candidate and (not SC.WorkTransport or not SC.WorkTransport.hasRoom
@@ -1669,9 +1671,9 @@ function FarmWork.update(actor, baseState, job, runtime)
     if predicate and not state.borrowed then
         return borrowSupply(actor, baseState, job, state, predicate, categories, supplyKey)
     end
-    local depositRows = type(SC.BaseLife.depositStorageRows) == "function"
-        and SC.BaseLife.depositStorageRows("food") or SC.BaseLife.storageRows("food", false)
-    if operation == "harvest" and #depositRows == 0 then
+    if operation == "harvest"
+        and #SC.BaseLife.depositStorageRows("food") == 0
+        and #SC.BaseLife.depositStorageRows("fresh_food") == 0 then
         return false, "farm_food_storage_missing", true
     end
     local approachState, approachReason = approach(actor, square)

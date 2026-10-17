@@ -26,7 +26,7 @@ BaseLife.ZONE_TYPES = {
     burial = true, pyre = true, parking = true,
 }
 BaseLife.STORAGE_CATEGORIES = {
-    food = true, water = true, medical = true, tools = true, construction = true,
+    food = true, fresh_food = true, water = true, medical = true, tools = true, construction = true,
     crafting = true, literature = true, weapons = true, ammunition = true, clothing = true,
     general = true,
     output = true, memorial = true, farming = true,
@@ -1738,6 +1738,33 @@ function BaseLife.depositStorageRows(category)
             and storage.deposits ~= false then result[#result + 1] = storage end
     end
     return result
+end
+
+-- A food item's spoilage lifetime is the game's item data, not its name.
+-- Cans and other shelf-stable food have no finite short expiry. A long-lived
+-- food (for example cured produce) can also stay out of the fridge.
+function BaseLife.foodStorageCategory(item)
+    local offAgeMax, called = U().call(item, "getOffAgeMax")
+    local days = called and tonumber(offAgeMax) or nil
+    return days and days > 0 and days <= 30 and "fresh_food" or "food"
+end
+
+function BaseLife.foodDepositCategory(item)
+    local preferred = BaseLife.foodStorageCategory(item)
+    local other = preferred == "fresh_food" and "food" or "fresh_food"
+    local hasOther = false
+    local base = activeBase()
+    for _, storage in ipairs(base and base.storages or {}) do
+        if storage.deposits ~= false then
+            if storage.category == preferred then return preferred end
+            if storage.category == other then hasOther = true end
+        end
+    end
+    return hasOther and other or preferred
+end
+
+function BaseLife.foodDepositRows(item)
+    return BaseLife.depositStorageRows(BaseLife.foodDepositCategory(item))
 end
 
 function BaseLife.storage(id)
@@ -4287,11 +4314,12 @@ function BaseLife.auditOperations(force)
     local counts, stores, unloaded = {}, {}, 0
     for _, storage in ipairs(base.storages or {}) do
         local category = storage.category
-        if defaultStockTargets[category] ~= nil then
-            stores[category] = (stores[category] or 0) + 1
+        local stockCategory = category == "fresh_food" and "food" or category
+        if defaultStockTargets[stockCategory] ~= nil then
+            stores[stockCategory] = (stores[stockCategory] or 0) + 1
             local container = BaseLife.resolveContainer(storage)
             if container then
-                counts[category] = (counts[category] or 0)
+                counts[stockCategory] = (counts[stockCategory] or 0)
                     + #U().inventoryItems(container,
                         U().config("baseOperationsStorageItemBudget") or 160)
             else
@@ -4347,7 +4375,8 @@ function BaseLife.auditOperations(force)
         if #BaseLife.storageRows("farming", true) == 0 then
             alerts[#alerts + 1] = "No farming supplies storage is marked."
         end
-        if #BaseLife.depositStorageRows("food") == 0 then
+        if #BaseLife.depositStorageRows("food") == 0
+            and #BaseLife.depositStorageRows("fresh_food") == 0 then
             alerts[#alerts + 1] = "No food storage is marked for farm harvests."
         end
     end

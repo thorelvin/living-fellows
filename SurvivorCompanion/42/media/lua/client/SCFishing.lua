@@ -546,7 +546,7 @@ local function foodDestination(actor, item)
     if not SC.BaseLife or type(SC.BaseLife.depositStorageRows) ~= "function" then
         return nil, nil, "fishing_food_storage_missing"
     end
-    local rows = SC.BaseLife.depositStorageRows("food")
+    local rows = SC.BaseLife.foodDepositRows(item)
     local best, bestContainer, bestDistance
     for _, storage in ipairs(rows) do
         local container = SC.BaseLife.resolveContainer(storage)

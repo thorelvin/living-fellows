@@ -150,13 +150,13 @@ fresh()
 actor = F.actor("worker-a", 0, 1)
 plant = F.plant()
 F.square(1, 1, plant)
-F.addStorage("storage:food", "food", {})
+F.addStorage("storage:food", "fresh_food", {})
 local harvest = F.job("harvest", 1, 1, {
     id = "job:harvest", actorId = actor.id, cropType = "Tomato",
 })
 FarmWork.update(actor, {}, harvest, {})
 check(F.native[actor] and F.native[actor].active == true,
-    "harvest starts without borrowed supply")
+    "harvest starts with only fresh food storage marked")
 local canLeave, leaveReason = FarmWork.canCancelActor(actor)
 check(canLeave == false and leaveReason == "farm_recovery_pending",
     "camp preflight retains the reason for a worker with an active harvest")
@@ -173,7 +173,8 @@ harvest = F.job("harvest", 1, 1, {
     id = "job:completed-harvest", actorId = actor.id, cropType = "Tomato",
 })
 FarmWork.update(actor, {}, harvest, {})
-local cancelledTomato = F.item("Base.Tomato", 32, { category = "Food" })
+local cancelledTomato = F.item("Base.Tomato", 32,
+    { category = "Food", offAgeMax = 5 })
 actor.inventory:AddItem(cancelledTomato)
 F.native[actor].active = false
 completedHarvestSquare.plant = nil

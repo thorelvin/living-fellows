@@ -343,6 +343,7 @@ local function item()
     function result:getModData() return self.data end
     function result:getContainer() return self.container end
     function result:getFullType() return "Base.Fish" end
+    function result:getOffAgeMax() return 5 end
     return result
 end
 local foodActor = { inventory = inventory(), data = {}, x = 10, y = 10, z = 0 }
@@ -376,11 +377,12 @@ local oldRows, oldResolveContainer, oldResolveObject, oldAccept =
     SC.BaseLife.resolveObject, SC.BaseLife.storageAcceptsDeposit
 local oldDeposit = SC.BaseWork.depositToStorage
 local store = inventory()
-local storage = { id = "upstairs-food", category = "food" }
+local storage = { id = "upstairs-fresh-food", category = "fresh_food" }
 local rows = {}
 SC.BaseLife.depositStorageRows = function(category)
-    assert(category == "food", "camp fish only targets marked food storage")
-    return rows
+    assert(category == "food" or category == "fresh_food",
+        "camp fish only targets marked food storage")
+    return category == "fresh_food" and rows or {}
 end
 SC.BaseLife.resolveContainer = function() return store end
 SC.BaseLife.resolveObject = function() return { x = 10, y = 10, z = 1 } end

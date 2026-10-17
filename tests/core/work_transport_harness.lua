@@ -51,13 +51,16 @@ makeItem = function(fullType, options)
     local item = {
         __class = "InventoryItem", fullType = fullType, nativeId = nextNativeId,
         modData = options.modData or {}, favorite = options.favorite == true,
-        condition = options.condition or 100,
+        condition = options.condition or 100, category = options.category,
+        offAgeMax = options.offAgeMax,
     }
     function item:getFullType() return self.fullType end
     function item:getType() return string.match(self.fullType, "[^%.]+$") end
     function item:getDisplayName() return self:getType() end
     function item:getID() return self.nativeId end
     function item:getCondition() return self.condition end
+    function item:getCategory() return self.category end
+    function item:getOffAgeMax() return self.offAgeMax end
     function item:setCondition(value) self.condition = value end
     function item:isFavorite() return self.favorite end
     function item:setFavorite(value) self.favorite = value == true end
@@ -1032,6 +1035,61 @@ end
 -- Sort/haul selection and the authoritative post-animation commit both honor
 -- live reserves. Two workers may select distinct items, but cannot collectively
 -- withdraw below the configured reserve.
+do
+    local ctx = setup("logs", 1)
+    SC.BaseLife.cancelGatherOrder(ctx.order.id)
+    SC.BaseLife.setStorageCategory(ctx.storage.id, "general")
+    local pantryObject = makeStorage(addSquare(2, 0, 0))
+    local fridgeObject = makeStorage(addSquare(3, 0, 0))
+    local pantryOk, pantry = SC.BaseLife.registerStorage(pantryObject, "food")
+    local fridgeOk, fridge = SC.BaseLife.registerStorage(fridgeObject, "fresh_food")
+    local tomato = makeItem("Base.Tomato", { category = "Food", offAgeMax = 7 })
+    local canned = makeItem("Base.CannedBeans", { category = "Food" })
+    local cured = makeItem("Base.CuredMeat", { category = "Food", offAgeMax = 280 })
+    check(pantryOk == true and fridgeOk == true
+            and select(1, SC.BaseWork.destinationForCarItem(ctx.actor, tomato)) == fridge
+            and select(1, SC.BaseWork.destinationForCarItem(ctx.actor, canned)) == pantry
+            and select(1, SC.BaseWork.destinationForCarItem(ctx.actor, cured)) == pantry,
+        "fresh food uses the fresh marker while canned and long-lived food use the pantry")
+    SC.BaseLife.setStorageCategory(pantry.id, "general")
+    check(select(1, SC.BaseWork.destinationForCarItem(ctx.actor, canned)) == fridge,
+        "the fresh marker accepts all food when it is the only food store")
+    SC.BaseLife.setStorageCategory(pantry.id, "food")
+    SC.BaseLife.setStorageCategory(fridge.id, "general")
+    check(select(1, SC.BaseWork.destinationForCarItem(ctx.actor, tomato)) == pantry,
+        "the regular marker accepts fresh food when it is the only food store")
+end
+
+do
+    local ctx = setup("logs", 1)
+    SC.BaseLife.cancelGatherOrder(ctx.order.id)
+    SC.BaseLife.setStorageCategory(ctx.storage.id, "general")
+    local pantryObject = makeStorage(addSquare(2, 0, 0))
+    local fridgeObject = makeStorage(addSquare(3, 0, 0))
+    SC.BaseLife.registerStorage(pantryObject, "food")
+    SC.BaseLife.registerStorage(fridgeObject, "fresh_food")
+    local tomato = makeItem("Base.Tomato", { category = "Food", offAgeMax = 7 })
+    local canned = makeItem("Base.CannedBeans", { category = "Food" })
+    ctx.storageObject.container:AddItem(tomato)
+    ctx.storageObject.container:AddItem(canned)
+    local oldVisualStatus = SC.NativeActions.visualStatus
+    SC.NativeActions.visualStatus = function() return "completed" end
+    for _ = 1, 2 do
+        SC.BaseLife.enqueueJob({ type = "sort", assignedId = ctx.actor.modData.SC_Id,
+            priority = 2 })
+        for _ = 1, 8 do
+            SC_TEST_CLOCK = SC_TEST_CLOCK + 50
+            SC.BaseWork.update(ctx.actor, nil, {})
+            if pantryObject.container:contains(canned)
+                and fridgeObject.container:contains(tomato) then break end
+        end
+    end
+    SC.NativeActions.visualStatus = oldVisualStatus
+    check(pantryObject.container:contains(canned)
+            and fridgeObject.container:contains(tomato),
+        "automatic sorting separates fresh food from shelf-stable food")
+end
+
 do
     local ctx = setup("logs", 1, 2)
     SC.BaseLife.cancelGatherOrder(ctx.order.id)

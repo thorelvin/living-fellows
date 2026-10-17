@@ -170,6 +170,7 @@ local WEAPON_PRIORITIES = {
 }
 local BASE_STORAGE_CATEGORIES = {
     { id = "food", key = "UI_SC_Base_Storage_food" },
+    { id = "fresh_food", key = "UI_SC_Base_Storage_fresh_food" },
     { id = "water", key = "UI_SC_Base_Storage_water" },
     { id = "medical", key = "UI_SC_Base_Storage_medical" },
     { id = "tools", key = "UI_SC_Base_Storage_tools" },
