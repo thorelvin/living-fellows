@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 0.26.45 - Field work and recovery fixes
+
+- Field workers keep polling their native work action while following the player, so chopping fallback and timeout recovery can run. Urgent danger still interrupts the work.
+- Two field workers can share one car axe without pausing the whole order. Full workers without a car finish or resume after unloading. Car loading requires direct trunk access, and stale cargo and axe reservations release after an order ends.
+- Chef supplies retain exact ownership through save/load even when native item IDs change. Missing supplies can be cancelled safely; returned supplies go to their original containers without taking a similar personal item. Oven recovery identifies the cook's own stove, and raw-food safety uses the native uncooked-food getter.
+- Markus's taxi resumes boarding after reload and retries a held departure. A safely parked, empty, paid cab can retire once it is off-screen if no road exit becomes available.
+- A restored generator refuel receipt follows the exact marked fuel can's new native ID, while genuinely conflicting receipts remain rejected.
+- The native bridge protocol remains `42.21-isocompanion-24`; update the bridge JAR and Lua payload together.
+
 ## 0.26.44 - Loose ends from the 0.26.43 review
 
 - Following squads can take one-off field orders from the ground right-click menu: harvest ripe crops or chop up to five trees near the marked spot. Companions claim separate targets, use native work actions, and regroup when the player leaves. They load exact gathered items into the last nearby non-taxi car the player rode, or carry wood without a car. A full or unavailable selected trunk pauses delivery instead of switching cars or dropping supplies. The Squad panel shows progress and offers Stop and Resume.

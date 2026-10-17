@@ -94,7 +94,7 @@ local function safeFood(item, willCook, allowFrozen)
         return false
     end
     if (numeric(select(1, call(item, "getPoisonPower"))) or 0) > 0 then return false end
-    if not willCook and select(1, call(item, "isDangerousUncooked")) == true
+    if not willCook and select(1, call(item, "isbDangerousUncooked")) == true
         and select(1, call(item, "isCooked")) ~= true then return false end
     return true
 end
@@ -431,11 +431,43 @@ local function craftCapacity(actor, reserve)
     end
     return true
 end
+local function supplySource(row)
+    if row.carried then return { carried = true } end
+    if row.storage then return { storageId = row.storage.id } end
+    local x, y, z = U().position(row.object)
+    local index = select(1, call(row.object, "getObjectIndex"))
+    return { x = x, y = y, z = z, index = index }
+end
+
+local function recordSupply(state, row, item)
+    local job = state.job
+    if not job or not job.target then return false end
+    local data = select(1, call(item, "getModData"))
+    local id = select(1, call(item, "getID"))
+    if type(data) ~= "table" or id == nil then return false end
+    job.target.chefSupplies = job.target.chefSupplies or {}
+    for _, receipt in ipairs(job.target.chefSupplies) do
+        if receipt.token == data.SC_ChefSupplyReceipt then return true end
+    end
+    local token = tostring(job.id) .. ":"
+        .. tostring(#job.target.chefSupplies + 1)
+    local source = supplySource(row)
+    if not source.carried and source.storageId == nil
+        and (source.x == nil or source.index == nil) then return false end
+    data.SC_ChefSupplyReceipt = token
+    job.target.chefSupplies[#job.target.chefSupplies + 1] = {
+        token = token, oldId = id, source = source,
+    }
+    return true
+end
 
 local function take(actor, state, row, item)
     if row.carried then
-        return contains(U().inventory(actor), item), "chef_supply_carried",
-            not contains(U().inventory(actor), item)
+        if not contains(U().inventory(actor), item) then
+            return false, "chef_supply_missing", true end
+        if not recordSupply(state, row, item) then
+            return false, "chef_supply_receipt_unavailable", true end
+        return true, "chef_supply_carried", false
     end
     local at, reason, terminal = approach(actor, row.object, "chef_take_supply")
     -- A walk in progress is handled work; an unreachable target is not. The
@@ -456,6 +488,9 @@ local function take(actor, state, row, item)
             U().inventory(actor), item)
     end
     if moved and contains(U().inventory(actor), item) then
+        if not recordSupply(state, row, item) then
+            U().transferItemVerified(U().inventory(actor), row.container, item)
+            return false, "chef_supply_receipt_unavailable", true end
         state.borrowed = state.borrowed or {}
         local recorded = false
         for _, entry in ipairs(state.borrowed) do
@@ -930,6 +965,83 @@ local function findInventoryItem(container, predicate)
     return nil
 end
 
+local function rebindSupplies(actor, state, job, rows)
+    local receipts = job.target.chefSupplies
+    if type(receipts) ~= "table" then return true end
+    local byToken = {}
+    local wanted = {}
+    for _, receipt in ipairs(receipts) do wanted[receipt.token] = true end
+    state.unresolvedSupplies = {}
+    for _, item in ipairs(U().inventoryItems(U().inventory(actor), math.huge)) do
+        local data = select(1, call(item, "getModData"))
+        local token = type(data) == "table" and data.SC_ChefSupplyReceipt
+        if token and wanted[token] then
+            if byToken[token] then
+                state.unresolvedSupplies[item] = true
+                state.unresolvedSupplies[byToken[token]] = true
+                return false, "chef_supply_receipt_conflict"
+            end
+            byToken[token] = item
+        end
+    end
+    state.borrowed = {}
+    for _, receipt in ipairs(receipts) do
+        local item = byToken[receipt.token]
+        if item then
+            local id = itemId(item)
+            if not id then return false, "chef_supply_identity_missing" end
+            local old = receipt.oldId
+            if job.target.baseItemId == old then job.target.baseItemId = id end
+            if job.target.dryItemId == old then job.target.dryItemId = id end
+            if job.target.ingredientId == old then job.target.ingredientId = id end
+            for index, bowlId in ipairs(job.target.bowlIds or {}) do
+                if bowlId == old then job.target.bowlIds[index] = id end
+            end
+            receipt.oldId = id
+            if receipt.source and not receipt.source.carried then
+                local source
+                if receipt.source.storageId ~= nil and SC.BaseLife.storage then
+                    local storage = SC.BaseLife.storage(receipt.source.storageId)
+                    local container = storage and SC.BaseLife.resolveContainer(storage)
+                    local object = storage and SC.BaseLife.resolveObject(storage)
+                    if container and object then
+                        source = { storage = storage, container = container,
+                            object = object }
+                    end
+                end
+                for _, row in ipairs(rows) do
+                    local origin = receipt.source
+                    local x, y, z = U().position(row.object)
+                    local index = select(1, call(row.object, "getObjectIndex"))
+                    if origin.storageId ~= nil and row.storage
+                        and row.storage.id == origin.storageId then
+                        if not source then source = row end
+                    elseif origin.storageId == nil and not row.carried
+                        and x == origin.x and y == origin.y and z == origin.z
+                        and (origin.index == nil or index == origin.index) then
+                        if source then
+                            state.unresolvedSupplies[item] = true
+                            return false, "chef_supply_source_ambiguous"
+                        end
+                        source = row
+                    end
+                end
+                if source then
+                    state.borrowed[#state.borrowed + 1] = {
+                        item = item, source = source,
+                    }
+                else
+                    -- The original container may have been removed while the
+                    -- cook was unloaded. Keep this exact item with the cook
+                    -- on cancellation instead of guessing another source.
+                    state.unresolvedSupplies[item] = true
+                end
+            end
+        end
+    end
+    return true
+end
+
 local function restoreReceipt(actor, player, state, job, scan, marked)
     local phase = job.target.cookPhase
     if phase == nil or phase == "selected" then return true end
@@ -947,6 +1059,8 @@ local function restoreReceipt(actor, player, state, job, scan, marked)
         return true
     end
     local allSources = sources(scan, marked, nil, actor)
+    local rebound, rebindReason = rebindSupplies(actor, state, job, allSources)
+    if not rebound then return false, rebindReason, true end
     for _, spec in ipairs(recipes) do
         if (spec.id or spec.name) == job.target.recipe then
             state.spec, state.recipe, state.sources = spec,
@@ -1032,23 +1146,17 @@ local function restoreReceipt(actor, player, state, job, scan, marked)
                     return false, "chef_venison_not_safe", true
                 end
                 if job.target.ownOven == true then
-                    for _, oven in ipairs(scan.ovens) do
-                        if select(1, call(oven, "Activated")) == true then
-                            state.ownOven = oven
-                            break
-                        end
-                    end
+                    local oven, found = restoredOwnedOven(job, scan)
+                    if not found then return false, "chef_owned_oven_missing", true end
+                    state.ownOven = oven
                 end
                 state.phase = "switch_off"
                 return true
             end
             if job.target.ownOven == true then
-                for _, oven in ipairs(scan.ovens) do
-                    if select(1, call(oven, "Activated")) == true then
-                        state.ownOven = oven
-                        break
-                    end
-                end
+                local oven, found = restoredOwnedOven(job, scan)
+                if not found then return false, "chef_owned_oven_missing", true end
+                state.ownOven = oven
             end
             state.phase = "heat"
             return true
@@ -1059,7 +1167,12 @@ local function restoreReceipt(actor, player, state, job, scan, marked)
             if ingredient then
                 state.resultItem, state.cooker, state.phase = ingredient,
                     { object = oven, container = container }, "wait_heat"
-                state.ownOven = job.target.ownOven == true and oven or nil
+                if job.target.ownOven == true then
+                    local owned, found = restoredOwnedOven(job, scan)
+                    if not found or owned ~= oven then
+                        return false, "chef_owned_oven_mismatch", true end
+                    state.ownOven = owned
+                end
                 return true
             end
         end
@@ -1174,12 +1287,9 @@ local function restoreReceipt(actor, player, state, job, scan, marked)
             and (state.spec.portioned and "portion" or "deposit")
             or "heat") or "deposit"
         if job.target.ownOven == true then
-            for _, oven in ipairs(scan.ovens) do
-                if select(1, call(oven, "Activated")) == true then
-                    state.ownOven = oven
-                    break
-                end
-            end
+            local oven, found = restoredOwnedOven(job, scan)
+            if not found then return false, "chef_owned_oven_missing", true end
+            state.ownOven = oven
             if state.ownOven then
                 state.heatInterrupted = state.phase == "heat"
                 state.phase = "switch_off"
@@ -1196,7 +1306,12 @@ local function restoreReceipt(actor, player, state, job, scan, marked)
             if found then
                 state.resultItem, state.cooker = found,
                     { object = oven, container = container }
-                state.ownOven = job.target.ownOven == true and oven or nil
+                if job.target.ownOven == true then
+                    local owned, foundOwned = restoredOwnedOven(job, scan)
+                    if not foundOwned or owned ~= oven then
+                        return false, "chef_owned_oven_mismatch", true end
+                    state.ownOven = owned
+                end
                 state.phase = "wait_heat"
                 return true
             end
@@ -1536,7 +1651,12 @@ function Chef.update(actor, baseState, job, player)
         local restored, restoreReason, terminal, completed =
             restoreReceipt(actor, player, state, job, scan, marked)
         if completed then return true, restoreReason, false, true end
-        if restored ~= true then return false, restoreReason, terminal end
+        if restored ~= true then
+            state.recoveryIssue = restoreReason
+            return false, restoreReason, terminal
+        end
+        state.recovered = false
+        state.recoveryIssue = nil
     end
     if state.phase == "select" then
         local chosen, reason, terminal = chooseRecipe(actor, state, job, scan, marked)
@@ -2063,6 +2183,13 @@ local function returnChefSupplies(actor, state)
     end
     local artifacts, seen = {}, {}
     local jobId = state.jobId
+    local personalSupplies = {}
+    for _, receipt in ipairs(state.job and state.job.target
+        and state.job.target.chefSupplies or {}) do
+        if receipt.source and receipt.source.carried then
+            personalSupplies[receipt.token] = true
+        end
+    end
     local function personalOutput(item)
         local data = select(1, call(item, "getModData"))
         if type(data) ~= "table" then return false end
@@ -2077,7 +2204,11 @@ local function returnChefSupplies(actor, state)
         return row and row.carried == true
     end
     local function add(item)
+        local data = item and select(1, call(item, "getModData"))
+        local token = type(data) == "table" and data.SC_ChefSupplyReceipt
         if item and contains(inventory, item) and not seen[item]
+            and not (state.unresolvedSupplies and state.unresolvedSupplies[item])
+            and not personalSupplies[token]
             and not personalOutput(item) then
             seen[item] = true
             artifacts[#artifacts + 1] = item
@@ -2119,6 +2250,12 @@ local function returnChefSupplies(actor, state)
             return false, moveReason or "chef_supply_return_failed"
         end
     end
+    for item in pairs(state.unresolvedSupplies or {}) do
+        if contains(inventory, item) then
+            local data = select(1, call(item, "getModData"))
+            if type(data) == "table" then data.SC_ChefSupplyReceipt = nil end
+        end
+    end
     return true
 end
 
@@ -2154,7 +2291,25 @@ function Chef.canCancelActor(actor, reason)
     if state.nativeCommitted and reason ~= "chef_job_cancelled" then
         return false, "chef_job_cancel_required"
     end
-    if state.recovered then return false, "chef_return_receipt_recovery_required" end
+    if state.recovered then
+        local phase = state.job and state.job.target
+            and state.job.target.cookPhase or nil
+        local early = phase == "supplies_withdrawn"
+            or phase == "base_carried" or phase == "dry_carried"
+            or phase == "ingredients_carried" or phase == "bowl_1_carried"
+            or phase == "bowl_2_carried" or phase == "bowls_carried"
+            or phase == "fill_pot_queued" or phase == "fill_pot_done"
+        local missingInput = state.recoveryIssue == "chef_receipt_base_missing"
+            or state.recoveryIssue == "chef_dry_receipt_missing"
+            or state.recoveryIssue == "chef_receipt_ingredient_missing"
+            or state.recoveryIssue == "chef_supply_receipt_conflict"
+            or state.recoveryIssue == "chef_supply_source_ambiguous"
+        -- The missing input is absent from the restored inventory. Exact
+        -- marked supplies still present can be returned; no native action is
+        -- pending in these phases, so cancellation need not deadlock the cook.
+        if not early or not missingInput then
+            return false, "chef_return_receipt_recovery_required" end
+    end
     return true
 end
 

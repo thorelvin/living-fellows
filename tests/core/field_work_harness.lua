@@ -45,7 +45,11 @@ function car:getSqlId() return self.id end
 function car:isTrunkLocked() return self.locked end
 function car:getTrunkPart() return self.part end
 function car.part:getItemContainer() return self.bag end
-function car.part:getArea() return nil end
+function car.part:getArea() return "Trunk" end
+function car:getAreaCenter(area)
+    return area == "Trunk" and { x = self.x, y = self.y, z = self.z }
+        or nil
+end
 local utility = {}
 function utility.call(object, method, ...)
     if not object then return nil, false end
@@ -311,6 +315,83 @@ check(Field.status().phase == "stopped"
     and Field.status().blocker == "leader_left_work_area",
     "leaving the field stops work and regroups")
 player.x = 100
+Field.restore(nil)
+one.bag, two.bag, car.part.bag = inventory(), inventory(), inventory()
+one.follow, two.follow = true, true
+one.x, one.y, two.x, two.y = 100, 99, 101, 99
+local sharedAxe = item("Base.Axe", true)
+put(car.part.bag, sharedAxe)
+local sharedTree = square(100, 100)
+sharedTree.tree = { index = 1, square = sharedTree, health = 50 }
+function sharedTree.tree:getObjectIndex() return self.index end
+function sharedTree.tree:getSize() return 3 end
+function sharedTree.tree:getHealth() return self.health end
+Field.observePlayerVehicle(car)
+check(Field.start("chop", sharedTree, player) == true,
+    "shared axe order starts")
+Field.update(one, player)
+Field.update(two, player)
+Field.update(one, player)
+Field.update(two, player)
+check(Field.status().phase == "working"
+    and Field.export().active.workers.two.phase == "waiting_axe"
+    and sharedAxe.container == one.bag,
+    "unequipped worker waits locally while first owns shared axe")
+for _ = 1, 15 do Field.update(one, player) end
+check(one.pending and one.pending.action == "chop_tree",
+    "equipped worker starts chopping despite shared-axe contention")
+Field.stop("test")
+Field.restore(nil)
+one.bag, two.bag, car.part.bag = inventory(), inventory(), inventory()
+two.follow = false
+for _ = 1, 7 do put(one.bag, item("Base.Pen")) end
+local fullCrop = cropAt(100, 100, true)
+check(Field.start("harvest", fullCrop, player) == true,
+    "no-car capacity test starts")
+for _ = 1, 35 do
+    Field.update(one, player)
+    if one.pending and one.pending.operation == "harvest" then break end
+end
+finish(one, "harvest")
+advance({ one }, 10)
+check(Field.status().phase == "complete"
+    and Field.wants(one, player, SC.Commands.peek(one)) == false,
+    "no-car full worker completes and releases follow ownership")
+Field.restore(nil)
+one.bag, car.part.bag = inventory(), inventory()
+put(car.part.bag, item("Base.Axe", true))
+Field.observePlayerVehicle(car)
+check(Field.start("chop", sharedTree, player) == true,
+    "contact test starts")
+local originalInteraction = SC.Navigation.interactionTargets
+SC.Navigation.interactionTargets = function(value, target, options)
+    if target.x == car.x and target.y == car.y then
+        check(options.requireDirectAccess == true,
+            "trunk approach requires direct contact")
+        return {}
+    end
+    return originalInteraction(value, target, options)
+end
+Field.update(one, player)
+Field.update(one, player)
+check(Field.status().phase == "paused"
+    and #car.part.bag.items == 1 and #one.bag.items == 0,
+    "blocked trunk contact cannot transfer shared tool")
+SC.Navigation.interactionTargets = originalInteraction
+Field.stop("test")
+Field.restore(nil)
+local orphan = item("Base.Cabbage")
+orphan.data.LF_FieldOrder = "field:obsolete"
+orphan.data.LF_FieldWorker = "dead"
+check(Field.reserved(orphan) == false
+    and orphan.data.LF_FieldOrder == nil,
+    "orphan cargo marker releases after order retirement")
+local orphanAxe = item("Base.Axe", true)
+orphanAxe.data.LF_FieldBorrowedAxe = "field:obsolete"
+orphanAxe.data.LF_FieldWorker = "dead"
+check(Field.reserved(orphanAxe) == false
+    and orphanAxe.data.LF_FieldBorrowedAxe == nil,
+    "orphan axe marker releases after order retirement")
 local bad = Field.restore({ schema = 1, serial = -1 })
 check(bad == false, "malformed save rejected")
 print("FIELD_WORK_PASS checks=" .. checks)

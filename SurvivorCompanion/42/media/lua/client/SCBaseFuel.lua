@@ -151,6 +151,15 @@ function Fuel.rebindRestoredItems(actor)
             end
             local nativeId = call(item, "getID")
             if root and nativeId ~= nil and job and job.target then
+                local oldId = job.target.itemId
+                local receipt = job.type == "refuel_generator" and job.target.receipt
+                    or nil
+                if type(receipt) == "table" and receipt.itemId ~= nil
+                    and tostring(receipt.itemId) == tostring(oldId) then
+                    -- This receipt already belonged to the exact marked can.
+                    -- A pre-existing mismatch must still fail settlement.
+                    receipt.itemId = nativeId
+                end
                 job.target.itemId = nativeId
             else
                 recovered = false

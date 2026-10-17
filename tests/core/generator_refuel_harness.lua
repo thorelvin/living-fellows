@@ -211,6 +211,55 @@ T.generator.activated = true
 T.generator.fuel = 15
 can.fluid.amount = 8
 
+-- The save can land after native completion but before receipt settlement.
+T.base.jobs = {}
+T.generator.fuel = 85
+can.fluid.amount, heldCan.fluid.amount = 8, 10
+T.actor.inventory.items, T.storage.container.items = {}, { can, heldCan }
+local _, restoredReceipt = Refuel.queue(T.generator, true)
+update(restoredReceipt)
+update(restoredReceipt)
+T.finishAction()
+local oldCanId = can.id
+check(restoredReceipt.target.receipt
+    and restoredReceipt.target.receipt.itemId == oldCanId,
+    "native completion recorded exact pending can")
+can.id = oldCanId + 1000 -- detached inventory reconstruction
+check(SC.BaseFuel.rebindRestoredItems(T.actor) == true
+    and restoredReceipt.target.itemId == can.id
+    and restoredReceipt.target.receipt.itemId == can.id,
+    "validated restored can rebinds its nested receipt")
+working, reason = update(restoredReceipt)
+check(working and reason == "generator_refuel_verified"
+    and T.generator.fuel == 93,
+    "rebound transfer settles once without replaying native fuel")
+working, reason, _, done = update(restoredReceipt)
+check(working and not done and reason == "generator_refuel_next_can",
+    "rebound receipt continues to the next can")
+T.base.jobs = {}
+T.actor.inventory.items, T.storage.container.items = {}, { can }
+can.fluid.amount = 8
+T.generator.fuel = 85
+local _, conflictingReceipt = Refuel.queue(T.generator, true)
+update(conflictingReceipt)
+update(conflictingReceipt)
+T.finishAction()
+conflictingReceipt.target.receipt.itemId = "different-item"
+can.id = can.id + 1000
+check(SC.BaseFuel.rebindRestoredItems(T.actor) == true
+    and conflictingReceipt.target.receipt.itemId == "different-item",
+    "pre-existing conflicting receipt is not rewritten")
+working, reason = update(conflictingReceipt)
+check(working and reason == "generator_refuel_returning_can"
+    and conflictingReceipt.target.finishReason
+        == "generator_refuel_receipt_uncertain",
+    "conflicting receipt remains conservatively rejected")
+check(Refuel.cancel(T.actor, conflictingReceipt) == true,
+    "conflicting receipt still returns its can")
+T.base.jobs = {}
+T.actor.inventory.items, T.storage.container.items = {}, { can }
+T.generator.fuel, can.fluid.amount = 15, 8
+
 T.moveGenerator(16, 10)
 Refuel.reset()
 check(Refuel.audit() == true and #T.base.jobs == 1,

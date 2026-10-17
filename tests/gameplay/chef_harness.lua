@@ -5,16 +5,20 @@ local chef, baseLife, util = SC.ChefWork, SC.BaseLife, SC.GameplayUtil
 assert(baseLife.ROLES.chef and baseLife.JOB_TYPES.cook,
     "Chef must survive role and job normalization")
 
+local nextFoodId = 0
 local function food(kind, flags)
     flags = flags or {}
-    local item = {}
+    nextFoodId = nextFoodId + 1
+    local item = { id = nextFoodId, data = {} }
+    function item:getID() return self.id end
+    function item:getModData() return self.data end
     function item:getFullType() return kind end
     function item:getCategory() return "Food" end
     function item:isRotten() return flags.rotten == true end
     function item:isBurnt() return flags.burnt == true end
     function item:isPoisonous() return flags.poisoned == true end
     function item:isFrozen() return flags.frozen == true end
-    function item:isDangerousUncooked() return flags.raw == true end
+    function item:isbDangerousUncooked() return flags.raw == true end
     function item:isCooked() return flags.cooked == true end
     return item
 end
@@ -157,6 +161,10 @@ local actorInventory = container("inventory", {})
 function actor:getInventory() return actorInventory end
 local supplyObject = {}
 function supplyObject:getContainer() return shelf end
+function supplyObject:getX() return 0 end
+function supplyObject:getY() return 0 end
+function supplyObject:getZ() return 0 end
+function supplyObject:getObjectIndex() return 1 end
 function square:getObjects() return { supplyObject, object } end
 fridge.items = {}
 local salad = food("Base.Salad")
@@ -268,12 +276,104 @@ assert(handled == true and cancelledJob.target.cookPhase == "combine_queued"
     and actorInventory:contains(borrowedBowl)
     and actorInventory:contains(borrowedTomato),
     "Chef holds the exact borrowed bowl and tomato while assembly is queued")
+do
+    local persistedTarget, targetError = SC.StableValue.copyStrict(
+        cancelledJob.target, { maxDepth = 3, maxEntries = 64 })
+    assert(persistedTarget and not targetError
+        and persistedTarget.chefSupplies[1].source.index == 1,
+        "Chef ownership receipts survive the base-job target persistence limits")
+end
 queuedAction:stop()
 local cancelled, cancelReason = chef.cancelJob(cancelledJob, nil)
 assert(cancelled == true and shelf:contains(borrowedBowl)
     and shelf:contains(borrowedTomato) and #actorInventory.items == 0,
     "assigned Chef cancellation returns exact borrowed supplies: "
         .. tostring(cancelReason))
+-- Detached inventory reconstruction replaces native IDs while retaining
+-- mod data. A same-type personal bowl must never replace the borrowed bowl.
+do
+local personalBowl = food("Base.Bowl")
+local extras = { dry = food("Base.Rice"), first = food("Base.Bowl"),
+    second = food("Base.Bowl") }
+shelf:Remove(borrowedBowl)
+shelf:Remove(borrowedTomato)
+actorInventory:AddItem(borrowedBowl)
+actorInventory:AddItem(borrowedTomato)
+actorInventory:AddItem(extras.dry)
+actorInventory:AddItem(extras.first)
+actorInventory:AddItem(extras.second)
+actorInventory:AddItem(personalBowl)
+local oldBowlId, oldTomatoId = borrowedBowl.id, borrowedTomato.id
+extras.oldDry, extras.oldFirst, extras.oldSecond = extras.dry.id,
+    extras.first.id, extras.second.id
+borrowedBowl.data.SC_ChefSupplyReceipt = "job:rebound:1"
+borrowedTomato.data.SC_ChefSupplyReceipt = "job:rebound:2"
+extras.dry.data.SC_ChefSupplyReceipt = "job:rebound:3"
+extras.first.data.SC_ChefSupplyReceipt = "job:rebound:4"
+extras.second.data.SC_ChefSupplyReceipt = "job:rebound:5"
+borrowedBowl.id, borrowedTomato.id = oldBowlId + 1000, oldTomatoId + 1000
+extras.dry.id, extras.first.id, extras.second.id =
+    extras.oldDry + 1000, extras.oldFirst + 1000, extras.oldSecond + 1000
+local reboundJob = { id = "job:rebound", type = "cook",
+    assignedId = actor.id, target = {
+        cookPhase = "ingredients_carried", recipe = "Salad",
+        baseItemId = oldBowlId, ingredientId = oldTomatoId,
+        dryItemId = extras.oldDry, bowlIds = { extras.oldFirst, extras.oldSecond },
+        chefSupplies = {
+            { token = "job:rebound:1", oldId = oldBowlId,
+                source = { x = 0, y = 0, z = 0, index = 1 } },
+            { token = "job:rebound:2", oldId = oldTomatoId,
+                source = { x = 0, y = 0, z = 0, index = 1 } },
+            { token = "job:rebound:3", oldId = extras.oldDry,
+                source = { x = 0, y = 0, z = 0, index = 1 } },
+            { token = "job:rebound:4", oldId = extras.oldFirst,
+                source = { x = 0, y = 0, z = 0, index = 1 } },
+            { token = "job:rebound:5", oldId = extras.oldSecond,
+                source = { x = 0, y = 0, z = 0, index = 1 } },
+        },
+    } }
+chef.reset()
+queuedAction = nil
+handled, progress = chef.update(actor, {}, reboundJob, player)
+assert(handled == true and reboundJob.target.baseItemId == borrowedBowl.id
+    and reboundJob.target.ingredientId == borrowedTomato.id
+    and reboundJob.target.dryItemId == extras.dry.id
+    and reboundJob.target.bowlIds[1] == extras.first.id
+    and reboundJob.target.bowlIds[2] == extras.second.id
+    and queuedAction ~= nil,
+    "reloaded Chef rebinds the exact marked supplies")
+queuedAction:stop()
+local reboundCancelled = chef.cancelJob(reboundJob, actor.id)
+assert(reboundCancelled == true and shelf:contains(borrowedBowl)
+    and shelf:contains(borrowedTomato)
+    and shelf:contains(extras.dry) and shelf:contains(extras.first)
+    and shelf:contains(extras.second)
+    and actorInventory:contains(personalBowl)
+    and #actorInventory.items == 1,
+    "recovered cancellation returns each borrowed item once and keeps personal bowl")
+local strandedTomato = food("Base.Tomato")
+local strandedOldId = strandedTomato.id
+strandedTomato.data.SC_ChefSupplyReceipt = "job:missing-base:1"
+strandedTomato.id = strandedOldId + 1000
+actorInventory:AddItem(strandedTomato)
+local missingBaseJob = { id = "job:missing-base", type = "cook",
+    assignedId = actor.id, target = {
+        cookPhase = "ingredients_carried", recipe = "Salad",
+        baseItemId = 99999, ingredientId = strandedOldId,
+        chefSupplies = { { token = "job:missing-base:1",
+            oldId = strandedOldId,
+            source = { x = 0, y = 0, z = 0, index = 1 } } },
+    } }
+chef.reset()
+local missingHandled, missingProgress = chef.update(actor, {}, missingBaseJob,
+    player)
+assert(missingHandled == false and missingProgress == "chef_receipt_base_missing",
+    "missing reconstructed base reports the exact receipt failure")
+assert(chef.cancelJob(missingBaseJob, actor.id) == true
+    and shelf:contains(strandedTomato)
+    and actorInventory:contains(personalBowl),
+    "missing base can cancel while returning every remaining borrowed supply")
+actorInventory.items = {}
 local missingState, missingReason = chef.cancelJob({
     id = "job:missing-state", type = "cook", assignedId = actor.id,
     target = { cookPhase = "supplies_withdrawn" },
@@ -281,6 +381,7 @@ local missingState, missingReason = chef.cancelJob({
 assert(missingState == false
     and missingReason == "chef_return_receipt_recovery_required",
     "a reloaded pre-native withdrawal cannot be discarded without recovery")
+end
 function recipe:getItemsCanBeUse() return { tomato } end
 
 -- Soup has a second native transaction: heat the exact pot, divide it into
@@ -795,6 +896,41 @@ assert(handled == true and completed == true and not oven.active
     and takenCleanupJob.target.cookPhase == "meal_taken"
     and takenCleanupJob.target.mealTakenCleanup == nil,
     "the taken meal completes only after its oven is off")
+local otherOven = { active = true }
+function otherOven:Activated() return self.active end
+function otherOven:getContainer() return container("stove", {}) end
+function otherOven:getSquare()
+    return { getX = function() return 2 end,
+        getY = function() return 0 end, getZ = function() return 0 end }
+end
+local originalInstanceof, originalSquareObjects = instanceof,
+    square.getObjects
+local previousOvenRecipes = getEvolvedRecipes
+getEvolvedRecipes = function() return { recipe } end
+instanceof = function(value, className)
+    return className == "IsoStove" and (value == oven or value == otherOven)
+        or originalInstanceof(value, className)
+end
+function square:getObjects() return { otherOven, oven, supplyObject, object } end
+local ovenRecoveryJob = { id = "job:oven-exact", type = "cook",
+    target = { cookPhase = "oven_off_queued", recipe = "Salad",
+        ownOven = true, ownedOvenX = 0, ownedOvenY = 0, ownedOvenZ = 0 } }
+oven.active, otherOven.active = true, true
+sandwichData.SC_ChefJobId = ovenRecoveryJob.id
+actorInventory.items = { finishedSandwich }
+chef.reset()
+queuedAction = nil
+handled, progress = chef.update(actor, {}, ovenRecoveryJob, player)
+assert(handled == true and queuedAction ~= nil,
+    "queued oven shutdown restores its recorded appliance: "
+        .. tostring(handled) .. "/" .. tostring(progress)
+        .. "/" .. tostring(queuedAction))
+queuedAction:complete()
+assert(oven.active == false and otherOven.active == true,
+    "Chef turns off its own oven even when another active oven scans first")
+instanceof, square.getObjects, getEvolvedRecipes = originalInstanceof,
+    originalSquareObjects, previousOvenRecipes
+actorInventory.items = {}
 oven.active = false
 swap(util, "itemHasTag", function(item, tag)
     return (item == knife and tag == "sharpknife")

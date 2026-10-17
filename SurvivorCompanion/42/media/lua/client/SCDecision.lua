@@ -2642,6 +2642,20 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
             state.lastHandledAt = current
             return true, state.intent
         end
+        if not urgent and owner == "work"
+            and (phase == "active" or phase == "result_pending")
+            and commands.order == "follow" and SC.FieldWork
+            and type(SC.FieldWork.wants) == "function"
+            and SC.FieldWork.wants(actor, player, commands)
+            and type(SC.FieldWork.update) == "function" then
+            local safe, _, workReason = U().safeSubsystem("field-work", actor,
+                SC.FieldWork.update, actor, player)
+            state.current, state.currentKey = "field_work", "field_work"
+            state.intent = safe and (workReason or "owned_field_work_polled")
+                or "owned_field_work_poll_failed"
+            state.lastHandledAt = current
+            return true, state.intent
+        end
         if phase == "active" and not urgent then
             state.current = "activity"
             state.intent = tostring(owner) .. ":" .. tostring(name)

@@ -1,4 +1,4 @@
-Living Fellows 0.26.44 - public playtest
+Living Fellows 0.26.45 - public playtest
 
 This playtest lets a stuck follow car or camp car and generator chore recover
 cleanly instead of jamming, and tidies the vehicle and generator menus.

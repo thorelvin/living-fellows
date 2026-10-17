@@ -144,7 +144,7 @@ do
     for _, name in ipairs({ "Commands", "Positioning", "Navigation", "Senses", "Combat",
         "Needs", "InfectionCrisis", "Autonomy", "Encounter", "Logistics", "FactionBehavior",
         "Personality", "Objectives", "Downtime", "Dialogue", "ActionSupervisor", "NativeActions",
-        "Locomotion", "Performance" }) do
+        "Locomotion", "Performance", "FieldWork" }) do
         saved[name] = SC[name]
         SC[name] = nil
     end
@@ -168,6 +168,38 @@ do
         return { snapshot = { threats = {}, immediateAttackers = {}, escapeSquares = {},
             allies = {}, threatCount = 0, immediateCount = 0, pressure = 0, sounds = {} } }
     end
+    local fieldWorker, fieldPolls, fieldInterrupts = patient(100), 0, 0
+    SC.FieldWork = {
+        wants = function(value) return value == fieldWorker end,
+        update = function()
+            fieldPolls = fieldPolls + 1
+            return true, "field_watchdog_polled"
+        end,
+    }
+    SC.NativeActions = {
+        activityStatus = function(value)
+            if value == fieldWorker then return "active", "work", "chop_tree" end
+            return "none"
+        end,
+        interruptOwnedActivity = function()
+            fieldInterrupts = fieldInterrupts + 1
+            return false, "native_work_busy"
+        end,
+    }
+    SC_TEST_CLOCK = SC_TEST_CLOCK + 1000
+    local fieldHandled, fieldReason = SC.Decision.update(
+        fieldWorker, leader, quietRuntime())
+    check(fieldHandled and fieldReason == "field_watchdog_polled"
+        and fieldPolls == 1 and not fieldWorker.followCalls,
+        "Decision polls a following field worker through its active native work lease")
+    local urgentField = quietRuntime()
+    urgentField.snapshot.immediateCount = 1
+    urgentField.snapshot.immediateAttackers = { { actor = patient(100) } }
+    SC_TEST_CLOCK = SC_TEST_CLOCK + 1000
+    SC.Decision.update(fieldWorker, leader, urgentField)
+    check(fieldPolls == 1 and fieldInterrupts == 1,
+        "urgent danger preempts field polling while native work owns the actor")
+    SC.FieldWork, SC.NativeActions = nil, nil
     local function medicalCount(value, target, runtime)
         local count = 0
         local proposals = SC.Decision._evaluateForTests(value, target, runtime.snapshot,

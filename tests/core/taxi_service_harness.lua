@@ -427,6 +427,27 @@ check(Service.tick(7000) and car.seats[0] == restoredDriver
 check(Service.isBookedPassenger(caller, car),
     "driver boarding exception is limited to the booked passenger")
 
+-- A save while Markus is still boarding has the same missing-driver window.
+booking = { generation = 1, phase = "pickup_en_route" }
+caller.vehicle, car.seats[1], car.seats[0] = nil, nil, nil
+chauffeur, restoreTicket, expectedRecoveryPassenger = nil, nil, nil
+resumed.visit.phase = "board_driver"
+local beforeBoardRecovery = driveCalls
+local previousBoardDrive = SC.Driving.drive
+SC.Driving.drive = function(actor, target, options)
+    check(actor == chauffeur and target.x == 100 and target.y == 200
+        and options.speedKmh == 20, "boarding resumes saved pickup route")
+    driveCalls, activeJob = driveCalls + 1, {}
+    return true
+end
+check(Service.restore(resumed) and Service.tick(1000)
+    and Service.tick(6000) and restoreTicket ~= nil
+    and Service.tick(7000) and car.seats[0] == chauffeur
+    and Service.current().phase == "pickup_drive"
+    and driveCalls == beforeBoardRecovery + 1,
+    "boarding reload restores one Markus and continues original pickup")
+SC.Driving.drive = previousBoardDrive
+
 -- The passenger can save at arrival and leave before the first restored tick.
 -- Markus must still respawn so the committed fare can lead to a departure.
 booking = { generation = 1, phase = "waiting_exit" }
@@ -511,6 +532,44 @@ end
 check(Service.current().phase == "departure_held"
     and Service.current().departureAttempts == 4,
     "repeated no-goal departure attempts have a bounded hold")
+local heldDriveCalls = driveCalls
+SC.ExpeditionRoute.planFromPoint = function(origin, target)
+    return { roadLength = 60 }, nil,
+        { entryX = origin.x, entryY = origin.y,
+            exitX = target.x, exitY = target.y }
+end
+check(Service.tick(45999) and Service.current().phase == "departure_held"
+    and driveCalls == heldDriveCalls,
+    "held taxi waits before slower retry")
+check(Service.tick(46000) and Service.current().phase == "departing"
+    and driveCalls == heldDriveCalls + 1,
+    "held taxi retries when the road clears")
+local heldSave = noRoad
+heldSave.visit.phase, heldSave.visit.departureAttempts = "departure_held", 4
+check(Service.restore(heldSave) and Service.tick(1000)
+    and Service.current().phase == "departure_held"
+    and Service.tick(31000) and Service.current().phase == "departing",
+    "held taxi resumes bounded departure after reload")
+SC.ExpeditionRoute.planFromPoint = function() return nil end
+getPlayerScreenWidth = function() return 500 end
+getPlayerScreenHeight = function() return 500 end
+booking = { generation = 1, phase = "at_destination" }
+car.x, car.y, car.removed, loaded = 360, 300, false, car
+car.seats[1] = caller
+heldSave.visit.phase, heldSave.visit.departureAttempts = "departure_held", 4
+check(Service.restore(heldSave) and Service.tick(1000)
+    and Service.tick(31000) and Service.current() ~= nil,
+    "an offscreen cab with a passenger cannot retire")
+car.seats[1] = nil
+luggageBlocked = true
+check(Service.restore(heldSave) and Service.tick(1000)
+    and Service.tick(31000) and Service.current() ~= nil,
+    "protected customer property prevents offscreen retirement")
+luggageBlocked = false
+check(Service.restore(heldSave) and Service.tick(1000)
+    and Service.tick(31000) and Service.current() == nil
+    and loaded == nil and car.removed == true,
+    "settled offscreen held cab retires after passenger and property checks")
 
 Service.reset()
 local invalid = { schema = 1, driverId = "markus-driver",

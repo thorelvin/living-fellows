@@ -10,6 +10,7 @@ local active, recentVehicleId, serial = nil, nil, 0
 local areaMarkers, markerExpiry = {}, 0
 local RADIUS, LEASH, CAR_RANGE, TREE_LIMIT, MARK = 8, 16, 20, 5, "LF_FieldOrder"
 local AXE_MARK = "LF_FieldBorrowedAxe"
+local WORKER_MARK = "LF_FieldWorker"
 local function U() return SC.GameplayUtil end
 local function call(object, name, ...)
     local value, okay = U().call(object, name, ...)
@@ -32,16 +33,18 @@ local function marker(item)
     local data = U().modData(item)
     return data and data[MARK] or nil
 end
-local function mark(item, orderId)
+local function mark(item, orderId, workerId)
     local data = U().modData(item)
     if not data or not itemId(item) then return false end
     data[MARK] = orderId
+    data[WORKER_MARK] = workerId
     return data[MARK] == orderId
 end
-local function markAxe(item, orderId)
+local function markAxe(item, orderId, workerId)
     local data = U().modData(item)
     if not data or not itemId(item) then return false end
     data[AXE_MARK] = orderId
+    data[WORKER_MARK] = workerId
     return data[AXE_MARK] == orderId
 end
 local function vehicleById(id)
@@ -198,7 +201,8 @@ local function adoptHarvest(actor, worker, order)
     for _, item in ipairs(U().inventoryItems(inventory, 4096)) do
         local id = itemId(item)
         if id and worker.before[id] ~= true and marker(item) == nil then
-            if not mark(item, order.id) then return false, "cargo_marker_failed" end
+            if not mark(item, order.id, tostring(U().idOf(actor))) then
+                return false, "cargo_marker_failed" end
         end
     end
     return true
@@ -249,17 +253,17 @@ end
 local function carSquares(actor, vehicle, part)
     local area = call(part, "getArea")
     local centre = area and call(vehicle, "getAreaCenter", area)
-    local center = point(centre) or point(vehicle)
+    local center = point(centre)
     local squares = {}
     if not center then return squares end
     center.z = (point(vehicle) or center).z
-    for dx = -2, 2 do for dy = -2, 2 do
-        local square = U().gridSquare(center.x + dx, center.y + dy, center.z)
-        if square and U().isSquareFree(square)
-            and not U().safehouseBlocker(square, actor) then
-            squares[#squares + 1] = square
-        end
-    end end
+    local centreSquare = U().gridSquare(center.x, center.y, center.z)
+    if not centreSquare or not SC.Navigation
+        or not SC.Navigation.interactionTargets then return squares end
+    -- The trunk is a fixed interaction point. Distance alone admits a tile
+    -- through a wall or fence; Navigation checks the actual contact edges.
+    squares = SC.Navigation.interactionTargets(actor, centreSquare,
+        { requireDirectAccess = true, maximum = 8 }) or {}
     return squares
 end
 local function atCar(actor, vehicle, part)
@@ -270,8 +274,12 @@ local function atCar(actor, vehicle, part)
         requireSameSquare = true, arrivalDistance = 0.5,
     })
     if not okay then return false, reason end
-    return true, reason == "arrived" and reached and U().sameSquare(actor, reached)
-        and "arrived" or "approaching"
+    if reason == "arrived" and reached and U().sameSquare(actor, reached) then
+        for _, current in ipairs(carSquares(actor, vehicle, part)) do
+            if U().sameSquare(actor, current) then return true, "arrived" end
+        end
+    end
+    return true, "approaching"
 end
 local function cargoItems(actor, orderId)
     local result = {}
@@ -301,13 +309,33 @@ local function loadCar(actor, worker, order)
     local moved, moveReason = U().transferItemVerified(U().inventory(actor), container, item)
     if not moved then order.phase, order.blocker = "paused", moveReason return false, moveReason end
     local data = U().modData(item)
-    if data then data[MARK] = nil end
+    if data then data[MARK], data[WORKER_MARK] = nil, nil end
     order.loaded = order.loaded + 1
     return true, "field_cargo_loaded"
 end
 local function release(worker)
     worker.target, worker.x, worker.y, worker.before = nil, nil, nil, nil
     worker.groundBefore, worker.startedAt, worker.phase = nil, nil, "seek"
+end
+local function completeIfFinished(order)
+    for _, state in pairs(order.workers) do
+        if state.phase ~= "done" and state.phase ~= "full" then return false end
+    end
+    order.phase = "complete"
+    if not order.carId then
+        for id in pairs(order.workers) do
+            local member = actorFor(id)
+            if member then
+                for _, item in ipairs(U().inventoryItems(U().inventory(member), 4096)) do
+                    local data = U().modData(item)
+                    if data and data[MARK] == order.id then
+                        data[MARK], data[WORKER_MARK] = nil, nil
+                    end
+                end
+            end
+        end
+    end
+    return true
 end
 local function currentTarget(worker, order)
     return worker.x and U().gridSquare(worker.x, worker.y, order.center.z) or nil
@@ -450,8 +478,10 @@ function Field.stop(reason)
             stopAction(actor)
             for _, item in ipairs(U().inventoryItems(U().inventory(actor), 4096)) do
                 local data = U().modData(item)
-                if data and data[MARK] == order.id then data[MARK] = nil end
-                if data and data[AXE_MARK] == order.id then data[AXE_MARK] = nil end
+                if data and data[MARK] == order.id then
+                    data[MARK], data[WORKER_MARK] = nil, nil end
+                if data and data[AXE_MARK] == order.id then
+                    data[AXE_MARK], data[WORKER_MARK] = nil, nil end
             end
         end
     end
@@ -459,6 +489,20 @@ function Field.stop(reason)
     order.blocker = reason or "stopped_by_player"
     Field.clearArea()
     return true, "field_order_stopped"
+end
+function Field.reserved(item)
+    local data = U().modData(item)
+    if not data then return false end
+    local orderId = data[MARK] or data[AXE_MARK]
+    if orderId == nil then return false end
+    local ownerId = data[WORKER_MARK]
+    local owned = active and active.id == orderId
+        and (active.phase == "working" or active.phase == "paused")
+        and (ownerId == nil or active.workers[ownerId] ~= nil)
+    if not owned then
+        data[MARK], data[AXE_MARK], data[WORKER_MARK] = nil, nil, nil
+    end
+    return owned == true
 end
 function Field.resume()
     if not active or active.phase ~= "paused" then return false, "field_not_paused" end
@@ -486,6 +530,14 @@ function Field.update(actor, player)
     local inventory = U().inventory(actor)
     if not inventory then return false, "inventory_unavailable" end
     local _, _, load = U().inventoryLoad(actor)
+    if worker.phase == "full" then
+        if load < 0.8 then
+            worker.phase, worker.afterDeposit = worker.afterDeposit or "seek", nil
+            return true, "field_carry_space_restored"
+        end
+        completeIfFinished(order)
+        return true, "field_carry_limit_reached"
+    end
     if #cargoItems(actor, order.id) > 0 and (load >= 0.8 or worker.phase == "deposit") then
         if order.carId then
             if worker.phase == "wood" then worker.afterDeposit = "wood" end
@@ -496,7 +548,28 @@ function Field.update(actor, player)
             return true, "field_carry_limit_reached"
         end
     end
-    if worker.phase == "full" then return true, "field_carry_limit_reached" end
+    if worker.phase == "waiting_axe" then
+        if axeIn(inventory) then
+            worker.phase = "seek"
+        else
+            local _, _, container, reason = carNear(order.center, order.carId)
+            if not container then order.phase, order.blocker = "paused", reason
+                return false, reason end
+            if axeIn(container) then
+                worker.phase = "borrow"
+            else
+                for id in pairs(order.workers) do
+                    local member = actorFor(id)
+                    if member and id ~= actorId
+                        and axeIn(U().inventory(member)) then
+                        return true, "field_waiting_for_shared_axe"
+                    end
+                end
+                order.phase, order.blocker = "paused", "axe_not_in_car"
+                return false, order.blocker
+            end
+        end
+    end
     if worker.phase == "borrow" then
         local vehicle, part, container, reason = carNear(order.center, order.carId)
         if not container then order.phase, order.blocker = "paused", reason return false, reason end
@@ -504,14 +577,17 @@ function Field.update(actor, player)
         if not okay then order.phase, order.blocker = "paused", approached return false, approached end
         if approached ~= "arrived" then return true, "field_axe_approaching" end
         local axe = axeIn(container)
-        if not axe then order.phase, order.blocker = "paused", "axe_not_in_car" return false, order.blocker end
+        if not axe then
+            worker.phase = "waiting_axe"
+            return true, "field_waiting_for_shared_axe"
+        end
         if SC.WorkTransport and SC.WorkTransport.hasRoom
             and SC.WorkTransport.hasRoom(inventory, actor, axe) ~= true then
             order.phase, order.blocker = "paused", "inventory_full"
             return false, order.blocker
         end
         local moved, moveReason = U().transferItemVerified(container, inventory, axe)
-        if not moved or not markAxe(axe, order.id) then
+        if not moved or not markAxe(axe, order.id, actorId) then
             order.phase, order.blocker = "paused", moveReason or "axe_marker_failed"
             return false, order.blocker
         end
@@ -522,7 +598,7 @@ function Field.update(actor, player)
         or worker.phase == "approach" or worker.phase == "start")
         and not axeIn(inventory) then
         if order.carId then worker.phase = "borrow" return true, "field_axe_needed" end
-        worker.phase = "full"
+        worker.phase = "done"
         order.blocker = "axe_required_without_car"
         return true, order.blocker
     end
@@ -545,24 +621,7 @@ function Field.update(actor, player)
             worker.phase = "return_axe"
             return true, "field_returning_axe"
         end
-        local allDone = true
-        for _, state in pairs(order.workers) do
-            if state.phase ~= "done" and state.phase ~= "full" then allDone = false break end
-        end
-        if allDone then
-            order.phase = "complete"
-            if not order.carId then
-                for id in pairs(order.workers) do
-                    local member = actorFor(id)
-                    if member then
-                        for _, item in ipairs(U().inventoryItems(U().inventory(member), 4096)) do
-                            local data = U().modData(item)
-                            if data and data[MARK] == order.id then data[MARK] = nil end
-                        end
-                    end
-                end
-            end
-        end
+        completeIfFinished(order)
         return true, "field_worker_done"
     end
     if worker.phase == "deposit" then return loadCar(actor, worker, order) end
@@ -587,7 +646,7 @@ function Field.update(actor, player)
         if not moved then order.phase, order.blocker = "paused", moveReason
             return false, moveReason end
         local data = U().modData(axe)
-        if data then data[AXE_MARK] = nil end
+        if data then data[AXE_MARK], data[WORKER_MARK] = nil, nil end
         worker.axeId, worker.phase = nil, "done"
         return true, "field_axe_returned"
     end
@@ -726,7 +785,8 @@ function Field.update(actor, player)
         local okay, reason = approach(actor, entry.square, "field_wood", true)
         if not okay then return false, reason end
         if reason ~= "arrived" then return true, reason end
-        if not mark(entry.item, order.id) then return false, "wood_marker_failed" end
+        if not mark(entry.item, order.id, actorId) then
+            return false, "wood_marker_failed" end
         local taken, takeReason = U().takeWorldItemVerified(entry.wrapper, inventory, entry.item)
         if not taken then return false, takeReason end
         order.woodClaims[entry.id] = nil

@@ -574,6 +574,7 @@ local function snapshot()
         departurePreviousGoal = copyPoint(visit.departurePreviousGoal),
         departureBacktracked = visit.departureBacktracked,
         departureAttempts = visit.departureAttempts,
+        offscreenRetirement = visit.offscreenRetirement,
         removalRequested = visit.removalRequested,
         cabBlood = copyCabBlood(visit.cabBlood),
         destinationProvided = visit.destinationProvided,
@@ -1004,6 +1005,7 @@ local function startDeparture(current)
         visit.reason = goalReason
         if visit.departureAttempts >= 4 then
             visit.phase = "departure_held"
+            nextDepartureAt = current + 30000
         end
         return true
     end
@@ -1032,7 +1034,8 @@ local function finishRetirement(current)
     if not removed then
         local location = point(car)
         if not location or not visit.dropoff
-            or distanceSquared(location, visit.dropoff) < 900
+            or (visit.offscreenRetirement ~= true
+                and distanceSquared(location, visit.dropoff) < 900)
             or not outsideViews(location.x, location.y) then
             visit.reason = "cab_still_in_view" return true
         end
@@ -1335,12 +1338,36 @@ function Service.tick(current)
             if (visit.departureAttempts or 0) >= 4 then
                 visit.phase = "departure_held"
                 visit.reason = job.reason or "cab_still_in_view"
+                nextDepartureAt = current + 30000
             else
                 visit.phase = "finishing"
                 visit.reason = job.result == "failed" and job.reason or nil
                 nextDepartureAt = current + 2000
             end
         end
+    elseif visit.phase == "departure_held" then
+        -- Retry in bounded bursts. A blocked road can clear when the player
+        -- moves away or traffic changes; a held visit must not own the booking
+        -- indefinitely. startDeparture rechecks fare, passengers and property.
+        if nextDepartureAt == 0 then nextDepartureAt = current + 30000 end
+        if current < nextDepartureAt then return true end
+        local car = cab()
+        local chauffeur = findDriver()
+        local location = car and point(car)
+        if car and chauffeur and location and outsideViews(location.x, location.y)
+            and SC.Vehicle.isStationary(car) == true
+            and onlyMarkusAboard(car, chauffeur)
+            and SC.TaxiFares.retirementStatus(car) == true
+            and type(removeVehicle) == "function" then
+            visit.phase, visit.reason = "retiring", nil
+            visit.offscreenRetirement = true
+            nextDepartureAt = 0
+            return finishRetirement(current)
+        end
+        visit.departureAttempts = 0
+        visit.phase = "finishing"
+        nextDepartureAt = 0
+        return startDeparture(current)
     elseif visit.phase == "retiring" then
         return finishRetirement(current)
     elseif visit.phase == "cancelling" then
@@ -1447,6 +1474,8 @@ function Service.restore(saved)
                     or candidate.departureAttempts < 0
                     or candidate.departureAttempts > 4
                     or candidate.departureAttempts ~= math.floor(candidate.departureAttempts))
+            or candidate.offscreenRetirement ~= nil
+                and type(candidate.offscreenRetirement) ~= "boolean"
             or candidate.removalRequested ~= nil
                 and type(candidate.removalRequested) ~= "boolean"
             or candidate.destinationProvided ~= nil
@@ -1469,6 +1498,7 @@ function Service.restore(saved)
             departurePreviousGoal = copyPoint(candidate.departurePreviousGoal),
             departureBacktracked = candidate.departureBacktracked,
             departureAttempts = candidate.departureAttempts,
+            offscreenRetirement = candidate.offscreenRetirement,
             removalRequested = candidate.removalRequested,
             cabBlood = copyCabBlood(candidate.cabBlood),
             destinationProvided = candidate.destinationProvided,
@@ -1481,14 +1511,16 @@ function Service.restore(saved)
     end
     visit, persistentDriverId = candidate, saved.driverId
     driver, spawnTicket, nextSearchAt = nil, nil, 0
-    resumePending = candidate ~= nil and (candidate.phase == "pickup_drive"
+    resumePending = candidate ~= nil and (candidate.phase == "board_driver"
+        or candidate.phase == "pickup_drive"
         or candidate.phase == "in_transit"
         or candidate.phase == "waiting_board"
         or candidate.phase == "ready_to_depart"
         or candidate.phase == "waiting_exit"
         or candidate.phase == "payment_due"
         or candidate.phase == "finishing"
-        or candidate.phase == "departing")
+        or candidate.phase == "departing"
+        or candidate.phase == "departure_held")
     resumeDriverAt = 0
     nextDepartureAt, retiringCar = 0, nil
     destinationReminderAt = nil
