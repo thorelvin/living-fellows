@@ -26,9 +26,14 @@ jobs:
         env:
           RELEASE_REF_NAME: ${{ github.ref_name }}
         run: |
+          # Release tags name the Project Zomboid build they target:
+          # v<VERSION>-pz<pinned game version>, e.g. v0.26.44-pz42.21.0.
           $version = (Get-Content -LiteralPath './VERSION.txt' -Raw).Trim()
-          if ($env:RELEASE_REF_NAME -ne "v$version") {
-            throw "Release tag $env:RELEASE_REF_NAME does not match VERSION.txt v$version"
+          $game = (Get-Content -LiteralPath './tests/core/pz-runtime.json' -Raw |
+            ConvertFrom-Json).gameVersion
+          $expected = "v$version-pz$game"
+          if ($env:RELEASE_REF_NAME -ne $expected) {
+            throw "Release tag $env:RELEASE_REF_NAME does not match $expected"
           }
       - name: Run real-JAR and packaging gates
         shell: pwsh

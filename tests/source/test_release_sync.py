@@ -116,6 +116,9 @@ require("self-hosted" in real_jar_workflow
         and "tags:" in real_jar_workflow and "'v*'" in real_jar_workflow
         and "github.ref_name" in real_jar_workflow,
         "trusted real-JAR compatibility workflow is missing")
+require('$expected = "v$version-pz$game"' in real_jar_workflow
+        and "tests/core/pz-runtime.json" in real_jar_workflow,
+        "release tags must name the pinned Project Zomboid version: v<VERSION>-pz<game>")
 require(project_gate.index("Test-PzRuntime.ps1") < project_gate.index("Test-Source.ps1")
         and "Get-FileHash" in runtime_gate and "projectzomboid.jar" in runtime_gate
         and "SCNamespace.lua" in runtime_gate and "Install-NativeBridge.ps1" in runtime_gate,
