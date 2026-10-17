@@ -1509,6 +1509,12 @@ function actorService.retireDead(actor)
                 .. tostring(called and tradeReason or prepared)
         end
     end
+    -- Camp chore items on the body lose their job markers. That is tidying,
+    -- not ownership, so a failure here never holds up a companion's death.
+    if SC.BaseFuel ~= nil
+        and type(SC.BaseFuel.prepareActorRetirement) == "function" then
+        pcall(SC.BaseFuel.prepareActorRetirement, actor)
+    end
     local id = SC.Registry.idOf(actor)
     retainActorCleanup(actor, cachedProvider, {
         operation = "retireDead",

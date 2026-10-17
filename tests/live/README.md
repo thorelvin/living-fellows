@@ -185,9 +185,13 @@ car. The disposable save seats the real player in a lead car, applies native
 accelerator and brake inputs through a harness-only bridge helper, and verifies
 that the companion boards the assigned driver seat, follows under native
 vehicle physics within the speed and distance limits, parks when the player
-exits, then leaves its own car. The helper is exposed only when the runner sets
-`SC_LIVE_CONVOY_HARNESS=1` for that game process. Install this branch's native
-bridge before the run and restore the previous local bridge afterward.
+exits, then leaves its own car. The helper is not part of the shipped bridge:
+the runner compiles `auto_start/SCConvoyHarness.java` into the disposable
+launch agent and sets `SC_LIVE_CONVOY_HARNESS=1` for that game process, and
+the bridge exposes it to Lua only when both are present. The convoy probe
+therefore needs the isolated Java launch (no `-SteamLaunch` or
+`-ExternalUiControl`). Install this branch's native bridge before the run and
+restore the previous local bridge afterward.
 
 ```powershell
 .\scripts\Invoke-LiveSandboxTests.ps1 -DrivingProbe -ConvoyProbe

@@ -152,11 +152,14 @@ update(uncertain)
 update(uncertain)
 T.finishAction(false)
 T.resetNative()
+local fuelBefore = T.generator.fuel
 working, reason, done = update(uncertain)
-check(not working and done and reason == "generator_refuel_receipt_uncertain"
+check(working and not done and reason == "generator_refuel_returning_can"
+    and uncertain.target.stage == "returning"
+    and uncertain.target.finishReason == "generator_refuel_receipt_uncertain"
     and can.data.LF_RefuelJobId == uncertain.id
-    and T.actor.inventory.items[1] == can,
-    "missing receipt blocks rather than repeating a transfer")
+    and T.actor.inventory.items[1] == can and T.generator.fuel == fuelBefore,
+    "a missing receipt takes the can home rather than repeating a transfer")
 local function stored(item)
     for _, value in ipairs(T.storage.container.items) do
         if value == item then return true end
@@ -166,7 +169,14 @@ end
 T.storage.container.items = {}
 check(Refuel.cancel(T.actor, uncertain) == true and stored(can)
     and can.data.LF_RefuelJobId == nil,
-    "the player can still cancel an uncertain receipt, and the can goes home")
+    "cancelling on the way home still returns the can")
+uncertain.target.stage, uncertain.target.sourceStorageId = "refueling", T.storage.id
+uncertain.target.itemId, uncertain.target.canBefore = can:getID(), 99
+can.data.LF_RefuelJobId = uncertain.id
+T.actor.inventory.items, T.storage.container.items = { can }, {}
+check(Refuel.cancel(T.actor, uncertain) == true and stored(can)
+    and can.data.LF_RefuelJobId == nil,
+    "the player can cancel a pour whose receipt does not add up, and the can goes home")
 local registered = { worker = true }
 SC.Registry = { byId = function(id) return registered[id] and {} or nil end }
 uncertain.target.stage, uncertain.target.sourceStorageId = "carrying", T.storage.id

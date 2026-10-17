@@ -88,6 +88,10 @@ if ($LASTEXITCODE -ne 0) { throw 'Native bridge JAR could not be inspected.' }
 if ($entries | Where-Object { $_ -match '^zombie/' }) {
     throw 'Compile-only Project Zomboid stubs leaked into the native bridge JAR.'
 }
+# Live-run helpers belong to the disposable test agent, never to a release.
+if ($entries | Where-Object { $_ -match '^survivorcompanion/harness/' -or $_ -match 'Harness' }) {
+    throw 'A test-only live-run helper leaked into the native bridge JAR.'
+}
 foreach ($required in @(
     'survivorcompanion/bridge/SCNativeCompanion.class',
     'survivorcompanion/bridge/SCBridge.class',

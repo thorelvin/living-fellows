@@ -85,13 +85,25 @@ final class SCExposure {
             setExposed.invoke(exposer, type);
             expose.invoke(exposer, type, environment);
         }
-        if ("1".equals(System.getenv("SC_LIVE_CONVOY_HARNESS"))) {
-            setExposed.invoke(exposer, SCConvoyHarness.class);
-            expose.invoke(exposer, SCConvoyHarness.class, environment);
+        // The convoy live run attaches a test-only helper beside the game; a
+        // release ships none, so the lookup simply finds nothing there.
+        Class<?> convoyHarness = liveHarness("survivorcompanion.harness.SCConvoyHarness");
+        if (convoyHarness != null) {
+            setExposed.invoke(exposer, convoyHarness);
+            expose.invoke(exposer, convoyHarness, environment);
         }
         return rawget.invoke(environment, "SCBridge") != null
                 && hasRequiredAttackTypes(tableClass, rawget,
                         rawget.invoke(environment, "AttackType"));
+    }
+
+    private static Class<?> liveHarness(String name) {
+        if (!"1".equals(System.getenv("SC_LIVE_CONVOY_HARNESS"))) return null;
+        try {
+            return Class.forName(name, true, SCExposure.class.getClassLoader());
+        } catch (ClassNotFoundException | LinkageError missing) {
+            return null;
+        }
     }
 
     private static boolean hasRequiredAttackTypes(Class<?> tableClass,

@@ -630,7 +630,18 @@ local deathToken = assert(Supervisor.begin(deadActor, {
     onCancel = function() deathCancelled = deathCancelled + 1 return true end,
 }))
 Supervisor.reserve(deathToken, {}, "death-resource")
-check(SC.Actor.retireDead(deadActor) == true
+-- Camp chore items on the body are unmarked at death; a failure there is
+-- tidying only and must never hold up the death itself.
+local priorBaseFuel, choreSwept = SC.BaseFuel, nil
+SC.BaseFuel = { prepareActorRetirement = function(actor)
+    choreSwept = actor
+    error("fixture chore sweep failure")
+end }
+local deadRetired = SC.Actor.retireDead(deadActor)
+SC.BaseFuel = priorBaseFuel
+check(choreSwept == deadActor,
+    "permanent death unmarks the camp chore items its body carries")
+check(deadRetired == true
         and deathCancelled == 1 and Supervisor.current(deadActor) == nil
         and Supervisor.reservationCount(deadActor) == 0
         and Supervisor.leakedReservations() == 0,

@@ -147,19 +147,35 @@ update(uncertain)
 T.finishAction(4)
 T.part.current = 18 -- an unexplained tank change cannot be claimed as ours
 working, reason, done = update(uncertain)
-check(not working and done and reason == "car_refuel_conservation_uncertain"
-    and can.data.LF_RefuelJobId == uncertain.id
-    and T.actor.inventory.items[1] == can,
-    "uncertain amount keeps both the exact can and receipt")
+check(working and not done and reason == "car_refuel_returning_can"
+    and uncertain.target.stage == "returning"
+    and uncertain.target.finishReason == "car_refuel_conservation_uncertain"
+    and T.actor.inventory.items[1] == can and not T.nativeActive(),
+    "an uncertain reading takes the can home instead of pouring again or retrying hourly")
 local function stored(item)
     for _, value in ipairs(T.storage.container.items) do
         if value == item then return true end
     end
     return false
 end
-check(Refuel.cancel(T.actor, uncertain) == true and stored(can)
+local finished
+working, reason, _, finished = update(uncertain)
+check(working and finished and reason == "car_refuel_conservation_uncertain"
+    and stored(can) and can.data.LF_RefuelJobId == nil and T.part.current == 18,
+    "the job ends, reporting the uncertain reading, once the can is home")
+
+-- Cancelling mid-pour never waits on readings that do not add up.
+T.base.jobs = {}
+T.storage.container.items = { can }
+local _, pouring = Refuel.queue(T.car.id, true)
+pouring.target.stage, pouring.target.sourceStorageId = "refueling", T.storage.id
+pouring.target.itemId, pouring.target.tankBefore, pouring.target.canBefore =
+    can:getID(), 0, 99
+can.data.LF_RefuelJobId = pouring.id
+T.actor.inventory.items, T.storage.container.items = { can }, {}
+check(Refuel.cancel(T.actor, pouring) == true and stored(can)
     and #T.actor.inventory.items == 0 and can.data.LF_RefuelJobId == nil,
-    "the player can still cancel an uncertain receipt, and the can goes home")
+    "the player can cancel a pour whose readings do not add up, and the can goes home")
 
 -- The player takes the reserved can before the worker reaches it.
 T.base.jobs = {}
@@ -222,6 +238,17 @@ working, reason, _, done = update(homeless)
 check(working and done and reason == "car_refuel_source_removed"
     and T.actor.inventory.items[1] == can and can.data.LF_RefuelJobId == nil,
     "a can whose storage was removed stays with the worker, unreserved")
+T.actor.inventory.items = {}
+
+-- A dying worker's borrowed items stay with the body, unmarked.
+local pumpOnBody = T.item(8, 0)
+pumpOnBody.data.LF_UpkeepJobId = "job:upkeep"
+can.data.LF_RefuelJobId = "job:refuel"
+T.actor.inventory.items = { can, pumpOnBody }
+check(SC.BaseFuel.prepareActorRetirement(T.actor) == true
+    and can.data.LF_RefuelJobId == nil and pumpOnBody.data.LF_UpkeepJobId == nil
+    and T.actor.inventory.items[1] == can,
+    "a dead worker's can and pump stay on the body without their job markers")
 T.actor.inventory.items = {}
 
 T.car.engine = true

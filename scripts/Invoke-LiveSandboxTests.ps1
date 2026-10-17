@@ -1786,6 +1786,10 @@ if ($PrepareOnly) {
 $argumentLine = '-cachedir="' + $CacheRoot + '" -nosound -novoip -debuglog=+General,+Lua'
 if ($NoSteam) { $argumentLine += ' -nosteam' }
 $autoGateAgent = -not $SteamLaunch -and -not $ExternalUiControl
+if ($ConvoyProbe -and -not $autoGateAgent) {
+    # The lead-car input helper ships only in the disposable launch agent.
+    throw 'The convoy probe needs the isolated Java launch; drop -SteamLaunch and -ExternalUiControl.'
+}
 $gateAgentMarker = Join-Path $RunRoot 'loading-gate-agent.txt'
 $gateAgentJar = Join-Path $RunRoot 'loading-gate-agent.jar'
 if ($autoGateAgent) {
@@ -1802,6 +1806,15 @@ if ($autoGateAgent) {
     $agentSource = Join-Path $ProjectRoot 'tests\live\auto_start\SCLoadingGateAgent.java'
     & $javac -encoding UTF-8 -d $agentClasses $agentSource
     if ($LASTEXITCODE -ne 0) { throw 'Could not compile the isolated loading-gate agent.' }
+    $agentEntries = @('survivorcompanion/harness/SCLoadingGateAgent.class')
+    if ($ConvoyProbe) {
+        # Test-only lead-car input; the shipped bridge finds it by name.
+        $convoySource = Join-Path $ProjectRoot 'tests\live\auto_start\SCConvoyHarness.java'
+        & $javac -encoding UTF-8 -cp (Join-Path $GameRoot 'projectzomboid.jar') `
+            -d $agentClasses $convoySource
+        if ($LASTEXITCODE -ne 0) { throw 'Could not compile the convoy live-run helper.' }
+        $agentEntries += 'survivorcompanion/harness/SCConvoyHarness.class'
+    }
     # Write the JAR in place. jar.exe stages a temp file and its cross-directory
     # move is denied in a restricted desktop session.
     $zip = [System.IO.Compression.ZipFile]::Open($gateAgentJar,
@@ -1814,9 +1827,11 @@ if ($autoGateAgent) {
                 "Manifest-Version: 1.0`r`nPremain-Class: survivorcompanion.harness.SCLoadingGateAgent`r`n`r`n")
             $stream.Write($manifestBytes, 0, $manifestBytes.Length)
         } finally { $stream.Dispose() }
-        $agentClass = Join-Path $agentClasses 'survivorcompanion\harness\SCLoadingGateAgent.class'
-        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $agentClass,
-            'survivorcompanion/harness/SCLoadingGateAgent.class') | Out-Null
+        foreach ($entry in $agentEntries) {
+            $agentClass = Join-Path $agentClasses ($entry.Replace('/', '\'))
+            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $agentClass,
+                $entry) | Out-Null
+        }
     } finally { $zip.Dispose() }
 }
 if ($SteamLaunch) {

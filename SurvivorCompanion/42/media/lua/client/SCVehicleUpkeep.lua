@@ -615,7 +615,15 @@ function Upkeep.update(actor, baseState, job)
             end
         end
         local okay, reason = settle(job, item, vehicle)
-        return okay, reason, okay ~= true
+        if okay ~= true then
+            -- Readings that do not add up, or a car driven out of reach, never
+            -- clear by waiting. Take the supply home and end the job.
+            target.stage, target.finishReason = "returning", reason
+            target.before, target.waterBefore = nil, nil
+            target.stageStartedAt = U().nowMs()
+            return true, "upkeep_returning_supply"
+        end
+        return true, reason
     end
     if stage == "carrying" then
         if not carried then return false, "upkeep_supply_not_carried", true end

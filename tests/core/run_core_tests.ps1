@@ -237,6 +237,13 @@ try {
         )
         Add-ScJvmStep 'generator-refuel' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $generatorRefuelFiles 'Generator refueling, stock action receipt and recovery harness failed.'
 
+        $vehicleContextFiles = @(
+            (Join-Path $TestRoot 'vehicle_context_harness.lua'),
+            (Join-Path $Client 'SCUIContext.lua'),
+            (Join-Path $TestRoot 'vehicle_context_run.lua')
+        )
+        Add-ScJvmStep 'vehicle-context' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $vehicleContextFiles 'Vehicle and generator context-menu harness failed.'
+
         $expeditionRestartFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Client 'SCViewSession.lua'),

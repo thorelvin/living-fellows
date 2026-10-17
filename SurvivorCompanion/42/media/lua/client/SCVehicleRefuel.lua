@@ -323,7 +323,16 @@ function Refuel.update(actor, baseState, job)
             end
         end
         local settled, reason = settleFuel(actor, job, item)
-        return settled, reason, settled ~= true
+        if settled ~= true then
+            -- Readings that do not add up, or a car driven out of reach, never
+            -- clear by waiting, and a guess must not pour again. Take the can
+            -- home and end the job there.
+            target.stage, target.finishReason = "returning", reason
+            target.tankBefore, target.canBefore = nil, nil
+            target.stageStartedAt = U().nowMs()
+            return true, "car_refuel_returning_can"
+        end
+        return true, reason
     end
     if stage == "carrying" then
         if not carried then return false, "car_refuel_can_not_carried", true end

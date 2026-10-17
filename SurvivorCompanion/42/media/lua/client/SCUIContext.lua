@@ -1394,6 +1394,26 @@ local function addHotwireMenu(context, rows, vehicle, player)
     end
 end
 
+-- A refusal is shown as a sentence, never as an internal reason code.
+local function reasonSentence(reason)
+    if SC.UI and type(SC.UI.baseFailureReason) == "function" then
+        return SC.UI.baseFailureReason(reason)
+    end
+    return tostring(reason)
+end
+
+local function disableWithReason(option, reason)
+    if not option then return end
+    option.notAvailable = true
+    if type(ISToolTip) == "table" then
+        local tooltip = ISToolTip:new()
+        tooltip:initialise()
+        tooltip:setVisible(false)
+        tooltip.description = reasonSentence(reason)
+        option.toolTip = tooltip
+    end
+end
+
 local function convoyFromContext(_target, row, vehicle, player, cancel)
     local command = cancel and "cancel_follow_car" or "assign_follow_car"
     local accepted, reason = SC.Commands.issue(row.id, command,
@@ -1402,40 +1422,51 @@ local function convoyFromContext(_target, row, vehicle, player, cancel)
         safeMethod(player, "setHaloNote", accepted
             and text(cancel and "UI_SC_Vehicle_FollowCarCancelled"
                 or "UI_SC_Vehicle_FollowCarAssigned", row.name)
-            or text("UI_SC_Vehicle_FollowCarRejected", tostring(reason)))
+            or text("UI_SC_Vehicle_FollowCarRejected", reasonSentence(reason)))
     end
 end
 
 local function addConvoyMenu(context, rows, vehicle, player)
     if not vehicle or not SC.Convoy or not SC.Commands then return end
+    local recruited = {}
+    for _, row in ipairs(rows or {}) do
+        if row.recruited == true then recruited[#recruited + 1] = row end
+    end
+    -- Nobody nearby could take the wheel: no empty submenu on every car.
+    if #recruited == 0 then return end
     local root = addCategory(context, "UI_SC_Vehicle_CommandFollowCar")
     local carId = safeMethod(vehicle, "getSqlId")
-    for _, row in ipairs(rows or {}) do
-        if row.recruited == true then
-            local actor = SC.Registry.byId(row.id)
-            actor = actor and actor.actor or nil
-            local state = actor and SC.Commands.peek(actor) or nil
-            local assigned = state and tonumber(state.followCarSqlId) == tonumber(carId)
-            if assigned then
-                root:addOption(text("UI_SC_Vehicle_CancelFollowCar", row.name), nil,
-                    convoyFromContext, row, vehicle, player, true)
-            else
-                local available, reason = SC.Convoy.preflight(actor, vehicle, player)
-                local option = root:addOption(row.name, nil,
-                    convoyFromContext, row, vehicle, player, false)
-                if not available then
-                    option.notAvailable = true
-                    if type(ISToolTip) == "table" then
-                        local tooltip = ISToolTip:new()
-                        tooltip:initialise()
-                        tooltip:setVisible(false)
-                        tooltip.description = tostring(reason)
-                        option.toolTip = tooltip
-                    end
-                end
-            end
+    for _, row in ipairs(recruited) do
+        local actor = SC.Registry.byId(row.id)
+        actor = actor and actor.actor or nil
+        local state = actor and SC.Commands.peek(actor) or nil
+        local assigned = state and tonumber(state.followCarSqlId) == tonumber(carId)
+        if assigned then
+            root:addOption(text("UI_SC_Vehicle_CancelFollowCar", row.name), nil,
+                convoyFromContext, row, vehicle, player, true)
+        else
+            local available, reason = SC.Convoy.preflight(actor, vehicle, player)
+            local option = root:addOption(row.name, nil,
+                convoyFromContext, row, vehicle, player, false)
+            if not available then disableWithReason(option, reason) end
         end
     end
+end
+
+-- A camp chore belongs on a car or generator the camp can reach. Leave it out
+-- elsewhere rather than greying it out on every vehicle in the world.
+local CHORE_OUT_OF_SCOPE = {
+    base_missing = true, service_cab_reserved = true,
+    car_identity_unavailable = true, car_out_of_camp_reach = true,
+    generator_missing = true, generator_outside_base = true,
+    generator_identity_unavailable = true,
+}
+
+local function addChoreOption(context, labelKey, eligible, reason, callback, ...)
+    if not eligible and CHORE_OUT_OF_SCOPE[reason] then return nil end
+    local option = context:addOption(text(labelKey), nil, callback, ...)
+    if not eligible then disableWithReason(option, reason) end
+    return option
 end
 
 local function unloadVehicleFromContext(_target, vehicleId, player)
@@ -1452,7 +1483,7 @@ local function refuelVehicleFromContext(_target, vehicleId, player)
     if player then
         safeMethod(player, "setHaloNote", okay and accepted == true
             and text("UI_SC_Base_RefuelOrdered")
-            or text("UI_SC_Base_ActionFailed", tostring(reason or accepted)))
+            or text("UI_SC_Base_ChoreRejected", reasonSentence(reason or accepted)))
     end
 end
 
@@ -1462,7 +1493,7 @@ local function upkeepVehicleFromContext(_target, kind, vehicleId, player)
     if player then
         safeMethod(player, "setHaloNote", okay and accepted == true
             and text("UI_SC_Base_UpkeepOrdered")
-            or text("UI_SC_Base_ActionFailed", tostring(reason or accepted)))
+            or text("UI_SC_Base_ChoreRejected", reasonSentence(reason or accepted)))
     end
 end
 
@@ -1472,7 +1503,7 @@ local function refuelGeneratorFromContext(_target, generator, player)
     if player then
         safeMethod(player, "setHaloNote", okay and accepted == true
             and text("UI_SC_Base_GeneratorRefuelOrdered")
-            or text("UI_SC_Base_ActionFailed", tostring(reason or accepted)))
+            or text("UI_SC_Base_ChoreRejected", reasonSentence(reason or accepted)))
     end
 end
 
@@ -1645,66 +1676,30 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
                 unloadVehicleFromContext, vehicleId, player)
         end
     end
-    if clickedVehicle and SC.VehicleRefuel
+    local clickedVehicleId = clickedVehicle and safeMethod(clickedVehicle, "getSqlId")
+    if clickedVehicleId and SC.VehicleRefuel
         and type(SC.VehicleRefuel.eligible) == "function" then
-        local vehicleId = safeMethod(clickedVehicle, "getSqlId")
         local eligible, reason = SC.VehicleRefuel.eligible(clickedVehicle, true)
-        if vehicleId then
-            local option = context:addOption(text("UI_SC_Base_RefuelFromBase"),
-                nil, refuelVehicleFromContext, vehicleId, player)
-            if not eligible and option then
-                option.notAvailable = true
-                if type(ISToolTip) == "table" then
-                    local tooltip = ISToolTip:new()
-                    tooltip:initialise()
-                    tooltip:setVisible(false)
-                    tooltip.description = tostring(reason)
-                    option.toolTip = tooltip
-                end
-            end
-        end
+        addChoreOption(context, "UI_SC_Base_RefuelFromBase", eligible, reason,
+            refuelVehicleFromContext, clickedVehicleId, player)
     end
-    if clickedVehicle and SC.VehicleUpkeep
+    if clickedVehicleId and SC.VehicleUpkeep
         and type(SC.VehicleUpkeep.eligible) == "function" then
-        local vehicleId = safeMethod(clickedVehicle, "getSqlId")
-        if vehicleId then
-            for _, row in ipairs({
-                { kind = "inflate_tires", key = "UI_SC_Base_InflateTires" },
-                { kind = "wash_vehicle", key = "UI_SC_Base_WashCar" },
-            }) do
-                local eligible, reason = SC.VehicleUpkeep.eligible(row.kind,
-                    clickedVehicle, true)
-                local option = context:addOption(text(row.key), nil,
-                    upkeepVehicleFromContext, row.kind, vehicleId, player)
-                if not eligible and option then
-                    option.notAvailable = true
-                    if type(ISToolTip) == "table" then
-                        local tooltip = ISToolTip:new()
-                        tooltip:initialise()
-                        tooltip:setVisible(false)
-                        tooltip.description = tostring(reason)
-                        option.toolTip = tooltip
-                    end
-                end
-            end
+        for _, row in ipairs({
+            { kind = "inflate_tires", key = "UI_SC_Base_InflateTires" },
+            { kind = "wash_vehicle", key = "UI_SC_Base_WashCar" },
+        }) do
+            local eligible, reason = SC.VehicleUpkeep.eligible(row.kind,
+                clickedVehicle, true)
+            addChoreOption(context, row.key, eligible, reason,
+                upkeepVehicleFromContext, row.kind, clickedVehicleId, player)
         end
     end
     if clickedGenerator and SC.GeneratorRefuel
         and type(SC.GeneratorRefuel.eligible) == "function" then
         local eligible, reason = SC.GeneratorRefuel.eligible(clickedGenerator, true)
-        local option = context:addOption(
-            text("UI_SC_Base_RefuelGeneratorFromBase"), nil,
-            refuelGeneratorFromContext, clickedGenerator, player)
-        if not eligible and option then
-            option.notAvailable = true
-            if type(ISToolTip) == "table" then
-                local tooltip = ISToolTip:new()
-                tooltip:initialise()
-                tooltip:setVisible(false)
-                tooltip.description = tostring(reason)
-                option.toolTip = tooltip
-            end
-        end
+        addChoreOption(context, "UI_SC_Base_RefuelGeneratorFromBase", eligible,
+            reason, refuelGeneratorFromContext, clickedGenerator, player)
     end
     if sealedDoorGroup then
         context:addOption("Touch the sealed door", nil, oddballStoryAction,

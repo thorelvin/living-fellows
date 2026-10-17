@@ -69,6 +69,25 @@ function Fuel.workerGone(job)
     return true
 end
 
+-- A companion is dying with borrowed chore items on it. They stay with the
+-- body, unmarked, so the player loots an ordinary can, pump or cargo item;
+-- the job releases its receipt once the worker has left the registry.
+local CHORE_MARKERS = { Fuel.MARKER, Fuel.UPKEEP_MARKER, "LF_CarUnloadJob" }
+function Fuel.prepareActorRetirement(actor)
+    local inventory = actor and U().inventory(actor) or nil
+    if not inventory then return true end
+    local items = type(U().inventoryItemsDeep) == "function"
+        and U().inventoryItemsDeep(inventory, 1024, 24)
+        or U().inventoryItems(inventory, 1024)
+    for _, item in ipairs(items) do
+        local data = U().modData(item)
+        if type(data) == "table" then
+            for _, key in ipairs(CHORE_MARKERS) do data[key] = nil end
+        end
+    end
+    return true
+end
+
 -- Where the exact borrowed item belongs: "loaded" with its storage and
 -- container, "unloaded" (it may still be there), "removed" (the player
 -- unmarked that storage) or "none" (nothing borrowed yet).

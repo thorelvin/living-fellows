@@ -77,6 +77,14 @@ require(payload_readme.startswith(f"Living Fellows {version} - public playtest")
         "shipped README version disagrees with VERSION.txt")
 require(re.search(rf"^## {re.escape(version)}(?:\s|$)", changelog, re.MULTILINE) is not None,
         "CHANGELOG has no current release heading")
+# A bridge protocol bump changes what a release needs installed. It must ship
+# under a release entry that names it, never quietly under an older version
+# (0.26.42's branch moved from -23 to -24 after that release was published).
+current_entry = re.search(
+    rf"^## {re.escape(version)}(?:\s[^\n]*)?\n(.*?)(?=^## |\Z)",
+    changelog, re.MULTILINE | re.DOTALL)
+require(current_entry is not None and lua_protocol in current_entry.group(1),
+        f"the CHANGELOG entry for {version} must name bridge protocol {lua_protocol}")
 for info_path in (ROOT / "SurvivorCompanion/mod.info", ROOT / "SurvivorCompanion/42/mod.info"):
     info = info_path.read_text(encoding="utf-8")
     require(capture(r'^modversion=(\S+)', info, str(info_path)) == version,

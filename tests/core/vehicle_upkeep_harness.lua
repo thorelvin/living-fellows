@@ -179,6 +179,32 @@ check(Upkeep.cancel(T.actor, older) == true and T.native() and T.native().active
     "cancelling the older tire job returns its pump without stopping the newer wash")
 T.resetNative()
 
+-- A tire reading that does not add up ends the job with the pump home.
+T.base.jobs = {}
+T.blood.Front = 0
+T.actor.inventory.items = {}
+T.storage.container.items = { pump }
+pump.data.LF_UpkeepJobId = nil
+T.tires[1].current, T.tires[2].current = 20, 35
+local _, odd = Upkeep.queue("inflate_tires", T.car.id, true)
+Upkeep.update(T.actor, {}, odd)
+okay, reason = Upkeep.update(T.actor, {}, odd)
+check(okay and reason == "upkeep_action_started", "the tire action starts")
+T.resetNative()
+T.tires[1].current = 10 -- pressure fell during the action: cannot be ours
+local terminal
+okay, reason, terminal = Upkeep.update(T.actor, {}, odd)
+check(okay and not terminal and reason == "upkeep_returning_supply"
+        and odd.target.stage == "returning"
+        and odd.target.finishReason == "tire_pressure_uncertain",
+    "an uncertain tire reading takes the pump home instead of retrying hourly")
+local finished
+okay, reason, _, finished = Upkeep.update(T.actor, {}, odd)
+check(okay and finished and reason == "tire_pressure_uncertain"
+        and SC.GameplayUtil.inventoryContains(T.storage.container, pump)
+        and pump.data.LF_UpkeepJobId == nil,
+    "the job ends, reporting the uncertain reading, once the pump is home")
+
 T.car.occupied = true
 check(select(2, Upkeep.eligible("wash_vehicle", T.car, true))
     == "car_occupied", "occupied car is excluded")

@@ -329,7 +329,15 @@ function Refuel.update(actor, baseState, job)
             end
         end
         local settled, reason = settleFuel(job, item)
-        return settled, reason, settled ~= true
+        if settled ~= true then
+            -- A receipt that does not add up never clears by waiting, and a
+            -- guess must not pour again. Take the can home and end the job.
+            target.stage, target.finishReason = "returning", reason
+            target.canBefore, target.receipt = nil, nil
+            target.stageStartedAt = U().nowMs()
+            return true, "generator_refuel_returning_can"
+        end
+        return true, reason
     end
     if stage == "carrying" then
         if not carried then return false, "generator_refuel_can_not_carried", true end

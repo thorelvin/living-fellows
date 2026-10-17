@@ -41,7 +41,14 @@ local function notify(player, actor, reason)
     if SC.Diagnostics and SC.Diagnostics.report then
         SC.Diagnostics.report("convoy", SC.Registry.idOf(actor), reason, reason)
     end
-    if player then U().call(player, "setHaloNote", "Follow car: " .. tostring(reason)) end
+    if player then
+        local sentence = SC.UI and type(SC.UI.baseFailureReason) == "function"
+            and SC.UI.baseFailureReason(reason) or tostring(reason)
+        local note = SC.UI and type(SC.UI.text) == "function"
+            and SC.UI.text("UI_SC_Vehicle_FollowCarEnded", sentence)
+            or ("Follow car stopped: " .. sentence)
+        U().call(player, "setHaloNote", note)
+    end
 end
 local function runtime(actor)
     local session = sessions[actor]
