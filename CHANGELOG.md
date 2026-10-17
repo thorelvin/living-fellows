@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 0.26.44 - Loose ends from the 0.26.43 review
+
+- A follow car that cannot keep up is handed back. A blocked road, a dead engine, a car left outside the loaded area or the player taking that car now ends the assignment with one note, and the companion rides with the player again instead of sitting in the parked car or being refused a seat.
+- Camp car and generator chores no longer jam. A worker who dies mid-chore, a can or pump the player takes, or a storage that is unmarked no longer leaves a job that retries hourly forever or refuses to be cancelled, and abandoning the camp is never blocked by one. A borrowed item's reservation counts only while its job still names it, the tire pump and wash water are protected from hauling and sorting like gas cans, and a fuel, tire or wash reading that does not add up now ends the job with the item taken home, instead of retrying every hour or refusing to be cancelled. A companion who dies carrying a chore item leaves it on the body as an ordinary can, pump or bucket.
+- Route checks treat only teammates and the player as moving traffic. A zombie standing on a square is a blocked square again, so a Follow column never plans its path through one.
+- Car and generator menus offer camp chores only where the camp can reach, the follow-car submenu appears only when a recruited companion is nearby, and every unavailable option explains itself in a sentence instead of an internal code.
+- The live convoy test helper is no longer part of the shipped bridge JAR; it is compiled into the disposable live-run agent. Release checks now require the current changelog entry to name the bridge protocol it ships.
+- The native bridge protocol remains `42.21-isocompanion-24`; the bridge JAR changed, so update it and the Lua payload together.
+
 ## 0.26.43 - Camp upkeep and steadier following
 
 - Moving Follow squads keep a stable close column on clear ground, use short jog bursts to regain their assigned slots, and return to the safe trail through doors and obstacles. Living teammates are handled as moving traffic during route checks.
@@ -11,11 +20,6 @@
 - Companions following the player no longer stop to fight zombies safely separated by tall fences or closed doors. Open doors use their current state during combat and route checks, so an old blocked sight result does not hold up the squad.
 - Moving formations track the predicted follow point inside a tile, reducing repeated pauses on open ground. The final short movement checks native collision before advancing.
 - A companion can follow a player-driven car in another vehicle, and hunger and thirst advance at one-third of the player's rate. Cloned-save harnesses cover car work, squad routing, and door entry.
-- A follow car that cannot keep up is handed back. A blocked road, a dead engine, a car left outside the loaded area or the player taking that car now ends the assignment with one note, and the companion rides with the player again instead of sitting in the parked car or being refused a seat.
-- Camp car and generator chores no longer jam. A worker who dies mid-chore, a can or pump the player takes, or a storage that is unmarked no longer leaves a job that retries hourly forever or refuses to be cancelled, and abandoning the camp is never blocked by one. A borrowed item's reservation counts only while its job still names it, the tire pump and wash water are protected from hauling and sorting like gas cans, and a fuel, tire or wash reading that does not add up now ends the job with the item taken home, instead of retrying every hour or refusing to be cancelled. A companion who dies carrying a chore item leaves it on the body as an ordinary can, pump or bucket.
-- Route checks treat only teammates and the player as moving traffic. A zombie standing on a square is a blocked square again, so a Follow column never plans its path through one.
-- Car and generator menus offer camp chores only where the camp can reach, the follow-car submenu appears only when a recruited companion is nearby, and every unavailable option explains itself in a sentence instead of an internal code.
-- The live convoy test helper is no longer part of the shipped bridge JAR; it is compiled into the disposable live-run agent. Release checks now require the current changelog entry to name the bridge protocol it ships.
 - The native bridge protocol is `42.21-isocompanion-24`; update its JAR and Lua payload together.
 
 ## 0.26.42 - Safer squad fighting

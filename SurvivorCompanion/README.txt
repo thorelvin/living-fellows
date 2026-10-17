@@ -1,7 +1,7 @@
-Living Fellows 0.26.43 - public playtest
+Living Fellows 0.26.44 - public playtest
 
-This playtest adds camp car and generator upkeep, improves following through
-open ground and doors, and keeps squads from chasing unreachable zombies.
+This playtest lets a stuck follow car or camp car and generator chore recover
+cleanly instead of jamming, and tidies the vehicle and generator menus.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added
