@@ -9,6 +9,8 @@ local installed = false
 local enabled = false
 local focusKind = nil
 local focusId = nil
+local flashGroupId = nil
+local flashUntil = 0
 local refreshDue = 0
 local cachedZ = nil
 local cachedZones = {}
@@ -470,7 +472,8 @@ function Visuals.renderWorld()
     if enabled then
         refreshCache(false)
         for _, zone in ipairs(cachedZones) do
-            local focused = focusKind == "zone" and focusId == zone.id
+            local focused = (focusKind == "zone" and focusId == zone.id)
+                or (flashGroupId == zone.roomGroupId and now() < flashUntil)
             local color = colorFor(ZONE_COLORS, zone.kind)
             fillArea(zone, color, focused and FOCUS_FILL_ALPHA
                 or (zone.kind == "area" and AREA_FILL_ALPHA or ZONE_FILL_ALPHA))
@@ -486,6 +489,18 @@ function Visuals.renderWorld()
             end
             pcall(applyStorageHighlight, entry)
         end
+    end
+    if not enabled and flashGroupId and now() < flashUntil then
+        refreshCache(false)
+        for _, zone in ipairs(cachedZones) do
+            if zone.roomGroupId == flashGroupId then
+                local color = colorFor(ZONE_COLORS, zone.kind)
+                fillArea(zone, color, FOCUS_FILL_ALPHA)
+                renderRectangle(zone, color, 4, 0.98, split)
+            end
+        end
+    elseif flashGroupId and now() >= flashUntil then
+        flashGroupId = nil
     end
     if draft and type(draft.first) == "table" then
         local subject = player()
@@ -807,9 +822,24 @@ function Visuals.renderLabels()
     local occupied = {}
     if enabled then
         refreshCache(false)
+        local representatives = {}
+        for _, zone in ipairs(cachedZones) do
+            if zone.roomGroupId then
+                local previous = representatives[zone.roomGroupId]
+                local area = (math.abs((zone.x2 or 0) - (zone.x1 or 0)) + 1)
+                    * (math.abs((zone.y2 or 0) - (zone.y1 or 0)) + 1)
+                if not previous or area > previous.area then
+                    representatives[zone.roomGroupId] = { zone = zone, area = area }
+                end
+            end
+        end
+        local labeled = {}
         for _, zone in ipairs(cachedZones) do
             local x1, y1, x2, y2 = bounds(zone)
-            if x1 then
+            local group = zone.roomGroupId
+            if x1 and (not group or (not labeled[group]
+                and representatives[group] and representatives[group].zone == zone)) then
+                if group then labeled[group] = true end
                 local label = tostring(zone.name or translated(
                     "UI_SC_Base_Zone_" .. tostring(zone.kind), humanize(zone.kind)))
                 if focusKind == "zone" and focusId == zone.id then label = "> " .. label .. " <" end
@@ -886,6 +916,12 @@ function Visuals.focus(kind, id)
     focusKind, focusId = kind, id
     enabled, refreshDue = true, 0
     return true, id
+end
+
+function Visuals.flashRoom(groupId)
+    if type(groupId) ~= "string" or groupId == "" then return false end
+    flashGroupId, flashUntil, refreshDue = groupId, now() + 2800, 0
+    return true
 end
 
 function Visuals.refresh()

@@ -3204,13 +3204,58 @@ end
 -- the contested step. The recipient follows an ordinary Navigation route to
 -- it on its own decision tick, so doors, hazards and collision stay governed
 -- by the same pathing rules as every other move.
-local function crowdClearanceSquare(blocker, requester, contested, snapshot)
+local function crowdClearanceSquare(blocker, requester, contested, snapshot, corridor)
     local utility = U()
     local source = utility.squareOf(blocker)
     local sx, sy, sz = utility.position(source)
     local rx, ry = utility.position(requester)
     local tx, ty = utility.position(contested)
     if sx == nil or rx == nil then return nil end
+    if corridor then
+        -- In a one-tile hall there is no adjacent sidestep. Search connected
+        -- floor ahead of the blocker for the first passing bay or turn, never
+        -- choosing a tempting tile across a wall or behind the requester.
+        local forwardX, forwardY = sx - math.floor(rx), sy - math.floor(ry)
+        local length = math.sqrt(forwardX * forwardX + forwardY * forwardY)
+        if length > 0.1 then forwardX, forwardY = forwardX / length, forwardY / length end
+        local queue = { { square = source, depth = 0 } }
+        local seen = { [tostring(sx) .. ":" .. tostring(sy)] = true }
+        local head = 1
+        while head <= #queue and head <= 96 do
+            local entry = queue[head]
+            head = head + 1
+            if entry.depth < 16 then
+                local cx, cy = utility.position(entry.square)
+                for _, step in ipairs({ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }) do
+                    local nx, ny = cx + step[1], cy + step[2]
+                    local key = tostring(nx) .. ":" .. tostring(ny)
+                    local square = not seen[key] and utility.gridSquare(nx, ny, sz) or nil
+                    seen[key] = true
+                    local hazards = square and SC.Topology
+                        and type(SC.Topology.squareHazards) == "function"
+                        and SC.Topology.squareHazards(square) or {}
+                    local water = square and SC.Topology
+                        and type(SC.Topology.squareIsWater) == "function"
+                        and SC.Topology.squareIsWater(square)
+                    if square and utility.isSquareFree(square) and not water
+                        and not hazards.fire and not hazards.explosiveTrap
+                        and not utility.safehouseBlocker(square, blocker)
+                        and not utility.edgeBlocked(entry.square, square)
+                        and not utility.sameSquare(square, requester) then
+                        local fromX, fromY = nx - sx, ny - sy
+                        local ahead = fromX * forwardX + fromY * forwardY
+                        local lateral = math.abs(fromX * forwardY - fromY * forwardX)
+                        if ahead >= -0.1 and lateral >= 0.8
+                            and not personalSpaceBlocker(blocker, square, snapshot) then
+                            return square
+                        end
+                        queue[#queue + 1] = { square = square, depth = entry.depth + 1 }
+                    end
+                end
+            end
+        end
+        return nil
+    end
     local best, bestScore
     for _, offset in ipairs({
         { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 },
@@ -7506,13 +7551,15 @@ function Navigation.request(actor, target, movementMode, intent)
             local otherState = stateFor(blocker)
             if otherState.forcedYieldFor ~= actor then
                 local clearance = SC.Navigation._crowdClearanceSquareForRequest(blocker, actor, nextSquare,
-                    requestIntent.snapshot)
+                    requestIntent.snapshot, not crowdChoke)
                 if clearance then
                     otherState.forcedYieldFor = actor
                     otherState.crowdMove = {
                         square = clearance, requestedBy = actor,
                         requestedAt = now,
-                        expiresAt = now + (utility.config("navigationCrowdMoveMs") or 6000),
+                        expiresAt = now + (not crowdChoke and 12000
+                            or (utility.config("navigationCrowdMoveMs") or 6000)),
+                        reason = not crowdChoke and "corridor" or "choke",
                     }
                     if SC.Banter and type(SC.Banter.crowdYield) == "function" then
                         pcall(SC.Banter.crowdYield, actor, blocker, now)
@@ -7735,6 +7782,7 @@ function Navigation.interactionTargets(actor, objectOrSquare, options)
         local key = square and squareKey(square) or nil
         local cardinal = math.abs(offset[1]) + math.abs(offset[2]) == 1
         local interactionEdgeClear = square ~= nil
+            and (options.cardinalOnly ~= true or cardinal)
         if interactionEdgeClear and cardinal then
             if options.requireDirectAccess == true then
                 interactionEdgeClear = directInteractionEdge(actor, square, centre)
@@ -8081,7 +8129,8 @@ function Navigation.serviceCrowdYield(actor, snapshot)
     if current > (tonumber(move.expiresAt) or 0)
         or not move.square or not move.requestedBy or utility.isDead(move.requestedBy)
         or not utility.sameFloor(actor, move.requestedBy)
-        or utility.distanceSq(actor, move.requestedBy) > 16 then
+        or utility.distanceSq(actor, move.requestedBy)
+            > (move.reason == "corridor" and 256 or 16) then
         state.crowdMove, state.forcedYieldFor = nil, nil
         return false, "crowd_move_expired"
     end

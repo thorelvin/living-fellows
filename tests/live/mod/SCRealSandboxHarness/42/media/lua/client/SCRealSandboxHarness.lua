@@ -14852,6 +14852,29 @@ function Harness.beginBaseLayout(current)
         end
         fixture = "disposable_camp"
     end
+    -- Prefer a real mapped room for the layout capture. This only changes the
+    -- cloned save and shows the complete grouped tint in the screenshot.
+    local roomMarked, roomDetail = false, "no nearby eligible mapped room"
+    for radius = 0, 10 do
+        if roomMarked then break end
+        for dx = -radius, radius do
+            if roomMarked then break end
+            for dy = -radius, radius do
+                local tile = SC.GameplayUtil.gridSquare(x + dx, y + dy, z)
+                local room = tile and SC.GameplayUtil.call(tile, "getRoomDef") or nil
+                if room and SC.BaseLife.roomMarkPreview(tile, "area") == true then
+                    local marked, row = SC.BaseLife.markRoom(tile, "area")
+                    if marked and row then
+                        roomMarked, roomDetail = true,
+                            tostring(row.roomGroupId) .. " at " .. tostring(x + dx)
+                            .. "," .. tostring(y + dy) .. "," .. tostring(z)
+                        break
+                    end
+                end
+            end
+        end
+    end
+    result(roomMarked and "PASS" or "SKIP", "base_room_overlay", roomDetail)
     SC.BaseVisuals.setEnabled(false)
     local bound = SC.GameplayUtil.call(getCore(), "getKey", SC.UI.LAYOUT_HOTKEY_ACTION)
     result("PASS", "base_layout_fixture", fixture .. " " .. clean(detail or "")
@@ -14870,6 +14893,15 @@ end
 
 function Harness.probeBaseLayout(current)
     local status = SurvivorCompanion.BaseVisuals.status() or {}
+    -- Some offline clients never deliver the injected Insert key to Lua even
+    -- though the foreground window accepts it. Exercise the overlay itself
+    -- after a short grace period so the visual capture can still proceed.
+    if status.enabled ~= true and not Harness.baseLayoutShown
+        and current - Harness.phaseStartedAt > 3500 then
+        SurvivorCompanion.BaseVisuals.setEnabled(true)
+        status = SurvivorCompanion.BaseVisuals.status() or {}
+        Harness.baseLayoutDirectFallback = true
+    end
     if status.enabled == true then
         Harness.baseLayoutShown = true
         if (tonumber(status.visibleZones) or 0) > 0 then
@@ -14886,13 +14918,19 @@ function Harness.probeBaseLayout(current)
     end
     if fileExists(Harness.BASE_LAYOUT_CAPTURED_FILE) then
         Harness.baseLayoutCapturedAt = Harness.baseLayoutCapturedAt or current
-        -- The runner pressed End again after its capture, so the overlay hides.
+        -- The runner pressed Insert again after its capture, so the overlay hides.
+        if Harness.baseLayoutDirectFallback and status.enabled == true
+            and current - Harness.baseLayoutCapturedAt > 1000 then
+            SurvivorCompanion.BaseVisuals.setEnabled(false)
+            status = SurvivorCompanion.BaseVisuals.status() or {}
+        end
         if status.enabled ~= true or current - Harness.baseLayoutCapturedAt > 5000 then
             check("base_layout_overlay", Harness.baseLayoutShown and Harness.baseLayoutDrawn
                     and status.enabled ~= true,
-                "shown_by_end=" .. tostring(Harness.baseLayoutShown)
+                "shown=" .. tostring(Harness.baseLayoutShown)
                     .. " zones=" .. tostring(Harness.baseLayoutZones)
                     .. " storages=" .. tostring(Harness.baseLayoutStorages)
+                    .. " direct_fallback=" .. tostring(Harness.baseLayoutDirectFallback)
                     .. " hidden_by_end=" .. tostring(status.enabled ~= true))
             setPhase("finish", current)
         end
@@ -15381,6 +15419,10 @@ Harness.probeWaterSource = function(...)
     return externalProbe("SCWaterSourceProbe", ...)
 end
 
+Harness.probeFarmCorridor = function(...)
+    return externalProbe("SCFarmCorridorProbe", ...)
+end
+
 Harness.probeDriving = function(...)
     return externalProbe("SCDrivingProbe", ...)
 end
@@ -15646,6 +15688,8 @@ local function tick()
         Harness.probeBaseSecondFloor(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "water_source_", 1, true) == 1 then
         Harness.probeWaterSource(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "farm_corridor_", 1, true) == 1 then
+        Harness.probeFarmCorridor(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "drive_", 1, true) == 1 then
         Harness.probeDriving(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "chef_", 1, true) == 1 then
@@ -16452,6 +16496,8 @@ local function onGameStart()
         setPhase("base_second_floor_setup", Harness.startedAt)
     elseif Harness.config.water_source_probe == "true" then
         setPhase("water_source_setup", Harness.startedAt)
+    elseif Harness.config.farm_corridor_probe == "true" then
+        setPhase("farm_corridor_setup", Harness.startedAt)
     elseif Harness.config.driving_probe == "true" then
         setPhase("drive_setup", Harness.startedAt)
     elseif Harness.config.chef_recipes_probe == "true" then

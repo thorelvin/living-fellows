@@ -180,12 +180,94 @@ end
 check(handled == true and reason == "farm_approaching"
         and F.navigationRequests[#F.navigationRequests].square == sinkSquare,
     "routine watering selects a clean sink when no tainted source exists")
+actor.x, actor.y = 1, 1
+handled, reason = FarmWork.update(actor, {}, refill, {})
+check(handled == true and reason == "farm_approaching"
+        and #F.nativeStarts == 0,
+    "a diagonal shower approach cannot begin a native fill")
 actor.x, actor.y = 1, 0
+actor.preciseX, actor.preciseY = 1.01, 0.5
+handled, reason = FarmWork.update(actor, {}, refill, {})
+check(handled == true and reason == "farm_approaching"
+        and #F.nativeStarts == 0,
+    "standing at the far edge of the shower use tile still approaches")
+actor.preciseX = 1.5
 handled, reason = FarmWork.update(actor, {}, refill, {})
 check(handled == true and F.nativeStarts[#F.nativeStarts].intent.operation == "fill_water"
         and F.nativeStarts[#F.nativeStarts].intent.item == emptyCan
         and F.nativeStarts[#F.nativeStarts].intent.object == sink,
     "the can is filled at the sink through the native action")
+
+fresh()
+actor = F.actor("worker-a", 0, 1)
+plant = F.plant({ waterLvl = 10, waterNeeded = 60 })
+F.square(1, 1, plant)
+local fullCan = can(32, 8)
+F.addStorage("storage:farm", "farming", { fullCan })
+local waterReach = F.job("water", 1, 1, {
+    id = "job:water-reach", actorId = actor.id, uses = 2,
+})
+FarmWork.update(actor, {}, waterReach, {})
+actor.preciseX, actor.preciseY = 0.01, 1.5
+handled, reason = FarmWork.update(actor, {}, waterReach, {})
+check(handled == true and reason == "farm_approaching"
+        and #F.nativeStarts == 0,
+    "watering waits at the far edge of a neighboring plot tile")
+actor.preciseX = 0.5
+handled, reason = FarmWork.update(actor, {}, waterReach, {})
+check(handled == true and F.nativeStarts[#F.nativeStarts].intent.operation == "water",
+    "watering begins after the farmer closes to the crop")
+SFarmingSystem = { instance = {
+    getLuaObjectOnSquare = function() return plant end,
+} }
+local waterCommands = 0
+SFarmingSystemCommands = { water = function(_, args)
+    waterCommands = waterCommands + 1
+    plant.waterLvl = plant.waterLvl + args.uses * 10
+end }
+F.native[actor].active = false
+fullCan.fluidAmount = fullCan.fluidAmount - 0.2
+handled, reason = FarmWork.update(actor, {}, waterReach, {})
+check(handled == true and reason == "farm_action_verifying"
+        and plant.waterLvl == 10 and waterCommands == 0,
+    "a spent water use waits for the stock global-object update")
+F.clock = F.clock + 3000
+handled, reason = FarmWork.update(actor, {}, waterReach, {})
+check(handled == true and reason == "farm_action_complete"
+        and plant.waterLvl == 20 and waterCommands == 1,
+    "single-player watering reconciles one consumed use after the native action")
+FarmWork.update(actor, {}, waterReach, {})
+check(plant.waterLvl == 20 and waterCommands == 1,
+    "completed watering never applies the same use twice")
+SFarmingSystem, SFarmingSystemCommands = nil, nil
+
+fresh()
+actor = F.actor("worker-a", 0, 1)
+plant = F.plant({ waterLvl = 10, waterNeeded = 60 })
+F.square(1, 1, plant)
+local useTile = F.square(0, 1, nil)
+fullCan = can(33, 8)
+F.addStorage("storage:farm", "farming", { fullCan })
+waterReach = F.job("water", 1, 1, {
+    id = "job:water-micro", actorId = actor.id, uses = 2,
+})
+FarmWork.update(actor, {}, waterReach, {})
+actor.preciseX, actor.preciseY = 0.02, 1.5
+local originalTargets = SurvivorCompanion.Navigation.interactionTargets
+SurvivorCompanion.Navigation.interactionTargets = function() return { useTile } end
+local microIntent
+SurvivorCompanion.Navigation.request = function(_, target, _, intent)
+    microIntent = intent
+    return true, "moving_formation_intercept"
+end
+handled, reason = FarmWork.update(actor, {}, waterReach, {})
+check(handled == true and reason == "moving_formation_intercept"
+        and microIntent.movingFormation == true
+        and microIntent.interceptPosition.x == 0.5
+        and #F.nativeStarts == 0,
+    "a farmer on the far edge of the correct use tile makes a checked short move")
+SurvivorCompanion.Navigation.interactionTargets = originalTargets
+SurvivorCompanion.Navigation.request = nil
 
 -- LF-04: cancelling a supply-free harvest stops its live native action.
 fresh()

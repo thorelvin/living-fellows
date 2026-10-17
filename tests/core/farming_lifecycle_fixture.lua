@@ -193,7 +193,18 @@ U.config = function(key)
     return values[key]
 end
 U.idOf = function(actor) return actor and actor.id or nil end
-U.position = function(value) return value and value.x, value and value.y, value and value.z end
+U.position = function(value)
+    if not value then return nil end
+    local offset = value.inventory and 0.5 or 0
+    return value.preciseX or value.x + offset,
+        value.preciseY or value.y + offset, value.z
+end
+U.directInteractionAccess = function(actor, object)
+    local target = object and (object.square or object)
+    if not actor or not target then return false end
+    return math.abs(math.floor(actor.x) - target.x)
+        + math.abs(math.floor(actor.y) - target.y) <= 1
+end
 U.gridSquare = function(x, y, z)
     return F.squares[tostring(x) .. ":" .. tostring(y) .. ":" .. tostring(z or 0)]
 end
@@ -405,7 +416,9 @@ SC.BaseWork = {
 }
 
 SC.Navigation = {
-    interactionTargets = function(_, square) return square and { square } or {} end,
+    interactionTargets = function(_, square)
+        return square and { square.square or square } or {}
+    end,
     requestAny = function(actor, targets)
         local square = targets and targets[1]
         F.navigationRequests[#F.navigationRequests + 1] = { actor = actor, square = square }

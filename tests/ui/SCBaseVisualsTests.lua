@@ -113,6 +113,33 @@ assert(#fixture.legend == 4 and fixture.legend[1].value == "Base layout"
     "the legend must name each visible zone kind and storage category in its color")
 fixture.legend = {}
 
+local groupedA = { id = "zone:room-a", kind = "rest", name = "Bedroom",
+    roomGroupId = "room:visual", x1 = 9, y1 = 11, x2 = 11, y2 = 12, z = 0 }
+local groupedB = { id = "zone:room-b", kind = "rest", name = "Bedroom",
+    roomGroupId = "room:visual", x1 = 9, y1 = 13, x2 = 9, y2 = 14, z = 0 }
+fixture.summary.zoneRows[#fixture.summary.zoneRows + 1] = groupedA
+fixture.summary.zoneRows[#fixture.summary.zoneRows + 1] = groupedB
+fixture.clock = fixture.clock + 500
+fixture.lines, fixture.fills, fixture.labels = {}, {}, {}
+Events.OnRenderTick.callback()
+Events.OnPreUIDraw.callback()
+local bedroomLabels = 0
+for _, label in ipairs(fixture.labels) do
+    if label.value == "Bedroom" then bedroomLabels = bedroomLabels + 1 end
+end
+assert(#fixture.fills == 5 and bedroomLabels == 2,
+    "all room rectangles receive floor tint but the grouped mark gets one shadowed label")
+Visuals.flashRoom("room:visual")
+fixture.fills = {}
+Events.OnRenderTick.callback()
+assert(fixture.fills[4].alpha > 0.3 and fixture.fills[5].alpha > 0.3,
+    "the complete grouped room flashes immediately after marking")
+table.remove(fixture.summary.zoneRows)
+table.remove(fixture.summary.zoneRows)
+fixture.clock = fixture.clock + 3000
+Visuals.refresh()
+fixture.lines, fixture.fills, fixture.labels = {}, {}, {}
+
 fixture.foodObject.calls = {}
 fixture.clock = fixture.clock + 500
 Events.OnPreUIDraw.callback()

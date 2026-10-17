@@ -162,8 +162,8 @@ require("faction-map-ready.txt" in runner and "faction-map-visible.txt" in runne
         "runner must handshake with the in-game faction-map assertion")
 require("[string]$BaseLayoutScreenshot" in runner
         and "[switch]$BaseLayoutOnly" in runner
-        and "Invoke-WindowKey $process 0x23" in runner,
-        "runner must toggle the base layout overlay with the real End key and capture it")
+        and "Invoke-WindowKey $process 0x2D" in runner,
+        "runner must toggle the base layout overlay with the real Insert key and capture it")
 require("base-layout-ready.txt" in runner and "base-layout-visible.txt" in runner
         and "base-layout-captured.txt" in runner
         and "('base_layout_only=' +" in runner,

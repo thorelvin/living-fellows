@@ -848,6 +848,7 @@ local function baseAction(target, action, payload, player)
     elseif action == "zone_finish" then ok, result = SC.BaseLife.finishZone(payload.square, payload.name)
     elseif action == "zone_cancel" then ok, result = SC.BaseLife.cancelZone()
     elseif action == "zone_remove" then ok, result = SC.BaseLife.removeZone(payload.id)
+    elseif action == "room_mark" then ok, result = SC.BaseLife.markRoom(payload.square, payload.kind)
     elseif action == "abandon" then
         ok, result = SC.BaseLife.abandon()
         if ok and SC.Commands and type(SC.Commands.leaveAbandonedBase) == "function" then
@@ -871,8 +872,18 @@ local function baseAction(target, action, payload, player)
     if player then
         local failure = SC.UI and type(SC.UI.baseFailureReason) == "function"
             and SC.UI.baseFailureReason(result) or tostring(result)
-        safeMethod(player, "setHaloNote", ok and text("UI_SC_Base_ActionAccepted")
+        safeMethod(player, "setHaloNote", ok and action == "room_mark"
+                and text("UI_SC_Base_RoomMarked", text(payload.kind == "area"
+                    and "UI_SC_Base_RoomZone_area" or "UI_SC_Base_Zone_" .. payload.kind))
+            or ok and text("UI_SC_Base_ActionAccepted")
             or text("UI_SC_Base_ActionFailed", failure))
+    end
+    if SC.BaseVisuals then
+        SC.BaseVisuals.refresh()
+        if ok and action == "room_mark" and type(result) == "table"
+            and result.roomGroupId and type(SC.BaseVisuals.flashRoom) == "function" then
+            SC.BaseVisuals.flashRoom(result.roomGroupId)
+        end
     end
     if SC.UI and type(SC.UI.refresh) == "function" then SC.UI.refresh() end
 end
@@ -946,6 +957,7 @@ local function zonesAtSquare(square)
     local ok, rows = pcall(SC.BaseLife.visualRows)
     rows = ok and type(rows) == "table" and rows.zoneRows or nil
     local result = {}
+    local seenGroups = {}
     for _, zone in ipairs(type(rows) == "table" and rows or {}) do
         local x1, x2 = tonumber(zone.x1), tonumber(zone.x2)
         local y1, y2 = tonumber(zone.y1), tonumber(zone.y2)
@@ -953,7 +965,10 @@ local function zonesAtSquare(square)
         if x1 and x2 and y1 and y2 and z == tonumber(point.z)
             and point.x >= math.min(x1, x2) and point.x <= math.max(x1, x2)
             and point.y >= math.min(y1, y2) and point.y <= math.max(y1, y2) then
-            result[#result + 1] = zone
+            if not zone.roomGroupId or not seenGroups[zone.roomGroupId] then
+                result[#result + 1] = zone
+                if zone.roomGroupId then seenGroups[zone.roomGroupId] = true end
+            end
         end
     end
     -- In overlaps, put the smallest/specific zone before the broad camp area.
@@ -1007,6 +1022,7 @@ local function baseMenuRelevant(square)
         and SC.BaseLife.mayExtendAreaToFloor(square) == true then return true end
     if type(SC.BaseLife.parkingCornerRelevant) == "function"
         and SC.BaseLife.parkingCornerRelevant(square) == true then return true end
+    if safeMethod(square, "getRoomDef") then return true end
     -- Lumber areas may be marked in the bounded reach band outside the camp.
     return type(SC.BaseLife.withinWorkReach) == "function"
         and SC.BaseLife.withinWorkReach(square) == true
@@ -1034,6 +1050,34 @@ local function addBaseMenu(context, square, containerTarget, barricadeTarget, pl
         return true
     end
     menu:addOption(text("UI_SC_Base_Abandon"), nil, abandonBaseFromContext, player)
+    local mappedRoom = safeMethod(square, "getRoomDef")
+    if not mappedRoom then
+        local unavailable = addUnavailableOption(menu, text("UI_SC_Base_MarkRoom"))
+        if unavailable and type(ISToolTip) == "table" then
+            local tooltip = ISToolTip:new()
+            tooltip.description = text("UI_SC_Base_Reason_room_unavailable")
+            unavailable.toolTip = tooltip
+        end
+    else
+        local roomOption = menu:addOption(text("UI_SC_Base_MarkRoom"), nil, nil)
+        local roomMenu = ISContextMenu:getNew(menu)
+        menu:addSubMenu(roomOption, roomMenu)
+        for _, kind in ipairs({ "area", "work", "rest", "social", "guard", "rally", "quarantine" }) do
+            local available, reason = SC.BaseLife.roomMarkPreview(square, kind)
+            local option = roomMenu:addOption(text(kind == "area"
+                    and "UI_SC_Base_RoomZone_area" or "UI_SC_Base_Zone_" .. kind), nil,
+                baseAction, "room_mark", { square = square, kind = kind }, player)
+            if not available and option then
+                option.notAvailable = true
+                if type(ISToolTip) == "table" then
+                    local tooltip = ISToolTip:new()
+                    tooltip.description = SC.UI and SC.UI.baseFailureReason
+                        and SC.UI.baseFailureReason(reason) or tostring(reason)
+                    option.toolTip = tooltip
+                end
+            end
+        end
+    end
     if layoutShown then
         -- Ask BaseLife for every refusal rule, not only the last boundary: a
         -- zone pinned by an order or holding other zones would otherwise

@@ -42,11 +42,11 @@ def payload_lua_sources() -> list[tuple[Path, str]]:
 
 def literal_gettext_keys(source: str) -> set[str]:
     direct = re.findall(
-        r"\b(?:getText|getTextOrNull)\s*\(\s*[\"']([^\"']+)[\"']",
+        r"\b(?:getText|getTextOrNull)\s*\(\s*[\"']([^\"']+)[\"']\s*(?=[,)])",
         source,
     )
     protected = re.findall(
-        r"\bpcall\s*\(\s*(?:getText|getTextOrNull)\s*,\s*[\"']([^\"']+)[\"']",
+        r"\bpcall\s*\(\s*(?:getText|getTextOrNull)\s*,\s*[\"']([^\"']+)[\"']\s*(?=[,)])",
         source,
     )
     return set(direct + protected)
@@ -1366,7 +1366,10 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn(
             "clickedWorldSquare(playerIndex, context, player, square)", fill
         )
+        self.assertIn("addBaseMenu(rootMenu, clickSquare", fill)
         self.assertIn("SC.BaseLife.lockZoneEndpoint(clickSquare)", fill)
+        self.assertIn('text("UI_SC_Base_MarkRoom")', base)
+        self.assertIn('SC.BaseLife.roomMarkPreview(square, kind)', base)
         translations = json.loads(read(TRANSLATE / "EN" / "UI.json"))
         for key in ("UI_SC_Base_Visual_Legend", "UI_SC_Base_Visual_Empty",
                     "UI_SC_Base_Visual_Shown", "UI_SC_Base_Visual_Hidden",

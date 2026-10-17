@@ -372,6 +372,10 @@ end
 function UI.baseFailureReason(reason)
     if type(reason) ~= "string" then return UI.humanize(tostring(reason)) end
     local known = {
+        room_unavailable = true,
+        room_out_of_reach = true,
+        room_manual_overlap = true,
+        zone_limit = true,
         last_base_area = true,
         base_area_in_use = true,
         work_order_uses_zone = true,

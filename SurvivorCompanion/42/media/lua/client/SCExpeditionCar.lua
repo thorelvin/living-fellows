@@ -52,14 +52,76 @@ function Car.areaById(id)
     return nil
 end
 
-function Car.candidates(zone)
+local validGroups = { alpha = true, bravo = true, charlie = true }
+
+function Car.preference(group)
+    if not validGroups[group] then return nil end
+    local base = SC.BaseLife and SC.BaseLife.active and SC.BaseLife.active()
+    if not base or not base.id then return nil end
+    local player = type(getSpecificPlayer) == "function"
+        and getSpecificPlayer(0) or nil
+    local dataOk, data = call(player, "getModData")
+    local byBase = dataOk and type(data) == "table"
+        and type(data.SC_SquadParkingCars) == "table"
+        and data.SC_SquadParkingCars[base.id] or nil
+    local saved = type(byBase) == "table" and byBase[group] or nil
+    if type(saved) ~= "table" then return nil end
+    return { zoneId = saved.zoneId, sqlId = saved.sqlId }
+end
+
+function Car.setPreference(group, zoneId, sqlId)
+    if not validGroups[group] then return false end
+    local base = SC.BaseLife and SC.BaseLife.active and SC.BaseLife.active()
+    if not base or not base.id then return false end
+    if zoneId ~= nil and Car.areaById(zoneId) == nil then return false end
+    sqlId = sqlId ~= nil and finite(sqlId) or nil
+    if sqlId ~= nil and (sqlId < 0 or sqlId ~= math.floor(sqlId)) then
+        return false
+    end
+    local player = type(getSpecificPlayer) == "function"
+        and getSpecificPlayer(0) or nil
+    local dataOk, data = call(player, "getModData")
+    if not dataOk or type(data) ~= "table" then return false end
+    if type(data.SC_SquadParkingCars) ~= "table" then
+        data.SC_SquadParkingCars = {}
+    end
+    if type(data.SC_SquadParkingCars[base.id]) ~= "table" then
+        data.SC_SquadParkingCars[base.id] = {}
+    end
+    data.SC_SquadParkingCars[base.id][group] = {
+        zoneId = zoneId, sqlId = sqlId,
+    }
+    return true
+end
+
+function Car.displayName(vehicle)
+    local scriptOk, script = call(vehicle, "getScript")
+    local modelOk, model = call(scriptOk and script or nil, "getCarModelName")
+    if not modelOk or type(model) ~= "string" or model == "" then
+        modelOk, model = call(scriptOk and script or nil, "getName")
+    end
+    if modelOk and type(model) == "string" and model ~= ""
+        and type(getTextOrNull) == "function" then
+        local translatedOk, translated = pcall(getTextOrNull,
+            "IGUI_VehicleName" .. model)
+        if translatedOk and type(translated) == "string"
+            and translated ~= "" then return translated end
+    end
+    local nameOk, name = call(vehicle, "getScriptName")
+    if nameOk and type(name) == "string" and name ~= "" then
+        return name:match("[^.]+$") or name
+    end
+    return "Car"
+end
+
+function Car.candidates(zone, vehicles)
     local result = {}
     if zone == nil or not SC.Vehicle or not SC.Vehicle.loadedVehicles then
         return result
     end
-    for _, vehicle in ipairs(SC.Vehicle.loadedVehicles()) do
+    for _, vehicle in ipairs(vehicles or SC.Vehicle.loadedVehicles()) do
         local at = point(vehicle)
-        if contains(zone, at) then
+        if contains(zone, at) and Car.fitsParking(vehicle, zone, {}) == true then
             local okId, sqlId = call(vehicle, "getSqlId")
             local okName, script = call(vehicle, "getScriptName")
             local okSeats, seats = call(vehicle, "getMaxPassengers")
@@ -73,10 +135,29 @@ function Car.candidates(zone)
                 result[#result + 1] = {
                     sqlId = math.floor(sqlId), vehicle = vehicle,
                     script = okName and tostring(script) or "?",
+                    name = Car.displayName(vehicle), zone = zone,
                     seats = okSeats and tonumber(seats) or 0,
                     fuel = amountOk and finite(fuel) or nil,
                     point = at,
                 }
+            end
+        end
+    end
+    table.sort(result, function(a, b) return a.sqlId < b.sqlId end)
+    return result
+end
+
+function Car.parkedCars(zoneId)
+    local zones = zoneId ~= nil and { Car.areaById(zoneId) }
+        or Car.parkingAreas()
+    local result, seen = {}, {}
+    if not SC.Vehicle or not SC.Vehicle.loadedVehicles then return result end
+    local vehicles = SC.Vehicle.loadedVehicles()
+    for _, zone in ipairs(zones) do
+        for _, car in ipairs(Car.candidates(zone, vehicles)) do
+            if not seen[car.sqlId] then
+                seen[car.sqlId] = true
+                result[#result + 1] = car
             end
         end
     end
@@ -209,7 +290,7 @@ function Car.ensureDriverKey(records, vehicle)
     return true
 end
 
-function Car.preflight(records, zoneId, sqlId, destination)
+local function preflightSpecific(records, zoneId, sqlId, destination)
     local zone = Car.areaById(zoneId)
     if zone == nil then return nil, "parking_missing" end
     if type(records) ~= "table" or #records < 1 or #records > 4
@@ -319,6 +400,32 @@ function Car.preflight(records, zoneId, sqlId, destination)
         entry = { x = entryX, y = entryY, z = 0 },
         exit = { x = exitX, y = exitY, z = 0 },
         access = access }
+end
+
+function Car.preflight(records, zoneId, sqlId, destination)
+    if zoneId ~= nil and Car.areaById(zoneId) == nil then
+        return nil, "parking_missing"
+    end
+    if sqlId ~= nil then
+        if zoneId ~= nil then
+            return preflightSpecific(records, zoneId, sqlId, destination)
+        end
+        for _, car in ipairs(Car.parkedCars()) do
+            if car.sqlId == sqlId then
+                return preflightSpecific(records, car.zone.id, sqlId,
+                    destination)
+            end
+        end
+        return nil, "car_unavailable"
+    end
+    local firstReason
+    for _, car in ipairs(Car.parkedCars(zoneId)) do
+        local plan, reason = preflightSpecific(records, car.zone.id,
+            car.sqlId, destination)
+        if plan then return plan end
+        firstReason = firstReason or reason
+    end
+    return nil, firstReason or "car_unavailable"
 end
 
 local function activeSeat(actor)

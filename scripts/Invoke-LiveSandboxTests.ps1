@@ -70,6 +70,7 @@ param(
     [ValidateRange(0, 20000)][int]$MilliSiteY = 0,
     [switch]$BaseSecondFloorProbe,
     [switch]$WaterSourceProbe,
+    [switch]$FarmCorridorProbe,
     # A companion drives a spawned car on a straight road near the observer.
     [switch]$DrivingProbe,
     # Real player drives one car while an assigned companion follows in another.
@@ -1524,6 +1525,7 @@ $config = @(
     ('milli_site_y=' + $MilliSiteY),
     ('base_second_floor_probe=' + $BaseSecondFloorProbe.IsPresent.ToString().ToLowerInvariant()),
     ('water_source_probe=' + $WaterSourceProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('farm_corridor_probe=' + $FarmCorridorProbe.IsPresent.ToString().ToLowerInvariant()),
     ('driving_probe=' + $DrivingProbe.IsPresent.ToString().ToLowerInvariant()),
     ('convoy_probe=' + $ConvoyProbe.IsPresent.ToString().ToLowerInvariant()),
     ('taxi_passenger_probe=' + $TaxiPassengerProbe.IsPresent.ToString().ToLowerInvariant()),
@@ -2142,11 +2144,11 @@ try {
         }
         if ($captureBaseLayout -and -not $baseLayoutCaptureCompleted -and
             (Test-Path -LiteralPath (Join-Path $SandboxLua 'base-layout-ready.txt') -PathType Leaf)) {
-            # 0x23 is the physical End key, the base layout hotkey's default.
-            if (-not (Invoke-WindowKey $process 0x23)) {
-                throw 'Could not focus the client and send the End key.'
+            # 0x2D is the physical Insert key, the base layout hotkey's default.
+            if (-not (Invoke-WindowKey $process 0x2D)) {
+                throw 'Could not focus the client and send the Insert key.'
             }
-            Write-Output 'Sent End to show the base layout overlay.'
+            Write-Output 'Sent Insert to show the base layout overlay.'
             $layoutVisiblePath = Join-Path $SandboxLua 'base-layout-visible.txt'
             $visibleDeadline = [DateTime]::UtcNow.AddSeconds(10)
             while ([DateTime]::UtcNow -lt $visibleDeadline -and
@@ -2156,15 +2158,15 @@ try {
                 Start-Sleep -Milliseconds 200
             }
             if (-not (Test-Path -LiteralPath $layoutVisiblePath -PathType Leaf)) {
-                throw 'The game did not confirm the base layout overlay after End was pressed.'
+                throw 'The game did not confirm the base layout overlay after Insert was pressed.'
             }
             Start-Sleep -Milliseconds 1200
             if (-not (Save-ClientScreenshot $process $BaseLayoutScreenshot)) {
                 throw "Could not capture the Project Zomboid client to $BaseLayoutScreenshot"
             }
             Write-Output "Captured base layout screenshot: $BaseLayoutScreenshot"
-            if (-not (Invoke-WindowKey $process 0x23)) {
-                throw 'Could not send End to hide the base layout after capture.'
+            if (-not (Invoke-WindowKey $process 0x2D)) {
+                throw 'Could not send Insert to hide the base layout after capture.'
             }
             [System.IO.File]::WriteAllText((Join-Path $SandboxLua 'base-layout-captured.txt'),
                 ('captured=true' + [Environment]::NewLine), $utf8NoBom)

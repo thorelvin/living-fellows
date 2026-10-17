@@ -339,6 +339,9 @@ local function normalizeZone(source)
         autoStair = source.kind == "area" and source.autoStair == true,
         autoStairFromZ = source.kind == "area" and source.autoStair == true
             and integer(source.autoStairFromZ, a.z) or nil,
+        roomGroupId = validId(source.roomGroupId, "room:") and source.roomGroupId or nil,
+        roomKey = type(source.roomKey) == "string" and #source.roomKey <= 512
+            and source.roomKey or nil,
         createdAt = math.max(0, finite(source.createdAt, 0)),
     }
 end
@@ -1357,6 +1360,201 @@ function BaseLife.finishZone(square, name)
     return true, zone
 end
 
+local ROOM_ZONE_KINDS = {
+    area = true, work = true, rest = true, social = true,
+    guard = true, rally = true, quarantine = true,
+}
+
+local function roomRectangles(square)
+    local point = position(square)
+    if not point or not U() then return nil, "room_unavailable" end
+    local room = U().call(square, "getRoomDef")
+    if not room then return nil, "room_unavailable" end
+    local z = tonumber((U().call(room, "getZ")))
+    if z ~= point.z then return nil, "room_unavailable" end
+    local nativeRects = U().call(room, "getRects")
+    local count = nativeRects and U().listSize(nativeRects) or 0
+    if count < 1 or count > 128 then return nil, "room_unavailable" end
+    local rects = {}
+    for index = 0, count - 1 do
+        local native = U().listGet(nativeRects, index)
+        local x, y = tonumber((U().call(native, "getX"))), tonumber((U().call(native, "getY")))
+        local w, h = tonumber((U().call(native, "getW"))), tonumber((U().call(native, "getH")))
+        if not x or not y or not w or not h or w < 1 or h < 1
+            or x ~= math.floor(x) or y ~= math.floor(y)
+            or w ~= math.floor(w) or h ~= math.floor(h) then
+            return nil, "room_unavailable"
+        end
+        rects[#rects + 1] = { x1 = x, y1 = y, x2 = x + w - 1, y2 = y + h - 1, z = z }
+    end
+    table.sort(rects, function(a, b)
+        if a.y1 ~= b.y1 then return a.y1 < b.y1 end
+        if a.x1 ~= b.x1 then return a.x1 < b.x1 end
+        if a.y2 ~= b.y2 then return a.y2 < b.y2 end
+        return a.x2 < b.x2
+    end)
+    local containsClick = false
+    for _, rect in ipairs(rects) do
+        if zoneContains(rect, point) then containsClick = true end
+    end
+    if not containsClick then return nil, "room_unavailable" end
+    -- Include geometry so a map replacement cannot inherit another room's mark.
+    local identity = tostring(U().call(room, "getIDString") or "")
+    local parts = { tostring(z), identity }
+    for _, rect in ipairs(rects) do
+        parts[#parts + 1] = table.concat({ rect.x1, rect.y1, rect.x2, rect.y2 }, ",")
+    end
+    local key = table.concat(parts, ":")
+    if #key > 512 then return nil, "room_unavailable" end
+    return { rects = rects, key = key, point = point }
+end
+
+local function rectanglesIntersect(a, b)
+    return a.z == b.z and a.x1 <= b.x2 and a.x2 >= b.x1
+        and a.y1 <= b.y2 and a.y2 >= b.y1
+end
+
+local function roomTouchesCamp(rects, zones, point, core)
+    if sameMapBuilding(point, core) then return true end
+    for _, rect in ipairs(rects) do
+        for _, area in ipairs(zones) do
+            local xOverlap = rect.x1 <= area.x2 and rect.x2 >= area.x1
+            local yOverlap = rect.y1 <= area.y2 and rect.y2 >= area.y1
+            if area.kind == "area" and rect.z == area.z
+                and ((xOverlap and rect.y1 <= area.y2 + 1
+                    and rect.y2 + 1 >= area.y1)
+                    or (yOverlap and rect.x1 <= area.x2 + 1
+                        and rect.x2 + 1 >= area.x1)) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+-- Read-only validation is shared by the menu and the commit. No serial or
+-- existing zone changes until every rectangle and the complete final set pass.
+local function roomMarkPlan(square, kind)
+    if not ROOM_ZONE_KINDS[kind] then return nil, "invalid_zone_type" end
+    local base = activeBase()
+    if not base then return nil, "base_missing" end
+    local room, reason = roomRectangles(square)
+    if not room then return nil, reason end
+    local replacing = {}
+    local replacedCount = 0
+    if kind ~= "area" then
+        for _, zone in ipairs(base.zones) do
+            if zone.roomKey == room.key and zone.kind ~= "area" and zone.roomGroupId then
+                replacing[zone.id] = true
+                replacedCount = replacedCount + 1
+            end
+        end
+    end
+    local existing, sameKind = {}, nil
+    for _, zone in ipairs(base.zones) do
+        if not replacing[zone.id] then existing[#existing + 1] = zone end
+        if zone.roomKey == room.key and zone.kind == kind and zone.roomGroupId then
+            sameKind = sameKind or zone
+        end
+    end
+    local needsArea = false
+    for _, rect in ipairs(room.rects) do
+        if not BaseLife.zoneInsideAreaUnion(rect, base.zones) then
+            needsArea = true
+            break
+        end
+    end
+    if needsArea and not roomTouchesCamp(room.rects, base.zones, room.point, base.core) then
+        return nil, "room_out_of_reach"
+    end
+    if kind ~= "area" then
+        for _, zone in ipairs(base.zones) do
+            if zone.kind ~= "area" and ROOM_ZONE_KINDS[zone.kind]
+                and not replacing[zone.id] then
+                for _, rect in ipairs(room.rects) do
+                    if rectanglesIntersect(rect, zone) and zone.roomKey ~= room.key then
+                        return nil, "room_manual_overlap"
+                    end
+                end
+            end
+        end
+        for index, orders in ipairs({ base.work and base.work.orders or {},
+                base.production and base.production.orders or {} }) do
+            for _, order in ipairs(orders) do
+                if replacing[order.zoneId] and order.state ~= "completed"
+                    and order.state ~= "cancelled" then
+                    return nil, index == 1 and "work_order_uses_zone"
+                        or "production_order_uses_zone"
+                end
+            end
+        end
+    end
+    local addArea = needsArea and kind ~= "area"
+    if kind == "area" and sameKind then
+        return { room = room, unchanged = true, existing = sameKind }
+    end
+    if kind ~= "area" and sameKind and replacedCount == #room.rects and not needsArea then
+        return { room = room, unchanged = true, existing = sameKind }
+    end
+    local added = #room.rects * ((kind == "area" or not addArea) and 1 or 2)
+    local maximum = U() and U().config("baseMaxZones") or 24
+    if #base.zones - replacedCount + added > maximum then return nil, "zone_limit" end
+    local proposed = {}
+    for _, zone in ipairs(existing) do proposed[#proposed + 1] = zone end
+    if addArea or kind == "area" then
+        for _, rect in ipairs(room.rects) do
+            proposed[#proposed + 1] = { kind = "area", x1 = rect.x1, y1 = rect.y1,
+                x2 = rect.x2, y2 = rect.y2, z = rect.z }
+        end
+    end
+    if kind ~= "area" then
+        for _, rect in ipairs(room.rects) do
+            if not BaseLife.zoneInsideAreaUnion(rect, proposed) then
+                return nil, "zone_outside_base_area"
+            end
+        end
+    end
+    return { room = room, replacing = replacing, addArea = addArea }
+end
+
+function BaseLife.roomMarkPreview(square, kind)
+    local plan, reason = roomMarkPlan(square, kind)
+    return plan ~= nil, reason
+end
+
+function BaseLife.markRoom(square, kind)
+    local plan, reason = roomMarkPlan(square, kind)
+    if not plan then return false, reason end
+    if plan.unchanged then return true, plan.existing end
+    local base = activeBase()
+    local room = plan.room
+    local stamp = now()
+    local group = nextId("nextZoneSerial", "room:")
+    local areaGroup = plan.addArea and nextId("nextZoneSerial", "room:") or group
+    local zones, first = {}, nil
+    for _, zone in ipairs(base.zones) do
+        if not (plan.replacing and plan.replacing[zone.id]) then zones[#zones + 1] = zone end
+    end
+    local function append(kindToAdd, groupId)
+        for _, rect in ipairs(room.rects) do
+            local zone = normalizeZone({ id = nextId("nextZoneSerial", "zone:"),
+                kind = kindToAdd, name = kindToAdd == "area" and "Camp area" or kindToAdd,
+                x1 = rect.x1, y1 = rect.y1, x2 = rect.x2, y2 = rect.y2, z = rect.z,
+                roomGroupId = groupId, roomKey = room.key, createdAt = stamp })
+            zones[#zones + 1] = zone
+            if kindToAdd == kind and not first then first = zone end
+        end
+    end
+    if plan.addArea then append("area", areaGroup) end
+    append(kind, group)
+    base.zones = zones
+    if plan.addArea or kind == "area" then
+        base.autoFloorDisabled[tostring(room.point.z)] = nil
+        autoFloorScan = nil
+    end
+    return true, first
+end
+
 -- Every rule that refuses a removal, checked without changing anything. The
 -- context menu offers removal only when this passes, so a confirmed removal
 -- does not then fail on a rule the menu did not know about.
@@ -1365,22 +1563,29 @@ function BaseLife.canRemoveZone(id)
     local zone, index
     if base then zone, index = findById(base.zones, id) end
     if not index then return false, "unknown_zone" end
+    local removing = {}
+    for _, candidate in ipairs(base.zones) do
+        if candidate.id == id or (zone.roomGroupId
+            and candidate.roomGroupId == zone.roomGroupId) then
+            removing[candidate.id] = true
+        end
+    end
     if zone.kind == "area" and SC.BaseWatch and SC.BaseWatch.current
         and SC.BaseWatch.current() then return false, "base_watch_active" end
     for _, order in ipairs(base.work and base.work.orders or {}) do
-        if order.zoneId == id and order.state ~= "completed" and order.state ~= "cancelled" then
+        if removing[order.zoneId] and order.state ~= "completed" and order.state ~= "cancelled" then
             return false, "work_order_uses_zone"
         end
     end
     for _, order in ipairs(base.production and base.production.orders or {}) do
-        if order.zoneId == id and order.state ~= "completed" and order.state ~= "cancelled" then
+        if removing[order.zoneId] and order.state ~= "completed" and order.state ~= "cancelled" then
             return false, "production_order_uses_zone"
         end
     end
     if zone.kind == "area" then
         local remaining, areaCount = {}, 0
         for candidateIndex, candidate in ipairs(base.zones) do
-            if candidateIndex ~= index then
+            if not removing[candidate.id] then
                 remaining[#remaining + 1] = candidate
                 if candidate.kind == "area" then areaCount = areaCount + 1 end
             end
@@ -1431,7 +1636,15 @@ function BaseLife.removeZone(id)
                 and job.target.zoneId == id then table.remove(base.jobs, jobIndex) end
         end
     end
-    table.remove(base.zones, index)
+    if zone.roomGroupId then
+        for candidateIndex = #base.zones, 1, -1 do
+            if base.zones[candidateIndex].roomGroupId == zone.roomGroupId then
+                table.remove(base.zones, candidateIndex)
+            end
+        end
+    else
+        table.remove(base.zones, index)
+    end
     if zone.kind == "area" then
         if zone.autoStair == true then
             base.autoFloorDisabled[tostring(zone.z)] = true
@@ -1807,6 +2020,7 @@ function BaseLife.visualRows()
         result.zoneRows[#result.zoneRows + 1] = {
             id = zone.id, kind = zone.kind, name = zone.name,
             x1 = zone.x1, y1 = zone.y1, x2 = zone.x2, y2 = zone.y2, z = zone.z,
+            roomGroupId = zone.roomGroupId, roomKey = zone.roomKey,
         }
     end
     for _, storage in ipairs(base.storages or {}) do

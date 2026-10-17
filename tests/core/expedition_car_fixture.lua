@@ -10,7 +10,7 @@ SC.Call = { method = function(object, name, ...)
     return ok, value
 end }
 SC.BaseLife = {
-    active = function() return { zones = T.zones } end,
+    active = function() return T.base end,
     parkingZoneValid = function(zone)
         return zone.kind == "parking" and zone.z == 0
             and zone.x1 >= 90 and zone.x2 <= 120
@@ -129,6 +129,10 @@ SC.ExpeditionRoute = {
 SC.Navigation = { requestAny = function() return true end }
 SC.ExpeditionPrototype = { current = function() return T.mission end }
 function getSpecificPlayer() return T.player end
+function getTextOrNull(key)
+    if key == "IGUI_VehicleNameCarNormal" then return "Masterson Horizon" end
+    if key == "IGUI_VehicleNameVan" then return "Franklin Valuline" end
+end
 local squares = {}
 function getCell()
     return { getGridSquare = function(_, x, y, z)
@@ -153,6 +157,11 @@ function T.car(id, x, y)
         z = 0, occupied = {}, script = "Base.CarNormal" }
     function car:getSqlId() return self.id end
     function car:getScriptName() return self.script end
+    function car:getScript()
+        return { getCarModelName = function()
+            return self.script:match("[^.]+$")
+        end }
+    end
     function car:getX() return self.x end
     function car:getY() return self.y end
     function car:getZ() return self.z end
@@ -180,6 +189,7 @@ T.zone = { id = "zone:42", kind = "parking", name = "Driveway",
     x1 = 100, y1 = 100, x2 = 110, y2 = 110, z = 0 }
 T.zones = { { id = "zone:1", kind = "area",
     x1 = 90, y1 = 90, x2 = 110, y2 = 110, z = 0 }, T.zone }
+T.base = { id = "base:1", zones = T.zones }
 T.cars = { T.car() }
 T.team = { { id = "leader", actor = { id = "leader", x = 5, y = 5, z = 1,
     isDead = function() return false end } },

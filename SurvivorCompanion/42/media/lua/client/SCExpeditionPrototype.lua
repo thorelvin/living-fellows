@@ -973,6 +973,8 @@ function Expedition.previewDrive(records, place, fishing, parkingZoneId, vehicle
     end
     return { mode = "road", distance = math.floor(
         trip.route.roadLength + 0.5), streets = streets,
+        carSqlId = trip.sqlId,
+        carName = SC.ExpeditionCar.displayName(trip.vehicle),
         provisional = trip.route.inferredJunctions > 0,
         offRoadStart = math.floor(trip.access + 0.5),
         offRoadEnd = math.floor(math.sqrt((trip.exit.x - approach.x)^2

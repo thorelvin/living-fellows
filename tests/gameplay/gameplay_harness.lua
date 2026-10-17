@@ -17585,6 +17585,112 @@ check(defaultCampArea and defaultCampArea.x1 == -10 and defaultCampArea.y1 == -1
         and BaseLife.isInside(cell:getGridSquare(15, 2, 0)) == false,
     "the automatic camp boundary extends twelve tiles from its core")
 do
+    local original = BaseLife.export()
+    local function rect(x, y, w, h)
+        return { getX = function() return x end, getY = function() return y end,
+            getW = function() return w end, getH = function() return h end }
+    end
+    local function roomSquare(x, y, z, id, parts)
+        local square = cell:getGridSquare(x, y, z)
+        local room = { getZ = function() return z end,
+            getIDString = function() return id end,
+            getRects = function() return parts end }
+        function square:getRoomDef() return room end
+        return square
+    end
+    local lRoom = roomSquare(10, 5, 0, "L-room", {
+        rect(10, 5, 5, 2), rect(10, 7, 2, 3),
+    })
+    local hallway = cell:getGridSquare(13, 7, 0)
+    local marked, role = BaseLife.markRoom(lRoom, "rest")
+    local roomZones = BaseLife.active().zones
+    check(marked and role and role.roomGroupId
+            and #roomZones == 3 and BaseLife.isInside(lRoom, "rest")
+            and not BaseLife.isInside(hallway, "rest")
+            and BaseLife.visualRows().zoneRows[2].roomGroupId == role.roomGroupId,
+        "L-shaped room uses native rectangles, shared group metadata and no hallway spill")
+    local saved = BaseLife.export()
+    check(BaseLife.restore(saved) and BaseLife.active().zones[2].roomGroupId == role.roomGroupId,
+        "room group survives save and load")
+    BaseLife.active().work.orders[#BaseLife.active().work.orders + 1] = {
+        zoneId = role.id, state = "active",
+    }
+    local beforeBusy = BaseLife.export()
+    local busy, busyReason = BaseLife.markRoom(lRoom, "work")
+    check(not busy and busyReason == "work_order_uses_zone"
+            and BaseLife.export().nextZoneSerial == beforeBusy.nextZoneSerial
+            and #BaseLife.active().zones == 3,
+        "active work order blocks room role replacement without partial writes")
+    table.remove(BaseLife.active().work.orders)
+    local switched, work = BaseLife.markRoom(lRoom, "work")
+    local previousGone = not BaseLife.isInside(lRoom, "rest")
+    check(switched and work and previousGone and #BaseLife.active().zones == 3,
+        "reassigning a room replaces all old role rectangles in one operation")
+    check(BaseLife.removeZone(work.id) and #BaseLife.active().zones == 1,
+        "removing one room role removes its complete group")
+    local areaOkay, roomArea = BaseLife.markRoom(lRoom, "area")
+    check(areaOkay and roomArea and roomArea.roomGroupId
+            and #BaseLife.active().zones == 3
+            and BaseLife.removeZone(BaseLife.active().zones[3].id)
+            and #BaseLife.active().zones == 1,
+        "Camp area also records an already-covered room and removes its rectangles together")
+    local missing, missingReason = BaseLife.markRoom(hallway, "rest")
+    check(not missing and missingReason == "room_unavailable",
+        "floor without mapped room cannot be room marked")
+    local edgeRoom = roomSquare(14, 5, 0, "edge-room", { rect(14, 5, 4, 3) })
+    local expanded, edgeRole = BaseLife.markRoom(edgeRoom, "guard")
+    check(expanded and edgeRole and BaseLife.isInside({ x = 17, y = 6, z = 0 })
+            and BaseLife.isInside({ x = 17, y = 6, z = 0 }, "guard")
+            and #BaseLife.active().zones == 3,
+        "edge room expands the camp and marks its complete role")
+    check(BaseLife.removeZone(edgeRole.id)
+            and BaseLife.isInside({ x = 17, y = 6, z = 0 })
+            and #BaseLife.active().zones == 2,
+        "removing room role retains its automatically added camp area")
+    local remote = roomSquare(40, 40, 0, "remote-room", { rect(40, 40, 2, 2) })
+    local beforeRemote = #BaseLife.active().zones
+    local remoteOkay, remoteReason = BaseLife.markRoom(remote, "rest")
+    check(not remoteOkay and remoteReason == "room_out_of_reach"
+            and #BaseLife.active().zones == beforeRemote,
+        "remote room refusal leaves all zones unchanged")
+    local cornerRoom = roomSquare(15, 15, 0, "corner-room", { rect(15, 15, 2, 2) })
+    local diagonal, diagonalReason = BaseLife.markRoom(cornerRoom, "rest")
+    check(not diagonal and diagonalReason == "room_out_of_reach",
+        "a room touching the camp only at one corner is not adjoining")
+    local manual = roomSquare(5, 5, 0, "manual-room", { rect(5, 5, 3, 3) })
+    BaseLife.beginZone("work", cell:getGridSquare(5, 5, 0))
+    local drawn, manualZone = BaseLife.finishZone(cell:getGridSquare(5, 5, 0), "Hand drawn")
+    local blocked, blockReason = BaseLife.markRoom(manual, "rest")
+    check(drawn and manualZone and not blocked and blockReason == "room_manual_overlap",
+        "room role cannot replace an overlapping hand-drawn role")
+    BaseLife.removeZone(manualZone.id)
+    local manyRects = {}
+    for offset = 0, 24 do manyRects[#manyRects + 1] = rect(2 + offset, 10, 1, 1) end
+    local largeRoom = roomSquare(2, 10, 0, "many-rectangles", manyRects)
+    local beforeLimit = #BaseLife.active().zones
+    local serialBeforeLimit = BaseLife.export().nextZoneSerial
+    local limited, limitReason = BaseLife.markRoom(largeRoom, "social")
+    check(not limited and limitReason == "zone_limit"
+            and #BaseLife.active().zones == beforeLimit
+            and BaseLife.export().nextZoneSerial == serialBeforeLimit,
+        "room zone-limit refusal is atomic")
+    local previousWorld = getWorld
+    getWorld = function()
+        return { getMetaGrid = function()
+            return { getBuildingAt = function() return { getX = function() return 0 end,
+                getY = function() return 0 end, getX2 = function() return 20 end,
+                getY2 = function() return 20 end } end }
+        end }
+    end
+    local upstairs = roomSquare(3, 3, 1, "upper-room", { rect(3, 3, 2, 2) })
+    local upperOkay = BaseLife.markRoom(upstairs, "quarantine")
+    check(upperOkay and BaseLife.isInside({ x = 4, y = 4, z = 1 }, "quarantine")
+            and not BaseLife.isInside({ x = 4, y = 4, z = 0 }, "quarantine"),
+        "same-building upper-floor room expands only its own floor")
+    getWorld = previousWorld
+    check(BaseLife.restore(original), "room tests restore the original camp state")
+end
+do
     local previousWorld = getWorld
     local buildingA, buildingB = {}, {}
     for _, building in ipairs({ buildingA, buildingB }) do
@@ -22862,6 +22968,34 @@ end)()
     check(cleared and clearReason == "crowd_yield_pathing" and routedActor == recipient
             and routedIntent.action == "crowd_yield_order",
         "the companion receiving a crowd order paths away instead of making the blocked companion sidestep")
+end)()
+
+-- A one-tile hall needs a reachable passing bay, not the furthest geometric
+-- tile through a wall. The recipient can retreat several tiles to clear it.
+;(function()
+    local navigation = SurvivorCompanion.Navigation
+    local request = actor("sc-hall-requester", 32, 30, {})
+    local blocker = actor("sc-hall-blocker", 33, 30, {})
+    local side = {}
+    for x = 30, 49 do
+        for _, y in ipairs({ 29, 31 }) do
+            local square = cell:getGridSquare(x, y, 0)
+            square.solid = not (x == 38 and y == 31)
+            side[#side + 1] = square
+        end
+    end
+    local bay = cell:getGridSquare(38, 31, 0)
+    local snapshot = { allies = { { actor = request }, { actor = blocker } } }
+    local selected = navigation._crowdClearanceSquareForRequest(blocker,
+        request, cell:getGridSquare(33, 30, 0), snapshot, true)
+    check(selected == bay,
+        "a blocked companion finds a connected bay beyond a long one-tile hallway")
+    bay.solid = true
+    local impossible = navigation._crowdClearanceSquareForRequest(blocker,
+        request, cell:getGridSquare(33, 30, 0), snapshot, true)
+    check(impossible == nil,
+        "a hallway with no passing bay does not order a sidestep through a wall")
+    for _, square in ipairs(side) do square.solid = nil end
 end)()
 
 -- Build 42 never pushes player-type characters apart. Two companions standing

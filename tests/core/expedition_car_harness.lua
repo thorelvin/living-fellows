@@ -12,8 +12,54 @@ check(#Car.parkingAreas() == 1, "only valid marked parking is offered")
 check(Car.areaById("zone:42") == T.zone, "stable parking ID resolves")
 check(Car.areaById("zone:missing") == nil, "deleted zone is rejected")
 check(#Car.candidates(T.zone) == 1, "only the car actually in the zone is offered")
+check(Car.candidates(T.zone)[1].name == "Masterson Horizon",
+    "parking choice uses the game's translated model name")
 T.cars[#T.cars + 1] = T.car(45, 300, 300)
 check(#Car.candidates(T.zone) == 1, "off-zone car is not offered")
+check(#Car.parkedCars() == 1 and Car.parkedCars()[1].sqlId == 44,
+    "all-area parking discovery excludes cars outside every bay")
+
+T.player = { modData = {}, getModData = function(self) return self.modData end }
+check(Car.setPreference("alpha", T.zone.id, 44)
+    and Car.preference("alpha").sqlId == 44,
+    "a squad's preferred car is saved with its parking area")
+check(Car.preference("bravo") == nil, "squad preferences stay separate")
+T.base.id = "base:2"
+check(Car.preference("alpha") == nil,
+    "a preference from another base is not reused")
+check(Car.setPreference("alpha", nil, nil),
+    "a second base can keep its own automatic car choice")
+T.base.id = "base:1"
+check(Car.preference("alpha").sqlId == 44,
+    "returning to the original base restores its car choice")
+check(Car.setPreference("alpha", nil, nil)
+    and Car.preference("alpha").sqlId == nil,
+    "choosing any parked car clears the fixed vehicle preference")
+T.player = nil
+
+local second = T.car(46, 106, 106)
+second.script = "Base.Van"
+T.cars[#T.cars + 1] = second
+check(#Car.parkedCars() == 2
+    and Car.parkedCars()[2].name == "Franklin Valuline",
+    "parking discovery includes each car's readable model")
+local automatic = Car.preflight(T.team, nil, nil, destination)
+check(automatic and automatic.sqlId == 44,
+    "no car or area choice selects a usable parked car")
+check(Car.preflight(T.team, T.zone.id, nil, destination).sqlId == 44,
+    "a parking area without a car choice uses any usable car in that area")
+T.cars[1].occupied[0] = { id = "other" }
+automatic = Car.preflight(T.team, nil, nil, destination)
+check(automatic and automatic.sqlId == 46,
+    "automatic choice skips a parked car with an occupied driver seat")
+check(select(2, Car.preflight(T.team, nil, 44, destination))
+    == "seat_unavailable", "explicit car choice never changes cars")
+second.occupied[0] = { id = "another" }
+check(select(2, Car.preflight(T.team, nil, nil, destination))
+    == "seat_unavailable", "automatic choice reports why all parked cars fail")
+T.cars[1].occupied[0] = nil
+second.occupied[0] = nil
+table.remove(T.cars)
 
 local ready, reason = Car.preflight(T.team, T.zone.id, 44, destination)
 check(ready ~= nil and reason == nil, "usable car passes preflight")
@@ -26,6 +72,8 @@ check(ready.fuelRequired > 0 and ready.fuelRequired < ready.fuel,
 check(Car.fitsParking(T.cars[1], T.zone, ready.seats),
     "actual vehicle corners and exits fit the marked parking area")
 T.polyOffset = 12
+check(#Car.candidates(T.zone) == 0,
+    "selector omits cars whose footprint is outside the parking area")
 check(select(2, Car.fitsParking(T.cars[1], T.zone, ready.seats))
     == "parking_footprint_outside_area",
     "centre inside the area cannot conceal an outside vehicle corner")

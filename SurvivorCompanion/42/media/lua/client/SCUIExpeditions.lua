@@ -231,8 +231,19 @@ local function onSelect(detail, combo)
     local draft = detail.expeditionDraft
     draft[combo.scField] = option.value
     draft.preview, draft.previewError = nil, nil
-    if combo.scField == "group" then draft.leaderId = nil end
+    if combo.scField == "group" then
+        draft.leaderId = nil
+        local preferred = SC.ExpeditionCar and
+            SC.ExpeditionCar.preference(draft.group) or nil
+        draft.parkingZoneId = preferred and preferred.zoneId or nil
+        draft.vehicleSqlId = preferred and preferred.sqlId or nil
+    end
     if combo.scField == "parkingZoneId" then draft.vehicleSqlId = nil end
+    if (combo.scField == "parkingZoneId"
+        or combo.scField == "vehicleSqlId") and SC.ExpeditionCar then
+        SC.ExpeditionCar.setPreference(draft.group, draft.parkingZoneId,
+            draft.vehicleSqlId)
+    end
     if combo.scField == "group" or combo.scField == "leaderId"
         or combo.scField == "kind" then
         draft.placesLoaded, draft.placeId = false, nil
@@ -351,7 +362,9 @@ end
 function Planner.onButton(detail, button)
     local draft = detail.expeditionDraft
     local action = button.scExpeditionAction
-    if action == "refresh" or action == "next_places"
+    if action == "refresh_cars" then
+        draft.review = false
+    elseif action == "refresh" or action == "next_places"
         or action == "previous_places" then
         if action == "next_places" then
             draft.placePage = math.min(128, (draft.placePage or 1) + 1)
@@ -431,6 +444,10 @@ function Planner.build(detail, panel)
         draft.group = row and row.group or "alpha"
         if draft.group ~= "alpha" and draft.group ~= "bravo"
             and draft.group ~= "charlie" then draft.group = "alpha" end
+        local preferred = SC.ExpeditionCar and
+            SC.ExpeditionCar.preference(draft.group) or nil
+        draft.parkingZoneId = preferred and preferred.zoneId or nil
+        draft.vehicleSqlId = preferred and preferred.sqlId or nil
     end
     local y = detail:addSection(panel, 7, "UI_SC_Tab_Expeditions")
     local expedition = SC.ExpeditionPrototype
@@ -556,6 +573,10 @@ function Planner.build(detail, panel)
                 tr("UI_SC_Expedition_DriveOneX"))
             if draft.preview then
                 y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                    tr("UI_SC_Expedition_ChosenCar",
+                        draft.preview.carName or "Car",
+                        draft.preview.carSqlId or "?"))
+                y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
                     tr("UI_SC_Expedition_DriveFuel",
                         draft.preview.fuel or "?",
                         draft.preview.fuelRequired or "?"))
@@ -644,32 +665,45 @@ function Planner.build(detail, panel)
         local areas = SC.ExpeditionCar and SC.ExpeditionCar.parkingAreas()
             or {}
         local areaOptions = { { value = nil,
-            key = "UI_SC_Expedition_SelectParking" } }
+            key = "UI_SC_Expedition_AnyParking" } }
         local selectedArea
         for _, area in ipairs(areas) do
             areaOptions[#areaOptions + 1] = { value = area.id,
                 label = area.name or ("Parking " .. tostring(area.id)) }
             if area.id == draft.parkingZoneId then selectedArea = area end
         end
+        if draft.parkingZoneId ~= nil and not selectedArea then
+            areaOptions[#areaOptions + 1] = {
+                value = draft.parkingZoneId,
+                label = tr("UI_SC_Expedition_ParkingMissing"),
+            }
+        end
         y = addSelector(detail, panel, y, "UI_SC_Expedition_ParkingArea",
             "parkingZoneId", areaOptions)
-        local cars = selectedArea and SC.ExpeditionCar.candidates(selectedArea)
-            or {}
+        local cars = SC.ExpeditionCar and
+            SC.ExpeditionCar.parkedCars(draft.parkingZoneId) or {}
+        table.sort(cars, function(a, b)
+            if a.name ~= b.name then return a.name < b.name end
+            return a.sqlId < b.sqlId
+        end)
         local carOptions = { { value = nil,
-            key = "UI_SC_Expedition_SelectVehicle" } }
+            key = "UI_SC_Expedition_AnyVehicle" } }
         local chosenPresent = false
         for _, car in ipairs(cars) do
             carOptions[#carOptions + 1] = { value = car.sqlId,
-                label = string.format("%s #%d | %d seats | %.1f fuel",
-                    car.script, car.sqlId, car.seats, car.fuel or 0) }
+                label = tr("UI_SC_Expedition_CarOption", car.name,
+                    car.sqlId, car.seats, car.zone.name or car.zone.id) }
             if car.sqlId == draft.vehicleSqlId then chosenPresent = true end
         end
-        if not chosenPresent then draft.vehicleSqlId = nil end
-        if #cars == 1 and draft.vehicleSqlId == nil then
-            draft.vehicleSqlId = cars[1].sqlId
+        if draft.vehicleSqlId ~= nil and not chosenPresent then
+            carOptions[#carOptions + 1] = { value = draft.vehicleSqlId,
+                label = tr("UI_SC_Expedition_CarMissing",
+                    draft.vehicleSqlId) }
         end
         y = addSelector(detail, panel, y, "UI_SC_Expedition_Vehicle",
             "vehicleSqlId", carOptions)
+        y = addButton(detail, panel, y,
+            "UI_SC_Expedition_RefreshCars", "refresh_cars")
     end
     local places = { { value = nil, key = draft.kind == "fish"
         and "UI_SC_Expedition_SelectBank"

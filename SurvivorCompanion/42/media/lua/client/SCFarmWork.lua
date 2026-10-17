@@ -11,8 +11,9 @@ local SC = SurvivorCompanion
 SC.FarmWork = SC.FarmWork or {}
 local FarmWork = SC.FarmWork
 
--- Policy lives here; world mutation does not. Every actual farm effect is a
--- stock Build 42 timed action queued through SCNativeActions.
+-- Farm jobs use stock Build 42 timed actions through SCNativeActions. If a
+-- companion's completed water action consumes a use without updating the
+-- plant, reconcile that spent use through the stock farming command.
 FarmWork.ITEM_MARKER = "LF_FarmReceiptId"
 
 local states = setmetatable({}, { __mode = "k" })
@@ -103,6 +104,15 @@ end
 
 local function plantOn(square)
     local system = type(CFarmingSystem) == "table" and CFarmingSystem.instance or nil
+    if not system or not square then return nil end
+    local plant, ok = invoke(system, "getLuaObjectOnSquare", square)
+    return ok and plant or nil
+end
+
+local function serverPlantOn(square)
+    -- The server farming system is present in single player and absent on a
+    -- multiplayer client; its presence is the only authority we need here.
+    local system = type(SFarmingSystem) == "table" and SFarmingSystem.instance or nil
     if not system or not square then return nil end
     local plant, ok = invoke(system, "getLuaObjectOnSquare", square)
     return ok and plant or nil
@@ -920,26 +930,50 @@ local function farmingRole(actor)
     return resident and resident.role == "farmer"
 end
 
-local function approach(actor, square)
+local function approach(actor, square, object)
     local ax, ay, az = U().position(actor)
     local sx, sy, sz = U().position(square)
-    if ax and sx and math.floor(az or 0) == math.floor(sz or 0)
-        and math.max(math.abs(math.floor(ax) - math.floor(sx)),
-            math.abs(math.floor(ay) - math.floor(sy))) == 1 then
-        return "arrived", "farm_in_range"
+    if ax and sx and math.floor(az or 0) == math.floor(sz or 0) then
+        local accessible = U().directInteractionAccess(actor, object or square,
+            { cardinalOnly = true })
+        local dx, dy = ax - (math.floor(sx) + 0.5),
+            ay - (math.floor(sy) + 0.5)
+        -- A tile match alone can leave the actor at the far edge of the use
+        -- square. Stock water/farming actions then finish without touching the
+        -- source or crop. Reach the centre of an accessible use side first.
+        if accessible == true and dx * dx + dy * dy <= 1.25 * 1.25 then
+            return "arrived", "farm_in_range"
+        end
     end
     if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
         return "failed", "navigation_unavailable"
     end
-    local targets = SC.Navigation.interactionTargets(actor, square, { maximum = 8 })
+    local targets = SC.Navigation.interactionTargets(actor, object or square,
+        { maximum = 4, cardinalOnly = true, requireDirectAccess = true })
     if #targets == 0 then return "failed", "farm_approach_missing" end
+    for _, target in ipairs(targets) do
+        if U().sameSquare(actor, target) then
+            local tx, ty, tz = U().position(target)
+            local accepted, reason = SC.Navigation.request(actor, target, "walk", {
+                action = "move_to_farm_plot", targetSquare = square,
+                arrivalDistance = 0.2, workCampOnly = true,
+                workReach = SC.BaseLife.isInside(square) ~= true,
+                movingFormation = true,
+                interceptPosition = { x = math.floor(tx) + 0.5,
+                    y = math.floor(ty) + 0.5, z = tz },
+            })
+            if accepted ~= true then return "failed", reason or "farm_approach_failed" end
+            return "pending", reason or "farm_approaching"
+        end
+    end
     local accepted, reason = SC.Navigation.requestAny(actor, targets, "walk", {
-        action = "move_to_farm_plot", targetSquare = square, arrivalDistance = 0.8,
+        action = "move_to_farm_plot", targetSquare = square, arrivalDistance = 0.2,
         workCampOnly = true, workReach = SC.BaseLife.isInside(square) ~= true,
     })
     if accepted ~= true then return "failed", reason or "farm_approach_failed" end
     return "pending", reason or "farm_approaching"
 end
+FarmWork._approachForHarness = approach
 
 local function digTool(item)
     local broken, brokenOk = invoke(item, "isBroken")
@@ -1077,7 +1111,10 @@ local function actionProof(square, target, work)
         return plant and plant.state == "seeded" and plant.typeOfSeed == target.cropType
     end
     if work.operation == "water" then
-        return plant and (tonumber(plant.waterLvl) or 0) > (tonumber(work.before) or 0)
+        local serverPlant = serverPlantOn(square)
+        return (plant and (tonumber(plant.waterLvl) or 0) > (tonumber(work.before) or 0))
+            or (serverPlant and (tonumber(serverPlant.waterLvl) or 0)
+                > (tonumber(work.before) or 0)) or false
     end
     if work.operation == "compost" then return plant and plant.compost == true end
     if work.operation == "cure" then
@@ -1456,6 +1493,9 @@ local function startAction(actor, job, state, square, plant, operation)
     if completed ~= true then return false, completeReason or "farm_owner_release_failed" end
     state.work = {
         operation = operation, before = before, item = item,
+        waterUsesBefore = operation == "water" and waterUses(item) or nil,
+        usesRequested = operation == "water" and math.min(target.uses or 1,
+            waterUses(item)) or nil,
         startedAt = now(), inventorySnapshot = inventorySnapshot,
     }
     state.harvestBaseline, state.harvestBaselineEncoded = nil, nil
@@ -1472,6 +1512,34 @@ local function startAction(actor, job, state, square, plant, operation)
     end
     return true, "farm_" .. operation .. "_started"
 end
+
+local function reconcileConsumedWater(actor, square, work, jobId)
+    if work.operation ~= "water" or work.reconciled == true then return false end
+    local spent = math.min(tonumber(work.usesRequested) or 0,
+        math.max(0, (tonumber(work.waterUsesBefore) or 0)
+            - waterUses(work.item)))
+    local serverPlant = serverPlantOn(square)
+    if spent <= 0 or not serverPlant
+        or (tonumber(serverPlant.waterLvl) or 0) > (tonumber(work.before) or 0) then
+        return false
+    end
+    local x, y, z = U().position(square)
+    local handler = type(SFarmingSystemCommands) == "table"
+        and SFarmingSystemCommands.water or nil
+    local applied = false
+    if type(handler) == "function" then
+        applied = pcall(handler, actor, { x = x, y = y, z = z, uses = spent })
+    else
+        applied = select(2, invoke(serverPlant, "water", nil, spent))
+    end
+    work.reconciled = applied == true
+    if applied then
+        print("[SurvivorCompanion/farm-water-reconciled] job="
+            .. tostring(jobId) .. " uses=" .. tostring(spent))
+    end
+    return applied and actionProof(square, {}, work) or false
+end
+FarmWork._reconcileWaterForHarness = reconcileConsumedWater
 
 local function finishAction(actor, baseState, job, state, square)
     local work = state.work
@@ -1493,6 +1561,9 @@ local function finishAction(actor, baseState, job, state, square)
         if now() - work.finishedAt < 2500 then
             return true, "farm_action_verifying"
         end
+        reconcileConsumedWater(actor, square, work, job.id)
+    end
+    if not actionProof(square, job.target, work) then
         local plant = plantOn(square)
         print("[SurvivorCompanion/farm-proof] job=" .. tostring(job.id)
             .. " operation=" .. tostring(work.operation)
@@ -1690,7 +1761,7 @@ function FarmWork.update(actor, baseState, job, runtime)
             state.waterSource = source
         end
         local sourceSquare = U().squareOf(source)
-        local approachState, approachReason = approach(actor, sourceSquare)
+        local approachState, approachReason = approach(actor, sourceSquare, source)
         if approachState == "failed" then
             state.waterSource = nil
             return false, approachReason, true
