@@ -1246,6 +1246,31 @@ function Field.export()
     return { schema = 1, recentVehicleId = recentVehicleId, serial = serial,
         active = active, pendingAxeReturns = pendingAxeReturns }
 end
+-- One saved axe return per worker. Like a malformed order, a malformed entry
+-- rejects the save so persistence quarantines it unchanged instead of the
+-- runtime indexing bad data later.
+local function validAxeReturns(value)
+    if value == nil then return true end
+    if type(value) ~= "table" then return false end
+    local count = 0
+    for workerId, pending in pairs(value) do
+        count = count + 1
+        if count > 16 or type(workerId) ~= "string" or workerId == ""
+            or type(pending) ~= "table"
+            or (type(pending.itemId) ~= "string" and type(pending.itemId) ~= "number")
+            or type(pending.orderId) ~= "string"
+            or type(pending.carId) ~= "number" or pending.carId < 0
+            or (pending.kind ~= "harvest" and pending.kind ~= "chop")
+            or type(pending.center) ~= "table"
+            or type(pending.center.x) ~= "number"
+            or type(pending.center.y) ~= "number"
+            or type(pending.center.z) ~= "number"
+            or (pending.blocker ~= nil and type(pending.blocker) ~= "string") then
+            return false
+        end
+    end
+    return true
+end
 function Field.restore(saved)
     if saved == nil then
         active, recentVehicleId, serial, pendingAxeReturns = nil, nil, 0, {}
@@ -1275,9 +1300,12 @@ function Field.restore(saved)
                 and order.unlock.stage ~= "exit")))) then
         return false, "invalid_field_order_save"
     end
+    if not validAxeReturns(saved.pendingAxeReturns) then
+        return false, "invalid_field_axe_return_save"
+    end
+    -- Persistence passes a disposable copy, so the tables are owned here.
     active, recentVehicleId, serial = order, saved.recentVehicleId, saved.serial
-    pendingAxeReturns = type(saved.pendingAxeReturns) == "table"
-        and saved.pendingAxeReturns or {}
+    pendingAxeReturns = saved.pendingAxeReturns or {}
     if active and active.phase == "working" then
         for _, worker in pairs(active.workers) do
             if worker.phase == "working" then worker.phase = "recover" end

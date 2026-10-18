@@ -510,6 +510,33 @@ check(sharedAxe.data.LF_FieldBorrowedAxe ~= nil
 local returnSave = Field.export()
 check(Field.restore(returnSave) == true,
     "borrowed axe obligation survives save and restore")
+local function deepCopy(value)
+    if type(value) ~= "table" then return value end
+    local result = {}
+    for key, child in pairs(value) do result[key] = deepCopy(child) end
+    return result
+end
+local corruptions = {
+    function(returns) returns.one = "not-a-return" end,
+    function(returns) returns.one.center = nil end,
+    function(returns) returns.one.kind = "mine" end,
+    function(returns) returns.one.carId = "42" end,
+    function(returns) returns.one.blocker = 7 end,
+    function(returns) returns[5] = deepCopy(returns.one) end,
+}
+for index, corrupt in ipairs(corruptions) do
+    local damaged = deepCopy(Field.export())
+    corrupt(damaged.pendingAxeReturns)
+    local restored, restoreReason = Field.restore(damaged)
+    local live = Field.export().pendingAxeReturns
+    check(restored == false and restoreReason == "invalid_field_axe_return_save"
+            and Field.status().pendingAxeReturns == 1
+            and type(live.one) == "table" and live.one.center ~= nil
+            and live.one.kind == "chop" and type(live.one.carId) == "number"
+            and live.one.blocker ~= 7 and live[5] == nil,
+        "a malformed axe return is rejected and the live obligation kept: "
+            .. tostring(index))
+end
 car.locked = false
 car.part.bag.room = false
 check(Field.wants(one, player, SC.Commands.peek(one)) == false
