@@ -106,9 +106,14 @@ try {
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCRoadFollowerTest.java')
     if ($LASTEXITCODE -ne 0) { throw 'Core Java test harness compilation failed.' }
 
+    & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler --verify-debug-limit
+    if ($LASTEXITCODE -ne 0) { throw 'Kahlua debug compiler fixture failed.' }
+
     $allLua = @(Get-ChildItem -LiteralPath $Payload -Recurse -Filter '*.lua' -File | Sort-Object FullName | ForEach-Object FullName)
     & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler @allLua
     if ($LASTEXITCODE -ne 0) { throw 'Kahlua compilation gate failed.' }
+    & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler --debug-compile @allLua
+    if ($LASTEXITCODE -ne 0) { throw 'Kahlua debug compilation gate failed.' }
 
     $coreFiles = @(
         (Join-Path $TestRoot 'core_fixture.lua'),

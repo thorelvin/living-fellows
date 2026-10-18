@@ -390,6 +390,11 @@ Run the complete test gate:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test-Project.ps1
 ```
 
+The real game compiler checks every shipped Lua file in normal and PZ debug
+mode. The Workshop, standalone, and offline playtest builders run the same
+compile preflight before staging a package. You can run it directly with
+`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test-LuaCompile.ps1`.
+
 The stages run in parallel, and the core Kahlua harnesses and the installer's
 fault-injection cases each fan out again inside their own stage. `-Jobs N` sets
 how many run at once (it defaults to the processor count, capped at 8) and

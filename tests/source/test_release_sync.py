@@ -44,6 +44,10 @@ native_installer = (ROOT / "scripts/Install-NativeBridge.ps1").read_text(
 )
 project_gate = (ROOT / "scripts/Test-Project.ps1").read_text(encoding="utf-8")
 runtime_gate = (ROOT / "scripts/Test-PzRuntime.ps1").read_text(encoding="utf-8")
+core_gate = (ROOT / "tests/core/run_core_tests.ps1").read_text(encoding="utf-8")
+lua_gate = (ROOT / "scripts/Test-LuaCompile.ps1").read_text(encoding="utf-8")
+lua_compiler = (ROOT / "tests/ui/ReflectLuaCompiler.java").read_text(
+    encoding="utf-8")
 runtime_manifest = json.loads((ROOT / "tests/core/pz-runtime.json").read_text(
     encoding="utf-8"))
 
@@ -123,6 +127,16 @@ require(project_gate.index("Test-PzRuntime.ps1") < project_gate.index("Test-Sour
         and "Get-FileHash" in runtime_gate and "projectzomboid.jar" in runtime_gate
         and "SCNamespace.lua" in runtime_gate and "Install-NativeBridge.ps1" in runtime_gate,
         "full project verification does not start with the pinned real-JAR identity gate")
+require("--verify-debug-limit" in core_gate and "--debug-compile @allLua" in core_gate
+        and "--verify-debug-limit" in lua_gate
+        and "--debug-compile @LuaFiles" in lua_gate
+        and 'getField("debug").setBoolean(null, true)' in lua_compiler,
+        "the pinned Kahlua debug compilation gate is not wired through")
+for builder in ("Build-Workshop.ps1", "Build-Standalone.ps1",
+                "Build-OfflinePlaytest.ps1"):
+    script = (ROOT / "scripts" / builder).read_text(encoding="utf-8")
+    require("Test-LuaCompile.ps1" in script,
+            f"{builder} can package Lua without the debug compilation gate")
 
 payload_jar = ROOT / "SurvivorCompanion/42/media/java/SurvivorCompanionBridge.jar"
 with zipfile.ZipFile(payload_jar) as archive:

@@ -3,6 +3,7 @@
 [CmdletBinding()]
 param(
     [string]$ProjectRoot = '',
+    [string]$GameRoot = 'C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid',
     [ValidateSet('playtest', 'public-beta', 'release')]
     [string]$Channel = 'playtest',
     # build\native-bridge is a shared directory that every caller wipes and
@@ -16,6 +17,8 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
     $ProjectRoot = Split-Path -Parent $PSScriptRoot
 }
 $ProjectRoot = [System.IO.Path]::GetFullPath($ProjectRoot)
+& (Join-Path $ProjectRoot 'scripts\Test-LuaCompile.ps1') `
+    -ProjectRoot $ProjectRoot -GameRoot $GameRoot
 $Payload = Join-Path $ProjectRoot 'SurvivorCompanion'
 $Workshop = Join-Path $ProjectRoot 'Workshop'
 $ModsStageRoot = Join-Path $Workshop 'Contents\mods'
