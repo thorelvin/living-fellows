@@ -525,6 +525,8 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn("SC.BaseLife.zoneDraft()", relevant)
         self.assertIn("SC.BaseLife.isInside(square) == true", relevant)
         self.assertIn("SC.BaseLife.withinWorkReach(square) == true", relevant)
+        self.assertNotIn('if safeMethod(square, "getRoomDef") then return true end', relevant)
+        self.assertIn('SC.BaseLife.roomMarkPreview(square, "area") == true', relevant)
         base = lua_function(
             self.context,
             "local function addBaseMenu(context, square, containerTarget, barricadeTarget, player)",

@@ -1022,7 +1022,11 @@ local function baseMenuRelevant(square)
         and SC.BaseLife.mayExtendAreaToFloor(square) == true then return true end
     if type(SC.BaseLife.parkingCornerRelevant) == "function"
         and SC.BaseLife.parkingCornerRelevant(square) == true then return true end
-    if safeMethod(square, "getRoomDef") then return true end
+    -- A large room in the camp's building can be valid beyond the ordinary
+    -- work band. Ask the same validator used by the room action itself.
+    if safeMethod(square, "getRoomDef")
+        and type(SC.BaseLife.roomMarkPreview) == "function"
+        and SC.BaseLife.roomMarkPreview(square, "area") == true then return true end
     -- Lumber areas may be marked in the bounded reach band outside the camp.
     return type(SC.BaseLife.withinWorkReach) == "function"
         and SC.BaseLife.withinWorkReach(square) == true

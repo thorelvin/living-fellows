@@ -148,14 +148,19 @@ end
 
 function Yard.select(actor, preferredId)
     local best, bestDistance
+    local splitPending = false
     local inspected = 0
     for _, zone in ipairs(zones(preferredId)) do
         for y = zone.y1, zone.y2 do
             for x = zone.x1, zone.x2 do
                 inspected = inspected + 1
-                if inspected > 1024 then return best, best and nil or "log_yard_scan_limit" end
+                if inspected > 1024 then
+                    if best then return best end
+                    return nil, "log_yard_scan_limit"
+                end
                 local square = Yard.tile(x, y, zone.z, zone.id)
                 local contents = square and Yard.contents(square) or nil
+                if contents and contents.splitPending then splitPending = true end
                 if contents and contents.units < 4 and not contents.splitPending then
                     local distance = actor and U().distance(actor, square) or 0
                     if bestDistance == nil or distance < bestDistance then
@@ -167,7 +172,8 @@ function Yard.select(actor, preferredId)
             end
         end
     end
-    return best, best and nil or "log_yard_full"
+    if best then return best end
+    return nil, splitPending and "log_yard_split_pending" or "log_yard_full"
 end
 
 function Yard.restoreDestination(receipt)
@@ -242,13 +248,15 @@ local function pendingSplit(actor, square, zoneId)
     local ownerId = tostring(U().idOf(actor) or "")
     local function eligible(item)
         local marker = splitOf(item)
-        return marker and marker.ownerId == ownerId and marker.zoneId == zoneId
+        return marker and marker.zoneId == zoneId
             and marker.x == select(1, U().position(square))
             and marker.y == select(2, U().position(square))
             and marker.z == select(3, U().position(square))
     end
     for _, item in ipairs(U().inventoryItems(U().inventory(actor), 4096)) do
-        if eligible(item) then return splitOf(item) end
+        if eligible(item) and splitOf(item).ownerId == ownerId then
+            return splitOf(item)
+        end
     end
     for _, row in ipairs(worldItems(square) or {}) do
         if eligible(row.item) then return splitOf(row.item) end
@@ -256,7 +264,52 @@ local function pendingSplit(actor, square, zoneId)
     return nil
 end
 
-local function rollbackSplit(inventory, square, receipt)
+local rollbackSplit, completeSplit
+
+local function recoverOrphanSplit(inventory, square, receipt)
+    local rows = splitRows(inventory, square, receipt.id)
+    if rows.duplicate then return false, "log_yard_split_orphaned" end
+    -- A retired worker may still have marked items in a corpse or unloaded
+    -- inventory. Take over only when every provisional output is visible on
+    -- this tile, so clearing the original cannot duplicate missing cargo.
+    for index = 1, receipt.count do
+        local row = rows.logs[index]
+        local held = row and U().inventoryContains(inventory, row.item)
+        local grounded = row and row.world
+            and U().worldItemPresent(square, row.world) == true
+        if not row or not held and not grounded then
+            return false, "log_yard_split_orphaned"
+        end
+    end
+    for index = 1, receipt.ropeCount do
+        local row = rows.ropes[index]
+        if not row or not U().inventoryContains(inventory, row.item)
+            and (not row.world or U().worldItemPresent(square, row.world) ~= true) then
+            return false, "log_yard_split_orphaned"
+        end
+    end
+    if rows.source then
+        return false, rollbackSplit(inventory, square, receipt)
+            and "log_yard_split_rolled_back" or "log_yard_split_recovery_pending"
+    end
+    -- With the source gone, all output identities are proved on the ground.
+    -- Move the selected log and ropes to the new worker, then commit once.
+    local selected = rows.logs[1]
+    if not U().inventoryContains(inventory, selected.item) then
+        local taken = U().takeWorldItemVerified(selected.world, inventory, selected.item)
+        if taken ~= true then return false, "log_yard_split_recovery_pending" end
+    end
+    for index = 1, receipt.ropeCount do
+        local row = rows.ropes[index]
+        if not U().inventoryContains(inventory, row.item) then
+            local taken = U().takeWorldItemVerified(row.world, inventory, row.item)
+            if taken ~= true then return false, "log_yard_split_recovery_pending" end
+        end
+    end
+    return completeSplit(inventory, square, receipt)
+end
+
+rollbackSplit = function(inventory, square, receipt)
     local rows = splitRows(inventory, square, receipt.id)
     if rows.duplicate or not rows.source then return false end
     for _, group in ipairs({ rows.logs, rows.ropes }) do
@@ -285,7 +338,7 @@ local function rollbackSplit(inventory, square, receipt)
     return clearSplit(source.item, receipt.id)
 end
 
-local function completeSplit(inventory, square, receipt)
+completeSplit = function(inventory, square, receipt)
     local rows = splitRows(inventory, square, receipt.id)
     if rows.duplicate then return false, "log_yard_split_recovery_pending" end
     local source = rows.source
@@ -447,26 +500,63 @@ local function ropeSources(actor)
 end
 
 local function restoreIngredients(inventory, square, logs, ropes)
+    local restored = true
     for _, row in ipairs(logs) do
         -- A failed ground pickup may still have the world wrapper as its
         -- recovery owner. Never create a second representation of that item.
-        if U().worldItemPresent(square, row.world) ~= true then
+        if U().worldItemPresent(square, row.world) == true then
+            if U().inventoryContains(inventory, row.item)
+                and not removeExact(inventory, row.item) then restored = false end
+        else
             if not U().inventoryContains(inventory, row.item) then
                 U().addItem(inventory, row.item)
             end
             if U().inventoryContains(inventory, row.item) then
                 U().dropItem(inventory, square, row.item)
             end
+            local world = select(1, U().call(row.item, "getWorldItem"))
+            if not world or U().worldItemPresent(square, world) ~= true then
+                restored = false
+            end
         end
+        if U().inventoryContains(inventory, row.item) then restored = false end
     end
     for _, row in ipairs(ropes) do
-        if row.container ~= inventory and not U().inventoryContains(inventory, row.item) then
+        local inWorker = U().inventoryContains(inventory, row.item)
+        local atHome = U().inventoryContains(row.container, row.item)
+        if row.container ~= inventory and inWorker and atHome then
+            if not removeExact(inventory, row.item) then restored = false end
+            inWorker = U().inventoryContains(inventory, row.item)
+        end
+        if not inWorker and not atHome then
             U().addItem(inventory, row.item)
         end
         if row.container ~= inventory and U().inventoryContains(inventory, row.item) then
             U().transferItemVerified(inventory, row.container, row.item)
         end
+        if not U().inventoryContains(row.container, row.item)
+            or row.container ~= inventory
+                and U().inventoryContains(inventory, row.item) then
+            restored = false
+        end
     end
+    return restored
+end
+
+local function rollbackBundle(inventory, square, bundle, logs, ropes)
+    if bundle then
+        local world = select(1, U().call(bundle, "getWorldItem"))
+        if world and U().worldItemPresent(square, world) == true then
+            local taken = U().takeWorldItemVerified(world, inventory, bundle)
+            if U().worldItemPresent(square, world) ~= false
+                or (taken ~= true and not U().inventoryContains(inventory, bundle)) then
+                return false
+            end
+        end
+        if not U().inventoryContains(inventory, bundle)
+            or not removeExact(inventory, bundle) then return false end
+    end
+    return restoreIngredients(inventory, square, logs, ropes)
 end
 
 -- The Build 42 recipe MakeFourLogStack consumes exactly four Base.Log and
@@ -488,8 +578,9 @@ function Yard.bundleAt(actor, square)
         local moved = row.container == inventory and U().inventoryContains(inventory, row.item)
             or U().transferItemVerified(row.container, inventory, row.item)
         if moved ~= true then
-            restoreIngredients(inventory, square, movedLogs, movedRopes)
-            return false, "log_yard_rope_transfer_failed"
+            local restored = restoreIngredients(inventory, square, movedLogs, movedRopes)
+            return false, restored and "log_yard_rope_transfer_failed"
+                or "log_yard_bundle_recovery_pending"
         end
         movedRopes[#movedRopes + 1] = row
     end
@@ -500,59 +591,64 @@ function Yard.bundleAt(actor, square)
                 and U().worldItemPresent(square, row.world) ~= true then
                 movedLogs[#movedLogs + 1] = row
             end
-            restoreIngredients(inventory, square, movedLogs, movedRopes)
-            return false, "log_yard_log_pickup_failed"
+            local restored = restoreIngredients(inventory, square, movedLogs, movedRopes)
+            return false, restored and "log_yard_log_pickup_failed"
+                or "log_yard_bundle_recovery_pending"
         end
         movedLogs[#movedLogs + 1] = row
     end
     local bundle = U().addItem(inventory, "Base.LogStacks4")
     if not bundle or not U().inventoryContains(inventory, bundle) then
-        restoreIngredients(inventory, square, movedLogs, movedRopes)
-        return false, "log_yard_bundle_creation_failed"
+        local restored = restoreIngredients(inventory, square, movedLogs, movedRopes)
+        return false, restored and "log_yard_bundle_creation_failed"
+            or "log_yard_bundle_recovery_pending"
     end
     -- RecipeCodeOnCreate.createLogStack writes these zero-based rope types to
     -- the output. Its splitLogStack callback expects the table to exist and
     -- returns the ropes when a player opens this bundle through vanilla UI.
     local data, readable = U().call(bundle, "getModData")
     if not readable or type(data) ~= "table" then
-        removeExact(inventory, bundle)
-        restoreIngredients(inventory, square, movedLogs, movedRopes)
-        return false, "log_yard_bundle_metadata_unavailable"
+        local restored = rollbackBundle(inventory, square, bundle,
+            movedLogs, movedRopes)
+        return false, restored and "log_yard_bundle_metadata_unavailable"
+            or "log_yard_bundle_recovery_pending"
     end
     data.ropeItems = {
         [0] = U().itemType(movedRopes[1].item),
         [1] = U().itemType(movedRopes[2].item),
     }
+    -- Prove the output is on the floor before consuming any input. A refused
+    -- world drop leaves every exact log and rope available for restitution.
+    local dropped, worldOrReason = U().dropItem(inventory, square, bundle)
+    local linkedWorld = select(1, U().call(bundle, "getWorldItem"))
+    local outputWorld = dropped == true and worldOrReason or linkedWorld
+    if not outputWorld or U().worldItemPresent(square, outputWorld) ~= true then
+        local restored = rollbackBundle(inventory, square, bundle,
+            movedLogs, movedRopes)
+        return false, restored and "log_yard_bundle_drop_failed"
+            or "log_yard_bundle_recovery_pending"
+    end
     for _, row in ipairs(movedLogs) do
         if not removeExact(inventory, row.item) then
-            removeExact(inventory, bundle)
-            restoreIngredients(inventory, square, movedLogs, movedRopes)
-            return false, "log_yard_log_consumption_failed"
+            local restored = rollbackBundle(inventory, square, bundle,
+                movedLogs, movedRopes)
+            return false, restored and "log_yard_log_consumption_failed"
+                or "log_yard_bundle_recovery_pending"
         end
     end
     for _, row in ipairs(movedRopes) do
         if not removeExact(inventory, row.item) then
-            removeExact(inventory, bundle)
-            restoreIngredients(inventory, square, movedLogs, movedRopes)
-            return false, "log_yard_rope_consumption_failed"
+            local restored = rollbackBundle(inventory, square, bundle,
+                movedLogs, movedRopes)
+            return false, restored and "log_yard_rope_consumption_failed"
+                or "log_yard_bundle_recovery_pending"
         end
     end
-    local dropped, worldOrReason = U().dropItem(inventory, square, bundle)
-    if dropped == true and U().worldItemPresent(square, worldOrReason) == true then
-        return true, "log_yard_bundled"
-    end
-    local linkedWorld = select(1, U().call(bundle, "getWorldItem"))
-    if linkedWorld and U().worldItemPresent(square, linkedWorld) == true then
-        return true, "log_yard_bundled"
-    end
-    if U().inventoryContains(inventory, bundle) and removeExact(inventory, bundle) then
-        restoreIngredients(inventory, square, movedLogs, movedRopes)
-    end
-    return false, "log_yard_bundle_drop_failed"
+    return true, "log_yard_bundled"
 end
 
 function Yard.source(actor, preferredId)
-    local best, bestDistance
+    local best, bestDistance, bestRank
     local inspected = 0
     local inventory = actor and U().inventory(actor) or nil
     for _, item in ipairs(U().inventoryItems(inventory, 4096)) do
@@ -573,21 +669,27 @@ function Yard.source(actor, preferredId)
                 if inspected > 1024 then return best end
                 local square = Yard.tile(x, y, zone.z, zone.id)
                 local contents = square and Yard.contents(square) or nil
-                local recovering = false
-                for _, row in ipairs(contents and contents.bundles or {}) do
+                local recovering, ownRecovery = false, false
+                for _, row in ipairs(square and worldItems(square) or {}) do
                     local marker = splitOf(row.item)
-                    if marker and actor and marker.ownerId == tostring(U().idOf(actor) or "") then
+                    if marker then
                         recovering = true
-                        break
+                        if actor and marker.ownerId == tostring(U().idOf(actor) or "") then
+                            ownRecovery = true
+                            break
+                        end
                     end
                 end
-                if contents and (#looseAvailable(contents) > 0
-                    or bundleAvailable(contents) ~= nil or recovering) then
+                local available = contents and (#looseAvailable(contents) > 0
+                    or bundleAvailable(contents) ~= nil)
+                if contents and (available or recovering) then
                     local distance = actor and U().distance(actor, square) or 0
-                    if bestDistance == nil or distance < bestDistance then
+                    local rank = ownRecovery and 1 or available and 2 or 3
+                    if bestRank == nil or rank < bestRank
+                        or rank == bestRank and distance < bestDistance then
                         best = { kind = "log_yard", zoneId = zone.id,
                             x = x, y = y, z = zone.z, square = square }
-                        bestDistance = distance
+                        bestDistance, bestRank = distance, rank
                     end
                 end
             end
@@ -657,6 +759,17 @@ function Yard.takeOne(actor, destination)
     if not inventory then return false, "worker_inventory_unavailable" end
     local pending = pendingSplit(actor, square, destination.zoneId)
     if pending then
+        if pending.ownerId ~= tostring(U().idOf(actor) or "") then
+            local owner = U().resolveActor(pending.ownerId)
+            local restoring = SC.Persistence and SC.Persistence.restoreStatus
+                and SC.Persistence.restoreStatus() == false
+            local waiting = SC.Persistence and SC.Persistence.isPending
+                and SC.Persistence.isPending(pending.ownerId) == true
+            if owner or restoring or waiting then
+                return false, "log_yard_split_owned"
+            end
+            return recoverOrphanSplit(inventory, square, pending)
+        end
         return abortSplit(inventory, square, pending, "log_yard_split_rolled_back")
     end
     local loose = looseAvailable(contents)[1]

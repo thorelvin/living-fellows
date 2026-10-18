@@ -1699,6 +1699,64 @@ end
 -- unbundling. With no rope, the four loose logs remain usable in place.
 do
     local ctx = setup("logs", 1)
+    local id = ctx.actor.modData.SC_Id
+    ctx.base.jobs = {}
+    check(SC.BaseLife.assign(id, "guard", true) == true,
+        "idle guard joins watch")
+    local oldGuardStatus = SC.BaseLife.guardStatus
+    local oldNightRestricted = SC.BaseLife.outdoorNightRestricted
+    local oldBundle = SC.LogYard.updateBundle
+    local bundleCalls = 0
+    SC.BaseLife.guardStatus = function() return true end
+    SC.BaseLife.outdoorNightRestricted = function() return false end
+    SC.LogYard.updateBundle = function()
+        bundleCalls = bundleCalls + 1
+        return true, "log_yard_bundled"
+    end
+    SC.BaseWork.update(ctx.actor, nil, {})
+    check(bundleCalls == 0, "idle on-shift guard does not leave watch to bundle")
+    check(SC.BaseLife.assign(id, "generalist", true) == true,
+        "idle worker leaves guard role")
+    SC.BaseLife.guardStatus = function() return false end
+    SC.BaseWork.update(ctx.actor, nil, {})
+    check(bundleCalls == 1, "idle non-guard can bundle yard logs")
+    SC.BaseLife.guardStatus = oldGuardStatus
+    SC.BaseLife.outdoorNightRestricted = oldNightRestricted
+    SC.LogYard.updateBundle = oldBundle
+end
+
+-- The marked yard must preserve four exact logs through bundling and
+-- unbundling. With no rope, the four loose logs remain usable in place.
+do
+    local ctx = setup("logs", 1)
+    local id = ctx.actor.modData.SC_Id
+    local _, job = SC.BaseLife.enqueueJob({ type = "unload_vehicle", priority = 2 })
+    local priorGetPlayer = getPlayer
+    local speech = 0
+    getPlayer = function() return ctx.actor end
+    function ctx.actor:Say() speech = speech + 1 end
+    job.state, job.reservedBy = "active", id
+    check(SC.BaseLife.blockJob(job.id, id, "car_unload_storage_full_or_missing") == true
+            and speech == 1 and job.fullAlertSpoken == true,
+        "first full-storage interval speaks once")
+    job.state, job.reservedBy = "active", id
+    check(SC.BaseLife.blockJob(job.id, id, "car_unload_storage_full_or_missing") == true
+            and speech == 1,
+        "repeated full-storage retry does not repeat speech")
+    job.state, job.reservedBy = "active", id
+    check(SC.BaseLife.noteJobStorageProgress(job.id, id) == true
+            and job.fullAlertSpoken == false,
+        "verified item storage rearms the full-storage warning")
+    check(SC.BaseLife.blockJob(job.id, id, "car_unload_storage_full_or_missing") == true
+            and speech == 2,
+        "a later full-storage interval speaks again")
+    getPlayer = priorGetPlayer
+end
+
+-- The marked yard must preserve four exact logs through bundling and
+-- unbundling. With no rope, the four loose logs remain usable in place.
+do
+    local ctx = setup("logs", 1)
     local yardSquare = addSquare(2, 1, 0)
     function yardSquare:isOutside() return true end
     check(SC.BaseLife.beginZone("log_yard", yardSquare) == true,
@@ -1746,6 +1804,54 @@ do
             and afterTake.units == 3 and #afterTake.logs == 3
             and returnedRopes == 2,
         "building opens one bundle, leaves three logs and returns both ropes")
+end
+
+-- A refused bundle drop must restore the exact original items regardless of
+-- whether its ropes came from the worker, storage, or both.
+for carried = 0, 2 do
+    local ctx = setup("logs", 1)
+    local yardSquare = addSquare(2, 1, 0)
+    function yardSquare:isOutside() return true end
+    check(SC.BaseLife.beginZone("log_yard", yardSquare) == true,
+        "failed-bundle yard begins")
+    check(SC.BaseLife.finishZone(yardSquare, "Drop-fault yard") == true,
+        "failed-bundle yard registers")
+    ctx.actor.square, ctx.actor.x, ctx.actor.y = yardSquare, 2.5, 1.5
+    local logs, ropes = {}, {}
+    for index = 1, 4 do
+        logs[index] = makeItem("Base.Log")
+        putOnGround(yardSquare, logs[index])
+    end
+    local ropeObject = makeStorage(addSquare(3, 0, 0))
+    check(SC.BaseLife.registerStorage(ropeObject, "crafting") == true,
+        "failed-bundle rope storage registers")
+    for index = 1, 2 do
+        ropes[index] = makeItem("Base.Rope")
+        local home = index <= carried and ctx.actor.inventory or ropeObject.container
+        home:AddItem(ropes[index])
+    end
+    local originalDrop = yardSquare.AddWorldInventoryItem
+    yardSquare.AddWorldInventoryItem = function(self, item)
+        if item.fullType == "Base.LogStacks4" then return nil end
+        return originalDrop(self, item)
+    end
+    local bundled, reason = SC.LogYard.bundleAt(ctx.actor, yardSquare)
+    yardSquare.AddWorldInventoryItem = originalDrop
+    local contents = SC.LogYard.contents(yardSquare)
+    check(bundled == false and reason == "log_yard_bundle_drop_failed"
+            and #contents.logs == 4 and #contents.bundles == 0,
+        "failed bundle drop leaves four exact ground logs: carried=" .. carried)
+    for _, log in ipairs(logs) do
+        check(log.worldItem and SC.GameplayUtil.worldItemPresent(yardSquare,
+                log.worldItem) == true,
+            "failed bundle drop restores exact log identity")
+    end
+    for index, rope in ipairs(ropes) do
+        local home = index <= carried and ctx.actor.inventory or ropeObject.container
+        check(home:contains(rope), "failed bundle drop restores exact rope owner")
+    end
+    check(SC.LogYard.bundleAt(ctx.actor, yardSquare) == true,
+        "bundle retries successfully after drop fault")
 end
 
 -- Yard withdrawal must refuse a log before moving its exact world item when
@@ -1946,6 +2052,134 @@ for _, failure in ipairs({ "create", "consume", "world" }) do
             .. "/" .. tostring(#contents.bundles) .. "/" .. tostring(#contents.logs)
             .. "/" .. tostring(bundle.worldItem == wrapper))
 end
+
+-- A gather receipt can be retargeted from its original container to the yard
+-- and still account for exactly one delivered world item after save/load.
+do
+    local ctx = setup("logs", 1)
+    local first, second = addSquare(2, 1, 0), addSquare(3, 1, 0)
+    function first:isOutside() return true end
+    function second:isOutside() return true end
+    check(SC.BaseLife.beginZone("log_yard", first) == true,
+        "split-locked yard begins")
+    local marked, zone = SC.BaseLife.finishZone(second, "Two-tile yard")
+    check(marked == true, "split-locked yard registers")
+    local log = makeItem("Base.Log")
+    putOnGround(ctx.source, log)
+    local receipt = reserveCandidate(ctx, ctx.actor, log)
+    check(receipt.destinationPoint.x == first.x,
+        "receipt initially chooses nearest yard tile")
+    local function lock(square, suffix)
+        local pending = makeItem("Base.Log", { modData = {
+            LF_LogYardSplit = { v = 1, id = "pending-" .. suffix,
+                role = "log", index = 1, ownerId = "missing",
+                zoneId = zone.id, x = square.x, y = square.y, z = square.z,
+                count = 2, ropeCount = 0 },
+        } })
+        putOnGround(square, pending)
+        return pending
+    end
+    lock(first, "first")
+    local destination, _, reason = SC.WorkTransport.destinationFor(
+        ctx.order, receipt, ctx.actor, log)
+    check(destination and destination.x == second.x
+            and receipt.destinationPoint.x == second.x,
+        "receipt retargets away from a split-locked tile: " .. tostring(reason))
+    check(SC.WorkTransport.collect(receipt, ctx.actor, log, log.worldItem) == true,
+        "retargeted log is collected")
+    ctx.actor.square, ctx.actor.x, ctx.actor.y = second, 3.5, 1.5
+    check(SC.WorkTransport.deposit(receipt, ctx.actor, log) == true
+            and SC.LogYard.contents(second).units == 1,
+        "retargeted log reaches the open yard tile")
+    lock(second, "second")
+    ctx.storage.deposits = false
+    destination, _, reason = SC.WorkTransport.destinationFor(ctx.order,
+        receipt, ctx.actor, makeItem("Base.Log"))
+    check(destination == nil and reason == "log_yard_split_pending",
+        "all split-locked yard tiles report recovery rather than full capacity")
+end
+
+-- Missing-owner split receipts are discovered on the ground. A second worker
+-- reconciles only when every output identity is present; otherwise the tile
+-- stays protected and reports the orphan explicitly.
+local priorSplitRestoreStatus = SC.Persistence.restoreStatus
+SC.Persistence.restoreStatus = function() return true end
+for _, sourcePresent in ipairs({ true, false }) do
+    local ctx = setup("logs", 1)
+    local square = addSquare(2, 1, 0)
+    function square:isOutside() return true end
+    check(SC.BaseLife.beginZone("log_yard", square) == true,
+        "orphan yard begins")
+    local marked, zone = SC.BaseLife.finishZone(square, "Orphan yard")
+    check(marked == true, "orphan yard registers")
+    ctx.actor.square, ctx.actor.x, ctx.actor.y = square, 2.5, 1.5
+    local receipt = { v = 1, id = "orphan-" .. tostring(contextSerial),
+        ownerId = "retired-worker", zoneId = zone.id,
+        x = square.x, y = square.y, z = square.z, count = 2, ropeCount = 0 }
+    local source
+    if sourcePresent then
+        source = makeItem("Base.LogStacks2", { modData = {
+            LF_LogYardSplit = { v = 1, id = receipt.id, role = "source",
+                index = 0, ownerId = receipt.ownerId, zoneId = zone.id,
+                x = square.x, y = square.y, z = square.z,
+                count = 2, ropeCount = 0 },
+        } })
+        putOnGround(square, source)
+    end
+    local outputs = {}
+    for index = 1, 2 do
+        outputs[index] = makeItem("Base.Log", { modData = {
+            LF_LogYardSplit = { v = 1, id = receipt.id, role = "log",
+                index = index, ownerId = receipt.ownerId, zoneId = zone.id,
+                x = square.x, y = square.y, z = square.z,
+                count = 2, ropeCount = 0 },
+        } })
+        putOnGround(square, outputs[index])
+    end
+    local destination = SC.LogYard.source(ctx.actor, zone.id)
+    check(destination ~= nil, "orphaned marked outputs remain discoverable")
+    local recovered, reason = SC.LogYard.takeOne(ctx.actor, destination)
+    if sourcePresent then
+        check(recovered == false and reason == "log_yard_split_rolled_back"
+                and source.modData.LF_LogYardSplit == nil
+                and SC.LogYard.contents(square).units == 2,
+            "complete orphan with source restores original stack: "
+                .. tostring(reason) .. "/"
+                .. tostring(source.modData.LF_LogYardSplit == nil) .. "/"
+                .. tostring(SC.LogYard.contents(square).units))
+    else
+        check(recovered == true and reason == "log_yard_log_taken"
+                and ctx.actor.inventory:contains(outputs[1])
+                and outputs[1].modData.LF_LogYardSplit == nil
+                and outputs[2].modData.LF_LogYardSplit == nil,
+            "complete orphan without source commits exact outputs")
+    end
+end
+
+do
+    local ctx = setup("logs", 1)
+    local square = addSquare(2, 1, 0)
+    function square:isOutside() return true end
+    check(SC.BaseLife.beginZone("log_yard", square) == true,
+        "incomplete-orphan yard begins")
+    local marked, zone = SC.BaseLife.finishZone(square, "Incomplete orphan")
+    check(marked == true, "incomplete-orphan yard registers")
+    ctx.actor.square, ctx.actor.x, ctx.actor.y = square, 2.5, 1.5
+    local partial = makeItem("Base.Log", { modData = {
+        LF_LogYardSplit = { v = 1, id = "incomplete-orphan", role = "log",
+            index = 2, ownerId = "retired-worker", zoneId = zone.id,
+            x = square.x, y = square.y, z = square.z,
+            count = 2, ropeCount = 0 },
+    } })
+    putOnGround(square, partial)
+    local destination = SC.LogYard.source(ctx.actor, zone.id)
+    local recovered, reason = SC.LogYard.takeOne(ctx.actor, destination)
+    check(recovered == false and reason == "log_yard_split_orphaned"
+            and partial.modData.LF_LogYardSplit ~= nil
+            and SC.LogYard.contents(square).splitPending == true,
+        "incomplete orphan stays protected and reports its blocker")
+end
+SC.Persistence.restoreStatus = priorSplitRestoreStatus
 
 -- A gather receipt can be retargeted from its original container to the yard
 -- and still account for exactly one delivered world item after save/load.

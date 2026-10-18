@@ -1766,7 +1766,8 @@ function BaseWork.update(actor, player, runtime)
         job = select(1, SC.BaseLife.claimJob(id))
     end
     if not job then
-        if SC.LogYard and type(SC.LogYard.updateBundle) == "function"
+        if not activeGuard and SC.LogYard
+            and type(SC.LogYard.updateBundle) == "function"
             and not SC.BaseLife.outdoorNightRestricted() then
             if state.nextLogYardAt == nil or now() >= state.nextLogYardAt then
                 state.nextLogYardAt = now() + 30000
@@ -1909,6 +1910,10 @@ function BaseWork.update(actor, player, runtime)
         state.jobId, state.phase, state.action, state.transfer = nil, "idle", nil, nil
         -- A blocked job forgets its selection, never the cargo it still owns.
     elseif handled then
+        if reason == "car_item_stored"
+            and SC.BaseLife.noteJobStorageProgress then
+            SC.BaseLife.noteJobStorageProgress(job.id, id)
+        end
         SC.BaseLife.touchJob(job.id, id, job.state == "reserved" and "active" or job.state)
     end
     return handled == true, reason

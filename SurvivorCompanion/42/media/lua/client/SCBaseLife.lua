@@ -4298,6 +4298,15 @@ function BaseLife.blockJob(id, actorId, reason, retryMs)
     return true, job
 end
 
+-- A successful item deposit proves the storage-full interval ended. Keep the
+-- warning latched through retries and navigation, which do not prove room.
+function BaseLife.noteJobStorageProgress(id, actorId)
+    local job = BaseLife.job(id)
+    if not job or job.reservedBy ~= actorId then return false, "job_not_owned" end
+    job.fullAlertSpoken = false
+    return true
+end
+
 function BaseLife.completeJob(id, actorId, result)
     local base = activeBase()
     local job, index

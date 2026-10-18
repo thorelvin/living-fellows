@@ -212,13 +212,14 @@ end
 function Transport.destinationFor(order, receipt, actor, item)
     local preferred = storageById(order and order.destinationStorageId)
     local yard = SC.LogYard
+    local yardReason
     if order and order.material == "logs" and yard and yard.hasZone
         and yard.hasZone() and U().itemType(item) == "Base.Log" then
         local selected = receipt and receipt.destinationZoneId
             and yard.restoreDestination(receipt) or nil
         local occupancy = selected and yard.contents(selected.square) or nil
-        if not occupancy or occupancy.units >= 4 then
-            selected = yard.select(actor, order.destinationZoneId)
+        if not occupancy or occupancy.units >= 4 or occupancy.splitPending then
+            selected, yardReason = yard.select(actor, order.destinationZoneId)
         end
         if selected then
             if receipt and (receipt.destinationZoneId ~= selected.zoneId
@@ -233,7 +234,7 @@ function Transport.destinationFor(order, receipt, actor, item)
     end
     local category = preferred and preferred.category
         or order and order.material == "logs" and "construction" or nil
-    if not category then return nil, nil, "destination_storage_invalid" end
+    if not category then return nil, nil, yardReason or "destination_storage_invalid" end
     local first = storageById(receipt and receipt.destinationStorageId) or preferred
     local candidates, seen = {}, {}
     if first then candidates[#candidates + 1] = first end
@@ -261,8 +262,8 @@ function Transport.destinationFor(order, receipt, actor, item)
             end
         end
     end
-    return nil, nil, not loaded and unloaded
-        and "destination_storage_unloaded" or "destination_full"
+    return nil, nil, yardReason or (not loaded and unloaded
+        and "destination_storage_unloaded" or "destination_full")
 end
 
 local function actorById(id)
