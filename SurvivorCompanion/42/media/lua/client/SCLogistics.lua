@@ -773,7 +773,9 @@ function Logistics.itemNeedScore(actor, item, commands, audit)
     return score, category
 end
 
-local function isProtected(actor, item)
+-- keptHarvestDeposit admits one case: a harvest kept for pickup because no
+-- car was chosen may go into camp storage. It is still never dropped.
+local function isProtected(actor, item, keptHarvestDeposit)
     if not actor or not item then return true end
     if SC.ExpeditionPrototype and SC.ExpeditionPrototype.receiptPending
         and SC.ExpeditionPrototype.receiptPending(item) then return true end
@@ -784,7 +786,12 @@ local function isProtected(actor, item)
         or itemData.LF_FieldBorrowedAxe ~= nil
         or itemData.LF_FieldCarryWorker ~= nil)
         and SC.FieldWork and type(SC.FieldWork.reserved) == "function"
-        and SC.FieldWork.reserved(item) == true then return true end
+        and SC.FieldWork.reserved(item) == true
+        and not (keptHarvestDeposit and itemData.LF_FieldOrder == nil
+            and itemData.LF_FieldBorrowedAxe == nil
+            and itemData.LF_FieldCarryWorker == tostring(U().idOf(actor) or "")) then
+        return true
+    end
     if type(itemData) == "table" and (itemData.LF_RefuelJobId ~= nil
         or itemData.LF_UpkeepJobId ~= nil) and (not SC.BaseFuel
             or type(SC.BaseFuel.reserved) ~= "function"
@@ -1063,6 +1070,26 @@ local function selectLiteratureSurplus(actor, audit)
     return nil
 end
 
+-- A harvest kept for pickup goes into camp storage once its carrier is
+-- inside the camp; otherwise it would ride in the pack until it rots.
+local function selectKeptHarvest(actor, audit)
+    if not SC.BaseLife or type(SC.BaseLife.isInside) ~= "function"
+        or SC.BaseLife.isInside(actor) ~= true then return nil end
+    local id = tostring(U().idOf(actor) or "")
+    for _, record in ipairs(audit.items or {}) do
+        local data = select(1, U().call(record.item, "getModData"))
+        if type(data) == "table" and data.LF_FieldCarryWorker == id
+            and not isProtected(actor, record.item, true) then
+            return {
+                item = record.item, source = record.source, proactive = true,
+                category = record.category or Logistics.itemCategory(record.item),
+                keptHarvest = true,
+            }
+        end
+    end
+    return nil
+end
+
 local function selectFarmingSurplus(actor, audit)
     for _, record in ipairs(audit.items or {}) do
         if (record.category or Logistics.itemCategory(record.item)) == "farming"
@@ -1220,6 +1247,10 @@ function Logistics.status(actor)
     if not surplus then
         local farming = selectFarmingSurplus(actor, audit)
         if farming and storageFor(actor, farming.item, "farming", true) then surplus = farming end
+    end
+    if not surplus then
+        local kept = selectKeptHarvest(actor, audit)
+        if kept and storageFor(actor, kept.item, kept.category, false) then surplus = kept end
     end
     if surplus and (moveMemory.cooling(actor, "deposit", surplus.item, current)
         or moveMemory.cooling(actor, "drop", surplus.item, current)) then
@@ -1556,7 +1587,8 @@ local function executeTransaction(actor, state)
     -- commits. Recheck ownership so a cached overload decision cannot drop
     -- or shelve newly reserved field cargo.
     if (transaction.kind == "drop" or transaction.kind == "deposit")
-        and isProtected(actor, transaction.item) then
+        and isProtected(actor, transaction.item,
+            transaction.kind == "deposit" and transaction.keptHarvest == true) then
         return terminalTransaction(actor, state, false, "logistics_item_reserved", {
             kind = transaction.kind,
         })
@@ -1613,6 +1645,9 @@ local function executeTransaction(actor, state)
             if type(data) == "table" and type(data.SC_BookLoan) == "table"
                 and data.SC_BookLoan.finished == true then
                 data.SC_BookLoan = nil
+            end
+            if transaction.keptHarvest == true and type(data) == "table" then
+                data.LF_FieldCarryWorker = nil
             end
         end
         if SC.NativeActions and type(SC.NativeActions.noteResult) == "function" then
@@ -1778,6 +1813,7 @@ function Logistics.update(actor, player, runtime)
     if not state.item or not state.source or not U().inventoryContains(state.source, state.item) then
         state.item, state.category = audit.surplus.item, audit.surplus.category
         state.proactive = audit.surplus.proactive == true
+        state.keptHarvest = audit.surplus.keptHarvest == true
         state.source = audit.surplus.source or audit.inventory
         state.destination = storageFor(actor, state.item, state.category,
             state.proactive and (state.category == "literature" or state.category == "farming"))
@@ -1790,7 +1826,7 @@ function Logistics.update(actor, player, runtime)
         local started, reason = beginTransaction(actor, state, {
             kind = "deposit", item = state.item, source = state.source,
             destination = destination.container, owner = destination.owner,
-            phase = phase,
+            phase = phase, keptHarvest = state.keptHarvest,
         })
         if not started then states[actor] = nil return false, reason end
         if phase == "approach" then return approachTransaction(actor, state, snapshot) end
@@ -1800,10 +1836,12 @@ function Logistics.update(actor, player, runtime)
     -- Proactive shelving is allowed only when the player marked a real
     -- literature destination. Without one, keep the item instead of falling
     -- through to the overload path that drops surplus on the ground.
-    if state.proactive and (state.category == "literature" or state.category == "farming") then
+    if state.proactive and (state.keptHarvest
+        or state.category == "literature" or state.category == "farming") then
         moveMemory.note(actor, "deposit", state.item, U().nowMs())
         states[actor] = nil
-        return false, state.category .. "_storage_unavailable"
+        return false, (state.keptHarvest and "harvest" or state.category)
+            .. "_storage_unavailable"
     end
 
     local square = U().squareOf(actor)

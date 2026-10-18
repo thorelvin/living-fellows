@@ -18534,6 +18534,69 @@ do
     campSquare.blocked[wallResident.square] = nil
 end
 
+do
+    -- A field harvest kept for pickup (no car) goes into camp storage once
+    -- its carrier is home, but is never dropped and never taken from another.
+    local pantry = { square = campSquare, objectIndex = #campSquare.objects, modData = {},
+        container = inventory() }
+    function pantry:getSquare() return self.square end
+    function pantry:getX() return self.square.x end
+    function pantry:getY() return self.square.y end
+    function pantry:getZ() return self.square.z end
+    function pantry:getObjectIndex() return self.objectIndex end
+    function pantry:getContainer() return self.container end
+    function pantry:getModData() return self.modData end
+    campSquare.objects[#campSquare.objects + 1] = pantry
+    local pantryRegistered, pantryRow = BaseLife.registerStorage(pantry, "food")
+    local keptCrop = item("Base.Potato", "Food")
+    local otherCrop = item("Base.Cabbage", "Food")
+    local harvester = actor("sc-kept-harvest", 2, 2, {
+        inventory = inventory({ keptCrop, otherCrop }),
+    })
+    registry[harvester.id] = harvester
+    keptCrop:getModData().LF_FieldCarryWorker = harvester.id
+    otherCrop:getModData().LF_FieldCarryWorker = "sc-someone-else"
+    local savedField, savedInside = SurvivorCompanion.FieldWork, BaseLife.isInside
+    -- The real reservation holds while the carrier still has the item.
+    SurvivorCompanion.FieldWork = { reserved = function(value)
+        local mark = value:getModData().LF_FieldCarryWorker
+        local carrier = mark and registry[mark]
+        return carrier ~= nil and carrier.inventory:contains(value)
+            or mark == "sc-someone-else"
+    end }
+    local quiet = { snapshot = { threats = {}, threatCount = 0,
+        immediateCount = 0, pressure = 0 } }
+    BaseLife.isInside = function() return false end
+    local awayKept, awayReason = SurvivorCompanion.Logistics.update(
+        harvester, player, quiet)
+    check(not awayKept and harvester.inventory:contains(keptCrop)
+            and #harvester.square.worldItems == 0,
+        "a kept harvest stays in the pack away from camp: " .. tostring(awayReason))
+    BaseLife.isInside = savedInside
+    SurvivorCompanion.Logistics.reset(harvester)
+    clock = clock + 501
+    local stored, storedReason = SurvivorCompanion.Logistics.update(
+        harvester, player, quiet)
+    check(pantryRegistered and stored and storedReason == "surplus_stored"
+            and pantry.container:contains(keptCrop)
+            and keptCrop:getModData().LF_FieldCarryWorker == nil,
+        "a kept harvest is shelved in camp storage and released: "
+            .. tostring(storedReason))
+    SurvivorCompanion.Logistics.reset(harvester)
+    clock = clock + 501
+    SurvivorCompanion.Logistics.update(harvester, player, quiet)
+    check(harvester.inventory:contains(otherCrop)
+            and not pantry.container:contains(otherCrop)
+            and #harvester.square.worldItems == 0,
+        "another worker's kept harvest is neither shelved nor dropped")
+    SurvivorCompanion.FieldWork = savedField
+    SurvivorCompanion.Logistics.reset(harvester)
+    registry[harvester.id] = nil
+    check(BaseLife.removeStorage(pantryRow.id) == true,
+        "the kept-harvest pantry fixture is removed again")
+    table.remove(campSquare.objects, pantry.objectIndex + 1)
+end
+
 local BaseObjectRef = SurvivorCompanion.BaseObjectRef
 local copiedStorageRef = BaseObjectRef.copy(storageRow)
 copiedStorageRef.objectId = "object:detached-copy"
