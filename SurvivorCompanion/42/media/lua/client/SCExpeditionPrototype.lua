@@ -329,9 +329,10 @@ local function validDebrief(value)
             or validWorldPosition(value.abandonedCarAt))
 end
 
+local DELIVERY_LIMIT = 32
 local function validDeliveryList(rows)
     if rows == nil then return true end
-    if type(rows) ~= "table" or #rows > 32 then return false end
+    if type(rows) ~= "table" or #rows > DELIVERY_LIMIT then return false end
     if #rows == 0 then return true end
     if not SC.ExpeditionIntegration then return false end
     local seen = {}
@@ -352,18 +353,11 @@ local function copyDeliveryList(rows)
 end
 
 local function pruneCompletedDeliveries()
+    local integration = SC.ExpeditionIntegration
+    if not integration or type(integration.settle) ~= "function" then return end
     for index = #pendingDeliveries, 1, -1 do
         local record = pendingDeliveries[index]
-        local complete = true
-        for _, row in ipairs(record.items) do
-            if not row.stored then complete = false break end
-        end
-        for _, member in ipairs(record.members) do
-            if record.restock and not member.dutyDone then
-                complete = false break
-            end
-        end
-        if complete then
+        if integration.settle(record) == true then
             if lastDebrief and lastDebrief.integration
                 and lastDebrief.integration.tripId == record.tripId then
                 lastDebrief.integration = SC.ExpeditionIntegration.copy(record)
@@ -378,6 +372,17 @@ local function pruneCompletedDeliveries()
             table.remove(pendingDeliveries, index)
         end
     end
+end
+
+-- The saved list is bounded. When it is full the oldest unfinished record
+-- gives way: its items stay with their carriers as ordinary gear, and no new
+-- expedition is refused because an older delivery could not finish.
+local function queueDelivery(record)
+    pruneCompletedDeliveries()
+    while #pendingDeliveries >= DELIVERY_LIMIT do
+        table.remove(pendingDeliveries, 1)
+    end
+    pendingDeliveries[#pendingDeliveries + 1] = record
 end
 
 local function validProgressReport(value)
@@ -628,9 +633,6 @@ end
 function Expedition.start(records, plan)
     if mission ~= nil then return false, "expedition_already_active" end
     pruneCompletedDeliveries()
-    if #pendingDeliveries >= 32 then
-        return false, "pending_delivery_limit"
-    end
     if SC.BaseWatch and SC.BaseWatch.current and SC.BaseWatch.current() then
         return false, "base_watch_uses_companion_view"
     end
@@ -1508,7 +1510,15 @@ function Expedition.lastDebrief()
     return copy
 end
 
+local deliveryPruneAt = 0
 function Expedition.pendingDeliveryReports()
+    -- The planner polls this; settle at most every five seconds so a record
+    -- that can no longer finish leaves the list without waiting for a save.
+    local now = SC.GameplayUtil.nowMs()
+    if now < deliveryPruneAt - 5000 or now >= deliveryPruneAt then
+        deliveryPruneAt = now + 5000
+        pruneCompletedDeliveries()
+    end
     local reports = {}
     for _, record in ipairs(pendingDeliveries) do
         reports[#reports + 1] = {
@@ -4117,9 +4127,7 @@ function Expedition.finishAtPlayer(player)
                 and copyPoint(mission.scout.vehicle.abandonedAt) or nil,
         }
     end
-    if mission.integration then
-        pendingDeliveries[#pendingDeliveries + 1] = mission.integration
-    end
+    if mission.integration then queueDelivery(mission.integration) end
     mission = nil
     reusableSlotSqlId = slotSqlId
     lastOutcome = "returned"

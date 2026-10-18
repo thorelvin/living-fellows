@@ -2498,6 +2498,46 @@ end)()
             == "prior-trip" and nextSave.debrief.integration.tripId
             == "prior-trip",
         "a subsequent expedition preserves the earlier debrief and delivery")
+
+    -- Unfinished deliveries must never lock out the next expedition.
+    reserve.x, reserve.y = player.x + 1, player.y
+    check(expedition.finishAtPlayer(player) == true,
+        "the follow-up scout hands the view back")
+    local settled = {}
+    SC.ExpeditionIntegration.settle = function(record)
+        return settled[record.tripId] == true
+    end
+    local full = {}
+    for index = 1, 32 do
+        full[index] = { version = 1, tripId = "old-" .. index, requested = 1,
+            restock = false, members = {}, items = {} }
+    end
+    check(expedition.restore({ schema = 2, state = "idle", slotSqlId = 2,
+            deliveries = full }) == true,
+        "a full list of unfinished deliveries restores")
+    local fullStarted, fullMission = expedition.start(
+        { { id = "delta", actor = reserve } },
+        { kind = "scout", destination = { x = 80, y = 20, z = 0 } })
+    check(fullStarted == true,
+        "a full delivery list does not refuse the next expedition")
+    fullMission.integration = { version = 1, tripId = "newest", requested = 1,
+        restock = false, members = {}, items = {} }
+    reserve.x, reserve.y = player.x + 1, player.y
+    check(expedition.finishAtPlayer(player) == true,
+        "the expedition returns with its own delivery record")
+    local afterReturn = expedition.export()
+    check(#afterReturn.deliveries == 32
+            and afterReturn.deliveries[1].tripId == "old-2"
+            and afterReturn.deliveries[32].tripId == "newest",
+        "the oldest unfinished delivery makes room for the newest")
+    settled["old-7"] = true
+    local afterSettle = expedition.export()
+    local stillListed = false
+    for _, record in ipairs(afterSettle.deliveries) do
+        if record.tripId == "old-7" then stillListed = true end
+    end
+    check(#afterSettle.deliveries == 31 and not stillListed,
+        "a delivery that can no longer finish leaves the list")
 end)()
 
 print("EXPEDITION_RESTART_KAHLUA_PASS checks=" .. tostring(checks))

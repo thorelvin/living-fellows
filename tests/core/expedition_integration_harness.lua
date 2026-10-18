@@ -271,4 +271,107 @@ check(select(2, I.update(ammoReturn, a)) == "base_supply_taken"
     and blockedAmmo.container == blockedAmmoShelf.container,
     "restock tries another shelf and takes only compatible ammunition")
 SC.BaseWork.withdrawFromStorage = originalWithdraw
+
+-- A record that can no longer finish must settle; one that still can must not.
+local function drop(actor, item)
+    for index, value in ipairs(actor.inventory.items) do
+        if value == item then table.remove(actor.inventory.items, index) break end
+    end
+    item.container = nil
+    T.now = T.now + 1000
+end
+local registryById = SC.Registry.byId
+mission.restockBaseDuty = false
+mission.scout.vehicle = nil
+mission.commandSerials = { a = a.serial, b = b.serial }
+local eaten = T.item("eaten", "food")
+a.inventory.items[#a.inventory.items + 1] = eaten
+eaten.container = a.inventory
+mission.radioSession = "trip:eaten"
+mission.scout.search.acquisitions = { { id = eaten.id,
+    itemType = eaten.fullType, memberId = "a" } }
+local eatenTrip = I.create(mission)
+I.refresh(eatenTrip)
+check(I.settle(eatenTrip) == false,
+    "an exact item still carried keeps its delivery open")
+drop(a, eaten)
+SC.Registry.byId = function(id)
+    if id == "b" then return { runtime = {} } end
+    return registryById(id)
+end
+check(I.settle(eatenTrip) == false,
+    "a dormant squad member might still carry the missing item")
+SC.Registry.byId = function(id)
+    if id == "b" then return nil end
+    return registryById(id)
+end
+SC.Persistence = { restoreStatus = function() return false end }
+check(I.settle(eatenTrip) == false,
+    "a member absent while the save is still restoring is not lost")
+SC.Persistence = { restoreStatus = function() return true end,
+    isPending = function(id) return id == "b" end }
+check(I.settle(eatenTrip) == false,
+    "a member waiting for respawn is not lost")
+SC.Persistence = { restoreStatus = function() return true end,
+    isPending = function() return false end }
+check(I.settle(eatenTrip) == true
+        and I.summary(eatenTrip).items[1].reason == "item_no_longer_with_squad",
+    "an item gone from every inspectable carrier ends the delivery")
+SC.Persistence, SC.Registry.byId = nil, registryById
+
+local trunkLost = T.item("trunk-lost", "food")
+local savedCar = T.car
+mission.radioSession = "trip:unloaded-car"
+mission.scout.vehicle = { sqlId = 88 }
+mission.scout.search.acquisitions = { { id = trunkLost.id,
+    itemType = trunkLost.fullType, memberId = "b" } }
+local carTrip = I.create(mission)
+check(I.settle(carTrip) == false,
+    "an unloaded car might still hold the missing item")
+T.car = { id = 88, trunk = T.container({}) }
+function T.car:getPartById() return { getItemContainer = function()
+    return T.car.trunk end } end
+T.now = T.now + 1000
+check(I.settle(carTrip) == true
+        and I.summary(carTrip).items[1].reason == "item_not_found",
+    "a loaded empty trunk proves the item is gone")
+T.car = savedCar
+mission.scout.vehicle = nil
+
+local kept = T.item("kept", "tools")
+a.inventory.items[#a.inventory.items + 1] = kept
+kept.container = a.inventory
+mission.radioSession = "trip:moved-camp"
+mission.restockBaseDuty = true
+mission.scout.search.acquisitions = { { id = kept.id,
+    itemType = kept.fullType, memberId = "a" } }
+local movedCamp = I.create(mission)
+check(I.settle(movedCamp) == false, "an open restock keeps the record")
+local activeBase = SC.BaseLife.active
+SC.BaseLife.active = function() return { id = "camp:2" } end
+check(I.settle(movedCamp) == true
+        and I.summary(movedCamp).items[1].reason == "camp_changed"
+        and I.summary(movedCamp).members[1].dutyReason == "camp_changed"
+        and kept.container == a.inventory,
+    "a moved camp ends the delivery and leaves the item with its carrier")
+SC.BaseLife.active = function() return nil end
+mission.radioSession = "trip:no-camp"
+local noCamp = I.create(mission)
+check(I.settle(noCamp) == true
+        and I.summary(noCamp).members[2].dutyReason == "camp_missing",
+    "an abandoned camp ends the delivery")
+SC.BaseLife.active = activeBase
+
+mission.radioSession = "trip:restock-casualty"
+mission.scout.search.acquisitions = {}
+local casualty = I.create(mission)
+a.dead = true
+check(I.settle(casualty) == false
+        and I.summary(casualty).members[1].dutyReason == "member_unavailable",
+    "a dead restocking member is released while the living one stays")
+b.serial = b.serial + 1
+check(I.settle(casualty) == true
+        and I.summary(casualty).members[2].dutyReason == "new_player_order",
+    "a newer order releases a member who never reached camp")
+a.dead = nil
 print("EXPEDITION_INTEGRATION_PASS checks=" .. checks)

@@ -281,6 +281,83 @@ function Integration.summary(record)
     return result
 end
 
+local function restoreFinished()
+    local persistence = SC.Persistence
+    return type(persistence) ~= "table"
+        or type(persistence.restoreStatus) ~= "function"
+        or persistence.restoreStatus() == true
+end
+
+-- "unknown" covers a dormant or not-yet-respawned companion: its inventory
+-- cannot be inspected, so nothing it might carry can be declared lost.
+local function memberPresence(member)
+    local registered = SC.Registry and SC.Registry.byId(member.id)
+    local actor = registered and registered.actor
+    if actor then
+        if U().isDead(actor) then return "gone" end
+        return "present", actor
+    end
+    if registered then
+        local runtime = registered.runtime
+        if type(runtime) == "table" and runtime.unrecoverable == true then
+            return "gone"
+        end
+        return "unknown"
+    end
+    if not restoreFinished() then return "unknown" end
+    local persistence = SC.Persistence
+    if type(persistence) == "table" and type(persistence.isPending) == "function"
+        and persistence.isPending(member.id) == true then return "unknown" end
+    return "gone"
+end
+
+-- A trip record ends once nothing it waits for can still happen: an item
+-- eaten, dropped or handed over before storage, a dead or reassigned
+-- restocking member, or a camp that was moved. Without this the bounded
+-- delivery list fills with records that can never finish.
+function Integration.settle(record)
+    if not Integration.valid(record) then return true end
+    local base = SC.BaseLife and SC.BaseLife.active and SC.BaseLife.active()
+    local lostBase = restoreFinished() and (base == nil and "camp_missing"
+        or record.baseId ~= nil and base.id ~= record.baseId
+            and "camp_changed") or nil
+    local settled, conclusive = true, true
+    for _, member in ipairs(record.members) do
+        local presence, actor = memberPresence(member)
+        if presence == "unknown" then conclusive = false end
+        if record.restock and not member.dutyDone then
+            local command = actor and SC.Commands and SC.Commands.peek(actor)
+            if lostBase then
+                member.dutyDone, member.dutyReason = true, lostBase
+            elseif presence == "gone" then
+                member.dutyDone, member.dutyReason = true, "member_unavailable"
+            elseif command and tonumber(command.commandSerial) ~= member.commandSerial
+                and command.order ~= "base_duty" then
+                member.dutyDone, member.dutyReason = true, "new_player_order"
+            else
+                settled = false
+            end
+        end
+    end
+    if record.carId ~= nil and not (SC.Vehicle and SC.Vehicle.loadedBySqlId
+        and SC.Vehicle.loadedBySqlId(record.carId)) then conclusive = false end
+    for _, row in ipairs(record.items) do
+        if not row.stored then
+            if lostBase then
+                row.reason = lostBase
+            elseif locate(record, row) then
+                settled = false
+            elseif conclusive then
+                row.reason = row.returned and "item_no_longer_with_squad"
+                    or "item_not_found"
+            else
+                settled = false
+            end
+        end
+    end
+    return settled
+end
+
 local function accessFailure(reason)
     return type(reason) == "string" and (reason == "no_interaction_targets"
         or reason == "invalid_destination"
