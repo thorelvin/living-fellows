@@ -17,6 +17,7 @@ local TEST_RADIO_PRESET = "Living Fellows Team"
 Expedition.TEAM_RADIO_CHANNEL = TEST_RADIO_CHANNEL
 local SEARCH_HOURS = 0.75
 local startReturnFromSite
+local retryInboundRoute
 local SUPPLY_CATEGORIES = {
     useful = true, fish = true,
     food = true, water = true, medicine = true, ammunition = true,
@@ -537,6 +538,11 @@ local function transmitBlockRequest(shelterUpdate)
             .. tostring(pause.shelterTarget.x) .. ", "
             .. tostring(pause.shelterTarget.y)
             .. ". Holding here for pickup."
+    elseif pause.reason == "return_route_stuck" then
+        message = name .. ": Can't find a way home from near "
+            .. tostring(math.floor(leader:getX())) .. ", "
+            .. tostring(math.floor(leader:getY()))
+            .. ". Need orders: return, push on, or hold position."
     else
         message = name .. ": Horde blocks our route near "
             .. tostring(math.floor(leader:getX())) .. ", "
@@ -1173,7 +1179,11 @@ function Expedition.export()
             } or nil,
             trailReturn = mission.scout.trailReturn == true or nil,
             hordeDetours = mission.scout.hordeDetours,
-            pause = copyPause(mission.scout.pause),
+            -- A stalled-return hold is not saved: reloading rebuilds the
+            -- route, which is the recovery that hold is waiting for.
+            pause = mission.scout.pause
+                and mission.scout.pause.reason ~= "return_route_stuck"
+                and copyPause(mission.scout.pause) or nil,
             pushUntilHour = mission.scout.pushUntilHour,
             vehicle = mission.scout.vehicle and SC.ExpeditionCar
                 and SC.ExpeditionCar.exportDescriptor(mission.scout.vehicle,
@@ -1930,6 +1940,12 @@ local function applyBlockDecision(payload)
         pause.mode = "holding"
         return true, "holding_position"
     end
+    if pause.reason == "return_route_stuck" then
+        -- No hazard to route around: either answer means "try again".
+        retryInboundRoute(scout, SC.GameplayUtil.nowMs(),
+            "radio_" .. tostring(payload), true)
+        return true, "returning"
+    end
     if payload == "return" then
         if scout.phase == "outbound" then
             local hazard = copyRoadAvoidance(pause.hazard)
@@ -2422,6 +2438,7 @@ function Expedition.noteTestWaypointArrived(actor)
         mission.scout.legs = mission.scout.legs + 1
         mission.scout.lastStalledTarget = nil
         mission.scout.replans = 0
+        mission.scout.returnRecoveryCount = nil
         if mission.scout.phase == "outbound"
             and #mission.scout.trail < (mission.scout.extended and 128 or 64) then
             local point = {
@@ -2775,7 +2792,54 @@ end
 -- although restoring the very same save clears the route and the team walks
 -- down normally. Release only navigation's route, rotate the stair candidate,
 -- and let the squad settle briefly before another bounded attempt.
-local function retryInboundRoute(scout, now, reason)
+local RETURN_RECOVERY_LIMIT = 4
+local function holdForReturnOrders(scout, reason)
+    local leader = mission.leader.actor
+    if mission.testWaypoint ~= nil then
+        Expedition.clearTestWaypoint(leader)
+    end
+    local owner = SC.ActionSupervisor
+        and type(SC.ActionSupervisor.current) == "function"
+        and SC.ActionSupervisor.current(leader) or nil
+    if owner == nil and SC.Navigation
+        and type(SC.Navigation.cancel) == "function" then
+        SC.Navigation.cancel(leader, "expedition_return_stuck")
+    end
+    local player = type(getSpecificPlayer) == "function"
+        and getSpecificPlayer(0) or nil
+    scout.pause = { mode = "awaiting_orders", reason = "return_route_stuck",
+        hazard = { x = math.floor(leader:getX()),
+            y = math.floor(leader:getY()), radius = 1 },
+        reported = false,
+        playerNear = player ~= nil and distanceToPoint(leader, {
+            x = math.floor(player:getX()), y = math.floor(player:getY()),
+            z = math.floor(player:getZ()) }) <= 10 }
+    if mission.technicalIssue
+        and recoverableInboundReason(mission.technicalIssue.reason) then
+        mission.technicalIssue = nil
+    end
+    if type(SC.GameplayUtil.diagnostic) == "function" then
+        SC.GameplayUtil.diagnostic("expedition-return", leader,
+            "action=hold reason=" .. tostring(reason)
+                .. " count=" .. tostring(scout.returnRecoveryCount))
+    end
+    transmitBlockRequest()
+end
+
+-- Recovery is bounded. After RETURN_RECOVERY_LIMIT fresh routes without
+-- reaching a waypoint, the squad holds and asks for orders over the radio.
+-- A radio answer, the player arriving, or a reload starts a fresh budget.
+retryInboundRoute = function(scout, now, reason, fresh)
+    if fresh then
+        if scout.pause and scout.pause.reason == "return_route_stuck" then
+            scout.pause = nil
+        end
+        scout.returnRecoveryCount = 0
+        scout.descentRejected = nil
+    elseif (scout.returnRecoveryCount or 0) >= RETURN_RECOVERY_LIMIT then
+        holdForReturnOrders(scout, reason)
+        return false
+    end
     local leader = mission.leader.actor
     if mission.testWaypoint ~= nil then
         Expedition.clearTestWaypoint(leader)
@@ -2814,6 +2878,7 @@ local function retryInboundRoute(scout, now, reason)
             "action=retry reason=" .. tostring(reason)
                 .. " count=" .. tostring(scout.returnRecoveryCount))
     end
+    return true
 end
 
 local function playerMetSearchSquad(player, leader)
@@ -3056,14 +3121,26 @@ local function pulseScout()
     if pause ~= nil then
         local player = type(getSpecificPlayer) == "function"
             and getSpecificPlayer(0) or nil
-        if scout.phase == "inbound" and player ~= nil
+        local playerNear = player ~= nil
             and distanceToPoint(mission.leader.actor, {
                 x = math.floor(player:getX()),
                 y = math.floor(player:getY()),
                 z = math.floor(player:getZ()),
-            }) <= 10 and scoutFollowersNearLeader() then
+            }) <= 10
+        if scout.phase == "inbound" and playerNear
+            and scoutFollowersNearLeader() then
             local met = Expedition.finishAtPlayer(player)
             if met then return end
+        end
+        if pause.reason == "return_route_stuck" then
+            -- Each arrival grants one fresh attempt (the player may have
+            -- opened a door or cleared the stairs), never a loop while they
+            -- simply stand there.
+            if playerNear and pause.playerNear ~= true then
+                retryInboundRoute(scout, now, "player_arrived", true)
+                return
+            end
+            pause.playerNear = playerNear
         end
         if not pause.reported and now >= (pause.nextReportAt or 0) then
             pause.nextReportAt = now + 30000

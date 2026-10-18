@@ -1478,6 +1478,7 @@ check(expedition.finishAtPlayer(player) == true,
 SCSplitScreenProbe.sendTestRadioWithLeaderText = function(_x, _y, _channel,
         message, guid, codes)
     local device = (string.find(message, "Horde blocks our route", 1, true)
+        or string.find(message, "Can't find a way home", 1, true)
         or string.find(message, "Sheltered inside a house", 1, true))
         and sender or receiver
     radioHook(guid, codes, 0, 0, 0, message, device)
@@ -2199,6 +2200,68 @@ check(descentMission.technicalIssue == nil
         and descentMission.scout.descent == nil
         and descentMission.scout.returnRetryAt > scoutClock,
     "repeated upstairs return stalls release the route for another attempt")
+-- Recovery is bounded: a squad that cannot get home holds and asks for
+-- orders instead of retrying forever.
+local function driveUntilStuck()
+    for _ = 1, 8 do
+        if descentMission.scout.pause ~= nil then break end
+        scoutClock = scoutClock + 3001
+        descentMission.technicalIssue = { reason = "scout_stall_replan_limit" }
+        expedition.pulse()
+    end
+    return descentMission.scout.pause
+end
+local stuckPause = driveUntilStuck()
+check(stuckPause ~= nil and stuckPause.reason == "return_route_stuck"
+        and stuckPause.mode == "awaiting_orders"
+        and descentMission.scout.returnRecoveryCount == 4
+        and descentMission.technicalIssue == nil,
+    "an inbound squad stops after four fresh routes and waits for orders")
+check(stuckPause.reported == true and stuckPause.hazard.x == reserve.x
+        and stuckPause.hazard.y == reserve.y,
+    "the stalled squad radios where it is stuck")
+scoutClock = scoutClock + 60000
+expedition.pulse()
+check(descentMission.scout.pause == stuckPause
+        and descentMission.scout.returnRecoveryCount == 4,
+    "a held return makes no further attempt on its own")
+check(expedition.export().scout.pause == nil,
+    "the stalled-return hold is not saved, so a reload starts fresh")
+local stuckAnswer = expedition.sendRadioOrder(player,
+    "expedition_decision", "push_on")
+check(stuckAnswer == true and descentMission.scout.pause == nil
+        and descentMission.scout.returnRecoveryCount == 1
+        and descentMission.scout.returnRetryAt > scoutClock,
+    "a radio answer starts one fresh attempt with a new budget")
+local arrivalPause = driveUntilStuck()
+local playerX = player.x
+player.x = playerX + 200
+expedition.pulse()
+check(descentMission.scout.pause == arrivalPause,
+    "a held squad stays put while the player is away")
+-- A camp-launched squad met outside camp cannot hand off there, so the
+-- arrival must restart its route instead.
+local groundGetZ, savedBaseLife = player.getZ, SC.BaseLife
+descentMission.homeBaseId = "camp:stuck"
+SC.BaseLife = { active = function() return { id = "camp:stuck" } end,
+    isInside = function() return false end }
+player.x, player.z = playerX, 1
+function player:getZ() return 1 end
+expedition.pulse()
+check(arrivalPause ~= nil and descentMission.scout.pause == nil
+        and descentMission.scout.returnRecoveryCount == 1,
+    "the player reaching a held squad's floor grants one fresh attempt")
+local standingPause = driveUntilStuck()
+scoutClock = scoutClock + 60000
+expedition.pulse()
+check(standingPause ~= nil and descentMission.scout.pause == standingPause,
+    "a player who simply stays beside a held squad does not loop its retries")
+player.z, player.getZ = nil, groundGetZ
+SC.BaseLife, descentMission.homeBaseId = savedBaseLife, nil
+descentMission.testWaypoint = { x = reserve.x, y = reserve.y, z = 1 }
+expedition.noteTestWaypointArrived(reserve)
+check(descentMission.scout.returnRecoveryCount == nil,
+    "reaching a waypoint resets the recovery budget")
 descentMission.scout.search = nil
 reserve.x, reserve.y = player.x + 3, player.y
 local playerGetZ = player.getZ
