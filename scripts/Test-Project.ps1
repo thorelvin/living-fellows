@@ -159,11 +159,13 @@ $stages = @(
         -Failure 'Live harness static suite failed.'),
     (New-ScPowerShellStep -Name 'workshop' `
         -Script (Join-Path $ProjectRoot 'scripts\Build-Workshop.ps1') `
-        -Arguments @('-ProjectRoot', $ProjectRoot, '-SkipNativeBridge') `
+        -Arguments @('-ProjectRoot', $ProjectRoot, '-GameRoot', $GameRoot,
+                     '-SkipNativeBridge') `
         -Failure 'Workshop packaging failed.'),
     (New-ScPowerShellStep -Name 'standalone' `
         -Script (Join-Path $ProjectRoot 'scripts\Build-Standalone.ps1') `
-        -Arguments @('-ProjectRoot', $ProjectRoot, '-SkipNativeBridge') `
+        -Arguments @('-ProjectRoot', $ProjectRoot, '-GameRoot', $GameRoot,
+                     '-SkipNativeBridge') `
         -Failure 'Standalone packaging failed.')
 )
 

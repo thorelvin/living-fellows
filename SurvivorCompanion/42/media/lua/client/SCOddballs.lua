@@ -2000,61 +2000,8 @@ local function survivalistSite(house, square, player, allowSeen)
     return nil
 end
 
-local function siteForResident(square, player, definition, name, allowSeen)
-    if not isResidentRoom(definition.id, name) then return nil end
-    local house = SC.Factions.oddballHouseAt(square, player, allowSeen)
-    if not house then return nil end
-    if definition.id == "milli_tea_and_trouble" then
-        local milli = SC.OddballMilli
-        if type(milli) ~= "table" or type(milli.siteFor) ~= "function" then
-            return nil
-        end
-        return milli.siteFor(house, player, allowSeen)
-    end
-    if definition.id == "bedridden_arthur_hale" then
-        return bedriddenSite(house, player, allowSeen)
-    end
-    if definition.id == "window_smoker_mara_voss" then
-        return smokerSite(house, player, allowSeen)
-    end
-    if definition.id == "survivalist_locked_horde" then
-        return survivalistSite(house, square, player, allowSeen)
-    end
-    if definition.id == "seer_aunt_velma_crisp" and name == "bedroom" then
-        local bounds = house.bounds or {}
-        local width = (tonumber(bounds.x2) or 0) - (tonumber(bounds.x1) or 0) + 1
-        local height = (tonumber(bounds.y2) or 0) - (tonumber(bounds.y1) or 0) + 1
-        if width * height > 80 then return nil end
-    end
-    if definition.id == "preacher_reverend_amos"
-        and not churchUnderSiege(square) then return nil end
-    local building = select(1, U().call(square, "getBuilding"))
-    local spawn
-    local captiveSpawns, distinctCells = {}, {}
-    for _, position in ipairs(house.interior or {}) do
-        local option = U().gridSquare(position.x, position.y, position.z or 0)
-        local optionRoom = roomName(option)
-        local dutyRoom = not spawn and isResidentRoom(definition.id, optionRoom)
-        local cellRoom = definition.captives == true and captiveCellRoom(optionRoom)
-        if (dutyRoom or cellRoom)
-            and candidateUnseen(option, player, allowSeen) then
-            if dutyRoom then
-                spawn = point(option)
-            elseif cellRoom then
-                local room = select(1, U().call(option, "getRoom"))
-                local cellKey = room or optionRoom
-                if not distinctCells[cellKey] then
-                    distinctCells[cellKey] = true
-                    captiveSpawns[#captiveSpawns + 1] = point(option)
-                end
-            end
-        end
-        if spawn and definition.captives ~= true then break end
-    end
-    if not spawn then return nil end
-    if definition.captives == true and #captiveSpawns == 0 then return nil end
-    local site = { kind = "resident", room = name, house = house,
-        anchor = point(square) or house.anchor, spawn = spawn }
+local function configureResidentRescueAndGrave(site, house, spawn, definition, name, player,
+    allowSeen, building, captiveSpawns)
     if definition.id == "garage_rescue_eli_rourke"
         or definition.id == "radio_rescue_nate_duvall" then
         local opening = partyOpening(house, spawn, "door")
@@ -2254,7 +2201,15 @@ local function siteForResident(square, player, definition, name, allowSeen)
             end
         end
         if not site.grave then return nil end
-    elseif definition.id == "cult_brother_silas" then
+    else
+        return false
+    end
+    return site
+end
+
+local function configureResidentCommunity(site, house, spawn, definition, name, player,
+    allowSeen, building, captiveSpawns)
+    if definition.id == "cult_brother_silas" then
         local desired = tonumber(definition.memberCountMin) or 3
         local hash = type(U().stableHash) == "function"
             and U().stableHash(tostring(house.id) .. ":cult-count") or 0
@@ -2369,7 +2324,15 @@ local function siteForResident(square, player, definition, name, allowSeen)
             allowSeen, spawn)
         if not site.memberSpawns then return nil end
         site.spawn = site.memberSpawns[1]
-    elseif definition.id == "bledsoe_brothers_still" then
+    else
+        return false
+    end
+    return site
+end
+
+local function configureResidentRural(site, house, spawn, definition, name, player,
+    allowSeen, building, captiveSpawns)
+    if definition.id == "bledsoe_brothers_still" then
         local bounds = house.bounds or {}
         local area = ((tonumber(bounds.x2) or 0)
             - (tonumber(bounds.x1) or 0) + 1)
@@ -2495,7 +2458,15 @@ local function siteForResident(square, player, definition, name, allowSeen)
         site.memberSpawns = cultPositions(house, player, allowSeen,
             spawn, 4, name, 2)
         if not site.memberSpawns then return nil end
-    elseif definition.id == "sleeping_it_off" then
+    else
+        return false
+    end
+    return site
+end
+
+local function configureResidentRooms(site, house, spawn, definition, name, player,
+    allowSeen, building, captiveSpawns)
+    if definition.id == "sleeping_it_off" then
         local bounds = house.bounds or {}
         local spawnTile = U().gridSquare(spawn.x, spawn.y, spawn.z or 0)
         local spawnRoom = select(1, U().call(spawnTile, "getRoom"))
@@ -2592,7 +2563,15 @@ local function siteForResident(square, player, definition, name, allowSeen)
             if site.racePost then break end
         end
         if not site.racePost then return nil end
-    elseif definition.id == "gordon_pettibone" then
+    else
+        return false
+    end
+    return site
+end
+
+local function configureResidentCellarAndStage(site, house, spawn, definition, name, player,
+    allowSeen, building, captiveSpawns)
+    if definition.id == "gordon_pettibone" then
         -- Household descriptors deliberately keep ground-floor interiors.
         -- Search the same building footprint at z=-1 for Gordon's bunker.
         local bounds = house.bounds or {}
@@ -2701,6 +2680,80 @@ local function siteForResident(square, player, definition, name, allowSeen)
             if site.woods then break end
         end
         if not site.woods then return nil end
+    else
+        return false
+    end
+    return site
+end
+
+-- A handler returns the site when it handled an encounter, nil when its
+-- placement failed, and false when another handler should try the ID.
+local residentSiteConfigurators = {
+    configureResidentRescueAndGrave, configureResidentCommunity,
+    configureResidentRural, configureResidentRooms,
+    configureResidentCellarAndStage,
+}
+
+local function siteForResident(square, player, definition, name, allowSeen)
+    if not isResidentRoom(definition.id, name) then return nil end
+    local house = SC.Factions.oddballHouseAt(square, player, allowSeen)
+    if not house then return nil end
+    if definition.id == "milli_tea_and_trouble" then
+        local milli = SC.OddballMilli
+        if type(milli) ~= "table" or type(milli.siteFor) ~= "function" then
+            return nil
+        end
+        return milli.siteFor(house, player, allowSeen)
+    end
+    if definition.id == "bedridden_arthur_hale" then
+        return bedriddenSite(house, player, allowSeen)
+    end
+    if definition.id == "window_smoker_mara_voss" then
+        return smokerSite(house, player, allowSeen)
+    end
+    if definition.id == "survivalist_locked_horde" then
+        return survivalistSite(house, square, player, allowSeen)
+    end
+    if definition.id == "seer_aunt_velma_crisp" and name == "bedroom" then
+        local bounds = house.bounds or {}
+        local width = (tonumber(bounds.x2) or 0) - (tonumber(bounds.x1) or 0) + 1
+        local height = (tonumber(bounds.y2) or 0) - (tonumber(bounds.y1) or 0) + 1
+        if width * height > 80 then return nil end
+    end
+    if definition.id == "preacher_reverend_amos"
+        and not churchUnderSiege(square) then return nil end
+    local building = select(1, U().call(square, "getBuilding"))
+    local spawn
+    local captiveSpawns, distinctCells = {}, {}
+    for _, position in ipairs(house.interior or {}) do
+        local option = U().gridSquare(position.x, position.y, position.z or 0)
+        local optionRoom = roomName(option)
+        local dutyRoom = not spawn and isResidentRoom(definition.id, optionRoom)
+        local cellRoom = definition.captives == true and captiveCellRoom(optionRoom)
+        if (dutyRoom or cellRoom)
+            and candidateUnseen(option, player, allowSeen) then
+            if dutyRoom then
+                spawn = point(option)
+            elseif cellRoom then
+                local room = select(1, U().call(option, "getRoom"))
+                local cellKey = room or optionRoom
+                if not distinctCells[cellKey] then
+                    distinctCells[cellKey] = true
+                    captiveSpawns[#captiveSpawns + 1] = point(option)
+                end
+            end
+        end
+        if spawn and definition.captives ~= true then break end
+    end
+    if not spawn then return nil end
+    if definition.captives == true and #captiveSpawns == 0 then return nil end
+    local site = { kind = "resident", room = name, house = house,
+        anchor = point(square) or house.anchor, spawn = spawn }
+    for _, configure in ipairs(residentSiteConfigurators) do
+        local configured = configure(site, house, spawn, definition, name,
+            player, allowSeen, building, captiveSpawns)
+        if configured == nil then return nil end
+        if configured ~= false then break end
     end
     if definition.id == "shotgun_farmer_wendell"
         or definition.id == "duchess_hollis_burkett"

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import java.io.Reader;
+import java.io.StringReader;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
@@ -37,8 +38,47 @@ public final class ReflectLuaCompiler {
         if (loadReader == null) {
             throw new IllegalStateException("LuaCompiler.loadis(Reader, ...) was not found");
         }
+        if (args.length == 1 && args[0].equals("--verify-debug-limit")) {
+            Field debug = Class.forName("zombie.core.Core").getField("debug");
+            boolean previous = debug.getBoolean(null);
+            StringBuilder source = new StringBuilder("local function probe()\n");
+            // Separate scopes keep the active-local count low while the debug
+            // metadata index rises past its fixed 200-entry allocation.
+            for (int index = 0; index < 210; index++) {
+                source.append("do local value = 1 end\n");
+            }
+            source.append("end\n");
+            try {
+                debug.setBoolean(null, false);
+                loadReader.invoke(null, new StringReader(source.toString()),
+                    "debug-local-limit-fixture", null);
+                debug.setBoolean(null, true);
+                try {
+                    loadReader.invoke(null, new StringReader(source.toString()),
+                        "debug-local-limit-fixture", null);
+                    throw new IllegalStateException(
+                        "The debug-local overflow fixture compiled unexpectedly");
+                } catch (InvocationTargetException exception) {
+                    if (!(exception.getCause() instanceof ArrayIndexOutOfBoundsException)) {
+                        throw exception;
+                    }
+                }
+            } finally {
+                debug.setBoolean(null, previous);
+            }
+            System.out.println("DEBUG_LIMIT_FIXTURE_PASS");
+            return;
+        }
         boolean run = args.length > 0 && args[0].equals("--run");
-        int firstSource = run ? 1 : 0;
+        boolean debugCompile = args.length > 0 && args[0].equals("--debug-compile");
+        int firstSource = run || debugCompile ? 1 : 0;
+        if (debugCompile) {
+            // PZ's debug compiler records every declared local, including the
+            // hidden locals of each for-loop. A large function can compile in
+            // normal mode yet overflow the fixed debug-local array at load.
+            Class<?> coreType = Class.forName("zombie.core.Core");
+            coreType.getField("debug").setBoolean(null, true);
+        }
         Object environment = null;
         Object thread = null;
         Method protectedCall = null;

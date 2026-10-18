@@ -3,6 +3,7 @@
 [CmdletBinding()]
 param(
     [string]$ProjectRoot = '',
+    [string]$GameRoot = 'C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid',
     [string]$OutputRoot = ''
 )
 
@@ -23,6 +24,8 @@ $buildPrefix = $buildRoot.TrimEnd('\') + '\'
 if (-not $OutputRoot.StartsWith($buildPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
     throw "Offline output must stay inside the project build directory: $OutputRoot"
 }
+& (Join-Path $ProjectRoot 'scripts\Test-LuaCompile.ps1') `
+    -ProjectRoot $ProjectRoot -GameRoot $GameRoot
 $stageRoot = Join-Path $buildRoot 'offline-playtest-stage'
 $validationRoot = Join-Path $buildRoot 'offline-playtest-validation'
 foreach ($path in @($stageRoot, $validationRoot)) {
