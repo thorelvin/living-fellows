@@ -14204,6 +14204,19 @@ check(spawnSquare ~= nil and spawnSquare.hidden == true
         and SurvivorCompanion.GameplayUtil.distance(spawnSquare, player) >= 50
         and SurvivorCompanion.GameplayUtil.distance(spawnSquare, player) <= 110,
     "production spawn chooser returns a loaded, unseen square within the doubled range")
+do
+    local roof = cell:getGridSquare(40, 20, 1)
+    roof.hidden = true
+    check(roof:TreatAsSolidFloor() and roof:isSafeToSpawn()
+            and SurvivorCompanion.GameplayUtil.isSquareFree(roof),
+        "detached roof floor reproduces the native-safe but inaccessible spawn candidate")
+    local previousSquare = player.square
+    player.square = cell:getGridSquare(0, 1, 1)
+    local fromUpperFloor = SurvivorCompanion.Encounter.chooseSpawnSquare(player, {})
+    player.square = previousSquare
+    check(fromUpperFloor ~= nil and fromUpperFloor.z == 0,
+        "ambient spawn stays on ground level when the player is upstairs")
+end
 
 do
     local recruit = actor("sc-recruit-sound", -3, 4, { recruited = false })

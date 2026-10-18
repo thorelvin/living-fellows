@@ -4,6 +4,7 @@
 
 ## 0.26.48 - Expedition delivery and base integration
 
+- Ambient and debug survivors now spawn on ground-level tiles even when the player is upstairs. Final spawn validation rejects detached roof floors that appear safe to the game's native checks but offer no way down.
 - Expedition return keeps an exact ledger of requested items found on companions, in their bags, or in the expedition car trunk. Workers carry those items to the appropriate marked camp storage without moving unrelated gear or counting a deposit before it succeeds.
 - Storage delivery tries every matching area, including fresh and shelf-stable food destinations. When matching storage is full or inaccessible, the cargo stays where it is and delivery retries when conditions change.
 - The optional Restock and resume base duty launch setting refills safe food, drinking water, clean medical supplies, and compatible ammunition from marked storage, then returns squad members to their prior base roles. Missing stock is reported, and newer player orders take priority.

@@ -30,7 +30,7 @@ function cell:getGridSquare() return square end
 local player = {}
 function player:getX() return 0 end
 function player:getY() return 0 end
-function player:getZ() return 0 end
+function player:getZ() return self.z or 0 end
 function player:getCell() return cell end
 function player:getPlayerNum() return 0 end
 
@@ -61,6 +61,17 @@ local second = SC.Spawn.productionPulse(player, { active = true }, 360000)
 check(initial == false and early == false and first == true and cooldown == false and second == true,
     "production encounters honor initial delay and bounded attempt cooldown")
 check(attempts == 2, "production cadence reaches real spawn without the debug flag")
+do
+    local roof = setmetatable({ z = 1 }, { __index = square })
+    local originalLookup, originalEncounter = cell.getGridSquare, SC.Encounter
+    function cell:getGridSquare(_, _, z) return z == 1 and roof or square end
+    SC.Encounter = { chooseSpawnSquare = function() return roof end }
+    player.z = 1
+    local selected = SC.Spawn.chooseSquare(player, {})
+    player.z, cell.getGridSquare, SC.Encounter = nil, originalLookup, originalEncounter
+    check(selected == square,
+        "final validation rejects an upper-floor roof and fallback samples ground level")
+end
 local recoveringRuntime = { active = false, disabledReason = "bridge exposure pending" }
 local recovered = SC.Spawn.productionPulse(player, recoveringRuntime, 700000)
 check(recovered == true and attempts == 3 and recoveringRuntime.active == true

@@ -2589,6 +2589,10 @@ end
 local function spawnSquareScore(square, player)
     local utility = U()
     if not square or not utility.isSquareFree(square) then return nil end
+    local x, y, z = utility.position(square)
+    -- An upper-floor roof can be a safe solid floor yet have no route down.
+    -- Ordinary encounters enter the world at ground level instead.
+    if x == nil or y == nil or z ~= 0 then return nil end
     if utility.canSee(player, square) then return nil end
     local moving, movingOk = utility.call(square, "getMovingObjects")
     if movingOk and utility.listSize(moving) > 0 then return nil end
@@ -2597,7 +2601,6 @@ local function spawnSquareScore(square, player)
     local score = 40 - density * 12
     local room, roomOk = utility.call(square, "getRoom")
     if roomOk and room then score = score + 18 end
-    local x, y, z = utility.position(square)
     local traversable = 0
     for _, delta in ipairs({ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }) do
         local neighbor = utility.gridSquare(x + delta[1], y + delta[2], z)
@@ -2614,7 +2617,8 @@ end
 function Encounter.chooseSpawnSquare(player, runtime)
     local utility = U()
     if not utility.isValidActor(player) then return nil, "invalid_player" end
-    local px, py, pz = utility.position(player)
+    local px, py = utility.position(player)
+    if px == nil or py == nil then return nil, "invalid_player_position" end
     local minimum = math.max(1, math.floor(tonumber(utility.config("spawnMinDistance")) or 50))
     local maximum = math.max(minimum,
         math.floor(tonumber(utility.config("spawnMaxDistance")) or 110))
@@ -2636,7 +2640,7 @@ function Encounter.chooseSpawnSquare(player, runtime)
         -- The square-ring sampler can put a diagonal candidate much farther
         -- away than its chosen radius. Keep actual distance inside the range.
         if dx * dx + dy * dy <= maximum * maximum then
-            local square = utility.gridSquare(px + dx, py + dy, pz)
+            local square = utility.gridSquare(px + dx, py + dy, 0)
             local score = spawnSquareScore(square, player)
             if score and (not bestScore or score > bestScore) then best, bestScore = square, score end
         end

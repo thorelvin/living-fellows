@@ -693,6 +693,10 @@ end
 
 local function safeSquare(square, player, requireUnseen)
     if square == nil then return false end
+    local zOk, z = invoke(square, "getZ")
+    -- The native floor check also accepts detached roof tiles. Ambient and
+    -- debug encounters must not publish an actor above the ground floor.
+    if not zOk or z ~= 0 then return false end
     local chunkOk, chunk = invoke(square, "getChunk")
     local solidOk, solid = invoke(square, "isSolid")
     local transOk, trans = invoke(square, "isSolidTrans")
@@ -717,8 +721,7 @@ local function safeSquare(square, player, requireUnseen)
     local cellOk, cell = invoke(square, "getCell")
     local xOk, x = invoke(square, "getX")
     local yOk, y = invoke(square, "getY")
-    local zOk, z = invoke(square, "getZ")
-    if not cellOk or not xOk or not yOk or not zOk then return false end
+    if not cellOk or not xOk or not yOk then return false end
     local radius = SC.Config.get("spawnLocalSafetyRadius")
     local zombies = 0
     for dx = -radius, radius do
@@ -744,9 +747,8 @@ end
 local function fallbackSquare(player, minimum, maximum, requireUnseen)
     local xOk, playerX = invoke(player, "getX")
     local yOk, playerY = invoke(player, "getY")
-    local zOk, playerZ = invoke(player, "getZ")
     local cellOk, cell = invoke(player, "getCell")
-    if not xOk or not yOk or not zOk or not cellOk or cell == nil then return nil end
+    if not xOk or not yOk or not cellOk or cell == nil then return nil end
     minimum = tonumber(minimum) or SC.Config.get("spawnMinDistance")
     maximum = tonumber(maximum) or SC.Config.get("spawnMaxDistance")
     for _ = 1, SC.Config.get("spawnSampleCount") do
@@ -759,7 +761,7 @@ local function fallbackSquare(player, minimum, maximum, requireUnseen)
         if octant >= 4 then dx = -dx end
         if octant == 2 or octant == 3 or octant == 6 or octant == 7 then dy = -dy end
         local squareOk, square = invoke(cell, "getGridSquare",
-            math.floor(playerX + dx), math.floor(playerY + dy), math.floor(playerZ))
+            math.floor(playerX + dx), math.floor(playerY + dy), 0)
         if squareOk and safeSquare(square, player, requireUnseen) then return square end
     end
     return nil

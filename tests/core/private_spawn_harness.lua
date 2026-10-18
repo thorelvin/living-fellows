@@ -30,7 +30,7 @@ function cell:getGridSquare() return square end
 local player = {}
 function player:getX() return 0 end
 function player:getY() return 0 end
-function player:getZ() return 0 end
+function player:getZ() return self.z or 0 end
 function player:getCell() return cell end
 function player:getPlayerNum() return 0 end
 
@@ -65,6 +65,16 @@ check(SC.Config.get("debugSpawnEnabled") == true
     and SC.Config.get("debugSpawnMaxDistance") == 15
     and SC.Config.get("debugDiscoveryDistance") == 6,
     "private manual-spawn provider settings and discovery gate are enabled")
+do
+    local roof = setmetatable({ z = 1 }, { __index = square })
+    local originalLookup = cell.getGridSquare
+    function cell:getGridSquare(_, _, z) return z == 1 and roof or square end
+    player.z = 1
+    local selected = SC.Spawn.chooseDebugSquare(player)
+    player.z, cell.getGridSquare = nil, originalLookup
+    check(selected == square,
+        "debug survivor spawn also chooses ground level beside an upstairs player")
+end
 local first = SC.Spawn.generateIdentity()
 local second = SC.Spawn.generateIdentity()
 check(first.forename ~= "" and first.surname ~= "" and first.gender ~= nil
