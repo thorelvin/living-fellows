@@ -3700,11 +3700,13 @@ function SCUIDetail:buildBase(panel, row)
             for _, job in ipairs(stalled) do
                 local kind = UI.humanize(job.kind or job.type)
                 local worker = job.assignedId and residentNames[job.assignedId]
+                local storageFull = job.blocker == "destination_full"
+                    or job.blocker == "haul_destinations_full"
+                    or job.blocker == "car_unload_storage_full_or_missing"
+                local rowKey = storageFull and "UI_SC_Base_StorageFullRow"
+                    or "UI_SC_Base_StalledRow"
                 y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
-                    UI.text(job.blocker == "destination_full"
-                            or job.blocker == "haul_destinations_full"
-                            or job.blocker == "car_unload_storage_full_or_missing"
-                        and "UI_SC_Base_StorageFullRow" or "UI_SC_Base_StalledRow",
+                    UI.text(rowKey,
                         worker and (kind .. " (" .. worker .. ")") or kind,
                         UI.humanize(job.blocker or "blocked")))
                 y = self:addBaseManagementAction(panel, y,
