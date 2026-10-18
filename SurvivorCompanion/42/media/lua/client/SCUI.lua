@@ -180,6 +180,7 @@ local BASE_STORAGE_CATEGORIES = {
     { id = "weapons", key = "UI_SC_Base_Storage_weapons" },
     { id = "ammunition", key = "UI_SC_Base_Storage_ammunition" },
     { id = "clothing", key = "UI_SC_Base_Storage_clothing" },
+    { id = "valuables", key = "UI_SC_Base_Storage_valuables" },
     { id = "general", key = "UI_SC_Base_Storage_general" },
     { id = "output", key = "UI_SC_Base_Storage_output" },
     { id = "memorial", key = "UI_SC_Base_Storage_memorial" },
@@ -3686,7 +3687,11 @@ function SCUIDetail:buildBase(panel, row)
             residentNames[residentRow.id] = residentRow.name
         end
         for _, job in ipairs(base.rows or {}) do
-            if job.parked == true then stalled[#stalled + 1] = job end
+            if job.parked == true or job.blocker == "destination_full"
+                or job.blocker == "haul_destinations_full"
+                or job.blocker == "car_unload_storage_full_or_missing" then
+                stalled[#stalled + 1] = job
+            end
         end
         if #stalled > 0 then
             y = self:addSection(panel, y + 4, "UI_SC_Base_Section_Stalled")
@@ -3696,7 +3701,10 @@ function SCUIDetail:buildBase(panel, row)
                 local kind = UI.humanize(job.kind or job.type)
                 local worker = job.assignedId and residentNames[job.assignedId]
                 y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
-                    UI.text("UI_SC_Base_StalledRow",
+                    UI.text(job.blocker == "destination_full"
+                            or job.blocker == "haul_destinations_full"
+                            or job.blocker == "car_unload_storage_full_or_missing"
+                        and "UI_SC_Base_StorageFullRow" or "UI_SC_Base_StalledRow",
                         worker and (kind .. " (" .. worker .. ")") or kind,
                         UI.humanize(job.blocker or "blocked")))
                 y = self:addBaseManagementAction(panel, y,

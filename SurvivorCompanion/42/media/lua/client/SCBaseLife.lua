@@ -23,12 +23,12 @@ BaseLife.RESTRICTIONS = { watch = true, quarantine = true, exiled = true }
 BaseLife.ZONE_TYPES = {
     area = true, work = true, rest = true, social = true, guard = true,
     rally = true, quarantine = true, lumber = true, farm = true, fishing = true,
-    burial = true, pyre = true, parking = true,
+    burial = true, pyre = true, parking = true, log_yard = true,
 }
 BaseLife.STORAGE_CATEGORIES = {
     food = true, fresh_food = true, water = true, medical = true, tools = true, construction = true,
     crafting = true, literature = true, weapons = true, ammunition = true, clothing = true,
-    general = true,
+    general = true, valuables = true,
     output = true, memorial = true, farming = true,
 }
 BaseLife.JOB_TYPES = {
@@ -128,10 +128,14 @@ local TRANSIENT_SORT_BLOCKERS = {
     haul_cargo_returned = 30000,
     destination_full = 60000,
 }
+local TRANSIENT_GATHER_BLOCKERS = { destination_full = 30000 }
 local function transientJobDelay(job, reason)
     if type(job) ~= "table" then return nil end
+    if reason == "destination_full" or reason == "haul_destinations_full"
+        or reason == "car_unload_storage_full_or_missing" then return 30000 end
     if job.type == "farm" then return TRANSIENT_FARM_BLOCKERS[reason] end
     if job.type == "sort" then return TRANSIENT_SORT_BLOCKERS[reason] end
+    if job.type == "gather_materials" then return TRANSIENT_GATHER_BLOCKERS[reason] end
     return nil
 end
 local roleAffinity = {
@@ -414,6 +418,7 @@ local function normalizeJob(source)
         reservedBy = nil, leaseUntil = 0, blocker = source.blocker ~= nil
             and cleanText(source.blocker, "blocked", 160) or nil,
         attempts = integer(source.attempts, 0, 0, 1000),
+        fullAlertSpoken = source.fullAlertSpoken == true,
         retryAt = math.max(0, finite(source.retryAt, 0)),
         createdAt = math.max(0, finite(source.createdAt, 0)),
         updatedAt = math.max(0, finite(source.updatedAt, 0)),
@@ -439,8 +444,13 @@ local function normalizeWorkOrder(source)
     local delivered = integer(source.delivered, 0, 0, requested)
     local state = WORK_ORDER_STATES[source.state] and source.state or "paused"
     local workers = normalizeWorkerIds(source.workers)
+    local destinationStorageId = validId(source.destinationStorageId, "storage:")
+        and source.destinationStorageId or nil
+    local destinationZoneId = material == "logs"
+        and validId(source.destinationZoneId, "zone:")
+        and source.destinationZoneId or nil
     if not material or not validId(source.zoneId, "zone:")
-        or not validId(source.destinationStorageId, "storage:")
+        or (not destinationStorageId and not destinationZoneId)
         or (state == "running" and #workers < 1) then return nil end
     if state == "completed" and delivered ~= requested then return nil end
     return {
@@ -450,7 +460,8 @@ local function normalizeWorkOrder(source)
         material = material,
         itemType = BaseLife.GATHER_MATERIALS[material],
         zoneId = source.zoneId,
-        destinationStorageId = source.destinationStorageId,
+        destinationStorageId = destinationStorageId,
+        destinationZoneId = destinationZoneId,
         requested = requested,
         delivered = delivered,
         workers = workers,
@@ -478,8 +489,13 @@ local function normalizeWorkReceipt(source)
         and cleanText(source.itemType, "", 128) or nil
     local destinationStorageId = validId(source.destinationStorageId, "storage:")
         and source.destinationStorageId or nil
+    local destinationZoneId = validId(source.destinationZoneId, "zone:")
+        and source.destinationZoneId or nil
+    local destinationPoint = destinationZoneId and normalizePoint(source.destinationPoint) or nil
     if not sourcePoint or not actorId or actorId == "" or not itemType or itemType == ""
-        or not destinationStorageId then return nil end
+        or (not destinationStorageId and not (destinationZoneId and destinationPoint)) then
+        return nil
+    end
     local owner = ownerKinds[source.owner] and source.owner or "unknown"
     local detachedProof = source.detachedProof == true
     if detachedProof and not ((source.phase == "recovery" or source.phase == "quarantined")
@@ -507,6 +523,8 @@ local function normalizeWorkReceipt(source)
         actorId = actorId,
         source = sourcePoint,
         destinationStorageId = destinationStorageId,
+        destinationZoneId = destinationZoneId,
+        destinationPoint = destinationPoint,
         phase = source.phase,
         owner = owner,
         detachedProof = detachedProof,
@@ -622,9 +640,17 @@ local function normalizeProductionOrder(source)
     if schema.zoneKinds ~= nil and zoneId == nil then return nil, "invalid" end
     local sourceStorageId = validId(source.sourceStorageId, "storage:")
         and source.sourceStorageId or nil
+    local sourceZoneId = source.operation == "saw_planks"
+        and validId(source.sourceZoneId, "zone:")
+        and source.sourceZoneId or nil
     local destinationStorageId = validId(source.destinationStorageId, "storage:")
         and source.destinationStorageId or nil
-    if schema.source == true and sourceStorageId == nil then return nil, "invalid" end
+    local destinationZoneId = source.operation == "fell_trees"
+        and validId(source.destinationZoneId, "zone:")
+        and source.destinationZoneId or nil
+    if schema.source == true and sourceStorageId == nil and sourceZoneId == nil then
+        return nil, "invalid"
+    end
     if schema.destination == true and destinationStorageId == nil then return nil, "invalid" end
     local graves = {}
     for _, point in ipairs(type(source.graves) == "table" and source.graves or {}) do
@@ -637,7 +663,9 @@ local function normalizeProductionOrder(source)
         operation = source.operation,
         zoneId = zoneId,
         sourceStorageId = sourceStorageId,
+        sourceZoneId = sourceZoneId,
         destinationStorageId = destinationStorageId,
+        destinationZoneId = destinationZoneId,
         requested = requested,
         completed = completed,
         workers = workers,
@@ -1342,6 +1370,16 @@ function BaseLife.finishZone(square, name)
         if not BaseLife.lumberZoneReachable(zone, base.zones) then
             return false, zone.kind .. "_zone_out_of_reach"
         end
+        if zone.kind == "log_yard" then
+            for y = zone.y1, zone.y2 do
+                for x = zone.x1, zone.x2 do
+                    local square = U().gridSquare(x, y, zone.z)
+                    if not square or BaseLife.isOutdoorSquare(square) ~= true then
+                        return false, "log_yard_needs_outdoors"
+                    end
+                end
+            end
+        end
         -- A pyre starts real fire: refuse an unsafe site while it is drawn.
         if zone.kind == "pyre" and SC.Production
             and type(SC.Production.validatePyreZone) == "function" then
@@ -1573,12 +1611,21 @@ function BaseLife.canRemoveZone(id)
     if zone.kind == "area" and SC.BaseWatch and SC.BaseWatch.current
         and SC.BaseWatch.current() then return false, "base_watch_active" end
     for _, order in ipairs(base.work and base.work.orders or {}) do
-        if removing[order.zoneId] and order.state ~= "completed" and order.state ~= "cancelled" then
+        if (removing[order.zoneId] or removing[order.destinationZoneId])
+            and order.state ~= "completed" and order.state ~= "cancelled" then
             return false, "work_order_uses_zone"
         end
     end
+    for _, receipt in ipairs(base.work and base.work.receipts or {}) do
+        if removing[receipt.destinationZoneId]
+            and (not receiptIsTerminal(receipt) or receipt.markerCleanupPending == true) then
+            return false, "work_receipt_uses_zone"
+        end
+    end
     for _, order in ipairs(base.production and base.production.orders or {}) do
-        if removing[order.zoneId] and order.state ~= "completed" and order.state ~= "cancelled" then
+        if (removing[order.zoneId] or removing[order.sourceZoneId]
+            or removing[order.destinationZoneId])
+            and order.state ~= "completed" and order.state ~= "cancelled" then
             return false, "production_order_uses_zone"
         end
     end
@@ -1953,6 +2000,33 @@ function BaseLife.depositStorageRows(category)
     return result
 end
 
+-- Keep valuable recognition narrow: broad name fragments such as "gold" also
+-- match tools and clothing that are not jewelry. Callers still apply the
+-- existing ownership and equipped-item protection before moving an item.
+local VALUABLE_TYPES = {
+    ["Base.Money"] = true, ["Base.MoneyBundle"] = true,
+    ["Base.GoldBar"] = true, ["Base.SilverBar"] = true,
+    ["Base.Diamond"] = true, ["Base.Ruby"] = true,
+    ["Base.Emerald"] = true, ["Base.Sapphire"] = true,
+}
+local VALUABLE_PREFIXES = {
+    "Necklace_", "NecklaceLong_", "Ring_", "Earring_", "Bracelet_",
+    "WristWatch_", "PocketWatch_",
+    "Wallet", "BellyButton_", "NoseRing_", "NoseStud_",
+}
+
+function BaseLife.isValuableItem(item)
+    local fullType = U().itemType(item)
+    if type(fullType) ~= "string" then return false end
+    if VALUABLE_TYPES[fullType] then return true end
+    local module, shortType = string.match(fullType, "^([^%.]+)%.(.+)$")
+    if module ~= "Base" or not shortType then return false end
+    for _, prefix in ipairs(VALUABLE_PREFIXES) do
+        if string.sub(shortType, 1, #prefix) == prefix then return true end
+    end
+    return false
+end
+
 -- A food item's spoilage lifetime is the game's item data, not its name.
 -- Cans and other shelf-stable food have no finite short expiry. A long-lived
 -- food (for example cured produce) can also stay out of the fridge.
@@ -2308,7 +2382,15 @@ function BaseLife.allocateWorkReceipt(spec)
     copied.id = nextWorkId(work, "nextReceiptSerial", "work-receipt:")
     copied.token = copied.id
     copied.itemType = order.itemType
-    copied.destinationStorageId = order.destinationStorageId
+    if spec.destinationZoneId then
+        copied.destinationStorageId = nil
+        copied.destinationZoneId = spec.destinationZoneId
+        copied.destinationPoint = spec.destinationPoint
+    else
+        copied.destinationStorageId = spec.destinationStorageId or order.destinationStorageId
+        copied.destinationZoneId = nil
+        copied.destinationPoint = nil
+    end
     copied.phase = "selected"
     copied.owner = "world"
     copied.accounted = false
@@ -2322,6 +2404,37 @@ function BaseLife.allocateWorkReceipt(spec)
     if not receipt then return false, "invalid_work_receipt" end
     work.receipts[#work.receipts + 1] = receipt
     order.updatedAt, order.blocker = current, nil
+    bumpWorkConsistencyRevision()
+    return true, receipt
+end
+
+function BaseLife.retargetWorkReceipt(id, destination)
+    local base = activeBase()
+    local receipt = workReceiptIn(base, id)
+    if not receipt or receiptIsTerminal(receipt) then return false, "unknown_work_receipt" end
+    local order = workOrderIn(base, receipt.orderId)
+    if type(destination) == "table" and destination.kind == "log_yard" then
+        local zone = findById(base.zones, destination.zoneId)
+        if not order or order.material ~= "logs" or not zone or zone.kind ~= "log_yard"
+            or zone.z ~= destination.z or destination.x < zone.x1
+            or destination.x > zone.x2 or destination.y < zone.y1
+            or destination.y > zone.y2 then return false, "invalid_gather_destination" end
+        receipt.destinationStorageId = nil
+        receipt.destinationZoneId = zone.id
+        receipt.destinationPoint = { x = destination.x, y = destination.y, z = destination.z }
+    else
+        local storageId = type(destination) == "table" and destination.id or destination
+        local preferred = order and gatheringStorage(base, order.destinationStorageId)
+        local alternate = gatheringStorage(base, storageId)
+        local category = preferred and preferred.category
+            or order and order.material == "logs" and "construction" or nil
+        if not alternate or not category or alternate.category ~= category then
+            return false, "invalid_gather_destination"
+        end
+        receipt.destinationStorageId = storageId
+        receipt.destinationZoneId, receipt.destinationPoint = nil, nil
+    end
+    receipt.updatedAt = now()
     bumpWorkConsistencyRevision()
     return true, receipt
 end
@@ -2420,10 +2533,17 @@ function BaseLife.createGatherOrder(spec)
     if not material then return false, "unsupported_gather_material" end
     local zone = gatheringZone(base, spec.zoneId)
     if not zone then return false, "invalid_gather_work_zone" end
-    local storage = gatheringStorage(base, spec.destinationStorageId)
-    if not storage then return false, "invalid_gather_destination" end
-    local container = BaseLife.resolveContainer(storage)
-    if not container then return false, "destination_storage_unloaded" end
+    local storage = spec.destinationStorageId
+        and gatheringStorage(base, spec.destinationStorageId) or nil
+    local yard = spec.destinationZoneId
+        and findById(base.zones, spec.destinationZoneId) or nil
+    if yard and (material ~= "logs" or yard.kind ~= "log_yard") then
+        return false, "invalid_gather_destination"
+    end
+    if not storage and not yard then return false, "invalid_gather_destination" end
+    if storage and not BaseLife.resolveContainer(storage) and not yard then
+        return false, "destination_storage_unloaded"
+    end
     local workers, workerReason = eligibleGatherWorkers(base, spec.workers)
     if not workers then return false, workerReason end
     local work, activeCount = workFor(base), 0
@@ -2449,7 +2569,8 @@ function BaseLife.createGatherOrder(spec)
     local order = normalizeWorkOrder({
         id = nextWorkId(work, "nextOrderSerial", "work-order:"),
         operation = "gather", material = material,
-        zoneId = zone.id, destinationStorageId = storage.id,
+        zoneId = zone.id, destinationStorageId = storage and storage.id or nil,
+        destinationZoneId = yard and yard.id or nil,
         requested = integer(spec.requested, 12, 1, 100), delivered = 0,
         workers = workers, state = "running", createdAt = current, updatedAt = current,
     })
@@ -2532,10 +2653,13 @@ function BaseLife.changeGatherDestination(id, storageId)
     if not storage then return false, "invalid_gather_destination" end
     if not BaseLife.resolveContainer(storage) then return false, "destination_storage_unloaded" end
     interruptGatherWorkers(order, "gather_destination_changed")
-    order.destinationStorageId, order.updatedAt, order.blocker = storage.id, now(), nil
+    order.destinationStorageId, order.destinationZoneId = storage.id, nil
+    order.updatedAt, order.blocker = now(), nil
     for _, receipt in ipairs(workFor(base).receipts) do
         if receipt.orderId == id and not receiptIsTerminal(receipt) then
-            receipt.destinationStorageId, receipt.updatedAt = storage.id, now()
+            receipt.destinationStorageId = storage.id
+            receipt.destinationZoneId, receipt.destinationPoint = nil, nil
+            receipt.updatedAt = now()
         end
     end
     bumpWorkConsistencyRevision()
@@ -2725,7 +2849,7 @@ local function productionOrderIn(base, id)
 end
 
 -- Zone kinds that may lie in the bounded reach band around the camp.
-BaseLife.REACH_ZONE_KINDS = { lumber = true, farm = true, fishing = true,
+BaseLife.REACH_ZONE_KINDS = { lumber = true, log_yard = true, farm = true, fishing = true,
     burial = true, pyre = true }
 
 local function productionZone(base, schema, id)
@@ -2834,6 +2958,11 @@ function BaseLife.jobAllowsWorkReach(job)
     if job.type == "production" and order.operation == "collect_bodies"
         and type(order.settings) == "table" and order.settings.fromLumber == true then
         return true
+    end
+    if (order.sourceZoneId or order.destinationZoneId) and base then
+        local yard = findById(base.zones, order.sourceZoneId or order.destinationZoneId)
+        if yard and yard.kind == "log_yard"
+            and BaseLife.workZoneReachable(yard, base.zones) then return true end
     end
     local zone = findById(base and base.zones or {}, order.zoneId)
     if zone == nil or BaseLife.REACH_ZONE_KINDS[zone.kind] ~= true then return false end
@@ -2992,20 +3121,38 @@ function BaseLife.createProductionOrder(spec)
         local safe, unsafeReason = SC.Production.validatePyreZone(zone)
         if safe ~= true then return false, "pyre_unsafe:" .. tostring(unsafeReason) end
     end
-    local sourceStorage, destinationStorage
+    local sourceStorage, sourceYard, destinationStorage, destinationYard
     if schema.source == true then
-        sourceStorage = findById(base.storages, spec.sourceStorageId)
-        if not BaseLife.withdrawable(sourceStorage) then
+        sourceStorage = spec.sourceStorageId
+            and findById(base.storages, spec.sourceStorageId) or nil
+        sourceYard = spec.sourceZoneId and findById(base.zones, spec.sourceZoneId) or nil
+        if sourceYard and (spec.operation ~= "saw_planks"
+            or sourceYard.kind ~= "log_yard") then
             return false, "invalid_production_source"
         end
-        if not BaseLife.resolveContainer(sourceStorage) then return false, "production_source_unloaded" end
+        if not sourceYard and not BaseLife.withdrawable(sourceStorage) then
+            return false, "invalid_production_source"
+        end
+        if sourceStorage and not BaseLife.resolveContainer(sourceStorage) and not sourceYard then
+            return false, "production_source_unloaded"
+        end
     end
     local needsDestination = schema.destination == true
         or (schema.destination == "optional" and settings.haulLogs == true)
+    if spec.operation == "fell_trees" and spec.destinationZoneId then
+        destinationYard = findById(base.zones, spec.destinationZoneId)
+        if not destinationYard or destinationYard.kind ~= "log_yard" then
+            return false, "invalid_production_destination"
+        end
+    end
     if needsDestination then
-        destinationStorage = gatheringStorage(base, spec.destinationStorageId)
-        if not destinationStorage then return false, "invalid_production_destination" end
-        if not BaseLife.resolveContainer(destinationStorage) then
+        destinationStorage = spec.destinationStorageId
+            and gatheringStorage(base, spec.destinationStorageId) or nil
+        if not destinationStorage and not destinationYard then
+            return false, "invalid_production_destination"
+        end
+        if destinationStorage and not BaseLife.resolveContainer(destinationStorage)
+            and not destinationYard then
             return false, "destination_storage_unloaded"
         end
     end
@@ -3035,7 +3182,9 @@ function BaseLife.createProductionOrder(spec)
         id = "production-order:" .. tostring(serial), operation = spec.operation,
         zoneId = zone and zone.id or nil,
         sourceStorageId = sourceStorage and sourceStorage.id or nil,
+        sourceZoneId = sourceYard and sourceYard.id or nil,
         destinationStorageId = destinationStorage and destinationStorage.id or nil,
+        destinationZoneId = destinationYard and destinationYard.id or nil,
         requested = spec.requested, completed = 0, workers = workers, state = "running",
         settings = settings, createdAt = current, updatedAt = current,
     })
@@ -3202,13 +3351,16 @@ end
 
 local function autonomousProductionSpec(base, actorId, role)
     if role == "woodcutter" then
+        local yard = SC.LogYard and SC.LogYard.select
+            and SC.LogYard.select(U().resolveActor(actorId)) or nil
         local destination = autonomousLogStorage(base, actorId)
-        if not destination then return nil end
+        if not destination and not yard then return nil end
         local zone = autonomousTreeWaiting(base)
         if not zone then return nil end
         return { operation = "fell_trees", zoneId = zone.id,
             requested = 1,
-            destinationStorageId = destination.id,
+            destinationStorageId = destination and destination.id or nil,
+            destinationZoneId = yard and yard.zoneId or nil,
             settings = { haulLogs = true }, workers = { actorId } }
     elseif role == "builder" then
         local source
@@ -3218,12 +3370,18 @@ local function autonomousProductionSpec(base, actorId, role)
                 source = storage break
             end
         end
-        local destination = source and (autonomousStorage(base, "construction", false, source.id)
-            or autonomousStorage(base, "output", false, source.id)
-            or autonomousStorage(base, nil, false, source.id)) or nil
+        local yard = SC.LogYard and SC.LogYard.source
+            and SC.LogYard.source(U().resolveActor(actorId)) or nil
+        local exclude = source and source.id or nil
+        local destination = (source or yard)
+            and (autonomousStorage(base, "construction", false, exclude)
+                or autonomousStorage(base, "output", false, exclude)
+                or autonomousStorage(base, nil, false, exclude)) or nil
         if not destination then return nil end
         return { operation = "saw_planks", requested = 3,
-            sourceStorageId = source.id, destinationStorageId = destination.id,
+            sourceStorageId = source and source.id or nil,
+            sourceZoneId = yard and yard.zoneId or nil,
+            destinationStorageId = destination.id,
             workers = { actorId } }
     elseif role == "corpsekeeper" and autonomousBodyWaiting(base) then
         for _, kind in ipairs({ "burial", "pyre" }) do
@@ -3568,7 +3726,8 @@ local function flushProductionHaul(base, order)
             local chunk = math.min(100, pending)
             local ok, gather = BaseLife.createGatherOrder({
                 material = "logs", requested = chunk, zoneId = order.zoneId,
-                destinationStorageId = order.destinationStorageId, workers = order.workers,
+                destinationStorageId = order.destinationStorageId,
+                destinationZoneId = order.destinationZoneId, workers = order.workers,
                 enableDuty = true,
             })
             if ok ~= true then
@@ -3594,7 +3753,7 @@ function BaseLife.flushProductionHaul(id)
         return false, "unknown_production_order"
     end
     if type(order.settings) ~= "table" or order.settings.haulLogs ~= true
-        or not order.destinationStorageId then
+        or (not order.destinationStorageId and not order.destinationZoneId) then
         return false, "production_haul_disabled"
     end
     if integer(order.pendingHaul, 0, 0, 999999) == 0 then return true, nil end
@@ -3608,7 +3767,7 @@ function BaseLife.linkProductionHaul(id, amount)
         return false, "unknown_production_order"
     end
     if type(order.settings) ~= "table" or order.settings.haulLogs ~= true
-        or not order.destinationStorageId then
+        or (not order.destinationStorageId and not order.destinationZoneId) then
         return false, "production_haul_disabled"
     end
     amount = integer(amount, 0, 0, 999999)
@@ -4091,6 +4250,20 @@ function BaseLife.blockJob(id, actorId, reason, retryMs)
     end
     job.state, job.reservedBy, job.leaseUntil = "blocked", nil, 0
     job.blocker = cleanText(reason, "blocked", 160)
+    local storageFull = job.blocker == "destination_full"
+        or job.blocker == "haul_destinations_full"
+        or job.blocker == "car_unload_storage_full_or_missing"
+    if storageFull and not job.fullAlertSpoken and worker ~= nil then
+        local speaker = U().resolveActor(worker)
+        local player = type(getPlayer) == "function" and getPlayer() or nil
+        if speaker and player and U().distance(speaker, player) <= 9 then
+            local line = type(getText) == "function"
+                and getText("UI_SC_Base_StorageFullSpeech")
+                or "The storage is full. I will wait for space."
+            local _, spoken = U().call(speaker, "Say", line)
+            if spoken then job.fullAlertSpoken = true end
+        end
+    end
     local transientDelay = transientJobDelay(job, reason)
     job.attempts = transientDelay and 0 or (job.attempts or 0) + 1
     job.updatedAt = now()
@@ -4752,6 +4925,7 @@ function BaseLife.summary()
                     id = order.id, operation = order.operation, material = order.material,
                     itemType = order.itemType, zoneId = order.zoneId,
                     destinationStorageId = order.destinationStorageId,
+                    destinationZoneId = order.destinationZoneId,
                     requested = order.requested, delivered = order.delivered,
                     workers = stableCopy(order.workers, 2, { count = 8 }),
                     state = order.state, blocker = order.blocker,
@@ -4781,7 +4955,9 @@ function BaseLife.summary()
                 result.productionOrders[#result.productionOrders + 1] = {
                     id = order.id, operation = order.operation, unit = schema.unit,
                     zoneId = order.zoneId, sourceStorageId = order.sourceStorageId,
+                    sourceZoneId = order.sourceZoneId,
                     destinationStorageId = order.destinationStorageId,
+                    destinationZoneId = order.destinationZoneId,
                     requested = order.requested, completed = order.completed,
                     workers = stableCopy(order.workers, 2, { count = 8 }),
                     state = order.state, blocker = order.blocker,
@@ -4887,7 +5063,7 @@ local function validWorkSource(base, path)
                 "duplicate work order")
         end
         orderIds[order.id] = normalizeWorkOrder(order)
-        local zone, storage = false, false
+        local zone, storage, yard = false, false, false
         for _, row in ipairs(base.zones or {}) do
             if row.id == order.zoneId and BaseLife.GATHER_ZONE_KINDS[row.kind] then
                 zone = true
@@ -4899,15 +5075,20 @@ local function validWorkSource(base, path)
                 storage = true break
             end
         end
+        for _, row in ipairs(base.zones or {}) do
+            if row.id == order.destinationZoneId and row.kind == "log_yard" then
+                yard = true break
+            end
+        end
         local normalizedOrder = normalizeWorkOrder(order)
         local activeOrder = normalizedOrder and not orderIsTerminal(normalizedOrder)
         if activeOrder and not zone then
             return restoreFailure(path .. ".orders[" .. tostring(index) .. "].zoneId",
                 "unknown work zone")
         end
-        if activeOrder and not storage then
+        if activeOrder and not storage and not yard then
             return restoreFailure(path .. ".orders[" .. tostring(index)
-                .. "].destinationStorageId", "unknown deposit storage")
+                .. "].destinationStorageId", "unknown deposit destination")
         end
     end
     okay, countOrReason = denseArray(source.receipts, path .. ".receipts",
@@ -4951,15 +5132,37 @@ local function validWorkSource(base, path)
                     break
                 end
             end
+            for _, row in ipairs(base.zones or {}) do
+                if row.id == normalizedReceipt.destinationZoneId
+                    and row.kind == "log_yard" then cleanupStorageExists = true break end
+            end
             if not cleanupStorageExists then
                 return restoreFailure(path .. ".receipts[" .. tostring(index)
                     .. "].destinationStorageId", "unknown marker cleanup destination")
             end
         end
-        if not receiptIsTerminal(normalizedReceipt)
-            and normalizedReceipt.destinationStorageId ~= parent.destinationStorageId then
-            return restoreFailure(path .. ".receipts[" .. tostring(index)
-                .. "].destinationStorageId", "active work receipt destination mismatch")
+        if not receiptIsTerminal(normalizedReceipt) then
+            if normalizedReceipt.destinationZoneId then
+                local yard = findById(base.zones, normalizedReceipt.destinationZoneId)
+                local point = normalizedReceipt.destinationPoint
+                if parent.material ~= "logs" or not yard or yard.kind ~= "log_yard"
+                    or not point or point.z ~= yard.z or point.x < yard.x1
+                    or point.x > yard.x2 or point.y < yard.y1
+                    or point.y > yard.y2 then
+                    return restoreFailure(path .. ".receipts[" .. tostring(index)
+                        .. "].destinationZoneId", "invalid active log yard destination")
+                end
+            else
+                local preferred = findById(base.storages, parent.destinationStorageId)
+                local alternate = findById(base.storages, normalizedReceipt.destinationStorageId)
+                local expectedCategory = preferred and preferred.category
+                    or parent.material == "logs" and "construction" or nil
+                if not alternate or alternate.deposits == false
+                    or alternate.category ~= expectedCategory then
+                    return restoreFailure(path .. ".receipts[" .. tostring(index)
+                        .. "].destinationStorageId", "active work receipt destination mismatch")
+                end
+            end
         end
     end
     if source.quarantine ~= nil then
@@ -5025,6 +5228,20 @@ local function validProductionSource(base, path)
                     if not storageFound then
                         return restoreFailure(rowPath .. "." .. field, "unknown production storage")
                     end
+                end
+            end
+            if order.destinationZoneId ~= nil then
+                local yard = findById(base.zones, order.destinationZoneId)
+                if order.operation ~= "fell_trees" or not yard or yard.kind ~= "log_yard" then
+                    return restoreFailure(rowPath .. ".destinationZoneId",
+                        "unknown production log yard")
+                end
+            end
+            if order.sourceZoneId ~= nil then
+                local yard = findById(base.zones, order.sourceZoneId)
+                if order.operation ~= "saw_planks" or not yard or yard.kind ~= "log_yard" then
+                    return restoreFailure(rowPath .. ".sourceZoneId",
+                        "unknown production log yard")
                 end
             end
         end

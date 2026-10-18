@@ -6,7 +6,7 @@ Thank you for helping make survivors more believable, useful, and safe to play a
 
 ## Branches
 
-Living Fellows release branches use `living_fellows/<version>`; the current playtest branch is `living_fellows/0.26.45`. The separately retained PZ Radio Link line uses `pz_radio_link/<version>`. Living Fellows public tags and packages are cut from a tested versioned branch after Source CI, the local full gate, and the relevant playtest pass. Release tags name the Project Zomboid build the release targets: `v<version>-pz<game version>`, for example `v0.26.45-pz42.21.0`, using the pinned game version in `tests/core/pz-runtime.json`. A bridge protocol bump ships under a new version, and the current `CHANGELOG.md` entry must name the protocol it ships (say "remains" when it is unchanged); `tests/source/test_release_sync.py` enforces this.
+Living Fellows release branches use `living_fellows/<version>`; the current playtest branch is `living_fellows/0.26.46`. The separately retained PZ Radio Link line uses `pz_radio_link/<version>`. Living Fellows public tags and packages are cut from a tested versioned branch after Source CI, the local full gate, and the relevant playtest pass. Release tags name the Project Zomboid build the release targets: `v<version>-pz<game version>`, for example `v0.26.46-pz42.21.0`, using the pinned game version in `tests/core/pz-runtime.json`. A bridge protocol bump ships under a new version, and the current `CHANGELOG.md` entry must name the protocol it ships (say "remains" when it is unchanged); `tests/source/test_release_sync.py` enforces this.
 
 ## Before opening a pull request
 

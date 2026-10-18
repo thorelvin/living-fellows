@@ -383,6 +383,7 @@ local function approach(actor, target, action, order)
     end
     local targetSquare = U().squareOf(target) or target
     local groundPickup = action == "move_to_gather_item"
+        or action == "move_to_log_yard"
     local pickupOnSource = groundPickup and U().isSquareFree(targetSquare)
     if groundPickup then
         if pickupOnSource and U().sameSquare(actor, targetSquare)
@@ -407,7 +408,8 @@ local function approach(actor, target, action, order)
         arrivalDistance = pickupOnSource and 0.45 or nil,
         workCampOnly = true,
         workReach = lumberOrder(order)
-            or action == "move_to_gather_destination",
+            or action == "move_to_gather_destination"
+            or action == "move_to_log_yard",
     })
     if accepted ~= true then return "failed", reason or "gather_approach_failed" end
     if reason == "arrived" and reached ~= nil and U().sameSquare(actor, reached) then
@@ -476,8 +478,29 @@ local function updateCarried(actor, order, receipt)
     if receipt.phase ~= "carried" and receipt.phase ~= "depositing" then
         return false, receipt.blocker or "gather_receipt_not_carried", true
     end
-    local storage = storageFor(order)
-    local container, object = storage and SC.BaseLife.resolveContainer(storage) or nil, nil
+    local storage, container, destinationReason =
+        SC.WorkTransport.destinationFor(order, receipt, actor, item)
+    if not storage then
+        SC.BaseLife.blockGatherOrder(order.id, destinationReason)
+        return false, destinationReason, true
+    end
+    if storage.kind == "log_yard" then
+        local approachState, reason = approach(actor, storage.square, "move_to_log_yard", order)
+        if approachState ~= "arrived" then
+            local terminal = approachState == "failed"
+            if terminal then SC.BaseLife.blockGatherOrder(order.id, reason) end
+            return not terminal, reason, terminal
+        end
+        local visualComplete, visualReason, visualTerminal = runVisual(actor, receipt,
+            "deposit", { item = item, targetSquare = storage.square })
+        if not visualComplete then
+            if visualTerminal then SC.BaseLife.blockGatherOrder(order.id, visualReason) end
+            return not visualTerminal, visualReason, visualTerminal
+        end
+        local delivered, deliveryReason = SC.WorkTransport.deposit(receipt, actor, item)
+        return delivered == true, deliveryReason, not delivered
+    end
+    local object
     if storage then container, object = SC.BaseLife.resolveContainer(storage) end
     if not storage or storage.deposits == false then
         SC.BaseLife.blockGatherOrder(order.id, "destination_storage_invalid")

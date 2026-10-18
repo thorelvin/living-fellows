@@ -1674,6 +1674,112 @@ do
     SC.Persistence.restoreStatus, SC.Persistence.isPending = priorStatus, priorPending
 end
 
+-- The marked yard must preserve four exact logs through bundling and
+-- unbundling. With no rope, the four loose logs remain usable in place.
+do
+    local ctx = setup("logs", 1)
+    local yardSquare = addSquare(2, 1, 0)
+    function yardSquare:isOutside() return true end
+    check(SC.BaseLife.beginZone("log_yard", yardSquare) == true,
+        "outdoor log yard begins")
+    local marked, zone = SC.BaseLife.finishZone(yardSquare, "Test log yard")
+    check(marked == true and zone.kind == "log_yard", "outdoor log yard registers")
+    for _ = 1, 4 do putOnGround(yardSquare, makeItem("Base.Log")) end
+    check(SC.LogYard.contents(yardSquare).units == 4
+            and SC.LogYard.select(ctx.actor) == nil,
+        "four loose logs fill exactly one yard tile")
+    ctx.actor.square, ctx.actor.x, ctx.actor.y = yardSquare, 2.5, 1.5
+    check(select(2, SC.LogYard.bundleAt(ctx.actor, yardSquare))
+            == "log_yard_rope_missing"
+            and SC.LogYard.contents(yardSquare).units == 4,
+        "missing rope leaves all four loose logs untouched")
+    local ropeObject = makeStorage(addSquare(3, 0, 0))
+    local ropeOk = SC.BaseLife.registerStorage(ropeObject, "crafting")
+    check(ropeOk == true, "rope storage registers")
+    ropeObject.container:AddItem(makeItem("Base.Rope"))
+    ropeObject.container:AddItem(makeItem("Base.Rope"))
+    local claimed = SC.LogYard.contents(yardSquare).logs[1].item
+    claimed.modData[SC.WorkTransport.MARKERS.id] = "work-receipt-test"
+    check(select(2, SC.LogYard.bundleAt(ctx.actor, yardSquare))
+            == "log_yard_bundle_not_ready"
+            and SC.LogYard.contents(yardSquare).units == 4,
+        "a pending work receipt prevents the yard from consuming its log")
+    claimed.modData[SC.WorkTransport.MARKERS.id] = nil
+    local bundled, bundleReason = SC.LogYard.bundleAt(ctx.actor, yardSquare)
+    local afterBundle = SC.LogYard.contents(yardSquare)
+    check(bundled == true and bundleReason == "log_yard_bundled"
+            and afterBundle.units == 4 and #afterBundle.bundles == 1
+            and #afterBundle.logs == 0 and #ropeObject.container.items == 0
+            and afterBundle.bundles[1].item.modData.ropeItems[0] == "Base.Rope"
+            and afterBundle.bundles[1].item.modData.ropeItems[1] == "Base.Rope",
+        "two ropes and four logs become one vanilla tied bundle")
+    local taken, takeReason, log = SC.LogYard.takeOne(ctx.actor,
+        { x = 2, y = 1, z = 0, zoneId = zone.id })
+    local afterTake = SC.LogYard.contents(yardSquare)
+    local returnedRopes = 0
+    for _, item in ipairs(ctx.actor.inventory.items) do
+        if item.fullType == "Base.Rope" then returnedRopes = returnedRopes + 1 end
+    end
+    check(taken == true and takeReason == "log_yard_log_taken"
+            and ctx.actor.inventory:contains(log)
+            and afterTake.units == 3 and #afterTake.logs == 3
+            and returnedRopes == 2,
+        "building opens one bundle, leaves three logs and returns both ropes")
+end
+
+-- A gather receipt can be retargeted from its original container to the yard
+-- and still account for exactly one delivered world item after save/load.
+do
+    local ctx = setup("logs", 1)
+    local yardSquare = addSquare(2, 1, 0)
+    function yardSquare:isOutside() return true end
+    check(SC.BaseLife.beginZone("log_yard", yardSquare) == true,
+        "gather yard begins")
+    local marked, zone = SC.BaseLife.finishZone(yardSquare, "Gather yard")
+    check(marked == true, "gather yard registers")
+    local log = makeItem("Base.Log")
+    putOnGround(ctx.source, log)
+    local receipt = reserveCandidate(ctx, ctx.actor, log)
+    check(receipt.destinationZoneId == zone.id
+            and receipt.destinationStorageId == nil,
+        "gather reservation chooses marked yard before construction storage")
+    check(SC.WorkTransport.collect(receipt, ctx.actor, log, log.worldItem) == true,
+        "reserved yard log is collected")
+    ctx.actor.square, ctx.actor.x, ctx.actor.y = yardSquare, 2.5, 1.5
+    check(SC.WorkTransport.deposit(receipt, ctx.actor, log) == true
+            and receipt.phase == "delivered"
+            and SC.LogYard.contents(yardSquare).units == 1,
+        "one exact log reaches the yard and is accounted for")
+    local saved = SC.BaseLife.export()
+    SC.WorkTransport.reset()
+    check(SC.BaseLife.restore(saved) == true
+            and SC.BaseLife.workReceipt(receipt.id).phase == "delivered"
+            and SC.LogYard.contents(yardSquare).units == 1,
+        "yard delivery and its exact world item survive save/load")
+end
+
+-- Loose valuables use the dedicated marker when present, including another
+-- marker of the same category after the first fills.
+do
+    local ctx = setup("logs", 1)
+    local ring = makeItem("Base.Ring_Gold", { category = "Clothing" })
+    check(SC.BaseLife.isValuableItem(ring) == true,
+        "vanilla loose jewelry is recognized")
+    check(SC.BaseLife.isValuableItem(makeItem("Base.NecklaceLong_Gold")) == true,
+        "long necklaces use the same valuables storage")
+    local firstObject = makeStorage(addSquare(2, 0, 0))
+    local secondObject = makeStorage(addSquare(3, 0, 0))
+    local firstOk, first = SC.BaseLife.registerStorage(firstObject, "valuables")
+    local secondOk, second = SC.BaseLife.registerStorage(secondObject, "valuables")
+    check(firstOk == true and secondOk == true, "two valuables markers register")
+    firstObject.container.room = false
+    check(select(1, SC.BaseWork.destinationForCarItem(ctx.actor, ring)) == second,
+        "a full valuables marker falls through to another valuables marker")
+    secondObject.container.room = false
+    check(select(1, SC.BaseWork.destinationForCarItem(ctx.actor, ring)) == nil,
+        "loose jewelry waits when every valuables marker is full")
+end
+
 local gatherMetrics = SC.GatherWork.diagnostics()
 local transportMetrics = SC.WorkTransport.diagnostics()
 check(type(transportMetrics.pendingReceipts) == "number"

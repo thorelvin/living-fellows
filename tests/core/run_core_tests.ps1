@@ -144,6 +144,7 @@ try {
         (Join-Path $Client 'SCZombieFacts.lua'),
         (Join-Path $Client 'SCBaseObjectRef.lua'),
         (Join-Path $Client 'SCBaseLife.lua'),
+        (Join-Path $Client 'SCLogYard.lua'),
         (Join-Path $Client 'SCLocomotion.lua'),
         (Join-Path $Client 'SCPersonality.lua'),
         (Join-Path $Client 'SCPersonalItems.lua'),
@@ -390,6 +391,7 @@ try {
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
             (Join-Path $Client 'SCFieldWork.lua'),
+            (Join-Path $Client 'SCLogistics.lua'),
             (Join-Path $TestRoot 'field_work_harness.lua')
         )
         Add-ScJvmStep 'field-work' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $fieldWorkFiles 'Off-base squad work and cargo harness failed.'

@@ -71,8 +71,15 @@ function utility.idOf(value) return value.id end
 function utility.modData(value) return value.data end
 function utility.itemStableId(value) return value.id end
 function utility.itemType(value) return value.kind end
+function utility.itemWeight() return 1 end
 function utility.itemHasTag(value, tag) return tag == "CHOP_TREE" and value.axe == true end
 function utility.inventory(value) return value.bag end
+function utility.inventoryContains(bag, sought)
+    for _, value in ipairs(bag and bag.items or {}) do
+        if value == sought then return true end
+    end
+    return false
+end
 function utility.inventoryItems(bag, limit)
     local result = {}
     for i = 1, math.min(#(bag and bag.items or {}), limit or 4096) do
@@ -154,10 +161,10 @@ local function cropAt(x, y, ripe)
     function tile.plant:canHarvest() return self.ripe end
     return tile
 end
-local function finish(value, kind)
+local function finish(value, kind, yieldCount)
     if kind == "harvest" then
         value.pending.plant.ripe = false
-        put(value.bag, item("Base.Cabbage"))
+        for _ = 1, yieldCount or 1 do put(value.bag, item("Base.Cabbage")) end
     elseif kind == "chop" then
         local tree = value.pending.tree
         tree.index = -1
@@ -283,13 +290,16 @@ local extraCrop = cropAt(100, 101, true)
 Field.observePlayerVehicle(car)
 check(Field.start("harvest", extraCrop, player) == true,
     "harvest order starts for trunk-full recovery")
-for _ = 1, 35 do
+local cropStarted = false
+for _ = 1, 80 do
     Field.update(one, player)
     if one.pending and one.pending.operation == "harvest" then
+        cropStarted = true
         finish(one, "harvest")
         break
     end
 end
+check(cropStarted, "full-trunk fixture reaches its crop before testing delivery")
 car.part.bag.room = false
 for _ = 1, 90 do
     Field.update(one, player)
@@ -297,7 +307,10 @@ for _ = 1, 90 do
 end
 check(Field.status().phase == "paused"
     and Field.status().blocker == "car_trunk_full",
-    "full trunk pauses the fixed car destination")
+    "full trunk pauses the fixed car destination: "
+        .. tostring(Field.status().phase) .. "/" .. tostring(Field.status().blocker)
+        .. "/" .. tostring(Field.export().active.workers.one.phase)
+        .. "/" .. tostring(Field.export().active.workers.one.scan))
 check(#one.bag.items == 1 and one.bag.items[1].data.LF_FieldOrder ~= nil,
     "full trunk keeps the exact crop with its worker")
 car.part.bag.room = true
@@ -306,10 +319,41 @@ advance({ one }, 50)
 check(Field.status().phase == "complete" and #one.bag.items == 0,
     "resumed delivery reaches the same car")
 Field.restore(nil)
+one.bag, car.part.bag = inventory(), inventory()
+one.x, one.y = 100, 99
+local distantCrop = cropAt(115, 100, true)
+Field.observePlayerVehicle(car)
+check(Field.start("harvest", square(100, 100), player) == true,
+    "extended harvest sweep starts")
+for _ = 1, 70 do
+    Field.update(one, player)
+    if one.pending and one.pending.operation == "harvest" and one.active then break end
+end
+check(one.pending and one.pending.plant == distantCrop.plant,
+    "harvest reaches ripe crops 15 tiles from the marked center")
+player.x = 130
+Field.leaderPulse(player)
+check(Field.status().phase == "working",
+    "harvest continues when player moves 30 tiles from marked center")
+finish(one, "harvest", 12)
+local firstCargoBatch
+for _ = 1, 120 do
+    Field.update(one, player)
+    if not firstCargoBatch and Field.status().loaded > 0 then
+        firstCargoBatch = Field.status().loaded
+    end
+    if Field.status().phase == "complete" then break end
+end
+check(firstCargoBatch == 8,
+    "car unloading batches eight exact harvested items per decision beat")
+check(Field.status().phase == "complete" and #car.part.bag.items == 12,
+    "extended harvest delivers all crops to the recently used car")
+player.x = 100
+Field.restore(nil)
 one.follow = true
 check(Field.start("harvest", square(100, 100), player) == true,
     "new order starts for leader leash")
-player.x = 120
+player.x = 133
 Field.leaderPulse(player)
 check(Field.status().phase == "stopped"
     and Field.status().blocker == "leader_left_work_area",
@@ -348,15 +392,31 @@ for _ = 1, 7 do put(one.bag, item("Base.Pen")) end
 local fullCrop = cropAt(100, 100, true)
 check(Field.start("harvest", fullCrop, player) == true,
     "no-car capacity test starts")
-for _ = 1, 35 do
+for _ = 1, 80 do
     Field.update(one, player)
     if one.pending and one.pending.operation == "harvest" then break end
 end
+check(one.pending and one.pending.operation == "harvest",
+    "no-car capacity fixture reaches its crop")
 finish(one, "harvest")
 advance({ one }, 10)
 check(Field.status().phase == "complete"
     and Field.wants(one, player, SC.Commands.peek(one)) == false,
     "no-car full worker completes and releases follow ownership")
+local carried = one.bag.items[#one.bag.items]
+check(carried and carried.data.LF_FieldCarryWorker == "one"
+    and Field.reserved(carried) == true,
+    "no-car harvest remains protected for player pickup after completion")
+local carriedAudit = { items = { { item = carried, category = "food",
+        source = one.bag } }, counts = { food = 10 },
+    profile = { target = { food = 1 }, keep = { food = 0 } },
+    ratio = 0.95, hardRatio = 0.9 }
+check(SC.Logistics.selectSurplus(one, carriedAudit) == nil,
+    "completed no-car harvest does not drop one crop at a time")
+table.remove(one.bag.items, #one.bag.items)
+check(Field.reserved(carried) == false
+    and carried.data.LF_FieldCarryWorker == nil,
+    "manual removal releases the carried-crop reservation")
 Field.restore(nil)
 one.bag, car.part.bag = inventory(), inventory()
 put(car.part.bag, item("Base.Axe", true))
@@ -392,6 +452,30 @@ orphanAxe.data.LF_FieldWorker = "dead"
 check(Field.reserved(orphanAxe) == false
     and orphanAxe.data.LF_FieldBorrowedAxe == nil,
     "orphan axe marker releases after order retirement")
+one.bag, car.part.bag = inventory(), inventory()
+one.x, one.y = 100, 99
+one.follow, two.follow = true, false
+check(Field.start("harvest", square(100, 100), player) == true,
+    "field cargo ownership test starts")
+local harvested = item("Base.Cabbage")
+harvested.data.LF_FieldOrder = Field.export().active.id
+harvested.data.LF_FieldWorker = "one"
+put(one.bag, harvested)
+local audit = { items = { { item = harvested, category = "food", source = one.bag } },
+    counts = { food = 10 }, profile = { target = { food = 1 },
+        keep = { food = 0 } }, ratio = 0.95, hardRatio = 0.9 }
+check(SC.Logistics.selectSurplus(one, audit) == nil,
+    "generic overload handling cannot drop reserved harvest cargo")
+local unowned = item("Base.Cabbage")
+put(one.bag, unowned)
+audit.items[#audit.items + 1] = { item = unowned, category = "food", source = one.bag }
+check(SC.Logistics.selectSurplus(one, audit).item == unowned,
+    "ordinary surplus still unloads while harvest cargo is reserved")
+Field.stop("test")
+check(harvested.data.LF_FieldCarryWorker == "one"
+    and Field.reserved(harvested) == true,
+    "stopping an order retains undelivered crops for player pickup")
+Field.restore(nil)
 local bad = Field.restore({ schema = 1, serial = -1 })
 check(bad == false, "malformed save rejected")
 print("FIELD_WORK_PASS checks=" .. checks)

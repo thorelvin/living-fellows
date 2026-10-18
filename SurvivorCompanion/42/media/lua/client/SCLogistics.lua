@@ -99,7 +99,7 @@ local storageCategory = {
     construction = "construction", crafting = "crafting",
     farming = "farming",
     literature = "literature", clothing = "clothing", container = "general",
-    general = "general", trash = "general",
+    general = "general", trash = "general", valuables = "valuables",
 }
 
 local roleWeights = {
@@ -182,6 +182,8 @@ function Logistics.itemCategory(item)
     -- Before any category can claim it: a ruined axe is still an axe by type,
     -- and would otherwise be shelved with the weapons.
     if Logistics.isTrash(item) then return "trash" end
+    if SC.BaseLife and SC.BaseLife.isValuableItem
+        and SC.BaseLife.isValuableItem(item) then return "valuables" end
     if SC.FarmWork and type(SC.FarmWork.isFarmingSupply) == "function"
         and SC.FarmWork.isFarmingSupply(item) == true then return "farming" end
     -- Check the engine category before filename heuristics. Ordinary magazines
@@ -313,6 +315,7 @@ end
 
 local function dynamicTarget(audit, category, actor)
     local target = tonumber(audit.profile.target[category]) or 0
+    if category == "valuables" then return 3 end
     if category == "food" then
         local hunger = U().characterStatValue(actor, "HUNGER", 0)
         if hunger >= 0.7 then target = target + 1 end
@@ -553,6 +556,11 @@ function Logistics.canTake(actor, item, category, audit, requestedCategory)
     if notRealGear(item) then return false, "not_real_gear" end
     audit = audit or Logistics.audit(actor)
     category = category or Logistics.itemCategory(item)
+    -- A loose watch may be sorted into Valuables at base, but a cosmetic
+    -- wearable is still not a reason to stop scavenging and loot a corpse.
+    if category == "valuables" and cosmeticWearable(item) then
+        return false, "cosmetic_wearable"
+    end
     if category == "clothing" then
         if cosmeticWearable(item) then return false, "cosmetic_wearable" end
         local upgrade = Logistics.clothingUpgrade(actor, item)
@@ -763,6 +771,13 @@ end
 local function isProtected(actor, item)
     if not actor or not item then return true end
     local itemData = select(1, U().call(item, "getModData"))
+    -- Harvest and woodcut orders own their exact cargo until delivery or
+    -- cancellation. Generic overload handling must never drop it as surplus.
+    if type(itemData) == "table" and (itemData.LF_FieldOrder ~= nil
+        or itemData.LF_FieldBorrowedAxe ~= nil
+        or itemData.LF_FieldCarryWorker ~= nil)
+        and SC.FieldWork and type(SC.FieldWork.reserved) == "function"
+        and SC.FieldWork.reserved(item) == true then return true end
     if type(itemData) == "table" and (itemData.LF_RefuelJobId ~= nil
         or itemData.LF_UpkeepJobId ~= nil) and (not SC.BaseFuel
             or type(SC.BaseFuel.reserved) ~= "function"
@@ -1262,10 +1277,14 @@ storageFor = function(actor, item, category, dedicatedOnly)
     if not SC.BaseLife or type(SC.BaseLife.storageRows) ~= "function"
         or type(SC.BaseLife.resolveContainer) ~= "function" then return nil end
     local wanted = storageCategory[category] or "general"
+    if wanted == "valuables" and #SC.BaseLife.depositStorageRows("valuables") == 0 then
+        wanted = isClothingItem(item) and "clothing" or "general"
+    end
     if wanted == "food" and type(SC.BaseLife.foodDepositCategory) == "function" then
         wanted = SC.BaseLife.foodDepositCategory(item)
     end
     local categories = dedicatedOnly and { wanted }
+        or wanted == "valuables" and { wanted }
         or wanted == "general" and { "general", "output" }
         or { wanted, "general", "output" }
     local best, bestDistance
@@ -1523,6 +1542,15 @@ local function executeTransaction(actor, state)
     if not transaction then return false, "logistics_transaction_missing" end
     if not U().inventoryContains(transaction.source, transaction.item) then
         return terminalTransaction(actor, state, false, "logistics_source_changed", {
+            kind = transaction.kind,
+        })
+    end
+    -- A harvest can finish after surplus selection but before this transfer
+    -- commits. Recheck ownership so a cached overload decision cannot drop
+    -- or shelve newly reserved field cargo.
+    if (transaction.kind == "drop" or transaction.kind == "deposit")
+        and isProtected(actor, transaction.item) then
+        return terminalTransaction(actor, state, false, "logistics_item_reserved", {
             kind = transaction.kind,
         })
     end

@@ -2,6 +2,7 @@
 
 if type(require) == "function" then
     pcall(require, "SCBaseLife")
+    pcall(require, "SCLogYard")
     pcall(require, "SCPersistence")
     pcall(require, "SCNativeList")
 end
@@ -205,6 +206,65 @@ local function storageById(id)
     return nil
 end
 
+-- Choose a real, currently open destination for this exact item. The selected
+-- container is only a preference; a different marker of the same category is
+-- valid when the first one fills while the worker is walking.
+function Transport.destinationFor(order, receipt, actor, item)
+    local preferred = storageById(order and order.destinationStorageId)
+    local yard = SC.LogYard
+    if order and order.material == "logs" and yard and yard.hasZone
+        and yard.hasZone() and U().itemType(item) == "Base.Log" then
+        local selected = receipt and receipt.destinationZoneId
+            and yard.restoreDestination(receipt) or nil
+        local occupancy = selected and yard.contents(selected.square) or nil
+        if not occupancy or occupancy.units >= 4 then
+            selected = yard.select(actor, order.destinationZoneId)
+        end
+        if selected then
+            if receipt and (receipt.destinationZoneId ~= selected.zoneId
+                or not receipt.destinationPoint
+                or receipt.destinationPoint.x ~= selected.x
+                or receipt.destinationPoint.y ~= selected.y) then
+                local changed, reason = SC.BaseLife.retargetWorkReceipt(receipt.id, selected)
+                if not changed then return nil, nil, reason end
+            end
+            return selected, selected.square
+        end
+    end
+    local category = preferred and preferred.category
+        or order and order.material == "logs" and "construction" or nil
+    if not category then return nil, nil, "destination_storage_invalid" end
+    local first = storageById(receipt and receipt.destinationStorageId) or preferred
+    local candidates, seen = {}, {}
+    if first then candidates[#candidates + 1] = first end
+    if preferred then candidates[#candidates + 1] = preferred end
+    for _, storage in ipairs(SC.BaseLife.depositStorageRows(category)) do
+        candidates[#candidates + 1] = storage
+    end
+    local unloaded, loaded = false, false
+    for _, storage in ipairs(candidates) do
+        if storage and not seen[storage.id] then
+            seen[storage.id] = true
+            if storage.deposits ~= false and storage.category == category then
+                local container = SC.BaseLife.resolveContainer(storage)
+                if container then
+                    loaded = true
+                    if capacity(container, actor, item) == true then
+                        if receipt and (receipt.destinationStorageId ~= storage.id
+                            or receipt.destinationZoneId ~= nil) then
+                            local changed, reason = SC.BaseLife.retargetWorkReceipt(receipt.id, storage.id)
+                            if not changed then return nil, nil, reason end
+                        end
+                        return storage, container
+                    end
+                else unloaded = true end
+            end
+        end
+    end
+    return nil, nil, not loaded and unloaded
+        and "destination_storage_unloaded" or "destination_full"
+end
+
 local function actorById(id)
     local actor = U().resolveActor(id)
     return actor
@@ -253,7 +313,8 @@ end
 function Transport.isCargoProtected(item, actorOrId, operation)
     local data = itemData(item)
     if not data then return false end
-    if data.LF_FieldOrder ~= nil or data.LF_FieldBorrowedAxe ~= nil then
+    if data.LF_FieldOrder ~= nil or data.LF_FieldBorrowedAxe ~= nil
+        or data.LF_FieldCarryWorker ~= nil then
         return SC.FieldWork ~= nil and SC.FieldWork.reserved ~= nil
             and SC.FieldWork.reserved(item) == true
     end
@@ -285,7 +346,8 @@ function Transport.foreignProtected(item, actor)
         return true, "quest_item_owned"
     end
     if data.LF_FarmReceiptId ~= nil then return true, "farm_item_owned" end
-    if data.LF_FieldOrder ~= nil or data.LF_FieldBorrowedAxe ~= nil then
+    if data.LF_FieldOrder ~= nil or data.LF_FieldBorrowedAxe ~= nil
+        or data.LF_FieldCarryWorker ~= nil then
         if SC.FieldWork and SC.FieldWork.reserved
             and SC.FieldWork.reserved(item) == true then
             return true, "field_item_owned"
@@ -427,6 +489,42 @@ local function finishDelivery(receipt, item, destination)
     return true, accountingReason or "delivery_accounted"
 end
 
+local function finishYardDelivery(receipt, item, world)
+    local yard = SC.LogYard and SC.LogYard.restoreDestination(receipt)
+    if not yard or U().worldItemPresent(yard.square, world) ~= true
+        or select(1, itemWorldLink(item)) ~= world then
+        return setFailure(receipt, "log_yard_drop_unverified", "recovery")
+    end
+    receipt.phase, receipt.owner, receipt.detachedProof = "delivered", "destination", false
+    receipt.blocker, receipt.updatedAt = nil, now()
+    liveItems[receipt.id], liveWorldItems[receipt.id] = item, world
+    local accounted, _, accountingReason = SC.BaseLife.accountGatherDelivery(
+        receipt.orderId, receipt.id)
+    if accounted ~= true then
+        return setFailure(receipt, accountingReason or "delivery_accounting_failed", "recovery")
+    end
+    local cleared, clearReason = clearMarker(item, receipt.id)
+    if cleared then
+        receipt.markerCleanupPending = false
+        receipt.markerCleanupAttempts, receipt.markerCleanupNextRetryAt = 0, 0
+        liveItems[receipt.id], liveWorldItems[receipt.id] = nil, nil
+        metrics.markerCleanups = metrics.markerCleanups + 1
+    else
+        receipt.markerCleanupPending = true
+        receipt.markerCleanupAttempts = 0
+        receipt.markerCleanupNextRetryAt = now() + retryDelay(1)
+        receipt.blocker = clean(clearReason, 160)
+        metrics.markerCleanupFailures = metrics.markerCleanupFailures + 1
+    end
+    metrics.deliveries = metrics.deliveries + 1
+    metrics.lastDeliveryAt = now()
+    if cleared and SC.LogYard and SC.LogYard.bundleAt then
+        local worker = receiptActor(receipt)
+        if worker then SC.LogYard.bundleAt(worker, yard.square) end
+    end
+    return true, accountingReason or "delivery_accounted"
+end
+
 function Transport.reserve(order, job, actor, item, worldItem, square)
     if not order or order.state ~= "running" or not actor or not item or not worldItem then
         return nil, "invalid_gather_reservation"
@@ -434,14 +532,12 @@ function Transport.reserve(order, job, actor, item, worldItem, square)
     if U().itemType(item) ~= order.itemType then return nil, "gather_item_type_changed" end
     local protected, protectionReason = Transport.foreignProtected(item, actor)
     if protected then return nil, protectionReason end
-    local destination = storageById(order.destinationStorageId)
-    local destinationContainer = destination and SC.BaseLife.resolveContainer(destination) or nil
-    if not destinationContainer then return nil, "destination_storage_unloaded" end
+    local destination, destinationContainer, destinationReason =
+        Transport.destinationFor(order, nil, actor, item)
+    if not destinationContainer then return nil, destinationReason end
     local actorInventory = U().inventory(actor)
     local room, roomReason = capacity(actorInventory, actor, item)
     if not room then return nil, roomReason == "destination_full" and "worker_overloaded" or roomReason end
-    room, roomReason = capacity(destinationContainer, actor, item)
-    if not room then return nil, roomReason end
     local present = U().worldItemPresent(square, worldItem)
     local link, linkReadable = itemWorldLink(item)
     if present ~= true or not linkReadable or link ~= worldItem then
@@ -458,6 +554,10 @@ function Transport.reserve(order, job, actor, item, worldItem, square)
             z = select(3, U().position(square)) },
         nativeId = itemNativeId(item),
         snapshot = snapshot,
+        destinationStorageId = destination.kind ~= "log_yard" and destination.id or nil,
+        destinationZoneId = destination.kind == "log_yard" and destination.zoneId or nil,
+        destinationPoint = destination.kind == "log_yard"
+            and { x = destination.x, y = destination.y, z = destination.z } or nil,
     })
     if accepted ~= true then return nil, receipt end
     local marked, markerReason = mark(item, receipt, "selected")
@@ -491,6 +591,27 @@ local function detachedEvidence(receipt, item, worldItem, sourceSquare, actorInv
 end
 
 local function finishMarkerCleanup(receipt)
+    if receipt and receipt.destinationZoneId then
+        local state, item = SC.LogYard.findMarked(receipt)
+        if state == "unavailable" then return false, "work_ownership_evidence_incomplete", true end
+        if state == "absent" then
+            receipt.markerCleanupPending = false
+            receipt.markerCleanupAttempts, receipt.markerCleanupNextRetryAt = 0, 0
+            receipt.blocker, receipt.updatedAt = nil, now()
+            touchWorkOwnership()
+            return true, "work_marker_already_cleared"
+        end
+        if state ~= "found" then return false, "work_ownership_evidence_incomplete", true end
+        local cleared, reason = clearMarker(item, receipt.id)
+        if not cleared then return false, reason or "work_item_marker_clear_failed" end
+        receipt.markerCleanupPending = false
+        receipt.markerCleanupAttempts, receipt.markerCleanupNextRetryAt = 0, 0
+        receipt.blocker, receipt.updatedAt = nil, now()
+        liveItems[receipt.id], liveWorldItems[receipt.id] = nil, nil
+        metrics.markerCleanups = metrics.markerCleanups + 1
+        touchWorkOwnership()
+        return true, "work_marker_cleared"
+    end
     local storage = storageById(receipt and receipt.destinationStorageId)
     local destination = storage and SC.BaseLife.resolveContainer(storage) or nil
     if not destination then return false, "work_ownership_evidence_incomplete", true end
@@ -559,14 +680,15 @@ function Transport.collect(receipt, actor, item, worldItem)
         -- object must never satisfy the reservation for a vanished native item.
         return quarantine(receipt, "reserved_world_item_identity_changed", "unknown")
     end
-    local storage = storageById(receipt.destinationStorageId)
-    local destinationContainer = storage and SC.BaseLife.resolveContainer(storage) or nil
+    local order = SC.BaseLife.workOrder(receipt.orderId)
+    local destination, target, destinationReason =
+        Transport.destinationFor(order, receipt, actor, item)
+    local destinationContainer = destination and destination.kind ~= "log_yard"
+        and target or nil
     local room, roomReason = capacity(actorInventory, actor, item)
     if not room then return setFailure(receipt,
         roomReason == "destination_full" and "worker_overloaded" or roomReason, "selected") end
-    if not destinationContainer then return setFailure(receipt, "destination_storage_unloaded", "selected") end
-    room, roomReason = capacity(destinationContainer, actor, item)
-    if not room then return setFailure(receipt, roomReason, "selected") end
+    if not destination then return setFailure(receipt, destinationReason, "selected") end
     local taken, reason, details = U().takeWorldItemVerified(worldItem, actorInventory, item)
     if verifiedContainerOwner(actorInventory, item) == true
         and select(1, itemWorldLink(item)) == nil
@@ -604,12 +726,15 @@ function Transport.deposit(receipt, actor, item)
     if verifiedContainerOwner(source, item) ~= true or markerOf(item) ~= receipt.id then
         return setFailure(receipt, "carried_item_ownership_changed", "recovery")
     end
-    local storage = storageById(receipt.destinationStorageId)
-    local destination = storage and SC.BaseLife.resolveContainer(storage) or nil
-    if not storage or storage.deposits == false then
-        return setFailure(receipt, "destination_storage_invalid", "carried")
+    local order = SC.BaseLife.workOrder(receipt.orderId)
+    local storage, destination, destinationReason =
+        Transport.destinationFor(order, receipt, actor, item)
+    if not destination then return setFailure(receipt, destinationReason, "carried") end
+    if storage.kind == "log_yard" then
+        local dropped, worldOrReason = SC.LogYard.deposit(actor, item, storage)
+        if dropped == true then return finishYardDelivery(receipt, item, worldOrReason) end
+        return setFailure(receipt, worldOrReason or "log_yard_drop_failed", "carried")
     end
-    if not destination then return setFailure(receipt, "destination_storage_unloaded", "carried") end
     local wasDepositing = receipt.phase == "depositing"
     receipt.phase, receipt.updatedAt = "depositing", now()
     if not wasDepositing then touchWorkOwnership() end
@@ -732,7 +857,12 @@ function Transport.reconcile(receipt, actor)
     local actorInventory = actor and U().inventory(actor) or nil
     local storage = storageById(receipt.destinationStorageId)
     local destination = storage and SC.BaseLife.resolveContainer(storage) or nil
-    local destinationState, destinationItem = findMarkedInContainer(destination, receipt.id)
+    local destinationState, destinationItem, destinationWorld
+    if receipt.destinationZoneId and SC.LogYard then
+        destinationState, destinationItem, destinationWorld = SC.LogYard.findMarked(receipt)
+    else
+        destinationState, destinationItem = findMarkedInContainer(destination, receipt.id)
+    end
     local actorState, actorItem = findMarkedInContainer(actorInventory, receipt.id)
     local worldState, worldItem, worldWrapper = findMarkedInWorld(receipt)
     local found = (destinationState == "found" and 1 or 0)
@@ -744,6 +874,9 @@ function Transport.reconcile(receipt, actor)
         return setFailure(receipt, "work_ownership_evidence_incomplete", receipt.phase)
     end
     if destinationState == "found" then
+        if receipt.destinationZoneId then
+            return finishYardDelivery(receipt, destinationItem, destinationWorld)
+        end
         if verifiedContainerOwner(destination, destinationItem) ~= true then
             return quarantine(receipt, "destination_owner_pointer_conflict", "unknown")
         end
@@ -784,6 +917,12 @@ function Transport.reconcile(receipt, actor)
 end
 
 local function settleQuarantinedDelivery(receipt)
+    if receipt and receipt.destinationZoneId and SC.LogYard then
+        local state, item, world = SC.LogYard.findMarked(receipt)
+        if state ~= "found" then return false, state == "unavailable" and
+            "work_ownership_evidence_incomplete" or "quarantined_destination_not_verified" end
+        return finishYardDelivery(receipt, item, world)
+    end
     local storage = storageById(receipt and receipt.destinationStorageId)
     local destination = storage and SC.BaseLife.resolveContainer(storage) or nil
     local state, item = findMarkedInContainer(destination, receipt and receipt.id)

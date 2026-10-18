@@ -1354,10 +1354,24 @@ local function depositCargo(actor, order, state, item, runtime)
     if not storage or storage.deposits == false then
         return blockOrder(order, "destination_storage_invalid")
     end
-    local container, object = SC.BaseLife.resolveContainer(storage)
-    if not container or not object then return blockOrder(order, "destination_storage_unloaded") end
-    local room, roomReason = SC.WorkTransport.hasRoom(container, actor, item)
-    if not room then return blockOrder(order, roomReason or "destination_full") end
+    local category = storage.category
+    local container, object
+    local candidates = { storage }
+    for _, alternative in ipairs(SC.BaseLife.depositStorageRows(category)) do
+        if alternative.id ~= storage.id then candidates[#candidates + 1] = alternative end
+    end
+    for _, candidate in ipairs(candidates) do
+        local candidateContainer, candidateObject = SC.BaseLife.resolveContainer(candidate)
+        if candidateContainer and candidateObject
+            and SC.WorkTransport.hasRoom(candidateContainer, actor, item) == true then
+            storage, container, object = candidate, candidateContainer, candidateObject
+            break
+        end
+    end
+    if not container then return blockOrder(order, "destination_full") end
+    if order.destinationStorageId ~= storage.id then
+        order.destinationStorageId, order.updatedAt = storage.id, now()
+    end
     state.phase = "depositing"
     local atStorage, targets, accessReason = U().directInteractionAccess(actor, object)
     if atStorage ~= true then
@@ -1685,14 +1699,18 @@ local function withdrawLog(actor, order, state)
         return blockOrder(order, "base_work_unavailable")
     end
     local storage = storageById(order.sourceStorageId)
-    if not SC.BaseLife.withdrawable(storage) then
+    if storage and not SC.BaseLife.withdrawable(storage) then
         return blockOrder(order, "production_source_invalid")
     end
-    local container = SC.BaseLife.resolveContainer(storage)
-    if not container then return blockOrder(order, "production_source_unloaded") end
+    local container = storage and SC.BaseLife.resolveContainer(storage) or nil
+    if storage and not container and not order.sourceZoneId then
+        return blockOrder(order, "production_source_unloaded")
+    end
     local log = state.pendingLog
-    if log and U().inventoryContains(container, log) ~= true then log, state.pendingLog = nil, nil end
-    if not log then
+    if log and (not container or U().inventoryContains(container, log) ~= true) then
+        log, state.pendingLog = nil, nil
+    end
+    if not log and container then
         for _, item in ipairs(storageItemSlice(container)) do
             if U().itemType(item) == "Base.Log" and not protectedItem(item, actor)
                 and sourceItemAvailable(storage, "Base.Log") then
@@ -1700,9 +1718,21 @@ local function withdrawLog(actor, order, state)
                 break
             end
         end
-        if not log then return blockOrder(order, "no_logs_in_storage") end
-        state.pendingLog = log
+        if log then state.pendingLog = log end
     end
+    if not log and order.sourceZoneId and SC.LogYard then
+        local yard = SC.LogYard.source(actor, order.sourceZoneId)
+        if yard then
+            state.phase = "withdrawing"
+            local taken, reason, item = SC.LogYard.takeOne(actor, yard)
+            if taken == true and reason == "log_yard_log_taken" then
+                if not markCargo(item, order.id) then return false, "production_marker_failed" end
+                return true, "production_log_taken"
+            end
+            return taken, reason or "production_log_yard_unavailable"
+        end
+    end
+    if not log then return blockOrder(order, "no_logs_in_storage") end
     state.phase = "withdrawing"
     local ok, reason = SC.BaseWork.withdrawFromStorage(actor, state, storage, container, log)
     if ok == true and reason == "base_supply_taken" then

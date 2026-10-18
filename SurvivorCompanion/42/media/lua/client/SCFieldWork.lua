@@ -8,7 +8,15 @@ local Field = SC.FieldWork
 
 local active, recentVehicleId, serial = nil, nil, 0
 local areaMarkers, markerExpiry = {}, 0
-local RADIUS, LEASH, CAR_RANGE, TREE_LIMIT, MARK = 8, 16, 20, 5, "LF_FieldOrder"
+local HARVEST_RADIUS, HARVEST_LEASH, HARVEST_CAR_RANGE = 16, 32, 40
+local CHOP_RADIUS, CHOP_LEASH, CHOP_CAR_RANGE = 8, 16, 20
+local TREE_LIMIT, MARK = 5, "LF_FieldOrder"
+local CARRY_MARK = "LF_FieldCarryWorker"
+local function radius(kind) return kind == "harvest" and HARVEST_RADIUS or CHOP_RADIUS end
+local function leash(kind) return kind == "harvest" and HARVEST_LEASH or CHOP_LEASH end
+local function carRange(kind)
+    return kind == "harvest" and HARVEST_CAR_RANGE or CHOP_CAR_RANGE
+end
 local AXE_MARK = "LF_FieldBorrowedAxe"
 local WORKER_MARK = "LF_FieldWorker"
 local function U() return SC.GameplayUtil end
@@ -62,9 +70,9 @@ local function trunk(vehicle)
     if not container then return nil, nil, "car_trunk_missing" end
     return part, container
 end
-local function carNear(center, id)
+local function carNear(center, id, kind)
     local vehicle = vehicleById(id)
-    if not vehicle or distance(center, point(vehicle)) > CAR_RANGE then
+    if not vehicle or distance(center, point(vehicle)) > carRange(kind) then
         return nil, nil, nil, "car_out_of_range"
     end
     local part, container, reason = trunk(vehicle)
@@ -77,7 +85,7 @@ local function followers(player)
         local id = U().idOf(actor)
         if id and state and state.recruited and state.order == "follow"
             and call(actor, "getVehicle") == nil
-            and distance(point(actor), point(player)) <= LEASH then
+            and distance(point(actor), point(player)) <= CHOP_LEASH then
             result[#result + 1] = tostring(id)
         end
     end
@@ -116,7 +124,8 @@ local function tree(square)
 end
 local function targetAt(order, x, y)
     local dx, dy = x - order.center.x, y - order.center.y
-    if dx * dx + dy * dy > RADIUS * RADIUS then return nil end
+    local range = radius(order.kind)
+    if dx * dx + dy * dy > range * range then return nil end
     local square = U().gridSquare(x, y, order.center.z)
     if not square or ownedByBase(square) then return nil end
     local object
@@ -138,14 +147,15 @@ local function treeQuotaFull(order)
     return reserved >= TREE_LIMIT
 end
 local function nextTarget(order, worker)
-    local width = RADIUS * 2 + 1
+    local range = radius(order.kind)
+    local width = range * 2 + 1
     local inspected = 0
     while inspected < 16 and worker.scan < width * width do
         local index = worker.scan
         worker.scan = worker.scan + 1
         inspected = inspected + 1
-        local x = order.center.x - RADIUS + index % width
-        local y = order.center.y - RADIUS + math.floor(index / width)
+        local x = order.center.x - range + index % width
+        local y = order.center.y - range + math.floor(index / width)
         local square = targetAt(order, x, y)
         local targetKey = key(x, y, order.center.z)
         if square and not claimed(order, targetKey) then
@@ -289,7 +299,7 @@ local function cargoItems(actor, orderId)
     return result
 end
 local function loadCar(actor, worker, order)
-    local vehicle, part, container, reason = carNear(order.center, order.carId)
+    local vehicle, part, container, reason = carNear(order.center, order.carId, order.kind)
     if not container then order.phase, order.blocker = "paused", reason return false, reason end
     local okay, approachReason = atCar(actor, vehicle, part)
     if not okay then order.phase, order.blocker = "paused", approachReason return false, approachReason end
@@ -300,17 +310,22 @@ local function loadCar(actor, worker, order)
         worker.afterDeposit = nil
         return true, "field_cargo_loaded"
     end
-    local item = cargo[1]
-    if SC.WorkTransport and SC.WorkTransport.hasRoom
-        and SC.WorkTransport.hasRoom(container, actor, item) ~= true then
-        order.phase, order.blocker = "paused", "car_trunk_full"
-        return false, order.blocker
+    -- Keep transfers bounded per decision beat, but unload a useful batch
+    -- instead of making a separate trip through the decision loop per crop.
+    for index = 1, math.min(#cargo, 8) do
+        local item = cargo[index]
+        if SC.WorkTransport and SC.WorkTransport.hasRoom
+            and SC.WorkTransport.hasRoom(container, actor, item) ~= true then
+            order.phase, order.blocker = "paused", "car_trunk_full"
+            return false, order.blocker
+        end
+        local moved, moveReason = U().transferItemVerified(U().inventory(actor), container, item)
+        if not moved then order.phase, order.blocker = "paused", moveReason
+            return false, moveReason end
+        local data = U().modData(item)
+        if data then data[MARK], data[WORKER_MARK] = nil, nil end
+        order.loaded = order.loaded + 1
     end
-    local moved, moveReason = U().transferItemVerified(U().inventory(actor), container, item)
-    if not moved then order.phase, order.blocker = "paused", moveReason return false, moveReason end
-    local data = U().modData(item)
-    if data then data[MARK], data[WORKER_MARK] = nil, nil end
-    order.loaded = order.loaded + 1
     return true, "field_cargo_loaded"
 end
 local function release(worker)
@@ -329,7 +344,11 @@ local function completeIfFinished(order)
                 for _, item in ipairs(U().inventoryItems(U().inventory(member), 4096)) do
                     local data = U().modData(item)
                     if data and data[MARK] == order.id then
+                        -- No car was selected. Keep the harvest in this
+                        -- worker's inventory for manual pickup instead of
+                        -- letting generic overload handling drop it outside.
                         data[MARK], data[WORKER_MARK] = nil, nil
+                        data[CARRY_MARK] = id
                     end
                 end
             end
@@ -359,7 +378,7 @@ function Field.clearArea()
     for _, marker in ipairs(areaMarkers) do call(marker, "remove") end
     areaMarkers, markerExpiry = {}, 0
 end
-function Field.showArea(center)
+function Field.showArea(center, kind)
     Field.clearArea()
     if type(getWorldMarkers) ~= "function" then return end
     local okay, markers = pcall(getWorldMarkers)
@@ -368,8 +387,8 @@ function Field.showArea(center)
     for index = 0, 15 do
         local angle = index * math.pi / 8
         offsets[#offsets + 1] = {
-            math.floor(RADIUS * math.cos(angle) + 0.5),
-            math.floor(RADIUS * math.sin(angle) + 0.5),
+            math.floor(radius(kind) * math.cos(angle) + 0.5),
+            math.floor(radius(kind) * math.sin(angle) + 0.5),
         }
     end
     for _, offset in ipairs(offsets) do
@@ -388,7 +407,7 @@ end
 function Field.leaderPulse(player)
     if markerExpiry > 0 and U().nowMs() >= markerExpiry then Field.clearArea() end
     if active and active.phase == "working"
-        and distance(point(player), active.center) > LEASH then
+        and distance(point(player), active.center) > leash(active.kind) then
         Field.stop("leader_left_work_area")
         return
     end
@@ -440,7 +459,7 @@ function Field.start(kind, square, player)
     if not center or not U().gridSquare(center.x, center.y, center.z) then
         return false, "field_center_unloaded"
     end
-    if distance(center, point(player)) > LEASH then return false, "field_center_too_far" end
+    if distance(center, point(player)) > leash(kind) then return false, "field_center_too_far" end
     if SC.BaseLife and SC.BaseLife.isInside and SC.BaseLife.isInside(center) then
         return false, "field_center_in_base"
     end
@@ -448,7 +467,7 @@ function Field.start(kind, square, player)
     if #roster == 0 then return false, "no_following_companions" end
     serial = serial + 1
     local carId = recentVehicleId
-    if carId and distance(center, point(vehicleById(carId))) > CAR_RANGE then
+    if carId and distance(center, point(vehicleById(carId))) > carRange(kind) then
         carId = nil
     end
     active = { schema = 1, id = "field:" .. tostring(U().nowMs()) .. ":" .. serial,
@@ -463,10 +482,10 @@ function Field.start(kind, square, player)
         end
     end
     if carId then
-        local _, _, cargo, reason = carNear(center, carId)
+        local _, _, cargo, reason = carNear(center, carId, kind)
         if not cargo then active.phase, active.blocker = "paused", reason end
     end
-    Field.showArea(center)
+    Field.showArea(center, kind)
     return true, active.phase == "paused" and active.blocker or "field_order_started"
 end
 function Field.stop(reason)
@@ -479,7 +498,9 @@ function Field.stop(reason)
             for _, item in ipairs(U().inventoryItems(U().inventory(actor), 4096)) do
                 local data = U().modData(item)
                 if data and data[MARK] == order.id then
-                    data[MARK], data[WORKER_MARK] = nil, nil end
+                    data[MARK], data[WORKER_MARK] = nil, nil
+                    data[CARRY_MARK] = id
+                end
                 if data and data[AXE_MARK] == order.id then
                     data[AXE_MARK], data[WORKER_MARK] = nil, nil end
             end
@@ -493,6 +514,16 @@ end
 function Field.reserved(item)
     local data = U().modData(item)
     if not data then return false end
+    local carryWorker = data[CARRY_MARK]
+    if carryWorker ~= nil then
+        local carrier = actorFor(tostring(carryWorker))
+        -- A restored companion may not be registered yet. Keep its cargo
+        -- protected until the inventory can be checked authoritatively.
+        if not carrier or U().inventoryContains(U().inventory(carrier), item) then
+            return true
+        end
+        data[CARRY_MARK] = nil
+    end
     local orderId = data[MARK] or data[AXE_MARK]
     if orderId == nil then return false end
     local ownerId = data[WORKER_MARK]
@@ -507,7 +538,7 @@ end
 function Field.resume()
     if not active or active.phase ~= "paused" then return false, "field_not_paused" end
     if active.carId then
-        local _, _, container, reason = carNear(active.center, active.carId)
+        local _, _, container, reason = carNear(active.center, active.carId, active.kind)
         if not container then return false, reason end
     end
     active.phase, active.blocker = "working", nil
@@ -522,7 +553,7 @@ end
 function Field.update(actor, player)
     local worker, actorId = workerFor(actor)
     if not worker then return false, "field_order_inactive" end
-    if distance(point(player), active.center) > LEASH then
+    if distance(point(player), active.center) > leash(active.kind) then
         Field.stop("leader_left_work_area")
         return false, "leader_left_work_area"
     end
@@ -552,7 +583,7 @@ function Field.update(actor, player)
         if axeIn(inventory) then
             worker.phase = "seek"
         else
-            local _, _, container, reason = carNear(order.center, order.carId)
+            local _, _, container, reason = carNear(order.center, order.carId, order.kind)
             if not container then order.phase, order.blocker = "paused", reason
                 return false, reason end
             if axeIn(container) then
@@ -571,7 +602,7 @@ function Field.update(actor, player)
         end
     end
     if worker.phase == "borrow" then
-        local vehicle, part, container, reason = carNear(order.center, order.carId)
+        local vehicle, part, container, reason = carNear(order.center, order.carId, order.kind)
         if not container then order.phase, order.blocker = "paused", reason return false, reason end
         local okay, approached = atCar(actor, vehicle, part)
         if not okay then order.phase, order.blocker = "paused", approached return false, approached end
@@ -608,7 +639,8 @@ function Field.update(actor, player)
         else
             local square = nextTarget(order, worker)
             if square then return true, "field_target_claimed" end
-            if worker.scan < (RADIUS * 2 + 1) ^ 2 then return true, "field_scanning" end
+            if worker.scan < (radius(order.kind) * 2 + 1) ^ 2 then
+                return true, "field_scanning" end
             worker.phase = "done"
         end
     end
@@ -626,7 +658,7 @@ function Field.update(actor, player)
     end
     if worker.phase == "deposit" then return loadCar(actor, worker, order) end
     if worker.phase == "return_axe" then
-        local vehicle, part, container, reason = carNear(order.center, order.carId)
+        local vehicle, part, container, reason = carNear(order.center, order.carId, order.kind)
         if not container then order.phase, order.blocker = "paused", reason return false, reason end
         local okay, approached = atCar(actor, vehicle, part)
         if not okay then order.phase, order.blocker = "paused", approached return false, approached end

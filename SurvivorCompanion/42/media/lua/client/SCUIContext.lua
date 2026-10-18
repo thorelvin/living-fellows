@@ -1117,10 +1117,10 @@ local function addBaseMenu(context, square, containerTarget, barricadeTarget, pl
             and SC.BaseLife.mayExtendAreaToFloor(square) == true
         local parkingCorner = type(SC.BaseLife.parkingCornerRelevant) == "function"
             and SC.BaseLife.parkingCornerRelevant(square) == true
-        local kinds = inside and { "area", "work", "lumber", "farm", "fishing", "burial", "pyre", "rest",
+        local kinds = inside and { "area", "work", "lumber", "log_yard", "farm", "fishing", "burial", "pyre", "rest",
             "social", "guard", "rally", "quarantine" }
             or upstairsArea and { "area" }
-            or { "lumber", "farm", "fishing", "burial", "pyre" }
+            or { "lumber", "log_yard", "farm", "fishing", "burial", "pyre" }
         if parkingCorner then kinds[#kinds + 1] = "parking" end
         for _, kind in ipairs(kinds) do
             zoneMenu:addOption(text("UI_SC_Base_Zone_" .. kind), nil, baseAction, "zone_begin",
@@ -1132,7 +1132,7 @@ local function addBaseMenu(context, square, containerTarget, barricadeTarget, pl
         local storageMenu = ISContextMenu:getNew(menu)
         menu:addSubMenu(storageOption, storageMenu)
         for _, category in ipairs({ "food", "fresh_food", "water", "medical", "tools", "construction",
-            "crafting", "literature", "weapons", "ammunition", "clothing", "general", "output",
+            "crafting", "literature", "weapons", "ammunition", "clothing", "valuables", "general", "output",
             "memorial", "farming" }) do
             storageMenu:addOption(text("UI_SC_Base_Storage_" .. category), nil, baseAction,
                 "storage", { object = containerTarget, category = category }, player)

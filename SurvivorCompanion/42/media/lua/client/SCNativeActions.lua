@@ -111,6 +111,7 @@ local movementActions = {
     move_to_scavenge = true,
     move_to_camp_storage = true,
     move_to_base_storage = true,
+    move_to_log_yard = true,
     move_to_clean_stain = true,
     move_to_base_build = true,
     base_guard_patrol = true,

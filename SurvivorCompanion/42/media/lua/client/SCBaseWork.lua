@@ -485,6 +485,29 @@ end
 -- This mirrors withdrawal: the worker approaches the storage, visibly uses it,
 -- revalidates the registration at commit time, and verifies the identity move.
 local function transferToStorage(actor, state, storage, container, item, requireDeposits)
+    if type(storage) == "table" and storage.kind == "log_yard" then
+        local square = SC.LogYard and SC.LogYard.tile(storage.x, storage.y,
+            storage.z, storage.zoneId) or nil
+        if not square then return false, "log_yard_unloaded" end
+        local inventory = U().inventory(actor)
+        if not inventory or not U().inventoryContains(inventory, item) then
+            return false, "borrowed_supply_missing"
+        end
+        if not U().sameSquare(actor, square) then
+            if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
+                return false, "navigation_unavailable"
+            end
+            local approached, reason = SC.Navigation.requestAny(actor, { square }, "walk",
+                workRoute({ action = "move_to_log_yard", targetSquare = square,
+                    arrivalDistance = 0.45, workReach = true }, true))
+            return approached == true, reason
+        end
+        local dropped, reason = SC.LogYard.deposit(actor, item, storage)
+        if dropped == true and SC.LogYard.bundleAt then
+            SC.LogYard.bundleAt(actor, square)
+        end
+        return dropped == true, dropped and "base_supply_returned" or reason
+    end
     if U().inventoryContains(container, item) then return true, "base_supply_returned" end
     if type(storage) ~= "table" then return false, "base_storage_invalid" end
     if requireDeposits == true then
@@ -588,7 +611,16 @@ local function prepareBuild(actor, state, job, info)
     if not requirements then return false, recipeOrReason end
     for _, requirement in ipairs(requirements) do
         local storage, container, item, missingType = findSource(actor, requirement)
-        if storage == nil then return false, "missing_build_supply:" .. tostring(missingType) end
+        if storage == nil then
+            if missingType == "Base.Log" and SC.LogYard and SC.LogYard.source then
+                local yard = SC.LogYard.source(actor)
+                if yard then
+                    local taken, reason = SC.LogYard.takeOne(actor, yard)
+                    return taken, reason or "build_log_yard_unavailable"
+                end
+            end
+            return false, "missing_build_supply:" .. tostring(missingType)
+        end
         if storage ~= false then
             return transferFromStorage(actor, state, storage, container, item)
         end
@@ -970,6 +1002,10 @@ local function classifyItem(item)
     category = string.lower(tostring(category or ""))
     if SC.FarmWork and type(SC.FarmWork.isFarmingSupply) == "function"
         and SC.FarmWork.isFarmingSupply(item) == true then return "farming", true end
+    if SC.BaseLife.isValuableItem(item)
+        and #SC.BaseLife.depositStorageRows("valuables") > 0 then
+        return "valuables", true
+    end
     local display = displayCategory(item)
     local isClothing, clothingKnown = invoke(item, "IsClothing")
     if category == "clothing" or display == "clothing"
@@ -1031,6 +1067,11 @@ local function destinationsFor(job, item, actor, sourceId)
         category = SC.BaseLife.foodDepositCategory(item)
     end
     local rows = {}
+    if U().itemType(item) == "Base.Log" and category == "construction"
+        and SC.LogYard and SC.LogYard.select then
+        local yard = SC.LogYard.select(actor)
+        if yard then rows[#rows + 1] = { destination = yard, container = yard.square } end
+    end
     for _, destination in ipairs(SC.BaseLife.depositStorageRows(category)) do
         if destination.id ~= sourceId then
             local container = SC.BaseLife.resolveContainer(destination)
@@ -1047,7 +1088,9 @@ function BaseWork.destinationForCarItem(actor, item)
     if category == "food" or category == "fresh_food" then
         category = SC.BaseLife.foodDepositCategory(item)
     end
-    for _, kind in ipairs({ category, "general", "output" }) do
+    local kinds = category == "valuables" and { category }
+        or { category, "general", "output" }
+    for _, kind in ipairs(kinds) do
         if kind ~= "memorial" then
             for _, storage in ipairs(SC.BaseLife.depositStorageRows(kind)) do
                 local container = SC.BaseLife.resolveContainer(storage)
@@ -1064,6 +1107,7 @@ local function findTransfer(job, actor)
     local sourceCategory = (type(job.target) == "table" and job.target.sourceCategory)
         or "general"
     if job.type == "sort" then sourceCategory = nil end
+    local matchingStoreFull = false
     for _, source in ipairs(SC.BaseLife.storageRows(sourceCategory, true)) do
         local container = SC.BaseLife.resolveContainer(source)
         if container then
@@ -1082,12 +1126,30 @@ local function findTransfer(job, actor)
                         -- window ready for the worker's first execution tick.
                         storageItemCursors[container] = scanStart
                         return source, container, rows[1].destination, rows[1].container, item
+                    elseif needsSorting and #rows == 0
+                        and sourceItemAvailable(source, itemType) then
+                        local category = type(job.target) == "table"
+                            and job.target.destinationCategory or classifyItem(item)
+                        if category == "food" or category == "fresh_food" then
+                            category = SC.BaseLife.foodDepositCategory(item)
+                        end
+                        if itemType == "Base.Log" and category == "construction"
+                            and SC.LogYard and SC.LogYard.hasZone
+                            and SC.LogYard.hasZone() then matchingStoreFull = true end
+                        for _, destination in ipairs(SC.BaseLife.depositStorageRows(category)) do
+                            if destination.id ~= source.id
+                                and SC.BaseLife.resolveContainer(destination) then
+                                matchingStoreFull = true
+                                break
+                            end
+                        end
                     end
                 end
             end
         end
     end
-    return nil
+    return nil, nil, nil, nil, nil,
+        matchingStoreFull and "haul_destinations_full" or "no_sortable_supply"
 end
 
 local function cargoContainer(actor, cargo)
@@ -1200,8 +1262,9 @@ local function updateTransfer(actor, state, job)
         end
     end
     if state.transfer == nil then
-        local source, sourceContainer, destination, destinationContainer, item = findTransfer(job, actor)
-        if not source then return false, "no_sortable_supply", true end
+        local source, sourceContainer, destination, destinationContainer, item,
+            selectionReason = findTransfer(job, actor)
+        if not source then return false, selectionReason, true end
         state.transfer = {
             source = source, sourceContainer = sourceContainer, destination = destination,
             destinationContainer = destinationContainer, item = item, phase = "take",
@@ -1703,6 +1766,17 @@ function BaseWork.update(actor, player, runtime)
         job = select(1, SC.BaseLife.claimJob(id))
     end
     if not job then
+        if SC.LogYard and type(SC.LogYard.updateBundle) == "function"
+            and not SC.BaseLife.outdoorNightRestricted() then
+            if state.nextLogYardAt == nil or now() >= state.nextLogYardAt then
+                state.nextLogYardAt = now() + 30000
+                local handled, reason = SC.LogYard.updateBundle(actor)
+                if handled then
+                    if reason ~= "log_yard_bundled" then state.nextLogYardAt = now() + 2000 end
+                    return true, reason
+                end
+            end
+        end
         if activeGuard then
             local handled, reason = guardRoutine(actor, state)
             if handled or reason ~= "guard_zone_missing" then return handled, reason end
@@ -1890,19 +1964,22 @@ local function auditSorting(base)
         end
     end
     if destinations == 0 then return false, "sorted_storage_missing" end
-    local actionable = false
+    local actionable, matchingStoreFull = false, false
     for _, resident in ipairs(SC.BaseLife.summary().residentRows or {}) do
         if resident.duty == true then
             local record = SC.Registry and SC.Registry.byId
                 and SC.Registry.byId(resident.id) or nil
-            if record and record.actor
-                and select(1, findTransfer({ type = "sort" }, record.actor)) ~= nil then
-                actionable = true
-                break
+            if record and record.actor then
+                local source, _, _, _, _, reason = findTransfer(
+                    { type = "sort" }, record.actor)
+                if source ~= nil then actionable = true break end
+                if reason == "haul_destinations_full" then matchingStoreFull = true end
             end
         end
     end
-    if not actionable then return false, "no_sortable_supply" end
+    if not actionable and not matchingStoreFull then
+        return false, "no_sortable_supply"
+    end
     return SC.BaseLife.enqueueJob({ type = "sort", priority = 2 })
 end
 

@@ -2,6 +2,14 @@
 
 # Changelog
 
+## 0.26.46 - Camp storage and field harvest
+
+- Camp jobs try every matching marked storage before pausing for lack of space. The Base panel identifies full destinations, and a worker gives one spoken warning until space opens. Car unloading follows the same rule rather than scattering items.
+- Added Valuables storage for loose jewelry, watches, wallets, cash, gems, and precious metals. Equipped and personal items remain with their owner. Existing general or clothing storage still works when no Valuables area is marked.
+- Added an outdoor log yard. Workers can leave loose logs there without rope, tie four logs with the vanilla bundle when rope is available, and open bundles again when construction or carpentry needs logs.
+- Off-base crop harvesting now covers 16 tiles from the marked spot, tolerates the player 32 tiles away, and can use the recently driven car within 40 tiles. Crops are protected from generic surplus dropping: workers unload them to the selected trunk in bounded batches, or keep them for player pickup when no car is selected.
+- The native bridge protocol remains `42.21-isocompanion-24`; update the bridge JAR and Lua payload together.
+
 ## 0.26.45 - Field work and recovery fixes
 
 - Field workers keep polling their native work action while following the player, so chopping fallback and timeout recovery can run. Urgent danger still interrupts the work.

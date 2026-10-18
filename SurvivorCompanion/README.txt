@@ -1,7 +1,7 @@
-Living Fellows 0.26.45 - public playtest
+Living Fellows 0.26.46 - public playtest
 
-This playtest lets a stuck follow car or camp car and generator chore recover
-cleanly instead of jamming, and tidies the vehicle and generator menus.
+This playtest adds storage-full feedback, a valuables area, an outdoor log yard,
+and a wider off-base crop harvest that keeps produce in the car or companion.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added
