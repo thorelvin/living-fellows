@@ -169,6 +169,14 @@ policyMission.scout = { phase = "searching" }
 function leader:getCurrentSquare()
     return { getRoom = function() return {} end }
 end
+local hiddenCanSee = SC.GameplayUtil.canSee
+SC.GameplayUtil.canSee = function(_, actor) return actor == leader end
+local nearbyView = expedition.describeForPlayer(player)
+check(nearbyView.leaderVisible == true and nearbyView.visibleMembers == 1
+        and nearbyView.observedPhase == "searching"
+        and nearbyView.members[2].visible == true,
+    "seeing the leader reveals the local expedition phase")
+SC.GameplayUtil.canSee = hiddenCanSee
 check(expedition.followDistanceFor(follower) == 5,
     "indoor search gives followers room at containers and doors")
 policyMission.scout.phase = "inbound"
@@ -2141,6 +2149,35 @@ check(descentMission.scout.descent ~= nil
         and descentMission.scout.descentRejected[firstDescent.key] == true
         and descentMission.technicalIssue == nil,
     "a stalled descent rotates to the other loaded staircase")
+local blockedDescent = descentMission.scout.descent
+descentMission.technicalIssue = { reason = "scout_stall_replan_limit" }
+expedition.pulse()
+check(descentMission.technicalIssue == nil
+        and descentMission.scout.descent == nil
+        and descentMission.scout.returnIndex == 1
+        and descentMission.scout.descentRejected[blockedDescent.key] == true
+        and descentMission.scout.returnRetryAt > scoutClock,
+    "an old inbound route hold resets its blocked stair without losing the return trail")
+scoutClock = scoutClock + 3001
+for _ = 1, 90 do
+    expedition.pulse()
+    if descentMission.scout.descent ~= nil then break end
+end
+check(descentMission.scout.descent ~= nil
+        and descentMission.scout.descent.key ~= blockedDescent.key
+        and descentMission.technicalIssue == nil,
+    "an inbound route retry plans a different loaded stair")
+descentMission.scout.replans = 5
+descentMission.scout.bestDistanceToWaypoint = 0
+descentMission.scout.lastProgressAt = scoutClock - 31000
+descentMission.scout.waypointStagedAt = scoutClock - 31000
+descentMission.testWaypoint = { x = 50, y = 20, z = 1 }
+expedition.pulse()
+check(descentMission.technicalIssue == nil
+        and descentMission.testWaypoint == nil
+        and descentMission.scout.descent == nil
+        and descentMission.scout.returnRetryAt > scoutClock,
+    "repeated upstairs return stalls release the route for another attempt")
 descentMission.scout.search = nil
 reserve.x, reserve.y = player.x + 3, player.y
 local playerGetZ = player.getZ
@@ -2211,6 +2248,7 @@ end)()
     stair(100, 1)
     stair(105, 0)
     stair(110, -1)
+    seed(104, 100, 0, false)
     SC.GameplayUtil.gridSquare = function(x, y, z)
         return squares[tostring(x) .. ":" .. tostring(y) .. ":" .. tostring(z)]
     end
@@ -2259,8 +2297,11 @@ end)()
         "the ground trail resumes while retaining the squad stair exit")
     traveller.x = 109.5
     nextPoint = staged(scout, traveller, ground, 1350)
-    check(nextPoint == ground and scout.descent == nil,
-        "the completed stair context clears after the leader leaves the landing")
+    check(nextPoint == ground and scout.descent == nil
+            and scout.followerDescent ~= nil
+            and scout.followerDescent.exit.x == 105
+            and scout.followerDescent.clearance.x == 104,
+        "the leader retains a clear tile beyond the stair exit for the squad tail")
     scout = { returnIndex = 3 }
     traveller.x, traveller.z = 110.5, -1
     nextPoint = staged(
@@ -2288,6 +2329,79 @@ end)()
     SC.GameplayUtil.isSquareFree = oldSquareFree
     SC.GameplayUtil.position = oldPosition
     SC.Topology = oldTopology
+end)()
+
+-- A follower stalled at the ground-floor stair exit must get a fresh route
+-- while the returning leader waits; this cannot depend on a save reload.
+;(function()
+    local escort = actorAt(player.x + 3, player.y)
+    function escort:getCurrentSquare()
+        return squareFor(math.floor(self.x), math.floor(self.y))
+    end
+    actors.escort = escort
+    actorRuntimes.escort = {}
+    reserve.x, reserve.y = player.x + 3, player.y
+    local startedReturn, returning = expedition.start({
+        { id = "delta", actor = reserve },
+        { id = "escort", actor = escort },
+    }, { kind = "scout", destination = { x = 80, y = 20, z = 0 } })
+    check(startedReturn == true, "the straggler return probe starts")
+    returning.scout.phase = "inbound"
+    returning.scout.search = {}
+    returning.scout.returnRetryAt = scoutClock + 30000
+    returning.testWaypoint = { x = player.x, y = player.y, z = 0 }
+    escort.y = player.y + 15
+    local oldCancel = SC.Navigation.cancel
+    local oldRequest = SC.Navigation.request
+    local oldPositioning = SC.Positioning
+    local retries, releases, regroupRequests = 0, 0, 0
+    SC.Navigation.cancel = function(actor, reason)
+        if actor == escort and reason == "expedition_straggler_retry" then
+            retries = retries + 1
+        end
+        return true
+    end
+    SC.Navigation.request = function(actor, target, mode, options)
+        if actor == escort and target.x == player.x + 1
+            and mode == "walk" and options.action == "regroup" then
+            regroupRequests = regroupRequests + 1
+        end
+        return true
+    end
+    SC.Positioning = {
+        releaseActor = function(actor)
+            if actor == escort then releases = releases + 1 end
+        end,
+        formationTarget = function(actor, lead, commands)
+            check(actor == escort and lead == reserve
+                    and commands.order == "regroup",
+                "only the stuck returning follower gets a fresh regroup target")
+            return squareFor(player.x + 1, player.y)
+        end,
+    }
+    expedition.pulse()
+    check(returning.cohesionHold ~= nil and retries == 0,
+        "the leader waits before resetting a distant moving follower")
+    scoutClock = scoutClock + 9000
+    expedition.pulse()
+    check(retries == 1 and releases == 1 and regroupRequests == 1
+            and returning.technicalIssue == nil,
+        "a stationary return straggler gets one fresh route without pausing the mission")
+    expedition.pulse()
+    check(retries == 1 and regroupRequests == 1,
+        "the straggler route reset has an eight-second cooldown")
+    escort.y = player.y
+    expedition.pulse()
+    check(returning.cohesionHold == nil,
+        "the returning leader resumes once the follower rejoins")
+    SC.Navigation.cancel = oldCancel
+    SC.Navigation.request = oldRequest
+    SC.Positioning = oldPositioning
+    returning.scout.search = nil
+    check(expedition.finishAtPlayer(player),
+        "the straggler return probe releases the assembled team")
+    actors.escort = nil
+    actorRuntimes.escort = nil
 end)()
 
 print("EXPEDITION_RESTART_KAHLUA_PASS checks=" .. tostring(checks))

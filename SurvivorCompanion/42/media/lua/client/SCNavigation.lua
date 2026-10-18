@@ -5250,7 +5250,14 @@ function Navigation._retainStairCrossingForRequest(actor, state, goalSquare,
         end
         return nil
     end
-    local crossingGoal = lease and lease.ultimateGoal or goalSquare
+    -- A returning squad member can keep a stair-recovery lease aimed at an
+    -- obsolete formation tile on the tread. The expedition supplies one
+    -- verified exit for the whole crossing; use that stable target for the
+    -- next native retry instead of recreating the old lease forever.
+    local rejoinGoal = lease and lease.affordance == "stair_recovery"
+        and type(intent) == "table" and intent.formationMode == "stair_rejoin"
+    local crossingGoal = rejoinGoal and goalSquare
+        or lease and lease.ultimateGoal or goalSquare
     if lease then
         local phase, reason = maintainNativeLease(actor, state, crossingGoal, now)
         if phase == "active" then return true, reason or "native_stair_crossing" end

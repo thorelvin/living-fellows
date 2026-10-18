@@ -15,6 +15,9 @@ param(
     # Load the save, leave every companion alone for this long and log what
     # they do. Zero runs the ordinary harness checks instead.
     [ValidateRange(0, 3600)][int]$ObserveSeconds = 0,
+    # Disposable regression: put an inbound upstairs team in the former
+    # permanent path-stall hold, then require it to descend and resume travel.
+    [switch]$ObserveInboundReturnFault,
     [switch]$HiddenWindow,
     # Launch through the user's Steam client when a direct executable launch
     # cannot initialize SteamAPI. The direct path remains the default.
@@ -1690,6 +1693,7 @@ $config = @(
     ('posted_stream_only=' + $PostedStreamOnly.IsPresent.ToString().ToLowerInvariant()),
     ('observe_only=' + ($ObserveSeconds -gt 0).ToString().ToLowerInvariant()),
     ('observe_ms=' + ($ObserveSeconds * 1000)),
+    ('observe_inbound_return_fault=' + $ObserveInboundReturnFault.IsPresent.ToString().ToLowerInvariant()),
     ('internal_timeout_ms=' + (($TimeoutSeconds - 15) * 1000))
 ) -join [Environment]::NewLine
 [System.IO.File]::WriteAllText((Join-Path $SandboxLua 'config.ini'),

@@ -4687,6 +4687,29 @@ check(recovered and recoveryReason == "native_stair_recovery"
         and upperFloorActor.lastIntent.enginePath == true
         and upperState.nativeLease.affordance == "stair_recovery",
     "an orphaned mid-stair actor receives an engine path instead of a flat step")
+local verifiedExit = cell:getGridSquare(10, 5, 0)
+upperState.nativeLease.positionProgressAt = clock - 3000
+upperState.nativeLease.startedAt = clock - 3000
+upperState.nativeLease.wasPending = nil
+upperState.nativeLease.expires = clock - 1
+SurvivorCompanion.NativeActions.pathTelemetry = function()
+    return { available = true, active = false, pending = false }
+end
+local redirected, redirectReason =
+    SurvivorCompanion.Navigation._retainStairCrossingForRequest(
+        upperFloorActor, upperState, verifiedExit, "walk",
+        { formationMode = "stair_rejoin" }, clock)
+check(redirected and redirectReason == "native_stair_recovery"
+        and upperFloorActor.lastIntent.targetSquare == verifiedExit,
+    "a stalled stair-recovery lease retries toward the verified exit instead of its obsolete formation tile: "
+        .. tostring(redirected) .. "/" .. tostring(redirectReason)
+        .. " target=" .. tostring(upperFloorActor.lastIntent
+            and upperFloorActor.lastIntent.targetSquare
+            and upperFloorActor.lastIntent.targetSquare.x)
+        .. " lease=" .. tostring(upperState.nativeLease
+            and upperState.nativeLease.ultimateGoal
+            and upperState.nativeLease.ultimateGoal.x))
+stairStopCalls = 0
 upperFloorActor.worldZ = 0
 SurvivorCompanion.Navigation._retainStairCrossingForRequest(
     upperFloorActor, upperState, changedTarget, "walk", {}, clock + 100)
@@ -5439,6 +5462,31 @@ check(heldTarget and heldContext and heldContext.mode == "regroup"
         and math.abs(heldTarget.y - trailLeader.square.y) <= 1
         and heldContext.followTrack == nil,
     "a held expedition asks its laggard to regroup beside the leader instead of holding at an old breadcrumb")
+local oldExpeditionPrototype = SurvivorCompanion.ExpeditionPrototype
+local oldTrailFollowerZ = trailFollower.getZ
+SurvivorCompanion.ExpeditionPrototype = { current = function()
+    return { leader = { actor = trailLeader }, scout = {
+        phase = "inbound", followerDescent = {
+            lowerZ = 0, exit = { x = 54, y = 24, z = 0 },
+            clearance = { x = 55, y = 24, z = 0 },
+        },
+    } }
+end }
+function trailFollower:getZ() return 0.188 end
+local stairTailTarget, stairTailContext =
+    SurvivorCompanion.Positioning.formationTarget(trailFollower,
+        trailLeader, { order = "follow", followDistance = 2,
+            expeditionCohesionHold = true }, trailSnapshot)
+check(stairTailTarget and stairTailTarget.x == 55
+        and stairTailTarget.y == 24 and stairTailContext.mode == "stair_rejoin",
+    "a follower still on the lower stair tread targets the verified exit after the leader moves on")
+trailFollower.worldX, trailFollower.worldY = 54.9, 24.5
+check(SurvivorCompanion.Positioning.shouldHold(
+        trailFollower, stairTailTarget, stairTailContext) == false,
+    "a near-exit follower cannot hold formation until its body reaches the ground floor")
+trailFollower.worldX, trailFollower.worldY = nil, nil
+trailFollower.getZ = oldTrailFollowerZ
+SurvivorCompanion.ExpeditionPrototype = oldExpeditionPrototype
 do
     local crowdedLeader = actor("crowded-leader", 40, 40,
         { className = "IsoPlayer", recruited = false })

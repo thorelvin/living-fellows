@@ -2101,6 +2101,9 @@ function U.say(actor, textValue)
     -- screen anchor stay on the companion actor.
     local _, actorChatOk = U.call(actor, "addLineChatElement", line)
     if actorChatOk then return true end
+    -- A missing/broken ChatElement must not send a non-local IsoPlayer's line
+    -- through ChatManager, which can place its bubble above the local player.
+    if U.instanceOf(actor, "IsoPlayer") then return false end
     local _, ok = U.call(actor, "Say", line)
     if ok then return true end
     local _, lowerOk = U.call(actor, "say", line)

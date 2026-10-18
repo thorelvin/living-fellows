@@ -2,6 +2,14 @@
 
 # Changelog
 
+## 0.26.47 - Expedition return and field-work polish
+
+- A nearby expedition leader now shows the observed mission phase in the panel. When only a squadmate is visible, the panel says so instead of treating the whole team as unseen.
+- Return trips retry stale navigation and stair routes instead of holding indefinitely. A follower stranded on the last stair tread aims for a verified lower-floor exit, and an idle straggler receives a bounded regroup request.
+- When a selected field-work car has a locked trunk, one follower boards, unlocks it from inside, exits, and then the squad begins harvesting or chopping. A failed entry or unlock pauses the order with a reason; a successful unlock gets a short companion remark.
+- Away crop and tree orders mark only the clicked tile with one temporary green circle. Camp storage-full speech uses the companion's own chat element so its bubble appears over the worker.
+- The native bridge protocol remains `42.21-isocompanion-24`; update the bridge JAR and Lua payload together.
+
 ## 0.26.46 - Camp storage and field harvest
 
 - Camp jobs try every matching marked storage before pausing for lack of space. The Base panel identifies full destinations, and a worker gives one spoken warning until space opens. Car unloading follows the same rule rather than scattering items.

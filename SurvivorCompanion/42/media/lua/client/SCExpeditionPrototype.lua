@@ -1520,15 +1520,22 @@ function Expedition.describeForPlayer(viewer)
     local leader = mission.leader and missionRecord(mission.leader.id)
     local itinerary = mission.scout
     local members = {}
+    local leaderVisible, visibleMembers = false, 0
     for _, record in ipairs(mission.roster) do
+        local visible = record.actor ~= nil
+            and Expedition.playerCanObserve(record.actor, viewer) or false
+        if visible then visibleMembers = visibleMembers + 1 end
+        if leader and record.id == leader.id then leaderVisible = visible end
         members[#members + 1] = {
             id = record.id, name = record.name or record.id,
-            visible = record.actor ~= nil
-                and Expedition.playerCanObserve(record.actor, viewer) or false,
+            visible = visible,
         }
     end
     return {
         leaderName = leader and leader.name or "?",
+        leaderVisible = leaderVisible,
+        visibleMembers = visibleMembers,
+        observedPhase = leaderVisible and itinerary and itinerary.phase or nil,
         kind = itinerary and itinerary.kind or nil,
         plannedSite = itinerary and (itinerary.site
             and itinerary.site.label or itinerary.search
@@ -2440,12 +2447,101 @@ end
 
 -- Expedition planning uses the shared movement stair survey.
 local function stairTransitionTarget(scout, actor, routeTarget, now)
-    return SC.StairTransition.target(scout, actor, routeTarget, now)
+    local previous = scout.descent
+    local target, reason = SC.StairTransition.target(scout, actor,
+        routeTarget, now)
+    -- The leader can clear the lower landing while a follower is still on
+    -- its last stair tread. Keep the verified exit for formation targeting
+    -- after the leader's own descent plan is retired.
+    if previous and scout.descent == nil
+        and previous.toZ == previous.lowerZ and previous.exit
+        and previous.landing then
+        local _, _, z = SC.GameplayUtil.position(actor)
+        if z ~= nil and math.abs(z - previous.lowerZ) <= 0.05 then
+            local dx = previous.exit.x - previous.landing.x
+            local dy = previous.exit.y - previous.landing.y
+            local stepX = dx > 0 and 1 or dx < 0 and -1 or 0
+            local stepY = dy > 0 and 1 or dy < 0 and -1 or 0
+            local clearX = previous.exit.x + stepX
+            local clearY = previous.exit.y + stepY
+            local clearance = SC.GameplayUtil.gridSquare(
+                clearX, clearY, previous.lowerZ)
+            if clearance and not SC.GameplayUtil.isSquareFree(clearance) then
+                clearance = nil
+            end
+            scout.followerDescent = {
+                lowerZ = previous.lowerZ,
+                exit = copyPoint(previous.exit),
+                clearance = clearance and { x = clearX, y = clearY,
+                    z = previous.lowerZ } or nil,
+                expiresAt = now + 120000,
+            }
+        end
+    end
+    if scout.followerDescent
+        and now >= scout.followerDescent.expiresAt then
+        scout.followerDescent = nil
+    end
+    return target, reason
 end
 
 Expedition._stairTransitionTargetForTests = stairTransitionTarget
 
 local REUNION_CHECK_INTERVAL_MS = 500
+
+local function recoverableInboundReason(reason)
+    return reason == "scout_stall_replan_limit"
+        or reason == "scout_area_unavailable"
+        or reason == "scout_cross_floor_destination_unavailable"
+        or type(reason) == "string"
+            and reason:find("^scout_no_exterior_path:") ~= nil
+end
+
+-- Native path ownership and companion crowding can leave a valid upstairs
+-- return in a stale route state. A technical hold stopped pulseScout forever,
+-- although restoring the very same save clears the route and the team walks
+-- down normally. Release only navigation's route, rotate the stair candidate,
+-- and let the squad settle briefly before another bounded attempt.
+local function retryInboundRoute(scout, now, reason)
+    local leader = mission.leader.actor
+    if mission.testWaypoint ~= nil then
+        Expedition.clearTestWaypoint(leader)
+    end
+    local owner = SC.ActionSupervisor
+        and type(SC.ActionSupervisor.current) == "function"
+        and SC.ActionSupervisor.current(leader) or nil
+    if owner == nil and SC.Navigation
+        and type(SC.Navigation.cancel) == "function" then
+        SC.Navigation.cancel(leader, "expedition_return_retry")
+    end
+    if scout.descent and scout.descent.key then
+        scout.descentRejected = scout.descentRejected or {}
+        scout.descentRejected[scout.descent.key] = true
+    end
+    scout.descent = nil
+    scout.followerDescent = nil
+    scout.descentScan = nil
+    scout.descentRetryAt = nil
+    scout.noStair = nil
+    scout.legPlan = nil
+    scout.lastStalledTarget = nil
+    scout.replans = 0
+    scout.firstPlanFailureAt = nil
+    scout.lastPlanFailure = reason
+    scout.lastPlanAt = nil
+    scout.lastProgressAt = now
+    scout.returnRecoveryCount = (scout.returnRecoveryCount or 0) + 1
+    scout.returnRetryAt = now + 3000
+    if mission.technicalIssue
+        and recoverableInboundReason(mission.technicalIssue.reason) then
+        mission.technicalIssue = nil
+    end
+    if type(SC.GameplayUtil.diagnostic) == "function" then
+        SC.GameplayUtil.diagnostic("expedition-return", leader,
+            "action=retry reason=" .. tostring(reason)
+                .. " count=" .. tostring(scout.returnRecoveryCount))
+    end
+end
 
 local function playerMetSearchSquad(player, leader)
     local util = SC.GameplayUtil
@@ -2665,9 +2761,15 @@ end
 
 local function pulseScout()
     local scout = mission and mission.scout
-    if scout == nil or mission.restoring or mission.technicalIssue
-        or not alive(mission.leader) then return end
+    if scout == nil or mission.restoring or not alive(mission.leader) then return end
     local now = SC.GameplayUtil.nowMs()
+    if mission.technicalIssue then
+        if scout.phase ~= "inbound"
+            or not recoverableInboundReason(mission.technicalIssue.reason)
+            or now < (scout.returnRetryAt or 0) then return end
+        retryInboundRoute(scout, now, mission.technicalIssue.reason)
+    end
+    if now < (scout.returnRetryAt or 0) then return end
     if scout.vehicle and SC.ExpeditionCar
         and SC.ExpeditionCar.pulse(mission, now, scoutWorldHour()) then
         return
@@ -3078,7 +3180,8 @@ local function pulseScout()
                         useReachedTrailForReturn(scout, stallAvoidance)
                         scout.lastRoadFailure = "scout_stall_replan_limit"
                     else
-                        mission.technicalIssue = { reason = "scout_stall_replan_limit" }
+                        retryInboundRoute(scout, now,
+                            "scout_stall_replan_limit")
                     end
                 end
             end
@@ -3377,7 +3480,7 @@ local function pulseScout()
                     scout.road and scout.road.avoidance)
                 scout.lastRoadFailure = reason
             else
-                mission.technicalIssue = { reason = reason }
+                retryInboundRoute(scout, now, reason)
             end
         end
         return
@@ -3406,6 +3509,8 @@ local function updateWaypointCohesion()
     local leader = mission.leader.actor
     local lx, ly, lz = SC.GameplayUtil.position(leader)
     local scout = mission.scout
+    local now = SC.GameplayUtil.nowMs()
+    if scout then scout.followerProgress = scout.followerProgress or {} end
     local descent = scout and scout.descent
     local descending = scout and scout.phase == "inbound"
         and type(descent) == "table" and lz ~= nil
@@ -3423,6 +3528,16 @@ local function updateWaypointCohesion()
                 missing = record.id
             else
                 local fx, fy, fz = SC.GameplayUtil.position(actor)
+                if scout and fx ~= nil and fy ~= nil and fz ~= nil then
+                    local watch = scout.followerProgress[record.id]
+                    if watch == nil or (fx - watch.x)^2 + (fy - watch.y)^2
+                            + (fz - watch.z)^2 >= 0.5^2 then
+                        scout.followerProgress[record.id] = {
+                            x = fx, y = fy, z = fz, movedAt = now,
+                            retriedAt = watch and watch.retriedAt or nil,
+                        }
+                    end
+                end
                 if actor:getCurrentSquare() == nil or lx == nil or ly == nil
                     or fx == nil or fy == nil
                     or lz == nil or fz == nil
@@ -3458,6 +3573,66 @@ local function updateWaypointCohesion()
                 and SC.ActionSupervisor.current(leader) or nil
             if route and route.goalAction == "ordered_move" and owner == nil then
                 SC.Navigation.cancel(leader, "expedition_regroup")
+            end
+        end
+        if scout and scout.phase == "inbound" then
+            for _, record in ipairs(mission.roster) do
+                local actor = record.actor
+                local watch = scout.followerProgress[record.id]
+                if record ~= mission.leader and alive(record)
+                    and actor and watch and actor:getCurrentSquare() ~= nil
+                    and now - (watch.movedAt or now) >= 8000
+                    and now - (watch.retriedAt or -math.huge) >= 8000 then
+                    local fx, fy, fz = SC.GameplayUtil.position(actor)
+                    local gap = fx and fy and lx and ly
+                        and math.sqrt((fx - lx)^2 + (fy - ly)^2) or 0
+                    local owner = SC.ActionSupervisor
+                        and type(SC.ActionSupervisor.current) == "function"
+                        and SC.ActionSupervisor.current(actor) or nil
+                    local traversal = SC.NativeTraversalActions
+                        and type(SC.NativeTraversalActions.activityStatus) == "function"
+                        and select(1, SC.NativeTraversalActions.activityStatus(actor, now))
+                        or nil
+                    if gap >= releaseGap and owner == nil
+                        and traversal ~= "active" and fz ~= nil
+                        and math.abs(fz - math.floor(fz + 0.5)) <= 0.05 then
+                        if SC.Navigation
+                            and type(SC.Navigation.cancel) == "function" then
+                            SC.Navigation.cancel(actor, "expedition_straggler_retry")
+                        end
+                        if SC.Positioning
+                            and type(SC.Positioning.releaseActor) == "function" then
+                            SC.Positioning.releaseActor(actor)
+                        end
+                        -- A follower can keep a completed stair-recovery
+                        -- lease with no goal, so a cancel alone can recreate
+                        -- the same request. Issue a fresh regroup target near
+                        -- the waiting leader after releasing that lease.
+                        if SC.Positioning
+                            and type(SC.Positioning.formationTarget) == "function"
+                            and SC.Navigation
+                            and type(SC.Navigation.request) == "function" then
+                            local target = SC.Positioning.formationTarget(
+                                actor, leader, {
+                                    order = "regroup", followDistance = 2,
+                                    expeditionCohesionHold = true,
+                                    expeditionMoving = true,
+                                }, nil)
+                            if target then
+                                SC.Navigation.request(actor, target, "walk", {
+                                    action = "regroup", followRecovery = true,
+                                    preferVerifiedPath = true,
+                                    movementPriority = 20,
+                                })
+                            end
+                        end
+                        watch.retriedAt, watch.movedAt = now, now
+                        if type(SC.GameplayUtil.diagnostic) == "function" then
+                            SC.GameplayUtil.diagnostic("expedition-return", actor,
+                                "action=straggler_retry gap=" .. tostring(gap))
+                        end
+                    end
+                end
             end
         end
     elseif held then

@@ -2943,6 +2943,21 @@ function Decision.update(actor, player, runtime, roundTimestamp)
         return worked == true, state.intent
     end
 
+    -- Field work owns its short trunk-unlock seat until the follower is back
+    -- on foot. Run before ordinary vehicle exit and follow movement.
+    if SC.FieldWork and SC.FieldWork.unlocking
+        and SC.FieldWork.unlocking(actor)
+        and (tonumber(snapshot.immediateCount) or 0) == 0
+        and (tonumber(snapshot.threatCount) or 0) == 0
+        and snapshot.humanThreat == nil then
+        local safe, worked, why = utility.safeSubsystem("field-trunk-unlock",
+            actor, SC.FieldWork.update, actor, player, snapshot)
+        state.current, state.currentKey = "vehicle", "field_trunk_unlock"
+        state.intent, state.lastHandledAt = safe and (why or "field_trunk_unlock")
+            or "field_trunk_unlock_failed", current
+        return safe and worked == true, state.intent
+    end
+
     -- Car expeditions reserve the exact native seat before motion. Drive
     -- ownership above still wins for the leader once the wheel is engaged.
     local carOrder = SC.ExpeditionCar

@@ -1733,12 +1733,18 @@ do
     local _, job = SC.BaseLife.enqueueJob({ type = "unload_vehicle", priority = 2 })
     local priorGetPlayer = getPlayer
     local speech = 0
-    getPlayer = function() return ctx.actor end
-    function ctx.actor:Say() speech = speech + 1 end
+    local player = makeActor("fixture-player", ctx.actor.square)
+    getPlayer = function() return player end
+    function ctx.actor:addLineChatElement(line)
+        speech = speech + 1
+        self.lastSpeech = line
+    end
+    function ctx.actor:Say() error("companion speech must not use IsoPlayer:Say") end
     job.state, job.reservedBy = "active", id
     check(SC.BaseLife.blockJob(job.id, id, "car_unload_storage_full_or_missing") == true
-            and speech == 1 and job.fullAlertSpoken == true,
-        "first full-storage interval speaks once")
+            and speech == 1 and job.fullAlertSpoken == true
+            and ctx.actor.lastSpeech ~= nil,
+        "first full-storage interval anchors speech to companion")
     job.state, job.reservedBy = "active", id
     check(SC.BaseLife.blockJob(job.id, id, "car_unload_storage_full_or_missing") == true
             and speech == 1,
@@ -1750,6 +1756,10 @@ do
     check(SC.BaseLife.blockJob(job.id, id, "car_unload_storage_full_or_missing") == true
             and speech == 2,
         "a later full-storage interval speaks again")
+    ctx.actor.__class = "IsoPlayer"
+    ctx.actor.addLineChatElement = nil
+    check(SC.GameplayUtil.say(ctx.actor, "fixture warning") == false,
+        "non-local IsoPlayer speech does not fall back to player-anchored Say")
     getPlayer = priorGetPlayer
 end
 

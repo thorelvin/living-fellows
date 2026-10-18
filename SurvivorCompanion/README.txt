@@ -1,7 +1,7 @@
-Living Fellows 0.26.46 - public playtest
+Living Fellows 0.26.47 - public playtest
 
-This playtest adds storage-full feedback, a valuables area, an outdoor log yard,
-and a wider off-base crop harvest that keeps produce in the car or companion.
+This playtest improves expedition return recovery and nearby status, lets a
+field worker unlock a selected car trunk, and simplifies the work marker.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added

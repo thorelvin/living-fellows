@@ -33,7 +33,7 @@ end
 local function actor(id, x, y)
     local value = { id = id, x = x, y = y, z = 0, bag = inventory(), active = false }
     function value:getInventory() return self.bag end
-    function value:getVehicle() return nil end
+    function value:getVehicle() return self.car end
     actors[#actors + 1] = value
     return value
 end
@@ -43,6 +43,22 @@ local car = { x = 101, y = 101, z = 0, id = 42, locked = false,
     part = { bag = inventory() } }
 function car:getSqlId() return self.id end
 function car:isTrunkLocked() return self.locked end
+function car:setTrunkLocked(value)
+    if not self.failUnlock then self.locked = value end
+end
+function car:getMaxPassengers() return 2 end
+function car:isSeatInstalled(seat) return seat == 0 or seat == 1 end
+function car:getCharacter(seat)
+    for _, value in ipairs(actors) do
+        if value.car == self and value.seat == seat then return value end
+    end
+end
+function car:getPassengerDoor()
+    return { getDoor = function()
+        return { isLocked = function() return car.doorsLocked == true end }
+    end }
+end
+function car:getSeat(value) return value.seat end
 function car:getTrunkPart() return self.part end
 function car.part:getItemContainer() return self.bag end
 function car.part:getArea() return "Trunk" end
@@ -127,7 +143,29 @@ SC.Commands = { peek = function(value)
 end }
 SC.BaseLife = { isInside = function() return false end }
 SC.Vehicle = { loadedBySqlId = function(id) return id == 42 and car or nil end,
-    isStationary = function() return true end }
+    isStationary = function() return true end,
+    boardingSquares = function(value, vehicle, seat)
+        if vehicle == car and seat < 2 then return { square(101, 102) }, seat end
+    end,
+    cancelTransaction = function(value)
+        value.boardCancelled = true
+        return true
+    end,
+    exit = function(value, vehicle)
+        if value.car ~= vehicle then return false, "wrong_car" end
+        value.car, value.seat = nil, nil
+        return true
+    end,
+}
+SC.ExpeditionCar = { boardMember = function(value, order)
+    value.car, value.seat = order.car, order.seat
+    return true, "native_seat"
+end }
+local trunkLines = 0
+SC.Dialogue = { say = function(_, topic)
+    if topic == "vehicle.trunk.unlocked" then trunkLines = trunkLines + 1 end
+    return true
+end }
 SC.TaxiCab = { isOwned = function() return false end }
 SC.WorkTransport = { hasRoom = function(bag) return bag.room ~= false end }
 SC.Navigation = {
@@ -193,6 +231,15 @@ local function advance(workers, count)
         for _, value in ipairs(workers) do Field.update(value, player) end
     end
 end
+local placedMarkers = {}
+function getWorldMarkers()
+    return { addGridSquareMarker = function(_, target)
+        local marker = { square = target, removed = false }
+        function marker:remove() self.removed = true end
+        placedMarkers[#placedMarkers + 1] = marker
+        return marker
+    end }
+end
 
 check(Field.restore(nil) == true, "old save restores idle")
 cropAt(100, 100, true)
@@ -201,6 +248,8 @@ local unripe = cropAt(99, 100, false)
 Field.observePlayerVehicle(car)
 check(Field.start("harvest", square(100, 100), player) == true,
     "field order starts with recent car")
+check(#placedMarkers == 1 and placedMarkers[1].square == square(100, 100),
+    "field order marks only the clicked tile")
 check(Field.status().carId == 42, "car selected by SQL identity")
 advance({ one, two }, 40)
 check(one.pending and one.pending.operation == "harvest"
@@ -235,9 +284,59 @@ check(unripe.plant.ripe == false,
 car.locked = true
 local result = Field.stop("test")
 check(result == true, "stop releases order")
-check(Field.start("harvest", square(100, 100), player) == true
-    and Field.status().phase == "paused", "locked selected car pauses")
-check(Field.resume() == false, "locked car cannot silently resume")
+check(placedMarkers[1].removed == true,
+    "stopping field work removes the clicked-tile marker")
+local unlockOk, unlockReason = Field.start("harvest", square(100, 100), player)
+check(unlockOk == true and unlockReason == "field_trunk_unlocking"
+    and Field.status().phase == "unlocking" and Field.status().carId == 42,
+    "locked recent car is retained while a follower opens its trunk")
+check(Field.wants(one, player, SC.Commands.peek(one)) == true
+    and Field.wants(two, player, SC.Commands.peek(two)) == false,
+    "only one follower owns the unlock step")
+check(Field.update(two, player) == false and car.locked,
+    "other workers cannot start before the trunk is open")
+local savedUnlock = Field.export()
+check(Field.restore(savedUnlock) == true
+    and Field.status().phase == "unlocking",
+    "unfinished unlock step survives save and load")
+for _ = 1, 8 do
+    Field.update(one, player)
+    if Field.status().phase == "working" then break end
+end
+check(Field.status().phase == "working" and not car.locked
+    and one:getVehicle() == nil and trunkLines == 1,
+    "follower boards, unlocks, exits, then says one cheeky line: phase=" .. tostring(Field.status().phase)
+        .. " locked=" .. tostring(car.locked) .. " seated=" .. tostring(one:getVehicle() ~= nil)
+        .. " lines=" .. tostring(trunkLines) .. " stage=" .. tostring(Field.export().active and Field.export().active.unlock and Field.export().active.unlock.stage))
+Field.stop("test")
+car.locked, car.doorsLocked = true, true
+check(Field.start("harvest", square(100, 100), player) == false
+    and car.locked and one:getVehicle() == nil,
+    "locked doors reject entry without breaking the player's window")
+car.doorsLocked = false
+car.failUnlock = true
+local lockedChopOk, lockedChopReason = Field.start("chop", square(100, 100), player)
+check(lockedChopOk == true and lockedChopReason == "field_trunk_unlocking"
+    and Field.status().carId == 42,
+    "woodcutting waits for the trunk even without an equipped axe")
+for _ = 1, 8 do
+    Field.update(one, player)
+    if Field.status().phase == "paused" then break end
+end
+check(Field.status().phase == "paused"
+    and Field.status().blocker == "car_trunk_unlock_failed"
+    and car.locked and one:getVehicle() == nil and trunkLines == 1,
+    "failed native unlock exits and pauses without claiming success")
+car.failUnlock = false
+check(Field.resume() == true and Field.status().phase == "unlocking",
+    "failed unlock can be retried after the car becomes operable")
+for _ = 1, 8 do
+    Field.update(one, player)
+    if Field.status().phase == "working" then break end
+end
+check(Field.status().phase == "working" and not car.locked
+    and one:getVehicle() == nil and trunkLines == 2,
+    "retry exits before woodcutting and speaks once")
 Field.stop("test")
 car.locked = false
 Field.restore(nil)

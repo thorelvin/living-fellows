@@ -4273,8 +4273,9 @@ function BaseLife.blockJob(id, actorId, reason, retryMs)
             local line = type(getText) == "function"
                 and getText("UI_SC_Base_StorageFullSpeech")
                 or "The storage is full. I will wait for space."
-            local _, spoken = U().call(speaker, "Say", line)
-            if spoken then job.fullAlertSpoken = true end
+            -- IsoPlayer:Say can attach an NPC's bubble to the local player.
+            -- Use the companion's own chat element, as other dialogue does.
+            if U().say(speaker, line) then job.fullAlertSpoken = true end
         end
     end
     local transientDelay = transientJobDelay(job, reason)

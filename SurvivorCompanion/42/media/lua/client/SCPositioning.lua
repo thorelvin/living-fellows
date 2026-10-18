@@ -839,11 +839,15 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
     local distanceToLeader = utility.distance(actor, leader)
     local descent = missionLeader and expedition.scout
         and expedition.scout.phase == "inbound"
-        and expedition.scout.descent or nil
+        and (expedition.scout.descent
+            or expedition.scout.followerDescent) or nil
+    if descent and descent.expiresAt and current >= descent.expiresAt then
+        descent = nil
+    end
     local _, _, followerZ = utility.position(actor)
     local stairRejoin = type(descent) == "table"
-        and pz <= descent.lowerZ + 0.2
-        and followerZ ~= nil and followerZ > descent.lowerZ + 0.2
+        and pz <= descent.lowerZ + 0.05
+        and followerZ ~= nil and followerZ > descent.lowerZ + 0.05
     local clearOpenFormation = (fanOut or lineTravel)
         and utility.sameFloor(actor, leader)
         and distanceToLeader <= (tonumber(
@@ -928,11 +932,12 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
     local target, portal, followTrack, interceptPosition
     if stairRejoin then
         -- A long trail lag can leave a follower holding an upper-floor slot
-        -- after the leader has descended. Rejoin through the same verified
-        -- stair exit before returning to the ordinary formation trail.
+        -- after the leader has descended. Aim one clear tile beyond the
+        -- verified exit when available so a native path finishes the last
+        -- fractional stair height before ordinary formation resumes.
         mode = "stair_rejoin"
         shape = "column"
-        local exit = descent.exit
+        local exit = descent.clearance or descent.exit
         target = utility.gridSquare(exit.x, exit.y, descent.lowerZ)
         if target and not utility.isSquareFree(target) then target = nil end
     elseif commands.expeditionCohesionHold == true then
@@ -1095,6 +1100,15 @@ end
 function Positioning.shouldHold(actor, target, formation)
     if not actor or not target then return false end
     local state = stateFor(actor)
+    if type(formation) == "table" and formation.mode == "stair_rejoin" then
+        local _, _, actorZ = U().position(actor)
+        local _, _, targetZ = U().position(target)
+        if actorZ == nil or targetZ == nil
+            or math.abs(actorZ - targetZ) > 0.05 then
+            state.holdingFormation = false
+            return false
+        end
+    end
     -- A trail breadcrumb is an intermediate waypoint. Reaching it must not
     -- park a follower while the moving player is already pulling away.
     if type(formation) == "table" and formation.mode == "trail"

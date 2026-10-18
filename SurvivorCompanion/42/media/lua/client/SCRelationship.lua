@@ -580,6 +580,7 @@ local doingLabels = {
     rest_bed = "sleeping in a bed",
     wash = "washing up",
     follow_formation = "keeping formation",
+    regroup = "moving back toward the group",
     approach_vehicle = "reaching the passenger door",
     logistics_pack = "repacking my gear",
     logistics_deposit = "putting surplus gear into storage",

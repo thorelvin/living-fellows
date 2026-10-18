@@ -30,6 +30,22 @@ Planner.build(detail, pendingPanel)
 assert(detail.expeditionZoomSlider == nil,
     "pending slot 1 must not show a usable slider")
 assert(detail.lines[#detail.lines] == "UI_SC_Expedition_ViewZoomPending")
+assert(detail.lines[#detail.lines - 1] == "UI_SC_Expedition_AwayStatus",
+    "a remote expedition keeps its phase private")
+
+fixture.view.leaderVisible = true
+fixture.view.visibleMembers = 1
+fixture.view.observedPhase = "searching"
+local nearbySignature = Planner.viewStructureSignature()
+local nearbyDetail = newDetail()
+Planner.build(nearbyDetail, newPanel(132))
+assert(nearbySignature ~= pendingSignature
+    and nearbyDetail.lines[#nearbyDetail.lines - 1]
+        == "Leader nearby. Mission phase: searching for supplies.",
+    "seeing the leader replaces the misleading away message with observed phase")
+fixture.view.leaderVisible = nil
+fixture.view.visibleMembers = nil
+fixture.view.observedPhase = nil
 
 fixture.join()
 fixture.setOwner("base_watch")

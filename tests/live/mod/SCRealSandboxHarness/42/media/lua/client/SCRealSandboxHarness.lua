@@ -15466,7 +15466,7 @@ function Harness.observeSample(current, report)
             local x, y, z = U.position(actor)
             if x ~= nil then
                 actors[#actors + 1] = { id = tostring(record.id), actor = actor,
-                    x = x, y = y, z = math.floor(z or 0) }
+                    x = x, y = y, z = z or 0 }
             end
         end
     end
@@ -15474,7 +15474,8 @@ function Harness.observeSample(current, report)
     for first = 1, #actors do
         for second = first + 1, #actors do
             local a, b = actors[first], actors[second]
-            if a.z == b.z and (a.x - b.x) ^ 2 + (a.y - b.y) ^ 2 < 0.45 * 0.45 then
+            if math.floor(a.z) == math.floor(b.z)
+                and (a.x - b.x) ^ 2 + (a.y - b.y) ^ 2 < 0.45 * 0.45 then
                 stackedNow = stackedNow + 1
                 local key = a.id .. "|" .. b.id
                 seen[key] = true
@@ -15513,11 +15514,71 @@ function Harness.observeSample(current, report)
         local decision = SC.Decision and SC.Decision.peek(entry.actor) or nil
         local nav = SC.Navigation and SC.Navigation.peek(entry.actor) or nil
         local moving = nav and current - (tonumber(nav.motionAt) or -math.huge) <= 1000
-        print(string.format("SC_OBSERVE|actor|%s|%s|pos=%.2f,%.2f,%d|moving=%s|decision=%s/%s|nav_terminal=%s",
+            print(string.format("SC_OBSERVE|actor|%s|%s|pos=%.2f,%.2f,%.3f|moving=%s|decision=%s/%s|nav_terminal=%s",
             entry.id, tostring(U.nameOf(entry.actor)), entry.x, entry.y, entry.z,
             tostring(moving == true),
             tostring(decision and decision.current), tostring(decision and decision.intent),
             tostring(nav and nav.terminalReason)))
+        if nav and SC.ExpeditionPrototype
+            and SC.ExpeditionPrototype.isMember(entry.actor) then
+            local lease = nav.nativeLease
+            local goal = nav.goalSquare
+            local gx, gy, gz
+            if goal then gx, gy, gz = U.position(goal) end
+            print(string.format("SC_OBSERVE|nav|%s|goal=%s:%s:%s|action=%s|path=%s|lease=%s|leaseAge=%s|nativeRetry=%s|motionAge=%s",
+                entry.id, tostring(gx), tostring(gy), tostring(gz),
+                tostring(nav.goalAction), tostring(nav.pathReason),
+                tostring(lease and lease.affordance),
+                tostring(lease and (current - (lease.startedAt or current))),
+                tostring(nav.nativeRetryAt and (nav.nativeRetryAt - current)),
+                tostring(nav.motionAt and (current - nav.motionAt))))
+        end
+    end
+    local mission = SC.ExpeditionPrototype and SC.ExpeditionPrototype.current()
+    if mission and mission.scout then
+        local scout = mission.scout
+        local stair = scout.descent
+        local point = mission.testWaypoint
+        local function location(value)
+            return type(value) == "table" and string.format("%s:%s:%s",
+                tostring(value.x), tostring(value.y), tostring(value.z)) or "none"
+        end
+        print(string.format("SC_OBSERVE|expedition|phase=%s|returnIndex=%s|waypoint=%s|stair=%s|stairApproach=%s|stairCrossing=%s|tailExit=%s|tailClear=%s|cohesion=%s|issue=%s|planFailure=%s|replans=%s",
+            tostring(scout.phase), tostring(scout.returnIndex), location(point),
+            tostring(stair and stair.key), location(stair and stair.approach),
+            location(stair and stair.crossing),
+            location(scout.followerDescent and scout.followerDescent.exit),
+            location(scout.followerDescent and scout.followerDescent.clearance),
+            tostring(mission.cohesionHold and mission.cohesionHold.reason),
+            tostring(mission.technicalIssue and mission.technicalIssue.reason),
+            tostring(scout.lastPlanFailure), tostring(scout.replans)))
+        if mission.cohesionHold then
+            local lx, ly = U.position(mission.leader.actor)
+            for _, member in ipairs(mission.roster or {}) do
+                if member ~= mission.leader and member.actor then
+                    local watch = scout.followerProgress
+                        and scout.followerProgress[member.id]
+                    local token = SC.ActionSupervisor
+                        and SC.ActionSupervisor.current(member.actor)
+                    local traversal = SC.NativeTraversalActions
+                        and SC.NativeTraversalActions.activityStatus(member.actor,
+                            current) or nil
+                    local fx, fy, fz = U.position(member.actor)
+                    local gap = lx and ly and fx and fy
+                        and math.sqrt((fx - lx)^2 + (fy - ly)^2) or nil
+                    print(string.format("SC_OBSERVE|cohesion_member|%s|watchAge=%s|retryAge=%s|owner=%s:%s|traversal=%s|square=%s|gap=%s|z=%s|active=%s",
+                        tostring(member.id),
+                        tostring(watch and current - (watch.movedAt or current)),
+                        tostring(watch and watch.retriedAt
+                            and current - watch.retriedAt),
+                        tostring(token and token.owner),
+                        tostring(token and token.action), tostring(traversal),
+                        tostring(member.actor:getCurrentSquare() ~= nil),
+                        tostring(gap), tostring(fz),
+                        tostring(SC.Registry.isActive(member.actor, member.id))))
+                end
+            end
+        end
     end
 end
 
@@ -16127,6 +16188,28 @@ local function tick()
                 pairSince = {}, unstackSeen = setmetatable({}, { __mode = "k" }),
                 companions = 0,
             }
+            if Harness.config.observe_inbound_return_fault == "true" then
+                local mission = SurvivorCompanion.ExpeditionPrototype
+                    and SurvivorCompanion.ExpeditionPrototype.current()
+                if not mission or not mission.scout
+                    or mission.scout.phase ~= "inbound"
+                    or not mission.leader or not mission.leader.actor
+                    or mission.leader.actor:getZ() < 0.95 then
+                    result("FAIL", "observe_inbound_fault_ready",
+                        "saved inbound leader is not upstairs")
+                    setPhase("finish", current)
+                    return
+                end
+                local leader = mission.leader.actor
+                Harness.observe.inboundFault = {
+                    actor = leader, x = leader:getX(), y = leader:getY(),
+                }
+                mission.technicalIssue = {
+                    reason = "scout_stall_replan_limit" }
+                result("PASS", "observe_inbound_fault_injected",
+                    string.format("leader=%.2f,%.2f,%.2f",
+                        leader:getX(), leader:getY(), leader:getZ()))
+            end
             result("PASS", "observe_started", "records=" .. tostring(records)
                 .. " observe_ms=" .. tostring(Harness.config.observe_ms))
             setPhase("observe_run", current)
@@ -16141,6 +16224,33 @@ local function tick()
         end
         if current - observe.startedAt >= (tonumber(Harness.config.observe_ms) or 300000) then
             Harness.observeSample(current, true)
+            if observe.inboundFault then
+                local actor = observe.inboundFault.actor
+                local mission = SurvivorCompanion.ExpeditionPrototype
+                    and SurvivorCompanion.ExpeditionPrototype.current()
+                local clear = not mission or mission.technicalIssue == nil
+                local gathered, distanceHome = true, math.huge
+                if mission and mission.scout and mission.scout.returnPoint then
+                    local home = mission.scout.returnPoint
+                    distanceHome = math.sqrt((actor:getX() - home.x)^2
+                        + (actor:getY() - home.y)^2)
+                    for _, record in ipairs(mission.roster) do
+                        local member = record.actor
+                        if member == nil or member:getZ() >= 0.1
+                            or (member:getX() - actor:getX())^2
+                                + (member:getY() - actor:getY())^2 > 12^2 then
+                            gathered = false
+                        end
+                    end
+                end
+                result(clear and (not mission or actor:getZ() < 0.1
+                        and distanceHome <= 10 and gathered)
+                        and "PASS" or "FAIL", "observe_inbound_fault_recovered",
+                    string.format("z=%.2f homeGap=%.1f gathered=%s issue=%s",
+                        actor:getZ(), distanceHome, tostring(gathered),
+                        tostring(mission and mission.technicalIssue
+                            and mission.technicalIssue.reason)))
+            end
             result("PASS", "observe_completed", string.format(
                 "companions=%d samples=%d stacked_samples=%d max_stacked=%d unstack_moves=%d longest_stack_ms=%d pair=%s",
                 observe.companions, observe.samples, observe.stackedSamples,

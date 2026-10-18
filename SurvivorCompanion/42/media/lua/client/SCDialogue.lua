@@ -27,6 +27,16 @@ local pools = {
         "Not today. This one's fighting back.",
         "Well, that was a lot of noise for nothing.",
     } },
+    ["vehicle.trunk.unlocked"] = { common = {
+        "There. The trunk was just being stubborn.",
+        "All that fuss for one little lock. We're good.",
+        "Trunk's open. It can stop guarding our supplies now.",
+        "I let the car know we're on the same team.",
+        "There we go. Apparently I had to ask from inside.",
+        "Unlocked. Now, where were we?",
+        "The trunk finally decided to cooperate.",
+        "I climbed in so the cargo could come out. Sensible, right?",
+    } },
     ["downtime.tv.learn"] = {
         common = {
             "This could be useful. Keep that part in mind.",

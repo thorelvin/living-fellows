@@ -854,7 +854,10 @@ function UI.projectExpeditionRow(row, player)
     row.expeditionMember = true
     if row.actor ~= nil
         and type(expedition.playerCanObserve) == "function"
-        and expedition.playerCanObserve(row.actor, player) then return row end
+        and expedition.playerCanObserve(row.actor, player) then
+        row.order = "expedition"
+        return row
+    end
     local name = type(expedition.memberName) == "function"
         and expedition.memberName(row.id) or row.name
     return {
@@ -4092,9 +4095,12 @@ function SCUIDetail:buildGroups(panel, row)
         local progress = tostring(field.completed or 0)
             .. (field.targetCount and "/" .. tostring(field.targetCount) or "")
         local detail = UI.text("UI_SC_Field_Summary", field.kind, field.phase,
-            progress, destination, field.blocker or "-")
+            progress, destination,
+            field.blocker or (field.note == "car_trunk_locked_carry_only"
+                and UI.text("UI_SC_Field_CarryFallback")) or "-")
         y = self:addInformationLine(panel, y, "UI_SC_Field_Status", detail)
-        if field.phase == "working" or field.phase == "paused" then
+        if field.phase == "working" or field.phase == "unlocking"
+            or field.phase == "paused" then
             y = self:addCommand(panel, y, "UI_SC_Field_Stop", "stop_field_work",
                 { scope = "team" })
         end

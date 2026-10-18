@@ -115,6 +115,8 @@ function Planner.viewStructureSignature()
     return table.concat({ "expedition", tostring(mission.radioSession or mission),
         joinedExpeditionView(mission) and "joined" or "pending",
         tostring(view and view.plannedSite or ""),
+        tostring(view and view.observedPhase or ""),
+        tostring(view and view.visibleMembers or 0),
         tostring(request and request.mode or ""),
         tostring(request and request.shelter or ""),
         tostring(request and request.x or ""),
@@ -480,6 +482,16 @@ function Planner.build(detail, panel)
                         math.floor(request.x), math.floor(request.y),
                         tr("UI_SC_Expedition_Help_" .. request.mode)))
             end
+        elseif view and view.observedPhase then
+            local key = "UI_SC_Expedition_Phase_" .. tostring(view.observedPhase)
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                tr("UI_SC_Expedition_NearbyStatus", tr(key)))
+        elseif view and view.leaderVisible then
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                tr("UI_SC_Expedition_LeaderNearby"))
+        elseif view and (tonumber(view.visibleMembers) or 0) > 0 then
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                tr("UI_SC_Expedition_MemberNearby"))
         else
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
                 tr("UI_SC_Expedition_AwayStatus"))

@@ -66,10 +66,12 @@ local function trunk(vehicle)
     if not SC.Vehicle or SC.Vehicle.isStationary(vehicle) ~= true then
         return nil, nil, "car_moved"
     end
-    if call(vehicle, "isTrunkLocked") == true then return nil, nil, "car_trunk_locked" end
     local part = call(vehicle, "getTrunkPart") or call(vehicle, "getPartById", "TruckBed")
     local container = part and call(part, "getItemContainer")
     if not container then return nil, nil, "car_trunk_missing" end
+    if call(vehicle, "isTrunkLocked") == true then
+        return part, nil, "car_trunk_locked"
+    end
     return part, container
 end
 local function carNear(center, id, kind)
@@ -104,6 +106,46 @@ local function actorFor(id)
         if tostring(U().idOf(actor) or "") == id then return actor end
     end
     return nil
+end
+
+-- Use a vacant, reachable passenger door where possible. Never break the
+-- player's window merely to open the trunk; a locked door needs a real key.
+local function unlockSeat(actor, vehicle)
+    if not SC.Vehicle or not SC.Vehicle.boardingSquares then
+        return nil, "vehicle_adapter_unavailable"
+    end
+    local count = tonumber(call(vehicle, "getMaxPassengers"))
+    if not count or count < 1 or count > 32 then
+        return nil, "car_seats_unavailable"
+    end
+    local hasKey = SC.Driving and SC.Driving.hasKey
+        and SC.Driving.hasKey(actor, vehicle) == true
+    local reason = "car_entry_unavailable"
+    for index = 1, count do
+        local seat = index < count and index or 0
+        if call(vehicle, "isSeatInstalled", seat) == true
+            and call(vehicle, "getCharacter", seat) == nil then
+            local part = call(vehicle, "getPassengerDoor", seat)
+            local door = part and call(part, "getDoor")
+            if not door or call(door, "isLocked") ~= true or hasKey then
+                local squares, _, why = SC.Vehicle.boardingSquares(
+                    actor, vehicle, seat, seat == 0)
+                if squares and #squares > 0 then return seat end
+                reason = why or reason
+            else
+                reason = "car_entry_locked"
+            end
+        end
+    end
+    return nil, reason
+end
+
+local function sayTrunkUnlocked(actor)
+    if SC.Dialogue and type(SC.Dialogue.say) == "function"
+        and SC.Dialogue.say(actor, "vehicle.trunk.unlocked") == true then return end
+    if type(U().say) == "function" then
+        U().say(actor, "There. The trunk was just being stubborn.")
+    end
 end
 local function carriedItems(actor)
     local inventory = U().inventory(actor)
@@ -392,6 +434,99 @@ local function stopAction(actor)
     end
 end
 
+function Field.unlocking(actor)
+    return active ~= nil and active.phase == "unlocking"
+        and active.unlock ~= nil
+        and active.unlock.actorId == tostring(U().idOf(actor) or "")
+end
+
+local function unlockStep(actor, order, snapshot)
+    local task = order.unlock
+    local vehicle = vehicleById(order.carId)
+    if not vehicle then
+        order.phase, order.blocker = "paused", "car_unloaded"
+        return false, order.blocker
+    end
+    local seated = call(actor, "getVehicle")
+    if seated ~= nil and seated ~= vehicle then
+        order.phase, order.blocker = "paused", "companion_in_other_car"
+        return false, order.blocker
+    end
+    if task.stage == "exit" then
+        if seated == vehicle then
+            local exited, why = SC.Vehicle.exit(actor, vehicle, task.seat,
+                { playerCommand = true })
+            if exited ~= true then
+                if U().nowMs() < task.startedAt + 75000 then
+                    return true, why or "field_trunk_exiting"
+                end
+                order.phase, order.blocker = "paused", "car_exit_blocked"
+                return false, order.blocker
+            end
+            seated = call(actor, "getVehicle")
+            if seated ~= nil then return true, "field_trunk_exiting" end
+        end
+        local locked, checked = U().call(vehicle, "isTrunkLocked")
+        if task.unlocked and checked and locked == false then
+            order.phase, order.blocker, order.unlock = "working", nil, nil
+            sayTrunkUnlocked(actor)
+            return true, "field_trunk_unlocked"
+        end
+        order.phase, order.blocker = "paused",
+            task.failure or "car_trunk_unlock_failed"
+        return false, order.blocker
+    end
+    local locked, checked = U().call(vehicle, "isTrunkLocked")
+    if seated == nil and checked and locked == false then
+        if SC.Vehicle.cancelTransaction then
+            SC.Vehicle.cancelTransaction(actor, "trunk_unlocked_elsewhere")
+        end
+        order.phase, order.blocker, order.unlock = "working", nil, nil
+        return true, "field_trunk_already_unlocked"
+    end
+    if U().nowMs() >= task.startedAt + 60000 then
+        task.stage, task.failure = "exit", "car_entry_timeout"
+        return true, task.failure
+    end
+    if seated == nil then
+        local seat, why = unlockSeat(actor, vehicle)
+        if seat == nil then
+            order.phase, order.blocker = "paused", why
+            return false, why
+        end
+        task.seat = seat
+        if not SC.ExpeditionCar or not SC.ExpeditionCar.boardMember then
+            order.phase, order.blocker = "paused", "vehicle_adapter_unavailable"
+            return false, order.blocker
+        end
+        local boarded, reason = SC.ExpeditionCar.boardMember(actor,
+            { car = vehicle, seat = seat, fieldWork = true }, snapshot)
+        if boarded ~= true and type(reason) == "string"
+            and (reason:find("locked", 1, true)
+                or reason:find("unavailable", 1, true)
+                or reason:find("rejected", 1, true)) then
+            order.phase, order.blocker = "paused", reason
+            return false, reason
+        end
+        return true, reason or "field_trunk_boarding"
+    end
+    if call(vehicle, "getSeat", actor) ~= task.seat then
+        task.stage, task.failure = "exit", "car_seat_changed"
+        return true, task.failure
+    end
+    if task.stage ~= "unlock" then
+        task.stage, task.readyAt = "unlock", U().nowMs() + 700
+        return true, "field_trunk_unlocking"
+    end
+    if U().nowMs() < task.readyAt then return true, "field_trunk_unlocking" end
+    local _, changed = U().call(vehicle, "setTrunkLocked", false)
+    local lockedAfter, checkedAfter = U().call(vehicle, "isTrunkLocked")
+    task.unlocked = changed == true and checkedAfter and lockedAfter == false
+    task.failure = not task.unlocked and "car_trunk_unlock_failed" or nil
+    task.stage = "exit"
+    return true, task.unlocked and "field_trunk_exiting" or task.failure
+end
+
 function Field.observePlayerVehicle(vehicle)
     if not vehicle then return end
     if SC.TaxiCab and SC.TaxiCab.isOwned and SC.TaxiCab.isOwned(vehicle) then return end
@@ -402,40 +537,34 @@ function Field.clearArea()
     for _, marker in ipairs(areaMarkers) do call(marker, "remove") end
     areaMarkers, markerExpiry = {}, 0
 end
-function Field.showArea(center, kind)
+function Field.showArea(center)
     Field.clearArea()
     if type(getWorldMarkers) ~= "function" then return end
     local okay, markers = pcall(getWorldMarkers)
     if not okay or not markers then return end
-    local offsets = { { 0, 0 } }
-    for index = 0, 15 do
-        local angle = index * math.pi / 8
-        offsets[#offsets + 1] = {
-            math.floor(radius(kind) * math.cos(angle) + 0.5),
-            math.floor(radius(kind) * math.sin(angle) + 0.5),
-        }
-    end
-    for _, offset in ipairs(offsets) do
-        local square = U().gridSquare(center.x + offset[1],
-            center.y + offset[2], center.z)
-        if square then
-            local placed, marker = pcall(function()
-                return markers:addGridSquareMarker(square, 0.32, 0.85, 0.35,
-                    true, 1.5)
-            end)
-            if placed and marker then areaMarkers[#areaMarkers + 1] = marker end
-        end
+    local square = U().gridSquare(center.x, center.y, center.z)
+    if square then
+        local placed, marker = pcall(function()
+            return markers:addGridSquareMarker(square, 0.32, 0.85, 0.35,
+                true, 1.5)
+        end)
+        if placed and marker then areaMarkers[#areaMarkers + 1] = marker end
     end
     markerExpiry = U().nowMs() + 5000
 end
 function Field.leaderPulse(player)
     if markerExpiry > 0 and U().nowMs() >= markerExpiry then Field.clearArea() end
-    if active and active.phase == "working"
+    if active and active.phase == "unlocking"
+        and not actorFor(active.unlock.actorId) then
+        active.phase, active.blocker = "paused", "unlocker_unavailable"
+        return
+    end
+    if active and (active.phase == "working" or active.phase == "unlocking")
         and distance(point(player), active.center) > leash(active.kind) then
         Field.stop("leader_left_work_area")
         return
     end
-    if active and active.phase == "working" then
+    if active and (active.phase == "working" or active.phase == "unlocking") then
         for id in pairs(active.workers) do
             local actor = actorFor(id)
             local state = actor and SC.Commands and SC.Commands.peek
@@ -449,6 +578,13 @@ function Field.leaderPulse(player)
     end
 end
 function Field.interrupt(actor)
+    if Field.unlocking(actor) then
+        if call(actor, "getVehicle") == nil and SC.Vehicle
+            and SC.Vehicle.cancelTransaction then
+            SC.Vehicle.cancelTransaction(actor, "field_survival_preempted")
+        end
+        return true
+    end
     local worker = workerFor(actor)
     if not worker then return false end
     if worker.phase == "working" then
@@ -476,14 +612,15 @@ function Field.status()
         blocker = returns > 0 and ("borrowed axe return pending"
             .. (returnBlocker and ": " .. returnBlocker or "")) or active.blocker,
         pendingAxeReturns = returns,
-        center = active.center }
+        center = active.center, note = active.note }
     return result
 end
 function Field.available(player)
     return player ~= nil and #followers(player) > 0
 end
 function Field.start(kind, square, player)
-    if active and (active.phase == "working" or active.phase == "paused") then
+    if active and (active.phase == "working" or active.phase == "unlocking"
+        or active.phase == "paused") then
         return false, "field_order_already_active"
     end
     if kind ~= "harvest" and kind ~= "chop" then return false, "unknown_field_order" end
@@ -497,15 +634,46 @@ function Field.start(kind, square, player)
     end
     local roster = followers(player)
     if #roster == 0 then return false, "no_following_companions" end
-    serial = serial + 1
     local carId = recentVehicleId
     if carId and distance(center, point(vehicleById(carId))) > carRange(kind) then
         carId = nil
     end
+    local unlock
+    if carId then
+        local vehicle, part, cargo, reason = carNear(center, carId, kind)
+        if not cargo then
+            if reason ~= "car_trunk_locked" then return false, reason end
+            if not part then return false, "car_trunk_missing" end
+            local lastReason = "car_entry_unavailable"
+            for _, id in ipairs(roster) do
+                local actor = actorFor(id)
+                local seat, why = actor and unlockSeat(actor, vehicle)
+                if seat ~= nil then
+                    unlock = { actorId = id, seat = seat,
+                        stage = "boarding", startedAt = U().nowMs() }
+                    break
+                end
+                lastReason = why or lastReason
+            end
+            if not unlock then return false, lastReason end
+        end
+    end
+    if kind == "chop" and not carId then
+        local equipped = false
+        for _, id in ipairs(roster) do
+            local actor = actorFor(id)
+            if actor and axeIn(U().inventory(actor)) then equipped = true break end
+        end
+        if not equipped then
+            return false, "axe_required_without_car"
+        end
+    end
+    serial = serial + 1
     active = { schema = 1, id = "field:" .. tostring(U().nowMs()) .. ":" .. serial,
-        kind = kind, center = center, phase = "working", carId = carId,
+        kind = kind, center = center,
+        phase = unlock and "unlocking" or "working", carId = carId,
         completed = 0, loaded = 0, done = {}, woodClaims = {},
-        workers = {}, blocker = nil }
+        workers = {}, blocker = nil, unlock = unlock }
     for _, id in ipairs(roster) do
         active.workers[id] = { phase = "seek", scan = 0 }
         local actor = actorFor(id)
@@ -513,16 +681,26 @@ function Field.start(kind, square, player)
             SC.Encounter.cancelScavenge(actor, "field_order_started")
         end
     end
-    if carId then
-        local _, _, cargo, reason = carNear(center, carId, kind)
-        if not cargo then active.phase, active.blocker = "paused", reason end
-    end
-    Field.showArea(center, kind)
-    return true, active.phase == "paused" and active.blocker or "field_order_started"
+    Field.showArea(center)
+    return true, unlock and "field_trunk_unlocking" or "field_order_started"
 end
 function Field.stop(reason)
     if not active then return false, "no_field_order" end
     local order = active
+    if order.unlock then
+        local unlocker = actorFor(order.unlock.actorId)
+        if unlocker and SC.Vehicle then
+            if SC.Vehicle.cancelTransaction then
+                SC.Vehicle.cancelTransaction(unlocker, "field_order_stopped")
+            end
+            local vehicle = vehicleById(order.carId)
+            if vehicle and call(unlocker, "getVehicle") == vehicle
+                and SC.Vehicle.exit then
+                SC.Vehicle.exit(unlocker, vehicle, order.unlock.seat,
+                    { playerCommand = true })
+            end
+        end
+    end
     for id, worker in pairs(order.workers) do
         local actor = actorFor(id)
         if actor then
@@ -636,11 +814,20 @@ function Field.reserved(item)
 end
 function Field.resume()
     if not active or active.phase ~= "paused" then return false, "field_not_paused" end
-    if active.carId then
+    if active.carId and not active.unlock then
         local _, _, container, reason = carNear(active.center, active.carId, active.kind)
         if not container then return false, reason end
     end
-    active.phase, active.blocker = "working", nil
+    if active.unlock then
+        local task = active.unlock
+        local actor = actorFor(task.actorId)
+        if not actor then return false, "unlocker_unavailable" end
+        if call(actor, "getVehicle") == nil and not task.unlocked then
+            task.stage, task.failure, task.readyAt = "boarding", nil, nil
+        end
+        task.startedAt = U().nowMs()
+    end
+    active.phase, active.blocker = active.unlock and "unlocking" or "working", nil
     return true, "field_order_resumed"
 end
 function Field.wants(actor, player, commands)
@@ -669,11 +856,22 @@ function Field.wants(actor, player, commands)
         pending.blocker = nil
         return commands and commands.recruited and player ~= nil
     end
+    if active and active.phase == "unlocking" then
+        return Field.unlocking(actor) and commands and commands.recruited
+            and commands.order == "follow" and player ~= nil
+    end
     return worker ~= nil and commands and commands.recruited
         and commands.order == "follow" and player ~= nil
 end
 
-function Field.update(actor, player)
+function Field.update(actor, player, snapshot)
+    if Field.unlocking(actor) then
+        if distance(point(player), active.center) > leash(active.kind) then
+            Field.stop("leader_left_work_area")
+            return false, "leader_left_work_area"
+        end
+        return unlockStep(actor, active, snapshot)
+    end
     local returnId = tostring(U().idOf(actor) or "")
     local pending = pendingAxeReturns[returnId]
     if pending then
@@ -1023,7 +1221,14 @@ function Field.restore(saved)
         or type(order.center.y) ~= "number" or type(order.center.z) ~= "number"
         or type(order.workers) ~= "table" or type(order.done) ~= "table"
         or type(order.woodClaims) ~= "table"
-        or type(order.completed) ~= "number" or type(order.loaded) ~= "number") then
+        or type(order.completed) ~= "number" or type(order.loaded) ~= "number"
+        or (order.phase == "unlocking" and order.unlock == nil)
+        or (order.unlock ~= nil and (type(order.unlock) ~= "table"
+            or type(order.unlock.actorId) ~= "string"
+            or type(order.unlock.startedAt) ~= "number"
+            or type(order.unlock.seat) ~= "number"
+            or (order.unlock.stage ~= "boarding" and order.unlock.stage ~= "unlock"
+                and order.unlock.stage ~= "exit")))) then
         return false, "invalid_field_order_save"
     end
     active, recentVehicleId, serial = order, saved.recentVehicleId, saved.serial

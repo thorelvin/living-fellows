@@ -1596,8 +1596,19 @@ end
 
 local function fieldAction(_target, kind, square, player)
     local ok, reason = SC.FieldWork.start(kind, square, player)
+    local message = reason == "field_order_started"
+            and text("UI_SC_Field_WorkStarted")
+        or reason == "field_trunk_unlocking"
+            and text("UI_SC_Field_UnlockingTrunk")
+        or reason == "car_trunk_locked_carry_only"
+            and text("UI_SC_Field_CarryFallback")
+        or reason == "car_trunk_locked_axe_required"
+            and text("UI_SC_Field_LockedAxeRequired")
+        or reason == "axe_required_without_car"
+            and text("UI_SC_Field_AxeRequired")
+        or tostring(reason)
     safeMethod(player, "setHaloNote", text(ok and "UI_SC_Field_Started"
-        or "UI_SC_Field_Rejected", tostring(reason)))
+        or "UI_SC_Field_Rejected", message))
     if SC.UI and SC.UI.refresh then SC.UI.refresh() end
 end
 
@@ -1614,7 +1625,8 @@ local function addSquadMenu(menu, player, square)
     end
     if square and SC.FieldWork and SC.FieldWork.available(player) then
         local status = SC.FieldWork.status()
-        if status and (status.phase == "working" or status.phase == "paused") then
+        if status and (status.phase == "working" or status.phase == "unlocking"
+            or status.phase == "paused") then
             menu:addOption(text("UI_SC_Field_Stop"), nil, function()
                 SC.FieldWork.stop("stopped_by_player")
                 if SC.UI and SC.UI.refresh then SC.UI.refresh() end

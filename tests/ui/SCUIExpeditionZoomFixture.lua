@@ -7,6 +7,12 @@ SurvivorCompanion = {
             if key == "UI_SC_Expedition_ViewZoomValue" then
                 return "Zoom: " .. tostring(value) .. "%"
             end
+            if key == "UI_SC_Expedition_Phase_searching" then
+                return "searching for supplies"
+            end
+            if key == "UI_SC_Expedition_NearbyStatus" then
+                return "Leader nearby. Mission phase: " .. tostring(value) .. "."
+            end
             return key
         end,
         layoutMetrics = function()
