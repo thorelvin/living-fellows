@@ -48,6 +48,15 @@ local function tr(key, ...)
     return SC.UI.text(key, ...)
 end
 
+-- getText returns the key itself for a missing entry. A phase without its own
+-- phrase falls back to the plain "leader nearby" line, never a raw key.
+local function observedPhaseText(phase)
+    local key = "UI_SC_Expedition_Phase_" .. tostring(phase)
+    local value = tr(key)
+    if type(value) ~= "string" or value == "" or value == key then return nil end
+    return value
+end
+
 local function feedback(detail, message, success)
     detail.feedback = message
     detail.feedbackSuccess = success == true
@@ -609,10 +618,11 @@ function Planner.build(detail, panel)
                         math.floor(request.x), math.floor(request.y),
                         tr("UI_SC_Expedition_Help_" .. request.mode)))
             end
-        elseif view and view.observedPhase then
-            local key = "UI_SC_Expedition_Phase_" .. tostring(view.observedPhase)
+        elseif view and view.observedPhase
+            and observedPhaseText(view.observedPhase) then
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
-                tr("UI_SC_Expedition_NearbyStatus", tr(key)))
+                tr("UI_SC_Expedition_NearbyStatus",
+                    observedPhaseText(view.observedPhase)))
         elseif view and view.leaderVisible then
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
                 tr("UI_SC_Expedition_LeaderNearby"))

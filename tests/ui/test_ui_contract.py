@@ -1578,6 +1578,63 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn("UI_SC_State_defensive", en_keys)
         self.assertIn("UI_SC_State_steady", en_keys)
 
+    def test_every_observable_expedition_phase_has_a_phrase(self) -> None:
+        # The planner shows "UI_SC_Expedition_Phase_<scout.phase>" when the
+        # leader is in view. Collect every literal the expedition and car
+        # modules can store there, following "scout.phase = trip.state" back
+        # to the state assignment it copies.
+        en_keys = set(json.loads(read(TRANSLATE / "EN" / "UI.json")))
+        value = re.compile(r'(?<!== )(?<!~= )"([a-z_]+)"')
+
+        def statements(source: str) -> list[str]:
+            joined: list[str] = []
+            for line in source.splitlines():
+                stripped = line.strip()
+                if joined and (stripped.startswith("or ") or stripped.startswith("and ")):
+                    joined[-1] += " " + stripped
+                else:
+                    joined.append(stripped)
+            return joined
+
+        def assigned(statement: str, target: str) -> list[str] | None:
+            match = re.match(r"([\w.]+(?:\s*,\s*[\w.]+)*)\s*=\s*(?!=)(.+)$", statement)
+            if not match:
+                return None
+            targets = [name.strip() for name in match.group(1).split(",")]
+            names = [name for name in targets if name == target or name.endswith("." + target)]
+            if not names:
+                return None
+            index = targets.index(names[0])
+            values = [part.strip() for part in match.group(2).split(",")]
+            if len(targets) > 1:
+                return values[index:index + 1] if index < len(values) else None
+            return [match.group(2)]
+
+        phases: set[str] = set()
+        for name in ("SCExpeditionPrototype.lua", "SCExpeditionCar.lua"):
+            rows = statements(read(CLIENT / name))
+            for position, statement in enumerate(rows):
+                for target in ("scout.phase", "itinerary.phase"):
+                    rhs = assigned(statement, target)
+                    if rhs is None:
+                        continue
+                    if rhs == ["trip.state"]:
+                        for earlier in reversed(rows[max(0, position - 8):position]):
+                            state = assigned(earlier, "trip.state")
+                            if state is not None:
+                                phases.update(value.findall(" ".join(state)))
+                                break
+                        else:
+                            self.fail(f"{name}: scout.phase copies an unknown trip.state")
+                    else:
+                        phases.update(value.findall(" ".join(rhs)))
+        self.assertTrue({"outbound", "inbound", "driving_out", "boarding_home",
+                         "unloading_site", "interrupted_by_load"} <= phases,
+                        f"phase extraction lost known phases: {sorted(phases)}")
+        missing = sorted(phase for phase in phases
+                         if f"UI_SC_Expedition_Phase_{phase}" not in en_keys)
+        self.assertFalse(missing, f"expedition phases without a phrase: {missing}")
+
     def test_frozen_gameplay_translation_keys_are_complete(self) -> None:
         en_data = json.loads(read(TRANSLATE / "EN" / "UI.json"))
         self.assertFalse(FROZEN_GAMEPLAY_KEYS - set(en_data))

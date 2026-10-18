@@ -46,6 +46,12 @@ assert(nearbySignature ~= pendingSignature
     and nearbyDetail.lines[#nearbyDetail.lines - 1]
         == "Leader nearby. Mission phase: searching for supplies.",
     "seeing the leader replaces the misleading away message with observed phase")
+fixture.view.observedPhase = "phase_without_phrase"
+local untranslatedDetail = newDetail()
+Planner.build(untranslatedDetail, newPanel(132))
+assert(untranslatedDetail.lines[#untranslatedDetail.lines - 1]
+        == "UI_SC_Expedition_LeaderNearby",
+    "a phase without its own phrase shows the plain nearby line, not a raw key")
 fixture.view.leaderVisible = nil
 fixture.view.visibleMembers = nil
 fixture.view.observedPhase = nil
