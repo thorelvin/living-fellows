@@ -1634,7 +1634,7 @@ local function returnPot(actor, state, job, scan)
     return moved == true, moveReason, moved ~= true
 end
 
-function Chef.update(actor, baseState, job, player)
+local function updateCook(actor, baseState, job, player)
     if not job or job.type ~= "cook" then return false, "not_cook_job", true end
     if not SC.BaseLife.isInside(actor) then return false, "chef_outside_camp", true end
     job.target = type(job.target) == "table" and job.target or {}
@@ -2259,6 +2259,49 @@ local function returnChefSupplies(actor, state)
     return true
 end
 
+-- Supply receipts only matter while a job runs: they rebind exact items after
+-- a reload. Once the job ends, strip its tokens from everything it touched so
+-- the tag does not ride along in storage and saves.
+local function releaseSupplyTokens(actor, state, job)
+    local target = job and job.target or state and state.job and state.job.target
+    local receipts = type(target) == "table" and target.chefSupplies or nil
+    if type(receipts) ~= "table" then return end
+    local tokens = {}
+    for _, receipt in ipairs(receipts) do
+        if type(receipt) == "table" and receipt.token ~= nil then
+            tokens[receipt.token] = true
+        end
+    end
+    local function clear(item)
+        local data = item and select(1, call(item, "getModData"))
+        if type(data) == "table" and data.SC_ChefSupplyReceipt ~= nil
+            and tokens[data.SC_ChefSupplyReceipt] then
+            data.SC_ChefSupplyReceipt = nil
+        end
+    end
+    for _, item in ipairs(U().inventoryItems(U().inventory(actor), math.huge)) do
+        clear(item)
+    end
+    if state then
+        for _, entry in ipairs(state.borrowed or {}) do clear(entry.item) end
+        clear(state.resultItem)
+        clear(state.emptyPot)
+        for _, item in ipairs(state.portions or {}) do clear(item) end
+    end
+end
+
+function Chef.update(actor, baseState, job, player)
+    local before = states[actor]
+    local handled, reason, terminal, completed = updateCook(actor, baseState,
+        job, player)
+    if completed == true then
+        local state = states[actor] or before
+        releaseSupplyTokens(actor, state and state.jobId == (job and job.id)
+            and state or nil, job)
+    end
+    return handled, reason, terminal, completed
+end
+
 function Chef.mustTendHeat(actor, job)
     if not job or job.type ~= "cook" then return false end
     local state = states[actor]
@@ -2320,6 +2363,7 @@ function Chef.cancelActor(actor, reason)
     if not state then return true end
     local returned, returnReason = returnChefSupplies(actor, state)
     if returned ~= true then return false, returnReason end
+    releaseSupplyTokens(actor, state, state.job)
     if reason ~= "chef_job_cancelled" and state.job then
         local manual = state.job.target and state.job.target.manual
         state.job.target = { manual = manual == true }

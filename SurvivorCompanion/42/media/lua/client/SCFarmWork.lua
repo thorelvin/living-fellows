@@ -17,6 +17,13 @@ local FarmWork = SC.FarmWork
 FarmWork.ITEM_MARKER = "LF_FarmReceiptId"
 
 local states = setmetatable({}, { __mode = "k" })
+-- Farm evidence goes through the shared, per-actor rate-limited diagnostic
+-- channel rather than raw print.
+local function diagnostic(actor, subsystem, message)
+    if SC.GameplayUtil and type(SC.GameplayUtil.diagnostic) == "function" then
+        SC.GameplayUtil.diagnostic(subsystem, actor, message)
+    end
+end
 local scanState = {}
 local knownPlots = {}
 local knownBase = nil
@@ -1033,7 +1040,7 @@ local function borrowSupply(actor, baseState, job, state, predicate, categories,
                         if item then samples[#samples + 1] = U().itemType(item) end
                     end
                 end
-                print("[SurvivorCompanion/farm-supply] job=" .. tostring(job.id)
+                diagnostic(actor, "farm-supply", "job=" .. tostring(job.id)
                     .. " operation=" .. tostring(job.target and job.target.operation)
                     .. " usable_water_container=none storage_rows="
                     .. tostring(#rows) .. " items=" .. tostring(itemCount)
@@ -1534,7 +1541,7 @@ local function reconcileConsumedWater(actor, square, work, jobId)
     end
     work.reconciled = applied == true
     if applied then
-        print("[SurvivorCompanion/farm-water-reconciled] job="
+        diagnostic(actor, "farm-water-reconciled", "job="
             .. tostring(jobId) .. " uses=" .. tostring(spent))
     end
     return applied and actionProof(square, {}, work) or false
@@ -1565,7 +1572,7 @@ local function finishAction(actor, baseState, job, state, square)
     end
     if not actionProof(square, job.target, work) then
         local plant = plantOn(square)
-        print("[SurvivorCompanion/farm-proof] job=" .. tostring(job.id)
+        diagnostic(actor, "farm-proof", "job=" .. tostring(job.id)
             .. " operation=" .. tostring(work.operation)
             .. " before=" .. tostring(work.before)
             .. " water_after=" .. tostring(plant and plant.waterLvl)
@@ -1623,9 +1630,9 @@ function FarmWork.update(actor, baseState, job, runtime)
     local square = U().gridSquare(target.x, target.y, target.z)
     if not square then
         local ax, ay, az = U().position(actor)
-        print("[SurvivorCompanion][farm-target] missing_square job="
+        diagnostic(actor, "farm-target", "missing_square job="
             .. tostring(job.id) .. " target=" .. pointKey(target.x, target.y, target.z)
-            .. " actor=" .. pointKey(ax, ay, az)
+            .. " actor_at=" .. pointKey(ax, ay, az)
             .. " zone=" .. tostring(zone.id)
             .. " inside_camp=" .. tostring(SC.BaseLife.isInside(target))
             .. " cell_available=" .. tostring(U().cell() ~= nil))

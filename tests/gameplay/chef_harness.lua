@@ -236,10 +236,23 @@ assert(#fridge.items == 0 and #actorInventory.items == 2,
 local mayCancel, cancelReason = chef.cancelJob(job, actor.id)
 assert(mayCancel == false and cancelReason == "chef_native_action_pending",
     "role changes cannot delete a meal while native cooking is queued")
+-- A recorded supply can outlive the cook (for example a personal item that
+-- was not used up). Its receipt token must not outlive the job.
+local leftover = food("Base.Salt")
+leftover.data.SC_ChefSupplyReceipt = job.target.chefSupplies[1].token
+local unrelatedToken = food("Base.Pepper")
+unrelatedToken.data.SC_ChefSupplyReceipt = "job:other:1"
+actorInventory:AddItem(leftover)
+actorInventory:AddItem(unrelatedToken)
 queuedAction:complete()
 handled, progress, _, completed = chef.update(actor, {}, job, player)
 assert(handled == true and completed == true and progress == "chef_meal_stored",
     "finished native meal must be moved to powered fridge")
+assert(leftover.data.SC_ChefSupplyReceipt == nil
+    and unrelatedToken.data.SC_ChefSupplyReceipt == "job:other:1",
+    "a finished cook releases its own supply tokens and no other job's")
+actorInventory:Remove(leftover)
+actorInventory:Remove(unrelatedToken)
 assert(util.inventoryContains(fridge, salad) and saladData.SC_ChefJobId == job.id
     and job.target.cookPhase == "stored", "receipt identifies the exact stored meal")
 baseLife.storageRows, baseLife.resolveContainer, baseLife.resolveObject,
@@ -289,6 +302,9 @@ assert(cancelled == true and shelf:contains(borrowedBowl)
     and shelf:contains(borrowedTomato) and #actorInventory.items == 0,
     "assigned Chef cancellation returns exact borrowed supplies: "
         .. tostring(cancelReason))
+assert(borrowedBowl.data.SC_ChefSupplyReceipt == nil
+    and borrowedTomato.data.SC_ChefSupplyReceipt == nil,
+    "returned supplies carry no stale receipt token into storage")
 -- Detached inventory reconstruction replaces native IDs while retaining
 -- mod data. A same-type personal bowl must never replace the borrowed bowl.
 do

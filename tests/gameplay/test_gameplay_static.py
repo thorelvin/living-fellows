@@ -621,6 +621,11 @@ def main() -> int:
                 "farm.crop.diseased", "farm.tool.trouble"))
             and 'speak(actor, "farm.tool.trouble"' in farm_source,
             "bounded farming start, outcome, crop-loss, and tool speech is incomplete")
+    farm_code = "\n".join(line.split("--", 1)[0] for line in farm_source.splitlines())
+    require(re.search(r"(?<![\w.:])print\s*\(", farm_code) is None
+            and all(f'diagnostic(actor, "{name}"' in farm_source for name in (
+                "farm-supply", "farm-water-reconciled", "farm-proof", "farm-target")),
+            "farm evidence must use the rate-limited diagnostic channel, not raw print")
     signal_start = dialogue_source.index('["signal.one"]')
     signal_end = dialogue_source.index('["combat.engage"]', signal_start)
     require("tap" not in dialogue_source[signal_start:signal_end].lower(),
