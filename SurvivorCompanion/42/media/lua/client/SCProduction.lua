@@ -1729,10 +1729,16 @@ local function withdrawLog(actor, order, state)
                 if not markCargo(item, order.id) then return false, "production_marker_failed" end
                 return true, "production_log_taken"
             end
+            if reason == "worker_overloaded" then return blockOrder(order, reason) end
             return taken, reason or "production_log_yard_unavailable"
         end
     end
     if not log then return blockOrder(order, "no_logs_in_storage") end
+    local weight, capacity = U().inventoryLoad(actor)
+    local projected = (tonumber(weight) or 0) + (tonumber(U().itemWeight(log)) or 0)
+    if (tonumber(capacity) or 0) <= 0 or projected / capacity > 0.85 then
+        return blockOrder(order, "worker_overloaded")
+    end
     state.phase = "withdrawing"
     local ok, reason = SC.BaseWork.withdrawFromStorage(actor, state, storage, container, log)
     if ok == true and reason == "base_supply_taken" then
@@ -1873,7 +1879,16 @@ local function updateSaw(actor, order, state, context)
         return completeOrder(order, "planks_delivered")
     end
     local log = markedCargo(inventory, order.id, "Base.Log")
-    if not log then return withdrawLog(actor, order, state) end
+    if not log then
+        -- Bring the saw first. Otherwise a worker who is just under the carry
+        -- threshold can withdraw a log and only then discover the saw makes
+        -- the native action impossible.
+        local saw, toolStatus, toolReason = findInventoryTool(actor, "saw", state)
+        if toolStatus == "pending" then return true, toolReason end
+        if toolStatus == "failed" then return false, toolReason, true end
+        if not saw then return fetchTool(actor, order, state, "saw") end
+        return withdrawLog(actor, order, state)
+    end
     if state.sawRetryAt and now() < state.sawRetryAt then
         return true, "production_saw_retry_wait"
     end
@@ -4341,7 +4356,7 @@ function Production.forgetOrder(orderId, workers)
         local actor = U().resolveActor(workerId)
         local inventory = actor and U().inventory(actor) or nil
         if inventory then
-            for _, item in ipairs(U().inventoryItems(inventory, 256)) do
+            for _, item in ipairs(U().inventoryItems(inventory, math.huge)) do
                 clearCargo(item, orderId)
             end
         end

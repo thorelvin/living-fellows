@@ -313,12 +313,16 @@ end
 function Transport.isCargoProtected(item, actorOrId, operation)
     local data = itemData(item)
     if not data then return false end
+    if data.LF_LogYardSplit ~= nil then return true end
     if data.LF_FieldOrder ~= nil or data.LF_FieldBorrowedAxe ~= nil
         or data.LF_FieldCarryWorker ~= nil then
         return SC.FieldWork ~= nil and SC.FieldWork.reserved ~= nil
             and SC.FieldWork.reserved(item) == true
     end
     if data.LF_ProductionOrderId ~= nil then
+        local live = SC.BaseLife and SC.BaseLife.productionOrderLive
+            and SC.BaseLife.productionOrderLive(data.LF_ProductionOrderId)
+        if live == false then data.LF_ProductionOrderId = nil return false end
         return operation ~= "production_deposit" and operation ~= "production_release"
     end
     if data.LF_FarmReceiptId ~= nil then
@@ -339,6 +343,7 @@ end
 function Transport.foreignProtected(item, actor)
     local data = itemData(item)
     if not data then return true, "item_mod_data_unavailable" end
+    if data.LF_LogYardSplit ~= nil then return true, "log_yard_split_pending" end
     if data.LF_TradeRecoveryId ~= nil or data.LF_TradeRecoveryBuildId ~= nil then
         return true, "trade_recovery_owned"
     end
@@ -360,7 +365,11 @@ function Transport.foreignProtected(item, actor)
             or SC.BaseFuel.reserved(item) == true) then
         return true, "refuel_item_owned"
     end
-    if data.LF_ProductionOrderId ~= nil then return true, "production_item_owned" end
+    if data.LF_ProductionOrderId ~= nil then
+        if Transport.isCargoProtected(item, actor, "surplus_sort") then
+            return true, "production_item_owned"
+        end
+    end
     local workReceiptId = markerOf(item)
     if workReceiptId ~= nil then
         local receipt = SC.BaseLife and SC.BaseLife.workReceipt

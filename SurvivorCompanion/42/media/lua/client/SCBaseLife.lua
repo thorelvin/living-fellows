@@ -3063,6 +3063,19 @@ function BaseLife.productionOrder(id)
     return productionOrderIn(activeBase(), id)
 end
 
+-- `nil` means the base document has not been restored yet; callers must keep
+-- existing cargo claims until an authoritative roster is available.
+function BaseLife.productionOrderLive(id)
+    if type(document) ~= "table" then return nil end
+    if SC.Persistence and type(SC.Persistence.restoreStatus) == "function"
+        and SC.Persistence.restoreStatus() ~= true then return nil end
+    for _, base in pairs(document.bases or {}) do
+        local order = productionOrderIn(base, id)
+        if order then return not orderIsTerminal(order) end
+    end
+    return false
+end
+
 function BaseLife.productionOrders(includeTerminal)
     local result, production = {}, productionFor(activeBase())
     for _, order in ipairs(production and production.orders or {}) do

@@ -192,6 +192,9 @@ local function makeInventory(kind)
         for _, item in ipairs(self.items) do weight = weight + item:getActualWeight() end
         return weight
     end
+    function inventory:getEffectiveCapacity()
+        return self.capacity or 1000
+    end
     function inventory:getCapacity() return self.capacity end
     function inventory:hasRoomFor(_, item)
         return self.room == true and (self.capacity == nil

@@ -7,6 +7,7 @@ SC.FieldWork = SC.FieldWork or {}
 local Field = SC.FieldWork
 
 local active, recentVehicleId, serial = nil, nil, 0
+local pendingAxeReturns = {}
 local areaMarkers, markerExpiry = {}, 0
 local HARVEST_RADIUS, HARVEST_LEASH, HARVEST_CAR_RANGE = 16, 32, 40
 local CHOP_RADIUS, CHOP_LEASH, CHOP_CAR_RANGE = 8, 16, 20
@@ -19,6 +20,7 @@ local function carRange(kind)
 end
 local AXE_MARK = "LF_FieldBorrowedAxe"
 local WORKER_MARK = "LF_FieldWorker"
+local missingCarriers = {}
 local function U() return SC.GameplayUtil end
 local function call(object, name, ...)
     local value, okay = U().call(object, name, ...)
@@ -102,6 +104,20 @@ local function actorFor(id)
         if tostring(U().idOf(actor) or "") == id then return actor end
     end
     return nil
+end
+local function carriedItems(actor)
+    local inventory = U().inventory(actor)
+    if type(U().inventoryItemsDeep) == "function" then
+        return U().inventoryItemsDeep(inventory, 4096)
+    end
+    return U().inventoryItems(inventory, 4096)
+end
+local function carries(actor, item)
+    if U().inventoryContains(U().inventory(actor), item) then return true end
+    for _, candidate in ipairs(carriedItems(actor)) do
+        if candidate == item then return true end
+    end
+    return false
 end
 local function ownedByBase(square)
     if not SC.BaseLife or not SC.BaseLife.isInside then return false end
@@ -208,9 +224,17 @@ end
 local function adoptHarvest(actor, worker, order)
     local inventory = U().inventory(actor)
     if not inventory then return false, "inventory_unavailable" end
+    -- The native harvest action names its output from the plant's registered
+    -- seed props. An inventory delta alone can include gifts or mod rewards.
+    local allowed = {}
+    for _, itemType in ipairs(type(worker.harvestTypes) == "table"
+        and worker.harvestTypes or {}) do
+        allowed[itemType] = true
+    end
     for _, item in ipairs(U().inventoryItems(inventory, 4096)) do
         local id = itemId(item)
-        if id and worker.before[id] ~= true and marker(item) == nil then
+        if id and worker.before[id] ~= true and marker(item) == nil
+            and allowed[U().itemType(item)] == true then
             if not mark(item, order.id, tostring(U().idOf(actor))) then
                 return false, "cargo_marker_failed" end
         end
@@ -440,10 +464,18 @@ end
 function Field.recentVehicleId() return recentVehicleId end
 function Field.status()
     if not active then return nil end
+    local returns, returnBlocker = 0, nil
+    for _, pending in pairs(pendingAxeReturns) do
+        returns = returns + 1
+        returnBlocker = returnBlocker or pending.blocker
+    end
     local result = { kind = active.kind, phase = active.phase,
         completed = active.completed, loaded = active.loaded,
         targetCount = active.kind == "chop" and TREE_LIMIT or nil,
-        carId = active.carId, blocker = active.blocker,
+        carId = active.carId,
+        blocker = returns > 0 and ("borrowed axe return pending"
+            .. (returnBlocker and ": " .. returnBlocker or "")) or active.blocker,
+        pendingAxeReturns = returns,
         center = active.center }
     return result
 end
@@ -491,19 +523,35 @@ end
 function Field.stop(reason)
     if not active then return false, "no_field_order" end
     local order = active
-    for id in pairs(order.workers) do
+    for id, worker in pairs(order.workers) do
         local actor = actorFor(id)
         if actor then
             stopAction(actor)
-            for _, item in ipairs(U().inventoryItems(U().inventory(actor), 4096)) do
+            for _, item in ipairs(carriedItems(actor)) do
                 local data = U().modData(item)
                 if data and data[MARK] == order.id then
                     data[MARK], data[WORKER_MARK] = nil, nil
                     data[CARRY_MARK] = id
                 end
                 if data and data[AXE_MARK] == order.id then
-                    data[AXE_MARK], data[WORKER_MARK] = nil, nil end
+                    local axeId = itemId(item)
+                    if axeId and order.carId then
+                        pendingAxeReturns[id] = {
+                            itemId = axeId, orderId = order.id,
+                            carId = order.carId, center = order.center,
+                            kind = order.kind,
+                        }
+                    else
+                        data[AXE_MARK], data[WORKER_MARK] = nil, nil
+                    end
+                end
             end
+        elseif order.carId and worker.axeId then
+            pendingAxeReturns[id] = {
+                itemId = worker.axeId, orderId = order.id,
+                carId = order.carId, center = order.center,
+                kind = order.kind,
+            }
         end
     end
     order.phase = "stopped"
@@ -516,17 +564,68 @@ function Field.reserved(item)
     if not data then return false end
     local carryWorker = data[CARRY_MARK]
     if carryWorker ~= nil then
-        local carrier = actorFor(tostring(carryWorker))
-        -- A restored companion may not be registered yet. Keep its cargo
-        -- protected until the inventory can be checked authoritatively.
-        if not carrier or U().inventoryContains(U().inventory(carrier), item) then
+        local carrier, record
+        if type(U().resolveActor) == "function" then
+            carrier, record = U().resolveActor(tostring(carryWorker))
+        else carrier = actorFor(tostring(carryWorker)) end
+        local dead = carrier and call(carrier, "isDead") == true
+            or record and type(record.runtime) == "table"
+                and record.runtime.unrecoverable == true
+        if dead then carrier = nil record = nil end
+        if carrier and carries(carrier, item) then
+            missingCarriers[tostring(carryWorker)] = nil
             return true
+        end
+        -- A dormant registry record is an authoritative temporary owner.
+        if record and not carrier then return true end
+        -- During restore the registry may appear empty briefly. Give it one
+        -- bounded grace period; an absent or retired owner cannot reserve the
+        -- same item forever once that period expires.
+        if not carrier and not dead and SC.Persistence
+            and type(SC.Persistence.isPending) == "function"
+            and SC.Persistence.isPending(tostring(carryWorker)) == true then
+            return true
+        end
+        if not carrier and not dead then
+            local id = tostring(carryWorker)
+            missingCarriers[id] = missingCarriers[id] or U().nowMs()
+            if U().nowMs() - missingCarriers[id] < 30000 then return true end
         end
         data[CARRY_MARK] = nil
     end
     local orderId = data[MARK] or data[AXE_MARK]
     if orderId == nil then return false end
     local ownerId = data[WORKER_MARK]
+    if data[AXE_MARK] ~= nil and ownerId ~= nil then
+        local pending = pendingAxeReturns[tostring(ownerId)]
+        if pending and pending.orderId == orderId and pending.itemId == itemId(item) then
+            local carrier, record
+            if type(U().resolveActor) == "function" then
+                carrier, record = U().resolveActor(tostring(ownerId))
+            else carrier = actorFor(tostring(ownerId)) end
+            local dead = carrier and call(carrier, "isDead") == true
+                or record and type(record.runtime) == "table"
+                    and record.runtime.unrecoverable == true
+            if dead then carrier = nil end
+            if carrier and carries(carrier, item) then
+                missingCarriers[tostring(ownerId)] = nil
+                return true
+            end
+            if not carrier and not dead and SC.Persistence
+                and type(SC.Persistence.isPending) == "function"
+                and SC.Persistence.isPending(tostring(ownerId)) == true then
+                return true
+            end
+            if not carrier and not dead then
+                missingCarriers[tostring(ownerId)] = missingCarriers[tostring(ownerId)]
+                    or U().nowMs()
+                if U().nowMs() - missingCarriers[tostring(ownerId)] < 30000 then
+                    return true
+                end
+            end
+            pendingAxeReturns[tostring(ownerId)] = nil
+        end
+    end
     local owned = active and active.id == orderId
         and (active.phase == "working" or active.phase == "paused")
         and (ownerId == nil or active.workers[ownerId] ~= nil)
@@ -546,11 +645,69 @@ function Field.resume()
 end
 function Field.wants(actor, player, commands)
     local worker = workerFor(actor)
+    local id = tostring(U().idOf(actor) or "")
+    local pending = pendingAxeReturns[id]
+    if pending and not worker then
+        local vehicle, _, container, reason = carNear(pending.center,
+            pending.carId, pending.kind)
+        if not container then pending.blocker = reason return false end
+        if distance(point(actor), point(vehicle)) > CHOP_LEASH
+            or distance(point(player), point(vehicle)) > CHOP_LEASH then
+            pending.blocker = "car_out_of_follow_range"
+            return false
+        end
+        local axe
+        for _, item in ipairs(carriedItems(actor)) do
+            if itemId(item) == pending.itemId then axe = item break end
+        end
+        if not axe then pendingAxeReturns[id] = nil return false end
+        if SC.WorkTransport and SC.WorkTransport.hasRoom
+            and SC.WorkTransport.hasRoom(container, actor, axe) ~= true then
+            pending.blocker = "car_trunk_full"
+            return false
+        end
+        pending.blocker = nil
+        return commands and commands.recruited and player ~= nil
+    end
     return worker ~= nil and commands and commands.recruited
         and commands.order == "follow" and player ~= nil
 end
 
 function Field.update(actor, player)
+    local returnId = tostring(U().idOf(actor) or "")
+    local pending = pendingAxeReturns[returnId]
+    if pending then
+        local inventory = U().inventory(actor)
+        local axe
+        for _, item in ipairs(carriedItems(actor)) do
+            local data = U().modData(item)
+            if itemId(item) == pending.itemId
+                and data and data[AXE_MARK] == pending.orderId then
+                axe = item
+                break
+            end
+        end
+        if not axe then pendingAxeReturns[returnId] = nil
+            return true, "field_borrowed_axe_missing" end
+        local vehicle, part, container, reason = carNear(pending.center,
+            pending.carId, pending.kind)
+        if not container then pending.blocker = reason return false, reason end
+        if SC.WorkTransport and SC.WorkTransport.hasRoom
+            and SC.WorkTransport.hasRoom(container, actor, axe) ~= true then
+            pending.blocker = "car_trunk_full"
+            return false, pending.blocker
+        end
+        local okay, approached = atCar(actor, vehicle, part)
+        if not okay then pending.blocker = approached return false, approached end
+        if approached ~= "arrived" then return true, "field_axe_return_approaching" end
+        local source = call(axe, "getContainer") or inventory
+        local moved, moveReason = U().transferItemVerified(source, container, axe)
+        if not moved then pending.blocker = moveReason return false, moveReason end
+        local data = U().modData(axe)
+        if data then data[AXE_MARK], data[WORKER_MARK] = nil, nil end
+        pendingAxeReturns[returnId] = nil
+        return true, "field_axe_returned"
+    end
     local worker, actorId = workerFor(actor)
     if not worker then return false, "field_order_inactive" end
     if distance(point(player), active.center) > leash(active.kind) then
@@ -727,6 +884,22 @@ function Field.update(actor, player)
             return false, order.blocker
         end
         if order.kind == "chop" then worker.groundBefore = worldIds(square) end
+        if order.kind == "harvest" then
+            local props = type(farming_vegetableconf) == "table"
+                and type(farming_vegetableconf.props) == "table"
+                and farming_vegetableconf.props[object.typeOfSeed] or nil
+            worker.harvestTypes = {}
+            local function allow(itemType)
+                if type(itemType) == "string" and itemType ~= "" then
+                    worker.harvestTypes[#worker.harvestTypes + 1] = itemType
+                end
+            end
+            if props then
+                allow(props.vegetableName)
+                allow(props.produceExtra)
+                if object.hasSeed then allow(props.seedName) end
+            end
+        end
         if SC.Navigation and SC.Navigation.cancel then SC.Navigation.cancel(actor, "field_action") end
         if SC.NativeActions and SC.NativeActions.stopDirect then
             local stopped = SC.NativeActions.stopDirect(actor)
@@ -829,10 +1002,14 @@ end
 
 function Field.export()
     return { schema = 1, recentVehicleId = recentVehicleId, serial = serial,
-        active = active }
+        active = active, pendingAxeReturns = pendingAxeReturns }
 end
 function Field.restore(saved)
-    if saved == nil then active, recentVehicleId, serial = nil, nil, 0 return true end
+    if saved == nil then
+        active, recentVehicleId, serial, pendingAxeReturns = nil, nil, 0, {}
+        missingCarriers = {}
+        return true
+    end
     if type(saved) ~= "table" or saved.schema ~= 1
         or (saved.recentVehicleId ~= nil and (type(saved.recentVehicleId) ~= "number"
             or saved.recentVehicleId < 0))
@@ -850,6 +1027,8 @@ function Field.restore(saved)
         return false, "invalid_field_order_save"
     end
     active, recentVehicleId, serial = order, saved.recentVehicleId, saved.serial
+    pendingAxeReturns = type(saved.pendingAxeReturns) == "table"
+        and saved.pendingAxeReturns or {}
     if active and active.phase == "working" then
         for _, worker in pairs(active.workers) do
             if worker.phase == "working" then worker.phase = "recover" end

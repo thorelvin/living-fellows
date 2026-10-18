@@ -155,16 +155,27 @@ SC.NativeActions = {
 CFarmingSystem = { instance = { getLuaObjectOnSquare = function(self, tile)
     return tile.plant
 end } }
-local function cropAt(x, y, ripe)
+farming_vegetableconf = { props = {
+    Cabbages = { vegetableName = "Base.Cabbage", seedName = "Base.CabbageSeed" },
+} }
+local function cropAt(x, y, ripe, seedType)
     local tile = square(x, y)
-    tile.plant = { ripe = ripe }
+    tile.plant = { ripe = ripe, typeOfSeed = seedType or "Cabbages" }
     function tile.plant:canHarvest() return self.ripe end
     return tile
 end
 local function finish(value, kind, yieldCount)
     if kind == "harvest" then
-        value.pending.plant.ripe = false
-        for _ = 1, yieldCount or 1 do put(value.bag, item("Base.Cabbage")) end
+        local plant = value.pending.plant
+        local props = farming_vegetableconf.props[plant.typeOfSeed]
+        plant.ripe = false
+        for _ = 1, yieldCount or 1 do
+            if props.vegetableName then put(value.bag, item(props.vegetableName)) end
+            if props.produceExtra then put(value.bag, item(props.produceExtra)) end
+        end
+        if plant.hasSeed and props.seedName then
+            put(value.bag, item(props.seedName))
+        end
     elseif kind == "chop" then
         local tree = value.pending.tree
         tree.index = -1
@@ -199,8 +210,15 @@ local claimed = Field.export().active.workers
 check(claimed.one.target ~= claimed.two.target,
     "followers do not claim the same crop")
 finish(first, "harvest")
+local unrelated = item("Base.Pen")
+put(first.bag, unrelated)
 advance({ one, two }, 5)
 check(Field.status().completed >= 1, "harvest has world proof")
+check(unrelated.data.LF_FieldOrder == nil,
+    "a concurrent unrelated inventory addition is not adopted as crop yield")
+for index, value in ipairs(first.bag.items) do
+    if value == unrelated then table.remove(first.bag.items, index) break end
+end
 check(Field.export().active.done["99:100:0"] == nil,
     "unripe crop is not harvested")
 local saved = Field.export()
@@ -384,7 +402,30 @@ check(Field.status().phase == "working"
 for _ = 1, 15 do Field.update(one, player) end
 check(one.pending and one.pending.action == "chop_tree",
     "equipped worker starts chopping despite shared-axe contention")
+car.locked = true
 Field.stop("test")
+check(sharedAxe.data.LF_FieldBorrowedAxe ~= nil
+    and Field.wants(one, player, SC.Commands.peek(one)) == false
+    and Field.status().pendingAxeReturns == 1,
+    "stopped woodcut keeps an exact axe return obligation while car is locked")
+local returnSave = Field.export()
+check(Field.restore(returnSave) == true,
+    "borrowed axe obligation survives save and restore")
+car.locked = false
+car.part.bag.room = false
+check(Field.wants(one, player, SC.Commands.peek(one)) == false
+    and sharedAxe.container == one.bag,
+    "full trunk pauses axe return without taking the worker's item")
+car.part.bag.room = true
+check(Field.wants(one, player, SC.Commands.peek(one)) == true,
+    "axe return resumes after car becomes accessible")
+for _ = 1, 8 do
+    if sharedAxe.container == car.part.bag then break end
+    Field.update(one, player)
+end
+check(sharedAxe.container == car.part.bag
+    and sharedAxe.data.LF_FieldBorrowedAxe == nil,
+    "cancelled woodcut returns the same borrowed axe to its car")
 Field.restore(nil)
 one.bag, two.bag, car.part.bag = inventory(), inventory(), inventory()
 two.follow = false
@@ -417,6 +458,38 @@ table.remove(one.bag.items, #one.bag.items)
 check(Field.reserved(carried) == false
     and carried.data.LF_FieldCarryWorker == nil,
     "manual removal releases the carried-crop reservation")
+local orphan = item("Base.Cabbage")
+orphan.data.LF_FieldCarryWorker = "retired"
+check(Field.reserved(orphan) == true,
+    "unknown carrier is protected during initial restore grace")
+for _ = 1, 125 do utility.nowMs() end
+check(Field.reserved(orphan) == false
+    and orphan.data.LF_FieldCarryWorker == nil,
+    "permanently absent carrier eventually releases stale harvest cargo")
+Field.restore(nil)
+farming_vegetableconf.props.ModCrop = {
+    vegetableName = "OtherMod.Blueberry",
+    produceExtra = "OtherMod.Stem",
+    seedName = "OtherMod.BlueberrySeed",
+}
+one.bag, car.part.bag = inventory(), inventory()
+one.follow, two.follow = true, false
+one.x, one.y = 100, 99
+local modCrop = cropAt(100, 102, true, "ModCrop")
+modCrop.plant.hasSeed = true
+Field.observePlayerVehicle(car)
+check(Field.start("harvest", modCrop, player) == true,
+    "modded crop order begins")
+for _ = 1, 80 do
+    Field.update(one, player)
+    if one.pending and one.pending.operation == "harvest" and one.active then break end
+end
+check(one.pending and one.pending.plant == modCrop.plant,
+    "modded crop native action starts")
+finish(one, "harvest")
+advance({ one }, 50)
+check(Field.status().phase == "complete" and #car.part.bag.items == 3,
+    "registered mod crop produce, extra yield and seed reach the car")
 Field.restore(nil)
 one.bag, car.part.bag = inventory(), inventory()
 put(car.part.bag, item("Base.Axe", true))
