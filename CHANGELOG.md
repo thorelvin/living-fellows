@@ -2,6 +2,16 @@
 
 # Changelog
 
+## 0.26.49 - Expedition delivery and return review fixes
+
+- Expedition delivery records now close once nothing they wait for can still happen: an item eaten, dropped, or handed over before storage, a restocking member who died or received a newer order, or a camp that was moved or abandoned. An item counts as gone only when every squad member and the expedition car's trunk could be inspected; dormant, restoring, or respawning companions and an unloaded car keep the delivery open. A full list of 32 deliveries now drops its oldest unfinished record instead of refusing new expeditions; its items stay with their carriers as ordinary gear.
+- A squad that cannot find its way home, typically from an upper floor, stops after four fresh route attempts, holds, and radios its position: "Can't find a way home from near X, Y." Answering return or push on, or reaching the squad on its floor, starts one fresh attempt. Reaching a waypoint resets the count, and reloading still rebuilds the route.
+- The Expeditions panel describes every car-trip phase, such as driving to the destination, parking at base, or getting out of the car, instead of showing a raw text key. A phase without its own phrase falls back to the plain "Leader nearby" line.
+- A field harvest kept for pickup because no car was selected now goes into matching camp storage once its carrier is inside the camp. It is still never dropped, and only that worker's own harvest qualifies.
+- Saved borrowed-axe returns from field work are validated before restore. A malformed entry quarantines the field-work save unchanged instead of loading bad data.
+- Chef supply receipt tags are removed from returned and leftover items when a cook finishes or is cancelled. Farm diagnostics use the shared rate-limited log channel instead of printing on every attempt.
+- The native bridge protocol remains `42.21-isocompanion-24`; update the bridge JAR and Lua payload together.
+
 ## 0.26.48 - Expedition delivery and base integration
 
 - Ambient and debug survivors now spawn on ground-level tiles even when the player is upstairs. Final spawn validation rejects detached roof floors that appear safe to the game's native checks but offer no way down.

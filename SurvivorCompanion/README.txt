@@ -1,7 +1,7 @@
-Living Fellows 0.26.48 - public playtest
+Living Fellows 0.26.49 - public playtest
 
-This playtest delivers requested expedition supplies to marked camp storage,
-adds an optional restock and base-duty return, and reports who carried each item.
+This playtest stops old expedition deliveries from blocking new trips, lets a
+squad stuck on the way home radio for orders, and shelves kept field harvests.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added
