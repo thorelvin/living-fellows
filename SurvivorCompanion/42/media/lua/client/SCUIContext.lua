@@ -1923,6 +1923,21 @@ local function returnExpeditionFromRadio(_target, player)
     return ok and accepted == true, ok and reason or tostring(accepted)
 end
 
+local function progressExpeditionFromRadio(_target, player)
+    local expedition = SC.ExpeditionPrototype
+    if not expedition or not player then return end
+    local ok, accepted, reason = pcall(expedition.sendRadioOrder,
+        player, "progress_report", "status")
+    local feedback = ok and accepted == true
+        and text("UI_SC_Expedition_ProgressAcknowledged")
+        or ok and reason == "radio_no_ack"
+            and text("UI_SC_Expedition_NoReceipt")
+        or text("UI_SC_Expedition_Failed", tostring(ok and reason or accepted))
+    safeMethod(player, "setHaloNote", feedback)
+    if SC.UI and type(SC.UI.refresh) == "function" then SC.UI.refresh() end
+    return ok and accepted == true, ok and reason or tostring(accepted)
+end
+
 local function answerExpeditionFromRadio(_target, player, answer)
     local expedition = SC.ExpeditionPrototype
     if not expedition or not player then return end
@@ -2112,6 +2127,10 @@ function Context.fillRadioContextMenu(playerIndex, context, items)
     end
     local function addRadioOptions()
         if playerIndex == 0 and mission and mission.scout then
+            if mission.scout.search then
+                context:addOptionOnTop(text("UI_SC_Expedition_AskProgress"),
+                    nil, progressExpeditionFromRadio, player)
+            end
             if mission.scout.pause and mission.scout.pause.reported then
                 context:addOptionOnTop(text("UI_SC_Expedition_AnswerHold"),
                     nil, answerExpeditionFromRadio, player, "hold_position")

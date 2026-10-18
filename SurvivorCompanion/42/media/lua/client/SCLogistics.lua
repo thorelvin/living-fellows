@@ -270,6 +270,11 @@ function Logistics.roleOf(actor)
     return "generalist"
 end
 
+function Logistics.roleMinimums(actor)
+    local profile = profiles[Logistics.roleOf(actor)] or profiles.generalist
+    return profile.keep
+end
+
 local function overloadAllowed(actor)
     -- Logistics.status is used as a read-only decision probe. Reading the
     -- already-persisted actor flag avoids Commands.peek() initializing a new
@@ -770,6 +775,8 @@ end
 
 local function isProtected(actor, item)
     if not actor or not item then return true end
+    if SC.ExpeditionPrototype and SC.ExpeditionPrototype.receiptPending
+        and SC.ExpeditionPrototype.receiptPending(item) then return true end
     local itemData = select(1, U().call(item, "getModData"))
     -- Harvest and woodcut orders own their exact cargo until delivery or
     -- cancellation. Generic overload handling must never drop it as surplus.

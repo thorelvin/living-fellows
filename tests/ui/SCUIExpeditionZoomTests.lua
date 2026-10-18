@@ -15,7 +15,10 @@ end
 local function newDetail()
     local detail = { metrics = { fontHeight = 16, infoLineHeight = 20,
         buttonHeight = 26 }, lines = {} }
-    function detail:addSection(_, y) return y + 20 end
+    function detail:addSection(_, y, key)
+        self.lines[#self.lines + 1] = "section:" .. tostring(key)
+        return y + 20
+    end
     function detail:addInformationLine(_, y, _, value)
         self.lines[#self.lines + 1] = value
         return y + 20
@@ -120,5 +123,43 @@ assert(Planner.viewStructureSignature() == pendingSignature,
 fixture.endTrip()
 assert(Planner.viewStructureSignature() == "expedition:idle",
     "mission completion must remove the active zoom control")
+
+local latest = { tripId = "recent", items = { { stored = true } },
+    members = {}, summary = { requested = 1, collected = 1,
+        broughtBack = 1, stored = 1, pending = 0,
+        items = { { itemType = "Base.Hammer", finderName = "Alice",
+            carrierName = "Alice", stored = true } }, members = {} } }
+local older = { tripId = "older", summary = { requested = 1,
+    collected = 1, broughtBack = 1, stored = 0, pending = 1,
+    items = { { itemType = "Base.Nails", finderName = "Bob",
+        carrierName = "Bob", reason = "matching_storage_full" } },
+    members = {} } }
+fixture.setDebrief({ integration = latest })
+fixture.setPendingReports({ { tripId = "recent", summary = latest.summary },
+    older })
+local reportSignature = Planner.viewStructureSignature()
+local reportDetail = newDetail()
+Planner.build(reportDetail, newPanel(132))
+local counts, earlier = 0, 0
+for _, line in ipairs(reportDetail.lines) do
+    if line == "UI_SC_Expedition_DeliveryCounts" then counts = counts + 1 end
+    if line == "section:UI_SC_Expedition_OlderPendingDeliveries" then
+        earlier = earlier + 1
+    end
+end
+assert(reportSignature ~= "expedition:idle" and counts == 2
+    and earlier == 1,
+    "the latest debrief and earlier unfinished delivery remain visible once")
+fixture.startTrip()
+local nextTripDetail = newDetail()
+Planner.build(nextTripDetail, newPanel(132))
+local previousShown = false
+for _, line in ipairs(nextTripDetail.lines) do
+    if line == "section:UI_SC_Expedition_OlderPendingDeliveries" then
+        previousShown = true
+    end
+end
+assert(previousShown and Planner.viewStructureSignature() ~= reportSignature,
+    "a subsequent expedition keeps earlier pending supplies in the tab")
 
 print("SCUI expedition zoom tests passed")

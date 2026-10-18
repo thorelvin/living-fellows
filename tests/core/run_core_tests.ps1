@@ -261,6 +261,13 @@ try {
         )
         Add-ScJvmStep 'expedition-restart' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $expeditionRestartFiles 'Expedition restart and casualty-return harness failed.'
 
+        $expeditionIntegrationFiles = @(
+            (Join-Path $TestRoot 'expedition_integration_fixture.lua'),
+            (Join-Path $Client 'SCExpeditionIntegration.lua'),
+            (Join-Path $TestRoot 'expedition_integration_harness.lua')
+        )
+        Add-ScJvmStep 'expedition-integration' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $expeditionIntegrationFiles 'Expedition exact receipt delivery and restock harness failed.'
+
         $baseWatchFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),

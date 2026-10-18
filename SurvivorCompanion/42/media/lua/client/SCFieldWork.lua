@@ -440,6 +440,50 @@ function Field.unlocking(actor)
         and active.unlock.actorId == tostring(U().idOf(actor) or "")
 end
 
+-- Shared one-car trunk transaction for expedition receipts. Keep the actor in
+-- the vehicle until the native lock change is verified, then get out before
+-- any cargo action. The caller owns the transient state, so reload resumes
+-- from the actor's actual seat and lock instead of a saved guessed phase.
+function Field.unlockTrunkFor(actor, vehicle, state, snapshot)
+    if not actor or not vehicle or type(state) ~= "table" then
+        return false, "car_entry_unavailable"
+    end
+    local now = U().nowMs()
+    state.startedAt = state.startedAt or now
+    local seated = call(actor, "getVehicle")
+    if seated ~= nil and seated ~= vehicle then
+        return false, "companion_in_other_car"
+    end
+    local locked = call(vehicle, "isTrunkLocked")
+    if seated == nil and locked == false then
+        if state.unlocked then sayTrunkUnlocked(actor) end
+        state.unlocked = nil
+        return true, "field_trunk_unlocked"
+    end
+    if seated == vehicle then
+        state.seat = call(vehicle, "getSeat", actor) or state.seat
+        if locked == true then
+            state.readyAt = state.readyAt or now + 700
+            if now < state.readyAt then return true, "field_trunk_unlocking" end
+            local _, changed = U().call(vehicle, "setTrunkLocked", false)
+            if changed ~= true or call(vehicle, "isTrunkLocked") ~= false then
+                return false, "car_trunk_unlock_failed"
+            end
+            state.unlocked = true
+        end
+        local exited, reason = SC.Vehicle.exit(actor, vehicle, state.seat,
+            { playerCommand = true })
+        return exited == true, exited and "field_trunk_exiting"
+            or reason or "car_exit_blocked"
+    end
+    if now - state.startedAt > 75000 then return false, "car_entry_timeout" end
+    local seat, why = unlockSeat(actor, vehicle)
+    if seat == nil then return false, why end
+    state.seat = seat
+    return SC.ExpeditionCar.boardMember(actor,
+        { car = vehicle, seat = seat, fieldWork = true }, snapshot)
+end
+
 local function unlockStep(actor, order, snapshot)
     local task = order.unlock
     local vehicle = vehicleById(order.carId)

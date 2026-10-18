@@ -5097,7 +5097,89 @@ local function beginLeaderSlotProbe(current)
                     == "true" and "road" or "straight" }
             end
         elseif Harness.config.team_autonomous_search_probe == "true" then
-            if Harness.config.team_unvisited_interior_search_probe == "true" then
+            if Harness.config.team_expedition_integration_probe == "true" then
+                local U = SC.GameplayUtil
+                local px, py, pz = position(Harness.player)
+                px, py, pz = math.floor(px), math.floor(py), math.floor(pz)
+                local campSquare = U.gridSquare(px, py, pz)
+                SC.BaseLife.reset()
+                local created = campSquare and SC.BaseLife.create(
+                    campSquare, "Expedition return test camp")
+                local store, marked, storage, storageReason
+                for dx = -6, 6 do
+                    for dy = -6, 6 do
+                        local square = U.gridSquare(px + dx, py + dy, pz)
+                        if square and not marked then
+                            U.squareObjects(square, function(object)
+                                if marked or not SC.BaseLife.isInside(object) then
+                                    return
+                                end
+                                local container = select(1,
+                                    U.call(object, "getContainer"))
+                                if container then
+                                    local okay, result = SC.BaseLife.registerStorage(
+                                        object, "general")
+                                    if okay then
+                                        store, marked, storage = object, true, result
+                                    else
+                                        storageReason = result
+                                    end
+                                end
+                            end, 32)
+                        end
+                    end
+                end
+                if not check("integration_real_camp_storage",
+                    marked == true and storage ~= nil,
+                    "camp=" .. tostring(created)
+                        .. " storage=" .. tostring(store ~= nil)
+                        .. " reason=" .. tostring(storageReason)) then
+                    setPhase("finish", current) return
+                end
+                Harness.integrationStorage = storage
+                local sourceSquare, sourceContainer, distance
+                local ax, ay = position(chosen.actor)
+                for dx = -50, 50 do
+                    for dy = -50, 50 do
+                        local span = math.sqrt((px + dx - ax)^2
+                            + (py + dy - ay)^2)
+                        if span >= 20 and span <= 50
+                            and (not distance or span < distance) then
+                            local tile = U.gridSquare(px + dx, py + dy, pz)
+                            if tile and SC.Navigation.behindLockedDoor(
+                                    chosen.actor, tile) ~= true then
+                                U.squareObjects(tile, function(object)
+                                    local container = select(1,
+                                        U.call(object, "getContainer"))
+                                    if container and SC.Encounter.mayTakeFrom(
+                                            container) == true then
+                                        sourceSquare, sourceContainer, distance
+                                            = tile, container, span
+                                    end
+                                end, 32)
+                            end
+                        end
+                    end
+                end
+                local stocked = false
+                if sourceContainer then
+                    local okay, item = pcall(sourceContainer.AddItem,
+                        sourceContainer, "Base.FiberglassTape")
+                    stocked = okay and item ~= nil
+                end
+                if not check("integration_real_search_source",
+                    stocked and sourceSquare ~= nil,
+                    "distance=" .. tostring(distance)
+                        .. " source=" .. tostring(sourceSquare ~= nil)) then
+                    setPhase("finish", current) return
+                end
+                Harness.integrationSourceSquare = sourceSquare
+                plan = { kind = "search", destination = {
+                    x = sourceSquare:getX(), y = sourceSquare:getY(),
+                    z = sourceSquare:getZ() },
+                    request = { category = "construction", quantity = 1 },
+                    radius = 2 }
+            elseif Harness.config.team_unvisited_interior_search_probe == "true" then
                 local places = SC.ExpeditionPlaces
                 local targets, targetReason = places.targetableNearby(
                     6100, 5280, 80, 32)
@@ -8533,7 +8615,52 @@ function Harness.probeAutonomousSearch(current)
     end
     if mission == nil then
         local debrief = SC.ExpeditionPrototype.lastDebrief()
-        if unvisited then
+        if Harness.config.team_expedition_integration_probe == "true" then
+            local delivery = debrief and debrief.integration
+                and SC.ExpeditionIntegration.summary(debrief.integration)
+            local receipt = debrief and debrief.acquisitions
+                and debrief.acquisitions[1]
+            local container = Harness.integrationStorage
+                and SC.BaseLife.resolveContainer(Harness.integrationStorage)
+            local stored = 0
+            for _, item in ipairs(container
+                    and U.inventoryItems(container, 4096) or {}) do
+                if receipt and U.itemStableId(item, false) == receipt.id then
+                    stored = stored + 1
+                end
+            end
+            local complete = delivery ~= nil and delivery.requested == 1
+                    and delivery.collected == 1
+                    and delivery.broughtBack == 1
+                    and delivery.stored == 1 and delivery.pending == 0
+                    and stored == 1
+                    and sourceStableItemCount(receipt) == 0
+                    and SC.ExpeditionPrototype.lastOutcome() == "returned"
+                    and getSpecificPlayer(1) == nil
+            Harness.integrationAwaitStartedAt =
+                Harness.integrationAwaitStartedAt or current
+            if not complete and current - Harness.integrationAwaitStartedAt
+                < 120000 then
+                if not Harness.integrationAwaitLoggedAt
+                    or current - Harness.integrationAwaitLoggedAt >= 10000 then
+                    local row = delivery and delivery.items[1]
+                    print("SC_INTEGRATION_WAIT|stored=" .. tostring(stored)
+                        .. "|ledger=" .. tostring(delivery and delivery.stored)
+                        .. "|reason=" .. tostring(row and row.reason)
+                        .. "|carrier=" .. tostring(row and row.carrierName))
+                    Harness.integrationAwaitLoggedAt = current
+                end
+                return
+            end
+            check("integration_exact_native_return_and_storage", complete,
+                "stored=" .. tostring(stored)
+                    .. " ledger=" .. tostring(delivery and delivery.stored)
+                    .. " pending=" .. tostring(delivery and delivery.pending)
+                    .. " source=" .. tostring(receipt
+                        and sourceStableItemCount(receipt)))
+            setPhase("finish", current)
+            return
+        elseif unvisited then
             local chunks = 0
             for _ in pairs(Harness.autonomousSearchChunks) do
                 chunks = chunks + 1
@@ -8648,8 +8775,8 @@ function Harness.probeAutonomousSearch(current)
     local phase = mission.scout.phase
     if phase ~= Harness.autonomousSearchLastPhase then
         if phase == "searching" and not unvisited then
-            local sourceSquare = getWorld():getCell():getGridSquare(
-                6077, 5302, 0)
+            local sourceSquare = Harness.integrationSourceSquare
+                or getWorld():getCell():getGridSquare(6077, 5302, 0)
             local stocked, permitted, blocked = false, false, false
             if sourceSquare then
                 U.squareObjects(sourceSquare, function(object)

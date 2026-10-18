@@ -102,11 +102,46 @@ local function setZoomLabel(slider, target)
     else label.name = name end
 end
 
+local function deliverySignature(expedition)
+    local parts, seen = {}, {}
+    local debrief = expedition and expedition.lastDebrief
+        and expedition.lastDebrief() or nil
+    local latest = debrief and debrief.integration
+    local function append(record)
+        if not record or seen[record.tripId] then return end
+        seen[record.tripId] = true
+        parts[#parts + 1] = record.tripId
+        for _, row in ipairs(record.items or {}) do
+            parts[#parts + 1] = row.stored and "stored"
+                or row.reason or "pending"
+        end
+        for _, member in ipairs(record.members or {}) do
+            parts[#parts + 1] = member.dutyReason or "restocking"
+        end
+    end
+    append(latest)
+    for _, report in ipairs(expedition and expedition.pendingDeliveryReports
+            and expedition.pendingDeliveryReports() or {}) do
+        if report.summary and not seen[report.tripId] then
+            parts[#parts + 1] = report.tripId
+            for _, row in ipairs(report.summary.items) do
+                parts[#parts + 1] = row.stored and "stored"
+                    or row.reason or "pending"
+            end
+        end
+    end
+    return table.concat(parts, ":")
+end
+
 function Planner.viewStructureSignature()
     local expedition = SC.ExpeditionPrototype
     local mission = expedition and type(expedition.current) == "function"
         and expedition.current() or nil
-    if mission == nil then return "expedition:idle" end
+    if mission == nil then
+        local signature = deliverySignature(expedition)
+        return signature == "" and "expedition:idle"
+            or "expedition:idle:" .. signature
+    end
     local viewer = type(getSpecificPlayer) == "function"
         and getSpecificPlayer(0) or nil
     local view = expedition and type(expedition.describeForPlayer) == "function"
@@ -117,6 +152,14 @@ function Planner.viewStructureSignature()
         tostring(view and view.plannedSite or ""),
         tostring(view and view.observedPhase or ""),
         tostring(view and view.visibleMembers or 0),
+        tostring(view and view.supplyProgress
+            and view.supplyProgress.collected or ""),
+        tostring(view and view.supplyProgress
+            and view.supplyProgress.at or ""),
+        tostring(view and view.delivery and view.delivery.broughtBack or ""),
+        tostring(view and view.delivery and view.delivery.stored or ""),
+        tostring(view and view.delivery and view.delivery.pending or ""),
+        deliverySignature(expedition),
         tostring(request and request.mode or ""),
         tostring(request and request.shelter or ""),
         tostring(request and request.x or ""),
@@ -339,6 +382,7 @@ local function dispatch(detail)
     if not records then return false, reason end
     local options = { turnHomeAfterHours = draft.hours,
         doctrine = draft.style, travelMode = draft.travelMode,
+        restockBaseDuty = draft.restockBaseDuty == true,
         parkingZoneId = draft.parkingZoneId,
         vehicleSqlId = draft.vehicleSqlId }
     if draft.kind == "search" or draft.kind == "fish" then
@@ -434,12 +478,77 @@ function Planner.onButton(detail, button)
     detail:rebuild(true)
 end
 
+local function addDeliveryItems(detail, panel, y, report)
+    y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+        tr("UI_SC_Expedition_DeliveryCounts", report.requested,
+            report.collected, report.broughtBack,
+            report.stored, report.pending))
+    for _, row in ipairs(report.items) do
+        y = detail:addInformationLine(panel, y,
+            "UI_SC_Info_Message", tr("UI_SC_Expedition_DeliveryItem",
+                row.itemType, row.finderName,
+                row.carrierKind == "trunk"
+                    and (row.carrierName == "Car trunk"
+                        and tr("UI_SC_Expedition_TrunkOnly")
+                        or tr("UI_SC_Expedition_TrunkCarrier",
+                            row.carrierName or "?"))
+                    or row.carrierName or "?",
+                row.stored and tr("UI_SC_Expedition_Stored")
+                    or row.reason and SC.UI.baseFailureReason(row.reason)
+                    or tr("UI_SC_Expedition_Pending")))
+    end
+    for _, member in ipairs(report.members) do
+        for category, amount in pairs(member.shortages) do
+            y = detail:addInformationLine(panel, y,
+                "UI_SC_Info_Message", tr(
+                    "UI_SC_Expedition_RestockShortage",
+                    member.name, category, amount))
+        end
+    end
+    return y
+end
+
+local function addReturnReports(detail, panel, y, expedition)
+    local debrief = expedition and expedition.lastDebrief
+        and expedition.lastDebrief() or nil
+    local latest = debrief and debrief.integration
+    if latest and SC.ExpeditionIntegration then
+        local summary = SC.ExpeditionIntegration.summary(latest)
+        if summary then
+            y = detail:addSection(panel, y + 4,
+                "UI_SC_Expedition_Debrief")
+            y = addDeliveryItems(detail, panel, y, summary)
+        end
+    end
+    if debrief and debrief.abandonedCarAt then
+        y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+            tr("UI_SC_Expedition_CarAbandoned",
+                math.floor(debrief.abandonedCarAt.x),
+                math.floor(debrief.abandonedCarAt.y)))
+    end
+    local older
+    for _, report in ipairs(expedition and expedition.pendingDeliveryReports
+            and expedition.pendingDeliveryReports() or {}) do
+        if report.summary and (not latest
+            or report.tripId ~= latest.tripId) then
+            if not older then
+                y = detail:addSection(panel, y + 4,
+                    "UI_SC_Expedition_OlderPendingDeliveries")
+                older = true
+            end
+            y = addDeliveryItems(detail, panel, y, report.summary)
+        end
+    end
+    return y
+end
+
 function Planner.build(detail, panel)
     detail.expeditionZoomSlider = nil
     local draft = detail.expeditionDraft
     if not draft then
         draft = { kind = "scout", style = "stealth", hours = 2,
             travelMode = "road",
+            restockBaseDuty = false,
             category = "food", quantity = 4, places = {}, placePage = 1 }
         detail.expeditionDraft = draft
         local row = detail.root and detail.root.selectedRow
@@ -469,6 +578,24 @@ function Planner.build(detail, panel)
         if view and view.vehicleIssue then
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
                 tr("UI_SC_Expedition_CarIssue", view.vehicleIssue))
+        end
+        if view and view.supplyProgress then
+            local progress = view.supplyProgress
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                tr(progress.source == "radio"
+                    and "UI_SC_Expedition_RadioProgress"
+                    or progress.partial
+                    and "UI_SC_Expedition_VisibleProgressPartial"
+                    or "UI_SC_Expedition_VisibleProgress",
+                    progress.collected, progress.requested,
+                    progress.at and string.format("%.1f", progress.at) or ""))
+        end
+        if view and view.delivery then
+            local report = view.delivery
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                tr("UI_SC_Expedition_DeliveryCounts", report.requested,
+                    report.collected, report.broughtBack,
+                    report.stored, report.pending))
         end
         if view and view.helpRequest then
             local request = view.helpRequest
@@ -505,18 +632,11 @@ function Planner.build(detail, panel)
                     and "UI_SC_Expedition_ViewZoomUnavailable"
                     or "UI_SC_Expedition_ViewZoomPending"))
         end
-        return y
+        return addReturnReports(detail, panel, y, expedition)
     end
     y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
         tr("UI_SC_Expedition_TestBuild"))
-    local debrief = expedition and expedition.lastDebrief
-        and expedition.lastDebrief() or nil
-    if debrief and debrief.abandonedCarAt then
-        y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
-            tr("UI_SC_Expedition_CarAbandoned",
-                math.floor(debrief.abandonedCarAt.x),
-                math.floor(debrief.abandonedCarAt.y)))
-    end
+    y = addReturnReports(detail, panel, y, expedition)
     if not expedition or not expedition.placeCandidates
         or not expedition.fishingBankCandidates
         or SCSplitScreenProbe == nil then
@@ -629,6 +749,10 @@ function Planner.build(detail, panel)
         end
         y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
             tr("UI_SC_Expedition_RadioHint"))
+        y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+            tr("UI_SC_Expedition_RestockChoice",
+                draft.restockBaseDuty and tr("UI_SC_Expedition_Yes")
+                    or tr("UI_SC_Expedition_No")))
         y = addButton(detail, panel, y + 4, "UI_SC_Expedition_Edit", "edit")
         return addButton(detail, panel, y, "UI_SC_Expedition_Launch", "launch")
     end
@@ -666,6 +790,11 @@ function Planner.build(detail, panel)
     if draft.kind == "search" or draft.kind == "fish" then
         y = addSelector(detail, panel, y, "UI_SC_Expedition_Quantity",
             "quantity", QUANTITIES)
+        y = addSelector(detail, panel, y,
+            "UI_SC_Expedition_RestockBaseDuty", "restockBaseDuty", {
+                { value = false, key = "UI_SC_Expedition_No" },
+                { value = true, key = "UI_SC_Expedition_Yes" },
+            })
     end
     y = addSelector(detail, panel, y, "UI_SC_Expedition_TurnHome",
         "hours", TIMES)

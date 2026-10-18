@@ -776,6 +776,14 @@ local function isSafeWaterItem(item)
     return sourceOk and source == true
 end
 
+function Needs.isSafeFoodItem(item)
+    return isSafeFood(item)
+end
+
+function Needs.isSafeWaterItem(item)
+    return isSafeWaterItem(item)
+end
+
 local function firstInventoryItem(actor, predicate)
     local best, bestScore
     walkInventory(U().inventory(actor), { remaining = 256 }, function(item)

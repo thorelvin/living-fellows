@@ -153,6 +153,62 @@ T.car.stationary = false
 check(Unload.eligible(T.car) == false,
     "moving vehicle is excluded from base unloading")
 T.car.stationary = true
+
+-- A receipt inside a nested bag must still be rooted in this exact trunk.
+local receipt = T.item("expedition-receipt")
+local bag = T.item("expedition-bag")
+local nested = { items = { receipt },
+    getContainingItem = function() return bag end }
+receipt.container, bag.container = nested, T.trunk
+T.trunk.items = { bag }
+local exactState = {}
+local taking, takeReason = Unload.takeExact(T.actor, T.car.id,
+    receipt, exactState, nested)
+check(taking and takeReason == "car_trunk_looting"
+        and receipt.container == nested,
+    "nested exact trunk receipt begins a native loot pose")
+T.visual("completed")
+taking, takeReason = Unload.takeExact(T.actor, T.car.id,
+    receipt, exactState, nested)
+check(taking and takeReason == "car_item_carried"
+        and receipt.container == T.inventory,
+    "nested exact receipt transfers only after the pose completes")
+local other = { items = { bag } }
+bag.container = other
+T.trunk.items = {}
+local escaped = T.item("escaped-receipt")
+escaped.container, nested.items = nested, { escaped }
+taking, takeReason = Unload.takeExact(T.actor, T.car.id,
+    escaped, {}, nested)
+check(not taking and takeReason == "car_trunk_item_changed",
+    "moving its whole bag outside the trunk cannot transfer the receipt")
+
+local reserved, ordinary = T.item("reserved"), T.item("ordinary")
+T.trunk.items = { reserved, ordinary }
+reserved.container, ordinary.container = T.trunk, T.trunk
+SC.ExpeditionPrototype = { receiptPending = function(item)
+    return item == reserved end }
+T.base.jobs = {}
+check(Unload.rows()[1].count == 1,
+    "the normal car job counts only cargo outside expedition receipts")
+local regularQueued, regularJob = Unload.queue(T.car.id)
+check(regularQueued == true, "ordinary cargo remains available to the car job")
+working, reason = Unload.update(T.actor, T.base, regularJob)
+check(working and reason == "car_trunk_looting",
+    "the normal job chooses unrelated cargo instead of the receipt")
+T.visual("completed")
+working, reason = Unload.update(T.actor, T.base, regularJob)
+check(working and reason == "car_item_carried"
+        and ordinary.container == T.inventory and reserved.container == T.trunk,
+    "the pending expedition receipt remains in the trunk")
+Unload.update(T.actor, T.base, regularJob)
+local done, _, _, complete = Unload.update(T.actor, T.base, regularJob)
+check(done and complete and reserved.container == T.trunk,
+    "the general car job completes without taking the reserved receipt")
+T.base.jobs = {}
+check(select(2, Unload.queue(T.car.id)) == "car_trunk_empty_or_reserved",
+    "manual general unload cannot claim a trunk of only expedition receipts")
+
 SC.TaxiCab = { isOwned = function(value) return value == T.car end }
 check(select(2, Unload.eligible(T.car)) == "service_cab_reserved"
         and #Unload.rows() == 0,

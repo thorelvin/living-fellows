@@ -59,4 +59,37 @@ check(driver and driver.notAvailable
         and driver.toolTip.description == "Sentence for car_has_no_fuel",
     "a companion who cannot take this car is shown with a sentence")
 
+-- The progress request appears only on a radio actually equipped by the
+-- primary player and uses the expedition's acknowledged radio path.
+local inventory = {}
+local radio = { container = inventory }
+function radio:getContainer() return self.container end
+function T.player:getInventory() return inventory end
+T.player.getPrimaryHandItem = function() return nil end
+SurvivorCompanion.GameplayUtil.instanceOf = function(item, kind)
+    return item == radio and kind == "Radio"
+end
+local acknowledged
+SurvivorCompanion.ExpeditionPrototype = {
+    current = function() return { scout = {
+        phase = "searching", search = {} } } end,
+    sendRadioOrder = function(_, command, payload)
+        acknowledged = command == "progress_report" and payload == "status"
+        return true, "progress_acknowledged"
+    end,
+}
+local unequipped = T.menu()
+Context.fillRadioContextMenu(0, unequipped, { radio })
+check(not option(unequipped, "UI_SC_Expedition_AskProgress"),
+    "an unequipped radio cannot request a progress report")
+T.player.getPrimaryHandItem = function() return radio end
+local equipped = T.menu()
+Context.fillRadioContextMenu(0, equipped, { radio })
+local ask = option(equipped, "UI_SC_Expedition_AskProgress")
+check(ask ~= nil, "the equipped radio offers Ask for progress report")
+ask.callback(ask.target, unpack(ask.args))
+check(acknowledged == true
+        and T.player.note == "UI_SC_Expedition_ProgressAcknowledged",
+    "the menu dispatches the acknowledged status request")
+
 SC_TEST_REPORT = "VEHICLE_CONTEXT_PASS checks=" .. tostring(T.checks)

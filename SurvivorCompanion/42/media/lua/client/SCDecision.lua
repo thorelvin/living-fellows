@@ -78,6 +78,13 @@ local function commandsFor(actor)
         local ok, value = pcall(reader, actor)
         if ok and type(value) == "table" then
             if SC.ExpeditionPrototype and SC.ExpeditionPrototype.isMember(actor) then
+                local homecoming = SC.ExpeditionPrototype.current()
+                if homecoming and homecoming.scout
+                    and homecoming.scout.phase == "awaiting_player"
+                    and homecoming.integration
+                    and value.order == "base_duty" then
+                    return value
+                end
                 local missionOrder = {}
                 for key, entry in pairs(value) do missionOrder[key] = entry end
                 if type(SC.ExpeditionPrototype.effectiveDoctrineFor) == "function" then
@@ -660,6 +667,16 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
             add("logistics", load.overloaded and 92
                 or (load.giftPending or load.weaponReady) and 82 or 74, false, load)
         end
+    end
+
+    if threatCount == 0 and not bleeding and commands.recruited
+        and commands.temporaryStay ~= true
+        and SC.ExpeditionPrototype
+        and type(SC.ExpeditionPrototype.integrationFor) == "function"
+        and SC.ExpeditionPrototype.integrationFor(actor) then
+        -- Delivering the reserved exact cargo also relieves overload; generic
+        -- packing and follow field work must not keep it in the carrier's bag.
+        add("expedition_delivery", 94, false)
     end
 
     if factionIntent then
@@ -1970,6 +1987,10 @@ local function delegate(candidate, actor, player, rootRuntime, commands, snapsho
         return callSubsystem("base-work", actor, function()
             return SC.BaseWork.update(actor, player, rootRuntime)
         end)
+    elseif candidate.kind == "expedition_delivery" then
+        return callSubsystem("expedition-delivery", actor, function()
+            return SC.ExpeditionPrototype.updateIntegration(actor)
+        end)
     elseif candidate.kind == "field_work" then
         return callSubsystem("field-work", actor, function()
             return SC.FieldWork.update(actor, player)
@@ -2236,7 +2257,8 @@ local function candidateInterval(candidate)
         return 250
     elseif candidate.kind == "needs" then
         return 250
-    elseif candidate.kind == "base_work" then
+    elseif candidate.kind == "base_work"
+        or candidate.kind == "expedition_delivery" then
         return 250
     elseif candidate.kind == "field_work" then
         return 250
@@ -2259,7 +2281,8 @@ end
 local retainedApproachKinds = {
     logistics = true, infection_crisis = true, encounter = true,
     scavenge = true, downtime = true, needs = true,
-    base_work = true, fishing = true, faction = true, purposeful_idle = true,
+    base_work = true, expedition_delivery = true, fishing = true,
+    faction = true, purposeful_idle = true,
     field_work = true,
     joy_response = true, ritual = true,
 }

@@ -28,6 +28,12 @@ local function mark(item, jobId)
     return true
 end
 
+local function expeditionReceipt(item)
+    return SC.ExpeditionPrototype
+        and type(SC.ExpeditionPrototype.receiptPending) == "function"
+        and SC.ExpeditionPrototype.receiptPending(item) == true
+end
+
 local function trunkFor(vehicle)
     local part = call(vehicle, "getPartById", "TruckBed")
     local container = part and call(part, "getItemContainer") or nil
@@ -72,10 +78,14 @@ function Unload.rows()
         local okay, info = Unload.eligible(vehicle)
         if okay then
             local items = U().inventoryItems(info.trunk, 4096)
+            local available = 0
+            for _, item in ipairs(items) do
+                if not expeditionReceipt(item) then available = available + 1 end
+            end
             local name = call(vehicle, "getScriptName") or "Car"
             rows[#rows + 1] = {
                 id = info.id, zoneId = info.zoneId, name = tostring(name),
-                count = #items,
+                count = available,
             }
         end
     end
@@ -101,8 +111,12 @@ function Unload.queue(vehicleId)
     local vehicle = SC.Vehicle and SC.Vehicle.loadedBySqlId(vehicleId)
     local okay, info = Unload.eligible(vehicle)
     if not okay then return false, info end
-    if #U().inventoryItems(info.trunk, 4096) == 0 then
-        return false, "car_trunk_empty"
+    local available = false
+    for _, item in ipairs(U().inventoryItems(info.trunk, 4096)) do
+        if not expeditionReceipt(item) then available = true break end
+    end
+    if not available then
+        return false, "car_trunk_empty_or_reserved"
     end
     local current = openJob(vehicleId)
     if current then return false, "car_unload_already_queued" end
@@ -203,6 +217,96 @@ local function cancelOwnedVisual(actor, state)
         "car_unload_cancelled")
 end
 
+-- Extract only a receipt's exact native item. Unlike the general parked-car
+-- job this never selects a different trunk item or a fallback destination.
+function Unload.takeExact(actor, vehicleId, item, state, source)
+    local vehicle = SC.Vehicle and SC.Vehicle.loadedBySqlId(vehicleId)
+    if not vehicle or not parked(vehicle) then
+        return false, "car_not_parked_at_base"
+    end
+    local locked = call(vehicle, "isTrunkLocked")
+    if locked == true or state.receiptUnlock
+        or call(actor, "getVehicle") == vehicle then
+        if not SC.FieldWork or not SC.FieldWork.unlockTrunkFor then
+            return false, "car_trunk_unlock_unavailable"
+        end
+        state.receiptUnlock = state.receiptUnlock or {}
+        local okay, reason = SC.FieldWork.unlockTrunkFor(
+            actor, vehicle, state.receiptUnlock)
+        if not okay or call(actor, "getVehicle") ~= nil then
+            return okay, reason
+        end
+        state.receiptUnlock = nil
+    end
+    local part, trunk, reason = trunkFor(vehicle)
+    if not trunk then return false, reason end
+    source = source or call(item, "getContainer")
+    if source == nil or source ~= call(item, "getContainer") then
+        return false, "car_trunk_item_changed"
+    end
+    if not U().inventoryContains(source, item) then
+        return false, "car_trunk_item_changed"
+    end
+    local current, seen = source, {}
+    for _ = 1, 8 do
+        if current == trunk then break end
+        if seen[current] then return false, "car_trunk_item_changed" end
+        seen[current] = true
+        local holder = call(current, "getContainingItem")
+        local parent = holder and call(holder, "getContainer")
+        if not parent or not U().inventoryContains(parent, holder) then
+            return false, "car_trunk_item_changed"
+        end
+        current = parent
+    end
+    if current ~= trunk then return false, "car_trunk_item_changed" end
+    local squares = trunkSquares(actor, vehicle, part)
+    if #squares == 0 then return false, "car_trunk_unreachable" end
+    if not atAnySquare(actor, squares) then
+        local moving, why = SC.Navigation.requestAny(actor, squares, "walk", {
+            action = "move_to_car_trunk", vehicle = vehicle,
+            targetSquare = squares[1], arrivalDistance = 0.35,
+            requireSameSquare = true, workCampOnly = true, workReach = true,
+        })
+        return moving == true, why or "approaching_car_trunk"
+    end
+    if state.receiptItem ~= item then
+        local accepted, why = U().move(actor, "walk", {
+            action = "loot_container", container = trunk, item = item,
+            baseStorage = true,
+        })
+        if accepted ~= true then return false, why or "car_trunk_action_rejected" end
+        local status = visualStatus(actor)
+        if status ~= "active" and status ~= "completed" then
+            return false, "car_unload_visual_" .. tostring(status)
+        end
+        state.receiptItem = item
+        state.receiptVisualToken = visualToken(actor)
+        return true, "car_trunk_looting"
+    end
+    if state.receiptVisualToken ~= nil
+        and visualToken(actor) ~= state.receiptVisualToken then
+        state.receiptItem, state.receiptVisualToken = nil, nil
+        return false, "car_trunk_visual_changed"
+    end
+    local status = visualStatus(actor)
+    if status == "active" then return true, "car_trunk_looting" end
+    if status ~= "completed" then
+        state.receiptItem, state.receiptVisualToken = nil, nil
+        return false, "car_unload_visual_" .. tostring(status)
+    end
+    clearVisual(actor)
+    state.receiptItem, state.receiptVisualToken = nil, nil
+    local taken, why = SC.WorkTransport.transferVerified(
+        source, U().inventory(actor), item, actor)
+    if taken ~= true then return false, why end
+    if call(item, "getContainer") ~= U().inventory(actor)
+        or U().inventoryContains(source, item) then
+        return false, "car_receipt_transfer_unverified"
+    end
+    return true, "car_item_carried"
+end
+
 function Unload.update(actor, baseState, job)
     local target = type(job.target) == "table" and job.target or {}
     local vehicle = SC.Vehicle and SC.Vehicle.loadedBySqlId(target.vehicleId)
@@ -270,6 +374,9 @@ function Unload.update(actor, baseState, job)
         if not item or not U().inventoryContains(info.trunk, item) then
             return false, "car_trunk_item_changed", true
         end
+        if expeditionReceipt(item) then
+            return false, "car_item_reserved_for_expedition", true
+        end
         if not mark(item, job.id) then return false, "car_item_marker_unavailable", true end
         local taken, reason = SC.WorkTransport.transferVerified(
             info.trunk, U().inventory(actor), item, actor)
@@ -281,7 +388,8 @@ function Unload.update(actor, baseState, job)
     local storageFound, capacityBlocked = false, false
     for _, candidate in ipairs(trunkItems) do
         local storage = SC.BaseWork.destinationForCarItem(actor, candidate)
-        if storage and (itemMarker(candidate) == nil
+        if storage and not expeditionReceipt(candidate)
+            and (itemMarker(candidate) == nil
             or itemMarker(candidate) == job.id) then
             storageFound = true
             local room = SC.WorkTransport
@@ -295,7 +403,11 @@ function Unload.update(actor, baseState, job)
         end
     end
     if not item then
-        if #trunkItems == 0 then
+        local available = false
+        for _, candidate in ipairs(trunkItems) do
+            if not expeditionReceipt(candidate) then available = true break end
+        end
+        if not available then
             states[actor] = nil
             return true, "car_trunk_unloaded", false, true
         end

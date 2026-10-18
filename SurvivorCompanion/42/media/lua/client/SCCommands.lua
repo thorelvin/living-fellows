@@ -2856,6 +2856,23 @@ function Commands.peek(actor)
     return states[actor] or stateFor(actor)
 end
 
+-- Homecoming may restore an existing base role after essential restocking.
+-- A real player command increments this serial, so it always wins the race.
+function Commands.resumeBaseDutyIfUnchanged(companionId, expectedSerial, baseId)
+    local record = SC.Registry and SC.Registry.byId(companionId)
+    local actor = record and record.actor
+    if not actor or U().isDead(actor) then return false, "companion_unavailable" end
+    local base = SC.BaseLife and SC.BaseLife.active()
+    if not base or base.id ~= baseId then return false, "base_changed" end
+    local state = states[actor] or stateFor(actor)
+    if tonumber(state.commandSerial) ~= tonumber(expectedSerial) then
+        return false, "new_player_order"
+    end
+    if state.order == "base_duty" then return true, "already_on_base_duty" end
+    local _, entry = U().resolveActor(companionId)
+    return enterBaseDuty(actor, entry, state)
+end
+
 -- The convoy gives up a follow car that cannot work. That is not a new player
 -- order: keep the companion's current activity and drop only the assignment.
 function Commands.releaseFollowCar(actor, reason)

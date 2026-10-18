@@ -1,7 +1,7 @@
-Living Fellows 0.26.47 - public playtest
+Living Fellows 0.26.48 - public playtest
 
-This playtest improves expedition return recovery and nearby status, lets a
-field worker unlock a selected car trunk, and simplifies the work marker.
+This playtest delivers requested expedition supplies to marked camp storage,
+adds an optional restock and base-duty return, and reports who carried each item.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added

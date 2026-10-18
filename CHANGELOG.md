@@ -2,6 +2,14 @@
 
 # Changelog
 
+## 0.26.48 - Expedition delivery and base integration
+
+- Expedition return keeps an exact ledger of requested items found on companions, in their bags, or in the expedition car trunk. Workers carry those items to the appropriate marked camp storage without moving unrelated gear or counting a deposit before it succeeds.
+- Storage delivery tries every matching area, including fresh and shelf-stable food destinations. When matching storage is full or inaccessible, the cargo stays where it is and delivery retries when conditions change.
+- The optional Restock and resume base duty launch setting refills safe food, drinking water, clean medical supplies, and compatible ammunition from marked storage, then returns squad members to their prior base roles. Missing stock is reported, and newer player orders take priority.
+- Radio progress reports, the Expedition panel, and the debrief show requested, collected, brought back, stored, and pending counts with named finder and carrier credit. Pending deliveries and reports survive save/load and later expeditions.
+- The native bridge protocol remains `42.21-isocompanion-24`; update the bridge JAR and Lua payload together.
+
 ## 0.26.47 - Expedition return and field-work polish
 
 - A nearby expedition leader now shows the observed mission phase in the panel. When only a squadmate is visible, the panel says so instead of treating the whole team as unseen.

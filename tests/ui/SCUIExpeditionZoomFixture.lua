@@ -32,6 +32,7 @@ local changes = {}
 local setterWorks = true
 local readerWorks = true
 local viewOwner = "expedition"
+local debrief, pendingReports
 
 ExpeditionZoomFixture = {
     leader = leader, mission = mission, view = view,
@@ -39,9 +40,13 @@ ExpeditionZoomFixture = {
     join = function() slot = leader end,
     leave = function() slot = nil end,
     endTrip = function() mission = nil end,
+    startTrip = function() mission = {
+        leader = { actor = leader }, radioSession = "trip-2" } end,
     setSetterWorks = function(value) setterWorks = value end,
     setReaderWorks = function(value) readerWorks = value end,
     setOwner = function(value) viewOwner = value end,
+    setDebrief = function(value) debrief = value end,
+    setPendingReports = function(value) pendingReports = value end,
 }
 
 SurvivorCompanion.ViewSession = {
@@ -55,11 +60,18 @@ end
 
 SurvivorCompanion.ExpeditionPrototype = {
     current = function() return mission end,
+    lastDebrief = function() return debrief end,
+    pendingDeliveryReports = function() return pendingReports or {} end,
     describeForPlayer = function(viewer)
         assert(viewer == player)
         return view
     end,
 }
+
+SurvivorCompanion.ExpeditionIntegration = {
+    summary = function(record) return record.summary end,
+}
+SurvivorCompanion.UI.baseFailureReason = function(reason) return reason end
 
 SCBridge = {
     readExpeditionZoom = function(out)

@@ -9,6 +9,7 @@ local Expedition = SC.ExpeditionPrototype
 local mission
 local lastOutcome
 local lastDebrief
+local pendingDeliveries = {}
 local reusableSlotSqlId
 local holdColdHandoffForTest = false
 local TEST_RADIO_CHANNEL = 90000
@@ -270,6 +271,8 @@ local function copyDebrief(value)
             acquisitions = copyReceipts(value.acquisitions),
             returnedIds = returned, endReason = value.endReason,
             inventoryComplete = value.inventoryComplete,
+            integration = SC.ExpeditionIntegration
+                and SC.ExpeditionIntegration.copy(value.integration) or nil,
             site = copySite(value.site),
             abandonedCarAt = value.abandonedCarAt
                 and copyPoint(value.abandonedCarAt) or nil,
@@ -296,7 +299,10 @@ local function validDebrief(value)
             or #value.returnedIds > #value.acquisitions
             or type(value.endReason) ~= "string"
             or #value.endReason > 64
-            or type(value.inventoryComplete) ~= "boolean" then return false end
+            or type(value.inventoryComplete) ~= "boolean"
+            or (value.integration ~= nil and (not SC.ExpeditionIntegration
+                or not SC.ExpeditionIntegration.valid(value.integration))) then
+            return false end
         if value.site ~= nil and not validSite(value.site) then return false end
         if value.abandonedCarAt ~= nil
             and not validWorldPosition(value.abandonedCarAt) then return false end
@@ -321,6 +327,75 @@ local function validDebrief(value)
         and (value.site == nil or validSite(value.site))
         and (value.abandonedCarAt == nil
             or validWorldPosition(value.abandonedCarAt))
+end
+
+local function validDeliveryList(rows)
+    if rows == nil then return true end
+    if type(rows) ~= "table" or #rows > 32 then return false end
+    if #rows == 0 then return true end
+    if not SC.ExpeditionIntegration then return false end
+    local seen = {}
+    for _, row in ipairs(rows) do
+        if not SC.ExpeditionIntegration.valid(row)
+            or seen[row.tripId] then return false end
+        seen[row.tripId] = true
+    end
+    return true
+end
+
+local function copyDeliveryList(rows)
+    local result = {}
+    for index, row in ipairs(rows or {}) do
+        result[index] = SC.ExpeditionIntegration.copy(row)
+    end
+    return result
+end
+
+local function pruneCompletedDeliveries()
+    for index = #pendingDeliveries, 1, -1 do
+        local record = pendingDeliveries[index]
+        local complete = true
+        for _, row in ipairs(record.items) do
+            if not row.stored then complete = false break end
+        end
+        for _, member in ipairs(record.members) do
+            if record.restock and not member.dutyDone then
+                complete = false break
+            end
+        end
+        if complete then
+            if lastDebrief and lastDebrief.integration
+                and lastDebrief.integration.tripId == record.tripId then
+                lastDebrief.integration = SC.ExpeditionIntegration.copy(record)
+                lastDebrief.returnedIds = {}
+                for _, row in ipairs(record.items) do
+                    if row.returned then
+                        lastDebrief.returnedIds[#lastDebrief.returnedIds + 1]
+                            = row.id
+                    end
+                end
+            end
+            table.remove(pendingDeliveries, index)
+        end
+    end
+end
+
+local function validProgressReport(value)
+    return value == nil or type(value) == "table"
+        and validWorldHour(value.at)
+        and type(value.collected) == "number"
+        and value.collected >= 0 and value.collected <= 16
+        and value.collected == math.floor(value.collected)
+        and type(value.requested) == "number"
+        and value.requested >= 1 and value.requested <= 8
+        and value.requested == math.floor(value.requested)
+        and type(value.phase) == "string" and #value.phase <= 32
+end
+
+local function copyProgressReport(value)
+    if value == nil then return nil end
+    return { at = value.at, collected = value.collected,
+        requested = value.requested, phase = value.phase }
 end
 
 local function distanceToPoint(actor, point)
@@ -552,6 +627,10 @@ end
 
 function Expedition.start(records, plan)
     if mission ~= nil then return false, "expedition_already_active" end
+    pruneCompletedDeliveries()
+    if #pendingDeliveries >= 32 then
+        return false, "pending_delivery_limit"
+    end
     if SC.BaseWatch and SC.BaseWatch.current and SC.BaseWatch.current() then
         return false, "base_watch_uses_companion_view"
     end
@@ -609,12 +688,19 @@ function Expedition.start(records, plan)
             or arriveByHour > departureHour + 24) then
             return false, "invalid_return_time"
         end
+        local searchPlan = type(plan) == "table" and plan.kind == "search"
         local player = type(getSpecificPlayer) == "function"
             and getSpecificPlayer(0) or nil
         local returnPoint = player and {
             x = math.floor(player:getX()), y = math.floor(player:getY()),
             z = math.floor(player:getZ()),
         } or nil
+        local homeBase = searchPlan and SC.BaseLife
+            and SC.BaseLife.active() or nil
+        if homeBase and validPoint(homeBase.core)
+            and homeBase.core.z == plan.destination.z then
+            returnPoint = copyPoint(homeBase.core)
+        end
         local carPlan, carReason
         if travelMode == "drive" then
             if not SC.ExpeditionCar then return false, "driving_unavailable" end
@@ -631,7 +717,6 @@ function Expedition.start(records, plan)
             returnPoint = { x = math.floor(ax), y = math.floor(ay),
                 z = math.floor(az) }
         end
-        local searchPlan = type(plan) == "table" and plan.kind == "search"
         local fishingPlan = searchPlan and type(plan.request) == "table"
             and plan.request.category == "fish"
         local destinationRadius = SC.Config and SC.Config.get(fishingPlan
@@ -694,6 +779,7 @@ function Expedition.start(records, plan)
                 request = copyRequest(plan.request), acquisitions = {},
                 radius = plan.radius or 5,
             } or nil,
+            homeBaseId = homeBase and homeBase.id or nil,
             roadRoute = roadRoute,
             road = roadRoute and SC.ExpeditionRoute.descriptor(
                 roadRoute, "outbound") or nil,
@@ -720,7 +806,7 @@ function Expedition.start(records, plan)
         return false, tostring(promoted)
     end
     lastOutcome = nil
-    lastDebrief = nil
+    -- Keep the previous debrief visible while a subsequent trip is underway.
     -- Departure is local. Neither the player nor any team member needs a radio.
     -- The scoped test link below is the only remote order entry point so far.
     mission = {
@@ -729,11 +815,20 @@ function Expedition.start(records, plan)
         slotSqlId = SC.ViewSession.slotSqlId() or reusableSlotSqlId,
         radioSequence = 0,
         scout = scout,
+        homeBaseId = scout and scout.homeBaseId or nil,
+        restockBaseDuty = type(plan) == "table"
+            and plan.restockBaseDuty == true or false,
+        commandSerials = {},
         radioSession = tostring(type(getTimestampMs) == "function"
                 and getTimestampMs() or 0)
             .. ":" .. tostring(type(ZombRand) == "function"
                 and ZombRand(2147483647) or 0),
     }
+    for _, member in ipairs(roster) do
+        local state = SC.Commands and SC.Commands.peek(member.actor)
+        mission.commandSerials[member.id] =
+            tonumber(state and state.commandSerial) or 0
+    end
     if Events and Events.OnDeviceText then
         Events.OnDeviceText.Add(radioTextReceived)
         mission.radioTextHooked = true
@@ -830,6 +925,7 @@ function Expedition.startAtFishingBank(records, bankId, options)
         travelMode = options.travelMode,
         parkingZoneId = options.parkingZoneId,
         vehicleSqlId = options.vehicleSqlId,
+        restockBaseDuty = options.restockBaseDuty == true,
     })
 end
 
@@ -889,6 +985,7 @@ function Expedition.startAtPlace(records, placeId, kind, options)
         travelMode = options.travelMode,
         parkingZoneId = options.parkingZoneId,
         vehicleSqlId = options.vehicleSqlId,
+        restockBaseDuty = options.restockBaseDuty == true,
     })
 end
 
@@ -986,12 +1083,14 @@ end
 -- Persist only stable companion IDs and command serials. Native actors,
 -- chunk maps, UI, and in-flight radio callbacks cannot cross a save boundary.
 function Expedition.export()
+    pruneCompletedDeliveries()
     if mission == nil or mission.terminal then
         local idleSlotId = SC.ViewSession.slotSqlId() or reusableSlotSqlId
         if validSlotSqlId(idleSlotId) then
             return { schema = 2, state = "idle",
                 slotSqlId = idleSlotId,
-                debrief = copyDebrief(lastDebrief) }
+                debrief = copyDebrief(lastDebrief),
+                deliveries = copyDeliveryList(pendingDeliveries) }
         end
         return nil
     end
@@ -1037,6 +1136,14 @@ function Expedition.export()
         leaderId = leaderId, radioSession = mission.radioSession,
         doctrine = mission.doctrine,
         radioSequence = mission.radioSequence,
+        homeBaseId = mission.homeBaseId,
+        restockBaseDuty = mission.restockBaseDuty,
+        commandSerials = mission.commandSerials,
+        integration = mission.integration and SC.ExpeditionIntegration
+            and SC.ExpeditionIntegration.copy(mission.integration) or nil,
+        deliveries = copyDeliveryList(pendingDeliveries),
+        progressReport = copyProgressReport(mission.lastProgressReport),
+        debrief = copyDebrief(lastDebrief),
         slotSqlId = slotSqlId,
         scout = mission.scout and {
             kind = mission.scout.kind,
@@ -1135,7 +1242,8 @@ function Expedition.restore(saved)
         if saved.state ~= "idle" or not validSlotSqlId(saved.slotSqlId)
             or saved.roster ~= nil or saved.survivors ~= nil
             or saved.leaderId ~= nil
-            or (saved.debrief ~= nil and not validDebrief(saved.debrief)) then
+            or (saved.debrief ~= nil and not validDebrief(saved.debrief))
+            or not validDeliveryList(saved.deliveries) then
             return false, "saved idle expedition slot is invalid"
         end
         reusableSlotSqlId = saved.slotSqlId
@@ -1143,6 +1251,7 @@ function Expedition.restore(saved)
             SC.ViewSession.rememberSlotSqlId(saved.slotSqlId)
         end
         lastDebrief = copyDebrief(saved.debrief)
+        pendingDeliveries = copyDeliveryList(saved.deliveries)
         return true
     end
     if type(saved) ~= "table" or (saved.schema ~= 1
@@ -1159,7 +1268,17 @@ function Expedition.restore(saved)
         or saved.radioSequence < 0 or saved.radioSequence > 1000000
         or saved.radioSequence ~= math.floor(saved.radioSequence)
         or (saved.slotSqlId ~= nil
-            and not validSlotSqlId(saved.slotSqlId)) then
+            and not validSlotSqlId(saved.slotSqlId))
+        or (saved.homeBaseId ~= nil
+            and (type(saved.homeBaseId) ~= "string"
+                or #saved.homeBaseId < 1 or #saved.homeBaseId > 128))
+        or (saved.restockBaseDuty ~= nil
+            and type(saved.restockBaseDuty) ~= "boolean")
+        or (saved.integration ~= nil and (not SC.ExpeditionIntegration
+            or not SC.ExpeditionIntegration.valid(saved.integration)))
+        or not validDeliveryList(saved.deliveries)
+        or not validProgressReport(saved.progressReport)
+        or (saved.debrief ~= nil and not validDebrief(saved.debrief)) then
         return false, "saved expedition descriptor is invalid"
     end
     local scout = saved.scout
@@ -1329,6 +1448,17 @@ function Expedition.restore(saved)
         end
         survivors[id] = true
     end
+    if saved.commandSerials ~= nil then
+        if type(saved.commandSerials) ~= "table" then
+            return false, "saved expedition order snapshot is invalid"
+        end
+        for id, serial in pairs(saved.commandSerials) do
+            if not known[id] or type(serial) ~= "number" or serial < 0
+                or serial > 10000000 or serial ~= math.floor(serial) then
+                return false, "saved expedition order snapshot is invalid"
+            end
+        end
+    end
     mission = {
         roster = roster, leader = nil, members = {}, survivors = survivors,
         doctrine = saved.doctrine,
@@ -1336,10 +1466,18 @@ function Expedition.restore(saved)
         radioSequence = saved.radioSequence,
         slotSqlId = saved.slotSqlId,
         scout = scout,
+        homeBaseId = saved.homeBaseId,
+        restockBaseDuty = saved.restockBaseDuty == true,
+        commandSerials = saved.commandSerials or {},
+        integration = saved.integration and SC.ExpeditionIntegration.copy(
+            saved.integration) or nil,
+        lastProgressReport = copyProgressReport(saved.progressReport),
         restoring = true,
         technicalIssue = { reason = "expedition_restart_waiting_for_native_team" },
     }
     reusableSlotSqlId = saved.slotSqlId
+    pendingDeliveries = copyDeliveryList(saved.deliveries)
+    lastDebrief = copyDebrief(saved.debrief)
     if saved.slotSqlId and SC.ViewSession.slotSqlId() == nil then
         SC.ViewSession.rememberSlotSqlId(saved.slotSqlId)
     end
@@ -1351,7 +1489,88 @@ end
 
 function Expedition.current() return mission end
 function Expedition.lastOutcome() return lastOutcome end
-function Expedition.lastDebrief() return copyDebrief(lastDebrief) end
+function Expedition.lastDebrief()
+    local copy = copyDebrief(lastDebrief)
+    if copy and copy.kind == "search" and copy.integration then
+        for _, record in ipairs(pendingDeliveries) do
+            if record.tripId == copy.integration.tripId then
+                copy.integration = SC.ExpeditionIntegration.copy(record)
+                copy.returnedIds = {}
+                for _, row in ipairs(record.items) do
+                    if row.returned then
+                        copy.returnedIds[#copy.returnedIds + 1] = row.id
+                    end
+                end
+                break
+            end
+        end
+    end
+    return copy
+end
+
+function Expedition.pendingDeliveryReports()
+    local reports = {}
+    for _, record in ipairs(pendingDeliveries) do
+        reports[#reports + 1] = {
+            tripId = record.tripId,
+            summary = SC.ExpeditionIntegration.summary(record),
+        }
+    end
+    return reports
+end
+
+local function homecomingRecord()
+    if mission == nil or mission.scout == nil
+        or mission.scout.search == nil
+        or mission.scout.phase ~= "awaiting_player"
+        or mission.integration ~= nil
+        or not SC.ExpeditionIntegration then return end
+    mission.integration = SC.ExpeditionIntegration.create(mission)
+    if mission.integration then
+        SC.ExpeditionIntegration.refresh(mission.integration)
+    end
+end
+
+function Expedition.integrationFor(actor)
+    if not actor or not SC.ExpeditionIntegration then return nil end
+    if mission and mission.members[actor] then
+        local record = mission.integration
+        return record and SC.ExpeditionIntegration.wants(record, actor)
+            and record or nil
+    end
+    for _, record in ipairs(pendingDeliveries) do
+        if SC.ExpeditionIntegration.wants(record, actor) then return record end
+    end
+    return nil
+end
+
+function Expedition.updateIntegration(actor)
+    local record = Expedition.integrationFor(actor)
+    if not record then return false, "delivery_not_ready" end
+    return SC.ExpeditionIntegration.update(record, actor)
+end
+
+function Expedition.receiptPending(item)
+    if not item then return false end
+    local id = SC.GameplayUtil.itemStableId(item, false)
+    if not id then return false end
+    if mission and mission.scout and mission.scout.search then
+        for _, receipt in ipairs(mission.scout.search.acquisitions) do
+            if receipt.id == id then
+                if not mission.integration then return true end
+                for _, row in ipairs(mission.integration.items) do
+                    if row.id == id then return row.stored ~= true end
+                end
+            end
+        end
+    end
+    for _, record in ipairs(pendingDeliveries) do
+        for _, row in ipairs(record.items) do
+            if row.id == id then return row.stored ~= true end
+        end
+    end
+    return false
+end
 
 -- Runtime calls this before disposing native actors. Keep the mission's stable
 -- descriptor available to the save owner until world teardown commits.
@@ -1417,6 +1636,10 @@ function Expedition.reset()
     mission = nil
     lastOutcome = nil
     lastDebrief = nil
+    pendingDeliveries = {}
+    if SC.ExpeditionIntegration and SC.ExpeditionIntegration.reset then
+        SC.ExpeditionIntegration.reset()
+    end
     reusableSlotSqlId = nil
     holdColdHandoffForTest = false
     return true
@@ -1531,6 +1754,29 @@ function Expedition.describeForPlayer(viewer)
             visible = visible,
         }
     end
+    local progress
+    if itinerary and itinerary.search then
+        local observed = 0
+        for _, receipt in ipairs(itinerary.search.acquisitions) do
+            for _, row in ipairs(members) do
+                if row.id == receipt.memberId and row.visible then
+                    observed = observed + 1
+                    break
+                end
+            end
+        end
+        if visibleMembers > 0 then
+            progress = { collected = observed,
+                requested = itinerary.search.request.quantity,
+                partial = visibleMembers < #members,
+                source = "visible" }
+        elseif mission.lastProgressReport then
+            local report = mission.lastProgressReport
+            progress = { collected = report.collected,
+                requested = report.requested, phase = report.phase,
+                at = report.at, source = "radio" }
+        end
+    end
     return {
         leaderName = leader and leader.name or "?",
         leaderVisible = leaderVisible,
@@ -1548,6 +1794,10 @@ function Expedition.describeForPlayer(viewer)
         vehicleIssue = itinerary and itinerary.vehicle
             and itinerary.vehicle.blocker or mission.vehicleRestoreIssue,
         members = members,
+        supplyProgress = progress,
+        delivery = visibleMembers > 0 and mission.integration
+            and SC.ExpeditionIntegration
+            and SC.ExpeditionIntegration.summary(mission.integration) or nil,
         helpRequest = viewer ~= nil
             and type(getSpecificPlayer) == "function"
             and getSpecificPlayer(0) == viewer
@@ -1724,7 +1974,9 @@ function Expedition.sendRadioOrder(player, command, payload)
     local blockDecision = command == "expedition_decision"
         and (payload == "return" or payload == "push_on"
             or payload == "hold_position")
-    if not returnNow and not blockDecision and (command ~= "set_move_mode"
+    local progressRequest = command == "progress_report" and payload == "status"
+    if not returnNow and not blockDecision and not progressRequest
+        and (command ~= "set_move_mode"
         or (payload ~= "walk" and payload ~= "sneak")) then
         return false, "unsupported_radio_order"
     end
@@ -1774,6 +2026,17 @@ function Expedition.sendRadioOrder(player, command, payload)
     if pending.received ~= true or not alive(mission.leader)
         or mission.leader.actor ~= pending.leader then
         return false, "radio_no_ack"
+    end
+    if progressRequest then
+        local search = mission.scout and mission.scout.search
+        if not search then return false, "no_supply_request" end
+        mission.lastProgressReport = {
+            at = scoutWorldHour() or 0,
+            collected = #search.acquisitions,
+            requested = search.request.quantity,
+            phase = mission.scout.phase,
+        }
+        return true, "progress_acknowledged"
     end
     if returnNow then
         local leader = mission.leader.actor
@@ -3294,6 +3557,7 @@ local function pulseScout()
     end
     if not scoutFollowersNearLeader() then return end
     if scout.phase == "awaiting_player" then
+        homecomingRecord()
         local player = getSpecificPlayer(0)
         if player ~= nil then Expedition.finishAtPlayer(player) end
         return
@@ -3723,6 +3987,17 @@ function Expedition.finishAtPlayer(player)
     if mission.pendingRadio ~= nil or mission.technicalIssue ~= nil then
         return false, "return_busy_or_paused"
     end
+    if mission.homeBaseId and SC.BaseLife and SC.BaseLife.active()
+        and SC.BaseLife.active().id == mission.homeBaseId
+        and not SC.BaseLife.isInside(mission.leader.actor)
+        and not SC.BaseLife.isInside(mission.leader.actor, "parking") then
+        return false, "return_to_camp_for_delivery"
+    end
+    if mission.homeBaseId and mission.scout and mission.scout.search
+        and mission.scout.phase ~= "awaiting_player" then
+        return false, "return_route_not_finished"
+    end
+    homecomingRecord()
     if mission.scout and mission.scout.vehicle then
         local car = mission.scout.vehicle
         if car.state ~= "home_wait" and car.state ~= "abandoned" then
@@ -3794,6 +4069,17 @@ function Expedition.finishAtPlayer(player)
     end
     local pendingDebrief = mission.scout and mission.scout.search
         and searchDebrief(mission.scout) or nil
+    if pendingDebrief and mission.integration then
+        SC.ExpeditionIntegration.refresh(mission.integration)
+        pendingDebrief.integration = SC.ExpeditionIntegration.copy(
+            mission.integration)
+        pendingDebrief.returnedIds = {}
+        for _, row in ipairs(mission.integration.items) do
+            if row.returned then
+                pendingDebrief.returnedIds[#pendingDebrief.returnedIds + 1] = row.id
+            end
+        end
+    end
     local identityOk, slotSqlId = pcall(
         SCSplitScreenProbe.persistJoinedLeaderSlotForReuse)
     if not identityOk or not validSlotSqlId(slotSqlId) then
@@ -3830,6 +4116,9 @@ function Expedition.finishAtPlayer(player)
                 and mission.scout.vehicle.abandonedAt
                 and copyPoint(mission.scout.vehicle.abandonedAt) or nil,
         }
+    end
+    if mission.integration then
+        pendingDeliveries[#pendingDeliveries + 1] = mission.integration
     end
     mission = nil
     reusableSlotSqlId = slotSqlId

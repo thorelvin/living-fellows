@@ -832,13 +832,29 @@ started, newMission = expedition.start({ { id = "delta", actor = reserve } }, {
 })
 check(started and newMission.scout.turnHomeAtHour == 700.5,
     "a supply trip stores the same whole-trip deadline")
+do
+receiver.container = {}
+local silentReport, silentReason = expedition.sendRadioOrder(player,
+    "progress_report", "status")
+check(silentReport == false and silentReason == "radio_no_ack"
+        and newMission.lastProgressReport == nil,
+    "a progress request without the leader's exact radio receipt reveals nothing")
+receiver.container = reserveInventory
+local heardReport, heardReason = expedition.sendRadioOrder(player,
+    "progress_report", "status")
+check(heardReport == true and heardReason == "progress_acknowledged"
+        and newMission.lastProgressReport.collected == 0,
+    "the acknowledged report snapshots the actual searched-item count")
+end
 observed = expedition.describeForPlayer(nil)
 check(observed.leaderName == "Test Leader"
         and observed.kind == "search"
         and observed.turnHomeAtHour == 700.5
         and observed.members[1].name == "Test Leader"
         and observed.members[1].visible == false
-        and observed.phase == nil and observed.members[1].x == nil,
+        and observed.phase == nil and observed.members[1].x == nil
+        and observed.supplyProgress.source == "radio"
+        and observed.supplyProgress.collected == 0,
     "known departure details remain visible without live mission progress")
 local savedDoctrine = { combatDoctrine = "weapons_free",
     combatMode = "aggressive", holdFire = false }
@@ -854,6 +870,8 @@ scoutClock = scoutClock + 1000
 expedition.pulse()
 local timedSearchSave = expedition.export()
 check(timedSearchSave.scout.phase == "inbound"
+        and timedSearchSave.progressReport.collected == 0
+        and timedSearchSave.progressReport.at == 700
         and timedSearchSave.doctrine == "stealth"
         and timedSearchSave.rosterNames.delta == "Test Leader"
         and timedSearchSave.scout.search.startedHour == nil
@@ -863,6 +881,9 @@ check(timedSearchSave.scout.phase == "inbound"
     "a search may turn home before site arrival and restore that itinerary")
 check(expedition.current().doctrine == "stealth",
     "mission-only combat doctrine survives restart")
+check(expedition.describeForPlayer(nil).supplyProgress.source == "radio"
+        and expedition.describeForPlayer(nil).supplyProgress.at == 700,
+    "save and load preserve only the last acknowledged progress report")
 check(expedition.pulse() == true, "the timed search reacquires its leader")
 expedition.pulse()
 local timedSearchDebrief = expedition.lastDebrief()
@@ -2402,6 +2423,81 @@ end)()
         "the straggler return probe releases the assembled team")
     actors.escort = nil
     actorRuntimes.escort = nil
+end)()
+
+;(function()
+    local oldBase = SC.BaseLife
+    local camp = { id = "camp:return", core = {
+        x = player.x, y = player.y, z = 0 } }
+    SC.BaseLife = {
+        active = function() return camp end,
+        isInside = function(actor)
+            return math.abs(actor.x - camp.core.x) <= 1
+                and math.abs(actor.y - camp.core.y) <= 1
+        end,
+    }
+    reserve.x, reserve.y = player.x + 3, player.y
+    local started, returning = expedition.start(
+        { { id = "delta", actor = reserve } },
+        { kind = "search", destination = {
+            x = player.x + 60, y = player.y, z = 0 },
+            request = { category = "useful", quantity = 1 } })
+    check(started == true and returning.homeBaseId == camp.id
+            and returning.scout.returnPoint.x == camp.core.x,
+        "a camp-launched search records the camp as its return point")
+    returning.scout.phase = "awaiting_player"
+    local released, blocked = expedition.finishAtPlayer(player)
+    check(released == false and blocked == "return_to_camp_for_delivery"
+            and expedition.current() == returning,
+        "meeting the player outside camp keeps the return view and itinerary")
+    reserve.x, reserve.y = camp.core.x, camp.core.y
+    check(expedition.finishAtPlayer(player) == true,
+        "the team can hand off the view once it reaches camp")
+    SC.BaseLife = oldBase
+end)()
+
+-- The exact item transaction is covered by expedition_integration_harness;
+-- this checks the expedition owner's save boundary and the next launch.
+;(function()
+    local function copyValue(value)
+        if type(value) ~= "table" then return value end
+        local result = {}
+        for key, child in pairs(value) do result[key] = copyValue(child) end
+        return result
+    end
+    SC.ExpeditionIntegration = {
+        valid = function(value)
+            return type(value) == "table" and value.version == 1
+                and type(value.tripId) == "string"
+        end,
+        copy = copyValue,
+    }
+    local oldDebrief = copyValue(searchDebrief)
+    local exact = oldDebrief.acquisitions[1]
+    local pending = { version = 1, tripId = "prior-trip",
+        requested = 1, restock = false, members = {},
+        items = { { id = exact.id, itemType = exact.itemType,
+            stored = false, returned = true,
+            finderName = "Earlier finder", carrierName = "Earlier carrier",
+            reason = "matching_storage_full" } } }
+    oldDebrief.integration = copyValue(pending)
+    local saved = { schema = 2, state = "idle", slotSqlId = 2,
+        debrief = oldDebrief, deliveries = { pending } }
+    check(expedition.restore(saved) == true
+            and expedition.lastDebrief().integration.tripId == "prior-trip",
+        "an unfinished exact delivery and its debrief restore together")
+    local roundTrip = expedition.export()
+    check(roundTrip.deliveries[1].items[1].reason
+            == "matching_storage_full"
+            and roundTrip.debrief.integration.items[1].id == exact.id,
+        "pending item status remains in an idle save")
+    local nextStarted = expedition.start({ { id = "delta", actor = reserve } },
+        { kind = "scout", destination = { x = 80, y = 20, z = 0 } })
+    local nextSave = expedition.export()
+    check(nextStarted == true and nextSave.deliveries[1].tripId
+            == "prior-trip" and nextSave.debrief.integration.tripId
+            == "prior-trip",
+        "a subsequent expedition preserves the earlier debrief and delivery")
 end)()
 
 print("EXPEDITION_RESTART_KAHLUA_PASS checks=" .. tostring(checks))

@@ -1034,6 +1034,11 @@ local function classifyItem(item)
     return "crafting", false
 end
 
+-- Expedition receipts use the same category decision as ordinary camp sorting.
+function BaseWork.classifyItem(item)
+    return classifyItem(item)
+end
+
 -- General and output storage are staging shelves: sorting empties them. A
 -- specific shelf keeps an item unless it surely belongs somewhere else, so a
 -- hammer in Tools, a shotgun shell in Ammunition or a pill in Medical stays.
