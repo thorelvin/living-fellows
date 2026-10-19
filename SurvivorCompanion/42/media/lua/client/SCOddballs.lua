@@ -1281,7 +1281,8 @@ function Oddballs.nativeBedFootEntry(bed, actor)
         }
     end
     local room = select(1, U().call(square, "getRoom"))
-    local actorX, actorY = actor and U().position(actor)
+    local actorX, actorY
+    if actor then actorX, actorY = U().position(actor) end
     local best, bestRank, bestDistance
     for index, point in ipairs(candidates) do
         local tile = U().gridSquare(math.floor(point[1]),

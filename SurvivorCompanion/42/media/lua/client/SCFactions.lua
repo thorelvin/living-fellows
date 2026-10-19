@@ -1589,6 +1589,7 @@ local function createGroup(house, size, debugCreated, archetype, loadoutOverride
             square = U().gridSquare(point.x, point.y, point.z or 0)
             if square == nil then squareReason = "oddball_spawn_square_unloaded" end
         else
+            local _
             square, _, squareReason = chooseMemberSquare(group, index)
         end
         if square == nil then

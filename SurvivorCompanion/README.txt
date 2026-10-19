@@ -1,7 +1,8 @@
-Living Fellows 0.26.50 - public playtest
+Living Fellows 0.26.51 - public playtest
 
-This playtest ends companion clap and surrender poses after a short time, and
-uses the correct other-person animation when the player bandages a companion.
+This playtest prevents field harvests from overloading companions and keeps
+reserved work cargo from making them shed their own gear. It also fixes several
+work, encounter and native action recovery failures.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added

@@ -1055,7 +1055,6 @@ end
 
 Navigation._treeClearanceCostForTests = treeClearanceCost
 Navigation._vehicleClearanceCostForTests = vehicleClearanceCost
-Navigation._passableEdgeForTests = function(...) return passableEdge(...) end
 Navigation._squareHasBushForTests = squareHasBush
 Navigation._squareIsHedgeForTests = squareIsHedge
 

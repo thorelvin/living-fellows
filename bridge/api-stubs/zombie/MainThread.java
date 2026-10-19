@@ -10,7 +10,19 @@ public final class MainThread {
 
     private MainThread() {}
 
-    public static void queueInvokeOnMainThread(Runnable task) { QUEUE.add(task); }
+    private static volatile RuntimeException nextQueueFailure;
+
+    public static void queueInvokeOnMainThread(Runnable task) {
+        RuntimeException failure = nextQueueFailure;
+        if (failure != null) {
+            nextQueueFailure = null;
+            throw failure;
+        }
+        QUEUE.add(task);
+    }
+    public static void failNextQueueForTests(RuntimeException failure) {
+        nextQueueFailure = failure;
+    }
     public static boolean isRunning() { return true; }
     public static int queuedForTests() { return QUEUE.size(); }
     public static void runNextForTests() {

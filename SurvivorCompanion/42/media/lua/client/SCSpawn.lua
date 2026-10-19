@@ -1012,13 +1012,6 @@ function spawn.productionPulse(player, runtime, current)
     if neutral >= SC.Config.get("maxNeutralEncounters") then
         return false, "neutral encounter already active"
     end
-    if SC.Encounter ~= nil and type(SC.Encounter.canSpawnEncounter) == "function" then
-        local ok, eligible, reason = pcall(SC.Encounter.canSpawnEncounter, player, runtime or {})
-        if not ok or eligible ~= true then
-            return false, ok and (reason or "encounter eligibility rejected") or tostring(eligible)
-        end
-    end
-
     -- Record every bounded attempt, successful or not, so an unavailable square
     -- never turns the cadence into broad repeated world scans.
     lastProductionAttempt = current

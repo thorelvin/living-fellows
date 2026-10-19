@@ -587,6 +587,50 @@ check(sharedAxe.container == car.part.bag
     "moved car receives the exact axe once before new work resumes")
 car.x, car.y, one.x, one.y = 101, 101, 100, 99
 player.x, player.y = 100, 100
+-- A worker who still owes an axe to a car that is gone keeps using that axe
+-- for new woodcutting instead of sitting out every later order.
+Field.restore(nil)
+one.bag, two.bag, car.part.bag = inventory(), inventory(), inventory()
+one.follow, two.follow = true, false
+one.pending, one.active = nil, false
+local owedAxe = item("Base.Axe", true)
+put(car.part.bag, owedAxe)
+Field.observePlayerVehicle(car)
+check(Field.start("chop", sharedTree, player) == true,
+    "owed-axe woodcut starts")
+for _ = 1, 12 do
+    Field.update(one, player)
+    if owedAxe.container == one.bag then break end
+end
+check(owedAxe.container == one.bag, "worker borrows the axe it will owe")
+car.locked = true
+Field.stop("car_left")
+check(Field.status().pendingAxeReturns == 1
+    and owedAxe.data.LF_FieldBorrowedAxe ~= nil,
+    "stopped woodcut leaves an exact axe return")
+local originalLoadedBySqlId = SC.Vehicle.loadedBySqlId
+car.id, car.locked = 43, false
+SC.Vehicle.loadedBySqlId = function(id) return id == car.id and car or nil end
+one.pending, one.active = nil, false
+Field.observePlayerVehicle(car)
+check(Field.start("chop", sharedTree, player) == true,
+    "new woodcut starts after the original car is gone")
+for _ = 1, 20 do
+    Field.update(one, player)
+    if one.pending and one.pending.action == "chop_tree" then break end
+end
+check(one.pending and one.pending.action == "chop_tree"
+    and one.pending.tool == owedAxe
+    and Field.status().phase == "working"
+    and Field.status().pendingAxeReturns == 1
+    and owedAxe.data.LF_FieldBorrowedAxe ~= nil,
+    "worker chops with the axe it still owes instead of leaving the order: "
+        .. tostring(Field.status().phase) .. "/"
+        .. tostring(Field.export().active
+            and Field.export().active.workers.one.phase))
+Field.stop("test")
+SC.Vehicle.loadedBySqlId = originalLoadedBySqlId
+car.id = 42
 Field.restore(nil)
 one.bag, two.bag, car.part.bag = inventory(), inventory(), inventory()
 two.follow = false
@@ -709,6 +753,73 @@ Field.stop("test")
 check(harvested.data.LF_FieldCarryWorker == "one"
     and Field.reserved(harvested) == true,
     "stopping an order retains undelivered crops for player pickup")
+-- Playtest: a no-car harvest kept for pickup must never make a companion
+-- shed his own gear, and one plant must not carry him past his capacity.
+Field.restore(nil)
+one.bag, two.bag, car.part.bag = inventory(), inventory(), inventory()
+one.x, one.y, player.x, player.y = 100, 99, 100, 100
+one.follow, two.follow = true, false
+one.pending, one.active = nil, false
+for _, entry in pairs(squares) do entry.plant = nil end
+for _ = 1, 3 do put(one.bag, item("Base.Pen")) end
+local firstCrop, secondCrop = cropAt(100, 100, true), cropAt(101, 100, true)
+check(Field.start("harvest", firstCrop, player) == true,
+    "capacity-aware harvest starts without a car")
+for _ = 1, 80 do
+    Field.update(one, player)
+    if one.pending and one.pending.operation == "harvest" and one.active then break end
+end
+check(one.pending and one.pending.operation == "harvest",
+    "first crop harvest starts at 30% load")
+local firstPlant = one.pending.plant
+finish(one, "harvest", 4)
+advance({ one }, 40)
+check(Field.status().phase == "complete"
+    and (firstPlant == firstCrop.plant and secondCrop.plant.ripe == true
+        or firstPlant == secondCrop.plant and firstCrop.plant.ripe == true)
+    and #one.bag.items == 7,
+    "a second four-item yield from 70% load would exceed capacity, so the "
+        .. "worker stops instead: " .. tostring(Field.status().phase) .. "/"
+        .. tostring(#one.bag.items))
+utility.hasMethod = utility.hasMethod or function(value, name)
+    return type(value) == "table" and type(value[name]) == "function"
+end
+utility.instanceOf = utility.instanceOf or function() return false end
+local function edible(value) value.getCalories = function() return 50 end return value end
+for _, value in ipairs(one.bag.items) do
+    if value.kind == "Base.Cabbage" then edible(value) end
+end
+local ration = edible(item("Base.Apple"))
+local idCard = item("Base.IDcard")
+put(one.bag, ration)
+put(one.bag, idCard)
+local keptCabbages = 0
+for _, value in ipairs(one.bag.items) do
+    if value.data.LF_FieldCarryWorker == "one" and Field.reserved(value) then
+        keptCabbages = keptCabbages + 1
+    end
+end
+local load = SC.Logistics.status(one)
+check(keptCabbages == 4 and load.ratio > load.softRatio
+    and load.surplus == nil and load.shouldUnload == false
+    and (load.gearRatio or 1) < load.softRatio,
+    "kept harvest weight does not make the companion drop its own gear: "
+        .. tostring(load.ratio) .. "/" .. tostring(load.gearRatio) .. "/"
+        .. tostring(load.surplus and load.surplus.item.kind))
+local cabbageCount = 0
+for _, value in ipairs(one.bag.items) do
+    if value.kind == "Base.Cabbage" then cabbageCount = cabbageCount + 1 end
+end
+for _ = 1, 3 do put(one.bag, item("Base.Pen")) end
+for _ = 1, 3 do utility.nowMs() end -- past the 500 ms audit cache
+load = SC.Logistics.status(one)
+check((load.gearRatio or 0) > load.softRatio and load.surplus ~= nil
+    and load.surplus.item ~= ration
+    and load.surplus.item.data.LF_FieldCarryWorker == nil
+    and cabbageCount == 4,
+    "genuine gear overload still sheds, but rations are not inflated into "
+        .. "surplus by the kept harvest: "
+        .. tostring(load.surplus and load.surplus.item.kind))
 Field.restore(nil)
 local bad = Field.restore({ schema = 1, serial = -1 })
 check(bad == false, "malformed save rejected")

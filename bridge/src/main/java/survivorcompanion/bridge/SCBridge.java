@@ -1870,7 +1870,18 @@ public final class SCBridge {
      */
     static void queueCompanionActionStart(SCNativeCompanion actor, BaseAction action)
             throws RejectedExecutionException {
-        queueAfterLua(() -> actor.completeDeferredActionStart(action));
+        SPAWN_HANDOFF.execute(() -> {
+            try {
+                MainThread.queueInvokeOnMainThread(
+                        () -> actor.completeDeferredActionStart(action));
+            } catch (RuntimeException | LinkageError failure) {
+                // Without this the action would stay "pending" forever: Lua
+                // keeps waiting and a retry of the same action is ignored.
+                actor.failDeferredActionStart(action, "native action start queue failed: "
+                        + failure.getClass().getSimpleName()
+                        + messageSuffix(failure.getMessage()));
+            }
+        });
     }
 
     private static void queueSpawnAfterLua(long requestId) throws RejectedExecutionException {

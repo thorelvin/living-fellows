@@ -273,15 +273,50 @@ local function adoptHarvest(actor, worker, order)
         and worker.harvestTypes or {}) do
         allowed[itemType] = true
     end
+    local added = 0
     for _, item in ipairs(U().inventoryItems(inventory, 4096)) do
         local id = itemId(item)
         if id and worker.before[id] ~= true and marker(item) == nil
             and allowed[U().itemType(item)] == true then
             if not mark(item, order.id, tostring(U().idOf(actor))) then
                 return false, "cargo_marker_failed" end
+            added = added + U().itemWeight(item)
         end
     end
+    -- The largest yield seen so far predicts the next one; see fullLoad.
+    worker.yieldWeight = math.max(tonumber(worker.yieldWeight) or 0, added)
     return true
+end
+
+-- A worker stops taking new targets at 80% load. A harvest, however, adds its
+-- whole yield at once, and from 79% one plant could carry a companion past
+-- its capacity even with "Allow overload" off. For harvest, "full" therefore
+-- also means "the next plant would exceed what this companion may carry",
+-- using the largest yield seen this order or the crop's registered maximum.
+local FULL_LOAD = 0.8
+local function overloadAllowed(actor)
+    local data = select(1, U().call(actor, "getModData"))
+    return type(data) == "table" and data.SC_AllowOverload == true
+end
+local function propsYieldWeight(props)
+    if type(props) ~= "table" then return nil end
+    local count = tonumber(props.maxVegAutorized) or tonumber(props.maxVeg)
+    if not count or count <= 0 or type(props.vegetableName) ~= "string" then return nil end
+    local manager = type(getScriptManager) == "function" and getScriptManager() or nil
+    local script = manager and select(1, U().call(manager, "FindItem", props.vegetableName))
+    local weight = tonumber(script and select(1, U().call(script, "getActualWeight")))
+    if not weight or weight <= 0 then return nil end
+    return count * weight
+end
+local function fullLoad(actor, worker, order)
+    if order.kind ~= "harvest" then return FULL_LOAD end
+    local expected = math.max(tonumber(worker.yieldWeight) or 0,
+        tonumber(worker.yieldEstimate) or 0)
+    local _, capacity = U().inventoryLoad(actor)
+    if expected <= 0 or not capacity or capacity <= 0 then return FULL_LOAD end
+    local limit = overloadAllowed(actor)
+        and (tonumber(U().config("logisticsOverloadHardLoadRatio")) or 1.2) or 1.0
+    return math.max(0, math.min(FULL_LOAD, limit - expected / capacity))
 end
 local function woodOn(square, order, workerId, before)
     local result = {}
@@ -318,13 +353,19 @@ local function worldIds(square)
     end end
     return ids
 end
-local function axeIn(container)
+local function axeIn(container, ownerId)
+    local owed = ownerId ~= nil and pendingAxeReturns[tostring(ownerId)] or nil
     for _, item in ipairs(U().inventoryItems(container, 4096)) do
         local data = U().modData(item)
         -- An axe owed to an earlier car is not this order's free equipment.
+        -- The worker who owes it may still use it: the return obligation
+        -- stays on the axe, and dropping that worker from every later order
+        -- would strand them whenever the original car cannot be reached.
         if U().itemHasTag(item, "CHOP_TREE") and call(item, "isBroken") ~= true
             and (not data or data[AXE_MARK] == nil
-                or active and data[AXE_MARK] == active.id) then
+                or active and data[AXE_MARK] == active.id
+                or owed and data[AXE_MARK] == owed.orderId
+                    and itemId(item) == owed.itemId) then
             return item
         end
     end
@@ -695,7 +736,8 @@ function Field.start(kind, square, player)
             local lastReason = "car_entry_unavailable"
             for _, id in ipairs(roster) do
                 local actor = actorFor(id)
-                local seat, why = actor and unlockSeat(actor, vehicle)
+                local seat, why
+                if actor then seat, why = unlockSeat(actor, vehicle) end
                 if seat ~= nil then
                     unlock = { actorId = id, seat = seat,
                         stage = "boarding", startedAt = U().nowMs() }
@@ -710,7 +752,7 @@ function Field.start(kind, square, player)
         local equipped = false
         for _, id in ipairs(roster) do
             local actor = actorFor(id)
-            if actor and axeIn(U().inventory(actor)) then equipped = true break end
+            if actor and axeIn(U().inventory(actor), id) then equipped = true break end
         end
         if not equipped then
             return false, "axe_required_without_car"
@@ -959,7 +1001,10 @@ function Field.update(actor, player, snapshot)
                     pending.blocker = moveReason
                     if not workerFor(actor) then return false, moveReason end
                 elseif not U().inventoryContains(container, axe) then
-                    return false, "field_axe_return_unverified"
+                    -- Keep the obligation and say why, but do not hold a
+                    -- worker's current order hostage to a retry.
+                    pending.blocker = "field_axe_return_unverified"
+                    if not workerFor(actor) then return false, pending.blocker end
                 else
                     local data = U().modData(axe)
                     if data then data[AXE_MARK], data[WORKER_MARK] = nil, nil end
@@ -981,26 +1026,27 @@ function Field.update(actor, player, snapshot)
     local inventory = U().inventory(actor)
     if not inventory then return false, "inventory_unavailable" end
     local _, _, load = U().inventoryLoad(actor)
+    local full = fullLoad(actor, worker, order)
     if worker.phase == "full" then
-        if load < 0.8 then
+        if load < full then
             worker.phase, worker.afterDeposit = worker.afterDeposit or "seek", nil
             return true, "field_carry_space_restored"
         end
         completeIfFinished(order)
         return true, "field_carry_limit_reached"
     end
-    if #cargoItems(actor, order.id) > 0 and (load >= 0.8 or worker.phase == "deposit") then
+    if #cargoItems(actor, order.id) > 0 and (load >= full or worker.phase == "deposit") then
         if order.carId then
             if worker.phase == "wood" then worker.afterDeposit = "wood" end
             return loadCar(actor, worker, order)
         end
-        if load >= 0.8 then
+        if load >= full then
             worker.phase = "full"
             return true, "field_carry_limit_reached"
         end
     end
     if worker.phase == "waiting_axe" then
-        if axeIn(inventory) then
+        if axeIn(inventory, actorId) then
             worker.phase = "seek"
         else
             local _, _, container, reason = carNear(order.center, order.carId, order.kind)
@@ -1054,7 +1100,7 @@ function Field.update(actor, player, snapshot)
     end
     if order.kind == "chop" and (worker.phase == "seek"
         or worker.phase == "approach" or worker.phase == "start")
-        and not axeIn(inventory) then
+        and not axeIn(inventory, actorId) then
         if order.carId then worker.phase = "borrow" return true, "field_axe_needed" end
         worker.phase = "done"
         order.blocker = "axe_required_without_car"
@@ -1169,6 +1215,18 @@ function Field.update(actor, player, snapshot)
                 allow(props.produceExtra)
                 if object.hasSeed then allow(props.seedName) end
             end
+            worker.yieldEstimate = propsYieldWeight(props)
+            if load >= fullLoad(actor, worker, order) then
+                -- Even an empty-handed worker must not start a plant whose
+                -- yield could not be carried; say so instead of overloading.
+                release(worker)
+                if #cargoItems(actor, order.id) == 0 then
+                    order.blocker = "field_carry_limit_reached"
+                end
+                worker.phase = order.carId and #cargoItems(actor, order.id) > 0
+                    and "deposit" or "full"
+                return true, "field_carry_limit_reached"
+            end
         end
         if SC.Navigation and SC.Navigation.cancel then SC.Navigation.cancel(actor, "field_action") end
         if SC.NativeActions and SC.NativeActions.stopDirect then
@@ -1181,7 +1239,7 @@ function Field.update(actor, player, snapshot)
                 { operation = "harvest", plant = object, square = square })
         else
             okay, reason = U().move(actor, "walk", {
-                action = "chop_tree", tree = object, tool = axeIn(inventory),
+                action = "chop_tree", tree = object, tool = axeIn(inventory, actorId),
                 targetSquare = square,
             })
         end

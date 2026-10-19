@@ -405,8 +405,11 @@ local function siteForZone(zone, origin, actor, parkedCar)
                         local from = { x = sx, y = sy, z = 0 }
                         local pickup = { x = px, y = py, z = 0 }
                         local source = parkedCar and point(parkedCar) or from
-                        local routable, routeReason = source and pickupRoute(
-                            source, pickup, parkedCar ~= nil)
+                        local routable, routeReason
+                        if source then
+                            routable, routeReason = pickupRoute(
+                                source, pickup, parkedCar ~= nil)
+                        end
                         if routable then
                             return { spawn = from, pickup = pickup,
                                 facing = facing }
@@ -1239,8 +1242,12 @@ function Service.tick(current)
         local job = chauffeur and SC.Driving.jobStatus(chauffeur)
         if job and job.result == "arrived" then
             local car = cab()
-            local opened, doorReason = car and pickupDoor(car, true)
-            if not opened then visit.reason = doorReason return true end
+            local opened, doorReason
+            if car then opened, doorReason = pickupDoor(car, true) end
+            if not opened then
+                visit.reason = doorReason or "taxi_cab_unloaded"
+                return true
+            end
             local released, releaseReason = SC.Driving.release(chauffeur,
                 "taxi_waiting_for_passenger")
             if not released then visit.reason = releaseReason return true end

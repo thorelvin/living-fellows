@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 0.26.51 - Field harvest and recovery fixes
+
+- Crop workers estimate the next plant's yield and stop or unload before it would exceed their carrying capacity. An overload order still observes its configured limit.
+- Harvests, borrowed tools, expedition receipts, and other reserved work cargo no longer make companions discard their own food or gear as surplus. Genuine excess personal gear can still be sorted.
+- A woodcutter can keep working with an axe still owed to an earlier car; the exact return obligation remains recorded for later recovery.
+- Fixed Lua calls that could lose a second return value in cooking, cleaning, medical care, companion recovery, oddball bed entry, field work, and taxi arrival. Corrected faction counts in diagnostics and removed an encounter-only gate from ordinary ambient survivor spawning.
+- A failed native action handoff now releases its pending state and reports the queue failure instead of leaving the companion waiting indefinitely.
+- The native bridge protocol remains `42.21-isocompanion-24`; update the bridge JAR and Lua payload together.
+
 ## 0.26.50 - Companion emote and care animation fixes
 
 - Companion clapping and surrender gestures now end after a short pose. The game treats both as looping emotes, so companions already stuck in either pose are released after loading as well.

@@ -297,21 +297,79 @@ local function loadRatios(role, actor)
         U().config("logisticsHardLoadRatio") or 0.90
 end
 
+-- Exact items a job owns until it delivers them: field-order harvest, wood
+-- and borrowed axes, a harvest kept for pickup, refuel/upkeep supplies and
+-- expedition receipts. keptHarvestDeposit admits one case: a harvest kept for
+-- pickup because no car was chosen may go into camp storage.
+local function workCargo(actor, item, keptHarvestDeposit)
+    if SC.ExpeditionPrototype and SC.ExpeditionPrototype.receiptPending
+        and SC.ExpeditionPrototype.receiptPending(item) then return true end
+    local itemData = select(1, U().call(item, "getModData"))
+    if type(itemData) ~= "table" then return false end
+    -- Harvest and woodcut orders own their exact cargo until delivery or
+    -- cancellation. Generic overload handling must never drop it as surplus.
+    if (itemData.LF_FieldOrder ~= nil
+        or itemData.LF_FieldBorrowedAxe ~= nil
+        or itemData.LF_FieldCarryWorker ~= nil)
+        and SC.FieldWork and type(SC.FieldWork.reserved) == "function"
+        and SC.FieldWork.reserved(item) == true
+        and not (keptHarvestDeposit and itemData.LF_FieldOrder == nil
+            and itemData.LF_FieldBorrowedAxe == nil
+            and itemData.LF_FieldCarryWorker == tostring(U().idOf(actor) or "")) then
+        return true
+    end
+    if (itemData.LF_RefuelJobId ~= nil or itemData.LF_UpkeepJobId ~= nil)
+        and (not SC.BaseFuel or type(SC.BaseFuel.reserved) ~= "function"
+            or SC.BaseFuel.reserved(item) == true) then
+        return true
+    end
+    return false
+end
+
+-- Weight an item adds to the actor's own load. A worn bag's weight
+-- reduction applies to everything inside it, as in vanilla encumbrance.
+local function carriedWeight(item, source, root)
+    local weight = U().itemWeight(item)
+    if source == nil or source == root then return weight end
+    local holder = select(1, U().call(source, "getContainingItem"))
+    local reduction = tonumber(holder and select(1, U().call(holder, "getWeightReduction")))
+    if reduction and reduction > 0 and reduction <= 100 then
+        weight = weight * (1 - reduction / 100)
+    end
+    return weight
+end
+
 function Logistics.audit(actor)
     local role = Logistics.roleOf(actor)
     local profile = profiles[role] or profiles.generalist
-    local counts, items = {}, {}
+    local counts, gearCounts, items = {}, {}, {}
+    local cargoWeight = 0
+    local root = U().inventory(actor)
     local remaining = U().config("logisticsInventoryItemBudget") or 256
-    walkContainer(U().inventory(actor), { remaining = remaining }, function(item, source)
+    walkContainer(root, { remaining = remaining }, function(item, source)
         local category = Logistics.itemCategory(item)
         counts[category] = (counts[category] or 0) + 1
+        if workCargo(actor, item) then
+            cargoWeight = cargoWeight + carriedWeight(item, source, root)
+        else
+            gearCounts[category] = (gearCounts[category] or 0) + 1
+        end
         items[#items + 1] = { item = item, category = category, source = source }
         return true
     end)
     local weight, capacity, ratio, inventory = U().inventoryLoad(actor)
     local soft, hard = loadRatios(role, actor)
+    -- Playtest: a no-car harvest kept for pickup filled a companion to 76%,
+    -- and overload handling then dropped his own food, spare axe, rags and
+    -- ID cards to make room for cargo it may never drop. The harvest also
+    -- inflated the food count, so his rations scored as the worst surplus.
+    -- Shedding decisions therefore see only the actor's own gear; the real
+    -- load still reports overload and limits what the actor will pick up.
+    local gearRatio = capacity > 0
+        and math.max(0, weight - cargoWeight) / capacity or 0
     return {
         role = role, profile = profile, counts = counts, items = items,
+        gearCounts = gearCounts, cargoWeight = cargoWeight, gearRatio = gearRatio,
         weight = weight, capacity = capacity, ratio = ratio,
         softRatio = soft, hardRatio = hard, inventory = inventory,
         allowOverload = overloadAllowed(actor),
@@ -777,27 +835,7 @@ end
 -- car was chosen may go into camp storage. It is still never dropped.
 local function isProtected(actor, item, keptHarvestDeposit)
     if not actor or not item then return true end
-    if SC.ExpeditionPrototype and SC.ExpeditionPrototype.receiptPending
-        and SC.ExpeditionPrototype.receiptPending(item) then return true end
-    local itemData = select(1, U().call(item, "getModData"))
-    -- Harvest and woodcut orders own their exact cargo until delivery or
-    -- cancellation. Generic overload handling must never drop it as surplus.
-    if type(itemData) == "table" and (itemData.LF_FieldOrder ~= nil
-        or itemData.LF_FieldBorrowedAxe ~= nil
-        or itemData.LF_FieldCarryWorker ~= nil)
-        and SC.FieldWork and type(SC.FieldWork.reserved) == "function"
-        and SC.FieldWork.reserved(item) == true
-        and not (keptHarvestDeposit and itemData.LF_FieldOrder == nil
-            and itemData.LF_FieldBorrowedAxe == nil
-            and itemData.LF_FieldCarryWorker == tostring(U().idOf(actor) or "")) then
-        return true
-    end
-    if type(itemData) == "table" and (itemData.LF_RefuelJobId ~= nil
-        or itemData.LF_UpkeepJobId ~= nil) and (not SC.BaseFuel
-            or type(SC.BaseFuel.reserved) ~= "function"
-            or SC.BaseFuel.reserved(item) == true) then
-        return true
-    end
+    if workCargo(actor, item, keptHarvestDeposit) then return true end
     local category = select(1, U().call(item, "getCategory"))
     local fullType = U().itemType(item)
     if tostring(category) == "Literature" or string.find(
@@ -1035,11 +1073,12 @@ function Logistics.selectSurplus(actor, audit)
         local item = record.item
         if not isProtected(actor, item) then
             local category = record.category or Logistics.itemCategory(item)
-            local count = audit.counts[category] or 0
+            local count = (audit.gearCounts or audit.counts)[category] or 0
             local target = tonumber(audit.profile.target[category]) or 0
             local keep = tonumber(audit.profile.keep[category]) or 0
             local eligible = category == "general" or count > target
-                or (audit.ratio > audit.hardRatio and count > keep)
+                or ((audit.gearRatio or audit.ratio) > audit.hardRatio
+                    and count > keep)
             if eligible then
                 local score = (category == "general" and 100 or 35)
                     + math.max(0, count - target) * 12 + U().itemWeight(item) * 4
@@ -1235,7 +1274,7 @@ function Logistics.status(actor)
         audit.packMove = nil
     end
     local surplus = nil
-    if audit.capacity > 0 and audit.ratio > audit.softRatio then
+    if audit.capacity > 0 and (audit.gearRatio or audit.ratio) > audit.softRatio then
         surplus = Logistics.selectSurplus(actor, audit)
     end
     if not surplus then

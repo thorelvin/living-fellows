@@ -4761,9 +4761,10 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
                 end
                 return true, "clean_base"
             end
-            local finished, reason = SC.NativeActions
-                and type(SC.NativeActions.finishWork) == "function"
-                and SC.NativeActions.finishWork(actor)
+            local finished, reason
+            if SC.NativeActions and type(SC.NativeActions.finishWork) == "function" then
+                finished, reason = SC.NativeActions.finishWork(actor)
+            end
             if finished ~= true then return failActivity(actor, state,
                 reason or "native_cleaning_finish_failed") end
             cleaning.nativeCompleted = true

@@ -366,6 +366,17 @@ public final class SCNativeCompanion extends IsoPlayer {
         }
     }
 
+    /**
+     * The hand-off thread could not queue the start. Release the pending slot
+     * and record why, so Lua sees a failed start rather than one that never
+     * resolves. Safe off the main thread: both fields are thread-safe.
+     */
+    void failDeferredActionStart(BaseAction action, String failure) {
+        if (bridgePendingActionStarts.remove(action)) {
+            bridgeActionStartFailure = failure;
+        }
+    }
+
     /** Kahlua-safe ownership probe used during the deferred-start frame. */
     public boolean isCompanionActionStartPending(BaseAction action) {
         return action != null && bridgePendingActionStarts.contains(action);

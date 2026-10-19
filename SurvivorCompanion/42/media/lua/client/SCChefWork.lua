@@ -1462,9 +1462,9 @@ local function chooseRecipe(actor, state, job, scan, marked)
             end
             local basePresent
             if not item and spec.base ~= "Base.BreadSlices" then
-                _, basePresent = bestItem(allSources, function(candidate)
+                basePresent = select(2, bestItem(allSources, function(candidate)
                     return U().itemType(candidate) == spec.base
-                end)
+                end))
             end
             local possibleFilling = filling
             local preview = recipe and previewBase(spec, item, bread)
@@ -2331,11 +2331,11 @@ local function releaseSupplyTokens(actor, state, job)
         clear(state.resultItem)
         clear(state.emptyPot)
         for _, item in ipairs(state.portions or {}) do clear(item) end
-    for _, receipt in ipairs(receipts) do
-        if receipt.returned == true then
-            clear(returnedSupply(actor, state, receipt))
+        for _, receipt in ipairs(receipts) do
+            if type(receipt) == "table" and receipt.returned == true then
+                clear(returnedSupply(actor, state, receipt))
+            end
         end
-    end
     end
 end
 

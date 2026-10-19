@@ -40,7 +40,7 @@ end
 
 local function factionCount()
     local groups = safeCall(function()
-        return SC.Factions and SC.Factions.all and SC.Factions.all() or nil
+        return SC.Factions and SC.Factions.list and SC.Factions.list() or nil
     end, {})
     return type(groups) == "table" and #groups or 0
 end

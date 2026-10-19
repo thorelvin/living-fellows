@@ -827,8 +827,10 @@ local function vitalsTask(current)
                 if SC.Persistence
                     and type(SC.Persistence.loadedRecoverySquare) == "function" then
                     local square = postedRecoverySquare(record, current)
-                    local recovered, recoverReason = square
-                        and SC.Actor.recover(record.actor, square)
+                    local recovered, recoverReason
+                    if square then
+                        recovered, recoverReason = SC.Actor.recover(record.actor, square)
+                    end
                     if recovered == true then
                         healthy, healthReason = SC.Actor.validateNative(record.actor)
                         if healthy then
@@ -880,7 +882,8 @@ local function vitalsTask(current)
                 square = recoverySquare(currentPlayer)
                 if square ~= nil then squareReason = "near-player recovery fallback" end
             end
-            local recovered, recoverReason = square and SC.Actor.recover(record.actor, square)
+            local recovered, recoverReason
+            if square then recovered, recoverReason = SC.Actor.recover(record.actor, square) end
             if recovered == true then
                 healthy, healthReason = SC.Actor.validateNative(record.actor)
                 if healthy then

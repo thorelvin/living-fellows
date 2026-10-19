@@ -1438,8 +1438,10 @@ function Crisis.updateActor(actor, player)
     if id ~= crisis.subjectId then
         if crisis.phase == "resolved" and crisis.outcome == "mercy"
             and crisis.finalAuthorized and crisis.executorId == id then
-            local ok, reason = SC.NativeActions and SC.NativeActions.performEndOfLife
-                and SC.NativeActions.performEndOfLife(actor, "mercy", subject)
+            local ok, reason
+            if SC.NativeActions and SC.NativeActions.performEndOfLife then
+                ok, reason = SC.NativeActions.performEndOfLife(actor, "mercy", subject)
+            end
             if ok and U().isDead(subject) then
                 enterTerminal(crisis, "mercy_executed")
                 if SC.Diary and type(SC.Diary.noteMercyKilling) == "function" then
