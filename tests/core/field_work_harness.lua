@@ -553,6 +553,41 @@ check(sharedAxe.container == car.part.bag
     and sharedAxe.data.LF_FieldBorrowedAxe == nil,
     "cancelled woodcut returns the same borrowed axe to its car")
 Field.restore(nil)
+one.x, one.y, player.x, player.y = 100, 99, 100, 100
+two.follow = false
+Field.observePlayerVehicle(car)
+check(Field.start("chop", square(100, 100), player) == true,
+    "another woodcut starts before relocating its borrowed car")
+for _ = 1, 12 do
+    Field.update(one, player)
+    if sharedAxe.container == one.bag then break end
+end
+check(sharedAxe.container == one.bag, "worker borrows the original axe")
+Field.stop("relocate")
+car.x, car.y, one.x, one.y = 201, 201, 200, 199
+player.x, player.y = 200, 200
+car.locked = true
+check(Field.start("harvest", square(200, 200), player) == true,
+    "unrelated field work starts with an outstanding axe return")
+local pendingHandled, pendingReason = Field.update(one, player)
+check(pendingHandled == true and pendingReason ~= "car_trunk_locked"
+    and sharedAxe.container == one.bag
+    and Field.status().pendingAxeReturns == 1,
+    "inaccessible old return does not consume the new worker's update")
+car.locked = false
+check(Field.wants(one, player, SC.Commands.peek(one)) == true,
+    "old axe return follows its original car after a 100-tile move")
+for _ = 1, 8 do
+    if sharedAxe.container == car.part.bag then break end
+    Field.update(one, player)
+end
+check(sharedAxe.container == car.part.bag
+    and sharedAxe.data.LF_FieldBorrowedAxe == nil
+    and Field.status().pendingAxeReturns == 0,
+    "moved car receives the exact axe once before new work resumes")
+car.x, car.y, one.x, one.y = 101, 101, 100, 99
+player.x, player.y = 100, 100
+Field.restore(nil)
 one.bag, two.bag, car.part.bag = inventory(), inventory(), inventory()
 two.follow = false
 for _ = 1, 7 do put(one.bag, item("Base.Pen")) end

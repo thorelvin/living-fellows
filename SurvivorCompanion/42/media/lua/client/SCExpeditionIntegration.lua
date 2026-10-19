@@ -21,6 +21,31 @@ local function safeReason(reason)
     if reason == nil then return nil end
     return string.sub(tostring(reason), 1, 96)
 end
+
+-- Several unfinished trips may share one carrier. Keep their runtime routes
+-- and receipt retries separate, with a bound above the saved delivery limit.
+local function stateFor(record, actor, create)
+    local bucket = states[actor]
+    if not bucket then
+        if not create then return nil end
+        bucket = { byId = {}, order = {} }
+        states[actor] = bucket
+    end
+    local state = bucket.byId[record.tripId]
+    if not state and create then
+        if #bucket.order >= 8 then
+            bucket.byId[table.remove(bucket.order, 1)] = nil
+        end
+        state = { tripId = record.tripId, retryByReceipt = {} }
+        bucket.byId[record.tripId] = state
+        bucket.order[#bucket.order + 1] = record.tripId
+    end
+    return state
+end
+
+local function deferReceipt(state, row, delay)
+    state.retryByReceipt[row.id] = U().nowMs() + delay
+end
 local function copyRow(row)
     return { id = row.id, itemType = row.itemType,
         finderId = row.finderId, finderName = row.finderName,
@@ -439,9 +464,10 @@ local function selectStorage(actor, item, state)
     return nil, nil, unavailable
 end
 
-local function itemForWorker(record, actor)
+local function itemForWorker(record, actor, state)
     for _, row in ipairs(record.items) do
-        if not row.stored then
+        if not row.stored and (not state or not state.retryByReceipt
+            or (state.retryByReceipt[row.id] or 0) <= U().nowMs()) then
             local item, source, holder, member, kind = locate(record, row)
             if item and (holder == actor or kind == "trunk"
                 and atBase(holder)) then
@@ -588,22 +614,21 @@ function Integration.wants(record, actor)
         end
         return false
     end
-    local state = states[actor]
-    if state and U().nowMs() < (state.retryAt or 0) then return false end
-    if itemForWorker(record, actor) then return true end
+    local state = stateFor(record, actor, false)
+    if itemForWorker(record, actor, state) then return true end
     return record.restock and member.dutyDone ~= true
 end
 
 function Integration.update(record, actor)
     if not Integration.wants(record, actor) then return false, "delivery_not_ready" end
-    local state = states[actor]
-    if not state or state.tripId ~= record.tripId then
-        state = { tripId = record.tripId }
-        states[actor] = state
-    end
-    local row, item, source, holder, kind = itemForWorker(record, actor)
+    local state = stateFor(record, actor, true)
+    local row, item, source, holder, kind = itemForWorker(record, actor, state)
     if not row then
         return restock(actor, memberFor(record, actor), record, state)
+    end
+    if state.currentReceiptId ~= row.id then
+        state.deliveryApproach, state.visualAt = nil, nil
+        state.currentReceiptId = row.id
     end
     row.returned = true
     row.carrierKind = kind or row.carrierKind or "member"
@@ -615,7 +640,7 @@ function Integration.update(record, actor)
     if not storage then
         state.deliveryApproach = nil
         row.reason = why
-        state.retryAt = U().nowMs() + 5000
+        deferReceipt(state, row, 5000)
         local member = memberFor(record, actor)
         if record.restock and member and not member.dutyDone then
             return restock(actor, member, record, state)
@@ -673,7 +698,7 @@ function Integration.update(record, actor)
         state.blockedStorage[storage.id] = U().nowMs() + 15000
         state.deliveryApproach = nil
         row.reason = "expedition_storage_approach_timeout"
-        state.retryAt = U().nowMs() + 2500
+        deferReceipt(state, row, 2500)
         return false, row.reason
     end
     row.reason = safeReason(reason)
@@ -683,7 +708,7 @@ function Integration.update(record, actor)
             state.blockedStorage = state.blockedStorage or {}
             state.blockedStorage[storage.id] = U().nowMs() + 15000
         end
-        state.retryAt = U().nowMs() + 2500
+        deferReceipt(state, row, 2500)
     end
     return moved, reason
 end

@@ -2174,12 +2174,52 @@ local function returnContainer(row)
     return row.container
 end
 
+-- A completed return remains on the saved receipt. Recheck the exact token in
+-- its original source on every retry, including after a save/load; a flag by
+-- itself is not proof that the item is still there.
+local function returnedSupply(actor, state, receipt)
+    local origin = receipt.source
+    if type(origin) ~= "table" or origin.carried then return nil end
+    local source
+    if origin.storageId ~= nil and SC.BaseLife.storage then
+        local storage = SC.BaseLife.storage(origin.storageId)
+        source = storage and SC.BaseLife.resolveContainer(storage) or nil
+    else
+        for _, row in ipairs(state.sources or {}) do
+            local x, y, z = U().position(row.object)
+            local index = select(1, call(row.object, "getObjectIndex"))
+            if not row.carried and x == origin.x and y == origin.y
+                and z == origin.z
+                and (origin.index == nil or origin.index == index) then
+                if source and source ~= row.container then return nil end
+                source = row.container
+            end
+        end
+    end
+    if not source then return nil end
+    local found
+    for _, item in ipairs(U().inventoryItems(source, math.huge)) do
+        local data = select(1, call(item, "getModData"))
+        if type(data) == "table"
+            and data.SC_ChefSupplyReceipt == receipt.token then
+            if found then return nil end
+            found = item
+        end
+    end
+    return found
+end
+
 local function returnChefSupplies(actor, state)
     local inventory = U().inventory(actor)
     if not inventory then return false, "chef_inventory_missing" end
     local borrowed = {}
     for _, entry in ipairs(state.borrowed or {}) do
         borrowed[entry.item] = entry.source
+    end
+    local receiptsByToken = {}
+    for _, receipt in ipairs(state.job and state.job.target
+        and state.job.target.chefSupplies or {}) do
+        receiptsByToken[receipt.token] = receipt
     end
     local artifacts, seen = {}, {}
     local jobId = state.jobId
@@ -2249,6 +2289,10 @@ local function returnChefSupplies(actor, state)
         if moved ~= true or not contains(destination, item) then
             return false, moveReason or "chef_supply_return_failed"
         end
+        local data = select(1, call(item, "getModData"))
+        local receipt = type(data) == "table"
+            and receiptsByToken[data.SC_ChefSupplyReceipt] or nil
+        if receipt and borrowed[item] then receipt.returned = true end
     end
     for item in pairs(state.unresolvedSupplies or {}) do
         if contains(inventory, item) then
@@ -2287,6 +2331,11 @@ local function releaseSupplyTokens(actor, state, job)
         clear(state.resultItem)
         clear(state.emptyPot)
         for _, item in ipairs(state.portions or {}) do clear(item) end
+    for _, receipt in ipairs(receipts) do
+        if receipt.returned == true then
+            clear(returnedSupply(actor, state, receipt))
+        end
+    end
     end
 end
 
@@ -2349,7 +2398,7 @@ function Chef.canCancelActor(actor, reason)
             for _, receipt in ipairs(receipts) do
                 if receipt.token == nil or wanted[receipt.token] then
                     return false, "chef_return_receipt_recovery_required" end
-                wanted[receipt.token] = true
+                wanted[receipt.token] = receipt
             end
             for _ in pairs(state.unresolvedSupplies or {}) do
                 return false, "chef_return_receipt_recovery_required"
@@ -2363,8 +2412,11 @@ function Chef.canCancelActor(actor, reason)
                     found[token] = true
                 end
             end
-            for token in pairs(wanted) do
-                if not found[token] then
+            for token, receipt in pairs(wanted) do
+                if receipt.returned == true then
+                    if found[token] or not returnedSupply(actor, state, receipt) then
+                        return false, "chef_return_receipt_recovery_required" end
+                elseif not found[token] then
                     return false, "chef_return_receipt_recovery_required" end
             end
             return true

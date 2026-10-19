@@ -105,13 +105,37 @@ fullItem.container = a.inventory
 local general = T.storage("general-1", "general", {}, 4)
 T.storages[1].container.capacity = 1
 mission.radioSession = "trip:2"
-mission.scout.search.acquisitions = { { id = "full",
-    itemType = fullItem.fullType, memberId = "a" } }
+local readyFood = T.item("ready-food", "food")
+readyFood.safeFood = true
+a.inventory.items[#a.inventory.items + 1] = readyFood
+readyFood.container = a.inventory
+mission.scout.search.acquisitions = {
+    { id = "full", itemType = fullItem.fullType, memberId = "a" },
+    { id = readyFood.id, itemType = readyFood.fullType, memberId = "a" },
+}
 local blocked = I.create(mission)
 check(select(2, I.update(blocked, a)) == "matching_storage_full"
     and fullItem.container == a.inventory
     and #general.container.items == 0,
     "full dedicated storage never falls back to general")
+check(select(2, I.update(blocked, a)) == "expedition_supply_stored"
+    and readyFood.container == T.storages[2].container
+    and fullItem.container == a.inventory
+    and I.summary(blocked).pending == 1,
+    "food passes a full tools shelf without settling the blocked tool")
+local laterFood = T.item("later-food", "food")
+laterFood.safeFood = true
+a.inventory.items[#a.inventory.items + 1] = laterFood
+laterFood.container = a.inventory
+mission.radioSession = "trip:later-food"
+mission.scout.search.acquisitions = { { id = laterFood.id,
+    itemType = laterFood.fullType, memberId = "a" } }
+local laterTrip = I.create(mission)
+check(I.wants(blocked, a) == false and I.wants(laterTrip, a) == true
+    and select(2, I.update(laterTrip, a)) == "expedition_supply_stored"
+    and laterFood.container == T.storages[2].container
+    and I.wants(blocked, a) == false,
+    "an older blocked trip does not starve another trip or lose its retry")
 T.now = T.now + 5001
 local other = T.storage("tools-2", "tools", {}, 4)
 check(select(2, I.update(blocked, a)) == "expedition_supply_stored"

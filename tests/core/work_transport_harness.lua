@@ -2355,6 +2355,91 @@ do
         priorTag, priorFluid, priorGlobals, priorDowntime
 end
 
+-- A 160-item source split into two 80-item windows must not make a mop and
+-- bleach invisible forever. A failed withdrawal must release its selected
+-- exact item instead of pinning the worker past the job lease.
+do
+    local ctx = setup("logs", 1)
+    SC.BaseLife.cancelGatherOrder(ctx.order.id)
+    local target = ctx.actor.square
+    target.stained = true
+    function target:haveStains() return self.stained end
+    local mop, bleach = makeItem("Base.Mop"), makeItem("Base.Bleach")
+    function mop:hasTag(tag) return tag == ItemTag.CLEAN_STAINS end
+    function mop:isBroken() return false end
+    local liquid = { amount = 1 }
+    function liquid:contains(fluid) return fluid == Fluid.Bleach end
+    function liquid:getAmount() return self.amount end
+    function bleach:getFluidContainer() return liquid end
+    local oldTag, oldFluid, oldGlobals, oldDowntime =
+        ItemTag, Fluid, ZomboidGlobals, SC.Downtime
+    ItemTag = { CLEAN_STAINS = "clean_stains" }
+    Fluid = { Bleach = "bleach", CleaningLiquid = "cleaning" }
+    ZomboidGlobals = { CleanBloodBleachAmount = 0.25 }
+    SC.Downtime = { canCleanAt = function(_, _, staged)
+        return staged == true, staged and nil or "cleaning_supplies_missing"
+    end, peek = function() return nil end,
+        update = function() return true, "fixture_cleaning" end }
+    ctx.storageObject.container:AddItem(mop)
+    ctx.storageObject.container:AddItem(bleach)
+    for _ = 3, 160 do
+        ctx.storageObject.container:AddItem(makeItem("Base.Pen"))
+    end
+    local found = false
+    for _ = 1, 4 do
+        if SC.BaseWork.cleaningSuppliesAvailable(ctx.actor) then
+            found = true break end
+    end
+    check(found, "bounded cleaning scans combine supplies from disjoint windows")
+    local accepted, job = SC.BaseLife.requestCleaning(target)
+    check(accepted == true, "room cleaning request sees both cached supplies")
+    SC_TEST_CLOCK = SC_TEST_CLOCK + 50
+    local selected, selectionReason = SC.BaseWork.update(ctx.actor, nil, {})
+    check(selected == true and selectionReason == "cleaning_supply_selected"
+        and job.target.cleanLoans and job.target.cleanLoans.tool,
+        "cleaner reserves a specific mop before withdrawal: "
+            .. tostring(selected) .. "/" .. tostring(selectionReason)
+            .. "/" .. tostring(job.state))
+    ctx.storage.withdrawals = false
+    SC_TEST_CLOCK = SC_TEST_CLOCK + 50
+    SC.BaseWork.update(ctx.actor, nil, {})
+    check(job.state == "blocked" and job.target.cleanLoans == nil
+        and ctx.storageObject.container:contains(mop)
+        and mop.modData.LF_CleanToolJobId == nil,
+        "disabled withdrawal blocks the job and releases its unmoved mop")
+    ctx.storage.withdrawals = true
+    check(SC.BaseLife.cancelJob(job.id) == true,
+        "blocked cleaning can be cancelled after its loan settles")
+    local retried, retryJob = SC.BaseLife.requestCleaning(target)
+    check(retried == true,
+        "cleaning can retry when the source is enabled again")
+    for _ = 1, 25 do
+        SC_TEST_CLOCK = SC_TEST_CLOCK + 100
+        SC.BaseWork.update(ctx.actor, nil, {})
+        if ctx.actor.inventory:contains(mop)
+            and retryJob.target.cleanLoans
+            and retryJob.target.cleanLoans.liquid then break end
+    end
+    check(ctx.actor.inventory:contains(mop)
+        and ctx.storageObject.container:contains(bleach),
+        "cleaner holds the exact mop while the liquid is still selected")
+    ctx.storage.withdrawals = false
+    for _ = 1, 40 do
+        SC_TEST_CLOCK = SC_TEST_CLOCK + 100
+        SC.BaseWork.update(ctx.actor, nil, {})
+        if retryJob.state == "blocked" then break end
+    end
+    check(retryJob.state == "blocked"
+        and ctx.storageObject.container:contains(mop)
+        and ctx.storageObject.container:contains(bleach)
+        and mop.modData.LF_CleanToolJobId == nil
+        and bleach.modData.LF_CleanLiquidJobId == nil,
+        "a failed second withdrawal returns the already borrowed first item")
+    ctx.storage.withdrawals = true
+    ItemTag, Fluid, ZomboidGlobals, SC.Downtime =
+        oldTag, oldFluid, oldGlobals, oldDowntime
+end
+
 local gatherMetrics = SC.GatherWork.diagnostics()
 local transportMetrics = SC.WorkTransport.diagnostics()
 check(type(transportMetrics.pendingReceipts) == "number"

@@ -23,6 +23,7 @@ local BaseWork = SC.BaseWork
 
 local states = setmetatable({}, { __mode = "k" })
 local storageItemCursors = setmetatable({}, { __mode = "k" })
+local cleaningSourceCache = setmetatable({}, { __mode = "k" })
 local maintenanceCursor = 1
 local auditPhase = 0
 local cleaningScan
@@ -712,6 +713,26 @@ local function carriedCleaningItem(actor, kind, job)
 end
 
 local function findCleaningSource(actor, kind)
+    local cached = cleaningSourceCache[actor]
+    local remembered = cached and cached[kind]
+    if remembered then
+        local storage = SC.BaseLife.storage(remembered.storageId)
+        local container = storage and SC.BaseLife.resolveContainer(storage)
+        local item = remembered.item
+        local itemType = item and U().itemType(item)
+        if storage and SC.BaseLife.withdrawable(storage)
+            and container and U().inventoryContains(container, item)
+            and itemType and cleaningItemUsable(item, kind)
+            and not BaseWork.choreReserved(item)
+            and sourceItemAvailable(storage, itemType)
+            and not (SC.WorkTransport and SC.WorkTransport.foreignProtected
+                and SC.WorkTransport.foreignProtected(item, actor) == true)
+            and not (SC.PersonalItems and SC.PersonalItems.isProtected
+                and SC.PersonalItems.isProtected(item, actor, "base_clean")) then
+            return storage, container, item
+        end
+        cached[kind] = nil
+    end
     local seen = {}
     for _, category in ipairs({ "tools", "general", "crafting", false }) do
         for _, storage in ipairs(SC.BaseLife.storageRows(category or nil, true)) do
@@ -728,6 +749,9 @@ local function findCleaningSource(actor, kind)
                                 and SC.WorkTransport.foreignProtected(item, actor) == true)
                             and not (SC.PersonalItems and SC.PersonalItems.isProtected
                                 and SC.PersonalItems.isProtected(item, actor, "base_clean")) then
+                            cached = cached or {}
+                            cached[kind] = { storageId = storage.id, item = item }
+                            cleaningSourceCache[actor] = cached
                             return storage, container, item
                         end
                     end
@@ -843,7 +867,9 @@ local function stageCleaningItem(actor, state, job, kind)
         local taken, why = transferFromStorage(actor, state, storage, container, item)
         if U().inventoryContains(U().inventory(actor), item) then
             return true, "cleaning_supply_carried" end
-        return taken == true, why, false
+        -- A failed withdrawal is conclusive for this source. The caller
+        -- settles any selected or already borrowed supplies before blocking.
+        return taken == true, why, taken == false
     end
     if carriedCleaningItem(actor, kind, job) then
         return true, "cleaning_personal_supply" end
@@ -2769,7 +2795,11 @@ function BaseWork.reset(actor)
     end
     maintenanceCursor, auditPhase, nextRoutineJobAt = 1, 0, 0
     cleaningScan = nil
-    if not actor then storageItemCursors = setmetatable({}, { __mode = "k" }) end
+    if actor then cleaningSourceCache[actor] = nil
+    else
+        storageItemCursors = setmetatable({}, { __mode = "k" })
+        cleaningSourceCache = setmetatable({}, { __mode = "k" })
+    end
     return true
 end
 

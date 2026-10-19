@@ -320,7 +320,11 @@ local function worldIds(square)
 end
 local function axeIn(container)
     for _, item in ipairs(U().inventoryItems(container, 4096)) do
-        if U().itemHasTag(item, "CHOP_TREE") and call(item, "isBroken") ~= true then
+        local data = U().modData(item)
+        -- An axe owed to an earlier car is not this order's free equipment.
+        if U().itemHasTag(item, "CHOP_TREE") and call(item, "isBroken") ~= true
+            and (not data or data[AXE_MARK] == nil
+                or active and data[AXE_MARK] == active.id) then
             return item
         end
     end
@@ -874,31 +878,47 @@ function Field.resume()
     active.phase, active.blocker = active.unlock and "unlocking" or "working", nil
     return true, "field_order_resumed"
 end
+local function pendingAxe(actor, pending)
+    for _, item in ipairs(carriedItems(actor)) do
+        local data = U().modData(item)
+        if itemId(item) == pending.itemId and data
+            and data[AXE_MARK] == pending.orderId then return item end
+    end
+    return nil
+end
+
+local function pendingReturnAccess(actor, player, pending, axe)
+    local vehicle = vehicleById(pending.carId)
+    local part, container, reason = trunk(vehicle)
+    if not container then return nil, nil, nil, reason end
+    if distance(point(actor), point(vehicle)) > CHOP_LEASH
+        or distance(point(player), point(vehicle)) > CHOP_LEASH then
+        return nil, nil, nil, "car_out_of_follow_range"
+    end
+    if SC.WorkTransport and SC.WorkTransport.hasRoom
+        and SC.WorkTransport.hasRoom(container, actor, axe) ~= true then
+        return nil, nil, nil, "car_trunk_full"
+    end
+    return vehicle, part, container
+end
+
 function Field.wants(actor, player, commands)
     local worker = workerFor(actor)
     local id = tostring(U().idOf(actor) or "")
     local pending = pendingAxeReturns[id]
-    if pending and not worker then
-        local vehicle, _, container, reason = carNear(pending.center,
-            pending.carId, pending.kind)
-        if not container then pending.blocker = reason return false end
-        if distance(point(actor), point(vehicle)) > CHOP_LEASH
-            or distance(point(player), point(vehicle)) > CHOP_LEASH then
-            pending.blocker = "car_out_of_follow_range"
-            return false
+    if pending then
+        local axe = pendingAxe(actor, pending)
+        if not axe then pendingAxeReturns[id] = nil
+        else
+            -- The saved centre belongs to the old order. Resolve the original
+            -- vehicle at its current location, without substituting another.
+            local vehicle, _, _, reason = pendingReturnAccess(
+                actor, player, pending, axe)
+            pending.blocker = reason
+            if vehicle then return commands and commands.recruited
+                and player ~= nil end
+            if not worker then return false end
         end
-        local axe
-        for _, item in ipairs(carriedItems(actor)) do
-            if itemId(item) == pending.itemId then axe = item break end
-        end
-        if not axe then pendingAxeReturns[id] = nil return false end
-        if SC.WorkTransport and SC.WorkTransport.hasRoom
-            and SC.WorkTransport.hasRoom(container, actor, axe) ~= true then
-            pending.blocker = "car_trunk_full"
-            return false
-        end
-        pending.blocker = nil
-        return commands and commands.recruited and player ~= nil
     end
     if active and active.phase == "unlocking" then
         return Field.unlocking(actor) and commands and commands.recruited
@@ -919,36 +939,37 @@ function Field.update(actor, player, snapshot)
     local returnId = tostring(U().idOf(actor) or "")
     local pending = pendingAxeReturns[returnId]
     if pending then
-        local inventory = U().inventory(actor)
-        local axe
-        for _, item in ipairs(carriedItems(actor)) do
-            local data = U().modData(item)
-            if itemId(item) == pending.itemId
-                and data and data[AXE_MARK] == pending.orderId then
-                axe = item
-                break
-            end
-        end
+        local axe = pendingAxe(actor, pending)
         if not axe then pendingAxeReturns[returnId] = nil
             return true, "field_borrowed_axe_missing" end
-        local vehicle, part, container, reason = carNear(pending.center,
-            pending.carId, pending.kind)
-        if not container then pending.blocker = reason return false, reason end
-        if SC.WorkTransport and SC.WorkTransport.hasRoom
-            and SC.WorkTransport.hasRoom(container, actor, axe) ~= true then
-            pending.blocker = "car_trunk_full"
-            return false, pending.blocker
+        local vehicle, part, container, reason = pendingReturnAccess(
+            actor, player, pending, axe)
+        pending.blocker = reason
+        if vehicle then
+            local okay, approached = atCar(actor, vehicle, part)
+            if not okay then
+                pending.blocker = approached
+                if not workerFor(actor) then return false, approached end
+            elseif approached ~= "arrived" then
+                return true, "field_axe_return_approaching"
+            else
+                local source = call(axe, "getContainer") or U().inventory(actor)
+                local moved, moveReason = U().transferItemVerified(source, container, axe)
+                if not moved then
+                    pending.blocker = moveReason
+                    if not workerFor(actor) then return false, moveReason end
+                elseif not U().inventoryContains(container, axe) then
+                    return false, "field_axe_return_unverified"
+                else
+                    local data = U().modData(axe)
+                    if data then data[AXE_MARK], data[WORKER_MARK] = nil, nil end
+                    pendingAxeReturns[returnId] = nil
+                    return true, "field_axe_returned"
+                end
+            end
+        elseif not workerFor(actor) then
+            return false, reason
         end
-        local okay, approached = atCar(actor, vehicle, part)
-        if not okay then pending.blocker = approached return false, approached end
-        if approached ~= "arrived" then return true, "field_axe_return_approaching" end
-        local source = call(axe, "getContainer") or inventory
-        local moved, moveReason = U().transferItemVerified(source, container, axe)
-        if not moved then pending.blocker = moveReason return false, moveReason end
-        local data = U().modData(axe)
-        if data then data[AXE_MARK], data[WORKER_MARK] = nil, nil end
-        pendingAxeReturns[returnId] = nil
-        return true, "field_axe_returned"
     end
     local worker, actorId = workerFor(actor)
     if not worker then return false, "field_order_inactive" end
@@ -1001,6 +1022,13 @@ function Field.update(actor, player, snapshot)
         end
     end
     if worker.phase == "borrow" then
+        if pendingAxeReturns[actorId] then
+            -- One worker has one saved exact-return slot. Do not replace its
+            -- older obligation with a second borrowed axe.
+            worker.phase = "done"
+            completeIfFinished(order)
+            return true, "field_borrowed_axe_return_pending"
+        end
         local vehicle, part, container, reason = carNear(order.center, order.carId, order.kind)
         if not container then order.phase, order.blocker = "paused", reason return false, reason end
         local okay, approached = atCar(actor, vehicle, part)

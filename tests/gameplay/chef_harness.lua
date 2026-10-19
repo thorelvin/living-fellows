@@ -415,6 +415,52 @@ assert(preNativeHandled == false
 assert(chef.cancelJob(preNativeJob, actor.id) == true
     and shelf:contains(preNative) and #actorInventory.items == 0,
     "verified pre-native supplies return to their source on cancellation")
+local firstReturn, secondReturn = food("Base.Tomato"), food("Base.Tomato")
+firstReturn.data.SC_ChefSupplyReceipt = "job:partial-return:1"
+secondReturn.data.SC_ChefSupplyReceipt = "job:partial-return:2"
+actorInventory:AddItem(firstReturn)
+actorInventory:AddItem(secondReturn)
+local partialJob = { id = "job:partial-return", type = "cook",
+    assignedId = actor.id, target = {
+        cookPhase = "supplies_withdrawn", recipe = "Salad",
+        chefSupplies = {
+            { token = "job:partial-return:1", oldId = firstReturn.id,
+                source = { x = 0, y = 0, z = 0, index = 1 } },
+            { token = "job:partial-return:2", oldId = secondReturn.id,
+                source = { x = 0, y = 0, z = 0, index = 1 } },
+        },
+    } }
+chef.reset()
+chef.update(actor, {}, partialJob, player)
+local originalTransfer = SC.GameplayUtil.transferItemVerified
+local blockSecond = true
+SC.GameplayUtil.transferItemVerified = function(from, to, item)
+    if item == secondReturn and blockSecond then
+        return false, "fixture_return_blocked" end
+    return originalTransfer(from, to, item)
+end
+local partialCancelled, partialReason = chef.cancelJob(partialJob, actor.id)
+assert(partialCancelled == false and partialReason == "fixture_return_blocked"
+    and shelf:contains(firstReturn) and actorInventory:contains(secondReturn)
+    and partialJob.target.chefSupplies[1].returned == true,
+    "a completed exact return remains settled when the next source fails")
+local persistedTarget = SC.StableValue.copyStrict(partialJob.target,
+    { maxDepth = 3, maxEntries = 64 })
+assert(persistedTarget
+    and persistedTarget.chefSupplies[1].returned == true,
+    "partial return fits the saved chef job target")
+partialJob.target = persistedTarget
+chef.reset()
+chef.update(actor, {}, partialJob, player)
+blockSecond = false
+partialCancelled, partialReason = chef.cancelJob(partialJob, actor.id)
+SC.GameplayUtil.transferItemVerified = originalTransfer
+assert(partialCancelled == true and shelf:contains(firstReturn)
+    and shelf:contains(secondReturn) and #actorInventory.items == 0
+    and firstReturn.data.SC_ChefSupplyReceipt == nil
+    and secondReturn.data.SC_ChefSupplyReceipt == nil,
+    "reloaded partial cancellation returns only the remaining item: "
+        .. tostring(partialReason))
 end
 function recipe:getItemsCanBeUse() return { tomato } end
 
