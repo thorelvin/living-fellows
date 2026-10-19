@@ -148,6 +148,18 @@ destination.solid = true
 check(not T.classifyEdge(observer, origin, destination, {}).traversable,
     "failure releases its memo before the next world read")
 destination.solid = false
+(function()
+    local savedOccupying = U.squareOccupyingObject
+    U.squareOccupyingObject = function(candidate)
+        if candidate == destination then return {} end
+        return nil
+    end
+    check(not T.withReadBatch(T.classifyEdge, observer, origin, destination, {}).traversable,
+        "a tile whose centre is occupied by furniture is not a route edge")
+    U.squareOccupyingObject = savedOccupying
+    check(T.withReadBatch(T.classifyEdge, observer, origin, destination, {}).traversable,
+        "moving furniture clears the edge on the next read batch")
+end)()
 
 local function testNativeFastPaths()
 -- Protocol-8 edge facts are authoritative only inside the synchronous read

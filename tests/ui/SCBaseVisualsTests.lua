@@ -210,16 +210,38 @@ fixture.config.baseLayoutLegendX = nil
 fixture.lines, fixture.fills, fixture.labels, fixture.legend = {}, {}, {}, {}
 
 fixture.companion.square.visible = false
+fixture.companion.square.couldSee = false
 fixture.labels = {}
 Events.OnPreUIDraw.callback()
 assert(#fixture.labels == 6,
     "companion names must not render through a wall or outside the player's visible squares")
 fixture.companion.square.visible = true
+fixture.companion.square.couldSee = true
 fixture.companion.speech = "One zombie ahead."
+fixture.companion.speaking = true
 fixture.labels = {}
 Events.OnPreUIDraw.callback()
 assert(#fixture.labels == 6, "active overhead speech must own the companion head-text lane")
+fixture.companion.speaking = false
+fixture.labels = {}
+Events.OnPreUIDraw.callback()
+assert(#fixture.labels == 8 and fixture.labels[8].value == "Addy",
+    "a retained say line must not hide the name after speech ends")
 fixture.companion.speech = ""
+fixture.companion.square.visible = false
+fixture.companion.alpha = 1
+fixture.companion.targetAlpha = 0
+fixture.labels = {}
+Events.OnPreUIDraw.callback()
+assert(#fixture.labels == 8 and fixture.labels[8].value == "Addy",
+    "line of sight and rendered alpha should keep a visible companion named")
+fixture.companion.alpha = 0
+fixture.labels = {}
+Events.OnPreUIDraw.callback()
+assert(#fixture.labels == 6, "a fully faded companion must not receive a name")
+fixture.companion.square.visible = true
+fixture.companion.alpha = 1
+fixture.companion.targetAlpha = 1
 
 Visuals.focus("zone", "zone:work")
 fixture.lines = {}

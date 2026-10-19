@@ -2244,6 +2244,117 @@ do
         "loose jewelry waits when every valuables marker is full")
 end
 
+-- A cleaner borrows the exact tool and liquid from marked storage, performs
+-- the targeted action, then returns those same objects. Personal inventory
+-- must remain separate from the loan receipt.
+do
+    local ctx = setup("logs", 1)
+    SC.BaseLife.cancelGatherOrder(ctx.order.id)
+    local target = ctx.actor.square
+    target.stained = true
+    function target:haveStains() return self.stained end
+    local mop = makeItem("Base.Mop")
+    function mop:hasTag(tag) return tag == ItemTag.CLEAN_STAINS end
+    function mop:isBroken() return false end
+    local bleach = makeItem("Base.Bleach")
+    local liquid = { amount = 1 }
+    function liquid:contains(fluid)
+        return fluid == Fluid.Bleach
+    end
+    function liquid:getAmount() return self.amount end
+    function bleach:getFluidContainer() return liquid end
+    local priorTag, priorFluid, priorGlobals, priorDowntime =
+        ItemTag, Fluid, ZomboidGlobals, SC.Downtime
+    ItemTag = { CLEAN_STAINS = "clean_stains" }
+    Fluid = { Bleach = "bleach", CleaningLiquid = "cleaning" }
+    ZomboidGlobals = { CleanBloodBleachAmount = 0.25 }
+    ctx.storageObject.container:AddItem(mop)
+    ctx.storageObject.container:AddItem(bleach)
+    SC.Downtime = {
+        canCleanAt = function(actor, square, suppliesStaged)
+            if actor ~= ctx.actor or square ~= target then return false, "wrong_target" end
+            if suppliesStaged then return true end
+            if actor.inventory:contains(mop) and actor.inventory:contains(bleach) then
+                return true
+            end
+            return false, "cleaning_supplies_missing"
+        end,
+        peek = function() return nil end,
+        update = function(actor, _, _, kind, square)
+            check(actor == ctx.actor and kind == "clean_base" and square == target
+                and actor.inventory:contains(mop) and actor.inventory:contains(bleach),
+                "cleaning begins only after both verified withdrawals")
+            target.stained, liquid.amount = false, liquid.amount - 0.25
+            return true, "cleaned"
+        end,
+    }
+    local accepted, job = SC.BaseLife.requestCleaning(target)
+    check(accepted == true and job.type == "clean",
+        "stored supplies make a stained camp tile actionable: " .. tostring(job)
+            .. " stock=" .. tostring(SC.BaseWork.cleaningSuppliesAvailable(ctx.actor))
+            .. " duty=" .. tostring(#SC.BaseLife.dutyResidentIds())
+            .. " recruited=" .. tostring((SC.Registry.byId(ctx.actor.modData.SC_Id) or {}).recruited))
+    local sawLoan = false
+    for _ = 1, 40 do
+        SC_TEST_CLOCK = SC_TEST_CLOCK + 100
+        SC.BaseWork.update(ctx.actor, nil, {})
+        if job.target.cleanLoans then sawLoan = true end
+        if not SC.BaseLife.job(job.id) then break end
+    end
+    check(sawLoan and target.stained == false
+        and SC.BaseLife.job(job.id) == nil,
+        "cleaning job completes after the stain is removed and loans settle")
+    check(ctx.storageObject.container:contains(mop)
+        and ctx.storageObject.container:contains(bleach)
+        and not ctx.actor.inventory:contains(mop)
+        and not ctx.actor.inventory:contains(bleach)
+        and liquid.amount == 0.75,
+        "the exact mop and partially used bleach return to their marked source")
+    check(mop.modData.LF_CleanToolJobId == nil
+        and bleach.modData.LF_CleanLiquidJobId == nil,
+        "completed cleaning clears both item reservations")
+    target.stained, liquid.amount = true, 1
+    local secondOk, secondJob = SC.BaseLife.requestCleaning(target)
+    check(secondOk == true, "another stain can start after both loans return")
+    for _ = 1, 25 do
+        SC_TEST_CLOCK = SC_TEST_CLOCK + 100
+        SC.BaseWork.update(ctx.actor, nil, {})
+        if ctx.actor.inventory:contains(mop)
+            and ctx.actor.inventory:contains(bleach) then break end
+    end
+    check(ctx.actor.inventory:contains(mop)
+        and ctx.actor.inventory:contains(bleach)
+        and secondJob.target.cleanLoans.tool
+        and secondJob.target.cleanLoans.liquid,
+        "both borrowed identities are saved before scrubbing begins")
+    local saved = SC.BaseLife.export()
+    check(SC.BaseLife.restore(saved) == true,
+        "a cleaning loan survives base save and restore")
+    mop.nativeId, bleach.nativeId = mop.nativeId + 100000,
+        bleach.nativeId + 100000
+    local restored = SC.BaseLife.job(secondJob.id)
+    check(restored and restored.assignedId == ctx.actor.modData.SC_Id,
+        "restored cleaning loan keeps its assigned worker")
+    local stainAtCancel, amountAtCancel = target.stained, liquid.amount
+    local cancelled, cancelReason = SC.BaseLife.cancelJob(secondJob.id)
+    check(cancelled == true and SC.BaseLife.job(secondJob.id) == nil,
+        "cancelling a restored job settles its loan: " .. tostring(cancelReason))
+    check(ctx.storageObject.container:contains(mop)
+        and ctx.storageObject.container:contains(bleach)
+        and mop.modData.LF_CleanToolJobId == nil
+        and bleach.modData.LF_CleanLiquidJobId == nil
+        and target.stained == stainAtCancel
+        and liquid.amount == amountAtCancel,
+        "cancellation returns both exact supplies without changing the stain"
+            .. " mop=" .. tostring(ctx.storageObject.container:contains(mop))
+            .. " bleach=" .. tostring(ctx.storageObject.container:contains(bleach))
+            .. " marks=" .. tostring(mop.modData.LF_CleanToolJobId)
+            .. "," .. tostring(bleach.modData.LF_CleanLiquidJobId)
+            .. " stain=" .. tostring(target.stained))
+    ItemTag, Fluid, ZomboidGlobals, SC.Downtime =
+        priorTag, priorFluid, priorGlobals, priorDowntime
+end
+
 local gatherMetrics = SC.GatherWork.diagnostics()
 local transportMetrics = SC.WorkTransport.diagnostics()
 check(type(transportMetrics.pendingReceipts) == "number"

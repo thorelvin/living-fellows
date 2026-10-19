@@ -27,6 +27,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
+& (Join-Path $ProjectRoot 'scripts\Resolve-TestJavac.ps1') | Out-Null
 . (Join-Path $ProjectRoot 'scripts\ScParallel.ps1')
 
 if ($Jobs -le 0) {

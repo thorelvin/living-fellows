@@ -2778,8 +2778,11 @@ local function cleanBaseValid(actor, activity)
         or base.isInside(activity.square) ~= true
         or utility.gridSquare(activity.square:getX(), activity.square:getY(),
             activity.square:getZ()) ~= activity.square
-        or not campWorkContext(activity.originSquare or actor,
-            activity.square)
+        or not (campWorkContext(activity.originSquare or actor,
+                activity.square)
+            or utility.sameFloor(activity.originSquare or actor,
+                activity.square)
+                and base.isInside(activity.originSquare or actor) == true)
         or select(1, utility.call(activity.square, "haveStains")) ~= true
         or not carriedCleaningItem(actor, activity.item)
         or not carriedCleaningItem(actor, activity.material)
@@ -2792,7 +2795,7 @@ local function cleanBaseValid(actor, activity)
     return amount ~= nil and type(minimum) == "number" and amount >= minimum
 end
 
-local function cleanBaseActivity(actor, state)
+local function cleanBaseActivity(actor, state, requestedSquare)
     local base, utility = SC.BaseLife, U()
     if not base or type(base.isInside) ~= "function"
         or base.isInside(actor) ~= true then return nil end
@@ -2807,7 +2810,9 @@ local function cleanBaseActivity(actor, state)
         if not square or base.isInside(square) ~= true
             or state and state.cleanRetryAt and state.cleanRetryAt[square]
                 and U().nowMs() < state.cleanRetryAt[square]
-            or not campWorkContext(actorSquare, square)
+            or not (campWorkContext(actorSquare, square)
+                or utility.sameFloor(actorSquare, square)
+                    and base.isInside(actorSquare) == true)
             or select(1, utility.call(square, "haveStains")) ~= true then return end
         local distance = utility.distance(actor, square)
         if distance and (bestDistance == nil or distance < bestDistance) then
@@ -2824,6 +2829,10 @@ local function cleanBaseActivity(actor, state)
                     surface = wall and "wall" or "floor" },
             }
         end
+    end
+    if requestedSquare then
+        consider(requestedSquare)
+        return best
     end
     for dx = -3, 3 do
         for dy = -3, 3 do
@@ -2867,6 +2876,27 @@ local function cleanBaseActivity(actor, state)
         if state then state.cleanScanCursor = cursor end
     end
     return best
+end
+
+function Downtime.canCleanAt(actor, square, suppliesStaged)
+    if not U().isValidActor(actor) or not square then
+        return false, "cleaning_target_unavailable" end
+    if not SC.BaseLife or SC.BaseLife.isInside(square) ~= true then
+        return false, "cleaning_outside_camp" end
+    if select(1, U().call(square, "haveStains")) ~= true then
+        return false, "cleaning_stain_gone" end
+    if not campWorkActorPresent(actor) then
+        return false, "cleaning_worker_away" end
+    if suppliesStaged ~= true and not cleaningSupplies(actor) then
+        return false, "cleaning_supplies_missing" end
+    local actorSquare = U().squareOf(actor)
+    if not actorSquare or not (campWorkContext(actorSquare, square)
+        or U().sameFloor(actorSquare, square)
+            and SC.BaseLife.isInside(actorSquare) == true) then
+        return false, "cleaning_route_unavailable" end
+    if suppliesStaged ~= true and not cleanBaseActivity(actor, nil, square) then
+        return false, "cleaning_route_unavailable" end
+    return true
 end
 
 local function weatherRecoveryActivity(actor)
@@ -3073,7 +3103,7 @@ local function speakLeaderCheckIn(actor, activity, current)
     return true, "leader_check_in"
 end
 
-local function candidates(actor, commands, state, current, desiredKind)
+local function candidates(actor, commands, state, current, desiredKind, requestedSquare)
     local utility = U()
     commands = type(commands) == "table" and commands or {}
     if desiredKind == "leader_check_in" then
@@ -3122,7 +3152,7 @@ local function candidates(actor, commands, state, current, desiredKind)
         and not ambientCooling(state, "clean_base", current)
         and (desiredKind == "clean_base"
             or utility.isDue(actor, "downtime_clean_probe", 15000, current)) then
-        activity = cleanBaseActivity(actor, state)
+        activity = cleanBaseActivity(actor, state, requestedSquare)
         if activity then filtered[#filtered + 1] = activity end
     end
     if (desiredKind == nil or desiredKind == "weather_recovery")
@@ -3263,11 +3293,12 @@ end
 -- Read-only capability probe used by the base scheduler. It prevents the
 -- operations queue from inventing repair/craft jobs that no resident can
 -- currently perform with their real carried tools and materials.
-function Downtime.canPerform(actor, desiredKind)
+function Downtime.canPerform(actor, desiredKind, requestedSquare)
     if not U().isValidActor(actor) or type(desiredKind) ~= "string" then
         return false, "invalid_downtime_probe"
     end
-    local rows = candidates(actor, commandState(actor), stateFor(actor), U().nowMs(), desiredKind)
+    local rows = candidates(actor, commandState(actor), stateFor(actor),
+        U().nowMs(), desiredKind, requestedSquare)
     return #rows > 0, rows[1] and rows[1].kind or "no_matching_activity"
 end
 
@@ -4534,7 +4565,7 @@ function Downtime.cancel(actor, reason)
     return true, reason or "cancelled"
 end
 
-function Downtime.update(actor, player, runtime, desiredKind)
+function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
     local utility = U()
     if not utility or not utility.isValidActor(actor) then return false, "invalid_actor" end
     local rootRuntime = utility.actorState(actor, runtime)
@@ -4984,7 +5015,8 @@ function Downtime.update(actor, player, runtime, desiredKind)
     end
     if current < state.nextEvaluationAt then return false, "cooldown" end
     state.nextEvaluationAt = current + (utility.config("downtimeIntervalMs") or 1500)
-    for _, activity in ipairs(candidates(actor, commands, state, current, desiredKind)) do
+    for _, activity in ipairs(candidates(actor, commands, state, current,
+        desiredKind, requestedSquare)) do
         local ok, reason = beginActivity(actor, state, activity, commands, current)
         if ok then return true, reason end
     end

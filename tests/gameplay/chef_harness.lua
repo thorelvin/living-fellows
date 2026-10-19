@@ -397,6 +397,24 @@ local missingState, missingReason = chef.cancelJob({
 assert(missingState == false
     and missingReason == "chef_return_receipt_recovery_required",
     "a reloaded pre-native withdrawal cannot be discarded without recovery")
+local preNative = food("Base.Tomato")
+preNative.data.SC_ChefSupplyReceipt = "job:pre-native:1"
+actorInventory:AddItem(preNative)
+local preNativeJob = { id = "job:pre-native", type = "cook",
+    assignedId = actor.id, target = {
+        cookPhase = "supplies_withdrawn", recipe = "Salad",
+        chefSupplies = { { token = "job:pre-native:1", oldId = preNative.id,
+            source = { x = 0, y = 0, z = 0, index = 1 } } },
+    } }
+chef.reset()
+local preNativeHandled, preNativeReason = chef.update(actor, {}, preNativeJob,
+    player)
+assert(preNativeHandled == false
+    and preNativeReason == "chef_restart_needs_recovery",
+    "a pre-native withdrawal still refuses to guess how to resume cooking")
+assert(chef.cancelJob(preNativeJob, actor.id) == true
+    and shelf:contains(preNative) and #actorInventory.items == 0,
+    "verified pre-native supplies return to their source on cancellation")
 end
 function recipe:getItemsCanBeUse() return { tomato } end
 

@@ -17,7 +17,7 @@ local edgeFactsScratch = {}
 -- inside the callback; traversal execution always runs outside these batches.
 function Topology.withReadBatch(callback, ...)
     if readBatch then return callback(...) end
-    local batch = { edges = {}, hazards = {}, trees = {}, count = 0, hits = 0 }
+    local batch = { edges = {}, hazards = {}, trees = {}, occupying = {}, count = 0, hits = 0 }
     readBatch = batch
     local results = SC.Call.pack(pcall(callback, ...))
     readBatch = nil
@@ -78,6 +78,16 @@ end
 
 local function U()
     return SC.GameplayUtil
+end
+
+local function occupyingFurniture(square)
+    if readBatch then
+        local cached = readBatch.occupying[square]
+        if cached ~= nil then return cached end
+    end
+    local blocked = U().squareOccupyingObject(square) ~= nil
+    if readBatch then readBatch.occupying[square] = blocked end
+    return blocked
 end
 
 local function nativeEdgeFacts(actor, fromSquare, toSquare)
@@ -883,6 +893,14 @@ local function classifyEdge(actor, fromSquare, toSquare, options)
     end
     if not squareFree then
         result.affordance, result.reason = "blocked", "square_blocked"
+        return result
+    end
+    -- isFree(true) can accept a tile occupied by a table or shelf even though
+    -- the character capsule cannot cross its centre. The planner must use the
+    -- same standing geometry as interaction placement or it repeatedly walks
+    -- into furniture instead of taking a reachable route around it.
+    if occupyingFurniture(toSquare) then
+        result.affordance, result.reason = "blocked", "furniture_occupied"
         return result
     end
     if options.ignoreSafehouse ~= true and U().safehouseBlocker(toSquare, actor) then

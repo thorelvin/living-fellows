@@ -15661,6 +15661,66 @@ function Harness.observeSample(current, report)
                 tostring(nav.motionAt and (current - nav.motionAt))))
         end
     end
+    local baseLife = SC.BaseLife
+    local base = baseLife and baseLife.active and baseLife.active() or nil
+    if base then
+        local summary = baseLife.summary()
+        local counters = summary.productionCounters or {}
+        print(string.format("SC_OBSERVE|base|jobs=%d:%d:%d|buried=%d|collected=%d",
+            summary.jobs.pending or 0, summary.jobs.active or 0,
+            summary.jobs.blocked or 0, counters.bodiesBuried or 0,
+            counters.bodiesCollected or 0))
+        for _, resident in ipairs(summary.residentRows or {}) do
+            if resident.role == "corpsekeeper" or resident.role == "chef" then
+                print(string.format("SC_OBSERVE|resident|%s|name=%s|role=%s|duty=%s|job=%s|restriction=%s",
+                    tostring(resident.id), tostring(resident.name),
+                    tostring(resident.role), tostring(resident.duty),
+                    tostring(resident.job), tostring(resident.restriction)))
+            end
+        end
+        for _, job in ipairs(summary.rows or {}) do
+            if job.type == "cook" or job.type == "production" then
+                print(string.format("SC_OBSERVE|job|%s|type=%s|state=%s|blocker=%s|assigned=%s|phase=%s",
+                    tostring(job.id), tostring(job.type), tostring(job.state),
+                    tostring(job.blocker), tostring(job.assignedId),
+                    tostring(job.target and job.target.cookPhase)))
+            end
+        end
+        for _, order in ipairs(summary.productionOrders or {}) do
+            if order.operation == "collect_bodies" then
+                print(string.format("SC_OBSERVE|burial|%s|state=%s|completed=%s/%s|blocker=%s|worker=%s|phase=%s",
+                    tostring(order.id), tostring(order.state),
+                    tostring(order.completed), tostring(order.requested),
+                    tostring(order.blocker), tostring(order.workers and order.workers[1]),
+                    tostring(order.workerPhases and order.workerPhases[1]
+                        and order.workerPhases[1].phase)))
+            end
+        end
+        local bodyCount, loadedSquares = 0, 0
+        local seen = {}
+        for _, zone in ipairs(base.zones or {}) do
+            if zone.kind == "area" or zone.kind == "burial"
+                or zone.kind == "lumber" then
+                for y = zone.y1, zone.y2 do
+                    for x = zone.x1, zone.x2 do
+                        local square = U.gridSquare(x, y, zone.z)
+                        if square then
+                            loadedSquares = loadedSquares + 1
+                            U.squareStaticMovingObjects(square, function(object)
+                                if U.instanceOf(object, "IsoDeadBody")
+                                    and not seen[object] then
+                                    seen[object] = true
+                                    bodyCount = bodyCount + 1
+                                end
+                            end, 16)
+                        end
+                    end
+                end
+            end
+        end
+        print(string.format("SC_OBSERVE|corpses|loaded_squares=%d|in_work_zones=%d",
+            loadedSquares, bodyCount))
+    end
     local mission = SC.ExpeditionPrototype and SC.ExpeditionPrototype.current()
     if mission and mission.scout then
         local scout = mission.scout
@@ -15703,6 +15763,43 @@ function Harness.observeSample(current, report)
                         tostring(member.actor:getCurrentSquare() ~= nil),
                         tostring(gap), tostring(fz),
                         tostring(SC.Registry.isActive(member.actor, member.id))))
+                end
+            end
+        end
+    end
+    local expeditions = SC.ExpeditionPrototype
+    if expeditions and type(expeditions.pendingDeliveryReports) == "function" then
+        local reports = expeditions.pendingDeliveryReports()
+        print("SC_OBSERVE|deliveries|count=" .. tostring(#reports))
+        for _, report in ipairs(reports) do
+            local summary = report.summary
+            print(string.format("SC_OBSERVE|delivery|trip=%s|requested=%s|collected=%s|returned=%s|stored=%s|pending=%s",
+                tostring(report.tripId), tostring(summary and summary.requested),
+                tostring(summary and summary.collected),
+                tostring(summary and summary.broughtBack),
+                tostring(summary and summary.stored),
+                tostring(summary and summary.pending)))
+            for _, row in ipairs(summary and summary.items or {}) do
+                print(string.format("SC_OBSERVE|delivery_item|trip=%s|id=%s|type=%s|carrier=%s|returned=%s|stored=%s|storage=%s|reason=%s",
+                    tostring(report.tripId), tostring(row.id), tostring(row.itemType),
+                    tostring(row.carrierName), tostring(row.returned),
+                    tostring(row.stored), tostring(row.storageId), tostring(row.reason)))
+
+            end
+        end
+        if type(expeditions.lastDebrief) == "function" then
+            local debrief = expeditions.lastDebrief()
+            local integration = debrief and debrief.integration
+            local summary = integration and SC.ExpeditionIntegration
+                and SC.ExpeditionIntegration.summary(integration)
+            if summary then
+                print(string.format("SC_OBSERVE|delivery_debrief|trip=%s|stored=%s|pending=%s",
+                    tostring(integration.tripId), tostring(summary.stored),
+                    tostring(summary.pending)))
+                for _, row in ipairs(summary.items or {}) do
+                    print(string.format("SC_OBSERVE|delivery_debrief_item|id=%s|stored=%s|storage=%s|reason=%s",
+                        tostring(row.id), tostring(row.stored),
+                        tostring(row.storageId), tostring(row.reason)))
                 end
             end
         end

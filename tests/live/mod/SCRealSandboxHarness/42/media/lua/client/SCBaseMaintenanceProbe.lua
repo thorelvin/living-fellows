@@ -216,12 +216,16 @@ function Probe.step(H, current, check, result, setPhase)
         if current - H.phaseStartedAt > 100000 then
             local state = SC.Downtime.peek(actor)
             local lastFact = state and state.lastFact
+            local owned = SC.BaseLife.jobFor(fixture.id)
             result("FAIL", "maintenance_cleaning_result",
                 "timeout stain=" .. tostring(call(getCell():getGridSquare(
                     fixture.x, fixture.y, fixture.z), "haveStains"))
                     .. " activity=" .. tostring(state and state.active
                         and state.active.kind)
                     .. " lastFact=" .. tostring(lastFact and lastFact.activity)
+                    .. " status=" .. tostring(fixture.lastStatus)
+                    .. " order=" .. tostring(SC.Commands.peek(actor).order)
+                    .. " job=" .. tostring(owned and owned.type)
                     .. " bleach=" .. tostring(call(call(fixture.bleach,
                         "getFluidContainer"), "getAmount")))
             setPhase("base_maintenance_grave_observe", current)
@@ -230,6 +234,15 @@ function Probe.step(H, current, check, result, setPhase)
         if current - (fixture.nextUpdate or 0) < 250 then return end
         fixture.nextUpdate = current
         local handled, status = SC.Downtime.update(actor, H.player, {}, "clean_base")
+        fixture.lastStatus = status
+        if not fixture.nextStatusAt or current >= fixture.nextStatusAt then
+            fixture.nextStatusAt = current + 10000
+            local owned = SC.BaseLife.jobFor(fixture.id)
+            print("SC_MAINT_CLEAN_STATUS|" .. tostring(status)
+                .. "|handled=" .. tostring(handled)
+                .. "|order=" .. tostring(SC.Commands.peek(actor).order)
+                .. "|job=" .. tostring(owned and owned.type))
+        end
         if not fixture.started and SC.Downtime.peek(actor)
             and SC.Downtime.peek(actor).active
             and SC.Downtime.peek(actor).active.kind == "clean_base" then

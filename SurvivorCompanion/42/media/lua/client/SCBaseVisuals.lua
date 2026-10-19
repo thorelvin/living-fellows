@@ -690,15 +690,29 @@ local function visibleCompanionLabel(record, subject, px, py, pz, playerIndex)
     local square, squareOk = safeMethod(actor, "getCurrentSquare")
     if not squareOk or square == nil then return nil end
     local canSee, canSeeOk = safeMethod(square, "getCanSee", playerIndex)
-    if not canSeeOk or canSee ~= true then return nil end
-    local targetAlpha, alphaOk = safeMethod(actor, "getTargetAlpha", playerIndex)
-    if alphaOk and tonumber(targetAlpha) ~= nil and tonumber(targetAlpha) <= 0.05 then
+    local couldSee, couldSeeOk = safeMethod(square, "isCouldSee", playerIndex)
+    local renderedAlpha, renderedAlphaOk = safeMethod(actor, "getAlpha", playerIndex)
+    renderedAlpha = renderedAlphaOk and tonumber(renderedAlpha) or nil
+    -- If visibility flags lag behind the rendered actor, still require line of sight.
+    if canSee ~= true and not (couldSeeOk and couldSee == true
+        and renderedAlpha and renderedAlpha > 0.05) then
+        return nil
+    end
+    if not canSeeOk and not couldSeeOk then return nil end
+    local targetAlpha, targetAlphaOk = safeMethod(actor, "getTargetAlpha", playerIndex)
+    if renderedAlpha and renderedAlpha <= 0.05
+        and targetAlphaOk and tonumber(targetAlpha) and tonumber(targetAlpha) <= 0.05 then
         return nil
     end
     -- The vanilla chat element occupies the same head anchor. Let speech take
     -- the lane while active instead of painting the name through the sentence.
-    local line, lineOk = safeMethod(actor, "getSayLine")
-    if lineOk and type(line) == "string" and line ~= "" then return nil end
+    local speaking, speakingOk = safeMethod(actor, "isSpeaking")
+    if speakingOk then
+        if speaking == true then return nil end
+    else
+        local line, lineOk = safeMethod(actor, "getSayLine")
+        if lineOk and type(line) == "string" and line ~= "" then return nil end
+    end
     local name = firstName(record)
     if name == nil then return nil end
     local distance = math.sqrt(distanceSq)

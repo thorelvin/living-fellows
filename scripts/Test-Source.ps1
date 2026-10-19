@@ -16,7 +16,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $Python = (Get-Command python.exe -ErrorAction Stop).Source
-$Javac = (Get-Command javac.exe -ErrorAction Stop).Source
+$Javac = & (Join-Path $ProjectRoot 'scripts\Resolve-TestJavac.ps1')
 $Java = Join-Path (Split-Path -Parent $Javac) 'java.exe'
 $BuildRoot = Join-Path ([System.IO.Path]::GetTempPath()) `
     ('living-fellows-source-tests-' + [guid]::NewGuid().ToString('N'))

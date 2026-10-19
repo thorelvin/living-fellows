@@ -30,6 +30,7 @@ function T.storage(id, category, items, capacity)
 end
 SC.GameplayUtil = {
     nowMs = function() return T.now end,
+    position = function(actor) return actor.x or 10, actor.y or 10, actor.z or 0 end,
     call = function(object, method, ...)
         if not object or type(object[method]) ~= "function" then
             return nil, false
@@ -88,6 +89,7 @@ SC.WorkTransport = {
 SC.BaseLife = {
     active = function() return { id = "camp:1", core = { x = 10, y = 10, z = 0 } } end,
     isInside = function() return true end,
+    withinWorkReach = function(holder) return T.reach == holder end,
     foodDepositCategory = function(item)
         local wanted = item.fresh and "fresh_food" or "food"
         for _, row in ipairs(T.storages) do
@@ -110,7 +112,8 @@ SC.BaseLife = {
 }
 SC.BaseWork = {
     classifyItem = function(item) return item.category end,
-    depositToStorage = function(actor, _, storage, container, item)
+    depositToStorage = function(actor, _, storage, container, item, options)
+        T.lastDepositOptions = options
         local moved, reason = SC.WorkTransport.transferVerified(
             actor.inventory, container, item)
         return moved, moved and "base_supply_returned" or reason

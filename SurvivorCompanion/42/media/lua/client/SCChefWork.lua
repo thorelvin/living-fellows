@@ -2337,6 +2337,38 @@ function Chef.canCancelActor(actor, reason)
     if state.recovered then
         local phase = state.job and state.job.target
             and state.job.target.cookPhase or nil
+        if phase == "supplies_withdrawn"
+            and state.recoveryIssue == "chef_restart_needs_recovery" then
+            -- This phase precedes every native cooking action. Cancellation
+            -- is safe only when every exact withdrawal receipt is still on
+            -- the cook and its source was rebound without ambiguity.
+            local receipts = state.job.target.chefSupplies or {}
+            local wanted, found = {}, {}
+            if #receipts == 0 then
+                return false, "chef_return_receipt_recovery_required" end
+            for _, receipt in ipairs(receipts) do
+                if receipt.token == nil or wanted[receipt.token] then
+                    return false, "chef_return_receipt_recovery_required" end
+                wanted[receipt.token] = true
+            end
+            for _ in pairs(state.unresolvedSupplies or {}) do
+                return false, "chef_return_receipt_recovery_required"
+            end
+            for _, item in ipairs(U().inventoryItems(U().inventory(actor), math.huge)) do
+                local data = select(1, call(item, "getModData"))
+                local token = type(data) == "table" and data.SC_ChefSupplyReceipt
+                if wanted[token] then
+                    if found[token] then
+                        return false, "chef_return_receipt_recovery_required" end
+                    found[token] = true
+                end
+            end
+            for token in pairs(wanted) do
+                if not found[token] then
+                    return false, "chef_return_receipt_recovery_required" end
+            end
+            return true
+        end
         local early = phase == "supplies_withdrawn"
             or phase == "base_carried" or phase == "dry_carried"
             or phase == "ingredients_carried" or phase == "bowl_1_carried"

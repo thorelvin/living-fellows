@@ -489,10 +489,10 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn('selectedRole, BASE_JOB_ROLES', base)
         self.assertIn('"UI_SC_Base_JobRole_unassigned"', base)
         self.assertNotIn('self:addInformationLine(panel, y, "UI_SC_Info_Message",\n                UI.text("UI_SC_Base_JobRoleHint"))', base)
-        # The role-driven Base view has no per-job controls, except for a job
-        # that stopped retrying on its own and now waits for the player.
+        # Every job counted as blocked must expose its reason and controls,
+        # including failures that will retry on their own.
         stalled = base[base.index("if #stalled > 0 then"):]
-        self.assertIn("job.parked == true", base)
+        self.assertIn('if job.state == "blocked" then', base)
         self.assertIn("for _, job in ipairs(stalled) do", stalled)
         self.assertNotIn("math.min(#stalled", stalled)
         self.assertEqual(base.count('"retry_job"'), 1)

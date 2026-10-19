@@ -46,6 +46,9 @@ check(I.valid(resumed) and select(2, I.update(resumed, a))
 status = I.summary(resumed)
 check(status.stored == 2 and status.pending == 0 and T.moves == 3,
     "one bag stage and two deposits, no copied item")
+check(type(T.lastDepositOptions) == "table"
+    and T.lastDepositOptions.movementPriority == 60,
+    "expedition carrier has right of way over routine base traffic to storage")
 check(unrelated.container == a.inventory,
     "unrelated personal gear is untouched")
 check(I.copy(resumed) and I.valid(I.copy(resumed)),
@@ -89,6 +92,12 @@ SC.BaseLife.isInside = inside
 I.refresh(remote)
 check(I.summary(remote).broughtBack == 1,
     "the exact item counts as brought back only at camp")
+SC.BaseLife.isInside = function(holder) return holder ~= a end
+T.reach = a
+I.reset()
+check(I.wants(I.copy(remote), a),
+    "a returned carrier keeps delivery while crossing the camp reach band")
+SC.BaseLife.isInside, T.reach = inside, nil
 
 local fullItem = T.item("full", "tools")
 a.inventory.items[#a.inventory.items + 1] = fullItem
@@ -155,6 +164,35 @@ check(select(2, I.update(alternateAccess, a))
         == "expedition_supply_stored"
     and coat.container == openCloset.container,
     "delivery retries the next matching shelf after an access failure")
+SC.BaseWork.depositToStorage = originalDeposit
+
+local stalledItem = T.item("stalled-medical", "medical")
+a.inventory.items[#a.inventory.items + 1] = stalledItem
+stalledItem.container = a.inventory
+local stalledShelf = T.storage("medical-stalled", "medical", {}, 4)
+local alternateShelf = T.storage("medical-alternate", "medical", {}, 4)
+SC.BaseWork.depositToStorage = function(actor, state, storage, container, item)
+    if storage == stalledShelf then return true, "path_searching" end
+    return originalDeposit(actor, state, storage, container, item)
+end
+mission.radioSession = "trip:stalled-storage"
+mission.scout.search.acquisitions = { { id = stalledItem.id,
+    itemType = stalledItem.fullType, memberId = "a" } }
+local stalledDelivery = I.create(mission)
+check(select(2, I.update(stalledDelivery, a)) == "path_searching"
+    and stalledItem.container == a.inventory,
+    "a pending approach never counts the cargo as stored")
+T.now = T.now + 180001
+check(select(2, I.update(stalledDelivery, a))
+        == "expedition_storage_approach_timeout"
+    and stalledItem.container == a.inventory,
+    "a motionless storage approach times out with the exact item intact")
+T.now = T.now + 2501
+check(select(2, I.update(stalledDelivery, a))
+        == "expedition_supply_stored"
+    and stalledItem.container == alternateShelf.container
+    and I.summary(stalledDelivery).stored == 1,
+    "a second matching shelf receives cargo after the first route stalls")
 SC.BaseWork.depositToStorage = originalDeposit
 
 local cargo = T.item("cargo", "food")

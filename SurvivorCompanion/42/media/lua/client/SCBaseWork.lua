@@ -25,6 +25,7 @@ local states = setmetatable({}, { __mode = "k" })
 local storageItemCursors = setmetatable({}, { __mode = "k" })
 local maintenanceCursor = 1
 local auditPhase = 0
+local cleaningScan
 local nextRoutineJobAt = 0
 local buildRecipeAliases = {
     -- GetAllBuildableEntities() exposes EntityScript:getName(), not the
@@ -484,7 +485,7 @@ end
 -- Return an exact borrowed supply to the exact marked container it came from.
 -- This mirrors withdrawal: the worker approaches the storage, visibly uses it,
 -- revalidates the registration at commit time, and verifies the identity move.
-local function transferToStorage(actor, state, storage, container, item, requireDeposits)
+local function transferToStorage(actor, state, storage, container, item, requireDeposits, options)
     if type(storage) == "table" and storage.kind == "log_yard" then
         local square = SC.LogYard and SC.LogYard.tile(storage.x, storage.y,
             storage.z, storage.zoneId) or nil
@@ -536,6 +537,8 @@ local function transferToStorage(actor, state, storage, container, item, require
             action = "move_to_base_storage", targetSquare = U().squareOf(object),
             object = object, arrivalDistance = 0.35, requireSameSquare = true,
             continuousApproach = true,
+            movementPriority = type(options) == "table"
+                and tonumber(options.movementPriority) or nil,
         }, true))
         return approached == true, approachReason
     end
@@ -604,6 +607,260 @@ local function transferToStorage(actor, state, storage, container, item, require
     end
     return moved == true, moved and "base_supply_returned"
         or reason or "base_supply_return_failed"
+end
+
+-- Cleaning borrows two exact objects. Keep the receipt on the saved job and
+-- a job marker on each item: inventory and container objects are recreated
+-- across reloads, while the job ID survives. Carried personal supplies never
+-- get a receipt and therefore never get returned to camp storage.
+local CLEAN_MARKERS = {
+    tool = "LF_CleanToolJobId", liquid = "LF_CleanLiquidJobId",
+}
+
+local function cleaningLiquidAmount(item)
+    local fluid = select(1, U().call(item, "getFluidContainer"))
+    local bleach = Fluid and Fluid.Bleach
+    local cleaning = Fluid and Fluid.CleaningLiquid
+    if not fluid or ((not bleach or select(1, U().call(fluid, "contains", bleach)) ~= true)
+        and (not cleaning or select(1, U().call(fluid, "contains", cleaning)) ~= true)) then
+        return nil
+    end
+    local amount = select(1, U().call(fluid, "getAmount"))
+    return tonumber(amount)
+end
+
+local function cleaningItemUsable(item, kind)
+    if kind == "tool" then
+        return ItemTag and ItemTag.CLEAN_STAINS
+            and select(1, U().call(item, "hasTag", ItemTag.CLEAN_STAINS)) == true
+            and select(1, U().call(item, "isBroken")) ~= true or false
+    end
+    local minimum = ZomboidGlobals and ZomboidGlobals.CleanBloodBleachAmount
+    local amount = cleaningLiquidAmount(item)
+    return type(minimum) == "number" and minimum > 0
+        and amount ~= nil and amount >= minimum
+end
+
+local function cleaningReceipt(job, kind)
+    local target = type(job) == "table" and job.target or nil
+    return type(target) == "table" and type(target.cleanLoans) == "table"
+        and target.cleanLoans[kind] or nil
+end
+
+local function cleaningMarked(item, job, kind)
+    local data = item and U().modData(item) or nil
+    local receipt = cleaningReceipt(job, kind)
+    return type(data) == "table" and type(receipt) == "table"
+        and data[CLEAN_MARKERS[kind]] == job.id
+        and tostring(receipt.itemId) == tostring(select(1, U().call(item, "getID")))
+end
+
+local function cleaningLoanItem(actor, job, kind)
+    local receipt = cleaningReceipt(job, kind)
+    if not receipt then return nil, nil, nil end
+    local inventory = actor and U().inventory(actor) or nil
+    local owned, container, found
+    for _, item in ipairs(inventory and U().inventoryItemsDeep(inventory, 512, 24) or {}) do
+        local data = U().modData(item)
+        if type(data) == "table" and data[CLEAN_MARKERS[kind]] == job.id then
+            if found then return nil, nil, "cleaning_loan_ambiguous" end
+            found, owned = item, true
+        end
+    end
+    local storage = SC.BaseLife.storage(receipt.sourceStorageId)
+    container = storage and SC.BaseLife.resolveContainer(storage) or nil
+    if container then
+        for _, item in ipairs(U().inventoryItems(container, 1024)) do
+            local data = U().modData(item)
+            if type(data) == "table" and data[CLEAN_MARKERS[kind]] == job.id then
+                if found and found ~= item then
+                    return nil, nil, "cleaning_loan_ambiguous" end
+                found, owned = item, false
+            end
+        end
+    end
+    if found then
+        if owned and inventory and not U().inventoryContains(inventory, found) then
+            local nested = select(1, U().call(found, "getContainer"))
+            if not nested or U().transferItemVerified(nested, inventory, found) ~= true then
+                return nil, nil, "cleaning_loan_nested_unreachable"
+            end
+        end
+        local id = select(1, U().call(found, "getID"))
+        if id == nil then return nil, nil, "cleaning_loan_id_missing" end
+        -- Restored companion inventory items can have new native IDs. A
+        -- unique marked item on the assigned worker is the recovery proof.
+        if tostring(id) ~= tostring(receipt.itemId) then
+            if not owned or job.assignedId ~= U().idOf(actor) then
+                return nil, nil, "cleaning_loan_id_changed" end
+            receipt.itemId = id
+        end
+    end
+    return found, owned, nil, storage, container
+end
+
+local function carriedCleaningItem(actor, kind, job)
+    local inventory = U().inventory(actor)
+    for _, item in ipairs(U().inventoryItemsDeep(inventory, 180, 12)) do
+        if cleaningItemUsable(item, kind)
+            and (not BaseWork.choreReserved(item)
+                or job and cleaningMarked(item, job, kind)) then
+            return item
+        end
+    end
+    return nil
+end
+
+local function findCleaningSource(actor, kind)
+    local seen = {}
+    for _, category in ipairs({ "tools", "general", "crafting", false }) do
+        for _, storage in ipairs(SC.BaseLife.storageRows(category or nil, true)) do
+            if not seen[storage.id] then
+                seen[storage.id] = true
+                local container = SC.BaseLife.resolveContainer(storage)
+                if container then
+                    for _, item in ipairs(storageItemSlice(container)) do
+                        local itemType = U().itemType(item)
+                        if itemType and cleaningItemUsable(item, kind)
+                            and not BaseWork.choreReserved(item)
+                            and sourceItemAvailable(storage, itemType)
+                            and not (SC.WorkTransport and SC.WorkTransport.foreignProtected
+                                and SC.WorkTransport.foreignProtected(item, actor) == true)
+                            and not (SC.PersonalItems and SC.PersonalItems.isProtected
+                                and SC.PersonalItems.isProtected(item, actor, "base_clean")) then
+                            return storage, container, item
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+function BaseWork.cleaningSuppliesAvailable(actor, job)
+    if not actor then return false end
+    for _, kind in ipairs({ "tool", "liquid" }) do
+        local borrowed = job and cleaningReceipt(job, kind)
+        local loanItem = borrowed and cleaningLoanItem(actor, job, kind) or nil
+        if not loanItem and not carriedCleaningItem(actor, kind, job)
+            and not findCleaningSource(actor, kind) then return false end
+    end
+    return true
+end
+
+local function clearCleaningLoan(job, kind, item)
+    local receipt = cleaningReceipt(job, kind)
+    if not receipt then return true end
+    if item then
+        local data = U().modData(item)
+        if type(data) ~= "table" then return false end
+        if data[CLEAN_MARKERS[kind]] == job.id then
+            data[CLEAN_MARKERS[kind]] = nil
+        end
+    end
+    job.target.cleanLoans[kind] = nil
+    if not job.target.cleanLoans.tool and not job.target.cleanLoans.liquid then
+        job.target.cleanLoans = nil
+        job.assignedId = nil
+    end
+    return true
+end
+
+local function returnCleaningLoans(actor, state, job, direct)
+    for _, kind in ipairs({ "tool", "liquid" }) do
+        local receipt = cleaningReceipt(job, kind)
+        if receipt then
+            local item, carried, itemReason, storage, container =
+                cleaningLoanItem(actor, job, kind)
+            if itemReason then return false, itemReason end
+            if item and carried then
+                if not storage then
+                    -- An unmarked source cannot receive the borrowed object.
+                    -- Keep it with the worker, now as ordinary inventory.
+                    if not clearCleaningLoan(job, kind, item) then
+                        return false, "cleaning_marker_uncertain" end
+                elseif not container then
+                    return false, "base_storage_unloaded"
+                else
+                    local returned, reason
+                    if direct then
+                        returned, reason = BaseWork.restoreToStorage(actor,
+                            storage, container, item)
+                    else
+                        returned, reason = transferToStorage(actor, state,
+                            storage, container, item)
+                    end
+                    if returned == true and reason ~= "base_supply_returned" then
+                        return nil, reason
+                    end
+                    if returned ~= true then
+                        if reason == "base_storage_action_rejected" then
+                            return nil, "cleaning_storage_busy" end
+                        return false, reason
+                    end
+                    if not U().inventoryContains(container, item) then
+                        return false, "cleaning_return_unverified" end
+                    if not clearCleaningLoan(job, kind, item) then
+                        return false, "cleaning_marker_uncertain" end
+                end
+            elseif item and container and U().inventoryContains(container, item) then
+                if not clearCleaningLoan(job, kind, item) then
+                    return false, "cleaning_marker_uncertain" end
+            elseif not storage then
+                clearCleaningLoan(job, kind, item)
+            elseif not container then
+                return false, "base_storage_unloaded"
+            else
+                -- The player moved the item. Its marker goes stale when this
+                -- receipt is cleared; never fabricate a replacement.
+                clearCleaningLoan(job, kind, nil)
+            end
+        end
+    end
+    return true
+end
+
+local function stageCleaningItem(actor, state, job, kind)
+    local receipt = cleaningReceipt(job, kind)
+    if receipt then
+        local item, carried, reason, storage, container =
+            cleaningLoanItem(actor, job, kind)
+        if reason then return false, reason, true end
+        if item and carried and cleaningItemUsable(item, kind) then
+            return true, "cleaning_supply_carried" end
+        if item and carried then
+            local returned, why = returnCleaningLoans(actor, state, job)
+            return returned, why or "cleaning_supply_exhausted", returned == false
+        end
+        if not item then
+            if storage and not container then return false, "base_storage_unloaded", true end
+            clearCleaningLoan(job, kind, nil)
+            return true, "cleaning_supply_reselecting"
+        end
+        if not storage or not container then
+            return false, "base_storage_unloaded", true end
+        local taken, why = transferFromStorage(actor, state, storage, container, item)
+        if U().inventoryContains(U().inventory(actor), item) then
+            return true, "cleaning_supply_carried" end
+        return taken == true, why, false
+    end
+    if carriedCleaningItem(actor, kind, job) then
+        return true, "cleaning_personal_supply" end
+    local storage, container, item = findCleaningSource(actor, kind)
+    if not item then return false, "cleaning_supplies_missing", true end
+    local id = select(1, U().call(item, "getID"))
+    local data = U().modData(item)
+    if id == nil or type(data) ~= "table" then
+        return false, "cleaning_supply_id_missing", true end
+    local marker = CLEAN_MARKERS[kind]
+    if data[marker] ~= nil and BaseWork.choreReserved(item) then
+        return false, "cleaning_supply_reserved", true end
+    job.target.cleanLoans = job.target.cleanLoans or {}
+    job.target.cleanLoans[kind] = { sourceStorageId = storage.id, itemId = id }
+    job.assignedId = U().idOf(actor)
+    data[marker] = job.id
+    return true, "cleaning_supply_selected"
 end
 
 local function prepareBuild(actor, state, job, info)
@@ -1412,6 +1669,76 @@ local function updateChore(actor, state, job, player, runtime)
     return handled == true, reason or "downtime_unavailable", exhausted
 end
 
+local function updateCleaning(actor, state, job, player, runtime)
+    local function abort(reason)
+        state.cleanFailureReason = reason or "cleaning_unavailable"
+        local returned, why = returnCleaningLoans(actor, state, job)
+        if returned == true then
+            local failure = state.cleanFailureReason
+            state.cleanFailureReason = nil
+            return false, failure, true
+        end
+        if returned == nil then return true, why or "cleaning_return_pending" end
+        return false, why or state.cleanFailureReason, true
+    end
+    if state.cleanFailureReason then return abort(state.cleanFailureReason) end
+    local target = type(job.target) == "table" and U().gridSquare(
+        job.target.x, job.target.y, job.target.z) or nil
+    local stained = target and select(1, U().call(target, "haveStains")) == true
+    local nativeActive = SC.NativeActions
+        and type(SC.NativeActions.isWorkActive) == "function"
+        and SC.NativeActions.isWorkActive(actor) == true
+    if not stained and not nativeActive then
+        local returned, returnReason = returnCleaningLoans(actor, state, job)
+        if returned ~= true then
+            return returned == nil, returnReason or "cleaning_return_pending",
+                returned == false
+        end
+        if not target then return abort("cleaning_target_unavailable") end
+        SC.BaseLife.completeJob(job.id, actorId(actor),
+            state.cleanStartedAt and "cleaned" or "already_clean")
+        state.cleanStartedAt = nil
+        return true, "cleaned", false, true
+    end
+    if not target then return abort("cleaning_target_unavailable") end
+    if not SC.Downtime or type(SC.Downtime.update) ~= "function" then
+        return abort("cleaning_unavailable")
+    end
+    local quiet = SC.Downtime.peek and SC.Downtime.peek(actor) or nil
+    if not (quiet and quiet.active and quiet.active.kind == "clean_base") then
+        for _, kind in ipairs({ "tool", "liquid" }) do
+            local staged, stageReason, terminal =
+                stageCleaningItem(actor, state, job, kind)
+            if not staged then
+                if terminal == true then return abort(stageReason) end
+                return staged == nil, stageReason or "cleaning_supply_pending",
+                    false
+            end
+            if stageReason ~= "cleaning_supply_carried"
+                and stageReason ~= "cleaning_personal_supply" then
+                return true, stageReason
+            end
+        end
+        local eligible, reason = SC.Downtime.canCleanAt(actor, target)
+        if not eligible then return abort(reason or "cleaning_unavailable") end
+    end
+    state.cleanStartedAt = state.cleanStartedAt or now()
+    local handled, reason = SC.Downtime.update(actor, player, runtime,
+        "clean_base", target)
+    stained = select(1, U().call(target, "haveStains")) == true
+    if not stained and (not SC.NativeActions
+        or type(SC.NativeActions.isWorkActive) ~= "function"
+        or SC.NativeActions.isWorkActive(actor) ~= true) then
+        -- Let the next pulse return the exact borrowed objects before the
+        -- job disappears from the save and its markers become stale.
+        return true, "cleaning_returning_supplies"
+    end
+    local timedOut = now() - state.cleanStartedAt > 90000
+        and not (quiet and quiet.active and quiet.active.kind == "clean_base")
+    if timedOut then return abort(reason or "cleaning_timeout") end
+    return handled == true, reason or "cleaning_waiting", timedOut
+end
+
 -- The square a companion was told to guard inside the base. Base duty from
 -- the menu anchors on the base core, which is no post of its own.
 local function guardPost(actor)
@@ -1708,7 +2035,9 @@ function BaseWork.update(actor, player, runtime)
         and SC.Downtime.peek(actor) or nil
     local activeQuiet = visitState and visitState.active
     local activeVisit = activeQuiet and activeQuiet.kind == "leader_check_in"
-    if job and activeQuiet and type(SC.Downtime.cancel) == "function" then
+    if job and activeQuiet
+        and not (job.type == "clean" and activeQuiet.kind == "clean_base")
+        and type(SC.Downtime.cancel) == "function" then
         SC.Downtime.cancel(actor, "base_job_assigned")
     elseif not job and activeQuiet
         and SC.Downtime and type(SC.Downtime.update) == "function" then
@@ -1797,7 +2126,8 @@ function BaseWork.update(actor, player, runtime)
     end
     if state.jobId ~= job.id then
         state.jobId, state.phase, state.action, state.transfer = job.id, "idle", nil, nil
-        state.visualAt, state.requirementsReady = nil, nil
+        state.visualAt, state.requirementsReady, state.cleanStartedAt = nil, nil, nil
+        state.cleanFailureReason = nil
         -- state.cargo deliberately survives: a worker still holding base
         -- stock must deliver or return it, whatever job comes next.
     end
@@ -1833,6 +2163,14 @@ function BaseWork.update(actor, player, runtime)
                 state.jobId = nil
                 return true, reason
             end
+        end
+    elseif job.type == "clean" then
+        local completed
+        handled, reason, terminal, completed = updateCleaning(actor,
+            state, job, player, runtime)
+        if completed then
+            state.jobId = nil
+            return true, reason
         end
     elseif job.type == "unload_vehicle" then
         if not SC.VehicleUnload or type(SC.VehicleUnload.update) ~= "function" then
@@ -1913,6 +2251,7 @@ function BaseWork.update(actor, player, runtime)
             end
         end
         state.jobId, state.phase, state.action, state.transfer = nil, "idle", nil, nil
+        state.cleanFailureReason = nil
         -- A blocked job forgets its selection, never the cargo it still owns.
     elseif handled then
         if reason == "car_item_stored"
@@ -2018,6 +2357,47 @@ local function auditRoutine(base)
     return false, "no_actionable_routine"
 end
 
+local function auditCleaning(base)
+    for _, job in ipairs(base.jobs or {}) do
+        if job.type == "clean" and job.state ~= "completed"
+            and job.state ~= "cancelled" then
+            return false, "cleaning_order_active"
+        end
+    end
+    local zones = {}
+    for _, zone in ipairs(base.zones or {}) do
+        if zone.kind == "area" then zones[#zones + 1] = zone end
+    end
+    if #zones == 0 then return false, "cleaning_area_missing" end
+    local cursor = cleaningScan
+    if not cursor or cursor.baseId ~= base.id
+        or cursor.zoneCount ~= #zones then
+        cursor = { baseId = base.id, zoneCount = #zones, index = 1,
+            x = zones[1].x1, y = zones[1].y1 }
+        cleaningScan = cursor
+    end
+    for _ = 1, 96 do
+        local zone = zones[cursor.index]
+        local square = U().gridSquare(cursor.x, cursor.y, zone.z)
+        cursor.x = cursor.x + 1
+        if cursor.x > zone.x2 then cursor.x, cursor.y = zone.x1, cursor.y + 1 end
+        if cursor.y > zone.y2 then
+            cursor.index = cursor.index % #zones + 1
+            cursor.x, cursor.y = zones[cursor.index].x1,
+                zones[cursor.index].y1
+        end
+        if square and select(1, U().call(square, "haveStains")) == true then
+            local queued, job = SC.BaseLife.requestCleaning(square)
+            if queued then return true, job end
+            if job == "cleaning_supplies_missing"
+                or job == "cleaning_worker_missing" then
+                return false, job
+            end
+        end
+    end
+    return false, "no_actionable_stain"
+end
+
 function BaseWork.auditMaintenance(player)
     local base = SC.BaseLife and SC.BaseLife.active() or nil
     if not base then return false, "base_missing" end
@@ -2049,6 +2429,10 @@ function BaseWork.auditMaintenance(player)
             return false, "continuous_routines_disabled"
         end
         return auditRoutine(base)
+    end
+    if auditPhase == 5 and settings.autoMaintenance ~= false then
+        local queued, job = auditCleaning(base)
+        if queued then return true, job end
     end
     if auditPhase == 6 then
         if type(SC.BaseLife.auditRoleProduction) == "function" then
@@ -2128,6 +2512,17 @@ function BaseWork.cancel(actor, reason)
         local settled, cargoReason = settleCargo(actor, state)
         if settled ~= true then return false, cargoReason end
         local job = state.jobId and SC.BaseLife.job(state.jobId) or nil
+        if job and job.type == "clean" then
+            local quiet = SC.Downtime and SC.Downtime.peek
+                and SC.Downtime.peek(actor) or nil
+            if quiet and quiet.active and quiet.active.kind == "clean_base" then
+                local stopped, why = SC.Downtime.cancel(actor,
+                    reason or "base_work_cancelled")
+                if stopped ~= true then return false, why or "cleaning_busy" end
+            end
+            local returned, why = returnCleaningLoans(actor, state, job, true)
+            if returned ~= true then return false, why or "cleaning_return_pending" end
+        end
         local fuelWork = job and (job.type == "unload_vehicle" and SC.VehicleUnload
             or job.type == "refuel_vehicle" and SC.VehicleRefuel
             or job.type == "refuel_generator" and SC.GeneratorRefuel
@@ -2183,6 +2578,30 @@ end
 -- report success while the exact accepted native action is still executable.
 function BaseWork.cancelJob(jobId, ownerId, reason)
     local unloadJob = SC.BaseLife and SC.BaseLife.job(jobId) or nil
+    if unloadJob and unloadJob.type == "clean" then
+        local workerId = ownerId or unloadJob.assignedId
+        local actor = workerId and U().resolveActor(workerId) or nil
+        if not actor and unloadJob.target and unloadJob.target.cleanLoans then
+            if not BaseWork.workerUnregistered(workerId) then
+                return false, "cleaning_worker_unavailable" end
+            unloadJob.target.cleanLoans, unloadJob.assignedId = nil, nil
+        end
+        local quiet = actor and SC.Downtime and SC.Downtime.peek
+            and SC.Downtime.peek(actor) or nil
+        if quiet and quiet.active and quiet.active.kind == "clean_base" then
+            local cancelled, why = SC.Downtime.cancel(actor,
+                reason or "base_job_cancelled")
+            if cancelled ~= true then return false, why or "cleaning_busy" end
+        end
+        local state = actor and states[actor] or nil
+        if actor then
+            local returned, why = returnCleaningLoans(actor, state or {},
+                unloadJob, true)
+            if returned ~= true then return false, why or "cleaning_return_pending" end
+        end
+        if state and state.jobId == jobId then states[actor] = nil end
+        return true, "cleaning_cancelled"
+    end
     if unloadJob and (unloadJob.type == "unload_vehicle"
         or unloadJob.type == "refuel_vehicle"
         or unloadJob.type == "refuel_generator"
@@ -2246,6 +2665,11 @@ end
 -- whose job no longer names that item is stale and reserves nothing.
 function BaseWork.choreReserved(item)
     local data = U().modData(item) or {}
+    for kind, marker in pairs(CLEAN_MARKERS) do
+        local jobId = data[marker]
+        local job = jobId and SC.BaseLife and SC.BaseLife.job(jobId) or nil
+        if job and cleaningMarked(item, job, kind) then return true end
+    end
     if data.LF_RefuelJobId == nil and data.LF_UpkeepJobId == nil then return false end
     return not SC.BaseFuel or type(SC.BaseFuel.reserved) ~= "function"
         or SC.BaseFuel.reserved(item) == true
@@ -2265,6 +2689,12 @@ function BaseWork.reconcileExpiredJob(job, ownerId)
     if job.type == "farm" or job.type == "gather_materials" or job.type == "production"
         or job.type == "cook" then
         return false, "expired_job_subsystem_owned"
+    end
+    if job.type == "clean" and cleaningReceipt(job, "tool")
+        or job.type == "clean" and cleaningReceipt(job, "liquid") then
+        if not BaseWork.workerUnregistered(ownerId) then
+            return false, "expired_cleaning_loan_pending" end
+        job.target.cleanLoans, job.assignedId = nil, nil
     end
     if (job.type == "refuel_vehicle" or job.type == "refuel_generator"
         or job.type == "inflate_tires" or job.type == "wash_vehicle")
@@ -2338,6 +2768,7 @@ function BaseWork.reset(actor)
         SC.WorkTransport.reset(actor)
     end
     maintenanceCursor, auditPhase, nextRoutineJobAt = 1, 0, 0
+    cleaningScan = nil
     if not actor then storageItemCursors = setmetatable({}, { __mode = "k" }) end
     return true
 end
@@ -2352,8 +2783,8 @@ function BaseWork.returnToStorage(actor, state, storage, container, item)
     return transferToStorage(actor, state, storage, container, item)
 end
 
-function BaseWork.depositToStorage(actor, state, storage, container, item)
-    return transferToStorage(actor, state, storage, container, item, true)
+function BaseWork.depositToStorage(actor, state, storage, container, item, options)
+    return transferToStorage(actor, state, storage, container, item, true, options)
 end
 
 -- Cancellation cannot start a new path, but it still returns a borrowed exact

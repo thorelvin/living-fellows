@@ -272,7 +272,7 @@ downtime = (CLIENT / "SCDowntime.lua").read_text(encoding="utf-8")
 require('itemType == "sheet" or itemType == "base.sheet"' in downtime
         and 'outputType = "Base.SheetRope"' in downtime,
         "downtime craft mode must use the real one-sheet sheet-rope recipe")
-require('candidates(actor, commands, state, current, desiredKind)' in downtime,
+require('candidates(actor, commands, state, current, desiredKind, requestedSquare)' in downtime,
         "downtime activities are not filtered by the explicit work mode")
 require("ambientRepeatCooldownMs" in downtime and "lastFact.activity" in downtime,
         "ambient downtime can repeat the same action indefinitely")

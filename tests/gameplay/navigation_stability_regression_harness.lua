@@ -45,6 +45,9 @@ SC.Topology.classifyEdge = function(_, from, to)
     return { traversable = true, cost = from.x ~= to.x and from.y ~= to.y and math.sqrt(2) or 1 }
 end
 local context = { action = "follow_formation", followRecovery = true }
+check(SC.NavTraffic.priority({ action = "move_to_base_storage",
+        movementPriority = 60 }) > SC.NavTraffic.priority({ action = "base_work" }),
+    "expedition delivery route wins right of way over routine kitchen work")
 local function line(first, last)
     local path = {}
     for x = first, last do path[#path + 1] = square(x, 0) end
@@ -53,6 +56,37 @@ end
 local function state(path, index)
     return { path = path, pathIndex = index or 2, pathGoalSquare = path[#path],
         blockedEdges = {}, blockedSquares = {}, routeMemory = {} }
+end
+do
+    local blocker = setmetatable({ x = 2.5, y = 0.5, data = {} }, { __index = actor })
+    local selected = square(2, 0)
+    local alternate = square(3, 0)
+    N._stateForTests(blocker).multiGoalSelected = selected
+    local preferred = N._preferUnclaimedGoals(actor, { selected, alternate })
+    check(#preferred == 1 and preferred[1] == alternate,
+        "a second storage standing tile remains preferred while another companion occupies the first")
+    N.cancel(blocker, "test_finished")
+end
+do
+    local blocker = setmetatable({ x = 10.5, y = 0.5, data = {} }, { __index = actor })
+    local requester = setmetatable({ x = 9.5, y = 0.5, data = {} }, { __index = actor })
+    local occupied = square(12, 0)
+    occupied.moving[1] = setmetatable({ x = 12.5, y = 0.5, data = {} },
+        { __index = actor })
+    local clearance = N._crowdClearanceSquareForRequest(
+        blocker, requester, square(10, 0), nil, false)
+    check(clearance ~= occupied,
+        "a requested crowd yield does not move a kitchen blocker onto another companion")
+    occupied.moving = {}
+    local middle = square(11, 0)
+    middle.isBlockedTo = function(_, nextSquare)
+        return nextSquare == square(10, 0) or nextSquare == square(12, 0)
+    end
+    clearance = N._crowdClearanceSquareForRequest(
+        blocker, requester, square(10, 0), nil, false)
+    check(clearance ~= occupied,
+        "a two-tile crowd yield cannot jump over a blocked kitchen edge")
+    middle.isBlockedTo = nil
 end
 local route = state(line(0, 3))
 route.routeCrossTrack, route.routeProjection, route.lastRouteProjection = 4, 9, 9
@@ -451,6 +485,12 @@ do
             and N._directStallNeedsNativeEdgeForTests(direct, square(13, 5), 7001) == false
             and N._directStallNeedsNativeEdgeForTests(direct, square(12, 5), 9001) == false,
         "a stalled direct route grants a bounded native edge only for its original goal")
+    direct.directStallNativeEdgeKey = "10:2:0>11:3:0"
+    check(N._directStallNeedsNativeEdgeForTests(direct, square(12, 5), 7001,
+            square(10, 2), square(11, 3)) == true
+            and N._directStallNeedsNativeEdgeForTests(direct, square(12, 5), 7001,
+                square(10, 2), square(11, 2)) == false,
+        "the engine fallback is limited to the physically stalled edge")
     actor.x, actor.y = 11.1, 10.2
     direct.lastDirectMotionCommandAt = 7100
     check(N._directRouteNoNetMotionForTests(actor, direct, 7100, 5000) == false,
@@ -481,9 +521,21 @@ do
     }
     local handled, accepted = N._recoverFromStuckForTests(actor, corner,
         square(18, 6), "walk", { action = "move_to_base_storage" }, 7000)
-    check(handled and accepted and corner.blockedEdges["10:2:0>11:3:0"] ~= nil
+    check(handled and accepted and corner.blockedEdges["10:2:0>11:3:0"] == nil
+            and corner.directStallNativeTriedEdges["10:2:0>11:3:0"] == 7000
+            and corner.directStallNativeGoalKey == "18:6:0"
             and corner.blockedEdges["10:2:0>18:6:0"] == nil,
-        "physical stall remembers a local corner edge instead of a useless whole-goal edge")
+        "first physical stall gives the native pathfinder one local edge attempt")
+    corner.path = { square(10, 2), square(11, 3) }
+    corner.lastAttemptFrom, corner.lastAttemptTo = square(10, 2), square(18, 6)
+    corner.lastDirectMotionCommandAt = 14000
+    corner.directMotionAnchorX, corner.directMotionAnchorY = 10.3, 2.2
+    corner.directMotionAnchorAt, corner.lastProgressAt = 8000, 14000
+    N._recoverFromStuckForTests(actor, corner, square(18, 6), "walk",
+        { action = "move_to_base_storage" }, 14000)
+    check(corner.blockedEdges["10:2:0>11:3:0"] ~= nil
+            and corner.blockedEdges["10:2:0>18:6:0"] == nil,
+        "repeated physical stall remembers its local corner edge")
     check(N._edgeBlacklistEntryForTests(corner.blockedEdges, square(10, 2),
             square(11, 3), 25000, actor, corner.blockedEdgeCount, corner) ~= nil,
         "a corner stall stays avoided across repeated base-work decisions")
@@ -496,7 +548,7 @@ do
             and around[2] ~= square(11, 3),
         "the next route takes a different first step around the stalled corner")
     check(N._edgeBlacklistEntryForTests(corner.blockedEdges, square(10, 2),
-            square(11, 3), 37001, actor, corner.blockedEdgeCount, corner) == nil,
+            square(11, 3), 135001, actor, corner.blockedEdgeCount, corner) == nil,
         "the physical-stall detour expires so a changed scene can be retried")
     U.stop = savedStop
     actor.x, actor.y = 0.5, 0.5
@@ -662,6 +714,26 @@ do
     check(N._vehicleClearanceCostForTests(vehicleCentre) == 0
             and vehicleProbes == 2,
         "expired vehicle clearance reads changed world state")
+    -- Two outdoor seats can leave the neighbouring square open to the grid
+    -- while a diagonal clips their collision footprint in the live save.
+    local oldOccupying = U.squareOccupyingObject
+    U.squareOccupyingObject = function(candidate)
+        if candidate and candidate.y == 2
+            and (candidate.x == 69 or candidate.x == 70) then
+            return { kind = "outdoor_seat" }
+        end
+        return oldOccupying(candidate)
+    end
+    local seatRoute = N.findPath(square(70, 3), square(69, 4), {
+        actor = actor, nodeBudget = 100, now = now,
+    })
+    check(type(seatRoute) == "table" and seatRoute[2] == square(70, 4),
+        "a route next to outdoor seating takes the clear cardinal step")
+    check(N._continuousFollowVectorForTests(actor,
+            { path = seatRoute, pathIndex = 2 }, square(70, 3),
+            { continuousApproach = true }) == nil,
+        "continuous approach keeps the selected cardinal corner by furniture")
+    U.squareOccupyingObject = oldOccupying
     check(N._clearanceKey(1, 2, -1) ~= N._clearanceKey(1, 2, 0)
             and N._clearanceKey(1, 2, 0) ~= N._clearanceKey(2, 1, 0)
             and type(N._clearanceKey(-1, 2, 0)) == "string",
@@ -990,13 +1062,16 @@ do
             .. tostring(N._derivedNodeBudget(400)))
 
     -- Running out of expansions is not proof the goal is unreachable.
-    local retryJob = {
-        startSquare = square(0, 0), goalSquare = square(20, 0), pathOptions = {},
-    }
+    local retryJob = N.beginPathSearch(square(0, 0), square(20, 0), nil, {})
+    local originalSearch = retryJob.search
+    retryJob.search.expanded = retryJob.search.nodeBudget
+    retryJob.search.complete, retryJob.search.reason = true, "budget"
+    retryJob.totalExpanded = retryJob.search.expanded
     check(N._startBudgetRetrySearch(retryJob) == true
             and retryJob.budgetRetried == true and retryJob.phase == "primary"
-            and retryJob.search ~= nil,
-        "a budget-exhausted route is retried instead of reported unreachable")
+            and retryJob.search == originalSearch and retryJob.search.complete == false
+            and retryJob.totalExpanded == 0,
+        "a budget-exhausted route continues its frontier without double-counting work")
     check(retryJob.search.nodeBudget
             >= (SC.Config.get("runtime", "navigationBudgetRetryNodeBudget") or 2400),
         "the retry is given room to finish: " .. tostring(retryJob.search.nodeBudget))

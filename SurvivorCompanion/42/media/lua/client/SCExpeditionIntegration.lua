@@ -237,6 +237,21 @@ local function atBase(holder)
         or SC.BaseLife.isInside(holder, "parking") == true
 end
 
+local function returnedCarrierNearBase(record, actor)
+    if not SC.BaseLife or type(SC.BaseLife.withinWorkReach) ~= "function"
+        or SC.BaseLife.withinWorkReach(actor) ~= true then return false end
+    -- A delivery may need a standing tile just beyond the marked camp edge.
+    -- Only an item already credited at camp keeps that route alive; an
+    -- expedition merely passing through the reach band must still return.
+    for _, row in ipairs(record.items) do
+        if row.returned and not row.stored then
+            local item, _, holder = locate(record, row)
+            if item and holder == actor then return true end
+        end
+    end
+    return false
+end
+
 function Integration.refresh(record)
     if not Integration.valid(record) then return false end
     for _, row in ipairs(record.items) do
@@ -360,12 +375,37 @@ end
 
 local function accessFailure(reason)
     return type(reason) == "string" and (reason == "no_interaction_targets"
+        or reason == "no_reachable_interaction_target"
         or reason == "invalid_destination"
         or reason == "engine_path_rejected"
         or reason == "work_path_outside_camp"
         or reason == "navigation_unavailable"
         or reason == "base_storage_action_rejected"
         or string.sub(reason, 1, 13) == "path_blocked:")
+end
+
+local function approachTimedOut(state, actor, storage, row)
+    local now = U().nowMs()
+    local x, y, z = U().position(actor)
+    local watch = state.deliveryApproach
+    if not watch or watch.storageId ~= storage.id or watch.itemId ~= row.id
+        or now < watch.at then
+        state.deliveryApproach = {
+            storageId = storage.id, itemId = row.id,
+            x = x, y = y, z = z, at = now,
+        }
+        return false
+    end
+    if x ~= nil and y ~= nil and watch.x ~= nil and watch.y ~= nil
+        and z == watch.z
+        and (x - watch.x) ^ 2 + (y - watch.y) ^ 2 >= 0.75 ^ 2 then
+        watch.x, watch.y, watch.z, watch.at = x, y, z, now
+        return false
+    end
+    -- Storage routes can spend up to 75 seconds planning a valid door detour.
+    -- Give the carrier time to walk the result before declaring this container
+    -- unreachable; actual movement resets the watch above.
+    return now - watch.at >= 180000
 end
 
 local function selectStorage(actor, item, state)
@@ -536,7 +576,9 @@ function Integration.wants(record, actor)
     local base = SC.BaseLife and SC.BaseLife.active()
     if base and record.baseId == nil then record.baseId = base.id end
     if not base or record.baseId ~= base.id then return false end
-    if not atBase(actor) then return false end
+    if not atBase(actor) and not returnedCarrierNearBase(record, actor) then
+        return false
+    end
     local member = memberFor(record, actor)
     local command = SC.Commands and SC.Commands.peek(actor)
     if command and tonumber(command.commandSerial) ~= member.commandSerial
@@ -571,6 +613,7 @@ function Integration.update(record, actor)
         or memberFor(record, actor).name
     local storage, container, why = selectStorage(actor, item, state)
     if not storage then
+        state.deliveryApproach = nil
         row.reason = why
         state.retryAt = U().nowMs() + 5000
         local member = memberFor(record, actor)
@@ -580,6 +623,7 @@ function Integration.update(record, actor)
         return false, why
     end
     if kind == "trunk" then
+        state.deliveryApproach = nil
         if not SC.VehicleUnload or not SC.VehicleUnload.takeExact then
             row.reason = "trunk_transfer_unavailable"
             return false, row.reason
@@ -596,6 +640,7 @@ function Integration.update(record, actor)
     end
     local inventory = U().inventory(actor)
     if source ~= inventory then
+        state.deliveryApproach = nil
         local staged, reason = SC.WorkTransport.transferVerified(
             source, inventory, item, actor)
         if not staged then row.reason = safeReason(reason)
@@ -607,7 +652,7 @@ function Integration.update(record, actor)
         return true, "receipt_taken_from_bag"
     end
     local moved, reason = SC.BaseWork.depositToStorage(
-        actor, state, storage, container, item)
+        actor, state, storage, container, item, { movementPriority = 60 })
     if moved == true and reason == "base_supply_returned" then
         if call(item, "getContainer") ~= container
             or U().inventoryContains(inventory, item)
@@ -618,10 +663,22 @@ function Integration.update(record, actor)
         row.stored, row.storageId, row.reason = true, storage.id, nil
         locationCache[record] = nil
         state.visualAt = nil
+        state.deliveryApproach = nil
         return true, "expedition_supply_stored"
+    end
+    if moved == true and reason == "base_storage_looting" then
+        state.deliveryApproach = nil
+    elseif moved == true and approachTimedOut(state, actor, storage, row) then
+        state.blockedStorage = state.blockedStorage or {}
+        state.blockedStorage[storage.id] = U().nowMs() + 15000
+        state.deliveryApproach = nil
+        row.reason = "expedition_storage_approach_timeout"
+        state.retryAt = U().nowMs() + 2500
+        return false, row.reason
     end
     row.reason = safeReason(reason)
     if moved ~= true then
+        state.deliveryApproach = nil
         if accessFailure(reason) then
             state.blockedStorage = state.blockedStorage or {}
             state.blockedStorage[storage.id] = U().nowMs() + 15000

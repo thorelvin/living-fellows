@@ -35,7 +35,7 @@ BaseLife.JOB_TYPES = {
     haul = true, sort = true, fetch = true, unload_vehicle = true,
     refuel_vehicle = true, refuel_generator = true,
     inflate_tires = true, wash_vehicle = true,
-    repair = true, replace_bandage = true,
+    repair = true, replace_bandage = true, clean = true,
     craft_supply = true, barricade = true, maintain = true, build = true,
     gather_materials = true, production = true, farm = true, cook = true,
 }
@@ -140,6 +140,7 @@ local function transientJobDelay(job, reason)
 end
 local roleAffinity = {
     generalist = { haul = 4, sort = 4, fetch = 4, unload_vehicle = 5, gather_materials = 5,
+        clean = 3,
         repair = 3, replace_bandage = 2,
         craft_supply = 3, barricade = 2, maintain = 2, build = 2, production = 5 },
     guard = { barricade = 4, maintain = 2, haul = 1, fetch = 1, gather_materials = 1,
@@ -154,8 +155,8 @@ local roleAffinity = {
     chef = { cook = 30, haul = 2, sort = 2, fetch = 2 },
     angler = { haul = 3, sort = 2, fetch = 3, production = 1 },
     woodcutter = { production = 30, gather_materials = 8, haul = 3 },
-    corpsekeeper = { production = 30, maintain = 2 },
-    maintainer = { maintain = 30, barricade = 25, repair = 15, fetch = 4 },
+    corpsekeeper = { production = 30, maintain = 2, clean = 2 },
+    maintainer = { maintain = 30, barricade = 25, repair = 15, fetch = 4, clean = 10 },
 }
 
 local WORK_ORDER_STATES = {
@@ -171,6 +172,7 @@ local draftZone
 local operationsCache
 local autonomousTreeScan
 local autonomousBodyScan
+local autonomousBodyUrgencyBaseId, autonomousBodyUrgencyUntil
 local autonomousWorkerCursor = 0
 local autonomousRetryAt = {}
 local workConsistencyRevision = 0
@@ -3283,7 +3285,8 @@ end
 local function autonomousBodyWaiting(base)
     local zones = {}
     for _, zone in ipairs(base.zones or {}) do
-        if zone.kind == "area" or zone.kind == "lumber" then
+        if zone.kind == "area" or zone.kind == "lumber"
+            or zone.kind == "burial" then
             zones[#zones + 1] = zone
         end
     end
@@ -3295,7 +3298,10 @@ local function autonomousBodyWaiting(base)
             zoneId = zones[1].id, x = zones[1].x1, y = zones[1].y1 }
         autonomousBodyScan = scan
     end
-    for _ = 1, 32 do
+    -- This audit runs once per ten maintenance pulses. A 32-square slice can
+    -- take many minutes to reach a body at the far edge of a normal camp.
+    -- Keep the work bounded, but cover most of a default camp each pass.
+    for _ = 1, 512 do
         local zone = zones[scan.index]
         if not zone then return false end
         local square = U().gridSquare(scan.x, scan.y, zone.z)
@@ -3314,7 +3320,11 @@ local function autonomousBodyWaiting(base)
             scan.zoneId = zones[scan.index].id
             scan.x, scan.y = zones[scan.index].x1, zones[scan.index].y1
         end
-        if found then return true end
+        if found then
+            autonomousBodyUrgencyBaseId = base.id
+            autonomousBodyUrgencyUntil = now() + 30000
+            return true
+        end
     end
     return false
 end
@@ -3362,7 +3372,7 @@ local function autonomousTreeWaiting(base)
     return nil
 end
 
-local function autonomousProductionSpec(base, actorId, role)
+local function autonomousProductionSpec(base, actorId, role, bodyWaiting)
     if role == "woodcutter" then
         local yard = SC.LogYard and SC.LogYard.select
             and SC.LogYard.select(U().resolveActor(actorId)) or nil
@@ -3396,7 +3406,8 @@ local function autonomousProductionSpec(base, actorId, role)
             sourceZoneId = yard and yard.zoneId or nil,
             destinationStorageId = destination.id,
             workers = { actorId } }
-    elseif role == "corpsekeeper" and autonomousBodyWaiting(base) then
+    elseif role == "corpsekeeper"
+        and (bodyWaiting or autonomousBodyWaiting(base)) then
         for _, kind in ipairs({ "burial", "pyre" }) do
             for _, zone in ipairs(base.zones or {}) do
                 if zone.kind == kind and productionZone(base,
@@ -3471,8 +3482,21 @@ function BaseLife.auditRoleProduction()
     for offset = 0, #workers - 1 do
         local index = (first + offset - 1) % #workers + 1
         local worker = workers[index]
+        local busyJob = BaseLife.jobFor(worker.id)
+        local bodyWaiting
+        if worker.role == "corpsekeeper" and busyJob
+            and (busyJob.type == "sort" or busyJob.type == "haul"
+                or busyJob.type == "fetch") then
+            bodyWaiting = autonomousBodyWaiting(base)
+            if bodyWaiting then
+                -- A sort transfer is cancelled only after BaseWork has
+                -- returned any exact cargo. Unsafe transfers keep their job.
+                local cancelled = BaseLife.cancelJob(busyJob.id)
+                if cancelled then busyJob = nil end
+            end
+        end
         if now() < (autonomousRetryAt[worker.id] or 0)
-            or BaseLife.jobFor(worker.id) ~= nil then
+            or busyJob ~= nil then
             lastReason = "production_worker_busy"
         else
             local activeOrder = false
@@ -3488,12 +3512,14 @@ function BaseLife.auditRoleProduction()
                 lastReason = "production_order_active"
             elseif not attemptedRoles[worker.role] then
                 attemptedRoles[worker.role] = true
-                local spec = autonomousProductionSpec(base, worker.id, worker.role)
+                local spec = autonomousProductionSpec(base, worker.id,
+                    worker.role, bodyWaiting)
                 if spec then
                     local created, order = BaseLife.createProductionOrder(spec)
+                    local successDelay = worker.role == "corpsekeeper" and 5000
+                        or worker.role == "woodcutter" and 10000 or 90000
                     autonomousRetryAt[worker.id] = now()
-                        + (created and (worker.role == "woodcutter" and 10000 or 90000)
-                            or 60000)
+                        + (created and successDelay or 60000)
                     if created then
                         autonomousWorkerCursor = index
                         return true, order
@@ -3817,6 +3843,54 @@ function BaseLife.enqueueJob(spec)
     return true, job
 end
 
+function BaseLife.canRequestCleaning(square)
+    local base = activeBase()
+    if not base then return false, "base_missing" end
+    local target = position(square)
+    if not target or BaseLife.isInside(target) ~= true then
+        return false, "cleaning_outside_camp" end
+    local loaded = U().gridSquare(target.x, target.y, target.z)
+    if not loaded then return false, "cleaning_target_unavailable" end
+    if select(1, U().call(loaded, "haveStains")) ~= true then
+        return false, "cleaning_stain_gone" end
+    for _, job in ipairs(base.jobs or {}) do
+        if job.type == "clean" and job.state ~= "cancelled"
+            and job.state ~= "completed" and type(job.target) == "table"
+            and job.target.x == target.x and job.target.y == target.y
+            and job.target.z == target.z then
+            return false, "cleaning_already_queued"
+        end
+    end
+    local reason = "cleaning_worker_missing"
+    for _, id in ipairs(BaseLife.dutyResidentIds()) do
+        local record = SC.Registry and SC.Registry.byId
+            and SC.Registry.byId(id) or nil
+        local actor = record and record.actor
+        if actor and record.recruited == true and not U().isDead(actor)
+            and not BaseLife.RESTRICTIONS[ensure().restrictions[id]] then
+            local eligible, why
+            if SC.Downtime and type(SC.Downtime.canCleanAt) == "function" then
+                eligible, why = SC.Downtime.canCleanAt(actor, loaded)
+            end
+            if not eligible and why == "cleaning_supplies_missing"
+                and SC.BaseWork and SC.BaseWork.cleaningSuppliesAvailable
+                and SC.BaseWork.cleaningSuppliesAvailable(actor) then
+                eligible, why = SC.Downtime.canCleanAt(actor, loaded, true)
+            end
+            if eligible then return true, target end
+            if why and reason == "cleaning_worker_missing" then reason = why end
+        end
+    end
+    return false, reason
+end
+
+function BaseLife.requestCleaning(square)
+    local eligible, target = BaseLife.canRequestCleaning(square)
+    if not eligible then return false, target end
+    return BaseLife.enqueueJob({ type = "clean", priority = 4,
+        target = target })
+end
+
 local function buildEdgeKey(target, face, kind)
     if type(target) ~= "table" then return nil end
     local x, y, z = tonumber(target.x), tonumber(target.y), tonumber(target.z)
@@ -4121,10 +4195,40 @@ local function jobScore(actorId, job)
     end
     local resident = ensure().residents[actorId] or { role = "generalist" }
     local role = BaseLife.ROLES[resident.role] and resident.role or "generalist"
+    if role == "corpsekeeper"
+        and (job.type == "sort" or job.type == "haul"
+            or job.type == "fetch")
+        and autonomousBodyUrgencyBaseId == (activeBase() or {}).id
+        and now() < (autonomousBodyUrgencyUntil or 0) then
+        return -math.huge
+    end
     local score = job.priority * 20 + ((roleAffinity[role] or {})[job.type] or 0)
     if job.assignedId == actorId then score = score + 100 end
     if job.assignedId ~= nil and job.assignedId ~= actorId then return -math.huge end
     local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(actorId) or nil
+    if job.type == "clean" then
+        local target = type(job.target) == "table" and U().gridSquare(
+            job.target.x, job.target.y, job.target.z) or nil
+        local hasLoans = type(job.target) == "table"
+            and type(job.target.cleanLoans) == "table"
+            and (job.target.cleanLoans.tool or job.target.cleanLoans.liquid)
+        local alreadyClean = target
+            and select(1, U().call(target, "haveStains")) == false
+        local eligible = record and record.actor and SC.Downtime
+            and type(SC.Downtime.canCleanAt) == "function"
+            and SC.Downtime.canCleanAt(record.actor, target) == true
+        if not eligible and record and record.actor and SC.Downtime
+            and type(SC.Downtime.canCleanAt) == "function" and SC.BaseWork
+            and type(SC.BaseWork.cleaningSuppliesAvailable) == "function"
+            and SC.BaseWork.cleaningSuppliesAvailable(record.actor, job) == true then
+            eligible = SC.Downtime.canCleanAt(record.actor, target, true) == true
+        end
+        if not record or not record.actor
+            or (not hasLoans and (not target
+                or (not alreadyClean and not eligible))) then
+            return -math.huge
+        end
+    end
     local personality = record and type(record.state) == "table"
         and type(record.state.personality) == "table" and record.state.personality or nil
     local background = personality and personality.background or (record and record.background)
@@ -4344,6 +4448,7 @@ function BaseLife.cancelJob(id)
         if okay ~= true then return false, reason or "chef_recovery_pending" end
     end
     local transferJob = job.type == "haul" or job.type == "sort"
+        or job.type == "clean"
         or job.type == "fetch" or job.type == "unload_vehicle"
         or job.type == "refuel_vehicle" or job.type == "refuel_generator"
         or job.type == "inflate_tires" or job.type == "wash_vehicle"
@@ -5547,6 +5652,7 @@ function BaseLife.restore(source)
     if source == nil then
         document, draftZone, operationsCache = emptyDocument(), nil, nil
         autonomousTreeScan, autonomousBodyScan = nil, nil
+        autonomousBodyUrgencyBaseId, autonomousBodyUrgencyUntil = nil, nil
         autonomousWorkerCursor, autonomousRetryAt = 0, {}
         autoFloorScan, autoFloorLinks = nil, {}
         refreshRestoredProtection(priorRestrictions, document.restrictions)
@@ -5563,6 +5669,7 @@ function BaseLife.restore(source)
     document = candidate
     draftZone, operationsCache = nil, nil
     autonomousTreeScan, autonomousBodyScan = nil, nil
+    autonomousBodyUrgencyBaseId, autonomousBodyUrgencyUntil = nil, nil
     autonomousWorkerCursor, autonomousRetryAt = 0, {}
     autoFloorScan, autoFloorLinks = nil, {}
     bumpWorkConsistencyRevision()
@@ -5573,6 +5680,7 @@ end
 function BaseLife.reset()
     document, draftZone, operationsCache = emptyDocument(), nil, nil
     autonomousTreeScan, autonomousBodyScan = nil, nil
+    autonomousBodyUrgencyBaseId, autonomousBodyUrgencyUntil = nil, nil
     autonomousWorkerCursor, autonomousRetryAt = 0, {}
     autoFloorScan, autoFloorLinks = nil, {}
     bumpWorkConsistencyRevision()

@@ -14,7 +14,7 @@ $ClientRoot = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\client'
 $SharedRoot = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\shared'
 $Jar = Join-Path $GameRoot 'projectzomboid.jar'
 $GameJava = Join-Path $GameRoot 'jre64\bin\java.exe'
-$Javac = (Get-Command javac.exe -ErrorAction Stop).Source
+$Javac = & (Join-Path $ProjectRoot 'scripts\Resolve-TestJavac.ps1')
 $BuildRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("sc-gameplay-tests-" + [guid]::NewGuid().ToString('N'))
 
 if (-not (Test-Path -LiteralPath $Jar) -or -not (Test-Path -LiteralPath $GameJava)) {

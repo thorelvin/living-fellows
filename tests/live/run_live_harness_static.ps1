@@ -9,7 +9,7 @@ $TestRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = (Resolve-Path -LiteralPath (Join-Path $TestRoot '..\..')).Path
 $Jar = Join-Path $GameRoot 'projectzomboid.jar'
 $GameJava = Join-Path $GameRoot 'jre64\bin\java.exe'
-$Javac = (Get-Command javac.exe -ErrorAction Stop).Source
+$Javac = & (Join-Path $ProjectRoot 'scripts\Resolve-TestJavac.ps1')
 $BuildRoot = Join-Path ([System.IO.Path]::GetTempPath()) `
     ('sc-live-harness-static-' + [guid]::NewGuid().ToString('N'))
 $Compiler = Join-Path $ProjectRoot 'tests\ui\ReflectLuaCompiler.java'

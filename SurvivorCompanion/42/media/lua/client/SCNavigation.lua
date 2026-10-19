@@ -833,7 +833,7 @@ function Navigation._clearanceEntry(x, y, z, now, ttl)
     end
     entry = entry or {}
     entry.at, entry.serial = now, cache.serial
-    entry.tree, entry.vehicle = nil, nil
+    entry.tree, entry.vehicle, entry.furniture = nil, nil, nil
     cache.facts[key] = entry
     cache.order[slot] = { key = key, serial = cache.serial }
     return entry
@@ -898,6 +898,32 @@ local function vehicleClearanceCost(square)
     local cost = count * (utility.config("navigationVehicleClearancePenalty") or 2)
     facts.vehicle = cost
     return cost
+end
+
+-- A square can be nominally free while a neighbouring chair or bench intrudes
+-- into the character capsule. Prefer an extra tile of clearance when there is
+-- room, while still allowing an adjacent standing tile for using the furniture.
+Navigation._furnitureNeighborOffsets = {
+    { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 },
+}
+function Navigation._furnitureClearanceCost(square)
+    if not square then return 0 end
+    local utility = U()
+    local x, y, z = utility.position(square)
+    if x == nil then return 0 end
+    local facts = Navigation._clearanceEntry(x, y, z, utility.nowMs(),
+        utility.config("navigationClearanceCacheMs") or 500)
+    if facts.furniture ~= nil then return facts.furniture end
+    local count = 0
+    for _, offset in ipairs(Navigation._furnitureNeighborOffsets) do
+        local neighbour = utility.gridSquare(x + offset[1], y + offset[2], z)
+        local object = neighbour and utility.squareOccupyingObject(neighbour) or nil
+        if object and select(1, utility.call(object, "getContainer")) == nil then
+            count = count + 1
+        end
+    end
+    facts.furniture = count * 1.5
+    return facts.furniture
 end
 
 local function squareNearVehicle(square)
@@ -1327,8 +1353,19 @@ local function passableEdge(fromSquare, toSquare, vegetationScale, options)
     -- edge would cost on bare ground. Pushing through a bush is not a reason
     -- to plan a detour; a fence or a crowd is.
     local foliage = vegetationCost * math.max(0, scale) + treeClearanceCost(toSquare)
+    local furnitureCost = Navigation._furnitureClearanceCost(toSquare)
+    local fx, fy = utility.position(fromSquare)
+    local tx, ty = utility.position(toSquare)
+    if fx and tx and math.abs(tx - fx) == 1 and math.abs(ty - fy) == 1
+        and (Navigation._furnitureClearanceCost(fromSquare) > 0
+            or furnitureCost > 0) then
+        -- A grid diagonal can be marked open while the actor's capsule clips
+        -- a chair beside the corner. Prefer two cardinal steps near furniture.
+        furnitureCost = furnitureCost + 1.5
+    end
     return true, math.max(0.25, baseCost + foliage
-        + vehicleClearanceCost(toSquare) + crowdCost
+        + vehicleClearanceCost(toSquare) + furnitureCost
+        + crowdCost
         + memoryPenalty), nil, nil, familiarity, hasBush, foliage
 end
 
@@ -1955,6 +1992,12 @@ local function continuousFollowVector(actor, state, sourceSquare, intent)
         and intent.continuousApproach ~= true then return nil end
     local first = math.max(2, math.floor(tonumber(state.pathIndex) or 2))
     if state.path[first] == nil then return nil end
+    -- Keep the chosen grid corner by seating instead of smoothing it into a
+    -- diagonal through a furniture footprint that the square test misses.
+    if Navigation._furnitureClearanceCost(sourceSquare) > 0
+        or Navigation._furnitureClearanceCost(state.path[first]) > 0 then
+        return nil
+    end
     local lookahead = math.max(1, math.floor(tonumber(
         U().config("navigationContinuousFollowLookahead")) or 6))
     local last = math.min(#state.path, first + lookahead - 1)
@@ -2598,11 +2641,10 @@ local function startAlternativeSearch(job)
     return true
 end
 
--- Running out of expansions does not prove the goal unreachable; it proves
--- this budget too small for this ground. Try once more with room to finish and
--- with vegetation weighted down, so pushing through undergrowth costs less
--- than sweeping the whole thicket for a way around it. Once only: a second
--- failure is a real answer and the request should get it quickly.
+-- Running out of expansions does not prove the goal unreachable. Extend the
+-- existing frontier once instead of searching the same squares a second time.
+-- Reweighting vegetation here would invalidate the scores already in the open
+-- heap, so a continued search keeps the original route costs.
 -- How many times this exact goal has run out of thinking from ground the
 -- companion has not left. Going round a building means exploring away from the
 -- goal first, which a distance-led search does last and a modest budget never
@@ -2671,16 +2713,23 @@ function Navigation._startBudgetRetrySearch(job)
     if tonumber(type(job.pathOptions) == "table" and job.pathOptions.nodeBudget) ~= nil then
         return false
     end
-    job.budgetRetried = true
     local utility = U()
+    local search = job.search
+    if type(search) ~= "table" or type(search.open) ~= "table"
+        or #search.open == 0 then return false end
+    job.budgetRetried = true
     local options = utility.copyShallow(job.pathOptions)
     options.nodeBudget = math.max(
-        math.floor(tonumber(options.nodeBudget) or 0),
+        math.floor(tonumber(search.nodeBudget) or 0) + 1,
         math.floor(tonumber(utility.config("navigationBudgetRetryNodeBudget")) or 2400))
-    options.vegetationScale = math.max(0,
-        tonumber(utility.config("navigationEmergencyVegetationScale")) or 0.2)
     job.pathOptions = options
-    job.search = newBoundedPathJob(job.startSquare, job.goalSquare, options)
+    search.options = options
+    search.nodeBudget = options.nodeBudget
+    search.complete, search.reason = false, nil
+    search.failureClass, search.nativeFallbackAllowed = nil, nil
+    -- The resumed search reports its cumulative expansions at completion.
+    job.totalExpanded = math.max(0, (tonumber(job.totalExpanded) or 0)
+        - (tonumber(search.expanded) or 0))
     job.phase = "primary"
     return true
 end
@@ -3211,6 +3260,13 @@ local function crowdClearanceSquare(blocker, requester, contested, snapshot, cor
     local rx, ry = utility.position(requester)
     local tx, ty = utility.position(contested)
     if sx == nil or rx == nil then return nil end
+    local function clearForYield(square)
+        return square and utility.isSquareFree(square)
+            and not utility.squareOccupyingObject(square)
+            and not utility.movingBlocker(square, blocker)
+            and not utility.safehouseBlocker(square, blocker)
+            and not personalSpaceBlocker(blocker, square, snapshot)
+    end
     if corridor then
         -- In a one-tile hall there is no adjacent sidestep. Search connected
         -- floor ahead of the blocker for the first passing bay or turn, never
@@ -3237,16 +3293,14 @@ local function crowdClearanceSquare(blocker, requester, contested, snapshot, cor
                     local water = square and SC.Topology
                         and type(SC.Topology.squareIsWater) == "function"
                         and SC.Topology.squareIsWater(square)
-                    if square and utility.isSquareFree(square) and not water
+                    if clearForYield(square) and not water
                         and not hazards.fire and not hazards.explosiveTrap
-                        and not utility.safehouseBlocker(square, blocker)
                         and not utility.edgeBlocked(entry.square, square)
                         and not utility.sameSquare(square, requester) then
                         local fromX, fromY = nx - sx, ny - sy
                         local ahead = fromX * forwardX + fromY * forwardY
                         local lateral = math.abs(fromX * forwardY - fromY * forwardX)
-                        if ahead >= -0.1 and lateral >= 0.8
-                            and not personalSpaceBlocker(blocker, square, snapshot) then
+                        if ahead >= -0.1 and lateral >= 0.8 then
                             return square
                         end
                         queue[#queue + 1] = { square = square, depth = entry.depth + 1 }
@@ -3269,9 +3323,18 @@ local function crowdClearanceSquare(blocker, requester, contested, snapshot, cor
         local water = square and SC.Topology
             and type(SC.Topology.squareIsWater) == "function"
             and SC.Topology.squareIsWater(square)
-        if square and utility.isSquareFree(square) and not water
+        local adjacent = math.abs(offset[1]) <= 1 and math.abs(offset[2]) <= 1
+        local connected = adjacent and not utility.edgeBlocked(source, square)
+        if not adjacent and square then
+            local middle = utility.gridSquare(sx + offset[1] / 2,
+                sy + offset[2] / 2, sz)
+            connected = clearForYield(middle)
+                and not utility.edgeBlocked(source, middle)
+                and not utility.edgeBlocked(middle, square)
+        end
+        if clearForYield(square) and connected and not water
             and not hazards.fire and not hazards.explosiveTrap
-            and not personalSpaceBlocker(blocker, square, snapshot) then
+            and not utility.sameSquare(square, requester) then
             local x, y = utility.position(square)
             local requesterClearance = (x - rx) * (x - rx) + (y - ry) * (y - ry)
             local contestedClearance = tx and ((x - tx) * (x - tx) + (y - ty) * (y - ty)) or 0
@@ -3970,6 +4033,11 @@ end
 local function pathSearchBounds(pending)
     local leaseMs = tonumber(U().config("navigationPathSearchLeaseMs")) or 6500
     local hardMs = tonumber(U().config("navigationPathSearchHardMs")) or 30000
+    if type(pending) == "table" and pending.action == "move_to_base_storage" then
+        -- A marked container can be only a few tiles away across a room wall;
+        -- reaching its door can need more than the ordinary 30-second search.
+        hardMs = math.max(hardMs, 75000)
+    end
     if type(pending) == "table" and pending.followRouting == true then
         leaseMs = math.min(leaseMs,
             tonumber(U().config("navigationFollowPathSearchLeaseMs")) or 2500)
@@ -5686,9 +5754,13 @@ function Navigation.stalledLocalStep(fromSquare, attemptedTo, goalSquare)
     return utility.gridSquare(fx + stepX, fy + stepY, fz)
 end
 
-function Navigation._directStallNeedsNativeEdgeForTests(state, goalSquare, now)
+function Navigation._directStallNeedsNativeEdgeForTests(state, goalSquare, now,
+        fromSquare, toSquare)
     return state.directStallNativeGoalKey == squareKey(goalSquare)
         and now <= (tonumber(state.directStallNativeUntil) or 0)
+        and (state.directStallNativeEdgeKey == nil or fromSquare == nil
+            or toSquare == nil
+            or state.directStallNativeEdgeKey == edgeKey(fromSquare, toSquare))
 end
 
 local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, now)
@@ -5874,15 +5946,33 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
             state.lastAttemptFrom, state.lastAttemptTo = actorSquare, localStep
             preview = classifyMovementBlocker(actor, actorSquare, localStep,
                 state.lastMovementReason)
-            -- The old unknown-edge memory lasted only 500 ms. At the next
-            -- request the planner selected this same corner again, even after
-            -- minutes of accepted movement without translation. Keep this
-            -- observed physical failure long enough to find another route.
             if preview.passageOnly ~= true and preview.dynamic ~= true then
-                blacklistEdge(state, actorSquare, localStep, preview.type,
-                    preview.object, now, preview.evidenceClass,
-                    preview.confidence, 30000)
-                state.verifiedPathAttemptKey = nil
+                local stalledEdge = edgeKey(actorSquare, localStep)
+                state.directStallNativeTriedEdges = state.directStallNativeTriedEdges or {}
+                for rememberedEdge, attemptedAt in pairs(state.directStallNativeTriedEdges) do
+                    if now - attemptedAt >= 120000 then
+                        state.directStallNativeTriedEdges[rememberedEdge] = nil
+                    end
+                end
+                local lastNativeTry = state.directStallNativeTriedEdges[stalledEdge]
+                if lastNativeTry == nil or now - lastNativeTry >= 120000 then
+                    -- A clear grid edge can still stop MoveForward at a floor
+                    -- boundary. Give the engine one chance to steer the actor's
+                    -- actual collision capsule across before excluding it.
+                    state.directStallNativeTriedEdges[stalledEdge] = now
+                    state.directStallNativeGoalKey = squareKey(goalSquare)
+                    state.directStallNativeUntil = now + 90000
+                    state.directStallNativeEdgeKey = stalledEdge
+                else
+                    -- A second stall on this edge is physical evidence even
+                    -- after the native attempt. Retain it for a real detour.
+                    blacklistEdge(state, actorSquare, localStep, preview.type,
+                        preview.object, now, preview.evidenceClass,
+                        preview.confidence, 120000)
+                    state.verifiedPathAttemptKey = nil
+                    state.directStallNativeEdgeKey = nil
+                    state.directStallNativeGoalKey = nil
+                end
             else
                 -- A moving blocker or a door threshold can clear without a
                 -- detour. Let the engine take the validated next edge.
@@ -5946,7 +6036,11 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
                 })
         end
     end
-    if blocker.type ~= "actor_state" and blocker.passageOnly ~= true then
+    local pendingNativeStallEdge = state.directStallNativeEdgeKey
+        == edgeKey(failedFrom, failedTo)
+        and now <= (tonumber(state.directStallNativeUntil) or 0)
+    if blocker.type ~= "actor_state" and blocker.passageOnly ~= true
+        and not pendingNativeStallEdge then
         blacklistEdge(state, failedFrom, failedTo, blocker.type, blocker.object, now,
             blocker.evidenceClass, blocker.confidence)
     end
@@ -7041,6 +7135,7 @@ function Navigation.request(actor, target, movementMode, intent)
                     evaluateAlternatives),
                 startedAt = now,
                 progressAt = now,
+                action = requestIntent.action,
                 lastExpanded = 0,
                 stealthAvoidance = requestIntent.stealthAvoidance == true,
                 followRouting = followRouting == true,
@@ -7635,7 +7730,7 @@ function Navigation.request(actor, target, movementMode, intent)
             or squareNearVehicle(nextSquare)
     end
     if kind == "open" and SC.Navigation._directStallNeedsNativeEdgeForTests(
-            state, goalSquare, now) then
+            state, goalSquare, now, sourceSquare, nextSquare) then
         requestIntent.direct = false
         requestIntent.enginePath = true
         requestIntent.directStallFallback = true
@@ -7717,6 +7812,7 @@ function Navigation.request(actor, target, movementMode, intent)
         if requestIntent.directStallFallback == true then
             state.directStallNativeGoalKey = nil
             state.directStallNativeUntil = nil
+            state.directStallNativeEdgeKey = nil
         end
         beginNativeLease(state, { nextSquare }, sourceSquare, nextSquare,
             goalSquare, now, requestIntent.vegetationClearance
@@ -7901,6 +7997,12 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
         end
     end
     if #valid == 0 then return false, "no_interaction_targets" end
+    -- Keep the candidate-set identity stable when another companion briefly
+    -- occupies one of the standing tiles. The preference may change, but that
+    -- must not discard a search already winding around a wall to this object.
+    local allValid = valid
+    local key = multiGoalKey(allValid, intent.action)
+    local state = stateFor(actor)
     valid = Navigation._preferUnclaimedGoals(actor, valid, intent.snapshot)
     local arrival = tonumber(intent.arrivalDistance) or 0.85
     for _, square in ipairs(valid) do
@@ -7950,8 +8052,6 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
         if firstScore == secondScore then return tostring(squareKey(first)) < tostring(squareKey(second)) end
         return firstScore < secondScore
     end)
-    local state = stateFor(actor)
-    local key = multiGoalKey(valid, intent.action)
     local currentTokenSerial = token and tonumber(token.serial) or nil
     if state.actionTokenSerial ~= currentTokenSerial
         or (state.multiGoalOwnerKey ~= nil and state.multiGoalOwnerKey ~= key) then

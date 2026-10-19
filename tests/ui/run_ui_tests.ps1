@@ -9,7 +9,7 @@ $ProjectRoot = (Resolve-Path -LiteralPath (Join-Path $TestRoot '..\..')).Path
 $Client = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\client'
 $Jar = Join-Path $GameRoot 'projectzomboid.jar'
 $GameJava = Join-Path $GameRoot 'jre64\bin\java.exe'
-$Javac = (Get-Command javac.exe -ErrorAction Stop).Source
+$Javac = & (Join-Path $ProjectRoot 'scripts\Resolve-TestJavac.ps1')
 $BuildRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('sc-ui-tests-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $BuildRoot -Force | Out-Null
 try {

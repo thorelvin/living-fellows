@@ -52,23 +52,30 @@ function secondPlayer:getZ() return self.z end
 function secondPlayer:getPlayerNum() return 1 end
 fixture.secondPlayer = secondPlayer
 
-local companionSquare = { visible = true }
+local companionSquare = { visible = true, couldSee = true }
 function companionSquare:getCanSee(index)
     assert(index == 0 or index == 1)
     return self.visible
 end
+function companionSquare:isCouldSee(index)
+    assert(index == 0 or index == 1)
+    return self.couldSee
+end
 local companion = {
     x = 12, y = 11, z = 0, square = companionSquare, speech = "",
-    renderOffsetX = 6, renderOffsetY = -10,
+    renderOffsetX = 6, renderOffsetY = -10, alpha = 1, targetAlpha = 1,
+    speaking = false,
 }
 function companion:getX() return self.x end
 function companion:getY() return self.y end
 function companion:getZ() return self.z end
 function companion:getCurrentSquare() return self.square end
-function companion:getTargetAlpha(index) assert(index == 0 or index == 1); return 1 end
+function companion:getTargetAlpha(index) assert(index == 0 or index == 1); return self.targetAlpha end
+function companion:getAlpha(index) assert(index == 0 or index == 1); return self.alpha end
 function companion:getVehicle() return nil end
 function companion:isDead() return false end
 function companion:getSayLine() return self.speech end
+function companion:isSpeaking() return self.speaking end
 function companion:getOffsetX() return self.renderOffsetX end
 function companion:getOffsetY() return self.renderOffsetY end
 fixture.companion = companion

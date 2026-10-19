@@ -9272,6 +9272,33 @@ do
             and proposedClean.surface == "wall"
             and cleanValid(cleanerActor, proposedClean),
         "camp cleaner selects a stained wall only with mop and enough liquid")
+    local otherSquare = makeSquare(-3, -5, 0)
+    otherSquare.room = room
+    otherSquare.stained = true
+    function otherSquare:haveStains() return self.stained end
+    function otherSquare:haveBloodWall() return false end
+    function otherSquare:haveGrimeWall() return false end
+    base.isInside = function(value)
+        return value == cleanerActor or value == cleanSquare
+            or value == otherSquare
+    end
+    local targeted = cleanBase(cleanerActor, nil, otherSquare)
+    check(targeted and targeted.square == otherSquare
+            and SurvivorCompanion.Downtime.canCleanAt(cleanerActor,
+                otherSquare) == true,
+        "a manual cleaning request selects its clicked tile over a nearer stain")
+    local outsideSquare = makeSquare(-2, -6, 0)
+    outsideSquare.stained = true
+    function outsideSquare:haveStains() return self.stained end
+    function outsideSquare:haveBloodWall() return false end
+    function outsideSquare:haveGrimeWall() return false end
+    base.isInside = function(value)
+        return value == cleanerActor or value == cleanSquare
+            or value == otherSquare or value == outsideSquare
+    end
+    check(SurvivorCompanion.Downtime.canCleanAt(cleanerActor,
+            outsideSquare) == true,
+        "a base cleaner can scrub a clicked outdoor camp tile")
     local cleaningStarted = SurvivorCompanion.Downtime.update(cleanerActor,
         player, calm, "clean_base")
     check(cleaningStarted and cleanWorkStates[cleanerActor]

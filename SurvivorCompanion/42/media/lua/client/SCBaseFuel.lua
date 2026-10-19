@@ -72,7 +72,8 @@ end
 -- A companion is dying with borrowed chore items on it. They stay with the
 -- body, unmarked, so the player loots an ordinary can, pump or cargo item;
 -- the job releases its receipt once the worker has left the registry.
-local CHORE_MARKERS = { Fuel.MARKER, Fuel.UPKEEP_MARKER, "LF_CarUnloadJob" }
+local CHORE_MARKERS = { Fuel.MARKER, Fuel.UPKEEP_MARKER, "LF_CarUnloadJob",
+    "LF_CleanToolJobId", "LF_CleanLiquidJobId" }
 function Fuel.prepareActorRetirement(actor)
     local inventory = actor and U().inventory(actor) or nil
     if not inventory then return true end

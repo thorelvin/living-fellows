@@ -856,6 +856,8 @@ local function baseAction(target, action, payload, player)
         end
     elseif action == "storage" then
         ok, result = SC.BaseLife.registerStorage(payload.object, payload.category)
+    elseif action == "clean" then
+        ok, result = SC.BaseLife.requestCleaning(payload.square)
     elseif action == "maintenance" then
         ok, result = SC.BaseLife.registerMaintenanceTarget(payload.object, payload.kind)
     elseif action == "build" then
@@ -872,7 +874,9 @@ local function baseAction(target, action, payload, player)
     if player then
         local failure = SC.UI and type(SC.UI.baseFailureReason) == "function"
             and SC.UI.baseFailureReason(result) or tostring(result)
-        safeMethod(player, "setHaloNote", ok and action == "room_mark"
+        safeMethod(player, "setHaloNote", ok and action == "clean"
+                and text("UI_SC_Base_CleaningQueued")
+            or ok and action == "room_mark"
                 and text("UI_SC_Base_RoomMarked", text(payload.kind == "area"
                     and "UI_SC_Base_RoomZone_area" or "UI_SC_Base_Zone_" .. payload.kind))
             or ok and text("UI_SC_Base_ActionAccepted")
@@ -1030,6 +1034,41 @@ local function baseMenuRelevant(square)
     -- Lumber areas may be marked in the bounded reach band outside the camp.
     return type(SC.BaseLife.withinWorkReach) == "function"
         and SC.BaseLife.withinWorkReach(square) == true
+end
+
+local function addCleanStainOption(context, square, player)
+    if SC.BaseWatch and type(SC.BaseWatch.isRemote) == "function"
+        and SC.BaseWatch.isRemote(type(getSpecificPlayer) == "function"
+            and getSpecificPlayer(0) or player) then return end
+    if not square or not SC.BaseLife
+        or type(SC.BaseLife.isInside) ~= "function"
+        or SC.BaseLife.isInside(square) ~= true
+        or safeMethod(square, "haveStains") ~= true
+        or type(SC.BaseLife.canRequestCleaning) ~= "function" then return end
+    local available, reason = SC.BaseLife.canRequestCleaning(square)
+    local option = context:addOption(text("UI_SC_Base_CleanStain"), nil,
+        baseAction, "clean", { square = square }, player)
+    if not available and option then
+        option.notAvailable = true
+        if type(ISToolTip) == "table" then
+            local reasons = {
+                cleaning_already_queued = "UI_SC_Base_CleanReason_cleaning_already_queued",
+                cleaning_worker_missing = "UI_SC_Base_CleanReason_cleaning_worker_missing",
+                cleaning_worker_away = "UI_SC_Base_CleanReason_cleaning_worker_away",
+                cleaning_supplies_missing = "UI_SC_Base_CleanReason_cleaning_supplies_missing",
+                cleaning_route_unavailable = "UI_SC_Base_CleanReason_cleaning_route_unavailable",
+                cleaning_outside_camp = "UI_SC_Base_CleanReason_cleaning_outside_camp",
+                cleaning_target_unavailable = "UI_SC_Base_CleanReason_cleaning_target_unavailable",
+                cleaning_stain_gone = "UI_SC_Base_CleanReason_cleaning_stain_gone",
+            }
+            local tooltip = ISToolTip:new()
+            tooltip:initialise()
+            tooltip:setVisible(false)
+            tooltip.description = text(reasons[reason]
+                or "UI_SC_Base_CleanReason_generic")
+            option.toolTip = tooltip
+        end
+    end
 end
 
 local function addBaseMenu(context, square, containerTarget, barricadeTarget, player)
@@ -1726,6 +1765,7 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
     if test and ISWorldObjectContextMenu and ISWorldObjectContextMenu.setTest then
         return ISWorldObjectContextMenu.setTest()
     end
+    addCleanStainOption(context, clickSquare, player)
     if memorialName then
         local option = context:addOption(text("UI_SC_Grave_Memorial", memorialName), nil, nil)
         if option then option.notAvailable = true end

@@ -3683,16 +3683,14 @@ function SCUIDetail:buildBase(panel, row)
         local jobs = base.jobs or {}
         y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
             UI.text("UI_SC_Base_Jobs", jobs.pending or 0, jobs.active or 0, jobs.blocked or 0))
-        -- A job that kept failing no longer retries on its own. List it with
-        -- the reason and give the player the Retry and Cancel it waits for.
+        -- The count includes every blocked job, including ones that will
+        -- retry automatically. Show the same set with their actual reasons.
         local stalled, residentNames = {}, {}
         for _, residentRow in ipairs(base.residentRows or {}) do
             residentNames[residentRow.id] = residentRow.name
         end
         for _, job in ipairs(base.rows or {}) do
-            if job.parked == true or job.blocker == "destination_full"
-                or job.blocker == "haul_destinations_full"
-                or job.blocker == "car_unload_storage_full_or_missing" then
+            if job.state == "blocked" then
                 stalled[#stalled + 1] = job
             end
         end
@@ -3708,12 +3706,17 @@ function SCUIDetail:buildBase(panel, row)
                     or job.blocker == "car_unload_storage_full_or_missing"
                 local rowKey = storageFull and "UI_SC_Base_StorageFullRow"
                     or "UI_SC_Base_StalledRow"
+                local blocker = job.blocker == "chef_restart_needs_recovery"
+                    and UI.text("UI_SC_Base_ChefRestartRecovery")
+                    or UI.humanize(job.blocker or "blocked")
                 y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
                     UI.text(rowKey,
                         worker and (kind .. " (" .. worker .. ")") or kind,
-                        UI.humanize(job.blocker or "blocked")))
-                y = self:addBaseManagementAction(panel, y,
-                    UI.text("UI_SC_Base_RetryJob", kind), "retry_job", { id = job.id })
+                        blocker))
+                if job.blocker ~= "chef_restart_needs_recovery" then
+                    y = self:addBaseManagementAction(panel, y,
+                        UI.text("UI_SC_Base_RetryJob", kind), "retry_job", { id = job.id })
+                end
                 y = self:addBaseManagementAction(panel, y,
                     UI.text("UI_SC_Base_CancelJob", kind), "cancel_job", { id = job.id },
                     UI.text("UI_SC_Base_CancelJobConfirm", kind))

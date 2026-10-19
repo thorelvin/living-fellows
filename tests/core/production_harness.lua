@@ -2918,16 +2918,151 @@ do
     check(SC.BaseLife.auditRoleProduction() == false,
         "gravekeeper does not create an order without a body")
     makeBody(sq(4, -4), { items = { "Base.RippedSheets" } })
-    local created, order
-    for _ = 1, 10 do
-        created, order = SC.BaseLife.auditRoleProduction()
-        if created == true then break end
-    end
+    local created, order = SC.BaseLife.auditRoleProduction()
     check(created == true and order.operation == "collect_bodies"
         and order.zoneId == ctx.burial.id and order.workers[1] == ctx.id
         and order.settings.withBelongings == true
         and order.settings.autoCorpsekeeper == true,
-        "gravekeeper accepts ordinary belongings on a body and chooses burial")
+        "gravekeeper finds an ordinary body on the first audit and chooses burial")
+    check(SC.BaseLife.recordProductionProgress(order.id, 1) == true
+        and SC.BaseLife.completeProductionOrder(order.id) == true,
+        "one autonomous burial order can finish")
+    sq(4, -4).staticMoving = {}
+    makeBody(sq(5, -4))
+    SC_TEST_CLOCK = SC_TEST_CLOCK + 5001
+    local resumed, nextOrder = SC.BaseLife.auditRoleProduction()
+    check(resumed == true and nextOrder.operation == "collect_bodies"
+        and nextOrder.id ~= order.id,
+        "gravekeeper promptly starts the next body after a completed burial")
+end
+
+do
+    local ctx = setup()
+    SC.BaseLife.assign(ctx.id, "corpsekeeper", true)
+    local queued, sort = SC.BaseLife.enqueueJob({ type = "sort", priority = 2 })
+    local claimed = SC.BaseLife.claimJob(ctx.id)
+    check(queued == true and claimed == sort,
+        "gravekeeper can help sorting before any body is waiting")
+    makeBody(sq(4, -4))
+    local originalCancel = SC.BaseWork.cancelJob
+    local safelyReturned = false
+    SC.BaseWork.cancelJob = function(jobId)
+        safelyReturned = jobId == sort.id
+        return true, "base_job_cargo_returned"
+    end
+    local created, order = SC.BaseLife.auditRoleProduction()
+    SC.BaseWork.cancelJob = originalCancel
+    check(created == true and safelyReturned and sort.state == "cancelled"
+            and order.operation == "collect_bodies",
+        "a safely cancelled sort yields to a waiting burial order")
+    local nextSort = SC.BaseLife.enqueueJob({ type = "sort", priority = 2 })
+    local nextJob = SC.BaseLife.claimJob(ctx.id)
+    check(nextSort == true and nextJob.type == "production",
+        "gravekeeper does not re-claim sorting while burial is urgent")
+end
+
+do
+    local ctx = setup()
+    SC.BaseLife.assign(ctx.id, "corpsekeeper", true)
+    local queued, sort = SC.BaseLife.enqueueJob({ type = "sort", priority = 2 })
+    SC.BaseLife.claimJob(ctx.id)
+    makeBody(sq(4, -4))
+    local originalCancel = SC.BaseWork.cancelJob
+    SC.BaseWork.cancelJob = function() return false, "cargo_return_pending" end
+    local created = SC.BaseLife.auditRoleProduction()
+    SC.BaseWork.cancelJob = originalCancel
+    check(queued == true and created == false and sort.state == "reserved"
+        and SC.BaseLife.jobFor(ctx.id) == sort,
+        "gravekeeper keeps sorting cargo when cancellation is unsafe")
+end
+
+do
+    local ctx = setup()
+    local square = sq(-12, -12)
+    square.stained = true
+    function square:haveStains() return self.stained end
+    local originalDowntime = SC.Downtime
+    SC.Downtime = { canCleanAt = function() return true end }
+    local available = SC.BaseLife.canRequestCleaning(square)
+    local queued, job = SC.BaseLife.requestCleaning(square)
+    check(available == true and queued == true and job.type == "clean"
+            and job.target.x == -12 and job.target.y == -12,
+        "clicked stained camp tile creates one persistent targeted cleaning job")
+    local saved = SC.BaseLife.export()
+    check(SC.BaseLife.restore(saved) == true
+            and SC.BaseLife.job(job.id).type == "clean"
+            and SC.BaseLife.job(job.id).target.x == -12,
+        "a targeted cleaning request survives a save reload")
+    local again, reason = SC.BaseLife.requestCleaning(square)
+    check(again == false and reason == "cleaning_already_queued",
+        "duplicate stain clicks cannot queue duplicate work")
+    local claimed = SC.BaseLife.claimJob(ctx.id)
+    check(claimed and claimed.id == job.id,
+        "a cleaner with supplies can claim the restored targeted job")
+    SC.Downtime = originalDowntime
+end
+
+do
+    local ctx = setup()
+    local square = sq(0, 0)
+    square.stained = true
+    function square:haveStains() return self.stained end
+    local priorTag, priorFluid, priorGlobals = ItemTag, Fluid, ZomboidGlobals
+    ItemTag = { CLEAN_STAINS = "clean_stains" }
+    Fluid = { Bleach = "bleach", CleaningLiquid = "cleaning" }
+    ZomboidGlobals = { CleanBloodBleachAmount = 0.25 }
+    ctx.actor.inventory:AddItem(makeItem("Base.Mop",
+        { tags = { clean_stains = true } }))
+    local bleach = makeItem("Base.Bleach")
+    function bleach:getFluidContainer()
+        return { contains = function(_, fluid) return fluid == Fluid.Bleach end,
+            getAmount = function() return 1 end }
+    end
+    ctx.actor.inventory:AddItem(bleach)
+    local originalDowntime = SC.Downtime
+    SC.Downtime = {
+        canCleanAt = function() return true end,
+        peek = function() return nil end,
+        update = function(_, _, _, desired, target)
+            if desired == "clean_base" and target == square then
+                square.stained = false
+                return true, "clean_base"
+            end
+            return false, "wrong_cleaning_target"
+        end,
+    }
+    local queued, job = SC.BaseLife.requestCleaning(square)
+    SC.BaseLife.claimJob(ctx.id)
+    local handled = tick(ctx)
+    if SC.BaseLife.job(job.id) then
+        -- The cleaned tile remains queued until borrowed supplies, if any,
+        -- have been returned and verified on the next work pulse.
+        handled = tick(ctx)
+    end
+    check(queued == true and handled == true and square.stained == false
+            and SC.BaseLife.job(job.id) == nil,
+        "the base scheduler completes a targeted clean only after the tile is clean")
+    SC.Downtime = originalDowntime
+    ItemTag, Fluid, ZomboidGlobals = priorTag, priorFluid, priorGlobals
+end
+
+do
+    local ctx = setup()
+    local square = sq(-12, -12)
+    square.stained = true
+    function square:haveStains() return self.stained end
+    local originalDowntime = SC.Downtime
+    SC.Downtime = { canCleanAt = function() return true end }
+    local queued
+    for _ = 1, 5 do
+        local accepted, job = SC.BaseWork.auditMaintenance()
+        if accepted and type(job) == "table" and job.type == "clean" then
+            queued = job
+        end
+    end
+    check(queued and queued.target.x == -12 and queued.target.y == -12,
+        "automatic maintenance queues a stained camp tile despite other job families")
+    SC.Downtime = originalDowntime
 end
 
 do
