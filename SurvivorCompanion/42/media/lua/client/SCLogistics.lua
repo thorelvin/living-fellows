@@ -869,7 +869,10 @@ local function isProtected(actor, item, keptHarvestDeposit)
             and loan.actorId == U().idOf(actor) then return true end
     end
     if SC.PersonalItems and SC.PersonalItems.isProtected
-        and SC.PersonalItems.isProtected(item, actor, "loadout") then return true end
+        and SC.PersonalItems.isProtected(item, actor,
+            keptHarvestDeposit and "kept_harvest_deposit" or "loadout") then
+        return true
+    end
     local favorite, favoriteOk = U().call(item, "isFavorite")
     if favoriteOk and favorite == true then return true end
     local primary, primaryOk = U().call(actor, "getPrimaryHandItem")

@@ -18584,12 +18584,23 @@ do
     keptCrop:getModData().LF_FieldCarryWorker = harvester.id
     otherCrop:getModData().LF_FieldCarryWorker = "sc-someone-else"
     local savedField, savedInside = SurvivorCompanion.FieldWork, BaseLife.isInside
+    local savedTransport = SurvivorCompanion.WorkTransport
     -- The real reservation holds while the carrier still has the item.
     SurvivorCompanion.FieldWork = { reserved = function(value)
         local mark = value:getModData().LF_FieldCarryWorker
         local carrier = mark and registry[mark]
         return carrier ~= nil and carrier.inventory:contains(value)
             or mark == "sc-someone-else"
+    end }
+    -- In the game PersonalItems also consults WorkTransport, which owns
+    -- field cargo too. Mirror its contract: only the carrier's own
+    -- kept-harvest deposit is released.
+    SurvivorCompanion.WorkTransport = { isCargoProtected = function(value, owner, operation)
+        local mark = value:getModData().LF_FieldCarryWorker
+        if mark == nil then return false end
+        local ownerId = type(owner) == "string" and owner or owner and owner.id
+        if operation == "kept_harvest_deposit" and mark == ownerId then return false end
+        return SurvivorCompanion.FieldWork.reserved(value) == true
     end }
     local quiet = { snapshot = { threats = {}, threatCount = 0,
         immediateCount = 0, pressure = 0 } }
@@ -18617,6 +18628,7 @@ do
             and #harvester.square.worldItems == 0,
         "another worker's kept harvest is neither shelved nor dropped")
     SurvivorCompanion.FieldWork = savedField
+    SurvivorCompanion.WorkTransport = savedTransport
     SurvivorCompanion.Logistics.reset(harvester)
     registry[harvester.id] = nil
     check(BaseLife.removeStorage(pantryRow.id) == true,

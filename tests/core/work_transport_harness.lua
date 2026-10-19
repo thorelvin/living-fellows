@@ -2448,6 +2448,24 @@ check(type(transportMetrics.pendingReceipts) == "number"
     and type(transportMetrics.deliveriesPerMinute) == "number"
     and transportMetrics.deliveriesPerMinute >= 0,
     "transport diagnostics must expose bounded backlog age and delivery throughput")
+-- A harvest kept for pickup stays protected from every other mover, but its
+-- own carrier may shelve it in camp storage (Logistics' kept-harvest deposit).
+do
+    local savedField = SC.FieldWork
+    SC.FieldWork = { reserved = function() return true end }
+    local kept = makeItem("Base.Potato", { modData = { LF_FieldCarryWorker = "sc-carrier" } })
+    local owed = makeItem("Base.Potato", { modData = {
+        LF_FieldCarryWorker = "sc-carrier", LF_FieldOrder = "field:live" } })
+    check(SC.WorkTransport.isCargoProtected(kept, "sc-carrier", "loadout") == true
+            and SC.WorkTransport.isCargoProtected(kept, "sc-other",
+                "kept_harvest_deposit") == true
+            and SC.WorkTransport.isCargoProtected(owed, "sc-carrier",
+                "kept_harvest_deposit") == true
+            and SC.WorkTransport.isCargoProtected(kept, "sc-carrier",
+                "kept_harvest_deposit") == false,
+        "only the carrier may shelve its own kept harvest; live field cargo stays owned")
+    SC.FieldWork = savedField
+end
 print("WORK_TRANSPORT_PASS checks=" .. tostring(checks)
     .. " scanned=" .. tostring(gatherMetrics.examinedObjects)
     .. " recovery=" .. tostring(transportMetrics.recoveryAttempts))

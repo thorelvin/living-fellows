@@ -317,6 +317,16 @@ function Transport.isCargoProtected(item, actorOrId, operation)
     if data.LF_LogYardSplit ~= nil then return true end
     if data.LF_FieldOrder ~= nil or data.LF_FieldBorrowedAxe ~= nil
         or data.LF_FieldCarryWorker ~= nil then
+        -- A harvest kept for pickup may be shelved in camp storage by the
+        -- companion carrying it (Logistics' kept-harvest deposit). Without
+        -- this the carrier's own shelving was refused here and the harvest
+        -- rode in the pack until it rotted.
+        if operation == "kept_harvest_deposit" and data.LF_FieldOrder == nil
+            and data.LF_FieldBorrowedAxe == nil and actorOrId ~= nil
+            and data.LF_FieldCarryWorker == tostring(type(actorOrId) == "string"
+                and actorOrId or U().idOf(actorOrId) or "") then
+            return false
+        end
         return SC.FieldWork ~= nil and SC.FieldWork.reserved ~= nil
             and SC.FieldWork.reserved(item) == true
     end
