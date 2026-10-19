@@ -78,9 +78,12 @@ local function stopCareSound(action)
 end
 
 function SCApplyCompanionBandage:start()
-    -- Best-effort animation; a missing anim name must not break the action, which
-    -- still completes on its timer.
-    pcall(function() self:setActionAnim("Bandage") end)
+    -- Vanilla ISApplyBandage uses Loot/Mid when dressing another person.
+    -- Bandage is a self-care pose that needs BandageType; without it Build 42
+    -- falls back to the hands-up surrender animation.
+    pcall(function() self:setActionAnim("Loot") end)
+    pcall(function() self.character:SetVariable("LootPosition", "Mid") end)
+    pcall(function() self.character:reportEvent("EventLootItem") end)
     pcall(function() self.careSound = self.character:playSound("FirstAidApplyBandage") end)
 end
 

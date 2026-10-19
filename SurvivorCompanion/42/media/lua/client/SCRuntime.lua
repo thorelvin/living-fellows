@@ -1186,12 +1186,24 @@ local function vehicleTask()
     lastPlayerVehicle = currentVehicle
 end
 
+local function loopedEmoteTask(current)
+    local visual = SC.NativeVisualActions
+    if not visual or type(visual.releaseLoopedEmote) ~= "function" then return true end
+    for _, record in ipairs(SC.Registry.snapshot()) do
+        if recordServiceable(record) then
+            visual.releaseLoopedEmote(record.actor, current)
+        end
+    end
+    return true
+end
+
 local function registerTasks()
     SC.Scheduler.reset(true)
     local definitions = {
         { "decision", 1, 100, decisionTask, "critical" },
         { "vitals", 25, 80, vitalsTask, "critical" },
         { "vehicle", 250, 70, vehicleTask, "critical" },
+        { "looped-emotes", 500, 65, loopedEmoteTask, "normal" },
         { "driving", 250, 60, function(current)
             if SC.Driving and type(SC.Driving.tick) == "function" then
                 return SC.Driving.tick(current)

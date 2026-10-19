@@ -6,6 +6,8 @@ local SC = SurvivorCompanion
 SC.NativeVisualActions = SC.NativeVisualActions or {}
 local Visual = SC.NativeVisualActions
 local context
+local loopedEmoteSince = setmetatable({}, { __mode = "k" })
+local LOOPED_EMOTE_DURATION_MS = { clap = 1800, surrender = 2500 }
 
 function Visual.configure(value)
     assert(type(value) == "table", "native visual context is required")
@@ -36,13 +38,49 @@ function Visual.handSignal(actor, intent, provider)
         if not faced then return false, facingReason end
     end
     local handled, reason = context.useProvider(provider, "emote", actor, emote, intent)
-    if handled ~= nil then return handled, reason end
+    if handled ~= nil then
+        if handled and LOOPED_EMOTE_DURATION_MS[emote] then
+            loopedEmoteSince[actor] = { emote = emote, startedAt = context.nowMs() }
+        end
+        return handled, reason
+    end
     if not provider.directNative then return false, reason end
     local lowered, lowerReason = context.setWeaponReady(actor, false)
     if not lowered then return false, lowerReason end
     local played, failure = invoke(actor, "playEmote", emote)
     if not played then return false, failure end
+    if LOOPED_EMOTE_DURATION_MS[emote] then
+        loopedEmoteSince[actor] = { emote = emote, startedAt = context.nowMs() }
+    end
     return true, "hand_signal_started"
+end
+
+-- Vanilla clap and surrender inherit player/emote/looped.xml. EmoteLooped
+-- does not clear EmotePlaying, and a companion cannot press the player's cancel
+-- key. Poll only the actors on the bounded runtime pulse; this also recovers a
+-- looped emote left in a loaded save by an older version of the mod.
+function Visual.releaseLoopedEmote(actor, current)
+    if actor == nil then return false, "no_actor" end
+    local emoteOk, emote = invoke(actor, "getVariableString", "emote")
+    local playingOk, playing = invoke(actor, "getVariableBoolean", "EmotePlaying")
+    if not emoteOk or not playingOk then return false, "emote_state_unavailable" end
+    local duration = LOOPED_EMOTE_DURATION_MS[emote]
+    if duration == nil or playing ~= true then
+        loopedEmoteSince[actor] = nil
+        return false, "no_looped_emote"
+    end
+    local now = tonumber(current) or context.nowMs()
+    local observed = loopedEmoteSince[actor]
+    if observed == nil or observed.emote ~= emote or now < observed.startedAt then
+        loopedEmoteSince[actor] = { emote = emote, startedAt = now }
+        return false, "looped_emote_observed"
+    end
+    if now - observed.startedAt < duration then return false, "looped_emote_active" end
+    local ended = invoke(actor, "setVariable", "EmotePlaying", false)
+    if not ended then return false, "looped_emote_release_failed" end
+    invoke(actor, "clearVariable", "emote")
+    loopedEmoteSince[actor] = nil
+    return true, "looped_emote_released"
 end
 
 -- Build 42 "Ext" idle animations (AnimSets/player/ext and sitext): a short

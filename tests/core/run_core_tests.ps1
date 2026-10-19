@@ -157,6 +157,7 @@ try {
         (Join-Path $Client 'SCObjectives.lua'),
         (Join-Path $Client 'SCJournal.lua'),
         (Join-Path $Client 'SCCommands.lua'),
+        (Join-Path $Client 'SCPlayerCare.lua'),
         (Join-Path $Client 'SCCombatThreatModel.lua'),
         (Join-Path $Client 'SCCombatSquad.lua'),
             (Join-Path $Client 'SCCombat.lua'),

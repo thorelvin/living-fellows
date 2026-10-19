@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.26.50 - Companion emote and care animation fixes
+
+- Companion clapping and surrender gestures now end after a short pose. The game treats both as looping emotes, so companions already stuck in either pose are released after loading as well.
+- Player bandaging of a companion uses the game's other-person treatment reach instead of the self-bandage animation, which could show the hands-up fallback.
+- The native bridge protocol remains `42.21-isocompanion-24`; update the bridge JAR and Lua payload together.
+
 ## 0.26.49 - Expedition delivery and return review fixes
 
 - Expedition delivery records now close once nothing they wait for can still happen: an item eaten, dropped, or handed over before storage, a restocking member who died or received a newer order, or a camp that was moved or abandoned. An item counts as gone only when every squad member and the expedition car's trunk could be inspected; dormant, restoring, or respawning companions and an unloaded car keep the delivery open. A full list of 32 deliveries now drops its oldest unfinished record instead of refusing new expeditions; its items stay with their carriers as ordinary gear.

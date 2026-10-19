@@ -3415,6 +3415,62 @@ check(saluteOk and actor.lastEmote == "salutecasual"
         and actor:isMoving() == true and pathBehavior.cancelled == false,
     "ordinary targetless emotes remain non-directional and do not cancel navigation")
 do
+    local originalPlay, originalSet = actor.playEmote, actor.setVariable
+    local originalGetString, originalGetBoolean = actor.getVariableString,
+        actor.getVariableBoolean
+    local originalClear = actor.clearVariable
+    actor.variables = {}
+    function actor:playEmote(emote)
+        self.variables.emote, self.variables.EmotePlaying = emote, true
+        return true
+    end
+    function actor:setVariable(name, value) self.variables[name] = value end
+    function actor:getVariableString(name) return self.variables[name] end
+    function actor:getVariableBoolean(name) return self.variables[name] == true end
+    function actor:clearVariable(name) self.variables[name] = nil end
+    local clapOk = SC.Actor.setMovement(actor, "walk", {
+        action = "hand_signal", emote = "clap",
+    })
+    local visual = SC.NativeVisualActions
+    local _, observed = visual.releaseLoopedEmote(actor, 0)
+    local _, active = visual.releaseLoopedEmote(actor, 1000)
+    local released, reason = visual.releaseLoopedEmote(actor, 1900)
+    check(clapOk and observed == "looped_emote_observed"
+            and active == "looped_emote_active"
+            and released and reason == "looped_emote_released"
+            and actor.variables.EmotePlaying == false and actor.variables.emote == nil,
+        "looped clap finishes after a bounded pose instead of playing forever")
+    actor.variables.emote, actor.variables.EmotePlaying = "clap", true
+    local _, restored = visual.releaseLoopedEmote(actor, 4000)
+    local recovered, recoveryReason = visual.releaseLoopedEmote(actor, 5900)
+    check(restored == "looped_emote_observed" and recovered
+            and recoveryReason == "looped_emote_released",
+        "a companion already clapping when loaded is released on the decision lane")
+    local surrenderOk = SC.Actor.setMovement(actor, "walk", {
+        action = "hand_signal", emote = "surrender",
+    })
+    local _, surrenderObserved = visual.releaseLoopedEmote(actor, 6000)
+    local surrenderHeld, surrenderReason = visual.releaseLoopedEmote(actor, 8000)
+    local surrenderReleased, surrenderEnd = visual.releaseLoopedEmote(actor, 8501)
+    check(surrenderOk and surrenderObserved == "looped_emote_observed"
+            and not surrenderHeld and surrenderReason == "looped_emote_active"
+            and surrenderReleased and surrenderEnd == "looped_emote_released"
+            and actor.variables.EmotePlaying == false and actor.variables.emote == nil,
+        "the other vanilla looping emote, surrender, also ends after a bounded pose")
+    actor.variables.emote, actor.variables.EmotePlaying = "clap", true
+    visual.releaseLoopedEmote(actor, 9000)
+    actor.variables.emote = "thumbsup"
+    local replaced, replacementReason = visual.releaseLoopedEmote(actor, 12000)
+    check(not replaced and replacementReason == "no_looped_emote"
+            and actor.variables.EmotePlaying == true
+            and actor.variables.emote == "thumbsup",
+        "clap recovery leaves a newer emote alone")
+    actor.playEmote, actor.setVariable = originalPlay, originalSet
+    actor.getVariableString, actor.getVariableBoolean = originalGetString,
+        originalGetBoolean
+    actor.clearVariable, actor.variables = originalClear, nil
+end
+do
     pathBehavior.x, pathBehavior.y, pathBehavior.z, pathBehavior.cancelled = 2.5, 0.5, 0, false
     pathBehavior.startedMoving, pathBehavior.turning, pathBehavior.usingPath = false, true, true
     local telemetry = SC.NativeActions.pathTelemetry(actor)
@@ -3774,6 +3830,21 @@ do
         "applying a splint also faces the patient with the vanilla reach pose")
     SC.NativeActions.cancelVisual(actor, "test_remote_splint")
     ISTimedActionQueue.queues[actor] = nil
+end
+do
+    -- Player-initiated bandaging must use the game's other-patient reach.
+    -- An unqualified self-Bandage action selects its hands-up fallback pose.
+    local player = { variables = {} }
+    function player:SetVariable(name, value) self.variables[name] = value end
+    function player:reportEvent(event) self.lastEvent = event end
+    function player:playSound(sound) self.lastSound = sound return 1 end
+    local action = SCApplyCompanionBandage:new(player, actor, 220)
+    action:start()
+    check(player.lastAnimation == "Loot"
+            and player.variables.LootPosition == "Mid"
+            and player.lastEvent == "EventLootItem"
+            and player.lastSound == "FirstAidApplyBandage",
+        "player bandaging a companion uses the other-patient reach, not the surrender fallback")
 end
 local barricadeOk, barricadeReason = SC.Actor.setMovement(actor, "walk", {
     action = "barricade", object = barricadeObject,

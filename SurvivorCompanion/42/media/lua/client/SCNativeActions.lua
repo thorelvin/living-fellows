@@ -1132,6 +1132,7 @@ SC.NativeTraversalActions.configure({
 })
 SC.NativeVisualActions.configure({
     invoke = invoke,
+    nowMs = nowMs,
     useProvider = useProvider,
     setWeaponReady = setWeaponReady,
     position = position,

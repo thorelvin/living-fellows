@@ -1,7 +1,7 @@
-Living Fellows 0.26.49 - public playtest
+Living Fellows 0.26.50 - public playtest
 
-This playtest stops old expedition deliveries from blocking new trips, lets a
-squad stuck on the way home radio for orders, and shelves kept field harvests.
+This playtest ends companion clap and surrender poses after a short time, and
+uses the correct other-person animation when the player bandages a companion.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added
