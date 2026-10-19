@@ -174,6 +174,7 @@ local autonomousTreeScan
 local autonomousBodyScan
 local autonomousBodyUrgencyBaseId, autonomousBodyUrgencyUntil
 local autonomousWorkerCursor = 0
+local receiptIsTerminal
 local autonomousRetryAt = {}
 local workConsistencyRevision = 0
 local autoFloorScan
@@ -2241,7 +2242,7 @@ local function orderIsTerminal(order)
     return order and (order.state == "completed" or order.state == "cancelled")
 end
 
-local function receiptIsTerminal(receipt)
+function receiptIsTerminal(receipt)
     return receipt and (receipt.phase == "delivered" or receipt.phase == "released"
         or receipt.phase == "cancelled")
 end
@@ -2824,7 +2825,8 @@ end
 
 function BaseLife.removeFarmReceipt(id)
     local farm = farmFor(activeBase())
-    local receipt, index = farm and findById(farm.receipts, id) or nil
+    local receipt, index
+    if farm then receipt, index = findById(farm.receipts, id) end
     if not receipt then return false, "unknown_farm_receipt" end
     if not farmReceiptTerminal(receipt) then return false, "farm_receipt_not_terminal" end
     table.remove(farm.receipts, index)

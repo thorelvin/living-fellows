@@ -501,8 +501,8 @@ local function updateCrisis(group, hour)
         elseif age >= 36 then resolveCrisis(group, "illness_stabilized") end
     elseif active.kind == "internal_dispute" and age >= 2 then
         local relation = group.life.relationships[memberPairKey(active.left, active.right)]
+        local discipline = tonumber(group.life.personality.values.discipline) or 50
         if relation then
-            local discipline = tonumber(group.life.personality.values.discipline) or 50
             relation.tension = clamp((tonumber(relation.tension) or 0) - (discipline >= 60 and 32 or 18), 0, 100)
             relation.affinity = clamp((tonumber(relation.affinity) or 0) - (discipline >= 60 and 3 or 9), -100, 100)
             relation.lastChangeHour = hour

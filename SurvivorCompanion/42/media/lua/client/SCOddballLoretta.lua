@@ -1186,7 +1186,7 @@ function Loretta.action(group, action, player)
     end
     if action == "read_clipboard" and value.dead == true then
         local car = loadedCar(value.carSqlId, doorPoint(value))
-        local _, door = car and rearDoor(car, value.seat)
+        local door = car and select(2, rearDoor(car, value.seat))
         if not door or select(1, U().call(door, "isOpen")) ~= true then
             return false, "open_loretta_door_first"
         end

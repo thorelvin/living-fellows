@@ -3206,6 +3206,41 @@ do
         "an unfinished farm receipt does not block abandoning: " .. tostring(reason))
 end
 
+-- A room-zone removal must inspect active work receipts even though the
+-- terminal-receipt helper is defined later in the module.
+do
+    local ctx = setup()
+    ctx.base.work.receipts[#ctx.base.work.receipts + 1] = {
+        id = "work-receipt:zone-guard", destinationZoneId = ctx.lumber.id,
+        phase = "carried",
+    }
+    local removable, reason = SC.BaseLife.canRemoveZone(ctx.lumber.id)
+    check(removable == false and reason == "work_receipt_uses_zone",
+        "an active work receipt blocks removing its destination zone without crashing")
+end
+
+-- Removing one terminal farm receipt must remove that exact row, not the
+-- final row after Lua's and-expression discards findById's index.
+do
+    local ctx = setup()
+    local firstOk, first = SC.BaseLife.allocateFarmReceipt({
+        kind = "output", actorId = ctx.id, jobId = "job:receipt-first",
+        itemType = "Base.Tomato", destinationCategory = "food",
+    })
+    local secondOk, second = SC.BaseLife.allocateFarmReceipt({
+        kind = "output", actorId = ctx.id, jobId = "job:receipt-second",
+        itemType = "Base.Carrot", destinationCategory = "food",
+    })
+    check(firstOk == true and secondOk == true,
+        "two farm receipts are allocated before terminal cleanup")
+    SC.BaseLife.updateFarmReceipt(first.id, { phase = "delivered" })
+    SC.BaseLife.updateFarmReceipt(second.id, { phase = "delivered" })
+    local removed = SC.BaseLife.removeFarmReceipt(first.id)
+    check(removed == true and SC.BaseLife.farmReceipt(first.id) == nil
+            and SC.BaseLife.farmReceipt(second.id) ~= nil,
+        "removing the first terminal farm receipt preserves the second")
+end
+
 -- A farm job whose harvest is still being put away goes with the camp too.
 do
     local ctx = setup()

@@ -6,6 +6,8 @@
 
 - Companion clapping and surrender gestures now end after a short pose. The game treats both as looping emotes, so companions already stuck in either pose are released after loading as well.
 - Player bandaging of a companion uses the game's other-person treatment reach instead of the self-bandage animation, which could show the hands-up fallback.
+- Fixed a camp-zone removal crash when a work receipt still targets that zone, and ensured removing a terminal farm receipt deletes the selected receipt rather than another one.
+- Fixed household dispute resolution when its relationship is gone, and Loretta's clipboard interaction after her rear car door is opened.
 - The native bridge protocol remains `42.21-isocompanion-24`; update the bridge JAR and Lua payload together.
 
 ## 0.26.49 - Expedition delivery and return review fixes

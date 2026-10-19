@@ -165,6 +165,24 @@ check("clipboard_shown_once", C.haloNotes == notes + 1
 Loretta.pulse(timedGroup, timedPlayer, C.ms + 720)
 check("clipboard_not_repeated", C.haloNotes == notes + 1)
 
+local actionClipboardCar, actionClipboardActor, actionClipboardPlayer,
+    actionClipboardGroup = scene(55)
+Loretta.onSpawn(actionClipboardGroup, actionClipboardActor)
+actionClipboardGroup.oddball.dead = true
+actionClipboardGroup.oddball.stage = "dying"
+local closedRead, closedReason = Loretta.action(actionClipboardGroup,
+    "read_clipboard", actionClipboardPlayer)
+check("clipboard_action_requires_open_rear_door",
+    closedRead == false and closedReason == "open_loretta_door_first")
+actionClipboardCar:getPartById("DoorRearLeft"):getDoor().open = true
+notes = C.haloNotes
+local openedRead, openedReason = Loretta.action(actionClipboardGroup,
+    "read_clipboard", actionClipboardPlayer)
+check("clipboard_action_reads_through_open_rear_door",
+    openedRead == true and openedReason == "loretta_clipboard_read"
+    and C.haloNotes == notes + 1
+    and actionClipboardGroup.oddball.clipboardShown == true, openedReason)
+
 local rescuedCar, rescuedActor, rescuedPlayer, rescuedGroup = scene(11)
 C.hour = 400
 Loretta.onSpawn(rescuedGroup, rescuedActor)

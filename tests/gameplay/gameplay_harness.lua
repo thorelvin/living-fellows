@@ -20832,6 +20832,25 @@ for _, crisisKind in ipairs({ "supply_collapse", "illness", "internal_dispute" }
         "debug crisis control resolves " .. crisisKind)
 end
 
+do
+    local disputeGroup = Factions.group("faction-test")
+    check(Life.debugTriggerCrisis("faction-test", "internal_dispute") == true,
+        "missing-relation dispute fixture starts")
+    local active = disputeGroup.life.crisis.active
+    active.left, active.right = "departed-left", "departed-right"
+    local priorClock = clock
+    clock = clock + 3 * 3600000
+    disputeGroup.life.nextPulseAt = 0
+    local pulsed = Life.pulseGroup(disputeGroup, player, clock)
+    local resolved = disputeGroup.life.crisis.history[#disputeGroup.life.crisis.history]
+    local expected = (tonumber(disputeGroup.life.personality.values.discipline) or 50)
+        >= 60 and "argument_deescalated" or "resentment_lingers"
+    check(pulsed == true and disputeGroup.life.crisis.active == nil
+            and resolved.kind == "internal_dispute" and resolved.outcome == expected,
+        "a dispute resolves when its original relationship has disappeared")
+    clock = priorClock
+end
+
 local nestedFoodBag = item("Base.Bag_Schoolbag", "Container", {
     nestedInventory = inventory({ item("Base.CannedBeans", "Food") }),
 })
