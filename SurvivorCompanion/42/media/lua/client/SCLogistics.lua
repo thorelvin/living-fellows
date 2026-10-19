@@ -308,9 +308,10 @@ local function workCargo(actor, item, keptHarvestDeposit)
     if type(itemData) ~= "table" then return false end
     -- Harvest and woodcut orders own their exact cargo until delivery or
     -- cancellation. Generic overload handling must never drop it as surplus.
-    if (itemData.LF_FieldOrder ~= nil
+    local fieldMarked = itemData.LF_FieldOrder ~= nil
         or itemData.LF_FieldBorrowedAxe ~= nil
-        or itemData.LF_FieldCarryWorker ~= nil)
+        or itemData.LF_FieldCarryWorker ~= nil
+    if fieldMarked
         and SC.FieldWork and type(SC.FieldWork.reserved) == "function"
         and SC.FieldWork.reserved(item) == true
         and not (keptHarvestDeposit and itemData.LF_FieldOrder == nil
@@ -321,6 +322,28 @@ local function workCargo(actor, item, keptHarvestDeposit)
     if (itemData.LF_RefuelJobId ~= nil or itemData.LF_UpkeepJobId ~= nil)
         and (not SC.BaseFuel or type(SC.BaseFuel.reserved) ~= "function"
             or SC.BaseFuel.reserved(item) == true) then
+        return true
+    end
+    -- The same ownership WorkTransport refuses to move out of storage must
+    -- not be shed from a pack either: quest items and rewards, trade
+    -- recovery, a chef's borrowed supplies (its receipt must find them
+    -- again) and cleaning loans.
+    if itemData.LF_QuestItem == true or itemData.LF_QuestReward == true
+        or itemData.LF_TradeRecoveryId ~= nil
+        or itemData.LF_TradeRecoveryBuildId ~= nil
+        or itemData.SC_ChefSupplyReceipt ~= nil then
+        return true
+    end
+    if (itemData.LF_CleanToolJobId ~= nil or itemData.LF_CleanLiquidJobId ~= nil)
+        and SC.BaseWork and type(SC.BaseWork.choreReserved) == "function"
+        and SC.BaseWork.choreReserved(item) == true then
+        return true
+    end
+    -- Production, farm, gather/haul receipts and log-yard splits. Field
+    -- markers are decided above, including the kept-harvest deposit case.
+    if not fieldMarked and SC.WorkTransport
+        and type(SC.WorkTransport.isCargoProtected) == "function"
+        and SC.WorkTransport.isCargoProtected(item, actor, "loadout") == true then
         return true
     end
     return false

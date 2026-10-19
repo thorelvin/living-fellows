@@ -820,6 +820,24 @@ check((load.gearRatio or 0) > load.softRatio and load.surplus ~= nil
     "genuine gear overload still sheds, but rations are not inflated into "
         .. "surplus by the kept harvest: "
         .. tostring(load.surplus and load.surplus.item.kind))
+-- Owned items WorkTransport already refuses to move are not pack surplus
+-- either, even when the companion is genuinely over its unload threshold.
+one.bag = inventory()
+local owned = {}
+for index = 1, 8 do
+    local value = item("Base.Notebook")
+    if index <= 3 then value.data.LF_QuestItem = true
+    elseif index <= 6 then value.data.SC_ChefSupplyReceipt = "job:chef:" .. index
+    else value.data.LF_TradeRecoveryId = "trade:" .. index end
+    owned[value] = true
+    put(one.bag, value)
+end
+for _ = 1, 3 do utility.nowMs() end
+load = SC.Logistics.status(one)
+check(load.ratio > load.softRatio and load.surplus == nil
+    and load.shouldUnload == false,
+    "quest items, chef supplies and trade recovery are never shed as surplus: "
+        .. tostring(load.surplus and load.surplus.item.kind))
 Field.restore(nil)
 local bad = Field.restore({ schema = 1, serial = -1 })
 check(bad == false, "malformed save rejected")
