@@ -3080,6 +3080,87 @@ do
     anyWall.solid = false
     Navigation._resetWorkRoutesForTests()
 
+    local nearGoal = cell:getGridSquare(-8, -20, 0)
+    local farGoal = cell:getGridSquare(-10, -17, 0)
+    local divider = {
+        cell:getGridSquare(-9, -21, 0),
+        cell:getGridSquare(-9, -20, 0),
+        cell:getGridSquare(-9, -19, 0),
+    }
+    for _, square in ipairs(divider) do square.solid = true end
+    local routeActor = actor("sc-multi-goal-detour", -10, -20, {})
+    registry[routeActor.id] = routeActor
+    local routeIntent = {
+        action = "move_to_base_storage", object = {},
+        targetSquare = nearGoal, requireSameSquare = true,
+    }
+    local selected
+    for _ = 1, 12 do
+        accepted, reason, selected = Navigation.requestAny(routeActor,
+            { nearGoal, farGoal }, "walk", routeIntent)
+        if Navigation.peek(routeActor).path then break end
+        clock = clock + 100
+    end
+    local routeState = Navigation.peek(routeActor)
+    local selectedPath = routeState.path
+    local replans = routeState.routeReplanCount
+    check(accepted and selected == farGoal and selectedPath
+            and selectedPath[#selectedPath] == farGoal
+            and routeState.goalSquare == farGoal,
+        "multi-target work chooses the shorter walking detour rather than the closer blocked approach")
+    Navigation.requestAny(routeActor, { nearGoal, farGoal }, "walk", routeIntent)
+    check(routeState.path == selectedPath and routeState.routeReplanCount == replans,
+        "the chosen multi-target route survives the next ordinary work pulse")
+    local nearObject = { getSquare = function() return nearGoal end }
+    local farObject = { getSquare = function() return farGoal end }
+    local oldInteractionTargets = Navigation.interactionTargets
+    Navigation.interactionTargets = function(_, object)
+        return { object == nearObject and nearGoal or farGoal }
+    end
+    local choiceState, picked, choiceReason = {}, nil, nil
+    for _ = 1, 80 do
+        picked, choiceReason = Navigation.selectInteraction(routeActor,
+            choiceState, "test_storage_choice", {
+                { id = "near", object = nearObject },
+                { id = "far", object = farObject },
+            }, { nodeBudget = 800, nodeQuota = 32 })
+        if picked then break end
+        clock = clock + 100
+    end
+    Navigation.interactionTargets = oldInteractionTargets
+    check(picked and picked.id == "far",
+        "shared source chooser selects a farther reachable storage over a nearer wall detour: "
+            .. tostring(choiceReason) .. "/" .. tostring(picked and picked.id))
+    Navigation.interactionTargets = function(_, object)
+        return { object == nearObject and nearGoal or farGoal }
+    end
+    local oldResumeChoice = Navigation.resumePathSearch
+    Navigation.resumePathSearch = function() return "pending" end
+    local pendingChoiceState = {}
+    local _, pendingReason = Navigation.selectInteraction(routeActor,
+        pendingChoiceState, "pending_storage_choice", {
+            { id = "near", object = nearObject },
+            { id = "far", object = farObject },
+        })
+    local retainedJob = pendingChoiceState.navigationChoice.job
+    local originalSquare = routeActor.square
+    routeActor.square = cell:getGridSquare(-10, -19, 0)
+    local _, retainedReason = Navigation.selectInteraction(routeActor,
+        pendingChoiceState, "pending_storage_choice", {
+            { id = "far", object = farObject },
+            { id = "near", object = nearObject },
+        })
+    check(pendingReason == "pending" and retainedReason == "pending"
+            and pendingChoiceState.navigationChoice.job == retainedJob,
+        "candidate ordering and a one-tile move retain an in-flight source survey")
+    routeActor.square = originalSquare
+    Navigation.resumePathSearch = oldResumeChoice
+    Navigation.interactionTargets = oldInteractionTargets
+    Navigation.reset(routeActor)
+    registry[routeActor.id] = nil
+    for _, square in ipairs(divider) do square.solid = false end
+    Navigation._resetWorkRoutesForTests()
+
     check(not SurvivorCompanion.WorkRoutes.stationaryFastRouteRequested({
             action = "move_to_base_storage", urgent = true,
         }) and not SurvivorCompanion.WorkRoutes.stationaryFastRouteRequested({
@@ -6778,6 +6859,22 @@ do
     local shelfSquare = cell:getGridSquare(2, 2, 0)
     local shelf = { square = shelfSquare }
     function shelf:getSquare() return self.square end
+    local utility = SurvivorCompanion.GameplayUtil
+    local furnitureTile = cell:getGridSquare(1, 2, 0)
+    local originalOccupyingObject = utility.squareOccupyingObject
+    utility.squareOccupyingObject = function(square)
+        if square == furnitureTile then return { kind = "desk" }, "Desk" end
+        return originalOccupyingObject(square)
+    end
+    local aroundDesk = SurvivorCompanion.Navigation.interactionTargets(
+        doorActor, shelf, { requireDirectAccess = true })
+    utility.squareOccupyingObject = originalOccupyingObject
+    local hasDeskTarget = false
+    for _, square in ipairs(aroundDesk) do
+        if square == furnitureTile then hasDeskTarget = true end
+    end
+    check(not hasDeskTarget and #aroundDesk > 0,
+        "interaction routes exclude a furniture-occupied standing tile near storage")
     local clearTargets = SurvivorCompanion.Navigation.interactionTargets(
         doorActor, shelf, { requireDirectAccess = true,
             avoidDoorThreshold = true })
@@ -6788,7 +6885,6 @@ do
     check(#clearTargets > 1 and thresholdIndex ~= nil and thresholdIndex > 1,
         "scavengers prefer open shelf sides but retain a doorway fallback")
 
-    local utility = SurvivorCompanion.GameplayUtil
     local originalSquareFree = utility.isSquareFree
     utility.isSquareFree = function(square) return square == doorTo end
     local onlyThreshold = SurvivorCompanion.Navigation.interactionTargets(
@@ -6797,6 +6893,37 @@ do
     utility.isSquareFree = originalSquareFree
     check(#onlyThreshold == 1 and onlyThreshold[1] == doorTo,
         "a doorway remains a usable fallback when the shelf has no other accessible side")
+end
+do
+    local navigation = SurvivorCompanion.Navigation
+    local seeker = actor("sc-office-standing-side", 8, 8, {})
+    registry[seeker.id] = seeker
+    local actorSquare = seeker.square
+    local throughWall = cell:getGridSquare(9, 8, 0)
+    local aroundRoom = cell:getGridSquare(8, 10, 0)
+    local office, hall = {}, {}
+    local oldActorRoom, oldWallRoom, oldRoomRoom =
+        actorSquare.getRoom, throughWall.getRoom, aroundRoom.getRoom
+    function actorSquare:getRoom() return office end
+    function throughWall:getRoom() return hall end
+    function aroundRoom:getRoom() return office end
+    local oldRequest, chosen = navigation.request, nil
+    navigation.request = function(_, square)
+        chosen = square
+        return true, "path_searching"
+    end
+    local accepted = navigation.requestAny(seeker,
+        { throughWall, aroundRoom }, "walk", {
+            action = "move_to_base_storage", object = {},
+            requireSameSquare = true,
+        })
+    navigation.request = oldRequest
+    actorSquare.getRoom, throughWall.getRoom, aroundRoom.getRoom =
+        oldActorRoom, oldWallRoom, oldRoomRoom
+    navigation.reset(seeker)
+    registry[seeker.id] = nil
+    check(accepted == true and chosen == aroundRoom,
+        "a nearby storage approach favours the standing tile in the actor's room")
 end
 check(SurvivorCompanion.Navigation.requestAny(
         doorActor, { doorTo }, "walk", {
@@ -25183,6 +25310,43 @@ end)()
     end)
     check(found == sink and cooled == nil and recovered == sink,
         "a wash source a companion could not reach is skipped for a minute")
+
+    local reachableWashSource = select(10, SurvivorCompanion.Downtime._washForTests())
+    local fartherSquare = cell:getGridSquare(-7, 9, 0)
+    local fartherSink = { square = fartherSquare }
+    function fartherSink:getFluidAmount() return 10 end
+    function fartherSink:isTaintedWater() return false end
+    function fartherSink:getSquare() return self.square end
+    fartherSquare.objects[#fartherSquare.objects + 1] = fartherSink
+    local nearGoal = cell:getGridSquare(-6, 6, 0)
+    local farGoal = cell:getGridSquare(-7, 8, 0)
+    local oldTargets, oldBegin, oldResume = navigation.interactionTargets,
+        navigation.beginPathSearch, navigation.resumePathSearch
+    navigation.interactionTargets = function(_, object)
+        if object == sink then return { nearGoal } end
+        if object == fartherSink then return { farGoal } end
+        return {}
+    end
+    local sawFarGoal = false
+    navigation.beginPathSearch = function(_, _, _, options)
+        for _, goal in ipairs(options.goalSquares or {}) do
+            if goal == farGoal then sawFarGoal = true end
+        end
+        return {}
+    end
+    navigation.resumePathSearch = function()
+        return "complete", { washer.square, farGoal }
+    end
+    local surveyState, selected = {}, nil
+    for _ = 1, 12 do
+        selected = reachableWashSource(washer, surveyState, nil)
+        if selected then break end
+    end
+    navigation.interactionTargets, navigation.beginPathSearch,
+        navigation.resumePathSearch = oldTargets, oldBegin, oldResume
+    fartherSquare.objects[#fartherSquare.objects] = nil
+    check(sawFarGoal and selected == fartherSink,
+        "washing surveys multiple sinks and selects the reachable route endpoint")
 
     local freeSquare = cell:getGridSquare(-6, 6, 0)
     local savedTargets, savedRequestAny = navigation.interactionTargets, navigation.requestAny

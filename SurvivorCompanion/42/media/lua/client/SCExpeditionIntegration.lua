@@ -443,6 +443,7 @@ local function selectStorage(actor, item, state)
     if #rows == 0 then rows = SC.BaseLife.depositStorageRows("general") end
     if #rows == 0 then return nil, nil, "matching_storage_missing" end
     local unavailable = "matching_storage_full"
+    local choices = {}
     for _, storage in ipairs(rows) do
         local blockedUntil = state.blockedStorage
             and state.blockedStorage[storage.id] or 0
@@ -455,11 +456,41 @@ local function selectStorage(actor, item, state)
             local room = SC.WorkTransport and SC.WorkTransport.hasRoom
                 and SC.WorkTransport.hasRoom(container, actor, item)
             if accepts == true and room == true then
-                return storage, container
+                if not SC.Navigation
+                    or type(SC.Navigation.selectInteraction) ~= "function"
+                    or type(SC.BaseLife.resolveObject) ~= "function" then
+                    return storage, container
+                end
+                local object = SC.BaseLife.resolveObject(storage)
+                if object then
+                    choices[#choices + 1] = {
+                        id = storage.id, object = object,
+                        storage = storage, container = container,
+                    }
+                end
             end
         else
             unavailable = "matching_storage_unloaded"
         end
+    end
+    if #choices > 0 then
+        if SC.Navigation and type(SC.Navigation.selectInteraction) == "function" then
+            local selected, reason = SC.Navigation.selectInteraction(actor, state,
+                "expedition_delivery:" .. tostring(state.currentReceiptId),
+                choices, { nodeBudget = 1800, workCampOnly = true,
+                    workReach = true })
+            if selected then
+                return selected.storage, selected.container
+            end
+            if reason == "pending" then
+                return nil, nil, "storage_route_pending"
+            end
+            if reason == "unknown" then
+                return nil, nil, "storage_route_unknown"
+            end
+            return nil, nil, "matching_storage_unreachable"
+        end
+        return choices[1].storage, choices[1].container
     end
     return nil, nil, unavailable
 end
@@ -638,6 +669,7 @@ function Integration.update(record, actor)
         or memberFor(record, actor).name
     local storage, container, why = selectStorage(actor, item, state)
     if not storage then
+        if why == "storage_route_pending" then return true, why end
         state.deliveryApproach = nil
         row.reason = why
         deferReceipt(state, row, 5000)

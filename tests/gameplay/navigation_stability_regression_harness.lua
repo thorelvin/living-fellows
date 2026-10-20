@@ -6,6 +6,30 @@ local function check(value, message)
     checks = checks + 1
     assert(value, "navigation stability regression " .. checks .. ": " .. message)
 end
+do
+    local nodes = {
+        start = { id = "start" }, near = { id = "near" }, far = { id = "far" },
+        nearStep = { id = "nearStep" }, farStep = { id = "farStep" },
+    }
+    local links = {
+        start = { nodes.nearStep, nodes.farStep },
+        nearStep = { nodes.near }, farStep = { nodes.far },
+    }
+    local adapter = {
+        sameSquare = function(a, b) return a == b end,
+        key = function(value) return value.id end,
+        heuristic = function() return 0 end,
+        neighbors = function(value) return links[value.id] or {} end,
+        edge = function(from, to)
+            return true, from == nodes.nearStep and to == nodes.near and 9 or 1
+        end,
+    }
+    local job = P.new(nodes.start, nodes.near,
+        { goalSquares = { nodes.near, nodes.far } }, adapter)
+    local status, path = P.resume(job, 20)
+    check(status == "complete" and path[#path] == nodes.far,
+        "multi-goal search chooses the sink with the shorter walking route")
+end
 local grid = {}
 local function square(x, y, z)
     z = z or 0
@@ -43,6 +67,31 @@ local edgeCalls, edgeDelay, elapsed = 0, 0, 0
 SC.Topology.classifyEdge = function(_, from, to)
     edgeCalls, elapsed = edgeCalls + 1, elapsed + edgeDelay
     return { traversable = true, cost = from.x ~= to.x and from.y ~= to.y and math.sqrt(2) or 1 }
+end
+do
+    local usual = SC.Topology.classifyEdge
+    SC.Topology.classifyEdge = function(_, from, to)
+        local crossing = from.x ~= to.x and (from.x == 1 or to.x == 1)
+        return { traversable = true, cost = crossing and 20 or 1 }
+    end
+    local nearObject = { target = square(2, 0) }
+    local farObject = { target = square(0, 5) }
+    function nearObject:getSquare() return self.target end
+    function farObject:getSquare() return self.target end
+    local targets = N.interactionTargets
+    N.interactionTargets = function(_, object) return { object.target } end
+    local owner, chosen, reason = {}, nil, nil
+    for _ = 1, 120 do
+        chosen, reason = N.selectInteraction(actor, owner, "water_sources", {
+            { id = "near", object = nearObject },
+            { id = "far", object = farObject },
+        }, { nodeBudget = 700, nodeQuota = 24 })
+        if chosen then break end
+    end
+    check(chosen and chosen.id == "far",
+        "shared interaction choice waits for a route and selects the farther easy source")
+    N.interactionTargets = targets
+    SC.Topology.classifyEdge = usual
 end
 local context = { action = "follow_formation", followRecovery = true }
 check(SC.NavTraffic.priority({ action = "move_to_base_storage",

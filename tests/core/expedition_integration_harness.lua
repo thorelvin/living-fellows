@@ -39,10 +39,22 @@ check(select(2, I.update(record, a)) == "receipt_taken_from_bag"
     "nested bag item is staged by identity")
 local resumed = I.copy(record)
 I.reset()
+local oldNavigation, oldResolveObject = SC.Navigation, SC.BaseLife.resolveObject
+local routeChecks = 0
+SC.BaseLife.resolveObject = function(storage) return storage end
+SC.Navigation = { selectInteraction = function(_, _, _, choices)
+    routeChecks = routeChecks + 1
+    if routeChecks == 1 then return nil, "pending" end
+    return choices[1], "selected"
+end }
+check(select(2, I.update(resumed, a)) == "storage_route_pending"
+    and T.moves == 1 and bagItem.container == a.inventory,
+    "a pending storage route keeps the exact receipt in the carrier inventory")
 check(I.valid(resumed) and select(2, I.update(resumed, a))
         == "expedition_supply_stored"
     and select(2, I.update(resumed, b)) == "expedition_supply_stored",
     "both real carriers deposit their own receipts")
+SC.Navigation, SC.BaseLife.resolveObject = oldNavigation, oldResolveObject
 status = I.summary(resumed)
 check(status.stored == 2 and status.pending == 0 and T.moves == 3,
     "one bag stage and two deposits, no copied item")

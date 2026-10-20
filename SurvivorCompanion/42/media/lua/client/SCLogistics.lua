@@ -1376,7 +1376,7 @@ function Logistics.preferredLootDestination(actor, item, category, audit)
     return root, "inventory"
 end
 
-storageFor = function(actor, item, category, dedicatedOnly)
+storageFor = function(actor, item, category, dedicatedOnly, ownerState)
     if not SC.BaseLife or type(SC.BaseLife.storageRows) ~= "function"
         or type(SC.BaseLife.resolveContainer) ~= "function" then return nil end
     local wanted = storageCategory[category] or "general"
@@ -1390,8 +1390,9 @@ storageFor = function(actor, item, category, dedicatedOnly)
         or wanted == "valuables" and { wanted }
         or wanted == "general" and { "general", "output" }
         or { wanted, "general", "output" }
-    local best, bestDistance
+    local best, bestDistance, choices
     for _, storageType in ipairs(categories) do
+        choices = {}
         for _, storage in ipairs(SC.BaseLife.storageRows(storageType) or {}) do
             if storage.deposits ~= false then
                 local container, owner = SC.BaseLife.resolveContainer(storage)
@@ -1403,10 +1404,27 @@ storageFor = function(actor, item, category, dedicatedOnly)
                             owner = owner or container, distance = distance }
                         bestDistance = distance
                     end
+                    if distance <= (U().config("logisticsStorageRange") or 32) then
+                        choices[#choices + 1] = {
+                            id = storage.id, object = owner or container,
+                            destination = { storage = storage, container = container,
+                                owner = owner or container, distance = distance },
+                        }
+                    end
                 end
             end
         end
-        if best then break end
+        if #choices > 0 then break end
+    end
+    if ownerState and #choices > 0 and SC.Navigation
+        and type(SC.Navigation.selectInteraction) == "function" then
+        local selected, reason = SC.Navigation.selectInteraction(actor, ownerState,
+            "logistics_deposit:" .. tostring(select(1, U().call(item, "getID")) or item),
+            choices, { nodeBudget = 1600 })
+        if selected then return selected.destination end
+        return nil, reason == "pending" and "storage_route_pending"
+            or reason == "unknown" and "storage_route_unknown"
+            or "storage_route_unreachable"
     end
     return best
 end
@@ -1880,8 +1898,14 @@ function Logistics.update(actor, player, runtime)
         state.proactive = audit.surplus.proactive == true
         state.keptHarvest = audit.surplus.keptHarvest == true
         state.source = audit.surplus.source or audit.inventory
-        state.destination = storageFor(actor, state.item, state.category,
-            state.proactive and (state.category == "literature" or state.category == "farming"))
+        state.destination, state.navigationChoice = nil, nil
+    end
+    if not state.destination then
+        local destination, routeReason = storageFor(actor, state.item, state.category,
+            state.proactive and (state.category == "literature" or state.category == "farming"),
+            state)
+        state.destination = destination
+        if routeReason then return routeReason == "storage_route_pending", routeReason end
     end
     if state.destination then
         local destination = state.destination

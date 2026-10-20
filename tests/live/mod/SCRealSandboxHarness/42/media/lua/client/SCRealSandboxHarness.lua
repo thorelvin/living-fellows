@@ -15582,6 +15582,53 @@ Harness.milliSignals = { write = writeSignal, exists = fileExists }
 -- console shows ordinary behaviour. Each second it looks for companions
 -- standing inside each other (closer than 0.45 tiles on one floor); every
 -- fifteen seconds it prints where each one is and what it is doing.
+function Harness.restartChefForObservation()
+    local SC = SurvivorCompanion
+    local base = SC.BaseLife and SC.BaseLife.active and SC.BaseLife.active()
+    if not base then
+        result("FAIL", "chef_restart_base", "no active camp in cloned save")
+        return
+    end
+    local blocked
+    for _, job in ipairs(base.jobs or {}) do
+        if job.type == "cook" and job.state == "blocked" then
+            blocked = job
+            break
+        end
+    end
+    if not blocked then
+        result("SKIP", "chef_restart_blocked_job", "no blocked cook job in cloned save")
+        return
+    end
+    local jobId, workerId = blocked.id, blocked.assignedId
+    local phase = blocked.target and blocked.target.cookPhase
+    local receipts = blocked.target and blocked.target.chefSupplies or {}
+    local okay, cancelled, reason = pcall(SC.BaseLife.cancelJob, jobId)
+    if not okay or cancelled ~= true then
+        result("FAIL", "chef_restart_safe_cancel",
+            "job=" .. tostring(jobId) .. " phase=" .. tostring(phase)
+                .. " receipts=" .. tostring(#receipts)
+                .. " reason=" .. tostring(okay and reason or cancelled))
+        return
+    end
+    Harness.observedChefRestart = { oldJobId = jobId, workerId = workerId }
+    result("PASS", "chef_restart_safe_cancel",
+        "job=" .. tostring(jobId) .. " phase=" .. tostring(phase)
+            .. " receipts=" .. tostring(#receipts)
+            .. " removed=" .. tostring(SC.BaseLife.job(jobId) == nil))
+    local worker = workerId and SC.Registry.byId(workerId) or nil
+    local resident = workerId and SC.BaseLife.resident(workerId) or nil
+    if worker and worker.actor and resident then
+        local scheduled, scheduleReason = SC.ChefWork.ensureAutomaticJob(
+            worker.actor, resident)
+        result("PASS", "chef_restart_scheduler",
+            "scheduled=" .. tostring(scheduled)
+                .. " reason=" .. tostring(scheduleReason))
+    else
+        result("FAIL", "chef_restart_worker", "worker=" .. tostring(workerId))
+    end
+end
+
 function Harness.observeSample(current, report)
     local SC = SurvivorCompanion
     local U = SC.GameplayUtil
@@ -16405,6 +16452,20 @@ local function tick()
         local records = #SurvivorCompanion.Registry.records()
         local waited = current - Harness.phaseStartedAt
         if (records > 0 and waited >= 5000) or waited >= 30000 then
+            if Harness.config.restart_chef_before_observe == "true" then
+                local base = SurvivorCompanion.BaseLife.active()
+                local blockedCook = false
+                for _, job in ipairs(base and base.jobs or {}) do
+                    if job.type == "cook" and job.state == "blocked" then
+                        blockedCook = true
+                        break
+                    end
+                end
+                -- Recovered jobs may start active and only enter the blocked
+                -- receipt state after their first normal decision update.
+                if not blockedCook and waited < 60000 then return end
+                Harness.restartChefForObservation()
+            end
             Harness.observe = {
                 startedAt = current, nextSampleAt = current, nextReportAt = current,
                 samples = 0, stackedSamples = 0, maxStacked = 0, unstackMoves = 0,

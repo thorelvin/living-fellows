@@ -108,17 +108,15 @@ function PathSearch.new(startSquare, goalSquare, options, adapter)
             startSquare = startSquare, goalSquare = goalSquare, options = options,
         }
     end
-    if adapter.sameSquare(startSquare, goalSquare) then
+    local candidateGoals = type(options.goalSquares) == "table"
+        and options.goalSquares or nil
+    if not candidateGoals and adapter.sameSquare(startSquare, goalSquare) then
         return {
             complete = true, path = { startSquare }, reason = nil, expanded = 0,
             startSquare = startSquare, goalSquare = goalSquare, options = options,
             adapter = adapter,
         }
     end
-    local defaultBudget = type(adapter.nodeBudget) == "function"
-        and adapter.nodeBudget(options) or adapter.nodeBudget
-    local nodeBudget = tonumber(options.nodeBudget) or tonumber(defaultBudget) or 220
-    local penalties = type(options.penalties) == "table" and options.penalties or {}
     local startKey = adapter.key(startSquare)
     local goalKey = adapter.key(goalSquare)
     if not startKey or not goalKey then
@@ -128,7 +126,36 @@ function PathSearch.new(startSquare, goalSquare, options, adapter)
             adapter = adapter,
         }
     end
-    local startH = adapter.heuristic(startSquare, goalSquare)
+    local goals, goalKeys = {}, {}
+    for _, square in ipairs(candidateGoals or { goalSquare }) do
+        local key = square == goalSquare and goalKey or adapter.key(square)
+        if key ~= nil and not goalKeys[key] then
+            goals[#goals + 1], goalKeys[key] = square, true
+        end
+    end
+    if #goals == 0 then
+        goals[1], goalKeys[goalKey] = goalSquare, true
+    end
+    local function distanceToGoal(square)
+        local best
+        for _, candidate in ipairs(goals) do
+            local value = adapter.heuristic(square, candidate)
+            if best == nil or value < best then best = value end
+        end
+        return best or 0
+    end
+    if goalKeys[startKey] then
+        return {
+            complete = true, path = { startSquare }, reason = nil, expanded = 0,
+            startSquare = startSquare, goalSquare = goalSquare, options = options,
+            adapter = adapter, goalSquares = goals, goalKeys = goalKeys,
+        }
+    end
+    local defaultBudget = type(adapter.nodeBudget) == "function"
+        and adapter.nodeBudget(options) or adapter.nodeBudget
+    local nodeBudget = tonumber(options.nodeBudget) or tonumber(defaultBudget) or 220
+    local penalties = type(options.penalties) == "table" and options.penalties or {}
+    local startH = distanceToGoal(startSquare)
     local nodes = {
         [startKey] = { square = startSquare, g = 0, h = startH, f = startH,
             familiarity = 0, parent = nil, seq = 0 },
@@ -139,6 +166,8 @@ function PathSearch.new(startSquare, goalSquare, options, adapter)
         reason = nil,
         startSquare = startSquare,
         goalSquare = goalSquare,
+        goalSquares = goals,
+        goalKeys = goalKeys,
         startKey = startKey,
         goalKey = goalKey,
         nodeBudget = nodeBudget,
@@ -215,7 +244,7 @@ function PathSearch.resume(job, expansionQuota, slice)
             if node ~= nil and not job.closed[bestKey]
                 and entry.f == node.f and entry.h == node.h
                 and (tonumber(entry.familiarity) or 0) == (tonumber(node.familiarity) or 0) then
-                if bestKey == job.goalKey then
+                if job.goalKeys[bestKey] then
                     job.complete = true
                     job.path = reconstruct(job.nodes, bestKey)
                     return "complete", job.path, nil, job.expanded, used
@@ -249,7 +278,7 @@ function PathSearch.resume(job, expansionQuota, slice)
                 if otherKey and not job.closed[otherKey] then
                     local passable, cost, rejection, ignoredObject, edgeFamiliarity =
                         adapter.edge(current.square, otherSquare, job.options,
-                            otherKey == job.goalKey)
+                            job.goalKeys[otherKey] == true)
                     if passable then
                         local dynamicPenalty = 0
                         if type(job.options.squarePenalty) == "function" then
@@ -272,7 +301,11 @@ function PathSearch.resume(job, expansionQuota, slice)
                                 job.seqCounter = job.seqCounter + 1
                                 seq = job.seqCounter
                             end
-                            local h = adapter.heuristic(otherSquare, job.goalSquare)
+                            local h
+                            for _, goal in ipairs(job.goalSquares) do
+                                local distance = adapter.heuristic(otherSquare, goal)
+                                if h == nil or distance < h then h = distance end
+                            end
                             local fScore = tentative + h
                             job.nodes[otherKey] = {
                                 square = otherSquare,

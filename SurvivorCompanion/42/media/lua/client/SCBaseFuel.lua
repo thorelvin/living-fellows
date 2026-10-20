@@ -244,9 +244,9 @@ function Fuel.gasAmount(item)
     return total
 end
 
-function Fuel.sourceCan(actor)
+function Fuel.sourceCan(actor, ownerState, choiceKey)
     local rows = SC.BaseLife.storageRows(nil, true)
-    if actor then
+    if actor and not ownerState then
         table.sort(rows, function(a, b)
             local aObject = SC.BaseLife.resolveObject(a)
             local bObject = SC.BaseLife.resolveObject(b)
@@ -256,6 +256,7 @@ function Fuel.sourceCan(actor)
             return tostring(a.id) < tostring(b.id)
         end)
     end
+    local choices = {}
     for _, storage in ipairs(rows) do
         local container = SC.BaseLife.resolveContainer(storage)
         if container then
@@ -281,11 +282,38 @@ function Fuel.sourceCan(actor)
                                 - (blockedByType[kind] or 0))
                     end
                     if availableByType[kind] > 0 then
-                        return storage, container, item
+                        if not actor or not ownerState then
+                            return storage, container, item
+                        end
+                        local object = SC.BaseLife.resolveObject(storage)
+                        if object then
+                            choices[#choices + 1] = {
+                                id = storage.id, object = object,
+                                storage = storage, container = container,
+                                item = item,
+                            }
+                        end
+                        break
                     end
                 end
             end
         end
+    end
+    if #choices > 0 and SC.Navigation
+        and type(SC.Navigation.selectInteraction) == "function" then
+        local selected, reason = SC.Navigation.selectInteraction(actor, ownerState,
+            "fuel_source:" .. tostring(choiceKey or "base"), choices,
+            { nodeBudget = 1600, workCampOnly = true, workReach = true })
+        if selected then
+            return selected.storage, selected.container, selected.item
+        end
+        return nil, nil, nil, reason == "pending" and "fuel_route_pending"
+            or reason == "unknown" and "fuel_route_unknown"
+            or "fuel_route_unreachable"
+    end
+    if #choices > 0 then
+        local first = choices[1]
+        return first.storage, first.container, first.item
     end
     return nil
 end

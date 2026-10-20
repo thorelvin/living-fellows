@@ -71,52 +71,75 @@ local function cleanSink(object)
 end
 -- Search at most one small slice per work tick. The cached source is rechecked
 -- before use; a dry sink or a newly blocked approach never remains selected.
-local function findCleanSink()
+local function findCleanSink(actor, state)
     local base = SC.BaseLife.active()
     if not base then return nil, "base_missing" end
     local scan = sinkScans[base]
-    if scan and cleanSink(scan.source) then return scan.source end
     if not scan or scan.done and U().nowMs() - (scan.finishedAt or 0) >= 30000 then
-        scan = { zones = {}, zone = 1, index = 0 }
+        scan = { zones = {}, zone = 1, index = 0, sources = {} }
         for _, area in ipairs(base.zones or {}) do
             if area.kind == "area" then scan.zones[#scan.zones + 1] = area end
         end
         sinkScans[base] = scan
     end
-    if scan.done then return nil, "wash_sink_missing" end
-    scan.source = nil
-    for _ = 1, 128 do
-        local area = scan.zones[scan.zone]
-        if not area then
-            scan.done, scan.finishedAt = true, U().nowMs()
-            return nil, "wash_sink_missing"
-        end
-        local width = area.x2 - area.x1 + 1
-        local total = width * (area.y2 - area.y1 + 1)
-        if scan.index >= total then
-            scan.zone, scan.index = scan.zone + 1, 0
-        else
-            local offset = scan.index
-            scan.index = offset + 1
-            local square = U().gridSquare(area.x1 + offset % width,
-                area.y1 + math.floor(offset / width), area.z)
-            if square then
-                U().squareObjects(square, function(object)
-                    if cleanSink(object) then scan.source = object return false end
-                end, 48)
-                if scan.source then return scan.source end
+    if not scan.done then
+        for _ = 1, 128 do
+            local area = scan.zones[scan.zone]
+            if not area then
+                scan.done, scan.finishedAt = true, U().nowMs()
+                break
+            end
+            local width = area.x2 - area.x1 + 1
+            local total = width * (area.y2 - area.y1 + 1)
+            if scan.index >= total then
+                scan.zone, scan.index = scan.zone + 1, 0
+            else
+                local offset = scan.index
+                scan.index = offset + 1
+                local square = U().gridSquare(area.x1 + offset % width,
+                    area.y1 + math.floor(offset / width), area.z)
+                if square then
+                    U().squareObjects(square, function(object)
+                        if cleanSink(object) then
+                            scan.sources[#scan.sources + 1] = object
+                            return false
+                        end
+                    end, 48)
+                    if #scan.sources >= 8 then
+                        scan.done, scan.finishedAt = true, U().nowMs()
+                        break
+                    end
+                end
             end
         end
     end
-    return nil, "wash_sink_scanning"
+    if not scan.done then return nil, "wash_sink_scanning" end
+    local choices = {}
+    for _, source in ipairs(scan.sources) do
+        if cleanSink(source) then
+            choices[#choices + 1] = { id = tostring(source), object = source }
+        end
+    end
+    if #choices == 0 then return nil, "wash_sink_missing" end
+    if actor and state and SC.Navigation
+        and type(SC.Navigation.selectInteraction) == "function" then
+        local selected, reason = SC.Navigation.selectInteraction(actor, state,
+            "vehicle_wash_sink", choices, { nodeBudget = 1600,
+                workCampOnly = true, workReach = true })
+        if selected then return selected.object end
+        return nil, (reason == "pending" or reason == "unknown") and "wash_sink_scanning"
+            or "wash_sink_unreachable"
+    end
+    return choices[1].object
 end
 local function avoidSink(source)
     avoidedSinks[source] = U().nowMs() + 60000
     local base = SC.BaseLife.active()
     if base then sinkScans[base] = nil end
 end
-local function supply(kind, actor)
+local function supply(kind, actor, state)
     local best, score, empty, emptyScore
+    local readyChoices, emptyChoices, readySeen, emptySeen = {}, {}, {}, {}
     for _, storage in ipairs(SC.BaseLife.storageRows(nil, true)) do
         local container = SC.BaseLife.resolveContainer(storage)
         if container then
@@ -151,6 +174,17 @@ local function supply(kind, actor)
                         if not best or rank < score then
                             best, score = { storage, container, item }, rank
                         end
+                        if actor and state and not readySeen[storage.id]
+                            and #readyChoices < 12 then
+                            local object = SC.BaseLife.resolveObject(storage)
+                            if object then
+                                readySeen[storage.id] = true
+                                readyChoices[#readyChoices + 1] = {
+                                    id = tostring(storage.id) .. ":" .. tostring(itemType),
+                                    object = object, supply = { storage, container, item },
+                                }
+                            end
+                        end
                     elseif kind == "wash_vehicle" and available[itemType] > 0
                         and emptyWaterVessel(item) then
                         local rank = actor and U().distanceSq(actor,
@@ -159,15 +193,51 @@ local function supply(kind, actor)
                         if not empty or rank < emptyScore then
                             empty, emptyScore = { storage, container, item }, rank
                         end
+                        if actor and state and not emptySeen[storage.id]
+                            and #emptyChoices < 12 then
+                            local object = SC.BaseLife.resolveObject(storage)
+                            if object then
+                                emptySeen[storage.id] = true
+                                emptyChoices[#emptyChoices + 1] = {
+                                    id = tostring(storage.id) .. ":" .. tostring(itemType),
+                                    object = object, supply = { storage, container, item },
+                                }
+                            end
+                        end
                     end
                 end
             end
         end
     end
+    local function routeChoice(choices, key)
+        if not actor or not state or not SC.Navigation
+            or type(SC.Navigation.selectInteraction) ~= "function"
+            or #choices == 0 then return nil, nil end
+        local selected, reason = SC.Navigation.selectInteraction(actor, state,
+            key, choices, { nodeBudget = 1600,
+                workCampOnly = true, workReach = true })
+        return selected and selected.supply or nil, reason
+    end
+    if #readyChoices > 0 then
+        local selected, reason = routeChoice(readyChoices,
+            "vehicle_upkeep_supply:" .. tostring(kind))
+        if selected then return selected[1], selected[2], selected[3] end
+        if reason then return nil, nil, nil, "upkeep_supply_route_" .. reason end
+    end
     if best then return best[1], best[2], best[3] end
     if empty then
-        local source, reason = findCleanSink()
+        local source, reason = findCleanSink(actor, state)
         if source or reason == "wash_sink_scanning" then
+            if #emptyChoices > 0 then
+                local selected, routeReason = routeChoice(emptyChoices,
+                    "vehicle_upkeep_empty_water")
+                if selected then
+                    return selected[1], selected[2], selected[3], "sink"
+                end
+                if routeReason then
+                    return nil, nil, nil, "upkeep_supply_route_" .. routeReason
+                end
+            end
             return empty[1], empty[2], empty[3], "sink"
         end
     end
@@ -487,8 +557,14 @@ function Upkeep.update(actor, baseState, job)
             end
         else
             local sourceKind
-            storage, container, item, sourceKind = supply(job.type, actor)
-            if not item then return true, "upkeep_supply_exhausted", false, true end
+            storage, container, item, sourceKind = supply(job.type, actor, baseState)
+            if not item then
+                if sourceKind == "upkeep_supply_route_pending"
+                    or sourceKind == "upkeep_supply_route_unknown" then
+                    return true, sourceKind
+                end
+                return true, sourceKind or "upkeep_supply_exhausted", false, true
+            end
             if not mark(item, job.id) then return false, "upkeep_supply_reserved", true end
             target.sourceStorageId, target.itemId = storage.id, call(item, "getID")
             target.sourceKind = sourceKind or (job.type == "wash_vehicle" and "tainted" or nil)
@@ -537,12 +613,14 @@ function Upkeep.update(actor, baseState, job)
     local vehicle = SC.Vehicle and SC.Vehicle.loadedBySqlId(target.vehicleId)
     if stage == "seeking_water" then
         if not carried then return false, "upkeep_supply_not_carried", true end
-        local source, searchReason = findCleanSink()
+        local source, searchReason = findCleanSink(actor, baseState)
         if not source then
             if searchReason == "wash_sink_scanning" then
                 return true, searchReason
             end
-            target.stage, target.finishReason = "returning", "base_wash_sink_missing"
+            target.stage = "returning"
+            target.finishReason = searchReason == "wash_sink_unreachable"
+                and "base_wash_sink_unreachable" or "base_wash_sink_missing"
             target.stageStartedAt = U().nowMs()
             return true, "upkeep_returning_supply"
         end

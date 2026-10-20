@@ -301,6 +301,35 @@ local function stageUseEdge(H, SC, actor, fixture)
     })
 end
 
+local function waterChoices(SC, actor)
+    local U = SC.GameplayUtil
+    local base = SC.BaseLife.active()
+    local seen, choices = {}, {}
+    for _, zone in ipairs(base and base.zones or {}) do
+        if zone.kind == "area" then
+            for y = zone.y1, zone.y2 do
+                for x = zone.x1, zone.x2 do
+                    local square = U.gridSquare(x, y, zone.z)
+                    if square and U.sameFloor(actor, square) then
+                        U.squareObjects(square, function(object)
+                            if not seen[object] and call(object, "hasFluid") == true
+                                and (tonumber(call(object, "getFluidAmount")) or 0) > 1 then
+                                seen[object] = true
+                                choices[#choices + 1] = {
+                                    id = tostring(object), object = object,
+                                }
+                            end
+                            return #choices < 8
+                        end, 48)
+                    end
+                    if #choices >= 8 then return choices end
+                end
+            end
+        end
+    end
+    return choices
+end
+
 local function readyNativeAction(SC, actor)
     if SC.Logistics and type(SC.Logistics.reset) == "function" then
         SC.Logistics.reset(actor)
@@ -423,14 +452,38 @@ function Probe.step(H, current, check, result, setPhase)
             result("SKIP", "farm_live_fill", "no loaded water fixture with a two-tile approach")
             nextCorridor(H, SC, current, result, setPhase) return
         end
-        stageUseEdge(H, SC, actors[1], source)
-        H.farmCorridor.fillCan = call(call(actors[1], "getInventory"),
-            "AddItem", "Base.WateredCan")
+        H.farmCorridor.waterChoices = waterChoices(SC, actors[1])
         H.farmCorridor.lastAt = 0
-        setPhase("farm_corridor_fill_approach", current)
+        setPhase("farm_corridor_route_choice", current)
         return
     end
     local f = H.farmCorridor
+    if H.phase == "farm_corridor_route_choice" then
+        if current - f.lastAt < 150 then return end
+        f.lastAt = current
+        local selected, reason = SC.Navigation.selectInteraction(f.actors[1], f,
+            "live_farm_water_source", f.waterChoices,
+            { nodeBudget = 1800, workCampOnly = true, workReach = true })
+        if selected then
+            result("PASS", "farm_live_route_choice",
+                "candidates=" .. tostring(#f.waterChoices)
+                    .. " chosen=" .. tostring(selected.id)
+                    .. " reason=" .. tostring(reason))
+        elseif reason == "pending" and current - H.phaseStartedAt < 20000 then
+            return
+        else
+            result("FAIL", "farm_live_route_choice",
+                "candidates=" .. tostring(#f.waterChoices)
+                    .. " reason=" .. tostring(reason))
+        end
+        f.navigationChoice = nil
+        stageUseEdge(H, SC, f.actors[1], f.source)
+        f.fillCan = call(call(f.actors[1], "getInventory"),
+            "AddItem", "Base.WateredCan")
+        f.lastAt = 0
+        setPhase("farm_corridor_fill_approach", current)
+        return
+    end
     if H.phase == "farm_corridor_fill_approach" then
         if current - f.lastAt < 150 then return end
         f.lastAt = current

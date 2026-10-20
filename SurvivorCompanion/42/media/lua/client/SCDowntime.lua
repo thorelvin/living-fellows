@@ -962,14 +962,14 @@ local function approachWashSource(actor, activity)
     return accepted == true, status
 end
 
-local function nearbyWashSource(actor, skip, validator, radiusOverride)
+local function nearbyWashSource(actor, skip, validator, radiusOverride, skipSameFloor)
     local utility = U()
     validator = validator or washSourceValid
     local x, y, z = utility.position(actor)
     if not x then return nil, nil end
     local radius = math.max(1, math.min(8,
         math.floor(radiusOverride or utility.config("downtimeWashRadius") or 4)))
-    for distance = 0, radius do
+    for distance = 0, skipSameFloor and -1 or radius do
         for dx = -distance, distance do
             for dy = -distance, distance do
                 if math.max(math.abs(dx), math.abs(dy)) == distance then
@@ -1016,6 +1016,118 @@ local function nearbyWashSource(actor, skip, validator, radiusOverride)
         end
     end
     return nil, nil
+end
+
+-- The closest sink in map tiles may be behind an office wall. Survey all
+-- usable standing tiles with one bounded multi-goal route search, then keep
+-- the result briefly. The search yields with Navigation's normal frame slice;
+-- optional washing never spends a whole decision frame surveying the room.
+local function reachableWashSource(actor, state, skip)
+    local utility, navigation = U(), SC.Navigation
+    if type(state) ~= "table" or not navigation
+        or type(navigation.beginPathSearch) ~= "function"
+        or type(navigation.resumePathSearch) ~= "function"
+        or type(navigation.interactionTargets) ~= "function" then
+        return nearbyWashSource(actor, skip)
+    end
+    local origin = utility.squareOf(actor)
+    local x, y, z = utility.position(origin)
+    if x == nil then return nil, nil end
+    local originKey, now = utility.squareKey(origin), utility.nowMs()
+    local survey = state.washSourceSurvey
+    if survey and (survey.originKey ~= originKey
+        or now >= (survey.expiresAt or 0)
+        or survey.source and (not washSourceValid(survey.source)
+            or skip and skip(survey.source))) then
+        survey, state.washSourceSurvey = nil, nil
+    end
+    if survey and survey.complete then return survey.source, survey.square end
+    if not survey then
+        -- A source already within direct reach needs no map survey. This also
+        -- keeps routine washing responsive when the companion is at the sink.
+        for dx = -1, 1 do
+            for dy = -1, 1 do
+                local square = utility.gridSquare(x + dx, y + dy, z)
+                local found
+                utility.squareObjects(square, function(object)
+                    if washSourceValid(object) and not (skip and skip(object))
+                        and utility.directInteractionAccess(actor, object) == true then
+                        found = object
+                        return false
+                    end
+                end, 48)
+                if found then return found, square end
+            end
+        end
+        local radius = math.max(1, math.min(8,
+            math.floor(utility.config("downtimeWashRadius") or 4)))
+        survey = {
+            originKey = originKey, radius = radius,
+            scanIndex = 0, goals = {}, owners = {}, sourcesSeen = 0,
+            expiresAt = now + 60000,
+        }
+        state.washSourceSurvey = survey
+    end
+    if survey.scanIndex ~= nil then
+        local width = survey.radius * 2 + 1
+        local total = width * width
+        local limit = math.min(total, survey.scanIndex + 12)
+        while survey.scanIndex < limit do
+            local index = survey.scanIndex
+            survey.scanIndex = index + 1
+            local dx = math.floor(index / width) - survey.radius
+            local dy = index % width - survey.radius
+            local sourceSquare = utility.gridSquare(x + dx, y + dy, z)
+            utility.squareObjects(sourceSquare, function(object)
+                if washSourceValid(object) and not (skip and skip(object)) then
+                    survey.sourcesSeen = survey.sourcesSeen + 1
+                    local targets = navigation.interactionTargets(actor, object, {
+                        requireDirectAccess = true,
+                    })
+                    for _, target in ipairs(targets) do
+                        local key = utility.squareKey(target)
+                        if key and not survey.owners[key] then
+                            survey.goals[#survey.goals + 1] = target
+                            survey.owners[key] = {
+                                object = object, square = sourceSquare,
+                            }
+                        end
+                    end
+                end
+            end, 48)
+        end
+        if survey.scanIndex < total then return nil, nil end
+        survey.scanIndex = nil
+        if survey.sourcesSeen == 0 then
+            -- The ordinary picker also knows how to find a sink on a marked
+            -- upper floor. Keep that route available when none is on this one.
+            state.washSourceSurvey = nil
+            return nearbyWashSource(actor, skip, nil, nil, true)
+        end
+        if #survey.goals == 0 then
+            survey.complete, survey.expiresAt = true, now + 5000
+            return nil, nil
+        end
+        survey.expiresAt = now + 90000
+        survey.job = navigation.beginPathSearch(origin, survey.goals[1], nil, {
+            actor = actor, goalSquares = survey.goals, nodeBudget = 600,
+            alternatives = false,
+        })
+        survey.goals = nil
+    end
+    local status, path = navigation.resumePathSearch(survey.job, 48)
+    if status == "pending" then return nil, nil end
+    local endpoint = type(path) == "table" and path[#path] or nil
+    local winner = endpoint and survey.owners[utility.squareKey(endpoint)] or nil
+    survey.complete, survey.job = true, nil
+    survey.source = winner and winner.object or nil
+    survey.square = winner and winner.square or nil
+    survey.expiresAt = now + (winner and 15000 or 5000)
+    if survey.source and (not washSourceValid(survey.source)
+        or skip and skip(survey.source)) then
+        survey.source, survey.square = nil, nil
+    end
+    return survey.source, survey.square
 end
 
 local function bodyDirt(actor)
@@ -1187,7 +1299,7 @@ local function washActivity(actor, items, state, current)
         end
     end
     if bodyScore <= 0.01 and not bestItem and not dirtyBandage then return nil end
-    local source, square = nearbyWashSource(actor, function(object)
+    local source, square = reachableWashSource(actor, state, function(object)
         return washSourceCooling(state, object, current)
     end)
     if not source then return nil end
@@ -5082,7 +5194,7 @@ end
 function Downtime._washForTests()
     return nearbyWashSource, approachWashSource, coolWashSource, washSourceCooling,
         washSourceInReach, completeWashSelf, completeWashEquipment,
-        completeWashBandage, washActivity
+        completeWashBandage, washActivity, reachableWashSource
 end
 
 function Downtime._showerForTests()

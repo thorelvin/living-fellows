@@ -6380,6 +6380,9 @@ end
 function Navigation._seedVerifiedRoute(actor, state, sourceSquare, goalSquare,
         requestIntent, now)
     if state.path ~= nil or requestIntent.preferVerifiedPath ~= true
+        or (requestIntent.multiGoalFallback == true
+            and type(requestIntent.goalCandidates) == "table"
+            and #requestIntent.goalCandidates > 1)
         or type(Navigation.findPath) ~= "function" then return end
     local attemptKey = tostring(squareKey(sourceSquare)) .. ">"
         .. tostring(squareKey(goalSquare))
@@ -6631,6 +6634,10 @@ function Navigation.request(actor, target, movementMode, intent)
     sweepBlockedEdges(state, now)
     observeSquare(state, sourceSquare)
     local requestIntent = utility.copyShallow(intent)
+    local multipleGoals = requestIntent.multiGoalFallback == true
+        and type(requestIntent.goalCandidates) == "table"
+        and #requestIntent.goalCandidates > 1 and not goalAdjusted
+        and recoveryGoal == nil
     requestIntent.targetSquare = goalSquare
     requestIntent.requestedGoalSquare = requestedGoalSquare
     requestIntent.goalAdjustedForObstacle = goalAdjusted == true
@@ -6841,6 +6848,9 @@ function Navigation.request(actor, target, movementMode, intent)
         and not (requestIntent.doorBashAsLastResort == true
             and SC.NativeActions and type(SC.NativeActions.doorBashTool) == "function"
             and SC.NativeActions.doorBashTool(actor) ~= nil)
+    -- A remembered door can block one approach while another standing tile
+    -- is reachable by an open entrance. Let the shared multi-goal search try.
+    if multipleGoals then knownLockedRoom = false end
     if knownLockedRoom then
         -- A remembered door proves that edge is blocked, not that every
         -- entrance to the mission target's room is blocked. Expedition
@@ -6979,6 +6989,7 @@ function Navigation.request(actor, target, movementMode, intent)
             -- cost when topology finds no safe alternative.
             allowHazards = requestIntent.urgent == true,
         }
+        if multipleGoals then pathOptions.goalSquares = requestIntent.goalCandidates end
         if requestIntent.doorBashAsLastResort == true
             and requestIntent.draggingBody ~= true
             and SC.NativeActions
@@ -7056,7 +7067,8 @@ function Navigation.request(actor, target, movementMode, intent)
                     SC.WorkRoutes.count("navigation.stationary-fast.misses")
                 end
             end
-            if immediatePath == nil and requestedWorkRouteKey ~= nil then
+            if immediatePath == nil and requestedWorkRouteKey ~= nil
+                and not multipleGoals then
                 immediatePath, cachedEntry = SC.WorkRoutes.lookup(
                     actor, sourceSquare, requestedWorkRouteKey, pathOptions, now)
                 if immediatePath ~= nil then immediateReason = "work_route_cache" end
@@ -7278,7 +7290,35 @@ function Navigation.request(actor, target, movementMode, intent)
             SC.Navigation._clearBudgetFailures(state)
         end
         state.pathIsPartial = (path ~= nil and reason == "partial") or nil
+        -- A multi-target search ends at the first reachable standing tile by
+        -- walking cost. Make that endpoint the owned goal before the next
+        -- requestAny pulse, or its old nearest-tile goal would discard the path.
+        if path and not state.pathIsPartial and multipleGoals then
+            local endpoint = path[#path]
+            for _, candidate in ipairs(requestIntent.goalCandidates) do
+                if sameSquare(endpoint, candidate) then
+                    goalSquare = candidate
+                    requestedGoalSquare = candidate
+                    requestIntent.targetSquare = candidate
+                    requestIntent.requestedGoalSquare = candidate
+                    state.goalSquare = candidate
+                    state.multiGoalSelected = candidate
+                    currentTargetSignature = routeTargetSignature(candidate, requestIntent)
+                    state.routeTargetSignature = currentTargetSignature
+                    requestedWorkRouteKey = SC.WorkRoutes.key(actor, candidate,
+                        requestIntent)
+                    state.workRouteKey = requestedWorkRouteKey
+                    if state.lastApproachRequest then
+                        state.lastApproachRequest.goal = candidate
+                    end
+                    break
+                end
+            end
+        end
         state.pathGoalSquare = path and planningGoal or nil
+        if path and not state.pathIsPartial and multipleGoals then
+            state.pathGoalSquare = goalSquare
+        end
         state.pathStealthAvoidance = requestIntent.stealthAvoidance
         state.stealthRouteExposure = path and routeReport
             and routeReport.selectedDanger or nil
@@ -7830,6 +7870,17 @@ local function approachScore(actor, square, options)
     local score = utility.distance(actor, square)
     local blocker = utility.movingBlocker(square, actor)
     if blocker then score = score + (utility.config("navigationCrowdPenalty") or 9) end
+    -- A storage or water source on a room boundary can offer a standing tile
+    -- in the next room. Euclidean distance then favours the tile across the
+    -- wall even though the usable door is at the other end of the room.
+    if type(options) == "table" and options.object ~= nil then
+        local actorSquare = utility.squareOf(actor)
+        local actorRoom = actorSquare and select(1, utility.call(actorSquare, "getRoom"))
+        local goalRoom = select(1, utility.call(square, "getRoom"))
+        if actorRoom ~= nil and goalRoom ~= nil and actorRoom ~= goalRoom then
+            score = score + 6
+        end
+    end
     if type(options) == "table" and options.stealthAvoidance == true then
         score = score + stealthThreatPenalty(square, options.snapshot)
     end
@@ -7903,8 +7954,14 @@ function Navigation.interactionTargets(actor, objectOrSquare, options)
                 and directInteractionEdge(actor, square, vertical)
                 and directInteractionEdge(actor, vertical, centre)
         end
+        -- isSquareFree only tests a tile-wide blocker. Desks, chairs and bins
+        -- leave it true while occupying the centre where the actor must stand.
+        -- Keep the actor's own square so a companion already beside a source
+        -- may still use it even if furniture later moved into the tile.
         if key and not seen[key] and interactionEdgeClear
             and utility.isSquareFree(square)
+            and (utility.sameSquare(actor, square)
+                or utility.squareOccupyingObject(square) == nil)
             and not utility.safehouseBlocker(square, actor) then
             seen[key] = true
             candidates[#candidates + 1] = square
@@ -7912,6 +7969,8 @@ function Navigation.interactionTargets(actor, objectOrSquare, options)
     end
     if #candidates == 0 and options.requireDirectAccess ~= true
         and utility.isSquareFree(centre)
+        and (utility.sameSquare(actor, centre)
+            or utility.squareOccupyingObject(centre) == nil)
         and not utility.safehouseBlocker(centre, actor) then
         candidates[1] = centre
     end
@@ -7928,6 +7987,173 @@ function Navigation.interactionTargets(actor, objectOrSquare, options)
     local maximum = math.max(1, tonumber(options.maximum) or 8)
     while #candidates > maximum do table.remove(candidates) end
     return candidates
+end
+
+-- Choose a usable world object by walking route, rather than by map distance
+-- or storage scan order. This is a survey, not a movement request: a job keeps
+-- its normal approach and transaction checks after a choice is made. Each job
+-- owns its small, resumable survey in runtime state. Never persist the job or
+-- its live IsoObject references.
+function Navigation.selectInteraction(actor, ownerState, choiceKey, choices, options)
+    local utility = U()
+    if not utility.isValidActor(actor) or type(ownerState) ~= "table" then
+        return nil, "invalid_actor"
+    end
+    options = type(options) == "table" and options or {}
+    local origin = utility.squareOf(actor)
+    local ox, oy, oz = utility.position(origin)
+    if ox == nil then return nil, "invalid_source" end
+    local rows, crossFloor = {}, {}
+    for _, choice in ipairs(type(choices) == "table" and choices or {}) do
+        local object = choice.object or choice.square
+        local square = object and utility.squareOf(object) or nil
+        local x, y, z = utility.position(square)
+        if x ~= nil then
+            local entry = {
+                choice = choice, object = object, square = square,
+                id = tostring(choice.id or object),
+                tier = tonumber(choice.tier) or 1,
+                distance = utility.distance(actor, square),
+            }
+            if math.floor(z) == math.floor(oz) then
+                rows[#rows + 1] = entry
+            else
+                crossFloor[#crossFloor + 1] = entry
+            end
+        end
+    end
+    table.sort(rows, function(a, b)
+        if a.tier ~= b.tier then return a.tier < b.tier end
+        if a.distance ~= b.distance then return a.distance < b.distance end
+        return a.id < b.id
+    end)
+    table.sort(crossFloor, function(a, b)
+        if a.tier ~= b.tier then return a.tier < b.tier end
+        if a.distance ~= b.distance then return a.distance < b.distance end
+        return a.id < b.id
+    end)
+    local signature = {}
+    for _, entry in ipairs(rows) do
+        signature[#signature + 1] = entry.id .. "@" .. tostring(squareKey(entry.square))
+            .. ":" .. tostring(entry.tier)
+    end
+    table.sort(signature)
+    local identity = tostring(choiceKey or "interaction")
+        .. ":" .. table.concat(signature, "|")
+    local now = utility.nowMs()
+    local survey = ownerState.navigationChoice
+    if survey and (survey.identity ~= identity or survey.choiceKey ~= choiceKey
+        or now >= (survey.expiresAt or 0)
+        or survey.winnerId and ((ox - survey.originX) ^ 2
+            + (oy - survey.originY) ^ 2 > 16)) then
+        survey, ownerState.navigationChoice = nil, nil
+    end
+    if survey and survey.winnerId then
+        for _, entry in ipairs(rows) do
+            if entry.id == survey.winnerId then return entry.choice, "selected" end
+        end
+        survey, ownerState.navigationChoice = nil, nil
+    end
+    if survey and survey.failedReason then return nil, survey.failedReason end
+    if not survey then
+        survey = {
+            identity = identity, choiceKey = choiceKey, origin = origin,
+            originX = ox, originY = oy, batch = 1,
+            expiresAt = now + 90000, order = {},
+        }
+        for index, entry in ipairs(rows) do survey.order[entry.id] = index end
+        ownerState.navigationChoice = survey
+    elseif survey.order then
+        -- The actor can move while the survey is yielding. Keep batch indexes
+        -- attached to the same objects even if their Euclidean order changes.
+        table.sort(rows, function(a, b)
+            return (survey.order[a.id] or math.huge)
+                < (survey.order[b.id] or math.huge)
+        end)
+    end
+    -- A survey from a substantially different position must not keep routing
+    -- toward a choice that was optimal before the actor moved.
+    if survey.job and ((ox - survey.originX) ^ 2 + (oy - survey.originY) ^ 2 > 4) then
+        survey.job, survey.batch = nil, 1
+        survey.origin, survey.originX, survey.originY = origin, ox, oy
+    end
+    local maximum = math.max(1, math.min(12,
+        math.floor(tonumber(options.maxChoices) or 8)))
+    while true do
+        if not survey.job then
+            local first = survey.batch
+            local row = rows[first]
+            if not row then
+                if #crossFloor > 0 then
+                    -- The Lua survey is planar. Native 3D navigation must
+                    -- verify this candidate; do not call it unreachable here.
+                    return crossFloor[1].choice, "cross_floor_unverified"
+                end
+                survey.failedReason = survey.hadUnknown and "unknown"
+                    or #rows > 0 and "unreachable" or "no_candidates"
+                survey.expiresAt = now + (survey.hadUnknown and 2000 or 5000)
+                return nil, survey.failedReason
+            end
+            local goals, owners = {}, {}
+            local last = math.min(#rows, first + maximum - 1)
+            local tier = row.tier
+            for index = first, last do
+                local entry = rows[index]
+                if entry.tier ~= tier then last = index - 1 break end
+                local targets = Navigation.interactionTargets(actor, entry.object, {
+                    requireDirectAccess = options.requireDirectAccess ~= false,
+                    maximum = math.max(1, math.min(4,
+                        math.floor(tonumber(options.targetsPerChoice) or 4))),
+                    avoidDoorThreshold = true,
+                })
+                for _, target in ipairs(targets) do
+                    local key = squareKey(target)
+                    if key and not owners[key] then
+                        goals[#goals + 1] = target
+                        owners[key] = entry
+                    end
+                end
+            end
+            survey.batch = last + 1
+            if #goals > 0 then
+                survey.owners = owners
+                survey.job = Navigation.beginPathSearch(survey.origin, goals[1],
+                    options.snapshot, {
+                        actor = actor, goalSquares = goals,
+                        nodeBudget = math.max(300, math.min(2400,
+                            math.floor(tonumber(options.nodeBudget) or 1200))),
+                        alternatives = false,
+                        draggingBody = options.draggingBody == true,
+                        squareAdmission = options.workCampOnly == true
+                            and function(square)
+                                return Navigation._workSquareAdmitted(square, {
+                                    workCampOnly = true,
+                                    workReach = options.workReach == true,
+                                })
+                            end or nil,
+                    })
+            end
+        end
+        if survey.job then
+            local status, path, reason = Navigation.resumePathSearch(survey.job,
+                math.max(8, math.min(96,
+                    math.floor(tonumber(options.nodeQuota) or 48))))
+            if status == "pending" then return nil, "pending" end
+            survey.job = nil
+            local endpoint = type(path) == "table" and path[#path] or nil
+            local winner = endpoint and survey.owners[squareKey(endpoint)] or nil
+            if winner then
+                survey.winnerId, survey.expiresAt = winner.id, now + 15000
+                return winner.choice, "selected"
+            end
+            if reason == "budget" or reason == "partial" then
+                survey.hadUnknown = true
+            end
+        end
+        -- Never start a second batch in the same decision tick. This keeps
+        -- many workers from multiplying the frame's route-search cost.
+        return nil, "pending"
+    end
 end
 
 local function multiGoalKey(candidates, action)
@@ -8128,7 +8354,7 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
             state.multiGoalKey, state.multiGoalSelected = key, square
             local accepted, reason = Navigation.request(actor, square,
                 movementMode or "walk", intent)
-            if accepted then return true, reason, square end
+            if accepted then return true, reason, state.multiGoalSelected or square end
             state.multiGoalFailures[squareId] = now
                 + (utility.config("navigationRouteMemoryFailureMs") or 8000)
             if state.multiGoalSelected == square then state.multiGoalSelected = nil end

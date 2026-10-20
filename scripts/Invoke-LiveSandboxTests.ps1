@@ -15,6 +15,8 @@ param(
     # Load the save, leave every companion alone for this long and log what
     # they do. Zero runs the ordinary harness checks instead.
     [ValidateRange(0, 3600)][int]$ObserveSeconds = 0,
+    # Safely cancel a blocked recovered cook job in the cloned save before observation.
+    [switch]$RestartChefBeforeObserve,
     # Disposable regression: put an inbound upstairs team in the former
     # permanent path-stall hold, then require it to descend and resume travel.
     [switch]$ObserveInboundReturnFault,
@@ -28,6 +30,9 @@ param(
     # Run an isolated clone with the game's supported offline switch when
     # Steam cannot start from this desktop session.
     [switch]$NoSteam,
+    # Use this checkout's bridge only in the disposable direct-Java process.
+    # The installed game launcher and bridge remain untouched.
+    [switch]$IsolatedSourceBridge,
     [string]$SteamExe = 'C:\Program Files (x86)\Steam\steam.exe',
     [switch]$LivingFellowsOnly,
     [switch]$UIMenuProbe,
@@ -853,6 +858,12 @@ if ($SteamLaunch -and $HiddenWindow -and -not $PrepareOnly) {
 if ($SteamLaunch -and $NoSteam) {
     throw '-NoSteam requires the direct Project Zomboid launcher.'
 }
+if ($IsolatedSourceBridge -and ($SteamLaunch -or $ExternalUiControl)) {
+    throw '-IsolatedSourceBridge requires the direct isolated-Java launch.'
+}
+if ($RestartChefBeforeObserve -and $ObserveSeconds -le 0) {
+    throw '-RestartChefBeforeObserve requires -ObserveSeconds.'
+}
 if ($BaseLayoutOnly -and ($PathingOnly -or $FactionMapOnly -or $captureFactionMap)) {
     throw '-BaseLayoutOnly cannot be combined with pathing or faction-map runs.'
 }
@@ -1361,7 +1372,8 @@ if (-not (Test-Path -LiteralPath $sourceBridge -PathType Leaf)) {
 }
 $installedBridgeHash = (Get-FileHash -LiteralPath $bridgePath -Algorithm SHA256).Hash
 $sourceBridgeHash = (Get-FileHash -LiteralPath $sourceBridge -Algorithm SHA256).Hash
-if ($installedBridgeHash -ne $sourceBridgeHash -and -not $PrepareOnly) {
+if ($installedBridgeHash -ne $sourceBridgeHash -and -not $PrepareOnly -and
+    -not $IsolatedSourceBridge) {
     $versionOnly = $false
     if ($AllowManifestVersionMismatch) {
         Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -1413,6 +1425,9 @@ if ($installedBridgeHash -ne $sourceBridgeHash -and -not $PrepareOnly) {
             'Run Install-Local.ps1 -NativeBridge before the real sandbox harness.'
     }
     Write-Output 'Installed bridge class bytes match source; only the manifest release label differs.'
+}
+if ($IsolatedSourceBridge) {
+    Write-Output "Using source bridge in isolated Java process: $sourceBridge"
 }
 Copy-Item -LiteralPath $sourceMod -Destination (Join-Path $SandboxMods 'SurvivorCompanion') -Recurse
 Copy-Item -LiteralPath $harnessMod -Destination (Join-Path $SandboxMods 'SCRealSandboxHarness') -Recurse
@@ -1700,6 +1715,7 @@ $config = @(
     ('posted_stream_only=' + $PostedStreamOnly.IsPresent.ToString().ToLowerInvariant()),
     ('observe_only=' + ($ObserveSeconds -gt 0).ToString().ToLowerInvariant()),
     ('observe_ms=' + ($ObserveSeconds * 1000)),
+    ('restart_chef_before_observe=' + $RestartChefBeforeObserve.IsPresent.ToString().ToLowerInvariant()),
     ('observe_inbound_return_fault=' + $ObserveInboundReturnFault.IsPresent.ToString().ToLowerInvariant()),
     ('internal_timeout_ms=' + (($TimeoutSeconds - 15) * 1000))
 ) -join [Environment]::NewLine
@@ -1890,7 +1906,12 @@ if ($SteamLaunch) {
         if (-not (Test-Path -LiteralPath $directExecutable -PathType Leaf)) {
             throw "Bundled game Java runtime is missing: $directExecutable"
         }
-        $gameClassPath = ($launcher.classpath -join ';')
+        $classPathEntries = @($launcher.classpath | ForEach-Object {
+            if ($_ -eq $bridgeClassPath[0] -and $IsolatedSourceBridge) {
+                $sourceBridge
+            } else { $_ }
+        })
+        $gameClassPath = ($classPathEntries -join ';')
         $directArguments = (($launcher.vmArgs -join ' ') +
             ' -XX:+UseZGC -javaagent:"' + $gateAgentJar + '"=' +
             $gateAgentMarker + ' -cp "' + $gameClassPath +

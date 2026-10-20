@@ -1353,21 +1353,16 @@ local function waterSearchZones(activeZone)
     return result
 end
 
-local function findWaterSource(state, activeZone)
+local function findWaterSource(actor, state, activeZone)
     local rows = waterSearchZones(activeZone)
     state.waterCursor = state.waterCursor or { zone = 1, index = 0 }
-    for _ = 1, math.max(1, math.floor(config("farmScanSquaresPerSlice", 16))) do
+    state.waterCandidates = state.waterCandidates or {}
+    state.waterCandidateSeen = state.waterCandidateSeen or {}
+    local finished = state.waterScanComplete == true
+    for _ = 1, finished and 0 or math.max(1,
+            math.floor(config("farmScanSquaresPerSlice", 16))) do
         local row = rows[state.waterCursor.zone]
-        if not row then
-            state.waterCursor = { zone = 1, index = 0 }
-            if state.cleanWaterCandidate then
-                local candidate = state.cleanWaterCandidate
-                state.cleanWaterCandidate = nil
-                if waterSourceUsable(candidate) then return candidate end
-            end
-            state.cleanWaterCandidate = nil
-            return nil, "water_source_missing"
-        end
+        if not row then finished = true break end
         local width, total = row.x2 - row.x1 + 1,
             (row.x2 - row.x1 + 1) * (row.y2 - row.y1 + 1)
         if state.waterCursor.index >= total then
@@ -1375,6 +1370,7 @@ local function findWaterSource(state, activeZone)
         else
             local offset = state.waterCursor.index
             state.waterCursor.index = offset + 1
+            state.waterScanned = (state.waterScanned or 0) + 1
             local square = U().gridSquare(row.x1 + offset % width,
                 row.y1 + math.floor(offset / width), row.z)
             for _, object in ipairs(square and waterSourceObjects(square) or {}) do
@@ -1382,17 +1378,77 @@ local function findWaterSource(state, activeZone)
                 local label = string.lower(U().objectLabel(object))
                 local preferred = taintedOk and tainted == true
                     or string.find(label, "rain", 1, true) ~= nil
-                if preferred then
-                    state.cleanWaterCandidate = nil
+                if preferred and (not SC.Navigation
+                    or type(SC.Navigation.selectInteraction) ~= "function") then
+                    state.waterCursor, state.waterCandidates = nil, nil
+                    state.waterCandidateSeen, state.waterScanComplete = nil, nil
+                    state.waterPreferredCount, state.waterCleanCount = nil, nil
+                    state.waterScanned = nil
                     return object
                 end
-                if not state.cleanWaterCandidate then
-                    state.cleanWaterCandidate = object
+                if not state.waterCandidateSeen[object] then
+                    state.waterCandidateSeen[object] = true
+                    local count = preferred and (state.waterPreferredCount or 0)
+                        or (state.waterCleanCount or 0)
+                    if count < 8 then
+                        state.waterCandidates[#state.waterCandidates + 1] = {
+                            id = tostring(object), object = object,
+                            tier = preferred and 1 or 2,
+                        }
+                        if preferred then state.waterPreferredCount = count + 1
+                        else state.waterCleanCount = count + 1 end
+                    end
                 end
             end
         end
+        if (state.waterPreferredCount or 0) >= 8
+            or (state.waterScanned or 0) >= 128
+                and #state.waterCandidates > 0 then
+            finished = true
+            break
+        end
     end
-    return nil, "water_source_scanning"
+    if not finished then return nil, "water_source_scanning" end
+    state.waterScanComplete = true
+    local choices = {}
+    for _, candidate in ipairs(state.waterCandidates) do
+        if waterSourceUsable(candidate.object) then
+            choices[#choices + 1] = candidate
+        end
+    end
+    if #choices == 0 then
+        state.waterCursor, state.waterCandidates = nil, nil
+        state.waterCandidateSeen, state.waterScanComplete = nil, nil
+        state.waterPreferredCount, state.waterCleanCount = nil, nil
+        state.waterScanned = nil
+        return nil, "water_source_missing"
+    end
+    if SC.Navigation and type(SC.Navigation.selectInteraction) == "function" then
+        local selected, reason = SC.Navigation.selectInteraction(actor, state,
+            "farm_fill_water", choices, { nodeBudget = 1800,
+                workCampOnly = true, workReach = true })
+        if not selected then
+            if reason == "pending" or reason == "unknown" then
+                return nil, "water_source_scanning"
+            end
+            state.waterCursor, state.waterCandidates = nil, nil
+            state.waterCandidateSeen, state.waterScanComplete = nil, nil
+            state.waterPreferredCount, state.waterCleanCount = nil, nil
+            state.waterScanned = nil
+            return nil, "water_source_missing"
+        end
+        state.waterCursor, state.waterCandidates = nil, nil
+        state.waterCandidateSeen, state.waterScanComplete = nil, nil
+        state.waterPreferredCount, state.waterCleanCount = nil, nil
+        state.waterScanned = nil
+        return selected.object
+    end
+    local source = choices[1].object
+    state.waterCursor, state.waterCandidates = nil, nil
+    state.waterCandidateSeen, state.waterScanComplete = nil, nil
+    state.waterPreferredCount, state.waterCleanCount = nil, nil
+    state.waterScanned = nil
+    return source
 end
 
 local function startAction(actor, job, state, square, plant, operation)
@@ -1762,7 +1818,7 @@ function FarmWork.update(actor, baseState, job, runtime)
         local source, reason = state.waterSource, nil
         if not waterSourceUsable(source) then
             state.waterSource = nil
-            source, reason = findWaterSource(state, zone)
+            source, reason = findWaterSource(actor, state, zone)
             if not source then return reason == "water_source_scanning", reason,
                 reason ~= "water_source_scanning" end
             state.waterSource = source

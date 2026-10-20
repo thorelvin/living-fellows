@@ -273,8 +273,15 @@ function Refuel.update(actor, baseState, job)
                 return true, "car_refuel_can_reselecting"
             end
         else
-            storage, container, item = sourceCan(actor)
-            if not item then return true, "car_refuel_fuel_exhausted", false, true end
+            local sourceReason
+            storage, container, item, sourceReason = sourceCan(actor, baseState, job.id)
+            if not item then
+                if sourceReason == "fuel_route_pending"
+                    or sourceReason == "fuel_route_unknown" then
+                    return true, sourceReason
+                end
+                return true, sourceReason or "car_refuel_fuel_exhausted", false, true
+            end
             if not mark(item, job.id) then return false, "car_refuel_can_reserved", true end
             target.sourceStorageId = storage.id
             target.itemId = call(item, "getID")

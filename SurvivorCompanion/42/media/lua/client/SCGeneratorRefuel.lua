@@ -277,8 +277,15 @@ function Refuel.update(actor, baseState, job)
                 return true, "generator_refuel_can_reselecting"
             end
         else
-            storage, container, item = Fuel.sourceCan(actor)
-            if not item then return true, "generator_refuel_fuel_exhausted", false, true end
+            local sourceReason
+            storage, container, item, sourceReason = Fuel.sourceCan(actor, baseState, job.id)
+            if not item then
+                if sourceReason == "fuel_route_pending"
+                    or sourceReason == "fuel_route_unknown" then
+                    return true, sourceReason
+                end
+                return true, sourceReason or "generator_refuel_fuel_exhausted", false, true
+            end
             if not Fuel.mark(item, job.id) then
                 return false, "generator_refuel_can_reserved", true
             end

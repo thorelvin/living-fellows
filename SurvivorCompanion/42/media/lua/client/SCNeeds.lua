@@ -868,16 +868,18 @@ local function findWaterSource(actor, state)
     local radius = math.max(1, math.min(18,
         math.floor(utility.config("needsWaterSourceRadius") or 12)))
     local budget = math.max(1, math.floor(utility.config("needsWaterSquareBudget") or 180))
-    state.waterScanPhase = ((state.waterScanPhase or 0) + 1) % 4
+    if not state.waterCandidateList then
+        state.waterScanPhase = ((state.waterScanPhase or 0) + 1) % 4
+    end
     local currentFloor = math.floor(az)
     local current = utility.nowMs()
     local function scanFloor(floor, limit, crossFloor)
         local scanned = 0
+        local found = {}
         for distance = 0, radius do
-            local found
             for dx = -distance, distance do
                 for dy = -distance, distance do
-                    if scanned >= limit then return nil end
+                    if scanned >= limit or #found >= 8 then return found end
                     local edge = math.max(math.abs(dx), math.abs(dy)) == distance
                     local sampled = distance <= 5
                         or ((dx * 17 + dy * 31) % 4) == state.waterScanPhase
@@ -892,20 +894,40 @@ local function findWaterSource(actor, state)
                                     and validWaterSource(object)
                                     and (not crossFloor
                                         or campFloorRoute(actor, square)) then
-                                    found = object
+                                    found[#found + 1] = {
+                                        id = tostring(object), object = object,
+                                    }
                                     return false
                                 end
                             end, 48)
                         end
                     end
-                    if found then return found end
                 end
             end
         end
-        return nil
+        return found
     end
-    local source = scanFloor(currentFloor, budget, false)
-    if source then return source end
+    if not state.waterCandidateList then
+        local candidates = scanFloor(currentFloor, budget, false)
+        if #candidates > 0 then state.waterCandidateList = candidates end
+    end
+    if state.waterCandidateList then
+        if SC.Navigation and type(SC.Navigation.selectInteraction) == "function" then
+            local selected, reason = SC.Navigation.selectInteraction(actor, state,
+                "needs_drinking_water", state.waterCandidateList,
+                { nodeBudget = 1200 })
+            if selected then
+                state.waterCandidateList = nil
+                return selected.object
+            end
+            if reason == "pending" then return nil, "water_route_pending" end
+        else
+            local first = state.waterCandidateList[1]
+            state.waterCandidateList = nil
+            return first.object
+        end
+        state.waterCandidateList = nil
+    end
     local base = SC.BaseLife and type(SC.BaseLife.active) == "function"
         and SC.BaseLife.active() or nil
     if not base or SC.BaseLife.isInside(actor) ~= true then return nil end
@@ -917,8 +939,9 @@ local function findWaterSource(actor, state)
     end
     for _, floor in ipairs({ currentFloor + 1, currentFloor - 1 }) do
         if campFloors[floor] then
-            source = scanFloor(floor, math.max(60, math.floor(budget / 2)), true)
-            if source then return source end
+            local candidates = scanFloor(floor,
+                math.max(60, math.floor(budget / 2)), true)
+            if #candidates > 0 then return candidates[1].object end
         end
     end
     return nil
@@ -1018,10 +1041,15 @@ function Needs.update(actor, player, runtime)
         end
         local current = U().nowMs()
         if not source and current >= (state.nextWaterSearchAt or 0) then
-            source = findWaterSource(actor, state)
+            local sourceReason
+            source, sourceReason = findWaterSource(actor, state)
             state.waterSource = source
             state.waterOriginSquare = source and U().squareOf(actor) or nil
-            state.nextWaterSearchAt = current + 3000
+            state.nextWaterSearchAt = current
+                + (sourceReason == "water_route_pending" and 0 or 3000)
+            if sourceReason == "water_route_pending" and not water then
+                return true, "water_route_pending"
+            end
         end
         local nearbyCampSource = source and SC.BaseLife
             and SC.BaseLife.isInside(actor) == true

@@ -48,6 +48,12 @@ stops that process; it never treats the Steam process as the game. Steam and the
 harness must run in the same Windows user context. This option does not change
 the user's persistent Steam launch options.
 
+When the installed native bridge differs from this checkout, use
+`-IsolatedSourceBridge` with the direct Java launch. The disposable process
+loads the checkout's bridge JAR from its cloned payload. The installed bridge
+and `ProjectZomboid64.json` are left untouched; this option cannot be combined
+with `-SteamLaunch` or `-ExternalUiControl`.
+
 ```powershell
 .\scripts\Invoke-LiveSandboxTests.ps1 -SteamLaunch
 ```
