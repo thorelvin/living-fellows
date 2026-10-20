@@ -1,8 +1,8 @@
-Living Fellows 0.26.51 - public playtest
+Living Fellows 0.26.52 - public playtest
 
-This playtest prevents field harvests from overloading companions and keeps
-reserved work cargo from making them shed their own gear. It also fixes several
-work, encounter and native action recovery failures.
+This playtest improves companion water refills, corpse dragging visuals,
+and car expeditions using long, straight driveways. The existing field
+harvest and cargo recovery fixes remain included.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added

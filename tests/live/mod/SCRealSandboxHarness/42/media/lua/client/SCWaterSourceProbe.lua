@@ -125,14 +125,17 @@ end
 local function beginRefill(H, SC, result, setPhase, current)
     local test = H.waterSource
     local inventory = call(test.actor, "getInventory")
-    local bottle = call(inventory, "AddItem", "Base.WaterBottle")
+    local bag = call(inventory, "AddItem", "Base.Bag_Schoolbag")
+    local bagInventory = call(bag, "getInventory")
+    local bottle = call(bagInventory, "AddItem", "Base.WaterBottle")
     local fluid = call(bottle, "getFluidContainer")
     -- Build 42's WaterBottle script uses PickRandomFluid, so a newly added
     -- bottle may begin full. Empty this disposable fixture before the test.
     if fluid then SC.GameplayUtil.call(fluid, "Empty") end
     local before = number(call(fluid, "getAmount"))
     local capacity = number(call(fluid, "getCapacity"))
-    if not bottle or not fluid or not before or not capacity or capacity <= 0
+    if not bagInventory or not bottle or not fluid or not before
+        or not capacity or capacity <= 0
         or before / capacity >= 0.5 then
         result("SKIP", "water_source_live_refill",
             "a newly created empty drinking bottle was unavailable")
@@ -141,6 +144,7 @@ local function beginRefill(H, SC, result, setPhase, current)
     end
     SC.Needs.reset(test.actor)
     test.refillBottle, test.refillFluid = bottle, fluid
+    test.refillBagInventory = bagInventory
     test.refillBefore, test.refillCapacity, test.refillStartedAt = before, capacity, current
     result("PASS", "water_source_refill_fixture",
         test.name .. " bottle=" .. tostring(before) .. "/" .. tostring(capacity)
@@ -164,6 +168,7 @@ function Probe.step(H, current, check, result, setPhase)
         local accepted, reason = SC.Needs.refill(test.actor, H.player, nil, "home")
         local amount = number(call(test.refillFluid, "getAmount")) or 0
         if amount >= test.refillCapacity - 0.12
+            and call(test.refillBottle, "getContainer") == test.refillBagInventory
             and SC.Needs.isSafeWaterItem(test.refillBottle) then
             result("PASS", "water_source_live_refill",
                 test.name .. " bottle=" .. tostring(test.refillBefore)
@@ -175,6 +180,8 @@ function Probe.step(H, current, check, result, setPhase)
                 test.name .. " bottle=" .. tostring(test.refillBefore)
                     .. "->" .. tostring(amount) .. " update="
                     .. tostring(accepted) .. "/" .. tostring(reason)
+                    .. " returnedToBag=" .. tostring(call(test.refillBottle,
+                        "getContainer") == test.refillBagInventory)
                     .. " " .. refillFlags(test.refillBottle, test.refillFluid))
             setPhase("finish", current)
         end

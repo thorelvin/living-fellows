@@ -120,9 +120,13 @@ T.installedSeats = 1
 check(select(2, Car.preflight(T.team, T.zone.id, 44, destination))
     == "seat_unavailable", "missing installed passenger seat refuses dispatch")
 T.installedSeats = nil
-T.entryX = 200
+T.entryX = 150
+local longAccess = Car.preflight(T.team, T.zone.id, 44, destination)
+check(longAccess and longAccess.access > 45,
+    "a clear driveway beyond fifteen tiles remains eligible for car travel")
+T.entryX = 203
 check(select(2, Car.preflight(T.team, T.zone.id, 44, destination))
-    == "road_access_too_far", "long driveway connector refuses dispatch")
+    == "road_access_too_far", "connector beyond the native road limit refuses dispatch")
 T.entryX = nil
 T.accessBlocked = true
 check(select(2, Car.preflight(T.team, T.zone.id, 44, destination))
@@ -416,6 +420,28 @@ check(Car.pulse(T.mission, 182000)
     and longDriveway.approachStage == "bay"
     and T.approaches == roadApproaches + 2,
     "the checked driveway approach starts from the actual road end")
+T.driveStatus = nil
+
+local extendedDriveway = freshTrip("parking_home", "home")
+T.cars[1].x, T.cars[1].y = 54, 102
+for index, expectedX in ipairs({ 66, 78, 90, 102 }) do
+    T.driveStatus = { result = "arrived",
+        roadGoal = { x = 54, y = 102, z = 0 } }
+    local pulsed = Car.pulse(T.mission, 183000 + index * 2000)
+    check(pulsed and T.approachGoal
+            and math.abs(T.approachGoal.x - expectedX) < 0.01
+            and extendedDriveway.approachStage == (index == 4 and "bay" or "driveway"),
+        "long home driveway advances one checked parking segment at a time: "
+            .. tostring(index) .. " stage=" .. tostring(extendedDriveway.approachStage)
+            .. " goal=" .. tostring(T.approachGoal and T.approachGoal.x)
+            .. " blocker=" .. tostring(extendedDriveway.blocker))
+    T.cars[1].x = expectedX
+    T.driveStatus = { result = "arrived",
+        roadGoal = { x = 54, y = 102, z = 0 } }
+    Car.pulse(T.mission, 184000 + index * 2000)
+end
+check(extendedDriveway.state == "unloading_home",
+    "the segmented driveway reaches the marked bay without an endless road approach")
 T.driveStatus = nil
 
 local recoveringParking = freshTrip("held", "home")

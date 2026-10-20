@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.26.52 - Water, corpse carrying, and driveway fixes
+
+- Companions refill their drinking containers from usable nearby water sources. Corrected source selection and water refill state handling so a failed source does not leave the worker stuck or falsely report a refill.
+- A companion carrying a corpse now keeps the body trailing behind during movement instead of pushing it ahead. Doorway dragging remains supported.
+- Car expeditions accept a verified straight driveway connector up to 100 tiles from the road. Departure and return follow the actual connector from the parking bay, including fuel planning, rather than failing with `road_access_too_far` at the previous short limit.
+- The native bridge protocol remains `42.21-isocompanion-24`; update the bridge JAR and Lua payload together.
+
 ## 0.26.51 - Field harvest and recovery fixes
 
 - Crop workers estimate the next plant's yield and stop or unload before it would exceed their carrying capacity. An overload order still observes its configured limit.

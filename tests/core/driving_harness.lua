@@ -30,6 +30,29 @@ do
 end
 
 do
+    local plan = SCBridge.planRoadRouteAvoidingAll
+    SCBridge.planRoadRouteAvoidingAll = function(_, _, _, tx, ty, _, out)
+        out.status, out.fingerprint = "READY", "long-driveway"
+        out.geometry = "150,100,5,0,Road;" .. tostring(tx) .. ","
+            .. tostring(ty) .. ",8,0,Road"
+        return true
+    end
+    local actor = managed("expedition-long-driveway", {
+        roadAccessEntry = { x = 150, y = 100, z = 0 } })
+    check(T.lastFollowRoute
+            and T.lastFollowRoute:find("^100%.00,100%.00,5%.0;150%.00,100%.00,5%.0;") ~= nil,
+        "a verified long driveway becomes the route's first physical segment")
+    Driving.release(actor)
+    local changed = managed("expedition-driveway-changed", {
+        roadAccessEntry = { x = 160, y = 100, z = 0 } })
+    check(Driving.jobStatus(changed).result == "failed"
+            and Driving.jobStatus(changed).reason == "road_access_changed",
+        "a different road attachment cannot reuse a previously checked driveway")
+    Driving.release(changed)
+    SCBridge.planRoadRouteAvoidingAll = plan
+end
+
+do
     for _, entry in ipairs({ "begin", "drive" }) do
         local actor = T.actor("drive-urgent-" .. entry)
         local savedNativeActions, held, urgentToken = SC.NativeActions, true, nil

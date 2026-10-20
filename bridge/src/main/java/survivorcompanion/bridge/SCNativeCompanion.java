@@ -2605,8 +2605,18 @@ public final class SCNativeCompanion extends IsoPlayer {
      * the model while PathFindBehavior2 moves it sideways or backward.
      */
     private void applyBridgeMovementFacing() {
+        applyBridgeMovementFacing(isCompanionCorpseDragActive());
+    }
+
+    /** The parameter also lets the real-JAR control exercise an active drag
+     * without manufacturing a world corpse and grapple pair. */
+    void applyBridgeMovementFacing(boolean draggingCorpse) {
         if (nativeOwnsBody()) return;
         boolean attackOwnsFacing = isAttackStarted() || isPerformingAttackAnimation();
+        // The stock BwdDrag grapple keeps the corpse in front of the actor's
+        // facing while the actor walks backward. Lua sets that bearing when it
+        // starts a step, but this later bridge update must preserve it too.
+        float facingSign = corpseDragFacingSign(draggingCorpse);
         if (bridgePathActive && bridgePathRouteReady && !bridgePathStopping
                 && !bridgeTacticalMovement && !attackOwnsFacing) {
             PathFindBehavior2 behavior = getPathFindBehavior2();
@@ -2615,7 +2625,8 @@ public final class SCNativeCompanion extends IsoPlayer {
                 float dy = behavior.pathNextY - getY();
                 float length = (float) Math.sqrt(dx * dx + dy * dy);
                 if (Float.isFinite(length) && length > 0.05f) {
-                    setForwardDirection(dx / length, dy / length);
+                    setForwardDirection(facingSign * dx / length,
+                            facingSign * dy / length);
                     return;
                 }
             }
@@ -2631,8 +2642,13 @@ public final class SCNativeCompanion extends IsoPlayer {
         float length = (float) Math.sqrt(
                 bridgeMoveX * bridgeMoveX + bridgeMoveY * bridgeMoveY);
         if (length > 0.0001f) {
-            setForwardDirection(bridgeMoveX / length, bridgeMoveY / length);
+            setForwardDirection(facingSign * bridgeMoveX / length,
+                    facingSign * bridgeMoveY / length);
         }
+    }
+
+    static float corpseDragFacingSign(boolean draggingCorpse) {
+        return draggingCorpse ? -1.0f : 1.0f;
     }
 
     /** Pure ownership rule kept testable against the installed game JAR. */

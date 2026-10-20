@@ -514,6 +514,29 @@ local function planJob(job)
         job.detail = reason
         return parkResult(job, "failed", "no_route")
     end
+    if job.roadAccessEntry then
+        local first = route.points and route.points[1]
+        local xOk, x = method(job.vehicle, "getX")
+        local yOk, y = method(job.vehicle, "getY")
+        x, y = finite(x), finite(y)
+        if not first or not xOk or not yOk or not x or not y then
+            return parkResult(job, "failed", "road_access_unavailable")
+        end
+        local entry = job.roadAccessEntry
+        local startGap = math.sqrt((x - first.x)^2 + (y - first.y)^2)
+        local entryGap = math.sqrt((entry.x - first.x)^2
+            + (entry.y - first.y)^2)
+        if startGap > 1.5 then
+            -- The native road geometry begins at the mapped street. Give the
+            -- follower the already checked driveway as its first segment so
+            -- it steers from the actual parked position, even on a long lot.
+            if entryGap > 1.5 or #route.points >= 512 then
+                return parkResult(job, "failed", "road_access_changed")
+            end
+            table.insert(route.points, 1, { x = x, y = y, width = 5,
+                street = first.street })
+        end
+    end
     if job.stopShortTiles > 0 and type(route.points) == "table" then
         local last = route.points[#route.points]
         local before = route.points[#route.points - 1]
@@ -544,6 +567,7 @@ local function planJob(job)
         Driving.stop(job.actor, "bridge_failure")
         return false
     end
+    job.roadAccessEntry = nil
     job.roadGoal = { x = roadX, y = roadY, z = job.goal.z }
     job.route, job.phase, job.blockedSince = route, "following", nil
     job.lastProgressAt, job.lastProgressX, job.lastProgressY = nil, nil, nil
@@ -574,6 +598,16 @@ function Driving.drive(actor, goal, options)
         finite(options.cornerSpeedScale) or 1))
     job.stopShortTiles = math.max(0,
         math.min(10, finite(options.stopShortTiles) or 0))
+    if options.roadAccessEntry ~= nil then
+        local entry = options.roadAccessEntry
+        local x = type(entry) == "table" and finite(entry.x) or nil
+        local y = type(entry) == "table" and finite(entry.y) or nil
+        if not x or not y or entry.z ~= 0 then
+            Driving.stop(actor, "invalid_road_access")
+            return false, "invalid_road_access"
+        end
+        job.roadAccessEntry = { x = x, y = y }
+    end
     job.blockWaitMs = math.max(1000, math.min(30000, finite(options.blockWaitMs) or 5000))
     if options.circles ~= nil then
         if type(options.circles) ~= "table" or #options.circles > 8 then

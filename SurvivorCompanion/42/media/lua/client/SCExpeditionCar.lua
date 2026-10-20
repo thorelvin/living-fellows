@@ -185,16 +185,21 @@ local function fuelRate(script)
     return fuelPerTile[script] or defaultFuelPerTile
 end
 
--- Step 2 initially supports a short, clear, forward driveway. Survey the
--- full car-width strip in the loaded cell; a human-sized path is insufficient
--- because its neighbours can be walls, fences or a closed garage opening.
+-- Match the native router's maximum off-road connector. A long driveway is
+-- still admitted only when its complete, straight car-width strip is loaded
+-- and clear; the return drive covers it in short parking approaches.
+local maxRoadAccessTiles = 100
+local drivewayApproachTiles = 12
+
+-- Survey the full car-width strip in the loaded cell; a human-sized path is
+-- insufficient because its neighbours can be walls or a closed garage.
 function Car.accessBetween(vehicle, at, entry)
     if not at or type(entry) ~= "table" then
         return false, "road_access_unavailable"
     end
     local dx, dy = entry.x - at.x, entry.y - at.y
     local length = math.sqrt(dx * dx + dy * dy)
-    if length > 15 then return false, "road_access_too_far" end
+    if length > maxRoadAccessTiles then return false, "road_access_too_far" end
     if length < 0.5 then return true end
     if type(getCell) ~= "function" then return false, "road_access_not_loaded" end
     local okay, cell = pcall(getCell)
@@ -382,7 +387,6 @@ local function preflightSpecific(records, zoneId, sqlId, destination)
         return nil, "road_access_unavailable"
     end
     local access = math.sqrt((at.x - entryX)^2 + (at.y - entryY)^2)
-    if access > 15 then return nil, "road_access_too_far" end
     local accessReady, accessReason = Car.accessReady(vehicle,
         { x = entryX, y = entryY, z = 0 })
     if not accessReady then return nil, accessReason end
@@ -648,11 +652,23 @@ local function departReady(mission, trip, car)
     fuel = fuelOk and finite(fuel) or nil
     if fuel == nil then return false, "fuel_unreadable" end
     local rate = fuelRate(trip.script)
-    local required = (finite(route.roadLength) or 0) * rate
-    if trip.leg == "outbound" then required = required * 2 end
-    required = (required + 30 * rate) * 1.5
+    local accessLength = math.sqrt((at.x - entry.x)^2
+        + (at.y - entry.y)^2)
+    local roadLength = finite(route.roadLength) or 0
+    local requiredTiles
+    if trip.leg == "outbound" then
+        requiredTiles = roadLength * 2 + accessLength * 2 + 30
+    else
+        local exitX = native and finite(native.exitX)
+        local exitY = native and finite(native.exitY)
+        if not exitX or not exitY then return false, "road_access_unavailable" end
+        local homeAccess = math.sqrt((goal.x - exitX)^2
+            + (goal.y - exitY)^2)
+        requiredTiles = roadLength + accessLength + homeAccess + 30
+    end
+    local required = requiredTiles * rate * 1.5
     if fuel < required then return false, "fuel_insufficient" end
-    return true
+    return true, nil, entry
 end
 
 local function teamOnFoot(mission)
@@ -1057,10 +1073,18 @@ local function resumeReady(mission, trip, car)
     fuel = fuelOk and finite(fuel) or nil
     if fuel == nil then return false, "fuel_unreadable" end
     local rate = fuelRate(trip.script)
-    local distance = route.roadLength or 0
+    local accessLength = math.sqrt((at.x - entryX)^2
+        + (at.y - entryY)^2)
+    local roadLength = finite(route.roadLength) or 0
+    local distance
     if trip.leg == "outbound" then
-        distance = distance + math.sqrt((trip.departure.x - trip.siteStop.x)^2
-            + (trip.departure.y - trip.siteStop.y)^2)
+        distance = roadLength * 2 + accessLength * 2
+    else
+        local exitX = native and finite(native.exitX)
+        local exitY = native and finite(native.exitY)
+        if not exitX or not exitY then return false, "road_access_unavailable" end
+        distance = roadLength + accessLength
+            + math.sqrt((goal.x - exitX)^2 + (goal.y - exitY)^2)
     end
     if fuel < (distance + 30) * rate * 1.5 then
         return false, "fuel_insufficient"
@@ -1244,7 +1268,7 @@ function Car.pulse(mission, now, worldHour)
             end
             return true
         end
-        local ready, why = departReady(mission, trip, car)
+        local ready, why, roadEntry = departReady(mission, trip, car)
         if not ready then
             trip.state, trip.blocker = "boarding_rollback", why
             return true
@@ -1252,7 +1276,8 @@ function Car.pulse(mission, now, worldHour)
         local goal = trip.leg == "home" and trip.departure or trip.siteStop
         local started, reason = SC.Driving.drive(mission.leader.actor,
             goal, { speedKmh = 30,
-                stopShortTiles = trip.leg == "outbound" and 10 or 0 })
+                stopShortTiles = trip.leg == "outbound" and 10 or 0,
+                roadAccessEntry = roadEntry })
         if not started then
             if type(reason) == "string"
                 and reason:sub(1, 9) == "deferred:" then
@@ -1321,10 +1346,11 @@ function Car.pulse(mission, now, worldHour)
                 if status and status.result == "failed" then
                     hold(trip, status.reason or "parking_approach_failed")
                 elseif status and status.result == "arrived" then
-                    if trip.approachStage == "road" then
-                        -- Native road arrival may stop a few tiles short. First
-                        -- settle at the verified road attachment, then run the
-                        -- separately checked driveway approach next pulse.
+                    if trip.approachStage == "road"
+                        or trip.approachStage == "driveway" then
+                        -- The road alignment or one driveway leg has finished.
+                        -- The next pulse checks the remaining route and starts
+                        -- another short leg toward the marked bay.
                         trip.approachStage, trip.approachStartedAt = nil, nil
                     else
                         hold(trip, reason or "parking_footprint_outside_area")
@@ -1337,12 +1363,25 @@ function Car.pulse(mission, now, worldHour)
                 local at = point(car)
                 local gap = at and math.sqrt((at.x - trip.departure.x)^2
                     + (at.y - trip.departure.y)^2) or math.huge
-                if gap > 15 then
-                    local status = SC.Driving.jobStatus(mission.leader.actor)
-                    local road = status and status.roadGoal
-                    local roadGap = road and at and math.sqrt(
-                        (at.x - road.x)^2 + (at.y - road.y)^2) or math.huge
-                    if roadGap > 6 then hold(trip, "parking_road_end_unavailable")
+                local status = SC.Driving.jobStatus(mission.leader.actor)
+                local road = status and status.roadGoal
+                local roadGap = road and at and math.sqrt(
+                    (at.x - road.x)^2 + (at.y - road.y)^2) or math.huge
+                local roadProgress = 0
+                if road and at then
+                    local dx, dy = trip.departure.x - road.x,
+                        trip.departure.y - road.y
+                    local lengthSq = dx * dx + dy * dy
+                    if lengthSq > 0.01 then
+                        roadProgress = ((at.x - road.x) * dx
+                            + (at.y - road.y) * dy) / lengthSq
+                    end
+                end
+                -- Once the car has entered the driveway, keep moving toward
+                -- the bay. Re-centering on the road after every short leg
+                -- would send it back to the road indefinitely.
+                if gap > 15 and roadGap > 1.5 and roadProgress <= 0.02 then
+                    if roadGap > 15 then hold(trip, "parking_road_end_unavailable")
                     else
                         local started, why = SC.Driving.approach(
                             mission.leader.actor, road, 30000)
@@ -1356,10 +1395,19 @@ function Car.pulse(mission, now, worldHour)
                         at, trip.departure) end
                     if not clear then hold(trip, why)
                     else
+                        local waypoint = trip.departure
+                        if gap > drivewayApproachTiles then
+                            local fraction = drivewayApproachTiles / gap
+                            waypoint = { x = at.x + (trip.departure.x - at.x) * fraction,
+                                y = at.y + (trip.departure.y - at.y) * fraction,
+                                z = 0 }
+                        end
                         local started, startReason = SC.Driving.approach(
-                            mission.leader.actor, trip.departure, 30000)
+                            mission.leader.actor, waypoint, 30000)
                         if started then
-                            trip.approachStage, trip.approachStartedAt = "bay", now
+                            trip.approachStage = waypoint == trip.departure
+                                and "bay" or "driveway"
+                            trip.approachStartedAt = now
                         else hold(trip, startReason) end
                     end
                 end

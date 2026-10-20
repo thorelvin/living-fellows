@@ -221,6 +221,19 @@ public final class SCRoadFollowerTest {
                         + " lateral=" + drive.follower.lateral());
     }
 
+    private static void longDrivewayConnector() {
+        Road road = new Road();
+        road.endX = 160;
+        SCRoadFollower follower = new SCRoadFollower(SCDrivePath.parse(
+                "10,101,5;60,101,5;110,101,8"), 30.0f, true);
+        Drive drive = new Drive(road, new Car(10.0f, 101.0f, 0.0f), follower);
+        drive.run(70.0f, () -> follower.mode() == SCRoadFollower.Mode.ARRIVED);
+        require(!drive.collided && follower.mode() == SCRoadFollower.Mode.ARRIVED
+                        && drive.car.x > 105.0f,
+                "a long checked driveway connector joins the road before arrival: "
+                        + drive.trace + " x=" + drive.car.x);
+    }
+
     private static void fastStraightAndEarlyBend() {
         Road longRoad = new Road();
         longRoad.endX = 300;
@@ -526,6 +539,7 @@ public final class SCRoadFollowerTest {
         pathBasics();
         reverseRules();
         clearRoad();
+        longDrivewayConnector();
         fastStraightAndEarlyBend();
         oneWreck();
         twoWrecks();

@@ -566,8 +566,9 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
     end
     if commands.recruited and commands.temporaryStay ~= true
         and commands.expeditionMoving ~= true
-        and (commands.order == "base_duty" or commands.order == "follow"
-            or commands.order == "stay" or commands.order == "guard")
+        -- Stay and Guard own their posts; routine water upkeep must not make
+        -- them walk away from an explicit player order.
+        and (commands.order == "base_duty" or commands.order == "follow")
         and threatCount == 0 and snapshot.humanThreat == nil
         and not bleeding and not (needs and needs.active)
         and SC.Needs and type(SC.Needs.refillDue) == "function" then

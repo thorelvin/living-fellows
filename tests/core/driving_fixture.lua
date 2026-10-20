@@ -111,8 +111,9 @@ SCBridge = {
         end
         return true
     end,
-    driveFollow = function(actor)
+    driveFollow = function(actor, route)
         T.motionCalls = T.motionCalls + 1
+        T.lastFollowRoute = route
         local state = T.native[actor]
         state.active, state.state, state.mode = true, "following", "follow"
         return true

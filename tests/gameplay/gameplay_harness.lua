@@ -16953,10 +16953,16 @@ do
     local firstFluid, secondFluid = fluid(0.3, true), fluid(0.8, true)
     local first = item("Base.WaterBottle", "Item", { fluidContainer = firstFluid })
     local second = item("Base.Canteen", "Item", { fluidContainer = secondFluid })
+    local movedFluid = fluid(0.3, true)
+    local moved = item("Base.SpareBottle", "Item", { fluidContainer = movedFluid })
     local unsafe = item("Base.DirtyBottle", "Item",
         { fluidContainer = fluid(0.2, false) })
+    local fuelFluid = fluid(0, true)
+    function fuelFluid:canAddFluid() return false end
+    local fuelOnly = item("Base.FuelOnlyBottle", "Item",
+        { fluidContainer = fuelFluid })
     local bag = item("Base.Backpack", "Item")
-    local inner = inventory({ first, second, unsafe })
+    local inner = inventory({ first, second, moved, unsafe, fuelOnly })
     function bag:getInventory() return inner end
     local carrier = actor("sc-refill-carrier", 39, 20,
         { inventory = inventory({ bag }) })
@@ -17003,6 +17009,9 @@ do
     check(refillCandidate("follow", clock + 105000) ~= nil
             and refillCandidate("base_duty", clock + 105000) ~= nil,
         "settled followers and base workers schedule an automatic refill")
+    check(refillCandidate("stay", clock + 105000) == nil
+            and refillCandidate("guard", clock + 105000) == nil,
+        "routine refills never pull a Stay or Guard companion off its post")
     local started = SurvivorCompanion.Needs.refill(carrier, player, safe, "home")
     check(started and carrier.lastIntent
             and carrier.lastIntent.action == "refill_drinking_water"
@@ -17015,10 +17024,18 @@ do
         "the same water stop also tops up a second carried bottle")
     secondFluid.amount = 1
     carrier.lastIntent = nil
+    inner:Remove(moved)
+    local foreign = inventory({ moved })
+    local deferred, deferredReason = SurvivorCompanion.Needs.refill(
+        carrier, player, safe, "home")
+    check(deferred and deferredReason == "refill_item_no_longer_carried"
+            and carrier.lastIntent == nil and moved.container == foreign,
+        "a bottle removed during the walk is never taken back for refilling")
     local finished = SurvivorCompanion.Needs.refill(carrier, player, safe, "home")
     check(finished and carrier.lastIntent == nil and unsafe.fluidContainer.amount == 0.2
-            and first.container == inner and second.container == inner,
-        "refill ends without moving bottles or mixing tainted water")
+            and fuelFluid.amount == 0 and first.container == inner
+            and second.container == inner and moved.container == foreign,
+        "refill ends without moving bottles or filling incompatible and tainted vessels")
     SurvivorCompanion.Navigation.selectInteraction = previousSelect
     SurvivorCompanion.BaseLife.active = previousActive
     SurvivorCompanion.BaseLife.isInside = previousInside

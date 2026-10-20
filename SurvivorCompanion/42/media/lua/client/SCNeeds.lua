@@ -888,6 +888,11 @@ local function containerLevel(item)
     local locked = select(1, U().call(fluid, "isInputLocked"))
     local poison = select(1, U().call(fluid, "isPoisonous"))
     if locked == true or poison == true then return nil end
+    local water = fluidConstant("Water")
+    if water then
+        local allowed, checked = U().call(fluid, "canAddFluid", water)
+        if checked and allowed ~= true then return nil end
+    end
     if amount > 0 and not isSafeWaterItem(item) then return nil end
     return amount, capacity
 end
@@ -909,6 +914,15 @@ local function carriedRefillContainers(actor)
         return true
     end)
     return rows, due
+end
+
+local function stillCarried(actor, item)
+    local found = false
+    walkInventory(U().inventory(actor), { remaining = 256 }, function(candidate)
+        if candidate == item then found = true return false end
+        return true
+    end)
+    return found
 end
 
 function Needs.refillDue(actor, current)
@@ -1157,6 +1171,13 @@ function Needs.refill(actor, player, runtime, mode)
         session.source = nil
         clearRefillSearch(state)
         return false, moveReason or "refill_source_unreachable"
+    end
+    -- A bag may be exchanged while the worker walks to a sink. Never pass a
+    -- remembered bottle from somebody else's inventory to moveItemToRoot.
+    if not stillCarried(actor, item) then
+        session.index, session.attempts = session.index + 1, 0
+        session.source = nil
+        return true, "refill_item_no_longer_carried"
     end
     session.item, session.before, session.capacity = item, amount, capacity
     session.phase = "action"

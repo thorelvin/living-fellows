@@ -100,6 +100,12 @@ public final class SCIsoCompanionControlTest {
                         && !SCNativeCompanion.validMovementTarget(1, 1, 0, 0, .06f, 0),
                 "invalid/manual cross-floor target was accepted");
         actor.MoveForward(.045f, 1, 0, 0);
+        actor.applyBridgeMovementFacing(true);
+        require(actor.getForwardDirection().x < -0.99f,
+                "open-ground corpse haul faced its travel direction and pushed the body");
+        actor.applyBridgeMovementFacing(false);
+        require(actor.getForwardDirection().x > 0.99f,
+                "ordinary open-ground movement inherited backward drag facing");
         require(actor.setCompanionMovementTarget(actor.getX() + .2f, actor.getY(), actor.getZ(), .06f, 750),
                 "native manual endpoint was not retained");
         var targetField = SCNativeCompanion.class.getDeclaredField("bridgeMoveHasTarget");
@@ -172,6 +178,12 @@ public final class SCIsoCompanionControlTest {
         require(actor.getForwardDirection().x < -0.99f
                         && Math.abs(actor.getForwardDirection().y) < 0.01f,
                 "native path did not turn the model toward its current waypoint");
+        actor.applyBridgeMovementFacing(true);
+        require(actor.getForwardDirection().x > 0.99f,
+                "native door path did not keep backward corpse drag facing");
+        actor.applyBridgeMovementFacing(false);
+        require(actor.getForwardDirection().x < -0.99f,
+                "ordinary native path inherited backward drag facing");
         var stopping = behavior.getClass().getDeclaredField("stopping");
         stopping.setAccessible(true);
         stopping.setBoolean(behavior, true);
@@ -1152,6 +1164,9 @@ public final class SCIsoCompanionControlTest {
                 "manual movement stole facing from tactical strafe");
         require(!SCNativeCompanion.shouldBridgeMovementOwnFacing(true, false, true),
                 "manual movement stole facing from an active attack");
+        require(SCNativeCompanion.corpseDragFacingSign(false) == 1.0f
+                        && SCNativeCompanion.corpseDragFacingSign(true) == -1.0f,
+                "corpse dragging must face against travel on both direct and native paths");
         testRetainedMovementAndPathState((SCNativeCompanion) actor);
         testNativeTraversalOwnership((SCNativeCompanion) actor);
         testNativeReactionOwnership((SCNativeCompanion) actor,
