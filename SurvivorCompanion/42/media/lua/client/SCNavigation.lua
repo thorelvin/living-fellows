@@ -8073,16 +8073,35 @@ function Navigation.selectInteraction(actor, ownerState, choiceKey, choices, opt
     end
     -- A survey from a substantially different position must not keep routing
     -- toward a choice that was optimal before the actor moved.
-    if survey.job and ((ox - survey.originX) ^ 2 + (oy - survey.originY) ^ 2 > 4) then
+    if (survey.job or survey.bestId)
+        and ((ox - survey.originX) ^ 2 + (oy - survey.originY) ^ 2 > 4) then
         survey.job, survey.batch = nil, 1
+        survey.bestId, survey.bestCost, survey.bestTier = nil, nil, nil
+        survey.bestCanBound, survey.hadUnknown = nil, nil
         survey.origin, survey.originX, survey.originY = origin, ox, oy
     end
     local maximum = math.max(1, math.min(12,
         math.floor(tonumber(options.maxChoices) or 8)))
+    local function bestSettled(nextRow)
+        return survey.bestId and (not nextRow or nextRow.tier > survey.bestTier
+            or survey.bestCanBound and nextRow.distance - 3 >= survey.bestCost)
+    end
+    local function returnBest()
+        survey.winnerId, survey.expiresAt = survey.bestId, now + 15000
+        for _, entry in ipairs(rows) do
+            if entry.id == survey.bestId then return entry.choice, "selected" end
+        end
+        survey, ownerState.navigationChoice = nil, nil
+        return nil, "no_candidates"
+    end
     while true do
         if not survey.job then
             local first = survey.batch
             local row = rows[first]
+            -- A reachable choice in the first Euclidean batch may require a
+            -- long walk around a wall. Search later batches in the same tier
+            -- while their straight-line lower bound can still beat it.
+            if bestSettled(row) then return returnBest() end
             if not row then
                 if #crossFloor > 0 then
                     -- The Lua survey is planar. Native 3D navigation must
@@ -8139,12 +8158,21 @@ function Navigation.selectInteraction(actor, ownerState, choiceKey, choices, opt
                 math.max(8, math.min(96,
                     math.floor(tonumber(options.nodeQuota) or 48))))
             if status == "pending" then return nil, "pending" end
+            local completedJob = survey.job
             survey.job = nil
             local endpoint = type(path) == "table" and path[#path] or nil
             local winner = endpoint and survey.owners[squareKey(endpoint)] or nil
-            if winner then
-                survey.winnerId, survey.expiresAt = winner.id, now + 15000
-                return winner.choice, "selected"
+            if status == "complete" and winner then
+                local node = completedJob.search and completedJob.search.nodes
+                    and completedJob.search.nodes[Navigation._pathNodeKey(endpoint)] or nil
+                local routeCost = node and tonumber(tostring(node.g)) or nil
+                local cost = routeCost or (type(path) == "table" and #path - 1)
+                if cost and (not survey.bestCost or cost < survey.bestCost) then
+                    survey.bestId, survey.bestCost = winner.id, cost
+                    survey.bestTier = winner.tier
+                    survey.bestCanBound = routeCost ~= nil
+                end
+                if bestSettled(rows[survey.batch]) then return returnBest() end
             end
             if reason == "budget" or reason == "partial" then
                 survey.hadUnknown = true

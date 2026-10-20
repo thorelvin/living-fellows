@@ -16934,6 +16934,42 @@ check(not campWaterRequested,
     "a clean nearby sink is used before withdrawing bottled water from camp storage")
 
 do
+    local thirsty = actor("sc-needs-many-sinks", 45, 20, {})
+    thirsty.thirst = 0.70
+    registry[thirsty.id] = thirsty
+    local added, savedChoice = {}, SurvivorCompanion.Navigation.selectInteraction
+    for dx = -1, 1 do for dy = -1, 1 do
+        local tile = cell:getGridSquare(45 + dx, 20 + dy, 0)
+        local source = { square = tile }
+        function source:getSquare() return self.square end
+        function source:hasFluid() return true end
+        function source:getFluidAmount() return 4 end
+        function source:isTaintedWater() return false end
+        tile.objects[#tile.objects + 1] = source
+        added[#added + 1] = { tile = tile, source = source }
+    end end
+    local found = 0
+    SurvivorCompanion.Navigation.selectInteraction = function(_, _, _, choices)
+        found = #choices
+        return nil, "unreachable"
+    end
+    SurvivorCompanion.Needs.update(thirsty, player,
+        { snapshot = { immediateCount = 0, pressure = 0 } })
+    check(found >= 9,
+        "water scan offers a ninth source for routing when eight nearer sinks fail")
+    SurvivorCompanion.Navigation.selectInteraction = savedChoice
+    for _, entry in ipairs(added) do
+        for index = #entry.tile.objects, 1, -1 do
+            if entry.tile.objects[index] == entry.source then
+                table.remove(entry.tile.objects, index)
+            end
+        end
+    end
+    SurvivorCompanion.Needs.reset(thirsty)
+    registry[thirsty.id] = nil
+end
+
+do
     local savedActive = SurvivorCompanion.BaseLife.active
     local savedInside = SurvivorCompanion.BaseLife.isInside
     local savedTransit = SurvivorCompanion.BaseLife.allowsFloorTransit

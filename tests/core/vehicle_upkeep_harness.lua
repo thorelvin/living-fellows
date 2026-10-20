@@ -249,4 +249,44 @@ T.car.engine = true
 check(select(2, Upkeep.eligible("wash_vehicle", T.car, true))
     == "car_engine_on", "running car is excluded")
 T.car.engine = false
+
+-- A large camp may have many taps. All valid sinks must reach the route
+-- chooser; eight inaccessible sinks must not hide a later usable one.
+local oldGrid, oldChoice, oldZones = SC.GameplayUtil.gridSquare,
+    SC.Navigation.selectInteraction, T.base.zones
+local sinkTiles = {}
+for x = 10, 18 do
+    local tile = { x = x, y = 10, z = 0, objects = {} }
+    local source = { square = tile, amount = 10 }
+    function source:getSquare() return self.square end
+    function source:isWaterSource() return true end
+    function source:getFluidAmount() return self.amount end
+    function source:isTaintedWater() return false end
+    tile.objects[1], sinkTiles[x] = source, tile
+end
+T.base.zones = { { kind = "area", x1 = 10, x2 = 18, y1 = 10, y2 = 10, z = 0 } }
+SC.GameplayUtil.gridSquare = function(x, y, z)
+    if y == 10 and z == 0 and sinkTiles[x] then return sinkTiles[x] end
+    return oldGrid(x, y, z)
+end
+local sinkChoices = 0
+SC.Navigation.selectInteraction = function(_, _, key, choices)
+    if key == "vehicle_wash_sink" then
+        sinkChoices = #choices
+        return choices[#choices]
+    end
+    return choices[1]
+end
+SC_REFUEL_TEST.clock(SC_REFUEL_TEST.clock() + 30001) -- expire the earlier scan
+T.base.jobs, T.actor.inventory.items = {}, {}
+T.blood.Front, emptyBucket.fluid.amount = 0.25, 0
+T.waterStorage.container.items = { emptyBucket }
+local manyQueued, manyWash = Upkeep.queue("wash_vehicle", T.car.id, true)
+check(manyQueued == true, "wash can queue with nine camp sinks")
+Upkeep.update(T.actor, {}, manyWash)
+check(sinkChoices == 9 and manyWash.target.sourceKind == "sink",
+    "wash scans beyond eight sinks before choosing an accessible water source")
+Upkeep.cancel(T.actor, manyWash)
+SC.GameplayUtil.gridSquare, SC.Navigation.selectInteraction, T.base.zones =
+    oldGrid, oldChoice, oldZones
 print("VEHICLE_UPKEEP_PASS checks=" .. tostring(checks))

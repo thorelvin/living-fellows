@@ -15621,9 +15621,15 @@ function Harness.restartChefForObservation()
     if worker and worker.actor and resident then
         local scheduled, scheduleReason = SC.ChefWork.ensureAutomaticJob(
             worker.actor, resident)
-        result("PASS", "chef_restart_scheduler",
+        local newJob = type(scheduleReason) == "table" and scheduleReason or nil
+        local restarted = scheduled == true and newJob
+            and newJob.type == "cook" and newJob.id ~= jobId
+            and newJob.assignedId == workerId
+            and SC.BaseLife.job(newJob.id) == newJob
+        result(restarted and "PASS" or "FAIL", "chef_restart_scheduler",
             "scheduled=" .. tostring(scheduled)
-                .. " reason=" .. tostring(scheduleReason))
+                .. " reason=" .. tostring(scheduleReason)
+                .. " new_job=" .. tostring(newJob and newJob.id))
     else
         result("FAIL", "chef_restart_worker", "worker=" .. tostring(workerId))
     end

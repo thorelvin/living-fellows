@@ -90,6 +90,36 @@ do
     end
     check(chosen and chosen.id == "far",
         "shared interaction choice waits for a route and selects the farther easy source")
+    N.interactionTargets = function(_, object) return { object.target } end
+    local many = {}
+    for y = -3, 4 do
+        local blocked = { target = square(2, y) }
+        function blocked:getSquare() return self.target end
+        many[#many + 1] = { id = "blocked:" .. tostring(y), object = blocked }
+    end
+    local later = { target = square(0, 6) }
+    function later:getSquare() return self.target end
+    many[#many + 1] = { id = "open:ninth", object = later }
+    local savedBegin, savedResume = N.beginPathSearch, N.resumePathSearch
+    N.beginPathSearch = function(origin, goal)
+        return { origin = origin, goal = goal, search = { nodes = {} } }
+    end
+    N.resumePathSearch = function(job)
+        job.search.nodes[N._pathNodeKey(job.goal)] = {
+            g = job.goal.x == 0 and 6 or 20,
+        }
+        return "complete", { job.origin, job.goal }
+    end
+    local manyOwner = {}
+    chosen, reason = nil, nil
+    for _ = 1, 8 do
+        chosen, reason = N.selectInteraction(actor, manyOwner, "many_water_sources", many,
+            { nodeBudget = 700, nodeQuota = 24 })
+        if chosen then break end
+    end
+    check(chosen and chosen.id == "open:ninth",
+        "a later source with a short route beats eight nearer sources behind a costly edge")
+    N.beginPathSearch, N.resumePathSearch = savedBegin, savedResume
     N.interactionTargets = targets
     SC.Topology.classifyEdge = usual
 end

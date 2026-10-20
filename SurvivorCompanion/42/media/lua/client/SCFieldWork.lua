@@ -298,15 +298,38 @@ local function overloadAllowed(actor)
     local data = select(1, U().call(actor, "getModData"))
     return type(data) == "table" and data.SC_AllowOverload == true
 end
-local function propsYieldWeight(props)
+local function propsYieldWeight(props, plant, actor)
     if type(props) ~= "table" then return nil end
     local count = tonumber(props.maxVegAutorized) or tonumber(props.maxVeg)
-    if not count or count <= 0 or type(props.vegetableName) ~= "string" then return nil end
+    if not count or count <= 0 then return nil end
+    -- Vanilla can add one bonus vegetable and up to the farmer's skill after
+    -- applying maxVegAutorized. Extra produce and seeds also enter the bag in
+    -- the same native harvest action, so reserve room for all of them.
+    if plant and plant.bonusYield and not plant.cursed then count = count + 1 end
+    local farmingPerk = Perks and Perks.Farming or nil
+    local skill = farmingPerk and tonumber(tostring(select(1,
+        U().call(actor, "getPerkLevel", farmingPerk)))) or nil
+    count = math.floor(count + math.max(0, math.min(10, skill or 10)))
     local manager = type(getScriptManager) == "function" and getScriptManager() or nil
-    local script = manager and select(1, U().call(manager, "FindItem", props.vegetableName))
-    local weight = tonumber(script and select(1, U().call(script, "getActualWeight")))
-    if not weight or weight <= 0 then return nil end
-    return count * weight
+    if not manager then return nil end
+    local total, included = 0, false
+    local function add(itemType, quantity)
+        if type(itemType) ~= "string" or itemType == "" then return true end
+        local script = select(1, U().call(manager, "FindItem", itemType))
+        local weight = script and tonumber(tostring(select(1,
+            U().call(script, "getActualWeight")))) or nil
+        if not weight or weight < 0 then return false end
+        total, included = total + quantity * weight, true
+        return true
+    end
+    if not add(props.vegetableName, count)
+        or not add(props.produceExtra, count) then return nil end
+    if plant and plant.hasSeed then
+        local seedCount = math.max(1,
+            math.floor(count * math.max(0, tonumber(props.seedPerVeg) or 0.5)))
+        if not add(props.seedName, seedCount) then return nil end
+    end
+    return included and total or nil
 end
 local function fullLoad(actor, worker, order)
     if order.kind ~= "harvest" then return FULL_LOAD end
@@ -1215,7 +1238,7 @@ function Field.update(actor, player, snapshot)
                 allow(props.produceExtra)
                 if object.hasSeed then allow(props.seedName) end
             end
-            worker.yieldEstimate = propsYieldWeight(props)
+            worker.yieldEstimate = propsYieldWeight(props, object, actor)
             if load >= fullLoad(actor, worker, order) then
                 -- Even an empty-handed worker must not start a plant whose
                 -- yield could not be carried; say so instead of overloading.

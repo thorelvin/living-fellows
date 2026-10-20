@@ -105,10 +105,6 @@ local function findCleanSink(actor, state)
                             return false
                         end
                     end, 48)
-                    if #scan.sources >= 8 then
-                        scan.done, scan.finishedAt = true, U().nowMs()
-                        break
-                    end
                 end
             end
         end

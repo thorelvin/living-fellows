@@ -879,7 +879,7 @@ local function findWaterSource(actor, state)
         for distance = 0, radius do
             for dx = -distance, distance do
                 for dy = -distance, distance do
-                    if scanned >= limit or #found >= 8 then return found end
+                    if scanned >= limit then return found end
                     local edge = math.max(math.abs(dx), math.abs(dy)) == distance
                     local sampled = distance <= 5
                         or ((dx * 17 + dy * 31) % 4) == state.waterScanPhase

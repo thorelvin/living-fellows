@@ -838,6 +838,38 @@ check(load.ratio > load.softRatio and load.surplus == nil
     and load.shouldUnload == false,
     "quest items, chef supplies and trade recovery are never shed as surplus: "
         .. tostring(load.surplus and load.surplus.item.kind))
+-- One native harvest can add the vegetable, an equal number of extra items,
+-- and seeds at once. Reserve room for the whole yield before starting it.
+Field.restore(nil)
+one.bag, two.bag = inventory(), inventory()
+one.x, one.y, player.x, player.y = 100, 99, 100, 100
+one.follow, two.follow, one.pending, one.active = true, false, nil, false
+for _, entry in pairs(squares) do entry.plant = nil end
+for _ = 1, 4 do put(one.bag, item("Base.Pen")) end
+local heavyCrop = cropAt(100, 100, true, "YieldHeavy")
+heavyCrop.plant.hasSeed, heavyCrop.plant.bonusYield = true, true
+farming_vegetableconf.props.YieldHeavy = {
+    vegetableName = "Base.Cabbage", produceExtra = "Base.Cabbage",
+    seedName = "Base.CabbageSeed", maxVegAutorized = 3,
+}
+local oldManager, oldPerks = getScriptManager, Perks
+Perks = { Farming = "Farming" }
+one.getPerkLevel = function() return 0 end
+getScriptManager = function()
+    return { FindItem = function()
+        return { getActualWeight = function() return 1 end }
+    end }
+end
+check(Field.start("harvest", heavyCrop, player) == true,
+    "heavy crop order starts before capacity assessment")
+for _ = 1, 80 do
+    Field.update(one, player)
+    if Field.status().blocker == "field_carry_limit_reached" then break end
+end
+check(Field.status().blocker == "field_carry_limit_reached"
+    and heavyCrop.plant.ripe == true and one.pending == nil,
+    "extra produce, bonus yield, and seeds prevent an over-capacity harvest")
+getScriptManager, Perks, one.getPerkLevel = oldManager, oldPerks, nil
 Field.restore(nil)
 local bad = Field.restore({ schema = 1, serial = -1 })
 check(bad == false, "malformed save rejected")
