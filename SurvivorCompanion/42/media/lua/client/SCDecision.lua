@@ -564,6 +564,21 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         if needs.peeDue then priority = math.max(priority, needs.peeOverdue and 86 or 68) end
         add("needs", priority, needs.emergency)
     end
+    if commands.recruited and commands.temporaryStay ~= true
+        and commands.expeditionMoving ~= true
+        and (commands.order == "base_duty" or commands.order == "follow"
+            or commands.order == "stay" or commands.order == "guard")
+        and threatCount == 0 and snapshot.humanThreat == nil
+        and not bleeding and not (needs and needs.active)
+        and SC.Needs and type(SC.Needs.refillDue) == "function" then
+        local home = SC.BaseLife and SC.BaseLife.isInside(actor) == true
+        local following = commands.order == "follow"
+        if (not following or leaderSettled(actor, player, current))
+            and SC.Needs.refillDue(actor, current) then
+            add("water_refill", 59, false,
+                { mode = home and "home" or "nearby" })
+        end
+    end
     local humanThreat = type(snapshot) == "table" and snapshot.humanThreat or nil
     if threatCount > 0 or humanThreat then
         local combatScore = 72 + immediate * 17
@@ -1980,6 +1995,14 @@ local function delegate(candidate, actor, player, rootRuntime, commands, snapsho
     elseif candidate.kind == "needs" then
         if not SC.Needs or type(SC.Needs.update) ~= "function" then return false, "needs_unavailable" end
         return callSubsystem("needs", actor, function() return SC.Needs.update(actor, player, rootRuntime) end)
+    elseif candidate.kind == "water_refill" then
+        if not SC.Needs or type(SC.Needs.refill) ~= "function" then
+            return false, "water_refill_unavailable"
+        end
+        return callSubsystem("water-refill", actor, function()
+            return SC.Needs.refill(actor, player, rootRuntime,
+                candidate.detail and candidate.detail.mode or "nearby")
+        end)
     elseif candidate.kind == "base_work" then
         if not SC.BaseWork or type(SC.BaseWork.update) ~= "function" then
             return false, "base_work_unavailable"
@@ -2255,7 +2278,7 @@ local function candidateInterval(candidate)
         return 250
     elseif candidate.kind == "ritual" then
         return 250
-    elseif candidate.kind == "needs" then
+    elseif candidate.kind == "needs" or candidate.kind == "water_refill" then
         return 250
     elseif candidate.kind == "base_work"
         or candidate.kind == "expedition_delivery" then
@@ -2280,7 +2303,7 @@ end
 
 local retainedApproachKinds = {
     logistics = true, infection_crisis = true, encounter = true,
-    scavenge = true, downtime = true, needs = true,
+    scavenge = true, downtime = true, needs = true, water_refill = true,
     base_work = true, expedition_delivery = true, fishing = true,
     faction = true, purposeful_idle = true,
     field_work = true,
@@ -3186,6 +3209,16 @@ function Decision.update(actor, player, runtime, roundTimestamp)
                 state.intent = cancelReason or "needs_preempt_failed"
                 return false, state.intent
             end
+        end
+    end
+    if previous == "water_refill" and selected.kind ~= "water_refill"
+        and not recheck and SC.Needs
+        and type(SC.Needs.cancelRefill) == "function" then
+        local nativeActive = SC.NativeActions
+            and type(SC.NativeActions.needsStatus) == "function"
+            and SC.NativeActions.needsStatus(actor) == true
+        if not nativeActive then
+            SC.Needs.cancelRefill(actor, "water_refill_deferred")
         end
     end
     -- A running leader can leave a medic's old approach behind. Release its

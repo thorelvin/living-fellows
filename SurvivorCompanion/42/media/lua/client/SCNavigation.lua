@@ -8167,7 +8167,9 @@ function Navigation.selectInteraction(actor, ownerState, choiceKey, choices, opt
                     and completedJob.search.nodes[Navigation._pathNodeKey(endpoint)] or nil
                 local routeCost = node and tonumber(tostring(node.g)) or nil
                 local cost = routeCost or (type(path) == "table" and #path - 1)
-                if cost and (not survey.bestCost or cost < survey.bestCost) then
+                if cost and (not tonumber(options.maxRouteCost)
+                    or cost <= tonumber(options.maxRouteCost))
+                    and (not survey.bestCost or cost < survey.bestCost) then
                     survey.bestId, survey.bestCost = winner.id, cost
                     survey.bestTier = winner.tier
                     survey.bestCanBound = routeCost ~= nil

@@ -119,6 +119,15 @@ do
     end
     check(chosen and chosen.id == "open:ninth",
         "a later source with a short route beats eight nearer sources behind a costly edge")
+    local shortOnly = {}
+    chosen, reason = nil, nil
+    for _ = 1, 8 do
+        chosen, reason = N.selectInteraction(actor, shortOnly, "paused_refill", many,
+            { nodeBudget = 700, nodeQuota = 24, maxRouteCost = 4.5 })
+        if chosen or reason ~= "pending" then break end
+    end
+    check(chosen == nil and reason == "unreachable",
+        "nearby refills reject a source whose walking route exceeds the pause detour")
     N.beginPathSearch, N.resumePathSearch = savedBegin, savedResume
     N.interactionTargets = targets
     SC.Topology.classifyEdge = usual

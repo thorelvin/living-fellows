@@ -16934,6 +16934,99 @@ check(not campWaterRequested,
     "a clean nearby sink is used before withdrawing bottled water from camp storage")
 
 do
+    local function fluid(amount, clean)
+        local value = { amount = amount, clean = clean }
+        function value:getAmount() return self.amount end
+        function value:getCapacity() return 1 end
+        function value:isEmpty() return self.amount <= 0 end
+        function value:canPlayerEmpty() return true end
+        function value:isPoisonous() return false end
+        function value:isTainted() return not self.clean end
+        -- Build 42 leaves this source-fill flag false on a clean bottle.
+        function value:isFilledWithCleanWater() return false end
+        function value:isWaterOnlySource() return self.clean and self.amount > 0 end
+        function value:contains(kind)
+            return kind == (self.clean and Fluid.Water or Fluid.TaintedWater)
+        end
+        return value
+    end
+    local firstFluid, secondFluid = fluid(0.3, true), fluid(0.8, true)
+    local first = item("Base.WaterBottle", "Item", { fluidContainer = firstFluid })
+    local second = item("Base.Canteen", "Item", { fluidContainer = secondFluid })
+    local unsafe = item("Base.DirtyBottle", "Item",
+        { fluidContainer = fluid(0.2, false) })
+    local bag = item("Base.Backpack", "Item")
+    local inner = inventory({ first, second, unsafe })
+    function bag:getInventory() return inner end
+    local carrier = actor("sc-refill-carrier", 39, 20,
+        { inventory = inventory({ bag }) })
+    registry[carrier.id] = carrier
+    local source = { square = carrier.square, amount = 4 }
+    function source:getSquare() return self.square end
+    function source:hasFluid() return self.amount > 0 end
+    function source:getFluidAmount() return self.amount end
+    function source:isTaintedWater() return false end
+    carrier.square.objects[#carrier.square.objects + 1] = source
+    local previousActive = SurvivorCompanion.BaseLife.active
+    local previousInside = SurvivorCompanion.BaseLife.isInside
+    local previousSelect = SurvivorCompanion.Navigation.selectInteraction
+    SurvivorCompanion.BaseLife.active = function()
+        return { zones = { { kind = "area", x1 = 39, y1 = 20,
+            x2 = 39, y2 = 20, z = 0 } } }
+    end
+    SurvivorCompanion.BaseLife.isInside = function() return true end
+    SurvivorCompanion.Navigation.selectInteraction = function(_, _, _, choices)
+        return choices[1], "selected"
+    end
+    local safe = { snapshot = { immediateCount = 0, pressure = 0 } }
+    SurvivorCompanion.Needs.assess(carrier, safe)
+    check(SurvivorCompanion.Needs.refillDue(carrier),
+        "a carried drinking container below half requests a refill")
+    local decisionSnapshot = { threats = {}, immediateAttackers = {},
+        threatCount = 0, immediateCount = 0, pressure = 0,
+        player = { danger = 0, immediateThreats = 0 } }
+    local function refillCandidate(order, at)
+        local candidates = SurvivorCompanion.Decision._evaluateForTests(
+            carrier, player, decisionSnapshot,
+            { recruited = true, order = order },
+            { alive = true, health = 100, wounds = {} }, {}, {}, at)
+        for _, candidate in ipairs(candidates) do
+            if candidate.kind == "water_refill" then return candidate end
+        end
+        return nil
+    end
+    player.moving = true
+    check(refillCandidate("follow", clock + 100000) == nil,
+        "a moving leader keeps followers in formation instead of refilling")
+    player.moving = false
+    refillCandidate("follow", clock + 100100)
+    check(refillCandidate("follow", clock + 105000) ~= nil
+            and refillCandidate("base_duty", clock + 105000) ~= nil,
+        "settled followers and base workers schedule an automatic refill")
+    local started = SurvivorCompanion.Needs.refill(carrier, player, safe, "home")
+    check(started and carrier.lastIntent
+            and carrier.lastIntent.action == "refill_drinking_water"
+            and carrier.lastIntent.item == first and carrier.lastIntent.object == source,
+        "camp refill uses the original nested bottle and clean sink")
+    firstFluid.amount = 1
+    carrier.lastIntent = nil
+    started = SurvivorCompanion.Needs.refill(carrier, player, safe, "home")
+    check(started and carrier.lastIntent and carrier.lastIntent.item == second,
+        "the same water stop also tops up a second carried bottle")
+    secondFluid.amount = 1
+    carrier.lastIntent = nil
+    local finished = SurvivorCompanion.Needs.refill(carrier, player, safe, "home")
+    check(finished and carrier.lastIntent == nil and unsafe.fluidContainer.amount == 0.2
+            and first.container == inner and second.container == inner,
+        "refill ends without moving bottles or mixing tainted water")
+    SurvivorCompanion.Navigation.selectInteraction = previousSelect
+    SurvivorCompanion.BaseLife.active = previousActive
+    SurvivorCompanion.BaseLife.isInside = previousInside
+    SurvivorCompanion.Needs.reset(carrier)
+    registry[carrier.id] = nil
+end
+
+do
     local thirsty = actor("sc-needs-many-sinks", 45, 20, {})
     thirsty.thirst = 0.70
     registry[thirsty.id] = thirsty

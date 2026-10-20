@@ -29,6 +29,7 @@ function Work.handles(action)
     return action == "barricade" or action == "remove_barricade"
         or action == "dismantle" or action == "eat_food"
         or action == "drink_item" or action == "drink_source"
+        or action == "refill_drinking_water"
         or productionActions[action] ~= nil
 end
 
@@ -41,7 +42,8 @@ function Work.dispatch(actor, action, intent, provider)
         return context.removeBarricade(actor, intent, provider)
     elseif action == "dismantle" then
         return context.dismantle(actor, intent, provider)
-    elseif action == "eat_food" or action == "drink_item" or action == "drink_source" then
+    elseif action == "eat_food" or action == "drink_item" or action == "drink_source"
+        or action == "refill_drinking_water" then
         return context.needs(actor, action, intent, provider)
     elseif productionActions[action] ~= nil then
         local handler = context[productionActions[action]]

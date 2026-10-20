@@ -13,6 +13,21 @@ local function number(value)
     return value ~= nil and tonumber(tostring(value)) or nil
 end
 
+local function refillFlags(bottle, fluid)
+    local keys = { "isFilledWithCleanWater", "isTainted", "isPoisonous",
+        "isWaterOnlySource", "canPlayerEmpty", "isEmpty" }
+    local values = {}
+    for _, key in ipairs(keys) do
+        values[#values + 1] = key .. "=" .. tostring(call(fluid, key))
+    end
+    values[#values + 1] = "itemWaterSource=" .. tostring(call(bottle, "isWaterSource"))
+    if Fluid and Fluid.Water then
+        values[#values + 1] = "containsWater=" .. tostring(call(fluid,
+            "contains", Fluid.Water))
+    end
+    return table.concat(values, ",")
+end
+
 local function label(object)
     local utility = SurvivorCompanion.GameplayUtil
     local sprite = call(call(object, "getSprite"), "getName")
@@ -107,6 +122,32 @@ local function setup(H, SC, check, result, setPhase, current)
     setPhase("water_source_drink", current)
 end
 
+local function beginRefill(H, SC, result, setPhase, current)
+    local test = H.waterSource
+    local inventory = call(test.actor, "getInventory")
+    local bottle = call(inventory, "AddItem", "Base.WaterBottle")
+    local fluid = call(bottle, "getFluidContainer")
+    -- Build 42's WaterBottle script uses PickRandomFluid, so a newly added
+    -- bottle may begin full. Empty this disposable fixture before the test.
+    if fluid then SC.GameplayUtil.call(fluid, "Empty") end
+    local before = number(call(fluid, "getAmount"))
+    local capacity = number(call(fluid, "getCapacity"))
+    if not bottle or not fluid or not before or not capacity or capacity <= 0
+        or before / capacity >= 0.5 then
+        result("SKIP", "water_source_live_refill",
+            "a newly created empty drinking bottle was unavailable")
+        setPhase("finish", current)
+        return
+    end
+    SC.Needs.reset(test.actor)
+    test.refillBottle, test.refillFluid = bottle, fluid
+    test.refillBefore, test.refillCapacity, test.refillStartedAt = before, capacity, current
+    result("PASS", "water_source_refill_fixture",
+        test.name .. " bottle=" .. tostring(before) .. "/" .. tostring(capacity)
+            .. " " .. refillFlags(bottle, fluid))
+    setPhase("water_source_refill", current)
+end
+
 function Probe.step(H, current, check, result, setPhase)
     local SC = SurvivorCompanion
     if H.phase == "water_source_setup" then
@@ -115,10 +156,30 @@ function Probe.step(H, current, check, result, setPhase)
         setup(H, SC, check, result, setPhase, current)
         return
     end
-    if H.phase ~= "water_source_drink" then return end
+    if H.phase ~= "water_source_drink" and H.phase ~= "water_source_refill" then return end
     local test = H.waterSource
     if current - (test.nextAt or 0) < 250 then return end
     test.nextAt = current
+    if H.phase == "water_source_refill" then
+        local accepted, reason = SC.Needs.refill(test.actor, H.player, nil, "home")
+        local amount = number(call(test.refillFluid, "getAmount")) or 0
+        if amount >= test.refillCapacity - 0.12
+            and SC.Needs.isSafeWaterItem(test.refillBottle) then
+            result("PASS", "water_source_live_refill",
+                test.name .. " bottle=" .. tostring(test.refillBefore)
+                    .. "->" .. tostring(amount) .. " action=" .. tostring(reason)
+                    .. " " .. refillFlags(test.refillBottle, test.refillFluid))
+            setPhase("finish", current)
+        elseif current - test.refillStartedAt > 30000 then
+            result("FAIL", "water_source_live_refill",
+                test.name .. " bottle=" .. tostring(test.refillBefore)
+                    .. "->" .. tostring(amount) .. " update="
+                    .. tostring(accepted) .. "/" .. tostring(reason)
+                    .. " " .. refillFlags(test.refillBottle, test.refillFluid))
+            setPhase("finish", current)
+        end
+        return
+    end
     local accepted, reason = SC.Needs.update(test.actor, H.player, {
         snapshot = { immediateCount = 0, pressure = 0 },
     })
@@ -140,7 +201,7 @@ function Probe.step(H, current, check, result, setPhase)
                     .. tostring(thirst)
                 .. " water=" .. tostring(test.beforeWater) .. "->"
                     .. tostring(amount) .. " update=" .. tostring(reason))
-        setPhase("finish", current)
+        beginRefill(H, SC, result, setPhase, current)
     elseif current - test.startedAt > 25000 then
         result("FAIL", "water_source_live_drink",
             test.name .. " source=" .. test.source.label

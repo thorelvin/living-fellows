@@ -764,8 +764,8 @@ local function isSafeWaterItem(item)
         local contains, containsOk = U().call(fluid, "contains", tainted)
         if containsOk and contains then return false end
     end
-    local clean, cleanOk = U().call(fluid, "isFilledWithCleanWater")
-    if cleanOk then return clean == true end
+    -- isFilledWithCleanWater is a source configuration flag in Build 42,
+    -- not a test of the liquid already inside a carried bottle.
     local waterOnly, waterOnlyOk = U().call(fluid, "isWaterOnlySource")
     if waterOnlyOk then return waterOnly == true end
     if water then
@@ -853,6 +853,337 @@ local function validWaterSource(object)
     return hasOk and has == true and amountOk
         and (amount ~= nil and tonumber(tostring(amount)) or 0) > 0.05
         and (not taintedOk or tainted ~= true)
+end
+
+-- Refilling is narrower than drinking directly from an object: an uncertain
+-- source must never turn a companion's safe carried water into a mixture.
+local function cleanRefillSource(object)
+    if not validWaterSource(object) then return false end
+    local tainted, known = U().call(object, "isTaintedWater")
+    if not known or tainted ~= false then return false end
+    local fluid, fluidOk = U().call(object, "getFluidContainer")
+    if fluidOk and fluid then
+        local poisoned = select(1, U().call(fluid, "isPoisonous"))
+        local dirty = select(1, U().call(fluid, "isTainted"))
+        if poisoned == true or dirty == true then return false end
+        local waterOnly, waterOnlyOk = U().call(fluid, "isWaterOnlySource")
+        if waterOnlyOk and waterOnly ~= true then return false end
+        if not waterOnlyOk then
+            local clean, cleanOk = U().call(fluid, "isFilledWithCleanWater")
+            if cleanOk and clean ~= true then return false end
+        end
+    end
+    return true
+end
+
+local function containerLevel(item)
+    local fluid, okay = U().call(item, "getFluidContainer")
+    if not okay or not fluid then return nil end
+    local amount = tonumber(tostring(select(1, U().call(fluid, "getAmount"))))
+    local capacity = tonumber(tostring(select(1, U().call(fluid, "getCapacity"))))
+    if not amount or not capacity or capacity <= 0 or capacity > 3
+        or amount < 0 then return nil end
+    local canEmpty, canEmptyOk = U().call(fluid, "canPlayerEmpty")
+    if canEmptyOk and canEmpty ~= true then return nil end
+    local locked = select(1, U().call(fluid, "isInputLocked"))
+    local poison = select(1, U().call(fluid, "isPoisonous"))
+    if locked == true or poison == true then return nil end
+    if amount > 0 and not isSafeWaterItem(item) then return nil end
+    return amount, capacity
+end
+
+local function refillableContainer(item)
+    local amount, capacity = containerLevel(item)
+    if not amount or capacity - amount < 0.12 then return nil end
+    return amount, capacity
+end
+
+local function carriedRefillContainers(actor)
+    local rows, due = {}, false
+    walkInventory(U().inventory(actor), { remaining = 256 }, function(item)
+        local amount, capacity = refillableContainer(item)
+        if amount then
+            rows[#rows + 1] = item
+            if amount / capacity < 0.5 then due = true end
+        end
+        return true
+    end)
+    return rows, due
+end
+
+function Needs.refillDue(actor, current)
+    if not actor then return false end
+    local state = states[actor] or stateFor(actor)
+    current = current or U().nowMs()
+    if state.refillSession then return true end
+    if current < (state.refillBlockedUntil or 0) then return false end
+    if current < (state.nextRefillInventoryAt or 0) then
+        return state.refillInventoryDue == true
+    end
+    local _, due = carriedRefillContainers(actor)
+    state.refillInventoryDue = due
+    state.nextRefillInventoryAt = current + 4000
+    return due
+end
+
+local function clearRefillSearch(state)
+    state.refillCandidates, state.refillScan = nil, nil
+    state.navigationChoice = nil
+end
+
+local function refuseRefill(state, reason)
+    state.refillSession = nil
+    clearRefillSearch(state)
+    state.refillInventoryDue = false
+    state.nextRefillInventoryAt = 0
+    local sourceFailure = type(reason) == "string"
+        and string.sub(reason, 1, 14) == "refill_source_"
+    state.refillBlockedUntil = U().nowMs() + (sourceFailure and 30000 or 10000)
+    return false, reason
+end
+
+local function refillChoices(actor, state, home)
+    local utility, now = U(), U().nowMs()
+    local ax, ay, az = utility.position(actor)
+    if ax == nil then return nil, "refill_position_missing" end
+    local function addObjects(square, choices)
+        utility.squareObjects(square, function(object)
+            local retry = state.refillRetryAt and state.refillRetryAt[object] or 0
+            if now >= retry and cleanRefillSource(object) then
+                choices[#choices + 1] = { id = tostring(object), object = object }
+            end
+        end, 48)
+    end
+    if not home then
+        if not state.refillCandidates then
+            local choices = {}
+            for dx = -3, 3 do for dy = -3, 3 do
+                if dx * dx + dy * dy <= 9 then
+                    local square = utility.gridSquare(
+                        math.floor(ax) + dx, math.floor(ay) + dy, math.floor(az))
+                    if square then addObjects(square, choices) end
+                end
+            end end
+            state.refillCandidates = choices
+        end
+    elseif not state.refillCandidates then
+        local scan = state.refillScan
+        local base = SC.BaseLife and SC.BaseLife.active and SC.BaseLife.active()
+        if not base then return nil, "refill_camp_missing" end
+        if not scan or scan.base ~= base then
+            local zones = {}
+            for _, zone in ipairs(base.zones or {}) do
+                if zone.kind == "area" and math.abs((zone.z or 0) - math.floor(az)) <= 1 then
+                    zones[#zones + 1] = zone
+                end
+            end
+            table.sort(zones, function(a, b)
+                local function distance(zone)
+                    local x = math.max(zone.x1, math.min(ax, zone.x2))
+                    local y = math.max(zone.y1, math.min(ay, zone.y2))
+                    return math.abs((zone.z or 0) - az) * 30
+                        + math.abs(x - ax) + math.abs(y - ay)
+                end
+                return distance(a) < distance(b)
+            end)
+            local nearby = {}
+            for radius = 0, 6 do
+                for dx = -radius, radius do for dy = -radius, radius do
+                    if math.max(math.abs(dx), math.abs(dy)) == radius then
+                        nearby[#nearby + 1] = { dx, dy }
+                    end
+                end end
+            end
+            scan = { base = base, zones = zones, zone = 1, offset = 0,
+                originX = math.floor(ax), originY = math.floor(ay),
+                floor = math.floor(az),
+                nearby = nearby, nearbyIndex = 1 }
+            state.refillScan = scan
+        end
+        local choices, scanned = {}, 0
+        while scanned < 16 and #choices < 8 do
+            local nearby = scan.nearby[scan.nearbyIndex]
+            if nearby then
+                scan.nearbyIndex, scanned = scan.nearbyIndex + 1, scanned + 1
+                local square = utility.gridSquare(scan.originX + nearby[1],
+                    scan.originY + nearby[2], scan.floor)
+                if square and SC.BaseLife.isInside(square) == true then
+                    addObjects(square, choices)
+                end
+            else
+                local zone = scan.zones[scan.zone]
+                if not zone then break end
+                local width = zone.x2 - zone.x1 + 1
+                local total = width * (zone.y2 - zone.y1 + 1)
+                if scan.offset >= total then
+                    scan.zone, scan.offset = scan.zone + 1, 0
+                else
+                    local offset = scan.offset
+                    scan.offset, scanned = offset + 1, scanned + 1
+                    local square = utility.gridSquare(zone.x1 + offset % width,
+                        zone.y1 + math.floor(offset / width), zone.z)
+                    if square then addObjects(square, choices) end
+                end
+            end
+        end
+        if #choices > 0 then state.refillCandidates = choices
+        elseif not scan.nearby[scan.nearbyIndex]
+            and not scan.zones[scan.zone] then return nil, "refill_source_missing"
+        else return nil, "refill_source_scanning" end
+    end
+    local choices = state.refillCandidates
+    if not choices or #choices == 0 then return nil, "refill_source_missing" end
+    local available = {}
+    for _, choice in ipairs(choices) do
+        local retry = state.refillRetryAt and state.refillRetryAt[choice.object] or 0
+        if now >= retry and cleanRefillSource(choice.object) then
+            available[#available + 1] = choice
+        end
+    end
+    if #available == 0 then
+        state.refillCandidates, state.navigationChoice = nil, nil
+        if home and state.refillScan
+            and (state.refillScan.nearby[state.refillScan.nearbyIndex]
+                or state.refillScan.zones[state.refillScan.zone]) then
+            return nil, "refill_source_scanning"
+        end
+        return nil, "refill_source_missing"
+    end
+    state.refillCandidates = available
+    if not SC.Navigation or type(SC.Navigation.selectInteraction) ~= "function" then
+        return nil, "refill_navigation_unavailable"
+    end
+    local selected, reason = SC.Navigation.selectInteraction(actor, state,
+        home and "camp_drinking_refill" or "nearby_drinking_refill", available,
+        { nodeBudget = home and 1800 or 300, workCampOnly = home,
+            maxRouteCost = not home and 4.5 or nil })
+    if selected and cleanRefillSource(selected.object) then return selected.object end
+    if reason == "pending" or reason == "unknown" then
+        return nil, "refill_source_scanning"
+    end
+    state.refillCandidates, state.navigationChoice = nil, nil
+    if home and state.refillScan
+        and (state.refillScan.nearby[state.refillScan.nearbyIndex]
+            or state.refillScan.zones[state.refillScan.zone]) then
+        return nil, "refill_source_scanning"
+    end
+    return nil, "refill_source_unreachable"
+end
+
+function Needs.refill(actor, player, runtime, mode)
+    if not U().isValidActor(actor) then return false, "invalid_actor" end
+    local state = stateFor(actor, runtime)
+    local root = U().actorState(actor, runtime)
+    local snapshot = root.senses and root.senses.current or root.snapshot or {}
+    if (snapshot.immediateCount or 0) > 0 or (snapshot.pressure or 0) >= 1.5 then
+        return refuseRefill(state, "refill_unsafe")
+    end
+    local active = nativeNeedsActive(actor, state)
+    if active then return true, "refilling_water" end
+    local session = state.refillSession
+    if session and session.phase == "action" then
+        local after = select(1, containerLevel(session.item))
+        if after and after > (session.before or 0) + 0.02
+            and (after == 0 or isSafeWaterItem(session.item)) then
+            if session.capacity - after < 0.12 or session.attempts >= 2 then
+                session.index, session.attempts = session.index + 1, 0
+            else
+                session.attempts = session.attempts + 1
+            end
+        else
+            state.refillRetryAt = state.refillRetryAt or setmetatable({}, { __mode = "k" })
+            state.refillRetryAt[session.source] = U().nowMs() + 15000
+            clearRefillSearch(state)
+            session.attempts = session.attempts + 1
+            if session.attempts >= 2 then
+                session.index, session.attempts = session.index + 1, 0
+            end
+        end
+        session.phase, session.source, session.item = nil, nil, nil
+    end
+    if not session then
+        local items, due = carriedRefillContainers(actor)
+        if not due then return refuseRefill(state, "refill_not_needed") end
+        session = { items = items, index = 1, attempts = 0 }
+        state.refillSession = session
+    end
+    if session.mode ~= mode then
+        clearRefillSearch(state)
+        session.mode = mode
+    end
+    local item, amount, capacity
+    while session.index <= #session.items do
+        item = session.items[session.index]
+        amount, capacity = refillableContainer(item)
+        if amount then break end
+        session.index, session.attempts = session.index + 1, 0
+    end
+    if not amount then
+        state.refillSession = nil
+        clearRefillSearch(state)
+        state.refillInventoryDue, state.nextRefillInventoryAt = false, U().nowMs() + 4000
+        return true, "water_refill_complete"
+    end
+    local source, reason = session.source, nil
+    if not cleanRefillSource(source) then
+        source, reason = refillChoices(actor, state, mode == "home")
+        if not source then
+            -- Scanning is incremental. Let the normal order run between slices
+            -- rather than holding a base worker idle while no source is known.
+            if reason == "refill_source_scanning" then return false, reason end
+            return refuseRefill(state, reason or "refill_source_missing")
+        end
+        session.source = source
+    end
+    local reached, targets, accessReason = U().directInteractionAccess(actor,
+        source, { snapshot = snapshot })
+    if not reached then
+        if accessReason == "no_interaction_targets" then
+            state.refillRetryAt = state.refillRetryAt or setmetatable({}, { __mode = "k" })
+            state.refillRetryAt[source] = U().nowMs() + 15000
+            session.source = nil
+            clearRefillSearch(state)
+            return true, "refill_source_retry"
+        end
+        local moving, moveReason = SC.Navigation.requestAny(actor, targets, "walk", {
+            action = "move_to_water_refill", object = source,
+            snapshot = snapshot, arrivalDistance = 0.35,
+            requireSameSquare = true, continuousApproach = true,
+            workCampOnly = mode == "home",
+        })
+        if moving then return true, moveReason end
+        state.refillRetryAt = state.refillRetryAt or setmetatable({}, { __mode = "k" })
+        state.refillRetryAt[source] = U().nowMs() + 15000
+        session.source = nil
+        clearRefillSearch(state)
+        return false, moveReason or "refill_source_unreachable"
+    end
+    session.item, session.before, session.capacity = item, amount, capacity
+    session.phase = "action"
+    local started, why = U().move(actor, "walk", {
+        action = "refill_drinking_water", item = item, object = source,
+        transactional = true,
+    })
+    if not started then
+        session.phase = nil
+        state.refillRetryAt = state.refillRetryAt or setmetatable({}, { __mode = "k" })
+        state.refillRetryAt[source] = U().nowMs() + 15000
+        session.source = nil
+        clearRefillSearch(state)
+    end
+    return started, why or "refilling_water"
+end
+
+function Needs.cancelRefill(actor, reason)
+    local state = actor and states[actor]
+    if not state or not state.refillSession then return true end
+    state.refillSession = nil
+    clearRefillSearch(state)
+    state.refillInventoryDue, state.nextRefillInventoryAt = false, 0
+    if SC.Navigation and type(SC.Navigation.cancel) == "function" then
+        pcall(SC.Navigation.cancel, actor, reason or "water_refill_deferred")
+    end
+    return true
 end
 
 local function campFloorRoute(actor, destination)
@@ -1013,7 +1344,10 @@ function Needs.update(actor, player, runtime)
         return false, "bathroom_clock_unavailable"
     end
     local active, kind = nativeNeedsActive(actor, state)
-    if active then return true, kind == "eat" and "eating" or "drinking" end
+    if active then
+        return true, kind == "eat" and "eating"
+            or kind == "refill" and "refilling_water" or "drinking"
+    end
     if (snapshot.immediateCount or 0) > 0 or (snapshot.pressure or 0) >= 1.5 then
         return false, "needs_unsafe"
     end
@@ -1093,6 +1427,7 @@ function Needs.update(actor, player, runtime)
 end
 
 function Needs.cancel(actor, reason)
+    Needs.cancelRefill(actor, reason)
     if actor then stopPeeSound(actor) end
     local state = actor and states[actor]
     if state and state.pee then

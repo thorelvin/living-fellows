@@ -8,6 +8,7 @@ $ClientRoot = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\client'
 $BuildRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('sc-nav-stability-' + [guid]::NewGuid().ToString('N'))
 $Jar = Join-Path $GameRoot 'projectzomboid.jar'
 $Java = Join-Path $GameRoot 'jre64\bin\java.exe'
+$Javac = & (Join-Path $ProjectRoot 'scripts\Resolve-TestJavac.ps1')
 $LuaFiles = @((Join-Path $ProjectRoot 'tests\core\core_fixture.lua'))
 $LuaFiles += @('SCNamespace.lua', 'SCCall.lua', 'SCStableValue.lua', 'SCTransaction.lua',
     'SCNativeList.lua', 'SCConfig.lua') | ForEach-Object { Join-Path $SharedRoot $_ }
@@ -18,7 +19,7 @@ $LuaFiles += @('SCGameplayUtil.lua', 'SCBaseObjectRef.lua', 'SCTopology.lua', 'S
 $LuaFiles += Join-Path $TestRoot 'navigation_stability_regression_harness.lua'
 New-Item -ItemType Directory -Path $BuildRoot | Out-Null
 try {
-    & javac.exe -d $BuildRoot (Join-Path $TestRoot 'KahluaTestRunner.java')
+    & $Javac -d $BuildRoot (Join-Path $TestRoot 'KahluaTestRunner.java')
     if ($LASTEXITCODE -ne 0) { throw 'Navigation runner compilation failed.' }
     Push-Location -LiteralPath $GameRoot
     try {

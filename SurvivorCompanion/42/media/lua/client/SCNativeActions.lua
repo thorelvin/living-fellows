@@ -1935,12 +1935,26 @@ local function startNeedsAction(actor, action, intent, provider)
             created, timedAction = pcall(ISTakeWaterAction.new, ISTakeWaterAction,
                 actor, nil, intent.object, taintedOk and tainted == true)
         end
+    elseif action == "refill_drinking_water" then
+        if type(ISTakeWaterAction) ~= "table" or type(ISTakeWaterAction.new) ~= "function"
+            or item == nil or intent.object == nil then
+            created, timedAction = false, "native bottle refill action is unavailable"
+        else
+            local taintedOk, tainted = invoke(intent.object, "isTaintedWater")
+            if not taintedOk or tainted ~= false then
+                created, timedAction = false, "refill source is not verified clean"
+            else
+                created, timedAction = pcall(ISTakeWaterAction.new, ISTakeWaterAction,
+                    actor, item, intent.object, false)
+            end
+        end
     end
     if not created or timedAction == nil then
         restoreNeedsItem(actor, { item = item, originalContainer = originalContainer })
         return false, created and "needs action was not created" or tostring(timedAction)
     end
-    local kind = action == "eat_food" and "eat" or "drink"
+    local kind = action == "eat_food" and "eat"
+        or action == "refill_drinking_water" and "refill" or "drink"
     local queued, reason = queueNeedsAction(actor, kind, timedAction, item, originalContainer)
     if not queued then
         restoreNeedsItem(actor, { item = item, originalContainer = originalContainer })
