@@ -867,6 +867,14 @@ end
 local function isProtected(actor, item, keptHarvestDeposit)
     if not actor or not item then return true end
     if workCargo(actor, item, keptHarvestDeposit) then return true end
+    -- A key weighs almost nothing and opens the car or building it belongs
+    -- to. Shelving the expedition car's key at camp strands the next trip.
+    -- Keep call's second result (the success flag) out of tonumber, which
+    -- would read it as a base and demand a string.
+    local keyId = U().call(item, "getKeyId")
+    keyId = tonumber(keyId)
+    if keyId ~= nil and keyId ~= -1 then return true end
+    if select(1, U().call(item, "isKeyRing")) == true then return true end
     local category = select(1, U().call(item, "getCategory"))
     local fullType = U().itemType(item)
     if tostring(category) == "Literature" or string.find(
@@ -1510,9 +1518,17 @@ end
 
 local function cleanupTransaction(actor, state, reason)
     local transaction = state and state.transaction or nil
-    if transaction and transaction.phase == "visual" and SC.NativeActions
-        and type(SC.NativeActions.cancelVisual) == "function" then
-        pcall(SC.NativeActions.cancelVisual, actor, reason or "logistics_cancelled")
+    local native = SC.NativeActions
+    if transaction and transaction.visualToken ~= nil and native
+        and type(native.cancelVisualOwned) == "function" then
+        -- End exactly the pose this move started, whatever phase it reached.
+        -- A Loot pose left completed but unclaimed keeps the actor owned and
+        -- refuses every later action, a car seat included.
+        pcall(native.cancelVisualOwned, actor, transaction.visualToken,
+            reason or "logistics_cancelled")
+    elseif transaction and transaction.phase == "visual" and native
+        and type(native.cancelVisual) == "function" then
+        pcall(native.cancelVisual, actor, reason or "logistics_cancelled")
     end
     if state then state.transaction = nil end
 end
@@ -1686,6 +1702,9 @@ local function advanceTransactionVisual(actor, transaction)
     end
     local animated, reason = U().move(actor, "walk", intent)
     if not animated then return nil, reason or "logistics_action_rejected" end
+    if SC.NativeActions and type(SC.NativeActions.visualToken) == "function" then
+        transaction.visualToken = SC.NativeActions.visualToken(actor, visualAction)
+    end
     local status = visualStatus(actor, visualAction)
     if status == "active" then
         transaction.phase = "visual"
@@ -2119,6 +2138,12 @@ function Logistics.prepareBuild(actor, targetSquare, snapshot, moveMode)
         SC.Encounter.cancelPlayerSupply(actor)
     end
     return true, false, "build_supplies_ready"
+end
+
+-- True while a pack, wear, deposit or drop holds this actor's action owner.
+function Logistics.busy(actor)
+    local state = actor and states[actor] or nil
+    return state ~= nil and state.transaction ~= nil
 end
 
 function Logistics.reset(actor)

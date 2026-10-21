@@ -2017,6 +2017,29 @@ local function teamStep(H, SC, current, check, result, setPhase, test)
                     .. " reason=" .. tostring(drive.turnReason)
                     .. " obstacle=" .. tostring(drive.obstacleKind)
                     .. " car=" .. fmt(car:getX()) .. "," .. fmt(car:getY()))
+            -- One line per member: who is seated, what each one is doing,
+            -- and which owner holds them, so a member who never boards can
+            -- be explained from the log alone.
+            for index, member in ipairs(test.team or {}) do
+                local actor = member.actor
+                local decision = SC.Decision.peek(actor) or {}
+                local owner = SC.ActionSupervisor.snapshot(actor) or {}
+                local seated = SC.Vehicle.isNativeSeated(actor)
+                local weight, limit = SC.GameplayUtil.carryLoad(actor)
+                local okLoad, load = pcall(SC.Logistics.status, actor)
+                load = okLoad and type(load) == "table" and load or {}
+                result("PASS", "team_drive_member_diagnostics_" .. index,
+                    "id=" .. tostring(member.id) .. " seated=" .. tostring(seated)
+                        .. " intent=" .. tostring(decision.intent)
+                        .. " current=" .. tostring(decision.current)
+                        .. " owner=" .. tostring(owner.owner)
+                        .. " action=" .. tostring(owner.action)
+                        .. " phase=" .. tostring(owner.phase)
+                        .. " carry=" .. tostring(weight) .. "/" .. tostring(limit)
+                        .. " surplus=" .. tostring(load.surplus and load.surplus.item
+                            and SC.GameplayUtil.itemType(load.surplus.item))
+                        .. " shelve_only=" .. tostring(load.surplus and load.surplus.shelveOnly))
+            end
             if trip.blocker == "player_aboard" then
                 for slot = 0, 3 do
                     local player = getSpecificPlayer(slot)

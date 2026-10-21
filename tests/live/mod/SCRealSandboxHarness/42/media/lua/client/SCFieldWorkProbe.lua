@@ -138,20 +138,68 @@ function Probe.step(H, current, check, result, setPhase)
             setPhase("finish", current)
             return
         end
-        if type(worker.actor.setMaxWeightBase) == "function" then
-            worker.actor:setMaxWeightBase(200)
-            worker.actor:setMaxWeight(200)
+        -- Strong must keep raising the limit after the engine's own Strength
+        -- update, which runs on every character update, not only for the
+        -- frame in which the vitals pulse refreshed it.
+        local strongOk, strong = pcall(function()
+            return CharacterTrait.get(ResourceLocation.of("base:strong"))
+        end)
+        strong = strongOk and strong or nil
+        local traits = call(worker.actor, "getCharacterTraits")
+        if not check("field_work_strong_trait_available", strong ~= nil and traits ~= nil,
+            tostring(strong) .. "/" .. tostring(traits)) then
+            setPhase("finish", current)
+            return
         end
-        local axe = call(worker.actor:getInventory(), "AddItem", "Base.Axe")
-        if not check("field_work_axe", axe ~= nil
-            and SC.GameplayUtil.itemHasTag(axe, "CHOP_TREE"),
-            tostring(axe)) then setPhase("finish", current) return end
-        H.fieldWork.initialWood = woodCount(SC, worker.actor)
-        H.fieldWork.initialTrees = standingCount(SC, site)
-        setPhase("field_work_stage", current)
+        local hadStrong = call(worker.actor, "hasTrait", strong) == true
+        if hadStrong then
+            traits:remove(strong)
+            refreshed, capacity = SC.Background.refreshCarryCapacity(worker.actor)
+        end
+        traits:add(strong)
+        local strongRefreshed, strongCapacity = SC.Background.refreshCarryCapacity(worker.actor)
+        local delta = tonumber(call(worker.actor, "getMaxWeightDelta"))
+        if not check("field_work_strong_carry_delta", strongRefreshed == true
+            and delta ~= nil and math.abs(delta - 1.5) < 0.001
+            and type(strongCapacity) == "number" and strongCapacity > capacity,
+            "delta=" .. tostring(delta) .. " base=" .. tostring(capacity)
+                .. " strong=" .. tostring(strongCapacity)) then
+            setPhase("finish", current)
+            return
+        end
+        H.fieldWork.carry = { strong = strong, hadStrong = hadStrong,
+            base = capacity, strongCapacity = strongCapacity }
+        setPhase("field_work_carry_frames", current)
         return
     end
     local work = H.fieldWork
+    if H.phase == "field_work_carry_frames" then
+        if current - H.phaseStartedAt < 1500 then return end
+        local actor, carry = work.worker.actor, work.carry
+        local held = tonumber(call(actor, "getMaxWeight"))
+        local traits = call(actor, "getCharacterTraits")
+        if not carry.hadStrong and traits then traits:remove(carry.strong) end
+        SC.Background.refreshCarryCapacity(actor)
+        if not check("field_work_strong_carry_survives_frames",
+            held == carry.strongCapacity,
+            "after_frames=" .. tostring(held) .. " refreshed=" .. tostring(carry.strongCapacity)
+                .. " base=" .. tostring(carry.base)) then
+            setPhase("finish", current)
+            return
+        end
+        if type(actor.setMaxWeightBase) == "function" then
+            actor:setMaxWeightBase(200)
+            actor:setMaxWeight(200)
+        end
+        local axe = call(actor:getInventory(), "AddItem", "Base.Axe")
+        if not check("field_work_axe", axe ~= nil
+            and SC.GameplayUtil.itemHasTag(axe, "CHOP_TREE"),
+            tostring(axe)) then setPhase("finish", current) return end
+        work.initialWood = woodCount(SC, actor)
+        work.initialTrees = standingCount(SC, work.site)
+        setPhase("field_work_stage", current)
+        return
+    end
     if H.phase == "field_work_stage" then
         if current - H.phaseStartedAt < 2000 then return end
         SC.FieldWork.restore(nil)

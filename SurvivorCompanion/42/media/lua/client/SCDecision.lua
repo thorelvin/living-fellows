@@ -87,6 +87,7 @@ local function commandsFor(actor)
                 end
                 local missionOrder = {}
                 for key, entry in pairs(value) do missionOrder[key] = entry end
+                missionOrder.expeditionMember = true
                 if type(SC.ExpeditionPrototype.effectiveDoctrineFor) == "function" then
                     missionOrder = SC.ExpeditionPrototype.effectiveDoctrineFor(
                         actor, missionOrder)
@@ -685,13 +686,15 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         -- Bag, clothing and packing chores wait for a following leader to
         -- settle, like idle work; being overloaded does not.
         -- Routine shelving under the Strength limit is upkeep, like a water
-        -- refill: it never walks a Stay or Guard companion off its post.
-        local postHeld = commands.recruited
-            and (commands.order == "stay" or commands.order == "guard")
+        -- refill: it never walks a Stay or Guard companion off its post, and
+        -- never starts for an expedition member, whose mission owns them.
+        local shelvingBarred = commands.expeditionMember == true
+            or commands.recruited
+                and (commands.order == "stay" or commands.order == "guard")
         local routineShelving = ok and type(load) == "table"
             and type(load.surplus) == "table" and load.surplus.shelveOnly == true
         if ok and load and load.shouldManage and commands.temporaryStay ~= true
-            and not (postHeld and routineShelving)
+            and not (shelvingBarred and routineShelving)
             and (load.overloaded or load.fieldReturnCleanup == true
             or load.fieldReturnCargo == true or load.giftPending == true
             or load.weaponReady == true
@@ -3043,6 +3046,25 @@ function Decision.update(actor, player, runtime, roundTimestamp)
     local carOrder = SC.ExpeditionCar
         and SC.ExpeditionCar.boardingOrderFor(actor) or nil
     if carOrder and (tonumber(snapshot.immediateCount) or 0) == 0 then
+        -- A shelving or packing move begun at camp holds this actor's action
+        -- owner, and this branch returns before logistics could finish it,
+        -- so the seat would be refused until the boarding deadline. The
+        -- departure outranks routine load management: release it first.
+        if SC.Logistics and type(SC.Logistics.busy) == "function"
+            and SC.Logistics.busy(actor) then
+            SC.Logistics.reset(actor)
+        end
+        -- A completed pose that no supervised owner is left to claim still
+        -- reads as a live native activity and refuses the seat. With no owner
+        -- at all, nothing can still commit from it: clear it.
+        local native = SC.NativeActions
+        if SC.ActionSupervisor and type(SC.ActionSupervisor.current) == "function"
+            and SC.ActionSupervisor.current(actor) == nil and native
+            and type(native.visualStatus) == "function"
+            and type(native.cancelVisual) == "function"
+            and native.visualStatus(actor) == "completed" then
+            native.cancelVisual(actor, "expedition_boarding")
+        end
         local boarded, boardReason = SC.ExpeditionCar.boardMember(
             actor, carOrder, snapshot)
         state.current, state.currentKey = "vehicle", "expedition_board"

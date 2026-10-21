@@ -19136,10 +19136,11 @@ end
     local decisionSnapshot = { threats = {}, immediateAttackers = {},
         threatCount = 0, immediateCount = 0, pressure = 0,
         player = { danger = 0, immediateThreats = 0 } }
-    local function logisticsCandidate(order)
+    local function logisticsCandidate(order, expeditionMember)
         clock = clock + 501
         local candidates = SurvivorCompanion.Decision._evaluateForTests(
-            carrier, player, decisionSnapshot, { recruited = true, order = order },
+            carrier, player, decisionSnapshot, { recruited = true, order = order,
+                expeditionMember = expeditionMember },
             { alive = true, health = 100, wounds = {} }, {}, {}, clock)
         for _, candidate in ipairs(candidates) do
             if candidate.kind == "logistics" then return candidate end
@@ -19149,6 +19150,18 @@ end
     check(logisticsCandidate("guard") == nil and logisticsCandidate("stay") == nil
             and logisticsCandidate("base_duty") ~= nil,
         "Strength-limit shelving waits for Stay and Guard but runs on base duty")
+    check(logisticsCandidate("base_duty", true) == nil,
+        "Strength-limit shelving never starts for an expedition member")
+    -- The expedition car's key weighs 0.1 and would otherwise rank as
+    -- ordinary general surplus once the carrier is past the Strength limit.
+    local carKey = item("Base.CarKey", "Item", { weight = 0.1 })
+    function carKey:getKeyId() return 4242 end
+    local keyAudit = SurvivorCompanion.Logistics.audit(carrier)
+    keyAudit.items = { { item = carKey, category = "general", source = pack } }
+    keyAudit.gearCounts, keyAudit.counts = { general = 1 }, { general = 1 }
+    keyAudit.gearRatio, keyAudit.ratio = 2, 2
+    check(SurvivorCompanion.Logistics.selectSurplus(carrier, keyAudit) == nil,
+        "a key is never shelved or dropped as logistics surplus")
     SurvivorCompanion.Logistics.reset(carrier)
     local stored = 0
     for _ = 1, 12 do
@@ -19200,6 +19213,113 @@ end
         "the Strength-shelving fixture is removed again")
     table.remove(campSquare.objects, shelf.objectIndex + 1)
 end)()
+;(function()
+    -- Live 0.26.54 report: a companion who began shelving at camp kept that
+    -- logistics owner when the car expedition departed. The boarding branch
+    -- returns before logistics can finish, so the seat was refused until the
+    -- boarding deadline and the whole trip rolled back.
+    local packInventory = inventory()
+    packInventory.capacity = 18
+    local pack = item("Base.Bag_DepartPack", "Container", {
+        nestedInventory = packInventory, bagCapacity = 18, weightReduction = 80,
+        bodyLocation = "Back", equipLocation = "Back", weight = 1,
+    })
+    local beans = item("Base.CannedBeansDepart", "Food", { weight = 1 })
+    local member = actor("sc-depart-busy-member", 9, 6,
+        { inventory = inventory({ pack, beans }) })
+    member:setWornItem("Back", pack)
+    registry[member.id] = member
+    local visual = "active"
+    local savedNative = SurvivorCompanion.NativeActions
+    SurvivorCompanion.NativeActions = {
+        visualStatus = function(_, expected) return visual, expected end,
+        clearVisual = function() visual = "none" end,
+        cancelVisual = function() visual = "cancelled" return true end,
+        stopDirect = function(value) value.moving = false return true end,
+    }
+    local quietSnapshot = { threats = {}, immediateAttackers = {}, threatCount = 0,
+        immediateCount = 0, pressure = 0, player = { danger = 0, immediateThreats = 0 } }
+    SurvivorCompanion.Logistics.update(member, nil, { snapshot = quietSnapshot })
+    SurvivorCompanion.Logistics.update(member, nil, { snapshot = quietSnapshot })
+    check(SurvivorCompanion.Logistics.busy(member)
+            and SurvivorCompanion.ActionSupervisor.snapshot(member).owner == "logistics",
+        "fixture: a packing move holds the member's action owner")
+    local savedCar = SurvivorCompanion.ExpeditionCar
+    local boardCalls, ownerAtBoard = 0, nil
+    SurvivorCompanion.ExpeditionCar = {
+        ownsSeat = function() return false end,
+        boardingOrderFor = function(value)
+            return value == member and { car = {}, seat = 2, sqlId = 77 } or nil
+        end,
+        boardMember = function(value)
+            boardCalls = boardCalls + 1
+            ownerAtBoard = SurvivorCompanion.ActionSupervisor.snapshot(value).owner
+            return true, "boarding"
+        end,
+    }
+    for _ = 1, 3 do
+        clock = clock + 151
+        SurvivorCompanion.Decision.update(member, player, { snapshot = quietSnapshot })
+        if boardCalls > 0 then break end
+    end
+    check(boardCalls > 0 and ownerAtBoard == "none"
+            and not SurvivorCompanion.Logistics.busy(member)
+            and member.inventory:contains(beans),
+        "a departing member's shelving is released before boarding: owner="
+            .. tostring(ownerAtBoard) .. " calls=" .. tostring(boardCalls))
+    -- The live run's second layer: the move was gone but its completed Loot
+    -- pose stayed unclaimed, and the supervisor read it as a live owner.
+    local orphanCancels = 0
+    SurvivorCompanion.NativeActions = {
+        visualStatus = function() return visual end,
+        clearVisual = function() visual = "none" end,
+        cancelVisual = function()
+            orphanCancels = orphanCancels + 1
+            visual = "none"
+            return true
+        end,
+        stopDirect = function(value) value.moving = false return true end,
+    }
+    visual, boardCalls = "completed", 0
+    for _ = 1, 3 do
+        clock = clock + 151
+        SurvivorCompanion.Decision.update(member, player, { snapshot = quietSnapshot })
+        if boardCalls > 0 then break end
+    end
+    check(orphanCancels == 1 and boardCalls > 0 and visual == "none",
+        "an unowned completed pose is cleared before the seat is requested: cancels="
+            .. tostring(orphanCancels) .. " calls=" .. tostring(boardCalls))
+    SurvivorCompanion.ExpeditionCar = savedCar
+    -- Logistics ends exactly the pose it started even when the move fails
+    -- before reaching its visual phase (here, another pose already showing).
+    SurvivorCompanion.Logistics.reset(member)
+    SurvivorCompanion.Decision.reset(member)
+    member.inventory:Remove(beans)
+    member.inventory:AddItem(beans)
+    local poseToken, ownedCancels = { pose = "loot" }, {}
+    SurvivorCompanion.NativeActions = {
+        visualStatus = function(_, expected) return "different", expected end,
+        visualToken = function() return poseToken end,
+        cancelVisualOwned = function(_, token)
+            ownedCancels[#ownedCancels + 1] = token
+            return true
+        end,
+        cancelVisual = function() return true end,
+        clearVisual = function() end,
+        stopDirect = function(value) value.moving = false return true end,
+    }
+    clock = clock + 151
+    SurvivorCompanion.Logistics.update(member, nil, { snapshot = quietSnapshot })
+    SurvivorCompanion.NativeActions = savedNative
+    check(#ownedCancels == 1 and ownedCancels[1] == poseToken
+            and not SurvivorCompanion.Logistics.busy(member),
+        "a failed logistics move ends its own Loot pose: cancels="
+            .. tostring(#ownedCancels))
+    SurvivorCompanion.Logistics.reset(member)
+    SurvivorCompanion.Decision.reset(member)
+    registry[member.id] = nil
+end)()
+
 
 local BaseObjectRef = SurvivorCompanion.BaseObjectRef
 local copiedStorageRef = BaseObjectRef.copy(storageRow)
