@@ -520,6 +520,10 @@ end
 local function addReturnReports(detail, panel, y, expedition)
     local debrief = expedition and expedition.lastDebrief
         and expedition.lastDebrief() or nil
+    if debrief and debrief.endReason == "site_entry_blocked" then
+        y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+            tr("UI_SC_Expedition_SiteEntryBlocked"))
+    end
     local latest = debrief and debrief.integration
     if latest and SC.ExpeditionIntegration then
         local summary = SC.ExpeditionIntegration.summary(latest)

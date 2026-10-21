@@ -1127,9 +1127,82 @@ end
 local siteSearchStarted, siteSearch = expedition.startAtPlace(
     { { id = "delta", actor = reserve } }, place.id, "search",
     { request = { category = "construction", quantity = 1 } })
-siteSearch.scout.phase = "searching"
-siteSearch.scout.search.startedHour = 431.25
-siteSearch.scout.search.deadlineHour = 432.25
+SC.ExpeditionPlaces._testSquadInside = false
+SC.ExpeditionPlaces.actorInsideSite = function()
+    return SC.ExpeditionPlaces._testSquadInside
+end
+SC.ExpeditionPlaces.loadedInteriorCandidates = function()
+    return { { x = 80, y = 20, z = 0 } }
+end
+reserve.x, reserve.y = 78, 20
+expedition.pulse()
+check(siteSearch.scout.phase == "entering_site"
+        and siteSearch.scout.search.startedHour == nil,
+    "a Search arrival waits for physical building entry before its loot clock")
+follower.x, follower.y = 62, 20
+SC.ExpeditionPlaces._oldFollowerSquare = follower.getCurrentSquare
+function follower:getCurrentSquare()
+    return { getRoom = function() return nil end }
+end
+siteSearch.roster[#siteSearch.roster + 1] = {
+    id = "gamma", actor = follower,
+}
+SC.ExpeditionPlaces._oldSurvivors = siteSearch.survivors
+siteSearch.survivors = siteSearch.survivors or {}
+siteSearch.survivors.gamma = true
+scoutClock = scoutClock + 2000
+expedition.pulse()
+do
+    local entryGridSquare = SC.GameplayUtil.gridSquare
+    SC.GameplayUtil.gridSquare = function(x, y, z)
+        return { x = x, y = y, z = z }
+    end
+    local entryTargets = expedition.siteEntryTargetsFor(reserve)
+    check(entryTargets ~= nil and #entryTargets == 1
+            and entryTargets[1].x == 80
+            and siteSearch.testWaypoint == nil
+            and siteSearch.cohesionHold == nil,
+        "a lagging follower leaves multi-goal interior navigation available to the leader")
+    SC.GameplayUtil.gridSquare = entryGridSquare
+end
+table.remove(siteSearch.roster)
+siteSearch.survivors.gamma = nil
+siteSearch.survivors = SC.ExpeditionPlaces._oldSurvivors
+SC.ExpeditionPlaces._oldSurvivors = nil
+follower.x, follower.y = 100, 100
+follower.getCurrentSquare = SC.ExpeditionPlaces._oldFollowerSquare
+SC.ExpeditionPlaces._oldFollowerSquare = nil
+SC.ExpeditionPlaces._enteringSave = expedition.export()
+check(expedition.prepareReset() and expedition.reset()
+        and expedition.restore(SC.ExpeditionPlaces._enteringSave)
+        and expedition.current().scout.phase == "entering_site",
+    "the site-entry phase survives save and load")
+siteSearch = expedition.current()
+expedition.pulse() -- restore reacquires the promoted leader before movement resumes
+SC.ExpeditionPlaces._testSquadInside = true
+scoutClock = scoutClock + 1000
+expedition.pulse()
+check(siteSearch.scout.phase == "searching"
+        and siteSearch.scout.search.startedHour ~= nil,
+    "loot search begins only after the squad enters the selected building")
+siteSearch.scout.phase = "entering_site"
+siteSearch.scout.siteEntryStartedAt = scoutClock
+siteSearch.scout.search.startedHour = nil
+follower.x, follower.y = reserve.x + 2, reserve.y
+siteSearch.roster[#siteSearch.roster + 1] = {
+    id = "gamma", actor = follower,
+}
+siteSearch.survivors.gamma = true
+SC.ExpeditionPlaces.actorInsideSite = function(_, actor)
+    return actor == reserve
+end
+scoutClock = scoutClock + 1000
+expedition.pulse()
+check(siteSearch.scout.phase == "searching"
+        and siteSearch.scout.search.startedHour ~= nil,
+    "an escort beside the door does not keep an entered leader from searching")
+table.remove(siteSearch.roster)
+siteSearch.survivors.gamma = nil
 local scopedSite = expedition.searchSiteFor(reserve)
 check(siteSearchStarted and scopedSite.buildingId == place.id,
     "the selected building identity reaches the Search scan")
@@ -1318,6 +1391,33 @@ check(expedition.finishAtPlayer(player) == true,
     "the team Search releases its leader after recording all carriers")
 check(#expedition.lastDebrief().returnedIds == 3,
     "the debrief finds the three exact requested items on their carriers")
+do
+local narrowStarted, narrowSearch = expedition.start({
+    { id = "delta", actor = reserve },
+    { id = "search-mate-1", actor = scouts[1] },
+    { id = "search-mate-2", actor = scouts[2] },
+}, {
+    kind = "search",
+    destination = { x = reserve.x + 12, y = reserve.y, z = 0 },
+    request = { category = "medicine", quantity = 1 },
+})
+check(narrowStarted == true, "a one-item supply team starts")
+narrowSearch.scout.phase = "searching"
+check(expedition.testSearchFor(reserve)
+        and not expedition.testSearchFor(scouts[1])
+        and not expedition.testSearchFor(scouts[2]),
+    "one requested item assigns one searcher instead of crowding the room")
+check(expedition.noteSearchWorkerFailure(reserve,
+        narrowSearch.radioSession, "approach_timeout")
+        and not expedition.testSearchFor(reserve)
+        and expedition.testSearchFor(scouts[1]),
+    "a blocked container approach passes the search turn to an escort")
+scoutClock = scoutClock + 30001
+check(expedition.testSearchFor(reserve),
+    "a previously blocked searcher becomes eligible after cooldown")
+check(expedition.prepareReset() and expedition.reset(),
+    "the one-item assignment releases cleanly")
+end
 
 -- The review names long off-road stretches at either end of a road route.
 local realPlan = SC.ExpeditionRoute.plan

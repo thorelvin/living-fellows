@@ -143,6 +143,7 @@ local descriptor = {
     parkingZoneId = T.zone.id,
     parking = { x1 = 100, y1 = 100, x2 = 110, y2 = 110, z = 0 },
     departure = { x = 102, y = 102, z = 0 },
+    homeRoadEntry = { x = 90, y = 102, z = 0 },
     home = { x = 103, y = 102, z = 0 },
     siteStop = { x = 160, y = 105, z = 0 },
     position = { x = 105, y = 102, z = 0 },
@@ -151,6 +152,11 @@ local descriptor = {
 }
 local saved = Car.copyDescriptor(descriptor, T.team, "leader")
 check(saved and saved.seats.mate == 1, "stable descriptor copies the seat map")
+check(saved.homeRoadEntry.x == 90,
+    "verified outbound road attachment survives the car descriptor copy")
+saved.homeRoadEntry.x = 91
+check(descriptor.homeRoadEntry.x == 90,
+    "saved road attachment does not alias the live trip")
 saved.seats.mate = 3
 check(descriptor.seats.mate == 1, "descriptor does not alias live seat map")
 local resumed = Car.restoreDescriptor(descriptor, T.team, "leader")
@@ -219,6 +225,12 @@ check(parkingPulse and T.approaches == 1
         .. tostring(T.approaches))
 T.cars[1].x = 102
 T.driveStatus = { result = "arrived" }
+T.ready = false
+check(Car.pulse(T.mission, 4500)
+        and T.mission.scout.vehicle.state == "parking_home"
+        and T.approaches == 1,
+    "a coasting car inside the bay settles before any new parking drive")
+T.ready = true
 check(Car.pulse(T.mission, 5000) and
     T.mission.scout.vehicle.state == "unloading_home",
     "verified footprint and heading permit home unloading")
@@ -321,6 +333,28 @@ local function freshTrip(state, leg)
     T.mission.scout.returnRequested = nil
     return trip
 end
+
+local nearRoadFailure = freshTrip("driving_home", "home")
+T.cars[1].x, T.cars[1].y = 89, 102
+T.driveStatus = { result = "failed", reason = "route_blocked",
+    roadGoal = { x = 90, y = 102, z = 0 } }
+check(Car.pulse(T.mission, 81000)
+        and nearRoadFailure.state == "parking_home"
+        and nearRoadFailure.parkingRecovery == true,
+    "a stationary failed home drive near the saved road entry tries parking")
+local approachesAtRoad = T.approaches
+check(Car.pulse(T.mission, 82000)
+        and T.approaches == approachesAtRoad + 1
+        and nearRoadFailure.parkingRecovery == nil,
+    "near-road recovery starts one checked parking segment")
+local farRoadFailure = freshTrip("driving_home", "home")
+T.cars[1].x = 50
+T.driveStatus = { result = "failed", reason = "route_blocked" }
+check(Car.pulse(T.mission, 83000)
+        and farRoadFailure.state == "fallback_unloading",
+    "a failed drive far from the verified road entry uses safe walking fallback")
+T.cars[1].x, T.cars[1].y = 102, 102
+T.driveStatus = nil
 
 local early = freshTrip("boarding_out")
 check(Car.requestReturn(T.mission, 82000, "radio_return")

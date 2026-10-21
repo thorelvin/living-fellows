@@ -1003,6 +1003,7 @@ local function weaponRecord(item)
         enduranceMod = enduranceMod,
         sharpness = sharpness,
         twoHanded = twoHanded,
+        diggingTool = utility.itemHasTag(item, "DIG_GRAVE") == true,
         staminaCost = staminaCost,
         score = damage * 12 + range * (ranged and 2 or 0.5) - swing * 2
             + condition / conditionMax * 15 + (ranged and 0 or sharpness * 5)
@@ -1388,9 +1389,21 @@ local function chooseWeapon(actor, preference, distance, pressure, indexEntry)
         end
     end
     local best, bestScore
+    local alternativeMelee = false
+    for _, weapon in ipairs(weapons) do
+        if not weapon.ranged and not weapon.diggingTool
+            and weaponUsableNow(inventory, weapon, entry) then
+            alternativeMelee = true
+            break
+        end
+    end
     for _, weapon in ipairs(weapons) do
         if weaponUsableNow(inventory, weapon, entry) then
             local score = weapon.score
+            -- A grave spade is valuable work equipment. Carry it into a fight
+            -- only when no other usable melee weapon is available; an explicit
+            -- player equip above still takes precedence.
+            if weapon.diggingTool and alternativeMelee then score = score - 10000 end
             local matchesPreference = (preference == "firearm" and weapon.ranged)
                 or ((preference == "melee" or preference == "quiet") and not weapon.ranged)
             if preferredAvailable and not matchesPreference then score = score - 10000 end

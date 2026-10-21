@@ -421,6 +421,18 @@ do
     check(not T.native[actor].active and Driving.isDriving(actor),
         "a route-blocked driver parks and stays with the car until release")
     Driving.release(actor)
+    actor = managed("drive-repeated-block")
+    T.block(actor, 150, 100)
+    Driving.tick(30000)
+    Driving.tick(35000)
+    T.block(actor, 151, 100)
+    Driving.tick(36000)
+    Driving.tick(41000)
+    local widened = Driving.jobStatus(actor)
+    check(widened.attempts == 2 and #widened.circles == 1
+        and widened.circles[1].radius == 20,
+        "a repeated wall block widens the detour instead of repeating it")
+    Driving.release(actor)
     local circles = {}
     for index = 1, 8 do circles[index] = { x = 50 + index, y = 90, radius = 12 } end
     actor = managed("drive-circle-cap", { circles = circles })
@@ -566,6 +578,23 @@ do
         and Driving.jobStatus(actor).reason == "parking_approach_blocked"
         and #T.plans == plans,
         "blocked parking stops without road avoidance or a replanned detour")
+    Driving.release(actor)
+end
+
+do
+    local actor = managed("drive-near-road-recovery")
+    actor.vehicle.x, actor.vehicle.y = goal.x - 2, goal.y
+    T.native[actor].state, T.native[actor].mode = "turn_failed", "turn_failed"
+    Driving.tick()
+    local token = Supervisor.current(actor)
+    check(Driving.jobStatus(actor).result == "failed"
+        and not Driving.approach(actor, { x = goal.x + 3,
+            y = goal.y, z = 0 }),
+        "failed road driving does not silently become a parking approach")
+    check(Driving.approach(actor, { x = goal.x + 3,
+            y = goal.y, z = 0 }, 30000, true)
+        and Supervisor.current(actor) == token,
+        "an explicitly verified stopped road failure can use the same parking lease")
     Driving.release(actor)
 end
 

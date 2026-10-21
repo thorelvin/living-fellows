@@ -1509,6 +1509,12 @@ cleanupScavengeTarget = function(actor, state, options)
         }
         debugTrace(actor, task, state.lastStatus.phase, options.reason)
         if state.lastStatus.phase == "failed" then
+            if task.scavengeMissionId and SC.ExpeditionPrototype
+                and type(SC.ExpeditionPrototype.noteSearchWorkerFailure)
+                    == "function" then
+                SC.ExpeditionPrototype.noteSearchWorkerFailure(
+                    actor, task.scavengeMissionId, options.reason)
+            end
             local ax, ay, az = U().position(actor)
             print("[SurvivorCompanion/scavenge-failure] actor="
                 .. tostring(U().idOf(actor))
@@ -2234,7 +2240,9 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
 
     if not atInteractionTarget then
         task.approachStartedAt = task.approachStartedAt or time
-        if Encounter._approachExpired(task, time) then
+        if Encounter._approachExpired(task, time,
+                ownerDistance(actor, task.owner),
+                SC.Navigation.status and SC.Navigation.status(actor)) then
             rememberFailedExpeditionSource(state, task, time)
             resetScavengeTarget(actor, state, {
                 cancelVisual = true, stopMovement = true,
@@ -2420,7 +2428,9 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
             -- here made every settle/reacquire cycle a fresh 45-second attempt,
             -- so a marginal use position could keep a companion forever.
             task.approachStartedAt = task.approachStartedAt or time
-            if Encounter._approachExpired(task, time) then
+            if Encounter._approachExpired(task, time,
+                    ownerDistance(actor, task.owner),
+                    SC.Navigation.status and SC.Navigation.status(actor)) then
                 rememberFailedExpeditionSource(state, task, time)
                 resetScavengeTarget(actor, state, {
                     cancelVisual = true, stopMovement = true,
@@ -2541,13 +2551,34 @@ end
 
 -- An approach that has not reached its container within this cap fails like
 -- an unreachable container.
-function Encounter._approachExpired(task, time)
+function Encounter._approachExpired(task, time, distance, navigation)
     if type(task) ~= "table" or tonumber(task.approachStartedAt) == nil
         or tonumber(time) == nil then
         return false
     end
     local limit = tonumber(U().config("scavengeApproachMaxMs")) or 45000
-    if task.scavengeMissionId ~= nil then limit = math.min(limit, 25000) end
+    if task.scavengeMissionId ~= nil then
+        limit = math.min(limit, 25000)
+        distance = tonumber(distance)
+        if distance ~= nil and (task.bestDeadlineDistance == nil
+            or distance <= task.bestDeadlineDistance - 0.5) then
+            task.bestDeadlineDistance = distance
+            task.approachProgressAt = time
+        end
+        local expanded = type(navigation) == "table"
+            and tonumber(navigation.expandedNodes) or nil
+        if expanded ~= nil then
+            if task.lastApproachExpanded == nil
+                or expanded >= task.lastApproachExpanded + 32 then
+                task.approachProgressAt = time
+                task.lastApproachExpanded = expanded
+            elseif expanded < task.lastApproachExpanded then
+                task.lastApproachExpanded = expanded
+            end
+        end
+        if time - (task.approachProgressAt or task.approachStartedAt)
+            > 12000 then return true end
+    end
     return tonumber(time) - tonumber(task.approachStartedAt) > limit
 end
 
@@ -2624,7 +2655,7 @@ function Encounter.chooseSpawnSquare(player, runtime)
         math.floor(tonumber(utility.config("spawnMaxDistance")) or 110))
     local attempts = 96
     local seed = utility.stableHash(tostring(math.floor(px)) .. ":" .. tostring(math.floor(py)) .. ":" .. tostring(math.floor(now() / 10000)))
-    local best, bestScore
+    local candidates = {}
     for index = 1, attempts do
         seed = (seed * 1103515245 + 12345) % 2147483647
         local distance = minimum + (seed % (maximum - minimum + 1))
@@ -2642,10 +2673,23 @@ function Encounter.chooseSpawnSquare(player, runtime)
         if dx * dx + dy * dy <= maximum * maximum then
             local square = utility.gridSquare(px + dx, py + dy, 0)
             local score = spawnSquareScore(square, player)
-            if score and (not bestScore or score > bestScore) then best, bestScore = square, score end
+            if score then candidates[#candidates + 1] = { square = square, score = score } end
         end
     end
-    return best, (not best) and "no_valid_loaded_square" or nil
+    table.sort(candidates, function(a, b) return a.score > b.score end)
+    local indoorProbes = 0
+    for _, candidate in ipairs(candidates) do
+        local room = select(1, utility.call(candidate.square, "getRoom"))
+        if room == nil then return candidate.square end
+        if indoorProbes < 8 then
+            indoorProbes = indoorProbes + 1
+            if SC.Navigation and SC.Navigation.spawnAccessible
+                and SC.Navigation.spawnAccessible(candidate.square, player) then
+                return candidate.square
+            end
+        end
+    end
+    return nil, "no_valid_loaded_square"
 end
 
 local function viableRescue(snapshot)

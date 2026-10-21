@@ -2136,7 +2136,7 @@ local function withinEgressRadius(startSquare, square)
     return math.abs(x - sx) + math.abs(y - sy) + math.abs((z or 0) - (sz or 0)) * 4 <= radius
 end
 
-local function boundedOutdoorPath(startSquare, vegetationScale)
+local function boundedOutdoorPath(startSquare, vegetationScale, actor)
     if not startSquare then return nil, "invalid_square", 0 end
     if squareIsOutdoor(startSquare) then return { startSquare }, nil, 0 end
     local startKey = squareKey(startSquare)
@@ -2166,7 +2166,7 @@ local function boundedOutdoorPath(startSquare, vegetationScale)
                 local otherKey = squareKey(otherSquare)
                 if otherKey and not closed[otherKey] and withinEgressRadius(startSquare, otherSquare) then
                     local passable, cost = passableEdge(
-                        current.square, otherSquare, vegetationScale)
+                        current.square, otherSquare, vegetationScale, { actor = actor })
                     if passable then
                         local tentative = current.g + cost
                         local known = nodes[otherKey]
@@ -2192,14 +2192,14 @@ local function boundedOutdoorPath(startSquare, vegetationScale)
     return nil, expanded >= nodeBudget and "budget" or "no_loaded_outdoor_route", expanded
 end
 
-local function reversedTrailPath(state, currentSquare)
+local function reversedTrailPath(state, currentSquare, actor)
     local trail = state.indoorTrail or {}
     if #trail < 2 or not sameSquare(trail[#trail], currentSquare) then return nil end
     local path = { currentSquare }
     local previous = currentSquare
     for index = #trail - 1, 1, -1 do
         local square = trail[index]
-        local passable = passableEdge(previous, square)
+        local passable = passableEdge(previous, square, nil, { actor = actor })
         if not passable then return nil end
         path[#path + 1] = square
         previous = square
@@ -2207,17 +2207,17 @@ local function reversedTrailPath(state, currentSquare)
     return path
 end
 
-local function refreshEgress(state, currentSquare, now)
+local function refreshEgress(state, currentSquare, now, actor)
     if squareIsOutdoor(currentSquare) then
         state.egressPath, state.egressTarget, state.egressReason = nil, nil, "already_outdoors"
         return
     end
     if now < (state.nextEgressScanAt or 0) then return end
-    local path, reason, expanded = boundedOutdoorPath(currentSquare, 1)
+    local path, reason, expanded = boundedOutdoorPath(currentSquare, 1, actor)
     local emergency = pathHasBush(path)
     if not path then
         path, reason, expanded = boundedOutdoorPath(currentSquare,
-            U().config("navigationEmergencyVegetationScale") or 0.2)
+            U().config("navigationEmergencyVegetationScale") or 0.2, actor)
         emergency = pathHasBush(path)
     end
     state.egressPath = path
@@ -2932,10 +2932,10 @@ local function resumeRouteSearch(job, expansionQuota)
     return resumeRouteSearchSlice(job, expansionQuota)
 end
 
-local function chooseRememberedEgress(state, currentSquare, now, snapshot)
-    refreshEgress(state, currentSquare, now)
+local function chooseRememberedEgress(state, currentSquare, now, snapshot, actor)
+    refreshEgress(state, currentSquare, now, actor)
     local computed = state.egressPath
-    local breadcrumb = reversedTrailPath(state, currentSquare)
+    local breadcrumb = reversedTrailPath(state, currentSquare, actor)
     local computedOutdoor = computed and squareIsOutdoor(computed[#computed])
     local breadcrumbOutdoor = breadcrumb and squareIsOutdoor(breadcrumb[#breadcrumb])
     if computedOutdoor and breadcrumbOutdoor then
@@ -2969,6 +2969,27 @@ local function chooseRememberedEgress(state, currentSquare, now, snapshot)
         }
     end
     return nil, { source = "none", reason = state.egressReason or "no_remembered_egress" }
+end
+
+function Navigation._followExitForRequest(actor, state, sourceSquare, goalSquare, now, intent)
+    if type(intent) ~= "table" or intent.followRecovery ~= true
+        or squareIsOutdoor(sourceSquare)
+        or (U().distance(sourceSquare, goalSquare) or 0)
+            <= (tonumber(U().config("navigationFollowEngineDistance")) or 24) then
+        return nil, nil
+    end
+    local sourceRoom = select(1, U().call(sourceSquare, "getRoom"))
+    local goalRoom = select(1, U().call(goalSquare, "getRoom"))
+    if sourceRoom ~= nil and goalRoom ~= nil then
+        local sourceBuilding = select(1, U().call(sourceRoom, "getBuilding"))
+        local goalBuilding = select(1, U().call(goalRoom, "getBuilding"))
+        if sourceBuilding ~= nil and sourceBuilding == goalBuilding then return nil, nil end
+    end
+    local exit, plan = chooseRememberedEgress(
+        state, sourceSquare, now, intent.snapshot, actor)
+    if exit and not sameSquare(exit, sourceSquare) then return exit, nil end
+    if plan and plan.reason == "budget" then return nil, nil end
+    return nil, "path_blocked:follow_no_reachable_exit"
 end
 
 local function threatArrivalMs(intent, square)
@@ -6628,6 +6649,21 @@ function Navigation.request(actor, target, movementMode, intent)
         goalSquare = recoveryGoal
         goalAdjusted = true
     end
+    -- Long-range engine following can repeatedly aim through a locked bank
+    -- shutter while a real doorway or window is around the building. Get out
+    -- by a locally verified route first, then resume the distant follow goal.
+    -- This also gives a sealed room an honest blocked result instead of
+    -- submitting the same impossible engine path every few seconds.
+    if not recoveryGoal then
+        local exit, exitProblem = SC.Navigation._followExitForRequest(
+            actor, state, sourceSquare, goalSquare, now, intent)
+        if exit then goalSquare, goalAdjusted = exit, true end
+        if exitProblem then
+            state.pathReason = "follow_exit_blocked"
+            state.lastMovementReason = "follow_no_reachable_exit"
+            return false, exitProblem
+        end
+    end
     SC.Navigation._markActorPassageForRequest(actor, state, now)
     state.trafficPriority = movementPriority(intent)
     state.trafficAction = type(intent) == "table" and intent.action or "move"
@@ -8679,7 +8715,23 @@ end
 
 function Navigation.findOutdoorPath(sourceSquare, options)
     local scale = type(options) == "table" and options.vegetationScale or nil
-    return boundedOutdoorPath(sourceSquare, scale)
+    local actor = type(options) == "table" and options.actor or nil
+    return boundedOutdoorPath(sourceSquare, scale, actor)
+end
+
+-- Indoor encounters remain possible, but a native-safe floor is not enough:
+-- a bank room behind locked shutters can have several walkable neighbours and
+-- no usable route outside. Check only shortlisted spawn candidates, never
+-- every square in the sampler. A missing room definition is not proof of an
+-- indoor exit, so fail conservatively when the square cannot be classified.
+function Navigation.spawnAccessible(square, actor)
+    if square == nil then return false end
+    local room, roomKnown = U().call(square, "getRoom")
+    if not roomKnown then return false end
+    if room == nil then return true end
+    local path = boundedOutdoorPath(square, 1, actor)
+    return type(path) == "table" and #path > 1
+        and squareIsOutdoor(path[#path])
 end
 
 function Navigation.rememberPosition(actor)
@@ -8717,7 +8769,7 @@ function Navigation.retreatTarget(actor, snapshot)
             end
         end
     end
-    local target, plan = chooseRememberedEgress(state, currentSquare, utility.nowMs(), snapshot)
+    local target, plan = chooseRememberedEgress(state, currentSquare, utility.nowMs(), snapshot, actor)
     if target then
         plan.snapshotTime = type(snapshot) == "table" and snapshot.time or nil
         return target, plan

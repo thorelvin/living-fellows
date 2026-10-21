@@ -6,6 +6,13 @@ local SC = SurvivorCompanion
 SC.ExpeditionCar = SC.ExpeditionCar or {}
 local Car = SC.ExpeditionCar
 
+local function traceTrip(trip, action, detail)
+    if type(print) ~= "function" then return end
+    print("[SurvivorCompanion/expedition-car] car="
+        .. tostring(trip and trip.sqlId or "?") .. " action="
+        .. tostring(action) .. (detail and " " .. detail or ""))
+end
+
 local function call(object, method, ...)
     if object == nil then return false, nil end
     return SC.Call.method(object, method, ...)
@@ -632,7 +639,8 @@ local function departReady(mission, trip, car)
         Car.areaById(trip.parkingZoneId), trip.parking) then
         return false, "home_parking_changed"
     end
-    local goal = trip.leg == "home" and trip.departure or trip.siteStop
+    local goal = trip.leg == "home"
+        and (trip.homeRoadEntry or trip.departure) or trip.siteStop
     local at = point(car)
     if not at then return false, "car_position_unavailable" end
     local route, routeReason, native = SC.ExpeditionRoute.planFromPoint(
@@ -1055,7 +1063,8 @@ local function resumeReady(mission, trip, car)
     if trip.leg == "home" and not sameParkingArea(zone, trip.parking) then
         return false, "home_parking_changed"
     end
-    local goal = trip.leg == "home" and trip.departure or trip.siteStop
+    local goal = trip.leg == "home"
+        and (trip.homeRoadEntry or trip.departure) or trip.siteStop
     local route, routeReason, native = SC.ExpeditionRoute.planFromPoint(
         at, goal, true)
     if not route then return false, routeReason end
@@ -1273,7 +1282,14 @@ function Car.pulse(mission, now, worldHour)
             trip.state, trip.blocker = "boarding_rollback", why
             return true
         end
-        local goal = trip.leg == "home" and trip.departure or trip.siteStop
+        local goal = trip.leg == "home"
+            and (trip.homeRoadEntry or trip.departure) or trip.siteStop
+        if trip.leg == "home"
+            and type(SC.GameplayUtil.diagnostic) == "function" then
+            SC.GameplayUtil.diagnostic("expedition-car", mission.leader.actor,
+                "action=home_road_goal point=" .. tostring(goal.x)
+                    .. "," .. tostring(goal.y))
+        end
         local started, reason = SC.Driving.drive(mission.leader.actor,
             goal, { speedKmh = 30,
                 stopShortTiles = trip.leg == "outbound" and 10 or 0,
@@ -1302,10 +1318,42 @@ function Car.pulse(mission, now, worldHour)
             trip.state = trip.leg == "home" and "parking_home"
                 or "unloading_site"
             scout.phase = trip.state
+            if trip.leg == "home" then
+                local at = point(car)
+                traceTrip(trip, "road_arrived", "point="
+                    .. tostring(at and at.x) .. "," .. tostring(at and at.y))
+            end
         elseif status and status.result == "failed" then
             trip.blocker = status.reason
+            local native = type(SC.Driving.status) == "function"
+                and SC.Driving.status(mission.leader.actor) or nil
+            local failedAt = point(car)
+            traceTrip(trip, "road_failed", "reason="
+                .. tostring(status.reason) .. " at="
+                .. tostring(failedAt and failedAt.x) .. ","
+                .. tostring(failedAt and failedAt.y)
+                .. " attempts=" .. tostring(status.attempts)
+                .. " native=" .. tostring(native and native.mode)
+                .. "/" .. tostring(native and native.state)
+                .. " obstacle=" .. tostring(native and native.obstacleKind))
             if status.reason == "streaming_stalled" then
                 hold(trip, "streaming_stalled")
+            elseif trip.leg == "home" and trip.homeRoadEntry
+                and (status.reason == "goal_not_reached"
+                    or status.reason == "route_blocked"
+                    or status.reason == "turn_failed") then
+                local at = point(car)
+                local stopped = SC.Vehicle.isStationary(car)
+                local entry = trip.homeRoadEntry
+                if stopped and at and (at.x - entry.x)^2
+                    + (at.y - entry.y)^2 <= 225 then
+                    trip.state, scout.phase = "parking_home", "parking_home"
+                    trip.parkingRecovery = true
+                    traceTrip(trip, "near_road_parking_recovery")
+                else
+                    trip.state, scout.phase = "fallback_unloading",
+                        "fallback_unloading"
+                end
             else
                 trip.state = "fallback_unloading"
                 scout.phase = trip.state
@@ -1339,9 +1387,20 @@ function Car.pulse(mission, now, worldHour)
             -- travel normally brings the car home facing the opposite way;
             -- requiring the departure heading would force an unnecessary
             -- turn inside the marked bay.
-            if fit then
+            if reason == "parking_not_stationary" then
+                -- The road follower can report arrived one physics tick before
+                -- the vehicle has settled. Do not request a new parking drive
+                -- while the car is still coasting inside the marked bay.
+                trip.parkingSettleStartedAt = trip.parkingSettleStartedAt or now
+                if now - trip.parkingSettleStartedAt > 10000 then
+                    hold(trip, "parking_not_stationary")
+                end
+            elseif fit then
+                trip.parkingSettleStartedAt = nil
                 trip.state, scout.phase = "unloading_home", "unloading_home"
+                traceTrip(trip, "parking_verified")
             elseif trip.approachStartedAt then
+                trip.parkingSettleStartedAt = nil
                 local status = SC.Driving.jobStatus(mission.leader.actor)
                 if status and status.result == "failed" then
                     hold(trip, status.reason or "parking_approach_failed")
@@ -1360,6 +1419,7 @@ function Car.pulse(mission, now, worldHour)
                     hold(trip, "parking_approach_timeout")
                 end
             else
+                trip.parkingSettleStartedAt = nil
                 local at = point(car)
                 local gap = at and math.sqrt((at.x - trip.departure.x)^2
                     + (at.y - trip.departure.y)^2) or math.huge
@@ -1384,9 +1444,12 @@ function Car.pulse(mission, now, worldHour)
                     if roadGap > 15 then hold(trip, "parking_road_end_unavailable")
                     else
                         local started, why = SC.Driving.approach(
-                            mission.leader.actor, road, 30000)
+                            mission.leader.actor, road, 30000,
+                            trip.parkingRecovery == true)
                         if started then
+                            trip.parkingRecovery = nil
                             trip.approachStage, trip.approachStartedAt = "road", now
+                            traceTrip(trip, "parking_segment", "stage=road")
                         else hold(trip, why) end
                     end
                 else
@@ -1403,11 +1466,17 @@ function Car.pulse(mission, now, worldHour)
                                 z = 0 }
                         end
                         local started, startReason = SC.Driving.approach(
-                            mission.leader.actor, waypoint, 30000)
+                            mission.leader.actor, waypoint, 30000,
+                            trip.parkingRecovery == true)
                         if started then
+                            trip.parkingRecovery = nil
                             trip.approachStage = waypoint == trip.departure
                                 and "bay" or "driveway"
                             trip.approachStartedAt = now
+                            traceTrip(trip, "parking_segment", "stage="
+                                .. trip.approachStage .. " target="
+                                .. tostring(waypoint.x) .. ","
+                                .. tostring(waypoint.y))
                         else hold(trip, startReason) end
                     end
                 end
@@ -1435,10 +1504,15 @@ function Car.pulse(mission, now, worldHour)
             scout.roadRoute, scout.road = nil, nil
         elseif trip.state == "unloading_home" then
             trip.state, scout.phase = "home_wait", "awaiting_player"
+            traceTrip(trip, "home_unloaded")
         else
             local abandoned, abandonReason = abandonToWalking(
                 mission, trip, car)
             if not abandoned then trip.blocker = abandonReason end
+            if abandoned then
+                traceTrip(trip, "road_unload_fallback", "reason="
+                    .. tostring(trip.blocker))
+            end
         end
         return true
     end
@@ -1502,6 +1576,11 @@ function Car.copyDescriptor(value, roster, leaderId)
     if not parking or not departure or not home or not siteStop then
         return nil, "vehicle_anchor_invalid"
     end
+    local homeRoadEntry = value.homeRoadEntry ~= nil
+        and pointCopy(value.homeRoadEntry) or nil
+    if value.homeRoadEntry ~= nil and not homeRoadEntry then
+        return nil, "vehicle_road_entry_invalid"
+    end
     local seats, used = {}, {}
     if type(roster) ~= "table" then return nil, "vehicle_roster_invalid" end
     for _, member in ipairs(roster) do
@@ -1536,6 +1615,7 @@ function Car.copyDescriptor(value, roster, leaderId)
         script = value.script, seats = seats,
         parkingZoneId = value.parkingZoneId, parking = parking,
         departure = departure, home = home, siteStop = siteStop,
+        homeRoadEntry = homeRoadEntry,
         position = pointCopy(value.position),
         sitePoint = pointCopy(value.sitePoint),
         abandonedAt = pointCopy(value.abandonedAt),

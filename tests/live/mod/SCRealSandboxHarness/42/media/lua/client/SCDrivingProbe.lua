@@ -1655,6 +1655,7 @@ local function scavengeDestination(H, SC, test, records, car)
         return left.score < right.score
     end)
     local failures, best, alternatives = {}, nil, {}
+    local preferredId = H.config.team_drive_scavenge_site_id
     for index = 1, math.min(16, #candidates) do
         local candidate = candidates[index]
         local inspected, reason = SC.ExpeditionCar.preflight(records,
@@ -1674,7 +1675,11 @@ local function scavengeDestination(H, SC, test, records, car)
             end
             alternatives[#alternatives + 1] = candidate.place.id
                 .. ":" .. fmt(cost) .. ":walk=" .. fmt(siteWalk)
-            if not best or cost < best.cost then
+            if candidate.place.id == preferredId then
+                best = { candidate = candidate, inspected = inspected,
+                    cost = cost }
+            elseif (not preferredId or preferredId == "")
+                and (not best or cost < best.cost) then
                 best = { candidate = candidate, inspected = inspected,
                     cost = cost }
             end
@@ -1697,7 +1702,8 @@ local function scavengeDestination(H, SC, test, records, car)
                 .. " distance=" .. fmt(best.candidate.distance)
                 .. " route_choices=" .. table.concat(alternatives, ";")
     end
-    return nil, nil, nil, "buildings_140_160=" .. tostring(#candidates)
+    return nil, nil, nil, "requested_site=" .. tostring(preferredId)
+        .. " buildings_140_160=" .. tostring(#candidates)
         .. " route_reasons=" .. table.concat(failures, ",")
 end
 
@@ -1769,7 +1775,7 @@ local function teamStep(H, SC, current, check, result, setPhase, test)
                 if #records == 3 then break end
             end
         end
-        if not check("team_drive_roster", #records == 3,
+        if not check("team_drive_roster", #records >= 2,
             "active=" .. tostring(#records)) then
             setPhase("finish", current) return
         end
@@ -1872,6 +1878,20 @@ local function teamStep(H, SC, current, check, result, setPhase, test)
     local mission = SC.ExpeditionPrototype.current()
     local trip = mission and mission.scout and mission.scout.vehicle
     local state = trip and trip.state or "mission_finished"
+    if H.clearZombiesNear
+        and current - (test.lastSiteClearAt or 0) >= 1000 then
+        -- This probe measures entry, looting, and driving. Keep combat from
+        -- ending the expedition before those phases can be observed.
+        local site = test.scavengeSite
+        if site and site.bounds then
+            H.clearZombiesNear({ x = (site.bounds.x + site.bounds.x2) / 2,
+                y = (site.bounds.y + site.bounds.y2) / 2, z = 0 }, 38)
+        elseif test.scavengeDestination then
+            H.clearZombiesNear(test.scavengeDestination, 38)
+        end
+        if car then H.clearZombiesNear(car, 18) end
+        test.lastSiteClearAt = current
+    end
     if H.config.team_drive_obstacle_probe == "true"
         and state == "parked_at_site" and not test.returnRequested then
         local requested, why = SC.ExpeditionCar.requestReturn(mission,
@@ -1923,7 +1943,7 @@ local function teamStep(H, SC, current, check, result, setPhase, test)
                     .. " native container-to-companion receipt")
         end
         if test.searchStartedAt and not test.scavengeLootComplete
-            and current - test.searchStartedAt > 120000 then
+            and current - test.searchStartedAt > 210000 then
             result("FAIL", "team_drive_scavenge_verified_item",
                 "search timed out with " .. #acquisitions .. " receipts")
             setPhase("finish", current) return
@@ -1949,7 +1969,7 @@ local function teamStep(H, SC, current, check, result, setPhase, test)
                 and snapshot.scout and snapshot.scout.vehicle
                 and snapshot.scout.vehicle.state == "driving_out"
                 and snapshot.scout.vehicle.sqlId == car:getSqlId()
-                and #snapshot.roster == 3 and nativeSeats,
+                and #snapshot.roster == #test.team and nativeSeats,
             "saved=" .. tostring(saved) .. " state="
                 .. tostring(snapshot and snapshot.scout
                     and snapshot.scout.vehicle

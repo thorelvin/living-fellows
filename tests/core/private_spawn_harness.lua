@@ -25,6 +25,7 @@ function square:getCell() return cell end
 function square:getX() return self.x end
 function square:getY() return self.y end
 function square:getZ() return self.z end
+function square:getRoom() return self.room end
 function cell:getGridSquare() return square end
 
 local player = {}

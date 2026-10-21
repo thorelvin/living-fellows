@@ -131,13 +131,24 @@ local function commandsFor(actor)
                 missionOrder.expeditionMoving =
                     SC.ExpeditionPrototype.testWaypointActiveFor(actor)
                     or phase == "outbound" or phase == "inbound"
-                    or phase == "searching" or phase == "observing"
+                    or phase == "searching" or phase == "entering_site"
+                    or phase == "observing"
                     or phase == "awaiting_player"
                 if waypoint ~= nil then
                     missionOrder.order = "move_to"
                     missionOrder.moveMode = "walk"
                     missionOrder.tacticalTarget = waypoint
                     missionOrder.doorBashAsLastResort = true
+                end
+                if type(SC.ExpeditionPrototype.siteEntryTargetsFor) == "function" then
+                    local entryTargets = SC.ExpeditionPrototype.siteEntryTargetsFor(actor)
+                    if entryTargets ~= nil then
+                        missionOrder.order = "move_to"
+                        missionOrder.moveMode = "walk"
+                        missionOrder.tacticalTarget = entryTargets[1]
+                        missionOrder.expeditionEntryTargets = entryTargets
+                        missionOrder.doorBashAsLastResort = true
+                    end
                 end
                 if type(SC.ExpeditionPrototype.supportActiveFor) == "function"
                     and SC.ExpeditionPrototype.supportActiveFor(actor) then
@@ -1728,6 +1739,18 @@ local function doTactical(actor, player, rootRuntime, commands, snapshot, state)
     local tactical = commands.tacticalTarget
     local target = tactical and utility.loadedSquare(tactical)
     if commands.order == "move_to" and target then
+        if commands.expeditionEntryTargets ~= nil then
+            if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
+                return false, "navigation_unavailable"
+            end
+            return SC.Navigation.requestAny(actor,
+                commands.expeditionEntryTargets, "walk", {
+                    action = "expedition_enter_site", snapshot = snapshot,
+                    doorBashAsLastResort = true,
+                    arrivalDistance = 0.35, requireSameSquare = true,
+                    movementPriority = 60,
+                })
+        end
         if not SC.Navigation or type(SC.Navigation.request) ~= "function" then
             return false, "navigation_unavailable"
         end

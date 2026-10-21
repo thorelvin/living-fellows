@@ -64,6 +64,7 @@ function cell:getGridSquare(x, y, _z)
     return {
         getX = function() return x end,
         getY = function() return y end,
+        getZ = function() return _z end,
         getRoom = function()
             if x >= 20 and x <= 30 and y >= 20 and y <= 30 then
                 return { id = "seen-police-interior" }

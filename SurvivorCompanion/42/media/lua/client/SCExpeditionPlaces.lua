@@ -295,6 +295,77 @@ function Places.siteContainsPoint(siteId, x, y, z)
     return matchingBuildingAt(grid, place, x, y, z) == true
 end
 
+-- Arrival is an exterior waypoint. Offer a few distinct, loaded floor tiles
+-- inside the selected building so movement can test actual entrances. Keep
+-- the scan local and bounded; a large building must not cost a whole frame.
+function Places.loadedInteriorCandidates(siteId, actor)
+    local place = savedSite(siteId)
+    if not place or not actor or not SC.GameplayUtil then
+        return {}, "site_entry_unavailable"
+    end
+    local ax, ay = tonumber(actor:getX()), tonumber(actor:getY())
+    local world = type(getWorld) == "function" and getWorld() or nil
+    local grid, gridOk = call(world, "getMetaGrid")
+    local cell, cellOk = call(world, "getCell")
+    if not ax or not ay or not gridOk or not cellOk or not grid or not cell then
+        return {}, "site_entry_unavailable"
+    end
+    local candidates = {}
+    local bounds = place.bounds
+    for y = math.max(bounds.y, math.floor(ay) - 14),
+            math.min(bounds.y2, math.floor(ay) + 14) do
+        for x = math.max(bounds.x, math.floor(ax) - 14),
+                math.min(bounds.x2, math.floor(ax) + 14) do
+            local square, loaded = call(cell, "getGridSquare", x, y, 0)
+            local room, roomOk = call(square, "getRoom")
+            if loaded and square and roomOk and room
+                and SC.GameplayUtil.isSquareFree(square)
+                and matchingBuildingAt(grid, place, x, y, 0) then
+                candidates[#candidates + 1] = {
+                    x = x, y = y, z = 0,
+                    distanceSq = (x - ax)^2 + (y - ay)^2,
+                }
+            end
+        end
+    end
+    table.sort(candidates, function(a, b)
+        if a.distanceSq ~= b.distanceSq then
+            return a.distanceSq < b.distanceSq
+        end
+        if a.x ~= b.x then return a.x < b.x end
+        return a.y < b.y
+    end)
+    local result = {}
+    for _, candidate in ipairs(candidates) do
+        local distinct = true
+        for _, chosen in ipairs(result) do
+            if (candidate.x - chosen.x)^2 + (candidate.y - chosen.y)^2 < 9 then
+                distinct = false
+                break
+            end
+        end
+        if distinct then
+            result[#result + 1] = { x = candidate.x, y = candidate.y, z = 0 }
+            if #result >= 12 then break end
+        end
+    end
+    return result, #result > 0 and nil or "site_entry_no_loaded_floor"
+end
+
+function Places.actorInsideSite(siteId, actor)
+    local place = savedSite(siteId)
+    local square, squareOk = call(actor, "getCurrentSquare")
+    local room, roomOk = call(square, "getRoom")
+    if not place or not squareOk or not roomOk or not room then return false end
+    local x, xOk = call(square, "getX")
+    local y, yOk = call(square, "getY")
+    local z, zOk = call(square, "getZ")
+    local world = type(getWorld) == "function" and getWorld() or nil
+    local grid, gridOk = call(world, "getMetaGrid")
+    return xOk and yOk and zOk and gridOk and grid
+        and matchingBuildingAt(grid, place, x, y, z) == true or false
+end
+
 -- A scout confirms its selected building only from a square it can actually
 -- see. Bound the inspection to loaded squares near the leader.
 function Places.visibleSiteSquare(siteId, actor)

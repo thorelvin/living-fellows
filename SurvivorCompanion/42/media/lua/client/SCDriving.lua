@@ -467,14 +467,35 @@ end
 -- The original managed lease remains owned while its arrived car is parked.
 -- Start a fresh native driver under that lease for one short, clear parking
 -- segment. The mission owner checks the entire footprint after arrival.
-function Driving.approach(actor, target, seconds)
+function Driving.approach(actor, target, seconds, allowStoppedRoadFailure)
     local job = jobs[actor]
+    local recovered = job and allowStoppedRoadFailure == true
+        and job.result == "failed" and job.precise ~= true
+        and (job.reason == "goal_not_reached"
+            or job.reason == "route_blocked"
+            or job.reason == "turn_failed")
     if not job or job.managed ~= true or job.parked ~= true
-        or job.result ~= "arrived" or not SC.ActionSupervisor
+        or (job.result ~= "arrived" and not recovered)
+        or not SC.ActionSupervisor
         or not SC.ActionSupervisor.isCurrent(job.token) then
         return false, "parking_requires_arrived_drive"
     end
     local vehicle = vehicleOf(actor)
+    if recovered then
+        local stopped = SC.Vehicle and SC.Vehicle.isStationary
+            and SC.Vehicle.isStationary(vehicle)
+        local road = job.roadGoal
+        local rx = road and finite(road.x)
+        local ry = road and finite(road.y)
+        local vxOk, vx = method(vehicle, "getX")
+        local vyOk, vy = method(vehicle, "getY")
+        vx, vy = finite(vx), finite(vy)
+        if stopped ~= true or not rx or not ry or not vxOk or not vyOk
+            or not vx or not vy
+            or (vx - rx)^2 + (vy - ry)^2 > 225 then
+            return false, "parking_failed_drive_not_at_road_end"
+        end
+    end
     local xOk, x = method(vehicle, "getX")
     local yOk, y = method(vehicle, "getY")
     local zOk, z = method(vehicle, "getZ")
@@ -710,9 +731,50 @@ function Driving.tick(current)
                         if not x or not y or x < 0 or x > 30000 or y < 0 or y > 30000 then
                             parkResult(job, "failed", "invalid_blocked_position")
                         elseif job.attempts >= 3 or #job.circles >= 8 then
+                            if SC.GameplayUtil and type(SC.GameplayUtil.diagnostic)
+                                == "function" then
+                                local route = job.route and job.route.points or {}
+                                local nearest, distanceSq = nil, math.huge
+                                for index, point in ipairs(route) do
+                                    local gap = (point.x - x)^2 + (point.y - y)^2
+                                    if gap < distanceSq then
+                                        nearest, distanceSq = index, gap
+                                    end
+                                end
+                                local nearby = {}
+                                for index = math.max(1, (nearest or 1) - 2),
+                                        math.min(#route, (nearest or 1) + 2) do
+                                    local point = route[index]
+                                    nearby[#nearby + 1] = index .. ":"
+                                        .. tostring(point.x) .. ","
+                                        .. tostring(point.y)
+                                end
+                                SC.GameplayUtil.diagnostic("driving-route-blocked",
+                                    job.actor, "at=" .. tostring(x) .. ","
+                                        .. tostring(y) .. " obstacle="
+                                        .. tostring(status.obstacleKind)
+                                        .. " route=" .. table.concat(nearby, ";"))
+                            end
                             parkResult(job, "failed", "route_blocked")
                         else
-                            job.circles[#job.circles + 1] = { x = x, y = y, radius = 12 }
+                            -- A repeated block at one bend needs a wider
+                            -- detour. Three almost identical 12-tile circles
+                            -- select the same bad road connector each time.
+                            local repeated
+                            for _, circle in ipairs(job.circles) do
+                                if (circle.x - x)^2 + (circle.y - y)^2 <= 64 then
+                                    repeated = circle
+                                    break
+                                end
+                            end
+                            if repeated then
+                                repeated.radius = math.min(32,
+                                    repeated.radius + 8)
+                            else
+                                job.circles[#job.circles + 1] = {
+                                    x = x, y = y, radius = 12,
+                                }
+                            end
                             job.attempts, job.phase = job.attempts + 1, "replanning"
                             planJob(job)
                         end

@@ -741,6 +741,12 @@ local function safeSquare(square, player, requireUnseen)
             end
         end
     end
+    local roomOk, room = invoke(square, "getRoom")
+    if not roomOk then return false end
+    if room ~= nil then
+        if not SC.Navigation or type(SC.Navigation.spawnAccessible) ~= "function"
+            or SC.Navigation.spawnAccessible(square, player) ~= true then return false end
+    end
     return true
 end
 
@@ -751,6 +757,7 @@ local function fallbackSquare(player, minimum, maximum, requireUnseen)
     if not xOk or not yOk or not cellOk or cell == nil then return nil end
     minimum = tonumber(minimum) or SC.Config.get("spawnMinDistance")
     maximum = tonumber(maximum) or SC.Config.get("spawnMaxDistance")
+    local indoorProbes = 0
     for _ = 1, SC.Config.get("spawnSampleCount") do
         local distance = randomBetween(minimum, maximum)
         local octant = randomBetween(0, 7)
@@ -762,7 +769,16 @@ local function fallbackSquare(player, minimum, maximum, requireUnseen)
         if octant == 2 or octant == 3 or octant == 6 or octant == 7 then dy = -dy end
         local squareOk, square = invoke(cell, "getGridSquare",
             math.floor(playerX + dx), math.floor(playerY + dy), 0)
-        if squareOk and safeSquare(square, player, requireUnseen) then return square end
+        local eligible = squareOk and square ~= nil
+        if eligible then
+            local roomOk, room = invoke(square, "getRoom")
+            eligible = roomOk
+            if roomOk and room ~= nil then
+                indoorProbes = indoorProbes + 1
+                eligible = indoorProbes <= 8
+            end
+        end
+        if eligible and safeSquare(square, player, requireUnseen) then return square end
     end
     return nil
 end

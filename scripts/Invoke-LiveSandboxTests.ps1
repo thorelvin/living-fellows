@@ -119,6 +119,8 @@ param(
     [switch]$TeamDriveProbe,
     # Send the same squad to a real building roughly 150 tiles away to search.
     [switch]$TeamDriveScavengeProbe,
+    # Optional exact site ID for a repeatable real-building search probe.
+    [string]$TeamDriveScavengeSiteId = '',
     # Revisit the roadside stop that previously stranded the team during its turn.
     [switch]$TeamDriveObstacleProbe,
     # Stage a three-person mission while driving, then reload the retained clone.
@@ -1576,6 +1578,7 @@ $config = @(
     ('driving_remote=' + $DrivingRemote.IsPresent.ToString().ToLowerInvariant()),
     ('team_drive_probe=' + $TeamDriveProbe.IsPresent.ToString().ToLowerInvariant()),
     ('team_drive_scavenge_probe=' + $TeamDriveScavengeProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_drive_scavenge_site_id=' + $TeamDriveScavengeSiteId),
     ('team_drive_obstacle_probe=' + $TeamDriveObstacleProbe.IsPresent.ToString().ToLowerInvariant()),
     ('team_drive_restart_stage=' + $TeamDriveRestartStage.IsPresent.ToString().ToLowerInvariant()),
     ('team_drive_restart_resume=' + $TeamDriveRestartResume.IsPresent.ToString().ToLowerInvariant()),

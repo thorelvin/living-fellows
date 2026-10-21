@@ -25,6 +25,7 @@ function square:getCell() return cell end
 function square:getX() return self.x end
 function square:getY() return self.y end
 function square:getZ() return self.z end
+function square:getRoom() return self.room end
 function cell:getGridSquare() return square end
 
 local player = {}
@@ -71,6 +72,17 @@ do
     player.z, cell.getGridSquare, SC.Encounter = nil, originalLookup, originalEncounter
     check(selected == square,
         "final validation rejects an upper-floor roof and fallback samples ground level")
+end
+do
+    local oldNavigation = SC.Navigation
+    square.room = { name = "bank" }
+    SC.Navigation = { spawnAccessible = function() return false end }
+    local sealed = SC.Spawn.chooseSquare(player, {})
+    SC.Navigation.spawnAccessible = function() return true end
+    local reachable = SC.Spawn.chooseSquare(player, {})
+    square.room, SC.Navigation = nil, oldNavigation
+    check(sealed == nil and reachable == square,
+        "indoor encounters remain valid only when a real exit route can be found")
 end
 local recoveringRuntime = { active = false, disabledReason = "bridge exposure pending" }
 local recovered = SC.Spawn.productionPulse(player, recoveringRuntime, 700000)

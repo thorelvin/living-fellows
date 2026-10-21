@@ -35,7 +35,9 @@ Production.FALLEN_DISPLAY_NAME = "LF_FallenDisplayName"
 -- and each function's upvalues well inside Kahlua's limits.
 local Disposal = { urgentAt = {} }
 local TOOL_TAGS = { choptree = "CHOP_TREE", saw = "SAW", diggrave = "DIG_GRAVE" }
-local TOOL_CATEGORIES = { "tools", "construction", "crafting", "general" }
+-- Shovels with DIG_PLOW are sorted into Farming supplies, but the same
+-- physical shovel carries DIG_GRAVE. Earthwork must search that shelf too.
+local TOOL_CATEGORIES = { "tools", "farming", "construction", "crafting", "general" }
 local SPEECH = {
     ["work.fell.start"] = { chance = 35, actorMs = 45000 },
     ["work.fell.timber"] = { chance = 60, actorMs = 20000 },

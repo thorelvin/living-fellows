@@ -1588,6 +1588,34 @@ do
         "the exact shovel returns to its marked source container: " .. tostring(reason))
 end
 
+do
+    local ctx = setup()
+    local farmingObject = makeStorage(sq(2, -1))
+    local registered = SC.BaseLife.registerStorage(farmingObject, "farming")
+    check(registered == true, "farming supplies storage registers for grave-tool retrieval")
+    local shovel = makeItem("Base.Shovel", {
+        tags = { diggrave = true, digplow = true },
+    })
+    farmingObject.container:AddItem(shovel)
+    local order = start(ctx, { operation = "dig_graves", zoneId = ctx.burial.id, requested = 1 })
+    local reason
+    for _ = 1, 8 do
+        _, reason = tick(ctx)
+        if SC.NativeActions.workKind(ctx.actor) == "dig_grave" then break end
+    end
+    check(SC.NativeActions.workKind(ctx.actor) == "dig_grave"
+        and shovel.container == ctx.actor.inventory,
+        "gravekeeper borrows a shovel sorted into Farming supplies: " .. tostring(reason))
+    current(ctx.actor):perform()
+    for _ = 1, 7 do
+        _, reason = tick(ctx)
+        if shovel.container == farmingObject.container then break end
+    end
+    check(shovel.container == farmingObject.container
+        and SC.BaseLife.productionOrder(order.id).state == "completed",
+        "gravekeeper returns the exact shovel to Farming supplies: " .. tostring(reason))
+end
+
 -- Parking may legally sit beyond the camp edge. The real BaseWork outer guard
 -- must keep the unloading job in control there, and a settled blocked order
 -- must become claimable by a second resident.

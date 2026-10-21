@@ -5110,6 +5110,12 @@ local rememberedExit, egressPlan = SurvivorCompanion.Navigation.retreatTarget(ro
 check(rememberedExit == routeOutside and egressPlan.outdoors
     and (egressPlan.source == "shortest_outdoor" or egressPlan.source == "entry_route"),
     "retreat planning selects the shortest verified exterior route or the known entry trail")
+local followExit, followExitProblem = SurvivorCompanion.Navigation._followExitForRequest(
+    routeActor, SurvivorCompanion.Navigation.peek(routeActor), routeDeep,
+    cell:getGridSquare(0, 0, 0), clock,
+    { action = "follow_formation", followRecovery = true })
+check(followExit == routeOutside and followExitProblem == nil,
+    "a distant follow leaves its current building by a local verified exit first")
 end
 
 do
@@ -7553,6 +7559,33 @@ do
     SurvivorCompanion.Commands.reset(armedCompanion)
     SurvivorCompanion.Combat.reset(armedCompanion)
     registry[armedCompanion.id] = nil
+end
+
+do
+    local spade = item("Base.Shovel", "Weapon", {
+        damage = 9, range = 1.8, tags = { DIG_GRAVE = true },
+    })
+    local crowbar = item("Base.Crowbar", "Weapon", {
+        damage = 1.2, range = 1.5,
+    })
+    local digger = actor("sc-digging-tool-combat", -6, 7, {
+        inventory = inventory({ spade, crowbar }),
+    })
+    local equipped = SurvivorCompanion.Combat.equipPreferred(digger, "melee")
+    check(equipped and digger.primary == crowbar,
+        "usable combat weapon takes priority over a stronger grave-digging spade")
+    digger.inventory:Remove(crowbar)
+    digger.primary = nil
+    SurvivorCompanion.Combat.reset(digger)
+    equipped = SurvivorCompanion.Combat.equipPreferred(digger, "melee")
+    check(equipped and digger.primary == spade,
+        "spade remains a usable fallback when no other melee weapon is carried")
+    digger.inventory:AddItem(crowbar)
+    spade:getModData().SC_ManualEquipFor = digger.id
+    SurvivorCompanion.Combat.reset(digger)
+    equipped = SurvivorCompanion.Combat.equipPreferred(digger, "melee")
+    check(equipped and digger.primary == spade,
+        "explicit manual spade equip overrides the work-tool combat preference")
 end
 
 do
@@ -12575,9 +12608,19 @@ do
             and not Encounter._approachExpired({}, 99999999),
         "a scavenge approach fails after 45 seconds without reaching its container")
     approach.scavengeMissionId = "search-test"
-    check(not Encounter._approachExpired(approach, 26000)
-            and Encounter._approachExpired(approach, 26001),
-        "an expedition search abandons a crowded container after 25 seconds")
+    Encounter._approachExpired(approach, 1000, 6,
+        { expandedNodes = 0 })
+    check(not Encounter._approachExpired(approach, 13000)
+            and Encounter._approachExpired(approach, 13001),
+        "an expedition search abandons a container after 12 seconds without route progress")
+    approach.approachProgressAt = 13000
+    check(not Encounter._approachExpired(approach, 24000, 5,
+                { expandedNodes = 100 })
+            and not Encounter._approachExpired(approach, 26000, 5,
+                { expandedNodes = 180 })
+            and Encounter._approachExpired(approach, 26001, 5,
+                { expandedNodes = 200 }),
+        "verified path progress may use the full 25-second expedition approach budget")
 
     local stuckFood = item("Base.CannedBologneseStuck", "Food")
     local stuckLooter = actor("sc-loot-stuck-approach", 50, 50, {})
@@ -14358,6 +14401,33 @@ check(spawnSquare ~= nil and spawnSquare.hidden == true
         and SurvivorCompanion.GameplayUtil.distance(spawnSquare, player) >= 50
         and SurvivorCompanion.GameplayUtil.distance(spawnSquare, player) <= 110,
     "production spawn chooser returns a loaded, unseen square within the doubled range")
+do
+    local bankFloor = cell:getGridSquare(45, 45, 0)
+    local oldRoom = bankFloor.room
+    bankFloor.room = { name = "bank" }
+    local neighbors = {
+        cell:getGridSquare(44, 45, 0), cell:getGridSquare(46, 45, 0),
+        cell:getGridSquare(45, 44, 0), cell:getGridSquare(45, 46, 0),
+    }
+    for _, neighbor in ipairs(neighbors) do
+        bankFloor.blocked[neighbor] = true
+        neighbor.blocked[bankFloor] = true
+    end
+    check(not SurvivorCompanion.Navigation.spawnAccessible(bankFloor),
+        "a sealed indoor bank tile is rejected even when its floor is native-safe")
+    local blockedExit, blockedReason = SurvivorCompanion.Navigation._followExitForRequest(
+        player, {}, bankFloor, cell:getGridSquare(0, 0, 0), clock,
+        { action = "follow_formation", followRecovery = true })
+    check(blockedExit == nil and blockedReason == "path_blocked:follow_no_reachable_exit",
+        "a trapped follower reports the missing exit instead of retrying a distant engine route")
+    for _, neighbor in ipairs(neighbors) do
+        bankFloor.blocked[neighbor] = nil
+        neighbor.blocked[bankFloor] = nil
+    end
+    check(SurvivorCompanion.Navigation.spawnAccessible(bankFloor),
+        "indoor spawning remains available when an actual exit route exists")
+    bankFloor.room = oldRoom
+end
 do
     local roof = cell:getGridSquare(40, 20, 1)
     roof.hidden = true

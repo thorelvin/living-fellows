@@ -483,7 +483,8 @@ end
 function Route.allowInteriorAccess(route, kind, phase, leaderInRoom)
     if route == nil then
         return phase == "inbound"
-            or kind == "search" and phase == "outbound"
+            or kind == "search" and (phase == "outbound"
+                or phase == "entering_site")
     end
     if type(route.points) ~= "table" or type(route.index) ~= "number" then
         return false

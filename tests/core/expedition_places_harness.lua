@@ -73,6 +73,23 @@ check(approach ~= nil and approachReason == nil
 local restoredApproach = Places.loadedSiteApproach(nearby[1].id, actor)
 check(restoredApproach ~= nil and restoredApproach.x == 19,
     "arrival can recheck exterior access from a saved site ID")
+local entryActor = {
+    getX = function() return 19 end,
+    getY = function() return 25 end,
+    getCurrentSquare = function()
+        return fixture.cell:getGridSquare(19, 25, 0)
+    end,
+}
+local interior = Places.loadedInteriorCandidates(nearby[1].id, entryActor)
+check(#interior > 0 and #interior <= 12 and interior[1].x >= 20,
+    "arrival offers bounded loaded floor tiles within the selected building")
+check(not Places.actorInsideSite(nearby[1].id, entryActor),
+    "the exterior arrival point does not count as entering the building")
+entryActor.getCurrentSquare = function()
+    return fixture.cell:getGridSquare(20, 25, 0)
+end
+check(Places.actorInsideSite(nearby[1].id, entryActor),
+    "a room tile belonging to the selected building completes entry")
 local firstPath = SurvivorCompanion.Navigation.findPath
 SurvivorCompanion.Navigation.findPath = function(source, destination)
     if destination:getX() == 19 and destination:getY() == 23 then
