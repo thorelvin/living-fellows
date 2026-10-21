@@ -279,6 +279,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# The loading-gate agent JAR is built with ZipFile, which Windows
+# PowerShell 5.1 does not load by default.
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
     $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
     $ProjectRoot = Split-Path -Parent $scriptDirectory
