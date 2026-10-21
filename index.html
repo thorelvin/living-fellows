@@ -311,22 +311,24 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <p class="subtitle">A Complete Guide to Living with the Fellows of Knox County</p>
   <p class="divider">· · · ✚ · · ·</p>
   <p class="edition">Living Fellows — Project Zomboid Build 42.21.0 Edition</p>
-  <p class="version">Release 0.26.44 — First Edition, Thirteenth Printing — You won't die... alone.</p>
+  <p class="version">Release 0.26.54 — First Edition, Fourteenth Printing — You won't die... alone.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2.5rem;"><span class="callout-label">Note — </span>
-<strong>What changed in this printing</strong> — through release 0.26.44:
+<strong>What changed in this printing</strong> — through release 0.26.54:
 <ul style="margin-top:0.5rem;margin-bottom:0;">
-  <li><a href="#ch4_field"><strong>Work beside your squad.</strong></a> Following companions can harvest ripe crops or chop nearby trees outside camp, then carry the produce or load it into your recent nearby car.</li>
-  <li><a href="#ch5c"><strong>More ways to travel.</strong></a> A companion can drive a second car behind yours; Markus Sloane's radio-booked taxi can take you to a road stop you mark on the world map.</li>
-  <li><a href="#ch6"><strong>Safer fights and closer following.</strong></a> Companions coordinate against small groups, time a retreating swing to meet closing zombies, and regain formation after a short jog.</li>
-  <li><a href="#ch14b"><strong>Camp vehicles and power.</strong></a> Base-duty residents can refuel parked cars and generators, inflate tires and wash parked cars using marked supplies. Blocked chores now report and recover more clearly.</li>
+  <li><a href="#ch7_carry"><strong>Two carrying limits.</strong></a> Companions pick up and work against their pack's physical limit, while Strength, condition and traits such as Strong or Feeble set how much they carry comfortably. At camp the surplus goes into marked storage, never onto the ground, and keys always stay with them.</li>
+  <li><a href="#ch4_field"><strong>Bigger field harvests.</strong></a> Crop orders reach 16 tiles and a car up to 40 tiles away. Workers plan each plant against their carrying limit, unload to the trunk in batches, and shelve their own harvest at camp when no car was chosen.</li>
+  <li><a href="#ch11"><strong>New storage and a log yard.</strong></a> Regular food and Fresh food are marked apart, Valuables takes loose jewelry and cash, and an Outdoor log yard holds logs loose or bundled. Camp jobs try every matching container before they report storage full.</li>
+  <li><a href="#ch17"><strong>Expeditions bring it home.</strong></a> Requested supplies are tracked from finder to shelf, a walkie-talkie can ask for a progress report, and members can restock and go back to base duty. Car trips take long driveways, detour around blocked roads, and back a pinned car off before giving up.</li>
+  <li><a href="#ch8"><strong>Water on the way.</strong></a> Companions top up their bottles at a clean source nearby when you stop, and on base duty.</li>
+  <li><a href="#ch5"><strong>Calmer following.</strong></a> Close followers walk into formation and jog only when their slot falls well behind.</li>
 </ul>
-<p style="margin:0.6rem 0 0;">Also current: <a href="#ch17">car expeditions</a>, <a href="#appB_mod">companion chatter and comfort settings</a>, <a href="#ch18c">sixty-five Strange Folk</a> with <a href="#ch18c_calls">calls for help</a> on 90 MHz, the hands-on <a href="#ch3b">Medical Check</a>, and <a href="#ch11">25 by 25 camps</a>. This release uses native bridge protocol <code>42.21-isocompanion-24</code>.</p>
+<p style="margin:0.6rem 0 0;">Also current: <a href="#ch17">car expeditions</a>, <a href="#ch14b">camp car and generator upkeep</a>, <a href="#ch5c">a companion-driven second car and Markus Sloane's taxi</a>, <a href="#ch6">coordinated squad fighting</a>, <a href="#appB_mod">companion chatter and comfort settings</a>, <a href="#ch18c">sixty-five Strange Folk</a> with <a href="#ch18c_calls">calls for help</a> on 90 MHz, the hands-on <a href="#ch3b">Medical Check</a>, and <a href="#ch11">25 by 25 camps</a>. This release uses native bridge protocol <code>42.21-isocompanion-24</code>.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2.5rem;"><span class="callout-label">Note — </span>
-<strong>About this manual</strong> — it covers what the companion panel does not explain: how the fellows think, what they need from you, and the rules they follow when nobody is giving orders. Everything here describes release 0.26.44 and was checked against the mod itself. Living Fellows is a <strong>public playtest</strong>: back up important saves, and send logs when something goes wrong (<a href="#appD">Appendix D</a>). The mod lives at <a href="https://github.com/thorelvin/living-fellows">github.com/thorelvin/living-fellows</a>. The <em>Overheard</em> quotes are real lines from the mod's own voice pools.
+<strong>About this manual</strong> — it covers what the companion panel does not explain: how the fellows think, what they need from you, and the rules they follow when nobody is giving orders. Everything here describes release 0.26.54 and was checked against the mod itself. Living Fellows is a <strong>public playtest</strong>: back up important saves, and send logs when something goes wrong (<a href="#appD">Appendix D</a>). The mod lives at <a href="https://github.com/thorelvin/living-fellows">github.com/thorelvin/living-fellows</a>. The <em>Overheard</em> quotes are real lines from the mod's own voice pools.
 </div>
 
 <!-- TABLE OF CONTENTS -->
@@ -615,8 +617,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <h3 id="ch4_field">One-off Field Work Away from Camp</h3>
 <p>With recruited companions on Follow, right-click a ground tile near you and choose <span class="menu">Living Fellows → Squad → Harvest nearby ripe crops</span> or <span class="menu">Chop nearby trees (up to five)</span>. One temporary green circle marks the tile you clicked. Harvesting covers ripe crops within 16 tiles; chopping covers trees within eight tiles. Followers within 16 tiles join the same order, claim different targets, and use the game's farming or tree-chopping actions. Camp-owned areas are left to the regular base jobs.</p>
-<p>If the last non-taxi car you rode, as driver or passenger, is parked within 40 tiles of a crop order or 20 tiles of a tree order, the squad loads its gathered items into that car. A woodcutter can borrow an axe from its trunk and return it when finished. Without a nearby car, the workers carry what they gather; they stop taking wood when their packs are nearly full. If that car's trunk is locked, one follower enters, unlocks it from inside, and gets out before work begins. A locked or unreachable door, a failed unlock, a full trunk or an unavailable car pauses the order with a reason instead of switching cars or leaving cargo on the ground.</p>
-<p>The <span class="menu">Squad</span> panel shows progress and offers <strong>Stop field work and regroup</strong> or <strong>Resume field work</strong> when paused. An immediate threat interrupts work. Walking more than 32 tiles from a crop order or 16 tiles from a tree order ends it and brings the followers back to you.</p>
+<p>If the last non-taxi car you rode, as driver or passenger, is parked within 40 tiles of a crop order or 20 tiles of a tree order, the squad loads its gathered items into that car, up to eight at a time, including produce carried in bags. A woodcutter can borrow an axe from its trunk and return it when finished. Without a nearby car, the workers carry what they gather and keep it for you. If that car's trunk is locked, one follower enters, unlocks it from inside, and gets out before work begins. A locked or unreachable door, a failed unlock, a full trunk or an unavailable car pauses the order with a reason instead of switching cars or leaving cargo on the ground.</p>
+<p>Each worker plans against its carrying limit (<a href="#ch7_carry">Chapter 7</a>). A trip ends at about four-fifths of that limit, and a crop worker skips a plant whose biggest possible yield, counting seeds and farming skill, would take it over. A worker carrying none of the order's cargo may still take one heavy plant, such as a pumpkin, or one log, if it fits in the pack. Back inside the camp, a worker without a car puts its own harvest into matching marked storage, and logs into a marked log yard (<a href="#ch11">Chapter 11</a>). Its protected gear and provisions stay with it, and if that storage is full or out of reach, the cargo stays too until a later try.</p>
+<p>The <span class="menu">Squad</span> panel shows progress and offers <strong>Stop field work and regroup</strong> or <strong>Resume field work</strong> when paused. An immediate threat interrupts work, and the order does not wait for a worker who has died. Walking more than 32 tiles from a crop order or 16 tiles from a tree order ends it and brings the followers back to you.</p>
 
 <h3>Assigned Objectives</h3>
 <p>Right-click a recruited companion and choose <span class="menu">Assign objective</span> to set a concrete priority: medical supplies, reading material, gear, shelter, or a proper meal. Their own personal goal is kept and comes back once your objective is met (<a href="#ch9d">Chapter 9d</a>).</p>
@@ -672,7 +675,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 5 -->
 <h2 class="chapter" id="ch5"><img class="ico" src="https://pzwiki.net/w/images/4/4d/Flashlight.png" alt="">Chapter 5: Moving Together<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<p>Followers keep their place instead of stacking on your heels. By default a team you lead walks in single file along your path. Turn on <span class="menu">Team fans out while following</span> (Orders, Combat; it applies to the whole team) and on clear open ground they spread into fireteam slots instead: a close fighter at point, firearm support in the middle, and a cautious survivor at the rear. Doors, windows, fences, stairs and narrow streets put them back in file, one at a time, and they spread out again on the other side. The moving team aims for stable nearby slots and uses short jogs to catch up when clear ground opens. An expedition squad always uses the fireteam shape.</p>
+<p>Followers keep their place instead of stacking on your heels. By default a team you lead walks in single file along your path. Turn on <span class="menu">Team fans out while following</span> (Orders, Combat; it applies to the whole team) and on clear open ground they spread into fireteam slots instead: a close fighter at point, firearm support in the middle, and a cautious survivor at the rear. Doors, windows, fences, stairs and narrow streets put them back in file, one at a time, and they spread out again on the other side. The moving team aims for stable nearby slots. Close followers walk into place; one whose slot is more than about three and a half tiles away jogs to catch up and walks the last couple of tiles. An expedition squad always uses the fireteam shape.</p>
 
 <table>
   <tr><th>Fireteam role</th><th>Where they stand</th><th>Who fits it</th></tr>
@@ -862,10 +865,18 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <h3>Gear and Upkeep</h3>
 <ul>
-  <li>Companions use backpacks, keep supplies suited to their role, and drop dead weight outside combat.</li>
+  <li>Companions use backpacks and keep supplies suited to their role.</li>
   <li>They loot dead zombies when it is safe, and upgrade their clothing and armour.</li>
   <li>They wash themselves and their gear near clean water. In downtime they wash dirty dressings for reuse and make splints from clean strips and wood.</li>
   <li>After dark, and in an unlit room at any hour, a companion carrying a <img class="ico-sm" src="https://pzwiki.net/w/images/4/4d/Flashlight.png" alt="">flashlight holds it in its off hand and switches it on. It puts it out when there is light again, and swaps in a spare battery when the torch runs flat. A two-handed weapon leaves no hand for a torch.</li>
+</ul>
+
+<h3 id="ch7_carry"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/9/9f/Moodle_Icon_HeavyLoad.png" alt="">How Much They Carry</h3>
+<p>A companion has two limits. The <strong>pack limit</strong> is its inventory's physical capacity of 50 units: it decides what the companion can pick up, cook, saw or trade. The <strong>carrying limit</strong> comes from the game's own Strength and condition calculation, the load it can carry before it slows and tires. Strong and Stout raise it; Weak and Feeble lower it. <strong>Allow overload</strong> lets a companion go past both, up to a cap (<a href="#ch3b">Chapter 3b</a>).</p>
+<ul>
+  <li><strong>At camp</strong>, a companion carrying more than about 70% of its carrying limit puts surplus into matching marked storage. Surplus never goes on the ground, and a companion on Stay or Guard, or on an expedition, doesn't leave its task to shelve it.</li>
+  <li><strong>Away from camp</strong>, only a nearly full pack, about 36 of its 50 units, makes it drop low-value surplus, and never in combat.</li>
+  <li><strong>Never surplus</strong>: <img class="ico-sm" src="https://pzwiki.net/w/images/7/7f/KeyRing.png" alt="">keys, field-work cargo and borrowed tools, quest items, chef and cleaning supplies, expedition finds and trade recovery items.</li>
 </ul>
 
 <figure class="plate">
@@ -904,8 +915,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <h3>Water and Food</h3>
 <p>A companion drinks only <strong>clean</strong> water: a carried bottle, a safe source nearby such as a working sink, or water fetched from camp storage. Tainted or poisoned water is not drunk. At camp, a clean tap or well within six tiles on the same floor comes before their own bottles, which they save for the road, and a source on a connected camp floor will do; a source that fails is left alone for a short while. Thirst comes first, but no water never stops a companion eating. One that is thirsty and hungry with no clean water in reach eats its food and keeps looking for water.</p>
+<p>A companion on Follow, once you stop, or on base duty tops up its drinking containers of up to 3 litres when one falls below half. It uses a verified clean source within three tiles, a short detour, or any clean source in the camp areas. It never leaves a Stay or Guard post for it, and doesn't stop to refill in danger, while bleeding, or with a more urgent need.</p>
 
-<div class="callout callout-tip"><span class="callout-label">Note — </span>Mark a <strong>Water</strong> and a <strong>Food</strong> container at camp (<a href="#ch11">Chapter 11</a>). A companion who can't find either nearby will fetch from them.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Mark a <strong>Water</strong> container and a <strong>Regular food</strong> or <strong>Fresh food</strong> container at camp (<a href="#ch11">Chapter 11</a>). A companion who can't find either nearby will fetch from them.</div>
 
 <figure class="plate">
   <img loading="lazy" decoding="async" src="https://pzwiki.net/w/images/8/86/Cortman_Medical.png" alt="Cortman Medical: a brick clinic and a large brick house behind iron fences.">
@@ -1508,6 +1520,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Rally area</strong></td><td>Where the camp gathers</td><td>Inside the camp</td></tr>
   <tr><td><strong>Quarantine area</strong></td><td>Somewhere to keep a bitten companion apart</td><td>Inside the camp</td></tr>
   <tr><td><img class="ico-sm" src="https://pzwiki.net/w/images/4/45/WoodAxe.png" alt=""><strong>Lumber area</strong></td><td>Standing trees for the woodcutter</td><td>Up to 30 tiles beyond the boundary</td></tr>
+  <tr><td><img class="ico-sm" src="https://pzwiki.net/w/images/2/2d/Logs.png" alt=""><strong>Outdoor log yard</strong></td><td>Open ground for logs. Each tile holds four, loose or tied in a bundle: workers bundle them when they have rope and open a bundle when building or carpentry needs logs.</td><td>Entirely outdoors, up to 30 tiles beyond the boundary</td></tr>
   <tr><td><img class="ico-sm" src="https://pzwiki.net/w/images/8/87/Hoe.png" alt=""><strong>Farm area</strong></td><td>Existing plots for the farmer</td><td>Up to 30 tiles beyond the boundary</td></tr>
   <tr><td><img class="ico-sm" src="https://pzwiki.net/w/images/2/2f/FishingRod.png" alt=""><strong>Fishing bank</strong></td><td>Dry ground beside at least two tiles of open water, for the angler (<a href="#ch15b">Ch 15b</a>)</td><td>Up to 30 tiles beyond the boundary, at ground level</td></tr>
   <tr><td><img class="ico-sm" src="https://pzwiki.net/w/images/4/43/Map.png" alt=""><strong>Parking area</strong></td><td>A place for a car expedition to start and finish (<a href="#ch17">Ch 17</a>)</td><td>Ground level, inside camp or up to 20 tiles beyond its ground-floor boundary</td></tr>
@@ -1522,11 +1535,11 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><th>Limit</th><th>How big</th></tr>
   <tr><td>One Camp boundary rectangle</td><td>No size limit. Each covers one floor; stairs add the floors above and below (<a href="#ch12">Ch 12</a>).</td></tr>
   <tr><td>Zones per camp</td><td>24 in all, every kind together: boundaries, work, rest, guard, lumber, farm, burial and the rest. Marked storage doesn't count.</td></tr>
-  <tr><td>Lumber, farm or fishing area</td><td>256 tiles each (16 × 16, for example)</td></tr>
+  <tr><td>Lumber, log yard, farm or fishing area</td><td>256 tiles each (16 × 16, for example)</td></tr>
   <tr><td>Parking area</td><td>256 tiles, at ground level and within 20 tiles of a ground-floor camp area</td></tr>
   <tr><td>Burial ground</td><td>128 tiles</td></tr>
   <tr><td>Pyre</td><td>9 tiles</td></tr>
-  <tr><td>Outside the boundary</td><td>Lumber, farm, fishing, burial and pyre zones may reach 30 tiles out; parking may reach 20. Other camp work stays inside, apart from a step out to reach marked storage.</td></tr>
+  <tr><td>Outside the boundary</td><td>Lumber, log yard, farm, fishing, burial and pyre zones may reach 30 tiles out; parking may reach 20. Other camp work stays inside, apart from a step out to reach marked storage.</td></tr>
 </table>
 
 <p><strong>Mind the loaded ground.</strong> The game keeps only the ground around you loaded: about 100 tiles across on a small screen, and about 150 at 1080p or larger. Companions can't work on ground that isn't loaded, so the far end of a very big camp waits until someone is near it. While you're away, Base Watch keeps the same range loaded around its watcher (<a href="#ch14c">Ch 14c</a>). In practice, a camp up to about 90 tiles across can be worked all at once.</p>
@@ -1536,16 +1549,19 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <h3>Marking Storage</h3>
 <p>Right-click a container inside the camp, choose <span class="menu">Mark storage as...</span> and pick a category. Companions help themselves from marked storage and leave unmarked containers to you. Sorting empties General and Work output storage into the right categories, including clothing into Clothes, and fixes clear mistakes elsewhere: a pistol filed under Tools moves to Weapons. The car-unloading job also files clothing under Clothes. A shelf keeps anything that could belong on it, so hammers, axes and shovels may stay in Tools or Weapons, and shells, magazines and medicine stay where you put them. You can give each marked container a reserve, and companions leave that many items in it (<a href="#ch14b">Chapter 14b</a>).</p>
+<p>Camp jobs, car unloading and expedition deliveries try every container of the right category before they pause for lack of space. The Base panel names each full destination, and the worker says so once, then waits for room.</p>
 
 <table>
   <tr><th></th><th>Category</th><th>What goes in it</th></tr>
-  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/9/9f/Beans.png" alt=""></td><td><strong>Food</strong></td><td>Meals and supplies to eat</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/9/9f/Beans.png" alt=""></td><td><strong>Regular food</strong></td><td>Meals and food that keeps</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/7/7d/Apple.png" alt=""></td><td><strong>Fresh food</strong></td><td>Food that spoils within 30 days. With only one of the two food kinds marked, all food goes there.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/1/14/WaterBottle.png" alt=""></td><td><strong>Water</strong></td><td>Clean drinking water</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/0c/Bandage.png" alt=""></td><td><strong>Medical</strong></td><td>Bandages, splints, disinfectant</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/4/46/Toolbox.png" alt=""></td><td><strong>Tools</strong></td><td>Hammers, saws, axes, shovels</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/0d/Plank.png" alt=""></td><td><strong>Construction</strong></td><td>Planks, nails, logs</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/d/d2/Sheet.png" alt=""></td><td><strong>Crafting</strong></td><td>Materials for repairs and crafting</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/6/6b/Thread.png" alt=""></td><td><strong>Clothes</strong></td><td>Clothing and wearable gear</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/7/71/Locket.png" alt=""></td><td><strong>Valuables</strong></td><td>Loose jewelry, watches, wallets, cash, gems and precious metals. What a companion wears stays with it. Without a Valuables area, these go to General or Clothes storage.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/f/f3/Book.png" alt=""></td><td><strong>Books &amp; magazines</strong></td><td>The camp library (<a href="#ch14">Ch 14</a>)</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/0c/Machete.png" alt=""></td><td><strong>Weapons</strong></td><td>Spare weapons</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/6/61/Shotgun.png" alt=""></td><td><strong>Ammunition</strong></td><td>Rounds and magazines</td></tr>
@@ -1643,13 +1659,13 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <table>
   <tr><th></th><th>Base job</th><th>You need</th><th>What happens</th></tr>
-  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/4/45/WoodAxe.png" alt=""></td><td><strong>Woodcutter</strong></td><td>A lumber area, an axe, and marked construction, general or output storage</td><td>Scans a few loaded tiles at a time, chops one standing tree with the game's own action, and hauls the logs to storage. Keeps going while any marked log storage has room for another log, moving to the next container when one fills.</td></tr>
-  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/4/46/Handsaw.png" alt=""></td><td><strong>Carpenter</strong></td><td>Logs in marked storage, a saw, and a second marked container for planks</td><td>Takes one log, saws it into three planks with the vanilla recipe, and stores them. Finished output is recovered after a pause or reload.</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/4/45/WoodAxe.png" alt=""></td><td><strong>Woodcutter</strong></td><td>A lumber area, an axe, and a log yard or marked construction, general or output storage</td><td>Scans a few loaded tiles at a time, chops one standing tree with the game's own action, and hauls the logs to storage. Keeps going while any marked log storage has room for another log, moving to the next container when one fills.</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/4/46/Handsaw.png" alt=""></td><td><strong>Carpenter</strong></td><td>Logs in marked storage or a log yard, a saw, and a second marked container for planks</td><td>Takes one log, saws it into three planks with the vanilla recipe, and stores them. Finished output is recovered after a pause or reload.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/7/77/Shovel.png" alt=""></td><td><strong>Gravekeeper</strong></td><td>A burial ground and shovel, or a safe pyre with a firestarter and petrol</td><td>Finds a body in the camp or lumber areas, drags it to the burial ground or pyre, then buries or burns it. A burial takes the body's belongings with it (<a href="#ch16">Ch 16</a>).</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/8/87/Hoe.png" alt=""></td><td><strong>Farmer</strong></td><td>A farm area over existing plots and marked farming supplies</td><td>Waters, tends and harvests what the field audit finds (<a href="#ch15">Ch 15</a>).</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/8/81/Hammer.png" alt=""></td><td><strong>Maintainer</strong></td><td>Marked maintenance targets</td><td>Repairs damaged barricades that need planks.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/5/54/Pot.png" alt=""></td><td><strong>Chef</strong></td><td>Food storage or a camp fridge, ingredients and cookware in camp storage</td><td>Keeps safe meals in the fridge, and cooks one for you on request (<a href="#ch15b">Ch 15b</a>).</td></tr>
-  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/2/2f/FishingRod.png" alt=""></td><td><strong>Angler</strong></td><td>A fishing bank, a rod and bait</td><td>Fishes the bank and stores the catch in marked Food storage (<a href="#ch15b">Ch 15b</a>).</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/2/2f/FishingRod.png" alt=""></td><td><strong>Angler</strong></td><td>A fishing bank, a rod and bait</td><td>Fishes the bank and stores the catch in marked food storage (<a href="#ch15b">Ch 15b</a>).</td></tr>
 </table>
 <p>Each camp audit checks every production role, so one busy worker no longer holds up another, and body disposal no longer waits behind the woodpile. Quartermasters, medics, guards and generalists use the ordinary base chores. How much of that work they take on, and who keeps watch, is set by the base policies (<a href="#ch14b">Chapter 14b</a>).</p>
 <p>Any available resident on base duty can also take the shared car and generator chores; you do not assign a separate refueller or mechanic role. Park a car in the marked Parking area, stock the needed supplies, and read its job status in the camp ledger (<a href="#ch14b">Chapter 14b</a>).</p>
@@ -1662,7 +1678,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li><strong>Nights indoors.</strong> From 21:00 to 06:00 outdoor camp work pauses: workers head to an indoor camp square, outdoor jobs wait for daylight, and indoor chores carry on. A farm job already under way is finished, and a Chef stays by a pot on a lit fire. Switch on <strong>Work outside at night</strong> in the base policies (<a href="#ch14b">Ch 14b</a>) to keep everyone working. That switch covers the gravekeeper and woodcutter too: at night, without it, no tree outdoors is started and no body lying outdoors is fetched.</li>
   <li><strong>Sleep first.</strong> A resident who is more than half tired sleeps in a bed before claiming its next job, and keeps the bed until rested. A job already in hand is finished first.</li>
   <li><strong>Loot first.</strong> A gravekeeper with a burial ground takes bodies as they lie, clothes, pockets and all, and buries them with their belongings. A pyre still leaves a body carrying items for you to loot.</li>
-  <li><strong>Dragging.</strong> A resident dragging a body takes no fences, windows or stairs, and drops it at once when danger shows up. The body stays where it fell.</li>
+  <li><strong>Dragging.</strong> A resident dragging a body pulls it along behind, takes no fences, windows or stairs, and drops it at once when danger shows up. The body stays where it fell.</li>
   <li><strong>Blocked work</strong> shows its reason and tries again on its own, waiting longer each time; a job that keeps failing ends up under <strong>Stalled jobs</strong> (<a href="#ch14b">Ch 14b</a>).</li>
   <li><strong>Missing tools.</strong> A worker blocked for want of a tool may walk over and tell you what it needs, if you are on the same floor within 16 tiles and nothing is threatening. It doesn't follow you about: it gives up after half a minute, or once it finds the tool.</li>
 </ul>
@@ -1914,6 +1930,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Target location</strong></td><td>A building within 200 tiles, 32 to a page, or a fishing bank up to 1,000 tiles away; refresh the list as you move</td></tr>
   <tr><td><strong>Travel route</strong></td><td>Follow roads, Head straight for target, or Drive car</td></tr>
   <tr><td><strong>Parking area and vehicle</strong> (Drive car)</td><td>A marked ground-floor parking area and a usable car fully inside it</td></tr>
+  <tr><td><strong>Restock and resume base duty</strong> (Search, Fish)</td><td>Yes or No: on return, refill from camp storage and go back to base jobs (<a href="#ch17_delivery">below</a>)</td></tr>
   <tr><td><strong>Time before turning home</strong></td><td>1, 2, 4 or 8 game hours</td></tr>
   <tr><td><strong>Combat style</strong></td><td>Stealth, Close Defense, or Aggressive (weapons free)</td></tr>
 </table>
@@ -1926,7 +1943,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </div>
 <div>
 <h4><img class="ico-sm" src="https://pzwiki.net/w/images/b/b1/Backpack.png" alt="">Search</h4>
-<p>The squad has to get inside the building itself. It looks for what you asked for, then plans a fresh route home. From an upper floor or a basement it comes down one staircase at a time.</p>
+<p>The squad has to get inside the building itself. If the leader can't get in within about a minute, the squad comes home: <em>The squad could not get into the selected building and came home.</em> Inside, it looks for what you asked for; for a small request, only as many members search as items remain, and one that can't reach a container passes it to another. Then it plans a fresh route home. From an upper floor or a basement it comes down one staircase at a time.</p>
 </div>
 </div>
 
@@ -1947,13 +1964,14 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </div>
 
 <h4>Drive car</h4>
-<p>Mark a ground-floor <strong>Parking area</strong> at camp or on a driveway within 20 tiles of its boundary, then park the car completely inside it. Choose <strong>Drive car</strong> under Travel route and select the area and car. The review checks physical seats, working engine and wheels, fuel for both car legs plus reserve, and a clear exit to the road. The leader needs the car key, a squadmate who can pass it over, a key left in the ignition, or a car that is already hotwired. A key only in your pockets will not travel with them. The squad walks to its doors, boards, drives to a roadside stop, continues to the site on foot, then drives back to the marked area and gets out. Driving uses normal 1x game speed. Six or more zombies ahead trigger an avoidance scan; if there is no safe way around, the car stops instead of ploughing into the horde.</p>
+<p>Mark a ground-floor <strong>Parking area</strong> at camp or on a driveway within 20 tiles of its boundary, then park the car completely inside it. Choose <strong>Drive car</strong> under Travel route and select the area and car. The review checks physical seats, working engine and wheels, fuel for both car legs plus reserve, and a clear exit to the road. A straight driveway up to 100 tiles long counts as an exit, and its length is part of the fuel plan. The leader needs the car key, a squadmate who can pass it over, a key left in the ignition, or a car that is already hotwired. A key only in your pockets will not travel with them. The squad walks to its doors, boards, drives to a roadside stop, continues to the site on foot, then drives back to the marked area and gets out. Driving uses normal 1x game speed. Six or more zombies ahead trigger an avoidance scan; if there is no safe way around, the car stops instead of ploughing into the horde. Squad members don't stop to shelve gear on an expedition; one caught shelving when the car leaves stops and boards.</p>
 <p><strong>Parking fit:</strong> The whole car, not just its centre, must fit within one marked Parking area. A car straddling two areas will not be listed, even when the two areas together cover it. You can mark several Parking areas and park several cars in each one. Choose a particular area and car in the expedition planner, or leave them on <span class="menu">Any marked parking area</span> and <span class="menu">Any usable parked car</span> to use an eligible vehicle. Leave room to reach the doors and for the squad to park when it returns.</p>
 
 <p>If a parked car needs hotwiring, bring a recruited companion with the Burglar trait or at least Electrical 1 and Mechanics 2. Right-click the car and choose <span class="menu">Command hotwire → <em>companion name</em></span>. They must be nearby and able to reach the driver door. They enter the driver's seat, try the game's hotwire action, get out, and report success or failure. A hotwired car needs no key for companion driving. Boarding first tries to open the door; a driver who cannot unlock it may break the driver window to reach the lock. The engine can reject a hotwire attempt, so check the result before planning the trip.</p>
 
 <h4 id="ch17_car_recovery">When the car cannot continue</h4>
-<p>A failed drive stops and unloads the team before they continue on foot. A temporarily blocked return parking area is retried briefly; if the obstruction remains, the squad exits safely and walks home. A blocked door or unsafe exit keeps them waiting with a reason instead of placing anyone outside the car. After loading a save, an interrupted trip checks the same car and the whole team before re-boarding automatically. If the car does not load again, the squad waits for its members to be present and on foot before leaving it behind. If the driver dies, the vehicle is stopped and living passengers get out before the mission appoints another leader and continues on foot. <span class="menu">More → Support</span> lists the active car state, outbound or home leg, and blocker.</p>
+<p>A driver whose road is blocked detours, up to three tries, before the drive counts as failed. A car pinned by something its bumper scan misses, such as a wall corner beside a front wheel after a tight turn, reverses about a tile and a half with the wheel at opposite lock and drives on. It never reverses without room behind, and backs off at most three times before the route has to make real progress again.</p>
+<p>A failed drive stops and unloads the team before they continue on foot. A temporarily blocked return parking area is retried briefly; if the obstruction remains, the squad exits safely and walks home. A blocked door or unsafe exit keeps them waiting with a reason instead of placing anyone outside the car. After loading a save, an interrupted trip checks the same car and the whole team before re-boarding automatically. If the car does not load again, the squad waits for its members to be present and on foot before leaving it behind. If the driver dies, the vehicle is stopped and living passengers get out before the mission appoints another leader and continues on foot. <span class="menu">More → Support</span> lists the active car state, outbound or home leg, and blocker. The Expeditions tab describes each car-trip phase in words, such as driving to the destination, parking at base or getting out of the car.</p>
 
 <figure class="plate">
   <img loading="lazy" decoding="async" src="https://pzwiki.net/w/images/e/e8/DecomposingGroup.jpg" alt="Four zombies shambling along a two-lane road.">
@@ -1968,7 +1986,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><th>The call</th><th>What it means</th><th>Your answers</th></tr>
   <tr><td><strong>Blocked route</strong></td><td>The leader reports a blocked route near a map point, and says whether the team is waiting for orders, looking for shelter, inside a house waiting for you, or holding position</td><td><span class="menu">Tell squad: return</span>, <span class="menu">push on</span> or <span class="menu">hold position</span>, from an equipped walkie-talkie</td></tr>
   <tr><td><strong>Sheltered</strong></td><td>The squad has taken shelter inside a house at a map point</td><td>Go and meet them there</td></tr>
+  <tr><td><strong>No way home</strong></td><td>After four fresh route attempts, often from an upper floor, the squad holds and radios <em>Can't find a way home from near X, Y. Need orders: return, push on, or hold position.</em></td><td><span class="menu">Return</span> or <span class="menu">push on</span> starts one fresh attempt; so does reaching them on their floor</td></tr>
 </table>
+<p>During a Search you can ask how it's going: right-click your equipped walkie-talkie and choose <span class="menu">Ask for progress report</span>. The Expeditions tab then shows the answer, such as <em>Last radio report at world hour 14: 3 of 10 requested supplies collected.</em></p>
 <div class="callout callout-warn"><span class="callout-label">Take care — </span>If the squad hears your recall but can find no safe way back, it says so and waits for backup. Go and get them; they won't walk into a death trap because you told them to.</div>
 <div class="callout callout-tip"><span class="callout-label">Note — </span>If a call shows <em>No radio receipt</em>, check that both radios are powered, equipped and on the same channel. Standing within three tiles of the leader also counts as no receipt; step further away.</div>
 
@@ -1982,6 +2002,10 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <div class="callout callout-tip"><span class="callout-label">Note — </span>The order needs a <strong>received transmission</strong>. While the squad is out of sight, the panel doesn't present its position or health as live facts.</div>
 
 <p>The time you choose decides when the team turns home; it doesn't promise when they arrive. On the way back, a stale route or stair approach gets a bounded retry, and a follower left on the last stair tread is guided to the verified exit. A returning Search squad finishes its trip once everyone has reached you, including when you're standing on a staircase. An intact squad says one of twenty homecoming lines once its leader view is released.</p>
+
+<h3 id="ch17_delivery">Bringing the Supplies Home</h3>
+<p>The squad keeps a ledger of what you asked for. Requested items found on its members, in their bags or in the car's trunk are carried to matching marked storage at camp, and unrelated gear stays where it is. If that storage is full or can't be reached, the items stay with their carrier and delivery tries again when room opens. The debrief counts every step, for example <em>Requested 10; collected 8; brought back 8; stored 6; pending 2.</em>, and names who found and who carried each item. Pending deliveries survive a save and reload, and the Expeditions tab lists earlier supplies still awaiting storage.</p>
+<p>With <strong>Restock and resume base duty</strong> set to Yes, each member then tops up food, water, medicine and, if it holds a firearm, ammunition to its role's minimum from marked storage. A supply it can't find within about 30 seconds is reported, such as <em>Jill could not restock 2 medicine supplies.</em> Then the member goes back to its base job, unless you've given it a newer order.</p>
 
 <div class="lore-pull"><span class="lore-label">Overheard — </span>Kentucky tried its best. We came back anyway.<span class="who">— a squad back home</span></div>
 
@@ -2150,7 +2174,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 18c -->
 <h2 class="chapter" id="ch18c"><img class="ico" src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Chapter 18c: Strange Folk<span class="stage stage-end">Strangers</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<div class="callout callout-tip"><span class="callout-label">Note — </span>Strange Folk arrived in 0.26.35. Release 0.26.44 uses native bridge protocol <code>42.21-isocompanion-24</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Strange Folk arrived in 0.26.35. Release 0.26.54 uses native bridge protocol <code>42.21-isocompanion-24</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
 
 <p>Not every stranger is a household looking for supplies. Sixty-five hand-made characters live in Knox County: a butcher with a back room, a deputy still running her checkpoint, a grandmother guarding a child's bedroom with a broken bottle, a man who smeared himself in the dead so they'd leave him alone. Each one is a one-off with their own rules, voice and ending. They use the same standing, trade, combat, navigation and recruitment rules as other survivors, and their animals are real Build 42 animals with names that survive saves.</p>
 
@@ -2372,7 +2396,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p><span class="menu">More → Support</span> is the first place to look when something is wrong, and the report it copies is the most useful thing to attach to a bug report.</p>
 <table>
   <tr><th>Line</th><th>What a healthy game shows</th></tr>
-  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.44</td></tr>
+  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.54</td></tr>
   <tr><td>Game build / supported build</td><td>42.21.0 on both sides</td></tr>
   <tr><td>Runtime active</td><td>Yes. If not, <strong>Runtime disabled reason</strong> says why.</td></tr>
   <tr><td>Native bridge status, actor provider, bridge protocol</td><td>The bridge is ready, and its protocol matches the expected one. A mismatch means an old or mixed install.</td></tr>
@@ -2527,7 +2551,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <ol>
   <li>Right-click → <span class="k">Living Fellows → Base life → Set camp core here</span> (twelve tiles each way).</li>
   <li><span class="k">Start zone here</span>, right-click the far corner, <span class="k">Finish zone here</span>.</li>
-  <li><span class="k">Mark storage as...</span>: food, water, medical, tools, construction, and more.</li>
+  <li><span class="k">Mark storage as...</span>: regular or fresh food, water, medical, tools, construction, valuables, and more.</li>
   <li><span class="k">More → Base</span>: give each resident a base job.</li>
 </ol>
 <p>Grow the camp with more Camp boundary rectangles started inside it. Lumber, farm, fishing, burial and pyre areas may lie 30 tiles out; a ground-floor parking area may reach 20. Stairs extend the camp up or down, basements included. Blueprints: <span class="k">Queue construction</span>.</p>
@@ -2537,7 +2561,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <div class="card">
 <h4><img src="https://pzwiki.net/w/images/4/45/WoodAxe.png" alt="">Base jobs</h4>
 <table>
-  <tr><td class="k">Woodcutter</td><td>Lumber area, axe, storage for logs</td></tr>
+  <tr><td class="k">Woodcutter</td><td>Lumber area, axe, storage or a log yard for logs</td></tr>
   <tr><td class="k">Carpenter</td><td>Logs, a saw, a second container for planks</td></tr>
   <tr><td class="k">Gravekeeper</td><td>Burial ground and shovel, or a pyre, firestarter and petrol</td></tr>
   <tr><td class="k">Farmer</td><td>Farm area over existing plots; farming supplies</td></tr>
@@ -2594,7 +2618,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CARD END -->
 
 <div class="page-footer">
-  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.44 &nbsp;·&nbsp; First Edition, Thirteenth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
+  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.54 &nbsp;·&nbsp; First Edition, Fourteenth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
 </div>
 <script>
 (function () {
