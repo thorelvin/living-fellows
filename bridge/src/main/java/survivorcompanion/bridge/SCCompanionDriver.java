@@ -425,6 +425,8 @@ final class SCCompanionDriver {
                 state = "safety_blocked";
                 safetyBlockedX = x + headingX * (body[1] + front);
                 safetyBlockedY = y + headingY * (body[1] + front);
+            } else if (follower.backingOff()) {
+                state = "backing_off";
             } else {
                 state = Math.abs(follower.offset() - follower.laneOffset()) > 0.5f
                         ? "avoiding" : "following";

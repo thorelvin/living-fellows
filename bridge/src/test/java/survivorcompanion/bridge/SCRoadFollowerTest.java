@@ -68,6 +68,14 @@ public final class SCRoadFollowerTest {
         float heading;
         float speed;
         float wheel;
+        /**
+         * Something the lane scan cannot see (a wall corner beside the front
+         * wheel) holds the car against forward motion until it has backed off
+         * this far; NaN never releases.
+         */
+        float pinRelease = -1.0f;
+        float pinX;
+        float pinY;
 
         Car(float x, float y, float heading) {
             this.x = x;
@@ -77,6 +85,17 @@ public final class SCRoadFollowerTest {
 
         float kmh() {
             return speed * 3.6f;
+        }
+
+        void pin(float release) {
+            pinRelease = release;
+            pinX = x;
+            pinY = y;
+        }
+
+        boolean pinned() {
+            return pinRelease == pinRelease && pinRelease >= 0.0f
+                    || pinRelease != pinRelease;
         }
 
         void step(SCDriveControl.Input input, float dt) {
@@ -93,9 +112,12 @@ public final class SCRoadFollowerTest {
                 speed = approachZero(speed, 1.0f * dt);
             }
             speed = Math.max(-6.0f / 3.6f, Math.min(60.0f / 3.6f, speed));
+            if (pinned() && speed > 0.0f) speed = 0.0f;
             heading += speed / WHEELBASE * (float) Math.tan(wheel) * dt;
             x += speed * (float) Math.cos(heading) * dt;
             y += speed * (float) Math.sin(heading) * dt;
+            if (pinRelease == pinRelease && pinRelease >= 0.0f
+                    && Math.hypot(x - pinX, y - pinY) >= pinRelease) pinRelease = -1.0f;
         }
 
         static float approachZero(float value, float amount) {
@@ -133,6 +155,7 @@ public final class SCRoadFollowerTest {
         boolean collided;
         float maxAbsLateral;
         float maxSpeedKmh;
+        float minSpeedKmh;
         String trace = "";
 
         Drive(Road road, Car car, SCRoadFollower follower) {
@@ -165,6 +188,7 @@ public final class SCRoadFollowerTest {
                                         : SCDriveControl.HOLD_GAP_TILES);
                 car.step(input, dt);
                 maxSpeedKmh = Math.max(maxSpeedKmh, car.kmh());
+                minSpeedKmh = Math.min(minSpeedKmh, car.kmh());
                 nowMs += (long) (dt * 1000.0f);
                 if (car.collides(world)) {
                     collided = true;
@@ -297,6 +321,9 @@ public final class SCRoadFollowerTest {
                         && Math.abs(drive.car.kmh()) < 0.6f && drive.car.x < 30.0f - 2.4f,
                 "a road blocked edge to edge stops the car short of the block: " + drive.trace
                         + " mode=" + follower.mode() + " x=" + drive.car.x);
+        require(drive.minSpeedKmh > -0.1f && follower.backoffs() == 0,
+                "a block the bumper scan sees is held, never backed away from: min="
+                        + drive.minSpeedKmh + " backoffs=" + follower.backoffs());
         require(follower.blockedX() >= 29.5f && follower.blockedX() <= 30.5f
                         && Math.abs(follower.blockedY() - 103.0f) < 0.01f,
                 "a blocked route exposes the obstruction in world coordinates, not its distance: "
@@ -305,6 +332,52 @@ public final class SCRoadFollowerTest {
         drive.run(60.0f, () -> follower.mode() == SCRoadFollower.Mode.ARRIVED);
         require(!drive.collided && follower.mode() == SCRoadFollower.Mode.ARRIVED,
                 "once the block is gone the car drives on");
+    }
+
+    /**
+     * Live 0.26.54 expedition: after a detour turn the car sat against a wall
+     * corner its forward scan did not see, asked for forward for minutes, and
+     * the trip gave up. A pinned car backs off once, then drives on.
+     */
+    private static void wedgedCarBacksOff() {
+        SCRoadFollower follower = new SCRoadFollower(SCDrivePath.parse(ROUTE), 10.0f, true);
+        Car car = new Car(10.0f, 103.0f, 0.0f);
+        car.pin(0.6f);
+        Drive drive = new Drive(new Road(), car, follower);
+        drive.run(30.0f, () -> car.x > 12.0f);
+        require(!drive.collided && drive.minSpeedKmh < -0.5f && car.x > 12.0f
+                        && follower.backoffs() == 1 && !follower.backingOff(),
+                "a car pinned by something its scan cannot see reverses once and drives on: x="
+                        + car.x + " min=" + drive.minSpeedKmh + " backoffs="
+                        + follower.backoffs() + " " + drive.trace);
+        drive.run(30.0f, () -> car.x > 40.0f);
+        require(!drive.collided && car.x > 40.0f && follower.backoffs() == 0,
+                "real progress along the route earns the back-off budget back: backoffs="
+                        + follower.backoffs());
+    }
+
+    private static void wedgedWithoutRoomBehind() {
+        Road road = new Road().block(3, 6, 95, 106, SCLaneScan.SOLID);
+        SCRoadFollower follower = new SCRoadFollower(SCDrivePath.parse(ROUTE), 10.0f, true);
+        Car car = new Car(10.0f, 103.0f, 0.0f);
+        car.pin(0.6f);
+        Drive drive = new Drive(road, car, follower);
+        drive.run(10.0f, () -> false);
+        require(!drive.collided && drive.minSpeedKmh > -0.1f && follower.backoffs() == 0,
+                "without room behind a pinned car holds instead of reversing into it: min="
+                        + drive.minSpeedKmh + " backoffs=" + follower.backoffs());
+    }
+
+    private static void wedgedForeverIsBounded() {
+        SCRoadFollower follower = new SCRoadFollower(SCDrivePath.parse(ROUTE), 10.0f, true);
+        Car car = new Car(10.0f, 103.0f, 0.0f);
+        car.pin(Float.NaN);
+        Drive drive = new Drive(new Road(), car, follower);
+        drive.run(60.0f, () -> false);
+        require(!drive.collided && follower.backoffs() == SCRoadFollower.MAX_BACKOFFS
+                        && !follower.backingOff() && Math.abs(car.kmh()) < 0.6f,
+                "a car that stays pinned backs off a bounded number of times, then holds: backoffs="
+                        + follower.backoffs() + " kmh=" + car.kmh());
     }
 
     private static void newRouteBehind() {
@@ -544,6 +617,9 @@ public final class SCRoadFollowerTest {
         oneWreck();
         twoWrecks();
         blockedRoad();
+        wedgedCarBacksOff();
+        wedgedWithoutRoomBehind();
+        wedgedForeverIsBounded();
         newRouteBehind();
         turnRound();
         personInLane();

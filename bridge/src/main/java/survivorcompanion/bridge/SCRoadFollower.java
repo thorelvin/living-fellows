@@ -42,6 +42,19 @@ final class SCRoadFollower {
     private static final float DEFAULT_WIDTH = 6.0f;
     private static final float TURN_FIRST_ANGLE = (float) Math.toRadians(120.0);
     private static final float TURN_FIRST_KMH = 3.0f;
+    /**
+     * Stopped this long while asking to go forward through a clear bumper scan:
+     * something the scan cannot see (a wall corner beside the wheel, a kerb)
+     * is holding the car. Back off instead of pushing into it until the caller
+     * gives up and replans from the same spot.
+     */
+    static final long WEDGE_MS = 2500L;
+    /** Back off this far, or for at most BACKOFF_LIMIT_MS, then follow again. */
+    static final float BACKOFF_TILES = 1.5f;
+    static final long BACKOFF_LIMIT_MS = 3000L;
+    /** Back-offs allowed before the route must make real progress again. */
+    static final int MAX_BACKOFFS = 3;
+    private static final float BACKOFF_RESET_TILES = 8.0f;
 
     /** One frame of driving: wheel, signed target speed, and which bumper to watch. */
     static final class Command {
@@ -78,6 +91,13 @@ final class SCRoadFollower {
     private boolean resumeAfterTurn;
     private boolean initialAlignmentPending = true;
     private final SCTurnAround.Step turnStep = new SCTurnAround.Step();
+    private long wedgedSince = -1L;
+    private long backoffStartedAt = -1L;
+    private float backoffX;
+    private float backoffY;
+    private float backoffSteering;
+    private float backoffAlong = -1.0f;
+    private int backoffs;
 
     SCRoadFollower(SCDrivePath path, float cruiseKmh, boolean keepRight) {
         this(path, cruiseKmh, keepRight, false);
@@ -147,6 +167,16 @@ final class SCRoadFollower {
 
     int swerves() {
         return swerves;
+    }
+
+    /** Back-offs used since the route last made real progress. */
+    int backoffs() {
+        return backoffs;
+    }
+
+    /** True while the car reverses away from something holding it. */
+    boolean backingOff() {
+        return backoffStartedAt >= 0L;
     }
 
     float blockedAt() {
@@ -269,7 +299,25 @@ final class SCRoadFollower {
             scanCache.clear();
             chooseOffset(world, z, speedKmh, halfWidth, halfLength, maxOffset, nowMs);
         }
-        if (mode == Mode.BLOCKED) return command;
+        if (mode == Mode.BLOCKED) {
+            wedgedSince = -1L;
+            backoffStartedAt = -1L;
+            return command;
+        }
+        if (backoffStartedAt >= 0L) {
+            float moved = (float) Math.hypot(x - backoffX, y - backoffY);
+            boolean rearClose = rearClear >= 0.0f && rearClear <= SCTurnAround.LEG_CLEARANCE;
+            if (moved >= BACKOFF_TILES || rearClose
+                    || nowMs - backoffStartedAt >= BACKOFF_LIMIT_MS) {
+                backoffStartedAt = -1L;
+                wedgedSince = -1L;
+            } else {
+                command.steering = backoffSteering;
+                command.targetKmh = -SCTurnAround.REVERSE_KMH;
+                command.maneuver = true;
+                return command;
+            }
+        }
 
         float lookAhead = Math.max(4.0f, Math.min(9.0f, 4.0f + 0.3f * Math.abs(speedKmh)));
         path.pointAt(along + lookAhead, offset, point);
@@ -299,7 +347,47 @@ final class SCRoadFollower {
                 ? Math.max(2.0f, (path.length() - along) * 0.9f)
                 : Math.max(3.0f, (path.length() - along) * 1.5f));
         command.targetKmh = target;
+        noteWedge(x, y, speedKmh, frontClear, rearClear, nowMs, command);
         return command;
+    }
+
+    /**
+     * Starts a short reverse when the car is pinned. A visible obstacle is not
+     * a wedge: the driver brakes for it and reports a block. Without room
+     * behind, or once the back-offs are used up, the car holds and the caller
+     * replans as before.
+     */
+    private void noteWedge(float x, float y, float speedKmh, float frontClear,
+                           float rearClear, long nowMs, Command command) {
+        if (backoffAlong >= 0.0f && along - backoffAlong >= BACKOFF_RESET_TILES) {
+            backoffs = 0;
+            backoffAlong = -1.0f;
+        }
+        boolean scanClear = frontClear < 0.0f
+                || frontClear > SCDriveControl.HOLD_GAP_TILES + 0.5f;
+        if (preciseArrival || command.targetKmh <= 0.0f || !scanClear
+                || Math.abs(speedKmh) > SCDriveControl.STOPPED_KMH) {
+            wedgedSince = -1L;
+            return;
+        }
+        if (wedgedSince < 0L) {
+            wedgedSince = nowMs;
+            return;
+        }
+        if (nowMs - wedgedSince < WEDGE_MS || backoffs >= MAX_BACKOFFS) return;
+        if (rearClear >= 0.0f && rearClear <= SCTurnAround.LEG_CLEARANCE) return;
+        backoffs++;
+        backoffAlong = along;
+        backoffStartedAt = nowMs;
+        backoffX = x;
+        backoffY = y;
+        // Reverse at the opposite lock, as a three-point turn does: the car
+        // keeps rotating the way it was steering while it backs away, so the
+        // next forward try meets the corner at a wider angle.
+        backoffSteering = Math.abs(command.steering) < 0.15f ? 0.0f : -command.steering;
+        command.steering = backoffSteering;
+        command.targetKmh = -SCTurnAround.REVERSE_KMH;
+        command.maneuver = true;
     }
 
     /**

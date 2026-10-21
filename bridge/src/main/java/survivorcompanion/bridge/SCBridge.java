@@ -1520,6 +1520,7 @@ public final class SCBridge {
             put(out, "offset", follower.offset());
             put(out, "laneOffset", follower.laneOffset());
             put(out, "swerves", follower.swerves());
+            put(out, "backoffs", follower.backoffs());
             put(out, "blockedAt", follower.blockedAt());
             if (follower.mode() == SCRoadFollower.Mode.BLOCKED) {
                 put(out, "blockedX", follower.blockedX());

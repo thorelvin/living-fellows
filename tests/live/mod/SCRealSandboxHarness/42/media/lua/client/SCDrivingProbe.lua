@@ -2004,6 +2004,31 @@ local function teamStep(H, SC, current, check, result, setPhase, test)
                 .. " x=" .. fmt(car:getX()) .. " y=" .. fmt(car:getY()))
         test.lastState = state
     end
+    -- A once-a-second drive trace. The follower only reports its final
+    -- block, so record where the car was, how fast, and what the native
+    -- follower saw before it gave up. Printed as TRACE, never counted.
+    if (state == "driving_home" or state == "driving_out")
+        and current - (test.driveTraceAt or 0) >= 1000 then
+        test.driveTraceAt = current
+        local driver = test.team and test.team[1] and test.team[1].actor
+        local native = driver and SC.Driving.status(driver) or {}
+        local job = driver and SC.Driving.jobStatus(driver) or {}
+        local fields = {}
+        for key, value in pairs(type(native) == "table" and native or {}) do
+            if type(value) ~= "table" then
+                fields[#fields + 1] = tostring(key) .. "=" .. tostring(value)
+            end
+            if #fields >= 40 then break end
+        end
+        table.sort(fields)
+        print("SC_REAL_SANDBOX|DRIVE_TRACE|state=" .. tostring(state)
+            .. " x=" .. fmt(car:getX()) .. " y=" .. fmt(car:getY())
+            .. " kmh=" .. fmt(call(car, "getCurrentSpeedKmHour"))
+            .. " job=" .. tostring(job.phase) .. "/" .. tostring(job.result)
+            .. " attempts=" .. tostring(job.attempts)
+            .. " circles=" .. tostring(job.circles and #job.circles)
+            .. " native={" .. table.concat(fields, ",") .. "}")
+    end
     if trip and (state == "held" or state == "abandoned"
         or state == "boarding_rollback" or state == "fallback_unloading") then
         if test.scavenge then
