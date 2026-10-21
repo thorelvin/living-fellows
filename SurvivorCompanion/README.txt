@@ -1,8 +1,9 @@
-Living Fellows 0.26.53 - public playtest
+Living Fellows 0.26.54 - public playtest
 
-This playtest improves close formation following, realistic carrying limits,
-field cargo delivery, and expedition route recovery. Harvest from a carried
-bag can now move into the selected car trunk.
+This playtest fixes the 0.26.53 carrying limits. Companions no longer drop
+ordinary gear in the field, sawing and cooking work at everyday weights, and
+heavy crops can be harvested again. Car washing, unreachable shelves, field
+orders and expedition searches also recover more reliably.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added

@@ -2,6 +2,16 @@
 
 # Changelog
 
+## 0.26.54 - Carrying limits and recovery fixes
+
+- Companions again pick up, drop, saw, cook and trade against their inventory's physical limit. The Strength-based carrying limit from 0.26.53 now only decides when a companion shelves surplus into marked camp storage and when a field trip ends. Companions no longer drop ordinary gear on the ground away from camp, log sawing no longer stops as overloaded, and chefs and trades work at everyday weights.
+- Shelving at camp under the Strength limit only uses marked storage, never the ground, and never pulls a companion on Stay or Guard off its post.
+- A field worker carrying none of the order's cargo can still harvest one heavy plant, such as pumpkins or watermelons, or pick up one log, when it fits the inventory. The trip then ends at the Strength limit.
+- Strong, Stout, Weak and Feeble change a companion's carrying limit all the time, instead of only for a moment after each health update.
+- Washing a car with an empty water container no longer times out while choosing a sink. A storage shelf that cannot be reached cools down instead of being retried constantly, and the camp cleanup after a field trip still finishes.
+- A field order no longer waits forever for a worker who died. Expedition searches no longer give up on a container while the companion walks around a wall to reach it, and a distant Follow is refused only when the companion is truly sealed in.
+- The native bridge protocol remains `42.21-isocompanion-24`; update the bridge JAR and Lua payload together.
+
 ## 0.26.53 - Formation, carrying, and field cargo
 
 - Close followers walk into formation and jog only when their assigned slot falls farther behind.
