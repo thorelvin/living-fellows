@@ -2242,7 +2242,7 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
         task.approachStartedAt = task.approachStartedAt or time
         if Encounter._approachExpired(task, time,
                 ownerDistance(actor, task.owner),
-                SC.Navigation.status and SC.Navigation.status(actor)) then
+                SC.Navigation.status and SC.Navigation.status(actor), actor) then
             rememberFailedExpeditionSource(state, task, time)
             resetScavengeTarget(actor, state, {
                 cancelVisual = true, stopMovement = true,
@@ -2430,7 +2430,7 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
             task.approachStartedAt = task.approachStartedAt or time
             if Encounter._approachExpired(task, time,
                     ownerDistance(actor, task.owner),
-                    SC.Navigation.status and SC.Navigation.status(actor)) then
+                    SC.Navigation.status and SC.Navigation.status(actor), actor) then
                 rememberFailedExpeditionSource(state, task, time)
                 resetScavengeTarget(actor, state, {
                     cancelVisual = true, stopMovement = true,
@@ -2550,8 +2550,12 @@ function Encounter._cancelMemoryResult(reason)
 end
 
 -- An approach that has not reached its container within this cap fails like
--- an unreachable container.
-function Encounter._approachExpired(task, time, distance, navigation)
+-- an unreachable container. An expedition search also gives up after 12
+-- seconds without progress. Progress is a half tile gained on the container,
+-- a route search that is still expanding, or the actor walking at least a
+-- tile: a valid detour round a wall moves away before it closes in, and must
+-- not be abandoned for that. The 25-second cap still bounds a wandering one.
+function Encounter._approachExpired(task, time, distance, navigation, mover)
     if type(task) ~= "table" or tonumber(task.approachStartedAt) == nil
         or tonumber(time) == nil then
         return false
@@ -2574,6 +2578,15 @@ function Encounter._approachExpired(task, time, distance, navigation)
                 task.lastApproachExpanded = expanded
             elseif expanded < task.lastApproachExpanded then
                 task.lastApproachExpanded = expanded
+            end
+        end
+        local mx, my = nil, nil
+        if mover ~= nil then mx, my = U().position(mover) end
+        if mx ~= nil and my ~= nil then
+            local last = task.lastApproachPoint
+            if last == nil or (mx - last.x) ^ 2 + (my - last.y) ^ 2 >= 1 then
+                if last ~= nil then task.approachProgressAt = time end
+                task.lastApproachPoint = { x = mx, y = my }
             end
         end
         if time - (task.approachProgressAt or task.approachStartedAt)

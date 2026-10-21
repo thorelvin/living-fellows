@@ -806,12 +806,30 @@ local function hasCarryTrait(actor, name)
     return false
 end
 
--- BodyDamage.UpdateStrength is the game's own Strength and condition formula.
--- It applies its final trait multiplier only to IsoPlayer, so apply that same
--- final step to our native survivor after asking the engine to refresh the
--- unmodified capacity. This remains idempotent on every vitals pulse.
+-- BodyDamage.UpdateStrength is the game's own Strength and condition formula,
+-- and IsoGameCharacter.updateInternal runs it on every update. Its last step
+-- multiplies by IsoPlayer.maxWeightDelta, which the IsoPlayer constructor
+-- derives from the traits a new player starts with. A companion receives its
+-- traits after construction, so its delta would stay 1. Store the same trait
+-- multiplier there and let the engine apply it every frame: a value written
+-- with setMaxWeight is replaced by the very next update. Idempotent on every
+-- vitals pulse.
 function Background.refreshCarryCapacity(actor)
     if not actor then return false, "carry_actor_missing" end
+    local multiplier = 1
+    if hasCarryTrait(actor, "strong") then multiplier = 1.5
+    elseif hasCarryTrait(actor, "weak") then multiplier = 0.75
+    elseif hasCarryTrait(actor, "feeble") then multiplier = 0.9
+    elseif hasCarryTrait(actor, "stout") then multiplier = 1.25 end
+    local delta, deltaOk = invoke(actor, "getMaxWeightDelta")
+    if not deltaOk or type(delta) ~= "number" then
+        return false, "carry_delta_unavailable"
+    end
+    -- The engine field is a float: 0.9 reads back as 0.8999999761.
+    if math.abs(delta - multiplier) > 0.001 then
+        local _, set = invoke(actor, "setMaxWeightDelta", multiplier)
+        if not set then return false, "carry_delta_set_failed" end
+    end
     local body = select(1, invoke(actor, "getBodyDamage"))
     local _, refreshed = invoke(body, "UpdateStrength")
     if not refreshed then return false, "carry_native_refresh_unavailable" end
@@ -819,17 +837,7 @@ function Background.refreshCarryCapacity(actor)
     if not capacityOk or type(capacity) ~= "number" then
         return false, "carry_capacity_unavailable"
     end
-    local multiplier = 1
-    if hasCarryTrait(actor, "strong") then multiplier = 1.5
-    elseif hasCarryTrait(actor, "weak") then multiplier = 0.75
-    elseif hasCarryTrait(actor, "feeble") then multiplier = 0.9
-    elseif hasCarryTrait(actor, "stout") then multiplier = 1.25 end
-    local target = math.max(0, math.floor(capacity * multiplier))
-    if target ~= capacity then
-        local _, set = invoke(actor, "setMaxWeight", target)
-        if not set then return false, "carry_capacity_set_failed" end
-    end
-    return true, target
+    return true, capacity
 end
 
 -- Sets the same descriptor profession object used by normal Build 42 players,

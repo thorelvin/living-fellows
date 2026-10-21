@@ -684,7 +684,14 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         local ok, load = pcall(SC.Logistics.status, actor)
         -- Bag, clothing and packing chores wait for a following leader to
         -- settle, like idle work; being overloaded does not.
+        -- Routine shelving under the Strength limit is upkeep, like a water
+        -- refill: it never walks a Stay or Guard companion off its post.
+        local postHeld = commands.recruited
+            and (commands.order == "stay" or commands.order == "guard")
+        local routineShelving = ok and type(load) == "table"
+            and type(load.surplus) == "table" and load.surplus.shelveOnly == true
         if ok and load and load.shouldManage and commands.temporaryStay ~= true
+            and not (postHeld and routineShelving)
             and (load.overloaded or load.fieldReturnCleanup == true
             or load.fieldReturnCargo == true or load.giftPending == true
             or load.weaponReady == true

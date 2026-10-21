@@ -3294,4 +3294,33 @@ do
             .. tostring(reason))
 end
 
+-- A log weighs 9, three quarters of an average companion's Strength limit
+-- (12). Sawing is a short carry checked against the physical inventory, so an
+-- ordinarily equipped sawyer (4 weight) still takes one (0.26.53 review).
+;(function()
+    local ctx = setup()
+    ctx.actor.inventory.capacity = 50
+    function ctx.actor:getMaxWeight() return 12 end
+    ctx.actor.inventory:AddItem(makeItem("Base.Saw", { tags = { saw = true } }))
+    ctx.actor.inventory:AddItem(makeItem("Base.Hammer"))
+    ctx.actor.inventory:AddItem(makeItem("Base.WaterBottle"))
+    ctx.actor.inventory:AddItem(makeItem("Base.CannedPeas"))
+    ctx.logsObject.container:AddItem("Base.Log")
+    local order = start(ctx, {
+        operation = "saw_planks", sourceStorageId = ctx.logs.id,
+        destinationStorageId = ctx.planks.id, requested = 1,
+    })
+    local reason
+    for _ = 1, 6 do
+        local _, value = tick(ctx)
+        reason = value
+        if SC.NativeActions.workKind(ctx.actor) == "saw_logs" then break end
+    end
+    local saved = SC.BaseLife.productionOrder(order.id)
+    check(SC.NativeActions.workKind(ctx.actor) == "saw_logs"
+            and saved and saved.state ~= "blocked",
+        "a sawyer past three quarters of its Strength limit still saws one log: "
+            .. tostring(reason) .. "/" .. tostring(saved and saved.blocker))
+end)()
+
 print("PRODUCTION_HARNESS_PASS checks=" .. tostring(checks))

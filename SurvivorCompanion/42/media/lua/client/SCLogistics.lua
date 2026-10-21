@@ -390,10 +390,18 @@ function Logistics.audit(actor)
     -- load still reports overload and limits what the actor will pick up.
     local gearRatio = capacity > 0
         and math.max(0, weight - cargoWeight) / capacity or 0
+    -- capacity/ratio are the physical inventory scale: overload, dropping and
+    -- loadout checks stay on it. The Strength limit only decides what a
+    -- companion shelves at camp, where surplus goes into storage, never onto
+    -- the ground.
+    local _, carryCapacity = U().carryLoad(actor)
+    local carryGearRatio = carryCapacity > 0
+        and math.max(0, weight - cargoWeight) / carryCapacity or 0
     return {
         role = role, profile = profile, counts = counts, items = items,
         gearCounts = gearCounts, cargoWeight = cargoWeight, gearRatio = gearRatio,
         weight = weight, capacity = capacity, ratio = ratio,
+        carryCapacity = carryCapacity, carryGearRatio = carryGearRatio,
         softRatio = soft, hardRatio = hard, inventory = inventory,
         allowOverload = overloadAllowed(actor),
     }
@@ -1092,12 +1100,12 @@ function Logistics.equipExactWearable(actor, item)
     return equipped, reason
 end
 
-function Logistics.selectSurplus(actor, audit)
+function Logistics.selectSurplus(actor, audit, skip)
     audit = audit or Logistics.audit(actor)
     local best, bestScore
     for _, record in ipairs(audit.items) do
         local item = record.item
-        if not isProtected(actor, item) then
+        if not isProtected(actor, item) and not (skip and skip(item)) then
             local category = record.category or Logistics.itemCategory(item)
             local count = (audit.gearCounts or audit.counts)[category] or 0
             local target = tonumber(audit.profile.target[category]) or 0
@@ -1137,13 +1145,14 @@ end
 
 -- A harvest kept for pickup goes into camp storage once its carrier is
 -- inside the camp; otherwise it would ride in the pack until it rots.
-local function selectKeptHarvest(actor, audit)
+local function selectKeptHarvest(actor, audit, skip)
     if not SC.BaseLife or type(SC.BaseLife.isInside) ~= "function"
         or SC.BaseLife.isInside(actor) ~= true then return nil end
     local id = tostring(U().idOf(actor) or "")
     for _, record in ipairs(audit.items or {}) do
         local data = select(1, U().call(record.item, "getModData"))
         if type(data) == "table" and data.LF_FieldCarryWorker == id
+            and not (skip and skip(record.item))
             and not isProtected(actor, record.item, true) then
             return {
                 item = record.item, source = record.source, proactive = true,
@@ -1155,9 +1164,10 @@ local function selectKeptHarvest(actor, audit)
     return nil
 end
 
-local function selectFarmingSurplus(actor, audit)
+local function selectFarmingSurplus(actor, audit, skip)
     for _, record in ipairs(audit.items or {}) do
         if (record.category or Logistics.itemCategory(record.item)) == "farming"
+            and not (skip and skip(record.item))
             and not isProtected(actor, record.item) then
             return {
                 item = record.item, category = "farming", source = record.source,
@@ -1304,16 +1314,31 @@ function Logistics.status(actor)
         and SC.BaseLife.isInside(actor) == true
     audit.fieldReturnCleanup = atCamp and type(actorData) == "table"
         and actorData.LF_FieldReturnCleanup ~= nil
-    local surplus = selectKeptHarvest(actor, audit)
+    -- The return cleanup is one pass over what the worker carries. An item
+    -- whose storage just failed cools down; offer the next one instead, so the
+    -- pass can finish while that item waits with its carrier for a retry.
+    local skip = audit.fieldReturnCleanup and function(item)
+        return moveMemory.cooling(actor, "deposit", item, current)
+            or moveMemory.cooling(actor, "drop", item, current)
+    end or nil
+    local surplus = selectKeptHarvest(actor, audit, skip)
     -- A returning field worker can carry ordinary excess below the overload
     -- threshold. Shelve it while at camp, using the normal role minimums.
     if not surplus and audit.fieldReturnCleanup then
-        surplus = Logistics.selectSurplus(actor, audit)
+        surplus = Logistics.selectSurplus(actor, audit, skip)
         if surplus then surplus.proactive = true end
     end
     if not surplus and audit.capacity > 0
         and (audit.gearRatio or audit.ratio) > audit.softRatio then
         surplus = Logistics.selectSurplus(actor, audit)
+    end
+    -- Above the Strength limit's unload share, a companion at camp puts its
+    -- surplus into marked storage so it does not walk around under Heavy
+    -- Load. This is shelving only: without storage the item stays carried.
+    if not surplus and atCamp and (audit.carryCapacity or 0) > 0
+        and (audit.carryGearRatio or 0) > audit.softRatio then
+        surplus = Logistics.selectSurplus(actor, audit)
+        if surplus then surplus.proactive, surplus.shelveOnly = true, true end
     end
     if not surplus then
         local literature = selectLiteratureSurplus(actor, audit)
@@ -1322,7 +1347,7 @@ function Logistics.status(actor)
         end
     end
     if not surplus then
-        local farming = selectFarmingSurplus(actor, audit)
+        local farming = selectFarmingSurplus(actor, audit, skip)
         if farming and (audit.fieldReturnCleanup
             or storageFor(actor, farming.item, "farming", true)) then surplus = farming end
     end
@@ -1928,6 +1953,7 @@ function Logistics.update(actor, player, runtime)
         state.item, state.category = audit.surplus.item, audit.surplus.category
         state.proactive = audit.surplus.proactive == true
         state.keptHarvest = audit.surplus.keptHarvest == true
+        state.shelveOnly = audit.surplus.shelveOnly == true
         state.fieldReturnCleanup = audit.fieldReturnCleanup == true
         state.source = audit.surplus.source or audit.inventory
         state.destination, state.navigationChoice = nil, nil
@@ -1938,7 +1964,17 @@ function Logistics.update(actor, player, runtime)
                 and (state.category == "literature" or state.category == "farming"),
             state)
         state.destination = destination
-        if routeReason then return routeReason == "storage_route_pending", routeReason end
+        if routeReason then
+            -- A pending survey resumes next beat. A finished survey that
+            -- found no walkable route (or ran out of budget) is a failed
+            -- deposit: cool this item down like any other failed move, or
+            -- the same unreachable shelf is chosen again on every beat.
+            if routeReason ~= "storage_route_pending" then
+                moveMemory.note(actor, "deposit", state.item, U().nowMs())
+                states[actor] = nil
+            end
+            return routeReason == "storage_route_pending", routeReason
+        end
     end
     if state.destination then
         local destination = state.destination
@@ -1980,8 +2016,11 @@ function Logistics.update(actor, player, runtime)
 
     -- Proactive shelving is allowed only when the player marked a real
     -- literature destination. Without one, keep the item instead of falling
-    -- through to the overload path that drops surplus on the ground.
-    if state.fieldReturnCleanup or state.proactive and (state.keptHarvest
+    -- through to the overload path that drops surplus on the ground. Field
+    -- return cleanup and Strength-limit shelving are storage-only too: only
+    -- the physical overload above may ever drop an item.
+    if state.fieldReturnCleanup or state.shelveOnly
+        or state.proactive and (state.keptHarvest
         or state.category == "literature" or state.category == "farming") then
         moveMemory.note(actor, "deposit", state.item, U().nowMs())
         states[actor] = nil

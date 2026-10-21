@@ -313,11 +313,15 @@ local function adoptHarvest(actor, worker, order)
     return true
 end
 
--- A worker stops taking new targets at 80% load. A harvest, however, adds its
--- whole yield at once, and from 79% one plant could carry a companion past
--- its capacity even with "Allow overload" off. For harvest, "full" therefore
--- also means "the next plant would exceed what this companion may carry",
--- using the largest yield seen this order or the crop's registered maximum.
+-- A worker ends a trip at 80% of its Strength carrying limit (U.carryLoad),
+-- so routine field work does not keep companions under Heavy Load. A harvest,
+-- however, adds its whole yield at once, and from 79% one plant could carry a
+-- companion past that limit even with "Allow overload" off. For harvest,
+-- "full" therefore also means "the next plant would exceed what this companion
+-- may carry", using the largest yield seen this order or the crop's registered
+-- maximum. One plant of pumpkins can outweigh an average companion's whole
+-- Strength limit, so a worker holding none of this order's cargo may still
+-- take one target that fits the physical inventory (firstTargetFits).
 local FULL_LOAD = 0.8
 local function overloadAllowed(actor)
     local data = select(1, U().call(actor, "getModData"))
@@ -360,11 +364,23 @@ local function fullLoad(actor, worker, order)
     if order.kind ~= "harvest" then return FULL_LOAD end
     local expected = math.max(tonumber(worker.yieldWeight) or 0,
         tonumber(worker.yieldEstimate) or 0)
-    local _, capacity = U().inventoryLoad(actor)
+    local _, capacity = U().carryLoad(actor)
     if expected <= 0 or not capacity or capacity <= 0 then return FULL_LOAD end
     local limit = overloadAllowed(actor)
         and (tonumber(U().config("logisticsOverloadHardLoadRatio")) or 1.2) or 1.0
     return math.max(0, math.min(FULL_LOAD, limit - expected / capacity))
+end
+local function firstTargetFits(actor, worker, order)
+    local weight, capacity = U().inventoryLoad(actor)
+    if not capacity or capacity <= 0 or weight / capacity >= FULL_LOAD then
+        return false
+    end
+    if order.kind ~= "harvest" then return true end
+    local expected = math.max(tonumber(worker.yieldWeight) or 0,
+        tonumber(worker.yieldEstimate) or 0)
+    local limit = overloadAllowed(actor)
+        and (tonumber(U().config("logisticsOverloadHardLoadRatio")) or 1.2) or 1.0
+    return (weight + expected) / capacity <= limit
 end
 local function woodOn(square, order, workerId, before)
     local result = {}
@@ -501,19 +517,34 @@ local function release(worker)
     worker.target, worker.x, worker.y, worker.before = nil, nil, nil, nil
     worker.groundBefore, worker.startedAt, worker.phase = nil, nil, "seek"
 end
+-- A dead or dismissed worker can never report done. "No living actor" alone
+-- is not proof: a saved companion has no registry record until its
+-- asynchronous respawn, so use the shared base-work rule.
+local function workerGone(id)
+    return SC.BaseFuel ~= nil and type(SC.BaseFuel.workerIdGone) == "function"
+        and SC.BaseFuel.workerIdGone(id) == true
+end
 local function completeIfFinished(order)
-    for _, state in pairs(order.workers) do
-        if state.phase ~= "done" and state.phase ~= "full" then return false end
-    end
-    for id in pairs(order.workers) do
+    -- Check every worker before marking any cargo, so a worker who is still
+    -- busy or loading never leaves the others' harvest half re-marked.
+    local finished = {}
+    for id, state in pairs(order.workers) do
         local member = actorFor(id)
-        if not member then return false end
-        local cargo, reason = cargoItems(member, order.id)
-        if not cargo then
-            order.phase, order.blocker = "paused", reason
+        if member then
+            if state.phase ~= "done" and state.phase ~= "full" then return false end
+            local cargo, reason = cargoItems(member, order.id)
+            if not cargo then
+                order.phase, order.blocker = "paused", reason
+                return false
+            end
+            if order.carId and #cargo > 0 then return false end
+            finished[#finished + 1] = { id = id, member = member, cargo = cargo }
+        elseif not workerGone(id) then
             return false
         end
-        if order.carId and #cargo > 0 then return false end
+    end
+    for _, worker in ipairs(finished) do
+        local id, member, cargo = worker.id, worker.member, worker.cargo
         if not order.carId then
             for _, entry in ipairs(cargo) do
                 local data = U().modData(entry.item)
@@ -1088,7 +1119,7 @@ function Field.update(actor, player, snapshot)
     local order = active
     local inventory = U().inventory(actor)
     if not inventory then return false, "inventory_unavailable" end
-    local _, _, load = U().inventoryLoad(actor)
+    local _, _, load = U().carryLoad(actor)
     local full = fullLoad(actor, worker, order)
     local cargo, cargoReason = cargoItems(actor, order.id)
     if not cargo then
@@ -1288,9 +1319,11 @@ function Field.update(actor, player, snapshot)
                 if object.hasSeed then allow(props.seedName) end
             end
             worker.yieldEstimate = propsYieldWeight(props, object, actor)
-            if load >= fullLoad(actor, worker, order) then
-                -- Even an empty-handed worker must not start a plant whose
-                -- yield could not be carried; say so instead of overloading.
+            if load >= fullLoad(actor, worker, order)
+                and not (#cargo == 0 and firstTargetFits(actor, worker, order)) then
+                -- An empty-handed worker takes one plant past its Strength
+                -- limit, but never one whose yield would not physically fit
+                -- the inventory; say so instead of overloading.
                 release(worker)
                 if #cargo == 0 then
                     order.blocker = "field_carry_limit_reached"

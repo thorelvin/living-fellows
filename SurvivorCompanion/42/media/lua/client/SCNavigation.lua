@@ -2148,6 +2148,10 @@ local function boundedOutdoorPath(startSquare, vegetationScale, actor)
     local seqCounter = 0
     local expanded = 0
     local nodeBudget = U().config("navigationEgressNodeBudget") or 160
+    -- A walkable neighbour beyond the search radius means "not found nearby",
+    -- not "sealed". Report that separately so callers do not treat a large
+    -- floor or a long stair route as a trap.
+    local clipped = false
 
     while #open > 0 and expanded < nodeBudget do
         local entry = heapPop(open)
@@ -2164,7 +2168,13 @@ local function boundedOutdoorPath(startSquare, vegetationScale, actor)
             expanded = expanded + 1
             for _, otherSquare in ipairs(egressNeighbors(current.square)) do
                 local otherKey = squareKey(otherSquare)
-                if otherKey and not closed[otherKey] and withinEgressRadius(startSquare, otherSquare) then
+                local inside = otherKey and withinEgressRadius(startSquare, otherSquare)
+                if otherKey and not inside and not clipped and not closed[otherKey]
+                    and passableEdge(current.square, otherSquare, vegetationScale,
+                        { actor = actor }) then
+                    clipped = true
+                end
+                if otherKey and not closed[otherKey] and inside then
                     local passable, cost = passableEdge(
                         current.square, otherSquare, vegetationScale, { actor = actor })
                     if passable then
@@ -2189,7 +2199,8 @@ local function boundedOutdoorPath(startSquare, vegetationScale, actor)
             end
         end
     end
-    return nil, expanded >= nodeBudget and "budget" or "no_loaded_outdoor_route", expanded
+    return nil, expanded >= nodeBudget and "budget"
+        or clipped and "egress_radius_limit" or "no_loaded_outdoor_route", expanded
 end
 
 local function reversedTrailPath(state, currentSquare, actor)
@@ -2210,9 +2221,11 @@ end
 local function refreshEgress(state, currentSquare, now, actor)
     if squareIsOutdoor(currentSquare) then
         state.egressPath, state.egressTarget, state.egressReason = nil, nil, "already_outdoors"
+        state.egressOriginKey = nil
         return
     end
     if now < (state.nextEgressScanAt or 0) then return end
+    state.egressOriginKey = squareKey(currentSquare)
     local path, reason, expanded = boundedOutdoorPath(currentSquare, 1, actor)
     local emergency = pathHasBush(path)
     if not path then
@@ -2988,7 +3001,14 @@ function Navigation._followExitForRequest(actor, state, sourceSquare, goalSquare
     local exit, plan = chooseRememberedEgress(
         state, sourceSquare, now, intent.snapshot, actor)
     if exit and not sameSquare(exit, sourceSquare) then return exit, nil end
-    if plan and plan.reason == "budget" then return nil, nil end
+    -- Refuse only on proof: a scan from this very square that walked every
+    -- reachable tile and found no way out. A budget or radius cut, or a scan
+    -- remembered from an earlier square, leaves the distant engine route free
+    -- to try, as before this check existed.
+    if not plan or plan.reason ~= "no_loaded_outdoor_route"
+        or state.egressOriginKey ~= squareKey(sourceSquare) then
+        return nil, nil
+    end
     return nil, "path_blocked:follow_no_reachable_exit"
 end
 
@@ -8029,7 +8049,9 @@ end
 -- or storage scan order. This is a survey, not a movement request: a job keeps
 -- its normal approach and transaction checks after a choice is made. Each job
 -- owns its small, resumable survey in runtime state. Never persist the job or
--- its live IsoObject references.
+-- its live IsoObject references. One ownerState holds exactly one survey and
+-- a different choiceKey restarts it, so a caller that runs two surveys in the
+-- same beat must give each its own owner table.
 function Navigation.selectInteraction(actor, ownerState, choiceKey, choices, options)
     local utility = U()
     if not utility.isValidActor(actor) or type(ownerState) ~= "table" then

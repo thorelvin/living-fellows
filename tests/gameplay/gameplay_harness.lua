@@ -12624,6 +12624,25 @@ do
             and Encounter._approachExpired(approach, 26001, 5,
                 { expandedNodes = 200 }),
         "verified path progress may use the full 25-second expedition approach budget")
+    -- A valid route round a wall first leads away from the container. Walking
+    -- is progress even when the straight-line distance does not improve.
+    local detour = { approachStartedAt = 1000, scavengeMissionId = "search-detour" }
+    Encounter._approachExpired(detour, 1000, 3, { expandedNodes = 0 }, { x = 10, y = 10 })
+    local walked = true
+    for step = 1, 6 do
+        if Encounter._approachExpired(detour, 1000 + step * 2000, 4,
+                { expandedNodes = 0 }, { x = 10 + step * 1.5, y = 10 }) then
+            walked = false
+        end
+    end
+    check(walked
+            and not Encounter._approachExpired(detour, 14000, 4,
+                { expandedNodes = 0 }, { x = 19, y = 10 })
+            and not Encounter._approachExpired(detour, 25000, 4,
+                { expandedNodes = 0 }, { x = 19, y = 10 })
+            and Encounter._approachExpired(detour, 25001, 4,
+                { expandedNodes = 0 }, { x = 19, y = 10 }),
+        "an expedition approach walking a detour keeps going; one that stops still fails")
 
     local stuckFood = item("Base.CannedBologneseStuck", "Food")
     local stuckLooter = actor("sc-loot-stuck-approach", 50, 50, {})
@@ -14430,6 +14449,32 @@ do
     check(SurvivorCompanion.Navigation.spawnAccessible(bankFloor),
         "indoor spawning remains available when an actual exit route exists")
     bankFloor.room = oldRoom
+end
+do
+    -- Every tile inside the egress radius is indoors, but a walkable exit lies
+    -- just beyond it: a long floor, or a stair route counted four tiles per
+    -- level. That is "not found nearby", never proof of a sealed room.
+    local values = SurvivorCompanion.Config._values
+    local savedRadius = values.navigationEgressRadius
+    values.navigationEgressRadius = 2
+    local hall, marked = { name = "long-hall" }, {}
+    for dx = -2, 2 do
+        for dy = -2, 2 do
+            if math.abs(dx) + math.abs(dy) <= 2 then
+                local tile = cell:getGridSquare(48 + dx, 30 + dy, 0)
+                marked[#marked + 1] = { tile = tile, room = tile.room }
+                tile.room = hall
+            end
+        end
+    end
+    local hallExit, hallProblem = SurvivorCompanion.Navigation._followExitForRequest(
+        player, {}, cell:getGridSquare(48, 30, 0), cell:getGridSquare(0, 0, 0), clock,
+        { action = "follow_formation", followRecovery = true })
+    for _, entry in ipairs(marked) do entry.tile.room = entry.room end
+    values.navigationEgressRadius = savedRadius
+    check(hallExit == nil and hallProblem == nil,
+        "a follower whose exit lies past the egress radius may still try the distant route: "
+            .. tostring(hallProblem))
 end
 do
     local roof = cell:getGridSquare(40, 20, 1)
@@ -17557,15 +17602,24 @@ do
     function carried:getCapacityWeight() return self.weight end
     function carried:getEffectiveCapacity() return 50 end
     local person = { capacity = 8, strengthModifier = 1.58,
-        penalty = 0, carryTrait = nil }
+        penalty = 0, carryTrait = nil, maxWeightDelta = 1, deltaWrites = 0 }
     local body = {}
+    -- BodyDamage.UpdateStrength as Build 42.21 runs it on every character
+    -- update: base 8 x Strength modifier, minus moodle penalties, then x the
+    -- IsoPlayer maxWeightDelta field.
     function body:UpdateStrength()
         person.capacity = math.max(0, math.floor(8 * person.strengthModifier)
             - person.penalty)
+        person.capacity = math.floor(person.capacity * person.maxWeightDelta)
     end
     function person:getBodyDamage() return body end
     function person:getMaxWeight() return self.capacity end
     function person:setMaxWeight(value) self.capacity = value end
+    -- The engine stores the delta as a float: 0.9 reads back as 0.8999999761.
+    function person:getMaxWeightDelta() return self.maxWeightDelta - 0.0000000239 end
+    function person:setMaxWeightDelta(value)
+        self.maxWeightDelta, self.deltaWrites = value, self.deltaWrites + 1
+    end
     function person:getInventory() return carried end
     function person:hasTrait(trait)
         return trait and trait.id == "base:" .. tostring(self.carryTrait)
@@ -17579,14 +17633,30 @@ do
             and Background.refreshCarryCapacity(person) == true
             and person.capacity == 20,
         "Stout uses the player multiplier without compounding on refresh")
+    body:UpdateStrength()
+    check(person.capacity == 20,
+        "the engine's next Strength update keeps the Stout multiplier: "
+            .. tostring(person.capacity))
     person.penalty = 2
     check(Background.refreshCarryCapacity(person) == true
             and person.capacity == 17,
         "current condition reduces the companion carrying limit")
+    local writes = person.deltaWrites
+    person.carryTrait = "feeble"
+    Background.refreshCarryCapacity(person)
+    Background.refreshCarryCapacity(person)
+    check(person.deltaWrites == writes + 1 and person.capacity == 12,
+        "a float read-back of the Feeble multiplier is not rewritten on every pulse")
+    person.carryTrait = "stout"
+    Background.refreshCarryCapacity(person)
     local weight, capacity, ratio = SurvivorCompanion.GameplayUtil.inventoryLoad(person)
-    check(weight == 9 and capacity == 17 and ratio > 0.52
-            and ratio < 0.54,
-        "load planning uses character encumbrance, not the hard container cap")
+    check(weight == 9 and capacity == 50 and ratio > 0.17 and ratio < 0.19,
+        "physical load uses the inventory's hard limit")
+    local carryWeight, carryLimit, carryRatio =
+        SurvivorCompanion.GameplayUtil.carryLoad(person)
+    check(carryWeight == 9 and carryLimit == 17 and carryRatio > 0.52
+            and carryRatio < 0.54,
+        "carry load uses the character's Strength and condition limit")
 end
 
 -- Build 42.20.4 seeds Strength and Fitness at 5 during character creation, and
@@ -19019,6 +19089,117 @@ do
         "the kept-harvest pantry fixture is removed again")
     table.remove(campSquare.objects, pantry.objectIndex + 1)
 end
+;(function()
+    -- Two load scales (0.26.53 review). A Strength-5 companion (carry limit
+    -- 12) holds 14 weight of ordinary gear in a 50-unit inventory: under Heavy
+    -- Load, but nowhere near the physical cap.
+    local shelf = { square = campSquare, objectIndex = #campSquare.objects,
+        modData = {}, container = inventory() }
+    function shelf:getSquare() return self.square end
+    function shelf:getX() return self.square.x end
+    function shelf:getY() return self.square.y end
+    function shelf:getZ() return self.square.z end
+    function shelf:getObjectIndex() return self.objectIndex end
+    function shelf:getContainer() return self.container end
+    function shelf:getModData() return self.modData end
+    campSquare.objects[#campSquare.objects + 1] = shelf
+    local shelfRegistered, shelfRow = BaseLife.registerStorage(shelf, "general")
+    local axe = item("Base.HandAxe", "Weapon", { weight = 3 })
+    local foodA = item("Base.CannedPeas", "Food", { weight = 1 })
+    local foodB = item("Base.CannedCarrots", "Food", { weight = 1 })
+    local rope = item("Base.Rope", "Item", { weight = 3 })
+    local sheet = item("Base.Sheet", "Item", { weight = 3 })
+    local tarp = item("Base.Tarp", "Item", { weight = 3 })
+    local pack = inventory({ axe, foodA, foodB, rope, sheet, tarp })
+    pack.capacity = 50
+    local carrier = actor("sc-strength-shelver", 2, 2, { inventory = pack })
+    function carrier:getMaxWeight() return 12 end
+    carrier.primary = axe
+    registry[carrier.id] = carrier
+    local quiet = { snapshot = { threats = {}, threatCount = 0,
+        immediateCount = 0, pressure = 0 } }
+    local groundBefore = #carrier.square.worldItems
+    local savedInside = BaseLife.isInside
+    BaseLife.isInside = function() return false end
+    clock = clock + 501
+    local away = SurvivorCompanion.Logistics.status(carrier)
+    local awayKept, awayReason = SurvivorCompanion.Logistics.update(carrier, player, quiet)
+    check(shelfRegistered and away.overloaded ~= true and away.shouldUnload ~= true
+            and not awayKept and #pack.items == 6
+            and #carrier.square.worldItems == groundBefore,
+        "away from camp, gear past the Strength limit but far below the inventory cap is kept: "
+            .. tostring(awayReason))
+    BaseLife.isInside = savedInside
+    SurvivorCompanion.Logistics.reset(carrier)
+    -- Routine shelving is upkeep: it never walks a Stay or Guard companion
+    -- off its post, while a base worker does it between jobs.
+    local decisionSnapshot = { threats = {}, immediateAttackers = {},
+        threatCount = 0, immediateCount = 0, pressure = 0,
+        player = { danger = 0, immediateThreats = 0 } }
+    local function logisticsCandidate(order)
+        clock = clock + 501
+        local candidates = SurvivorCompanion.Decision._evaluateForTests(
+            carrier, player, decisionSnapshot, { recruited = true, order = order },
+            { alive = true, health = 100, wounds = {} }, {}, {}, clock)
+        for _, candidate in ipairs(candidates) do
+            if candidate.kind == "logistics" then return candidate end
+        end
+        return nil
+    end
+    check(logisticsCandidate("guard") == nil and logisticsCandidate("stay") == nil
+            and logisticsCandidate("base_duty") ~= nil,
+        "Strength-limit shelving waits for Stay and Guard but runs on base duty")
+    SurvivorCompanion.Logistics.reset(carrier)
+    local stored = 0
+    for _ = 1, 12 do
+        clock = clock + 501
+        local _, why = SurvivorCompanion.Logistics.update(carrier, player, quiet)
+        if why == "surplus_stored" then stored = stored + 1 end
+    end
+    local general = 0
+    for _, value in ipairs({ rope, sheet, tarp }) do
+        if shelf.container:contains(value) then general = general + 1 end
+    end
+    check(stored == 2 and general == 2 and pack:contains(axe)
+            and pack:contains(foodA) and pack:contains(foodB)
+            and #carrier.square.worldItems == groundBefore,
+        "at camp, surplus past the Strength unload share is shelved, never dropped: "
+            .. tostring(stored) .. "/" .. tostring(general))
+
+    -- A field worker home with light ordinary surplus finds every shelf
+    -- unreachable. Each item cools down once, and the return cleanup ends.
+    local otherSheet = item("Base.Sheet", "Item", { weight = 0.1 })
+    local spareSheet = item("Base.Sheet", "Item", { weight = 0.1 })
+    carrier.inventory = inventory({ axe, otherSheet, spareSheet })
+    function carrier:getMaxWeight() return 50 end
+    carrier.modData.LF_FieldReturnCleanup = "field:review"
+    SurvivorCompanion.Logistics.reset(carrier)
+    local savedSelect = SurvivorCompanion.Navigation.selectInteraction
+    local surveys = 0
+    SurvivorCompanion.Navigation.selectInteraction = function()
+        surveys = surveys + 1
+        return nil, "unreachable"
+    end
+    local reasons = {}
+    for index = 1, 4 do
+        clock = clock + 501
+        local _, why = SurvivorCompanion.Logistics.update(carrier, player, quiet)
+        reasons[index] = tostring(why)
+    end
+    SurvivorCompanion.Navigation.selectInteraction = savedSelect
+    check(reasons[1] == "storage_route_unreachable"
+            and reasons[2] == "storage_route_unreachable" and surveys == 2
+            and carrier.modData.LF_FieldReturnCleanup == nil
+            and carrier.inventory:contains(otherSheet) and carrier.inventory:contains(spareSheet)
+            and #carrier.square.worldItems == groundBefore,
+        "an unreachable shelf cools each item once and the return cleanup still ends: "
+            .. table.concat(reasons, ",") .. " surveys=" .. tostring(surveys))
+    SurvivorCompanion.Logistics.reset(carrier)
+    registry[carrier.id] = nil
+    check(BaseLife.removeStorage(shelfRow.id) == true,
+        "the Strength-shelving fixture is removed again")
+    table.remove(campSquare.objects, shelf.objectIndex + 1)
+end)()
 
 local BaseObjectRef = SurvivorCompanion.BaseObjectRef
 local copiedStorageRef = BaseObjectRef.copy(storageRow)
@@ -22310,6 +22491,29 @@ do
             and player.inventory.capacityOwnerMismatch ~= true
             and residentOne.inventory.capacityOwnerMismatch ~= true,
         "a reciprocal trade passes the live destination actor through both capacity checks: "
+            .. tostring(exchangeReason))
+    player.inventory:Remove(requestedHammer)
+    residentOne.inventory:Remove(offeredAxe)
+end
+do
+    -- Taking goods past the Strength limit is Heavy Load, not a refusal: the
+    -- trade only needs room in the inventory, like any vanilla transfer.
+    local offeredAxe = item("Base.Axe", "Tool", { weight = 2 })
+    local requestedHammer = item("Base.Hammer", "Tool", { weight = 2 })
+    player.inventory:AddItem(offeredAxe)
+    residentOne.inventory:AddItem(requestedHammer)
+    local savedLimit = player.getMaxWeight
+    function player:getMaxWeight() return 1 end
+    local originalSnapshot = SurvivorCompanion.Senses.snapshot
+    SurvivorCompanion.Senses.snapshot = completeTradeSafetySnapshot
+    local exchanged, exchangeReason = Trade.barter("faction-test", player,
+        { { item = offeredAxe, container = player.inventory } },
+        { { item = requestedHammer, container = residentOne.inventory } })
+    SurvivorCompanion.Senses.snapshot = originalSnapshot
+    player.getMaxWeight = savedLimit
+    check(exchanged and player.inventory:contains(requestedHammer)
+            and residentOne.inventory:contains(offeredAxe),
+        "a trade the inventory can hold succeeds past the player's Strength limit: "
             .. tostring(exchangeReason))
     player.inventory:Remove(requestedHammer)
     residentOne.inventory:Remove(offeredAxe)

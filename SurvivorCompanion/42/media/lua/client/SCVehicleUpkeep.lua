@@ -69,6 +69,21 @@ local function cleanSink(object)
         and call(object, "isTaintedWater") == false
         and (avoidedSinks[object] or 0) <= U().nowMs()
 end
+-- Navigation.selectInteraction keeps one resumable route survey per owner
+-- table and restarts it whenever the choice key changes. A wash job surveys
+-- both a sink and an empty vessel in the same beat, so each survey owns its
+-- own table under the worker's base state. Sharing one table made the two
+-- surveys restart each other forever once a route needed a second slice.
+local function surveyOwner(state, key)
+    if type(state) ~= "table" then return nil end
+    state.upkeepSurveys = state.upkeepSurveys or {}
+    local owner = state.upkeepSurveys[key]
+    if not owner then
+        owner = {}
+        state.upkeepSurveys[key] = owner
+    end
+    return owner
+end
 -- Search at most one small slice per work tick. The cached source is rechecked
 -- before use; a dry sink or a newly blocked approach never remains selected.
 local function findCleanSink(actor, state)
@@ -119,7 +134,8 @@ local function findCleanSink(actor, state)
     if #choices == 0 then return nil, "wash_sink_missing" end
     if actor and state and SC.Navigation
         and type(SC.Navigation.selectInteraction) == "function" then
-        local selected, reason = SC.Navigation.selectInteraction(actor, state,
+        local selected, reason = SC.Navigation.selectInteraction(actor,
+            surveyOwner(state, "sink"),
             "vehicle_wash_sink", choices, { nodeBudget = 1600,
                 workCampOnly = true, workReach = true })
         if selected then return selected.object end
@@ -209,7 +225,8 @@ local function supply(kind, actor, state)
         if not actor or not state or not SC.Navigation
             or type(SC.Navigation.selectInteraction) ~= "function"
             or #choices == 0 then return nil, nil end
-        local selected, reason = SC.Navigation.selectInteraction(actor, state,
+        local selected, reason = SC.Navigation.selectInteraction(actor,
+            surveyOwner(state, key),
             key, choices, { nodeBudget = 1600,
                 workCampOnly = true, workReach = true })
         return selected and selected.supply or nil, reason

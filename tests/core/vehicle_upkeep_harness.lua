@@ -287,6 +287,37 @@ Upkeep.update(T.actor, {}, manyWash)
 check(sinkChoices == 9 and manyWash.target.sourceKind == "sink",
     "wash scans beyond eight sinks before choosing an accessible water source")
 Upkeep.cancel(T.actor, manyWash)
+
+-- Navigation.selectInteraction keeps one resumable route survey per owner
+-- table, restarts it when the choice key changes, and a route longer than one
+-- search slice needs a second call. A wash with an empty vessel surveys a sink
+-- and the vessel in the same beat, on one worker's base state.
+local sliceChoice = SC.Navigation.selectInteraction
+SC.Navigation.selectInteraction = function(_, owner, key, choices)
+    local survey = owner.navigationChoice
+    if not survey or survey.key ~= key then
+        survey = { key = key, slices = 0 }
+        owner.navigationChoice = survey
+    end
+    survey.slices = survey.slices + 1
+    if survey.slices < 2 then return nil, "pending" end
+    return choices[1], "selected"
+end
+T.base.jobs, T.actor.inventory.items = {}, {}
+T.blood.Front, emptyBucket.fluid.amount = 0.25, 0
+T.waterStorage.container.items = { emptyBucket }
+local slicedQueued, slicedWash = Upkeep.queue("wash_vehicle", T.car.id, true)
+local workerState, slicedReason = {}, nil
+for _ = 1, 8 do
+    local _, reason = Upkeep.update(T.actor, workerState, slicedWash)
+    slicedReason = reason
+    if slicedWash.target.sourceKind == "sink" then break end
+end
+check(slicedQueued == true and slicedWash.target.sourceKind == "sink",
+    "a wash whose sink and vessel routes each need two slices still selects both: "
+        .. tostring(slicedReason))
+Upkeep.cancel(T.actor, slicedWash)
+SC.Navigation.selectInteraction = sliceChoice
 SC.GameplayUtil.gridSquare, SC.Navigation.selectInteraction, T.base.zones =
     oldGrid, oldChoice, oldZones
 print("VEHICLE_UPKEEP_PASS checks=" .. tostring(checks))

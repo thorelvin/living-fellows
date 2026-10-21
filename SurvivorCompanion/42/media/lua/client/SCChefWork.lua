@@ -425,12 +425,10 @@ end
 local function craftCapacity(actor, reserve)
     local inventory = U().inventory(actor)
     local weight = numeric(select(1, call(inventory, "getCapacityWeight")))
+    -- Cooking is a short carry inside camp: the ingredients and pot must fit
+    -- the physical inventory. The Strength limit would refuse an ordinarily
+    -- equipped chef long before vanilla's own crafting does.
     local capacity = numeric(select(1, call(inventory, "getEffectiveCapacity", actor)))
-    local characterCapacity = numeric(select(1, call(actor, "getMaxWeight")))
-    if characterCapacity and characterCapacity > 0 then
-        capacity = capacity and math.min(capacity, characterCapacity)
-            or characterCapacity
-    end
     if weight and capacity and weight + reserve > capacity then
         return false, "chef_carry_capacity_low", true
     end

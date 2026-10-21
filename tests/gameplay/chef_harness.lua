@@ -590,10 +590,19 @@ queuedAction:complete()
 handled = chef.update(actor, {}, soupJob, player)
 assert(handled == true and ovenContainer:contains(hotSoup)
     and not chef.isPrepared(hotSoup), "uncooked soup stays in the heated pot")
+-- An ordinarily equipped chef (9 weight against a Strength limit of 12) still
+-- divides the pot. Cooking is a short carry inside camp, checked against the
+-- physical inventory like vanilla crafting, not against Heavy Load.
+function actorInventory:getCapacityWeight() return 9 end
+function actorInventory:getEffectiveCapacity() return 50 end
+function actor:getMaxWeight() return 12 end
 soupFlags.cooked = true
-handled = chef.update(actor, {}, soupJob, player)
+handled, progress = chef.update(actor, {}, soupJob, player)
 assert(handled == true and soupJob.target.cookPhase == "portion_queued",
-    "cooked soup queues native bowl division")
+    "cooked soup queues native bowl division even past the Strength limit: "
+        .. tostring(progress))
+actorInventory.getCapacityWeight, actorInventory.getEffectiveCapacity = nil, nil
+actor.getMaxWeight = nil
 queuedAction:performRecipe()
 handled, progress, _, completed = chef.update(actor, {}, soupJob, player)
 assert(handled == true and completed ~= true

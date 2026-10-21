@@ -446,15 +446,8 @@ local function destinationAcceptsAll(container, owner, rows)
     local weightOk, currentWeight = invoke(container, "getCapacityWeight")
     local capacityOk, capacity = invoke(container, "getEffectiveCapacity", owner)
     if not capacityOk then capacityOk, capacity = invoke(container, "getCapacity") end
-    local ownerInventoryOk, ownerInventory = invoke(owner, "getInventory")
-    if ownerInventoryOk and ownerInventory == container then
-        local carryOk, carryCapacity = invoke(owner, "getMaxWeight")
-        if carryOk and tonumber(carryCapacity) and tonumber(carryCapacity) > 0 then
-            capacity = math.min(tonumber(capacity) or tonumber(carryCapacity),
-                tonumber(carryCapacity))
-            capacityOk = true
-        end
-    end
+    -- Vanilla transfers into a character's inventory check this same physical
+    -- limit; carrying past the Strength limit is Heavy Load, not a refusal.
     if not weightOk or not capacityOk or tonumber(currentWeight) == nil
         or tonumber(capacity) == nil then
         return false, "capacity_check_unavailable"

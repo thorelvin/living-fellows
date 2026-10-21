@@ -1421,16 +1421,19 @@ function U.itemWeight(item)
     return value
 end
 
--- The root inventory's effective capacity is its physical container limit
--- (normally 50), not the character's Strength-dependent encumbrance limit.
--- Player carrying and heavy-load moodles use getMaxWeight().
+-- Two scales describe a companion's load, and callers choose deliberately:
+-- inventoryLoad is the physical one. Build 42's transfer checks compare
+-- ItemContainer:getCapacityWeight() against getEffectiveCapacity(character),
+-- the inventory's hard limit (normally 50). Use it for what may be picked up
+-- or dropped and for short carries such as one log. carryLoad is the
+-- Strength and condition limit behind the Heavy Load moodle.
 function U.inventoryLoad(actor)
     local inventory = U.inventory(actor)
     if not inventory then return 0, 0, 0, nil end
     local weight, weightOk = U.call(inventory, "getCapacityWeight")
-    local capacity, capacityOk = U.call(actor, "getMaxWeight")
+    local capacity, capacityOk = U.call(inventory, "getEffectiveCapacity", actor)
     if not capacityOk or type(capacity) ~= "number" or capacity <= 0 then
-        capacity, capacityOk = U.call(inventory, "getEffectiveCapacity", actor)
+        capacity, capacityOk = U.call(actor, "getMaxWeight")
     end
     if not capacityOk or type(capacity) ~= "number" or capacity <= 0 then
         capacity, capacityOk = U.call(inventory, "getMaxWeight")
@@ -1444,6 +1447,22 @@ function U.inventoryLoad(actor)
     capacity = capacityOk and tonumber(capacity) or 0
     if capacity <= 0 then return weight, 0, 0, inventory end
     return weight, capacity, weight / capacity, inventory
+end
+
+-- The weight a companion carries before the game applies Heavy Load
+-- (IsoGameCharacter.getMaxWeight, refreshed from Strength, condition and
+-- carry traits). Plan routine trips and camp shelving against it; never use
+-- it to refuse a short carry the inventory can physically hold. A character
+-- whose limit falls to 0 through injury still reports the physical scale, so
+-- callers never divide by zero.
+function U.carryLoad(actor)
+    local weight, physical, physicalRatio, inventory = U.inventoryLoad(actor)
+    local limit, limitOk = U.call(actor, "getMaxWeight")
+    limit = limitOk and tonumber(limit) or nil
+    if not limit or limit <= 0 then
+        return weight, physical, physicalRatio, inventory
+    end
+    return weight, limit, weight / limit, inventory
 end
 
 local function normalizedTagName(value)

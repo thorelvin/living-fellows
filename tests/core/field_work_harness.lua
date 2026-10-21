@@ -108,6 +108,12 @@ end
 function utility.inventoryLoad(value)
     return #value.bag.items, 10, #value.bag.items / 10, value.bag
 end
+-- Every fake item weighs 1. The physical inventory holds 10; a worker's
+-- Strength limit is the same unless a test lowers carryCapacity.
+function utility.carryLoad(value)
+    local limit = value.carryCapacity or 10
+    return #value.bag.items, limit, #value.bag.items / limit, value.bag
+end
 function utility.each(values, limit, callback)
     for i = 1, math.min(#(values or {}), limit or 999) do callback(values[i]) end
 end
@@ -889,6 +895,92 @@ check(Field.status().blocker == "field_carry_limit_reached"
     and heavyCrop.plant.ripe == true and one.pending == nil,
     "extra produce, bonus yield, and seeds prevent an over-capacity harvest")
 getScriptManager, Perks, one.getPerkLevel = oldManager, oldPerks, nil
+-- A pumpkin plant can outweigh an average companion's whole Strength limit.
+-- An empty-handed worker still takes that one plant when it physically fits,
+-- then ends the trip instead of starting a second.
+do
+    Field.restore(nil)
+    one.bag, two.bag, car.part.bag = inventory(), inventory(), inventory()
+    one.x, one.y, player.x, player.y = 100, 99, 100, 100
+    one.follow, two.follow, one.pending, one.active = true, false, nil, false
+    for _, entry in pairs(squares) do entry.plant = nil end
+    put(one.bag, item("Base.Pen"))
+    one.carryCapacity = 4
+    farming_vegetableconf.props.YieldBulky = {
+        vegetableName = "Base.Pumpkin", maxVegAutorized = 5,
+    }
+    local bulky = cropAt(100, 100, true, "YieldBulky")
+    local nextBulky = cropAt(101, 100, true, "YieldBulky")
+    local savedManager, savedPerks = getScriptManager, Perks
+    Perks = { Farming = "Farming" }
+    one.getPerkLevel = function() return 0 end
+    getScriptManager = function()
+        return { FindItem = function()
+            return { getActualWeight = function() return 1 end }
+        end }
+    end
+    check(Field.start("harvest", bulky, player) == true,
+        "bulky crop order starts without a car")
+    for _ = 1, 60 do
+        Field.update(one, player)
+        if one.pending and one.pending.operation == "harvest" then break end
+    end
+    check(one.pending and one.pending.operation == "harvest"
+            and one.pending.plant == bulky.plant,
+        "an empty-handed worker starts one plant heavier than its Strength limit: "
+            .. tostring(Field.status().blocker))
+    finish(one, "harvest", 5)
+    for _ = 1, 60 do
+        Field.update(one, player)
+        if one.pending and one.pending.plant == nextBulky.plant then break end
+    end
+    check(nextBulky.plant.ripe == true
+            and not (one.pending and one.pending.plant == nextBulky.plant),
+        "with that harvest carried, the worker does not start a second plant")
+    getScriptManager, Perks, one.getPerkLevel = savedManager, savedPerks, nil
+    one.carryCapacity = nil
+    farming_vegetableconf.props.YieldBulky = nil
+end
+-- A worker who died mid-order can never report done. Once the shared rule
+-- says the companion is gone, the others complete the order; a dormant
+-- worker (no living actor yet, not proven gone) still holds it open.
+do
+    Field.restore(nil)
+    one.bag, two.bag, car.part.bag = inventory(), inventory(), inventory()
+    one.x, one.y, two.x, two.y, player.x, player.y = 100, 99, 101, 99, 100, 100
+    one.follow, two.follow, one.pending, one.active = true, true, nil, false
+    two.pending, two.active = nil, false
+    for _, entry in pairs(squares) do entry.plant = nil end
+    local lastCrop = cropAt(100, 100, true)
+    check(Field.start("harvest", lastCrop, player) == true,
+        "two-worker order starts")
+    local twoIndex
+    for index, value in ipairs(actors) do
+        if value == two then twoIndex = index end
+    end
+    table.remove(actors, twoIndex)
+    local savedFuel, gone = SC.BaseFuel, false
+    SC.BaseFuel = { workerIdGone = function(id) return gone and id == "two" end }
+    for _ = 1, 60 do
+        Field.update(one, player)
+        if one.pending and one.pending.operation == "harvest" then break end
+    end
+    finish(one, "harvest")
+    for _ = 1, 60 do Field.update(one, player) end
+    check(Field.status().phase ~= "complete",
+        "a dormant worker who may still return keeps the order open")
+    gone = true
+    for _ = 1, 10 do
+        Field.update(one, player)
+        if Field.status().phase == "complete" then break end
+    end
+    check(Field.status().phase == "complete",
+        "a worker who is gone for good no longer holds the order open: "
+            .. tostring(Field.status().phase))
+    table.insert(actors, twoIndex, two)
+    SC.BaseFuel = savedFuel
+    two.follow = false
+end
 Field.restore(nil)
 one.bag, two.bag, car.part.bag = inventory(), inventory(), inventory()
 one.x, one.y, player.x, player.y = 100, 99, 100, 100
