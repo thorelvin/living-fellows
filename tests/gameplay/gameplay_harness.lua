@@ -5693,16 +5693,19 @@ do
 end
 do
     local slotFollower = actor("sc-slot-catch-up", 20, 20, {})
+    local closeWalk, _, closeActive = SurvivorCompanion.Positioning.followMode(
+        "walk", 0, 3, player, 3, slotFollower, 77, 2)
     local burst, reason, active = SurvivorCompanion.Positioning.followMode(
-        "walk", 0, 5, player, 3, slotFollower, 77, 1.3)
+        "walk", 0, 5, player, 3, slotFollower, 77, 4)
     local committed, _, stillActive = SurvivorCompanion.Positioning.followMode(
-        "walk", 0, 5, player, 3, slotFollower, 77, 0.7)
+        "walk", 0, 5, player, 3, slotFollower, 77, 2.5)
     local settled, _, released = SurvivorCompanion.Positioning.followMode(
-        "walk", 0, 5, player, 3, slotFollower, 77, 0.3)
-    check(burst == "jog" and reason == "slot_catch_up" and active == true
+        "walk", 0, 5, player, 3, slotFollower, 77, 1.5)
+    check(closeWalk == "walk" and closeActive == false
+            and burst == "jog" and reason == "slot_catch_up" and active == true
             and committed == "jog" and stillActive == true
             and settled == "walk" and released == false,
-        "open formation catches its assigned slot with a stable jog burst")
+        "nearby formation walks first and a distant jog ends before arrival")
     player.sneaking = true
     local stealth = SurvivorCompanion.Positioning.followMode(
         "copy", 0, 9, player, 3, slotFollower, 77, 2)
@@ -17549,6 +17552,43 @@ check((nativeBackgroundActor.levels.Strength or 0) == lumberjackAbilities.Streng
         and (nativeBackgroundActor.levels.Sprinting or 0) == lumberjackAbilities.Sprinting,
     "the four ability scores reach the actor exactly as the background rolled them")
 
+do
+    local carried = { weight = 9 }
+    function carried:getCapacityWeight() return self.weight end
+    function carried:getEffectiveCapacity() return 50 end
+    local person = { capacity = 8, strengthModifier = 1.58,
+        penalty = 0, carryTrait = nil }
+    local body = {}
+    function body:UpdateStrength()
+        person.capacity = math.max(0, math.floor(8 * person.strengthModifier)
+            - person.penalty)
+    end
+    function person:getBodyDamage() return body end
+    function person:getMaxWeight() return self.capacity end
+    function person:setMaxWeight(value) self.capacity = value end
+    function person:getInventory() return carried end
+    function person:hasTrait(trait)
+        return trait and trait.id == "base:" .. tostring(self.carryTrait)
+    end
+    check(Background.refreshCarryCapacity(person) == true
+            and person.capacity == 12,
+        "ordinary Strength uses the native carrying calculation")
+    person.strengthModifier, person.carryTrait = 2.09, "stout"
+    check(Background.refreshCarryCapacity(person) == true
+            and person.capacity == 20
+            and Background.refreshCarryCapacity(person) == true
+            and person.capacity == 20,
+        "Stout uses the player multiplier without compounding on refresh")
+    person.penalty = 2
+    check(Background.refreshCarryCapacity(person) == true
+            and person.capacity == 17,
+        "current condition reduces the companion carrying limit")
+    local weight, capacity, ratio = SurvivorCompanion.GameplayUtil.inventoryLoad(person)
+    check(weight == 9 and capacity == 17 and ratio > 0.52
+            and ratio < 0.54,
+        "load planning uses character encumbrance, not the hard container cap")
+end
+
 -- Build 42.20.4 seeds Strength and Fitness at 5 during character creation, and
 -- getClimbingFailChanceFloat is int(sqrt(2*Fitness + 2*Strength + 2*Nimble -
 -- moodle penalties)). A companion left at 0/0 scores 0, which
@@ -17700,6 +17740,7 @@ do
     check(Background.traitLabel("base:thickskinned") == "Thick Skinned"
             and Background.traitLabel("base:strong") == "Strong"
             and Background.traitLabel("base:jogger") == "Jogger"
+            and Background.traitLabel("Nutritionist2") == "Nutritionist"
             and Background.traitLabel("base:unmapped") == "Unmapped",
         "every trait on the sheet reads as words rather than a script id")
 end

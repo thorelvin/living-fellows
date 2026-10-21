@@ -426,6 +426,11 @@ local function craftCapacity(actor, reserve)
     local inventory = U().inventory(actor)
     local weight = numeric(select(1, call(inventory, "getCapacityWeight")))
     local capacity = numeric(select(1, call(inventory, "getEffectiveCapacity", actor)))
+    local characterCapacity = numeric(select(1, call(actor, "getMaxWeight")))
+    if characterCapacity and characterCapacity > 0 then
+        capacity = capacity and math.min(capacity, characterCapacity)
+            or characterCapacity
+    end
     if weight and capacity and weight + reserve > capacity then
         return false, "chef_carry_capacity_low", true
     end

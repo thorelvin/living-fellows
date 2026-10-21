@@ -2,6 +2,16 @@
 
 # Changelog
 
+## 0.26.53 - Formation, carrying, and field cargo
+
+- Close followers walk into formation and jog only when their assigned slot falls farther behind.
+- Companion carrying uses the game's Strength and condition calculation with trait effects, instead of treating the inventory container's 50-unit limit as the actor's carrying capacity. Cooking and trade checks also respect the actor limit.
+- The Traits panel displays the localized Nutritionist name rather than the internal `Nutritionist2` ID.
+- Returning crop and tree workers prioritize storing their exact trip cargo and other excess supplies at camp while keeping protected gear and provisions. Logs use a marked log yard when available, and unavailable storage leaves cargo with its carrier for a later retry.
+- Field harvests in carried bags are found and transferred by item identity into the selected car trunk. A completed car trip checks for remaining cargo before closing.
+- Expedition travel and return recover more reliably from blocked road segments and parking approaches. Interior search chooses reachable targets without repeatedly cancelling a valid path.
+- The native bridge protocol remains `42.21-isocompanion-24`; update the bridge JAR and Lua payload together.
+
 ## 0.26.52 - Water, corpse carrying, and driveway fixes
 
 - Companions refill their drinking containers from usable nearby water sources. Corrected source selection and water refill state handling so a failed source does not leave the worker stuck or falsely report a refill.

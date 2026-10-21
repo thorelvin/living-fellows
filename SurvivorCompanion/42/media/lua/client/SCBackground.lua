@@ -784,6 +784,54 @@ local function applyCharacterTraits(actor, background, abilities)
     return applied
 end
 
+local function hasCarryTrait(actor, name)
+    local trait = resolveScriptObject("CharacterTrait", "base:" .. name)
+    if trait then
+        local present, checked = invoke(actor, "hasTrait", trait)
+        if checked then return present == true end
+    end
+    -- A script object is not available in some bridge fixtures. The live
+    -- known-traits list still carries the exact trait identity.
+    local traits = select(1, invoke(actor, "getCharacterTraits"))
+    local known = traits and select(1, invoke(traits, "getKnownTraits"))
+    if known then
+        for index = 0, math.min(listSize(known), 64) - 1 do
+            local entry = listGet(known, index)
+            local id = entry and (select(1, invoke(entry, "getId"))
+                or select(1, invoke(entry, "getName")))
+            id = string.lower(tostring(id or ""))
+            if id == name or id == "base:" .. name then return true end
+        end
+    end
+    return false
+end
+
+-- BodyDamage.UpdateStrength is the game's own Strength and condition formula.
+-- It applies its final trait multiplier only to IsoPlayer, so apply that same
+-- final step to our native survivor after asking the engine to refresh the
+-- unmodified capacity. This remains idempotent on every vitals pulse.
+function Background.refreshCarryCapacity(actor)
+    if not actor then return false, "carry_actor_missing" end
+    local body = select(1, invoke(actor, "getBodyDamage"))
+    local _, refreshed = invoke(body, "UpdateStrength")
+    if not refreshed then return false, "carry_native_refresh_unavailable" end
+    local capacity, capacityOk = invoke(actor, "getMaxWeight")
+    if not capacityOk or type(capacity) ~= "number" then
+        return false, "carry_capacity_unavailable"
+    end
+    local multiplier = 1
+    if hasCarryTrait(actor, "strong") then multiplier = 1.5
+    elseif hasCarryTrait(actor, "weak") then multiplier = 0.75
+    elseif hasCarryTrait(actor, "feeble") then multiplier = 0.9
+    elseif hasCarryTrait(actor, "stout") then multiplier = 1.25 end
+    local target = math.max(0, math.floor(capacity * multiplier))
+    if target ~= capacity then
+        local _, set = invoke(actor, "setMaxWeight", target)
+        if not set then return false, "carry_capacity_set_failed" end
+    end
+    return true, target
+end
+
 -- Sets the same descriptor profession object used by normal Build 42 players,
 -- then applies its granted traits/recipes and conservative starting levels.
 -- Failure is reported to the caller but never leaves a half-registered actor.
@@ -829,6 +877,7 @@ function Background.applyNative(actor, background)
         return false, "native_background_skills_rejected"
     end
     applyCharacterTraits(actor, background, abilities)
+    Background.refreshCarryCapacity(actor)
     invoke(actor, "applyProfessionRecipes")
     invoke(actor, "applyCharacterTraitsRecipes")
     local current, currentOk = invoke(descriptor, "getCharacterProfession")
@@ -900,6 +949,11 @@ end
 -- script id in a readable form rather than an empty cell.
 function Background.traitLabel(id)
     id = tostring(id or "")
+    if id == "Nutritionist2" or id == "base:nutritionist2" then
+        local label = type(getText) == "function" and getText("UI_trait_nutritionist") or nil
+        return type(label) == "string" and label ~= "UI_trait_nutritionist"
+            and label or "Nutritionist"
+    end
     for _, group in ipairs(traitAxes) do
         for _, option in ipairs(group.options) do
             if option.id == id then return option.label end

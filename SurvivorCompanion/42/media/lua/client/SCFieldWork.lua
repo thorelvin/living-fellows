@@ -147,12 +147,34 @@ local function sayTrunkUnlocked(actor)
         U().say(actor, "There. The trunk was just being stubborn.")
     end
 end
-local function carriedItems(actor)
+local function carriedEntries(actor)
     local inventory = U().inventory(actor)
-    if type(U().inventoryItemsDeep) == "function" then
-        return U().inventoryItemsDeep(inventory, 4096)
+    if not inventory then return nil, "inventory_unavailable" end
+    local containers, seen = { inventory }, { [inventory] = true }
+    local entries, cursor = {}, 1
+    while cursor <= #containers do
+        local source = containers[cursor]
+        cursor = cursor + 1
+        local available = 4096 - #entries
+        local items = U().inventoryItems(source, available + 1)
+        if #items > available then return nil, "inventory_scan_limit" end
+        for _, item in ipairs(items) do
+            entries[#entries + 1] = { item = item, source = source }
+            local nested = select(1, U().call(item, "getItemContainer"))
+            if nested and not seen[nested] then
+                if #containers >= 64 then return nil, "inventory_container_limit" end
+                seen[nested] = true
+                containers[#containers + 1] = nested
+            end
+        end
     end
-    return U().inventoryItems(inventory, 4096)
+    return entries
+end
+local function carriedItems(actor)
+    local entries = carriedEntries(actor)
+    local items = {}
+    for _, entry in ipairs(entries or {}) do items[#items + 1] = entry.item end
+    return items
 end
 local function carries(actor, item)
     if U().inventoryContains(U().inventory(actor), item) then return true end
@@ -255,10 +277,10 @@ local function approach(actor, square, action, includeOwn)
 end
 local function inventoryIds(actor)
     local ids = {}
-    local items = U().inventoryItems(U().inventory(actor), 257)
-    if #items > 256 then return nil end
-    for _, item in ipairs(items) do
-        local id = itemId(item)
+    local entries = carriedEntries(actor)
+    if not entries then return nil end
+    for _, entry in ipairs(entries) do
+        local id = itemId(entry.item)
         if id then ids[id] = true end
     end
     return ids
@@ -274,7 +296,10 @@ local function adoptHarvest(actor, worker, order)
         allowed[itemType] = true
     end
     local added = 0
-    for _, item in ipairs(U().inventoryItems(inventory, 4096)) do
+    local entries, scanReason = carriedEntries(actor)
+    if not entries then return false, scanReason end
+    for _, entry in ipairs(entries) do
+        local item = entry.item
         local id = itemId(item)
         if id and worker.before[id] ~= true and marker(item) == nil
             and allowed[U().itemType(item)] == true then
@@ -427,8 +452,10 @@ local function atCar(actor, vehicle, part)
 end
 local function cargoItems(actor, orderId)
     local result = {}
-    for _, item in ipairs(U().inventoryItems(U().inventory(actor), 4096)) do
-        if marker(item) == orderId then result[#result + 1] = item end
+    local entries, reason = carriedEntries(actor)
+    if not entries then return nil, reason end
+    for _, entry in ipairs(entries) do
+        if marker(entry.item) == orderId then result[#result + 1] = entry end
     end
     return result
 end
@@ -438,7 +465,11 @@ local function loadCar(actor, worker, order)
     local okay, approachReason = atCar(actor, vehicle, part)
     if not okay then order.phase, order.blocker = "paused", approachReason return false, approachReason end
     if approachReason ~= "arrived" then return true, "field_cargo_approaching" end
-    local cargo = cargoItems(actor, order.id)
+    local cargo, cargoReason = cargoItems(actor, order.id)
+    if not cargo then
+        order.phase, order.blocker = "paused", cargoReason
+        return false, cargoReason
+    end
     if #cargo == 0 then
         worker.phase = worker.afterDeposit or "seek"
         worker.afterDeposit = nil
@@ -447,15 +478,19 @@ local function loadCar(actor, worker, order)
     -- Keep transfers bounded per decision beat, but unload a useful batch
     -- instead of making a separate trip through the decision loop per crop.
     for index = 1, math.min(#cargo, 8) do
-        local item = cargo[index]
+        local item, source = cargo[index].item, cargo[index].source
         if SC.WorkTransport and SC.WorkTransport.hasRoom
             and SC.WorkTransport.hasRoom(container, actor, item) ~= true then
             order.phase, order.blocker = "paused", "car_trunk_full"
             return false, order.blocker
         end
-        local moved, moveReason = U().transferItemVerified(U().inventory(actor), container, item)
+        local moved, moveReason = U().transferItemVerified(source, container, item)
         if not moved then order.phase, order.blocker = "paused", moveReason
             return false, moveReason end
+        if U().inventoryContains(container, item) ~= true then
+            order.phase, order.blocker = "paused", "field_cargo_unverified"
+            return false, order.blocker
+        end
         local data = U().modData(item)
         if data then data[MARK], data[WORKER_MARK] = nil, nil end
         order.loaded = order.loaded + 1
@@ -470,24 +505,29 @@ local function completeIfFinished(order)
     for _, state in pairs(order.workers) do
         if state.phase ~= "done" and state.phase ~= "full" then return false end
     end
-    order.phase = "complete"
-    if not order.carId then
-        for id in pairs(order.workers) do
-            local member = actorFor(id)
-            if member then
-                for _, item in ipairs(U().inventoryItems(U().inventory(member), 4096)) do
-                    local data = U().modData(item)
-                    if data and data[MARK] == order.id then
-                        -- No car was selected. Keep the harvest in this
-                        -- worker's inventory for manual pickup instead of
-                        -- letting generic overload handling drop it outside.
-                        data[MARK], data[WORKER_MARK] = nil, nil
-                        data[CARRY_MARK] = id
-                    end
+    for id in pairs(order.workers) do
+        local member = actorFor(id)
+        if not member then return false end
+        local cargo, reason = cargoItems(member, order.id)
+        if not cargo then
+            order.phase, order.blocker = "paused", reason
+            return false
+        end
+        if order.carId and #cargo > 0 then return false end
+        if not order.carId then
+            for _, entry in ipairs(cargo) do
+                local data = U().modData(entry.item)
+                if data then
+                    -- Preserve the exact trip cargo until it reaches camp.
+                    data[MARK], data[WORKER_MARK] = nil, nil
+                    data[CARRY_MARK] = id
                 end
             end
         end
+        local actorData = U().modData(member)
+        if actorData then actorData.LF_FieldReturnCleanup = order.id end
     end
+    order.phase = "complete"
     return true
 end
 local function currentTarget(worker, order)
@@ -1050,7 +1090,16 @@ function Field.update(actor, player, snapshot)
     if not inventory then return false, "inventory_unavailable" end
     local _, _, load = U().inventoryLoad(actor)
     local full = fullLoad(actor, worker, order)
+    local cargo, cargoReason = cargoItems(actor, order.id)
+    if not cargo then
+        order.phase, order.blocker = "paused", cargoReason
+        return false, cargoReason
+    end
     if worker.phase == "full" then
+        if order.carId and #cargo > 0 then
+            worker.phase, worker.afterDeposit = "deposit", "seek"
+            return loadCar(actor, worker, order)
+        end
         if load < full then
             worker.phase, worker.afterDeposit = worker.afterDeposit or "seek", nil
             return true, "field_carry_space_restored"
@@ -1058,7 +1107,7 @@ function Field.update(actor, player, snapshot)
         completeIfFinished(order)
         return true, "field_carry_limit_reached"
     end
-    if #cargoItems(actor, order.id) > 0 and (load >= full or worker.phase == "deposit") then
+    if #cargo > 0 and (load >= full or worker.phase == "deposit") then
         if order.carId then
             if worker.phase == "wood" then worker.afterDeposit = "wood" end
             return loadCar(actor, worker, order)
@@ -1141,8 +1190,8 @@ function Field.update(actor, player, snapshot)
         end
     end
     if worker.phase == "done" then
-        if #cargoItems(actor, order.id) > 0 and order.carId then
-            worker.phase = "deposit"
+        if #cargo > 0 and order.carId then
+            worker.phase, worker.afterDeposit = "deposit", "done"
             return loadCar(actor, worker, order)
         end
         if worker.axeId and order.carId then
@@ -1243,10 +1292,10 @@ function Field.update(actor, player, snapshot)
                 -- Even an empty-handed worker must not start a plant whose
                 -- yield could not be carried; say so instead of overloading.
                 release(worker)
-                if #cargoItems(actor, order.id) == 0 then
+                if #cargo == 0 then
                     order.blocker = "field_carry_limit_reached"
                 end
-                worker.phase = order.carId and #cargoItems(actor, order.id) > 0
+                worker.phase = order.carId and #cargo > 0
                     and "deposit" or "full"
                 return true, "field_carry_limit_reached"
             end

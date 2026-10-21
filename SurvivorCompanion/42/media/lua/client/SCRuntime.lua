@@ -712,6 +712,9 @@ local function vitalsTask(current)
         finishNativeDeath(record)
         return
     end
+    if SC.Background and type(SC.Background.refreshCarryCapacity) == "function" then
+        pcall(SC.Background.refreshCarryCapacity, record.actor)
+    end
     if SC.Dialogue and type(SC.Dialogue.monitorMortality) == "function" then
         local farewellOk, farewellReason = pcall(
             SC.Dialogue.monitorMortality, record.actor, player(), nil)

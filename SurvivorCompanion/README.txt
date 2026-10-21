@@ -1,8 +1,8 @@
-Living Fellows 0.26.52 - public playtest
+Living Fellows 0.26.53 - public playtest
 
-This playtest improves companion water refills, corpse dragging visuals,
-and car expeditions using long, straight driveways. The existing field
-harvest and cargo recovery fixes remain included.
+This playtest improves close formation following, realistic carrying limits,
+field cargo delivery, and expedition route recovery. Harvest from a carried
+bag can now move into the selected car trunk.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added

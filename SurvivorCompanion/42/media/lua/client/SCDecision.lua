@@ -685,13 +685,16 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         -- Bag, clothing and packing chores wait for a following leader to
         -- settle, like idle work; being overloaded does not.
         if ok and load and load.shouldManage and commands.temporaryStay ~= true
-            and (load.overloaded or load.giftPending == true
+            and (load.overloaded or load.fieldReturnCleanup == true
+            or load.fieldReturnCargo == true or load.giftPending == true
             or load.weaponReady == true
             or not (commands.recruited and commands.order == "follow")
             or leaderSettled(actor, player, current)) then
             -- Overload beats routine follow/work, but never urgent medicine,
             -- needs, retreat, or combat survival.
-            add("logistics", load.overloaded and 92
+            add("logistics", load.fieldReturnCleanup and 94
+                or load.fieldReturnCargo and 94
+                or load.overloaded and 92
                 or (load.giftPending or load.weaponReady) and 82 or 74, false, load)
         end
     end

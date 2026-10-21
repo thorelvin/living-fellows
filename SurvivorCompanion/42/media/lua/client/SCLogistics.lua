@@ -1299,8 +1299,20 @@ function Logistics.status(actor)
     if audit.packMove and moveMemory.cooling(actor, "pack", audit.packMove.item, current) then
         audit.packMove = nil
     end
-    local surplus = nil
-    if audit.capacity > 0 and (audit.gearRatio or audit.ratio) > audit.softRatio then
+    local actorData = select(1, U().call(actor, "getModData"))
+    local atCamp = SC.BaseLife and type(SC.BaseLife.isInside) == "function"
+        and SC.BaseLife.isInside(actor) == true
+    audit.fieldReturnCleanup = atCamp and type(actorData) == "table"
+        and actorData.LF_FieldReturnCleanup ~= nil
+    local surplus = selectKeptHarvest(actor, audit)
+    -- A returning field worker can carry ordinary excess below the overload
+    -- threshold. Shelve it while at camp, using the normal role minimums.
+    if not surplus and audit.fieldReturnCleanup then
+        surplus = Logistics.selectSurplus(actor, audit)
+        if surplus then surplus.proactive = true end
+    end
+    if not surplus and audit.capacity > 0
+        and (audit.gearRatio or audit.ratio) > audit.softRatio then
         surplus = Logistics.selectSurplus(actor, audit)
     end
     if not surplus then
@@ -1311,21 +1323,20 @@ function Logistics.status(actor)
     end
     if not surplus then
         local farming = selectFarmingSurplus(actor, audit)
-        if farming and storageFor(actor, farming.item, "farming", true) then surplus = farming end
+        if farming and (audit.fieldReturnCleanup
+            or storageFor(actor, farming.item, "farming", true)) then surplus = farming end
     end
-    if not surplus then
-        local kept = selectKeptHarvest(actor, audit)
-        if kept and storageFor(actor, kept.item, kept.category, false) then surplus = kept end
-    end
+    audit.cleanupDone = audit.fieldReturnCleanup and surplus == nil
     if surplus and (moveMemory.cooling(actor, "deposit", surplus.item, current)
         or moveMemory.cooling(actor, "drop", surplus.item, current)) then
         surplus = nil
     end
     audit.surplus = surplus
+    audit.fieldReturnCargo = surplus ~= nil and surplus.keptHarvest == true
     audit.shouldUnload = surplus ~= nil
     audit.shouldManage = audit.weaponReady == true
         or audit.bagUpgrade ~= nil or audit.clothingUpgrade ~= nil
-        or audit.packMove ~= nil or audit.shouldUnload
+        or audit.packMove ~= nil or audit.shouldUnload or audit.cleanupDone
     audit.overloaded = audit.capacity > 0 and audit.ratio > audit.hardRatio
     state = state or {}
     states[actor] = state
@@ -1386,7 +1397,19 @@ storageFor = function(actor, item, category, dedicatedOnly, ownerState)
     if wanted == "food" and type(SC.BaseLife.foodDepositCategory) == "function" then
         wanted = SC.BaseLife.foodDepositCategory(item)
     end
-    local categories = dedicatedOnly and { wanted }
+    local fieldReturn = ownerState and (ownerState.fieldReturnCleanup == true
+        or ownerState.keptHarvest == true)
+    if fieldReturn and U().itemType(item) == "Base.Log"
+        and SC.LogYard and type(SC.LogYard.select) == "function" then
+        local yard = SC.LogYard.select(actor)
+        if yard then
+            return { storage = yard, container = yard.square,
+                owner = yard.square, distance = U().distance(actor, yard.square) }
+        end
+    end
+    local categories = fieldReturn and #SC.BaseLife.depositStorageRows(wanted) > 0
+        and { wanted }
+        or dedicatedOnly and { wanted }
         or wanted == "valuables" and { wanted }
         or wanted == "general" and { "general", "output" }
         or { wanted, "general", "output" }
@@ -1859,7 +1882,8 @@ function Logistics.update(actor, player, runtime)
         end
         return equipped, reason
     end
-    if audit.bagUpgrade then
+    local fieldDelivery = audit.fieldReturnCleanup and audit.shouldUnload
+    if audit.bagUpgrade and not fieldDelivery then
         local state = states[actor] or {}
         states[actor] = state
         local started, reason = beginTransaction(actor, state, {
@@ -1869,7 +1893,7 @@ function Logistics.update(actor, player, runtime)
         if not started then states[actor] = nil return false, reason end
         return executeTransaction(actor, state)
     end
-    if audit.clothingUpgrade then
+    if audit.clothingUpgrade and not fieldDelivery then
         local state = states[actor] or {}
         states[actor] = state
         local started, reason = beginTransaction(actor, state, {
@@ -1879,7 +1903,7 @@ function Logistics.update(actor, player, runtime)
         if not started then states[actor] = nil return false, reason end
         return executeTransaction(actor, state)
     end
-    if audit.packMove then
+    if audit.packMove and not fieldDelivery then
         local move = audit.packMove
         local state = states[actor] or {}
         states[actor] = state
@@ -1890,25 +1914,57 @@ function Logistics.update(actor, player, runtime)
         if not started then states[actor] = nil return false, reason end
         return executeTransaction(actor, state)
     end
-    if not audit.shouldUnload then states[actor] = nil return false, "load_balanced" end
+    if not audit.shouldUnload then
+        if audit.cleanupDone then
+            local data = select(1, U().call(actor, "getModData"))
+            if type(data) == "table" then data.LF_FieldReturnCleanup = nil end
+        end
+        states[actor] = nil
+        return false, "load_balanced"
+    end
     local state = states[actor] or {}
     states[actor] = state
     if not state.item or not state.source or not U().inventoryContains(state.source, state.item) then
         state.item, state.category = audit.surplus.item, audit.surplus.category
         state.proactive = audit.surplus.proactive == true
         state.keptHarvest = audit.surplus.keptHarvest == true
+        state.fieldReturnCleanup = audit.fieldReturnCleanup == true
         state.source = audit.surplus.source or audit.inventory
         state.destination, state.navigationChoice = nil, nil
     end
     if not state.destination then
         local destination, routeReason = storageFor(actor, state.item, state.category,
-            state.proactive and (state.category == "literature" or state.category == "farming"),
+            state.proactive and not state.fieldReturnCleanup
+                and (state.category == "literature" or state.category == "farming"),
             state)
         state.destination = destination
         if routeReason then return routeReason == "storage_route_pending", routeReason end
     end
     if state.destination then
         local destination = state.destination
+        if destination.storage and destination.storage.kind == "log_yard" then
+            local root = U().inventory(actor)
+            if state.source ~= root then
+                local unpacked, unpackReason = U().transferItemVerified(
+                    state.source, root, state.item)
+                if not unpacked then return false, unpackReason end
+                state.source = root
+            end
+            if not SC.BaseWork or type(SC.BaseWork.depositToStorage) ~= "function" then
+                return false, "log_yard_delivery_unavailable"
+            end
+            local accepted, yardReason = SC.BaseWork.depositToStorage(actor,
+                state, destination.storage, destination.container, state.item,
+                { movementPriority = 74 })
+            if accepted == true and not U().inventoryContains(root, state.item) then
+                local data = U().modData(state.item)
+                if data then data.LF_FieldCarryWorker = nil end
+                state.auditAt = -math.huge
+                states[actor] = nil
+                return true, "surplus_stored"
+            end
+            return accepted, yardReason or "log_yard_delivery_pending"
+        end
         -- Even an adjacent actor must prove it is on a usable side of the
         -- container.  Raw range admits the tile across an exterior wall.
         local phase = "approach"
@@ -1925,7 +1981,7 @@ function Logistics.update(actor, player, runtime)
     -- Proactive shelving is allowed only when the player marked a real
     -- literature destination. Without one, keep the item instead of falling
     -- through to the overload path that drops surplus on the ground.
-    if state.proactive and (state.keptHarvest
+    if state.fieldReturnCleanup or state.proactive and (state.keptHarvest
         or state.category == "literature" or state.category == "farming") then
         moveMemory.note(actor, "deposit", state.item, U().nowMs())
         states[actor] = nil

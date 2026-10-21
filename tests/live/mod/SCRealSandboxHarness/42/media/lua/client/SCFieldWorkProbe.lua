@@ -129,6 +129,15 @@ function Probe.step(H, current, check, result, setPhase)
             H.player)
         if not check("field_work_follow", ordered == true,
             tostring(orderReason)) then setPhase("finish", current) return end
+        local refreshed, capacity = SC.Background.refreshCarryCapacity(worker.actor)
+        local nativeCapacity = call(worker.actor, "getMaxWeight")
+        if not check("field_work_native_carry_capacity", refreshed == true
+            and type(capacity) == "number" and capacity > 0
+            and nativeCapacity == capacity,
+            tostring(capacity) .. "/" .. tostring(nativeCapacity)) then
+            setPhase("finish", current)
+            return
+        end
         if type(worker.actor.setMaxWeightBase) == "function" then
             worker.actor:setMaxWeightBase(200)
             worker.actor:setMaxWeight(200)

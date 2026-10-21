@@ -1421,16 +1421,16 @@ function U.itemWeight(item)
     return value
 end
 
--- Build 42's encumbrance checks compare ItemContainer:getCapacityWeight()
--- against getEffectiveCapacity(character). Keep that exact contract here so
--- AI decisions agree with vanilla movement and transfer rules.
+-- The root inventory's effective capacity is its physical container limit
+-- (normally 50), not the character's Strength-dependent encumbrance limit.
+-- Player carrying and heavy-load moodles use getMaxWeight().
 function U.inventoryLoad(actor)
     local inventory = U.inventory(actor)
     if not inventory then return 0, 0, 0, nil end
     local weight, weightOk = U.call(inventory, "getCapacityWeight")
-    local capacity, capacityOk = U.call(inventory, "getEffectiveCapacity", actor)
+    local capacity, capacityOk = U.call(actor, "getMaxWeight")
     if not capacityOk or type(capacity) ~= "number" or capacity <= 0 then
-        capacity, capacityOk = U.call(actor, "getMaxWeight")
+        capacity, capacityOk = U.call(inventory, "getEffectiveCapacity", actor)
     end
     if not capacityOk or type(capacity) ~= "number" or capacity <= 0 then
         capacity, capacityOk = U.call(inventory, "getMaxWeight")

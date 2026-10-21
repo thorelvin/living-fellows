@@ -1197,7 +1197,9 @@ function Positioning.followMode(requested, stress, leaderDistance, player, desir
     local desired = tonumber(desiredDistance) or 3
     local catchUp = followCatchUpDistance(desired)
     local slotError = tonumber(slotLag)
-    local hardCatchUp = slotError ~= nil and slotError > 1
+    -- A small formation error is ordinary walking room, not an emergency.
+    -- Start a jog only after the assigned slot has pulled several tiles away.
+    local hardCatchUp = slotError ~= nil and slotError >= 3.5
         or slotError == nil and leaderDistance >= catchUp
     local state = actor and stateFor(actor) or nil
     if state then
@@ -1218,7 +1220,8 @@ function Positioning.followMode(requested, stress, leaderDistance, player, desir
         local mirrorsLeaderSpeed = requested == "copy" or requested == "sneak"
         local stealth = requested == "sneak"
             or requested == "copy" and playerMode == "sneak"
-        if slotError ~= nil and (slotError <= 0.4 or stealth) then
+        -- Release the jog before arrival so the final approach is on foot.
+        if slotError ~= nil and (slotError <= 1.75 or stealth) then
             clearCatchUp(state)
         end
         local reason

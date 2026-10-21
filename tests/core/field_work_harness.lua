@@ -31,8 +31,10 @@ local function put(bag, value)
     value.container = bag
 end
 local function actor(id, x, y)
-    local value = { id = id, x = x, y = y, z = 0, bag = inventory(), active = false }
+    local value = { id = id, x = x, y = y, z = 0, bag = inventory(),
+        data = {}, active = false }
     function value:getInventory() return self.bag end
+    function value:getModData() return self.data end
     function value:getVehicle() return self.car end
     actors[#actors + 1] = value
     return value
@@ -206,13 +208,14 @@ local function finish(value, kind, yieldCount)
     if kind == "harvest" then
         local plant = value.pending.plant
         local props = farming_vegetableconf.props[plant.typeOfSeed]
+        local destination = value.harvestDestination or value.bag
         plant.ripe = false
         for _ = 1, yieldCount or 1 do
-            if props.vegetableName then put(value.bag, item(props.vegetableName)) end
-            if props.produceExtra then put(value.bag, item(props.produceExtra)) end
+            if props.vegetableName then put(destination, item(props.vegetableName)) end
+            if props.produceExtra then put(destination, item(props.produceExtra)) end
         end
         if plant.hasSeed and props.seedName then
-            put(value.bag, item(props.seedName))
+            put(destination, item(props.seedName))
         end
     elseif kind == "chop" then
         local tree = value.pending.tree
@@ -806,6 +809,22 @@ check(keptCabbages == 4 and load.ratio > load.softRatio
     "kept harvest weight does not make the companion drop its own gear: "
         .. tostring(load.ratio) .. "/" .. tostring(load.gearRatio) .. "/"
         .. tostring(load.surplus and load.surplus.item.kind))
+SC.BaseLife.isInside = function() return true end
+for _ = 1, 3 do utility.nowMs() end
+load = SC.Logistics.status(one)
+check(load.fieldReturnCleanup == true and load.fieldReturnCargo == true
+    and load.surplus ~= nil and load.surplus.keptHarvest == true,
+    "returning crop cargo preempts ordinary follow without shedding gear")
+local returnBag = one.bag
+one.bag = inventory()
+put(one.bag, item("Base.EmptyCan"))
+for _ = 1, 3 do utility.nowMs() end
+load = SC.Logistics.status(one)
+check(load.ratio < load.softRatio and load.shouldUnload == true
+    and load.surplus.item.kind == "Base.EmptyCan",
+    "field return shelves ordinary surplus even below overload threshold")
+one.bag = returnBag
+SC.BaseLife.isInside = function() return false end
 local cabbageCount = 0
 for _, value in ipairs(one.bag.items) do
     if value.kind == "Base.Cabbage" then cabbageCount = cabbageCount + 1 end
@@ -870,6 +889,39 @@ check(Field.status().blocker == "field_carry_limit_reached"
     and heavyCrop.plant.ripe == true and one.pending == nil,
     "extra produce, bonus yield, and seeds prevent an over-capacity harvest")
 getScriptManager, Perks, one.getPerkLevel = oldManager, oldPerks, nil
+Field.restore(nil)
+one.bag, two.bag, car.part.bag = inventory(), inventory(), inventory()
+one.x, one.y, player.x, player.y = 100, 99, 100, 100
+one.follow, two.follow, one.pending, one.active = true, false, nil, false
+for _, entry in pairs(squares) do entry.plant = nil end
+local backpack = item("Base.Duffelbag")
+local insideBackpack = inventory()
+function backpack:getItemContainer() return insideBackpack end
+put(one.bag, backpack)
+one.harvestDestination = insideBackpack
+local bagCrop = cropAt(100, 100, true)
+bagCrop.plant.hasSeed = true
+Field.observePlayerVehicle(car)
+check(Field.start("harvest", bagCrop, player) == true,
+    "bag harvest starts with the selected car")
+for _ = 1, 60 do
+    Field.update(one, player)
+    if one.pending and one.pending.operation == "harvest" then break end
+end
+check(one.pending and one.pending.operation == "harvest",
+    "bag harvest reaches the native crop action")
+finish(one, "harvest")
+for _ = 1, 100 do
+    Field.update(one, player)
+    if Field.status().phase == "complete" then break end
+end
+one.harvestDestination = nil
+check(Field.status().phase == "complete" and Field.status().loaded == 2
+    and #insideBackpack.items == 0 and #car.part.bag.items == 2
+    and #one.bag.items == 1,
+    "produce and seeds move by identity from the worn bag into the trunk")
+check(one.data and one.data.LF_FieldReturnCleanup ~= nil,
+    "completed field trip schedules camp inventory cleanup")
 Field.restore(nil)
 local bad = Field.restore({ schema = 1, serial = -1 })
 check(bad == false, "malformed save rejected")
