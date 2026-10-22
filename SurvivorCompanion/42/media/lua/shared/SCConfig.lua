@@ -1299,7 +1299,20 @@ local valueData = {
     productionBurnIgniteVerifyMs = 6000,
     productionBurnFireSpreadMargin = 1,
     productionCorpseDragStartMs = 4000,
-    productionCorpseDragTimeoutMs = 90000,
+    -- A drag gives up when it reaches no new tile for the stall time. The
+    -- timeout is only the outer bound for a slow, steady multi-door haul.
+    productionCorpseDragStallMs = 20000,
+    productionCorpseDragTimeoutMs = 300000,
+    -- Which side of a body the hauler grabs it from: a bounded route survey
+    -- from the body to its destination, run in slices.
+    productionCorpseDepartureNodeBudget = 900,
+    productionCorpseDepartureNodeQuota = 64,
+    -- A stalled drag may put the body out of one nearby open or broken
+    -- window, then pick it up outside.
+    productionCorpseWindowRadius = 6,
+    productionCorpseWindowDragMs = 30000,
+    productionCorpseWindowThrows = 1,
+    productionCorpseThrowVerifyMs = 4000,
     productionCorpseOutdoorDropMs = 30000,
     productionCorpseHaulRefusedMs = 600000,
     productionCorpseDropVerifyMs = 4000,

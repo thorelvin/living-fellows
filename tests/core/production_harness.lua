@@ -2845,6 +2845,178 @@ do
             .. table.concat(seen, ","))
 end
 
+-- The hauler takes hold of a body from the side its drag route leaves by. It
+-- walks backwards facing the body, so the drag starts at once instead of
+-- swinging the body round in a furnished room.
+do
+    local ctx = setup()
+    createGrave(-2, -3, 0, false)
+    local spot = sq(4, -4)
+    makeBody(spot)
+    local surveyed
+    SC.Navigation.beginPathSearch = function(source, _, _, options)
+        surveyed = { source = source, options = options }
+        return { pending = 1 }
+    end
+    SC.Navigation.resumePathSearch = function(job)
+        if job.pending > 0 then
+            job.pending = job.pending - 1
+            return "pending"
+        end
+        return "complete", { spot, sq(4, -3), sq(4, -2) }
+    end
+    SC.Navigation._workSquareAdmitted = function() return true end
+    start(ctx, {
+        operation = "collect_bodies", zoneId = ctx.burial.id, requested = 1,
+        settings = { fromLumber = false },
+    })
+    local grabbing = tickUntil(ctx, function(value) return value == "production_grabbing" end, 14)
+    SC.Navigation.beginPathSearch, SC.Navigation.resumePathSearch = nil, nil
+    SC.Navigation._workSquareAdmitted = nil
+    check(grabbing and ctx.actor.square == sq(4, -3),
+        "the hauler grabs the body from the side its route leaves by: "
+            .. tostring(ctx.actor.square and ctx.actor.square.x) .. ","
+            .. tostring(ctx.actor.square and ctx.actor.square.y))
+    check(surveyed and surveyed.source == spot and surveyed.options.draggingBody == true
+            and type(surveyed.options.squareAdmission) == "function",
+        "the departure survey plans a drag route from the body inside the work area")
+end
+
+-- A slow drag that keeps reaching new tiles is not cut off by the clock. One
+-- that reaches no new tile for the stall time gives up and lets go.
+do
+    local ctx = setup()
+    local order = startIndoorDrag(ctx, "the steady-drag test")
+    local originalRequestAny = SC.Navigation.requestAny
+    local steps, moving = 0, true
+    SC.Navigation.requestAny = function(actor, candidates, mode, intent)
+        if intent.action == "drag_body_to_grave" then
+            if moving then
+                steps = steps + 1
+                local square = sq(-12 + steps % 25, 8 + math.floor(steps / 25))
+                actor.square, actor.x, actor.y = square, square.x, square.y
+            end
+            return true, "fixture_path_started"
+        end
+        return originalRequestAny(actor, candidates, mode, intent)
+    end
+    -- A long route search in a cluttered house is planning, not a stall.
+    local searching = true
+    local plainRequestAny = SC.Navigation.requestAny
+    SC.Navigation.requestAny = function(actor, candidates, mode, intent)
+        if searching and intent.action == "drag_body_to_grave" then
+            return true, "path_searching"
+        end
+        return plainRequestAny(actor, candidates, mode, intent)
+    end
+    for _ = 1, 10 do tick(ctx) end
+    check(ctx.actor:isDraggingCorpse(),
+        "thirty seconds of route search does not count as a stalled drag")
+    searching = false
+    for _ = 1, 40 do tick(ctx) end
+    check(ctx.actor:isDraggingCorpse() and steps >= 40
+            and SC.BaseLife.productionOrder(order.id).state == "running",
+        "a drag still making progress after two minutes keeps going: steps=" .. tostring(steps))
+    moving = false
+    local stalledAt
+    for index = 1, 12 do
+        local _, reason = tick(ctx)
+        if not ctx.actor:isDraggingCorpse() then
+            stalledAt = index
+            check(reason == "drag_stalled"
+                    and SC.BaseLife.productionOrder(order.id).state == "blocked",
+                "a stalled drag puts the body down and the order waits: " .. tostring(reason))
+            break
+        end
+    end
+    SC.Navigation.requestAny = originalRequestAny
+    check(stalledAt ~= nil and stalledAt >= 6 and stalledAt <= 9,
+        "a drag gives up after about twenty seconds without a new tile: " .. tostring(stalledAt))
+end
+
+-- A drag that stalls indoors puts the body out of a nearby open window, then
+-- the hauler goes out, takes hold of it again and carries on. Once per haul.
+local function windowDragFixture(ctx, label, climbable)
+    local order = startIndoorDrag(ctx, label)
+    local room = ctx.actor.square
+    room.room = true
+    local outside = sq(room.x, room.y - 1)
+    local window = { outsideSquare = outside, climbable = climbable }
+    function window:canClimbThrough() return self.climbable == true end
+    SC.Navigation.edgeAffordance = function(a, b)
+        if (a == outside and b == room) or (a == room and b == outside) then
+            return { kind = "window", object = window, key = "window:fixture" }
+        end
+        return nil
+    end
+    local originalRequestAny = SC.Navigation.requestAny
+    SC.Navigation.requestAny = function(actor, candidates, mode, intent)
+        if intent.action == "drag_body_to_grave" or intent.action == "drag_body_to_safe_drop"
+            or intent.action == "drag_body_to_window" then
+            return true, "fixture_path_started"
+        end
+        return originalRequestAny(actor, candidates, mode, intent)
+    end
+    local function restore()
+        SC.Navigation.requestAny, SC.Navigation.edgeAffordance = originalRequestAny, nil
+    end
+    return order, room, outside, restore
+end
+
+do
+    local ctx = setup()
+    local throwsBefore = #SC_PRODUCTION_CALLS.throw
+    local _, _, outside, restore = windowDragFixture(ctx, "the window test", true)
+    -- The drag animation locks movement for a moment; the throw waits.
+    local originalSetMovement = SC.Actor.setMovement
+    local busy = 0
+    SC.Actor.setMovement = function(actor, mode, intent)
+        if type(intent) == "table" and intent.action == "throw_body_window" and busy == 0 then
+            busy = 1
+            return false, "locomotion_actor_state_busy:movement_locked"
+        end
+        return originalSetMovement(actor, mode, intent)
+    end
+    local seen = {}
+    local throwing = tickUntil(ctx, function(value)
+        seen[#seen + 1] = tostring(value)
+        return value == "production_throwing_body"
+    end, 10)
+    SC.Actor.setMovement = originalSetMovement
+    check(busy == 1 and seen[#seen - 1] == "locomotion_actor_state_busy:movement_locked",
+        "a throw refused while the drag animation locks movement waits: " .. table.concat(seen, ","))
+    check(throwing and #SC_PRODUCTION_CALLS.throw == throwsBefore + 1,
+        "a stalled indoor drag puts the body out of a nearby open window")
+    current(ctx.actor):perform()
+    local _, thrown = tick(ctx)
+    check(thrown == "production_body_thrown_out" and not ctx.actor:isDraggingCorpse()
+            and #outside.staticMoving == 1,
+        "the thrown body is found outside the window: " .. tostring(thrown))
+    local regrabbing = tickUntil(ctx, function(value) return value == "production_grabbing" end, 6)
+    check(regrabbing, "the hauler goes out and takes hold of the body again")
+    current(ctx.actor):perform()
+    local _, again = tick(ctx)
+    check(again == "production_dragging" and ctx.actor:isDraggingCorpse(),
+        "the haul carries on from outside: " .. tostring(again))
+    -- Indoors again (a porch, say) with the same window in reach, a second
+    -- stall must not throw the body out again.
+    ctx.actor.square.room = true
+    local released = tickUntil(ctx, function() return not ctx.actor:isDraggingCorpse() end, 20)
+    restore()
+    check(released and #SC_PRODUCTION_CALLS.throw == throwsBefore + 1,
+        "a second stall puts the body down instead of throwing it again")
+end
+
+do
+    local ctx = setup()
+    local throwsBefore = #SC_PRODUCTION_CALLS.throw
+    local _, room, _, restore = windowDragFixture(ctx, "the shut-window test", false)
+    local given = tickUntil(ctx, function(value) return value == "no_way_out_with_body" end, 30)
+    restore()
+    check(given and #SC_PRODUCTION_CALLS.throw == throwsBefore and #room.staticMoving == 1,
+        "a shut or barricaded window is never used; the body goes down indoors")
+end
+
 -- ---------------------------------------------------------------------------
 -- Speech policy and native action guards
 -- ---------------------------------------------------------------------------

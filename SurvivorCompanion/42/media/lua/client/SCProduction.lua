@@ -23,7 +23,7 @@ Production.SAW_RECEIPT = "LF_ProductionSawReceipt"
 
 local PRODUCTION_WORK_KINDS = {
     chop_tree = true, saw_logs = true, dig_grave = true, bury_body = true, fill_grave = true,
-    grab_body = true, drop_body = true, burn_body = true,
+    grab_body = true, drop_body = true, throw_body_window = true, burn_body = true,
 }
 -- Written on a body before it is grabbed; the grapple respawns the body as a
 -- new object but carries its modData, so the tag finds it after the drop.
@@ -1244,7 +1244,7 @@ end
 -- second half). Paths stay inside the camp area like gathering; work bound to
 -- an area in the reach band (reach) may also cross the bounded band around
 -- it. A worker dragging a body asks for a route without climbs or stairs.
-local function approachSquare(actor, square, action, avoid, reach, dragging)
+local function approachSquare(actor, square, action, avoid, reach, dragging, prefer)
     if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
         return "failed", "navigation_unavailable"
     end
@@ -1286,6 +1286,20 @@ local function approachSquare(actor, square, action, avoid, reach, dragging)
         targets = free and { free } or {}
     end
     if #targets == 0 then return "failed", "production_approach_missing" end
+    -- A preferred side (a unit vector from the work square) keeps only the
+    -- standing tiles on that side when any exist.
+    if type(prefer) == "table" and tonumber(prefer.dx) and tonumber(prefer.dy) then
+        local sx, sy = U().position(square)
+        local preferred = {}
+        for _, target in ipairs(targets) do
+            local tx, ty = U().position(target)
+            if tx ~= nil and sx ~= nil and (math.floor(tx) - math.floor(sx)) * prefer.dx
+                + (math.floor(ty) - math.floor(sy)) * prefer.dy >= 0.7 then
+                preferred[#preferred + 1] = target
+            end
+        end
+        if #preferred > 0 then targets = preferred end
+    end
     local accepted, reason, reached = SC.Navigation.requestAny(actor, targets, "walk", {
         action = action, targetSquare = square, arrivalDistance = treeWork and 0.45 or 0.3,
         requireSameSquare = not treeWork, workCampOnly = true,
@@ -3822,6 +3836,60 @@ function Disposal.reserveDestination(actor, order, state, context, zone, haul)
     return digNext(actor, order, state, context, "capacity")
 end
 
+-- The side of the body a drag leaves from. A hauler walks backwards facing
+-- the body, so grabbing it from the side the route departs by lets the drag
+-- start straight away. Grabbed from the other side, the body must swing round
+-- the hauler first, and in a furnished room it catches and pins the hauler.
+-- Returns the unit direction once the bounded survey settles, else nil.
+function Disposal.departure(actor, order, context, zone, haul, reach)
+    if haul.departureIgnored == true then return nil end
+    local info = haul.departure
+    if type(info) == "table" and info.done == true then
+        return info.dx ~= nil and info or nil
+    end
+    local navigation = SC.Navigation
+    if not navigation or type(navigation.beginPathSearch) ~= "function"
+        or type(navigation.resumePathSearch) ~= "function"
+        or type(navigation._workSquareAdmitted) ~= "function" then
+        haul.departure = { done = true }
+        return nil
+    end
+    if type(info) ~= "table" then
+        local target = Disposal.dropTarget(order, context, zone, haul)
+        if not target then
+            haul.departure = { done = true }
+            return nil
+        end
+        local intent = { workCampOnly = true, workReach = reach == true }
+        local started, job = pcall(navigation.beginPathSearch, haul.square, target, nil, {
+            actor = actor, draggingBody = true, alternatives = false,
+            nodeBudget = config("productionCorpseDepartureNodeBudget", 900),
+            squareAdmission = function(square)
+                return navigation._workSquareAdmitted(square, intent)
+            end,
+        })
+        if not started or job == nil then
+            haul.departure = { done = true }
+            return nil
+        end
+        info = { job = job, startedAt = now() }
+        haul.departure = info
+    end
+    local resumed, status, path = pcall(navigation.resumePathSearch, info.job,
+        config("productionCorpseDepartureNodeQuota", 64))
+    if resumed and status == "pending" and now() - info.startedAt < 10000 then return nil end
+    info.job, info.done = nil, true
+    local first = resumed and type(path) == "table" and path[2] or nil
+    local bx, by = U().position(haul.square)
+    local fx, fy = U().position(first)
+    if bx == nil or fx == nil then return nil end
+    local dx, dy = math.floor(fx) - math.floor(bx), math.floor(fy) - math.floor(by)
+    local length = math.sqrt(dx * dx + dy * dy)
+    if length <= 0 then return nil end
+    info.dx, info.dy = dx / length, dy / length
+    return info
+end
+
 -- Choose a body, reserve where it goes, walk over and take hold of it.
 -- Everything a trip needs is checked before a body is touched.
 function Disposal.beginHaul(actor, order, state, context, zone)
@@ -3872,14 +3940,23 @@ function Disposal.beginHaul(actor, order, state, context, zone)
     end
     state.phase = "approaching"
     local reach = Disposal.reach(order, zone) or SC.BaseLife.isInside(haul.square) ~= true
+    local prefer = Disposal.departure(actor, order, context, zone, haul, reach)
     local approach, approachReason = approachSquare(actor, haul.square,
-        "move_to_production_body", nil, reach)
+        "move_to_production_body", nil, reach, nil, prefer)
+    if approach == "failed" and prefer ~= nil then
+        -- The departure side can be out of reach on foot; any side will do.
+        haul.departureIgnored = true
+        return true, "production_departure_side_unreachable"
+    end
     if approach == "failed" then
         noteCandidateFailure(order, haul.purpose, haul.key, approachReason, haul.sourceZone)
         Disposal.abandonHaul(state, context)
         return false, approachReason
     end
     if approach ~= "arrived" then return true, approachReason end
+    if type(haul.departure) == "table" and haul.departure.done ~= true then
+        return true, "production_departure_survey"
+    end
     local tag = Disposal.newTag(order, context.actorId)
     if not Disposal.setTag(haul.body, tag) then
         noteCandidateFailure(order, haul.purpose, haul.key, "body_tag_failed", haul.sourceZone)
@@ -3935,6 +4012,8 @@ function Disposal.pollGrab(actor, order, state, context)
     if not haul then return Disposal.dropHere(actor, order, state, context, "production_haul_missing") end
     state.dragFailures = 0
     haul.stage, haul.dragStartedAt = "dragging", now()
+    haul.dragProgressAt, haul.dragVisited, haul.dragVisitedCount = now(), nil, 0
+    haul.windowSearched, haul.routeBlockedSince, haul.outdoorDropSince = nil, nil, nil
     metrics.bodiesDragged = metrics.bodiesDragged + 1
     state.phase = "dragging"
     speak(actor, "burial.haul.start", nil, haul.tag, context.runtime)
@@ -4004,9 +4083,26 @@ function Disposal.continueDrag(actor, order, state, context, zone)
         claim(haul.destination.key, order.id, context.actorId)
     end
     if haul.pyreKey then claim(haul.pyreKey, order.id, context.actorId) end
+    Disposal.noteDragProgress(actor, haul)
+    if haul.window then return Disposal.continueToWindow(actor, order, state, context, zone, haul) end
     local elapsed = now() - (haul.dragStartedAt or now())
-    if elapsed > config("productionCorpseDragTimeoutMs", 90000) then
-        return Disposal.leaveOutside(actor, order, state, context, haul, "drag_timeout", false)
+    if haul.giveUpReason == nil then
+        -- Progress is a tile this drag has not stood on before, so pacing
+        -- back and forth on a snagged body does not count. A steady haul
+        -- through several doors runs until the outer timeout.
+        local stalled = now() - (haul.dragProgressAt or haul.dragStartedAt or now())
+            > config("productionCorpseDragStallMs", 20000)
+        if stalled or elapsed > config("productionCorpseDragTimeoutMs", 300000) then
+            local reason = stalled and "drag_stalled" or "drag_timeout"
+            local handled, windowReason = Disposal.tryWindow(actor, order, state, context,
+                zone, haul, reason)
+            if handled ~= nil then return handled, windowReason end
+            haul.giveUpReason, haul.giveUpRefuse = reason, stalled
+        end
+    end
+    if haul.giveUpReason ~= nil then
+        return Disposal.leaveOutside(actor, order, state, context, haul,
+            haul.giveUpReason, haul.giveUpRefuse == true)
     end
     state.phase = "dragging"
     speak(actor, "burial.haul.drag", nil,
@@ -4028,8 +4124,15 @@ function Disposal.continueDrag(actor, order, state, context, zone)
         if now() - haul.routeBlockedSince < 15000 then
             return true, "drag_route_replanning:" .. tostring(moveReason)
         end
+        local handled, windowReason = Disposal.tryWindow(actor, order, state, context, zone,
+            haul, "drag_route_blocked:" .. tostring(moveReason))
+        if handled ~= nil then return handled, windowReason end
         return Disposal.leaveOutside(actor, order, state, context, haul,
             "drag_route_blocked:" .. tostring(moveReason), true)
+    end
+    -- Planning the route is not a stall; the search has its own hard limit.
+    if string.sub(tostring(moveReason), 1, 11) == "path_search" then
+        haul.dragProgressAt = now()
     end
     haul.routeBlockedSince, haul.routeBlockReason = nil, nil
     haul.outdoorDropSince = nil
@@ -4044,6 +4147,189 @@ function Disposal.continueDrag(actor, order, state, context, zone)
     state.work = { kind = "drop_body", startedAt = now() }
     state.phase = "placing"
     return true, "production_placing"
+end
+
+function Disposal.noteDragProgress(actor, haul)
+    local key = U().squareKey(U().squareOf(actor))
+    if key == nil then return end
+    haul.dragVisited = haul.dragVisited or {}
+    if haul.dragVisited[key] then return end
+    if (haul.dragVisitedCount or 0) < 512 then
+        haul.dragVisited[key] = true
+        haul.dragVisitedCount = (haul.dragVisitedCount or 0) + 1
+    end
+    haul.dragProgressAt = now()
+end
+
+-- The nearest open or broken window within a few tiles of an indoor hauler
+-- that leads out of the house onto ground the haul may use. Windows in the
+-- hauler's own room are preferred. Bounded by the scan radius.
+function Disposal.findWindow(actor, haul)
+    local utility = U()
+    local origin = utility.squareOf(actor)
+    local here = origin and select(1, invoke(origin, "getRoom")) or nil
+    if here == nil or not SC.Navigation
+        or type(SC.Navigation.edgeAffordance) ~= "function" then return nil end
+    local x, y, z = utility.position(origin)
+    x, y, z = math.floor(x), math.floor(y), math.floor(z or 0)
+    local radius = math.max(1, math.min(10,
+        math.floor(config("productionCorpseWindowRadius", 6))))
+    local best, bestScore
+    for dy = -radius, radius do
+        for dx = -radius, radius do
+            local a = utility.gridSquare(x + dx, y + dy, z)
+            for _, step in ipairs({ { 1, 0 }, { 0, 1 } }) do
+                local b = a and utility.gridSquare(x + dx + step[1], y + dy + step[2], z) or nil
+                local edge = b and SC.Navigation.edgeAffordance(a, b) or nil
+                if edge and (edge.kind == "window" or edge.kind == "window_frame")
+                    and edge.object ~= nil then
+                    local roomA = select(1, invoke(a, "getRoom"))
+                    local roomB = select(1, invoke(b, "getRoom"))
+                    local inside, outside, insideRoom
+                    if roomA ~= nil and roomB == nil then inside, outside, insideRoom = a, b, roomA
+                    elseif roomB ~= nil and roomA == nil then inside, outside, insideRoom = b, a, roomB end
+                    if inside and select(1, invoke(edge.object, "canClimbThrough", actor)) == true
+                        and utility.isSquareFree(inside) and utility.isSquareFree(outside)
+                        and SC.BaseLife.admitsWork(outside, { workReach = true }) == true then
+                        local distance = utility.distance(actor, inside) or math.huge
+                        local score = distance + (insideRoom == here and 0 or 4)
+                        if bestScore == nil or score < bestScore then
+                            local ix, iy, iz = utility.position(inside)
+                            local ox, oy, oz = utility.position(outside)
+                            best, bestScore = {
+                                object = edge.object, key = edge.key,
+                                inside = { x = ix, y = iy, z = iz },
+                                outside = { x = ox, y = oy, z = oz },
+                            }, score
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+-- A stalled or blocked drag may put the body out of one window, once per
+-- drag, and pick it up again outside. Returns nil when no window applies.
+function Disposal.tryWindow(actor, order, state, context, zone, haul, reason)
+    if haul.windowSearched == true
+        or (haul.windowThrows or 0) >= config("productionCorpseWindowThrows", 1) then
+        return nil
+    end
+    haul.windowSearched = true
+    local window = Disposal.findWindow(actor, haul)
+    if not window then return nil end
+    window.since, window.reason = now(), reason
+    haul.window = window
+    haul.routeBlockedSince, haul.routeBlockReason, haul.outdoorDropSince = nil, nil, nil
+    haul.dragProgressAt = now()
+    return Disposal.continueToWindow(actor, order, state, context, zone, haul)
+end
+
+function Disposal.continueToWindow(actor, order, state, context, zone, haul)
+    local window = haul.window
+    local function abandonWindow(reason)
+        haul.window = nil
+        haul.giveUpReason, haul.giveUpRefuse = reason, true
+        return Disposal.leaveOutside(actor, order, state, context, haul, reason, true)
+    end
+    if now() - window.since > config("productionCorpseWindowDragMs", 30000) then
+        return abandonWindow("window_unreachable")
+    end
+    state.phase = "dragging"
+    local inside = U().gridSquare(window.inside.x, window.inside.y, window.inside.z)
+    if not inside then return abandonWindow("window_unloaded") end
+    if not U().sameSquare(actor, inside) then
+        if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
+            return abandonWindow("navigation_unavailable")
+        end
+        local accepted, reason = SC.Navigation.requestAny(actor, { inside }, "walk", {
+            action = "drag_body_to_window", targetSquare = inside, arrivalDistance = 0.4,
+            requireSameSquare = true, workCampOnly = true, workReach = true,
+            draggingBody = true,
+        })
+        if accepted ~= true then
+            if transientRejection(reason) then return true, reason end
+            return abandonWindow("window_route_blocked:" .. tostring(reason))
+        end
+        if not U().sameSquare(actor, inside) then return true, reason or "dragging_to_window" end
+    end
+    if select(1, invoke(window.object, "canClimbThrough", actor)) ~= true then
+        return abandonWindow("window_closed")
+    end
+    local accepted, reason = U().move(actor, "walk", {
+        action = "throw_body_window", window = window.object, targetSquare = inside,
+    })
+    -- The drag and pick-up animations briefly lock movement; wait them out
+    -- within this leg's own time limit.
+    if accepted ~= true and (transientRejection(reason)
+        or string.find(tostring(reason), "actor_state_busy", 1, true)) then
+        return true, reason
+    end
+    if accepted ~= true or not workActive(actor, "throw_body_window") then
+        return abandonWindow(reason or "window_throw_rejected")
+    end
+    haul.windowThrows = (haul.windowThrows or 0) + 1
+    state.work = { kind = "throw_body_window", startedAt = now() }
+    state.phase = "throwing"
+    return true, "production_throwing_body"
+end
+
+-- The throw is proven by the grapple ending and the tagged body lying by the
+-- window. The hauler then walks out and takes hold of it again.
+function Disposal.pollThrow(actor, order, state, context)
+    local work, haul = state.work, state.haul
+    if workActive(actor, "throw_body_window") then
+        if actionTimedOut(state) then
+            local cancelled, cancelReason = cancelWork(actor, "production_throw_timeout")
+            if cancelled ~= true then return false, cancelReason or "throw_cancel_failed" end
+            state.work = nil
+            return Disposal.dropHere(actor, order, state, context, "window_throw_timeout", true)
+        end
+        return true, "production_throwing_body"
+    end
+    if work.finishedAt == nil then
+        local finished, finishReason = finishWork(actor)
+        if finished ~= true then return false, finishReason or "throw_finish_failed" end
+        work.finishedAt = now()
+    end
+    local native = natives()
+    local verifying = now() - work.finishedAt < config("productionCorpseThrowVerifyMs", 4000)
+    if native and type(native.isDraggingCorpse) == "function"
+        and native.isDraggingCorpse(actor) == true then
+        if verifying then return true, "production_throw_verifying" end
+        state.work = nil
+        if not haul then return Disposal.dropHere(actor, order, state, context, "production_haul_missing") end
+        haul.window = nil
+        haul.giveUpReason, haul.giveUpRefuse = "window_throw_failed", true
+        return Disposal.leaveOutside(actor, order, state, context, haul, "window_throw_failed", true)
+    end
+    if not haul then
+        state.work = nil
+        return false, "production_haul_missing"
+    end
+    local window = haul.window
+    local outside = window and U().gridSquare(window.outside.x, window.outside.y,
+        window.outside.z) or nil
+    local body, square
+    if outside then body, square = Disposal.findTagged(outside, haul.tag, 2) end
+    if not body then body, square = Disposal.findTagged(actor, haul.tag, 3) end
+    if not body then
+        if verifying then return true, "production_throw_verifying" end
+        state.work = nil
+        Disposal.abandonHaul(state, context)
+        return false, "thrown_body_lost"
+    end
+    state.work = nil
+    if native and type(native.settleDrag) == "function" then pcall(native.settleDrag, actor) end
+    releaseClaim(haul.key, context.actorId)
+    haul.body, haul.square, haul.key = body, square, bodyKey(body)
+    claim(haul.key, order.id, context.actorId)
+    haul.window, haul.stage, haul.giveUpReason, haul.giveUpRefuse = nil, "approach", nil, nil
+    haul.departure, haul.departureIgnored = nil, nil
+    state.phase = "approaching"
+    return true, "production_body_thrown_out"
 end
 
 -- The drop is proven only by the tagged body lying near the worker again.
@@ -4191,7 +4477,8 @@ function Production.releaseDrag(actor, reason)
         and native.dragSessionActive(actor) == true
     if not haul and not session then return false, "not_hauling" end
     local work = state and state.work or nil
-    local haulWork = work and (work.kind == "grab_body" or work.kind == "drop_body")
+    local haulWork = work and (work.kind == "grab_body" or work.kind == "drop_body"
+        or work.kind == "throw_body_window")
     if haulWork and workActive(actor, work.kind) then return false, "haul_action_active" end
     local dragging = native.isDraggingCorpse(actor) == true
     local towing = dragging or (haul ~= nil and haul.stage == "dragging")
@@ -4250,6 +4537,9 @@ function Disposal.updateCollect(actor, order, state, context)
     if work then
         if work.kind == "grab_body" then return Disposal.pollGrab(actor, order, state, context) end
         if work.kind == "drop_body" then return Disposal.pollDrop(actor, order, state, context) end
+        if work.kind == "throw_body_window" then
+            return Disposal.pollThrow(actor, order, state, context)
+        end
         if work.kind == "burn_body" then return Disposal.pollBurn(actor, order, state, context) end
         if work.kind == "bury_body" then return pollBury(actor, order, state, context) end
         if work.kind == "fill_grave" then return pollFill(actor, order, state, context) end
@@ -4499,6 +4789,8 @@ function Production.cancelActor(actor, reason)
             reconciled, reconcileReason = Disposal.pollDrop(actor, order, state, context, {
                 settleOnly = true,
             })
+        elseif work.kind == "throw_body_window" then
+            reconciled, reconcileReason = Disposal.pollThrow(actor, order, state, context)
         end
         if state.work ~= nil then
             return false, reconcileReason or "production_reconciliation_pending"

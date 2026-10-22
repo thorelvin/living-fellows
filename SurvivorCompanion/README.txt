@@ -1,9 +1,9 @@
-Living Fellows 0.26.55 - public playtest
+Living Fellows 0.26.56 - public playtest
 
-This playtest fixes Gravekeepers who kept dragging a body around a room they
-could not leave, or carried it off to scavenge, and a camp job crash. A car
-expedition coming home now turns into its driveway instead of letting the
-squad out on the road.
+Gravekeepers now get bodies out of houses with several doors. They take hold
+of a body from the side they will leave by, a slow drag is no longer cut off
+after ninety seconds, and a drag that gets stuck indoors puts the body out of
+a nearby open window and carries on from outside.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added

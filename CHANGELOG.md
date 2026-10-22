@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.26.56 - Hauling bodies out of houses
+
+- A Gravekeeper now takes hold of a body from the side its drag route leaves by. A hauler walks backwards facing the body, so a body grabbed from the other side first had to swing round the hauler, and in a furnished room it caught on furniture or a door frame and pinned the hauler in place.
+- A drag through several doors is no longer cut off after ninety seconds. A drag now gives up only when the hauler reaches no new tile for about twenty seconds, or after five minutes in all.
+- A drag that stalls or finds its route blocked indoors puts the body out of a nearby open or broken window with the stock throw, once per haul. The hauler then goes out, takes hold of the body again and carries on. Shut or barricaded windows are never used, and the body only lands on ground the order may work.
+- The native bridge protocol remains `42.21-isocompanion-24`; update the bridge JAR and Lua payload together.
+
 ## 0.26.55 - Corpse hauling and driveway fixes
 
 - A companion dragging a body for a Gravekeeper order now puts it down before doing anything else: when the order is paused or blocked, when it has no production job in hand, and before eating, scavenging, downtime or any other activity. Companions no longer walk to containers with a corpse in tow.

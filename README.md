@@ -12,7 +12,7 @@ Persistent companions, survivor households, and living bases for Project Zomboid
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.21.0-red.svg)](#requirements)
-[![Release](https://img.shields.io/badge/release-0.26.55-blue.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-0.26.56-blue.svg)](CHANGELOG.md)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 
 Living Fellows turns the survivors you meet into persistent people. They can join you, fight and travel with you, help run a base, and make their own survival decisions. Companions are native human actors with real inventories, injuries, skills, and permanent death.
@@ -252,7 +252,7 @@ Tools and materials come from camp storage. The underlying work actions remain f
 - Chopping is loud. No tree is started while danger is visible nearby, winded residents rest, and a chop that gets stuck is abandoned after three minutes.
 - Outside the camp boundary, residents start no new tree and fetch no body at night (21:00–06:00).
 - Bodies still carrying items are left for you to loot unless the order handles them with their belongings.
-- A resident dragging a body takes no fences, windows, or stairs, and drops it at once when danger shows up. The body stays where it fell.
+- A resident dragging a body walks it out through doors, never over fences, through windows, or up stairs, and drops it at once when danger shows up. The body stays where it fell. They take hold of a body from the side they will leave by. A drag that gets stuck indoors for about twenty seconds puts the body out of a nearby open or broken window, once, and the resident climbs out after it and carries on; otherwise the body is set down for a later try.
 - Fire is real. A pyre must be outdoors on open ground, away from buildings, stored goods, trees, vehicles, and loose items. Nothing is lit in the rain unless you allow it, nobody else may stand close to the body being lit, and if fire appears beyond the pyre every worker stops and the order waits for your Retry.
 - A fallen companion found by Collect the dead gets an empty grave of their own and always a cross, and the grave keeps their name. Fallen companions are never burned. A body whose identity is not certain is treated as a stranger, and your own body is never touched.
 - A blocked order shows the reason and tries again on its own; a spreading fire stops disposal until the area is safe.

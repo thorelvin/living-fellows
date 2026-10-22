@@ -16,6 +16,7 @@ local productionActions = {
     fill_grave = "fillGrave",
     grab_body = "grabBody",
     drop_body = "dropBody",
+    throw_body_window = "throwBodyWindow",
     burn_body = "burnBody",
 }
 

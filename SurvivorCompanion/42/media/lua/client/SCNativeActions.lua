@@ -2883,6 +2883,30 @@ local function startDropBody(actor, intent, provider)
     return queueTrackedWork(actor, timedAction, dragHandsRecord(), "drop_body")
 end
 
+-- ISThrowCorpseThroughWindow calls throwGrappledTargetOutWindow: the stock
+-- window-climb positioning slides the survivor into the opening and the
+-- grapple lets go on the far side. Only an open or broken, unbarricaded
+-- window passes canClimbThrough.
+local function startThrowBodyWindow(actor, intent, provider)
+    local window = intent.window
+    if window == nil then return false, "throw intent has no window" end
+    local handled, reason = useProvider(provider, "throwBodyWindow", actor, window, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    if type(ISThrowCorpseThroughWindow) ~= "table"
+        or type(ISThrowCorpseThroughWindow.new) ~= "function" then
+        return false, "native corpse throw is unavailable"
+    end
+    local draggingOk, dragging = invoke(actor, "isDraggingCorpse")
+    if not draggingOk or dragging ~= true then return false, "companion is not dragging a body" end
+    local climbOk, climbable = invoke(window, "canClimbThrough", actor)
+    if not climbOk or climbable ~= true then return false, "window cannot be climbed through" end
+    local created, timedAction = pcall(ISThrowCorpseThroughWindow.new,
+        ISThrowCorpseThroughWindow, actor, window)
+    if not created then return false, tostring(timedAction) end
+    return queueTrackedWork(actor, timedAction, dragHandsRecord(), "throw_body_window")
+end
+
 -- ISBurnCorpseAction requires the lighter in the primary hand and the petrol
 -- container in the secondary hand; its complete() calls burnCorpse(), which
 -- starts a real IsoFireManager fire on the corpse square.
@@ -4450,6 +4474,7 @@ SC.NativeWorkActions.configure({
     fillGrave = startFillGrave,
     grabBody = startGrabBody,
     dropBody = startDropBody,
+    throwBodyWindow = startThrowBodyWindow,
     burnBody = startBurnBody,
 })
 

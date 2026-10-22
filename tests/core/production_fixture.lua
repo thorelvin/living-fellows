@@ -310,6 +310,30 @@ function ISDropCorpseAction:perform()
     ISBaseTimedAction.perform(self)
 end
 
+-- The stock throw lets go of the grapple on the far side of the window.
+SC_PRODUCTION_CALLS.throw = {}
+ISThrowCorpseThroughWindow = ISBaseTimedAction:derive("ISThrowCorpseThroughWindow")
+
+function ISThrowCorpseThroughWindow:new(character, window)
+    local action = ISBaseTimedAction.new(self, character)
+    action.window, action.maxTime = window, 5
+    SC_PRODUCTION_CALLS.throw[#SC_PRODUCTION_CALLS.throw + 1] = action
+    return action
+end
+
+function ISThrowCorpseThroughWindow:isValid()
+    return self.window:canClimbThrough(self.character) and self.character:isDraggingCorpse()
+end
+
+function ISThrowCorpseThroughWindow:start() end
+
+function ISThrowCorpseThroughWindow:perform()
+    if SC_TEST_THROW_FAILS ~= true then
+        SC_TEST_LAND_DRAGGED(self.character, self.window.outsideSquare)
+    end
+    ISBaseTimedAction.perform(self)
+end
+
 ISBurnCorpseAction = ISBaseTimedAction:derive("ISBurnCorpseAction")
 
 function ISBurnCorpseAction:new(character, corpse, lighter, petrol)

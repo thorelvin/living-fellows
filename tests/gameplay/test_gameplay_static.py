@@ -295,7 +295,7 @@ def main() -> int:
             and "SC.Production.update(actor, state, job, runtime)" in base_work_source,
             "base dispatcher does not route production orders")
     for kind in ("chop_tree", "saw_logs", "dig_grave", "bury_body", "fill_grave",
-                 "grab_body", "drop_body", "burn_body"):
+                 "grab_body", "drop_body", "throw_body_window", "burn_body"):
         require(f'action = "{kind}"' in production_source,
                 f"production does not dispatch the verified native {kind} action")
     require("productionScanSquaresPerSlice" in production_source
