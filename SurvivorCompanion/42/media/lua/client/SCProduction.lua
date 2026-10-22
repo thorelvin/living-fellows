@@ -72,6 +72,7 @@ local burialOutcomeOrder = {}
 local phases = {}
 local ceremonies = {}
 local ceremonyOrder = {}
+local blockLog, blockLogSize = {}, 0
 local pendingAmen = nil
 local lastProductionSpeechAt = -math.huge
 local chopSession = { native = false, fallback = false }
@@ -667,13 +668,29 @@ local function assigned(order, id)
     return false
 end
 
+-- A playtest log shows why a job stopped: one line when an order's block
+-- reason changes, and at most one per cooldown while it repeats. Rain, night
+-- and an empty burial area are routine, so blocks stay out of the Support
+-- page's diagnostic reports.
+local function logBlock(order, reason)
+    local text, current = tostring(reason), now()
+    local last = blockLog[order.id]
+    if last and last.reason == text
+        and current - last.at < config("diagnosticCooldownMs", 10000) then return false end
+    if last == nil then
+        -- Bounded: forgetting old orders only costs one repeated line.
+        blockLogSize = blockLogSize + 1
+        if blockLogSize > 128 then blockLog, blockLogSize = {}, 1 end
+    end
+    blockLog[order.id] = { reason = text, at = current }
+    print("[SurvivorCompanion][production:" .. tostring(order.id) .. "] blocked: " .. text)
+    return true
+end
+
 local function blockOrder(order, reason)
     metrics.blocked = metrics.blocked + 1
     SC.BaseLife.blockProductionOrder(order.id, reason)
-    -- Rate-limited per order, so a playtest log shows why a job stopped.
-    if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
-        SC.Diagnostics.report("production", order.id, "blocked", tostring(reason))
-    end
+    logBlock(order, reason)
     return false, reason, true
 end
 
@@ -4014,6 +4031,7 @@ function Disposal.pollGrab(actor, order, state, context)
     haul.stage, haul.dragStartedAt = "dragging", now()
     haul.dragProgressAt, haul.dragVisited, haul.dragVisitedCount = now(), nil, 0
     haul.windowSearched, haul.routeBlockedSince, haul.outdoorDropSince = nil, nil, nil
+    haul.windowScan = nil
     metrics.bodiesDragged = metrics.bodiesDragged + 1
     state.phase = "dragging"
     speak(actor, "burial.haul.start", nil, haul.tag, context.runtime)
@@ -4135,7 +4153,7 @@ function Disposal.continueDrag(actor, order, state, context, zone)
         haul.dragProgressAt = now()
     end
     haul.routeBlockedSince, haul.routeBlockReason = nil, nil
-    haul.outdoorDropSince = nil
+    haul.outdoorDropSince, haul.windowScan = nil, nil
     if result ~= "arrived" then return true, moveReason end
     local accepted, reason = U().move(actor, "walk", {
         action = "drop_body", targetSquare = U().squareOf(actor),
@@ -4159,13 +4177,24 @@ function Disposal.noteDragProgress(actor, haul)
         haul.dragVisitedCount = (haul.dragVisitedCount or 0) + 1
     end
     haul.dragProgressAt = now()
+    -- Moving again ends a stall and any window search it began. The search
+    -- the outer timeout began runs to the end.
+    if type(haul.windowScan) == "table" and haul.windowScan.reason ~= "drag_timeout" then
+        haul.windowScan = nil
+    end
 end
 
--- The nearest open or broken window within a few tiles of an indoor hauler
--- that leads out of the house onto ground the haul may use: the camp area,
--- or the reach band too when the order may work there. Windows in the
--- hauler's own room are preferred. Bounded by the scan radius.
-function Disposal.findWindow(actor, haul, reach)
+-- The floor a haul ends on: its reserved grave's, else the order's area's.
+function Disposal.destinationFloor(zone, haul)
+    local destination = type(haul.destination) == "table" and haul.destination or {}
+    return math.floor(tonumber(destination.z) or tonumber(zone.z) or 0)
+end
+
+-- Starts the search for a window to put the body out of, or returns nil
+-- when none can apply. Only an indoor hauler on the floor the haul ends on
+-- uses one: out of an upper window a body lands on a porch roof, where no
+-- drag can reach it, or falls to a floor the hauler cannot follow it to.
+function Disposal.beginWindowScan(actor, zone, haul, reach)
     local utility = U()
     local origin = utility.squareOf(actor)
     local here = origin and select(1, invoke(origin, "getRoom")) or nil
@@ -4173,56 +4202,83 @@ function Disposal.findWindow(actor, haul, reach)
         or type(SC.Navigation.edgeAffordance) ~= "function" then return nil end
     local x, y, z = utility.position(origin)
     x, y, z = math.floor(x), math.floor(y), math.floor(z or 0)
+    if z ~= Disposal.destinationFloor(zone, haul) then return nil end
     local radius = math.max(1, math.min(10,
         math.floor(config("productionCorpseWindowRadius", 6))))
-    local best, bestScore
-    for dy = -radius, radius do
-        for dx = -radius, radius do
-            local a = utility.gridSquare(x + dx, y + dy, z)
-            for _, step in ipairs({ { 1, 0 }, { 0, 1 } }) do
-                local b = a and utility.gridSquare(x + dx + step[1], y + dy + step[2], z) or nil
-                local edge = b and SC.Navigation.edgeAffordance(a, b) or nil
-                if edge and (edge.kind == "window" or edge.kind == "window_frame")
-                    and edge.object ~= nil then
-                    local roomA = select(1, invoke(a, "getRoom"))
-                    local roomB = select(1, invoke(b, "getRoom"))
-                    local inside, outside, insideRoom
-                    if roomA ~= nil and roomB == nil then inside, outside, insideRoom = a, b, roomA
-                    elseif roomB ~= nil and roomA == nil then inside, outside, insideRoom = b, a, roomB end
-                    if inside and select(1, invoke(edge.object, "canClimbThrough", actor)) == true
-                        and utility.isSquareFree(inside) and utility.isSquareFree(outside)
-                        and SC.BaseLife.admitsWork(outside, { workReach = reach == true }) == true then
-                        local distance = utility.distance(actor, inside) or math.huge
-                        local score = distance + (insideRoom == here and 0 or 4)
-                        if bestScore == nil or score < bestScore then
-                            local ix, iy, iz = utility.position(inside)
-                            local ox, oy, oz = utility.position(outside)
-                            best, bestScore = {
-                                object = edge.object, key = edge.key,
-                                inside = { x = ix, y = iy, z = iz },
-                                outside = { x = ox, y = oy, z = oz },
-                            }, score
-                        end
+    return { x = x, y = y, z = z, radius = radius, here = here, reach = reach == true,
+        cursor = 0 }
+end
+
+-- Looks at the next slice of tiles around the hauler for the nearest open or
+-- broken window that leads out of the house onto ground the haul may use:
+-- the camp area, or the reach band too when the order may work there.
+-- Windows in the hauler's own room are preferred. Returns true and the best
+-- window (or nil) once every tile in the radius has been seen.
+function Disposal.resumeWindowScan(actor, scan)
+    local utility = U()
+    local side = scan.radius * 2 + 1
+    local total = side * side
+    local stop = math.min(total, scan.cursor
+        + math.max(1, math.floor(config("productionCorpseWindowScanSquares", 32))))
+    while scan.cursor < stop do
+        local x = scan.x + scan.cursor % side - scan.radius
+        local y = scan.y + math.floor(scan.cursor / side) - scan.radius
+        scan.cursor = scan.cursor + 1
+        local a = utility.gridSquare(x, y, scan.z)
+        for _, step in ipairs({ { 1, 0 }, { 0, 1 } }) do
+            local b = a and utility.gridSquare(x + step[1], y + step[2], scan.z) or nil
+            local edge = b and SC.Navigation.edgeAffordance(a, b) or nil
+            if edge and (edge.kind == "window" or edge.kind == "window_frame")
+                and edge.object ~= nil then
+                local roomA = select(1, invoke(a, "getRoom"))
+                local roomB = select(1, invoke(b, "getRoom"))
+                local inside, outside, insideRoom
+                if roomA ~= nil and roomB == nil then inside, outside, insideRoom = a, b, roomA
+                elseif roomB ~= nil and roomA == nil then inside, outside, insideRoom = b, a, roomB end
+                if inside and select(1, invoke(edge.object, "canClimbThrough", actor)) == true
+                    and utility.isSquareFree(inside) and utility.isSquareFree(outside)
+                    and SC.BaseLife.admitsWork(outside, { workReach = scan.reach }) == true then
+                    local distance = utility.distance(actor, inside) or math.huge
+                    local score = distance + (insideRoom == scan.here and 0 or 4)
+                    if scan.bestScore == nil or score < scan.bestScore then
+                        local ix, iy, iz = utility.position(inside)
+                        local ox, oy, oz = utility.position(outside)
+                        scan.best, scan.bestScore = {
+                            object = edge.object, key = edge.key,
+                            inside = { x = ix, y = iy, z = iz },
+                            outside = { x = ox, y = oy, z = oz },
+                        }, score
                     end
                 end
             end
         end
     end
-    return best
+    return scan.cursor >= total, scan.best
 end
 
 -- A stalled or blocked drag may put the body out of one window, once per
--- drag, and pick it up again outside. Returns nil when no window applies.
+-- drag, and pick it up again outside. The search runs a slice per update
+-- while the drag stays stuck. Returns nil when no window applies.
 function Disposal.tryWindow(actor, order, state, context, zone, haul, reason)
     if haul.windowSearched == true
         or (haul.windowThrows or 0) >= config("productionCorpseWindowThrows", 1) then
         return nil
     end
-    haul.windowSearched = true
-    local reach = Disposal.reach(order, zone) or SC.BaseLife.isInside(actor) ~= true
-    local window = Disposal.findWindow(actor, haul, reach)
+    local scan = haul.windowScan
+    if type(scan) ~= "table" then
+        local reach = Disposal.reach(order, zone) or SC.BaseLife.isInside(actor) ~= true
+        scan = Disposal.beginWindowScan(actor, zone, haul, reach)
+        if not scan then
+            haul.windowSearched = true
+            return nil
+        end
+        scan.reason, haul.windowScan = reason, scan
+    end
+    local done, window = Disposal.resumeWindowScan(actor, scan)
+    if not done then return true, "searching_for_window" end
+    haul.windowScan, haul.windowSearched = nil, true
     if not window then return nil end
-    window.since, window.reason, window.reach = now(), reason, reach
+    window.since, window.reason, window.reach = now(), scan.reason, scan.reach
     haul.window = window
     haul.routeBlockedSince, haul.routeBlockReason, haul.outdoorDropSince = nil, nil, nil
     haul.dragProgressAt = now()
@@ -4877,7 +4933,7 @@ function Production.reset(actor)
     actorStates = setmetatable({}, { __mode = "k" })
     storageItemCursors = setmetatable({}, { __mode = "k" })
     scans, claims, quotaReservations, phases, ceremonies, ceremonyOrder = {}, {}, {}, {}, {}, {}
-    burialOutcomes, burialOutcomeOrder = {}, {}
+    burialOutcomes, burialOutcomeOrder, blockLog, blockLogSize = {}, {}, {}, 0
     pendingAmen = nil
     Disposal.urgentAt = {}
     Disposal.refusedTags, Disposal.refusedOrder = {}, {}

@@ -1,9 +1,9 @@
-Living Fellows 0.26.56 - public playtest
+Living Fellows 0.26.57 - public playtest
 
-Gravekeepers now get bodies out of houses with several doors. They take hold
-of a body from the side they will leave by, a slow drag is no longer cut off
-after ninety seconds, and a drag that gets stuck indoors puts the body out of
-a nearby open window and carries on from outside.
+Gravekeepers no longer put bodies out of upstairs windows, where they landed
+on porch roofs out of reach. A stuck drag uses a window on the ground floor
+only. Blocked camp jobs are still written to the game log but no longer count
+as reports on the Support page.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added

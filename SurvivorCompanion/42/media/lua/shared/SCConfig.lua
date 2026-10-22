@@ -1308,8 +1308,10 @@ local valueData = {
     productionCorpseDepartureNodeBudget = 900,
     productionCorpseDepartureNodeQuota = 64,
     -- A stalled drag may put the body out of one nearby open or broken
-    -- window, then pick it up outside.
+    -- window, then pick it up outside. The search looks at a slice of
+    -- tiles per update.
     productionCorpseWindowRadius = 6,
+    productionCorpseWindowScanSquares = 32,
     productionCorpseWindowDragMs = 30000,
     productionCorpseWindowThrows = 1,
     productionCorpseThrowVerifyMs = 4000,

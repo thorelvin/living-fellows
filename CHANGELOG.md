@@ -2,6 +2,14 @@
 
 # Changelog
 
+## 0.26.57 - Window throws stay on the ground floor
+
+- A Gravekeeper upstairs no longer puts a body out of an upper window. Upstairs drags cannot take the stairs, so they always stalled and reached for a window. Out of an upper window the body landed on a porch roof, where the hauler put it down again every ten minutes, or fell to the ground while the hauler stayed upstairs. A window is now used only on the floor the grave or pyre is on; upstairs, the body is set down for a later try, as in 0.26.55.
+- The window search looks at a slice of tiles per update instead of about 340 wall edges in one frame.
+- A blocked camp job still writes its reason to the game log, once while the reason stays the same, but no longer counts as a diagnostic report on the Support page. Rain, night and an empty burial area are routine.
+- New tests cover a throw that keeps the body in hand, a thrown body that cannot be found, a throw that never finishes, a window that is out of reach, has no route or shuts on the way, a grab side that cannot be reached, and the five-minute drag limit.
+- The native bridge protocol remains `42.21-isocompanion-24`; update the bridge JAR and Lua payload together.
+
 ## 0.26.56 - Hauling bodies out of houses
 
 - A Gravekeeper now takes hold of a body from the side its drag route leaves by. A hauler walks backwards facing the body, so a body grabbed from the other side first had to swing round the hauler, and in a furnished room it caught on furniture or a door frame and pinned the hauler in place.

@@ -2936,21 +2936,33 @@ end
 
 -- A drag that stalls indoors puts the body out of a nearby open window, then
 -- the hauler goes out, takes hold of it again and carries on. Once per haul.
-local function windowDragFixture(ctx, label, climbable)
+-- The window is in the hauler's own tile, or options.along tiles west of it,
+-- where options.toWindow answers the drag there. With options.doorOut the
+-- hauler can take the body out by a door once it gives the window up.
+local function windowDragFixture(ctx, label, climbable, options)
+    options = options or {}
     local order = startIndoorDrag(ctx, label)
     local room = ctx.actor.square
     room.room = true
-    local outside = sq(room.x, room.y - 1)
+    local inside = sq(room.x - (options.along or 0), room.y)
+    inside.room = true
+    local outside = sq(inside.x, inside.y - 1)
     local window = { outsideSquare = outside, climbable = climbable }
     function window:canClimbThrough() return self.climbable == true end
     SC.Navigation.edgeAffordance = function(a, b)
-        if (a == outside and b == room) or (a == room and b == outside) then
+        if (a == outside and b == inside) or (a == inside and b == outside) then
             return { kind = "window", object = window, key = "window:fixture" }
         end
         return nil
     end
     local originalRequestAny = SC.Navigation.requestAny
     SC.Navigation.requestAny = function(actor, candidates, mode, intent)
+        if intent.action == "drag_body_to_safe_drop" and options.doorOut then
+            return originalRequestAny(actor, candidates, mode, intent)
+        end
+        if intent.action == "drag_body_to_window" and options.toWindow then
+            return options.toWindow(actor, inside, window)
+        end
         if intent.action == "drag_body_to_grave" or intent.action == "drag_body_to_safe_drop"
             or intent.action == "drag_body_to_window" then
             return true, "fixture_path_started"
@@ -2960,7 +2972,7 @@ local function windowDragFixture(ctx, label, climbable)
     local function restore()
         SC.Navigation.requestAny, SC.Navigation.edgeAffordance = originalRequestAny, nil
     end
-    return order, room, outside, restore
+    return order, room, outside, restore, window
 end
 
 do
@@ -2981,8 +2993,15 @@ do
     local throwing = tickUntil(ctx, function(value)
         seen[#seen + 1] = tostring(value)
         return value == "production_throwing_body"
-    end, 10)
+    end, 16)
     SC.Actor.setMovement = originalSetMovement
+    -- The search looks at a slice of tiles per update, never all at once.
+    local slices = 0
+    for _, value in ipairs(seen) do
+        if value == "searching_for_window" then slices = slices + 1 end
+    end
+    check(slices >= 4 and slices <= 6,
+        "the window search is spread over several updates: " .. tostring(slices))
     check(busy == 1 and seen[#seen - 1] == "locomotion_actor_state_busy:movement_locked",
         "a throw refused while the drag animation locks movement waits: " .. table.concat(seen, ","))
     check(throwing and #SC_PRODUCTION_CALLS.throw == throwsBefore + 1,
@@ -3033,6 +3052,243 @@ do
     restore()
     check(given and #SC_PRODUCTION_CALLS.throw == throwsBefore and #room.staticMoving == 1,
         "a camp-only order never puts a body out of a window past the camp border")
+end
+
+-- Out of an upper window a body lands on a porch roof, where no drag can
+-- reach it, or falls to a floor the hauler cannot follow it to. Upstairs the
+-- body goes down indoors instead, even where an upper camp floor admits the
+-- roof as work ground.
+do
+    local ctx = setup()
+    local throwsBefore = #SC_PRODUCTION_CALLS.throw
+    local _, _, _, restore = windowDragFixture(ctx, "the upstairs window test", true)
+    local landing = makeSquare(6, 6, 1)
+    landing.room = true
+    local roof = makeSquare(6, 5, 1)
+    local window = { outsideSquare = roof }
+    function window:canClimbThrough() return true end
+    SC.Navigation.edgeAffordance = function(a, b)
+        if (a == roof and b == landing) or (a == landing and b == roof) then
+            return { kind = "window", object = window, key = "window:upstairs" }
+        end
+        return nil
+    end
+    -- The camp has an upper floor, and the roof outside the window is on it.
+    local originalInside = SC.BaseLife.isInside
+    SC.BaseLife.isInside = function(value, kind)
+        local _, _, z = SC.GameplayUtil.position(value)
+        if z == 1 then return true end
+        return originalInside(value, kind)
+    end
+    ctx.actor.square, ctx.actor.x, ctx.actor.y, ctx.actor.z = landing, landing.x, landing.y, 1
+    local seen = {}
+    local given = tickUntil(ctx, function(value)
+        seen[#seen + 1] = tostring(value)
+        return value == "no_way_out_with_body"
+    end, 30)
+    SC.BaseLife.isInside = originalInside
+    restore()
+    check(given and #SC_PRODUCTION_CALLS.throw == throwsBefore
+            and #landing.staticMoving == 1 and #roof.staticMoving == 0,
+        "a hauler upstairs never puts a body out of a window; it goes down indoors: "
+            .. table.concat(seen, ","))
+end
+
+-- A throw that ends with the body still in hand gives the window up. The
+-- hauler takes the body out by a door and leaves it alone for a while.
+do
+    local ctx = setup()
+    local throwsBefore = #SC_PRODUCTION_CALLS.throw
+    local order, room, _, restore = windowDragFixture(ctx, "the failed-throw test", true,
+        { doorOut = true })
+    local throwing = tickUntil(ctx, function(value) return value == "production_throwing_body" end, 16)
+    check(throwing, "the failed-throw test starts a throw")
+    SC_TEST_THROW_FAILS = true
+    current(ctx.actor):perform()
+    SC_TEST_THROW_FAILS = false
+    local _, verifying = tick(ctx)
+    local _, given = tick(ctx, nil, nil, 5000)
+    restore()
+    local square = ctx.actor.square
+    local body = square.staticMoving[1]
+    check(verifying == "production_throw_verifying" and given == "window_throw_failed"
+            and not ctx.actor:isDraggingCorpse() and square ~= room and square.room ~= true
+            and #square.staticMoving == 1 and body.modData.LF_CorpseHaul ~= nil
+            and #SC_PRODUCTION_CALLS.throw == throwsBefore + 1
+            and SC.BaseLife.productionOrder(order.id).state == "blocked",
+        "a throw that keeps the body in hand ends at the door: " .. tostring(verifying)
+            .. " " .. tostring(given))
+end
+
+-- A thrown body that cannot be found by the window ends the trip without
+-- blocking the order; the hauler holds nothing.
+do
+    local ctx = setup()
+    local order, _, _, restore, window = windowDragFixture(ctx, "the lost-body test", true)
+    local throwing = tickUntil(ctx, function(value) return value == "production_throwing_body" end, 16)
+    check(throwing, "the lost-body test starts a throw")
+    local far = sq(-10, 10)
+    window.outsideSquare = far
+    current(ctx.actor):perform()
+    local _, verifying = tick(ctx)
+    local _, lost = tick(ctx, nil, nil, 5000)
+    local _, after = tick(ctx)
+    restore()
+    check(verifying == "production_throw_verifying" and lost == "thrown_body_lost"
+            and not ctx.actor:isDraggingCorpse() and #far.staticMoving == 1
+            and SC.BaseLife.productionOrder(order.id).state == "running" and after ~= nil,
+        "a thrown body that is not found ends the trip and the order carries on: "
+            .. tostring(verifying) .. " " .. tostring(lost) .. " " .. tostring(after))
+end
+
+-- A throw that never finishes is cancelled at the action limit and the body
+-- goes down where the hauler stands.
+do
+    local ctx = setup()
+    local order, room, _, restore = windowDragFixture(ctx, "the stuck-throw test", true)
+    local throwing = tickUntil(ctx, function(value) return value == "production_throwing_body" end, 16)
+    check(throwing, "the stuck-throw test starts a throw")
+    local _, given = tick(ctx, nil, nil, 121000)
+    restore()
+    check(given == "window_throw_timeout" and not ctx.actor:isDraggingCorpse()
+            and SC.NativeActions.isWorkActive(ctx.actor) ~= true and #room.staticMoving == 1
+            and SC.BaseLife.productionOrder(order.id).state == "blocked",
+        "a throw that never finishes is cancelled and the body goes down: " .. tostring(given))
+end
+
+-- A window the body cannot be brought to is given up: out of reach for half
+-- a minute, no route there, or shut on the way. The body goes out by a door.
+for _, case in ipairs({
+    { reason = "window_unreachable",
+        toWindow = function() return true, "fixture_path_started" end },
+    { reason = "window_route_blocked:path_blocked:blocked_static",
+        toWindow = function() return false, "path_blocked:blocked_static" end },
+    { reason = "window_closed", toWindow = function(actor, inside, window)
+        window.climbable = false
+        actor.square, actor.x, actor.y = inside, inside.x, inside.y
+        return true, "fixture_path_started"
+    end },
+}) do
+    local ctx = setup()
+    local throwsBefore = #SC_PRODUCTION_CALLS.throw
+    local order, _, _, restore = windowDragFixture(ctx, "the " .. case.reason .. " test", true,
+        { along = 1, doorOut = true, toWindow = case.toWindow })
+    local seen = {}
+    local given = tickUntil(ctx, function(value)
+        seen[#seen + 1] = tostring(value)
+        return value == case.reason
+    end, 30)
+    restore()
+    local square = ctx.actor.square
+    check(given and #SC_PRODUCTION_CALLS.throw == throwsBefore
+            and not ctx.actor:isDraggingCorpse() and square.room ~= true
+            and #square.staticMoving == 1
+            and SC.BaseLife.productionOrder(order.id).state == "blocked",
+        "a window the body cannot be brought to is given up at the door: " .. case.reason
+            .. " / " .. table.concat(seen, ","))
+end
+
+-- When the side the route leaves by cannot be reached on foot, the hauler
+-- takes hold of the body from another side instead of giving it up.
+do
+    local ctx = setup()
+    createGrave(-2, -3, 0, false)
+    local spot = sq(4, -4)
+    makeBody(spot)
+    SC.Navigation.beginPathSearch = function() return { pending = 0 } end
+    SC.Navigation.resumePathSearch = function() return "complete", { spot, sq(4, -3), sq(4, -2) } end
+    SC.Navigation._workSquareAdmitted = function() return true end
+    local originalRequestAny = SC.Navigation.requestAny
+    SC.Navigation.requestAny = function(actor, candidates, mode, intent)
+        if intent.action == "move_to_production_body" and #candidates == 1
+            and candidates[1] == sq(4, -3) then
+            return false, "path_blocked:blocked_static"
+        end
+        return originalRequestAny(actor, candidates, mode, intent)
+    end
+    start(ctx, {
+        operation = "collect_bodies", zoneId = ctx.burial.id, requested = 1,
+        settings = { fromLumber = false },
+    })
+    local seen, sideRefused = {}, false
+    local grabbing = tickUntil(ctx, function(value)
+        seen[#seen + 1] = tostring(value)
+        if value == "production_departure_side_unreachable" then sideRefused = true end
+        return value == "production_grabbing"
+    end, 14)
+    SC.Navigation.requestAny = originalRequestAny
+    SC.Navigation.beginPathSearch, SC.Navigation.resumePathSearch = nil, nil
+    SC.Navigation._workSquareAdmitted = nil
+    check(sideRefused and grabbing and ctx.actor.square ~= sq(4, -3),
+        "an unreachable departure side falls back to any side: " .. table.concat(seen, ","))
+end
+
+-- A drag that keeps reaching new tiles still ends at the five-minute limit.
+do
+    local ctx = setup()
+    local order = startIndoorDrag(ctx, "the five-minute test")
+    local originalRequestAny = SC.Navigation.requestAny
+    local steps = 0
+    SC.Navigation.requestAny = function(actor, candidates, mode, intent)
+        if intent.action == "drag_body_to_grave" then
+            steps = steps + 1
+            local square = sq(-12 + steps % 25, 8 + math.floor(steps / 25) % 4)
+            actor.square, actor.x, actor.y = square, square.x, square.y
+            return true, "fixture_path_started"
+        end
+        return originalRequestAny(actor, candidates, mode, intent)
+    end
+    local reason, elapsed
+    for index = 1, 30 do
+        local _, value = tick(ctx, nil, nil, 15000)
+        if not ctx.actor:isDraggingCorpse() then
+            reason, elapsed = value, index * 15000
+            break
+        end
+    end
+    SC.Navigation.requestAny = originalRequestAny
+    check(reason == "drag_timeout" and elapsed > 300000 and elapsed <= 330000
+            and SC.BaseLife.productionOrder(order.id).state == "blocked",
+        "a drag still moving after five minutes puts the body down: " .. tostring(reason)
+            .. " after " .. tostring(elapsed))
+end
+
+-- A blocked order says why in the game log, once while the reason repeats,
+-- and stays out of the Support page's diagnostic reports.
+do
+    local ctx = setup()
+    SC.Diagnostics.reset()
+    makeTree(sq(3, 2), 10)
+    local printed = {}
+    local originalPrint, originalGet = print, SC.Config.get
+    print = function(text) printed[#printed + 1] = tostring(text) end
+    SC.Config.get = function(section, key)
+        if section == "diagnosticCooldownMs" or key == "diagnosticCooldownMs" then return 600000 end
+        return originalGet(section, key)
+    end
+    local order = start(ctx, { operation = "fell_trees", zoneId = ctx.lumber.id, requested = 1,
+        settings = { haulLogs = false } })
+    local _, first = tick(ctx)
+    local firstAt = SC.BaseLife.productionOrder(order.id).updatedAt
+    tick(ctx, nil, nil, 31000)
+    tick(ctx, nil, nil, 31000)
+    local again = SC.BaseLife.productionOrder(order.id)
+    print, SC.Config.get = originalPrint, originalGet
+    local wanted = "[SurvivorCompanion][production:" .. tostring(order.id)
+        .. "] blocked: missing_tool:choptree"
+    local lines = 0
+    for _, line in ipairs(printed) do
+        if line == wanted then lines = lines + 1 end
+    end
+    local reports = 0
+    for key in pairs(SC.Diagnostics.snapshot()) do
+        if string.find(key, "production", 1, true) then reports = reports + 1 end
+    end
+    check(reports == 0, "routine order blocks are not Support diagnostic reports: "
+        .. tostring(reports))
+    check(first == "missing_tool:choptree" and again.state == "blocked"
+            and again.updatedAt > firstAt and lines == 1,
+        "a repeated block prints its reason once: lines=" .. tostring(lines))
 end
 
 -- ---------------------------------------------------------------------------
