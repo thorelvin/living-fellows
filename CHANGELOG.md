@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 0.26.55 - Corpse hauling and driveway fixes
+
+- A companion dragging a body for a Gravekeeper order now puts it down before doing anything else: when the order is paused or blocked, when it has no production job in hand, and before eating, scavenging, downtime or any other activity. Companions no longer walk to containers with a corpse in tow.
+- A body that cannot be taken out of a room, for example one whose only ways out are windows, no longer keeps its hauler dragging it around indefinitely. After a bounded search for clear outdoor ground the body is put down where the hauler stands, the order waits for its usual retry, and that body is left alone for ten minutes instead of being grabbed straight back.
+- Fixed a camp job crash ("Object tried to call nil") when a Gravekeeper order was blocked while the worker still held a borrowed shovel. The game's Lua does not always provide `next()`; the two remaining uses are replaced and a source check rejects new ones.
+- A car expedition coming home now turns into its planned driveway on the road and parks in the marked bay. Before, a car that arrived facing along the street could not start the final parking leg, and the squad got out on the road and walked.
+- Production orders now record why they were blocked in the game log.
+- The native bridge protocol remains `42.21-isocompanion-24`; update the bridge JAR and Lua payload together.
+
 ## 0.26.54 - Carrying limits and recovery fixes
 
 - Companions again pick up, drop, saw, cook and trade against their inventory's physical limit. The Strength-based carrying limit from 0.26.53 now only decides when a companion shelves surplus into marked camp storage and when a field trip ends. Companions no longer drop ordinary gear on the ground away from camp, log sawing no longer stops as overloaded, and chefs and trades work at everyday weights.

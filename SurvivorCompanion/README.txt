@@ -1,10 +1,9 @@
-Living Fellows 0.26.54 - public playtest
+Living Fellows 0.26.55 - public playtest
 
-This playtest fixes the 0.26.53 carrying limits. Companions no longer drop
-ordinary gear in the field, sawing and cooking work at everyday weights, and
-heavy crops can be harvested again. A companion driver whose car is pinned
-against a corner now backs off and drives on. Car washing, unreachable
-shelves, field orders and expedition searches also recover more reliably.
+This playtest fixes Gravekeepers who kept dragging a body around a room they
+could not leave, or carried it off to scavenge, and a camp job crash. A car
+expedition coming home now turns into its driveway instead of letting the
+squad out on the road.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added
