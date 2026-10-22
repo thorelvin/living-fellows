@@ -1318,6 +1318,16 @@ local valueData = {
     productionCorpseWindowThrows = 1,
     productionCorpseThrowVerifyMs = 4000,
     productionCorpseFallVerifyMs = 10000,
+    -- How far ahead of a hauler's feet the body it drags rests (measured
+    -- live), and how far inside a tile it must be to count as over it.
+    productionCorpseDragLead = 0.33,
+    -- How close a hauler steps to a body before taking hold, and for how
+    -- long it tries.
+    productionCorpseGrabReach = 0.85,
+    productionCorpseGrabStepMs = 3000,
+    productionCorpseTileMargin = 0.15,
+    -- A throw that left the body indoors may be tried this many times more.
+    productionCorpseThrowRetries = 1,
     productionCorpseOutdoorDropMs = 30000,
     productionCorpseHaulRefusedMs = 600000,
     productionCorpseDropVerifyMs = 4000,

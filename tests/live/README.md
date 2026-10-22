@@ -92,6 +92,23 @@ retained with a manifest, isolated console, event log, and terminal summary.
 `PASS` means every applicable assertion passed; environment-dependent geometry
 may produce an explicit `SKIP`, never a false pass.
 
+The upstairs haul probe follows one Gravekeeper through a body collection that
+starts on an upper floor. It surveys every upper window over the camp, puts a
+body in one upstairs room and opens a window over open ground in the next
+room, then checks that the body is dragged through to that window, thrown,
+lands on the ground floor, and is picked up again and burned on a pyre. When
+the cloned camp has no upper floor, the probe marks the nearest loaded
+two-story house with a usable layout as camp ground and lets the camp's stair
+survey link its upper floor. Other bodies in the camp are marked as burned in
+the clone so only the probe's body is collected:
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -UpstairsHaulProbe -LivingFellowsOnly -TimeoutSeconds 900
+```
+
+`UPSTAIRS_WINDOW` lines in the console list every upper window with what lies
+outside it; a failure reports the hauler's navigation and animation state.
+
 To measure squad survival against native zombies in a disposable cloned save,
 run three trials each of 3 companions versus 6 zombies, 5 versus 10, and
 5 versus 12. Every companion receives a crowbar and a Stay order. Zombies

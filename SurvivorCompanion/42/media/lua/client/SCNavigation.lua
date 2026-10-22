@@ -8366,10 +8366,28 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
         return firstScore < secondScore
     end)
     local currentTokenSerial = token and tonumber(token.serial) or nil
-    if state.actionTokenSerial ~= currentTokenSerial
-        or (state.multiGoalOwnerKey ~= nil and state.multiGoalOwnerKey ~= key) then
-        if state.nativeLease then clearMovementTransients(actor, state) end
+    -- A changed set of standing tiles keeps the engine route it already has
+    -- when that route's tile is still on offer, and waits for a stair
+    -- crossing to reach a floor otherwise, as a changed goal does
+    -- (maintainNativeLease). Clearing the route on the top tread left the
+    -- body on the stairs with only a stair recovery that could not start (a
+    -- Gravekeeper walking down to a body it had put out of an upper window,
+    -- 0.26.57 live).
+    local crossing = state.nativeLease ~= nil and Navigation._betweenFloorHeights(actor)
+    local tokenChanged = state.actionTokenSerial ~= currentTokenSerial
+    local leaseGoalKey = state.nativeLease and squareKey(state.nativeLease.ultimateGoal) or nil
+    local leaseGoal
+    for _, square in ipairs(allValid) do
+        if leaseGoalKey ~= nil and squareKey(square) == leaseGoalKey then leaseGoal = square end
+    end
+    local keep = state.nativeLease ~= nil
+        and (crossing or (not tokenChanged and leaseGoal ~= nil))
+    if tokenChanged or (state.multiGoalOwnerKey ~= nil and state.multiGoalOwnerKey ~= key) then
+        if state.nativeLease and not keep then clearMovementTransients(actor, state) end
         state.multiGoalSelected = nil
+        if keep and leaseGoal ~= nil then
+            state.multiGoalKey, state.multiGoalSelected = key, leaseGoal
+        end
     end
     state.multiGoalOwnerKey = key
     state.multiGoalFailures = state.multiGoalFailures or {}
@@ -8389,7 +8407,7 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
             -- approach timeout.
             if leaseStatus == "path_blocked:door_locked" then return false, leaseStatus end
         end
-    elseif state.nativeLease and state.multiGoalKey ~= key then
+    elseif state.nativeLease and state.multiGoalKey ~= key and not keep then
         clearMovementTransients(actor, state)
     end
 

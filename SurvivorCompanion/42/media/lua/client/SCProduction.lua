@@ -839,7 +839,13 @@ local function nextZoneCandidate(order, purpose, zone, inspect, id, shared, budg
         local square = U().gridSquare(x, y, zone.z)
         local found
         if not square then
-            scan.incomplete = true
+            -- Off the ground floor the game keeps no tile where nothing is
+            -- built. Over a loaded ground tile that is no tile at all, not an
+            -- unloaded one; otherwise a camp area on an upper floor never
+            -- finishes a pass.
+            if (tonumber(zone.z) or 0) == 0 or U().gridSquare(x, y, 0) == nil then
+                scan.incomplete = true
+            end
         else
             local candidate = inspect(square, x, y, zone.z)
             if candidate then
@@ -3962,24 +3968,29 @@ function Disposal.beginHaul(actor, order, state, context, zone)
         haul.stage = "approach"
     end
     state.phase = "approaching"
-    local reach = Disposal.reach(order, zone) or SC.BaseLife.isInside(haul.square) ~= true
-    local prefer = Disposal.departure(actor, order, context, zone, haul, reach)
-    local approach, approachReason = approachSquare(actor, haul.square,
-        "move_to_production_body", nil, reach, nil, prefer)
-    if approach == "failed" and prefer ~= nil then
-        -- The departure side can be out of reach on foot; any side will do.
-        haul.departureIgnored = true
-        return true, "production_departure_side_unreachable"
+    -- Once the hauler steps in towards the body it may leave the tile it
+    -- arrived on; the approach must not walk it back while it steps.
+    if haul.stepSince == nil then
+        local reach = Disposal.reach(order, zone) or SC.BaseLife.isInside(haul.square) ~= true
+        local prefer = Disposal.departure(actor, order, context, zone, haul, reach)
+        local approach, approachReason = approachSquare(actor, haul.square,
+            "move_to_production_body", nil, reach, nil, prefer)
+        if approach == "failed" and prefer ~= nil then
+            -- The departure side can be out of reach on foot; any side will do.
+            haul.departureIgnored = true
+            return true, "production_departure_side_unreachable"
+        end
+        if approach == "failed" then
+            noteCandidateFailure(order, haul.purpose, haul.key, approachReason, haul.sourceZone)
+            Disposal.abandonHaul(state, context)
+            return false, approachReason
+        end
+        if approach ~= "arrived" then return true, approachReason end
+        if type(haul.departure) == "table" and haul.departure.done ~= true then
+            return true, "production_departure_survey"
+        end
     end
-    if approach == "failed" then
-        noteCandidateFailure(order, haul.purpose, haul.key, approachReason, haul.sourceZone)
-        Disposal.abandonHaul(state, context)
-        return false, approachReason
-    end
-    if approach ~= "arrived" then return true, approachReason end
-    if type(haul.departure) == "table" and haul.departure.done ~= true then
-        return true, "production_departure_survey"
-    end
+    if not Disposal.stepToBody(actor, haul) then return true, "stepping_to_body" end
     local tag = Disposal.newTag(order, context.actorId)
     if not Disposal.setTag(haul.body, tag) then
         noteCandidateFailure(order, haul.purpose, haul.key, "body_tag_failed", haul.sourceZone)
@@ -4001,6 +4012,53 @@ function Disposal.beginHaul(actor, order, state, context, zone)
     state.work = { kind = "grab_body", key = haul.key, startedAt = now() }
     state.phase = "grabbing"
     return true, "production_grabbing"
+end
+
+-- Arriving on the tile beside a body is not reaching it: a body lies anywhere
+-- in its tile, and live the pick-up began up to two tiles from it, the hands
+-- reaching for the floor beside it. The hauler steps in until the body is
+-- within reach, checked again as soon as the step is taken, for a few
+-- seconds at most; where no step can be taken it takes hold from where it
+-- stands, as before.
+function Disposal.stepToBody(actor, haul)
+    local utility = U()
+    local bx, by, bz = utility.position(haul.body)
+    local ax, ay = utility.position(actor)
+    if bx == nil or ax == nil then return true end
+    local reach = config("productionCorpseGrabReach", 0.85)
+    local function within()
+        local x, y = utility.position(actor)
+        return x ~= nil and math.sqrt((bx - x) ^ 2 + (by - y) ^ 2) <= reach
+    end
+    if within() then
+        haul.stepSince = nil
+        return true
+    end
+    haul.stepSince = haul.stepSince or now()
+    if now() - haul.stepSince > config("productionCorpseGrabStepMs", 3000) then
+        haul.stepSince = nil
+        return true
+    end
+    local dx, dy = bx - ax, by - ay
+    local distance = math.sqrt(dx * dx + dy * dy)
+    local stand = math.max(0.3, reach - 0.2)
+    local tx, ty = bx - dx / distance * stand, by - dy / distance * stand
+    local moved, reason = utility.move(actor, "walk", {
+        action = "move_to_production_body", dx = tx - ax, dy = ty - ay,
+        targetPosition = { x = tx, y = ty, z = bz }, movementTarget = true,
+        movementArrivalTolerance = 0.06, movementTargetTtlMs = 750,
+        targetSquare = haul.square,
+    })
+    if moved ~= true and not transientRejection(reason)
+        and not string.find(tostring(reason), "actor_state_busy", 1, true) then
+        haul.stepSince = nil
+        return true
+    end
+    if within() then
+        haul.stepSince = nil
+        return true
+    end
+    return false
 end
 
 -- The grab is proven only by a real grapple (isDraggingCorpse) shortly after
@@ -4073,7 +4131,84 @@ function Disposal.dropTarget(order, context, zone, haul)
     }
 end
 
--- Drag onto a pyre tile itself: the body lands behind the worker.
+-- Where the dragged body is: the grappled body itself, which trails the
+-- hauler with a lag while it moves. Without it, the point a third of a tile
+-- ahead of the hauler's feet, where a settled body rests (it walks backwards
+-- facing it). Nil when neither can be read.
+function Disposal.bodyPoint(actor)
+    local gx, gy = U().position(select(1, invoke(actor, "getGrapplingTarget")))
+    if gx ~= nil then return gx, gy end
+    local x, y = U().position(actor)
+    local forward = select(1, invoke(actor, "getForwardDirection"))
+    local fx = tonumber((select(1, invoke(forward, "getX"))))
+    local fy = tonumber((select(1, invoke(forward, "getY"))))
+    if x == nil or fx == nil or fy == nil then return nil end
+    local lead = config("productionCorpseDragLead", 0.33)
+    return x + fx * lead, y + fy * lead
+end
+
+-- Whether the body is over a tile, at least a sixth of a tile in from its
+-- edges: live, a body put down right at an edge came to rest past it.
+function Disposal.bodyOver(actor, square)
+    local bx, by = Disposal.bodyPoint(actor)
+    local sx, sy = U().position(square)
+    if bx == nil or sx == nil then return false end
+    local margin = config("productionCorpseTileMargin", 0.15)
+    local fx, fy = bx - math.floor(sx), by - math.floor(sy)
+    return fx >= margin and fx <= 1 - margin and fy >= margin and fy <= 1 - margin
+end
+
+-- The nearest of the eight neighbours of a tile along a direction
+-- (2.414 = tan 67.5 degrees).
+local function neighbourAlong(square, dx, dy)
+    local x, y, z = U().position(square)
+    if x == nil or (dx == 0 and dy == 0) then return nil end
+    local ax, ay = math.abs(dx), math.abs(dy)
+    local sx, sy = dx > 0 and 1 or -1, dy > 0 and 1 or -1
+    if ax > 2.414 * ay then dx, dy = sx, 0
+    elseif ay > 2.414 * ax then dx, dy = 0, sy
+    else dx, dy = sx, sy end
+    return U().gridSquare(math.floor(x) + dx, math.floor(y) + dy, z)
+end
+
+-- Where the hauler heads to lay a body on a pyre tile. Walking backwards, it
+-- drags the body about a third of a tile behind it, so a hauler that stopped
+-- on the pyre tile left the body short of it; on a one-tile pyre the body
+-- landed off the pyre whenever it came at it from the same side. The
+-- hauler first drags onto the pyre tile; if the body is not over it yet, it
+-- carries on to the tile past it in the way it is walking (it faces the body
+-- behind it), and the body is laid down once it is over the pyre tile
+-- (Disposal.bodyOver). Where its facing cannot be read, the tile past the
+-- pyre lies along the line from where it took hold. Without a free tile
+-- there it stops on the pyre tile. Returns the tile and whether reaching it
+-- ends the drag.
+function Disposal.pyreStand(actor, haul, target, reach)
+    local utility = U()
+    local targetKey = utility.squareKey(target)
+    if haul.pyreStand and haul.pyreStandFor == targetKey then return haul.pyreStand, true end
+    local stand
+    local bx, by = Disposal.bodyPoint(actor)
+    if bx ~= nil then
+        if not utility.sameSquare(actor, target) then return target, false end
+        local ax, ay = utility.position(actor)
+        stand = neighbourAlong(target, ax - bx, ay - by)
+    else
+        local tx, ty = utility.position(target)
+        local gx, gy = utility.position(haul.square)
+        if tx == nil or gx == nil then return target end
+        stand = neighbourAlong(target, math.floor(tx) - math.floor(gx),
+            math.floor(ty) - math.floor(gy))
+    end
+    if stand and select(1, invoke(stand, "getRoom")) == nil and utility.isSquareFree(stand)
+        and not Disposal.squareOnFire(stand)
+        and SC.BaseLife.admitsWork(stand, { workReach = reach == true }) == true then
+        haul.pyreStand, haul.pyreStandFor = stand, targetKey
+        return stand, true
+    end
+    return target, true
+end
+
+-- Drag a body to where it is laid on a pyre (Disposal.pyreStand).
 function Disposal.dragInto(actor, square, reach)
     if U().sameSquare(actor, square) then return "arrived", "production_in_range" end
     if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
@@ -4146,7 +4281,18 @@ function Disposal.continueDrag(actor, order, state, context, zone)
     local reach = Disposal.reach(order, zone) or SC.BaseLife.isInside(actor) ~= true
     local result, moveReason
     if zone.kind == "pyre" then
-        result, moveReason = Disposal.dragInto(actor, target, reach)
+        -- The body is laid down the moment it is over the pyre tile, however
+        -- far the hauler has stepped into the tile beyond.
+        if Disposal.bodyOver(actor, target) then
+            result, moveReason = "arrived", "production_body_over_pyre"
+        else
+            local stand, final = Disposal.pyreStand(actor, haul, target, reach)
+            result, moveReason = Disposal.dragInto(actor, stand, reach)
+            -- Onto the pyre tile with the body still short of it: carry on.
+            if result == "arrived" and not final then
+                result, moveReason = "pending", "dragging_across_pyre"
+            end
+        end
     else
         result, moveReason = approachSquare(actor, target, "drag_body_to_grave", avoid, reach, true)
     end
@@ -4172,7 +4318,12 @@ function Disposal.continueDrag(actor, order, state, context, zone)
     local accepted, reason = U().move(actor, "walk", {
         action = "drop_body", targetSquare = U().squareOf(actor),
     })
-    if accepted ~= true and transientRejection(reason) then return true, reason end
+    -- A short re-drag onto a pyre arrives while the pick-up animation still
+    -- locks movement. Wait it out; the drag's stall limit bounds the wait.
+    if accepted ~= true and (transientRejection(reason)
+        or string.find(tostring(reason), "actor_state_busy", 1, true)) then
+        return true, reason
+    end
     if accepted ~= true or not workActive(actor, "drop_body") then
         return Disposal.dropHere(actor, order, state, context, reason or "production_drop_rejected")
     end
@@ -4235,14 +4386,23 @@ function Disposal.fallLanding(x, y, z, floor, reach)
 end
 
 -- An upper window often looks out over open air, where the game keeps no
--- tile at all. Such a window is read off the edge of the indoor tile that
--- holds it.
+-- tile at all. Such a window is read off the indoor tile that holds it, by
+-- the edge it stands on. Build 42's edge getters take edge enums rather
+-- than a north flag, so the tile's objects are read directly. A frame
+-- reports itself climbable even with its glass shut, so the glass window on
+-- the same edge decides; a bare frame counts only on its own.
 function Disposal.windowOnEdge(owner, north)
-    local window = select(1, invoke(owner, "getWindow", north))
+    local utility, window, frame = U(), nil, nil
+    utility.squareObjects(owner, function(object)
+        if select(1, invoke(object, "getNorth")) ~= north then return end
+        if utility.instanceOf(object, "IsoWindow") or (utility.instanceOf(object, "IsoThumpable")
+            and select(1, invoke(object, "isWindow")) == true) then
+            window = object
+            return false
+        end
+        if frame == nil and utility.instanceOf(object, "IsoWindowFrame") then frame = object end
+    end, 64)
     if window ~= nil then return window, "window" end
-    window = select(1, invoke(owner, "getThumpableWindow", north))
-    if window ~= nil then return window, "window" end
-    local frame = select(1, invoke(owner, "getWindowFrame", north))
     if frame ~= nil then return frame, "window_frame" end
     return nil
 end
@@ -4446,12 +4606,12 @@ function Disposal.pollThrow(actor, order, state, context)
         work.finishedAt = now()
     end
     local native = natives()
-    local verifying = now() - work.finishedAt < (window and window.falls == true
+    local limit = window and window.falls == true
         and config("productionCorpseFallVerifyMs", 10000)
-        or config("productionCorpseThrowVerifyMs", 4000))
+        or config("productionCorpseThrowVerifyMs", 4000)
     if native and type(native.isDraggingCorpse) == "function"
         and native.isDraggingCorpse(actor) == true then
-        if verifying then return true, "production_throw_verifying" end
+        if now() - work.finishedAt < limit then return true, "production_throw_verifying" end
         state.work = nil
         if not haul then return Disposal.dropHere(actor, order, state, context, "production_haul_missing") end
         haul.window = nil
@@ -4462,6 +4622,11 @@ function Disposal.pollThrow(actor, order, state, context)
         state.work = nil
         return false, "production_haul_missing"
     end
+    -- The throw animation lets go of the body anywhere from three to more
+    -- than seven seconds after the action ends; the body's flight is timed
+    -- from that release.
+    work.releasedAt = work.releasedAt or now()
+    local verifying = now() - work.releasedAt < limit
     local outside = window and U().gridSquare(window.outside.x, window.outside.y,
         window.outside.z) or nil
     local body, square
@@ -4469,6 +4634,13 @@ function Disposal.pollThrow(actor, order, state, context)
     if not body then body, square = Disposal.findTagged(actor, haul.tag, 3) end
     if not body then
         if verifying then return true, "production_throw_verifying" end
+        if not work.settleTried then
+            work.settleTried = true
+            if Disposal.settleStuckBody(actor, haul.tag) then
+                work.releasedAt = now()
+                return true, "production_throw_verifying"
+            end
+        end
         state.work = nil
         Disposal.abandonHaul(state, context)
         return false, "thrown_body_lost"
@@ -4481,7 +4653,44 @@ function Disposal.pollThrow(actor, order, state, context)
     haul.window, haul.stage, haul.giveUpReason, haul.giveUpRefuse = nil, "approach", nil, nil
     haul.departure, haul.departureIgnored = nil, nil
     state.phase = "approaching"
+    -- Still indoors, the body never went out: the throw may be tried once
+    -- more from where it lies.
+    if select(1, invoke(square, "getRoom")) ~= nil then
+        haul.throwMisses = (haul.throwMisses or 0) + 1
+        if haul.throwMisses <= config("productionCorpseThrowRetries", 1) then
+            haul.windowThrows = math.max(0, (haul.windowThrows or 1) - 1)
+        end
+        return true, "production_throw_missed"
+    end
     return true, "production_body_thrown_out"
+end
+
+-- A throw the game never carries out leaves the body standing by the window
+-- as the zombie it is while dragged, and in single player nothing turns it
+-- back into a body. The game's own die() does, where it stands.
+function Disposal.settleStuckBody(actor, tag)
+    local utility = U()
+    local ax, ay, az = utility.position(actor)
+    if ax == nil or tag == nil then return false end
+    local settled, found = false, false
+    for dy = -2, 2 do
+        for dx = -2, 2 do
+            utility.squareMovingObjects(utility.gridSquare(ax + dx, ay + dy, az),
+                function(zombie)
+                    if select(1, invoke(zombie, "isReanimatedForGrappleOnly")) == true
+                        and select(1, invoke(zombie, "isBeingGrappled")) ~= true then
+                        local data = Disposal.bodyData(zombie)
+                        if data and data[Production.HAUL_TAG] == tag then
+                            found = true
+                            settled = select(2, invoke(zombie, "die")) == true
+                            return false
+                        end
+                    end
+                end, 16)
+            if found then return settled end
+        end
+    end
+    return false
 end
 
 -- The drop is proven only by the tagged body lying near the worker again.
@@ -4561,7 +4770,7 @@ function Disposal.disposePlaced(actor, order, state, context, zone)
                 Disposal.abandonHaul(state, context)
                 return blockOrder(order, "pyre_placement_failed")
             end
-            haul.stage, haul.dropSquare = "approach", nil
+            haul.stage, haul.dropSquare, haul.pyreStand = "approach", nil, nil
             return true, "production_replacing_body"
         end
         Disposal.clearTag(haul.body)

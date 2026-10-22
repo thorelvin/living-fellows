@@ -461,6 +461,12 @@ SC.Actor.setMovement = function(actor, mode, intent)
         emotes[#emotes + 1] = intent.emote
         return true, "emote_started"
     end
+    -- A bounded step to a point arrives at once.
+    if type(intent) == "table" and intent.movementTarget == true
+        and type(intent.targetPosition) == "table" then
+        actor.x, actor.y = intent.targetPosition.x, intent.targetPosition.y
+        return true, "moving"
+    end
     return true, "visual_started"
 end
 SC.NativeActions.visualStatus = function() return "completed" end
@@ -2311,6 +2317,40 @@ do
     SC.Navigation.interactionTargets = originalTargets
 end
 
+-- A drop asked for while the pick-up animation still locks movement (a short
+-- re-drag onto a pyre) waits it out; the body is not let go short of its
+-- destination.
+do
+    local ctx = setup()
+    createGrave(-2, -3, 0, false)
+    makeBody(sq(4, -4))
+    local originalSetMovement = SC.Actor.setMovement
+    local busy = 0
+    SC.Actor.setMovement = function(actor, mode, intent)
+        if type(intent) == "table" and intent.action == "drop_body" and busy == 0 then
+            busy = 1
+            return false, "locomotion_actor_state_busy:movement_locked"
+        end
+        return originalSetMovement(actor, mode, intent)
+    end
+    start(ctx, {
+        operation = "collect_bodies", zoneId = ctx.burial.id, requested = 1,
+        settings = { fromLumber = false },
+    })
+    local grabbing = tickUntil(ctx, function(value) return value == "production_grabbing" end, 8)
+    check(grabbing, "the locked-drop test grabs a body")
+    current(ctx.actor):perform()
+    local seen = {}
+    local placing = tickUntil(ctx, function(value)
+        seen[#seen + 1] = tostring(value)
+        return value == "production_placing"
+    end, 10)
+    SC.Actor.setMovement = originalSetMovement
+    check(busy == 1 and placing and seen[#seen - 1] == "locomotion_actor_state_busy:movement_locked"
+            and ctx.actor:isDraggingCorpse(),
+        "a drop refused while the pick-up animation locks movement waits: " .. table.concat(seen, ","))
+end
+
 do
     local ctx = setup()
     createGrave(-2, -3, 0, false)
@@ -2499,9 +2539,13 @@ do
     current(ctx.actor):perform()
     tick(ctx)
     local _, placeReason = tick(ctx)
-    check(placeReason == "production_placing" and ctx.actor.square == sq(21, 1),
-        "the body is dragged onto the middle of the pyre: " .. tostring(placeReason))
+    check(placeReason == "production_placing" and ctx.actor.square == sq(22, 1),
+        "the body is dragged across the middle of the pyre; the hauler stops one tile past it: "
+            .. tostring(placeReason))
+    -- The body trails behind the hauler and comes to rest on the middle.
+    SC_TEST_DROP_SQUARE = sq(21, 1)
     current(ctx.actor):perform()
+    SC_TEST_DROP_SQUARE = nil
     local _, burnReason = tick(ctx)
     local burn = current(ctx.actor)
     check(burnReason == "production_burning" and burn ~= nil and burn.Type == "ISBurnCorpseAction",
@@ -2535,6 +2579,143 @@ do
     check(counters.bodiesBurned == 1 and counters.bodiesCollected == 1, "burn counters are exact")
     local done = tickUntil(ctx, function(value) return value == "production_order_completed" end, 4)
     check(done, "the collection completes after the pyre ceremony")
+end
+
+-- A one-tile pyre: the hauler stops one tile past it, so the body it drags a
+-- third of a tile behind it comes to rest on the pyre, not short of it.
+do
+    local ctx = setup()
+    pyreArea()
+    check(SC.BaseLife.beginZone("pyre", sq(20, 0)) == true, "a one-tile pyre begins")
+    local made, pyre = SC.BaseLife.finishZone(sq(20, 0), "Pyre")
+    check(made == true, "a one-tile pyre is accepted: " .. tostring(pyre))
+    ctx.actor.inventory:AddItem(makeLighter())
+    ctx.actor.inventory:AddItem(makePetrol(1))
+    makeBody(sq(4, 0))
+    start(ctx, {
+        operation = "collect_bodies", zoneId = pyre.id, requested = 1,
+        settings = { fromLumber = false },
+    })
+    local grabbing = tickUntil(ctx, function(value) return value == "production_grabbing" end, 8)
+    check(grabbing, "the one-tile pyre test takes hold of a body")
+    current(ctx.actor):perform()
+    local placing = tickUntil(ctx, function(value) return value == "production_placing" end, 6)
+    check(placing and ctx.actor.square == sq(21, 0),
+        "the hauler stops one tile past a one-tile pyre: " .. tostring(ctx.actor.square
+            and ctx.actor.square.x) .. "," .. tostring(ctx.actor.square and ctx.actor.square.y))
+    SC_TEST_DROP_SQUARE = sq(20, 0)
+    current(ctx.actor):perform()
+    SC_TEST_DROP_SQUARE = nil
+    local burning = tickUntil(ctx, function(value) return value == "production_burning" end, 4)
+    check(burning and sq(20, 0).staticMoving[1] ~= nil,
+        "the body lying on the one-tile pyre is lit")
+end
+
+-- A body coming at a one-tile pyre on a diagonal is dragged on that
+-- diagonal, so it crosses the pyre tile instead of passing beside it.
+do
+    local ctx = setup()
+    pyreArea()
+    check(SC.BaseLife.beginZone("pyre", sq(20, 0)) == true, "a one-tile pyre begins")
+    local made, pyre = SC.BaseLife.finishZone(sq(20, 0), "Pyre")
+    check(made == true, "a one-tile pyre is accepted: " .. tostring(pyre))
+    ctx.actor.inventory:AddItem(makeLighter())
+    ctx.actor.inventory:AddItem(makePetrol(1))
+    makeBody(sq(8, -8))
+    start(ctx, {
+        operation = "collect_bodies", zoneId = pyre.id, requested = 1,
+        settings = { fromLumber = false },
+    })
+    local grabbing, grabReason = tickUntil(ctx, function(value)
+        return value == "production_grabbing" end, 16)
+    check(grabbing, "the diagonal pyre test takes hold of a body: " .. tostring(grabReason))
+    current(ctx.actor):perform()
+    local placing = tickUntil(ctx, function(value) return value == "production_placing" end, 6)
+    check(placing and ctx.actor.square == sq(21, 1),
+        "a diagonal approach heads for the diagonal tile past the pyre: "
+            .. tostring(ctx.actor.square and ctx.actor.square.x) .. ","
+            .. tostring(ctx.actor.square and ctx.actor.square.y))
+end
+
+-- The drag goes onto the pyre tile first. With the body still short of it,
+-- the hauler carries on to the tile past it in the way it is walking, read
+-- off its facing, whatever line it took hold along.
+do
+    local ctx = setup()
+    pyreArea()
+    check(SC.BaseLife.beginZone("pyre", sq(20, 0)) == true, "a one-tile pyre begins")
+    local made, pyre = SC.BaseLife.finishZone(sq(20, 0), "Pyre")
+    check(made == true, "a one-tile pyre is accepted: " .. tostring(pyre))
+    ctx.actor.inventory:AddItem(makeLighter())
+    ctx.actor.inventory:AddItem(makePetrol(1))
+    makeBody(sq(8, -8))
+    start(ctx, {
+        operation = "collect_bodies", zoneId = pyre.id, requested = 1,
+        settings = { fromLumber = false },
+    })
+    local grabbing = tickUntil(ctx, function(value) return value == "production_grabbing" end, 16)
+    check(grabbing, "the walking-direction test takes hold of a body")
+    current(ctx.actor):perform()
+    -- Walking south onto the pyre, facing back north at the body.
+    function ctx.actor:getForwardDirection()
+        return { getX = function() return 0 end, getY = function() return -1 end }
+    end
+    local targets = {}
+    local originalRequestAny = SC.Navigation.requestAny
+    SC.Navigation.requestAny = function(actor, candidates, mode, intent)
+        if intent.action == "drag_body_to_pyre" then
+            local target = candidates[1]
+            targets[#targets + 1] = tostring(target.x) .. "," .. tostring(target.y)
+            local y = target == sq(20, 0) and 0.1 or 0.6
+            actor.x, actor.y, actor.square = 20.5, y, sq(20, 0)
+            return true, "fixture_path_started"
+        end
+        return originalRequestAny(actor, candidates, mode, intent)
+    end
+    local placing = tickUntil(ctx, function(value) return value == "production_placing" end, 8)
+    SC.Navigation.requestAny = originalRequestAny
+    check(placing and table.concat(targets, ";") == "20,0;20,1",
+        "the hauler carries on past the pyre the way it walks: " .. table.concat(targets, ";"))
+end
+
+-- The body is laid down the moment it is over the pyre tile, before the
+-- hauler reaches the tile beyond, however deep it has stepped in.
+do
+    local ctx = setup()
+    pyreArea()
+    check(SC.BaseLife.beginZone("pyre", sq(20, 0)) == true, "a one-tile pyre begins")
+    local made, pyre = SC.BaseLife.finishZone(sq(20, 0), "Pyre")
+    check(made == true, "a one-tile pyre is accepted: " .. tostring(pyre))
+    ctx.actor.inventory:AddItem(makeLighter())
+    ctx.actor.inventory:AddItem(makePetrol(1))
+    makeBody(sq(4, 0))
+    start(ctx, {
+        operation = "collect_bodies", zoneId = pyre.id, requested = 1,
+        settings = { fromLumber = false },
+    })
+    local grabbing = tickUntil(ctx, function(value) return value == "production_grabbing" end, 8)
+    check(grabbing, "the body-over-pyre test takes hold of a body")
+    current(ctx.actor):perform()
+    -- Facing back west at the body, the hauler steps east 0.4 at a time.
+    function ctx.actor:getForwardDirection()
+        return { getX = function() return -1 end, getY = function() return 0 end }
+    end
+    local originalRequestAny = SC.Navigation.requestAny
+    SC.Navigation.requestAny = function(actor, candidates, mode, intent)
+        if intent.action == "drag_body_to_pyre" then
+            local x = actor.x < 19 and 19.6 or actor.x + 0.4
+            actor.x, actor.y, actor.square = x, 0.5, sq(math.floor(x), 0)
+            return true, "fixture_path_started"
+        end
+        return originalRequestAny(actor, candidates, mode, intent)
+    end
+    local placing = tickUntil(ctx, function(value) return value == "production_placing" end, 8)
+    SC.Navigation.requestAny = originalRequestAny
+    -- At 20.4 the body point is only 0.07 inside the pyre tile; at 20.8 it
+    -- is well in.
+    check(placing and math.abs(ctx.actor.x - 20.8) < 0.001,
+        "the body is laid down as soon as it is over the pyre: hauler at "
+            .. tostring(ctx.actor.x))
 end
 
 do
@@ -2676,6 +2857,30 @@ do
     check(blocked and reason == "no_bodies_in_collection_areas" and onSquare(sq(4, -4), player)
         and player.modData.LF_CorpseHaul == nil,
         "an unmatched player body is never touched: " .. tostring(reason))
+end
+
+-- A camp area on an upper floor covers ground where the game keeps no
+-- upstairs tile. Over loaded ground those are no tiles, so the pass ends.
+do
+    local ctx = setup()
+    for x = 0, 1 do
+        for y = 0, 1 do makeSquare(x, y, 1).room = true end
+    end
+    check(SC.BaseLife.beginZone("area", { x = -3, y = -3, z = 1 })
+            and SC.BaseLife.finishZone({ x = 4, y = 4, z = 1 }, "Upstairs"),
+        "an upper camp area can cover more than the house")
+    local order = start(ctx, {
+        operation = "collect_bodies", zoneId = ctx.burial.id, requested = 1,
+        settings = { fromLumber = false },
+    })
+    local seen = {}
+    local blocked, reason = tickUntil(ctx, function(value)
+        seen[#seen + 1] = tostring(value)
+        return SC.BaseLife.productionOrder(order.id).state == "blocked"
+    end, 40)
+    check(blocked and reason == "no_bodies_in_collection_areas",
+        "a camp with an upper floor still finishes its search for bodies: " .. tostring(reason)
+            .. " / " .. tostring(seen[#seen]))
 end
 
 do
@@ -3059,7 +3264,8 @@ end
 -- window on the landing's north edge looks out over (6,5). options.tile is
 -- what the game has there: "void" (no tile at all, the usual open air
 -- outside an upper floor), "air" (a tile with no floor) or "roof" (a porch
--- roof). With options.between a roof also stands one floor below the window.
+-- roof). With options.between a roof also stands one floor below the window;
+-- with options.frame the open-air window sits in a window frame.
 -- The camp has upper floors; options.ground adjusts the tile on the grave
 -- floor below the window, and options.outsideWork keeps it out of the work
 -- area. Drags towards the grave or an outdoor drop made upstairs are
@@ -3073,11 +3279,21 @@ local function upstairsFixture(ctx, label, options)
     local ground = sq(6, 5)
     function ground:TreatAsSolidFloor() return true end
     if options.ground then options.ground(ground) end
-    local window = { climbable = options.climbable ~= false, outsideSquare = ground }
+    local window = { __class = "IsoWindow", climbable = options.climbable ~= false,
+        outsideSquare = ground }
     function window:canClimbThrough() return self.climbable == true end
+    function window:getNorth() return true end
     local tile
     if (options.tile or "void") == "void" then
-        function landing:getWindow(north) return north and window or nil end
+        -- The window stands on the landing's own north edge, in a frame
+        -- that reports itself climbable whatever its glass does.
+        if options.frame then
+            local frame = { __class = "IsoWindowFrame" }
+            function frame:canClimbThrough() return true end
+            function frame:getNorth() return true end
+            landing.objects[#landing.objects + 1] = frame
+        end
+        landing.objects[#landing.objects + 1] = window
     else
         tile = makeSquare(6, 5, level)
         if options.tile == "roof" then
@@ -3175,6 +3391,112 @@ do
             .. " " .. tostring(landed))
 end
 
+-- The throw animation can hold on to the body for several seconds after the
+-- action ends; the fall is timed from the moment it lets go.
+do
+    local ctx = setup()
+    local _, _, ground, restore = upstairsFixture(ctx, "the late-release test")
+    local throwing = tickUntil(ctx, function(value) return value == "production_throwing_body" end, 8)
+    check(throwing, "the late-release test starts a throw")
+    local body = ctx.actor.draggedBody
+    SC_TEST_THROW_FAILS = true
+    current(ctx.actor):perform()
+    SC_TEST_THROW_FAILS = false
+    local _, finished = tick(ctx)
+    local _, held = tick(ctx, nil, nil, 7000)
+    ctx.actor.draggedBody = nil
+    -- Ten seconds after the action ended, three after the release.
+    local _, released = tick(ctx)
+    local _, falling = tick(ctx, nil, nil, 6000)
+    ctx.actor.draggedBody = body
+    SC_TEST_LAND_DRAGGED(ctx.actor, ground)
+    local _, landed = tick(ctx)
+    restore()
+    check(finished == "production_throw_verifying" and held == "production_throw_verifying"
+            and released == "production_throw_verifying"
+            and falling == "production_throw_verifying" and landed == "production_body_thrown_out",
+        "a body let go late is timed from its release: " .. tostring(finished) .. " "
+            .. tostring(held) .. " " .. tostring(released) .. " " .. tostring(falling) .. " "
+            .. tostring(landed))
+end
+
+-- A throw the game never carries out leaves the body standing by the window
+-- as the zombie it is while dragged. It is settled back into a body where it
+-- stands, taken hold of again and thrown once more.
+do
+    local ctx = setup()
+    local throwsBefore = #SC_PRODUCTION_CALLS.throw
+    local _, landing, _, restore = upstairsFixture(ctx, "the stuck throw body test")
+    -- Room around the landing to take hold of the body again.
+    for _, at in ipairs({ { 5, 6 }, { 7, 6 }, { 6, 7 } }) do
+        makeSquare(at[1], at[2], 1).room = true
+    end
+    local throwing = tickUntil(ctx, function(value) return value == "production_throwing_body" end, 8)
+    check(throwing, "the stuck throw body test starts a throw")
+    local body = ctx.actor.draggedBody
+    SC_TEST_THROW_FAILS = true
+    current(ctx.actor):perform()
+    SC_TEST_THROW_FAILS = false
+    ctx.actor.draggedBody = nil
+    local zombies = {}
+    local stuck = { __class = "IsoZombie", x = 6.5, y = 6.9, z = 1,
+        modData = { LF_CorpseHaul = body.modData.LF_CorpseHaul } }
+    function stuck:getX() return self.x end
+    function stuck:getY() return self.y end
+    function stuck:getZ() return self.z end
+    function stuck:getModData() return self.modData end
+    function stuck:isReanimatedForGrappleOnly() return true end
+    function stuck:isBeingGrappled() return false end
+    function stuck:die()
+        ctx.actor.draggedBody = body
+        SC_TEST_LAND_DRAGGED(ctx.actor, landing)
+        zombies[1] = nil
+    end
+    -- The body stands on the landing as the zombie it is while dragged.
+    zombies[1] = stuck
+    function landing:getMovingObjects() return zombies end
+    local _, first = tick(ctx)
+    local _, settled = tick(ctx, nil, nil, 11000)
+    local _, missed = tick(ctx)
+    local seen = {}
+    local regrab = tickUntil(ctx, function(value)
+        seen[#seen + 1] = tostring(value)
+        return value == "production_grabbing"
+    end, 8)
+    if regrab then current(ctx.actor):perform() end
+    local again = tickUntil(ctx, function(value)
+        seen[#seen + 1] = tostring(value)
+        return value == "production_throwing_body"
+    end, 16)
+    check(first == "production_throw_verifying" and settled == "production_throw_verifying"
+            and missed == "production_throw_missed" and again
+            and #SC_PRODUCTION_CALLS.throw == throwsBefore + 2,
+        "a body the throw left standing is settled and thrown once more: " .. tostring(first)
+            .. " " .. tostring(settled) .. " " .. tostring(missed) .. " then " .. table.concat(seen, ","))
+    -- A second throw that misses as well is the last: the body goes down.
+    local missedAgain, givenUp
+    if again then
+        body = ctx.actor.draggedBody
+        SC_TEST_THROW_FAILS = true
+        current(ctx.actor):perform()
+        SC_TEST_THROW_FAILS = false
+        ctx.actor.draggedBody = nil
+        stuck.modData.LF_CorpseHaul = body.modData.LF_CorpseHaul
+        zombies[1] = stuck
+        tick(ctx)
+        tick(ctx, nil, nil, 11000)
+        _, missedAgain = tick(ctx)
+        local regrabbed = tickUntil(ctx, function(value) return value == "production_grabbing" end, 8)
+        if regrabbed then current(ctx.actor):perform() end
+        givenUp = tickUntil(ctx, function(value) return value == "no_safe_window_upstairs" end, 12)
+    end
+    landing.getMovingObjects = nil
+    restore()
+    check(missedAgain == "production_throw_missed" and givenUp
+            and #SC_PRODUCTION_CALLS.throw == throwsBefore + 2,
+        "a second missed throw is the last: " .. tostring(missedAgain) .. " " .. tostring(givenUp))
+end
+
 -- A window whose body would not land on open, free ground on the grave
 -- floor inside the work area is never used. Upstairs the only outdoor
 -- ground is a roof or a balcony, so the body goes down where the hauler
@@ -3191,6 +3513,7 @@ for _, case in ipairs({
     end },
     { name = "ground outside the work area", outsideWork = true },
     { name = "a shut window", climbable = false },
+    { name = "a shut window in its frame", climbable = false, frame = true },
 }) do
     local ctx = setup()
     local throwsBefore = #SC_PRODUCTION_CALLS.throw
@@ -3301,6 +3624,79 @@ for _, case in ipairs({
             and SC.BaseLife.productionOrder(order.id).state == "blocked",
         "a window the body cannot be brought to is given up at the door: " .. case.reason
             .. " / " .. table.concat(seen, ","))
+end
+
+-- Arriving on the tile beside a body is not reaching it. The hauler steps in
+-- until the body is within reach before taking hold, and takes hold from
+-- where it stands when it cannot get closer within a few seconds.
+for _, steps in ipairs({ true, false }) do
+    local ctx = setup()
+    createGrave(-2, -3, 0, false)
+    local body = makeBody(sq(4, -4))
+    local taken = {}
+    local originalSetMovement = SC.Actor.setMovement
+    SC.Actor.setMovement = function(actor, mode, intent)
+        if type(intent) == "table" and intent.movementTarget == true
+            and intent.action == "move_to_production_body" then
+            taken[#taken + 1] = intent.targetPosition
+            if steps then actor.x, actor.y = intent.targetPosition.x, intent.targetPosition.y end
+            return true, "moving"
+        end
+        return originalSetMovement(actor, mode, intent)
+    end
+    start(ctx, {
+        operation = "collect_bodies", zoneId = ctx.burial.id, requested = 1,
+        settings = { fromLumber = false },
+    })
+    local seen = {}
+    local grabbing = tickUntil(ctx, function(value)
+        seen[#seen + 1] = tostring(value)
+        return value == "production_grabbing"
+    end, 12)
+    SC.Actor.setMovement = originalSetMovement
+    local distance = math.sqrt((ctx.actor.x - body.x) ^ 2 + (ctx.actor.y - body.y) ^ 2)
+    check(grabbing and #taken >= 1
+            and (steps and #taken == 1 and distance <= 0.85 or (not steps and #taken >= 2)),
+        "a hauler steps up to the body before taking hold (" .. tostring(steps) .. "): distance "
+            .. string.format("%.2f", distance) .. " steps " .. tostring(#taken) .. " "
+            .. table.concat(seen, ","))
+end
+
+-- A step towards the body can carry the hauler off the tile it arrived on,
+-- onto the body's own. The approach must not walk it back while it steps.
+do
+    local ctx = setup()
+    createGrave(-2, -3, 0, false)
+    -- The body lies at the far east side of its tile; the hauler arrives on
+    -- the tile west of it, two tiles from the body.
+    local body = makeBody(sq(4, -4))
+    body.x, body.y = 4.95, -3.5
+    local originalSetMovement = SC.Actor.setMovement
+    SC.Actor.setMovement = function(actor, mode, intent)
+        if type(intent) == "table" and intent.movementTarget == true
+            and intent.action == "move_to_production_body" then
+            -- Most of the way there: onto the body's tile, not yet in reach.
+            actor.x = actor.x + (intent.targetPosition.x - actor.x) * 0.8
+            actor.y = actor.y + (intent.targetPosition.y - actor.y) * 0.8
+            actor.square = sq(math.floor(actor.x), math.floor(actor.y))
+            return true, "moving"
+        end
+        return originalSetMovement(actor, mode, intent)
+    end
+    start(ctx, {
+        operation = "collect_bodies", zoneId = ctx.burial.id, requested = 1,
+        settings = { fromLumber = false },
+    })
+    local seen = {}
+    local grabbing = tickUntil(ctx, function(value)
+        seen[#seen + 1] = tostring(value)
+        return value == "production_grabbing"
+    end, 12)
+    SC.Actor.setMovement = originalSetMovement
+    local distance = math.sqrt((ctx.actor.x - body.x) ^ 2 + (ctx.actor.y - body.y) ^ 2)
+    check(grabbing and distance <= 0.85,
+        "a hauler stepping onto the body's tile keeps stepping, not walked back: "
+            .. string.format("%.2f", distance) .. " " .. table.concat(seen, ","))
 end
 
 -- When the side the route leaves by cannot be reached on foot, the hauler

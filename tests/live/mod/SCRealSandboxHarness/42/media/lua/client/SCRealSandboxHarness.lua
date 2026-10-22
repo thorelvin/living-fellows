@@ -15506,6 +15506,10 @@ Harness.probePyreBurn = function(...)
     return externalProbe("SCPyreBurnProbe", ...)
 end
 
+Harness.probeUpstairsHaul = function(...)
+    return externalProbe("SCUpstairsHaulProbe", ...)
+end
+
 Harness.probeMedicalCheck = function(...)
     return externalProbe("SCMedicalCheckProbe", ...)
 end
@@ -16020,6 +16024,8 @@ local function tick()
         Harness.probeGeneratorRefuel(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "pyre_burn_", 1, true) == 1 then
         Harness.probePyreBurn(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "upstairs_haul_", 1, true) == 1 then
+        Harness.probeUpstairsHaul(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "hygiene_", 1, true) == 1 then
         Harness.probeHygiene(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "base_second_floor_", 1, true) == 1 then
@@ -16891,6 +16897,8 @@ local function onGameStart()
         setPhase("generator_refuel_setup", Harness.startedAt)
     elseif Harness.config.pyre_burn_probe == "true" then
         setPhase("pyre_burn_setup", Harness.startedAt)
+    elseif Harness.config.upstairs_haul_probe == "true" then
+        setPhase("upstairs_haul_setup", Harness.startedAt)
     elseif Harness.config.hygiene_probe == "true" then
         setPhase("hygiene_setup", Harness.startedAt)
     elseif Harness.config.base_second_floor_probe == "true" then

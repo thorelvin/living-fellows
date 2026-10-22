@@ -4761,6 +4761,19 @@ check(crossingHeld and crossingReason == "native_path_owned"
         and upperState.nativeLease and upperState.nativeLease.ultimateGoal == upperGoal
         and stairStopCalls == 0,
     "a new work target cannot cancel an engine stair crossing at fractional height")
+-- A work order offering several standing tiles may change that set while the
+-- engine carries the body down (a grab-side survey finishing mid-stairs).
+local standingTiles = { cell:getGridSquare(7, 6, 0), cell:getGridSquare(6, 5, 0) }
+local firstSet = SurvivorCompanion.Navigation.requestAny(
+    upperFloorActor, standingTiles, "walk", { action = "move_to_production_body" })
+local setHeld, setReason = SurvivorCompanion.Navigation.requestAny(
+    upperFloorActor, { standingTiles[1] }, "walk", { action = "move_to_production_body" })
+check(firstSet and setHeld and upperState.nativeLease
+        and upperState.nativeLease.ultimateGoal == upperGoal and stairStopCalls == 0,
+    "a changed set of work tiles cannot cancel an engine stair crossing at fractional height: "
+        .. tostring(setReason) .. " stops=" .. tostring(stairStopCalls))
+upperState.multiGoalOwnerKey, upperState.multiGoalKey = nil, nil
+upperState.multiGoalSelected, upperState.multiGoalFailures = nil, nil
 upperState.nativeLease = nil
 local recovered, recoveryReason = SurvivorCompanion.Navigation.request(
     upperFloorActor, changedTarget, "walk", { action = "move_to_scavenge" })
@@ -4799,6 +4812,44 @@ check(upperState.nativeLease == nil and stairStopCalls == 1,
 upperFloorActor.getZ = nil
 upperFloorActor.worldZ = nil
 SurvivorCompanion.NativeActions = previousStairNativeActions
+
+-- On a floor, a changed set of work tiles that still offers the tile the
+-- engine route is heading for keeps that route; one without it replans.
+local offerActor = actor("sc-offer-floor", 7, 5, {})
+registry[offerActor.id] = offerActor
+SurvivorCompanion.Navigation.request(offerActor, upperGoal, "jog", {
+    action = "follow_formation", movingTarget = true,
+    snapshot = { threats = {}, allies = {}, player = { available = false } },
+})
+local offerState = SurvivorCompanion.Navigation.peek(offerActor)
+local offerStops = 0
+SurvivorCompanion.NativeActions = {
+    pathTelemetry = function()
+        return { available = true, active = true, shouldBeMoving = true,
+            movingUsingPathFind = true, hasStartedMoving = true }
+    end,
+    stopDirect = function() offerStops = offerStops + 1 return true end,
+}
+local otherTile = cell:getGridSquare(7, 6, 0)
+local onlyGoal = SurvivorCompanion.Navigation.requestAny(
+    offerActor, { upperGoal }, "walk", { action = "move_to_production_body" })
+offerStops = 0
+local widened, widenedReason = SurvivorCompanion.Navigation.requestAny(
+    offerActor, { upperGoal, otherTile }, "walk", { action = "move_to_production_body" })
+check(onlyGoal and widened and offerState.nativeLease
+        and offerState.nativeLease.ultimateGoal == upperGoal and offerStops == 0,
+    "stops=" .. tostring(offerStops) .. " lease=" .. tostring(offerState.nativeLease ~= nil)
+        .. " goal=" .. tostring(offerState.nativeLease and offerState.nativeLease.ultimateGoal == upperGoal)
+        .. " " .. tostring(onlyGoal) .. "/" .. tostring(widened) .. " " .. tostring(widenedReason)
+        .. ": a changed set of work tiles still offering the route's tile keeps it")
+SurvivorCompanion.Navigation.requestAny(
+    offerActor, { otherTile }, "walk", { action = "move_to_production_body" })
+check(offerStops >= 1 and (offerState.nativeLease == nil
+        or offerState.nativeLease.ultimateGoal ~= upperGoal),
+    "a set of work tiles without the route's tile replans")
+SurvivorCompanion.NativeActions = previousStairNativeActions
+SurvivorCompanion.Navigation.reset(offerActor)
+registry[offerActor.id] = nil
 
 local basementGoal = cell:getGridSquare(11, 6, -1)
 local basementActor = actor("sc-basement", 7, 6, {})
