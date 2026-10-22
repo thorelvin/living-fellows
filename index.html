@@ -311,13 +311,15 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <p class="subtitle">A Complete Guide to Living with the Fellows of Knox County</p>
   <p class="divider">· · · ✚ · · ·</p>
   <p class="edition">Living Fellows — Project Zomboid Build 42.21.0 Edition</p>
-  <p class="version">Release 0.26.56 — First Edition, Fifteenth Printing — You won't die... alone.</p>
+  <p class="version">Release 0.26.57 — First Edition, Sixteenth Printing — You won't die... alone.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2.5rem;"><span class="callout-label">Note — </span>
-<strong>What changed in this printing</strong> — through release 0.26.56:
+<strong>What changed in this printing</strong> — through release 0.26.57:
 <ul style="margin-top:0.5rem;margin-bottom:0;">
   <li><a href="#ch16_haul"><strong>Bodies come out of houses.</strong></a> A gravekeeper takes hold of a body from the side its route leaves by and drags it through as many doors as the house has. One that gets stuck indoors puts the body out of a nearby open or broken window, goes out to it and carries on.</li>
+  <li><strong>Bodies land on the pyre.</strong> A gravekeeper drags each body across the pyre and lays it down as soon as it is over the pyre, even a one-tile one.</li>
+  <li><a href="#ch16_haul"><strong>Bodies come down from upstairs.</strong></a> A drag can't take the stairs, so upstairs a gravekeeper puts the body out of an open window over open ground on the grave or pyre floor, then goes down and picks it up. A window over a porch roof or a balcony is never used.</li>
   <li><a href="#ch14"><strong>Nothing else with a body in tow.</strong></a> A companion dragging a body puts it down before it eats, scavenges, rests or takes up other work. A body that can't be got out of a room is left alone for ten minutes instead of being dragged round and round.</li>
   <li><a href="#ch17"><strong>Home to the driveway.</strong></a> A car coming home turns off the road into its planned driveway and parks in the marked area, even when it arrives facing along the street.</li>
 </ul>
@@ -325,7 +327,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2.5rem;"><span class="callout-label">Note — </span>
-<strong>About this manual</strong> — it covers what the companion panel does not explain: how the fellows think, what they need from you, and the rules they follow when nobody is giving orders. Everything here describes release 0.26.56 and was checked against the mod itself. Living Fellows is a <strong>public playtest</strong>: back up important saves, and send logs when something goes wrong (<a href="#appD">Appendix D</a>). The mod lives at <a href="https://github.com/thorelvin/living-fellows">github.com/thorelvin/living-fellows</a>. The <em>Overheard</em> quotes are real lines from the mod's own voice pools.
+<strong>About this manual</strong> — it covers what the companion panel does not explain: how the fellows think, what they need from you, and the rules they follow when nobody is giving orders. Everything here describes release 0.26.57 and was checked against the mod itself. Living Fellows is a <strong>public playtest</strong>: back up important saves, and send logs when something goes wrong (<a href="#appD">Appendix D</a>). The mod lives at <a href="https://github.com/thorelvin/living-fellows">github.com/thorelvin/living-fellows</a>. The <em>Overheard</em> quotes are real lines from the mod's own voice pools.
 </div>
 
 <!-- TABLE OF CONTENTS -->
@@ -1592,7 +1594,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <div class="callout callout-tip"><span class="callout-label">Note — </span>Remove a generated floor area and the stair survey won't recreate it; that floor stays off until you draw an area there yourself. Over a part of the camp in the same building, you can also draw your own area on a floor with no verified staircase.</div>
 
-<div class="callout callout-warn"><span class="callout-label">Take care — </span>A resident dragging a body takes no stairs or fences, and goes through a window only by putting the body out of it first (<a href="#ch16_haul">Ch 16</a>). Put the burial ground or pyre on the same level as the dead, or carry those bodies yourself.</div>
+<div class="callout callout-warn"><span class="callout-label">Take care — </span>A resident dragging a body takes no stairs or fences, and goes through a window only by putting the body out of it first (<a href="#ch16_haul">Ch 16</a>). Upstairs that is the only way down, so keep a window open over open ground, or carry those bodies yourself.</div>
 
 <!-- CH 13 -->
 <h2 class="chapter" id="ch13"><img class="ico" src="https://pzwiki.net/w/images/0/0d/Plank.png" alt="">Chapter 13: Building from Blueprints<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
@@ -1875,7 +1877,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li>A drag gives up only when the gravekeeper has reached no new ground for about twenty seconds, or after five minutes in all. Time spent working out the route doesn't count.</li>
   <li>If a drag stalls or its route is blocked while the gravekeeper is still indoors, it looks for an open or broken window nearby. It puts the body out with the game's own throw, goes out to it, takes hold again and carries on. That happens at most once per trip.</li>
   <li>A shut or barricaded window is never used, and a body is never put out onto ground the order doesn't work, such as beyond the camp border when the order keeps inside it.</li>
-  <li>With no way out, the gravekeeper puts the body down, outdoors if it can manage that within half a minute, and the order waits for its usual retry. That body is left alone for ten minutes.</li>
+  <li>Upstairs a drag can't take the stairs, so the gravekeeper looks for a window straight away. The window must open over a clear drop to open ground on the grave or pyre floor. The body falls there, and the gravekeeper goes down the stairs and takes hold of it again.</li>
+  <li>An upper window over a porch roof or a balcony, or over a roof further down, is never used: the body would land where no drag can reach it. Nor is one whose body would land indoors, on blocked ground or outside the order's work area. With no such window the body goes down where the gravekeeper stands.</li>
+  <li>With no way out, the gravekeeper puts the body down, outdoors if it can manage that within half a minute on the ground floor, and the order waits for its usual retry. That body is left alone for ten minutes.</li>
 </ul>
 <div class="callout callout-tip"><span class="callout-label">Note — </span>A room where the dead pile up empties faster with its doorways clear and a window open.</div>
 
@@ -1887,6 +1891,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <h3>The Pyre</h3>
 <p>A <img class="ico-sm" src="https://pzwiki.net/w/images/0/01/Campfire.png" alt="">pyre needs petrol and a firestarter: anything the game counts as one, such as a lighter or matches, even in a bag. Fire is real. Lighting one may earn a "Burn, baby, burn!" or "Disco inferno!", and a burned-out pyre gets its own prayer or gallows line.</p>
+<p>The gravekeeper drags each body onto the pyre and, while the body trailing behind it is still short, on towards the tile past it. It lays the body down as soon as the body is well inside the pyre. Keep a free tile of open ground around a small pyre for it to step onto.</p>
 
 <div class="callout callout-warn"><span class="callout-label">Take care — </span>A pyre must be outdoors on open ground, away from buildings, stored goods, trees, vehicles and loose items. Nothing is lit in the rain unless you allow it, and nobody else may stand close to the body being lit. If fire appears beyond the pyre, every worker stops and the order waits for your <strong>Retry</strong>.</div>
 
@@ -2181,7 +2186,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 18c -->
 <h2 class="chapter" id="ch18c"><img class="ico" src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Chapter 18c: Strange Folk<span class="stage stage-end">Strangers</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<div class="callout callout-tip"><span class="callout-label">Note — </span>Strange Folk arrived in 0.26.35. Release 0.26.56 uses native bridge protocol <code>42.21-isocompanion-24</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Strange Folk arrived in 0.26.35. Release 0.26.57 uses native bridge protocol <code>42.21-isocompanion-24</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
 
 <p>Not every stranger is a household looking for supplies. Sixty-five hand-made characters live in Knox County: a butcher with a back room, a deputy still running her checkpoint, a grandmother guarding a child's bedroom with a broken bottle, a man who smeared himself in the dead so they'd leave him alone. Each one is a one-off with their own rules, voice and ending. They use the same standing, trade, combat, navigation and recruitment rules as other survivors, and their animals are real Build 42 animals with names that survive saves.</p>
 
@@ -2377,7 +2382,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>Wait a moment for automatic recovery, then use <strong>Regroup</strong>. If it stays stuck, note what is in the way (door, gate, fence, vehicle, stairs or furniture) and the current order and movement setting, and send the Support report, logs, and a screenshot or short video.</p>
 
 <h3>A gravekeeper leaves a body indoors</h3>
-<p>The drag found no way out the gravekeeper could finish: no door route it could make progress on, and no open or broken window nearby onto ground the order works. Open or break a window in that room, clear the doorways, or carry the body out yourself. The gravekeeper leaves that body alone for ten minutes, then tries again. The game log records why the order was blocked; include it if you report the problem (<a href="#appD">Appendix D</a>).</p>
+<p>The drag found no way out the gravekeeper could finish: no door route it could make progress on, and no open or broken window nearby onto ground the order works. Open or break a window in that room, clear the doorways, or carry the body out yourself. Upstairs, open a window over open ground rather than over a porch roof, or carry the body down yourself. The gravekeeper leaves that body alone for ten minutes, then tries again. The game log records why the order was blocked; include it if you report the problem (<a href="#appD">Appendix D</a>).</p>
 
 <h3>A companion is missing after a long trip</h3>
 <p>Companions left behind come back where they were as soon as their ground loads again, so head toward where you left them. One left in a parked car waits beside it. If someone is still missing, open <span class="menu">More → Support</span> and send its report; reloading the save brings them back.</p>
@@ -2406,7 +2411,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p><span class="menu">More → Support</span> is the first place to look when something is wrong, and the report it copies is the most useful thing to attach to a bug report.</p>
 <table>
   <tr><th>Line</th><th>What a healthy game shows</th></tr>
-  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.56</td></tr>
+  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.57</td></tr>
   <tr><td>Game build / supported build</td><td>42.21.0 on both sides</td></tr>
   <tr><td>Runtime active</td><td>Yes. If not, <strong>Runtime disabled reason</strong> says why.</td></tr>
   <tr><td>Native bridge status, actor provider, bridge protocol</td><td>The bridge is ready, and its protocol matches the expected one. A mismatch means an old or mixed install.</td></tr>
@@ -2628,7 +2633,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CARD END -->
 
 <div class="page-footer">
-  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.56 &nbsp;·&nbsp; First Edition, Fifteenth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
+  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.57 &nbsp;·&nbsp; First Edition, Sixteenth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
 </div>
 <script>
 (function () {
