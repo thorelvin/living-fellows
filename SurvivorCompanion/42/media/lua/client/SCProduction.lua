@@ -4162,9 +4162,10 @@ function Disposal.noteDragProgress(actor, haul)
 end
 
 -- The nearest open or broken window within a few tiles of an indoor hauler
--- that leads out of the house onto ground the haul may use. Windows in the
+-- that leads out of the house onto ground the haul may use: the camp area,
+-- or the reach band too when the order may work there. Windows in the
 -- hauler's own room are preferred. Bounded by the scan radius.
-function Disposal.findWindow(actor, haul)
+function Disposal.findWindow(actor, haul, reach)
     local utility = U()
     local origin = utility.squareOf(actor)
     local here = origin and select(1, invoke(origin, "getRoom")) or nil
@@ -4190,7 +4191,7 @@ function Disposal.findWindow(actor, haul)
                     elseif roomB ~= nil and roomA == nil then inside, outside, insideRoom = b, a, roomB end
                     if inside and select(1, invoke(edge.object, "canClimbThrough", actor)) == true
                         and utility.isSquareFree(inside) and utility.isSquareFree(outside)
-                        and SC.BaseLife.admitsWork(outside, { workReach = true }) == true then
+                        and SC.BaseLife.admitsWork(outside, { workReach = reach == true }) == true then
                         local distance = utility.distance(actor, inside) or math.huge
                         local score = distance + (insideRoom == here and 0 or 4)
                         if bestScore == nil or score < bestScore then
@@ -4218,9 +4219,10 @@ function Disposal.tryWindow(actor, order, state, context, zone, haul, reason)
         return nil
     end
     haul.windowSearched = true
-    local window = Disposal.findWindow(actor, haul)
+    local reach = Disposal.reach(order, zone) or SC.BaseLife.isInside(actor) ~= true
+    local window = Disposal.findWindow(actor, haul, reach)
     if not window then return nil end
-    window.since, window.reason = now(), reason
+    window.since, window.reason, window.reach = now(), reason, reach
     haul.window = window
     haul.routeBlockedSince, haul.routeBlockReason, haul.outdoorDropSince = nil, nil, nil
     haul.dragProgressAt = now()
@@ -4246,7 +4248,7 @@ function Disposal.continueToWindow(actor, order, state, context, zone, haul)
         end
         local accepted, reason = SC.Navigation.requestAny(actor, { inside }, "walk", {
             action = "drag_body_to_window", targetSquare = inside, arrivalDistance = 0.4,
-            requireSameSquare = true, workCampOnly = true, workReach = true,
+            requireSameSquare = true, workCampOnly = true, workReach = window.reach == true,
             draggingBody = true,
         })
         if accepted ~= true then

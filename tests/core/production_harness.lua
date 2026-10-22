@@ -3017,6 +3017,24 @@ do
         "a shut or barricaded window is never used; the body goes down indoors")
 end
 
+-- A camp-only order never puts a body out past the camp border, where it
+-- would have to be dragged on ground the order does not work.
+do
+    local ctx = setup()
+    local throwsBefore = #SC_PRODUCTION_CALLS.throw
+    local _, room, outside, restore = windowDragFixture(ctx, "the camp-border window test", true)
+    local originalAdmits = SC.BaseLife.admitsWork
+    SC.BaseLife.admitsWork = function(square, intent)
+        if square == outside then return type(intent) == "table" and intent.workReach == true end
+        return originalAdmits(square, intent)
+    end
+    local given = tickUntil(ctx, function(value) return value == "no_way_out_with_body" end, 30)
+    SC.BaseLife.admitsWork = originalAdmits
+    restore()
+    check(given and #SC_PRODUCTION_CALLS.throw == throwsBefore and #room.staticMoving == 1,
+        "a camp-only order never puts a body out of a window past the camp border")
+end
+
 -- ---------------------------------------------------------------------------
 -- Speech policy and native action guards
 -- ---------------------------------------------------------------------------
