@@ -311,24 +311,21 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <p class="subtitle">A Complete Guide to Living with the Fellows of Knox County</p>
   <p class="divider">· · · ✚ · · ·</p>
   <p class="edition">Living Fellows — Project Zomboid Build 42.21.0 Edition</p>
-  <p class="version">Release 0.26.54 — First Edition, Fourteenth Printing — You won't die... alone.</p>
+  <p class="version">Release 0.26.56 — First Edition, Fifteenth Printing — You won't die... alone.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2.5rem;"><span class="callout-label">Note — </span>
-<strong>What changed in this printing</strong> — through release 0.26.54:
+<strong>What changed in this printing</strong> — through release 0.26.56:
 <ul style="margin-top:0.5rem;margin-bottom:0;">
-  <li><a href="#ch7_carry"><strong>Two carrying limits.</strong></a> Companions pick up and work against their pack's physical limit, while Strength, condition and traits such as Strong or Feeble set how much they carry comfortably. At camp the surplus goes into marked storage, never onto the ground, and keys always stay with them.</li>
-  <li><a href="#ch4_field"><strong>Bigger field harvests.</strong></a> Crop orders reach 16 tiles and a car up to 40 tiles away. Workers plan each plant against their carrying limit, unload to the trunk in batches, and shelve their own harvest at camp when no car was chosen.</li>
-  <li><a href="#ch11"><strong>New storage and a log yard.</strong></a> Regular food and Fresh food are marked apart, Valuables takes loose jewelry and cash, and an Outdoor log yard holds logs loose or bundled. Camp jobs try every matching container before they report storage full.</li>
-  <li><a href="#ch17"><strong>Expeditions bring it home.</strong></a> Requested supplies are tracked from finder to shelf, a walkie-talkie can ask for a progress report, and members can restock and go back to base duty. Car trips take long driveways, detour around blocked roads, and back a pinned car off before giving up.</li>
-  <li><a href="#ch8"><strong>Water on the way.</strong></a> Companions top up their bottles at a clean source nearby when you stop, and on base duty.</li>
-  <li><a href="#ch5"><strong>Calmer following.</strong></a> Close followers walk into formation and jog only when their slot falls well behind.</li>
+  <li><a href="#ch16_haul"><strong>Bodies come out of houses.</strong></a> A gravekeeper takes hold of a body from the side its route leaves by and drags it through as many doors as the house has. One that gets stuck indoors puts the body out of a nearby open or broken window, goes out to it and carries on.</li>
+  <li><a href="#ch14"><strong>Nothing else with a body in tow.</strong></a> A companion dragging a body puts it down before it eats, scavenges, rests or takes up other work. A body that can't be got out of a room is left alone for ten minutes instead of being dragged round and round.</li>
+  <li><a href="#ch17"><strong>Home to the driveway.</strong></a> A car coming home turns off the road into its planned driveway and parks in the marked area, even when it arrives facing along the street.</li>
 </ul>
-<p style="margin:0.6rem 0 0;">Also current: <a href="#ch17">car expeditions</a>, <a href="#ch14b">camp car and generator upkeep</a>, <a href="#ch5c">a companion-driven second car and Markus Sloane's taxi</a>, <a href="#ch6">coordinated squad fighting</a>, <a href="#appB_mod">companion chatter and comfort settings</a>, <a href="#ch18c">sixty-five Strange Folk</a> with <a href="#ch18c_calls">calls for help</a> on 90 MHz, the hands-on <a href="#ch3b">Medical Check</a>, and <a href="#ch11">25 by 25 camps</a>. This release uses native bridge protocol <code>42.21-isocompanion-24</code>.</p>
+<p style="margin:0.6rem 0 0;">Also current: <a href="#ch7_carry">two carrying limits</a>, <a href="#ch4_field">bigger field harvests</a>, <a href="#ch11">Fresh food, Valuables and Outdoor log yard storage</a>, <a href="#ch17_delivery">supplies tracked from finder to shelf</a>, <a href="#ch17">car expeditions</a>, <a href="#ch14b">camp car and generator upkeep</a>, <a href="#ch5c">a companion-driven second car and Markus Sloane's taxi</a>, <a href="#ch6">coordinated squad fighting</a>, <a href="#appB_mod">companion chatter and comfort settings</a>, <a href="#ch18c">sixty-five Strange Folk</a> with <a href="#ch18c_calls">calls for help</a> on 90 MHz, the hands-on <a href="#ch3b">Medical Check</a>, and <a href="#ch11">25 by 25 camps</a>. This release uses native bridge protocol <code>42.21-isocompanion-24</code>.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2.5rem;"><span class="callout-label">Note — </span>
-<strong>About this manual</strong> — it covers what the companion panel does not explain: how the fellows think, what they need from you, and the rules they follow when nobody is giving orders. Everything here describes release 0.26.54 and was checked against the mod itself. Living Fellows is a <strong>public playtest</strong>: back up important saves, and send logs when something goes wrong (<a href="#appD">Appendix D</a>). The mod lives at <a href="https://github.com/thorelvin/living-fellows">github.com/thorelvin/living-fellows</a>. The <em>Overheard</em> quotes are real lines from the mod's own voice pools.
+<strong>About this manual</strong> — it covers what the companion panel does not explain: how the fellows think, what they need from you, and the rules they follow when nobody is giving orders. Everything here describes release 0.26.56 and was checked against the mod itself. Living Fellows is a <strong>public playtest</strong>: back up important saves, and send logs when something goes wrong (<a href="#appD">Appendix D</a>). The mod lives at <a href="https://github.com/thorelvin/living-fellows">github.com/thorelvin/living-fellows</a>. The <em>Overheard</em> quotes are real lines from the mod's own voice pools.
 </div>
 
 <!-- TABLE OF CONTENTS -->
@@ -1595,7 +1592,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <div class="callout callout-tip"><span class="callout-label">Note — </span>Remove a generated floor area and the stair survey won't recreate it; that floor stays off until you draw an area there yourself. Over a part of the camp in the same building, you can also draw your own area on a floor with no verified staircase.</div>
 
-<div class="callout callout-warn"><span class="callout-label">Take care — </span>A resident dragging a body takes no stairs, fences or windows. Put the burial ground or pyre on the same level as the dead, or carry those bodies yourself.</div>
+<div class="callout callout-warn"><span class="callout-label">Take care — </span>A resident dragging a body takes no stairs or fences, and goes through a window only by putting the body out of it first (<a href="#ch16_haul">Ch 16</a>). Put the burial ground or pyre on the same level as the dead, or carry those bodies yourself.</div>
 
 <!-- CH 13 -->
 <h2 class="chapter" id="ch13"><img class="ico" src="https://pzwiki.net/w/images/0/0d/Plank.png" alt="">Chapter 13: Building from Blueprints<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
@@ -1678,7 +1675,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li><strong>Nights indoors.</strong> From 21:00 to 06:00 outdoor camp work pauses: workers head to an indoor camp square, outdoor jobs wait for daylight, and indoor chores carry on. A farm job already under way is finished, and a Chef stays by a pot on a lit fire. Switch on <strong>Work outside at night</strong> in the base policies (<a href="#ch14b">Ch 14b</a>) to keep everyone working. That switch covers the gravekeeper and woodcutter too: at night, without it, no tree outdoors is started and no body lying outdoors is fetched.</li>
   <li><strong>Sleep first.</strong> A resident who is more than half tired sleeps in a bed before claiming its next job, and keeps the bed until rested. A job already in hand is finished first.</li>
   <li><strong>Loot first.</strong> A gravekeeper with a burial ground takes bodies as they lie, clothes, pockets and all, and buries them with their belongings. A pyre still leaves a body carrying items for you to loot.</li>
-  <li><strong>Dragging.</strong> A resident dragging a body pulls it along behind, takes no fences, windows or stairs, and drops it at once when danger shows up. The body stays where it fell.</li>
+  <li><strong>Dragging.</strong> A resident dragging a body walks backwards with it through doors, never over fences or up and down stairs (<a href="#ch16_haul">Ch 16</a>). It drops the body at once when danger shows up, and puts it down before it eats, scavenges, rests or takes up any other work. The body stays where it was left.</li>
   <li><strong>Blocked work</strong> shows its reason and tries again on its own, waiting longer each time; a job that keeps failing ends up under <strong>Stalled jobs</strong> (<a href="#ch14b">Ch 14b</a>).</li>
   <li><strong>Missing tools.</strong> A worker blocked for want of a tool may walk over and tell you what it needs, if you are on the same floor within 16 tiles and nothing is threatening. It doesn't follow you about: it gives up after half a minute, or once it finds the tool.</li>
 </ul>
@@ -1871,6 +1868,16 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>The dead pile up around any camp worth holding. A <strong>Gravekeeper</strong> looks for bodies inside the camp and lumber areas and carries them to a marked burial ground or a safe pyre. Burial digs and fills a grave as needed.</p>
 
 <div class="callout callout-warn"><span class="callout-label">Take care — </span>A body goes into the grave the way it lies, with its clothes and whatever is in its pockets. Search the dead you care about before the gravekeeper reaches them. A pyre is pickier: it leaves a body still carrying items for you.</div>
+
+<h3 id="ch16_haul">Getting the Dead Out</h3>
+<p>A gravekeeper drags a body the way you would: walking backwards, facing it. Before taking hold it works out which way its route leaves, and stands on that side, so it can back straight out instead of swinging the body round into the furniture. Then it goes door by door. A body in a back room of a house with three doors between it and the yard is fine; it just takes a while.</p>
+<ul>
+  <li>A drag gives up only when the gravekeeper has reached no new ground for about twenty seconds, or after five minutes in all. Time spent working out the route doesn't count.</li>
+  <li>If a drag stalls or its route is blocked while the gravekeeper is still indoors, it looks for an open or broken window nearby. It puts the body out with the game's own throw, goes out to it, takes hold again and carries on. That happens at most once per trip.</li>
+  <li>A shut or barricaded window is never used, and a body is never put out onto ground the order doesn't work, such as beyond the camp border when the order keeps inside it.</li>
+  <li>With no way out, the gravekeeper puts the body down, outdoors if it can manage that within half a minute, and the order waits for its usual retry. That body is left alone for ten minutes.</li>
+</ul>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>A room where the dead pile up empties faster with its doorways clear and a window open.</div>
 
 <h3>The Burial Ground</h3>
 <p>Every closed grave gets a few words: a short prayer or a line of bleak gallows humour, depending on who holds the shovel, and a salute. Sometimes a friend nearby adds an "Amen".</p>
@@ -2174,7 +2181,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 18c -->
 <h2 class="chapter" id="ch18c"><img class="ico" src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Chapter 18c: Strange Folk<span class="stage stage-end">Strangers</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<div class="callout callout-tip"><span class="callout-label">Note — </span>Strange Folk arrived in 0.26.35. Release 0.26.54 uses native bridge protocol <code>42.21-isocompanion-24</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Strange Folk arrived in 0.26.35. Release 0.26.56 uses native bridge protocol <code>42.21-isocompanion-24</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
 
 <p>Not every stranger is a household looking for supplies. Sixty-five hand-made characters live in Knox County: a butcher with a back room, a deputy still running her checkpoint, a grandmother guarding a child's bedroom with a broken bottle, a man who smeared himself in the dead so they'd leave him alone. Each one is a one-off with their own rules, voice and ending. They use the same standing, trade, combat, navigation and recruitment rules as other survivors, and their animals are real Build 42 animals with names that survive saves.</p>
 
@@ -2369,6 +2376,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h3>A companion is stuck</h3>
 <p>Wait a moment for automatic recovery, then use <strong>Regroup</strong>. If it stays stuck, note what is in the way (door, gate, fence, vehicle, stairs or furniture) and the current order and movement setting, and send the Support report, logs, and a screenshot or short video.</p>
 
+<h3>A gravekeeper leaves a body indoors</h3>
+<p>The drag found no way out the gravekeeper could finish: no door route it could make progress on, and no open or broken window nearby onto ground the order works. Open or break a window in that room, clear the doorways, or carry the body out yourself. The gravekeeper leaves that body alone for ten minutes, then tries again. The game log records why the order was blocked; include it if you report the problem (<a href="#appD">Appendix D</a>).</p>
+
 <h3>A companion is missing after a long trip</h3>
 <p>Companions left behind come back where they were as soon as their ground loads again, so head toward where you left them. One left in a parked car waits beside it. If someone is still missing, open <span class="menu">More → Support</span> and send its report; reloading the save brings them back.</p>
 
@@ -2396,7 +2406,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p><span class="menu">More → Support</span> is the first place to look when something is wrong, and the report it copies is the most useful thing to attach to a bug report.</p>
 <table>
   <tr><th>Line</th><th>What a healthy game shows</th></tr>
-  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.54</td></tr>
+  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.56</td></tr>
   <tr><td>Game build / supported build</td><td>42.21.0 on both sides</td></tr>
   <tr><td>Runtime active</td><td>Yes. If not, <strong>Runtime disabled reason</strong> says why.</td></tr>
   <tr><td>Native bridge status, actor provider, bridge protocol</td><td>The bridge is ready, and its protocol matches the expected one. A mismatch means an old or mixed install.</td></tr>
@@ -2618,7 +2628,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CARD END -->
 
 <div class="page-footer">
-  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.54 &nbsp;·&nbsp; First Edition, Fourteenth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
+  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.56 &nbsp;·&nbsp; First Edition, Fifteenth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
 </div>
 <script>
 (function () {
