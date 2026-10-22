@@ -3054,44 +3054,159 @@ do
         "a camp-only order never puts a body out of a window past the camp border")
 end
 
--- Out of an upper window a body lands on a porch roof, where no drag can
--- reach it, or falls to a floor the hauler cannot follow it to. Upstairs the
--- body goes down indoors instead, even where an upper camp floor admits the
--- roof as work ground.
-do
-    local ctx = setup()
-    local throwsBefore = #SC_PRODUCTION_CALLS.throw
-    local _, _, _, restore = windowDragFixture(ctx, "the upstairs window test", true)
-    local landing = makeSquare(6, 6, 1)
+-- Upstairs a drag cannot take the stairs. The hauler stands on a landing
+-- (6,6) on floor options.level (1 unless given) with the body in tow; the
+-- window on the landing's north edge looks out over (6,5). options.tile is
+-- what the game has there: "void" (no tile at all, the usual open air
+-- outside an upper floor), "air" (a tile with no floor) or "roof" (a porch
+-- roof). With options.between a roof also stands one floor below the window.
+-- The camp has upper floors; options.ground adjusts the tile on the grave
+-- floor below the window, and options.outsideWork keeps it out of the work
+-- area. Drags towards the grave or an outdoor drop made upstairs are
+-- recorded, never moved.
+local function upstairsFixture(ctx, label, options)
+    options = options or {}
+    local level = options.level or 1
+    local order = startIndoorDrag(ctx, label)
+    local landing = makeSquare(6, 6, level)
     landing.room = true
-    local roof = makeSquare(6, 5, 1)
-    local window = { outsideSquare = roof }
-    function window:canClimbThrough() return true end
+    local ground = sq(6, 5)
+    function ground:TreatAsSolidFloor() return true end
+    if options.ground then options.ground(ground) end
+    local window = { climbable = options.climbable ~= false, outsideSquare = ground }
+    function window:canClimbThrough() return self.climbable == true end
+    local tile
+    if (options.tile or "void") == "void" then
+        function landing:getWindow(north) return north and window or nil end
+    else
+        tile = makeSquare(6, 5, level)
+        if options.tile == "roof" then
+            function tile:TreatAsSolidFloor() return true end
+            window.outsideSquare = tile
+        end
+    end
+    if options.between then
+        local roof = makeSquare(6, 5, level - 1)
+        function roof:TreatAsSolidFloor() return true end
+        window.outsideSquare = roof
+    end
     SC.Navigation.edgeAffordance = function(a, b)
-        if (a == roof and b == landing) or (a == landing and b == roof) then
+        if tile and ((a == tile and b == landing) or (a == landing and b == tile)) then
             return { kind = "window", object = window, key = "window:upstairs" }
         end
         return nil
     end
-    -- The camp has an upper floor, and the roof outside the window is on it.
-    local originalInside = SC.BaseLife.isInside
+    local originalInside, originalAdmits = SC.BaseLife.isInside, SC.BaseLife.admitsWork
     SC.BaseLife.isInside = function(value, kind)
         local _, _, z = SC.GameplayUtil.position(value)
-        if z == 1 then return true end
+        if z and z >= 1 then return true end
         return originalInside(value, kind)
     end
-    ctx.actor.square, ctx.actor.x, ctx.actor.y, ctx.actor.z = landing, landing.x, landing.y, 1
+    SC.BaseLife.admitsWork = function(square, intent)
+        if options.outsideWork and square == ground then return false end
+        return originalAdmits(square, intent)
+    end
+    local requests = {}
+    local originalRequestAny = SC.Navigation.requestAny
+    SC.Navigation.requestAny = function(actor, candidates, mode, intent)
+        if (intent.action == "drag_body_to_grave" or intent.action == "drag_body_to_safe_drop")
+            and (actor.z or 0) >= 1 then
+            requests[#requests + 1] = intent.action
+            return true, "fixture_path_started"
+        end
+        return originalRequestAny(actor, candidates, mode, intent)
+    end
+    ctx.actor.square, ctx.actor.x, ctx.actor.y, ctx.actor.z = landing, landing.x, landing.y, level
+    local function restore()
+        SC.BaseLife.isInside, SC.BaseLife.admitsWork = originalInside, originalAdmits
+        SC.Navigation.requestAny, SC.Navigation.edgeAffordance = originalRequestAny, nil
+    end
+    return order, landing, ground, restore, requests
+end
+
+-- Upstairs the hauler looks for a window straight away. One over open
+-- ground puts the body out; it falls to the grave floor, and the hauler goes
+-- down and takes hold of it again there.
+for _, tileKind in ipairs({ "void", "air" }) do
+    local ctx = setup()
+    local throwsBefore = #SC_PRODUCTION_CALLS.throw
+    local _, landing, ground, restore, requests = upstairsFixture(ctx,
+        "the upstairs " .. tileKind .. " window test", { tile = tileKind })
+    local seen = {}
+    local throwing = tickUntil(ctx, function(value)
+        seen[#seen + 1] = tostring(value)
+        return value == "production_throwing_body"
+    end, 8)
+    check(throwing and #SC_PRODUCTION_CALLS.throw == throwsBefore + 1 and #requests == 0,
+        "upstairs the hauler goes straight to a window over open ground (" .. tileKind .. "): "
+            .. table.concat(seen, ",") .. " / " .. table.concat(requests, ","))
+    current(ctx.actor):perform()
+    local _, thrown = tick(ctx)
+    check(thrown == "production_body_thrown_out" and #ground.staticMoving == 1
+            and #landing.staticMoving == 0 and not ctx.actor:isDraggingCorpse(),
+        "the body falls to the grave floor (" .. tileKind .. "): " .. tostring(thrown))
+    local regrabbing = tickUntil(ctx, function(value) return value == "production_grabbing" end, 6)
+    restore()
+    check(regrabbing and ctx.actor.z == 0,
+        "the hauler comes down and takes hold of the body again (" .. tileKind .. ")")
+end
+
+-- A body put out of an upper window takes a moment to fall and settle, so
+-- the hauler waits longer for it than for one put out at ground level.
+do
+    local ctx = setup()
+    local _, _, ground, restore = upstairsFixture(ctx, "the falling-body test")
+    local throwing = tickUntil(ctx, function(value) return value == "production_throwing_body" end, 8)
+    check(throwing, "the falling-body test starts a throw")
+    local body = ctx.actor.draggedBody
+    SC_TEST_THROW_FAILS = true
+    current(ctx.actor):perform()
+    SC_TEST_THROW_FAILS = false
+    ctx.actor.draggedBody = nil
+    local _, first = tick(ctx)
+    local _, falling = tick(ctx, nil, nil, 6000)
+    ctx.actor.draggedBody = body
+    SC_TEST_LAND_DRAGGED(ctx.actor, ground)
+    local _, landed = tick(ctx)
+    restore()
+    check(first == "production_throw_verifying" and falling == "production_throw_verifying"
+            and landed == "production_body_thrown_out",
+        "a falling body is waited for: " .. tostring(first) .. " " .. tostring(falling)
+            .. " " .. tostring(landed))
+end
+
+-- A window whose body would not land on open, free ground on the grave
+-- floor inside the work area is never used. Upstairs the only outdoor
+-- ground is a roof or a balcony, so the body goes down where the hauler
+-- stands, straight away.
+for _, case in ipairs({
+    { name = "a porch roof", tile = "roof" },
+    { name = "a lower roof", level = 2, between = true },
+    { name = "indoor ground", ground = function(square) square.room = true end },
+    { name = "blocked ground", ground = function(square)
+        function square:isSolid() return true end
+    end },
+    { name = "floorless ground", ground = function(square)
+        function square:TreatAsSolidFloor() return false end
+    end },
+    { name = "ground outside the work area", outsideWork = true },
+    { name = "a shut window", climbable = false },
+}) do
+    local ctx = setup()
+    local throwsBefore = #SC_PRODUCTION_CALLS.throw
+    local order, landing, _, restore, requests = upstairsFixture(ctx,
+        "the upstairs " .. case.name .. " test", case)
     local seen = {}
     local given = tickUntil(ctx, function(value)
         seen[#seen + 1] = tostring(value)
-        return value == "no_way_out_with_body"
-    end, 30)
-    SC.BaseLife.isInside = originalInside
+        return value == "no_safe_window_upstairs"
+    end, 8)
     restore()
-    check(given and #SC_PRODUCTION_CALLS.throw == throwsBefore
-            and #landing.staticMoving == 1 and #roof.staticMoving == 0,
-        "a hauler upstairs never puts a body out of a window; it goes down indoors: "
-            .. table.concat(seen, ","))
+    check(given and #SC_PRODUCTION_CALLS.throw == throwsBefore and #requests == 0
+            and not ctx.actor:isDraggingCorpse() and #landing.staticMoving == 1
+            and SC.BaseLife.productionOrder(order.id).state == "blocked",
+        "upstairs the window is refused for " .. case.name .. "; the body goes down there: "
+            .. table.concat(seen, ",") .. " / " .. table.concat(requests, ","))
 end
 
 -- A throw that ends with the body still in hand gives the window up. The

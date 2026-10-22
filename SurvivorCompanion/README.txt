@@ -1,9 +1,10 @@
 Living Fellows 0.26.57 - public playtest
 
-Gravekeepers no longer put bodies out of upstairs windows, where they landed
-on porch roofs out of reach. A stuck drag uses a window on the ground floor
-only. Blocked camp jobs are still written to the game log but no longer count
-as reports on the Support page.
+Gravekeepers now get bodies down from upper floors. A drag cannot take the
+stairs, so upstairs the body goes out of an open window over open ground on
+the grave or pyre floor, never onto a porch roof, and the gravekeeper goes
+down to pick it up. Blocked camp jobs are still written to the game log but
+no longer count as reports on the Support page.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added

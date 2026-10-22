@@ -2,12 +2,15 @@
 
 # Changelog
 
-## 0.26.57 - Window throws stay on the ground floor
+## 0.26.57 - Bodies come down from upstairs windows
 
-- A Gravekeeper upstairs no longer puts a body out of an upper window. Upstairs drags cannot take the stairs, so they always stalled and reached for a window. Out of an upper window the body landed on a porch roof, where the hauler put it down again every ten minutes, or fell to the ground while the hauler stayed upstairs. A window is now used only on the floor the grave or pyre is on; upstairs, the body is set down for a later try, as in 0.26.55.
+- A Gravekeeper upstairs puts a body out of a window that opens over a clear drop to the grave or pyre floor, then goes down the stairs and takes hold of it again where it fell. A drag cannot take the stairs, so upstairs the hauler looks for such a window straight away instead of stalling for twenty seconds first. In 0.26.56 any open upper window would do, and a body could land on a porch roof, where the hauler put it down again every ten minutes.
+- A window over a porch roof or a balcony, or over a roof one or more floors down, is never used, nor one whose body would land indoors, on blocked ground or outside the order's work area. Windows over open air are found too, where the game keeps no tile outside the wall.
+- Upstairs with no such window, the body is set down where the hauler stands, at once, for a later try. It is no longer towed round for half a minute looking for outdoor ground, which upstairs is only ever a roof or a balcony.
+- A body that falls is given ten seconds to land before it counts as lost.
 - The window search looks at a slice of tiles per update instead of about 340 wall edges in one frame.
 - A blocked camp job still writes its reason to the game log, once while the reason stays the same, but no longer counts as a diagnostic report on the Support page. Rain, night and an empty burial area are routine.
-- New tests cover a throw that keeps the body in hand, a thrown body that cannot be found, a throw that never finishes, a window that is out of reach, has no route or shuts on the way, a grab side that cannot be reached, and the five-minute drag limit.
+- New tests cover a throw that keeps the body in hand, a thrown body that cannot be found, a throw that never finishes, a window that is out of reach, has no route or shuts on the way, a grab side that cannot be reached, and the five-minute drag limit. Upstairs they cover windows over open air and over a floorless tile, a body that takes time to fall, and every kind of window refused above.
 - The native bridge protocol remains `42.21-isocompanion-24`; update the bridge JAR and Lua payload together.
 
 ## 0.26.56 - Hauling bodies out of houses

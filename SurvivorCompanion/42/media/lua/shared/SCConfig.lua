@@ -1309,12 +1309,15 @@ local valueData = {
     productionCorpseDepartureNodeQuota = 64,
     -- A stalled drag may put the body out of one nearby open or broken
     -- window, then pick it up outside. The search looks at a slice of
-    -- tiles per update.
+    -- tiles per update. Upstairs, where a drag cannot take the stairs, the
+    -- window must open over a clear drop to the grave or pyre floor; a body
+    -- that falls takes longer to settle.
     productionCorpseWindowRadius = 6,
     productionCorpseWindowScanSquares = 32,
     productionCorpseWindowDragMs = 30000,
     productionCorpseWindowThrows = 1,
     productionCorpseThrowVerifyMs = 4000,
+    productionCorpseFallVerifyMs = 10000,
     productionCorpseOutdoorDropMs = 30000,
     productionCorpseHaulRefusedMs = 600000,
     productionCorpseDropVerifyMs = 4000,
