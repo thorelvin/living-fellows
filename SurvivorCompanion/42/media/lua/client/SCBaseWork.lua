@@ -1954,6 +1954,13 @@ function BaseWork.update(actor, player, runtime)
     end
     reportBlockedTool(actor, player, state, runtime)
     local job = SC.BaseLife.jobFor(id)
+    -- A corpse in tow belongs to a production haul. Without that job in hand
+    -- (blocked, released or finished), the body goes down before rest,
+    -- downtime or another chore can walk off with it.
+    if not (job and job.type == "production") and SC.Production
+        and type(SC.Production.releaseDrag) == "function" then
+        SC.Production.releaseDrag(actor, "base_job_without_haul")
+    end
     if SC.BaseWatch and SC.BaseWatch.isLeader(actor) then
         if job and SC.BaseLife.outdoorJob(job) then
             local cancelled, reason = BaseWork.cancel(actor, "base_watch_indoor_duty")

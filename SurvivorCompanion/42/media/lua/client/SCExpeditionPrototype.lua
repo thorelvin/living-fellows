@@ -4420,16 +4420,18 @@ local function updateSupportCall()
             mission.lastSupportCallAt = mission.lastSupportCallAt or {}
             if not support and current - (mission.lastSupportCallAt[record.id]
                 or -math.huge) >= 20000 then
-                local responders = {}
+                -- Count responders here: Kahlua does not reliably publish next().
+                local responders, responderCount = {}, 0
                 for _, ally in ipairs(mission.roster) do
                     if ally ~= record and alive(ally)
                         and SC.GameplayUtil.sameFloor(ally.actor, actor)
                         and SC.GameplayUtil.distance(ally.actor, actor) <= 12
                         and not SC.GameplayUtil.call(ally.actor, "getVehicle") then
                         responders[ally.id] = true
+                        responderCount = responderCount + 1
                     end
                 end
-                if next(responders) then
+                if responderCount > 0 then
                     mission.support = { actor = actor, responders = responders,
                         untilAt = current + 8000 }
                     mission.lastSupportCallAt[record.id] = current

@@ -88,14 +88,14 @@ SC.Driving = {
         end
         return false
     end,
-    drive = function(_, goal)
+    drive = function(_, goal, options)
         if T.startBlocked then return false, "start_failed" end
         if T.deferDrive then
             T.deferDrive = false
             return false, "deferred:urgent_action_pending"
         end
         T.driveCalls = T.driveCalls + 1
-        T.lastGoal = goal
+        T.lastGoal, T.lastDriveOptions = goal, options
         return true
     end,
     jobStatus = function() return T.driveStatus end,

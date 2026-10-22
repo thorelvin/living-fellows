@@ -53,6 +53,43 @@ do
 end
 
 do
+    -- Home leg: the street route ends at the goal, where a verified straight
+    -- driveway runs 20 tiles north to the parking bay. The follower turns
+    -- into it, so the slow parking legs start facing the bay.
+    local plan = SCBridge.planRoadRouteAvoidingAll
+    SCBridge.planRoadRouteAvoidingAll = function(_, _, _, tx, ty, _, out)
+        out.status, out.fingerprint = "READY", "home-driveway"
+        out.geometry = "100,100,8,0,Road;" .. tostring(tx) .. ","
+            .. tostring(ty) .. ",8,0,Road"
+        return true
+    end
+    local function homeRoute(id, bay, entry)
+        T.lastFollowRoute = nil
+        local actor = managed(id, { roadAccessExit = {
+            entry = entry or { x = goal.x, y = goal.y, z = 0 }, bay = bay } })
+        local route = T.lastFollowRoute
+        Driving.release(actor)
+        return route
+    end
+    local into = homeRoute("expedition-home-driveway", { x = 200, y = 80, z = 0 })
+    check(into and into:find(";200%.00,100%.00,8%.0;200%.00,92%.00,5%.0$") ~= nil,
+        "the home route turns eight tiles into a long driveway: " .. tostring(into))
+    local offset = homeRoute("expedition-home-offset-entry", { x = 203, y = 80, z = 0 },
+        { x = 203, y = 100, z = 0 })
+    check(offset and offset:find(";200%.00,100%.00,8%.0;203%.00,100%.00,5%.0;203%.00,92%.00,5%.0$") ~= nil,
+        "a road end beside the driveway mouth steers to the mouth first: " .. tostring(offset))
+    local short = homeRoute("expedition-home-short-driveway", { x = 200, y = 96, z = 0 })
+    check(short and short:find(";200%.00,100%.00,8%.0$") ~= nil,
+        "a bay right off the street keeps the plain road route: " .. tostring(short))
+    local distant = homeRoute("expedition-home-distant-entry", { x = 210, y = 80, z = 0 },
+        { x = 210, y = 100, z = 0 })
+    check(distant and distant:find(";200%.00,100%.00,8%.0$") ~= nil,
+        "a driveway that does not meet the route's end is never cut across to: "
+            .. tostring(distant))
+    SCBridge.planRoadRouteAvoidingAll = plan
+end
+
+do
     for _, entry in ipairs({ "begin", "drive" }) do
         local actor = T.actor("drive-urgent-" .. entry)
         local savedNativeActions, held, urgentToken = SC.NativeActions, true, nil

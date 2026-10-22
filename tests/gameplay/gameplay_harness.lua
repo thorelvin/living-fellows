@@ -29950,4 +29950,39 @@ end
 SurvivorCompanion.__testBaseLeaderCheckIn()
 SurvivorCompanion.__testBaseLeaderCheckIn = nil
 
+-- Only base work's own haul may move a companion with a corpse in tow. Every
+-- other delegate except combat asks Production to put the body down first.
+function SurvivorCompanion.__testDelegateReleasesCorpseDrag()
+    local sc = SurvivorCompanion
+    local saved = {
+        production = sc.Production, downtime = sc.Downtime and sc.Downtime.update,
+        needs = sc.Needs and sc.Needs.update, encounter = sc.Encounter and sc.Encounter.update,
+        baseWork = sc.BaseWork and sc.BaseWork.update, combat = sc.Combat and sc.Combat.update,
+    }
+    local released, ran = {}, {}
+    sc.Production = { releaseDrag = function(subject, reason)
+        released[#released + 1] = reason
+        return true, reason
+    end }
+    local function stub(kind) return function() ran[#ran + 1] = kind return false, "stub" end end
+    sc.Downtime.update, sc.Needs.update = stub("downtime"), stub("needs")
+    sc.Encounter.update, sc.BaseWork.update = stub("scavenge"), stub("base_work")
+    sc.Combat.update = stub("combat")
+    local hauler = actor("drag-delegate", 3, 3, { recruited = true })
+    for _, kind in ipairs({ "base_work", "combat", "downtime", "needs", "scavenge" }) do
+        sc.Decision._delegateForTests({ kind = kind }, hauler, player, {}, {},
+            { threats = {}, threatCount = 0, immediateCount = 0 }, {})
+    end
+    sc.Production = saved.production
+    sc.Downtime.update, sc.Needs.update = saved.downtime, saved.needs
+    sc.Encounter.update, sc.BaseWork.update = saved.encounter, saved.baseWork
+    sc.Combat.update = saved.combat
+    check(#ran == 5 and #released == 3 and released[1] == "decision_downtime"
+            and released[2] == "decision_needs" and released[3] == "decision_scavenge",
+        "every delegate but base work and combat puts a towed body down first: "
+            .. table.concat(released, ","))
+end
+SurvivorCompanion.__testDelegateReleasesCorpseDrag()
+SurvivorCompanion.__testDelegateReleasesCorpseDrag = nil
+
 print("Gameplay harness PASS: " .. tostring(checks) .. " checks")

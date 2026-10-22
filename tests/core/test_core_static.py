@@ -24,6 +24,17 @@ lua_files = sorted(LUA.rglob("*.lua"))
 all_lua = "\n".join(path.read_text(encoding="utf-8") for path in lua_files)
 require(re.search(r"tonumber\s*\(\s*select\s*\(", all_lua) is None,
         "tonumber(select(...)) forwards utility.call's success flag as a numeric base in Kahlua")
+# Build 42's Kahlua does not reliably publish the global next(). The call only
+# fails on the branch that reaches it, which can stay hidden until a live save
+# (a Gravekeeper's blocked order with a borrowed shovel did in 0.26.54).
+bare_next = [
+    f"{path.name}:{text.count(chr(10), 0, match.start()) + 1}"
+    for path in lua_files
+    for text in (path.read_text(encoding="utf-8"),)
+    for match in re.finditer(r"(?<![\w.:])next\s*\(", text)
+    if not text[text.rfind("\n", 0, match.start()) + 1:match.start()].lstrip().startswith("--")
+]
+require(not bare_next, f"bare next() is not reliable in Build 42 Kahlua; probe with pairs: {bare_next}")
 tick_adds = [
     (path, match.start())
     for path in lua_files

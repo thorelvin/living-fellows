@@ -1290,10 +1290,15 @@ function Car.pulse(mission, now, worldHour)
                 "action=home_road_goal point=" .. tostring(goal.x)
                     .. "," .. tostring(goal.y))
         end
+        -- Home: the road follower turns into the planned driveway itself.
+        local roadExit = trip.leg == "home" and trip.homeRoadEntry
+            and trip.departure and {
+                entry = trip.homeRoadEntry, bay = trip.departure,
+            } or nil
         local started, reason = SC.Driving.drive(mission.leader.actor,
             goal, { speedKmh = 30,
                 stopShortTiles = trip.leg == "outbound" and 10 or 0,
-                roadAccessEntry = roadEntry })
+                roadAccessEntry = roadEntry, roadAccessExit = roadExit })
         if not started then
             if type(reason) == "string"
                 and reason:sub(1, 9) == "deferred:" then

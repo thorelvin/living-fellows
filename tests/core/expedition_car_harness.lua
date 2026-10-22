@@ -196,6 +196,13 @@ check(Car.requestReturn(T.mission, 2500) and
     T.mission.scout.vehicle.state == "boarding_home"
     and T.mission.scout.vehicle.leg == "home",
     "radio return stops outbound driving before planning home leg")
+local homeTrip = T.mission.scout.vehicle
+check(Car.pulse(T.mission, 2600) and homeTrip.state == "driving_home"
+        and T.lastDriveOptions and T.lastDriveOptions.roadAccessExit
+        and T.lastDriveOptions.roadAccessExit.entry == homeTrip.homeRoadEntry
+        and T.lastDriveOptions.roadAccessExit.bay == homeTrip.departure,
+    "the home drive is told to turn into the planned driveway toward the bay: "
+        .. tostring(homeTrip.state) .. " " .. tostring(homeTrip.blocker))
 
 T.team[1].actor.car, T.team[1].actor.seat = nil, nil
 T.team[2].actor.car, T.team[2].actor.seat = nil, nil

@@ -575,6 +575,32 @@ local function planJob(job)
             end
         end
     end
+    if job.roadAccessExit and type(route.points) == "table" then
+        -- The home leg ends where the verified straight driveway meets the
+        -- mapped street. Carry the route a few tiles into that driveway, the
+        -- way the outbound leg leaves it, so the car turns off the street on
+        -- the road follower. The slow parking legs then start facing the bay;
+        -- they only drive straight ahead, so a car still pointing along the
+        -- street was refused and the squad got out on the road.
+        local last = route.points[#route.points]
+        local exit = job.roadAccessExit
+        local dx, dy = exit.bay.x - exit.entry.x, exit.bay.y - exit.entry.y
+        local length = math.sqrt(dx * dx + dy * dy)
+        local into = math.min(8, length - 2)
+        local endGap = last and ((last.x - exit.entry.x)^2
+            + (last.y - exit.entry.y)^2) or math.huge
+        if into >= 3 and endGap <= 16 and #route.points <= 510 then
+            if endGap > 2.25 then
+                route.points[#route.points + 1] = { x = exit.entry.x,
+                    y = exit.entry.y, width = 5, street = last.street }
+            end
+            route.points[#route.points + 1] = {
+                x = exit.entry.x + dx / length * into,
+                y = exit.entry.y + dy / length * into,
+                width = 5, street = last.street,
+            }
+        end
+    end
     local endpoint = route.points and route.points[#route.points]
     local roadX = type(endpoint) == "table" and finite(endpoint.x)
     local roadY = type(endpoint) == "table" and finite(endpoint.y)
@@ -628,6 +654,20 @@ function Driving.drive(actor, goal, options)
             return false, "invalid_road_access"
         end
         job.roadAccessEntry = { x = x, y = y }
+    end
+    if options.roadAccessExit ~= nil then
+        local exit = options.roadAccessExit
+        local entry = type(exit) == "table" and exit.entry or nil
+        local bay = type(exit) == "table" and exit.bay or nil
+        local ex = type(entry) == "table" and finite(entry.x) or nil
+        local ey = type(entry) == "table" and finite(entry.y) or nil
+        local bx = type(bay) == "table" and finite(bay.x) or nil
+        local by = type(bay) == "table" and finite(bay.y) or nil
+        if not ex or not ey or not bx or not by then
+            Driving.stop(actor, "invalid_road_access")
+            return false, "invalid_road_access"
+        end
+        job.roadAccessExit = { entry = { x = ex, y = ey }, bay = { x = bx, y = by } }
     end
     job.blockWaitMs = math.max(1000, math.min(30000, finite(options.blockWaitMs) or 5000))
     if options.circles ~= nil then

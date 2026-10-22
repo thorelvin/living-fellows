@@ -2726,6 +2726,125 @@ do
     check(SC.BaseLife.productionOrder(order.id).completed == 0, "an abandoned drag is not progress")
 end
 
+-- A hauler towing a body never carries it into other work. Each test starts
+-- a real grab and drag of an indoor body, then takes the haul away.
+local function startIndoorDrag(ctx, label)
+    createGrave(-2, -3, 0, false)
+    local kitchen = sq(4, -4)
+    kitchen.room = true
+    makeBody(kitchen)
+    local order = start(ctx, {
+        operation = "collect_bodies", zoneId = ctx.burial.id, requested = 1,
+        settings = { fromLumber = false },
+    })
+    local grabbing = tickUntil(ctx, function(value) return value == "production_grabbing" end, 8)
+    check(grabbing, label .. " takes hold of the indoor body")
+    current(ctx.actor):perform()
+    local _, dragReason = tick(ctx)
+    check(dragReason == "production_dragging" and ctx.actor:isDraggingCorpse(),
+        label .. " is towing the body: " .. tostring(dragReason))
+    return order, kitchen
+end
+
+do
+    local ctx = setup()
+    local order = startIndoorDrag(ctx, "the blocked-order test")
+    -- A co-worker's failure blocks the whole order until its retry.
+    SC.BaseLife.blockProductionOrder(order.id, "co_worker_blocked")
+    local handled, reason = tick(ctx, nil, nil, 1000)
+    check(handled ~= true and not ctx.actor:isDraggingCorpse()
+            and #ctx.actor.square.staticMoving == 1,
+        "a blocked order makes its hauler put the body down: " .. tostring(reason))
+end
+
+do
+    local ctx = setup()
+    startIndoorDrag(ctx, "the lost-job test")
+    local job = SC.BaseLife.jobFor(ctx.id)
+    check(job and job.type == "production", "the hauler holds its production job")
+    -- Without that job the base scheduler hands out rest, downtime or other
+    -- chores; none of them may start with the body still in tow.
+    local originalJobFor = SC.BaseLife.jobFor
+    SC.BaseLife.jobFor = function() return nil end
+    local originalClaim = SC.BaseLife.claimJob
+    SC.BaseLife.claimJob = function() return nil, "no_job" end
+    tick(ctx, nil, nil, 1000)
+    SC.BaseLife.jobFor, SC.BaseLife.claimJob = originalJobFor, originalClaim
+    check(not ctx.actor:isDraggingCorpse() and #ctx.actor.square.staticMoving == 1,
+        "base work without the haul's job puts the body down first")
+end
+
+do
+    -- Build 42's Kahlua does not always publish next(). A terminal block
+    -- while a borrowed shovel is out must still schedule its return.
+    local ctx = setup()
+    local shovel = makeItem("Base.Shovel", { tags = { diggrave = true } })
+    ctx.toolsObject.container:AddItem(shovel)
+    local order = start(ctx, { operation = "dig_graves", zoneId = ctx.burial.id, requested = 1 })
+    for _ = 1, 8 do
+        tick(ctx)
+        if SC.NativeActions.workKind(ctx.actor) == "dig_grave" then break end
+    end
+    check(shovel.container == ctx.actor.inventory, "the no-next test borrowed the stored shovel")
+    local descriptor = SC.Production.descriptor("dig_graves")
+    local originalUpdate = descriptor.update
+    descriptor.update = function(_, blocked)
+        SC.BaseLife.blockProductionOrder(blocked.id, "test_terminal_block")
+        return false, "test_terminal_block", true
+    end
+    local savedNext = next
+    next = nil
+    local called, handled, reason = pcall(tick, ctx)
+    next = savedNext
+    descriptor.update = originalUpdate
+    check(called == true and handled == true and reason == "production_tool_return_pending"
+            and SC.BaseLife.productionOrder(order.id).state == "running",
+        "a terminal block with a borrowed tool schedules its return without next(): "
+            .. tostring(handled) .. " " .. tostring(reason))
+end
+
+do
+    local ctx = setup()
+    local order = startIndoorDrag(ctx, "the sealed-room test")
+    -- The hauler stands in the same room. Neither the grave nor any outdoor
+    -- square can be reached with a body: the room's only ways out are windows.
+    local room = ctx.actor.square
+    room.room = true
+    local originalRequestAny = SC.Navigation.requestAny
+    SC.Navigation.requestAny = function(actor, candidates, mode, intent)
+        if intent.action == "drag_body_to_grave"
+            or intent.action == "drag_body_to_safe_drop" then
+            return false, "path_blocked:blocked_static"
+        end
+        return originalRequestAny(actor, candidates, mode, intent)
+    end
+    local _, replanning = tick(ctx)
+    local _, waiting = tick(ctx, nil, nil, 16000)
+    check(string.find(tostring(replanning), "drag_route_replanning", 1, true)
+            and string.find(tostring(waiting), "waiting_for_outdoor_drop", 1, true)
+            and ctx.actor:isDraggingCorpse(),
+        "a sealed room first gets a bounded search for an outdoor drop: " .. tostring(waiting))
+    local _, given = tick(ctx, nil, nil, 31000)
+    check(given == "no_way_out_with_body" and not ctx.actor:isDraggingCorpse()
+            and #room.staticMoving == 1
+            and SC.BaseLife.productionOrder(order.id).state == "blocked",
+        "with no way out the hauler puts the body down and the order waits: " .. tostring(given))
+    -- The body keeps its haul tag through the grapple's respawn, so the next
+    -- pass leaves it alone instead of grabbing it into the same dead end.
+    -- Let the order's retry reopen it, then give the camp scan time to pass
+    -- the body (48 squares a slice).
+    local seen = {}
+    tick(ctx, nil, nil, 31000)
+    local regrabbed = tickUntil(ctx, function(value)
+        if seen[#seen] ~= tostring(value) then seen[#seen + 1] = tostring(value) end
+        return value == "production_grabbing"
+    end, 40)
+    SC.Navigation.requestAny = originalRequestAny
+    check(not regrabbed and #room.staticMoving == 1,
+        "a body that could not be taken out is not grabbed straight back: "
+            .. table.concat(seen, ","))
+end
+
 -- ---------------------------------------------------------------------------
 -- Speech policy and native action guards
 -- ---------------------------------------------------------------------------

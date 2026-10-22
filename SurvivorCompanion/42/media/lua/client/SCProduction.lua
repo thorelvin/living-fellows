@@ -670,6 +670,10 @@ end
 local function blockOrder(order, reason)
     metrics.blocked = metrics.blocked + 1
     SC.BaseLife.blockProductionOrder(order.id, reason)
+    -- Rate-limited per order, so a playtest log shows why a job stopped.
+    if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
+        SC.Diagnostics.report("production", order.id, "blocked", tostring(reason))
+    end
     return false, reason, true
 end
 
@@ -2818,6 +2822,7 @@ function Disposal.candidate(body, order, actor, burning)
     if not U().instanceOf(body, "IsoDeadBody") then return nil end
     local data = Disposal.bodyData(body)
     if data and data[Production.BURNED_TAG] ~= nil then return nil, "burned" end
+    if Disposal.haulRefused(data) then return nil, "haul_refused" end
     local eligible, why = bodyEligible(body, order, actor)
     if not eligible then return nil, why end
     local kind, fallen = Disposal.identity(body)
@@ -3769,6 +3774,26 @@ function Disposal.safeDropOutside(actor, haul)
     return nil, reason or "approaching_outdoor_drop"
 end
 
+-- Take the body to clear outdoor ground before letting go, for a bounded
+-- time only. A room whose only ways out are windows, fences or stairs, or a
+-- crowd that never parts, must not keep the hauler towing it forever. Past
+-- the limit the body goes down where the hauler stands, the order blocks for
+-- its usual retry, and this body is left alone for a while.
+function Disposal.leaveOutside(actor, order, state, context, haul, reason, refuse)
+    haul.outdoorDropSince = haul.outdoorDropSince or now()
+    local outside, outsideReason = Disposal.safeDropOutside(actor, haul)
+    if outside ~= true then
+        if now() - haul.outdoorDropSince < config("productionCorpseOutdoorDropMs", 30000) then
+            if outside == nil then return true, outsideReason end
+            return true, "waiting_for_outdoor_drop:" .. tostring(outsideReason)
+        end
+        Disposal.refuseHaul(haul)
+        return Disposal.dropHere(actor, order, state, context, "no_way_out_with_body", true)
+    end
+    if refuse == true then Disposal.refuseHaul(haul) end
+    return Disposal.dropHere(actor, order, state, context, reason, true)
+end
+
 function Disposal.emergencyDrop(actor, order, state, context)
     speak(actor, "burial.haul.threat", nil, tostring(now()), context.runtime)
     return Disposal.dropHere(actor, order, state, context, "unsafe_area")
@@ -3981,12 +4006,7 @@ function Disposal.continueDrag(actor, order, state, context, zone)
     if haul.pyreKey then claim(haul.pyreKey, order.id, context.actorId) end
     local elapsed = now() - (haul.dragStartedAt or now())
     if elapsed > config("productionCorpseDragTimeoutMs", 90000) then
-        local outside, outsideReason = Disposal.safeDropOutside(actor, haul)
-        if outside == nil then return true, outsideReason end
-        if outside == false then
-            return true, "waiting_for_outdoor_drop:" .. tostring(outsideReason)
-        end
-        return Disposal.dropHere(actor, order, state, context, "drag_timeout", true)
+        return Disposal.leaveOutside(actor, order, state, context, haul, "drag_timeout", false)
     end
     state.phase = "dragging"
     speak(actor, "burial.haul.drag", nil,
@@ -4008,15 +4028,11 @@ function Disposal.continueDrag(actor, order, state, context, zone)
         if now() - haul.routeBlockedSince < 15000 then
             return true, "drag_route_replanning:" .. tostring(moveReason)
         end
-        local outside, outsideReason = Disposal.safeDropOutside(actor, haul)
-        if outside == nil then return true, outsideReason end
-        if outside == false then
-            return true, "waiting_for_outdoor_drop:" .. tostring(outsideReason)
-        end
-        return Disposal.dropHere(actor, order, state, context,
+        return Disposal.leaveOutside(actor, order, state, context, haul,
             "drag_route_blocked:" .. tostring(moveReason), true)
     end
     haul.routeBlockedSince, haul.routeBlockReason = nil, nil
+    haul.outdoorDropSince = nil
     if result ~= "arrived" then return true, moveReason end
     local accepted, reason = U().move(actor, "walk", {
         action = "drop_body", targetSquare = U().squareOf(actor),
@@ -4157,6 +4173,67 @@ function Disposal.settleIdle(actor)
     if native.dragSessionActive(actor) then pcall(native.settleDrag, actor) end
 end
 
+-- Only a running haul may move a companion with a corpse in tow. A hauler
+-- whose order cannot run this pulse (paused, blocked by a co-worker, gone,
+-- reassigned), or whose decision turned to other work, lets go first. The
+-- body stays in the world and its tag is overwritten by the next grab. A
+-- native grab or drop still under way finishes first; its poller reconciles
+-- the body and the next call lets go. Once the grapple has ended, a later
+-- call puts the hand items from the grab back.
+function Production.releaseDrag(actor, reason)
+    local state = actor and actorStates[actor] or nil
+    local haul = state and state.haul or nil
+    local native = natives()
+    if not native or type(native.isDraggingCorpse) ~= "function" then
+        return false, "natives_unavailable"
+    end
+    local session = type(native.dragSessionActive) == "function"
+        and native.dragSessionActive(actor) == true
+    if not haul and not session then return false, "not_hauling" end
+    local work = state and state.work or nil
+    local haulWork = work and (work.kind == "grab_body" or work.kind == "drop_body")
+    if haulWork and workActive(actor, work.kind) then return false, "haul_action_active" end
+    local dragging = native.isDraggingCorpse(actor) == true
+    local towing = dragging or (haul ~= nil and haul.stage == "dragging")
+    if towing then
+        if dragging then pcall(native.releaseCorpse, actor) end
+        if haulWork then state.work = nil end
+        if haul then Disposal.abandonHaul(state, { actorId = actorId(actor) }) end
+        if state then state.phase = "seeking" end
+    end
+    if session and native.isDraggingCorpse(actor) ~= true
+        and type(native.settleDrag) == "function" then
+        pcall(native.settleDrag, actor)
+    end
+    if not towing then return false, "not_towing" end
+    return true, reason or "drag_released"
+end
+
+-- A body that could not be taken out is left alone for a while, so the next
+-- pass does not grab it straight back into the same dead end. The haul tag
+-- survives the grapple's respawn of the body, so it names the body wherever
+-- the grapple put it down. Runtime only and bounded.
+Disposal.refusedTags, Disposal.refusedOrder = {}, {}
+
+function Disposal.refuseHaul(haul)
+    local tag = type(haul) == "table" and haul.tag or nil
+    if tag == nil then return false end
+    if Disposal.refusedTags[tag] == nil then
+        Disposal.refusedOrder[#Disposal.refusedOrder + 1] = tag
+    end
+    Disposal.refusedTags[tag] = now() + config("productionCorpseHaulRefusedMs", 600000)
+    while #Disposal.refusedOrder > 32 do
+        Disposal.refusedTags[table.remove(Disposal.refusedOrder, 1)] = nil
+    end
+    return true
+end
+
+function Disposal.haulRefused(data)
+    local tag = type(data) == "table" and data[Production.HAUL_TAG] or nil
+    local untilAt = tag ~= nil and Disposal.refusedTags[tag] or nil
+    return untilAt ~= nil and now() < untilAt
+end
+
 function Disposal.finishCollect(actor, order, state, context, zone)
     if zone.kind == "burial" then
         -- An automatic collection order may contain only one body. Keep an
@@ -4288,10 +4365,16 @@ function Production.update(actor, baseState, job, runtime)
     local orderId = type(job) == "table" and type(job.target) == "table"
         and job.target.orderId or nil
     local order = SC.BaseLife.productionOrder(orderId)
-    if not order then return false, "production_order_missing", true end
-    if order.state == "paused" then return false, "production_order_paused", false end
+    -- An order that cannot run this pulse never leaves its hauler towing a
+    -- body into whatever the decision picks next.
+    local function idle(handled, reason, terminal)
+        Production.releaseDrag(actor, reason)
+        return handled, reason, terminal
+    end
+    if not order then return idle(false, "production_order_missing", true) end
+    if order.state == "paused" then return idle(false, "production_order_paused", false) end
     if order.state == "cancelled" or order.state == "completed" then
-        return false, "production_order_" .. order.state, true
+        return idle(false, "production_order_" .. order.state, true)
     end
     -- A blocked order re-checks its blocker on a bounded cadence (missing
     -- tool, empty area, no bodies yet) instead of retrying the failed action.
@@ -4301,11 +4384,13 @@ function Production.update(actor, baseState, job, runtime)
         and (job.state ~= "blocked" or (tonumber(job.retryAt) or 0) <= now()) then
         SC.BaseLife.reopenProductionOrder(order.id)
     end
-    if order.state ~= "running" then return false, order.blocker or "production_blocked", false end
+    if order.state ~= "running" then
+        return idle(false, order.blocker or "production_blocked", false)
+    end
     local id = actorId(actor)
-    if not assigned(order, id) then return false, "production_worker_not_assigned", true end
+    if not assigned(order, id) then return idle(false, "production_worker_not_assigned", true) end
     local descriptor = descriptors[order.operation]
-    if not descriptor then return blockOrder(order, "production_operation_unavailable") end
+    if not descriptor then return idle(blockOrder(order, "production_operation_unavailable")) end
     local state = stateFor(actor, order.id)
     local returnHandled, returnReason, returnTerminal = returnBorrowedTool(actor, order, state)
     if returnHandled ~= nil then return returnHandled, returnReason, returnTerminal end
@@ -4331,10 +4416,14 @@ function Production.update(actor, baseState, job, runtime)
     -- A blocked/cancelled attempt must not strand a borrowed shovel in the
     -- worker's bag. Reopen only long enough to make the verified return trip,
     -- then restore the original blocker for the management UI.
+    -- Kahlua does not reliably publish next(); probe with pairs.
+    local borrowedKey
     if terminal == true and order.state == "blocked"
-        and type(state.borrowedTools) == "table"
-        and next(state.borrowedTools) ~= nil then
-        local key = next(state.borrowedTools)
+        and type(state.borrowedTools) == "table" then
+        for key in pairs(state.borrowedTools) do borrowedKey = key break end
+    end
+    if borrowedKey ~= nil then
+        local key = borrowedKey
         SC.BaseLife.reopenProductionOrder(order.id)
         scheduleToolReturn(state, key)
         state.toolReturn.blocker = reason or order.blocker or "production_blocked"
@@ -4497,6 +4586,7 @@ function Production.reset(actor)
     burialOutcomes, burialOutcomeOrder = {}, {}
     pendingAmen = nil
     Disposal.urgentAt = {}
+    Disposal.refusedTags, Disposal.refusedOrder = {}, {}
     lastProductionSpeechAt = -math.huge
     chopSession = { native = false, fallback = false }
     for key in pairs(metrics) do
