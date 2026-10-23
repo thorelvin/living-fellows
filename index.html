@@ -311,23 +311,22 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <p class="subtitle">A Complete Guide to Living with the Fellows of Knox County</p>
   <p class="divider">· · · ✚ · · ·</p>
   <p class="edition">Living Fellows — Project Zomboid Build 42.21.0 Edition</p>
-  <p class="version">Release 0.26.57 — First Edition, Sixteenth Printing — You won't die... alone.</p>
+  <p class="version">Release 0.26.59 — First Edition, Seventeenth Printing — You won't die... alone.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2.5rem;"><span class="callout-label">Note — </span>
-<strong>What changed in this printing</strong> — through release 0.26.57:
+<strong>What changed in this printing</strong> — through release 0.26.59:
 <ul style="margin-top:0.5rem;margin-bottom:0;">
-  <li><a href="#ch16_haul"><strong>Bodies come out of houses.</strong></a> A gravekeeper takes hold of a body from the side its route leaves by and drags it through as many doors as the house has. One that gets stuck indoors puts the body out of a nearby open or broken window, goes out to it and carries on.</li>
-  <li><strong>Bodies land on the pyre.</strong> A gravekeeper drags each body across the pyre and lays it down as soon as it is over the pyre, even a one-tile one.</li>
-  <li><a href="#ch16_haul"><strong>Bodies come down from upstairs.</strong></a> A drag can't take the stairs, so upstairs a gravekeeper puts the body out of an open window over open ground on the grave or pyre floor, then goes down and picks it up. A window over a porch roof or a balcony is never used.</li>
-  <li><a href="#ch14"><strong>Nothing else with a body in tow.</strong></a> A companion dragging a body puts it down before it eats, scavenges, rests or takes up other work. A body that can't be got out of a room is left alone for ten minutes instead of being dragged round and round.</li>
-  <li><a href="#ch17"><strong>Home to the driveway.</strong></a> A car coming home turns off the road into its planned driveway and parks in the marked area, even when it arrives facing along the street.</li>
+  <li><a href="#ch11_floor"><strong>A sorting floor and a trash pile.</strong></a> Drop loot on a marked Sorting floor and residents on duty carry each item to marked storage of its kind. Trash goes onto a marked Trash pile and stays there on the ground.</li>
+  <li><a href="#ch4_field"><strong>Field work clears the whole spot.</strong></a> Clear nearby trees takes every tree within eight tiles, not five, and a full bag or trunk no longer stops the order: logs are left where they fall and unpicked crops keep growing. With a car, the logs still go to the trunk, one per trip.</li>
+  <li><a href="#ch9e"><strong>Proper sleep.</strong></a> A tired companion at camp looks for a bed in a marked Rest area first, then anywhere in camp, and sleeps about six game hours, more or less with the bed and its sleep traits. Zombies in sight, panic or real pain keep it awake, and a resident close to exhaustion may set a long job aside to sleep (<a href="#ch14">Ch 14</a>).</li>
+  <li><a href="#ch14b"><strong>Every bit of blood.</strong></a> A Wash car from base order cleans off any visible blood; routine upkeep still waits until there is more.</li>
 </ul>
-<p style="margin:0.6rem 0 0;">Also current: <a href="#ch7_carry">two carrying limits</a>, <a href="#ch4_field">bigger field harvests</a>, <a href="#ch11">Fresh food, Valuables and Outdoor log yard storage</a>, <a href="#ch17_delivery">supplies tracked from finder to shelf</a>, <a href="#ch17">car expeditions</a>, <a href="#ch14b">camp car and generator upkeep</a>, <a href="#ch5c">a companion-driven second car and Markus Sloane's taxi</a>, <a href="#ch6">coordinated squad fighting</a>, <a href="#appB_mod">companion chatter and comfort settings</a>, <a href="#ch18c">sixty-five Strange Folk</a> with <a href="#ch18c_calls">calls for help</a> on 90 MHz, the hands-on <a href="#ch3b">Medical Check</a>, and <a href="#ch11">25 by 25 camps</a>. This release uses native bridge protocol <code>42.21-isocompanion-24</code>.</p>
+<p style="margin:0.6rem 0 0;">Also current: <a href="#ch16_haul">bodies dragged out of houses and down from upstairs, and laid on the pyre</a>, <a href="#ch7_carry">two carrying limits</a>, <a href="#ch4_field">bigger field harvests</a>, <a href="#ch11">Fresh food, Valuables and Outdoor log yard storage</a>, <a href="#ch17_delivery">supplies tracked from finder to shelf</a>, <a href="#ch17">car expeditions</a>, <a href="#ch14b">camp car and generator upkeep</a>, <a href="#ch5c">a companion-driven second car and Markus Sloane's taxi</a>, <a href="#ch6">coordinated squad fighting</a>, <a href="#appB_mod">companion chatter and comfort settings</a>, <a href="#ch18c">sixty-five Strange Folk</a> with <a href="#ch18c_calls">calls for help</a> on 90 MHz, the hands-on <a href="#ch3b">Medical Check</a>, and <a href="#ch11">25 by 25 camps</a>. This release uses native bridge protocol <code>42.21-isocompanion-24</code>.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2.5rem;"><span class="callout-label">Note — </span>
-<strong>About this manual</strong> — it covers what the companion panel does not explain: how the fellows think, what they need from you, and the rules they follow when nobody is giving orders. Everything here describes release 0.26.57 and was checked against the mod itself. Living Fellows is a <strong>public playtest</strong>: back up important saves, and send logs when something goes wrong (<a href="#appD">Appendix D</a>). The mod lives at <a href="https://github.com/thorelvin/living-fellows">github.com/thorelvin/living-fellows</a>. The <em>Overheard</em> quotes are real lines from the mod's own voice pools.
+<strong>About this manual</strong> — it covers what the companion panel does not explain: how the fellows think, what they need from you, and the rules they follow when nobody is giving orders. Everything here describes release 0.26.59 and was checked against the mod itself. Living Fellows is a <strong>public playtest</strong>: back up important saves, and send logs when something goes wrong (<a href="#appD">Appendix D</a>). The mod lives at <a href="https://github.com/thorelvin/living-fellows">github.com/thorelvin/living-fellows</a>. The <em>Overheard</em> quotes are real lines from the mod's own voice pools.
 </div>
 
 <!-- TABLE OF CONTENTS -->
@@ -615,10 +614,11 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <div class="callout callout-warn"><span class="callout-label">Take care — </span>A companion is not a remote-controlled gun. Doctrine, Hold Fire, line of sight, safe attack choice and overrun judgement all still apply, and a companion may refuse a bad instruction rather than obey it blindly. A <strong>push</strong> costs that companion morale and stress, works better when trust and bond are high, never overrides a missing escape route or missing support, and is remembered differently if it succeeds or gets them hurt.</div>
 
 <h3 id="ch4_field">One-off Field Work Away from Camp</h3>
-<p>With recruited companions on Follow, right-click a ground tile near you and choose <span class="menu">Living Fellows → Squad → Harvest nearby ripe crops</span> or <span class="menu">Chop nearby trees (up to five)</span>. One temporary green circle marks the tile you clicked. Harvesting covers ripe crops within 16 tiles; chopping covers trees within eight tiles. Followers within 16 tiles join the same order, claim different targets, and use the game's farming or tree-chopping actions. Camp-owned areas are left to the regular base jobs.</p>
-<p>If the last non-taxi car you rode, as driver or passenger, is parked within 40 tiles of a crop order or 20 tiles of a tree order, the squad loads its gathered items into that car, up to eight at a time, including produce carried in bags. A woodcutter can borrow an axe from its trunk and return it when finished. Without a nearby car, the workers carry what they gather and keep it for you. If that car's trunk is locked, one follower enters, unlocks it from inside, and gets out before work begins. A locked or unreachable door, a failed unlock, a full trunk or an unavailable car pauses the order with a reason instead of switching cars or leaving cargo on the ground.</p>
-<p>Each worker plans against its carrying limit (<a href="#ch7_carry">Chapter 7</a>). A trip ends at about four-fifths of that limit, and a crop worker skips a plant whose biggest possible yield, counting seeds and farming skill, would take it over. A worker carrying none of the order's cargo may still take one heavy plant, such as a pumpkin, or one log, if it fits in the pack. Back inside the camp, a worker without a car puts its own harvest into matching marked storage, and logs into a marked log yard (<a href="#ch11">Chapter 11</a>). Its protected gear and provisions stay with it, and if that storage is full or out of reach, the cargo stays too until a later try.</p>
-<p>The <span class="menu">Squad</span> panel shows progress and offers <strong>Stop field work and regroup</strong> or <strong>Resume field work</strong> when paused. An immediate threat interrupts work, and the order does not wait for a worker who has died. Walking more than 32 tiles from a crop order or 16 tiles from a tree order ends it and brings the followers back to you.</p>
+<p>With recruited companions on Follow, right-click a ground tile near you and choose <span class="menu">Living Fellows → Squad → Harvest nearby ripe crops</span> or <span class="menu">Clear nearby trees (8-tile area)</span>. One temporary green circle marks the tile you clicked. Harvesting takes every ripe crop within 16 tiles; clearing takes every standing tree within eight tiles. Followers within 32 tiles join a harvest, and within 25 tiles a clearing; each option appears only when a follower is that close. They claim different targets and use the game's farming or tree-chopping actions, and one of them says what the squad is starting. Camp-owned areas are left to the regular base jobs.</p>
+<p>If the last non-taxi car you rode, as driver or passenger, is parked within 40 tiles of a crop order or 20 tiles of a tree order, the squad loads its gathered items into that car, up to eight at a time, including produce carried in bags. A woodcutter can borrow an axe from its trunk and return it when finished. Without a nearby car, the workers carry what they gather and keep it for you. If that car's trunk is locked, one follower enters, unlocks it from inside, and gets out before work begins. A locked or unreachable door, a failed unlock or an unavailable car pauses the order with a reason instead of switching cars.</p>
+<p>Each worker plans against its carrying limit (<a href="#ch7_carry">Chapter 7</a>). A trip ends at about four-fifths of that limit, and a crop worker skips a plant whose biggest possible yield, counting seeds and farming skill, would take it over; after unloading at the car it goes back for that plant. A crop worker carrying none of the order's produce may still take one heavy plant, such as a pumpkin, if it fits in the pack. With a car, a tree worker carrying none of the order's logs takes one log per trip to the trunk the same way: a log (9) beside an axe (3) is already over four-fifths of an average companion's limit of 12. Without a car, a worker picks up a log only if it stays under four-fifths of its limit with it, so most leave their logs on the ground.</p>
+<p>A full bag or trunk doesn't stop the order. A crop worker keeps what it has picked and leaves the remaining plants growing; a tree worker goes on clearing and leaves the new logs where they fall. The worker says so once. When the order ends, a worker reports whether the area is clear, whether some trees or crops are left, or that part of it wasn't loaded and couldn't be checked. Back inside the camp, a worker without a car puts its own harvest into matching marked storage, and logs into a marked log yard (<a href="#ch11">Chapter 11</a>). Its protected gear and provisions stay with it, and if that storage is full or out of reach, the cargo stays too until a later try.</p>
+<p>The <span class="menu">Squad</span> panel shows progress and offers <strong>Stop field work and regroup</strong> or <strong>Resume field work</strong> when paused. An immediate threat interrupts work, and the order does not wait for a worker who has died. Walking more than 32 tiles from a crop order or 25 tiles from a tree order ends it and brings the followers back to you.</p>
 
 <h3>Assigned Objectives</h3>
 <p>Right-click a recruited companion and choose <span class="menu">Assign objective</span> to set a concrete priority: medical supplies, reading material, gear, shelter, or a proper meal. Their own personal goal is kept and comes back once your objective is met (<a href="#ch9d">Chapter 9d</a>).</p>
@@ -1316,7 +1316,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/0e/SheetRope.png" alt=""></td><td><strong>Making sheet rope</strong></td><td>For climbing out of windows</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/5/52/Bucket.png" alt=""></td><td><strong>Washing</strong></td><td>Themselves, their gear, and dirty dressings for reuse, at reachable clean water. Protected items are left alone, and a washed dressing keeps its custom name and favourite mark.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/a/a0/Sponge.png" alt=""></td><td><strong>Showering</strong></td><td>When grime builds up, at most once every 18 game hours: a working shower within 8 tiles. They undress, wash every trace of blood and dirt away with ten units of the shower's water, and dress again exactly as before. Some sing.</td></tr>
-  <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/2/2b/Moodle_Icon_Tired.png" alt=""></td><td><strong>Rest</strong></td><td>A bed or cot, a usable chair, or the floor when no seat or bed is free. A tired companion sleeps in a bed for 3½ to 9 game hours, longer the more tired it is, and wakes rested; a chair rest lasts 25 to 85 game minutes. Danger and a new order wake them.</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/2/2b/Moodle_Icon_Tired.png" alt=""></td><td><strong>Rest</strong></td><td>A bed or cot, a usable chair, or the floor when no seat or bed is free. A companion tired enough to sleep, by the game's own "not tired enough" mark, looks for a bed. At camp it tries a marked Rest area first, then anywhere in camp. On an ordinary bed it sleeps about six game hours: an hour less on a good bed, an hour more on a bad one, shorter with Insomniac or Needs Less Sleep and longer with Needs More Sleep. Zombies in sight keep it awake. Panic does too, and so does real pain until it is close to collapse, unless it has taken sleeping pills. It won't lie down again within an hour of waking. A chair rest lasts 25 to 85 game minutes. Danger and a new order wake them.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/7/75/Television.png" alt=""></td><td><strong>Television</strong></td><td>A powered TV with the volume up: they take a seat that faces the screen, or stand in the same room where they can see it. At camp they may go one floor up or down to a TV that is on. Skill shows and VHS tapes give each viewer the game's usual XP and recipes, once per line, remembered across saves. They may comment, or note something worth learning.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/3/31/Radio.png" alt=""></td><td><strong>Radio</strong></td><td>A powered radio within reach, or one floor away at camp: they switch it on, tune it to a station (never the squad's own channel), turn the volume up if it is off, then sit nearby and listen, remarking on what they hear. It passes the time; it teaches nothing.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/b/bb/Moodle_Icon_Bored.png" alt=""></td><td><strong>Window watching</strong></td><td>Indoors, a short look out of a nearby window, opening a closed curtain first; they wait if someone else has the spot, and never stand on a chair, table or counter to look out</td></tr>
@@ -1513,6 +1513,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><th>Zone</th><th>What it is for</th><th>Where it may lie</th></tr>
   <tr><td><strong>Camp boundary</strong></td><td>The camp itself; also added on its own to connected floors (<a href="#ch12">Ch 12</a>)</td><td>Around the camp core to begin with. Draw more starting inside the camp to grow it (below), or on a connected floor</td></tr>
   <tr><td><strong>Work area</strong></td><td>General camp work</td><td>Inside the camp</td></tr>
+  <tr><td><strong>Sorting floor</strong></td><td>Loot you drop for the camp to put away (<a href="#ch11_floor">below</a>)</td><td>Inside the camp</td></tr>
+  <tr><td><strong>Trash pile</strong></td><td>Where trash from the sorting floor is left</td><td>Inside the camp</td></tr>
   <tr><td><strong>Rest area</strong></td><td>Where residents rest</td><td>Inside the camp</td></tr>
   <tr><td><strong>Social area</strong></td><td>Where residents gather</td><td>Inside the camp</td></tr>
   <tr><td><strong>Guard area</strong></td><td>Where guards keep watch</td><td>Inside the camp</td></tr>
@@ -1535,6 +1537,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td>One Camp boundary rectangle</td><td>No size limit. Each covers one floor; stairs add the floors above and below (<a href="#ch12">Ch 12</a>).</td></tr>
   <tr><td>Zones per camp</td><td>24 in all, every kind together: boundaries, work, rest, guard, lumber, farm, burial and the rest. Marked storage doesn't count.</td></tr>
   <tr><td>Lumber, log yard, farm or fishing area</td><td>256 tiles each (16 × 16, for example)</td></tr>
+  <tr><td>Sorting floor or trash pile</td><td>256 tiles each; none may overlap another of either kind</td></tr>
   <tr><td>Parking area</td><td>256 tiles, at ground level and within 20 tiles of a ground-floor camp area</td></tr>
   <tr><td>Burial ground</td><td>128 tiles</td></tr>
   <tr><td>Pyre</td><td>9 tiles</td></tr>
@@ -1573,6 +1576,11 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <div class="callout callout-tip"><span class="callout-label">Note — </span>Residents may use marked storage on another camp floor, and may stand just outside the boundary to reach it. Assign residents, roles and policies in <span class="menu">More → Base</span>.</div>
 
 <div class="lore-pull"><span class="lore-label">Overheard — </span>Quiet minute. How are you doing, friend?<span class="who">— a resident at camp</span></div>
+
+<h3 id="ch11_floor">The Sorting Floor and Trash Pile</h3>
+<p>Draw a <strong>Sorting floor</strong> where you dump loot, then leave it to the camp. Residents on base duty, Quartermasters first, pick up each item lying there, one at a time and in plain view, and carry it to marked storage of its category by the shelf sorter's rules: food goes to Regular or Fresh food, logs to a log yard when one is marked, and valuables wait for marked Valuables storage. An item whose category has no marked storage stays on the floor; the sorting floor never fills General with it. Anything the game counts as trash goes to the nearest free tile of a marked <strong>Trash pile</strong> and is left there on the ground, where you can still pick through it.</p>
+<p>When an item can't be put away, the job waits and the Base panel says why: <em>No marked Tools storage; items remain on the sorting floor</em>, <em>Marked Tools storage is full</em>, or <em>No trash pile is marked</em>. When nothing of that kind, or no trash pile, is marked at all, a resident within earshot also says so once. An item a worker has no room for is set aside for half a minute while lighter ones go first. Items another job has reserved, quest items and things that belong to someone are left alone.</p>
+<p>A worker never drops an item from across the camp. If storage fills up or disappears while it carries something, it walks the item back to its tile and puts it down there, or puts it down where it stands if it can't get back within half a minute. Called away, it puts the item down where it stands. Each sorting floor and trash pile lies inside the camp and holds at most 256 tiles, and none may overlap another of either kind. A zone can't be removed while a worker is carrying an item from it or to it.</p>
 
 <h3>Abandoning a Camp</h3>
 <p>To move, choose <span class="menu">Abandon camp</span> from the camp's right-click menu or at the end of <span class="menu">More → Base</span>, confirm, and set a new camp core. Running camp work is stopped. Anything a companion was carrying for the camp stays with it, and residents leave duty and stay where they stand. The camp's zones, storage marks and plans are removed; buildings and stored items stay in the world.</p>
@@ -1675,7 +1683,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <ul>
   <li><strong>Chopping is loud.</strong> No tree is started while danger is visible nearby, winded residents rest, and a chop that gets stuck is abandoned after three minutes.</li>
   <li><strong>Nights indoors.</strong> From 21:00 to 06:00 outdoor camp work pauses: workers head to an indoor camp square, outdoor jobs wait for daylight, and indoor chores carry on. A farm job already under way is finished, and a Chef stays by a pot on a lit fire. Switch on <strong>Work outside at night</strong> in the base policies (<a href="#ch14b">Ch 14b</a>) to keep everyone working. That switch covers the gravekeeper and woodcutter too: at night, without it, no tree outdoors is started and no body lying outdoors is fetched.</li>
-  <li><strong>Sleep first.</strong> A resident who is more than half tired sleeps in a bed before claiming its next job, and keeps the bed until rested. A job already in hand is finished first.</li>
+  <li><strong>Sleep first.</strong> A resident tired enough to sleep (<a href="#ch9e">Ch 9e</a>) sleeps in a bed before claiming its next job, and keeps the bed until rested. A job already in hand is finished first, unless the resident is close to exhaustion and finds a bed it can reach: then it settles what it carries for the camp, sleeps, and the job waits for later.</li>
   <li><strong>Loot first.</strong> A gravekeeper with a burial ground takes bodies as they lie, clothes, pockets and all, and buries them with their belongings. A pyre still leaves a body carrying items for you to loot.</li>
   <li><strong>Dragging.</strong> A resident dragging a body walks backwards with it through doors, never over fences or up and down stairs (<a href="#ch16_haul">Ch 16</a>). It drops the body at once when danger shows up, and puts it down before it eats, scavenges, rests or takes up any other work. The body stays where it was left.</li>
   <li><strong>Blocked work</strong> shows its reason and tries again on its own, waiting longer each time; a job that keeps failing ends up under <strong>Stalled jobs</strong> (<a href="#ch14b">Ch 14b</a>).</li>
@@ -1755,7 +1763,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <h3>Parked Cars and Generators</h3>
 <p>Available base-duty residents can refuel a car parked in the marked Parking area and a generator within camp work reach when either falls below half a tank. They take fuel from marked camp storage. They can also inflate a parked car's tires with a stored pump and wash its bodywork with tainted water, or fill an empty vessel at a suitable camp sink. Stored clean drinking water is left for people. These are shared chores, independent of the resident's selected job.</p>
-<p>Right-click an eligible car or generator for a one-time order: <span class="menu">Refuel car from base</span>, <span class="menu">Inflate tires from base</span>, <span class="menu">Wash car from base</span>, or <span class="menu">Refuel generator from base</span>. A full tank, inflated tires, missing supplies or a target outside camp reach gives a reason. If a tool, can, target or worker goes missing during a job, the camp records the problem rather than keeping the item reserved forever.</p>
+<p>Right-click an eligible car or generator for a one-time order: <span class="menu">Refuel car from base</span>, <span class="menu">Inflate tires from base</span>, <span class="menu">Wash car from base</span>, or <span class="menu">Refuel generator from base</span>. A wash order cleans off any visible blood; routine upkeep waits until there is more of it. A full tank, inflated tires, missing supplies or a target outside camp reach gives a reason. If a tool, can, target or worker goes missing during a job, the camp records the problem rather than keeping the item reserved forever.</p>
 
 <h3>Zones, Storage and Maintenance</h3>
 <ul>
@@ -2186,7 +2194,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 18c -->
 <h2 class="chapter" id="ch18c"><img class="ico" src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Chapter 18c: Strange Folk<span class="stage stage-end">Strangers</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<div class="callout callout-tip"><span class="callout-label">Note — </span>Strange Folk arrived in 0.26.35. Release 0.26.57 uses native bridge protocol <code>42.21-isocompanion-24</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Strange Folk arrived in 0.26.35. Release 0.26.59 uses native bridge protocol <code>42.21-isocompanion-24</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
 
 <p>Not every stranger is a household looking for supplies. Sixty-five hand-made characters live in Knox County: a butcher with a back room, a deputy still running her checkpoint, a grandmother guarding a child's bedroom with a broken bottle, a man who smeared himself in the dead so they'd leave him alone. Each one is a one-off with their own rules, voice and ending. They use the same standing, trade, combat, navigation and recruitment rules as other survivors, and their animals are real Build 42 animals with names that survive saves.</p>
 
@@ -2384,6 +2392,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h3>A gravekeeper leaves a body indoors</h3>
 <p>The drag found no way out the gravekeeper could finish: no door route it could make progress on, and no open or broken window nearby onto ground the order works. Open or break a window in that room, clear the doorways, or carry the body out yourself. Upstairs, open a window over open ground rather than over a porch roof, or carry the body down yourself. The gravekeeper leaves that body alone for ten minutes, then tries again. The game log records why the order was blocked; include it if you report the problem (<a href="#appD">Appendix D</a>).</p>
 
+<h3>Items stay on the sorting floor</h3>
+<p>The Base panel names what is missing. Mark storage of that category or make room in it, and mark a Trash pile for trash; the sorting floor never puts an item into General storage instead. An item a worker has no room for waits until someone can carry it, and the floor is only worked by residents on base duty (<a href="#ch11_floor">Chapter 11</a>).</p>
+
 <h3>A companion is missing after a long trip</h3>
 <p>Companions left behind come back where they were as soon as their ground loads again, so head toward where you left them. One left in a parked car waits beside it. If someone is still missing, open <span class="menu">More → Support</span> and send its report; reloading the save brings them back.</p>
 
@@ -2499,7 +2510,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li>Follow distance: close, 2, 3, 5 or 8 tiles. Movement: Copy player, Walk, Sneak, Run.</li>
   <li>New recruits: Follow, Copy player, Ride with player, Scavenge when safe.</li>
   <li><span class="k">Dismiss</span> is confirmed by name; it waits only for a fight for their life or an action that can't be stopped.</li>
-  <li><span class="k">Squad field work</span>: right-click ground to harvest ripe crops or chop up to five nearby trees; stop or resume from Squad.</li>
+  <li><span class="k">Squad field work</span>: right-click ground to harvest ripe crops or clear every tree within 8 tiles; stop or resume from Squad.</li>
 </ul>
 <p class="tbl-note">Ch 4</p>
 </div>
@@ -2595,7 +2606,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p><span class="k">Roles needed</span>: guard and builder (Carpenter) at 2 residents · medic at 3 · quartermaster at 4 · farmer with a farm area.</p>
 <p><span class="k">Defence</span>: Rotating watch · Role based · All hands. <span class="k">Workload</span>: Essential · Balanced · Continuous.</p>
 <p><span class="k">Stalled jobs</span>: six failures in a row, then Retry or Cancel. <span class="k">Base Watch</span> keeps camp loaded while you travel.</p>
-<p class="tbl-note">Ch 14b, 14c</p>
+<p><span class="k">Sorting floor</span>: drop loot there for marked storage; trash goes to a Trash pile.</p>
+<p class="tbl-note">Ch 11, 14b, 14c</p>
 </div>
 
 <div class="card">
@@ -2633,7 +2645,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CARD END -->
 
 <div class="page-footer">
-  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.57 &nbsp;·&nbsp; First Edition, Sixteenth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
+  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.59 &nbsp;·&nbsp; First Edition, Seventeenth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
 </div>
 <script>
 (function () {
