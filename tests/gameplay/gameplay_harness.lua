@@ -4735,6 +4735,7 @@ check(upperState.nativeLease.expires - clock == 30000,
     "a multi-floor route has a progress-refreshable lease long enough to reach a distant staircase")
 local previousStairNativeActions = SurvivorCompanion.NativeActions
 local stairStopCalls = 0
+local stairNearestCalls = 0
 SurvivorCompanion.NativeActions = {
     pathTelemetry = function()
         return { available = true, active = true, shouldBeMoving = true,
@@ -4743,6 +4744,10 @@ SurvivorCompanion.NativeActions = {
     stopDirect = function()
         stairStopCalls = stairStopCalls + 1
         return true
+    end,
+    pathToNearest = function()
+        stairNearestCalls = stairNearestCalls + 1
+        return true, "nearest_path_started"
     end,
 }
 upperFloorActor.square = cell:getGridSquare(8, 5, 0)
@@ -4769,9 +4774,11 @@ local firstSet = SurvivorCompanion.Navigation.requestAny(
 local setHeld, setReason = SurvivorCompanion.Navigation.requestAny(
     upperFloorActor, { standingTiles[1] }, "walk", { action = "move_to_production_body" })
 check(firstSet and setHeld and upperState.nativeLease
-        and upperState.nativeLease.ultimateGoal == upperGoal and stairStopCalls == 0,
+        and upperState.nativeLease.ultimateGoal == upperGoal and stairStopCalls == 0
+        and stairNearestCalls == 0,
     "a changed set of work tiles cannot cancel an engine stair crossing at fractional height: "
-        .. tostring(setReason) .. " stops=" .. tostring(stairStopCalls))
+        .. tostring(setReason) .. " stops=" .. tostring(stairStopCalls)
+        .. " nearest=" .. tostring(stairNearestCalls))
 upperState.multiGoalOwnerKey, upperState.multiGoalKey = nil, nil
 upperState.multiGoalSelected, upperState.multiGoalFailures = nil, nil
 upperState.nativeLease = nil
@@ -4823,12 +4830,17 @@ SurvivorCompanion.Navigation.request(offerActor, upperGoal, "jog", {
 })
 local offerState = SurvivorCompanion.Navigation.peek(offerActor)
 local offerStops = 0
+local offerNearestCalls = 0
 SurvivorCompanion.NativeActions = {
     pathTelemetry = function()
         return { available = true, active = true, shouldBeMoving = true,
             movingUsingPathFind = true, hasStartedMoving = true }
     end,
     stopDirect = function() offerStops = offerStops + 1 return true end,
+    pathToNearest = function()
+        offerNearestCalls = offerNearestCalls + 1
+        return true, "nearest_path_started"
+    end,
 }
 local otherTile = cell:getGridSquare(7, 6, 0)
 local onlyGoal = SurvivorCompanion.Navigation.requestAny(
@@ -4837,7 +4849,8 @@ offerStops = 0
 local widened, widenedReason = SurvivorCompanion.Navigation.requestAny(
     offerActor, { upperGoal, otherTile }, "walk", { action = "move_to_production_body" })
 check(onlyGoal and widened and offerState.nativeLease
-        and offerState.nativeLease.ultimateGoal == upperGoal and offerStops == 0,
+        and offerState.nativeLease.ultimateGoal == upperGoal and offerStops == 0
+        and offerNearestCalls == 0,
     "stops=" .. tostring(offerStops) .. " lease=" .. tostring(offerState.nativeLease ~= nil)
         .. " goal=" .. tostring(offerState.nativeLease and offerState.nativeLease.ultimateGoal == upperGoal)
         .. " " .. tostring(onlyGoal) .. "/" .. tostring(widened) .. " " .. tostring(widenedReason)
@@ -8840,6 +8853,130 @@ do
         "immediate danger still preempts an owned downtime controller")
     registry[restingActor.id] = nil
 end
+do
+    local worker = actor("sc-base-job-preempts-ambient", 9, 8, {})
+    registry[worker.id] = worker
+    local SC = SurvivorCompanion
+    local old = { peek = SC.Downtime.peek, update = SC.Downtime.update,
+        cancel = SC.Downtime.cancel, jobFor = SC.BaseLife.jobFor,
+        workUpdate = SC.BaseWork.update, claimJob = SC.BaseLife.claimJob,
+        resident = SC.BaseLife.resident, guardStatus = SC.BaseLife.guardStatus }
+    local activity, job, pending, refuseCancel, guarding
+    local workPolls, quietPolls, cancels, claims = 0, 0, 0, 0
+    local priorClock = clock
+    SC.Downtime.peek = function(candidate)
+        if candidate == worker then return { active = activity } end
+        return old.peek(candidate)
+    end
+    SC.Downtime.update = function(candidate, ...)
+        if candidate ~= worker then return old.update(candidate, ...) end
+        quietPolls = quietPolls + 1
+        return true, "fixture_ambient_polled"
+    end
+    SC.Downtime.cancel = function(candidate, reason)
+        if candidate ~= worker then return old.cancel(candidate, reason) end
+        if refuseCancel then return false, "fixture_cleanup_pending" end
+        local stopped, why = SC.ActionSupervisor.cancel(candidate, reason, nil, false)
+        if stopped == true then activity = nil end
+        return stopped, why
+    end
+    SC.BaseLife.jobFor = function(id)
+        if id == worker.id then return job end
+        return old.jobFor(id)
+    end
+    SC.BaseLife.claimJob = function(id)
+        if id ~= worker.id then return old.claimJob(id) end
+        claims = claims + 1
+        job, pending = pending, nil
+        return job
+    end
+    SC.BaseLife.resident = function(id)
+        if id == worker.id then
+            return { duty = true, role = guarding and "guard" or "generalist" }
+        end
+        return old.resident(id)
+    end
+    SC.BaseLife.guardStatus = function(id, current)
+        if id == worker.id then return guarding == true end
+        return old.guardStatus(id, current)
+    end
+    SC.BaseWork.update = function(candidate, ...)
+        if candidate ~= worker then return old.workUpdate(candidate, ...) end
+        check(SC.ActionSupervisor.current(candidate) == nil and activity == nil,
+            "base work waits until the ordinary downtime token and resources are released")
+        workPolls = workPolls + 1
+        return true, "fixture_base_job_polled"
+    end
+    local function run(kind, order, jobType, blocked, pendingType)
+        workPolls, quietPolls, cancels, claims = 0, 0, 0, 0
+        activity = { kind = kind, sleepStarted = kind == "rest_bed" }
+        worker.asleep = activity.sleepStarted
+        job = jobType and { id = "job:ambient_preemption", type = jobType,
+            state = "active", reservedBy = worker.id } or nil
+        pending = pendingType and { id = "job:ambient_pending", type = pendingType,
+            state = "pending" } or nil
+        refuseCancel = blocked
+        local token = assert(SC.ActionSupervisor.begin(worker, {
+            owner = "downtime", action = kind,
+            priority = SC.ActionSupervisor.Priority.DOWNTIME,
+            phase = "waiting", deadlines = { waiting = 0 },
+            metadata = { commandSerial = 7 },
+            onCancel = function() cancels = cancels + 1 return true end,
+            ignoreRetry = true,
+        }))
+        local held, reason = SC.Decision._holdOwnedActivityOrPacingForTests(
+            worker, player,
+            { threats = {}, immediateCount = 0, pressure = 0, player = { danger = 0 } },
+            { alive = true, health = 100, wounds = {}, bleedingCount = 0 }, {},
+            { order = order, recruited = true, commandSerial = 7 }, {}, clock, {})
+        local retained = SC.ActionSupervisor.isCurrent(token)
+        SC.ActionSupervisor.cancel(worker, "fixture_cleanup", nil, true)
+        return held, reason, retained
+    end
+    local held, reason, retained = run("sit", "base_duty", "sort")
+    check(held == true and reason == "fixture_base_job_polled" and workPolls == 1
+            and quietPolls == 0 and cancels == 1 and not retained,
+        "an assigned base job interrupts an ordinary sit before its long game-time wait ends")
+    held, reason, retained = run("rest_bed", "base_duty", "production")
+    check(held == true and retained and quietPolls == 1 and workPolls == 0,
+        "an actual sleeping companion keeps its bed when a base job is assigned")
+    held, reason, retained = run("sit", "stay", "sort")
+    check(held == true and retained and quietPolls == 1 and workPolls == 0,
+        "a player's explicit stay-and-sit order is not interrupted by base jobs")
+    held, reason, retained = run("clean_base", "base_duty", "clean")
+    check(held == true and retained and quietPolls == 1 and workPolls == 0,
+        "a matching cleaning job keeps its owned clean-base controller")
+    held, reason, retained = run("sit", "base_duty", "sort", true)
+    check(held == true and retained and quietPolls == 1 and workPolls == 0,
+        "a refused downtime cleanup keeps polling its owner before base work can start")
+    held, reason, retained = run("sit", "base_duty", nil, false, "sort")
+    check(held == true and retained and claims == 0 and quietPolls == 1,
+        "the initial seated-work probe staggers its queue scan across residents")
+    clock = clock + 1001
+    held, reason, retained = run("sit", "base_duty", nil, false, "sort")
+    check(held == true and not retained and claims == 1 and workPolls == 1,
+        "queued eligible work wakes a sitting base resident without waiting for a prior reservation")
+    held, reason, retained = run("sit", "base_duty", nil, false, "sort")
+    check(held == true and retained and claims == 0 and quietPolls == 1,
+        "a seated resident does not rescan the pending queue more than once per second")
+    clock = clock + 1001
+    held, reason, retained = run("sit", "base_duty", nil, false, "sort")
+    check(held == true and not retained and claims == 1 and workPolls == 1,
+        "the sparse seated-work probe checks again after its interval")
+    clock = clock + 1001
+    guarding = true
+    held, reason, retained = run("sit", "base_duty", nil, false, "sort")
+    check(held == true and retained and claims == 0 and quietPolls == 1,
+        "ambient queue checks preserve an on-duty guard's restriction on unnamed chores")
+    guarding = false
+    SC.Downtime.peek, SC.Downtime.update, SC.Downtime.cancel =
+        old.peek, old.update, old.cancel
+    SC.BaseLife.jobFor, SC.BaseWork.update = old.jobFor, old.workUpdate
+    SC.BaseLife.claimJob, SC.BaseLife.resident, SC.BaseLife.guardStatus =
+        old.claimJob, old.resident, old.guardStatus
+    clock = priorClock
+    registry[worker.id] = nil
+end
 local stagedActive, stagedActiveReason = SurvivorCompanion.Medical.treat(
     stagedMedic, stagedMedic, {})
 check(stagedActive and stagedActiveReason == "treatment_animation_active"
@@ -9908,6 +10045,41 @@ do
     bedSquare.objects[#bedSquare.objects + 1] = bed
     deepBedSquare.objects[#deepBedSquare.objects] = nil
     farBed.square = farBedSquare
+    do
+        -- Count bounds reads rather than wall time: the old square-ring walk did
+        -- over 400,000 out-of-zone visits before yielding in a one-tile hallway.
+        local corridorBounds = { x1 = 8, x2 = 8, y1 = 5, y2 = 644, z = 0 }
+        local boundsReads = 0
+        local corridorZone = setmetatable({ kind = "rest" }, {
+            __index = function(_, key)
+                boundsReads = boundsReads + 1
+                return corridorBounds[key]
+            end,
+        })
+        local corridorBase = { zones = { corridorZone } }
+        local corridorBedSquare = makeSquare(8, 644, 0)
+        corridorBedSquare.room = chairSquare.room
+        for _, offset in ipairs({ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }) do
+            makeSquare(8 + offset[1], 644 + offset[2], 0).room = chairSquare.room
+        end
+        farBed.square = corridorBedSquare
+        corridorBedSquare.objects[#corridorBedSquare.objects + 1] = farBed
+        baseForBed.active = function() return corridorBase end
+        baseForBed.isInside = function(value)
+            return value == bedProbeActor or value == corridorBedSquare
+        end
+        local corridorState = {}
+        local corridorChoice = seatProbe(bedProbeActor, corridorState, clock, "rest_bed")
+        check(corridorChoice == nil and boundsReads < 10000,
+            "a long narrow Rest room yields without walking empty square rings: "
+                .. tostring(boundsReads))
+        boundsReads = 0
+        corridorChoice = seatProbe(bedProbeActor, corridorState, clock, "rest_bed")
+        check(corridorChoice and corridorChoice.object == farBed and boundsReads < 10000,
+            "a narrow-room scan resumes and finds its far bed within bounded work")
+        corridorBedSquare.objects[#corridorBedSquare.objects] = nil
+        farBed.square = farBedSquare
+    end
     baseForBed.active, baseForBed.isInside, baseForBed.allowsFloorTransit =
         oldBedActive, oldBedInside, oldBedTransit
     chairSquare.moving = oldChairMoving
@@ -9974,6 +10146,41 @@ do
         "sleep length follows the player's bed and sleep-trait adjustments")
     sleeper.traits = nil
     CharacterTrait.NEEDS_LESS_SLEEP = nil
+    do
+        local bedtimeChairMoving = chairSquare.moving
+        chairSquare.moving = {}
+        local bedtimeBook = item("Base.BookAtBedtime", "Literature", { pages = 180 })
+        sleeper.inventory:AddItem(bedtimeBook)
+        local bedtimeRead = SurvivorCompanion.Downtime._readingForTests()
+        local _, bedtimeSeat = SurvivorCompanion.Downtime._furnitureForTests()
+        local bedtimeReading = bedtimeRead(sleeper, { bedtimeBook })
+        local bedtimeChair = bedtimeSeat(sleeper, {}, clock, true)
+        check(bedtimeReading ~= nil and bedtimeChair ~= nil,
+            "bedtime fixture offers both a readable book and a reachable reading chair: "
+                .. tostring(bedtimeReading) .. "/" .. tostring(bedtimeChair))
+        check(SurvivorCompanion.Downtime.canPerform(sleeper, "rest_bed") == true,
+            "a readable book cannot replace an explicitly requested bed with a reading chair")
+        local _, _, _, bedtimeCandidates = SurvivorCompanion.Downtime._sleepForTests()
+        local bedtimeChoices = bedtimeCandidates(sleeper,
+            SurvivorCompanion.Commands.peek(sleeper), {}, clock)
+        check(bedtimeChoices[1] and bedtimeChoices[1].kind == "rest_bed",
+            "a tired reader chooses sleep before preparing a reading chair")
+        sleeper.inventory:Remove(bedtimeBook)
+        local previousBedtimeDiary = SurvivorCompanion.Diary.writeActivity
+        SurvivorCompanion.Diary.writeActivity = function(candidate)
+            if candidate == sleeper then
+                return { kind = "write_diary", score = 45,
+                    diary = { fixture = true }, fact = { activity = "write_diary" } }
+            end
+            return previousBedtimeDiary(candidate)
+        end
+        bedtimeChoices = bedtimeCandidates(sleeper,
+            SurvivorCompanion.Commands.peek(sleeper), {}, clock)
+        check(bedtimeChoices[1] and bedtimeChoices[1].kind == "rest_bed",
+            "a tired resident chooses sleep before preparing a diary chair")
+        SurvivorCompanion.Diary.writeActivity = previousBedtimeDiary
+        chairSquare.moving = bedtimeChairMoving
+    end
     local bedKind, bedCandidate = SurvivorCompanion.Downtime._furnitureForTests()
     local sleepCandidate = bedCandidate(sleeper, {}, clock)
     local sleepStarted = SurvivorCompanion.Downtime.update(

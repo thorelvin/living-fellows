@@ -1368,6 +1368,86 @@ check(Field.status().phase == "complete" and slicedCrop.plant.ripe == false
     "the closing check is spread over updates: busiest update read "
         .. busiest .. " tiles, last line " .. tostring(spoken[#spoken]))
 
+-- A full trunk can keep the only borrowed axe with the cutter. A second
+-- worker waiting for that axe must not hold completion and its saved exact
+-- return receipt open forever.
+do
+    Field.restore(nil)
+    spoken = {}
+    one.bag, two.bag, car.part.bag = inventory(), inventory(), inventory()
+    one.x, one.y, two.x, two.y, player.x, player.y, car.x, car.y =
+        600, 599, 601, 599, 600, 600, 610, 600
+    one.follow, two.follow, one.pending, one.active, two.pending, two.active =
+        true, true, nil, false, nil, false
+    one.carryCapacity, two.carryCapacity = 10, 10
+    for _ = 1, 6 do put(one.bag, item("Base.Pen")) end
+    local sharedAxe = item("Base.Axe", true)
+    put(car.part.bag, sharedAxe)
+    car.part.bag.room = false
+    for x = 600, 602 do standingTree(x, 600) end
+    Field.observePlayerVehicle(car)
+    check(Field.start("chop", square(600, 600), player) == true,
+        "two-worker shared axe order starts with a full trunk")
+    for _ = 1, 220 do
+        for _, member in ipairs({ one, two }) do
+            Field.update(member, player)
+            if member.pending and member.pending.action == "chop_tree"
+                and member.active then finish(member, "chop") end
+        end
+        if Field.status().phase == "complete" then break end
+    end
+    check(Field.status().phase == "complete" and Field.status().completed == 3
+        and Field.status().pendingAxeReturns == 1,
+        "waiting for a shared axe does not deadlock completed tree clearing")
+    check(sharedAxe.container == one.bag and #car.part.bag.items == 0
+        and #square(600, 600).world == 0
+        and #square(601, 600).world == 1 and #square(602, 600).world == 1,
+        "the exact axe stays carried and uncollected logs remain on the ground")
+    check(Field.restore(Field.export()) == true,
+        "completed shared axe return survives save and load")
+    car.part.bag.room = true
+    for _ = 1, 8 do
+        if Field.status().pendingAxeReturns == 0 then break end
+        Field.update(one, player)
+    end
+    check(Field.status().pendingAxeReturns == 0
+        and sharedAxe.container == car.part.bag and #car.part.bag.items == 1,
+        "the exact shared axe returns once after trunk space opens")
+end
+
+-- A worker whose tool broke can still own an unfinished tree. Hand that
+-- claim back to a finished equipped cutter before releasing the waiter.
+do
+    Field.restore(nil)
+    one.bag, two.bag, car.part.bag = inventory(), inventory(), inventory()
+    one.x, one.y, two.x, two.y, player.x, player.y, car.x, car.y =
+        620, 619, 621, 619, 620, 620, 630, 620
+    one.pending, one.active, two.pending, two.active = nil, false, nil, false
+    put(one.bag, item("Base.Axe", true))
+    standingTree(620, 620)
+    Field.observePlayerVehicle(car)
+    check(Field.start("chop", square(620, 620), player) == true,
+        "unfinished shared tree fixture starts")
+    local state = Field.export().active
+    state.workers.one.phase, state.workers.one.scan = "done", 17 * 17
+    state.workers.two.phase, state.workers.two.target = "waiting_axe", "620:620:0"
+    state.workers.two.x, state.workers.two.y = 620, 620
+    Field.update(two, player)
+    check(state.workers.one.phase == "seek" and state.workers.one.scan == 0
+        and state.workers.two.phase == "done" and state.workers.two.target == nil,
+        "an unfinished waiting claim restarts the equipped cutter's scan")
+    for _ = 1, 150 do
+        Field.update(one, player)
+        if one.pending and one.pending.action == "chop_tree" and one.active then
+            finish(one, "chop")
+        end
+        if Field.status().phase == "complete" then break end
+    end
+    check(Field.status().phase == "complete" and Field.status().completed == 1
+        and square(620, 620).tree == nil,
+        "the handed-back tree is cleared before the order completes")
+end
+
 Field.restore(nil)
 local bad = Field.restore({ schema = 1, serial = -1 })
 check(bad == false, "malformed save rejected")

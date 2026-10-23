@@ -2720,6 +2720,43 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
                 return true, state.intent
             elseif token.owner == "downtime" and SC.Downtime
                 and type(SC.Downtime.update) == "function" then
+                -- An ordinary pause must not hide a job already assigned to
+                -- this resident. BaseWork cancels ambient activity for that
+                -- job, but cannot reach its cancellation branch while this
+                -- early ownership gate keeps polling a long sit/read instead.
+                -- Sleep and a cleaning job's own controller keep their lease.
+                local quiet = type(SC.Downtime.peek) == "function"
+                    and SC.Downtime.peek(actor) or nil
+                local activity = quiet and quiet.active
+                local job = commands.order == "base_duty"
+                    and activity and activity.kind ~= "rest_bed"
+                    and SC.BaseLife and type(SC.BaseLife.jobFor) == "function"
+                    and SC.BaseLife.jobFor(U().idOf(actor)) or nil
+                if not job and commands.order == "base_duty"
+                    and activity and activity.kind == "sit"
+                    and SC.BaseWork
+                    and type(SC.BaseWork.claimDuringAmbientPause) == "function"
+                    and U().isDue(actor, "ambient_sit_base_job", 1000, current) then
+                    job = SC.BaseWork.claimDuringAmbientPause(actor)
+                end
+                if job and not (job.type == "clean" and activity.kind == "clean_base")
+                    and SC.BaseWork and type(SC.BaseWork.update) == "function"
+                    and type(SC.Downtime.cancel) == "function" then
+                    local safe, cancelled = U().safeSubsystem("downtime", actor,
+                        SC.Downtime.cancel, actor, "base_job_assigned")
+                    if safe and cancelled == true then
+                        local workSafe, _, workReason = U().safeSubsystem(
+                            "base-work", actor, SC.BaseWork.update,
+                            actor, player, rootRuntime or {})
+                        state.current, state.currentKey = "base_work", "base_work"
+                        state.intent = workSafe and (workReason or "owned_work_polled")
+                            or "owned_work_poll_failed"
+                        state.lastHandledAt = current
+                        return true, state.intent
+                    end
+                    -- A controller that cannot release its resources yet
+                    -- still needs its ordinary poll to finish that cleanup.
+                end
                 -- Downtime owns a controller, not just an animation.  Poll it
                 -- while its supervisor token is live so approaches, bed entry,
                 -- washing and their completion proofs advance to a terminal

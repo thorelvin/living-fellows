@@ -8395,7 +8395,10 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
         if expiry <= now then state.multiGoalFailures[failedKey] = nil end
     end
 
-    if state.nativeLease and state.nativeLease.multiGoalKey == key then
+    -- A retained single-target or older nearest route still owns movement.
+    -- Poll it before the nearest-path fast path can issue a replacement,
+    -- especially when a changed candidate set arrives halfway down stairs.
+    if state.nativeLease and (state.nativeLease.multiGoalKey == key or keep) then
         local leaseState, leaseStatus = maintainNativeLease(actor, state,
             state.nativeLease.ultimateGoal or valid[1], now)
         if leaseState == "active" then return true, leaseStatus end

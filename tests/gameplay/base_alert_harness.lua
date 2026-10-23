@@ -101,6 +101,11 @@ SC.GameplayUtil = {
     end,
     gridSquare = function(x, y, z) return square(x, y, z) end,
     isSquareFree = function(value) return value.blocked ~= true end,
+    sameSquare = function(first, second)
+        return math.floor(first.x) == math.floor(second.x)
+            and math.floor(first.y) == math.floor(second.y)
+            and math.floor(first.z or 0) == math.floor(second.z or 0)
+    end,
     isValidActor = function(value) return value ~= nil end,
     isDead = function(value) return value.dead == true end,
     resolveActor = function(id) return actors[id] end,
@@ -145,7 +150,15 @@ SC.Dialogue = { say = function(value, topic, _, arguments)
     spoken[#spoken + 1] = { id = value.id, topic = topic, args = arguments }
     return true
 end }
-SC.Navigation = { requestAny = function(value, targets, mode, intent)
+SC.Navigation = { interactionTargets = function(_, target)
+    local result = {}
+    for dy = -1, 1 do for dx = -1, 1 do
+        if dx ~= 0 or dy ~= 0 then
+            result[#result + 1] = square(target.x + dx, target.y + dy, target.z)
+        end
+    end end
+    return result
+end, requestAny = function(value, targets, mode, intent)
     routes[value.id] = { targets = targets, mode = mode, intent = intent }
     return true, "moving"
 end }
@@ -503,6 +516,57 @@ check(giveUpReason == "base_alert_shake_timeout" and afterGiveUp and afterGiveUp
         and asleep.cot == true,
     "a wake it cannot finish in half a minute is given up: " .. tostring(giveUpReason))
 Alert.reset()
+
+-- A quiet request for help chooses someone able to fight, rather than waking
+-- a downed resident merely because its bed is closer.
+do
+    duty = { "lone", "bunk", "cot" }
+    lone.x, lone.y, bunk.x, bunk.y, cot.x, cot.y = 21, 10, 20, 10, 15, 10
+    asleep, woken = { bunk = true, cot = true }, {}
+    bunk.downed = true
+    Alert.observe(lone, nil, sight({ 25, 10 }), resident, now)
+    now = now + 5000
+    local helper = Alert.directiveFor(lone, now)
+    check(helper and helper.mode == "shake" and helper.targetId == "cot",
+        "the caller leaves a downed sleeper resting and seeks a capable helper")
+    cot.downed = true
+    local _, reason = Alert.act(lone, nil, helper, {})
+    check(reason == "base_alert_shake_target_unfit" and #woken == 0,
+        "a helper who becomes incapacitated is not woken and sent to the fence")
+    bunk.downed, cot.downed = nil, nil
+    Alert.reset()
+end
+
+-- Being a tile away through a bedroom wall does not allow a hand-wake. The
+-- caller must use the same physical interaction-side check as other jobs.
+do
+    duty = { "lone", "bunk" }
+    lone.x, lone.y, bunk.x, bunk.y = 21, 10, 20, 10
+    asleep, woken, routes = { bunk = true }, {}, {}
+    local ordinaryTargets = SC.Navigation.interactionTargets
+    local contactOptions
+    SC.Navigation.interactionTargets = function(_, target, options)
+        contactOptions = options
+        check(target.x == 20 and target.y == 10,
+            "the wake approach uses the sleeper's actual square")
+        return { square(19, 10, 0) }
+    end
+    Alert.observe(lone, nil, sight({ 25, 10 }), resident, now)
+    now = now + 5000
+    local helper = Alert.directiveFor(lone, now)
+    local _, reason = Alert.act(lone, nil, helper, {})
+    check(#woken == 0 and asleep.bunk == true and routes.lone
+            and contactOptions and contactOptions.requireDirectAccess == true
+            and routes.lone.intent.requireSameSquare == true,
+        "a caller across a wall routes to a contact side instead of waking through it: "
+            .. tostring(reason))
+    lone.x, lone.y = 19, 10
+    local _, reachedReason = Alert.act(lone, nil, helper, {})
+    check(reachedReason == "base_alert_shook_awake" and woken[1] == "bunk",
+        "the sleeper wakes after the caller reaches its usable bedside")
+    SC.Navigation.interactionTargets = ordinaryTargets
+    Alert.reset()
+end
 
 -- Elsewhere: no camp, no alarm.
 Alert.reset()

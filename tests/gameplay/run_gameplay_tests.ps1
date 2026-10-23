@@ -108,6 +108,7 @@ $LuaFiles += @(
 $LuaFiles += Join-Path $TestRoot 'base_work_fixture.lua'
 $LuaFiles += Join-Path $ClientRoot 'SCFloorSort.lua'
 $LuaFiles += Join-Path $ClientRoot 'SCBaseWork.lua'
+$BaseLuaFiles = @($LuaFiles)
 $LuaFiles += Join-Path $TestRoot 'gameplay_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'tv_watching_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'radio_listening_harness.lua'
@@ -116,9 +117,8 @@ $LuaFiles += Join-Path $TestRoot 'chef_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'hygiene_effects_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'hygiene_audio_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'base_alert_harness.lua'
-$LuaFiles += Join-Path $TestRoot 'floor_sort_harness.lua'
 if ($FishingOnly) {
-    $LuaFiles = @($LuaFiles | Select-Object -SkipLast 9)
+    $LuaFiles = @($BaseLuaFiles)
     $LuaFiles += Join-Path $TestRoot 'fishing_harness.lua'
 }
 
@@ -139,6 +139,28 @@ try {
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @LuaFiles
             if ($LASTEXITCODE -ne 0) { throw 'Gameplay Kahlua integration harness failed.' }
             if ($FishingOnly) { return }
+            # Other integration fixtures replace utility/subsystem tables.
+            # Floor regressions need the real inventory scanner and storage
+            # helper, so load them into a fresh Kahlua environment.
+            $floorSortFiles = @(
+                (Join-Path $SharedRoot 'SCNamespace.lua'),
+                (Join-Path $SharedRoot 'SCCall.lua'),
+                (Join-Path $SharedRoot 'SCNativeList.lua'),
+                (Join-Path $ClientRoot 'SCGameplayUtil.lua'),
+                (Join-Path $TestRoot 'base_work_fixture.lua'),
+                (Join-Path $ClientRoot 'SCFloorSort.lua'),
+                (Join-Path $ClientRoot 'SCBaseWork.lua'),
+                (Join-Path $TestRoot 'floor_sort_harness.lua')
+            )
+            & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @floorSortFiles
+            if ($LASTEXITCODE -ne 0) { throw 'Floor sorting regression harness failed.' }
+            $autonomyGroundFiles = @(
+                (Join-Path $SharedRoot 'SCNamespace.lua'),
+                (Join-Path $ClientRoot 'SCAutonomy.lua'),
+                (Join-Path $TestRoot 'autonomy_ground_harness.lua')
+            )
+            & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @autonomyGroundFiles
+            if ($LASTEXITCODE -ne 0) { throw 'Autonomy ground interaction regression harness failed.' }
             $comfortFiles = @(
                 (Join-Path $TestRoot 'user_comfort_fixture.lua'),
                 (Join-Path $ClientRoot 'SCTales.lua'),
@@ -149,12 +171,12 @@ try {
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @comfortFiles
             if ($LASTEXITCODE -ne 0) { throw 'User comfort preference harness failed.' }
             $medicalFiles = @((Join-Path $ProjectRoot 'tests\core\core_fixture.lua'))
-            $medicalFiles += @($LuaFiles | Select-Object -SkipLast 9)
+            $medicalFiles += $BaseLuaFiles
             $medicalFiles += Join-Path $TestRoot 'medical_liveness_regression_harness.lua'
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @medicalFiles
             if ($LASTEXITCODE -ne 0) { throw 'Medical liveness/rescue regression harness failed.' }
             $combatFiles = @((Join-Path $ProjectRoot 'tests\core\core_fixture.lua'))
-            $combatFiles += @($LuaFiles | Select-Object -SkipLast 9)
+            $combatFiles += $BaseLuaFiles
             $combatFiles += Join-Path $TestRoot 'combat_coordination_regression_harness.lua'
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @combatFiles
             if ($LASTEXITCODE -ne 0) { throw 'Combat coordination regression harness failed.' }

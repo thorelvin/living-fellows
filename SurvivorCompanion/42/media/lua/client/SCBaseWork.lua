@@ -506,7 +506,8 @@ local function transferToStorage(actor, state, storage, container, item, require
             return approached == true, reason
         end
         local dropped, reason = SC.LogYard.deposit(actor, item, storage)
-        if dropped == true and SC.LogYard.bundleAt then
+        if dropped == true and SC.LogYard.bundleAt
+            and not (type(options) == "table" and options.deferLogYardBundle == true) then
             SC.LogYard.bundleAt(actor, square)
         end
         return dropped == true, dropped and "base_supply_returned" or reason
@@ -1823,6 +1824,24 @@ local function namedJobWaiting(actorId)
     return false
 end
 
+-- Decision checks this sparingly while a resident is on an ordinary seated
+-- break. Keep the same duty/guard admission as the main work controller when
+-- newly queued work can bring that resident back to its job.
+function BaseWork.claimDuringAmbientPause(actor)
+    if not SC.BaseLife or type(SC.BaseLife.resident) ~= "function"
+        or type(SC.BaseLife.claimJob) ~= "function" then return nil end
+    local id = actorId(actor)
+    local resident = SC.BaseLife.resident(id)
+    if not resident or resident.duty ~= true then return nil end
+    local guarding = type(SC.BaseLife.guardStatus) == "function"
+        and select(1, SC.BaseLife.guardStatus(id, now())) == true
+        or type(SC.BaseLife.guardStatus) ~= "function" and resident.role == "guard"
+    if guarding and resident.role == "guard" and not namedJobWaiting(id) then
+        return nil
+    end
+    return SC.BaseLife.claimJob(id)
+end
+
 BaseWork._guardPostForTests = guardPost
 
 local function guardRoutine(actor, state)
@@ -2202,7 +2221,7 @@ function BaseWork.update(actor, player, runtime)
     if state.jobId ~= job.id then
         state.jobId, state.phase, state.action, state.transfer = job.id, "idle", nil, nil
         state.visualAt, state.requirementsReady, state.cleanStartedAt = nil, nil, nil
-        state.cleanFailureReason = nil
+        state.cleanFailureReason, state.floorCandidate = nil, nil
         -- state.cargo deliberately survives: a worker still holding base
         -- stock must deliver or return it, whatever job comes next.
     end
@@ -2683,10 +2702,31 @@ function BaseWork.cancelJob(jobId, ownerId, reason)
     if unloadJob and unloadJob.type == "sort_floor" then
         local worker = ownerId or unloadJob.assignedId
         local actor = worker and U().resolveActor(worker) or nil
+        local state = actor and states[actor] or nil
+        if not actor then
+            for candidate, candidateState in pairs(states) do
+                if candidateState.jobId == jobId then
+                    actor, state = candidate, candidateState
+                    break
+                end
+            end
+        end
         if not SC.FloorSort or type(SC.FloorSort.cancel) ~= "function" then
             return false, "floor_sort_cancel_unavailable"
         end
-        return SC.FloorSort.cancel(actor, unloadJob)
+        local cancelled, why = SC.FloorSort.cancel(actor, unloadJob)
+        if cancelled ~= true then return false, why end
+        if state and state.jobId == jobId then
+            if SC.Navigation and type(SC.Navigation.cancel) == "function" then
+                SC.Navigation.cancel(actor, reason or "floor_sort_cancelled")
+            end
+            if SC.NativeActions and type(SC.NativeActions.stopDirect) == "function" then
+                SC.NativeActions.stopDirect(actor)
+            else U().stop(actor) end
+            state.jobId, state.floorCandidate, state.visualAt = nil, nil, nil
+            state.phase = "idle"
+        end
+        return true, why or "floor_sort_cancelled"
     end
     if unloadJob and unloadJob.type == "clean" then
         local workerId = ownerId or unloadJob.assignedId

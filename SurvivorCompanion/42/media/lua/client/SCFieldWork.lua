@@ -1325,6 +1325,25 @@ function Field.update(actor, player, snapshot)
                     local member = actorFor(id)
                     if member and id ~= actorId
                         and axeIn(U().inventory(member)) then
+                        local cutter = order.workers[id]
+                        if cutter.phase == "done" then
+                            -- A finished cutter may keep a borrowed axe until
+                            -- trunk space opens. Waiting for that return would
+                            -- keep the whole order, and its return receipt,
+                            -- from ever completing. Its scan already covered
+                            -- this area; only a claim held by this worker can
+                            -- still need handing back to the cutter.
+                            local retry = worker.target
+                                and not order.done[worker.target]
+                                and targetAt(order, worker.x, worker.y)
+                            release(worker)
+                            worker.phase = "done"
+                            if retry then
+                                cutter.phase, cutter.scan = "seek", 0
+                            end
+                            completeIfFinished(order)
+                            return true, "field_shared_axe_finished"
+                        end
                         return true, "field_waiting_for_shared_axe"
                     end
                 end

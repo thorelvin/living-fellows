@@ -291,6 +291,26 @@ function Autonomy.intentFor(actor, player, snapshot, commands)
     return nil
 end
 
+local function clearGroundSpot(actor, square)
+    if not square or not U().isSquareFree(square)
+        or U().squareOccupyingObject(square) ~= nil
+        or U().movingBlocker(square, actor) ~= nil then return false end
+    local topology = SC.Topology
+    if topology then
+        if type(topology.squareHasStairs) == "function" and topology.squareHasStairs(square)
+            or type(topology.squareHasSlope) == "function" and topology.squareHasSlope(square) then
+            return false
+        end
+        if type(topology.squareHazards) == "function" then
+            local hazards = topology.squareHazards(square)
+            if hazards.fire or hazards.brokenGlass or hazards.explosiveTrap then return false end
+        end
+    end
+    if SC.Navigation and type(SC.Navigation.doorThresholdSquare) == "function"
+        and SC.Navigation.doorThresholdSquare(square) then return false end
+    return true
+end
+
 local function wallSpot(actor)
     local ax, ay, az = U().position(actor)
     if not ax then return nil end
@@ -301,7 +321,7 @@ local function wallSpot(actor)
             for dy = -radius, radius do
                 if math.max(math.abs(dx), math.abs(dy)) == radius then
                     local square = U().gridSquare(math.floor(ax + dx), math.floor(ay + dy), math.floor(az))
-                    if square and U().isSquareFree(square) then
+                    if clearGroundSpot(actor, square) then
                         local room, roomOk = U().call(square, "getRoom")
                         if roomOk and room ~= nil then
                             local besideWall = false
@@ -378,10 +398,71 @@ end
 
 local function quietSpot(actor)
     if SC.BaseLife and type(SC.BaseLife.zoneCenter) == "function" then
-        local center = SC.BaseLife.zoneCenter("rest")
-        if center and U().loadedSquare(center) then return U().loadedSquare(center) end
+        local center, zone = SC.BaseLife.zoneCenter("rest")
+        if center then
+            -- A rest area's centre is often a chair or a bed. Prefer clear
+            -- floor nearby in that zone rather than treating its centre as
+            -- permission to sit inside furniture.
+            for radius = 0, 3 do
+                local best, bestDistance
+                for dx = -radius, radius do for dy = -radius, radius do
+                    if math.max(math.abs(dx), math.abs(dy)) == radius then
+                        local x, y = math.floor(center.x) + dx, math.floor(center.y) + dy
+                        local inside = not zone or x >= zone.x1 and x <= zone.x2
+                            and y >= zone.y1 and y <= zone.y2
+                        local square = inside and U().gridSquare(x, y, math.floor(center.z or 0))
+                        if clearGroundSpot(actor, square) then
+                            local distance = U().distance(actor, square)
+                            if not bestDistance or distance < bestDistance then
+                                best, bestDistance = square, distance
+                            end
+                        end
+                    end
+                end end
+                if best then return best end
+            end
+        end
     end
     return wallSpot(actor)
+end
+
+local function onGroundSpot(actor, square)
+    return clearGroundSpot(actor, square)
+        and clearGroundSpot(actor, U().squareOf(actor))
+        and U().sameSquare(actor, square)
+        and U().arrived(actor, square, { targetKind = "square", distance = 0.35 })
+end
+
+local function approachGroundSpot(actor, episode, reason)
+    if not clearGroundSpot(actor, episode.square) then episode.square = quietSpot(actor) end
+    if not episode.square then return "failed", "clear_ground_unavailable" end
+    if onGroundSpot(actor, episode.square) then
+        episode.groundDeadline = nil
+        return "ready"
+    end
+    episode.groundDeadline = episode.groundDeadline or U().nowMs()
+        + (U().config("mindEpisodeActionTimeoutMs") or 12000) * 3
+    if U().nowMs() >= episode.groundDeadline then return "failed", "clear_ground_timeout" end
+    if not SC.Navigation or type(SC.Navigation.request) ~= "function" then
+        return "failed", "clear_ground_navigation_unavailable"
+    end
+    local accepted, why = SC.Navigation.request(actor, episode.square, "walk", {
+        action = "purposeful_idle", reason = reason, targetSquare = episode.square,
+        requireSameSquare = true, arrivalDistance = 0.25,
+    })
+    return accepted == true and "moving" or "failed", why
+end
+
+local function relocateGroundPose(actor, episode)
+    local stood, reason = U().move(actor, "walk", {
+        action = "stand_ground", reason = "quiet_ground_obstructed",
+    })
+    if stood ~= true then return false, reason or "quiet_ground_stand_rejected" end
+    if select(1, U().call(actor, "isSitOnGround")) == true then
+        return true, "standing_from_obstructed_quiet_ground"
+    end
+    episode.square, episode.stage, episode.groundDeadline = nil, "approach", nil
+    return true, "quiet_ground_reselecting"
 end
 
 local function buildRestlessRoute(actor)
@@ -761,21 +842,16 @@ local function updateShutdown(actor, runtime, episode)
         episode.stage = "approach"
     end
     if episode.stage == "approach" then
-        if not episode.square then
-            episode.kind, episode.stage = "withdraw", "begin"
-            return true, "shutdown_fallback_to_withdraw"
-        end
-        if U().distance(actor, episode.square) > 1.05 then
-            if SC.Navigation and type(SC.Navigation.request) == "function" then
-                local accepted, reason = SC.Navigation.request(actor, episode.square, "walk", {
-                    action = "purposeful_idle", reason = "find_quiet_room_to_shutdown",
-                    targetSquare = episode.square,
-                })
-                return accepted == true, reason or "seeking_quiet_room"
+        local progress, why = approachGroundSpot(actor, episode, "find_quiet_room_to_shutdown")
+        if progress == "failed" then
+            if select(1, U().call(actor, "isSitOnGround")) == true then
+                return relocateGroundPose(actor, episode)
             end
             episode.kind, episode.stage = "withdraw", "begin"
-            return true, "shutdown_navigation_fallback"
+            episode.square = nil
+            return true, "shutdown_fallback_to_withdraw"
         end
+        if progress ~= "ready" then return true, why or "seeking_quiet_room" end
         U().stop(actor)
         local accepted, reason = U().move(actor, "walk", {
             action = "sit_ground", reason = "depressive_shutdown",
@@ -785,11 +861,16 @@ local function updateShutdown(actor, runtime, episode)
         episode.seatDeadline = U().nowMs() + (U().config("mindEpisodeActionTimeoutMs") or 12000)
         return true, "sitting_down"
     end
+    if (episode.stage == "sitting_down" or episode.stage == "shutdown")
+        and not onGroundSpot(actor, episode.square) then
+        return relocateGroundPose(actor, episode)
+    end
     if episode.stage == "sitting_down" then
         local seated, ok = U().call(actor, "isSitOnGround")
         if ok and seated == true then
             episode.stage = "shutdown"
-            episode.recoverAt = simNow() + hours(U().config("mindShutdownGameHours") or 4)
+            episode.recoverAt = episode.recoverAt
+                or simNow() + hours(U().config("mindShutdownGameHours") or 4)
             return true, "shutdown_resting"
         end
         if U().nowMs() >= finite(episode.seatDeadline, 0) then
@@ -834,14 +915,13 @@ local function updateMourning(actor, runtime, episode)
         return true, "grief_acknowledged"
     end
     if episode.stage == "approach" then
-        if episode.square and U().distance(actor, episode.square) > 1.05 then
-            if SC.Navigation and type(SC.Navigation.request) == "function" then
-                local accepted, reason = SC.Navigation.request(actor, episode.square, "walk", {
-                    action = "purposeful_idle", reason = "seek_quiet_place_to_mourn",
-                    targetSquare = episode.square,
-                })
-                return accepted == true, reason or "seeking_quiet_place_to_mourn"
+        local progress, why = approachGroundSpot(actor, episode, "seek_quiet_place_to_mourn")
+        if progress == "moving" then return true, why or "seeking_quiet_place_to_mourn" end
+        if progress == "failed" then
+            if select(1, U().call(actor, "isSitOnGround")) == true then
+                return relocateGroundPose(actor, episode)
             end
+            episode.square, episode.sit = nil, false
         end
         U().stop(actor)
         if episode.sit == true then
@@ -859,11 +939,16 @@ local function updateMourning(actor, runtime, episode)
         episode.recoverAt = simNow() + minutes(U().config("griefPauseGameMinutes") or 25)
         return true, "mourning_quietly"
     end
+    if episode.sit == true and (episode.stage == "sitting_down" or episode.stage == "mourning")
+        and not onGroundSpot(actor, episode.square) then
+        return relocateGroundPose(actor, episode)
+    end
     if episode.stage == "sitting_down" then
         local seated, ok = U().call(actor, "isSitOnGround")
         if ok and seated == true then
             episode.stage = "mourning"
-            episode.recoverAt = simNow() + minutes(U().config("griefPauseGameMinutes") or 25)
+            episode.recoverAt = episode.recoverAt
+                or simNow() + minutes(U().config("griefPauseGameMinutes") or 25)
             return true, "mourning_quietly"
         end
         if U().nowMs() >= finite(episode.seatDeadline, 0) then

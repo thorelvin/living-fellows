@@ -10,6 +10,10 @@
 - Every part of a response has a time limit. After half a minute (quiet word) or a minute (shout) with nothing seen, the resident who raised the alarm calls all clear. The Base tab shows the alarm while it is up: how many, on which side, who saw them and how many are answering.
 - Sleepers no longer wake to zombies they could only have seen. Being attacked, a zombie right beside the bed, or one thumping on a door nearby still wakes them.
 - Residents now sleep in beds whose bedroom light switch they cannot reach. Before, a resident waited at such a switch until its rest gave up, then tried the same bed again, and never slept. Now it leaves the light on after 12 seconds.
+- Ordinary seated breaks now yield to assigned base work and check for queued jobs once a second. Sleep and explicit player orders keep their priority. Reading, diary, radio and TV seating no longer remove an eligible bed from sleep selection, and bed searches stay bounded in long narrow zones.
+- Companions having a breakdown or mourning now reach clear floor before sitting and stand to find another spot if furniture or another body obstructs it. Quiet alarm wake-ups require physical bedside access and a capable helper.
+- Floor sorting settles delivered logs before bundling, clears old selections and movement when cancelled, and finds exact cargo in crowded inventories and nested bags through a bounded search. Tree workers sharing one borrowed axe can finish after the trunk fills, keeping the axe accounted for until it can be returned.
+- Changing interaction tiles no longer restarts a retained native route, including a stair crossing.
 - A live probe (`-BaseAlertProbe`) runs the alarm in a cloned save. The sleep probe now keeps the save's own companions out of the bedroom doorway.
 - The native bridge protocol remains `42.21-isocompanion-24`; update the bridge JAR and Lua payload together.
 

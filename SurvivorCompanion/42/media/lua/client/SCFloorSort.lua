@@ -15,6 +15,7 @@ local Floor = SC.FloorSort
 local MARKER = "LF_FloorSortJob"
 local scans = {}
 local visuals = setmetatable({}, { __mode = "k" })
+local cargoSearches = {}
 -- Session clock for carrying an item back to its floor tile, by job id.
 local returning = {}
 local RETURN_MS = 30000
@@ -302,21 +303,96 @@ local function destination(actor, item, job)
     return nil, category, "floor_storage_unavailable"
 end
 
--- The third value is true only when the whole inventory was read, so a miss
--- proves the item is no longer carried.
+local function containerItems(container)
+    local list = call(container, "getItems")
+        or type(container) == "table" and container.items or nil
+    return list, count(list)
+end
+
+local function ownedContainer(node, root)
+    local checked = 0
+    while node and node.parent do
+        checked = checked + 1
+        if checked > 32 or call(node.bag, "getItemContainer") ~= node.container
+            or call(node.bag, "getContainer") ~= node.parent.container
+            or U().inventoryContains(node.parent.container, node.bag) ~= true then
+            return false
+        end
+        node = node.parent
+    end
+    return node ~= nil and node.container == root
+end
+
+-- The general AI inventory scanner reserves space for bags, so it may never
+-- visit a crowded root's tail, and it stops after one bag level. Search this
+-- saved exact identity with a cursor instead: at most 128 item/node visits per
+-- update and 256 distinct containers, with a cycle guard and 32-level ancestry
+-- bound. A found item's
+-- ancestor bags remain part of its ownership proof while it is delivered.
+-- A multi-pulse miss stays uncertain because inventories can change between
+-- updates; only an exhaustive synchronous miss proves absence.
 local function carried(actor, claim, jobId)
     local root = U().inventory(actor)
     if not root then return nil, nil, false end
-    local items, containers = U().inventoryItemsDeep(root, 1024, 16)
-    for _, item in ipairs(items) do
-        if itemId(item) == claim.itemId and marker(item) == jobId then
-            local owner = call(item, "getContainer")
-            if owner and U().inventoryContains(owner, item) then
-                return item, owner, true
+    local search = cargoSearches[jobId]
+    if not search or search.actor ~= actor or search.root ~= root then
+        search = { actor = actor, root = root, queue = { { container = root, index = 0 } },
+            seen = { [root] = true }, cursor = 1, pulses = 0, incomplete = false }
+        cargoSearches[jobId] = search
+    end
+    local found = search.found
+    if found then
+        if itemId(found.item) == claim.itemId and marker(found.item) == jobId
+            and call(found.item, "getContainer") == found.node.container
+            and U().inventoryContains(found.node.container, found.item) == true
+            and ownedContainer(found.node, root) then
+            return found.item, found.node.container, true
+        end
+        cargoSearches[jobId] = nil
+        return carried(actor, claim, jobId)
+    end
+    search.pulses = search.pulses + 1
+    local work = 0
+    local readNode, list, length, owned
+    while search.cursor <= #search.queue and work < 128 do
+        local node = search.queue[search.cursor]
+        if readNode ~= node then
+            work = work + 1
+            readNode = node
+            list, length = containerItems(node.container)
+            owned = ownedContainer(node, root)
+        end
+        if length == nil or not owned then
+            search.incomplete = true
+            search.cursor = search.cursor + 1
+        elseif node.index >= length then
+            search.cursor = search.cursor + 1
+        elseif work >= 128 then
+            break
+        else
+            local item = entry(list, node.index)
+            node.index, work = node.index + 1, work + 1
+            if not item then search.incomplete = true end
+            if item and itemId(item) == claim.itemId and marker(item) == jobId
+                and call(item, "getContainer") == node.container
+                and U().inventoryContains(node.container, item) == true then
+                search.found = { item = item, node = node }
+                return item, node.container, true
+            end
+            local nested = item and call(item, "getItemContainer") or nil
+            if nested and not search.seen[nested] then
+                if #search.queue < 256 then
+                    search.seen[nested] = true
+                    search.queue[#search.queue + 1] = {
+                        container = nested, bag = item, parent = node, index = 0,
+                    }
+                else search.incomplete = true end
             end
         end
     end
-    return nil, nil, #items < 1024 and #(containers or {}) < 16
+    if search.cursor <= #search.queue then return nil, nil, false, true end
+    cargoSearches[jobId] = nil
+    return nil, nil, search.pulses == 1 and not search.incomplete, false
 end
 
 local function releaseClaim(job)
@@ -325,6 +401,7 @@ local function releaseClaim(job)
     job.target.failedFloorDestinations, job.target.floorReturnReason = nil, nil
     job.assignedId = nil
     returning[job.id] = nil
+    cargoSearches[job.id] = nil
 end
 
 local function releaseWorldClaim(job, item)
@@ -444,8 +521,9 @@ function Floor.update(actor, baseState, job)
         if job.assignedId and job.assignedId ~= U().idOf(actor) then
             return false, "floor_cargo_other_worker", true
         end
-        local item, owner, complete = carried(actor, claim, job.id)
+        local item, owner, complete, searching = carried(actor, claim, job.id)
         if not item then
+            if searching then return true, "floor_cargo_search_pending", false end
             local square = U().gridSquare(claim.x, claim.y, claim.z)
             if not square then return false, "floor_source_unloaded", true end
             local worldItem, wrapper = worldItemAt(square, claim.itemId, job.id)
@@ -496,7 +574,7 @@ function Floor.update(actor, baseState, job)
         end
         job.target.trashZoneId, job.target.trashPoint = nil, nil
         local moved, reason = SC.BaseWork.depositToStorage(actor, baseState,
-            chosen.storage, chosen.container, item)
+            chosen.storage, chosen.container, item, { deferLogYardBundle = true })
         if moved and reason == "base_supply_returned" then
             local present = chosen.storage.kind == "log_yard"
                 and call(item, "getWorldItem") ~= nil
@@ -507,6 +585,12 @@ function Floor.update(actor, baseState, job)
             if not clear(item, job.id) then return false, "floor_marker_clear_failed", true end
             releaseClaim(job)
             rewind(zone)
+            -- Bundling consumes the exact loose log. Finish its ownership
+            -- receipt first, while that identity is still verifiable.
+            if chosen.storage.kind == "log_yard" and SC.LogYard
+                and type(SC.LogYard.bundleAt) == "function" then
+                SC.LogYard.bundleAt(actor, chosen.container)
+            end
             return true, "floor_item_stored"
         end
         if not moved then

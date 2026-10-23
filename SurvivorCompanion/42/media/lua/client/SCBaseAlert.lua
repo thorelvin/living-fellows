@@ -479,7 +479,8 @@ local function nearestSleeper(spotter, current)
     local cooldown = tonumber(cfg("baseAlertWakeCooldownMs", 600000)) or 600000
     local best, bestScore
     for _, entry in ipairs(residents()) do
-        if entry.id ~= alert.spotterId and sleeping(entry.actor) then
+        if entry.id ~= alert.spotterId and sleeping(entry.actor)
+            and capable(entry.actor) then
             local x, y = position(entry.actor)
             local distanceSq = x and (x - sx) ^ 2 + (y - sy) ^ 2 or math.huge
             if distanceSq <= radius * radius then
@@ -666,10 +667,22 @@ function Alert.act(actor, player, directive, snapshot)
         end
         local target = U().resolveActor(directive.targetId)
         if not target or not sleeping(target) then return giveUp("base_alert_shake_target_awake") end
+        if not capable(target) then return giveUp("base_alert_shake_target_unfit") end
         if current >= shake.deadline then return giveUp("base_alert_shake_timeout") end
         local ax, ay, az = position(actor)
         local tx, ty, tz = position(target)
-        if ax and tx and floorOf(az) == floorOf(tz)
+        local targetSquare = U().squareOf(target)
+        local targets = targetSquare and SC.Navigation
+            and type(SC.Navigation.interactionTargets) == "function"
+            and SC.Navigation.interactionTargets(actor, targetSquare,
+                { requireDirectAccess = true }) or {}
+        local contact = false
+        for _, candidate in ipairs(targets) do
+            if U().sameSquare(actor, candidate) then contact = true break end
+        end
+        -- A quiet hand-wake needs a usable bedside, including when the caller
+        -- is already close. Distance alone also admits the far side of a wall.
+        if contact and ax and tx and floorOf(az) == floorOf(tz)
             and (ax - tx) ^ 2 + (ay - ty) ^ 2 <= 1.6 * 1.6 then
             if SC.Downtime and type(SC.Downtime.wakeForAlarm) == "function"
                 and SC.Downtime.wakeForAlarm(target) == true then
@@ -682,10 +695,10 @@ function Alert.act(actor, player, directive, snapshot)
             end
             return giveUp("base_alert_shake_failed")
         end
-        local targets = aroundSquare(tx, ty, tz, false)
         if #targets == 0 then return giveUp("base_alert_shake_no_square") end
         local moving, reason = SC.Navigation.requestAny(actor, targets, "walk", {
-            action = "move_to_alert_wake", arrivalDistance = 1.0, snapshot = snapshot,
+            action = "move_to_alert_wake", arrivalDistance = 0.45,
+            requireSameSquare = true, targetSquare = targetSquare, snapshot = snapshot,
         })
         if moving ~= true then return giveUp(reason or "base_alert_shake_route_failed") end
         return true, reason or "base_alert_going_to_wake"

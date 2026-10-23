@@ -2,6 +2,7 @@
 -- Exact floor intake, physical trash, blocked storage and reload recovery.
 local SC = SurvivorCompanion
 local Floor = SC.FloorSort
+local realBaseWork, realUtil = SC.BaseWork, SC.GameplayUtil
 local now = 1000
 local serial = 0
 local function check(value, message)
@@ -138,11 +139,17 @@ SC.NativeActions = {
 }
 local destinationEnabled = true
 local alternateEnabled, firstRouteBlocked = false, false
+local yardEnabled = false
 local goneWorkers = {}
 SC.BaseWork = {
     choreReserved = function() return false end,
     workerUnregistered = function(id) return goneWorkers[id] == true end,
     floorDestinations = function(_, candidate)
+        if yardEnabled then
+            return { { destination = { kind = "log_yard", zoneId = "zone:yard",
+                x = trash.x, y = trash.y, z = trash.z }, container = trash } },
+                "construction"
+        end
         if destinationEnabled then
             local rows = { { destination = { id = "storage:1" },
                 container = storage } }
@@ -153,7 +160,11 @@ SC.BaseWork = {
         end
         return {}, "tools", "floor_storage_missing"
     end,
-    depositToStorage = function(_, _, _, container, candidate)
+    depositToStorage = function(worker, state, destination, container, candidate, options)
+        if yardEnabled then
+            return realBaseWork.depositToStorage(worker, state,
+                destination, container, candidate, options)
+        end
         if firstRouteBlocked and container == storage then
             return false, "no_route"
         end
@@ -381,4 +392,192 @@ check(not heavyCompleted and heavyTerminal == "floor_worker_full"
     "an item without room is set aside while lighter items are stored: "
         .. table.concat(heavyReasons, ","))
 
-SC_TEST_REPORT = "FLOOR_SORT_PASS pickup=verified reload=verified trash=physical blocked=reported cancel=returned alternate=verified carryback=walked interrupted=feet gone=released absent=released heavy=deferred"
+table.remove(base.jobs, 1)
+remove({ items = source.worldItems }, anvil.worldItem)
+anvil.worldItem = nil
+
+-- The real storage helper used to bundle the fourth log before floor intake
+-- could verify its identity. A consumptive bundle must run after settlement.
+yardEnabled = true
+local log = item(113, false)
+addWorld(source, log)
+local bundles = 0
+SC.LogYard = {
+    tile = function() return trash end,
+    deposit = function(worker, candidate)
+        return SC.GameplayUtil.dropItem(worker.inventory, trash, candidate)
+    end,
+    bundleAt = function(_, where)
+        check(log.modData.LF_FloorSortJob == nil and job.target.floorCargo == nil,
+            "log claim settles before a consumptive bundle")
+        check(remove({ items = where.worldItems }, log.worldItem),
+            "bundler consumes delivered exact log")
+        log.worldItem = nil
+        bundles = bundles + 1
+        return true, "log_yard_bundled"
+    end,
+}
+queued, job = Floor.audit(base)
+check(queued, "log yard regression queues")
+state = {}
+Floor.update(actor, state, job)
+check(select(2, Floor.update(actor, state, job)) == "floor_item_carried",
+    "log yard regression picks up exact log")
+actor.x, actor.y, actor.z = trash.x, trash.y, trash.z
+check(select(2, Floor.update(actor, state, job)) == "floor_item_stored"
+    and bundles == 1 and job.target.floorCargo == nil
+    and not contains(inventory, log),
+    "log bundle consumption cannot strand the floor delivery receipt")
+table.remove(base.jobs, 1)
+yardEnabled = false
+
+-- Exercise the real scan policy: an empty bag reserves 256 of the 1024
+-- entries, so the root tail can be unread even below the total scan limit.
+local originalCall, originalItems = realUtil.call, realUtil.inventoryItems
+realUtil.call = call
+realUtil.inventoryItems = function(container, limit)
+    local result = {}
+    for index = 1, math.min(#container.items, limit) do
+        result[#result + 1] = container.items[index]
+    end
+    return result
+end
+SC.GameplayUtil.inventoryItemsDeep = realUtil.inventoryItemsDeep
+inventory.items = {}
+for index = 1, 768 do inventory.items[index] = item(2000 + index, false) end
+local emptyBag = { items = {} }
+inventory.items[1].getItemContainer = function() return emptyBag end
+inventory.items[1].container = inventory
+local hidden = item(114, false)
+inventory.items[769] = hidden
+hidden.container = inventory
+SC.BaseLife.enqueueJob({ type = "sort_floor", target = {
+    zoneId = "zone:sorting", x = 10, y = 10, z = 0,
+    floorCargo = { zoneId = "zone:sorting", itemId = hidden.id,
+        x = 10, y = 10, z = 0 },
+} })
+job = base.jobs[#base.jobs]
+job.assignedId, hidden.modData.LF_FloorSortJob = actor.id, job.id
+local scanned = realUtil.inventoryItemsDeep(inventory, 1024, 16)
+check(#scanned == 768, "real scan leaves the root tail unread with an empty bag")
+local function deliverByUpdates(label)
+    local pending = 0
+    for _ = 1, 20 do
+        local handled, reason, terminal = Floor.update(actor, {}, job)
+        if reason == "floor_item_stored" then
+            check(contains(storage, hidden) and job.target.floorCargo == nil,
+                label .. " deposits the exact cargo")
+            return pending
+        end
+        check(handled == true and reason == "floor_cargo_search_pending"
+            and terminal ~= true and job.target.floorCargo ~= nil
+            and hidden.modData.LF_FloorSortJob == job.id,
+            label .. " keeps its lease and ownership while searching: " .. tostring(reason))
+        pending = pending + 1
+    end
+    error("floor sort: " .. label .. " did not finish its bounded search")
+end
+check(deliverByUpdates("crowded root") > 0 and not contains(inventory, hidden),
+    "root-tail cargo is found across updates without rearranging inventory")
+table.remove(base.jobs, 1)
+remove(storage, hidden)
+
+-- The exact lookup follows nested bags, including a cycle, which the general
+-- one-level inventory scanner cannot read.
+local inner = { items = {} }
+local nestedBag = item(115, false)
+nestedBag.getItemContainer = function() return inner end
+emptyBag.items = { nestedBag }
+nestedBag.container = emptyBag
+inventory.items = { item(116, false) }
+inventory.items[1].getItemContainer = function() return emptyBag end
+inventory.items[1].container = inventory
+inner.items = { hidden }
+hidden.container = inner
+SC.BaseLife.enqueueJob({ type = "sort_floor", target = {
+    zoneId = "zone:sorting", x = 10, y = 10, z = 0,
+    floorCargo = { zoneId = "zone:sorting", itemId = hidden.id,
+        x = 10, y = 10, z = 0 },
+} })
+job = base.jobs[#base.jobs]
+job.assignedId, hidden.modData.LF_FloorSortJob = actor.id, job.id
+local cyclicBag = item(119, false)
+cyclicBag.container = inner
+cyclicBag.getItemContainer = function() return emptyBag end
+inner.items = { cyclicBag, hidden }
+deliverByUpdates("nested bag with cycle")
+check(not contains(inner, hidden),
+    "nested exact cargo transfers to the root and is delivered without rearranging bags")
+table.remove(base.jobs, 1)
+remove(storage, hidden)
+
+-- A crowded root leaves only the reserved 256 slots for its first bag in the
+-- general scan. The exact cursor eventually reads beyond that bag slice too.
+inventory.items, emptyBag.items = {}, {}
+for index = 1, 768 do inventory.items[index] = item(3000 + index, false) end
+inventory.items[1].getItemContainer = function() return emptyBag end
+inventory.items[1].container = inventory
+for index = 1, 256 do emptyBag.items[index] = item(4000 + index, false) end
+emptyBag.items[257], hidden.container = hidden, emptyBag
+SC.BaseLife.enqueueJob({ type = "sort_floor", target = {
+    zoneId = "zone:sorting", x = 10, y = 10, z = 0,
+    floorCargo = { zoneId = "zone:sorting", itemId = hidden.id,
+        x = 10, y = 10, z = 0 },
+} })
+job = base.jobs[#base.jobs]
+job.assignedId, hidden.modData.LF_FloorSortJob = actor.id, job.id
+check(deliverByUpdates("crowded bag") > 0 and not contains(emptyBag, hidden),
+    "bag-tail cargo is delivered across updates without rearranging its contents")
+table.remove(base.jobs, 1)
+realUtil.call, realUtil.inventoryItems = originalCall, originalItems
+SC.GameplayUtil.inventoryItemsDeep = function(container) return container.items end
+
+-- Cancel a selected floor item before pickup, then assign another zone to
+-- the same worker. Its cached candidate and native movement belong to A.
+local otherSource = square(20, 10)
+squares["20:10:0"] = otherSource
+base.zones[#base.zones + 1] = { id = "zone:other", kind = "sorting_floor",
+    x1 = 20, x2 = 20, y1 = 10, y2 = 10, z = 0 }
+local firstSelection, secondSelection = item(117, false), item(118, false)
+addWorld(source, firstSelection)
+addWorld(otherSource, secondSelection)
+local selectedForVisual, navigationCancels = nil, 0
+SC.GameplayUtil.resolveActor = function() return actor end
+SC.GameplayUtil.characterStatValue = function() return 0 end
+SC.GameplayUtil.config = function() return nil end
+SC.GameplayUtil.move = function(_, _, intent)
+    selectedForVisual = intent.item
+    return true
+end
+SC.Navigation.cancel = function()
+    navigationCancels = navigationCancels + 1
+    return true
+end
+SC.NativeActions.visualStatus = function() return "active" end
+SC.BaseLife.resident = function() return { duty = true, role = "quartermaster" } end
+SC.BaseLife.jobFor = function() return job end
+SC.BaseLife.outdoorNightRestricted = function() return false end
+SC.BaseLife.isInside = function() return true end
+SC.BaseLife.guardStatus = function() return false end
+SC.BaseLife.touchJob = function() return true end
+SC.Downtime, SC.Fishing, SC.Production, SC.BaseWatch = nil, nil, nil, nil
+queued, job = Floor.audit(base)
+check(queued, "cancellation regression queues first zone")
+job.reservedBy, job.state = actor.id, "reserved"
+check(select(2, realBaseWork.update(actor)) == "floor_pickup_animation"
+    and selectedForVisual == firstSelection,
+    "first floor job owns its selected candidate")
+local priorCancels = navigationCancels
+check(realBaseWork.cancelJob(job.id, actor.id) == true
+    and navigationCancels > priorCancels,
+    "cancelling selected floor work stops its navigation")
+table.remove(base.jobs, 1)
+SC.BaseLife.enqueueJob({ type = "sort_floor", target = {
+    zoneId = "zone:other", x = 20, y = 10, z = 0 } })
+job = base.jobs[#base.jobs]
+job.reservedBy, job.state = actor.id, "reserved"
+check(select(2, realBaseWork.update(actor)) == "floor_pickup_animation"
+    and selectedForVisual == secondSelection,
+    "replacement floor job selects from its own zone")
+
+SC_TEST_REPORT = "FLOOR_SORT_PASS pickup=verified reload=verified trash=physical blocked=reported cancel=returned alternate=verified carryback=walked interrupted=feet gone=released absent=released heavy=deferred log_bundle=settled cancel_selection=cleared crowded=root_and_bag_delivered nested=delivered"

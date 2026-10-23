@@ -1668,17 +1668,6 @@ local function campBedActivity(actor, state, current, zoneKind)
     end
     if current < (scan.retryAt or 0) then return nil end
     local checked = 0
-    local function ringPoint(cx, cy, ring, offset)
-        if ring == 0 then return cx, cy end
-        local side = ring * 2 + 1
-        if offset < side then return cx - ring + offset, cy - ring end
-        offset = offset - side
-        if offset < side then return cx - ring + offset, cy + ring end
-        offset = offset - side
-        local inside = ring * 2 - 1
-        if offset < inside then return cx - ring, cy - ring + 1 + offset end
-        return cx + ring, cy - ring + 1 + offset - inside
-    end
     local function inspect(zone, x, y)
         if x < zone.x1 or x > zone.x2 or y < zone.y1 or y > zone.y2 then
             return nil
@@ -1716,10 +1705,32 @@ local function campBedActivity(actor, state, current, zoneKind)
         local outer = math.max(cx - zone.x1, zone.x2 - cx,
             cy - zone.y1, zone.y2 - cy)
         for ring = index == scan.zoneIndex and scan.ring or 0, outer do
-            local count = ring == 0 and 1 or ring * 8
+            -- Clip each ring edge before visiting tiles. Enumerating a whole
+            -- square ring around a long, narrow room otherwise does hundreds
+            -- of thousands of out-of-zone iterations before the tile budget
+            -- can yield, even though only 320 real tiles were inspected.
+            local x1, x2 = math.max(zone.x1, cx - ring),
+                math.min(zone.x2, cx + ring)
+            local y1, y2 = math.max(zone.y1, cy - ring + 1),
+                math.min(zone.y2, cy + ring - 1)
+            local width, height = x2 - x1 + 1, math.max(0, y2 - y1 + 1)
+            local top = cy - ring >= zone.y1 and width or 0
+            local bottom = ring > 0 and cy + ring <= zone.y2 and width or 0
+            local left = ring > 0 and cx - ring >= zone.x1 and height or 0
+            local right = ring > 0 and cx + ring <= zone.x2 and height or 0
+            local count = top + bottom + left + right
             for offset = index == scan.zoneIndex and ring == scan.ring
                     and scan.offset or 0, count - 1 do
-                local x, y = ringPoint(cx, cy, ring, offset)
+                local x, y
+                if offset < top then
+                    x, y = x1 + offset, cy - ring
+                elseif offset < top + bottom then
+                    x, y = x1 + offset - top, cy + ring
+                elseif offset < top + bottom + left then
+                    x, y = cx - ring, y1 + offset - top - bottom
+                else
+                    x, y = cx + ring, y1 + offset - top - bottom - left
+                end
                 local found = inspect(zone, x, y)
                 if found then
                     scan.zoneIndex, scan.ring, scan.offset, scan.retryAt =
@@ -3590,13 +3601,18 @@ local function candidates(actor, commands, state, current, desiredKind, requeste
                 end
             end
         end
-        local rest = radio and radio.kind == "sit" and radio
+        local rest = furniture and furniture.kind == "rest_bed" and furniture
+            or radio and radio.kind == "sit" and radio
             or television and television.kind == "sit" and television or furniture
         if seatedTask ~= nil and seatedTask.borrowedFrom == nil
-            and seatingStatus(actor) == "standing" then
+            and seatingStatus(actor) == "standing"
+            and (rest == nil or rest.kind ~= "rest_bed")
+            and (desiredKind == nil or desiredKind == "sit"
+                or desiredKind == "read" or desiredKind == "write_diary") then
             -- Sit first, then the normal next downtime pass starts Read/Write
-            -- without getting up. Beds remain available for actual tired rest;
-            -- a chair/sofa/stool is selected specifically for desk-like activity.
+            -- without getting up. A selected bed keeps priority for sleep;
+            -- a book must not erase it from an explicit rest_bed probe either.
+            -- A chair/sofa/stool is selected specifically for desk-like activity.
             local readingSeat = furniture and furniture.kind == "sit" and furniture
                 or seatActivity(actor, state, current, true)
             if readingSeat then
@@ -5439,7 +5455,7 @@ function Downtime._furnitureForTests()
 end
 
 function Downtime._sleepForTests()
-    return bedSleepEligible, restHours, adjustedBedHours
+    return bedSleepEligible, restHours, adjustedBedHours, candidates
 end
 
 function Downtime._ambientForTests()
