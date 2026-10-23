@@ -15,6 +15,9 @@ local Floor = SC.FloorSort
 local MARKER = "LF_FloorSortJob"
 local scans = {}
 local visuals = setmetatable({}, { __mode = "k" })
+-- Session clock for carrying an item back to its floor tile, by job id.
+local returning = {}
+local RETURN_MS = 30000
 
 local function U() return SC.GameplayUtil end
 local function now() return U().nowMs() end
@@ -188,6 +191,15 @@ local function rewind(zone)
     end
 end
 
+-- A worker that died or was dismissed for good can never deliver or return
+-- what it carried (SCBaseFuel's rule: a companion not yet restored from the
+-- save still counts as present).
+local function workerGone(id)
+    if id == nil then return true end
+    return SC.BaseWork ~= nil and type(SC.BaseWork.workerUnregistered) == "function"
+        and SC.BaseWork.workerUnregistered(id) == true
+end
+
 local function openJob(base, zoneId)
     for _, job in ipairs(base.jobs or {}) do
         if job.type == "sort_floor" and job.state ~= "completed"
@@ -199,6 +211,14 @@ end
 
 function Floor.audit(base)
     if not base then return false, "base_missing" end
+    -- No other resident may take a job assigned to a worker, so a claim left
+    -- by one who died or was dismissed would stop its floor for good.
+    for _, job in ipairs(base.jobs or {}) do
+        if job.type == "sort_floor" and type(job.target) == "table"
+            and job.target.floorCargo and workerGone(job.assignedId) then
+            Floor.cancel(nil, job)
+        end
+    end
     local actor
     for _, id in ipairs(SC.BaseLife.dutyResidentIds()) do
         local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(id)
@@ -282,43 +302,61 @@ local function destination(actor, item, job)
     return nil, category, "floor_storage_unavailable"
 end
 
+-- The third value is true only when the whole inventory was read, so a miss
+-- proves the item is no longer carried.
 local function carried(actor, claim, jobId)
     local root = U().inventory(actor)
-    for _, item in ipairs(U().inventoryItemsDeep(root, 1024, 16)) do
+    if not root then return nil, nil, false end
+    local items, containers = U().inventoryItemsDeep(root, 1024, 16)
+    for _, item in ipairs(items) do
         if itemId(item) == claim.itemId and marker(item) == jobId then
             local owner = call(item, "getContainer")
             if owner and U().inventoryContains(owner, item) then
-                return item, owner
+                return item, owner, true
             end
         end
     end
-    return nil, nil
+    return nil, nil, #items < 1024 and #(containers or {}) < 16
+end
+
+local function releaseClaim(job)
+    job.target.floorCargo, job.target.trashZoneId,
+        job.target.trashPoint = nil, nil, nil
+    job.target.failedFloorDestinations, job.target.floorReturnReason = nil, nil
+    job.assignedId = nil
+    returning[job.id] = nil
 end
 
 local function releaseWorldClaim(job, item)
     if item and marker(item) == job.id then clear(item, job.id) end
-    job.target.floorCargo, job.target.trashZoneId,
-        job.target.trashPoint = nil, nil, nil
-    job.target.failedFloorDestinations = nil
-    job.assignedId = nil
+    releaseClaim(job)
 end
 
-local function returnCargo(actor, job, claim, item, owner)
-    local square = U().gridSquare(claim.x, claim.y, claim.z)
-    if not square or not zoneById(claim.zoneId, "sorting_floor") then
-        return false, "floor_source_unloaded"
-    end
+local function putDown(job, item, owner, square)
+    if not square then return false, "floor_drop_square_missing" end
     local dropped, wrapper = U().dropItem(owner, square, item)
     if not dropped or U().worldItemPresent(square, wrapper) ~= true
         or U().inventoryContains(owner, item) ~= false then
         return false, dropped and "floor_return_unverified" or wrapper
     end
     if not clear(item, job.id) then return false, "floor_marker_clear_failed" end
-    job.target.floorCargo, job.target.trashZoneId,
-        job.target.trashPoint = nil, nil, nil
-    job.target.failedFloorDestinations = nil
-    job.assignedId = nil
+    releaseClaim(job)
     return true, "floor_item_returned"
+end
+
+-- Carried cargo is put down on its own floor tile when the worker stands on
+-- it or beside it, and otherwise on the worker's own tile. dropItem places an
+-- item on any tile at any distance; nothing crosses the camp without its
+-- carrier.
+local function setDown(actor, job, claim, item, owner)
+    local ax, ay, az = U().position(actor)
+    local square = zoneById(claim.zoneId, "sorting_floor")
+        and U().gridSquare(claim.x, claim.y, claim.z) or nil
+    local beside = ax ~= nil and square ~= nil
+        and math.floor(az or 0) == claim.z
+        and math.abs(math.floor(ax) - claim.x) <= 1
+        and math.abs(math.floor(ay) - claim.y) <= 1
+    return putDown(job, item, owner, beside and square or U().squareOf(actor))
 end
 
 local function approach(actor, square, worldItem, action)
@@ -342,6 +380,27 @@ local function approach(actor, square, worldItem, action)
     return moving == true and reason == "arrived"
         and (reached == nil or U().sameSquare(actor, reached)),
         moving == true and reason or reason or "floor_approach_failed", moving == true
+end
+
+-- An item with nowhere to go is carried back to its own floor tile and put
+-- down there. A worker that cannot get there within half a minute, or whose
+-- intake zone is gone, puts it down where it stands instead. The first reason
+-- is kept for the job's blocker while the worker walks.
+local function carryBack(actor, job, claim, item, owner, why)
+    job.target.floorReturnReason = job.target.floorReturnReason or why
+    local reason = job.target.floorReturnReason
+    returning[job.id] = returning[job.id] or now()
+    local square = zoneById(claim.zoneId, "sorting_floor")
+        and U().gridSquare(claim.x, claim.y, claim.z) or nil
+    if square and now() - returning[job.id] < RETURN_MS then
+        local arrived, approachReason, moving = approach(actor, square, nil,
+            "return_to_sorting_floor")
+        if not arrived and moving then return true, approachReason, false end
+    end
+    local okay, dropReason = setDown(actor, job, claim, item, owner)
+    local zone = okay and zoneById(claim.zoneId, "sorting_floor") or nil
+    if zone then rewind(zone) end
+    return okay, okay and reason or dropReason, true
 end
 
 local function pickupVisual(actor, state, item, wrapper, square)
@@ -385,7 +444,7 @@ function Floor.update(actor, baseState, job)
         if job.assignedId and job.assignedId ~= U().idOf(actor) then
             return false, "floor_cargo_other_worker", true
         end
-        local item, owner = carried(actor, claim, job.id)
+        local item, owner, complete = carried(actor, claim, job.id)
         if not item then
             local square = U().gridSquare(claim.x, claim.y, claim.z)
             if not square then return false, "floor_source_unloaded", true end
@@ -396,6 +455,14 @@ function Floor.update(actor, baseState, job)
                 releaseWorldClaim(job, worldItem)
                 rewind(zone)
                 return true, "floor_item_still_on_ground"
+            end
+            if complete then
+                -- Neither carried nor on its tile: the player took it or it
+                -- was used up. Nothing is left to deliver, and a claim kept
+                -- for it would hold the zone and its job forever.
+                releaseClaim(job)
+                rewind(zone)
+                return true, "floor_cargo_absent"
             end
             return false, "floor_cargo_owner_unknown", true
         end
@@ -408,8 +475,7 @@ function Floor.update(actor, baseState, job)
         local chosen, category, why = destination(actor, item, job)
         job.target.floorCategory = category
         if not chosen then
-            local returned, reason = returnCargo(actor, job, claim, item, owner)
-            return returned, returned and why or reason, true
+            return carryBack(actor, job, claim, item, owner, why)
         end
         if chosen.kind == "trash" then
             job.target.trashZoneId = chosen.zoneId
@@ -424,10 +490,7 @@ function Floor.update(actor, baseState, job)
                 return false, dropped and "floor_trash_drop_unverified" or wrapper, true
             end
             if not clear(item, job.id) then return false, "floor_marker_clear_failed", true end
-            job.target.floorCargo, job.target.trashZoneId,
-                job.target.trashPoint = nil, nil, nil
-            job.target.failedFloorDestinations = nil
-            job.assignedId = nil
+            releaseClaim(job)
             rewind(zone)
             return true, "floor_item_discarded"
         end
@@ -442,9 +505,7 @@ function Floor.update(actor, baseState, job)
                 return false, "floor_deposit_unverified", true
             end
             if not clear(item, job.id) then return false, "floor_marker_clear_failed", true end
-            job.target.floorCargo = nil
-            job.target.failedFloorDestinations = nil
-            job.assignedId = nil
+            releaseClaim(job)
             rewind(zone)
             return true, "floor_item_stored"
         end
@@ -457,9 +518,8 @@ function Floor.update(actor, baseState, job)
                 baseState.visualAt = nil
                 return true, "floor_destination_changed"
             end
-            local returned, returnReason = returnCargo(actor, job, claim, item, owner)
-            return returned, returned and (reason == "destination_full"
-                and "floor_storage_full" or reason) or returnReason, true
+            return carryBack(actor, job, claim, item, owner,
+                reason == "destination_full" and "floor_storage_full" or reason)
         end
         return moved == true, reason or "floor_deposit_pending", false
     end
@@ -540,26 +600,39 @@ function Floor.cancel(actor, job)
         end
         return true
     end
-    if not actor then return false, "floor_worker_unavailable" end
     local claim = job.target.floorCargo
-    local item, owner = carried(actor, claim, job.id)
+    local sourceZone = zoneById(claim.zoneId, "sorting_floor")
+    local square = U().gridSquare(claim.x, claim.y, claim.z)
+    if not actor then
+        -- A dormant worker may still come back with the item. One gone for
+        -- good took it with it, and refusing here would keep the job, its
+        -- zone and the camp itself from ever being cancelled or removed.
+        if not workerGone(job.assignedId) then return false, "floor_worker_unavailable" end
+        releaseWorldClaim(job, square and worldItemAt(square, claim.itemId, job.id) or nil)
+        if sourceZone then rewind(sourceZone) end
+        return true, "floor_worker_gone"
+    end
+    local item, owner, complete = carried(actor, claim, job.id)
     if item then
-        local okay, reason = returnCargo(actor, job, claim, item, owner)
+        local okay, reason = setDown(actor, job, claim, item, owner)
         if okay then
             visuals[actor] = nil
-            local sourceZone = zoneById(claim.zoneId, "sorting_floor")
             if sourceZone then rewind(sourceZone) end
         end
         return okay, reason
     end
-    local square = U().gridSquare(claim.x, claim.y, claim.z)
     local worldItem = square and worldItemAt(square, claim.itemId, job.id)
     if worldItem then
         releaseWorldClaim(job, worldItem)
-        local sourceZone = zoneById(claim.zoneId, "sorting_floor")
         if sourceZone then rewind(sourceZone) end
         visuals[actor] = nil
         return true, "floor_item_still_on_ground"
+    end
+    if complete and square then
+        releaseClaim(job)
+        if sourceZone then rewind(sourceZone) end
+        visuals[actor] = nil
+        return true, "floor_cargo_absent"
     end
     return false, "floor_cargo_owner_unknown"
 end
@@ -581,7 +654,7 @@ function Floor.zoneInUse(id)
     local base = SC.BaseLife and SC.BaseLife.active()
     for _, job in ipairs(base and base.jobs or {}) do
         if job.type == "sort_floor" and type(job.target) == "table"
-            and job.target.floorCargo
+            and job.target.floorCargo and not workerGone(job.assignedId)
             and (job.target.zoneId == id or job.target.trashZoneId == id) then
             return true
         end

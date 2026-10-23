@@ -61,6 +61,7 @@ SC.GameplayUtil = {
     call = call, nowMs = function() return now end,
     idOf = function(value) return value.id end,
     gridSquare = function(x, y, z) return squares[x .. ":" .. y .. ":" .. z] end,
+    squareOf = function(value) return squares[value.x .. ":" .. value.y .. ":" .. value.z] end,
     position = function(value) return value.x, value.y, value.z end,
     sameSquare = function(value, where)
         return value.x == where.x and value.y == where.y and value.z == where.z
@@ -137,8 +138,10 @@ SC.NativeActions = {
 }
 local destinationEnabled = true
 local alternateEnabled, firstRouteBlocked = false, false
+local goneWorkers = {}
 SC.BaseWork = {
     choreReserved = function() return false end,
+    workerUnregistered = function(id) return goneWorkers[id] == true end,
     floorDestinations = function(_, candidate)
         if destinationEnabled then
             local rows = { { destination = { id = "storage:1" },
@@ -244,5 +247,112 @@ check(select(2, Floor.update(actor, state, job)) == "floor_item_stored"
     and contains(alternateStorage, rerouted)
     and not contains(storage, rerouted),
     "alternate shelf receives the exact item")
+table.remove(base.jobs, 1)
+alternateEnabled, firstRouteBlocked = false, false
 
-SC_TEST_REPORT = "FLOOR_SORT_PASS pickup=verified reload=verified trash=physical blocked=reported cancel=returned alternate=verified"
+-- Storage that disappears while the item is carried: the worker walks the
+-- item back to its own floor tile before putting it down. dropItem places an
+-- item on any tile at any distance, so without the walk it would jump there.
+local shelf = square(15, 10)
+squares["15:10:0"] = shelf
+local stranded = item(106, false)
+addWorld(source, stranded)
+queued, job = Floor.audit(base)
+check(queued, "carry-back test queues")
+state = {}
+Floor.update(actor, state, job)
+Floor.update(actor, state, job)
+check(contains(inventory, stranded), "carry-back test has carried cargo")
+actor.x, actor.y = 15, 10
+destinationEnabled = false
+local walkedHandled, walkedReason, walkedTerminal = Floor.update(actor, state, job)
+check(walkedHandled == true and walkedReason == "floor_storage_missing"
+        and walkedTerminal == true and actor.x == 10 and actor.y == 10
+        and stranded.worldItem ~= nil
+        and contains({ items = source.worldItems }, stranded.worldItem)
+        and not contains(inventory, stranded)
+        and stranded.modData.LF_FloorSortJob == nil and job.target.floorCargo == nil,
+    "an item with nowhere to go is walked back to its own tile: "
+        .. tostring(walkedReason) .. " at " .. tostring(actor.x) .. "," .. tostring(actor.y))
+remove({ items = source.worldItems }, stranded.worldItem)
+stranded.worldItem = nil
+table.remove(base.jobs, 1)
+destinationEnabled = true
+
+-- An interrupted worker puts the item down where it stands.
+local interrupted = item(107, false)
+addWorld(source, interrupted)
+queued, job = Floor.audit(base)
+check(queued, "interrupted-carry test queues")
+state = {}
+Floor.update(actor, state, job)
+Floor.update(actor, state, job)
+check(contains(inventory, interrupted), "interrupted carry has cargo")
+actor.x, actor.y = 15, 10
+check(Floor.cancel(actor, job) == true and interrupted.worldItem ~= nil
+        and contains({ items = shelf.worldItems }, interrupted.worldItem)
+        and not contains({ items = source.worldItems }, interrupted.worldItem)
+        and job.target.floorCargo == nil,
+    "a worker interrupted across the camp puts the item down at its own feet")
+remove({ items = shelf.worldItems }, interrupted.worldItem)
+interrupted.worldItem = nil
+table.remove(base.jobs, 1)
+actor.x, actor.y = 10, 10
+
+-- A worker that is not yet restored keeps its claim; one gone for good
+-- (dead or dismissed) releases it, so neither the job, the zone nor the camp
+-- is held by cargo that can never be delivered or returned.
+local lost = item(108, false)
+addWorld(source, lost)
+queued, job = Floor.audit(base)
+check(queued, "lost test queues")
+state = {}
+Floor.update(actor, state, job)
+Floor.update(actor, state, job)
+check(contains(inventory, lost) and Floor.zoneInUse("zone:sorting") == true,
+    "gone-worker test has carried cargo")
+check(select(2, Floor.cancel(nil, job)) == "floor_worker_unavailable"
+        and job.target.floorCargo ~= nil,
+    "a worker not yet restored keeps its claim")
+goneWorkers[actor.id] = true
+check(Floor.zoneInUse("zone:sorting") == false,
+    "cargo of a worker gone for good does not hold the zone")
+check(Floor.cancel(nil, job) == true and job.target.floorCargo == nil
+        and job.assignedId == nil,
+    "cancelling the job of a worker gone for good succeeds")
+goneWorkers[actor.id] = nil
+table.remove(base.jobs, 1)
+
+local orphaned = item(109, false)
+addWorld(source, orphaned)
+queued, job = Floor.audit(base)
+check(queued, "orphaned test queues")
+state = {}
+Floor.update(actor, state, job)
+Floor.update(actor, state, job)
+check(contains(inventory, orphaned) and job.assignedId == actor.id,
+    "orphaned-claim test has carried cargo")
+goneWorkers[actor.id] = true
+Floor.audit(base)
+check(job.target.floorCargo == nil and job.assignedId == nil,
+    "audit releases the claim of a worker gone for good")
+goneWorkers[actor.id] = nil
+table.remove(base.jobs, 1)
+
+-- The player takes the item out of the carrier's inventory.
+local taken = item(110, false)
+addWorld(source, taken)
+queued, job = Floor.audit(base)
+check(queued, "taken test queues")
+state = {}
+Floor.update(actor, state, job)
+Floor.update(actor, state, job)
+check(contains(inventory, taken), "absent-cargo test has carried cargo")
+remove(inventory, taken)
+local absentHandled, absentReason, absentTerminal = Floor.update(actor, state, job)
+check(absentHandled == true and absentReason == "floor_cargo_absent"
+        and not absentTerminal and job.target.floorCargo == nil
+        and Floor.zoneInUse("zone:sorting") == false,
+    "cargo taken from the carrier releases the claim: " .. tostring(absentReason))
+
+SC_TEST_REPORT = "FLOOR_SORT_PASS pickup=verified reload=verified trash=physical blocked=reported cancel=returned alternate=verified carryback=walked interrupted=feet gone=released absent=released"
