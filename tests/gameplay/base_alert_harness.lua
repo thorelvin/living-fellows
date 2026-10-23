@@ -250,6 +250,9 @@ check(guardContact and guardContact.mode == "watch"
         and Alert.directiveFor(yard, now) == nil
         and Alert.directiveFor(far, now) == nil,
     "at a contact the spotter watches and the nearest awake resident backs it up")
+local laterGuard = Alert.directiveFor(guard, now + 5000)
+check(laterGuard and laterGuard.mode == "watch",
+    "a spotter with an awake backup keeps watching instead of waking anyone")
 duty = { "guard", "near", "yard", "sleeper", "far" }
 
 -- Two more come into view: the guard shouts a stand-to.
@@ -402,6 +405,85 @@ Alert.observe(near, nil, sight({ 25, 10 }, { 25, 11 }, { 24, 9 }), resident, now
 check(Alert.directiveFor(guard, now).mode == "stand_to",
     "a downed resident stands to instead of answering")
 guard.downed = nil
+
+-- A lone guard at night: nobody awake heard the quiet word, so it walks over
+-- and wakes the nearest sleeper by hand, then takes it back to its post.
+Alert.reset()
+base.settings.defense = "rotation"
+duty = { "lone", "bunk", "cot" }
+local lone = actor("lone", 21, 10)
+local bunk = actor("bunk", 12, 12)
+local cot = actor("cot", 2, 2)
+watch = { lone = true }
+asleep = { bunk = true, cot = true }
+woken, routes, spoken = {}, {}, {}
+Alert.observe(lone, nil, sight({ 25, 10 }), resident, now)
+local loneFirst = Alert.directiveFor(lone, now)
+check(Alert.peek().level == "contact" and Alert.peek().needsBackup == true
+        and loneFirst and loneFirst.mode == "watch",
+    "a lone guard first keeps its eyes on the walker")
+now = now + 5000
+local shakeOrder = Alert.directiveFor(lone, now)
+check(shakeOrder and shakeOrder.mode == "shake" and shakeOrder.targetId == "bunk",
+    "then goes to wake the nearest sleeper: " .. tostring(shakeOrder and shakeOrder.targetId))
+local soundsBefore = #sounds
+check(Alert.act(lone, nil, shakeOrder, {}) == true and routes.lone
+        and routes.lone.mode == "walk" and routes.lone.intent.action == "move_to_alert_wake"
+        and #routes.lone.targets > 0 and #woken == 0 and #sounds == soundsBefore,
+    "it walks there quietly")
+lone.x, lone.y = 13, 12
+local _, shookReason = Alert.act(lone, nil, Alert.directiveFor(lone, now), {})
+check(shookReason == "base_alert_shook_awake" and woken[1] == "bunk" and #woken == 1
+        and asleep.cot == true and said("lone", "camp_alert.shake")
+        and #sounds == soundsBefore,
+    "beside the bed it wakes that one sleeper with a word, and no shout: " .. tostring(shookReason))
+local bunkWaking = Alert.directiveFor(bunk, now)
+check(bunkWaking and bunkWaking.mode == "waking", "the one shaken awake is groggy first")
+now = now + 7000
+local bunkOrder = Alert.directiveFor(bunk, now)
+check(bunkOrder and bunkOrder.mode == "respond" and bunkOrder.score == 70,
+    "then it backs the guard up")
+local backOrder = Alert.directiveFor(lone, now)
+check(backOrder and backOrder.mode == "return" and backOrder.origin.x == 21,
+    "the guard heads back to its post")
+Alert.act(lone, nil, backOrder, {})
+check(routes.lone.intent.action == "move_to_alert_post", "walking back to where it stood")
+lone.x, lone.y = 21, 10
+local _, backReason = Alert.act(lone, nil, Alert.directiveFor(lone, now), {})
+local watching = Alert.directiveFor(lone, now)
+check(backReason == "base_alert_back_on_watch" and watching and watching.mode == "watch",
+    "and watches again from there: " .. tostring(backReason))
+local line = Alert.statusLine(function(key, a, b, c, d)
+    return key .. "|" .. tostring(a) .. "|" .. tostring(b) .. "|" .. tostring(c) .. "|" .. tostring(d)
+end, function(id) return id == "lone" and "Lone Guard" or nil end, now)
+check(line == "UI_SC_Base_CampAlarm_contact|one|on the east side|Lone Guard|1",
+    "the Base tab names the level, count, side, spotter and responders: " .. tostring(line))
+
+-- Next time it prefers a sleeper the alarm has not just woken, and gives up
+-- after half a minute if it cannot get there.
+Alert.pulse(now + 40000)
+now = now + 40000
+check(Alert.statusLine(function() return "x" end, nil, now) == nil, "a quiet camp shows no alarm line")
+asleep.bunk = true
+lone.x, lone.y = 21, 10
+Alert.observe(lone, nil, sight({ 25, 10 }), resident, now)
+now = now + 5000
+local second = Alert.directiveFor(lone, now)
+check(second and second.mode == "shake" and second.targetId == "cot",
+    "a lone guard wakes a rested sleeper before one woken minutes ago: "
+        .. tostring(second and second.targetId))
+Alert.act(lone, nil, second, {})
+for _ = 1, 2 do
+    now = now + 15000
+    Alert.observe(lone, nil, sight({ 25, 10 }), resident, now)
+end
+now = now + 1000
+local _, giveUpReason = Alert.act(lone, nil, Alert.directiveFor(lone, now), {})
+local afterGiveUp = Alert.directiveFor(lone, now)
+check(giveUpReason == "base_alert_shake_timeout" and afterGiveUp and afterGiveUp.mode == "return"
+        and asleep.cot == true,
+    "a wake it cannot finish in half a minute is given up: " .. tostring(giveUpReason))
+Alert.reset()
 
 -- Elsewhere: no camp, no alarm.
 Alert.reset()

@@ -244,6 +244,19 @@ local function assignRoles(entries, spotterId, level, current)
     end
 end
 
+-- Woken residents are groggy for a few seconds, the same few for the same
+-- person, and may go back to bed once the alert is over.
+local function markWoken(id, current)
+    local remembered = memoryFor(id)
+    remembered.wokenAt = current
+    local spread = math.max(0, tonumber(cfg("baseAlertGrogSpreadMs", 3000)) or 3000)
+    local hash = math.abs(tonumber(U().stableHash(tostring(id) .. ":grog")) or 0)
+    remembered.grogUntil = current + (tonumber(cfg("baseAlertGrogMinMs", 3000)) or 3000)
+        + (spread > 0 and hash % spread or 0)
+    remembered.wokeFor = alert.id
+    alert.woken[id] = true
+end
+
 local function wake(entry, current)
     local id = entry.id
     local remembered = memoryFor(id)
@@ -254,13 +267,7 @@ local function wake(entry, current)
     end
     if not SC.Downtime or type(SC.Downtime.wakeForAlarm) ~= "function" then return false end
     if SC.Downtime.wakeForAlarm(entry.actor) ~= true then return false end
-    remembered.wokenAt = current
-    local spread = math.max(0, tonumber(cfg("baseAlertGrogSpreadMs", 3000)) or 3000)
-    local hash = math.abs(tonumber(U().stableHash(tostring(id) .. ":grog")) or 0)
-    remembered.grogUntil = current + (tonumber(cfg("baseAlertGrogMinMs", 3000)) or 3000)
-        + (spread > 0 and hash % spread or 0)
-    remembered.wokeFor = alert.id
-    alert.woken[id] = true
+    markWoken(id, current)
     return true
 end
 
@@ -325,6 +332,13 @@ local function spread(current)
         return tostring(a.id) < tostring(b.id)
     end)
     assignRoles(roleEntries, alert.spotterId, alert.level, current)
+    if alert.level == "contact" then
+        local backed = false
+        for _, told in pairs(alert.told) do
+            if told.role == "respond" then backed = true end
+        end
+        alert.needsBackup = not backed
+    end
     return newlyTold
 end
 
@@ -442,6 +456,44 @@ function Alert.observe(actor, player, snapshot, commands, current)
     return raise(actor, level, threat, current)
 end
 
+-- A lone spotter at a contact wakes one sleeper by hand rather than shout:
+-- the nearest within reach, preferring one the alarm has not woken lately.
+local function nearestSleeper(spotter, current)
+    local sx, sy = position(spotter)
+    if not sx then return nil end
+    local radius = tonumber(cfg("baseAlertShakeRadius", 30)) or 30
+    local cooldown = tonumber(cfg("baseAlertWakeCooldownMs", 600000)) or 600000
+    local best, bestScore
+    for _, entry in ipairs(residents()) do
+        if entry.id ~= alert.spotterId and sleeping(entry.actor) then
+            local x, y = position(entry.actor)
+            local distanceSq = x and (x - sx) ^ 2 + (y - sy) ^ 2 or math.huge
+            if distanceSq <= radius * radius then
+                local remembered = memory[entry.id]
+                local rested = not (remembered and remembered.wokenAt
+                    and current - remembered.wokenAt < cooldown)
+                local score = distanceSq + (rested and 0 or 1000000)
+                if not bestScore or score < bestScore then best, bestScore = entry, score end
+            end
+        end
+    end
+    return best
+end
+
+local function aroundSquare(x, y, z, includeSelf)
+    local result = {}
+    if not x then return result end
+    for dy = -1, 1 do
+        for dx = -1, 1 do
+            if includeSelf or dx ~= 0 or dy ~= 0 then
+                local square = U().gridSquare(math.floor(x) + dx, math.floor(y) + dy, floorOf(z))
+                if square and U().isSquareFree(square) then result[#result + 1] = square end
+            end
+        end
+    end
+    return result
+end
+
 local function slots(spotter)
     local sx, sy, sz = position(spotter)
     if not sx then return {} end
@@ -497,6 +549,27 @@ function Alert.directiveFor(actor, current)
             return { mode = "fall_back", score = 96, alertId = alert.id,
                 level = alert.level, threat = alert.threat, run = true }
         end
+        if alert.level == "contact" and alert.needsBackup then
+            local shake = alert.shake
+            if not shake and current - (alert.calledAt or current)
+                >= (tonumber(cfg("baseAlertShakeDelayMs", 4000)) or 4000) then
+                local spotter = U().resolveActor(id)
+                local target = spotter and nearestSleeper(spotter, current) or nil
+                local sx, sy, sz = position(spotter)
+                shake = target and { targetId = target.id, since = current,
+                    deadline = current + (tonumber(cfg("baseAlertShakeDeadlineMs", 30000)) or 30000),
+                    origin = { x = sx, y = sy, z = sz } } or { done = true }
+                alert.shake = shake
+            end
+            if shake and not shake.done then
+                return { mode = "shake", score = 66, alertId = alert.id, level = alert.level,
+                    threat = alert.threat, targetId = shake.targetId }
+            end
+        end
+        if alert.level == "contact" and alert.shake and alert.shake.returning then
+            return { mode = "return", score = 66, alertId = alert.id, level = alert.level,
+                threat = alert.threat, origin = alert.shake.origin }
+        end
         -- Eyes on it while the others come, then back to work: the alert
         -- itself stays up until the camp has been quiet for a while.
         if current - (alert.calledAt or current)
@@ -533,7 +606,8 @@ function Alert.preempts(actor, current)
     local directive = Alert.directiveFor(actor, current)
     return directive ~= nil and (directive.mode == "respond"
         or directive.mode == "fall_back" or directive.mode == "stand_to"
-        or directive.mode == "watch")
+        or directive.mode == "watch" or directive.mode == "shake"
+        or directive.mode == "return")
 end
 
 -- The spotter's alarm call replaces the generic "Zombie!" warning.
@@ -566,6 +640,67 @@ function Alert.act(actor, player, directive, snapshot)
             speak(actor, "camp_alert.woken", nil, "I'm up.")
         end
         return true, "base_alert_waking"
+    end
+    if directive.mode == "shake" then
+        local shake = alert.shake
+        local function giveUp(reason)
+            shake.done, shake.returning = true, true
+            shake.returnDeadline = current
+                + (tonumber(cfg("baseAlertShakeDeadlineMs", 30000)) or 30000)
+            alert.calledAt = current
+            return true, reason
+        end
+        local target = U().resolveActor(directive.targetId)
+        if not target or not sleeping(target) then return giveUp("base_alert_shake_target_awake") end
+        if current >= shake.deadline then return giveUp("base_alert_shake_timeout") end
+        local ax, ay, az = position(actor)
+        local tx, ty, tz = position(target)
+        if ax and tx and floorOf(az) == floorOf(tz)
+            and (ax - tx) ^ 2 + (ay - ty) ^ 2 <= 1.6 * 1.6 then
+            if SC.Downtime and type(SC.Downtime.wakeForAlarm) == "function"
+                and SC.Downtime.wakeForAlarm(target) == true then
+                markWoken(directive.targetId, current)
+                alert.told[directive.targetId] = { at = current, hop = 0, woken = true,
+                    role = "respond", shaken = true }
+                alert.needsBackup = false
+                speak(actor, "camp_alert.shake", nil, "Up. Quiet. One's at the fence.", true)
+                return giveUp("base_alert_shook_awake")
+            end
+            return giveUp("base_alert_shake_failed")
+        end
+        local targets = aroundSquare(tx, ty, tz, false)
+        if #targets == 0 then return giveUp("base_alert_shake_no_square") end
+        local moving, reason = SC.Navigation.requestAny(actor, targets, "walk", {
+            action = "move_to_alert_wake", arrivalDistance = 1.0, snapshot = snapshot,
+        })
+        if moving ~= true then return giveUp(reason or "base_alert_shake_route_failed") end
+        return true, reason or "base_alert_going_to_wake"
+    end
+    if directive.mode == "return" then
+        local shake = alert.shake
+        local origin = directive.origin or {}
+        local ax, ay, az = position(actor)
+        local home = ax ~= nil and origin.x ~= nil and floorOf(az) == floorOf(origin.z)
+            and (ax - origin.x) ^ 2 + (ay - origin.y) ^ 2 <= 2 * 2
+        if home or current >= (shake.returnDeadline or 0) then
+            shake.returning = false
+            alert.calledAt = current
+            face(actor, directive.threat)
+            return true, "base_alert_back_on_watch"
+        end
+        local targets = aroundSquare(origin.x, origin.y, origin.z, true)
+        local moving, reason = false, "base_alert_post_unreachable"
+        if #targets > 0 then
+            moving, reason = SC.Navigation.requestAny(actor, targets, "walk", {
+                action = "move_to_alert_post", arrivalDistance = 1.0, snapshot = snapshot,
+            })
+        end
+        if moving ~= true then
+            shake.returning = false
+            face(actor, directive.threat)
+            return true, reason or "base_alert_return_failed"
+        end
+        return true, reason or "base_alert_returning"
     end
     if directive.mode == "watch" or directive.mode == "hold" or directive.mode == "stand_to" then
         if face(actor, directive.threat) then return true, "base_alert_" .. directive.mode end
@@ -642,6 +777,37 @@ function Alert.act(actor, player, directive, snapshot)
         return true, reason or "base_alert_route_failed"
     end
     return true, reason or "base_alert_moving"
+end
+
+-- For the Base tab: the level, how many and on which side of the camp, who
+-- saw them and how many are answering.
+function Alert.summary(current)
+    current = current or now()
+    Alert.pulse(current)
+    if not alert then return nil end
+    local responding = 0
+    for _, told in pairs(alert.told) do
+        if told.role == "respond" or told.role == "fall_back" then responding = responding + 1 end
+    end
+    local base = SC.BaseLife and SC.BaseLife.active() or nil
+    local core = base and base.core or nil
+    return {
+        level = alert.level,
+        count = countWord(alert.threat.count),
+        side = core and direction(tonumber(core.x), tonumber(core.y),
+            alert.threat.x, alert.threat.y) or "right here",
+        spotterId = alert.spotterId,
+        responding = responding,
+    }
+end
+
+-- One translated line for the Base tab, or nil when the camp is quiet.
+function Alert.statusLine(textFn, nameOf, current)
+    local summary = Alert.summary(current)
+    if not summary or type(textFn) ~= "function" then return nil end
+    local name = type(nameOf) == "function" and nameOf(summary.spotterId) or nil
+    return textFn("UI_SC_Base_CampAlarm_" .. summary.level, summary.count, summary.side,
+        name or "a resident", tostring(summary.responding))
 end
 
 function Alert.peek()

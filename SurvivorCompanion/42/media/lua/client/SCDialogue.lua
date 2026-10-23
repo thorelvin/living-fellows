@@ -1211,6 +1211,15 @@ local pools = {
         },
         stressed = { { "Son of a bitch, already?", clean = "Son of a gun, already?" } },
     },
+    ["camp_alert.shake"] = {
+        common = {
+            "Hey. Up. Quiet. One's at the fence.",
+            "Wake up. Easy. I need you outside.",
+            "Psst. Up. We've got company. No noise.",
+            "Up. Don't shout. Walker by the camp.",
+        },
+        stressed = { { "Get up, damn it. Quietly.", clean = "Get up, come on. Quietly." } },
+    },
     ["camp_alert.coming"] = {
         common = { "On my way!", "Coming to you!", "Hold on, I'm coming!", "Right behind you!" },
     },

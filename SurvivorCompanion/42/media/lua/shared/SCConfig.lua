@@ -1266,6 +1266,10 @@ local valueData = {
     baseAlertWakeCooldownMs = 600000,
     baseAlertGrogMinMs = 3000,
     baseAlertGrogSpreadMs = 3000,
+    -- A lone watcher at a contact wakes the nearest sleeper by hand.
+    baseAlertShakeRadius = 30,
+    baseAlertShakeDelayMs = 4000,
+    baseAlertShakeDeadlineMs = 30000,
     baseOperationsAuditIntervalMs = 5000,
     baseOperationsStorageItemBudget = 160,
 

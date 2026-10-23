@@ -3671,6 +3671,17 @@ function SCUIDetail:buildBase(panel, row)
         y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
             UI.text("UI_SC_Base_Summary", base.name or "Main Camp", base.zones or 0,
                 base.storages or 0, base.residents or 0, base.duty or 0))
+        -- The camp alarm, while one is up (SCBaseAlert).
+        local alarmLine = SC.BaseAlert and type(SC.BaseAlert.statusLine) == "function"
+            and SC.BaseAlert.statusLine(UI.text, function(id)
+                for _, residentRow in ipairs(base.residentRows or {}) do
+                    if residentRow.id == id then return residentRow.name end
+                end
+                return nil
+            end) or nil
+        if alarmLine then
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message", alarmLine)
+        end
         y = self:buildBaseWatch(panel, y)
         local visualStatus = SC.BaseVisuals and type(SC.BaseVisuals.status) == "function"
             and SC.BaseVisuals.status() or { enabled = false }
