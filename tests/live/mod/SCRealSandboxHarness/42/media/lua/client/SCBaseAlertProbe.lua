@@ -403,23 +403,38 @@ local function run(H, SC, check, result, setPhase, current)
         end
     end
     if events.raisedAt and not events.arrivedAt and alert then
-        local helperIsSpotter = alert.spotterId == fixture.ids.helper
-        local comer = helperIsSpotter and fixture.actors.spotter or fixture.actors.helper
+        -- Whoever the policy sends: any fixture resident answering the call
+        -- that reaches the caller, or holds nearer the zombie than it.
         local seen = SC.GameplayUtil.resolveActor(alert.spotterId)
-        local responder = alert.responders[SC.Registry.idOf(comer)]
-        local fighting = (SC.Decision.peek(comer) or {}).current == "combat"
-        if (responder and responder.arrived) or (seen and distance(comer, seen) <= 3.5) then
+        local caller, comerName, comer
+        local roles = {}
+        for name, actor in pairs(fixture.actors) do
+            local id = fixture.ids[name]
+            if id == alert.spotterId then
+                caller = name
+            else
+                local told = alert.told[id]
+                roles[#roles + 1] = name .. "=" .. tostring(told and told.role)
+                    .. "@" .. string.format("%.1f", seen and distance(actor, seen) or -1)
+                local responder = alert.responders[id]
+                if (responder and responder.arrived)
+                    or (told and told.role == "respond" and seen and distance(actor, seen) <= 3.5) then
+                    comerName, comer = name, actor
+                end
+            end
+        end
+        if comer then
             events.arrivedAt = current
             check("base_alert_responder_came", true, "after " .. tostring(current - events.raisedAt)
-                .. " ms distance=" .. string.format("%.1f", seen and distance(comer, seen) or -1)
+                .. " ms " .. comerName .. " came to " .. tostring(caller) .. ": distance="
+                .. string.format("%.1f", seen and distance(comer, seen) or -1)
                 .. " toZombie=" .. string.format("%.1f", distance(comer, fixture.zombie))
-                .. " caller=" .. (helperIsSpotter and "helper" or "yard")
-                .. " fighting=" .. tostring(fighting))
+                .. " fighting=" .. tostring((SC.Decision.peek(comer) or {}).current == "combat"))
             screenshot(H, check, "answered")
         elseif current - events.raisedAt > 60000 then
             events.arrivedAt = current
-            result("FAIL", "base_alert_responder_came", "not beside the spotter 60 s after the call; distance="
-                .. string.format("%.1f", seen and distance(comer, seen) or -1))
+            result("FAIL", "base_alert_responder_came", "nobody beside " .. tostring(caller)
+                .. " 60 s after the call: " .. table.concat(roles, " "))
         end
     end
     -- Once answered, or after 45 s, take the zombie away so the camp can clear.

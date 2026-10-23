@@ -242,6 +242,20 @@ local function assignRoles(entries, spotterId, level, current)
         end
         alert.told[entry.id].role = role
     end
+    -- A stand-to never leaves the caller on its own: when the policy names
+    -- nobody else (under role-based defence the only guard may be the one
+    -- who saw them, seen live), the nearest resident able to fight comes.
+    if level == "stand_to" then
+        for _, entry in ipairs(entries) do
+            if alert.told[entry.id].role == "respond" then return end
+        end
+        for _, entry in ipairs(entries) do
+            if alert.told[entry.id].role == "stand_to" and capable(entry.actor) then
+                alert.told[entry.id].role = "respond"
+                return
+            end
+        end
+    end
 end
 
 -- Woken residents are groggy for a few seconds, the same few for the same

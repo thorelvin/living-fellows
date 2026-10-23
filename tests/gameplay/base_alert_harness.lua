@@ -399,6 +399,17 @@ Alert.observe(near, nil, sight({ 25, 10 }, { 25, 11 }, { 24, 9 }), resident, now
 check(Alert.directiveFor(yard, now).mode == "respond"
         and Alert.directiveFor(guard, now).mode == "stand_to",
     "under role-based defence a guard answers and the others stand to")
+roles.yard, roles.guard = nil, "guard"
+Alert.pulse(now + 70000)
+now = now + 70000
+Alert.observe(guard, nil, sight({ 25, 10 }, { 25, 11 }, { 24, 9 }), resident, now)
+local loneSleeper, loneNear, loneYard = Alert.directiveFor(sleeper, now),
+    Alert.directiveFor(near, now), Alert.directiveFor(yard, now)
+check(loneSleeper and loneSleeper.mode == "respond"
+        and loneNear and loneNear.mode == "stand_to"
+        and loneYard and loneYard.mode == "stand_to",
+    "when the only guard is the one who saw them, the nearest resident still comes")
+roles.guard = nil
 base.settings.defense = "all_hands"
 Alert.pulse(now + 70000)
 now = now + 70000
