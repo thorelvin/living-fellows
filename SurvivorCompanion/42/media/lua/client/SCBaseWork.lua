@@ -3,6 +3,7 @@
 if type(require) == "function" then
     pcall(require, "SCBaseLife")
     pcall(require, "SCWorkTransport")
+    pcall(require, "SCFloorSort")
     pcall(require, "SCGatherWork")
     pcall(require, "SCFarmWork")
     pcall(require, "SCChefWork")
@@ -1371,6 +1372,29 @@ local function destinationsFor(job, item, actor, sourceId)
     return rows
 end
 
+-- Floor intake follows the ordinary camp sorter's exact category and capacity
+-- rules. It never falls back to General when a dedicated marker is absent.
+function BaseWork.floorDestinations(actor, item)
+    -- The ordinary sorter leaves valuables on a general shelf until their
+    -- dedicated marker exists. A floor intake has no shelf to preserve them
+    -- on, so identify the category even when its destination is missing.
+    local category = SC.BaseLife.isValuableItem(item)
+        and "valuables" or classifyItem(item)
+    if category == "food" or category == "fresh_food" then
+        category = SC.BaseLife.foodDepositCategory(item)
+    end
+    local rows = destinationsFor({ type = "sort",
+        target = { destinationCategory = category } }, item, actor, nil)
+    if #rows > 0 then return rows, category end
+    if U().itemType(item) == "Base.Log" and category == "construction"
+        and SC.LogYard and SC.LogYard.hasZone and SC.LogYard.hasZone() then
+        return {}, category, "floor_storage_unavailable"
+    end
+    local marked = SC.BaseLife.depositStorageRows(category)
+    return {}, category, #marked > 0 and "floor_storage_full"
+        or "floor_storage_missing"
+end
+
 function BaseWork.destinationForCarItem(actor, item)
     local category = classifyItem(item)
     if category == "food" or category == "fresh_food" then
@@ -2271,6 +2295,18 @@ function BaseWork.update(actor, player, runtime)
                 return true, reason
             end
         end
+    elseif job.type == "sort_floor" then
+        if not SC.FloorSort or type(SC.FloorSort.update) ~= "function" then
+            handled, reason, terminal = false, "floor_sort_unavailable", true
+        else
+            local completed
+            handled, reason, terminal, completed = SC.FloorSort.update(actor, state, job)
+            if completed then
+                SC.BaseLife.completeJob(job.id, id, reason)
+                state.jobId, state.floorCandidate = nil, nil
+                return true, reason
+            end
+        end
     elseif job.type == "haul" or job.type == "sort" or job.type == "fetch" then
         handled, reason, terminal = updateTransfer(actor, state, job)
     else
@@ -2302,10 +2338,12 @@ function BaseWork.update(actor, player, runtime)
             end
         end
         state.jobId, state.phase, state.action, state.transfer = nil, "idle", nil, nil
+        state.floorCandidate = nil
         state.cleanFailureReason = nil
         -- A blocked job forgets its selection, never the cargo it still owns.
     elseif handled then
-        if reason == "car_item_stored"
+        if (reason == "car_item_stored" or reason == "floor_item_stored"
+            or reason == "floor_item_discarded")
             and SC.BaseLife.noteJobStorageProgress then
             SC.BaseLife.noteJobStorageProgress(job.id, id)
         end
@@ -2353,6 +2391,10 @@ local function auditMedical(base)
 end
 
 local function auditSorting(base)
+    if SC.FloorSort and type(SC.FloorSort.audit) == "function" then
+        local queued, result = SC.FloorSort.audit(base)
+        if queued then return queued, result end
+    end
     if openJob(base, "sort") then return false, "sorting_already_queued" end
     if #SC.BaseLife.storageRows(nil, true) == 0 then
         return false, "sorting_source_missing"
@@ -2557,9 +2599,18 @@ end
 
 function BaseWork.cancel(actor, reason)
     local state = states[actor]
+    if SC.FloorSort and type(SC.FloorSort.cancelActor) == "function" then
+        local okay, why = SC.FloorSort.cancelActor(actor)
+        if okay ~= true then return false, why or "floor_sort_cancel_failed" end
+    end
     -- Do this before releasing the job or cancelling another subsystem. A
     -- failed exact return leaves the receipt, worker and lease intact.
     if state then
+        local floorJob = state.jobId and SC.BaseLife.job(state.jobId) or nil
+        if floorJob and floorJob.type == "sort_floor" then
+            local okay, why = SC.FloorSort and SC.FloorSort.cancel(actor, floorJob)
+            if okay ~= true then return false, why or "floor_sort_cancel_failed" end
+        end
         local settled, cargoReason = settleCargo(actor, state)
         if settled ~= true then return false, cargoReason end
         local job = state.jobId and SC.BaseLife.job(state.jobId) or nil
@@ -2629,6 +2680,14 @@ end
 -- report success while the exact accepted native action is still executable.
 function BaseWork.cancelJob(jobId, ownerId, reason)
     local unloadJob = SC.BaseLife and SC.BaseLife.job(jobId) or nil
+    if unloadJob and unloadJob.type == "sort_floor" then
+        local worker = ownerId or unloadJob.assignedId
+        local actor = worker and U().resolveActor(worker) or nil
+        if not SC.FloorSort or type(SC.FloorSort.cancel) ~= "function" then
+            return false, "floor_sort_cancel_unavailable"
+        end
+        return SC.FloorSort.cancel(actor, unloadJob)
+    end
     if unloadJob and unloadJob.type == "clean" then
         local workerId = ownerId or unloadJob.assignedId
         local actor = workerId and U().resolveActor(workerId) or nil

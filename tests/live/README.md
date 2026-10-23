@@ -27,6 +27,15 @@ machine against real engine objects. The smoke suite verifies:
 - native rear-facing and formation-facing restoration;
 - unchanged player-0 singleton and coordinates throughout companion actions.
 
+To verify sorting-floor pickup and a visible trash pile with real native items,
+use a cloned save that has a recruited companion and marked Tools, Medical,
+Construction, or Food storage with room:
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -FloorSortProbe -LivingFellowsOnly `
+    -NoSteam -TimeoutSeconds 300
+```
+
 Run the static contract first:
 
 ```powershell

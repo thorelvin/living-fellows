@@ -36,6 +36,8 @@ local ZONE_COLORS = {
     quarantine = { r = 0.70, g = 0.22, b = 0.92 },
     lumber = { r = 0.36, g = 0.72, b = 0.20 },
     log_yard = { r = 0.58, g = 0.39, b = 0.16 },
+    sorting_floor = { r = 0.98, g = 0.68, b = 0.18 },
+    trash_pile = { r = 0.60, g = 0.58, b = 0.52 },
     farm = { r = 0.48, g = 0.88, b = 0.16 },
     fishing = { r = 0.12, g = 0.70, b = 0.92 },
     burial = { r = 0.62, g = 0.66, b = 0.78 },
@@ -761,7 +763,7 @@ local function renderCompanionLabels(occupied)
     return drawn
 end
 
-local LEGEND_ZONES = { "area", "parking", "work", "lumber", "log_yard", "farm", "fishing", "burial", "pyre", "rest", "social",
+local LEGEND_ZONES = { "area", "parking", "work", "sorting_floor", "trash_pile", "lumber", "log_yard", "farm", "fishing", "burial", "pyre", "rest", "social",
     "guard", "rally", "quarantine" }
 local LEGEND_STORAGE = { "food", "fresh_food", "water", "medical", "tools", "construction", "crafting",
     "literature", "weapons", "ammunition", "clothing", "valuables", "general", "output", "memorial", "farming" }

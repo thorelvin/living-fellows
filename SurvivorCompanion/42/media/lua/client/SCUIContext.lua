@@ -1160,7 +1160,7 @@ local function addBaseMenu(context, square, containerTarget, barricadeTarget, pl
             and SC.BaseLife.mayExtendAreaToFloor(square) == true
         local parkingCorner = type(SC.BaseLife.parkingCornerRelevant) == "function"
             and SC.BaseLife.parkingCornerRelevant(square) == true
-        local kinds = inside and { "area", "work", "lumber", "log_yard", "farm", "fishing", "burial", "pyre", "rest",
+        local kinds = inside and { "area", "work", "sorting_floor", "trash_pile", "lumber", "log_yard", "farm", "fishing", "burial", "pyre", "rest",
             "social", "guard", "rally", "quarantine" }
             or upstairsArea and { "area" }
             or { "lumber", "log_yard", "farm", "fishing", "burial", "pyre" }

@@ -24,6 +24,7 @@ BaseLife.ZONE_TYPES = {
     area = true, work = true, rest = true, social = true, guard = true,
     rally = true, quarantine = true, lumber = true, farm = true, fishing = true,
     burial = true, pyre = true, parking = true, log_yard = true,
+    sorting_floor = true, trash_pile = true,
 }
 BaseLife.STORAGE_CATEGORIES = {
     food = true, fresh_food = true, water = true, medical = true, tools = true, construction = true,
@@ -32,7 +33,7 @@ BaseLife.STORAGE_CATEGORIES = {
     output = true, memorial = true, farming = true,
 }
 BaseLife.JOB_TYPES = {
-    haul = true, sort = true, fetch = true, unload_vehicle = true,
+    haul = true, sort = true, sort_floor = true, fetch = true, unload_vehicle = true,
     refuel_vehicle = true, refuel_generator = true,
     inflate_tires = true, wash_vehicle = true,
     repair = true, replace_bandage = true, clean = true,
@@ -127,6 +128,13 @@ local TRANSIENT_SORT_BLOCKERS = {
     haul_destinations_full = 60000,
     haul_cargo_returned = 30000,
     destination_full = 60000,
+    floor_storage_full = 30000,
+    floor_storage_missing = 30000,
+    floor_trash_pile_missing = 30000,
+    floor_storage_unavailable = 30000,
+    floor_source_unloaded = 30000,
+    floor_worker_full = 30000,
+    floor_trash_pile_unavailable = 30000,
 }
 local TRANSIENT_GATHER_BLOCKERS = { destination_full = 30000 }
 local function transientJobDelay(job, reason)
@@ -134,12 +142,14 @@ local function transientJobDelay(job, reason)
     if reason == "destination_full" or reason == "haul_destinations_full"
         or reason == "car_unload_storage_full_or_missing" then return 30000 end
     if job.type == "farm" then return TRANSIENT_FARM_BLOCKERS[reason] end
-    if job.type == "sort" then return TRANSIENT_SORT_BLOCKERS[reason] end
+    if job.type == "sort" or job.type == "sort_floor" then
+        return TRANSIENT_SORT_BLOCKERS[reason]
+    end
     if job.type == "gather_materials" then return TRANSIENT_GATHER_BLOCKERS[reason] end
     return nil
 end
 local roleAffinity = {
-    generalist = { haul = 4, sort = 4, fetch = 4, unload_vehicle = 5, gather_materials = 5,
+    generalist = { haul = 4, sort = 4, sort_floor = 4, fetch = 4, unload_vehicle = 5, gather_materials = 5,
         clean = 3,
         repair = 3, replace_bandage = 2,
         craft_supply = 3, barricade = 2, maintain = 2, build = 2, production = 5 },
@@ -147,13 +157,13 @@ local roleAffinity = {
         production = 1 },
     builder = { build = 10, barricade = 9, maintain = 8, repair = 5,
         gather_materials = 6, fetch = 3, production = 7 },
-    quartermaster = { haul = 10, sort = 10, fetch = 9, unload_vehicle = 12,
+    quartermaster = { haul = 10, sort = 10, sort_floor = 10, fetch = 9, unload_vehicle = 12,
         gather_materials = 8,
         craft_supply = 4, production = 4 },
     medic = { replace_bandage = 10, fetch = 5, haul = 1, production = 2 },
-    farmer = { farm = 30, haul = 3, sort = 2, fetch = 3, production = 2 },
-    chef = { cook = 30, haul = 2, sort = 2, fetch = 2 },
-    angler = { haul = 3, sort = 2, fetch = 3, production = 1 },
+    farmer = { farm = 30, haul = 3, sort = 2, sort_floor = 2, fetch = 3, production = 2 },
+    chef = { cook = 30, haul = 2, sort = 2, sort_floor = 2, fetch = 2 },
+    angler = { haul = 3, sort = 2, sort_floor = 2, fetch = 3, production = 1 },
     woodcutter = { production = 30, gather_materials = 8, haul = 3 },
     corpsekeeper = { production = 30, maintain = 2, clean = 2 },
     maintainer = { maintain = 30, barricade = 25, repair = 15, fetch = 4, clean = 10 },
@@ -1358,6 +1368,17 @@ function BaseLife.finishZone(square, name)
         name = name or draftZone.kind, x1 = draftZone.first.x, y1 = draftZone.first.y,
         x2 = second.x, y2 = second.y, z = second.z, createdAt = now(),
     })
+    if zone.kind == "sorting_floor" or zone.kind == "trash_pile" then
+        local tiles = (zone.x2 - zone.x1 + 1) * (zone.y2 - zone.y1 + 1)
+        if tiles > 256 then return false, "floor_zone_too_large" end
+        for _, other in ipairs(base.zones) do
+            if (other.kind == "sorting_floor" or other.kind == "trash_pile")
+                and other.z == zone.z and zone.x1 <= other.x2 and other.x1 <= zone.x2
+                and zone.y1 <= other.y2 and other.y1 <= zone.y2 then
+                return false, "floor_zone_overlap"
+            end
+        end
+    end
     if zone.kind == "parking" then
         local valid, reason = BaseLife.parkingZoneValid(zone, base.zones)
         if not valid then return false, reason end
@@ -1604,6 +1625,11 @@ function BaseLife.canRemoveZone(id)
     local zone, index
     if base then zone, index = findById(base.zones, id) end
     if not index then return false, "unknown_zone" end
+    if (zone.kind == "sorting_floor" or zone.kind == "trash_pile")
+        and SC.FloorSort and type(SC.FloorSort.zoneInUse) == "function"
+        and SC.FloorSort.zoneInUse(id) then
+        return false, "floor_sort_cargo_uses_zone"
+    end
     local removing = {}
     for _, candidate in ipairs(base.zones) do
         if candidate.id == id or (zone.roomGroupId
@@ -1675,6 +1701,15 @@ function BaseLife.removeZone(id)
     if removable ~= true then return false, refusal end
     local base = activeBase()
     local zone, index = findById(base.zones, id)
+    if zone.kind == "sorting_floor" then
+        for jobIndex = #base.jobs, 1, -1 do
+            local job = base.jobs[jobIndex]
+            if job.type == "sort_floor" and type(job.target) == "table"
+                and job.target.zoneId == id then
+                table.remove(base.jobs, jobIndex)
+            end
+        end
+    end
     if zone.kind == "farm" and SC.FarmWork and type(SC.FarmWork.cancelZone) == "function" then
         -- FarmWork checks every job it will cancel before touching one, and
         -- moves jobs to an overlapping zone only after all cancels succeed.
@@ -4198,7 +4233,7 @@ local function jobScore(actorId, job)
     local resident = ensure().residents[actorId] or { role = "generalist" }
     local role = BaseLife.ROLES[resident.role] and resident.role or "generalist"
     if role == "corpsekeeper"
-        and (job.type == "sort" or job.type == "haul"
+        and (job.type == "sort" or job.type == "sort_floor" or job.type == "haul"
             or job.type == "fetch")
         and autonomousBodyUrgencyBaseId == (activeBase() or {}).id
         and now() < (autonomousBodyUrgencyUntil or 0) then
@@ -4369,7 +4404,8 @@ function BaseLife.blockJob(id, actorId, reason, retryMs)
     end
     job.state, job.reservedBy, job.leaseUntil = "blocked", nil, 0
     job.blocker = cleanText(reason, "blocked", 160)
-    local storageFull = job.blocker == "destination_full"
+    local storageFull = job.blocker == "floor_storage_full"
+        or job.blocker == "destination_full"
         or job.blocker == "haul_destinations_full"
         or job.blocker == "car_unload_storage_full_or_missing"
     if storageFull and not job.fullAlertSpoken and worker ~= nil then
@@ -4381,6 +4417,20 @@ function BaseLife.blockJob(id, actorId, reason, retryMs)
                 or "The storage is full. I will wait for space."
             -- IsoPlayer:Say can attach an NPC's bubble to the local player.
             -- Use the companion's own chat element, as other dialogue does.
+            if U().say(speaker, line) then job.fullAlertSpoken = true end
+        end
+    end
+    if job.type == "sort_floor" and not job.fullAlertSpoken and worker ~= nil
+        and (job.blocker == "floor_storage_missing"
+            or job.blocker == "floor_trash_pile_missing") then
+        local speaker = U().resolveActor(worker)
+        local player = type(getPlayer) == "function" and getPlayer() or nil
+        if speaker and player and U().distance(speaker, player) <= 9 then
+            local key = job.blocker == "floor_trash_pile_missing"
+                and "UI_SC_Base_FloorTrashMissingSpeech"
+                or "UI_SC_Base_FloorStorageMissingSpeech"
+            local line = type(getText) == "function" and getText(key)
+                or "I need a marked place to put these items."
             if U().say(speaker, line) then job.fullAlertSpoken = true end
         end
     end
@@ -4450,6 +4500,7 @@ function BaseLife.cancelJob(id)
         if okay ~= true then return false, reason or "chef_recovery_pending" end
     end
     local transferJob = job.type == "haul" or job.type == "sort"
+        or job.type == "sort_floor"
         or job.type == "clean"
         or job.type == "fetch" or job.type == "unload_vehicle"
         or job.type == "refuel_vehicle" or job.type == "refuel_generator"

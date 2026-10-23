@@ -362,6 +362,14 @@ function Transport.foreignProtected(item, actor)
         return true, "quest_item_owned"
     end
     if data.LF_FarmReceiptId ~= nil then return true, "farm_item_owned" end
+    if data.LF_FloorSortJob ~= nil then
+        local job = SC.BaseLife and SC.BaseLife.job
+            and SC.BaseLife.job(data.LF_FloorSortJob) or nil
+        if job and job.type == "sort_floor" and type(job.target) == "table"
+            and job.target.floorCargo then
+            return true, "floor_sort_item_owned"
+        end
+    end
     if data.LF_FieldOrder ~= nil or data.LF_FieldBorrowedAxe ~= nil
         or data.LF_FieldCarryWorker ~= nil then
         if SC.FieldWork and SC.FieldWork.reserved

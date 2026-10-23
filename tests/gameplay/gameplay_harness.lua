@@ -18569,6 +18569,37 @@ check(endpointStarted and endpointLocked and endpointDraft
     "zone drafting preserves a separately locked mouse endpoint")
 BaseLife.cancelZone()
 do
+    local floorStarted = BaseLife.beginZone("sorting_floor",
+        cell:getGridSquare(2, 2, 0))
+    local floorDone, floorZone = BaseLife.finishZone(
+        cell:getGridSquare(3, 3, 0), "Sorting floor")
+    local trashStarted = BaseLife.beginZone("trash_pile",
+        cell:getGridSquare(4, 2, 0))
+    local trashDone, trashZone = BaseLife.finishZone(
+        cell:getGridSquare(4, 3, 0), "Trash pile")
+    check(floorStarted and floorDone and trashStarted and trashDone
+            and BaseLife.isInside(cell:getGridSquare(2, 2, 0), "sorting_floor")
+            and BaseLife.isInside(cell:getGridSquare(4, 2, 0), "trash_pile"),
+        "sorting floor and trash pile are separate marked camp zones")
+    local previousZoneCount = #BaseLife.active().zones
+    local overlappingStart = BaseLife.beginZone("trash_pile",
+        cell:getGridSquare(3, 3, 0))
+    local overlapping, overlapReason = BaseLife.finishZone(
+        cell:getGridSquare(4, 3, 0), "Overlap")
+    check(overlappingStart and not overlapping
+            and overlapReason == "floor_zone_overlap"
+            and #BaseLife.active().zones == previousZoneCount,
+        "overlapping intake and trash zones are rejected without changing zones")
+    BaseLife.cancelZone()
+    local saved = BaseLife.export()
+    check(BaseLife.restore(saved) == true
+            and BaseLife.isInside(cell:getGridSquare(2, 2, 0), "sorting_floor")
+            and BaseLife.isInside(cell:getGridSquare(4, 2, 0), "trash_pile"),
+        "floor zones survive base save and restore")
+    check(BaseLife.removeZone(floorZone.id) and BaseLife.removeZone(trashZone.id),
+        "unused floor zones remain removable")
+end
+do
     local duck = item("Base.Rubberducky", "Junk")
     local falseDuck = item("Base.KeyRing_RubberDuck", "Junk")
     local duckKeeper = actor("sc-duck-keeper", 2, 2, {

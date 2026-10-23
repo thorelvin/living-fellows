@@ -3703,12 +3703,27 @@ function SCUIDetail:buildBase(panel, row)
                 local worker = job.assignedId and residentNames[job.assignedId]
                 local storageFull = job.blocker == "destination_full"
                     or job.blocker == "haul_destinations_full"
+                    or job.blocker == "floor_storage_full"
                     or job.blocker == "car_unload_storage_full_or_missing"
-                local rowKey = storageFull and "UI_SC_Base_StorageFullRow"
+                local rowKey = storageFull and job.type ~= "sort_floor"
+                    and "UI_SC_Base_StorageFullRow"
                     or "UI_SC_Base_StalledRow"
                 local blocker = job.blocker == "chef_restart_needs_recovery"
                     and UI.text("UI_SC_Base_ChefRestartRecovery")
                     or UI.humanize(job.blocker or "blocked")
+                if job.type == "sort_floor" then
+                    local category = type(job.target) == "table"
+                        and job.target.floorCategory or nil
+                    if job.blocker == "floor_storage_missing" then
+                        blocker = UI.text("UI_SC_Base_FloorStorageMissing",
+                            UI.humanize(category or "item"))
+                    elseif job.blocker == "floor_storage_full" then
+                        blocker = UI.text("UI_SC_Base_FloorStorageFull",
+                            UI.humanize(category or "item"))
+                    elseif job.blocker == "floor_trash_pile_missing" then
+                        blocker = UI.text("UI_SC_Base_FloorTrashMissing")
+                    end
+                end
                 y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
                     UI.text(rowKey,
                         worker and (kind .. " (" .. worker .. ")") or kind,

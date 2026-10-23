@@ -15642,6 +15642,10 @@ Harness.probeBaseMaintenance = function(...)
     return externalProbe("SCBaseMaintenanceProbe", ...)
 end
 
+Harness.probeFloorSort = function(...)
+    return externalProbe("SCFloorSortProbe", ...)
+end
+
 Harness.probeVehicleRefuel = function(...)
     return externalProbe("SCVehicleRefuelProbe", ...)
 end
@@ -16168,6 +16172,8 @@ local function tick()
         end
     elseif string.find(tostring(Harness.phase), "base_maintenance_", 1, true) == 1 then
         Harness.probeBaseMaintenance(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "floor_sort_", 1, true) == 1 then
+        Harness.probeFloorSort(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "vehicle_refuel_", 1, true) == 1 then
         Harness.probeVehicleRefuel(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "vehicle_upkeep_", 1, true) == 1 then
@@ -17048,6 +17054,8 @@ local function onGameStart()
         setPhase("fishing_map_list", Harness.startedAt)
     elseif Harness.config.base_maintenance_probe == "true" then
         setPhase("base_maintenance_setup", Harness.startedAt)
+    elseif Harness.config.floor_sort_probe == "true" then
+        setPhase("floor_sort_setup", Harness.startedAt)
     elseif Harness.config.vehicle_refuel_probe == "true" then
         setPhase("vehicle_refuel_setup", Harness.startedAt)
     elseif Harness.config.vehicle_upkeep_probe == "true" then
