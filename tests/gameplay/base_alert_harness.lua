@@ -305,6 +305,14 @@ check(select(2, Alert.act(near, nil, Alert.directiveFor(near, now), {})) == "bas
         and near.lastMove and near.lastMove.action == "face_alert"
         and Alert.directiveFor(near, now).mode == "hold",
     "beside the guard a responder holds, facing the threat")
+yard.x, yard.y = 25, 7
+routes.yard = nil
+local _, forwardReason = Alert.act(yard, nil, Alert.directiveFor(yard, now), {})
+check(forwardReason == "base_alert_holding_forward" and routes.yard == nil
+        and yard.lastMove and yard.lastMove.action == "face_alert",
+    "a responder already nearer the zombies than the caller holds there instead of walking away: "
+        .. tostring(forwardReason))
+yard.x, yard.y = 15, 10
 
 -- Every wait has a deadline.
 for _ = 1, 4 do

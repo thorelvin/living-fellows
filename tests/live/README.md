@@ -118,6 +118,21 @@ the clone so only the probe's body is collected:
 `UPSTAIRS_WINDOW` lines in the console list every upper window with what lies
 outside it; a failure reports the hauler's navigation and animation state.
 
+To verify the camp alarm, the probe puts one new resident to sleep in a real
+camp bed beside an outside wall, stands a second in the yard just outside that
+wall and a third about eight tiles off, sends the save's own residents out of
+earshot, and lets a zombie into the camp in front of the one in the yard. With
+the ordinary decision loop running, the sighting must raise a stand-to, the
+shout must wake the sleeper through the wall, the third must come to the one
+who saw it, and the alarm must clear once the zombie is gone:
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -BaseAlertProbe -LivingFellowsOnly -TimeoutSeconds 600
+```
+
+`ALERT_TRACE` lines give each second's alert level and each fixture
+resident's position, decision and alarm directive.
+
 To measure squad survival against native zombies in a disposable cloned save,
 run three trials each of 3 companions versus 6 zombies, 5 versus 10, and
 5 versus 12. Every companion receives a crowbar and a Stay order. Zombies

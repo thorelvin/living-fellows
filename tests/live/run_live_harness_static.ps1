@@ -26,6 +26,7 @@ $FarmCorridorLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\cl
 $WaterSourceLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCWaterSourceProbe.lua'
 $UpstairsHaulLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCUpstairsHaulProbe.lua'
 $FloorSortLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCFloorSortProbe.lua'
+$BaseAlertLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCBaseAlertProbe.lua'
 $Shared = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\shared'
 $Client = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\client'
 
@@ -40,7 +41,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Live harness Lua compiler build failed.' }
     Push-Location -LiteralPath $GameRoot
     try {
-        & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $Lua $DrivingLua $SixSeatLua $SquadCombatLua $FarmCorridorLua $WaterSourceLua $UpstairsHaulLua $FloorSortLua
+        & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $Lua $DrivingLua $SixSeatLua $SquadCombatLua $FarmCorridorLua $WaterSourceLua $UpstairsHaulLua $FloorSortLua $BaseAlertLua
         if ($LASTEXITCODE -ne 0) { throw 'Live harness Kahlua compilation failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $OddballProbe
         if ($LASTEXITCODE -ne 0) { throw 'Oddball live probe Kahlua compilation failed.' }

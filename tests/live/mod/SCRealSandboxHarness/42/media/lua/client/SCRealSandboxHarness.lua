@@ -15670,6 +15670,10 @@ Harness.probeUpstairsHaul = function(...)
     return externalProbe("SCUpstairsHaulProbe", ...)
 end
 
+Harness.probeBaseAlert = function(...)
+    return externalProbe("SCBaseAlertProbe", ...)
+end
+
 Harness.probeMedicalCheck = function(...)
     return externalProbe("SCMedicalCheckProbe", ...)
 end
@@ -16188,6 +16192,8 @@ local function tick()
         Harness.probePyreBurn(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "upstairs_haul_", 1, true) == 1 then
         Harness.probeUpstairsHaul(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "base_alert_", 1, true) == 1 then
+        Harness.probeBaseAlert(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "hygiene_", 1, true) == 1 then
         Harness.probeHygiene(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "base_second_floor_", 1, true) == 1 then
@@ -17068,6 +17074,8 @@ local function onGameStart()
         setPhase("pyre_burn_setup", Harness.startedAt)
     elseif Harness.config.upstairs_haul_probe == "true" then
         setPhase("upstairs_haul_setup", Harness.startedAt)
+    elseif Harness.config.base_alert_probe == "true" then
+        setPhase("base_alert_setup", Harness.startedAt)
     elseif Harness.config.hygiene_probe == "true" then
         setPhase("hygiene_setup", Harness.startedAt)
     elseif Harness.config.base_second_floor_probe == "true" then

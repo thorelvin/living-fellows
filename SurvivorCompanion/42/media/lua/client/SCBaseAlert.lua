@@ -730,13 +730,21 @@ function Alert.act(actor, player, directive, snapshot)
         if not spotter then return false, "base_alert_spotter_missing" end
         local ax, ay, az = position(actor)
         local sx, sy, sz = position(spotter)
-        if ax and sx and floorOf(az) == floorOf(sz)
-            and (ax - sx) ^ 2 + (ay - sy) ^ 2
-                <= (tonumber(cfg("baseAlertArrivalRadius", 3.5)) or 3.5) ^ 2 then
+        local threat = directive.threat or {}
+        -- A resident already nearer the zombies than the one who called does
+        -- not walk away from them to stand by the caller (seen live: one four
+        -- tiles from a walker left it for a spotter eight tiles off). It
+        -- holds, facing them, while the caller and the others come.
+        local nearer = ax and sx and threat.x and floorOf(az) == floorOf(sz)
+            and (ax - threat.x) ^ 2 + (ay - threat.y) ^ 2
+                < (sx - threat.x) ^ 2 + (sy - threat.y) ^ 2
+        if ax and sx and floorOf(az) == floorOf(sz) and (nearer
+            or (ax - sx) ^ 2 + (ay - sy) ^ 2
+                <= (tonumber(cfg("baseAlertArrivalRadius", 3.5)) or 3.5) ^ 2) then
             local responder = alert.responders[id]
             if responder then responder.arrived = true end
             face(actor, directive.threat)
-            return true, "base_alert_arrived"
+            return true, nearer and "base_alert_holding_forward" or "base_alert_arrived"
         end
         targets, action = slots(spotter), "move_to_alert_rally"
         local responder = alert.responders[id]
