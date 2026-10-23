@@ -1156,6 +1156,72 @@ local pools = {
         practical = { "Audible contact. No visual.", "Walker heard nearby. Position uncertain." },
         stressed = { "I heard one. Where is it?", "Something's right there. I can't see it." },
     },
+    -- Camp alarm (SCBaseAlert). %1 is where ("on the north side", "right
+    -- here"), %2 how many ("one", "two", "three or four", "a handful",
+    -- "a whole crowd").
+    ["camp_alert.contact"] = {
+        common = {
+            "Walker %1. I've got eyes on it.",
+            "Heads up. Got %2 %1.",
+            "Quiet now. %2 of them %1.",
+            "Movement %1. Just %2.",
+            "Company %1. Somebody back me up.",
+        },
+        brave = { "Walker %1. Mine, unless somebody wants it." },
+        cautious = { "Something dead %1. Nobody goes out alone." },
+        practical = { "Contact %1. Count: %2." },
+        stressed = { { "Shit. One's coming in %1.", clean = "Crap. One's coming in %1." } },
+    },
+    ["camp_alert.stand_to"] = {
+        common = {
+            "Everybody up! %2 of them %1!",
+            "Stand to! They're %1!",
+            "On your feet! Zombies %1!",
+            "Up, up! We've got %2 %1!",
+        },
+        brave = { "Grab your iron! %2 of them %1!" },
+        cautious = { "Wake up! They're at the camp, %1!" },
+        practical = { "Stand to! %2 hostiles %1!" },
+        stressed = { { "Get up, damn it! They're %1!", clean = "Get up, now! They're %1!" },
+            { "Oh hell, they're in! %1!", clean = "Oh no, they're in! %1!" } },
+    },
+    ["camp_alert.fall_back"] = {
+        common = {
+            "Too many! Fall back to the rally point!",
+            "That's a crowd %1! Everybody pull back!",
+            "Back! Back to the rally, now!",
+        },
+        stressed = { { "Holy hell, look at them! Fall back!",
+            clean = "Holy cow, look at them! Fall back!" } },
+    },
+    ["camp_alert.relay"] = {
+        common = {
+            "You heard them! Up! Zombies %1!",
+            "Wake up! Trouble %1!",
+            "Come on, move! They're %1!",
+        },
+        stressed = { { "Get your ass up! They're %1!", clean = "Get yourself up! They're %1!" } },
+    },
+    ["camp_alert.woken"] = {
+        common = {
+            "What? I'm up, I'm up.",
+            "Huh... Where are they?",
+            "Coming. Give me a second.",
+            "Who's yelling? Oh. Right.",
+        },
+        stressed = { { "Son of a bitch, already?", clean = "Son of a gun, already?" } },
+    },
+    ["camp_alert.coming"] = {
+        common = { "On my way!", "Coming to you!", "Hold on, I'm coming!", "Right behind you!" },
+    },
+    ["camp_alert.clear"] = {
+        common = {
+            "All clear. Back to it.",
+            "That's the last of them. Stand down.",
+            "Clear. Get some rest if you can.",
+            "Nothing moving now. We're good.",
+        },
+    },
     ["danger.one"] = {
         common = {
             "One zombie ahead.", "Single walker, up ahead.", "I've got one moving out there.",

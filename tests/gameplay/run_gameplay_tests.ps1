@@ -102,6 +102,7 @@ $LuaFiles += @(
     'SCInteraction.lua',
     'SCCompanionGifts.lua',
     'SCFactionRecruitment.lua',
+    'SCBaseAlert.lua',
     'SCDecision.lua'
     ) | ForEach-Object { Join-Path $ClientRoot $_ }
 $LuaFiles += Join-Path $TestRoot 'base_work_fixture.lua'
@@ -114,9 +115,10 @@ $LuaFiles += Join-Path $TestRoot 'fishing_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'chef_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'hygiene_effects_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'hygiene_audio_harness.lua'
+$LuaFiles += Join-Path $TestRoot 'base_alert_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'floor_sort_harness.lua'
 if ($FishingOnly) {
-    $LuaFiles = @($LuaFiles | Select-Object -SkipLast 8)
+    $LuaFiles = @($LuaFiles | Select-Object -SkipLast 9)
     $LuaFiles += Join-Path $TestRoot 'fishing_harness.lua'
 }
 
@@ -147,12 +149,12 @@ try {
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @comfortFiles
             if ($LASTEXITCODE -ne 0) { throw 'User comfort preference harness failed.' }
             $medicalFiles = @((Join-Path $ProjectRoot 'tests\core\core_fixture.lua'))
-            $medicalFiles += @($LuaFiles | Select-Object -SkipLast 8)
+            $medicalFiles += @($LuaFiles | Select-Object -SkipLast 9)
             $medicalFiles += Join-Path $TestRoot 'medical_liveness_regression_harness.lua'
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @medicalFiles
             if ($LASTEXITCODE -ne 0) { throw 'Medical liveness/rescue regression harness failed.' }
             $combatFiles = @((Join-Path $ProjectRoot 'tests\core\core_fixture.lua'))
-            $combatFiles += @($LuaFiles | Select-Object -SkipLast 8)
+            $combatFiles += @($LuaFiles | Select-Object -SkipLast 9)
             $combatFiles += Join-Path $TestRoot 'combat_coordination_regression_harness.lua'
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @combatFiles
             if ($LASTEXITCODE -ne 0) { throw 'Combat coordination regression harness failed.' }

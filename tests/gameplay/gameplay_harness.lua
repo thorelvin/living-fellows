@@ -30202,4 +30202,103 @@ end
 SurvivorCompanion.__testDelegateReleasesCorpseDrag()
 SurvivorCompanion.__testDelegateReleasesCorpseDrag = nil
 
+(function()
+    -- The camp alarm (SCBaseAlert) outranks chores for a resident on base
+    -- duty, gives way to the resident's own combat once zombies are close to
+    -- it, and hears about every sighting from Decision.update.
+    local resident = actor("sc-alarm-resident", 0, 4, {})
+    registry[resident.id] = resident
+    local view = SurvivorCompanion.GameplayUtil.copyShallow(
+        SurvivorCompanion.Commands.peek(resident))
+    view.recruited, view.order = true, "base_duty"
+    local savedAlert, savedAutonomy = SurvivorCompanion.BaseAlert, SurvivorCompanion.Autonomy
+    local observed = 0
+    SurvivorCompanion.Autonomy = nil
+    SurvivorCompanion.BaseAlert = {
+        directiveFor = function() return { mode = "respond", score = 88 } end,
+        observe = function() observed = observed + 1 return false end,
+        preempts = function() return false end,
+        voiced = function() return false end,
+    }
+    local healthy = { alive = true, health = 100, wounds = {} }
+    local calm = { threats = {}, immediateAttackers = {}, allies = {}, escapeSquares = {},
+        threatCount = 0, immediateCount = 0, pressure = 0,
+        player = { danger = 0, immediateThreats = 0 } }
+    local function rank(candidates, kind)
+        for index, candidate in ipairs(candidates) do
+            if candidate.kind == kind then return index, candidate end
+        end
+        return nil
+    end
+    local called = SurvivorCompanion.Decision._evaluateForTests(
+        resident, player, calm, view, healthy, {}, {}, clock)
+    local alarmRank, alarm = rank(called, "base_alert")
+    local choreRank = rank(called, "base_work")
+    local zombie = { x = 1, y = 4, z = 0 }
+    local close = { threats = { { actor = zombie, x = 1, y = 4, z = 0, distance = 1.5 } },
+        immediateAttackers = {}, threatCount = 1, immediateCount = 0,
+        closeThreatCount = 1, pressure = 0.35, allies = {}, escapeSquares = {},
+        player = { danger = 0, immediateThreats = 0 } }
+    local fighting = SurvivorCompanion.Decision._evaluateForTests(
+        resident, player, close, view, healthy, {}, {}, clock)
+    pcall(SurvivorCompanion.Decision.update, resident, player, {}, clock)
+    -- The delegate hands the candidate to the alarm module.
+    local acted
+    SurvivorCompanion.BaseAlert.act = function(_, _, detail)
+        acted = detail
+        return true, "base_alert_hold"
+    end
+    local delegated, delegateReason = SurvivorCompanion.Decision._delegateForTests(
+        { kind = "base_alert", detail = alarm and alarm.detail }, resident, player, {}, view, calm, {})
+    -- The alarm takes a resident off a chore, never off treatment.
+    local savedSupervisor = SurvivorCompanion.ActionSupervisor
+    local cancelled = {}
+    local owner = "work"
+    SurvivorCompanion.BaseAlert.preempts = function() return true end
+    SurvivorCompanion.ActionSupervisor = {
+        Priority = savedSupervisor.Priority,
+        current = function() return { owner = owner, action = "chore", phase = "running" } end,
+        cancel = function(_, reason) cancelled[#cancelled + 1] = owner .. ":" .. tostring(reason) return true end,
+    }
+    local hold = SurvivorCompanion.Decision._holdOwnedActivityOrPacingForTests
+    pcall(hold, resident, player, calm, healthy, {}, view, {}, clock, {})
+    owner = "medical"
+    pcall(hold, resident, player, calm, healthy, {}, view, {}, clock, {})
+    SurvivorCompanion.ActionSupervisor = savedSupervisor
+    -- The spotter's alarm call replaces the generic warning.
+    local savedDialogue, warned = SurvivorCompanion.Dialogue, 0
+    SurvivorCompanion.Dialogue = { say = function() warned = warned + 1 return true end,
+        threatTopic = savedDialogue and savedDialogue.threatTopic }
+    local pair = { threats = {
+            { actor = { x = 5, y = 4, z = 0 }, x = 5, y = 4, z = 0, visible = true, distanceSq = 25, posture = "standing" },
+            { actor = { x = 6, y = 4, z = 0 }, x = 6, y = 4, z = 0, visible = true, distanceSq = 36, posture = "standing" } },
+        threatCount = 2, immediateCount = 0 }
+    local warn = SurvivorCompanion.Decision._warnAboutThreatForTests
+    SurvivorCompanion.BaseAlert.voiced = function() return true end
+    SurvivorCompanion.Decision._threatWarningMemoryForTests(-math.huge, nil)
+    pcall(warn, resident, pair, view, {}, clock)
+    local whileVoiced = warned
+    SurvivorCompanion.BaseAlert.voiced = function() return false end
+    SurvivorCompanion.Decision._threatWarningMemoryForTests(-math.huge, nil)
+    pcall(warn, resident, pair, view, {}, clock)
+    SurvivorCompanion.Dialogue = savedDialogue
+    SurvivorCompanion.BaseAlert, SurvivorCompanion.Autonomy = savedAlert, savedAutonomy
+    SurvivorCompanion.Commands.reset(resident)
+    registry[resident.id] = nil
+    check(alarmRank and choreRank and alarmRank < choreRank
+            and alarm.safetyTier == SurvivorCompanion.Decision.SafetyTier.TACTICAL,
+        "the camp alarm comes before chores for a resident on base duty")
+    check(rank(fighting, "base_alert") == nil,
+        "a resident with zombies close to itself fights instead of answering the alarm")
+    check(observed >= 1, "every decision pass tells the camp alarm what the resident sees")
+    check(delegated == true and delegateReason == "base_alert_hold" and acted ~= nil,
+        "the alarm candidate runs the alarm module: " .. tostring(delegateReason))
+    check(#cancelled == 1 and cancelled[1] == "work:survival_priority",
+        "the alarm calls a resident off a chore but not off treatment: "
+            .. table.concat(cancelled, ","))
+    check(whileVoiced == 0 and warned == 1,
+        "a resident that just called the alarm does not shout the generic warning too: "
+            .. tostring(whileVoiced) .. "/" .. tostring(warned))
+end)()
+
 print("Gameplay harness PASS: " .. tostring(checks) .. " checks")

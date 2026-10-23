@@ -91,7 +91,9 @@ local function bedSleepEligible(actor, state, fatigue)
             lastWake = tonumber(last.wokeGameHour)
         end
     end
-    if hour and lastWake and hour - lastWake <= 1 then
+    -- A sleep the camp alarm cut short may be finished as soon as it is over.
+    if hour and lastWake and hour - lastWake <= 1
+        and not (state and state.alarmInterruptedSleep == true) then
         return false, "sleep_too_soon"
     end
     local stats = select(1, utility.call(actor, "getStats"))
@@ -297,6 +299,23 @@ end
 -- surrounding does (SCCombat.onlyUnreachableThreats).
 local function dangerPresent(snapshot, actor, now)
     if type(snapshot) ~= "table" then return false end
+    local state = actor and states[actor]
+    local activity = state and state.active
+    if type(activity) == "table" and activity.kind == "rest_bed"
+        and activity.sleepStarted == true then
+        -- Eyes shut. A sleeper wakes to being attacked, to a zombie it can
+        -- hear right beside it, or to one thumping on a door or window
+        -- nearby; the camp alarm wakes it with a shout (SCBaseAlert).
+        if (snapshot.immediateCount or 0) > 0 then return true end
+        for _, heard in ipairs(type(snapshot.heardThreats) == "table"
+            and snapshot.heardThreats or {}) do
+            if heard.distanceBand == "very_close"
+                or (heard.distanceBand == "near" and (tonumber(heard.activity) or 0) >= 3) then
+                return true
+            end
+        end
+        return false
+    end
     if (snapshot.immediateCount or 0) > 0
         or (snapshot.player and snapshot.player.danger or 0) > 0 then
         return true
@@ -4885,6 +4904,34 @@ function Downtime.cancel(actor, reason)
     return true, reason or "cancelled"
 end
 
+-- The camp alarm wakes a sleeper in bed (SCBaseAlert). It gets up through
+-- the ordinary cancel, so the bed, the pose and the asleep flag are released
+-- exactly as for any other wake.
+function Downtime.wakeForAlarm(actor)
+    local state = actor and states[actor]
+    local activity = state and state.active
+    if type(activity) ~= "table" or activity.kind ~= "rest_bed" then return false end
+    local cancelled = Downtime.cancel(actor, "woken_by_alarm")
+    if cancelled ~= true then return false end
+    state.alarmInterruptedSleep = true
+    return true
+end
+
+-- The alarm is over; a resident it woke may go back to bed straight away.
+function Downtime.alarmOver(actor)
+    local state = actor and states[actor]
+    if state then state.alarmInterruptedSleep = true end
+    return state ~= nil
+end
+
+function Downtime._dangerForTests(snapshot, actor, now)
+    return dangerPresent(snapshot, actor, now)
+end
+
+function Downtime._sleepStateForTests(actor, activity)
+    stateFor(actor).active = activity
+end
+
 function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
     local utility = U()
     if not utility or not utility.isValidActor(actor) then return false, "invalid_actor" end
@@ -5259,6 +5306,7 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
                     if not eligible then return failActivity(actor, state,
                         sleepReason) end
                     startBedSleep(actor, state.active)
+                    state.alarmInterruptedSleep = nil
                     return true, "sleeping_on_bed"
                 end
                 if floorRest then return true, "resting_on_floor" end

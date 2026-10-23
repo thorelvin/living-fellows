@@ -33,7 +33,7 @@ local idleDecisionKinds = {
 }
 local tacticalDecisionKinds = {
     combat = true, retreat = true, medical = true, tactical = true,
-    alert = true, infection_crisis = true,
+    alert = true, infection_crisis = true, base_alert = true,
 }
 -- Orders that give a companion its own task to carry on with while combat
 -- has nothing it may engage.
@@ -784,6 +784,13 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
             or commands.order == "interact" or commands.order == "work" then
             add("tactical", commands.order == "work" and 62 or 56, false)
         elseif commands.order == "base_duty" then
+            -- The camp alarm (SCBaseAlert) comes before chores. A resident
+            -- with zombies close to itself leaves this to its own combat.
+            local alarm = immediate == 0
+                and (tonumber(snapshot.closeThreatCount) or 0) == 0
+                and SC.BaseAlert and type(SC.BaseAlert.directiveFor) == "function"
+                and SC.BaseAlert.directiveFor(actor, current) or nil
+            if alarm then add("base_alert", alarm.score, false, alarm) end
             if not bleeding then add("base_work", 58, false) end
         end
         if threatCount == 0 and not bleeding
@@ -2104,6 +2111,13 @@ local function delegate(candidate, actor, player, rootRuntime, commands, snapsho
         end)
     elseif candidate.kind == "alert" then
         return callSubsystem("navigation", actor, function() return doSharedAlert(actor, candidate, state) end)
+    elseif candidate.kind == "base_alert" then
+        if not SC.BaseAlert or type(SC.BaseAlert.act) ~= "function" then
+            return false, "base_alert_unavailable"
+        end
+        return callSubsystem("base-alert", actor, function()
+            return SC.BaseAlert.act(actor, player, candidate.detail, snapshot)
+        end)
     elseif candidate.kind == "conversation" then
         if not SC.Positioning or type(SC.Positioning.updateConversation) ~= "function" then
             return false, "positioning_unavailable"
@@ -2315,7 +2329,7 @@ local function candidateInterval(candidate)
     elseif candidate.kind == "follow" or candidate.kind == "tactical"
         or candidate.kind == "conversation" then
         return U().config("followIntervalMs") or 167
-    elseif candidate.kind == "alert" then
+    elseif candidate.kind == "alert" or candidate.kind == "base_alert" then
         return 167
     elseif candidate.kind == "mental_episode" or candidate.kind == "grief_response"
         or candidate.kind == "social_participant" then
@@ -2365,6 +2379,9 @@ end
 -- signal would have been the right warning, a busy companion stays quiet
 -- instead of shouting, leaving the episode for when it is free.
 local function warnAboutThreat(actor, snapshot, commands, state, current, speechOnly)
+    -- A resident who has just called the camp alarm has said it already.
+    if SC.BaseAlert and type(SC.BaseAlert.voiced) == "function"
+        and SC.BaseAlert.voiced(actor, current) then return end
     local count = tonumber(snapshot.threatCount) or #(snapshot.threats or {})
     if count <= 0 then
         if state.threatClearAt == nil then state.threatClearAt = current end
@@ -2517,6 +2534,8 @@ local function warnAboutThreat(actor, snapshot, commands, state, current, speech
     return quietSignal
 end
 Decision._warnAboutThreatForTests = warnAboutThreat
+Decision._warnAboutThreatForTests = warnAboutThreat
+
 function Decision._threatWarningMemoryForTests(groupAt, sittingCallout)
     local previousAt, previousSitting = lastGroupThreatWarningAt, lastSittingCallout
     lastGroupThreatWarningAt, lastSittingCallout = groupAt or -math.huge, sittingCallout
@@ -2657,11 +2676,21 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
         actor, player, snapshot, commands)
     local urgent = survivalNeedsImmediateControl(snapshot, assessment, needs, commands)
         or factionEmergency
+    -- The camp alarm calls a resident away from chores, downtime and meals,
+    -- never from treatment or a player's own control.
+    local alarm = commands.order == "base_duty" and SC.BaseAlert
+        and type(SC.BaseAlert.preempts) == "function"
+        and SC.BaseAlert.preempts(actor, current) == true
+    local function alarmPreempts(owner)
+        return alarm and owner ~= "medical" and owner ~= "player_control"
+            and owner ~= "drive"
+    end
     if SC.ActionSupervisor and type(SC.ActionSupervisor.current) == "function" then
         local token = SC.ActionSupervisor.current(actor)
         if token then
             urgent = ownerNeedsImmediatePreemption(
                 token.owner, snapshot, assessment, needs, commands, factionEmergency)
+                or alarmPreempts(token.owner)
             local serialChanged = token.owner == "downtime"
                 and type(token.metadata) == "table"
                 and tonumber(token.metadata.commandSerial) ~= (tonumber(commands.commandSerial) or 0)
@@ -2717,6 +2746,7 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
     if type(native) ~= "table" then return false end
     if type(native.activityStatus) == "function" then
         local phase, owner, name = native.activityStatus(actor)
+        urgent = urgent or alarmPreempts(owner)
         -- Production owns an indefinite native action (notably tree chopping).
         -- Poll its controller while the animation runs so the 45-second base-job
         -- lease, fallback events and completion proof cannot expire behind this
@@ -2928,6 +2958,12 @@ function Decision.update(actor, player, runtime, roundTimestamp)
     if SC.Autonomy and type(SC.Autonomy.observe) == "function" then
         utility.safeSubsystem("autonomy-observe", actor, SC.Autonomy.observe,
             actor, player, rootRuntime, snapshot, commands)
+    end
+    -- A resident's own sighting raises or keeps the camp alarm, even while it
+    -- is busy; sleepers see nothing (SCBaseAlert).
+    if SC.BaseAlert and type(SC.BaseAlert.observe) == "function" then
+        utility.safeSubsystem("base-alert-observe", actor, SC.BaseAlert.observe,
+            actor, player, snapshot, commands, current)
     end
     local assessment = medicalAssessment(actor, rootRuntime, 100)
     local needs
@@ -3222,7 +3258,8 @@ function Decision.update(actor, player, runtime, roundTimestamp)
         end
     end
     if previous == "base_work" and selected.kind ~= "base_work" and not recheck
-        and (selected.kind == "combat" or selected.kind == "retreat" or selected.emergency)
+        and (selected.kind == "combat" or selected.kind == "retreat"
+            or selected.kind == "base_alert" or selected.emergency)
         and SC.BaseWork and type(SC.BaseWork.cancel) == "function" then
         local called, cancelled, cancelReason = pcall(SC.BaseWork.cancel,
             actor, "danger_preempted_base_work")
