@@ -551,8 +551,12 @@ function Floor.update(actor, baseState, job)
     local hasRoom = SC.WorkTransport and SC.WorkTransport.hasRoom
         and SC.WorkTransport.hasRoom(root, actor, selected.item) == true
     if not hasRoom then
+        -- Set the item aside like one with no storage and go on to the next.
+        -- Returning straight away let the scan pass it by, so the floor read
+        -- as empty, the job completed and audit queued the same item again.
         baseState.floorCandidate = nil
-        return false, "floor_worker_full", true
+        deferItem(zone, selected.item, "floor_worker_full")
+        return true, "floor_item_too_heavy"
     end
     local arrived, reason, moving = approach(actor, selected.square,
         selected.worldItem, "move_to_floor_item")

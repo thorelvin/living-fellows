@@ -119,7 +119,7 @@ SC.BaseLife = {
 SC.Registry = { byId = function() return { actor = actor } end }
 SC.WorkTransport = {
     foreignProtected = function() return false end,
-    hasRoom = function() return true end,
+    hasRoom = function(_, _, candidate) return not (candidate and candidate.heavy) end,
 }
 SC.Logistics = { isTrash = function(candidate) return candidate.trash == true end }
 SC.Navigation = {
@@ -355,4 +355,30 @@ check(absentHandled == true and absentReason == "floor_cargo_absent"
         and Floor.zoneInUse("zone:sorting") == false,
     "cargo taken from the carrier releases the claim: " .. tostring(absentReason))
 
-SC_TEST_REPORT = "FLOOR_SORT_PASS pickup=verified reload=verified trash=physical blocked=reported cancel=returned alternate=verified carryback=walked interrupted=feet gone=released absent=released"
+table.remove(base.jobs, 1)
+
+-- An item the worker has no room for is set aside like one with no storage.
+-- Lighter items are still stored, and the job stays open with the reason
+-- instead of completing and being queued again for the same item.
+local anvil = item(111, false)
+anvil.heavy = true
+local hammer = item(112, false)
+addWorld(source, anvil)
+addWorld(source, hammer)
+queued, job = Floor.audit(base)
+check(queued, "heavy-item test queues")
+state = {}
+local heavyReasons, heavyCompleted, heavyTerminal = {}, false, nil
+for _ = 1, 12 do
+    local _, reason, terminal, completed = Floor.update(actor, state, job)
+    heavyReasons[#heavyReasons + 1] = tostring(reason)
+    if completed then heavyCompleted = true break end
+    if terminal then heavyTerminal = reason break end
+end
+check(not heavyCompleted and heavyTerminal == "floor_worker_full"
+        and contains(storage, hammer) and anvil.worldItem ~= nil
+        and contains({ items = source.worldItems }, anvil.worldItem),
+    "an item without room is set aside while lighter items are stored: "
+        .. table.concat(heavyReasons, ","))
+
+SC_TEST_REPORT = "FLOOR_SORT_PASS pickup=verified reload=verified trash=physical blocked=reported cancel=returned alternate=verified carryback=walked interrupted=feet gone=released absent=released heavy=deferred"
