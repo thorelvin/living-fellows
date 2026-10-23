@@ -2,6 +2,14 @@
 
 # Changelog
 
+## 0.26.59 - Sorting floor and trash pile
+
+- Two new camp zones, **Sorting floor** and **Trash pile**. Residents on base duty, Quartermasters first, pick up the exact items dropped on a sorting floor and carry each to marked storage of its category by the shelf sorter's rules; valuables wait for marked Valuables storage instead of going to General. Trash goes to the nearest free tile of a marked trash pile and stays there on the ground. An item with no marked storage, or only full storage, stays on the floor and the camp list names the missing category. When nothing of that kind, or no trash pile, is marked at all, the worker also says so once if you are nearby. Each zone is at most 256 tiles, and the two may not overlap.
+- A sorting-floor worker who cannot store an item carries it back to its tile before putting it down, and an interrupted worker puts it down where it stands; neither drops it on the floor from across the camp. A worker who dies or is dismissed while carrying an item, or an item the player takes out of a worker's inventory, no longer stops the floor or keeps its zone and the camp from being removed.
+- Chop Wood with a car loads the logs into the trunk again. 0.26.58 checked each log, weight 9, against 80% of the worker's Strength limit, so an average companion with an axe in hand never picked one up and left every log on the ground. A worker holding none of the order's logs now takes one per trip, as in 0.26.57.
+- A new companion whose outfit resolves to no clothing is dressed in the stock everyday outfit. The 0.26.58 fallback used a call that only previews clothes on the player, so such a spawn always failed instead.
+- The native bridge protocol remains `42.21-isocompanion-24`; update the bridge JAR and Lua payload together.
+
 ## 0.26.58 - Field work and companion sleep
 
 - Chop Wood clears every eligible tree within eight tiles of the clicked spot instead of stopping after five. The leader may stay up to 25 tiles away. When the worker or trunk fills, companions continue cutting and leave new logs where they fall; they announce the start, capacity limit and whether trees remain.

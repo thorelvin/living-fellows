@@ -1,11 +1,10 @@
-Living Fellows 0.26.58 - public playtest
+Living Fellows 0.26.59 - public playtest
 
-Away field work now clears every eligible tree in the marked 8-tile area
-and harvests ripe crops across the existing 16-tile area. Companions report
-when they start, fill their bag or trunk, and finish. Collected crops stay
-with their carrier when the trunk fills; the remaining plants stay growing.
-Tired companions seek reachable beds, including marked Rest rooms, and
-sleep about six game hours on an ordinary bed.
+Mark a Sorting floor and a Trash pile in camp: residents on duty carry the
+items dropped on the floor to marked storage of their kind and put trash on
+the pile. Chop Wood with a car loads the logs into the trunk again, and a
+new companion whose outfit gives no clothes wears the stock everyday outfit
+instead of failing to appear.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added
