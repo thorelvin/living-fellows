@@ -26,8 +26,11 @@ def main() -> None:
                               mapping_block(relationship, "doingPrefixes")))
     actions: set[str] = set()
     for path in CLIENT.glob("*.lua"):
-        actions.update(re.findall(r"\baction\s*=\s*\"([a-z_]+)\"",
-                                  path.read_text(encoding="utf-8")))
+        source = path.read_text(encoding="utf-8")
+        actions.update(re.findall(r"\baction\s*=\s*\"([a-z_]+)\"", source))
+        # Approach helpers take the action name as an argument and set
+        # `action = action` themselves, which the pattern above cannot see.
+        actions.update(re.findall(r"\"(move_to_[a-z_]+)\"", source))
     assert actions and labels, "action or label inventory is empty"
     missing = missing_labels(actions, labels, prefixes)
     assert not missing, f"unlabelled supervisor actions: {', '.join(sorted(missing))}"
