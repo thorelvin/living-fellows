@@ -137,7 +137,9 @@ public class IsoGameCharacter extends IsoMovingObject {
     public boolean isInvisible() { return false; }
     public void setInvisible(boolean invisible) {}
     public zombie.characters.WornItems.WornItems getWornItems() { return null; }
-    public void dressInNamedOutfit(String outfit) {}
+    // No dressInNamedOutfit here: IsoPlayer's override only previews clothes
+    // on a local player. Dress a SurvivorDesc and apply it with Dressup.
+    public void Dressup(SurvivorDesc descriptor) {}
     public void removeWornItem(zombie.inventory.InventoryItem item) {}
     public void resetModelNextFrame() {}
     public void render(float x, float y, float z,

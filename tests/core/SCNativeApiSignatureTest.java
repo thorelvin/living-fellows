@@ -575,6 +575,12 @@ public final class SCNativeApiSignatureTest {
                         && method(descriptor, "getVoicePrefix").getReturnType() == String.class
                         && method(descriptor, "setVoicePrefix", String.class).getReturnType() == void.class,
                 "SurvivorDesc voice-identity signatures changed");
+        // A companion is dressed through its descriptor and Dressup, the
+        // constructor's own path; IsoPlayer.dressInNamedOutfit is a local
+        // player's preview and puts nothing on an NPC.
+        require(method(descriptor, "dressInNamedOutfit", String.class).getReturnType() == void.class
+                        && method(character, "Dressup", descriptor).getReturnType() == void.class,
+                "SurvivorDesc.dressInNamedOutfit or IsoGameCharacter.Dressup signature changed");
         require(method(player, "playerVoiceSound", String.class).getReturnType() == long.class
                         && declaredMethodInHierarchy(player, "updateEmitter").getReturnType()
                                 == void.class,

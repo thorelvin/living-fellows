@@ -298,6 +298,34 @@ public final class SCNativeCleanupTransactionTest {
                         + SCBridge.getLastFailure());
         assertCleanBridge("failed spawn cleanup retry");
 
+        // A new companion whose outfit resolves to no clothing must not enter
+        // the world unclothed. The headless runtime has no item scripts, so
+        // neither the named outfit nor the Generic01 fallback can dress it:
+        // both Dressup retries run on a real companion, then the spawn fails
+        // and tears the actor down.
+        long outfitless = SCBridge.requestSpawn(spawnSquare,
+                "Outfitless", "Companion", false, "LF_NoSuchOutfit", false);
+        require(outfitless > 0L, "outfitless request was rejected: "
+                + SCBridge.getLastFailure());
+        completeSpawn(outfitless);
+        require(SCBridge.getSpawnResult(outfitless) == null
+                        && SCBridge.getSpawnFailure(outfitless) != null
+                        && SCBridge.getSpawnFailure(outfitless).contains("no wearable outfit"),
+                "an outfitless companion was not refused cleanly: "
+                        + SCBridge.getSpawnFailure(outfitless));
+        if ("failed".equals(SCBridge.getSpawnState(outfitless))) {
+            require(SCBridge.getOwnedCount() == 0
+                            && SCBridge.getCleanupPendingCount() == 0
+                            && SCBridge.forgetSpawnRequest(outfitless),
+                    "outfitless spawn teardown retained ownership or its request");
+        } else {
+            require("cleanup_pending".equals(SCBridge.getSpawnState(outfitless))
+                            && SCBridge.cancelSpawnRequest(outfitless),
+                    "outfitless spawn did not retain and retry an unverified teardown: "
+                            + SCBridge.getSpawnFailure(outfitless));
+        }
+        assertCleanBridge("outfitless spawn");
+
         long cancelledBeforeCompletion = SCBridge.requestSpawn(spawnSquare,
                 "Cancelled", "Queued", false, "", true);
         require(cancelledBeforeCompletion > 0L

@@ -2097,14 +2097,19 @@ public final class SCBridge {
             if (!request.bare && (actor.getWornItems() == null
                     || actor.getWornItems().size() == 0)) {
                 // Clothing packs can make a named outfit resolve to nothing
-                // without throwing. Retry on the native character, then use
-                // the stock everyday outfit before exposing it to the world.
+                // without throwing. Retry once, then use the stock everyday
+                // outfit before exposing it to the world. Dress the descriptor
+                // and apply it with Dressup, as the IsoPlayer constructor does:
+                // IsoPlayer.dressInNamedOutfit only previews clothes on a local
+                // player and puts nothing on a companion.
                 if (!request.outfit.isEmpty()) {
-                    actor.dressInNamedOutfit(request.outfit);
+                    descriptor.dressInNamedOutfit(request.outfit);
+                    actor.Dressup(descriptor);
                 }
                 if (actor.getWornItems() == null
                         || actor.getWornItems().size() == 0) {
-                    actor.dressInNamedOutfit("Generic01");
+                    descriptor.dressInNamedOutfit("Generic01");
+                    actor.Dressup(descriptor);
                 }
                 if (actor.getWornItems() == null
                         || actor.getWornItems().size() == 0) {
