@@ -334,8 +334,12 @@ local function nextWash(vehicle, manual)
     local script = call(vehicle, "getScript")
     for _, row in ipairs(WASH_AREAS) do
         local intensity = number(vehicle, "getBloodIntensity", row.id)
+        -- Match vanilla's Wash Vehicle menu for a player-requested wash.
+        -- Automatic upkeep still ignores small flecks until intensity is 0.1.
+        local due = intensity and intensity > 0
+            and (manual or intensity >= 0.1)
         if script and call(script, "getAreaById", row.area) ~= nil
-            and intensity and intensity >= (manual and EPSILON or 0.1) then
+            and due then
             return { area = row.area, areaId = row.id,
                 current = intensity }
         end
@@ -529,7 +533,7 @@ local function settle(job, item, vehicle)
     end
     local changed = job.type == "inflate_tires"
         and after > target.before + EPSILON
-        or job.type == "wash_vehicle" and after < target.before - EPSILON
+        or job.type == "wash_vehicle" and after < target.before
     if not changed then
         target.attempts = (tonumber(target.attempts) or 0) + 1
         if target.attempts >= 3 then return false, "upkeep_no_effect" end

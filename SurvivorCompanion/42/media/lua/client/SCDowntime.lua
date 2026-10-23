@@ -66,7 +66,74 @@ local function restHours(actor, kind, fatigue, current)
         .. ":" .. tostring(kind)
     local roll = math.abs(tonumber(U().stableHash(seed)) or 0) % 1000 / 1000
     if kind == "sit" then return (25 + math.floor(roll * 61)) / 60 end
-    return math.max(3.5, math.min(9, 2 + fatigue * 7 + (roll - 0.5)))
+    -- An ordinary bed without sleep traits averages six game hours. The
+    -- player's bed-quality and trait adjustments are applied on entry.
+    return 5 + roll * 2
+end
+
+local function bedSleepEligible(actor, state, fatigue)
+    local utility = U()
+    fatigue = tonumber(fatigue) or utility.characterStatValue(actor, "FATIGUE", 0)
+    if fatigue <= (tonumber(utility.config("sleepFatigueThreshold")) or 0.30) then
+        return false, "not_tired_enough"
+    end
+    local hour = gameHours()
+    local lastWake = state and tonumber(state.lastBedWakeHour) or nil
+    if not lastWake and state and type(state.lastFact) == "table"
+        and state.lastFact.activity == "rest_bed" then
+        lastWake = tonumber(state.lastFact.wokeGameHour)
+    end
+    if not lastWake and SC.Commands and type(SC.Commands.peek) == "function" then
+        local ok, commands = pcall(SC.Commands.peek, actor)
+        local last = ok and type(commands) == "table"
+            and commands.lastDowntime or nil
+        if type(last) == "table" and last.activity == "rest_bed" then
+            lastWake = tonumber(last.wokeGameHour)
+        end
+    end
+    if hour and lastWake and hour - lastWake <= 1 then
+        return false, "sleep_too_soon"
+    end
+    local stats = select(1, utility.call(actor, "getStats"))
+    for _, method in ipairs({ "getNumVisibleZombies", "getNumChasingZombies",
+            "getNumVeryCloseZombies" }) do
+        local count = select(1, utility.call(stats, method))
+        if (tonumber(count) or 0) > 0 then
+            return false, "zombies_prevent_sleep"
+        end
+    end
+    local pillEffect = select(1, utility.call(actor,
+        "getSleepingTabletEffect"))
+    local pills = tonumber(pillEffect) or 0
+    if pills < 2000 then
+        if utility.moodleLevel(actor, "PAIN", 0) >= 2 and fatigue <= 0.85 then
+            return false, "pain_prevents_sleep"
+        end
+        if utility.moodleLevel(actor, "PANIC", 0) >= 1 then
+            return false, "panic_prevents_sleep"
+        end
+    end
+    return true
+end
+
+local function sleepTrait(actor, name)
+    local trait
+    if CharacterTrait then
+        local ok, value = pcall(function() return CharacterTrait[name] end)
+        if ok then trait = value end
+    end
+    return trait ~= nil and select(1, U().call(actor, "hasTrait", trait)) == true
+end
+
+local function adjustedBedHours(actor, bedType, hours)
+    local quality = tostring(bedType or "averageBed")
+    if quality:find("goodBed", 1, true) then hours = hours - 1 end
+    if quality:find("badBed", 1, true) then hours = hours + 1 end
+    if quality:find("floor", 1, true) then hours = hours * 0.7 end
+    if sleepTrait(actor, "INSOMNIAC") then hours = hours * 0.5 end
+    if sleepTrait(actor, "NEEDS_LESS_SLEEP") then hours = hours * 0.75 end
+    if sleepTrait(actor, "NEEDS_MORE_SLEEP") then hours = hours * 1.18 end
+    return math.max(3, math.min(16, hours))
 end
 
 local function wakeFromBed(actor, activity)
@@ -196,7 +263,13 @@ end
 
 local function releaseActivity(actor, activity)
     if not activity then return end
-    if activity.kind == "rest_bed" then wakeFromBed(actor, activity) end
+    if activity.kind == "rest_bed" then
+        if activity.sleepStarted == true then
+            local state = stateFor(actor)
+            state.lastBedWakeHour = gameHours()
+        end
+        wakeFromBed(actor, activity)
+    end
     -- Getting up from a seat may earn a stretch (SCGestures), once per sit.
     if restPostures[activity.kind]
         and activity.preserveSeating ~= true
@@ -1393,9 +1466,10 @@ local function furnitureKind(object)
             -- Build 42 also gives bed-like properties to chairs and couches.
             -- Use explicit object/tile semantics to identify a physical bed;
             -- otherwise SeatingManager is the authoritative seating catalogue.
-            if isNamedBed(objectName) or isNamedBed(customNameOk and customName or nil)
+            if (isNamedBed(objectName) or isNamedBed(customNameOk and customName or nil)
                 or isNamedBed(groupNameOk and groupName or nil)
-                or string.find(loweredSprite, "furniture_bedding", 1, true) then
+                or string.find(loweredSprite, "furniture_bedding", 1, true))
+                and seatingPositionCount(object) > 0 then
                 return "rest_bed"
             end
             -- Build 42's pathToSitOnFurniture and ISRestAction both use
@@ -1405,7 +1479,9 @@ local function furnitureKind(object)
             if seatingPositionCount(object) > 0 then return "sit" end
         end
     end
-    if isNamedBed(objectName) then return "rest_bed" end
+    if isNamedBed(objectName) and seatingPositionCount(object) > 0 then
+        return "rest_bed"
+    end
     if seatingPositionCount(object) > 0 then return "sit" end
     return nil
 end
@@ -1535,6 +1611,114 @@ local function linkedFloorFurniture(actor, state, current, seatOnly, tired,
     return fallback
 end
 
+-- A marked Rest room is the first place a tired resident looks for a bed.
+-- Scan its loaded floor tiles directly: the ordinary nearby search can miss
+-- a bedroom on the far side of camp even though it is in the active base.
+local function campBedActivity(actor, state, current, zoneKind)
+    local utility, base = U(), SC.BaseLife
+    if not base or type(base.active) ~= "function"
+        or type(base.isInside) ~= "function"
+        or base.isInside(actor) ~= true then return nil end
+    local active = base.active()
+    local ax, ay, az = utility.position(actor)
+    if not active or not ax then return nil end
+    local zones = {}
+    for _, zone in ipairs(active.zones or {}) do
+        if zone.kind == zoneKind then
+            local cx = math.max(zone.x1, math.min(zone.x2, math.floor(ax)))
+            local cy = math.max(zone.y1, math.min(zone.y2, math.floor(ay)))
+            zones[#zones + 1] = { zone = zone, cx = cx, cy = cy,
+                distance = (cx - ax) ^ 2 + (cy - ay) ^ 2
+                    + (zone.z - az) ^ 2 * 64 }
+        end
+    end
+    table.sort(zones, function(a, b) return a.distance < b.distance end)
+    if #zones == 0 then return nil end
+    local scans = type(state) == "table" and state.campBedScans or nil
+    local scan = scans and scans[zoneKind] or nil
+    if not scan or scan.base ~= active or scan.x ~= math.floor(ax)
+        or scan.y ~= math.floor(ay) or scan.z ~= math.floor(az)
+        or scan.zoneCount ~= #zones then
+        scan = { base = active, x = math.floor(ax), y = math.floor(ay),
+            z = math.floor(az), zoneCount = #zones, zoneIndex = 1,
+            ring = 0, offset = 0 }
+        if type(state) == "table" then
+            state.campBedScans = state.campBedScans or {}
+            state.campBedScans[zoneKind] = scan
+        end
+    end
+    if current < (scan.retryAt or 0) then return nil end
+    local checked = 0
+    local function ringPoint(cx, cy, ring, offset)
+        if ring == 0 then return cx, cy end
+        local side = ring * 2 + 1
+        if offset < side then return cx - ring + offset, cy - ring end
+        offset = offset - side
+        if offset < side then return cx - ring + offset, cy + ring end
+        offset = offset - side
+        local inside = ring * 2 - 1
+        if offset < inside then return cx - ring, cy - ring + 1 + offset end
+        return cx + ring, cy - ring + 1 + offset - inside
+    end
+    local function inspect(zone, x, y)
+        if x < zone.x1 or x > zone.x2 or y < zone.y1 or y > zone.y2 then
+            return nil
+        end
+        checked = checked + 1
+        local square = utility.gridSquare(x, y, zone.z)
+        if not square or base.isInside(square) ~= true
+            or (zone.z ~= math.floor(az)
+                and not campFloorRoute(actor, square)) then return nil end
+        local selected
+        utility.squareObjects(square, function(object)
+            local occupied = select(1, utility.call(object,
+                "isFurnitureOccupied", actor))
+            if furnitureKind(object) == "rest_bed"
+                and occupied ~= true
+                and not reservationHeldByOther(object, actor, current)
+                and not furnitureCooling(state, object, current) then
+                local reached, targets = freeFurnitureAccess(actor, object)
+                if reached or #targets > 0 then
+                    selected = object
+                    return false
+                end
+            end
+        end, 32)
+        if not selected then return nil end
+        return { kind = "rest_bed", score = 78,
+            object = selected, square = square,
+            originSquare = utility.squareOf(actor),
+            crossFloor = zone.z ~= math.floor(az),
+            fact = { activity = "rest_bed" } }
+    end
+    for index = scan.zoneIndex, #zones do
+        local entry = zones[index]
+        local zone, cx, cy = entry.zone, entry.cx, entry.cy
+        local outer = math.max(cx - zone.x1, zone.x2 - cx,
+            cy - zone.y1, zone.y2 - cy)
+        for ring = index == scan.zoneIndex and scan.ring or 0, outer do
+            local count = ring == 0 and 1 or ring * 8
+            for offset = index == scan.zoneIndex and ring == scan.ring
+                    and scan.offset or 0, count - 1 do
+                local x, y = ringPoint(cx, cy, ring, offset)
+                local found = inspect(zone, x, y)
+                if found then
+                    scan.zoneIndex, scan.ring, scan.offset, scan.retryAt =
+                        index, ring, offset, nil
+                    return found
+                end
+                if checked >= 320 then
+                    scan.zoneIndex, scan.ring, scan.offset = index, ring, offset + 1
+                    return nil, "searching"
+                end
+            end
+        end
+    end
+    scan.zoneIndex, scan.ring, scan.offset, scan.retryAt =
+        1, 0, 0, current + 5000
+    return nil
+end
+
 local function seatActivity(actor, state, current, seatOnly)
     local utility = U()
     if seatingStatus(actor) ~= "standing" then return nil end
@@ -1545,8 +1729,14 @@ local function seatActivity(actor, state, current, seatOnly)
     local actorSquare = utility.squareOf(actor)
     local fatigue = utility.clamp(tonumber(
         utility.characterStatValue(actor, "FATIGUE", 0)) or 0, 0, 1)
-    local tired = fatigue >= (tonumber(
-        utility.config("needsFatigueThreshold")) or 0.50)
+    local tired = seatOnly ~= true
+        and bedSleepEligible(actor, state, fatigue) == true
+    if tired and seatOnly ~= true then
+        local markedBed, markedStatus = campBedActivity(actor, state,
+            current, "rest")
+        if markedBed then return markedBed end
+        if markedStatus == "searching" then return nil end
+    end
     local radius = math.max(1, math.min(12,
         math.floor(tonumber(utility.config("downtimeFurnitureRadius")) or 8)))
     local budget = math.max(16,
@@ -1597,15 +1787,28 @@ local function seatActivity(actor, state, current, seatOnly)
                         chairFallback = chairFallback or candidate
                     end
                     if scanned >= budget then
-                        return linkedFloorFurniture(actor, state, current,
+                        local linked = linkedFloorFurniture(actor, state, current,
                             seatOnly, tired, radius, chairFallback)
+                        if linked and linked.kind == "rest_bed" then return linked end
+                        if tired and seatOnly ~= true then
+                            local campBed = campBedActivity(actor, state,
+                                current, "area")
+                            if campBed then return campBed end
+                        end
+                        return linked
                     end
                 end
             end
         end
     end
-    return linkedFloorFurniture(actor, state, current,
+    local linked = linkedFloorFurniture(actor, state, current,
         seatOnly, tired, radius, chairFallback)
+    if linked and linked.kind == "rest_bed" then return linked end
+    if tired and seatOnly ~= true then
+        local campBed = campBedActivity(actor, state, current, "area")
+        if campBed then return campBed end
+    end
+    return linked
 end
 
 local function floorRestActivity(actor, furnitureAvailable)
@@ -3900,6 +4103,8 @@ local function startBedSleep(actor, activity)
     bedType = bedType or select(1, utility.call(activity.object, "getBedType"))
         or "averageBed"
     utility.call(actor, "setBedType", bedType)
+    activity.gameDurationHours = adjustedBedHours(actor, bedType,
+        tonumber(activity.gameDurationHours) or 6)
     local time
     if type(getGameTime) == "function" then
         local ok, value = pcall(getGameTime)
@@ -4568,6 +4773,9 @@ local function finishActivity(actor, state, now)
             pcall(SC.Diary.noteDowntime, actor, activity, { memento = memento })
         end
         local fact = U().copyShallow(activity.fact)
+        if activity.kind == "rest_bed" then
+            fact.wokeGameHour = gameHours()
+        end
         if activity.kind == "weather_recovery" then
             fact.wetnessAfter = U().characterStatValue(actor, "WETNESS", 0)
         end
@@ -5046,6 +5254,10 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
                         transitionReason or "furniture_entry_transition_failed")
                 end
                 if state.active.kind == "rest_bed" then
+                    local eligible, sleepReason = bedSleepEligible(actor,
+                        state)
+                    if not eligible then return failActivity(actor, state,
+                        sleepReason) end
                     startBedSleep(actor, state.active)
                     return true, "sleeping_on_bed"
                 end
@@ -5160,6 +5372,10 @@ function Downtime._furnitureForTests()
     return furnitureKind, seatActivity, approachFurniture, beginActivity,
         coolFurniture, furnitureCooling, floorRestActivity, seatingStatus,
         failActivity, reserve, release, stateFor, orderAllowsIdle
+end
+
+function Downtime._sleepForTests()
+    return bedSleepEligible, restHours, adjustedBedHours
 end
 
 function Downtime._ambientForTests()

@@ -3263,26 +3263,24 @@ check(bedOk and bedReason == "getting_on_bed"
         and actor.onBed ~= true and actor.sitting ~= true,
     "two-tile bed rest uses the player's native Rest furniture path")
 lastFurniturePath:completePath()
-check(actor.sitting == true and actor.seatObject == bed and bed.occupied == true
-        and actor.lastEvent == "EventSitOnFurniture"
+check(actor.onBed == true and actor.sitting ~= true
+        and actor.seatObject == bed and bed.occupied == false
+        and actor.lastEvent == "EventGetOnBed"
         and SC.NativeActions.bedStatus(actor) == "entering",
-    "bed rest enters the furniture pose rather than Get On Bed")
-actor.furniturePoseStarted = true
+    "sprite-grid bed rest enters the native bed pose")
+actor.bedPoseStarted = true
 check(SC.NativeActions.bedStatus(actor) == "entered",
-    "the stock furniture end event settles the bed rest pose")
-actor.actionContextName = "sitonfurniture"
+    "the stock bed end event settles the bed rest pose")
+actor.actionContextName = "onbed"
 local bedLeave, bedLeaveReason = SC.NativeActions.leaveSeating(actor)
-check(bedLeave == false and bedLeaveReason == "standing_from_furniture"
-        and actor.seatObject == bed and bed.occupied == true,
-    "leaving the bed holds its seat until the getup clip")
-actor.sitting = false
-actor.actionContextName = "getup"
-check(SC.NativeActions.leaveSeating(actor) == false,
-    "bed getup keeps the native furniture owner while animating")
+check(bedLeave == true and actor.onBed == false
+        and actor.seatObject == nil and bed.occupied == false,
+    "leaving the bed clears the native bed pose and its owner: "
+        .. tostring(bedLeaveReason))
 actor.actionContextName = "idle"
 check(SC.NativeActions.leaveSeating(actor) == true
         and actor.seatObject == nil and bed.occupied == false,
-    "bed getup releases the seat and permits movement")
+    "bed exit permits subsequent movement")
 
 -- A blocked bed path uses the stock Rest fallback and releases its native
 -- queue action before the companion starts another activity.

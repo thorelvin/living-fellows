@@ -440,6 +440,22 @@ function Probe.step(H, current, check, result, setPhase)
             return
         end
         H.lorettaActor = actor
+        local worn = call(actor, "getWornItems")
+        local wornCount = tonumber(call(worn, "size")) or 0
+        local inventory = SC.GameplayUtil.inventory(actor)
+        local kit = {}
+        for _, item in ipairs(SC.GameplayUtil.inventoryItemsDeep(
+                inventory, 120, 4)) do
+            kit[SC.GameplayUtil.itemType(item)] = true
+        end
+        if not check("loretta_spawn_clothes_and_kit",
+            wornCount > 0 and kit["Base.Clipboard"] == true
+                and kit["Base.Pencil"] == true,
+            "worn=" .. tostring(wornCount)
+                .. " clipboard=" .. tostring(kit["Base.Clipboard"] == true)
+                .. " pencil=" .. tostring(kit["Base.Pencil"] == true)) then
+            setPhase("finish", current) return
+        end
         local car = H.lorettaCar
         local expectedId = tonumber(H.lorettaSite.carSqlId
             or H.lorettaSite.vehicle.sqlId)
@@ -528,13 +544,69 @@ function Probe.step(H, current, check, result, setPhase)
         if H.config.loretta_screenshot ~= "true" then
             setPhase("finish", current) return
         end
+        local stood, exitReason = SC.Vehicle.exit(actor, H.lorettaCar)
+        if not check("loretta_photo_outside_car", stood == true,
+            tostring(exitReason)) then
+            setPhase("finish", current) return
+        end
+        -- Move the test actor clear of the vehicle sprite so her actual worn
+        -- outfit can be inspected in the screenshot. This is a cloned save.
+        local px, py, pz = SC.GameplayUtil.position(H.player)
+        local placed, placeReason = false, "no_loaded_photo_square"
+        local candidates = {}
+        for dy = -7, 7 do
+            for dx = -7, 7 do
+                local distance = dx * dx + dy * dy
+                if distance >= 9 and distance <= 64 then
+                    local square = SC.GameplayUtil.gridSquare(
+                        math.floor(px) + dx, math.floor(py) + dy,
+                        math.floor(pz or 0))
+                    if square and SC.GameplayUtil.isSafeSpawnSquare(square)
+                        and not call(square, "getVehicleContainer") then
+                        -- Favour open pavement to the upper left of the
+                        -- observer, away from the car and nearby shrubs.
+                        candidates[#candidates + 1] = {
+                            square = square,
+                            score = math.abs(dx - dy + 5) * 10
+                                + math.abs(dx + dy + 1) * 5
+                                + SC.NativeList.size(call(square,
+                                    "getObjects")),
+                        }
+                    end
+                end
+            end
+        end
+        table.sort(candidates, function(a, b) return a.score < b.score end)
+        for _, candidate in ipairs(candidates) do
+            placed, placeReason = SC.Actor.recover(actor, candidate.square)
+            if placed == true then break end
+        end
+        if not check("loretta_photo_clear_of_car", placed == true,
+            tostring(placeReason) .. " player=" .. tostring(px)
+                .. "," .. tostring(py) .. "," .. tostring(pz)) then
+            setPhase("finish", current) return
+        end
+        setPhase("loretta_photo_pose", current)
+        return
+    end
+
+    if H.phase == "loretta_photo_pose" then
+        if current - H.phaseStartedAt < 850 then return end
+        local story = H.lorettaGroup.oddball
         local signaled = H.lorettaSignals.write(READY, {
             "ready=true", "sqlId=" .. tostring(story.carSqlId),
             "seat=" .. tostring(story.seat),
             "firstSeenHour=" .. tostring(story.firstSeenHour),
         })
         if not check("loretta_capture_ready", signaled,
-            "native rear-seat scene ready for capture") then
+            "Loretta visible beside her parked car for capture") then
+            setPhase("finish", current) return
+        end
+        local nativeCapture = pcall(function()
+            getCore():TakeFullScreenshot("loretta-harness.png")
+        end)
+        if not check("loretta_native_screenshot_queued", nativeCapture,
+            "game render buffer requested for Loretta capture") then
             setPhase("finish", current) return
         end
         setPhase("loretta_capture", current)

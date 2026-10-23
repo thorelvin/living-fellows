@@ -10,8 +10,8 @@ local active, recentVehicleId, serial = nil, nil, 0
 local pendingAxeReturns = {}
 local areaMarkers, markerExpiry = {}, 0
 local HARVEST_RADIUS, HARVEST_LEASH, HARVEST_CAR_RANGE = 16, 32, 40
-local CHOP_RADIUS, CHOP_LEASH, CHOP_CAR_RANGE = 8, 16, 20
-local TREE_LIMIT, MARK = 5, "LF_FieldOrder"
+local CHOP_RADIUS, CHOP_LEASH, CHOP_CAR_RANGE = 8, 25, 20
+local MARK = "LF_FieldOrder"
 local CARRY_MARK = "LF_FieldCarryWorker"
 local function radius(kind) return kind == "harvest" and HARVEST_RADIUS or CHOP_RADIUS end
 local function leash(kind) return kind == "harvest" and HARVEST_LEASH or CHOP_LEASH end
@@ -82,14 +82,15 @@ local function carNear(center, id, kind)
     local part, container, reason = trunk(vehicle)
     return vehicle, part, container, reason
 end
-local function followers(player)
+local function followers(player, kind)
     local result = {}
+    local range = kind and leash(kind) or math.max(HARVEST_LEASH, CHOP_LEASH)
     for _, actor in ipairs(U().registryLiving(U().config("maxCompanions") or 16)) do
         local state = SC.Commands and SC.Commands.peek and SC.Commands.peek(actor)
         local id = U().idOf(actor)
         if id and state and state.recruited and state.order == "follow"
             and call(actor, "getVehicle") == nil
-            and distance(point(actor), point(player)) <= CHOP_LEASH then
+            and distance(point(actor), point(player)) <= range then
             result[#result + 1] = tostring(id)
         end
     end
@@ -212,19 +213,39 @@ local function targetAt(order, x, y)
     if order.kind == "harvest" then object = crop(square) else object = tree(square) end
     return object and square or nil
 end
+local function clearingResult(order)
+    local range = radius(order.kind)
+    local unchecked = false
+    local harvest = order.kind == "harvest"
+    for dy = -range, range do
+        for dx = -range, range do
+            if dx * dx + dy * dy <= range * range then
+                local x, y = order.center.x + dx, order.center.y + dy
+                local square = U().gridSquare(x, y, order.center.z)
+                if not square then
+                    unchecked = true
+                elseif targetAt(order, x, y) then
+                    return harvest
+                        and "Some ripe crops are still growing around this spot."
+                        or "Some trees are still standing around this spot."
+                end
+            end
+        end
+    end
+    if unchecked then
+        return harvest
+            and "I harvested the crops I could reach, but couldn't check the whole area."
+            or "I cleared the trees I could reach, but couldn't check the whole area."
+    end
+    return harvest and "All the ripe crops around this spot are harvested."
+        or "All the trees around this spot are cleared."
+end
 local function claimed(order, targetKey)
     if order.done[targetKey] then return true end
     for _, worker in pairs(order.workers) do
         if worker.target == targetKey then return true end
     end
     return false
-end
-local function treeQuotaFull(order)
-    local reserved = order.completed
-    for _, worker in pairs(order.workers) do
-        if worker.target and not order.done[worker.target] then reserved = reserved + 1 end
-    end
-    return reserved >= TREE_LIMIT
 end
 local function nextTarget(order, worker)
     local range = radius(order.kind)
@@ -382,6 +403,38 @@ local function firstTargetFits(actor, worker, order)
         and (tonumber(U().config("logisticsOverloadHardLoadRatio")) or 1.2) or 1.0
     return (weight + expected) / capacity <= limit
 end
+
+local function capacityNotice(actor, order, reason, full)
+    local message
+    if order.kind == "harvest" then
+        if reason == "yield_too_heavy" then
+            message = "That crop's harvest is too heavy for my bag. I'll leave it growing."
+        elseif reason == "car_trunk_full" then
+            message = full and "My bag and the trunk are full. I'll leave the remaining crops growing."
+                or "The trunk is full. I'll keep this harvest in my bag."
+        else
+            message = order.carId
+                and "My bag is full. I'll leave any remaining crops growing."
+                or "My bag is full and no car is assigned. I'm keeping the crops with me."
+        end
+    elseif reason == "car_trunk_full" then
+        message = full and "My bag and the trunk are full. I'll keep clearing trees and leave the logs here."
+            or "The trunk is full. I'll keep clearing trees and leave the logs here."
+    else
+        message = order.carId
+            and "I can't carry another log to the car. I'll keep clearing trees and leave the logs here."
+            or "My bag is full and no car is assigned. I'll keep clearing trees and leave the logs here."
+    end
+    if order.kind == "harvest" and order.capacityNotice == "car_trunk_full"
+        and (reason == "inventory_full" or reason == "yield_too_heavy") then
+        return
+    end
+    order.note = message
+    if order.capacityNotice ~= reason then
+        order.capacityNotice = reason
+        if type(U().say) == "function" then U().say(actor, message) end
+    end
+end
 local function woodOn(square, order, workerId, before)
     local result = {}
     local origin = point(square)
@@ -475,6 +528,37 @@ local function cargoItems(actor, orderId)
     end
     return result
 end
+
+local function release(worker)
+    worker.target, worker.x, worker.y, worker.before = nil, nil, nil, nil
+    worker.groundBefore, worker.startedAt, worker.phase = nil, nil, "seek"
+end
+
+local function leaveWood(actor, worker, order, reason, full)
+    worker.skipPickup = true
+    capacityNotice(actor, order, reason, full)
+    if worker.phase == "done" or worker.afterDeposit == "done" then
+        worker.phase = "done"
+    else release(worker) end
+    worker.afterDeposit = nil
+    return true, "field_wood_left_on_ground"
+end
+
+local function keepHarvest(actor, worker, order, full)
+    worker.skipDeposit = true
+    capacityNotice(actor, order, "car_trunk_full", full)
+    if worker.phase == "done" or worker.afterDeposit == "done" then
+        worker.phase = "done"
+    else
+        release(worker)
+        -- Revisit a plant passed over while seeking trunk space if the bag
+        -- still has room. This rewind happens only once per worker.
+        worker.scan = 0
+    end
+    worker.afterDeposit = nil
+    return true, "field_harvest_kept"
+end
+
 local function loadCar(actor, worker, order)
     local vehicle, part, container, reason = carNear(order.center, order.carId, order.kind)
     if not container then order.phase, order.blocker = "paused", reason return false, reason end
@@ -497,12 +581,32 @@ local function loadCar(actor, worker, order)
         local item, source = cargo[index].item, cargo[index].source
         if SC.WorkTransport and SC.WorkTransport.hasRoom
             and SC.WorkTransport.hasRoom(container, actor, item) ~= true then
+            if order.kind == "chop" then
+                local _, _, load = U().carryLoad(actor)
+                return leaveWood(actor, worker, order, "car_trunk_full",
+                    load >= FULL_LOAD)
+            elseif order.kind == "harvest" then
+                local _, _, load = U().carryLoad(actor)
+                return keepHarvest(actor, worker, order,
+                    load >= fullLoad(actor, worker, order))
+            end
             order.phase, order.blocker = "paused", "car_trunk_full"
             return false, order.blocker
         end
         local moved, moveReason = U().transferItemVerified(source, container, item)
-        if not moved then order.phase, order.blocker = "paused", moveReason
-            return false, moveReason end
+        if not moved then
+            if order.kind == "chop" and moveReason == "destination_full" then
+                local _, _, load = U().carryLoad(actor)
+                return leaveWood(actor, worker, order, "car_trunk_full",
+                    load >= FULL_LOAD)
+            elseif order.kind == "harvest" and moveReason == "destination_full" then
+                local _, _, load = U().carryLoad(actor)
+                return keepHarvest(actor, worker, order,
+                    load >= fullLoad(actor, worker, order))
+            end
+            order.phase, order.blocker = "paused", moveReason
+            return false, moveReason
+        end
         if U().inventoryContains(container, item) ~= true then
             order.phase, order.blocker = "paused", "field_cargo_unverified"
             return false, order.blocker
@@ -512,10 +616,6 @@ local function loadCar(actor, worker, order)
         order.loaded = order.loaded + 1
     end
     return true, "field_cargo_loaded"
-end
-local function release(worker)
-    worker.target, worker.x, worker.y, worker.before = nil, nil, nil, nil
-    worker.groundBefore, worker.startedAt, worker.phase = nil, nil, "seek"
 end
 -- A dead or dismissed worker can never report done. "No living actor" alone
 -- is not proof: a saved companion has no registry record until its
@@ -537,15 +637,19 @@ local function completeIfFinished(order)
                 order.phase, order.blocker = "paused", reason
                 return false
             end
-            if order.carId and #cargo > 0 then return false end
-            finished[#finished + 1] = { id = id, member = member, cargo = cargo }
+            if order.carId and #cargo > 0
+                and not state.skipPickup and not state.skipDeposit then
+                return false
+            end
+            finished[#finished + 1] = { id = id, member = member,
+                cargo = cargo, state = state }
         elseif not workerGone(id) then
             return false
         end
     end
     for _, worker in ipairs(finished) do
         local id, member, cargo = worker.id, worker.member, worker.cargo
-        if not order.carId then
+        if not order.carId or worker.state.skipPickup or worker.state.skipDeposit then
             for _, entry in ipairs(cargo) do
                 local data = U().modData(entry.item)
                 if data then
@@ -555,10 +659,24 @@ local function completeIfFinished(order)
                 end
             end
         end
+        if worker.state.skipPickup and worker.state.axeId and order.carId then
+            pendingAxeReturns[id] = {
+                itemId = worker.state.axeId, orderId = order.id,
+                carId = order.carId, center = order.center, kind = order.kind,
+            }
+        end
         local actorData = U().modData(member)
         if actorData then actorData.LF_FieldReturnCleanup = order.id end
     end
     order.phase = "complete"
+    if not order.completionAnnounced then
+        order.completionAnnounced = true
+        order.completionNote = clearingResult(order)
+        local speaker = finished[1] and finished[1].member
+        if speaker and type(U().say) == "function" then
+            U().say(speaker, order.completionNote)
+        end
+    end
     return true
 end
 local function currentTarget(worker, order)
@@ -790,16 +908,16 @@ function Field.status()
     end
     local result = { kind = active.kind, phase = active.phase,
         completed = active.completed, loaded = active.loaded,
-        targetCount = active.kind == "chop" and TREE_LIMIT or nil,
         carId = active.carId,
         blocker = returns > 0 and ("borrowed axe return pending"
-            .. (returnBlocker and ": " .. returnBlocker or "")) or active.blocker,
+            .. (returnBlocker and ": " .. returnBlocker or ""))
+            or active.blocker or active.note,
         pendingAxeReturns = returns,
         center = active.center, note = active.note }
     return result
 end
-function Field.available(player)
-    return player ~= nil and #followers(player) > 0
+function Field.available(player, kind)
+    return player ~= nil and #followers(player, kind) > 0
 end
 function Field.start(kind, square, player)
     if active and (active.phase == "working" or active.phase == "unlocking"
@@ -815,7 +933,7 @@ function Field.start(kind, square, player)
     if SC.BaseLife and SC.BaseLife.isInside and SC.BaseLife.isInside(center) then
         return false, "field_center_in_base"
     end
-    local roster = followers(player)
+    local roster = followers(player, kind)
     if #roster == 0 then return false, "no_following_companions" end
     local carId = recentVehicleId
     if carId and distance(center, point(vehicleById(carId))) > carRange(kind) then
@@ -866,6 +984,12 @@ function Field.start(kind, square, player)
         end
     end
     Field.showArea(center)
+    local speaker = actorFor(roster[1])
+    if speaker and type(U().say) == "function" then
+        U().say(speaker, kind == "harvest"
+            and "I'll harvest the ready crops around this spot."
+            or "I'll clear the trees around this spot.")
+    end
     return true, unlock and "field_trunk_unlocking" or "field_order_started"
 end
 function Field.stop(reason)
@@ -1127,23 +1251,37 @@ function Field.update(actor, player, snapshot)
         return false, cargoReason
     end
     if worker.phase == "full" then
-        if order.carId and #cargo > 0 then
+        if order.kind == "chop" then
+            if order.carId and #cargo > 0 then
+                worker.afterDeposit = "seek"
+                return loadCar(actor, worker, order)
+            end
+            return leaveWood(actor, worker, order, "inventory_full", true)
+        end
+        if order.carId and #cargo > 0 and not worker.skipDeposit then
             worker.phase, worker.afterDeposit = "deposit", "seek"
             return loadCar(actor, worker, order)
         end
         if load < full then
             worker.phase, worker.afterDeposit = worker.afterDeposit or "seek", nil
+            worker.capacityReason = nil
             return true, "field_carry_space_restored"
         end
+        capacityNotice(actor, order, worker.capacityReason or "inventory_full", true)
+        worker.capacityReason = nil
         completeIfFinished(order)
         return true, "field_carry_limit_reached"
     end
-    if #cargo > 0 and (load >= full or worker.phase == "deposit") then
+    if #cargo > 0 and not worker.skipPickup and not worker.skipDeposit
+        and (load >= full or worker.phase == "deposit") then
         if order.carId then
             if worker.phase == "wood" then worker.afterDeposit = "wood" end
             return loadCar(actor, worker, order)
         end
         if load >= full then
+            if order.kind == "chop" then
+                return leaveWood(actor, worker, order, "inventory_full", true)
+            end
             worker.phase = "full"
             return true, "field_carry_limit_reached"
         end
@@ -1210,22 +1348,19 @@ function Field.update(actor, player, snapshot)
         return true, order.blocker
     end
     if worker.phase == "seek" then
-        if order.kind == "chop" and treeQuotaFull(order) then
-            worker.phase = "done"
-        else
-            local square = nextTarget(order, worker)
-            if square then return true, "field_target_claimed" end
-            if worker.scan < (radius(order.kind) * 2 + 1) ^ 2 then
-                return true, "field_scanning" end
-            worker.phase = "done"
-        end
+        local square = nextTarget(order, worker)
+        if square then return true, "field_target_claimed" end
+        if worker.scan < (radius(order.kind) * 2 + 1) ^ 2 then
+            return true, "field_scanning" end
+        worker.phase = "done"
     end
     if worker.phase == "done" then
-        if #cargo > 0 and order.carId then
+        if #cargo > 0 and order.carId
+            and not worker.skipPickup and not worker.skipDeposit then
             worker.phase, worker.afterDeposit = "deposit", "done"
             return loadCar(actor, worker, order)
         end
-        if worker.axeId and order.carId then
+        if worker.axeId and order.carId and not worker.skipPickup then
             worker.phase = "return_axe"
             return true, "field_returning_axe"
         end
@@ -1247,6 +1382,9 @@ function Field.update(actor, player, snapshot)
             return true, "field_axe_not_carried" end
         if SC.WorkTransport and SC.WorkTransport.hasRoom
             and SC.WorkTransport.hasRoom(container, actor, axe) ~= true then
+            if order.kind == "chop" then
+                return leaveWood(actor, worker, order, "car_trunk_full", true)
+            end
             order.phase, order.blocker = "paused", "car_trunk_full"
             return false, order.blocker
         end
@@ -1324,12 +1462,18 @@ function Field.update(actor, player, snapshot)
                 -- An empty-handed worker takes one plant past its Strength
                 -- limit, but never one whose yield would not physically fit
                 -- the inventory; say so instead of overloading.
+                local canDeposit = order.carId and #cargo > 0
+                    and not worker.skipDeposit
+                if canDeposit then
+                    -- The target was claimed during the scan. Retry that
+                    -- exact crop after unloading rather than skipping it.
+                    worker.scan = math.max(0, worker.scan - 1)
+                else worker.capacityReason = "yield_too_heavy" end
                 release(worker)
                 if #cargo == 0 then
                     order.blocker = "field_carry_limit_reached"
                 end
-                worker.phase = order.carId and #cargo > 0
-                    and "deposit" or "full"
+                worker.phase = canDeposit and "deposit" or "full"
                 return true, "field_carry_limit_reached"
             end
         end
@@ -1410,15 +1554,33 @@ function Field.update(actor, player, snapshot)
         return true, "field_target_completed"
     end
     if worker.phase == "wood" then
+        if worker.skipPickup then
+            release(worker)
+            return true, "field_wood_left_on_ground"
+        end
         local wood = woodOn(square, order, actorId, worker.groundBefore)
         if #wood == 0 then release(worker) return true, "field_wood_collected" end
         local entry = wood[1]
         order.woodClaims[entry.id] = actorId
+        local currentWeight, capacity = U().carryLoad(actor)
+        local itemWeight = U().itemWeight(entry.item)
+        if capacity and capacity > 0 and currentWeight and itemWeight
+            and currentWeight + itemWeight > capacity * FULL_LOAD then
+            order.woodClaims[entry.id] = nil
+            if order.carId and #cargo > 0 then
+                worker.afterDeposit = "wood"
+                return loadCar(actor, worker, order)
+            end
+            return leaveWood(actor, worker, order, "inventory_full", true)
+        end
         if SC.WorkTransport and SC.WorkTransport.hasRoom
             and SC.WorkTransport.hasRoom(inventory, actor, entry.item) ~= true then
-            worker.phase = order.carId and "deposit" or "full"
-            worker.afterDeposit = "wood"
-            return true, "field_carry_limit_reached"
+            order.woodClaims[entry.id] = nil
+            if order.carId and #cargo > 0 then
+                worker.afterDeposit = "wood"
+                return loadCar(actor, worker, order)
+            end
+            return leaveWood(actor, worker, order, "inventory_full", true)
         end
         local okay, reason = approach(actor, entry.square, "field_wood", true)
         if not okay then return false, reason end

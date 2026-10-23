@@ -251,7 +251,7 @@ public final class SCNativeCleanupTransactionTest {
 
         SCBridge.failNextBridgeStepsForTests("spawn:render-validation");
         long failedSpawn = SCBridge.requestSpawn(spawnSquare,
-                "Render", "Failure", false, "");
+                "Render", "Failure", false, "", true);
         require(failedSpawn > 0L, "render-failure request was rejected: "
                 + SCBridge.getLastFailure());
         completeSpawn(failedSpawn);
@@ -282,7 +282,7 @@ public final class SCNativeCleanupTransactionTest {
         SCBridge.failNextBridgeStepsForTests(
                 "spawn:render-validation", "cleanup:current-square");
         long pendingSpawn = SCBridge.requestSpawn(spawnSquare,
-                "Pending", "Cleanup", false, "");
+                "Pending", "Cleanup", false, "", true);
         require(pendingSpawn > 0L, "cleanup-pending request was rejected: "
                 + SCBridge.getLastFailure());
         completeSpawn(pendingSpawn);
@@ -299,7 +299,7 @@ public final class SCNativeCleanupTransactionTest {
         assertCleanBridge("failed spawn cleanup retry");
 
         long cancelledBeforeCompletion = SCBridge.requestSpawn(spawnSquare,
-                "Cancelled", "Queued", false, "");
+                "Cancelled", "Queued", false, "", true);
         require(cancelledBeforeCompletion > 0L
                         && SCBridge.cancelSpawnRequest(cancelledBeforeCompletion),
                 "pending spawn cancellation failed: " + SCBridge.getLastFailure());
@@ -309,7 +309,7 @@ public final class SCNativeCleanupTransactionTest {
         assertCleanBridge("cancel/queued-completion race");
 
         long cancelledDuringCompletion = SCBridge.requestSpawn(spawnSquare,
-                "Cancelled", "Constructing", false, "");
+                "Cancelled", "Constructing", false, "", true);
         require(cancelledDuringCompletion > 0L,
                 "constructing-race request was rejected: " + SCBridge.getLastFailure());
         CountDownLatch completionPaused = new CountDownLatch(1);

@@ -1206,6 +1206,7 @@ local valueData = {
     needsThirstSerious = 0.62,
     needsThirstEmergency = 0.75,
     needsFatigueThreshold = 0.50,
+    sleepFatigueThreshold = 0.30,
     needsFatigueSerious = 0.68,
     needsFatigueEmergency = 0.82,
     needsSpeechActorCooldownMs = 120000,

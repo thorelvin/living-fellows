@@ -9682,11 +9682,13 @@ do
     function chair:getY() return self.square.y end
     function chair:getZ() return self.square.z end
     function chair:getName() return "Chair" end
+    local bed, farBed
     SeatingManager = {
         getInstance = function()
             return {
                 getTilePositionCount = function(_, object)
-                    return object == chair and 1 or 0
+                    return (object == chair or object == bed or object == farBed)
+                        and 1 or 0
                 end,
             }
         end,
@@ -9764,7 +9766,7 @@ do
     bedSquare.room = chairSquare.room
     local oldBedMoving = bedSquare.moving
     bedSquare.moving = {}
-    local bed = { square = bedSquare }
+    bed = { square = bedSquare }
     function bed:getSquare() return self.square end
     function bed:getX() return self.square.x end
     function bed:getY() return self.square.y end
@@ -9815,12 +9817,73 @@ do
     upperBedSquare.objects[#upperBedSquare.objects] = nil
     bed.square = bedSquare
     bedSquare.objects[#bedSquare.objects + 1] = bed
+    local farBedSquare = cell:getGridSquare(18, 5, 0)
+    farBedSquare.room, farBedSquare.moving = chairSquare.room, {}
+    farBed = { square = farBedSquare }
+    function farBed:getSquare() return self.square end
+    function farBed:getName() return "Bed" end
+    farBedSquare.objects[#farBedSquare.objects + 1] = farBed
+    baseForBed.active = function()
+        return { zones = {
+            { kind = "rest", x1 = 18, x2 = 18, y1 = 5, y2 = 5, z = 0 },
+            { kind = "area", x1 = 8, x2 = 18, y1 = 5, y2 = 5, z = 0 },
+        } }
+    end
+    baseForBed.isInside = function(value)
+        return value == bedProbeActor or value == bedSquare
+            or value == farBedSquare
+    end
+    local markedBed = seatProbe(bedProbeActor, {}, clock, "rest_bed")
+    check(markedBed and markedBed.object == farBed,
+        "a marked Rest room wins over a nearer unzoned bed")
+    function farBed:isFurnitureOccupied() return true end
+    local occupiedFallback = seatProbe(bedProbeActor, {}, clock,
+        "rest_bed")
+    check(occupiedFallback and occupiedFallback.object == bed,
+        "an occupied Rest bed falls back to an available ordinary bed")
+    farBed.isFurnitureOccupied = nil
+    baseForBed.active = function()
+        return { zones = { { kind = "area", x1 = 8, x2 = 18,
+            y1 = 5, y2 = 5, z = 0 } } }
+    end
+    local unzonedBed = seatProbe(bedProbeActor, {}, clock, "rest_bed")
+    check(unzonedBed and unzonedBed.object == bed,
+        "without a Rest zone the nearest ordinary bed remains usable")
+    bedSquare.objects[#bedSquare.objects] = nil
+    local distantUnzonedBed = seatProbe(bedProbeActor, {}, clock,
+        "rest_bed")
+    check(distantUnzonedBed and distantUnzonedBed.object == farBed,
+        "an unzoned bed across camp is found outside the nearby scan")
+    bedSquare.objects[#bedSquare.objects + 1] = bed
+    farBedSquare.objects[#farBedSquare.objects] = nil
+    local deepBedSquare = cell:getGridSquare(23, 20, 0)
+    deepBedSquare.room, deepBedSquare.moving = chairSquare.room, {}
+    farBed.square = deepBedSquare
+    deepBedSquare.objects[#deepBedSquare.objects + 1] = farBed
+    local broadBase = { zones = { { kind = "area", x1 = 0, x2 = 25,
+        y1 = 0, y2 = 25, z = 0 } } }
+    baseForBed.active = function() return broadBase end
+    baseForBed.isInside = function(value)
+        return value == bedProbeActor or value == deepBedSquare
+    end
+    bedSquare.objects[#bedSquare.objects] = nil
+    local scanState, deepChoice, passes = {}, nil, 0
+    repeat
+        passes = passes + 1
+        deepChoice = seatProbe(bedProbeActor, scanState, clock, "rest_bed")
+    until deepChoice or passes >= 6
+    check(deepChoice and deepChoice.object == farBed and passes > 1,
+        "a broad unzoned camp bed search resumes across bounded passes")
+    bedSquare.objects[#bedSquare.objects + 1] = bed
+    deepBedSquare.objects[#deepBedSquare.objects] = nil
+    farBed.square = farBedSquare
     baseForBed.active, baseForBed.isInside, baseForBed.allowsFloorTransit =
         oldBedActive, oldBedInside, oldBedTransit
     chairSquare.moving = oldChairMoving
     local sleeper = actor("sc-bed-sleeper", 9, 5, {})
     sleeper.modData.SC_Order = "stay"
     sleeper.fatigue = 0.85
+    function sleeper:getSleepingTabletEffect() return self.sleepingPills or 0 end
     function sleeper:setAsleep(value) self.asleep = value == true end
     function sleeper:isAsleep() return self.asleep == true end
     function sleeper:setAsleepTime(value) self.asleepTime = value end
@@ -9835,6 +9898,51 @@ do
     function bedroomSwitch:toggle() self.active = not self.active end
     bedSquare.objects[#bedSquare.objects + 1] = bedroomSwitch
     registry[sleeper.id] = sleeper
+    local sleepEligible, sleepHours, adjustedSleep =
+        SurvivorCompanion.Downtime._sleepForTests()
+    sleeper.fatigue = 0.30
+    check(sleepEligible(sleeper, {}) == false,
+        "companion cannot sleep at the player's not-tired threshold")
+    sleeper.fatigue = 0.31
+    check(sleepEligible(sleeper, {}) == true,
+        "companion may seek a bed once as tired as the player")
+    sleeper.fatigue = 0.5
+    local normalStats = sleeper.getStats
+    sleeper.getStats = function(self)
+        local stats = normalStats(self)
+        function stats:getNumVisibleZombies() return 1 end
+        return stats
+    end
+    check(sleepEligible(sleeper, {}) == false,
+        "visible zombies prevent companion sleep as for the player")
+    sleeper.getStats = normalStats
+    sleeper.moodles = { [MoodleType.PAIN] = 2 }
+    check(sleepEligible(sleeper, {}) == false,
+        "pain blocks sleep before extreme fatigue")
+    sleeper.fatigue = 0.86
+    check(sleepEligible(sleeper, {}) == true,
+        "extreme fatigue permits sleep despite pain")
+    sleeper.moodles = { [MoodleType.PANIC] = 1 }
+    check(sleepEligible(sleeper, {}) == false,
+        "panic blocks sleep even when very tired")
+    sleeper.sleepingPills = 2000
+    check(sleepEligible(sleeper, {}) == true,
+        "sleep medication bypasses the player's pain and panic blocks")
+    sleeper.sleepingPills, sleeper.moodles, sleeper.fatigue = nil, nil, 0.85
+    local totalSleep = 0
+    for index = 1, 500 do
+        totalSleep = totalSleep + sleepHours({ id = "bed-" .. index },
+            "rest_bed", 0.85, clock)
+    end
+    check(math.abs(totalSleep / 500 - 6) < 0.15,
+        "ordinary companion sleep averages about six game hours")
+    CharacterTrait.NEEDS_LESS_SLEEP = "NEEDS_LESS_SLEEP"
+    sleeper.traits = { [CharacterTrait.NEEDS_LESS_SLEEP] = true }
+    check(adjustedSleep(sleeper, "averageBed", 6) == 4.5
+            and adjustedSleep(sleeper, "badBed", 6) == 5.25,
+        "sleep length follows the player's bed and sleep-trait adjustments")
+    sleeper.traits = nil
+    CharacterTrait.NEEDS_LESS_SLEEP = nil
     local bedKind, bedCandidate = SurvivorCompanion.Downtime._furnitureForTests()
     local sleepCandidate = bedCandidate(sleeper, {}, clock)
     local sleepStarted = SurvivorCompanion.Downtime.update(
@@ -9843,8 +9951,8 @@ do
         sleeper, player, calm, "rest_bed")
     local sleeping = SurvivorCompanion.Downtime.peek(sleeper).active
     check(sleepStarted and sleepEntered and sleepReason == "sleeping_on_bed"
-            and sleeping and sleeping.gameDurationHours >= 3.5
-            and sleeping.gameDurationHours <= 9 and sleeper.asleep == true
+            and sleeping and sleeping.gameDurationHours >= 5
+            and sleeping.gameDurationHours <= 7 and sleeper.asleep == true
             and sleeper.bedType == "averageBed" and bedroomSwitch.active == false,
         "a tired companion begins a several-hour sleep in a real bed: "
             .. tostring(sleepStarted) .. "/" .. tostring(sleepEntered) .. "/"
@@ -9870,6 +9978,9 @@ do
         "bed sleep ends after hours, wakes the companion, and restores fatigue")
     sleeper.fatigue = 0.9
     clock = clock + SurvivorCompanion.Config.get("downtimeIntervalMs") + 1
+    check(sleepEligible(sleeper, SurvivorCompanion.Downtime.peek(sleeper)) == false,
+        "a companion cannot immediately return to sleep after waking")
+    restClockOffset = restClockOffset + 1.01
     SurvivorCompanion.Downtime.update(sleeper, player, calm, "rest_bed")
     SurvivorCompanion.Downtime.update(sleeper, player, calm, "rest_bed")
     check(sleeper.asleep == true, "a second tired sleep can begin")
@@ -15349,7 +15460,7 @@ SeatingManager = {
 local fixtures = {
     { label = "bed", expected = "rest_bed", x = -2, y = 6,
         name = "Cot", sprite = "furniture_bedding_01_56",
-        properties = { BedType = "averageBed" } },
+        properties = { BedType = "averageBed" }, seatingPositions = 1 },
     { label = "sofa", expected = "sit", x = 0, y = 6,
         name = "Brown Sofa", sprite = "furniture_seating_indoor_02_0",
         properties = { BedType = "badChair" }, seatingPositions = 2 },
@@ -15412,6 +15523,12 @@ local sleepSurface, sleepSurfaceSquare = furnitureFixture({
 })
 check(furnitureKind(sleepSurface) == nil,
     "a BedType-only sleep surface is not mistaken for furniture with a valid rest pose")
+local namedButUnusableBed, unusableBedSquare = furnitureFixture({
+    x = 13, y = 8, name = "Bed", sprite = "furniture_bedding_01_56",
+    properties = { BedType = "averageBed" }, seatingPositions = 0,
+})
+check(furnitureKind(namedButUnusableBed) == nil,
+    "a named bed without native seating positions cannot trap a sleeper")
 local decorativeChair, decorativeChairSquare = furnitureFixture({
     x = 14, y = 8, name = "Decorative Chair", sprite = "fixtures_store_01_7",
     properties = { IsChair = true, BedType = "averageChair" }, seatingPositions = 0,
@@ -15567,6 +15684,12 @@ end
 for index = #sleepSurfaceSquare.objects, 1, -1 do
     if sleepSurfaceSquare.objects[index] == sleepSurface then
         table.remove(sleepSurfaceSquare.objects, index)
+        break
+    end
+end
+for index = #unusableBedSquare.objects, 1, -1 do
+    if unusableBedSquare.objects[index] == namedButUnusableBed then
+        table.remove(unusableBedSquare.objects, index)
         break
     end
 end
@@ -19989,6 +20112,18 @@ do
     fellow.fatigue, rested, fished = 0.1, nil, nil
     local restedAngler = SurvivorCompanion.BaseWork.update(fellow, player, {})
     check(restedAngler and fished and rested == nil, "a rested angler goes back to fishing")
+    SurvivorCompanion.BaseWork.reset(fellow)
+    BaseLife.assign(fellow.id, "builder", true)
+    local sleepJobQueued, sleepJob = BaseLife.enqueueJob({ type = "repair",
+        priority = 1, assignedId = fellow.id,
+        target = { x = 3, y = 2, z = 0 } })
+    local sleepJobClaimed = sleepJobQueued and BaseLife.claimJob(fellow.id)
+    fellow.fatigue, rested = 0.9, nil
+    local emergencySleep = SurvivorCompanion.BaseWork.update(fellow, player, {})
+    check(sleepJobClaimed == sleepJob and emergencySleep
+            and rested == "rest_bed" and BaseLife.jobFor(fellow.id) == nil,
+        "an exhausted worker safely releases a continuing job and seeks a bed")
+    BaseLife.cancelJob(sleepJob.id)
     fellow.fatigue = priorFatigue
     Fishing.update, Downtime.canPerform = savedFish, savedCanPerform
     Downtime.update, Downtime.peek = savedRest, savedPeek

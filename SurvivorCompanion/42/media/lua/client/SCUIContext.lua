@@ -1678,10 +1678,14 @@ local function addSquadMenu(menu, player, square)
                 end)
             end
         else
-            menu:addOption(text("UI_SC_Field_Harvest"), nil,
-                fieldAction, "harvest", square, player)
-            menu:addOption(text("UI_SC_Field_Chop"), nil,
-                fieldAction, "chop", square, player)
+            if SC.FieldWork.available(player, "harvest") then
+                menu:addOption(text("UI_SC_Field_Harvest"), nil,
+                    fieldAction, "harvest", square, player)
+            end
+            if SC.FieldWork.available(player, "chop") then
+                menu:addOption(text("UI_SC_Field_Chop"), nil,
+                    fieldAction, "chop", square, player)
+            end
         end
     end
 end

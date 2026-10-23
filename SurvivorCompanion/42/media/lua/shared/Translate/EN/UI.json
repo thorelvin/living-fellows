@@ -712,7 +712,7 @@
     "UI_SC_Context_OtherCompanions": "Other nearby companions",
     "UI_SC_Context_Squad": "Squad commands",
     "UI_SC_Field_Harvest": "Harvest nearby ripe crops",
-    "UI_SC_Field_Chop": "Chop nearby trees (up to five)",
+    "UI_SC_Field_Chop": "Clear nearby trees (8-tile area)",
     "UI_SC_Field_Stop": "Stop field work and regroup",
     "UI_SC_Field_Resume": "Resume field work",
     "UI_SC_Field_Started": "Field work: %1",

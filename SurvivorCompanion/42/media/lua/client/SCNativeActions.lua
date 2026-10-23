@@ -32,6 +32,7 @@ require "Vehicles/TimedActions/ISAddGasolineToVehicle"
 require "Vehicles/TimedActions/ISInflateTire"
 require "Vehicles/TimedActions/ISWashVehicle"
 require "TimedActions/ISRestAction"
+require "TimedActions/ISGetOnBedAction"
 require "Farming/ISUI/ISFarmingMenu"
 require "Farming/TimedActions/ISPlowAction"
 require "Farming/TimedActions/ISSeedActionNew"
@@ -594,7 +595,8 @@ local function leaveSeating(actor)
     local restObject = bedRecord and bedRecord.pose == "furniture"
         and bedRecord.object or nil
     local onBedOk, onBed = invoke(actor, "isOnBed")
-    if (bedRecord ~= nil and restObject == nil) or (onBedOk and onBed == true) then
+    if (bedRecord ~= nil and bedRecord.fallbackGround ~= true
+            and restObject == nil) or (onBedOk and onBed == true) then
         -- Clear both the animation request and the native posture. The stock bed
         -- action is unbounded (-1) while it waits for OnBedStarted, so leaving
         -- only the Lua queue entry behind strands the actor in PlayerOnBedState.
@@ -1705,10 +1707,24 @@ local function fallbackSeatingToGround(actor, record, reason, cancelActions)
 end
 
 local function furniturePathFailed(actor, record)
+    if SC.Config and SC.Config.get("debugSpawnEnabled") == true then
+        local x = select(2, invoke(actor, "getX"))
+        local y = select(2, invoke(actor, "getY"))
+        local z = select(2, invoke(actor, "getZ"))
+        local object = record and record.object
+        local square = object and select(2, invoke(object, "getSquare"))
+        print("[SurvivorCompanion][furniture] path_failed action="
+            .. tostring(record and record.actionName)
+            .. " actor=" .. tostring(x) .. "," .. tostring(y) .. ","
+                .. tostring(z)
+            .. " object=" .. tostring(object)
+            .. " square=" .. tostring(square)
+            .. " furniture_status=" .. tostring(record and record.failure))
+    end
     -- This is the stock context-menu behavior: when a furniture seat has no
     -- usable path (missing data or every entry blocked), sit on the ground
     -- instead of silently abandoning the rest request.
-    fallbackSeatingToGround(actor, record, "furniture_path_failed", false)
+    fallbackSeatingToGround(actor, record, "furniture_path_failed", true)
 end
 
 local boundSeatingTurn
@@ -1716,32 +1732,27 @@ local boundSeatingTurn
 local function furniturePathComplete(actor, pathAction, record)
     if type(record) ~= "table" or record.cancelled == true then return end
     local object = pathAction and pathAction.goalFurnitureObject or record.object
-    if object == nil or type(ISRestAction) ~= "table"
-        or type(ISRestAction.new) ~= "function" then
+    if SC.Config and SC.Config.get("debugSpawnEnabled") == true then
+        print("[SurvivorCompanion][furniture] path_complete action="
+            .. tostring(record.actionName)
+            .. " goal=" .. tostring(pathAction and pathAction.goalFurnitureObject)
+            .. " object=" .. tostring(record.object))
+    end
+    local restAction = record.queuedRest
+    if object == nil or restAction == nil then
         record.failed = true
         return
     end
-    local created, restAction = pcall(ISRestAction.new, ISRestAction, actor, object, true)
-    if not created or restAction == nil then
-        record.failed = true
-        record.failure = created and "furniture-rest action was not created" or tostring(restAction)
-        return
-    end
-    boundSeatingTurn(restAction)
+    restAction.bed = object
     record.object = object
     record.timedAction = restAction
-    record.actions[#record.actions + 1] = restAction
-    local added = nil
-    if pathAction and type(pathAction.addAfter) == "function" then
-        local ok, result = pcall(pathAction.addAfter, pathAction, restAction)
-        if ok then added = result end
-    end
-    if added == nil then
-        local queued, failure = pcall(ISTimedActionQueue.add, restAction)
-        if not queued then
-            record.failed = true
-            record.failure = tostring(failure)
-        end
+    if SC.Config and SC.Config.get("debugSpawnEnabled") == true then
+        local queue = ISTimedActionQueue.getTimedActionQueue(actor)
+        print("[SurvivorCompanion][furniture] rest_queued action="
+            .. tostring(record.actionName) .. " prequeued=true failed=" .. tostring(record.failed)
+            .. " reason=" .. tostring(record.failure)
+            .. " current=" .. tostring(queue and queue.current)
+            .. " index=" .. tostring(queue and queue:indexOf(restAction)))
     end
 end
 
@@ -1776,9 +1787,19 @@ boundSeatingTurn = function(action)
 end
 
 local function startFurnitureRest(actor, object, registry, actionName)
+    local spriteOk, sprite = invoke(object, "getSprite")
+    local gridOk, grid = false, nil
+    if spriteOk and sprite ~= nil then
+        gridOk, grid = invoke(sprite, "getSpriteGrid")
+    end
+    -- Get On Bed uses a sprite grid to position the actor on a mattress.
+    -- A single-tile cot still uses the stock furniture rest pose.
+    local useBedPose = actionName == "rest_bed" and gridOk and grid ~= nil
     if type(ISPathFindAction) ~= "table"
         or type(ISPathFindAction.pathToSitOnFurniture) ~= "function"
-        or type(ISRestAction) ~= "table" or type(ISRestAction.new) ~= "function" then
+        or type(ISRestAction) ~= "table" or type(ISRestAction.new) ~= "function"
+        or useBedPose and (type(ISGetOnBedAction) ~= "table"
+            or type(ISGetOnBedAction.new) ~= "function") then
         return false, "native furniture-rest actions are unavailable"
     end
     local queue, queueReason = emptyTimedActionQueue(actor)
@@ -1788,12 +1809,22 @@ local function startFurnitureRest(actor, object, registry, actionName)
     if not created or pathAction == nil then
         return false, created and "furniture path action was not created" or tostring(pathAction)
     end
+    local actionClass = useBedPose
+        and ISGetOnBedAction or ISRestAction
+    local restCreated, restAction = pcall(actionClass.new, actionClass,
+        actor, object, true)
+    if not restCreated or restAction == nil then
+        return false, restCreated and "furniture-rest action was not created"
+            or tostring(restAction)
+    end
+    boundSeatingTurn(restAction)
     local record = {
         timedAction = pathAction,
-        actions = { pathAction },
+        actions = { pathAction, restAction },
+        queuedRest = restAction,
         object = object,
         actionName = actionName,
-        pose = "furniture",
+        pose = useBedPose and "bed" or "furniture",
         startedAt = nowMs(),
     }
     if type(pathAction.setOnComplete) ~= "function"
@@ -1808,6 +1839,28 @@ local function startFurnitureRest(actor, object, registry, actionName)
         registry[actor] = nil
         return false, tostring(failure)
     end
+    local queuedRest, restFailure = pcall(ISTimedActionQueue.add, restAction)
+    if not queuedRest then
+        cancelSeatingRecord(actor, record, true)
+        registry[actor] = nil
+        return false, tostring(restFailure)
+    end
+    -- SCNativeCompanion starts the next native action after the Lua callback
+    -- unwinds. Vanilla's queue tick can see the prequeued action first and
+    -- mistake that short pending handoff for a lost action. Keep this queue's
+    -- normal tick from discarding our furniture action until the bridge has
+    -- finished its pending start; restore the stock method immediately after.
+    local normalTick = queue.tick
+    queue.tick = function(self)
+        if self.current == pathAction then return normalTick(self) end
+        if self.current == restAction and restAction.action then
+            local pendingOk, pending = invoke(actor,
+                "isCompanionActionStartPending", restAction.action)
+            if pendingOk and pending == true then return end
+        end
+        self.tick = normalTick
+        return normalTick(self)
+    end
     if not trackedActionIsActive(actor, record) then
         cancelSeatingRecord(actor, record)
         registry[actor] = nil
@@ -1816,9 +1869,8 @@ local function startFurnitureRest(actor, object, registry, actionName)
     return true, actionName == "rest_bed" and "getting_on_bed" or "taking_seat"
 end
 
--- Resting on a bed uses the stock furniture path from the player's
--- Rest context-menu command. Get On Bed is a different pose and its entry
--- locations can leave a non-local companion beside the mattress.
+-- Reach the bed through the stock furniture path, then use the player's
+-- Get On Bed pose for sprite-grid beds before SCDowntime starts native sleep.
 local function startBedRest(actor, object)
     return startFurnitureRest(actor, object, activeBedActions, "rest_bed")
 end
@@ -4771,7 +4823,20 @@ function actions.bedStatus(actor)
         end
         return "entering", record.startedAt
     end
-    if record then return "failed", record.startedAt end
+    if record then
+        if SC.Config and SC.Config.get("debugSpawnEnabled") == true then
+            local queue = ISTimedActionQueue.getTimedActionQueue(actor)
+            print("[SurvivorCompanion][furniture] bed_lost failed="
+                .. tostring(record.failed) .. " reason=" .. tostring(record.failure)
+                .. " current=" .. tostring(queue and queue.current)
+                .. " index=" .. tostring(queue and record.timedAction
+                    and queue:indexOf(record.timedAction))
+                .. " onBed=" .. tostring(onBed) .. " sitting=" .. tostring(sitting)
+                .. " rest=" .. tostring(actor:isResting())
+                .. " context=" .. tostring(actor:getCurrentActionContextStateName()))
+        end
+        return "failed", record.startedAt
+    end
     return "none"
 end
 

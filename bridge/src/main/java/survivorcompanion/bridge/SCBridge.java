@@ -2094,6 +2094,28 @@ public final class SCBridge {
             actor.setX(square.getX() + 0.5f);
             actor.setY(square.getY() + 0.5f);
             actor.setZ(square.getZ());
+            if (!request.bare && (actor.getWornItems() == null
+                    || actor.getWornItems().size() == 0)) {
+                // Clothing packs can make a named outfit resolve to nothing
+                // without throwing. Retry on the native character, then use
+                // the stock everyday outfit before exposing it to the world.
+                if (!request.outfit.isEmpty()) {
+                    actor.dressInNamedOutfit(request.outfit);
+                }
+                if (actor.getWornItems() == null
+                        || actor.getWornItems().size() == 0) {
+                    actor.dressInNamedOutfit("Generic01");
+                }
+                if (actor.getWornItems() == null
+                        || actor.getWornItems().size() == 0) {
+                    boolean removed = cleanupActor(actor, "missing spawn outfit");
+                    if (removed) request.actor = null;
+                    return failNull("new companion has no wearable outfit: "
+                            + request.outfit
+                            + (removed ? "" : "; cleanup is pending"));
+                }
+                actor.resetModelNextFrame();
+            }
             // IsoMovingObject tracks three related square references. The
             // constructor/current-square setter alone does not populate the
             // render square or its moving-object list, while

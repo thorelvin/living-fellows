@@ -635,7 +635,32 @@ local function boardIfPossible(group, value, actor, car, player)
         local recovered, reason = SC.Actor.recover(actor, square)
         if recovered ~= true then return false, reason end
     end
-    return SC.Vehicle.board(actor, car, seat, { allowVirtualSeat = false })
+    -- This story deliberately chooses an existing sealed car. A locked rear
+    -- door is normal, but ordinary companion boarding cannot unlock a stranger's
+    -- car. Release only Loretta's door for the entry transaction; prepareCar
+    -- locks every door again after native seating has been verified.
+    local part, door = rearDoor(car, seat)
+    if not part or not door then return false, "loretta_door_unavailable" end
+    local wasLocked, lockRead = U().call(door, "isLocked")
+    if not lockRead then return false, "loretta_door_lock_unavailable" end
+    if wasLocked == true then
+        local _, changed = U().call(door, "setLocked", false)
+        local locked, verified = U().call(door, "isLocked")
+        if not changed or not verified or locked ~= false then
+            return false, "loretta_door_could_not_unlock_for_boarding"
+        end
+        U().call(car, "transmitPartDoor", part)
+    end
+    local boarded, boardReason = SC.Vehicle.board(actor, car, seat,
+        { allowVirtualSeat = false })
+    if boarded ~= true and wasLocked == true then
+        local _, restored = U().call(door, "setLocked", true)
+        U().call(car, "transmitPartDoor", part)
+        if not restored or select(1, U().call(door, "isLocked")) ~= true then
+            return false, "loretta_board_failed_and_door_lock_not_restored"
+        end
+    end
+    return boarded, boardReason
 end
 
 function Loretta.zombiesIgnore(actor, group)

@@ -1,10 +1,11 @@
-Living Fellows 0.26.57 - public playtest
+Living Fellows 0.26.58 - public playtest
 
-Gravekeepers now get bodies down from upper floors. A drag cannot take the
-stairs, so upstairs the body goes out of an open window over open ground on
-the grave or pyre floor, never onto a porch roof, and the gravekeeper goes
-down to pick it up. Blocked camp jobs are still written to the game log but
-no longer count as reports on the Support page.
+Away field work now clears every eligible tree in the marked 8-tile area
+and harvests ripe crops across the existing 16-tile area. Companions report
+when they start, fill their bag or trunk, and finish. Collected crops stay
+with their carrier when the trunk fills; the remaining plants stay growing.
+Tired companions seek reachable beds, including marked Rest rooms, and
+sleep about six game hours on an ordinary bed.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added

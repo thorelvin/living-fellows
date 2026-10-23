@@ -156,6 +156,7 @@ param(
     [ValidateRange(1, 5)][int]$SquadCombatTrials = 3,
     [ValidateRange(30, 300)][int]$SquadCombatSeconds = 55,
     [switch]$FurniturePoseOnly,
+    [switch]$SleepProbe,
     [switch]$VehiclePassengerOnly,
     [switch]$SixSeatProbe,
     [string]$VehiclePassengerScreenshot = '',
@@ -1718,6 +1719,7 @@ $config = @(
     ('squad_combat_trials=' + $SquadCombatTrials),
     ('squad_combat_seconds=' + $SquadCombatSeconds),
     ('furniture_pose_only=' + $FurniturePoseOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('sleep_probe=' + $SleepProbe.IsPresent.ToString().ToLowerInvariant()),
     ('vehicle_passenger_only=' + $VehiclePassengerOnly.IsPresent.ToString().ToLowerInvariant()),
     ('six_seat_probe=' + $SixSeatProbe.IsPresent.ToString().ToLowerInvariant()),
     ('woodcutter_only=' + $WoodcutterOnly.IsPresent.ToString().ToLowerInvariant()),
@@ -2075,15 +2077,15 @@ try {
         if ($captureLoretta -and -not $lorettaCaptured) {
             $readyPath = Join-Path $SandboxLua 'loretta-ready.txt'
             if (Test-Path -LiteralPath $readyPath -PathType Leaf) {
-                Start-Sleep -Milliseconds 750
-                if (-not (Save-ClientScreenshot $process $LorettaScreenshot)) {
-                    throw "Could not capture Loretta encounter to $LorettaScreenshot"
+                $nativeShot = Join-Path $CacheRoot 'Screenshots\loretta-harness.png'
+                if (Test-Path -LiteralPath $nativeShot -PathType Leaf) {
+                    Copy-Item -LiteralPath $nativeShot -Destination $LorettaScreenshot
+                    [System.IO.File]::WriteAllText(
+                        (Join-Path $SandboxLua 'loretta-captured.txt'),
+                        ('captured=true' + [Environment]::NewLine), $utf8NoBom)
+                    Write-Output "Captured Loretta encounter: $LorettaScreenshot"
+                    $lorettaCaptured = $true
                 }
-                [System.IO.File]::WriteAllText(
-                    (Join-Path $SandboxLua 'loretta-captured.txt'),
-                    ('captured=true' + [Environment]::NewLine), $utf8NoBom)
-                Write-Output "Captured Loretta encounter: $LorettaScreenshot"
-                $lorettaCaptured = $true
             }
         }
         if ($captureMilli -and -not $milliCaptured) {

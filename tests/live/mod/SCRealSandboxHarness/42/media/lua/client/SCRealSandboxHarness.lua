@@ -14293,6 +14293,162 @@ function Harness.probeFurniturePose(current)
     end
 end
 
+-- Verify that a tired native companion can discover a real bed, enter it and
+-- start the ordinary game-clock sleep in a disposable copy of the save.
+function Harness.beginSleepProbe(current)
+    if current - Harness.phaseStartedAt < 3000 then return end
+    local SC, player = SurvivorCompanion, Harness.player
+    local U = SC.GameplayUtil
+    local px, py, pz = position(player)
+    if px == nil then
+        result("FAIL", "sleep_bed_fixture", "observer position missing")
+        setPhase("finish", current) return
+    end
+    local furnitureKind = SC.Downtime._furnitureForTests()
+    local best, bestSpawn, bestDistance
+    for z = math.max(0, math.floor(pz or 0) - 1),
+            math.min(2, math.floor(pz or 0) + 1) do
+        for dx = -24, 24 do
+            for dy = -24, 24 do
+                local square = U.gridSquare(math.floor(px) + dx,
+                    math.floor(py) + dy, z)
+                if square then
+                    U.squareObjects(square, function(object)
+                        if furnitureKind(object) ~= "rest_bed" then return end
+                        for _, step in ipairs({ { 1, 0 }, { -1, 0 },
+                                { 0, 1 }, { 0, -1 } }) do
+                            local spawn = U.gridSquare(square:getX() + step[1],
+                                square:getY() + step[2], z)
+                            if spawn and spawn ~= player:getCurrentSquare()
+                                and U.isSquareFree(spawn) then
+                                local distance = dx * dx + dy * dy
+                                if bestDistance == nil or distance < bestDistance then
+                                    best, bestSpawn, bestDistance = object, spawn,
+                                        distance
+                                end
+                                break
+                            end
+                        end
+                    end, 32)
+                end
+            end
+        end
+    end
+    if not best then
+        result("FAIL", "sleep_bed_fixture", "no usable loaded bed within 24 tiles")
+        setPhase("finish", current) return
+    end
+    Harness.sleepBed = best
+    local sprite = select(1, U.call(best, "getSprite"))
+    local spriteName = sprite and select(1, U.call(sprite, "getName"))
+    check("sleep_bed_fixture", true,
+        "bed=" .. tostring(select(1, U.call(best, "getName")))
+            .. " sprite=" .. tostring(spriteName)
+            .. " square=" .. tostring(best:getSquare():getX()) .. ","
+                .. tostring(best:getSquare():getY()) .. ","
+                .. tostring(best:getSquare():getZ())
+            .. " seat_positions=" .. tostring(SeatingManager.getInstance()
+                :getTilePositionCount(best)))
+    local ticket, reason = SC.Actor.beginSpawn(bestSpawn, {
+        recruited = true,
+        identity = { forename = "Sleep", surname = "Tester",
+            gender = "woman", outfit = "Generic01" },
+    })
+    if not ticket then
+        result("FAIL", "sleep_spawn", reason)
+        setPhase("finish", current) return
+    end
+    Harness.sleepTicket = ticket
+    setPhase("sleep_probe_spawn", current)
+end
+
+function Harness.probeSleep(current)
+    local SC = SurvivorCompanion
+    if Harness.phase == "sleep_probe_spawn" then
+        local actor, reason = SC.Actor.pollSpawn(Harness.sleepTicket)
+        if not actor then
+            if reason ~= "spawn_pending" or current - Harness.phaseStartedAt > 12000 then
+                result("FAIL", "sleep_spawn", reason)
+                setPhase("finish", current)
+            end
+            return
+        end
+        Harness.sleepActor = actor
+        local queue = ISTimedActionQueue.getTimedActionQueue(actor)
+        for _, method in ipairs({ "resetQueue", "onCompleted", "removeFromQueue" }) do
+            local original = queue[method]
+            queue[method] = function(self, ...)
+                print("SC_REAL_SANDBOX|SLEEP_QUEUE|" .. method
+                    .. " current=" .. tostring(self.current)
+                    .. " index=" .. tostring(self.current
+                        and self:indexOf(self.current)))
+                return original(self, ...)
+            end
+        end
+        SC.Scheduler.unregister("decision")
+        local id = SC.Registry.idOf(actor)
+        local issued, issueReason = SC.Commands.issue(id, "stay", nil,
+            Harness.player)
+        if not check("sleep_stay_order", issued == true, issueReason) then
+            setPhase("finish", current) return
+        end
+        actor:getStats():set(CharacterStat.FATIGUE, 0.85)
+        check("sleep_fatigue_seeded",
+            SC.GameplayUtil.characterStatValue(actor, "FATIGUE", 0) > 0.8,
+            "native fatigue above sleep threshold")
+        setPhase("sleep_probe_rest", current)
+        return
+    end
+    local actor = Harness.sleepActor
+    local calm = { snapshot = { immediateCount = 0, threatCount = 0,
+        player = { danger = 0 }, indoors = true } }
+    local accepted, reason = SC.Downtime.update(actor, Harness.player,
+        calm, "rest_bed")
+    local state = SC.Downtime.peek(actor)
+    local activity = state and state.active
+    if activity and activity.kind == "rest_bed" and not Harness.sleepImage then
+        Harness.sleepImage = tostring(Harness.config.run_id) .. "-sleep-bed-attempt"
+        local ok, errorText = pcall(function()
+            getCore():TakeFullScreenshot(Harness.sleepImage)
+        end)
+        check("sleep_attempt_screenshot", ok,
+            Harness.sleepImage .. " " .. tostring(errorText))
+    end
+    if current >= (Harness.sleepTraceAt or 0) then
+        Harness.sleepTraceAt = current + 2000
+        print("SC_REAL_SANDBOX|SLEEP_TRACE|reason=" .. tostring(reason)
+            .. " active=" .. tostring(activity and activity.kind)
+            .. " native=" .. tostring(actor:isAsleep())
+            .. " bed=" .. tostring(activity and activity.object == Harness.sleepBed)
+            .. " hours=" .. tostring(activity and activity.gameDurationHours)
+            .. " entry=" .. tostring(SC.NativeActions.bedStatus(actor)))
+    end
+    if actor:isAsleep() then
+        local name = tostring(Harness.config.run_id) .. "-sleeping-in-bed"
+        local imageOk, imageError = pcall(function()
+            getCore():TakeFullScreenshot(name)
+        end)
+        check("sleeping_screenshot", imageOk,
+            name .. " " .. tostring(imageError))
+        check("sleep_native_started", accepted == true and activity
+            and activity.kind == "rest_bed"
+            and actor:isOnBed()
+            and activity.sleepStarted == true
+            and activity.gameDurationHours >= 4
+            and activity.gameDurationHours <= 7,
+            "entered real bed and scheduled "
+                .. tostring(activity and activity.gameDurationHours)
+                .. " game hours")
+        SC.Downtime.cancel(actor, "sleep_probe_complete")
+        setPhase("finish", current)
+    elseif current - Harness.phaseStartedAt > 45000 then
+        result("FAIL", "sleep_native_started",
+            "bed sleep did not start: " .. tostring(reason)
+                .. "; active=" .. tostring(activity and activity.kind))
+        setPhase("finish", current)
+    end
+end
+
 -- Direct vehicle boarding bypasses vanilla's timed entry action. This focused
 -- probe checks the native passenger offset, then lets the runner capture the
 -- actual car and companion in the disposable cloned world.
@@ -16697,6 +16853,11 @@ local function tick()
     elseif Harness.phase == "furniture_pose_spawn" or Harness.phase == "furniture_pose_entry"
         or Harness.phase == "furniture_pose_exit" then
         Harness.probeFurniturePose(current)
+    elseif Harness.phase == "sleep_probe_begin" then
+        Harness.beginSleepProbe(current)
+    elseif Harness.phase == "sleep_probe_spawn"
+        or Harness.phase == "sleep_probe_rest" then
+        Harness.probeSleep(current)
     elseif Harness.phase == "vehicle_passenger_begin" then
         Harness.beginVehiclePassenger(current)
     elseif Harness.phase == "six_seat_setup" or Harness.phase == "six_seat_spawn"
@@ -16932,6 +17093,8 @@ local function onGameStart()
         setPhase("companion_inventory_begin", Harness.startedAt)
     elseif Harness.config.furniture_pose_only == "true" then
         setPhase("furniture_pose_begin", Harness.startedAt)
+    elseif Harness.config.sleep_probe == "true" then
+        setPhase("sleep_probe_begin", Harness.startedAt)
     elseif Harness.config.vehicle_passenger_only == "true"
         or Harness.config.six_seat_probe == "true" then
         setPhase("vehicle_passenger_begin", Harness.startedAt)

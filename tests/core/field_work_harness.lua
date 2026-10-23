@@ -368,9 +368,9 @@ for _ = 1, 220 do
     end
     if Field.status().phase == "complete" then break end
 end
-check(Field.status().completed == 5, "five-tree limit enforced")
-check(square(105, 100).tree ~= nil, "sixth tree remains standing")
-check(#one.bag.items >= 6, "logs carried without a car")
+check(Field.status().completed == 6, "all nearby trees are cleared")
+check(square(105, 100).tree == nil, "sixth tree is felled too")
+check(#one.bag.items >= 7, "logs carried without a car")
 check(Field.status().phase == "complete", "no-car order completes")
 Field.restore(nil)
 two.follow = false
@@ -385,6 +385,11 @@ for index, value in ipairs(one.bag.items) do
 end
 check(carriedAxe ~= nil, "no-car worker kept its axe")
 put(car.part.bag, carriedAxe)
+local remainingTree = square(105, 100)
+remainingTree.tree = { index = 1, square = remainingTree, health = 50 }
+function remainingTree.tree:getObjectIndex() return self.index end
+function remainingTree.tree:getSize() return 3 end
+function remainingTree.tree:getHealth() return self.health end
 Field.observePlayerVehicle(car)
 check(Field.start("chop", square(100, 100), player) == true,
     "second tree order selects car")
@@ -396,7 +401,7 @@ for _ = 1, 220 do
     if Field.status().phase == "complete" then break end
 end
 check(Field.status().phase == "complete" and Field.status().completed == 1,
-    "single eligible follower fells remaining tree: "
+    "single eligible follower fells the next tree: "
         .. tostring(Field.status().phase) .. "/"
         .. tostring(Field.status().completed) .. "/"
         .. tostring(Field.status().blocker) .. "/"
@@ -429,21 +434,18 @@ check(cropStarted, "full-trunk fixture reaches its crop before testing delivery"
 car.part.bag.room = false
 for _ = 1, 90 do
     Field.update(one, player)
-    if Field.status().phase == "paused" then break end
+    if Field.status().phase == "complete" then break end
 end
-check(Field.status().phase == "paused"
-    and Field.status().blocker == "car_trunk_full",
-    "full trunk pauses the fixed car destination: "
-        .. tostring(Field.status().phase) .. "/" .. tostring(Field.status().blocker)
-        .. "/" .. tostring(Field.export().active.workers.one.phase)
-        .. "/" .. tostring(Field.export().active.workers.one.scan))
-check(#one.bag.items == 1 and one.bag.items[1].data.LF_FieldOrder ~= nil,
-    "full trunk keeps the exact crop with its worker")
+check(Field.status().phase == "complete"
+    and Field.status().note:find("trunk is full", 1, true),
+    "full trunk ends the trip with an explanation: "
+        .. tostring(Field.status().phase) .. "/" .. tostring(Field.status().note))
+check(#one.bag.items == 1 and one.bag.items[1].data.LF_FieldOrder == nil
+    and one.bag.items[1].data.LF_FieldCarryWorker == "one"
+    and Field.reserved(one.bag.items[1]) == true,
+    "full trunk keeps the exact crop protected with its worker")
 car.part.bag.room = true
-check(Field.resume() == true, "car order can resume after space is made")
-advance({ one }, 50)
-check(Field.status().phase == "complete" and #one.bag.items == 0,
-    "resumed delivery reaches the same car")
+check(Field.resume() == false, "a completed partial trip cannot resume unexpectedly")
 Field.restore(nil)
 one.bag, car.part.bag = inventory(), inventory()
 one.x, one.y = 100, 99
@@ -1014,6 +1016,294 @@ check(Field.status().phase == "complete" and Field.status().loaded == 2
     "produce and seeds move by identity from the worn bag into the trunk")
 check(one.data and one.data.LF_FieldReturnCleanup ~= nil,
     "completed field trip schedules camp inventory cleanup")
+-- A car within ten tiles is not silently chosen unless it was recently used.
+-- When no car is assigned, carry capacity limits collection, not clearing.
+local spoken = {}
+utility.say = function(_, line) spoken[#spoken + 1] = line end
+local function standingTree(x, y)
+    local tile = square(x, y)
+    tile.tree = { index = 1, square = tile, health = 50 }
+    function tile.tree:getObjectIndex() return self.index end
+    function tile.tree:getSize() return 3 end
+    function tile.tree:getHealth() return self.health end
+    return tile
+end
+Field.restore(nil)
+one.bag, two.bag, car.part.bag = inventory(), inventory(), inventory()
+one.x, one.y, player.x, player.y, car.x, car.y = 300, 299, 300, 300, 310, 300
+one.follow, two.follow, one.pending, one.active = true, false, nil, false
+one.carryCapacity = 2
+put(one.bag, item("Base.Axe", true))
+for x = 300, 302 do standingTree(x, 300) end
+check(Field.start("chop", square(300, 300), player) == true
+    and Field.status().carId == nil, "a nearby unused car is not silently claimed")
+for _ = 1, 220 do
+    Field.update(one, player)
+    if one.pending and one.pending.action == "chop_tree" and one.active then
+        finish(one, "chop")
+    end
+    if Field.status().phase == "complete" then break end
+end
+check(Field.status().phase == "complete" and Field.status().completed == 3,
+    "full inventory does not stop a three-tree clearing order")
+check(#one.bag.items == 1 and #square(300, 300).world == 1
+    and #square(301, 300).world == 1 and #square(302, 300).world == 1,
+    "the overloaded worker leaves all new logs on the ground")
+check(#spoken == 3 and spoken[1]:find("clear the trees", 1, true)
+    and spoken[2]:find("no car is assigned", 1, true)
+    and spoken[3]:find("All the trees", 1, true)
+    and Field.status().blocker:find("no car is assigned", 1, true),
+    "the worker announces the order, collection limit, and verified clearing")
+
+-- A full trunk must also leave an active tree-clearing order running.
+Field.restore(nil)
+one.bag, car.part.bag = inventory(), inventory()
+one.x, one.y, player.x, player.y, car.x, car.y = 320, 319, 320, 320, 330, 320
+one.pending, one.active, one.carryCapacity = nil, false, 10
+for _ = 1, 6 do put(one.bag, item("Base.Pen")) end
+local fullTrunkAxe = item("Base.Axe", true)
+put(car.part.bag, fullTrunkAxe)
+for x = 320, 322 do standingTree(x, 320) end
+car.part.bag.room = false
+Field.observePlayerVehicle(car)
+check(Field.start("chop", square(320, 320), player) == true
+    and Field.status().carId == 42, "the used car ten tiles away is assigned")
+local restoredFullTrunk = false
+for _ = 1, 220 do
+    Field.update(one, player)
+    if one.pending and one.pending.action == "chop_tree" and one.active then
+        finish(one, "chop")
+    end
+    if not restoredFullTrunk and Field.export().active.workers.one.skipPickup then
+        check(Field.restore(Field.export()) == true,
+            "full-trunk clearing state survives save and load")
+        restoredFullTrunk = true
+    end
+    if Field.status().phase == "complete" then break end
+end
+check(restoredFullTrunk and Field.status().phase == "complete"
+    and Field.status().completed == 3,
+    "a full trunk does not stop a three-tree clearing order")
+check(#car.part.bag.items == 0 and #one.bag.items == 8
+    and #square(320, 320).world == 0
+    and #square(321, 320).world == 1 and #square(322, 320).world == 1,
+    "one exact log stays carried and later logs stay on the ground")
+check(#spoken == 6 and spoken[4]:find("clear the trees", 1, true)
+    and spoken[5]:find("trunk are full", 1, true)
+    and spoken[6]:find("All the trees", 1, true)
+    and Field.export().active.note:find("trunk are full", 1, true)
+    and Field.status().pendingAxeReturns == 1,
+    "the worker announces the order, full trunk, and verified clearing")
+car.part.bag.room = true
+for _ = 1, 8 do
+    if Field.status().pendingAxeReturns == 0 then break end
+    Field.update(one, player)
+end
+check(Field.status().pendingAxeReturns == 0
+    and fullTrunkAxe.container == car.part.bag,
+    "the borrowed axe returns after trunk space opens")
+
+Field.restore(nil)
+one.bag, one.carryCapacity = inventory(), nil
+one.x, one.y, player.x, player.y = 340, 339, 340, 340
+put(one.bag, item("Base.Axe", true))
+standingTree(340, 340)
+check(Field.start("chop", square(340, 340), player) == true,
+    "the 25-tile leader range test starts")
+player.x = 364
+Field.leaderPulse(player)
+check(Field.status().phase == "working", "chopping continues at 24 tiles")
+player.x = 366
+Field.leaderPulse(player)
+check(Field.status().phase == "stopped"
+    and Field.status().blocker == "leader_left_work_area",
+    "chopping regroups when the player moves beyond 25 tiles")
+
+-- Skipped, unreachable trees must not be announced as cleared.
+Field.restore(nil)
+one.bag, one.carryCapacity = inventory(), nil
+one.x, one.y, player.x, player.y = 380, 379, 380, 380
+put(one.bag, item("Base.Axe", true))
+local unreachableTree = standingTree(380, 380)
+local priorSpeechCount = #spoken
+local normalInteraction = SC.Navigation.interactionTargets
+SC.Navigation.interactionTargets = function(value, target, options)
+    if target == unreachableTree then return {} end
+    return normalInteraction(value, target, options)
+end
+check(Field.start("chop", unreachableTree, player) == true,
+    "unreachable-tree clearing order starts")
+for _ = 1, 100 do
+    Field.update(one, player)
+    if Field.status().phase == "complete" then break end
+end
+SC.Navigation.interactionTargets = normalInteraction
+check(Field.status().phase == "complete" and unreachableTree.tree ~= nil
+    and #spoken == priorSpeechCount + 2
+    and spoken[#spoken]:find("still standing", 1, true),
+    "the companion reports remaining unreachable trees instead of claiming all clear")
+
+-- Away harvest keeps exact produce, leaves crops growing at the carry limit,
+-- and reports the incomplete area instead of silently dropping vegetables.
+Field.restore(nil)
+spoken = {}
+one.bag, car.part.bag = inventory(), inventory()
+one.x, one.y, player.x, player.y = 400, 399, 400, 400
+one.pending, one.active, one.carryCapacity = nil, false, 10
+for _ = 1, 3 do put(one.bag, item("Base.Pen")) end
+local noCarCrops = {
+    cropAt(400, 400, true), cropAt(401, 400, true), cropAt(402, 400, true),
+}
+check(Field.start("harvest", noCarCrops[1], player) == true
+    and Field.status().carId == nil, "away harvest starts without a car")
+for _ = 1, 220 do
+    Field.update(one, player)
+    if one.pending and one.pending.operation == "harvest" and one.active then
+        finish(one, "harvest", 4)
+    end
+    if Field.status().phase == "complete" then break end
+end
+local ripe = 0
+for _, tile in ipairs(noCarCrops) do
+    if tile.plant.ripe then ripe = ripe + 1 end
+end
+local kept = 0
+for _, value in ipairs(one.bag.items) do
+    if value.data.LF_FieldCarryWorker == "one" and Field.reserved(value) then
+        kept = kept + 1
+    end
+end
+check(Field.status().phase == "complete" and Field.status().completed == 1
+    and ripe == 2 and kept == 4 and #one.bag.items == 7,
+    "full bag safely ends the trip with four exact crops and two plants still growing")
+check(#spoken == 3 and spoken[1]:find("harvest the ready crops", 1, true)
+    and spoken[2]:find("no car is assigned", 1, true)
+    and spoken[3]:find("still growing", 1, true),
+    "away farmer announces start, capacity limit, and partial finish")
+
+-- If the assigned trunk fills, keep already harvested items on the worker.
+-- A save/load during that transition must not duplicate or drop produce.
+Field.restore(nil)
+spoken = {}
+one.bag, car.part.bag = inventory(), inventory()
+one.x, one.y, player.x, player.y, car.x, car.y = 420, 419, 420, 420, 430, 420
+one.pending, one.active = nil, false
+for _ = 1, 3 do put(one.bag, item("Base.Pen")) end
+local trunkCrops = {
+    cropAt(420, 420, true), cropAt(421, 420, true), cropAt(422, 420, true),
+}
+car.part.bag.room = false
+Field.observePlayerVehicle(car)
+check(Field.start("harvest", trunkCrops[1], player) == true
+    and Field.status().carId == 42, "away harvest selects the recently used car")
+local savedFullHarvest = false
+for _ = 1, 220 do
+    Field.update(one, player)
+    if one.pending and one.pending.operation == "harvest" and one.active then
+        finish(one, "harvest", 4)
+    end
+    if not savedFullHarvest and Field.export().active.workers.one.skipDeposit then
+        check(Field.restore(Field.export()) == true,
+            "harvest with full trunk survives save and load")
+        savedFullHarvest = true
+    end
+    if Field.status().phase == "complete" then break end
+end
+ripe, kept = 0, 0
+for _, tile in ipairs(trunkCrops) do
+    if tile.plant.ripe then ripe = ripe + 1 end
+end
+for _, value in ipairs(one.bag.items) do
+    if value.data.LF_FieldCarryWorker == "one" and Field.reserved(value) then
+        kept = kept + 1
+    end
+end
+check(savedFullHarvest and Field.status().phase == "complete"
+    and Field.status().completed == 1 and ripe == 2 and kept == 4
+    and #car.part.bag.items == 0,
+    "full trunk leaves later crops growing and keeps exact produce with worker")
+check(#spoken == 3 and spoken[1]:find("harvest the ready crops", 1, true)
+    and spoken[2]:find("bag and the trunk are full", 1, true)
+    and spoken[3]:find("still growing", 1, true),
+    "farmer announces full trunk and partial completion once each")
+car.part.bag.room = true
+
+-- The existing 16-tile harvest circle finishes every reachable plant and
+-- leaves a plant just outside the marked area alone.
+Field.restore(nil)
+spoken = {}
+one.bag = inventory()
+one.x, one.y, player.x, player.y = 440, 439, 440, 440
+one.pending, one.active = nil, false
+local centerCrop = cropAt(440, 440, true)
+local edgeCrop = cropAt(456, 440, true)
+local outsideCrop = cropAt(457, 440, true)
+check(Field.start("harvest", centerCrop, player) == true,
+    "sixteen-tile harvest area starts")
+for _ = 1, 220 do
+    Field.update(one, player)
+    if one.pending and one.pending.operation == "harvest" and one.active then
+        finish(one, "harvest")
+    end
+    if Field.status().phase == "complete" then break end
+end
+check(Field.status().phase == "complete" and Field.status().completed == 2
+    and centerCrop.plant.ripe == false and edgeCrop.plant.ripe == false
+    and outsideCrop.plant.ripe == true and #one.bag.items == 2,
+    "all crops inside the existing radius are harvested and kept in the bag")
+check(#spoken == 2 and spoken[1]:find("harvest the ready crops", 1, true)
+    and spoken[2]:find("All the ripe crops", 1, true),
+    "farmer announces start and verified complete harvest")
+
+-- A heavier next plant can require an unloading trip. The farmer must
+-- revisit that exact plant after depositing rather than skip it in the scan.
+Field.restore(nil)
+spoken = {}
+one.bag, car.part.bag = inventory(), inventory()
+one.x, one.y, player.x, player.y, car.x, car.y = 460, 459, 460, 460, 470, 460
+one.pending, one.active = nil, false
+for _ = 1, 4 do put(one.bag, item("Base.Pen")) end
+local lightCrop = cropAt(460, 460, true)
+local heavyNext = cropAt(461, 460, true, "YieldFive")
+farming_vegetableconf.props.YieldFive = {
+    vegetableName = "Base.Cabbage", maxVegAutorized = 5,
+}
+local savedManager, savedPerks = getScriptManager, Perks
+Perks = { Farming = "Farming" }
+one.getPerkLevel = function() return 0 end
+getScriptManager = function()
+    return { FindItem = function()
+        return { getActualWeight = function() return 1 end }
+    end }
+end
+Field.observePlayerVehicle(car)
+check(Field.start("harvest", lightCrop, player) == true,
+    "mixed-yield harvest starts with a car")
+for _ = 1, 260 do
+    Field.update(one, player)
+    if one.pending and one.pending.operation == "harvest" and one.active then
+        finish(one, "harvest", one.pending.plant == heavyNext.plant and 5 or 1)
+    end
+    if Field.status().phase == "complete" then break end
+end
+check(Field.status().phase == "complete" and Field.status().completed == 2
+    and Field.status().loaded == 6 and lightCrop.plant.ripe == false
+    and heavyNext.plant.ripe == false and #car.part.bag.items == 6,
+    "farmer unloads then revisits the skipped heavy plant within the same order")
+getScriptManager, Perks, one.getPerkLevel = savedManager, savedPerks, nil
+farming_vegetableconf.props.YieldFive = nil
+
+Field.restore(nil)
+one.bag = inventory()
+one.x, one.y, player.x, player.y = 530, 500, 500, 500
+one.follow, two.follow = true, false
+local longReachCrop = cropAt(500, 500, true)
+check(Field.available(player, "harvest") == true
+    and Field.available(player, "chop") == false
+    and Field.start("harvest", longReachCrop, player) == true,
+    "away harvest can use a follower within its 32-tile leash")
+Field.stop("test")
+
 Field.restore(nil)
 local bad = Field.restore({ schema = 1, serial = -1 })
 check(bad == false, "malformed save rejected")

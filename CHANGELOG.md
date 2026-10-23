@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 0.26.58 - Field work and companion sleep
+
+- Chop Wood clears every eligible tree within eight tiles of the clicked spot instead of stopping after five. The leader may stay up to 25 tiles away. When the worker or trunk fills, companions continue cutting and leave new logs where they fall; they announce the start, capacity limit and whether trees remain.
+- Away harvesting works through every reachable ripe crop in its existing 16-tile area, with its 32-tile leader range. A full bag or trunk keeps exact collected produce with its carrier and leaves unharvested plants growing. After a car unload, a skipped heavy plant is retried instead of lost from the scan. Companions announce a complete or partial result without dropping crops one by one.
+- Tired companions seek reachable beds in marked Rest rooms, then elsewhere in the camp. Bed sleep averages six game hours on an ordinary bed, with bed quality and sleep traits adjusting it. Panic, nearby zombies and significant pain prevent ordinary sleep; an exhausted base worker can release a long-running job to rest. Native Get On Bed action handles the bed pose.
+- A manually requested car wash now acts on visible blood below the automatic upkeep threshold. Loretta can board her encounter's locked car through a temporarily unlocked rear door, which is locked again after entry. New companions whose named outfit resolves to no clothing retry with the stock everyday outfit, or fail the spawn rather than appearing unclothed and unusable.
+- Focused field-work tests cover multiple trees and crops, full bags and trunks, saved cargo, mixed crop yields, and the edge of each work area. The live tree probe confirms a worker continues to a second tree after its bag fills.
+- The native bridge protocol remains `42.21-isocompanion-24`; update the bridge JAR and Lua payload together.
+
 ## 0.26.57 - Bodies come down from upstairs windows
 
 - A Gravekeeper upstairs puts a body out of a window that opens over a clear drop to the grave or pyre floor, then goes down the stairs and takes hold of it again where it fell. A drag cannot take the stairs, so upstairs the hauler looks for such a window straight away instead of stalling for twenty seconds first. In 0.26.56 any open upper window would do, and a body could land on a porch roof, where the hauler put it down again every ten minutes.

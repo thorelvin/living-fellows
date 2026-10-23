@@ -403,6 +403,9 @@ SC.Vehicle = {
     end,
     board = function(actor, car, seat)
         C.boards = C.boards + 1
+        if car:getPassengerDoor(seat):getDoor():isLocked() then
+            return false, "passenger door is locked"
+        end
         car.occupants[seat] = actor
         actor.vehicle = car
         return true, "native_seat"

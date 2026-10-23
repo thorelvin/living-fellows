@@ -55,8 +55,29 @@ check(okay and done and reason == "upkeep_complete"
     "pump is returned after all tires reach rated pressure")
 
 T.base.jobs = {}
-T.blood.Front = 0.25
 T.storage.reserve = 1 -- protected pump does not affect water selection
+T.blood.Front = 0.005
+check(select(2, Upkeep.eligible("wash_vehicle", T.car, false))
+    == "car_clean", "automatic wash ignores a tiny blood fleck")
+check(Upkeep.eligible("wash_vehicle", T.car, true) == true,
+    "manual wash accepts any blood visible to vanilla Wash Vehicle")
+local tinyQueued, tinyJob = Upkeep.queue("wash_vehicle", T.car.id, true)
+check(tinyQueued and tinyJob.priority == 5,
+    "manual wash queues a car with a tiny blood fleck")
+Upkeep.update(T.actor, {}, tinyJob)
+Upkeep.update(T.actor, {}, tinyJob)
+T.finish(1)
+T.resetNative()
+local tinyOkay, tinyReason = Upkeep.update(T.actor, {}, tinyJob)
+check(tinyOkay and tinyReason == "upkeep_progress_verified"
+    and T.blood.Front == 0,
+    "washing the tiny fleck verifies real progress")
+check(Upkeep.cancel(T.actor, tinyJob) == true
+    and T.waterStorage.container.items[1] == tainted,
+    "the manual wash returns its water supply")
+T.base.jobs = {}
+tainted.fluid.amount = 8
+T.blood.Front = 0.25
 local washed, washJob = Upkeep.queue("wash_vehicle", T.car.id, false)
 check(washed and washJob.priority == 2,
     "visible blood queues a washing job")

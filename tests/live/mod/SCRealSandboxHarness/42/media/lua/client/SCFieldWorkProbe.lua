@@ -197,6 +197,12 @@ function Probe.step(H, current, check, result, setPhase)
             tostring(axe)) then setPhase("finish", current) return end
         work.initialWood = woodCount(SC, actor)
         work.initialTrees = standingCount(SC, work.site)
+        if work.initialTrees < 2 then
+            result("SKIP", "field_work_multiple_trees",
+                "no second eligible tree within the eight-tile order radius")
+            setPhase("finish", current)
+            return
+        end
         setPhase("field_work_stage", current)
         return
     end
@@ -232,10 +238,10 @@ function Probe.step(H, current, check, result, setPhase)
             setPhase("finish", current)
             return
         end
-        if (status.completed or 0) >= 1
-            and currentTrees < work.initialTrees
+        if (status.completed or 0) >= 2
+            and currentTrees <= work.initialTrees - 2
             and currentWood > work.initialWood then
-            result("PASS", "field_work_native_tree_and_cargo",
+            result("PASS", "field_work_native_multiple_trees_and_cargo",
                 "trees=" .. tostring(work.initialTrees) .. "->"
                     .. tostring(currentTrees) .. " wood="
                     .. tostring(work.initialWood) .. "->" .. tostring(currentWood))

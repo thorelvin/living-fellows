@@ -1925,7 +1925,7 @@ local function sleepBeforeNewJob(actor, player, runtime, job)
     if job or not SC.Downtime or type(SC.Downtime.canPerform) ~= "function"
         or type(SC.Downtime.update) ~= "function"
         or U().characterStatValue(actor, "FATIGUE", 0)
-            < (tonumber(U().config("needsFatigueThreshold")) or 0.50)
+            <= (tonumber(U().config("sleepFatigueThreshold")) or 0.30)
         or SC.Downtime.canPerform(actor, "rest_bed") ~= true then
         return nil
     end
@@ -2053,6 +2053,24 @@ function BaseWork.update(actor, player, runtime)
     -- Finish a job already in hand, then let a tired resident sleep before
     -- claiming another one. Otherwise the endless base queue always wins over
     -- Downtime and beds are only used when there is no work at all.
+    -- Some jobs keep their lease indefinitely. An exhausted worker may pause
+    -- one only after a real, reachable bed has been found; cancel settles any
+    -- carried cargo and loans before the job is released for later pickup.
+    if job and U().characterStatValue(actor, "FATIGUE", 0)
+            >= (tonumber(U().config("needsFatigueEmergency")) or 0.82)
+        and now() >= (state.nextSleepProbeAt or 0)
+        and SC.Downtime and type(SC.Downtime.canPerform) == "function" then
+        state.nextSleepProbeAt = now() + 5000
+        if SC.Downtime.canPerform(actor, "rest_bed") == true then
+            local cancelled = BaseWork.cancel(actor, "exhausted_sleep")
+            if cancelled == true then
+                if job.reservedBy == id then
+                    SC.BaseLife.releaseJob(job.id, id, "exhausted_sleep")
+                end
+                state, job = stateFor(actor), nil
+            end
+        end
+    end
     local sleeping, sleepReason = sleepBeforeNewJob(actor, player, runtime, job)
     if sleeping ~= nil then return sleeping, sleepReason end
     local activeGuard

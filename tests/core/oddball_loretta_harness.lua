@@ -354,4 +354,22 @@ check("indoor_rear_door_tile_rejected",
     Loretta.siteFor(outdoorObserver, false, 1, 20) == nil)
 C.occupiedDoorSquare, C.indoorSquares = nil, nil
 
+local lockedCar, lockedActor, _, lockedGroup = scene(55)
+lockedCar:getPartById("DoorRearLeft"):getDoor():setLocked(true)
+local lockedSpawn, lockedReason = Loretta.onSpawn(lockedGroup, lockedActor)
+check("locked_existing_car_boards_and_relocks", lockedSpawn == true
+    and lockedActor.vehicle == lockedCar
+    and lockedCar:getPartById("DoorRearLeft"):getDoor():isLocked() == true,
+    lockedReason)
+
+local failedCar, failedActor, _, failedGroup = scene(56)
+failedCar:getPartById("DoorRearLeft"):getDoor():setLocked(true)
+local originalBoard = SC.Vehicle.board
+SC.Vehicle.board = function() return false, "injected_entry_failure" end
+local failedSpawn, failedReason = Loretta.onSpawn(failedGroup, failedActor)
+SC.Vehicle.board = originalBoard
+check("failed_board_restores_existing_lock", failedSpawn == false
+    and failedReason == "injected_entry_failure"
+    and failedCar:getPartById("DoorRearLeft"):getDoor():isLocked() == true)
+
 SC_TEST_REPORT = "LORETTA_PASS " .. tostring(checks) .. " checks"
