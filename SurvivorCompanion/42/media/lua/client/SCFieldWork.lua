@@ -1564,7 +1564,13 @@ function Field.update(actor, player, snapshot)
         order.woodClaims[entry.id] = actorId
         local currentWeight, capacity = U().carryLoad(actor)
         local itemWeight = U().itemWeight(entry.item)
-        if capacity and capacity > 0 and currentWeight and itemWeight
+        -- With a car, a worker holding none of this order's logs takes one
+        -- past its Strength limit when the inventory can hold it, and the
+        -- deposit check walks it to the trunk. A 9-unit log beside a 3-unit
+        -- axe is over 80% of an average companion's limit of 12, so without
+        -- this no log ever reached the car (0.26.58).
+        local oneTrip = order.carId ~= nil and #cargo == 0
+        if not oneTrip and capacity and capacity > 0 and currentWeight and itemWeight
             and currentWeight + itemWeight > capacity * FULL_LOAD then
             order.woodClaims[entry.id] = nil
             if order.carId and #cargo > 0 then

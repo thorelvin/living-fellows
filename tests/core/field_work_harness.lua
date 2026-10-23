@@ -1103,6 +1103,36 @@ check(Field.status().pendingAxeReturns == 0
     and fullTrunkAxe.container == car.part.bag,
     "the borrowed axe returns after trunk space opens")
 
+-- A real log (9) beside an axe (3) is over 80% of an average companion's
+-- Strength limit (12). With a car, a worker holding none of the order's logs
+-- still takes one and walks it to the trunk, one log per trip.
+Field.restore(nil)
+one.bag, car.part.bag = inventory(), inventory()
+one.x, one.y, player.x, player.y, car.x, car.y = 350, 349, 350, 350, 358, 350
+one.pending, one.active, one.carryCapacity = nil, false, 2
+put(one.bag, item("Base.Axe", true))
+for x = 350, 352 do standingTree(x, 350) end
+Field.observePlayerVehicle(car)
+check(Field.start("chop", square(350, 350), player) == true
+    and Field.status().carId == 42, "the heavy-log car order starts with the car")
+for _ = 1, 300 do
+    Field.update(one, player)
+    if one.pending and one.pending.action == "chop_tree" and one.active then
+        finish(one, "chop")
+    end
+    if Field.status().phase == "complete" then break end
+end
+local trunkLogs = 0
+for _, entry in ipairs(car.part.bag.items) do
+    if entry.kind == "Base.Log" then trunkLogs = trunkLogs + 1 end
+end
+check(Field.status().phase == "complete" and trunkLogs == 3
+    and #square(350, 350).world == 0 and #square(351, 350).world == 0
+    and #square(352, 350).world == 0
+    and not Field.export().active.workers.one.skipPickup,
+    "every log reaches the car although each one is over the Strength limit: logs="
+        .. trunkLogs .. " phase=" .. tostring(Field.status().phase))
+
 Field.restore(nil)
 one.bag, one.carryCapacity = inventory(), nil
 one.x, one.y, player.x, player.y = 340, 339, 340, 340
