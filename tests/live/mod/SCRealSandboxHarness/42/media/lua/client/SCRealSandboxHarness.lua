@@ -14362,6 +14362,25 @@ function Harness.beginSleepProbe(current)
     setPhase("sleep_probe_spawn", current)
 end
 
+-- Saved companions come back asynchronously after the probe starts, each at
+-- its saved spot, and stay frozen there with decisions stopped. Keep moving
+-- any that land near the sleeper well clear, so none blocks the bedroom door.
+function Harness.clearSleepRoute(actor)
+    local moved = 0
+    local x, y = actor:getX(), actor:getY()
+    for _, record in ipairs(SurvivorCompanion.Registry.records() or {}) do
+        local other = record.actor
+        if other and other ~= actor and math.abs(other:getX() - x) <= 12
+            and math.abs(other:getY() - y) <= 12 then
+            local spot = table.remove(Harness.sleepClearSpots or {}, 1)
+            if spot and pcall(function()
+                other:teleportTo(spot:getX() + 0.5, spot:getY() + 0.5, 0)
+            end) then moved = moved + 1 end
+        end
+    end
+    return moved
+end
+
 function Harness.probeSleep(current)
     local SC = SurvivorCompanion
     if Harness.phase == "sleep_probe_spawn" then
@@ -14386,6 +14405,23 @@ function Harness.probeSleep(current)
             end
         end
         SC.Scheduler.unregister("decision")
+        -- With decisions stopped the save's own companions freeze where they
+        -- stand; one left in the bedroom doorway kept the route to the bed
+        -- closed for the whole probe. Move them well clear first.
+        local U, moved, spots = SC.GameplayUtil, 0, {}
+        local px, py = math.floor(Harness.player:getX()), math.floor(Harness.player:getY())
+        for dx = 40, 56 do
+            for dy = -8, 8 do
+                local square = U.gridSquare(px - dx, py + dy, 0)
+                if square and U.isSquareFree(square) and square:getRoom() == nil then
+                    spots[#spots + 1] = square
+                end
+            end
+        end
+        Harness.sleepClearSpots = spots
+        moved = Harness.clearSleepRoute(actor)
+        print("SC_REAL_SANDBOX|SLEEP_TRACE|movedCompanions=" .. tostring(moved)
+            .. " spots=" .. tostring(#spots))
         local id = SC.Registry.idOf(actor)
         local issued, issueReason = SC.Commands.issue(id, "stay", nil,
             Harness.player)
@@ -14400,6 +14436,7 @@ function Harness.probeSleep(current)
         return
     end
     local actor = Harness.sleepActor
+    Harness.clearSleepRoute(actor)
     local calm = { snapshot = { immediateCount = 0, threatCount = 0,
         player = { danger = 0 }, indoors = true } }
     local accepted, reason = SC.Downtime.update(actor, Harness.player,
@@ -14416,12 +14453,57 @@ function Harness.probeSleep(current)
     end
     if current >= (Harness.sleepTraceAt or 0) then
         Harness.sleepTraceAt = current + 2000
-        print("SC_REAL_SANDBOX|SLEEP_TRACE|reason=" .. tostring(reason)
+        local U = SC.GameplayUtil
+        local function squareText(square)
+            if not square then return "nil" end
+            return tostring(square:getX()) .. "," .. tostring(square:getY()) .. ","
+                .. tostring(square:getZ())
+        end
+        local object = activity and activity.object
+        local objectSquare = object and U.squareOf(object)
+        local sprite = object and select(1, U.call(object, "getSprite"))
+        local spriteName = sprite and select(1, U.call(sprite, "getName"))
+        local grid = sprite and select(1, U.call(sprite, "getSpriteGrid"))
+        local arrived, targets, accessReason
+        if object then arrived, targets, accessReason = U.directInteractionAccess(actor, object) end
+        local targetText = {}
+        for index = 1, math.min(8, #(targets or {})) do
+            targetText[#targetText + 1] = squareText(targets[index])
+        end
+        local navigation = SC.Navigation and SC.Navigation.status
+            and SC.Navigation.status(actor) or {}
+        local x, y = actor:getX(), actor:getY()
+        -- With the decision scheduler stopped the save's own companions stand
+        -- frozen wherever they were; name any close enough to be in the way.
+        local nearby = {}
+        for _, record in ipairs(SC.Registry.records() or {}) do
+            local other = record.actor
+            if other and other ~= actor then
+                local ox, oy = other:getX(), other:getY()
+                if math.abs(ox - x) <= 6 and math.abs(oy - y) <= 6 then
+                    nearby[#nearby + 1] = string.format("%.1f,%.1f", ox, oy)
+                end
+            end
+        end
+        print("SC_REAL_SANDBOX|SLEEP_TRACE|nearby=" .. table.concat(nearby, ";")
+            .. " reason=" .. tostring(reason)
             .. " active=" .. tostring(activity and activity.kind)
             .. " native=" .. tostring(actor:isAsleep())
             .. " bed=" .. tostring(activity and activity.object == Harness.sleepBed)
             .. " hours=" .. tostring(activity and activity.gameDurationHours)
-            .. " entry=" .. tostring(SC.NativeActions.bedStatus(actor)))
+            .. " entry=" .. tostring(SC.NativeActions.bedStatus(actor))
+            .. " object=" .. squareText(objectSquare) .. ":" .. tostring(spriteName)
+            .. ":grid=" .. tostring(grid ~= nil)
+            .. ":seats=" .. tostring(object and SeatingManager.getInstance():getTilePositionCount(object))
+            .. " room=" .. tostring(objectSquare and objectSquare:getRoom() ~= nil)
+            .. " light=" .. tostring(activity and activity.lightChecked) .. "/"
+                .. squareText(activity and activity.lightSwitch and U.squareOf(activity.lightSwitch))
+            .. " at=" .. string.format("%.2f,%.2f", x, y) .. " sq=" .. squareText(actor:getCurrentSquare())
+            .. " access=" .. tostring(arrived) .. ":" .. tostring(accessReason)
+            .. ":" .. table.concat(targetText, ";")
+            .. " nav=" .. tostring(navigation.phase) .. ":" .. tostring(navigation.action)
+            .. ":" .. tostring(navigation.target) .. ":" .. tostring(navigation.lastMovementReason)
+            .. ":" .. tostring(navigation.pathReason))
     end
     if actor:isAsleep() then
         local name = tostring(Harness.config.run_id) .. "-sleeping-in-bed"

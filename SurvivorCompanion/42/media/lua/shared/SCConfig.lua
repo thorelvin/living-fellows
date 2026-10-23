@@ -1059,6 +1059,8 @@ local valueData = {
     conversationHoldMs = 5000,
     downtimeIntervalMs = 1500,
     downtimeSafeMs = 5000,
+    -- How long a resident tries to reach the bedroom light switch before bed.
+    downtimeLightSwitchMs = 12000,
     downtimeReservationMs = 30000,
     downtimeActivityMs = 6000,
     downtimeFloorRestMs = 12000,

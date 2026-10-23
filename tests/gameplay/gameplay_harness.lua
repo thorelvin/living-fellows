@@ -9813,6 +9813,37 @@ do
     check(bedMoving and upperBedRoute
             and upperBedRoute.workCampOnly == true,
         "upstairs bed approach stays under camp stair navigation")
+    ;(function()
+        -- A light switch nobody can stand in front of must not hold the bed:
+        -- after a few seconds of trying, the resident leaves the light on.
+        local lightSquare = cell:getGridSquare(9, 9, 0)
+        local stuckLight = { square = lightSquare }
+        function stuckLight:getSquare() return self.square end
+        function stuckLight:isActivated() return true end
+        local lightBedChoice = { kind = "rest_bed", object = bed, square = bedSquare,
+            lightSwitch = stuckLight }
+        local firstLightRoute
+        SurvivorCompanion.Navigation.requestAny = function(_, _, _, intent)
+            firstLightRoute = intent
+            return true, "moving"
+        end
+        local _, firstLightStatus = bedApproach(bedProbeActor, lightBedChoice)
+        local lightClock = clock
+        clock = clock + 13000
+        local afterLightRoute
+        SurvivorCompanion.Navigation.requestAny = function(_, _, _, intent)
+            afterLightRoute = intent
+            return true, "moving"
+        end
+        bedApproach(bedProbeActor, lightBedChoice)
+        clock = lightClock
+        check(firstLightStatus == "approaching_light_switch"
+                and firstLightRoute and firstLightRoute.action == "move_to_light_switch"
+                and afterLightRoute and afterLightRoute.action == "move_to_seat"
+                and lightBedChoice.lightChecked == true and lightBedChoice.lightSwitch == nil,
+            "an unreachable light switch is left on after a few seconds and the resident goes to bed: "
+                .. tostring(firstLightStatus) .. "/" .. tostring(afterLightRoute and afterLightRoute.action))
+    end)()
     SurvivorCompanion.Navigation.requestAny = oldBedRequest
     upperBedSquare.objects[#upperBedSquare.objects] = nil
     bed.square = bedSquare

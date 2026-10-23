@@ -1874,6 +1874,22 @@ local function approachFurniture(actor, activity)
                 end
                 activity.lightSwitch = nearest
             end
+            -- A switch the resident cannot reach must not keep it from the bed
+            -- (seen live: the only tile in front of one was on a double bed,
+            -- so the route kept recovering until the whole rest gave up and
+            -- the resident tried the same bed again later). After a few
+            -- seconds it leaves the light on and goes to bed.
+            if activity.lightSwitch then
+                local current = U().nowMs()
+                activity.lightSince = activity.lightSince or current
+                if current - activity.lightSince
+                    > (tonumber(U().config("downtimeLightSwitchMs")) or 12000) then
+                    if SC.Navigation and type(SC.Navigation.cancel) == "function" then
+                        SC.Navigation.cancel(actor, "light_switch_unreachable")
+                    end
+                    activity.lightChecked, activity.lightSwitch = true, nil
+                end
+            end
             if activity.lightSwitch then
                 local light = activity.lightSwitch
                 if select(1, U().call(light, "isActivated")) == true then
