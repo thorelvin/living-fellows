@@ -2,6 +2,17 @@
 
 # Changelog
 
+## 0.26.60 - The camp alarm
+
+- A resident who sees zombies at the camp raises the alarm, and only those who can hear it know. One or two walkers within eight tiles of the camp get a quiet word. The resident who saw them keeps watch, the resident on watch and the nearest awake one who heard come to back it up, and sleepers sleep on. A lone watcher with nobody awake to hear walks over, wakes the nearest sleeper by hand, and goes back to its post.
+- Three or more zombies, one inside the camp, or one breaking in get a shout. It wakes sleepers within earshot, and residents who hear it pass it on once. Whoever the defence policy names runs to the resident who saw them, and under any policy at least the nearest resident able to fight comes. One already nearer the zombies than the caller holds where it is. The rest stop what they are doing and stand to. A crowd of eight or more sends everyone to the Rally area.
+- Walls and floors muffle a call, and a sleeper needs it closer. Deaf residents never hear it; Keen Hearing and Hard of Hearing change how far it carries. A shout carries to the dead as well. A woken resident is groggy for a few seconds and may go back to bed once it is over. One woken in the last ten minutes sleeps through the next stand-to, but not a fall-back.
+- Every part of a response has a time limit. After half a minute (quiet word) or a minute (shout) with nothing seen, the resident who raised the alarm calls all clear. The Base tab shows the alarm while it is up: how many, on which side, who saw them and how many are answering.
+- Sleepers no longer wake to zombies they could only have seen. Being attacked, a zombie right beside the bed, or one thumping on a door nearby still wakes them.
+- Residents now sleep in beds whose bedroom light switch they cannot reach. Before, a resident waited at such a switch until its rest gave up, then tried the same bed again, and never slept. Now it leaves the light on after 12 seconds.
+- A live probe (`-BaseAlertProbe`) runs the alarm in a cloned save. The sleep probe now keeps the save's own companions out of the bedroom doorway.
+- The native bridge protocol remains `42.21-isocompanion-24`; update the bridge JAR and Lua payload together.
+
 ## 0.26.59 - Sorting floor and trash pile
 
 - Two new camp zones, **Sorting floor** and **Trash pile**. Residents on base duty, Quartermasters first, pick up the exact items dropped on a sorting floor and carry each to marked storage of its category by the shelf sorter's rules; valuables wait for marked Valuables storage instead of going to General. Trash goes to the nearest free tile of a marked trash pile and stays there on the ground. An item with no marked storage, or only full storage, stays on the floor and the camp list names the missing category. When nothing of that kind, or no trash pile, is marked at all, the worker also says so once if you are nearby. Each zone is at most 256 tiles, and the two may not overlap.
