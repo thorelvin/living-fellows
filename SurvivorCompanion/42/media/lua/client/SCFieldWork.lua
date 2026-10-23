@@ -213,26 +213,41 @@ local function targetAt(order, x, y)
     if order.kind == "harvest" then object = crop(square) else object = tree(square) end
     return object and square or nil
 end
+-- What is left in the area is checked a slice at a time, at most this many
+-- tiles per call: a harvest area alone is about 800 tiles. The cursor lives
+-- on the order, so a reload carries on, and nil means "not finished yet".
+local CLEARING_SCAN_TILES = 64
 local function clearingResult(order)
     local range = radius(order.kind)
-    local unchecked = false
+    local width = range * 2 + 1
     local harvest = order.kind == "harvest"
-    for dy = -range, range do
-        for dx = -range, range do
-            if dx * dx + dy * dy <= range * range then
-                local x, y = order.center.x + dx, order.center.y + dy
-                local square = U().gridSquare(x, y, order.center.z)
-                if not square then
-                    unchecked = true
-                elseif targetAt(order, x, y) then
-                    return harvest
-                        and "Some ripe crops are still growing around this spot."
-                        or "Some trees are still standing around this spot."
-                end
+    local scan = order.clearingScan
+    if type(scan) ~= "table" then
+        scan = { index = 0, unchecked = false, found = false }
+        order.clearingScan = scan
+    end
+    local inspected = 0
+    while not scan.found and scan.index < width * width do
+        local dx = scan.index % width - range
+        local dy = math.floor(scan.index / width) - range
+        if dx * dx + dy * dy <= range * range then
+            if inspected >= CLEARING_SCAN_TILES then return nil end
+            inspected = inspected + 1
+            local x, y = order.center.x + dx, order.center.y + dy
+            if not U().gridSquare(x, y, order.center.z) then
+                scan.unchecked = true
+            elseif targetAt(order, x, y) then
+                scan.found = true
             end
         end
+        scan.index = scan.index + 1
     end
-    if unchecked then
+    if scan.found then
+        return harvest
+            and "Some ripe crops are still growing around this spot."
+            or "Some trees are still standing around this spot."
+    end
+    if scan.unchecked then
         return harvest
             and "I harvested the crops I could reach, but couldn't check the whole area."
             or "I cleared the trees I could reach, but couldn't check the whole area."
@@ -627,25 +642,35 @@ end
 local function completeIfFinished(order)
     -- Check every worker before marking any cargo, so a worker who is still
     -- busy or loading never leaves the others' harvest half re-marked.
+    -- A worker back at work makes a partial check of what is left stale.
+    local function notYet()
+        order.clearingScan = nil
+        if not order.completionAnnounced then order.completionNote = nil end
+        return false
+    end
     local finished = {}
     for id, state in pairs(order.workers) do
         local member = actorFor(id)
         if member then
-            if state.phase ~= "done" and state.phase ~= "full" then return false end
+            if state.phase ~= "done" and state.phase ~= "full" then return notYet() end
             local cargo, reason = cargoItems(member, order.id)
             if not cargo then
                 order.phase, order.blocker = "paused", reason
-                return false
+                return notYet()
             end
             if order.carId and #cargo > 0
                 and not state.skipPickup and not state.skipDeposit then
-                return false
+                return notYet()
             end
             finished[#finished + 1] = { id = id, member = member,
                 cargo = cargo, state = state }
         elseif not workerGone(id) then
-            return false
+            return notYet()
         end
+    end
+    if not order.completionAnnounced and not order.completionNote then
+        order.completionNote = clearingResult(order)
+        if not order.completionNote then return false end
     end
     for _, worker in ipairs(finished) do
         local id, member, cargo = worker.id, worker.member, worker.cargo
@@ -669,9 +694,9 @@ local function completeIfFinished(order)
         if actorData then actorData.LF_FieldReturnCleanup = order.id end
     end
     order.phase = "complete"
+    order.clearingScan = nil
     if not order.completionAnnounced then
         order.completionAnnounced = true
-        order.completionNote = clearingResult(order)
         local speaker = finished[1] and finished[1].member
         if speaker and type(U().say) == "function" then
             U().say(speaker, order.completionNote)

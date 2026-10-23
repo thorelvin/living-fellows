@@ -656,7 +656,8 @@ end
 check(one.pending and one.pending.operation == "harvest",
     "no-car capacity fixture reaches its crop")
 finish(one, "harvest")
-advance({ one }, 10)
+-- The closing check of the 16-tile harvest area takes about 13 updates.
+advance({ one }, 20)
 check(Field.status().phase == "complete"
     and Field.wants(one, player, SC.Commands.peek(one)) == false,
     "no-car full worker completes and releases follow ownership")
@@ -972,7 +973,8 @@ do
     check(Field.status().phase ~= "complete",
         "a dormant worker who may still return keeps the order open")
     gone = true
-    for _ = 1, 10 do
+    -- The closing check of the 16-tile harvest area takes about 13 updates.
+    for _ = 1, 20 do
         Field.update(one, player)
         if Field.status().phase == "complete" then break end
     end
@@ -1333,6 +1335,38 @@ check(Field.available(player, "harvest") == true
     and Field.start("harvest", longReachCrop, player) == true,
     "away harvest can use a follower within its 32-tile leash")
 Field.stop("test")
+
+-- The closing check of what is left covers about 800 tiles for a harvest.
+-- It runs a slice per update, never the whole area in one frame.
+Field.restore(nil)
+spoken = {}
+one.bag = inventory()
+one.x, one.y, player.x, player.y = 600, 599, 600, 600
+one.pending, one.active, one.carryCapacity = nil, false, 10
+local slicedCrop = cropAt(600, 600, true)
+check(Field.start("harvest", slicedCrop, player) == true,
+    "sliced closing-check harvest starts")
+local plainGrid = utility.gridSquare
+local lookups, busiest = 0, 0
+utility.gridSquare = function(...)
+    lookups = lookups + 1
+    return plainGrid(...)
+end
+for _ = 1, 300 do
+    lookups = 0
+    Field.update(one, player)
+    busiest = math.max(busiest, lookups)
+    if one.pending and one.pending.operation == "harvest" and one.active then
+        finish(one, "harvest", 1)
+    end
+    if Field.status().phase == "complete" then break end
+end
+utility.gridSquare = plainGrid
+check(Field.status().phase == "complete" and slicedCrop.plant.ripe == false
+        and spoken[#spoken]:find("All the ripe crops", 1, true)
+        and busiest <= 200,
+    "the closing check is spread over updates: busiest update read "
+        .. busiest .. " tiles, last line " .. tostring(spoken[#spoken]))
 
 Field.restore(nil)
 local bad = Field.restore({ schema = 1, serial = -1 })
