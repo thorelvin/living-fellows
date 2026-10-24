@@ -3994,7 +3994,7 @@ do
     local tree = makeTree(sq(3, 2), 10)
     local ok, reason = SC.NativeWorkActions.dispatch(ctx.actor, "chop_tree",
         { tree = tree }, directProvider)
-    check(ok == false and reason == "companion needs an unbroken axe",
+    check(ok == false and reason == "companion needs an axe",
         "chopping without an axe fails closed: " .. tostring(reason))
     local emulated, emulateReason = SC.NativeActions.emulateWorkEvent(ctx.actor, "saw_logs", "ChopTree")
     check(emulated == false and emulateReason == "unsupported_work_event",
