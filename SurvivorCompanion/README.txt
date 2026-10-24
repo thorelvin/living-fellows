@@ -1,4 +1,4 @@
-Living Fellows 0.26.64 - public playtest
+Living Fellows 0.26.65 - public playtest
 
 Ordinary blocked camp jobs retry automatically after a pause, with a countdown
 and manual Retry still available. Shelf sorters keep carried stock reserved

@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.26.65 - Wood collection expeditions and Viewpoint compatibility
+
+- Packages the tested wood collection expeditions, exact cargo tracking, automatic delivery retries and Viewpoint 3D name suppression from the current playtest build.
+- Includes verified car-door approaches and bounded roadside turn recovery for the return journey. Walking and driving cargo delivery passed in cloned saves; the driving cargo test used an explicitly quiet work site.
+- The native bridge protocol remains `42.21-isocompanion-24`, targeting Project Zomboid 42.21.0. Install the matching Lua payload and rebuilt bridge together.
+
 ## 0.26.64 - Automatic job retries and companion view fixes
 
 - Collect wood expeditions walk or drive to nearby woodland, borrow a real axe from permitted camp supplies and bring physical logs home. Choose 1, 2, 4, 8, 12 or 24 logs, or Full load (at most 256 logs per round trip). Capacity, danger, night policy, tool condition and the return timer can produce a partial load.
