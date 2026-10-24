@@ -1634,11 +1634,11 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>Builders draw tools and materials from camp storage, so mark a <strong>Construction</strong> and a <strong>Tools</strong> container. A companion sent to build, barricade or take a barricade down without the right tool or material says exactly what is missing:</p>
 <table>
   <tr><th></th><th>Missing</th><th>What they'll tell you</th></tr>
-  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/8/81/Hammer.png" alt=""></td><td>Hammer</td><td><em>"I need an unbroken hammer."</em></td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/8/81/Hammer.png" alt=""></td><td>Hammer</td><td><em>"I need a hammer."</em></td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/0d/Plank.png" alt=""></td><td>Planks</td><td><em>"I need a plank."</em></td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/5/50/Nails.png" alt=""></td><td>Nails</td><td><em>"I need two nails."</em></td></tr>
-  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/4/46/Handsaw.png" alt=""></td><td>Saw</td><td><em>"I need an unbroken saw."</em></td></tr>
-  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/1/1d/Screwdriver.png" alt=""></td><td>Screwdriver</td><td><em>"I need an unbroken screwdriver."</em></td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/4/46/Handsaw.png" alt=""></td><td>Saw</td><td><em>"I need a saw."</em></td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/1/1d/Screwdriver.png" alt=""></td><td>Screwdriver</td><td><em>"I need a screwdriver."</em></td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/c/c0/Crowbar.png" alt=""></td><td>Pry tool</td><td><em>"I need a tool that can remove barricades."</em></td></tr>
 </table>
 
@@ -1660,7 +1660,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>A companion on <strong>base duty</strong> lives at the camp and works for it. Give Stay or Guard inside the camp area, or choose a job in <span class="menu">More → Base</span>, and they are on duty. Residents sort storage, repair gear, craft supplies, keep watch, patrol, maintain barricades, and build queued construction. A guard on shift keeps watch around its post instead of taking general chores.</p>
 
 <h3>Jobs Are Roles</h3>
-<p>A resident's base job is its camp role. Each companion has a <strong>natural role</strong> from its profession (Generalist, Guard, Builder, Quartermaster, Medic or Farmer); that is an aptitude, not an assigned job. The Base tab shows <strong>No base job</strong> until you choose one. The job list adds five more: Woodcutter, Gravekeeper, Maintainer, Chef and Angler. The <strong>Carpenter</strong> job is the Builder role.</p>
+<p>A resident's base job is its camp role. Each companion has a <strong>natural role</strong> from its profession (Generalist, Guard, Builder, Quartermaster, Medic or Farmer); that is an aptitude, not an assigned job. Off duty, the job selector in the Base tab reads <strong>No base job</strong>. The job list adds five more: Woodcutter, Gravekeeper, Maintainer, Chef and Angler. The <strong>Carpenter</strong> job is the Builder role.</p>
 
 <h3>Choosing a Base Job</h3>
 <p>Select a companion in <span class="menu">More → Base</span> and pick one job from the dropdown near the top. That puts them on base duty; <span class="menu">No base job (follow me)</span> brings them back. Hover over the job selector for its help text. The job survives a save and reload. You don't set quantities, areas, destinations or workers for each order: the marked areas and storage tell them where, and the scheduler gives them time between survival and other work.</p>
@@ -1675,7 +1675,18 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/5/54/Pot.png" alt=""></td><td><strong>Chef</strong></td><td>Food storage or a camp fridge, ingredients and cookware in camp storage</td><td>Keeps safe meals in the fridge, and cooks one for you on request (<a href="#ch15b">Ch 15b</a>).</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/2/2f/FishingRod.png" alt=""></td><td><strong>Angler</strong></td><td>A fishing bank, a rod and bait</td><td>Fishes the bank and stores the catch in marked food storage (<a href="#ch15b">Ch 15b</a>).</td></tr>
 </table>
-<p>Each camp audit checks every production role, so one busy worker no longer holds up another, and body disposal no longer waits behind the woodpile. Quartermasters, medics, guards and generalists use the ordinary base chores. How much of that work they take on, and who keeps watch, is set by the base policies (<a href="#ch14b">Chapter 14b</a>).</p>
+<p>Each camp audit checks every production role, so one busy worker no longer holds up another, and body disposal no longer waits behind the woodpile.</p>
+
+<h3 id="ch14_roles">Generalist, Quartermaster, Medic and Guard</h3>
+<p>These four jobs have no workplace of their own. They share the camp's everyday chores: sorting the shelves and the sorting floor, carrying and fetching, unloading a parked car's trunk, building and barricades, cleaning stains, and their own repairs and supply crafting. A more urgent chore always comes first. Between chores that are equally urgent, the job decides which one a resident reaches for. It also decides what the resident counts as its own kit rather than surplus, and adds a few duties of its own.</p>
+<table>
+  <tr><th></th><th>Base job</th><th>Reaches first for</th><th>Also</th></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/4/46/Toolbox.png" alt=""></td><td><strong>Generalist</strong></td><td>Nothing in particular; a little more often hauling, sorting and unloading cars</td><td>The all-rounder: it fills in wherever no specialist is free, in a camp of any size. Its kit is balanced: a couple of meals and drinks, some medicine and a spare weapon.</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/c/c7/Clipboard.png" alt=""></td><td><strong>Quartermaster</strong></td><td>Sorting, the sorting floor, hauling, fetching and unloading cars, more strongly than anyone</td><td>Lets its pack fill to about four-fifths of its carrying limit before it puts surplus away (<a href="#ch7_carry">Ch 7</a>), and keeps more food, water, medicine, ammunition and building stock on it. A camp of four or more needs one (<a href="#ch14b">Ch 14b</a>).</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/0c/Bandage.png" alt=""></td><td><strong>Medic</strong></td><td>Fetching</td><td>Counts up to ten medical items as its kit, and keeps five even when overloaded. A Medic who comes within four tiles of a bitten companion examines it: the bite comes out, unless the companion refuses, and a refusal says nearly as much (<a href="#ch8">Ch 8</a>). A camp of three or more needs one.</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/6/61/Shotgun.png" alt=""></td><td><strong>Guard</strong></td><td>Barricades, between shifts</td><td>On its shift it keeps watch and walks its rounds instead of doing chores (<a href="#ch14b">Ch 14b</a>), and the guard on watch is the first to answer the camp alarm (<a href="#ch14_alarm">below</a>). Its kit has more weapons and ammunition. A camp of two or more needs one.</td></tr>
+</table>
+<p>Put on duty with Stay inside the camp, a companion starts in its natural role the first time and in its last job after that; Guard makes it a Guard. How much of the work residents take on, and who keeps watch, is set by the base policies (<a href="#ch14b">Chapter 14b</a>).</p>
 <p>Any available resident on base duty can also take the shared car and generator chores; you do not assign a separate refueller or mechanic role. Park a car in the marked Parking area, stock the needed supplies, and read its job status in the camp ledger (<a href="#ch14b">Chapter 14b</a>).</p>
 
 <div class="lore-pull"><span class="lore-label">Overheard — </span>Three planks from one log. The math still works.<span class="who">— a carpenter</span></div>
