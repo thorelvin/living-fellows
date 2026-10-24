@@ -1,9 +1,10 @@
-Living Fellows 0.26.62 - public playtest
+Living Fellows 0.26.63 - public playtest
 
-A floor sorter carrying a lot no longer gets stuck on base duty when the
-item it picked up goes missing. A resident who stops resting on the way to
-a light switch stops walking there, a guard called away from its post walks
-back, and quiet camp route planning backs off when the game is struggling.
+Companions naturally grow tired and seek beds. Storage workers reuse valid
+approach routes, floor cargo stays protected from ordinary bag packing, and
+borrowed tools retain their physical return trips across cancellation and
+reload. Camp and encounter scans share work across frames, and tool requests
+use plain language such as "I need a hammer."
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added
