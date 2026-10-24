@@ -133,6 +133,48 @@ do
     SC.Topology.classifyEdge = usual
 end
 local context = { action = "follow_formation", followRecovery = true }
+do
+    local savedX, savedY = actor.x, actor.y
+    local target = square(14, 0)
+    for _, position in ipairs({
+        { 13.924, 0.540 }, { 15.076, 0.540 },
+        { 14.540, -0.076 }, { 14.540, 1.076 },
+        { 13.99, -0.01, 0.85 }, { 15.01, 1.01, 0.85 },
+    }) do
+        actor.x, actor.y = position[1], position[2]
+        local lease = { targets = { target }, ultimateGoal = target,
+            arrivalDistance = position[3] or 0.6, requireSameSquare = true }
+        check(N._nativeLeaseArrivalForTests(actor, lease) == nil,
+            "an exact-tile native lease keeps moving at an adjacent boundary")
+        lease.requireSameSquare = false
+        check(N._nativeLeaseArrivalForTests(actor, lease) == target,
+            "an ordinary native lease retains centre-radius arrival")
+        actor.x, actor.y = 14.1, 0.54
+        lease.requireSameSquare = true
+        check(N._nativeLeaseArrivalForTests(actor, lease) == target,
+            "an exact native lease finishes after the actor crosses onto its tile")
+    end
+    local routeState = {}
+    actor.x, actor.y = 13.924, 0.54
+    N._beginNativeLeaseForTests(routeState, { target }, actor:getSquare(), target,
+        target, 1000, "exact_work", false, false, nil, actor,
+        { requireSameSquare = true, arrivalDistance = 0.6 })
+    check(routeState.nativeLease.requireSameSquare == true
+            and N._nativeLeaseArrivalForTests(actor, routeState.nativeLease) == nil,
+        "a real native lease preserves the work intent's exact-tile requirement")
+    N._beginNativeLeaseForTests(routeState, { target }, actor:getSquare(), target,
+        target, 1100, "ordinary_work", false, false, nil, actor,
+        { requireSameSquare = false, arrivalDistance = 0.6 })
+    check(routeState.nativeLease.requireSameSquare == false
+            and N._nativeLeaseArrivalForTests(actor, routeState.nativeLease) == target,
+        "replacing an exact native lease with an ordinary lease clears the requirement")
+    actor.x, actor.y = 14.01, 0.01
+    routeState.nativeLease.requireSameSquare = true
+    routeState.nativeLease.arrivalDistance = 0.25
+    check(N._nativeLeaseArrivalForTests(actor, routeState.nativeLease) == nil,
+        "an exact native lease still requires its explicit arrival radius")
+    actor.x, actor.y = savedX, savedY
+end
 check(SC.NavTraffic.priority({ action = "move_to_base_storage",
         movementPriority = 60 }) > SC.NavTraffic.priority({ action = "base_work" }),
     "expedition delivery route wins right of way over routine kitchen work")

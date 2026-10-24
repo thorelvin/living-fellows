@@ -4934,6 +4934,7 @@ local function beginNativeLease(state, targets, fromSquare, toSquare, ultimateGo
         urgent = intent and intent.urgent == true,
         workCampOnly = intent and intent.workCampOnly == true,
         workReach = intent and intent.workReach == true,
+        requireSameSquare = intent and intent.requireSameSquare == true,
         draggingBody = intent and intent.draggingBody == true,
         arrivalDistance = intent and tonumber(intent.arrivalDistance) or nil,
         supervisorToken = intent and intent.supervisorToken,
@@ -4992,6 +4993,8 @@ local function nativeLeaseArrival(actor, lease)
         local reached = U().arrived(actor, target, {
             targetKind = "square", distance = arrival,
         })
+        if reached and lease.requireSameSquare == true
+            and not sameSquare(actor, target) then reached = false end
         -- getSquare() changes immediately as the character centre crosses the
         -- tile boundary. At a door that is too early: stopping PathFindBehavior2
         -- there leaves half the collision capsule in the leaf and the next pulse
@@ -7039,6 +7042,10 @@ function Navigation.request(actor, target, movementMode, intent)
             or tonumber(requestIntent.arrivalDistance)
             or utility.config("navigationArrivalDistance") or 0.6,
     })
+    -- A centre-based radius can overlap an adjacent tile. Exact work positions
+    -- (for example a dry fishing bank) must enter the effective goal tile too.
+    if reachedGoal and requestIntent.requireSameSquare == true
+        and not sameSquare(actor, goalSquare) then reachedGoal = false end
     -- The ordinary arrival radius includes a small vertical tolerance. On a
     -- staircase that can fire while the body is still above/below the landing,
     -- and stopDirect then makes the companion fall back down the stairs.

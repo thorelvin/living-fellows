@@ -2886,6 +2886,88 @@ do
 end
 
 do
+    local Navigation = SurvivorCompanion.Navigation
+    local target = cell:getGridSquare(40, 0, 0)
+    local boundaries = {
+        { 39.924, 0.540 }, { 41.076, 0.540 },
+        { 40.540, -0.076 }, { 40.540, 1.076 },
+        -- Diagonal overlap needs a wider radius than the default 0.6.
+        { 39.99, -0.01, 0.85 }, { 41.01, 1.01, 0.85 },
+    }
+    local function discard(value, initialSquare)
+        Navigation.reset(value)
+        registry[value.id] = nil
+        for index = #initialSquare.moving, 1, -1 do
+            if initialSquare.moving[index] == value then
+                table.remove(initialSquare.moving, index)
+            end
+        end
+    end
+    for boundary, position in ipairs(boundaries) do
+        for _, multiGoal in ipairs({ false, true }) do
+            local value = actor("sc-exact-arrival-" .. tostring(boundary)
+                .. "-" .. tostring(multiGoal), math.floor(position[1]),
+                math.floor(position[2]), {})
+            local initialSquare = value.square
+            registry[value.id] = value
+            value.worldX, value.worldY = position[1], position[2]
+            local intent = { action = "move_to_fishing_spot", requireSameSquare = true,
+                arrivalDistance = position[3] }
+            local function request()
+                if multiGoal then
+                    return Navigation.requestAny(value, { target }, "walk", intent)
+                end
+                return Navigation.request(value, target, "walk", intent)
+            end
+            local accepted, reason = request()
+            check(accepted and reason ~= "arrived",
+                "exact-tile navigation keeps approaching across boundary "
+                    .. tostring(boundary) .. " (multi-goal=" .. tostring(multiGoal)
+                    .. ", reason=" .. tostring(reason) .. ")")
+            check(Navigation.peek(value).arrivedAt == nil,
+                "an adjacent tile never records exact-tile arrival")
+            -- Represent the actor physically crossing onto the bank, rather
+            -- than changing only getSquare() while keeping outside coordinates.
+            value.square, value.worldX, value.worldY = target, 40.1, 0.54
+            accepted, reason = request()
+            check(accepted and reason == "arrived",
+                "exact-tile navigation completes after physically entering the bank")
+            discard(value, initialSquare)
+        end
+        for _, exact in ipairs({ false, "omitted" }) do
+            local ordinary = actor("sc-radius-arrival-" .. tostring(boundary)
+                .. "-" .. tostring(exact), math.floor(position[1]),
+                math.floor(position[2]), {})
+            local initialSquare = ordinary.square
+            registry[ordinary.id] = ordinary
+            ordinary.worldX, ordinary.worldY = position[1], position[2]
+            local intent = { action = "follow_formation", arrivalDistance = position[3] }
+            if exact == false then intent.requireSameSquare = false end
+            local accepted, reason = Navigation.request(ordinary, target, "walk", intent)
+            check(accepted and reason == "arrived",
+                "ordinary radius arrival remains valid beside boundary "
+                    .. tostring(boundary) .. " with exact flag " .. tostring(exact))
+            discard(ordinary, initialSquare)
+        end
+    end
+    local corner = actor("sc-exact-arrival-radius", 40, 0, {})
+    registry[corner.id] = corner
+    corner.worldX, corner.worldY = 40.01, 0.01
+    local accepted, reason = Navigation.request(corner, target, "walk", {
+        action = "move_to_fishing_spot", requireSameSquare = true, arrivalDistance = 0.25,
+    })
+    check(accepted and reason ~= "arrived",
+        "matching the goal tile still respects a smaller explicit arrival radius")
+    corner.worldX, corner.worldY = 40.4, 0.4
+    accepted, reason = Navigation.request(corner, target, "walk", {
+        action = "move_to_fishing_spot", requireSameSquare = true, arrivalDistance = 0.25,
+    })
+    check(accepted and reason == "arrived",
+        "an exact work position finishes once both tile and radius match")
+    discard(corner, corner.square)
+end
+
+do
     local routeActor = actor("sc-route-repair", 30, 28, {})
     local source = cell:getGridSquare(30, 28, 0)
     local oldGoal = cell:getGridSquare(34, 28, 0)

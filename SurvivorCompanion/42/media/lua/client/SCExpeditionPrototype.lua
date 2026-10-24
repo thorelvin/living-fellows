@@ -213,6 +213,7 @@ local function unstartedSearchReturn(itinerary)
         or reason == "horde_no_safe_detour" or reason == "site_unreachable"
         or reason == "road_path_unreachable"
         or reason == "straight_path_unreachable"
+        or reason == "scout_leg_limit"
 end
 
 local function copySearch(value)
@@ -409,6 +410,66 @@ local function distanceToPoint(actor, point)
     if x == nil or y == nil or z == nil
         or math.floor(z) ~= point.z then return math.huge end
     return math.sqrt((x - point.x)^2 + (y - point.y)^2)
+end
+
+-- Legs are accepted local waypoints, not failed path searches. A short
+-- straight-line trip can take a much longer road/connector route. Give each
+-- direction its own finite allowance, estimated from that actual itinerary;
+-- replans and successful short legs must never renew it automatically.
+local MIN_TRAVEL_LEGS, MAX_TRAVEL_LEGS = 64, 4096
+local function travelBudgetPhase(scout)
+    return (scout.phase == "inbound" or scout.phase == "awaiting_player"
+        or type(scout.vehicle) == "table" and scout.vehicle.leg == "home")
+        and "inbound" or "outbound"
+end
+
+local function validTravelBudget(value, phase)
+    return type(value) == "table" and value.version == 1
+        and value.phase == phase and type(value.limit) == "number"
+        and value.limit >= MIN_TRAVEL_LEGS and value.limit <= MAX_TRAVEL_LEGS
+        and value.limit == math.floor(value.limit)
+end
+
+local function copyTravelBudget(value)
+    if value == nil then return nil end
+    return { version = 1, phase = value.phase, limit = value.limit }
+end
+
+local function remainingTravelDistance(scout, actor)
+    local x, y, z = SC.GameplayUtil.position(actor)
+    if x == nil or y == nil or z == nil then return MAX_TRAVEL_LEGS end
+    local distance = 0
+    local function append(point)
+        distance = distance + math.sqrt((point.x - x)^2 + (point.y - y)^2)
+            + math.abs((point.z or z) - z) * 4
+        x, y, z = point.x, point.y, point.z or z
+    end
+    local route = scout.roadRoute
+    if route ~= nil then
+        for index = route.index or 1, #route.points do
+            append(route.points[index])
+        end
+    elseif travelBudgetPhase(scout) == "inbound" then
+        for index = scout.returnIndex or #scout.trail, 1, -1 do
+            append(scout.trail[index])
+        end
+    end
+    append(travelBudgetPhase(scout) == "inbound"
+        and scout.returnPoint or scout.destination)
+    return distance
+end
+
+local function ensureTravelBudget(scout, actor)
+    local phase = travelBudgetPhase(scout)
+    if validTravelBudget(scout.travelBudget, phase) then return false end
+    scout.travelBudget = { version = 1, phase = phase,
+        limit = math.max(MIN_TRAVEL_LEGS, math.min(MAX_TRAVEL_LEGS,
+            math.ceil(remainingTravelDistance(scout, actor) * 2) + 32)) }
+    -- Legacy saves used a single cumulative counter for the whole round trip.
+    -- This one-time migration is persisted so subsequent reloads preserve the
+    -- remaining allowance, including a genuinely exhausted one.
+    scout.legs = 0
+    return true
 end
 
 local function settledOnFloor(actor, floor)
@@ -808,6 +869,11 @@ function Expedition.start(records, plan)
                 departureFuel = carPlan.fuel,
             } or nil,
         }
+        if roadRoute ~= nil then
+            scout.extended = extended
+                or remainingTravelDistance(scout, roster[1].actor) > 120
+        end
+        ensureTravelBudget(scout, roster[1].actor)
     end
     local ok, promoted = SC.ViewSession.claim("expedition",
         roster[1].actor, reusableSlotSqlId)
@@ -1103,6 +1169,16 @@ function Expedition.export()
         end
         return nil
     end
+    -- Driving recalls can change direction inside ExpeditionCar instead of
+    -- startReturnFromSite. Save the new leg, never an outbound allowance in a
+    -- homeward car descriptor that restores through the walking validator.
+    local scout = mission.scout
+    local savedBudget = scout and scout.travelBudget
+    local savedLegs = scout and scout.legs
+    if scout and scout.travelBudget
+        and scout.travelBudget.phase ~= travelBudgetPhase(scout) then
+        savedBudget, savedLegs = nil, 0
+    end
     local roster, rosterNames, survivors = {}, {}, {}
     for _, record in ipairs(mission.roster) do
         roster[#roster + 1] = record.id
@@ -1160,7 +1236,8 @@ function Expedition.export()
             phase = mission.scout.phase,
             destination = copyPoint(mission.scout.destination),
             returnPoint = copyPoint(mission.scout.returnPoint),
-            legs = mission.scout.legs,
+            legs = savedLegs,
+            travelBudget = copyTravelBudget(savedBudget),
             trail = scoutTrail,
             returnIndex = mission.scout.returnIndex,
             observation = copyObservation(mission.scout.observation),
@@ -1349,8 +1426,12 @@ function Expedition.restore(saved)
                 or scout.road.goal.y ~= (scout.road.phase == "inbound"
                     and scout.returnPoint.y or scout.destination.y)))
             or scout.destination.z ~= scout.returnPoint.z
+            or (scout.travelBudget ~= nil
+                and not validTravelBudget(scout.travelBudget,
+                    travelBudgetPhase(scout)))
             or type(scout.legs) ~= "number" or scout.legs < 0
-            or scout.legs > (saved.schema == 5 and 256 or 96)
+            or scout.legs > (scout.travelBudget and scout.travelBudget.limit
+                or saved.schema == 5 and 256 or 96)
                 or scout.legs ~= math.floor(scout.legs)
             or type(scout.trail) ~= "table" or #scout.trail < 1
             or #scout.trail > (saved.schema == 5 and 128 or 64)
@@ -1409,6 +1490,7 @@ function Expedition.restore(saved)
             extended = saved.schema == 5,
             phase = scout.phase, destination = copyPoint(scout.destination),
             returnPoint = copyPoint(scout.returnPoint), legs = scout.legs,
+            travelBudget = copyTravelBudget(scout.travelBudget),
             trail = trail, returnIndex = scout.returnIndex,
             observation = copyObservation(scout.observation),
             search = copySearch(scout.search),
@@ -2851,6 +2933,7 @@ local REUNION_CHECK_INTERVAL_MS = 500
 
 local function recoverableInboundReason(reason)
     return reason == "scout_stall_replan_limit"
+        or reason == "scout_leg_limit"
         or reason == "scout_area_unavailable"
         or reason == "scout_cross_floor_destination_unavailable"
         or type(reason) == "string"
@@ -2906,6 +2989,10 @@ retryInboundRoute = function(scout, now, reason, fresh)
         end
         scout.returnRecoveryCount = 0
         scout.descentRejected = nil
+        if scout.travelBudget and scout.legs >= scout.travelBudget.limit then
+            scout.travelBudget = nil
+            ensureTravelBudget(scout, mission.leader.actor)
+        end
     elseif (scout.returnRecoveryCount or 0) >= RETURN_RECOVERY_LIMIT then
         holdForReturnOrders(scout, reason)
         return false
@@ -2966,6 +3053,10 @@ local function playerMetSearchSquad(player, leader)
 end
 
 startReturnFromSite = function(itinerary, reason)
+    if itinerary.phase ~= "inbound" and itinerary.phase ~= "awaiting_player" then
+        itinerary.travelBudget = nil
+        itinerary.legs = 0
+    end
     if itinerary.search and itinerary.search.request.category == "fish"
         and SC.Fishing then
         for _, member in ipairs(mission.roster) do
@@ -3197,6 +3288,22 @@ local function pulseScout()
     local scout = mission and mission.scout
     if scout == nil or mission.restoring or not alive(mission.leader) then return end
     local now = SC.GameplayUtil.nowMs()
+    if mission.technicalIssue
+        and mission.technicalIssue.reason == "scout_leg_limit" then
+        if scout.travelBudget == nil then
+            -- A pre-fix inbound hold spent its return allowance outbound.
+            -- Clear the old hold, then initialize once below after rebuilding
+            -- any saved road geometry from the leader's current position.
+            mission.technicalIssue = nil
+        elseif scout.phase == "inbound" then
+            holdForReturnOrders(scout, "scout_leg_limit")
+            return
+        else
+            mission.technicalIssue = nil
+            startReturnFromSite(scout, "scout_leg_limit")
+            return
+        end
+    end
     if mission.technicalIssue then
         if scout.phase ~= "inbound"
             or not recoverableInboundReason(mission.technicalIssue.reason)
@@ -3968,8 +4075,13 @@ local function pulseScout()
         if player ~= nil then Expedition.finishAtPlayer(player) end
         return
     end
-    if scout.legs >= (scout.extended and 256 or 64) then
-        mission.technicalIssue = { reason = "scout_leg_limit" }
+    ensureTravelBudget(scout, mission.leader.actor)
+    if scout.legs >= scout.travelBudget.limit then
+        if scout.phase == "outbound" or scout.phase == "entering_site" then
+            startReturnFromSite(scout, "scout_leg_limit")
+        else
+            holdForReturnOrders(scout, "scout_leg_limit")
+        end
         return
     end
     if scout.legPlan == nil

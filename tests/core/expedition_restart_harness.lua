@@ -2073,6 +2073,7 @@ local trailSavedStarted, arrivedTrail = expedition.start(
         travelMode = "road" })
 check(trailSavedStarted == true, "the reached-trail restore probe starts")
 arrivedTrail.scout.phase = "awaiting_player"
+arrivedTrail.scout.travelBudget = nil -- fixture changes direction without a return command
 arrivedTrail.scout.trailReturn = true
 arrivedTrail.scout.returnIndex = 0
 arrivedTrail.scout.road.phase = "inbound"
@@ -2111,8 +2112,26 @@ do
             and expedition.current().scout.vehicle.state == "interrupted_by_load"
             and expedition.current().scout.travelMode == "drive",
         "schema six preserves the car and converts a moving save to checked restart")
+    local recalledCar = expedition.current()
+    recalledCar.scout.phase = "boarding_home"
+    recalledCar.scout.vehicle.leg = "home"
+    recalledCar.scout.vehicle.state = "boarding_home"
+    recalledCar.scout.endReason = "radio_return"
+    recalledCar.scout.travelBudget = { version = 1,
+        phase = "outbound", limit = 256 }
+    recalledCar.scout.legs = 180
+    local recalledCarSave = expedition.export()
+    check(recalledCarSave.scout.travelBudget == nil
+            and recalledCarSave.scout.legs == 0
+            and recalledCar.scout.travelBudget.phase == "outbound"
+            and recalledCar.scout.legs == 180,
+        "a car's authoritative home-leg change releases only its outbound allowance")
     expedition.current().suspended = true
     check(expedition.reset(), "schema-six restart fixture resets safely")
+    check(expedition.restore(recalledCarSave),
+        "a recalled car with a former outbound allowance remains restorable")
+    expedition.current().suspended = true
+    check(expedition.reset(), "the home-leg budget fixture releases its slot")
     function testLegacyCarPhase(phase)
         local searchCarSave = {}
         for key, value in pairs(earlySaved) do searchCarSave[key] = value end
@@ -2122,6 +2141,7 @@ do
             searchCarSave.scout[key] = value
         end
         searchCarSave.scout.phase = phase
+        searchCarSave.scout.travelBudget = nil
         searchCarSave.scout.travelMode = "drive"
         searchCarSave.scout.road = nil
         searchCarSave.scout.search = {}
@@ -2701,6 +2721,192 @@ end)()
     end
     check(#afterSettle.deliveries == 31 and not stillListed,
         "a delivery that can no longer finish leaves the list")
+end)()
+
+-- A nearby bank can need a long road and two off-road connectors. Count
+-- actual successful local arrivals across both directions, including reloads.
+;(function()
+    local oldPlan, oldFind, oldSenses, oldBase = SC.ExpeditionRoute.plan,
+        SC.Navigation.findPath, SC.Senses.cached, SC.BaseLife
+    local oldSquare, oldWorld = reserve.getCurrentSquare, getWorld
+    SC.BaseLife = nil
+    function reserve:getCurrentSquare()
+        return squareFor(math.floor(self.x), math.floor(self.y))
+    end
+    function getWorld()
+        return { getCell = function()
+            return { getGridSquare = function(_, x, y, z)
+                if z == 0 then return squareFor(x, y) end
+            end }
+        end }
+    end
+    SC.Senses.cached = function(actor)
+        return { valid = true, time = scoutClock,
+            origin = { square = actor:getCurrentSquare() },
+            scannedSquares = 12, scanComplete = true,
+            scanDiscoveryComplete = true, scanVisualComplete = true,
+            nativeDiscovery = { complete = true, freshComplete = true },
+            threats = {} }
+    end
+    SC.Navigation.findPath = function(source, target)
+        local path, x, y = { source }, source.x, source.y
+        while x ~= target.x or y ~= target.y do
+            if x ~= target.x then x = x + (target.x > x and 1 or -1)
+            else y = y + (target.y > y and 1 or -1) end
+            path[#path + 1] = squareFor(x, y)
+        end
+        return path
+    end
+    SC.ExpeditionRoute.plan = function(actor, goal)
+        return { points = { { x = actor.x, y = 140 },
+                { x = goal.x, y = 140 } },
+            index = 1, fingerprint = "long-nearby-road", roadLength = 80,
+            goal = { x = goal.x, y = goal.y, z = goal.z } }
+    end
+    reserve.x, reserve.y, player.x, player.y = 23, 20, 20, 20
+    local began, active = expedition.start(
+        { { id = "delta", actor = reserve } },
+        { kind = "scout", destination = { x = 103, y = 20, z = 0 },
+            travelMode = "road" })
+    check(began and active.scout.extended
+            and active.scout.travelBudget.limit >= 672,
+        "an 80-tile direct trip budgets its actual 320-tile road and connectors")
+    local arrivals, returned, reloaded, outboundLegs = 0, false, false, 0
+    for _ = 1, 280 do
+        scoutClock = scoutClock + 2000
+        expedition.pulse()
+        active = expedition.current()
+        if active == nil then returned = true break end
+        check(active.technicalIssue == nil and active.scout.pause == nil,
+            "accepted long-road progress never enters a technical hold")
+        if active.scout.phase == "inbound" and not reloaded then
+            local saved = expedition.export()
+            check(saved.scout.legs == 0,
+                "turning home does not spend the outbound leg count again")
+            check(expedition.prepareReset() and expedition.reset()
+                    and expedition.restore(saved) and expedition.pulse(),
+                "the new per-direction budget survives return-route reconstruction")
+            active, reloaded = expedition.current(), true
+        end
+        if active.testWaypoint then
+            reserve.x, reserve.y = active.testWaypoint.x, active.testWaypoint.y
+            check(expedition.noteTestWaypointArrived(reserve),
+                "the long-road fixture completes an accepted local waypoint")
+            arrivals = arrivals + 1
+            if active.scout.phase == "outbound" then
+                outboundLegs = active.scout.legs
+            end
+        end
+    end
+    check(returned and reloaded and arrivals > 64 and outboundLegs > 32
+            and expedition.lastOutcome() == "returned",
+        "a short direct trip completes more than 64 real round-trip legs")
+
+    reserve.x, reserve.y = 23, 20
+    began, active = expedition.start({ { id = "delta", actor = reserve } },
+        { kind = "scout", destination = { x = 103, y = 20, z = 0 },
+            travelMode = "road" })
+    check(began, "the legacy-cap recovery fixture starts")
+    -- Model an old descriptor and its live technical hold at the exact old cap.
+    active.scout.phase, active.scout.travelBudget = "inbound", nil
+    active.scout.legs, active.scout.returnIndex = 64, 0
+    active.scout.road.phase = "inbound"
+    active.scout.road.goal = { x = 20, y = 20, z = 0 }
+    reserve.x = 103
+    local legacy = expedition.export()
+    check(expedition.prepareReset() and expedition.reset()
+            and expedition.restore(legacy) and expedition.pulse(),
+        "a legacy inbound descriptor at 64 legs remains accepted")
+    active = expedition.current()
+    active.scout.travelBudget, active.scout.legs = nil, 64
+    active.technicalIssue = { reason = "scout_leg_limit" }
+    expedition.pulse()
+    check(active.technicalIssue == nil and active.scout.legs == 0
+            and active.scout.travelBudget.phase == "inbound"
+            and active.scout.travelBudget.limit > 256,
+        "an old leg-limit hold receives one bounded remaining-journey allowance")
+    local savedLimit = active.scout.travelBudget.limit
+    active.scout.legs = savedLimit
+    expedition.clearTestWaypoint(reserve)
+    scoutClock = scoutClock + 2000
+    expedition.pulse()
+    check(active.scout.pause and active.scout.pause.reason == "return_route_stuck"
+            and active.scout.legs == savedLimit,
+        "exhausting a new inbound budget holds for orders instead of replanning forever")
+    local exhausted = expedition.export()
+    check(expedition.prepareReset() and expedition.reset()
+            and expedition.restore(exhausted) and expedition.pulse(),
+        "the exact exhausted allowance survives save/load")
+    active = expedition.current()
+    expedition.pulse()
+    check(active.scout.legs == savedLimit
+            and active.scout.travelBudget.limit == savedLimit
+            and active.scout.pause ~= nil,
+        "reload does not silently replenish an exhausted direction")
+    check(expedition.sendRadioOrder(player, "expedition_decision", "push_on")
+            and active.scout.legs == 0 and active.scout.pause == nil
+            and active.scout.returnRecoveryCount == 1,
+        "an acknowledged player order grants a fresh bounded return allowance")
+    local renewedLimit = active.scout.travelBudget.limit
+    active.scout.legs = renewedLimit - 1
+    active.testWaypoint = { x = reserve.x, y = reserve.y, z = 0 }
+    check(expedition.noteTestWaypointArrived(reserve)
+            and active.scout.travelBudget.limit == renewedLimit
+            and active.scout.legs == renewedLimit,
+        "a completed short leg resets stall recovery but never renews the overall budget")
+    scoutClock = scoutClock + 3001
+    expedition.pulse()
+    check(active.scout.pause ~= nil,
+        "even successful looping local legs eventually require new player orders")
+    local malformed = expedition.export()
+    check(expedition.prepareReset() and expedition.reset(),
+        "the budget-validation fixture releases its slot")
+    malformed.scout.legs = malformed.scout.travelBudget.limit + 1
+    check(not expedition.restore(malformed),
+        "a saved counter beyond its validated budget is rejected")
+    malformed.scout.legs = 0
+    malformed.scout.travelBudget.limit = 4097
+    check(not expedition.restore(malformed),
+        "unbounded saved travel allowances fail closed")
+    malformed.scout.travelBudget.limit = savedLimit
+    malformed.scout.travelBudget.phase = "outbound"
+    check(not expedition.restore(malformed),
+        "a saved allowance for a different direction fails closed")
+    malformed.scout.phase = "outbound"
+    malformed.scout.road.phase = "outbound"
+    malformed.scout.road.goal = malformed.scout.destination
+    malformed.scout.travelBudget.phase = "inbound"
+    malformed.scout.vehicle = true
+    check(not expedition.restore(malformed),
+        "an unexpected scalar car field cannot throw while rejecting an invalid allowance")
+    malformed.scout.vehicle = nil
+    malformed.scout.travelBudget = nil
+    malformed.scout.legs = 257
+    check(not expedition.restore(malformed),
+        "legacy descriptors retain their original strict counter bounds")
+
+    reserve.x, reserve.y = 23, 20
+    began, active = expedition.start({ { id = "delta", actor = reserve } },
+        { kind = "search", destination = { x = 103, y = 20, z = 0 },
+            request = { category = "construction", quantity = 1 },
+            travelMode = "straight" })
+    check(began, "the outbound budget-exhaustion fixture starts")
+    active.scout.legs = active.scout.travelBudget.limit
+    scoutClock = scoutClock + 2000
+    expedition.pulse()
+    local turned = expedition.export()
+    check(active.scout.phase == "inbound" and active.scout.legs == 0
+            and active.technicalIssue == nil
+            and turned.scout.search.endReason == "scout_leg_limit",
+        "exhausting outbound legs recalls the squad with an unspent return allowance")
+    check(expedition.prepareReset() and expedition.reset()
+            and expedition.restore(turned) and expedition.pulse(),
+        "a budget recall before the search starts remains restorable")
+    check(expedition.finishAtPlayer(player),
+        "the recalled budget fixture safely hands back its native view")
+    SC.ExpeditionRoute.plan, SC.Navigation.findPath, SC.Senses.cached,
+        SC.BaseLife = oldPlan, oldFind, oldSenses, oldBase
+    reserve.getCurrentSquare, getWorld = oldSquare, oldWorld
 end)()
 
 print("EXPEDITION_RESTART_KAHLUA_PASS checks=" .. tostring(checks))
