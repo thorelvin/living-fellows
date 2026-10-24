@@ -719,7 +719,67 @@ local function abandonToWalking(mission, trip, car)
     return true
 end
 
-local function stopAndUnload(mission, trip, car)
+local function unloadOwnership(mission, trip, car)
+    local identityOk, sqlId = call(car, "getSqlId")
+    if not identityOk or tonumber(sqlId) ~= trip.sqlId then
+        return false, "car_identity_changed"
+    end
+    if SC.Vehicle.hasPlayerAboard and SC.Vehicle.hasPlayerAboard(car) then
+        return false, "player_aboard"
+    end
+    local countOk, count = call(car, "getMaxPassengers")
+    count = countOk and finite(count) or nil
+    if not count or count < 1 or count > 32 then return false, "seats_unreadable" end
+    for seat = 0, count - 1 do
+        local occupiedOk, occupant = call(car, "getCharacter", seat)
+        if not occupiedOk then return false, "seat_unreadable" end
+        if occupant ~= nil then
+            local owned = false
+            for _, member in ipairs(mission.roster or {}) do
+                if member.actor == occupant and mission.members[occupant]
+                    and trip.seats[member.id] == seat then owned = true break end
+            end
+            if not owned then return false, "car_has_other_occupants" end
+        end
+    end
+    return true
+end
+
+local function stopOwnedEngine(mission, trip, car, now)
+    local owned, ownershipReason = unloadOwnership(mission, trip, car)
+    if not owned then return false, ownershipReason end
+    local runningOk, running = call(car, "isEngineRunning")
+    local startedOk, started = call(car, "isEngineStarted")
+    if not runningOk or type(running) ~= "boolean" or not startedOk
+        or type(started) ~= "boolean" then return false, "engine_state_unreadable" end
+    if not running and not started then
+        if trip.engineStopAttempts then traceTrip(trip, "engine_stopped") end
+        trip.engineStopAttempts, trip.engineStopAt = nil, nil
+        return true
+    end
+    now = now or (SC.GameplayUtil.nowMs and SC.GameplayUtil.nowMs()) or 0
+    if (trip.engineStopAttempts or 0) >= 3 then return false, "engine_shutdown_failed" end
+    if trip.engineStopAt and now - trip.engineStopAt < 2000 then
+        return false, "engine_shutdown_pending"
+    end
+    trip.engineStopAttempts, trip.engineStopAt = (trip.engineStopAttempts or 0) + 1, now
+    -- Vanilla's engine-off action has zero duration and calls this same API.
+    -- Releasing the wheel only parks the controller; exiting leaves it running.
+    local stopped, accepted = call(car, "shutOff")
+    if not stopped or accepted == false then return false, "engine_shutdown_failed" end
+    runningOk, running = call(car, "isEngineRunning")
+    startedOk, started = call(car, "isEngineStarted")
+    if runningOk and startedOk and running == false and started == false then
+        traceTrip(trip, "engine_stopped")
+        trip.engineStopAttempts, trip.engineStopAt = nil, nil
+        return true
+    end
+    return false, "engine_shutdown_pending"
+end
+
+local function stopAndUnload(mission, trip, car, now)
+    local owned, ownershipReason = unloadOwnership(mission, trip, car)
+    if not owned then return false, ownershipReason end
     local leader = mission.leader and mission.leader.actor
     if leader and SC.Driving.isDriving(leader) then
         local stopped, why = SC.Driving.release(leader, "expedition_unload")
@@ -727,6 +787,8 @@ local function stopAndUnload(mission, trip, car)
     end
     local stationary, why = SC.Vehicle.isStationary(car)
     if not stationary then return false, why or "car_not_stopped" end
+    local engineStopped, engineReason = stopOwnedEngine(mission, trip, car, now)
+    if not engineStopped then return false, engineReason end
     for _, member in ipairs(mission.roster) do
         if member.actor and mission.members[member.actor] then
             local seated, current, seat = SC.Vehicle.isNativeSeated(member.actor)
@@ -797,9 +859,19 @@ function Car.recoverDeadDriver(mission)
             end
         end
     end
+    if car and (#seated > 0 or not alreadyWalking) then
+        local owned, ownershipReason = unloadOwnership(mission, trip, car)
+        if not owned and #seated > 0 then return false, ownershipReason end
+        -- With no living crew aboard, a player takeover ends our authority;
+        -- otherwise even an all-dead trip leaves its own car switched off.
+        if owned then
+            local stationary, why = SC.Vehicle.isStationary(car)
+            if not stationary then return false, why or "car_not_stopped" end
+            local engineStopped, engineReason = stopOwnedEngine(mission, trip, car)
+            if not engineStopped then return false, engineReason end
+        end
+    end
     if #seated > 0 then
-        local stationary, why = SC.Vehicle.isStationary(car)
-        if not stationary then return false, why or "car_not_stopped" end
         for _, passenger in ipairs(seated) do
             local exited, reason = SC.Vehicle.exit(passenger.actor, car,
                 passenger.seat, { expedition = true })
@@ -1492,7 +1564,7 @@ function Car.pulse(mission, now, worldHour)
     if trip.state == "unloading_site" or trip.state == "unloading_home"
         or trip.state == "boarding_rollback"
         or trip.state == "fallback_unloading" then
-        local unloaded, why = stopAndUnload(mission, trip, car)
+        local unloaded, why = stopAndUnload(mission, trip, car, now)
         if not unloaded then
             trip.blocker = why
             return true

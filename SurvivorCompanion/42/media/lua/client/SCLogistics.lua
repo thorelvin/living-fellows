@@ -648,6 +648,19 @@ local function notRealGear(item)
     return false
 end
 
+-- A camp supply request includes stock beyond this carrier's own loadout.
+-- Keep the broad request limited to the expedition's real supply categories;
+-- miscellaneous objects, valuables and rubbish gain no new loot permission.
+local usefulSupplyCategories = {
+    food = true, water = true, medicine = true, weapon = true,
+    ammunition = true, tools = true, construction = true, crafting = true,
+    farming = true, clothing = true, container = true, literature = true,
+}
+local function requestedSupplyMatches(requestedCategory, category)
+    return requestedCategory ~= nil and (requestedCategory == category
+        or requestedCategory == "useful" and usefulSupplyCategories[category] == true)
+end
+
 function Logistics.canTake(actor, item, category, audit, requestedCategory)
     if not actor or not item then return false, "invalid_loot" end
     if notRealGear(item) then return false, "not_real_gear" end
@@ -679,7 +692,7 @@ function Logistics.canTake(actor, item, category, audit, requestedCategory)
     if target <= 0 or (audit.counts[category] or 0) >= target then
         -- A finite expedition request can exceed this survivor's personal
         -- loadout target. The request never overrides the real carry limit.
-        if requestedCategory ~= nil and requestedCategory == category then
+        if requestedSupplyMatches(requestedCategory, category) then
             if audit.capacity > 0 and audit.weight + U().itemWeight(item)
                 > audit.capacity * audit.hardRatio then
                 return false, "loadout_too_heavy"
@@ -824,7 +837,7 @@ function Logistics.itemNeedScore(actor, item, commands, audit)
     local tier = Logistics.needTier(actor, category, audit, held >= target)
     local score = tier + 22 + deficit * 64
         + ((roleWeights[audit.role] or {})[category] or 0)
-    if requestedCategory ~= nil and requestedCategory == category then
+    if requestedSupplyMatches(requestedCategory, category) then
         score = math.max(score, TIER.useful + 20)
     end
     -- Crafting material is always worth the space it takes. The base can

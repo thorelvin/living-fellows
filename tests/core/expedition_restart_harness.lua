@@ -1452,6 +1452,20 @@ for index, actor in ipairs({ reserve, scouts[1], scouts[2] }) do
             "a member who just looted yields the next search turn")
     end
     if index == 1 then
+        check(not expedition.noteSearchWorkerFailure(scouts[1], "older-trip",
+                "nothing_needed")
+                and expedition.noteSearchWorkerFailure(scouts[1], teamSession,
+                    "nothing_needed")
+                and expedition.noteSearchWorkerFailure(scouts[2], teamSession,
+                    "approach_timeout")
+                and expedition.testSearchFor(reserve)
+                and not expedition.testSearchFor(scouts[1])
+                and not expedition.testSearchFor(scouts[2]),
+            "empty or blocked searchers yield immediately to a productive carrier")
+        scoutClock = scoutClock + 30001
+        check(expedition.testSearchFor(scouts[1])
+                and not expedition.testSearchFor(reserve),
+            "empty searchers rejoin fairly after their bounded retry pause")
         scoutClock = scoutClock + 60001
         check(expedition.testSearchFor(reserve),
             "a quiet search lets a previous carrier resume after sixty seconds")

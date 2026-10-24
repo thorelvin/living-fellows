@@ -2433,6 +2433,10 @@ function Expedition.testSearchFor(actor)
     -- Give every squad member a first chance at the supplies when the request
     -- is large enough. If a member cannot find a usable container, the others
     -- resume after a short quiet interval rather than waiting until deadline.
+    local clock = SC.GameplayUtil and SC.GameplayUtil.nowMs
+    local current = type(clock) == "function" and clock() or 0
+    local failures = search.workerFailures or {}
+    if current < (failures[member.id] or 0) then return false end
     local counts, living, smallest = {}, 0, math.huge
     for _, record in ipairs(mission.roster) do
         if alive(record) and (mission.survivors == nil
@@ -2445,9 +2449,6 @@ function Expedition.testSearchFor(actor)
         -- A one-item request does not need the entire squad crowding a
         -- cupboard. Let only as many companions search as items remain, and
         -- hand the turn to another carrier after a blocked approach.
-        local current = SC.GameplayUtil and SC.GameplayUtil.nowMs
-            and SC.GameplayUtil.nowMs() or 0
-        local failures = search.workerFailures or {}
         local eligible = {}
         for _, record in ipairs(mission.roster) do
             if counts[record.id] ~= nil
@@ -2475,23 +2476,25 @@ function Expedition.testSearchFor(actor)
             counts[receipt.memberId] = counts[receipt.memberId] + 1
         end
     end
-    for _, count in pairs(counts) do smallest = math.min(smallest, count) end
+    for id, count in pairs(counts) do
+        if current >= (failures[id] or 0) then
+            smallest = math.min(smallest, count)
+        end
+    end
     if counts[member.id] <= smallest then return true end
-    local clock = SC.GameplayUtil and SC.GameplayUtil.nowMs
-    local current = type(clock) == "function" and clock() or nil
-    if current ~= nil and search.lastAcquisitionAt == nil then
+    if search.lastAcquisitionAt == nil then
         -- Receipt history persists; the short fairness timer starts anew after
         -- a save reload instead of blocking an eligible carrier forever.
         search.lastAcquisitionAt = current
     end
-    return current ~= nil and search.lastAcquisitionAt ~= nil
-        and current - search.lastAcquisitionAt >= 60000
+    return current - search.lastAcquisitionAt >= 60000
 end
 
 function Expedition.noteSearchWorkerFailure(actor, missionId, reason)
     if not mission or mission.terminal or mission.radioSession ~= missionId
         or reason ~= "approach_timeout"
-            and reason ~= "no_interaction_targets" then return false end
+            and reason ~= "no_interaction_targets"
+            and reason ~= "nothing_needed" then return false end
     local member = missionRecordForActor(actor)
     local search = mission.scout and mission.scout.search
     if not member or not search or mission.scout.phase ~= "searching" then
@@ -3200,6 +3203,13 @@ startReturnFromSite = function(itinerary, reason)
         end
     end
     if itinerary.search ~= nil then
+        if SC.GameplayUtil and type(SC.GameplayUtil.diagnostic) == "function" then
+            SC.GameplayUtil.diagnostic("expedition-site-search", mission.leader.actor,
+                "action=finished reason=" .. tostring(reason)
+                    .. " category=" .. tostring(itinerary.search.request.category)
+                    .. " collected=" .. tostring(#itinerary.search.acquisitions)
+                    .. " requested=" .. tostring(itinerary.search.request.quantity))
+        end
         itinerary.search.endReason = reason
         if SC.Encounter and type(SC.Encounter.cancelScavenge) == "function" then
             for _, member in ipairs(mission.roster) do
@@ -3399,7 +3409,9 @@ local function beginSearchAtSite(scout, now)
     end
     if type(SC.GameplayUtil.diagnostic) == "function" then
         SC.GameplayUtil.diagnostic("expedition-site-search", mission.leader.actor,
-            "action=first_search site=" .. tostring(scout.site and scout.site.id))
+            "action=first_search site=" .. tostring(scout.site and scout.site.id)
+                .. " category=" .. tostring(scout.search.request.category)
+                .. " requested=" .. tostring(scout.search.request.quantity))
     end
     return true
 end

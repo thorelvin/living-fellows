@@ -19,6 +19,7 @@ SC.BaseLife = {
 SC.Registry = { idOf = function(actor) return actor.id end }
 SC.Actor = { isCompanion = function(actor) return actor and actor.id ~= nil end }
 SC.GameplayUtil = {
+    nowMs = function() return T.now end,
     position = function(actor) return actor.x, actor.y, actor.z end,
     nativeHealth = function() return T.health or 100 end,
     inventory = function(actor) return actor and actor.inventory end,
@@ -70,6 +71,8 @@ SC.Vehicle = {
     end,
     exit = function(actor)
         if T.exitBlocked == actor.seat then return false, "exit_blocked" end
+        assert(not actor.car or (not actor.car.engine and not actor.car.starting),
+            "the engine must stop before an expedition member exits")
         if actor.car then actor.car.occupied[actor.seat] = nil end
         actor.car, actor.seat = nil, nil
         return true
@@ -88,13 +91,14 @@ SC.Driving = {
         end
         return false
     end,
-    drive = function(_, goal, options)
+    drive = function(actor, goal, options)
         if T.startBlocked then return false, "start_failed" end
         if T.deferDrive then
             T.deferDrive = false
             return false, "deferred:urgent_action_pending"
         end
         T.driveCalls = T.driveCalls + 1
+        if actor.car then actor.car.engine = true end
         T.lastGoal, T.lastDriveOptions = goal, options
         return true
     end,
@@ -172,6 +176,13 @@ function T.car(id, x, y)
         return seat < (T.installedSeats or 4)
     end
     function car:getCharacter(seat) return self.occupied[seat] end
+    function car:isEngineRunning() return self.engine == true end
+    function car:isEngineStarted() return self.starting == true end
+    function car:shutOff()
+        self.engineStops = (self.engineStops or 0) + 1
+        if self.stopError then error("engine shutdown failed") end
+        if not self.stopDelayed then self.engine, self.starting = false, false end
+    end
     function car:getPartById() return part end
     function car:getPoly()
         local inset = T.polyOffset or 0

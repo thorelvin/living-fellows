@@ -8,6 +8,9 @@ names remain visible during speech.
 Fishing expedition leaders collect rods and bait from shared camp storage
 before departure, retry missing supplies automatically, and keep their gear
 reserved for the trip. Expedition messages display companion names.
+Store searches cover the selected building and collect requested camp stock
+beyond personal supply targets. Cars are switched off before the crew exits,
+including when a blocked parking approach requires returning on foot.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added

@@ -1030,7 +1030,15 @@ function Encounter.blindContainerScore(actor, container, owner, commands, needs)
     -- garages hold tools. Reuses the affinity the weapon search already had.
     local wanted = Encounter._wantedCategories(actor, commands, needs)
     score = score + Encounter._roomAffinityBonus(container, owner, wanted)
-    score = score - ownerDistance(actor, owner) * 1.5
+    local distance = ownerDistance(actor, owner)
+    if commands and commands.scavengeMissionId ~= nil
+        and commands.scavengeSite and commands.scavengeSite.buildingId then
+        -- Distance ranks shelves within the selected building; it must not
+        -- make the far side of that building worthless before it is opened.
+        score = score / (1 + distance * 0.075)
+    else
+        score = score - distance * 1.5
+    end
     return score
 end
 
@@ -1218,7 +1226,13 @@ scoreContainer = function(actor, container, needs, objectives, commands, audit, 
             bestItem, bestCategory, bestScore = item, category, score
         end
     end, start)
-    bestScore = bestScore - ownerDistance(actor, owner) * 1.5
+    local distance = ownerDistance(actor, owner)
+    if commands and commands.scavengeMissionId ~= nil
+        and commands.scavengeSite and commands.scavengeSite.buildingId then
+        bestScore = bestScore / (1 + distance * 0.075)
+    else
+        bestScore = bestScore - distance * 1.5
+    end
     return bestScore, bestItem, bestCategory, owner, complete
 end
 
@@ -1249,6 +1263,27 @@ local function scavengeOffsets(radius, budget, phase)
     return offsets
 end
 
+local function siteSearchAxes(site, x, y)
+    local id = site and site.buildingId
+    if type(id) ~= "string" then return nil end
+    local x1, y1, x2, y2 = id:match("^(%d+):(%d+):(%d+):(%d+)$")
+    x1, y1, x2, y2 = tonumber(x1), tonumber(y1), tonumber(x2), tonumber(y2)
+    -- Match the planner's validated maximum footprint. Membership is still
+    -- checked against the live selected building before reading world objects.
+    if not x1 or x1 < 0 or y1 < 0 or x2 > 30000 or y2 > 30000
+        or x2 <= x1 or y2 <= y1 or x2 - x1 > 80 or y2 - y1 > 80 then return nil end
+    local function axis(low, high, origin)
+        local centre = math.max(low, math.min(high, math.floor(origin)))
+        local values = { centre }
+        for distance = 1, high - low do
+            if centre + distance <= high then values[#values + 1] = centre + distance end
+            if centre - distance >= low then values[#values + 1] = centre - distance end
+        end
+        return values
+    end
+    return axis(x1, x2, x), axis(y1, y2, y)
+end
+
 local function newContainerSearch(actor, state, allowCorpses, current,
         radius, budget, site, siteRadius)
     local ax, ay, az = U().position(actor)
@@ -1256,6 +1291,7 @@ local function newContainerSearch(actor, state, allowCorpses, current,
     local offsets = scavengeOffsets(radius, budget, state.scanPhase)
     local scanFloors = { az }
     local siteId = site and site.buildingId or nil
+    local columns, rows = siteSearchAxes(site, ax, ay)
     if siteId ~= nil and SC.ExpeditionPlaces
         and type(SC.ExpeditionPlaces.siteFloors) == "function" then
         local floors = SC.ExpeditionPlaces.siteFloors(siteId)
@@ -1277,8 +1313,9 @@ local function newContainerSearch(actor, state, allowCorpses, current,
         siteId = site and site.buildingId or nil,
         siteRadius = site and siteRadius or nil,
         offsets = offsets,
+        siteColumns = columns, siteRows = rows,
         scanFloors = scanFloors,
-        total = #offsets * #scanFloors,
+        total = (columns and #columns * #rows or #offsets) * #scanFloors,
         index = 1,
         candidates = {},
         seenContainers = setmetatable({}, { __mode = "k" }),
@@ -1294,6 +1331,9 @@ local function containerSearchInvalid(job, actor, allowCorpses,
         or job.siteZ ~= (site and site.z or nil)
         or job.siteId ~= (site and site.buildingId or nil)
         or job.siteRadius ~= (site and siteRadius or nil) then return true end
+    -- A selected-site cursor follows that footprint as the actor walks between
+    -- shelves or floors; restarting it on every short walk loses remote rooms.
+    if job.siteColumns then return false end
     local ax, ay, az = U().position(actor)
     if ax == nil or az ~= job.originZ then return true end
     local dx, dy = ax - job.originX, ay - job.originY
@@ -1359,7 +1399,13 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
             radius, budget, site, siteRadius)
         state.containerSearch = job
     end
+    if job.siteColumns and #job.candidates > 0 then
+        local candidates = job.candidates
+        job.candidates = {}
+        return candidates, true, job.index - 1, job.total, job.index > job.total
+    end
     local requested = math.max(0, job.total - job.index + 1)
+    if job.siteColumns then requested = math.min(requested, budget) end
     local granted = requested
     if SC.Performance and type(SC.Performance.claimUnits) == "function" then
         granted = SC.Performance.claimUnits("scavengeSquares", requested, false)
@@ -1370,15 +1416,22 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
         local offsetIndex = math.floor((job.index - 1) / #job.scanFloors) + 1
         local floorIndex = (job.index - 1) % #job.scanFloors + 1
         local offset = job.offsets[offsetIndex]
+        local scanX, scanY
+        if job.siteColumns then
+            local column = (offsetIndex - 1) % #job.siteColumns + 1
+            local row = math.floor((offsetIndex - 1) / #job.siteColumns) + 1
+            scanX, scanY = job.siteColumns[column], job.siteRows[row]
+        else
+            scanX, scanY = job.originX + offset.x, job.originY + offset.y
+        end
         local scanZ = job.scanFloors[floorIndex]
         job.index = job.index + 1
         processed = processed + 1
         local siteNear = site == nil or siteId ~= nil or (site.z == job.originZ
-            and (site.x - (job.originX + offset.x))^2
-                + (site.y - (job.originY + offset.y))^2
+            and (site.x - scanX)^2 + (site.y - scanY)^2
                     <= siteRadius * siteRadius)
         local square = siteNear and utility.gridSquare(
-            job.originX + offset.x, job.originY + offset.y, scanZ)
+            scanX, scanY, scanZ)
             or nil
         if square and siteNear and inSelectedSite(siteId, square)
             and (commands.scavengeMissionId == nil
@@ -1425,11 +1478,17 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
         if SC.Performance and type(SC.Performance.markYield) == "function" then
             SC.Performance.markYield("scavenge.scan", utility.idOf(actor), processed)
         end
-        return nil, false, job.index - 1, job.total
+        if job.siteColumns and #job.candidates > 0 then
+            local candidates = job.candidates
+            job.candidates = {}
+            return candidates, true, job.index - 1, job.total, false
+        end
+        return nil, false, job.index - 1, job.total, false
     end
     local candidates = job.candidates
-    state.containerSearch = nil
-    return candidates, true, job.total, job.total
+    job.candidates = {}
+    if not job.siteColumns or #candidates == 0 then state.containerSearch = nil end
+    return candidates, true, job.total, job.total, job.siteColumns ~= nil
 end
 
 local function safeForScavenging(snapshot, commands)
@@ -1819,7 +1878,7 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
     end
 
     if not selection then
-        local candidates, complete, progress, total = candidateContainers(
+        local candidates, complete, progress, total, sitePassComplete = candidateContainers(
             actor, player, state, allowCorpses, time, commands)
         if not complete then
             state.lastStatus = {
@@ -1831,11 +1890,13 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
         end
         selection = {
             candidates = candidates or {}, index = 1,
+            deferredCandidates = {},
             commandSerial = tonumber(commands.commandSerial) or 0,
             prioritizeMeleeWeapon = commands.prioritizeMeleeWeapon == true,
             scavengeRequestedCategory = commands.scavengeRequestedCategory,
             scavengeMissionId = commands.scavengeMissionId,
             scavengeTargetContainer = commands.scavengeTargetContainer,
+            sitePassComplete = sitePassComplete,
         }
         state.selectionJob = selection
     end
@@ -1887,12 +1948,15 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
             if item and score > 0 then
                 if selection.bestScore == nil or score > selection.bestScore then
                     if selection.bestContainer and selection.bestContainer ~= container then
+                        selection.deferredCandidates[#selection.deferredCandidates + 1] =
+                            selection.bestContainer
                         releaseContainer(selection.bestContainer, actor)
                     end
                     selection.bestContainer, selection.bestItem, selection.bestCategory,
                         selection.bestOwner, selection.bestScore =
                         container, item, category, owner, score
                 else
+                    selection.deferredCandidates[#selection.deferredCandidates + 1] = container
                     releaseContainer(container, actor)
                 end
             elseif complete then
@@ -1921,7 +1985,20 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
         return nil, "searching"
     end
     state.selectionJob = nil
-    if not selection.bestContainer or not selection.bestItem then return nil, "nothing_needed" end
+    if state.containerSearch and state.containerSearch.siteColumns then
+        for _, container in ipairs(selection.deferredCandidates) do
+            state.containerSearch.candidates[#state.containerSearch.candidates + 1] = container
+        end
+    end
+    if not selection.bestContainer or not selection.bestItem then
+        if selection.sitePassComplete and commands.scavengeMissionId ~= nil
+            and SC.ExpeditionPrototype
+            and type(SC.ExpeditionPrototype.noteSearchWorkerFailure) == "function" then
+            SC.ExpeditionPrototype.noteSearchWorkerFailure(actor,
+                commands.scavengeMissionId, "nothing_needed")
+        end
+        return nil, "nothing_needed"
+    end
     return beginTask(actor, state, selection.bestContainer, selection.bestItem,
         selection.bestCategory, selection.bestOwner, selection.bestScore,
         commands, audit, time)

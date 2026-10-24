@@ -186,6 +186,13 @@ try {
             )
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @encounterHandoffFiles
             if ($LASTEXITCODE -ne 0) { throw 'Encounter work handoff regression harness failed.' }
+            $expeditionContainerFiles = @(
+                (Join-Path $SharedRoot 'SCNamespace.lua'),
+                (Join-Path $ClientRoot 'SCEncounter.lua'),
+                (Join-Path $TestRoot 'expedition_container_search_harness.lua')
+            )
+            & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @expeditionContainerFiles
+            if ($LASTEXITCODE -ne 0) { throw 'Expedition store container discovery regression harness failed.' }
             $decisionArbitrationFiles = @(
                 (Join-Path $SharedRoot 'SCNamespace.lua'),
                 (Join-Path $SharedRoot 'SCCall.lua'),
@@ -195,6 +202,13 @@ try {
             )
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @decisionArbitrationFiles
             if ($LASTEXITCODE -ne 0) { throw 'Decision arbitration regression harness failed.' }
+            $supplyPolicyFiles = @(
+                (Join-Path $SharedRoot 'SCNamespace.lua'),
+                (Join-Path $ClientRoot 'SCLogistics.lua'),
+                (Join-Path $TestRoot 'supply_policy_harness.lua')
+            )
+            & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @supplyPolicyFiles
+            if ($LASTEXITCODE -ne 0) { throw 'Expedition supply policy regression harness failed.' }
             $readingSessionFiles = @(
                 (Join-Path $SharedRoot 'SCNamespace.lua'),
                 (Join-Path $SharedRoot 'SCCall.lua'),

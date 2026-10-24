@@ -641,4 +641,122 @@ T.team[2].actor = casualty
 T.mission.members[casualty] = true
 T.mission.survivors = nil
 T.cars = { unloadedCar }
+
+do
+    local car = T.cars[1]
+    local function seatedTrip(state, leg)
+        local trip = freshTrip(state, leg)
+        car.occupied, car.engine, car.starting = {}, true, false
+        for index, member in ipairs(T.team) do
+            member.actor.car, member.actor.seat = car, index - 1
+            car.occupied[index - 1] = member.actor
+        end
+        return trip
+    end
+    local unrelated = T.car(99, 108, 108)
+    unrelated.engine = true
+    T.cars[2] = unrelated
+    for index, state in ipairs({ "unloading_site", "unloading_home",
+        "fallback_unloading", "boarding_rollback" }) do
+        local trip = seatedTrip(state, state == "unloading_site" and "outbound" or "home")
+        local stops = car.engineStops or 0
+        check(Car.pulse(T.mission, 700000 + index * 10000)
+                and car.engine == false and car.engineStops == stops + 1
+                and T.team[1].actor.car == nil and T.team[2].actor.car == nil,
+            state .. " switches off the exact expedition car before any member exits")
+        check(trip.state == (state == "unloading_site" and "parked_at_site"
+                or state == "unloading_home" and "home_wait" or "abandoned"),
+            state .. " completes only after verified engine shutdown and exits")
+    end
+    check(unrelated.engine and not unrelated.engineStops,
+        "unloading never shuts off another parked car")
+    T.cars[2] = nil
+
+    local delayed = seatedTrip("unloading_home", "home")
+    car.stopDelayed = true
+    local stops = car.engineStops or 0
+    check(Car.pulse(T.mission, 750000) and delayed.state == "unloading_home"
+            and delayed.blocker == "engine_shutdown_pending"
+            and car.engineStops == stops + 1 and T.team[1].actor.car == car
+            and T.team[2].actor.car == car,
+        "a shutdown request that has not taken effect retains the whole seated crew")
+    check(Car.pulse(T.mission, 750500) and car.engineStops == stops + 1,
+        "engine shutdown does not repeat every frame while waiting")
+    car.occupied[2] = { id = "player" }
+    check(Car.pulse(T.mission, 753000) and car.engineStops == stops + 1
+            and car.engine and delayed.state == "unloading_home",
+        "a player boarding during shutdown revokes further engine-control authority")
+    car.occupied[2] = nil
+    car.engine, car.stopDelayed = false, nil
+    check(Car.pulse(T.mission, 754000) and delayed.state == "home_wait"
+            and car.engineStops == stops + 1,
+        "an observed eventual shutdown completes unloading without another effect")
+
+    local starting = seatedTrip("boarding_rollback", "home")
+    car.engine, car.starting = false, true
+    stops = car.engineStops or 0
+    check(Car.pulse(T.mission, 760000) and starting.state == "abandoned"
+            and car.starting == false and car.engineStops == stops + 1,
+        "a starting engine is switched off even though isEngineRunning is false")
+
+    local failed = seatedTrip("fallback_unloading", "home")
+    car.stopError = true
+    stops = car.engineStops or 0
+    for index = 1, 3 do Car.pulse(T.mission, 770000 + index * 2000) end
+    check(Car.pulse(T.mission, 790000) and car.engineStops == stops + 3
+            and failed.state == "fallback_unloading"
+            and failed.blocker == "engine_shutdown_failed"
+            and T.team[1].actor.car == car and T.team[2].actor.car == car,
+        "failed native shutdown has three spaced attempts and cannot falsely finish or burst forever")
+    car.engine, car.stopError = false, nil
+    check(Car.pulse(T.mission, 791000) and failed.state == "abandoned",
+        "external engine recovery unblocks a retained failed unload")
+
+    local unreadable = seatedTrip("unloading_home", "home")
+    local engineProbe = car.isEngineRunning
+    car.isEngineRunning = function() return nil end
+    stops = car.engineStops or 0
+    check(Car.pulse(T.mission, 800000) and unreadable.state == "unloading_home"
+            and unreadable.blocker == "engine_state_unreadable"
+            and (car.engineStops or 0) == stops and T.team[1].actor.car == car,
+        "unreadable engine state fails closed without calling shutdown or exiting")
+    car.isEngineRunning = engineProbe
+    T.ready = false
+    check(Car.pulse(T.mission, 801000) and (car.engineStops or 0) == stops
+            and T.team[1].actor.car == car,
+        "a moving car is never switched off as part of unloading")
+    T.ready = true
+    local playerDriver = { id = "player-driver" }
+    car.occupied[0] = playerDriver
+    check(Car.pulse(T.mission, 802000) and car.engine
+            and (car.engineStops or 0) == stops,
+        "a replacement driver prevents shutdown of a car no longer owned by the crew")
+    car.occupied[0] = T.team[1].actor
+    Car.pulse(T.mission, 803000)
+
+    local wrongIdentity = seatedTrip("unloading_home", "home")
+    local loader = SC.Vehicle.loadedBySqlId
+    SC.Vehicle.loadedBySqlId = function() return unrelated end
+    check(Car.pulse(T.mission, 804000) and wrongIdentity.state == "unloading_home"
+            and wrongIdentity.blocker == "car_identity_changed"
+            and unrelated.engine and not unrelated.engineStops,
+        "a resolver returning the wrong vehicle identity cannot stop that vehicle")
+    SC.Vehicle.loadedBySqlId = loader
+    Car.pulse(T.mission, 805000)
+
+    local dead = seatedTrip("driving_home", "home")
+    local aliveDriver, alivePassenger = T.team[1].actor.isDead, T.team[2].actor.isDead
+    T.team[1].actor.isDead = function() return true end
+    check(Car.recoverDeadDriver(T.mission) and dead.state == "abandoned"
+            and car.engine == false and T.team[2].actor.car == nil,
+        "dead-driver recovery switches off the owned car before its living passenger exits")
+    local allDeadTrip = seatedTrip("driving_out")
+    T.team[2].actor.isDead = function() return true end
+    check(Car.recoverDeadDriver(T.mission) and allDeadTrip.state == "abandoned"
+            and car.engine == false,
+        "all-dead trip cleanup still switches off its own unattended car")
+    T.team[1].actor.isDead, T.team[2].actor.isDead = aliveDriver, alivePassenger
+    for _, member in ipairs(T.team) do member.actor.car, member.actor.seat = nil, nil end
+    car.occupied = {}
+end
 print("EXPEDITION_CAR_PASS checks=" .. checks)
