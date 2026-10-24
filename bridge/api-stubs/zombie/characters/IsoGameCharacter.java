@@ -49,6 +49,12 @@ public class IsoGameCharacter extends IsoMovingObject {
     public boolean canStandAt(float x, float y, float z) { return false; }
     public IsoCell getCell() { return null; }
     public BodyDamage getBodyDamage() { return null; }
+    public Stats getStats() { return null; }
+    public zombie.characters.traits.CharacterTraits getCharacterTraits() { return null; }
+    public double getFatiqueMultiplier() { return 1.0; }
+    public boolean isSitting() { return false; }
+    public boolean isResting() { return false; }
+    public boolean isGodMod() { return false; }
     public ActionContext getActionContext() { return null; }
     public java.util.Stack<BaseAction> getCharacterActions() { return characterActions; }
     public void StartAction(BaseAction action) { characterActions.add(action); }

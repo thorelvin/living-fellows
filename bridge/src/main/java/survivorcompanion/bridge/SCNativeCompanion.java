@@ -2378,6 +2378,10 @@ public final class SCNativeCompanion extends IsoPlayer {
                 updatePlayerActionGroup();
             }
             updateGenericCharacter();
+            // WakeState only updates IsoPlayer.getInstance() in single-player.
+            // Advance this non-local actor's fatigue once, without running the
+            // full player awake/input update or duplicating hunger/thirst.
+            SCCompanionFatigue.update(this);
             bridgeComfort.afterUpdate(getBodyDamage());
             advanceBridgePath();
             consumeBridgeDeferredMovement();

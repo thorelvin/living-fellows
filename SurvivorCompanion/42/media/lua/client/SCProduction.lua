@@ -37,7 +37,7 @@ local Disposal = { urgentAt = {} }
 local TOOL_TAGS = { choptree = "CHOP_TREE", saw = "SAW", diggrave = "DIG_GRAVE" }
 -- Shovels with DIG_PLOW are sorted into Farming supplies, but the same
 -- physical shovel carries DIG_GRAVE. Earthwork must search that shelf too.
-local TOOL_CATEGORIES = { "tools", "farming", "construction", "crafting", "general" }
+local TOOL_CATEGORIES = { "tools", "farming", "construction", "crafting", "general", "weapons" }
 local SPEECH = {
     ["work.fell.start"] = { chance = 35, actorMs = 45000 },
     ["work.fell.timber"] = { chance = 60, actorMs = 20000 },
@@ -732,12 +732,21 @@ local function orderHasUnsettledWork(orderId)
 end
 
 function Production.canCompleteOrder(orderId)
-    return not orderHasUnsettledWork(orderId)
+    if orderHasUnsettledWork(orderId) then return false end
+    local base = SC.BaseLife.active()
+    for _, job in ipairs(base and base.jobs or {}) do
+        if job.type == "production" and type(job.target) == "table"
+            and job.target.orderId == orderId and job.target.productionTools then return false end
+    end
+    return true
 end
 
 local function completeOrder(order, result)
     if orderHasUnsettledWork(order.id) then
         return true, "production_order_settling", false
+    end
+    if Disposal.queueOrderToolReturns and Disposal.queueOrderToolReturns(order, result) then
+        return true, "production_tool_return_pending", false
     end
     if order.operation == "fell_trees" and type(order.settings) == "table"
         and order.settings.haulLogs == true and (tonumber(order.pendingHaul) or 0) > 0 then
@@ -934,7 +943,8 @@ local function findInventoryTool(actor, key, state)
     if not SC.PersonalItems or type(SC.PersonalItems.walkActorInventory) ~= "function" then
         local best
         for _, item in ipairs(U().inventoryItems(root, 256)) do
-            if hasToolTag(item, key) and notBroken(item) and not protectedItem(item, actor)
+            if hasToolTag(item, key) and notBroken(item)
+                and (not protectedItem(item, actor) or Disposal.ownsTool(actor, item, key, state))
                 and betterTool(item, best, key) then best = item end
         end
         return best, best and "found" or "absent"
@@ -942,7 +952,8 @@ local function findInventoryTool(actor, key, state)
     if state == nil then
         local best
         SC.PersonalItems.walkActorInventory(actor, function(item)
-            if hasToolTag(item, key) and notBroken(item) and not protectedItem(item, actor)
+            if hasToolTag(item, key) and notBroken(item)
+                and (not protectedItem(item, actor) or Disposal.ownsTool(actor, item, key, state))
                 and betterTool(item, best, key) then best = item end
         end, { budget = math.huge })
         return best, best and "found" or "absent"
@@ -954,7 +965,8 @@ local function findInventoryTool(actor, key, state)
     end
     local budget = math.max(1, math.floor(config("campStorageItemBudget", 80)))
     local _, complete = SC.PersonalItems.walkActorInventory(actor, function(item)
-        if hasToolTag(item, key) and notBroken(item) and not protectedItem(item, actor)
+        if hasToolTag(item, key) and notBroken(item)
+            and (not protectedItem(item, actor) or Disposal.ownsTool(actor, item, key, state))
             and betterTool(item, scan.best, key) then scan.best = item end
     end, { budget = budget, skip = scan.cursor })
     if complete ~= true then
@@ -969,36 +981,71 @@ local function findInventoryTool(actor, key, state)
     return best, "found", stageReason
 end
 
-local function toolSource(actor, key)
-    local bestStorage, bestContainer, bestItem
-    for _, category in ipairs(TOOL_CATEGORIES) do
-        for _, storage in ipairs(SC.BaseLife.storageRows(category, true)) do
-            local container = SC.BaseLife.resolveContainer(storage)
-            if container then
-                for _, item in ipairs(storageItemSlice(container)) do
-                    if hasToolTag(item, key) and notBroken(item) and not protectedItem(item, actor)
-                        and sourceItemAvailable(storage, U().itemType(item))
-                        and betterTool(item, bestItem, key) then
-                        bestStorage, bestContainer, bestItem = storage, container, item
-                    end
-                end
+local function toolSource(actor, key, state)
+    state = state or {}
+    local scan = state.toolSourceScan
+    if not scan or scan.key ~= key then
+        scan = { key = key, rows = {}, row = 1, index = 0 }
+        for _, category in ipairs(TOOL_CATEGORIES) do
+            for _, storage in ipairs(SC.BaseLife.storageRows(category, true)) do
+                scan.rows[#scan.rows + 1] = storage
+            end
+        end
+        state.toolSourceScan = scan
+    end
+    local work, budget = 0, math.max(1, math.floor(config("campStorageItemBudget", 80)))
+    while scan.row <= #scan.rows and work < budget do
+        local storage = scan.rows[scan.row]
+        local container = SC.BaseLife.resolveContainer(storage)
+        local list, readable
+        if container then list, readable = U().call(container, "getItems") end
+        if not readable then list = type(container) == "table" and container.items or nil end
+        if list == nil then
+            scan.incomplete = true
+            scan.row, scan.index, work = scan.row + 1, 0, work + 1
+        elseif scan.index >= U().listSize(list) then
+            scan.row, scan.index, work = scan.row + 1, 0, work + 1
+        else
+            local item = U().listGet(list, scan.index)
+            scan.index, work = scan.index + 1, work + 1
+            if item and hasToolTag(item, key) and notBroken(item)
+                and not protectedItem(item, actor)
+                and sourceItemAvailable(storage, U().itemType(item))
+                and betterTool(item, scan.best, key) then
+                scan.storage, scan.container, scan.best = storage, container, item
             end
         end
     end
-    return bestStorage, bestContainer, bestItem
+    if scan.row <= #scan.rows then return nil, nil, nil, true end
+    state.toolSourceScan = nil
+    if scan.best and U().inventoryContains(scan.container, scan.best) == true
+        and notBroken(scan.best) and not protectedItem(scan.best, actor)
+        and sourceItemAvailable(scan.storage, U().itemType(scan.best)) then
+        return scan.storage, scan.container, scan.best, false
+    end
+    return nil, nil, nil, false,
+        scan.incomplete and "production_tool_storage_unloaded" or "missing_tool:" .. key
 end
 
 local function fetchTool(actor, order, state, key)
     if not SC.BaseWork or type(SC.BaseWork.withdrawFromStorage) ~= "function" then
         return blockOrder(order, "base_work_unavailable")
     end
+    if type(state.borrowedTools) == "table" and state.borrowedTools[key] then
+        -- A broken or superseded loan must go home before a replacement can
+        -- use this key; overwriting its receipt would strand the original.
+        state.toolFetch = nil
+        state.toolReturn = { key = key }
+        return true, "production_tool_return_pending"
+    end
     local pending = state.toolFetch
     if pending and (pending.key ~= key or U().inventoryContains(pending.container, pending.item) ~= true) then
         pending, state.toolFetch = nil, nil
     end
     if not pending then
-        local storage, container, item = toolSource(actor, key)
-        if not storage then return blockOrder(order, "missing_tool:" .. key) end
+        local storage, container, item, searching, why = toolSource(actor, key, state)
+        if searching then return true, "production_tool_scanning" end
+        if not storage then return blockOrder(order, why or "missing_tool:" .. key) end
         pending = { key = key, storage = storage, container = container, item = item }
         state.toolFetch = pending
     end
@@ -1006,13 +1053,10 @@ local function fetchTool(actor, order, state, key)
     local ok, reason = SC.BaseWork.withdrawFromStorage(actor, state, pending.storage,
         pending.container, pending.item)
     if ok == true and reason == "base_supply_taken" then
-        if key == "diggrave" then
-            state.borrowedTools = state.borrowedTools or {}
-            state.borrowedTools[key] = {
-                key = key, storage = pending.storage,
-                container = pending.container, item = pending.item,
-            }
-        end
+        state.borrowedTools = state.borrowedTools or {}
+        state.borrowedTools[key] = { key = key, storage = pending.storage,
+            container = pending.container, item = pending.item }
+        Disposal.saveToolLoan(actor, order, state, key, pending)
         state.toolFetch = nil
         return true, "production_tool_taken"
     end
@@ -1059,6 +1103,7 @@ local function returnBorrowedTool(actor, order, state)
     local ok, reason = SC.BaseWork.returnToStorage(actor, state, borrowed.storage,
         borrowed.container, borrowed.item)
     if ok == true and reason == "base_supply_returned" then
+        Disposal.clearToolLoan(order, state, pending.key, borrowed.item)
         state.borrowedTools[pending.key] = nil
         state.toolReturn = nil
         if pending.blocker then return blockOrder(order, pending.blocker) end
@@ -1079,6 +1124,163 @@ local function returnBorrowedTool(actor, order, state)
     end
     pending.failures, pending.lastFailure = 0, nil
     return true, reason
+end
+
+-- Tool loans are exact saved identities, independent of a controller's Lua
+-- session. The ordinary physical storage actions perform both directions.
+function Disposal.ownsTool(actor, item, key, state)
+    state = state or actorStates[actor]
+    local receipt = state and state.job and state.job.target
+        and state.job.target.productionTools and state.job.target.productionTools[key]
+    local data = item and U().modData(item)
+    local nativeId = item and (invoke(item, "getID"))
+    return type(receipt) == "table" and receipt.workerId == actorId(actor)
+        and type(data) == "table" and data[Production.CARGO_MARKER] == state.orderId
+        and data.LF_ProductionToolKey == key
+        and (receipt.stableId and U().itemStableId(item, false) == receipt.stableId
+            or not receipt.stableId and nativeId ~= nil
+                and tonumber(receipt.itemId) == tonumber(nativeId))
+end
+
+function Disposal.saveToolLoan(actor, order, state, key, pending)
+    local target = state.job and state.job.target
+    if type(target) ~= "table" then return end
+    target.productionTools = target.productionTools or {}
+    target.productionTools[key] = { itemId = select(1, invoke(pending.item, "getID")),
+        itemType = U().itemType(pending.item), sourceStorageId = pending.storage.id,
+        workerId = actorId(actor), stableId = U().itemStableId(pending.item, true) }
+    local data = U().modData(pending.item)
+    if type(data) == "table" then
+        data[Production.CARGO_MARKER], data.LF_ProductionToolKey = order.id, key
+    end
+    if SC.BaseLife.noteWorkOwnershipMutation then SC.BaseLife.noteWorkOwnershipMutation() end
+end
+
+function Disposal.clearToolLoan(order, state, key, item)
+    local target = state.job and state.job.target
+    if target and type(target.productionTools) == "table" then
+        target.productionTools[key] = nil
+        local any
+        for _ in pairs(target.productionTools) do any = true break end
+        if not any then target.productionTools = nil end
+    end
+    local data = item and U().modData(item)
+    if type(data) == "table" and data[Production.CARGO_MARKER] == order.id
+        and data.LF_ProductionToolKey == key then
+        data[Production.CARGO_MARKER], data.LF_ProductionToolKey = nil, nil
+    end
+    if SC.BaseLife.noteWorkOwnershipMutation then SC.BaseLife.noteWorkOwnershipMutation() end
+end
+
+function Disposal.restoreToolLoans(actor, order, state, job)
+    local loans = type(job.target) == "table" and job.target.productionTools
+    if type(loans) ~= "table" then return true end
+    state.borrowedTools = state.borrowedTools or {}
+    for key, receipt in pairs(loans) do
+        if not state.borrowedTools[key] then
+            if type(receipt) ~= "table" or receipt.workerId ~= actorId(actor) then
+                return false, "production_tool_loan_owner_unknown"
+            end
+            local scan = state.toolLoanScan
+            if not scan or scan.key ~= key then
+                scan = { key = key, cursor = 0 }
+                state.toolLoanScan = scan
+            end
+            local budget = math.max(1, math.floor(config("campStorageItemBudget", 80)))
+            local function matches(item)
+                local data = U().modData(item)
+                local nativeId = (invoke(item, "getID"))
+                return U().itemType(item) == receipt.itemType
+                    and (receipt.stableId and U().itemStableId(item, false) == receipt.stableId
+                        or not receipt.stableId and nativeId ~= nil
+                            and tonumber(nativeId) == tonumber(receipt.itemId))
+            end
+            local found, complete
+            if SC.PersonalItems and SC.PersonalItems.walkActorInventory then
+                local visited
+                visited, complete = SC.PersonalItems.walkActorInventory(actor, function(item)
+                    if matches(item) then
+                        if found and found ~= item then scan.ambiguous = true end
+                        found = item
+                    end
+                end, { budget = budget, skip = scan.cursor })
+            else
+                local list = U().inventoryItems(U().inventory(actor), 1024)
+                for _, item in ipairs(list) do if matches(item) then found = item end end
+                complete = #list < 1024
+            end
+            if found then
+                if scan.found and scan.found ~= found then scan.ambiguous = true end
+                scan.found = found
+            end
+            if not complete then
+                scan.cursor = scan.cursor + budget
+                return nil, "production_tool_loan_scanning"
+            end
+            if scan.ambiguous then return false, "production_tool_loan_ambiguous" end
+            local storage = SC.BaseLife.storage(receipt.sourceStorageId)
+            local container = storage and SC.BaseLife.resolveContainer(storage)
+            if scan.found then
+                if not Disposal.toolInActor(actor, scan.found) then
+                    state.toolLoanScan = nil
+                    return nil, "production_tool_loan_changed"
+                end
+                local staged, reason = stageInventoryTool(actor, scan.found)
+                if not staged then return false, reason end
+                receipt.itemId = select(1, invoke(scan.found, "getID"))
+                state.borrowedTools[key] = { key = key, item = scan.found,
+                    storage = storage, container = container }
+                state.toolLoanScan = nil
+            elseif not container then return false, "production_tool_source_unloaded"
+            else
+                -- A save before the withdrawal or after its return can leave
+                -- the receipt while the exact item already belongs to storage.
+                local list = select(1, invoke(container, "getItems"))
+                if list == nil then return false, "production_tool_source_unloaded" end
+                scan.sourceIndex = scan.sourceIndex or 0
+                local count = U().listSize(list)
+                for _ = 1, budget do
+                    if scan.sourceIndex >= count then break end
+                    local item = U().listGet(list, scan.sourceIndex)
+                    scan.sourceIndex = scan.sourceIndex + 1
+                    if item and matches(item) then
+                        Disposal.clearToolLoan(order, state, key, item)
+                        state.toolLoanScan = nil
+                        return nil, "production_tool_already_returned"
+                    end
+                end
+                if scan.sourceIndex < count then return nil, "production_tool_loan_scanning" end
+                return false, "production_tool_loan_missing"
+            end
+        end
+    end
+    return true
+end
+
+function Disposal.toolInActor(actor, item)
+    local root, container = U().inventory(actor), select(1, invoke(item, "getContainer"))
+    for _ = 1, 32 do
+        if container == root then return U().inventoryContains(container, item) == true end
+        if not container or U().inventoryContains(container, item) ~= true then return false end
+        item = select(1, invoke(container, "getContainingItem"))
+        if not item then return false end
+        container = select(1, invoke(item, "getContainer"))
+    end
+    return false
+end
+
+function Disposal.queueOrderToolReturns(order, completion)
+    local pending = false
+    for actor, state in pairs(actorStates) do
+        if state.orderId == order.id then
+            for key in pairs(state.borrowedTools or {}) do
+                state.toolReturn = state.toolReturn or { key = key, completion = completion }
+                pending = true
+                break
+            end
+        end
+    end
+    return pending
 end
 
 local function cargoOrder(item)
@@ -1635,9 +1837,11 @@ local function updateFell(actor, order, state, context)
     -- a newly selected carried tool with camp storage once, then fetch the
     -- stronger option before committing to what may otherwise be dozens of
     -- native chop cycles.
-    if state.evaluatedChopTool ~= axe then
+    if state.evaluatedChopTool ~= axe
+        and not (state.borrowedTools and state.borrowedTools.choptree) then
+        local storage, container, stored, searching = toolSource(actor, "choptree", state)
+        if searching then return true, "production_tool_scanning" end
         state.evaluatedChopTool = axe
-        local storage, container, stored = toolSource(actor, "choptree")
         if betterTool(stored, axe, "choptree") then
             state.toolFetch = {
                 key = "choptree", storage = storage, container = container, item = stored,
@@ -5048,12 +5252,82 @@ function Production.workerPhase(orderId, workerId)
     return phases[orderId] and phases[orderId][workerId] or nil
 end
 
+-- Passive arbitration facts. Only Base duty consumes this opportunity; a
+-- newer Follow/Stay/player order does not take an unsolicited return trip.
+function Production.settlementFor(actor)
+    local id, base = actorId(actor), SC.BaseLife.active()
+    for _, job in ipairs(base and base.jobs or {}) do
+        local target = job.type == "production" and type(job.target) == "table" and job.target
+        local order = target and SC.BaseLife.productionOrder(target.orderId)
+        if target and job.assignedId == id and order
+            and (job.reservedBy == nil or job.reservedBy == id)
+            and (target.toolReturnOnly and target.productionTools
+                or order.state == "running" and order.completed >= order.requested) then
+            return job
+        end
+    end
+    return nil
+end
+
+function Production.toolReserved(item)
+    local data = item and U().modData(item)
+    if type(data) ~= "table" or data.LF_ProductionToolKey == nil then return false end
+    if not SC.BaseLife or type(SC.BaseLife.active) ~= "function" then return true end
+    local base = SC.BaseLife.active()
+    local nativeId = (invoke(item, "getID"))
+    for _, job in ipairs(base and base.jobs or {}) do
+        local target = job.type == "production" and type(job.target) == "table" and job.target
+        local receipt = target and type(target.productionTools) == "table"
+            and target.productionTools[data.LF_ProductionToolKey]
+        if target and target.orderId == data[Production.CARGO_MARKER] and type(receipt) == "table"
+            and (receipt.stableId and U().itemStableId(item, false) == receipt.stableId
+                or not receipt.stableId and nativeId ~= nil
+                    and tonumber(receipt.itemId) == tonumber(nativeId)) then return true end
+    end
+    return false
+end
+
+function Production.reconcileExpiredJob(job, ownerId)
+    local actor = U().resolveActor(ownerId)
+    if not actor then return false, "production_recovery_worker_unloaded" end
+    local state = actorStates[actor]
+    if state and type(job.target) == "table" and state.orderId == job.target.orderId then
+        -- A live controller must poll its own rest, route, native result and
+        -- timeout. Lease expiry is not permission to erase that state.
+        return false, "production_recovery_controller_owned"
+    end
+    local native = natives()
+    if native and native.isWorkActive and native.isWorkActive(actor) then
+        return false, "production_recovery_native_active"
+    end
+    return Production.cancelActor(actor, "production_expired_recovery")
+end
+
 function Production.update(actor, baseState, job, runtime)
     processPendingAmen()
     Disposal.settleIdle(actor)
     local orderId = type(job) == "table" and type(job.target) == "table"
         and job.target.orderId or nil
     local order = SC.BaseLife.productionOrder(orderId)
+    local state = order and stateFor(actor, order.id)
+    if state then
+        state.job = job
+        local restored, restoreReason = Disposal.restoreToolLoans(actor, order, state, job)
+        if restored ~= true then return restored == nil, restoreReason, restored == false end
+        if job.target.toolReturnOnly then
+            for key in pairs(state.borrowedTools or {}) do
+                state.toolReturn = state.toolReturn or { key = key }
+                break
+            end
+            local handled, reason, terminal = returnBorrowedTool(actor, order, state)
+            if handled ~= nil then return handled, reason, terminal end
+            job.target.toolReturnOnly = nil
+            if order.state == "cancelled" or order.state == "completed" then
+                SC.BaseLife.completeJob(job.id, actorId(actor), "production_tools_returned")
+                return true, "production_tools_returned"
+            end
+        end
+    end
     -- An order that cannot run this pulse never leaves its hauler towing a
     -- body into whatever the decision picks next.
     local function idle(handled, reason, terminal)
@@ -5080,7 +5354,7 @@ function Production.update(actor, baseState, job, runtime)
     if not assigned(order, id) then return idle(false, "production_worker_not_assigned", true) end
     local descriptor = descriptors[order.operation]
     if not descriptor then return idle(blockOrder(order, "production_operation_unavailable")) end
-    local state = stateFor(actor, order.id)
+    state = stateFor(actor, order.id)
     local returnHandled, returnReason, returnTerminal = returnBorrowedTool(actor, order, state)
     if returnHandled ~= nil then return returnHandled, returnReason, returnTerminal end
     -- A finished native action starts the facade's human pacing pause. Never
@@ -5137,7 +5411,7 @@ function Production.forgetOrder(orderId, workers)
         local inventory = actor and U().inventory(actor) or nil
         if inventory then
             for _, item in ipairs(U().inventoryItems(inventory, math.huge)) do
-                clearCargo(item, orderId)
+                if not Production.toolReserved(item) then clearCargo(item, orderId) end
             end
         end
         clearSawReceipt(actor, orderId)
@@ -5149,6 +5423,11 @@ function Production.retryOrder(orderId)
     for key in pairs(scans) do
         if string.sub(key, 1, #tostring(orderId) + 1) == tostring(orderId) .. ":" then
             scans[key] = nil
+        end
+    end
+    for _, state in pairs(actorStates) do
+        if state.orderId == orderId then
+            state.toolLoanScan, state.toolSourceScan = nil, nil
         end
     end
     return true
@@ -5231,12 +5510,11 @@ function Production.cancelActor(actor, reason)
     if state and state.visualAt ~= nil and native and type(native.cancelVisual) == "function" then
         pcall(native.cancelVisual, actor, reason or "production_cancelled")
     end
-    if state and type(state.borrowedTools) == "table" and SC.BaseWork
-        and type(SC.BaseWork.restoreToStorage) == "function" then
-        for _, borrowed in pairs(state.borrowedTools) do
-            pcall(SC.BaseWork.restoreToStorage, actor, borrowed.storage,
-                borrowed.container, borrowed.item)
-        end
+    if state and state.job and state.job.target.productionTools then
+        -- Cancellation releases movement immediately. The saved job retains
+        -- its exact loans until the worker next resumes Base duty; no item is
+        -- teleported home and no Follow command is held hostage by a return.
+        state.job.target.toolReturnOnly = true
     end
     if state and state.haul and state.haul.body
         and Disposal.bodyAt(state.haul.body, state.haul.square) then

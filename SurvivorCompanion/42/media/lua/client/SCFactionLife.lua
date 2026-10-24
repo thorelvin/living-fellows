@@ -6,6 +6,14 @@ SC.FactionLife = SC.FactionLife or {}
 local Life = SC.FactionLife
 local LIFE_SCHEMA = 1
 local actorStates = setmetatable({}, { __mode = "k" })
+local resourceAudits = setmetatable({}, { __mode = "k" })
+local groupPulses = setmetatable({}, { __mode = "k" })
+local function budgetAvailable(remainingBudget)
+    return type(remainingBudget) ~= "function" or (tonumber(remainingBudget()) or 0) > 0
+end
+local function countPhase(name)
+    if SC.Performance and SC.Performance.count then SC.Performance.count(name) end
+end
 
 local personalityOrder = {
     "Paranoid", "Generous", "Militarized", "Desperate", "Isolationist", "Resourceful",
@@ -306,7 +314,7 @@ local function countResourceItems(container, counts, state, depth)
     end
 end
 
-function Life.auditResources(group, force)
+function Life.auditResources(group, force, remainingBudget)
     local life = Life.initialize(group)
     if not life then return false, "faction_unavailable" end
     local hour = worldHour()
@@ -316,15 +324,65 @@ function Life.auditResources(group, force)
         return true, life.resources
     end
     local alive = #livingMembers(group)
-    if alive == 0 then return false, "household_destroyed" end
-    if activeActorCount(group) < alive then return false, "household_not_fully_loaded" end
-    local counts = { food = 0, water = 0, medicine = 0, construction = 0,
-        ammunition = 0, tools = 0 }
-    for _, member in ipairs(livingMembers(group)) do
-        local record = recordForMember(member)
-        local inventory = record and U().inventory(record.actor) or nil
-        countResourceItems(inventory, counts, { remaining = 512 }, 0)
+    if alive == 0 then resourceAudits[group] = nil return false, "household_destroyed" end
+    if activeActorCount(group) < alive then
+        resourceAudits[group] = nil
+        return false, "household_not_fully_loaded"
     end
+    local members = livingMembers(group)
+    local signature = {}
+    for _, member in ipairs(members) do signature[#signature + 1] = tostring(member.key) .. ":" .. tostring(member.actorId) end
+    signature = table.concat(signature, "|")
+    local audit = resourceAudits[group]
+    if force == true and type(remainingBudget) ~= "function"
+        or not audit or audit.life ~= life or audit.signature ~= signature then
+        audit = { life = life, signature = signature, memberIndex = 1,
+            counts = { food = 0, water = 0, medicine = 0, construction = 0, ammunition = 0, tools = 0 } }
+        resourceAudits[group] = audit
+    end
+    while audit.memberIndex <= #members do
+        if not budgetAvailable(remainingBudget) then countPhase("faction_resources_yield") return false, "faction_resources_pending", true end
+        if not audit.stack then
+            local record = recordForMember(members[audit.memberIndex])
+            local root = record and U().inventory(record.actor)
+            audit.stack, audit.seen, audit.remaining = {}, {}, 512
+            if root then
+                audit.stack[1], audit.seen[root] = { container = root, depth = 0, index = 0 }, true
+            end
+        end
+        while #audit.stack > 0 and audit.remaining > 0 do
+            if not budgetAvailable(remainingBudget) then countPhase("faction_resources_yield") return false, "faction_resources_pending", true end
+            local node = audit.stack[#audit.stack]
+            if node.limit == nil then
+                local items, read = U().call(node.container, "getItems")
+                if not read then items = type(node.container) == "table" and (node.container.items or node.container) end
+                local length = type(items) == "table" and #items
+                    or SC.NativeList and select(1, SC.NativeList.size(items)) or 0
+                node.items, node.limit = items, math.min(384, tonumber(length) or 0)
+            end
+            local items = node.items
+            if node.index >= node.limit then
+                table.remove(audit.stack)
+            else
+                local item = type(items) == "table" and items[node.index + 1]
+                    or SC.NativeList and select(1, SC.NativeList.get(items, node.index))
+                node.index, audit.remaining = node.index + 1, audit.remaining - 1
+                countPhase("faction_resources_item")
+                if item then
+                    local category = categoryForItem(item)
+                    if audit.counts[category] ~= nil then audit.counts[category] = audit.counts[category] + 1 end
+                    local nested, nestedOk = U().call(item, "getInventory")
+                    if nestedOk and nested and not audit.seen[nested] and node.depth < 3 then
+                        audit.seen[nested] = true
+                        audit.stack[#audit.stack + 1] = { container = nested, depth = node.depth + 1, index = 0 }
+                    end
+                end
+            end
+        end
+        audit.memberIndex, audit.stack = audit.memberIndex + 1, nil
+    end
+    if not budgetAvailable(remainingBudget) then countPhase("faction_resources_yield") return false, "faction_resources_pending", true end
+    local counts = audit.counts
     local thresholds, worstKind, worstRatio, worstLevel = resourceThresholds(group), nil, math.huge, "Stable"
     local levels = {}
     for _, kind in ipairs(resourceKinds) do
@@ -344,6 +402,8 @@ function Life.auditResources(group, force)
             shortage = worstKind,
         }, 128)
     end
+    resourceAudits[group] = nil
+    countPhase("faction_resources_complete")
     return true, life.resources
 end
 
@@ -581,18 +641,30 @@ local function updateRepresentative(group, player)
     end
 end
 
-function Life.pulseGroup(group, player, current)
+function Life.pulseGroup(group, player, current, remainingBudget)
     local life = Life.initialize(group)
     if not life then return false, "faction_unavailable" end
     current = tonumber(current) or U().nowMs()
-    if current < (tonumber(life.nextPulseAt) or 0) then return true, "life_pulse_throttled" end
+    local pulse = groupPulses[group]
+    if not pulse and current < (tonumber(life.nextPulseAt) or 0) then return true, "life_pulse_throttled" end
+    if not pulse or pulse.life ~= life then
+        pulse = { life = life, phase = 1 }
+        groupPulses[group] = pulse
+    end
+    while pulse.phase <= 5 do
+        if not budgetAvailable(remainingBudget) then countPhase("faction_life_yield") return false, "faction_life_pending", true end
+        if pulse.phase == 1 then
+            local _, _, pending = Life.auditResources(group, false, remainingBudget)
+            if pending then return false, "faction_resources_pending", true end
+        elseif pulse.phase == 2 then updateRoutines(group, worldHour())
+        elseif pulse.phase == 3 then updateRepresentative(group, player)
+        elseif pulse.phase == 4 then updateCrisis(group, worldHour())
+        else maybeStartCrisis(group, worldHour()) end
+        countPhase("faction_life_phase_" .. pulse.phase)
+        pulse.phase = pulse.phase + 1
+    end
+    groupPulses[group] = nil
     life.nextPulseAt = current + (tonumber(SC.Config.get("factionLifePulseIntervalMs")) or 2500)
-    local hour = worldHour()
-    Life.auditResources(group, false)
-    updateRoutines(group, hour)
-    updateRepresentative(group, player)
-    updateCrisis(group, hour)
-    maybeStartCrisis(group, hour)
     return true, "faction_life_updated"
 end
 
@@ -1364,7 +1436,10 @@ function Life.validate(group)
 end
 
 function Life.reset(actor)
-    if actor == nil then entryVisits = {} end
+    if actor == nil then
+        entryVisits = {}
+        resourceAudits, groupPulses = setmetatable({}, { __mode = "k" }), setmetatable({}, { __mode = "k" })
+    end
     if actor then actorStates[actor] = nil
     else actorStates = setmetatable({}, { __mode = "k" }) end
 end

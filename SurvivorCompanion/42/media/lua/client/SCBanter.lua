@@ -2412,6 +2412,14 @@ end
 function Banter.crowdYield(actor, blocker, current)
     current = tonumber(current) or U().nowMs()
     local own = actorState(actor)
+    local episode = own.crowdYieldEpisode
+    if episode and episode.blocker == blocker then
+        episode.clearSince, episode.lastClearAt = nil, nil
+        if current - (tonumber(episode.spokenAt) or -math.huge)
+            < math.max(30000, config("crowdYieldSpeechCooldownMs", 8000)) then
+            return false, "crowd_yield_episode_cooldown"
+        end
+    end
     if current - (tonumber(own.lastCrowdYieldAt) or -math.huge)
         < config("crowdYieldSpeechCooldownMs", 8000) then
         return false, "crowd_yield_speech_cooldown"
@@ -2421,8 +2429,22 @@ function Banter.crowdYield(actor, blocker, current)
         { callName(actor, blocker, { salt = salt, urgent = true }) }, {
             salt = salt,
         })
-    if spoken then own.lastCrowdYieldAt = current end
+    if spoken then
+        own.lastCrowdYieldAt = current
+        own.crowdYieldEpisode = { blocker = blocker, spokenAt = current }
+    end
     return spoken, spoken and "crowd_yield_spoken" or "crowd_yield_speech_rejected"
+end
+
+function Banter.crowdYieldClear(actor, current)
+    local episode = actorState(actor).crowdYieldEpisode
+    if not episode then return end
+    current = tonumber(current) or U().nowMs()
+    if not episode.lastClearAt or current - episode.lastClearAt > 1000 then
+        episode.clearSince = current
+    end
+    episode.lastClearAt = current
+    if current - episode.clearSince >= 3000 then actorState(actor).crowdYieldEpisode = nil end
 end
 
 function Banter.availableSpeaker(record, player, current, radius)

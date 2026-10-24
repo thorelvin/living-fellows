@@ -29,6 +29,10 @@ local maintenanceCursor = 1
 local auditPhase = 0
 local cleaningScan
 local nextRoutineJobAt = 0
+local maintenanceAudit
+local function maintenanceBudget(remainingBudget)
+    return type(remainingBudget) ~= "function" or (tonumber(remainingBudget()) or 0) > 0
+end
 local buildRecipeAliases = {
     -- GetAllBuildableEntities() exposes EntityScript:getName(), not the
     -- UiConfig entityStyle IDs used by the crafting window.
@@ -2496,9 +2500,22 @@ local function openJob(base, kind, assignedId)
     return false
 end
 
-local function auditMedical(base)
-    local summary = SC.BaseLife.summary()
-    for _, resident in ipairs(summary.residentRows or {}) do
+local function maintenanceResidents()
+    if type(SC.BaseLife.dutyResidentIds) ~= "function" then
+        return SC.BaseLife.summary().residentRows or {}
+    end
+    local rows = {}
+    for _, id in ipairs(SC.BaseLife.dutyResidentIds()) do rows[#rows + 1] = { id = id, duty = true } end
+    return rows
+end
+
+local function auditMedical(base, remainingBudget, scan)
+    scan.rows = scan.rows or maintenanceResidents()
+    scan.index = scan.index or 1
+    while scan.index <= #scan.rows do
+        if not maintenanceBudget(remainingBudget) then return false, "medical_audit_pending", true end
+        local resident = scan.rows[scan.index]
+        scan.index = scan.index + 1
         local id = resident.id
         if resident.duty == true and not openJob(base, "replace_bandage", id) then
             local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(id) or nil
@@ -2518,8 +2535,9 @@ local function auditMedical(base)
     return false, "no_medical_base_job"
 end
 
-local function auditSorting(base)
-    if SC.FloorSort and type(SC.FloorSort.audit) == "function" then
+local function auditSorting(base, remainingBudget, scan)
+    if not scan.floorChecked and SC.FloorSort and type(SC.FloorSort.audit) == "function" then
+        scan.floorChecked = true
         local queued, result = SC.FloorSort.audit(base)
         if queued then return queued, result end
     end
@@ -2527,15 +2545,27 @@ local function auditSorting(base)
     if #SC.BaseLife.storageRows(nil, true) == 0 then
         return false, "sorting_source_missing"
     end
-    local destinations = 0
-    for category in pairs(SC.BaseLife.STORAGE_CATEGORIES) do
+    scan.categories = scan.categories or {}
+    if scan.categoryIndex == nil then
+        for category in pairs(SC.BaseLife.STORAGE_CATEGORIES) do scan.categories[#scan.categories + 1] = category end
+        scan.categoryIndex, scan.destinations = 1, 0
+    end
+    while scan.categoryIndex <= #scan.categories do
+        if not maintenanceBudget(remainingBudget) then return false, "sorting_audit_pending", true end
+        local category = scan.categories[scan.categoryIndex]
+        scan.categoryIndex = scan.categoryIndex + 1
         if category ~= "general" and #SC.BaseLife.depositStorageRows(category) > 0 then
-            destinations = destinations + 1
+            scan.destinations = scan.destinations + 1
         end
     end
-    if destinations == 0 then return false, "sorted_storage_missing" end
-    local actionable, matchingStoreFull = false, false
-    for _, resident in ipairs(SC.BaseLife.summary().residentRows or {}) do
+    if scan.destinations == 0 then return false, "sorted_storage_missing" end
+    local actionable = false
+    scan.rows = scan.rows or maintenanceResidents()
+    scan.index = scan.index or 1
+    while scan.index <= #scan.rows do
+        if not maintenanceBudget(remainingBudget) then return false, "sorting_audit_pending", true end
+        local resident = scan.rows[scan.index]
+        scan.index = scan.index + 1
         if resident.duty == true then
             local record = SC.Registry and SC.Registry.byId
                 and SC.Registry.byId(resident.id) or nil
@@ -2543,30 +2573,35 @@ local function auditSorting(base)
                 local source, _, _, _, _, reason = findTransfer(
                     { type = "sort" }, record.actor)
                 if source ~= nil then actionable = true break end
-                if reason == "haul_destinations_full" then matchingStoreFull = true end
+                if reason == "haul_destinations_full" then scan.matchingStoreFull = true end
             end
         end
     end
-    if not actionable and not matchingStoreFull then
+    if not actionable and not scan.matchingStoreFull then
         return false, "no_sortable_supply"
     end
     return SC.BaseLife.enqueueJob({ type = "sort", priority = 2 })
 end
 
-local function auditRoutine(base)
+local function auditRoutine(base, remainingBudget, scan)
     if now() < nextRoutineJobAt then return false, "routine_not_due" end
-    nextRoutineJobAt = now() + 60000
-    local summary = SC.BaseLife.summary()
-    for _, desired in ipairs({ "craft_supply", "repair" }) do
+    scan.rows = scan.rows or maintenanceResidents()
+    scan.desiredIndex, scan.index = scan.desiredIndex or 1, scan.index or 1
+    while scan.desiredIndex <= 2 do
+        local desired = ({ "craft_supply", "repair" })[scan.desiredIndex]
         if not openJob(base, desired)
             and (desired ~= "craft_supply" or #SC.BaseLife.depositStorageRows("output") > 0) then
-            for _, resident in ipairs(summary.residentRows or {}) do
+            while scan.index <= #scan.rows do
+                if not maintenanceBudget(remainingBudget) then return false, "routine_audit_pending", true end
+                local resident = scan.rows[scan.index]
+                scan.index = scan.index + 1
                 if resident.duty == true then
                     local record = SC.Registry and SC.Registry.byId
                         and SC.Registry.byId(resident.id) or nil
                     local actor = record and record.actor or nil
                     if actor and SC.Downtime and type(SC.Downtime.canPerform) == "function"
                         and SC.Downtime.canPerform(actor, desired) == true then
+                        nextRoutineJobAt = now() + 60000
                         return SC.BaseLife.enqueueJob({
                             type = desired, priority = 1, assignedId = resident.id,
                         })
@@ -2574,11 +2609,13 @@ local function auditRoutine(base)
                 end
             end
         end
+        scan.desiredIndex, scan.index = scan.desiredIndex + 1, 1
     end
+    nextRoutineJobAt = now() + 60000
     return false, "no_actionable_routine"
 end
 
-local function auditCleaning(base)
+local function auditCleaning(base, remainingBudget, scan)
     for _, job in ipairs(base.jobs or {}) do
         if job.type == "clean" and job.state ~= "completed"
             and job.state ~= "cancelled" then
@@ -2597,7 +2634,10 @@ local function auditCleaning(base)
             x = zones[1].x1, y = zones[1].y1 }
         cleaningScan = cursor
     end
-    for _ = 1, 96 do
+    scan.cleanRemaining = scan.cleanRemaining or 96
+    while scan.cleanRemaining > 0 do
+        if not maintenanceBudget(remainingBudget) then return false, "cleaning_audit_pending", true end
+        scan.cleanRemaining = scan.cleanRemaining - 1
         local zone = zones[cursor.index]
         local square = U().gridSquare(cursor.x, cursor.y, zone.z)
         cursor.x = cursor.x + 1
@@ -2619,40 +2659,35 @@ local function auditCleaning(base)
     return false, "no_actionable_stain"
 end
 
-function BaseWork.auditMaintenance(player)
+local function auditMaintenanceStep(player, remainingBudget, scan)
     local base = SC.BaseLife and SC.BaseLife.active() or nil
     if not base then return false, "base_missing" end
-    if SC.WorkTransport and type(SC.WorkTransport.recoverPending) == "function" then
-        pcall(SC.WorkTransport.recoverPending,
-            U().config("workRecoveryPerPulse") or 2)
-    end
-    if type(SC.BaseLife.auditOperations) == "function" then SC.BaseLife.auditOperations(false) end
     -- Farming participates in the same bounded round-robin as every other
     -- maintenance family. A productive field must not starve bandages,
     -- sorting, routines, or barricade inspection indefinitely.
-    auditPhase = (auditPhase % 10) + 1
     if auditPhase == 1 then
         if SC.FarmWork and type(SC.FarmWork.audit) == "function" then
             return SC.FarmWork.audit(base, now())
         end
         return false, "farm_audit_unavailable"
     end
-    if auditPhase == 2 then return auditMedical(base) end
+    if auditPhase == 2 then return auditMedical(base, remainingBudget, scan) end
     local settings = base.settings or {}
     if auditPhase == 3 then
         if settings.autoMaintenance == false or settings.workload == "essential" then
             return false, "automatic_sorting_disabled"
         end
-        return auditSorting(base)
+        return auditSorting(base, remainingBudget, scan)
     end
     if auditPhase == 4 then
         if settings.routines == false or settings.workload ~= "continuous" then
             return false, "continuous_routines_disabled"
         end
-        return auditRoutine(base)
+        return auditRoutine(base, remainingBudget, scan)
     end
     if auditPhase == 5 and settings.autoMaintenance ~= false then
-        local queued, job = auditCleaning(base)
+        local queued, job, pending = auditCleaning(base, remainingBudget, scan)
+        if pending then return false, job, true end
         if queued then return true, job end
     end
     if auditPhase == 6 then
@@ -2723,6 +2758,49 @@ function BaseWork.auditMaintenance(player)
         end
     end
     return false, "maintenance_not_due"
+end
+
+function BaseWork.auditMaintenance(player, remainingBudget)
+    local base = SC.BaseLife and SC.BaseLife.active() or nil
+    if not base then maintenanceAudit = nil return false, "base_missing" end
+    local scan = maintenanceAudit
+    if not scan or scan.base ~= base then
+        scan = { base = base, stage = "family" }
+        maintenanceAudit = scan
+        auditPhase = (auditPhase % 10) + 1
+        if SC.WorkTransport and type(SC.WorkTransport.recoverPending) == "function" then
+            pcall(SC.WorkTransport.recoverPending, U().config("workRecoveryPerPulse") or 2)
+        end
+    end
+    -- Recovery precedes optional audits, but at most once per second during
+    -- continuations. Re-arming one job yields this frame and preserves the
+    -- family cursor, so recurrent blocked work cannot starve every family.
+    if type(SC.BaseLife.auditJobRecovery) == "function"
+        and now() >= (scan.nextRecoveryAt or 0) then
+        scan.nextRecoveryAt = now() + 1000
+        local recovered, reason = SC.BaseLife.auditJobRecovery()
+        if recovered then return true, reason, true end
+    end
+    if not maintenanceBudget(remainingBudget) then
+        if SC.Performance and SC.Performance.count then SC.Performance.count("base_maintenance_yield") end
+        return false, "base_maintenance_pending", true
+    end
+    if scan.stage == "family" then
+        local queued, reason, pending = auditMaintenanceStep(player, remainingBudget, scan)
+        if pending then
+            if SC.Performance and SC.Performance.count then SC.Performance.count("base_maintenance_yield") end
+            return queued, reason, true
+        end
+        scan.queued, scan.reason, scan.stage = queued, reason, "operations"
+        if SC.Performance and SC.Performance.count then SC.Performance.count("base_maintenance_phase_" .. auditPhase) end
+    end
+    if type(SC.BaseLife.auditOperations) == "function" then
+        local _, _, pending = SC.BaseLife.auditOperations(false,
+            remainingBudget or function() return math.huge end)
+        if pending then return scan.queued == true, "base_operations_pending", true end
+    end
+    maintenanceAudit = nil
+    return scan.queued == true, scan.reason, false
 end
 
 function BaseWork.cancel(actor, reason)
@@ -2946,7 +3024,13 @@ function BaseWork.reconcileExpiredJob(job, ownerId)
     if type(job) ~= "table" or type(ownerId) ~= "string" then
         return false, "expired_job_owner_missing"
     end
-    if job.type == "farm" or job.type == "gather_materials" or job.type == "production"
+    if job.type == "production" then
+        if SC.Production and type(SC.Production.reconcileExpiredJob) == "function" then
+            return SC.Production.reconcileExpiredJob(job, ownerId)
+        end
+        return false, "expired_job_subsystem_owned"
+    end
+    if job.type == "farm" or job.type == "gather_materials"
         or job.type == "cook" then
         return false, "expired_job_subsystem_owned"
     end

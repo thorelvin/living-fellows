@@ -101,6 +101,7 @@ try {
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCSpeechNameplateLiftTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCConstructionHideTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCCompanionComfortTest.java') `
+        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCCompanionFatigueTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCMovementClearanceTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCCompanionDrivingTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCRoadFollowerTest.java')
@@ -387,6 +388,15 @@ try {
         $performanceFiles += Join-Path $TestRoot 'performance_scalability_harness.lua'
         Add-ScJvmStep 'performance' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $performanceFiles 'AI performance scalability harness failed.'
 
+        $backgroundBudgetFiles = @('SCNamespace.lua', 'SCCall.lua', 'SCStableValue.lua',
+            'SCNativeList.lua', 'SCConfig.lua') | ForEach-Object { Join-Path $Shared $_ }
+        $backgroundBudgetFiles += @('SCGameplayUtil.lua', 'SCBaseLife.lua', 'SCFactions.lua',
+            'SCFactionLife.lua', 'SCFactionWorld.lua') | ForEach-Object { Join-Path $Client $_ }
+        $backgroundBudgetFiles += Join-Path $ProjectRoot 'tests\gameplay\base_work_fixture.lua'
+        $backgroundBudgetFiles += Join-Path $Client 'SCBaseWork.lua'
+        $backgroundBudgetFiles += Join-Path $ProjectRoot 'tests\gameplay\background_budget_harness.lua'
+        Add-ScJvmStep 'background-budgets' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $backgroundBudgetFiles 'Resumable camp and faction budget regressions failed.'
+
         $characterDepthFiles = @($coreFiles | Select-Object -SkipLast 1)
         $characterDepthFiles += Join-Path $TestRoot 'character_depth_persistence_harness.lua'
         Add-ScJvmStep 'character-depth' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $characterDepthFiles 'Character-depth persistence harness failed.'
@@ -667,6 +677,7 @@ try {
     Add-ScJvmStep 'sc-speech-nameplate-lift' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCSpeechNameplateLiftTest') @() 'Companion speech nameplate lift gate failed.'
     Add-ScJvmStep 'sc-construction-hide' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCConstructionHideTest') @() 'Companion construction-hide deadline gate failed.'
     Add-ScJvmStep 'sc-companion-comfort' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCCompanionComfortTest') @() 'Companion cold/symptom policy gate failed.'
+    Add-ScJvmStep 'sc-companion-fatigue' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCCompanionFatigueTest') @() 'Natural companion fatigue gate failed.'
     Add-ScJvmStep 'sc-movement-clearance' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCMovementClearanceTest') @() 'Companion wedge-escape clearance gate failed.'
     Add-ScJvmStep 'sc-companion-driving' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCCompanionDrivingTest') @() 'Companion cruise control and lane scan gate failed.'
     Add-ScJvmStep 'sc-road-follower' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCRoadFollowerTest') @() 'Route following, wreck avoidance and turning round gate failed.'

@@ -117,6 +117,7 @@ function scheduler.register(name, interval, priority, callback, options)
         and existing.priority == priority and existing.callback == callback
         and existing.lane == lane
         and existing.maxDelayMs == maxDelayMs
+        and existing.continuations == (options.continuations == true)
         and existing.fixedInterval == (options.fixedInterval == true)
     local keepSchedule = existing ~= nil
         and (options.preserveSchedule == true or unchanged)
@@ -131,6 +132,7 @@ function scheduler.register(name, interval, priority, callback, options)
         lane = lane,
         maxDelayMs = maxDelayMs,
         fixedInterval = options.fixedInterval == true,
+        continuations = options.continuations == true,
         reportFailure = options.reportFailure == nil and existing ~= nil
             and existing.reportFailure == true or options.reportFailure == true,
     }
@@ -205,8 +207,9 @@ function scheduler.tick()
             break
         end
         local callbackStarted = preciseNowMs()
-        local ok, result, detail = SC.Diagnostics.guard(task.name, nil,
+        local ok, result, detail, pending = SC.Diagnostics.guard(task.name, nil,
             task.callback, current, budget - elapsed)
+        local continuing = ok and task.continuations and pending == true
         local callbackElapsed = math.max(0, preciseNowMs() - callbackStarted)
         if SC.Performance and type(SC.Performance.record) == "function" then
             SC.Performance.record(task.metricName, nil, callbackElapsed)
@@ -219,7 +222,7 @@ function scheduler.tick()
             else
                 stats.exceptions = stats.exceptions + 1
             end
-        elseif task.reportFailure and result == false then
+        elseif task.reportFailure and result == false and not continuing then
             stats.reportedFailures = stats.reportedFailures + 1
             SC.Diagnostics.report(task.name, nil,
                 "scheduled callback reported failure", detail)
@@ -228,7 +231,10 @@ function scheduler.tick()
         local scale = not task.fixedInterval and SC.Performance
             and type(SC.Performance.intervalScale) == "function"
             and SC.Performance.intervalScale(task.lane) or 1
-        task.nextDue = current + math.max(1, math.floor(task.interval * scale))
+        -- Resumable audits explicitly opt in. A pending callback gets a new
+        -- fair scheduling turn next frame; completed phases are not replayed.
+        task.nextDue = current + (continuing and 1
+            or math.max(1, math.floor(task.interval * scale)))
     end
     stats.lastFrameMs = math.max(0, preciseNowMs() - startedPrecise)
     if stats.lastFrameMs > budget then stats.overBudgetFrames = stats.overBudgetFrames + 1 end

@@ -3701,7 +3701,8 @@ function SCUIDetail:buildBase(panel, row)
             residentNames[residentRow.id] = residentRow.name
         end
         for _, job in ipairs(base.rows or {}) do
-            if job.state == "blocked" then
+            if job.state == "blocked" or job.state == "pending"
+                and job.blocker == "expired_job_subsystem_owned" then
                 stalled[#stalled + 1] = job
             end
         end
@@ -3721,7 +3722,14 @@ function SCUIDetail:buildBase(panel, row)
                     or "UI_SC_Base_StalledRow"
                 local blocker = job.blocker == "chef_restart_needs_recovery"
                     and UI.text("UI_SC_Base_ChefRestartRecovery")
+                    or job.state == "pending" and job.blocker == "expired_job_subsystem_owned"
+                        and UI.text("UI_SC_Base_RecoveryPending")
                     or UI.humanize(job.blocker or "blocked")
+                if job.parked then
+                    blocker = blocker .. " — " .. UI.text("UI_SC_Base_JobPaused")
+                elseif job.state == "blocked" then
+                    blocker = blocker .. " — " .. UI.text("UI_SC_Base_JobRetryWaiting")
+                end
                 if job.type == "sort_floor" then
                     local category = type(job.target) == "table"
                         and job.target.floorCategory or nil

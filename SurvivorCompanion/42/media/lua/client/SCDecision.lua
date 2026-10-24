@@ -801,7 +801,15 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
                 and SC.BaseAlert and type(SC.BaseAlert.directiveFor) == "function"
                 and SC.BaseAlert.directiveFor(actor, current) or nil
             if alarm then add("base_alert", alarm.score, false, alarm) end
-            if not bleeding then add("base_work", 58, false) end
+            if not bleeding then
+                -- Finish verified deposits and borrowed-tool returns before
+                -- ordinary surplus sorting can reclaim this resident forever.
+                local settlement = not selfMedicalNeed and threatCount == 0 and immediate == 0
+                    and humanThreat == nil
+                    and SC.Production and type(SC.Production.settlementFor) == "function"
+                    and SC.Production.settlementFor(actor) or nil
+                add("base_work", settlement and 86 or 58, false)
+            end
         end
         if threatCount == 0 and not bleeding
             and SC.ExpeditionPrototype

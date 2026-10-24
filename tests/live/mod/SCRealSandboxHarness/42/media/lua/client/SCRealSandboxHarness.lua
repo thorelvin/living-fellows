@@ -15910,6 +15910,7 @@ function Harness.observeSample(current, report)
             end
         end
     end
+    if SCSoakAudit then SCSoakAudit.sample(SC, actors, current, report) end
     local stackedNow, seen = 0, {}
     for first = 1, #actors do
         for second = first + 1, #actors do
@@ -16022,19 +16023,30 @@ function Harness.observeSample(current, report)
             summary.jobs.blocked or 0, counters.bodiesBuried or 0,
             counters.bodiesCollected or 0))
         for _, resident in ipairs(summary.residentRows or {}) do
-            if resident.role == "corpsekeeper" or resident.role == "chef" then
                 print(string.format("SC_OBSERVE|resident|%s|name=%s|role=%s|duty=%s|job=%s|restriction=%s",
                     tostring(resident.id), tostring(resident.name),
                     tostring(resident.role), tostring(resident.duty),
                     tostring(resident.job), tostring(resident.restriction)))
-            end
         end
         for _, job in ipairs(summary.rows or {}) do
-            if job.type == "cook" or job.type == "production" then
-                print(string.format("SC_OBSERVE|job|%s|type=%s|state=%s|blocker=%s|assigned=%s|phase=%s",
+                local raw = baseLife.job(job.id) or job
+                print(string.format("SC_OBSERVE|job|%s|type=%s|state=%s|blocker=%s|assigned=%s|phase=%s|reserved=%s|attempts=%s|retryAt=%s|floorCargo=%s",
                     tostring(job.id), tostring(job.type), tostring(job.state),
                     tostring(job.blocker), tostring(job.assignedId),
-                    tostring(job.target and job.target.cookPhase)))
+                    tostring(job.target and (job.target.cookPhase or job.target.phase
+                        or job.target.stage)), tostring(raw.reservedBy),
+                    tostring(raw.attempts), tostring(raw.retryAt),
+                    tostring(job.target and job.target.floorCargo
+                        and job.target.floorCargo.itemId)))
+        end
+        observe.completedSeen = observe.completedSeen or {}
+        for _, completed in ipairs(base.completed or {}) do
+            if not observe.completedSeen[completed.id] then
+                observe.completedSeen[completed.id] = true
+                print(string.format("SC_OBSERVE|completed|%s|type=%s|actor=%s|at=%s|result=%s",
+                    tostring(completed.id), tostring(completed.type),
+                    tostring(completed.actorId), tostring(completed.completedAt),
+                    tostring(completed.result)))
             end
         end
         for _, order in ipairs(summary.productionOrders or {}) do
@@ -16813,10 +16825,30 @@ local function tick()
             end
             result("PASS", "observe_started", "records=" .. tostring(records)
                 .. " observe_ms=" .. tostring(Harness.config.observe_ms))
+            if SCSoakAudit then SCSoakAudit.start(SurvivorCompanion) end
+            if (tonumber(Harness.config.observe_speed) or 1) > 1 then
+                local speed = tonumber(Harness.config.observe_speed)
+                local speedOkay, speedReason = pcall(function()
+                    UIManager.getSpeedControls():SetCurrentGameSpeed(speed)
+                    getGameTime():setMultiplier(speed == 3 and 20 or 5)
+                end)
+                check("observe_speed_applied", speedOkay,
+                    "requested=" .. tostring(speed) .. " speed=" .. tostring(getGameSpeed())
+                        .. " multiplier=" .. tostring(getGameTime():getTrueMultiplier())
+                        .. " detail=" .. tostring(speedReason))
+                print("SC_OBSERVE|speed|" .. tostring(getGameSpeed()))
+            end
+            pcall(function() getCore():TakeFullScreenshot(
+                Harness.config.run_id .. "-observe-start") end)
             setPhase("observe_run", current)
         end
     elseif Harness.phase == "observe_run" then
         local observe = Harness.observe
+        if not observe.middleScreenshot and current - observe.startedAt >= 300000 then
+            observe.middleScreenshot = true
+            pcall(function() getCore():TakeFullScreenshot(
+                Harness.config.run_id .. "-observe-middle") end)
+        end
         if current >= observe.nextSampleAt then
             observe.nextSampleAt = current + 1000
             local report = current >= observe.nextReportAt
@@ -16862,6 +16894,9 @@ local function tick()
                 print("SC_OBSERVE|performance|" .. string.gsub(performance.summary(),
                     "\n", "\nSC_OBSERVE|performance|"))
             end
+            if SCSoakAudit then SCSoakAudit.finish(SurvivorCompanion) end
+            pcall(function() getCore():TakeFullScreenshot(
+                Harness.config.run_id .. "-observe-end") end)
             setPhase("finish", current)
         end
     elseif Harness.phase == "wait_runtime" then

@@ -318,6 +318,18 @@ function Transport.isCargoProtected(item, actorOrId, operation)
     local data = itemData(item)
     if not data then return false end
     if data.LF_LogYardSplit ~= nil then return true end
+    if data.LF_FloorSortJob ~= nil then
+        if not SC.BaseLife or type(SC.BaseLife.job) ~= "function" then return true end
+        local job = SC.BaseLife.job(data.LF_FloorSortJob)
+        local claim = job and job.type == "sort_floor" and type(job.target) == "table"
+            and job.target.floorCargo or nil
+        local nativeId = tonumber(itemNativeId(item))
+        -- The intake controller stages its exact cargo at inventory root.
+        -- Packing it away again interrupts delivery with another Loot pose.
+        -- A stale marker must not reserve a later item carried by this job.
+        if type(claim) == "table" and nativeId ~= nil
+            and tonumber(claim.itemId) == nativeId then return true end
+    end
     if data.LF_FieldOrder ~= nil or data.LF_FieldBorrowedAxe ~= nil
         or data.LF_FieldCarryWorker ~= nil then
         -- A harvest kept for pickup may be shelved in camp storage by the
@@ -332,6 +344,11 @@ function Transport.isCargoProtected(item, actorOrId, operation)
         end
         return SC.FieldWork ~= nil and SC.FieldWork.reserved ~= nil
             and SC.FieldWork.reserved(item) == true
+    end
+    if data.LF_ProductionToolKey ~= nil then
+        local reserved = not SC.Production or type(SC.Production.toolReserved) ~= "function"
+            or SC.Production.toolReserved(item) ~= false
+        return reserved and operation ~= "production_deposit" and operation ~= "production_release"
     end
     if data.LF_ProductionOrderId ~= nil then
         local live = SC.BaseLife and SC.BaseLife.productionOrderLive
@@ -394,7 +411,12 @@ function Transport.foreignProtected(item, actor)
             or SC.BaseFuel.reserved(item) == true) then
         return true, "refuel_item_owned"
     end
-    if data.LF_ProductionOrderId ~= nil then
+    if data.LF_ProductionToolKey ~= nil and (not SC.Production
+        or type(SC.Production.toolReserved) ~= "function"
+        or SC.Production.toolReserved(item) ~= false) then
+        return true, "production_tool_owned"
+    end
+    if data.LF_ProductionOrderId ~= nil and data.LF_ProductionToolKey == nil then
         if Transport.isCargoProtected(item, actor, "surplus_sort") then
             return true, "production_item_owned"
         end

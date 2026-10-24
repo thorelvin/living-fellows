@@ -32,6 +32,14 @@ local hitHookInstalled = false
 local swingHookInstalled = false
 local deathHookInstalled = false
 local fallbackRandomSequence = 0
+local backgroundPulse
+local pulseRemainingBudget
+local function budgetAvailable(remainingBudget)
+    return type(remainingBudget) ~= "function" or (tonumber(remainingBudget()) or 0) > 0
+end
+local function backgroundCount(name)
+    if SC.Performance and SC.Performance.count then SC.Performance.count(name) end
+end
 
 local lifecycleValues = {
     forming = true, fortifying = true, settled = true,
@@ -983,7 +991,7 @@ function Factions.houseSearchFailureReason(job)
     return "no_valid_loaded_house:" .. tostring(best)
 end
 
-local function resumeHouseSearch(job, quota)
+local function resumeHouseSearch(job, quota, remainingBudget)
     if type(job) ~= "table" then return "failed", nil, "invalid_house_search", 0 end
     job.rejections = type(job.rejections) == "table" and job.rejections or {}
     local function reject(reason)
@@ -993,6 +1001,7 @@ local function resumeHouseSearch(job, quota)
     local processed = 0
     quota = math.max(1, math.floor(tonumber(quota) or job.budget or 1))
     while job.attempt <= job.budget and processed < quota do
+        if not budgetAvailable(remainingBudget) then break end
         local attempt = job.attempt
         job.attempt = job.attempt + 1
         processed = processed + 1
@@ -1052,7 +1061,7 @@ function Factions.pollHouseSearch(player, options, job)
         return "pending", nil, "house_search_deferred", job
     end
     local startedAt = nowMs()
-    local status, house, searchReason, processed = resumeHouseSearch(job, granted)
+    local status, house, searchReason, processed = resumeHouseSearch(job, granted, pulseRemainingBudget)
     if SC.Performance and type(SC.Performance.record) == "function" then
         SC.Performance.record("faction.house_search", nil,
             nowMs() - startedAt, processed or 0, false)
@@ -2127,24 +2136,74 @@ function Factions.observeContainerOpened(container, player)
     return true, group.id
 end
 
-local function observeContainerTransfers(current)
-    for container, observation in pairs(observedContainers) do
-        if current - (observation.openedAt or 0) > 60000 then
+local function observeContainerTransfers(current, remainingBudget, cursor)
+    if not cursor.containers then
+        cursor.containers, cursor.containerIndex = {}, 1
+        for container in pairs(observedContainers) do cursor.containers[#cursor.containers + 1] = container end
+    end
+    while cursor.containerIndex <= #cursor.containers do
+        if not budgetAvailable(remainingBudget) then return false, "faction_observations_pending", true end
+        local container = cursor.containers[cursor.containerIndex]
+        local observation = observedContainers[container]
+        if observation == nil then
+            cursor.containerIndex = cursor.containerIndex + 1
+        elseif current - (observation.openedAt or 0) > 60000 then
             observedContainers[container] = nil
+            cursor.containerIndex = cursor.containerIndex + 1
         else
-            local currentPrint = containerFingerprint(container)
+            local scan = observation.backgroundScan
+            if not scan then
+                scan = { print = { total = 0, types = {}, items = {} }, index = 0 }
+                observation.backgroundScan = scan
+            end
+            scan.authorized = scan.authorized == true or SC.Trade
+                and type(SC.Trade.isAuthorizedTransfer) == "function"
+                and SC.Trade.isAuthorizedTransfer(observation.factionId) == true
+            if scan.length == nil then
+                local itemsOk, items = invoke(container, "getItems")
+                scan.items, scan.itemsOk = items, itemsOk
+                scan.length = itemsOk and items and math.min(listSize(items), 512) or 0
+            end
+            local itemsOk, items, length = scan.itemsOk, scan.items, scan.length
+            while scan.index < length do
+                if not budgetAvailable(remainingBudget) then return false, "faction_observations_pending", true end
+                local item = listGet(items, scan.index)
+                scan.index = scan.index + 1
+                local typeOk, itemType = invoke(item, "getFullType")
+                if typeOk and type(itemType) == "string" then
+                    scan.print.total = scan.print.total + 1
+                    scan.print.types[itemType] = (scan.print.types[itemType] or 0) + 1
+                    scan.print.items[item] = itemType
+                end
+                backgroundCount("faction_observation_item")
+            end
+            local currentPrint = itemsOk and items and scan.print or nil
             local prior = observation.fingerprint
             if currentPrint and prior then
                 -- A count decrease only proves that the container changed. It
                 -- becomes theft evidence when the exact removed item now lives
                 -- in the inventory of the player who opened this container.
-                local removed = playerReceivedObservedItems(observation, prior, currentPrint)
+                if not scan.priorItems then
+                    scan.priorItems, scan.priorIndex, scan.removed = {}, 1, 0
+                    for item in pairs(prior.items or {}) do scan.priorItems[#scan.priorItems + 1] = item end
+                end
+                local inventoryOk, inventory = invoke(observation.player, "getInventory")
+                while scan.priorIndex <= #scan.priorItems do
+                    if not budgetAvailable(remainingBudget) then return false, "faction_observations_pending", true end
+                    local item = scan.priorItems[scan.priorIndex]
+                    scan.priorIndex = scan.priorIndex + 1
+                    if inventoryOk and inventory and currentPrint.items[item] == nil then
+                        local ownerOk, owner = invoke(item, "getContainer")
+                        if ownerOk and belongsToInventory(owner, inventory, 0) then scan.removed = scan.removed + 1 end
+                    end
+                end
+                local removed = scan.removed
                 local observedGroup = groups[observation.factionId]
                 local musicBlessing = observedGroup
                     and type(observedGroup.oddball) == "table"
                     and observedGroup.oddball.id == "tupelo_boys"
                     and observedGroup.oddball.blessing == true
-                if removed > 0 and not musicBlessing and not (SC.Trade
+                if removed > 0 and not musicBlessing and not scan.authorized and not (SC.Trade
                     and type(SC.Trade.isAuthorizedTransfer) == "function"
                     and SC.Trade.isAuthorizedTransfer(observation.factionId)) then
                     local group = groups[observation.factionId]
@@ -2161,8 +2220,12 @@ local function observeContainerTransfers(current)
                 end
                 observation.fingerprint = currentPrint
             end
+            observation.backgroundScan = nil
+            cursor.containerIndex = cursor.containerIndex + 1
+            backgroundCount("faction_observation_complete")
         end
     end
+    return true
 end
 
 local function noteCompanionHit(attacker, target, record)
@@ -3272,8 +3335,9 @@ function Factions.handleMissingSquare(record, player)
     return false, "faction_member_missing"
 end
 
-local function lifecyclePulse(group, player)
+local function lifecyclePulse(group, player, remainingBudget, cursor)
     if group.lifecycle == "destroyed" or player == nil or not group.house then return end
+    cursor = cursor or {}
     local reference = group.house.anchor
     if type(group.oddball) == "table" and group.oddball.site
         and group.oddball.site.kind == "roamer" then
@@ -3291,7 +3355,11 @@ local function lifecyclePulse(group, player)
     local hibernateDistance = tonumber(SC.Config.get("factionHibernationDistance")) or 120
     local wakeDistance = tonumber(SC.Config.get("factionWakeDistance")) or 100
     if distance > hibernateDistance then
-        for _, member in ipairs(group.members or {}) do
+        cursor.memberIndex = cursor.memberIndex or 1
+        while cursor.memberIndex <= #(group.members or {}) do
+            if not budgetAvailable(remainingBudget) then return false, "faction_lifecycle_pending", true end
+            local member = group.members[cursor.memberIndex]
+            cursor.memberIndex = cursor.memberIndex + 1
             if Factions.memberIsPresent(member) and member.actorId
                 and SC.Registry.byId(member.actorId) then
                 hibernateMember(group, member, player)
@@ -3299,7 +3367,12 @@ local function lifecyclePulse(group, player)
         end
     elseif distance < wakeDistance
         and not (group.oddball and group.oddball.awaitingStageSite == true) then
-        for index, member in ipairs(group.members or {}) do
+        cursor.memberIndex = cursor.memberIndex or 1
+        while cursor.memberIndex <= #(group.members or {}) do
+            if not budgetAvailable(remainingBudget) then return false, "faction_lifecycle_pending", true end
+            local index = cursor.memberIndex
+            local member = group.members[index]
+            cursor.memberIndex = cursor.memberIndex + 1
             if Factions.memberIsPresent(member) and member.hibernated then
                 wakeMember(group, member, player)
             elseif Factions.memberIsPresent(member) and member.actorId ~= nil
@@ -3343,7 +3416,7 @@ function Factions.productionPulse(player)
         local status, house, searchReason, nextJob = Factions.pollHouseSearch(
             player, { allowSeen = false }, productionHouseSearch.job)
         productionHouseSearch.job = nextJob or productionHouseSearch.job
-        if status == "pending" then return false, searchReason or "house_searching" end
+        if status == "pending" then return false, searchReason or "house_searching", true end
         local pending = productionHouseSearch
         productionHouseSearch = nil
         if status ~= "complete" or not house then return false, searchReason end
@@ -3371,7 +3444,7 @@ function Factions.productionPulse(player)
         player, { allowSeen = false }, nil)
     if status == "pending" then
         productionHouseSearch = { job = job, day = day, memberCount = memberCount }
-        return false, reason or "house_searching"
+        return false, reason or "house_searching", true
     end
     if status ~= "complete" or not house then return false, reason end
     local group, createReason = createGroup(house, memberCount, false)
@@ -3410,7 +3483,7 @@ function Factions.banditProductionPulse(player)
             maximumDistance = tonumber(SC.Config.get("banditFactionSpawnMaxDistance")) or 90,
         }, banditHouseSearch.job)
         banditHouseSearch.job = nextJob or banditHouseSearch.job
-        if status == "pending" then return false, searchReason or "house_searching" end
+        if status == "pending" then return false, searchReason or "house_searching", true end
         local pending = banditHouseSearch
         banditHouseSearch = nil
         if status ~= "complete" or not house then return false, searchReason end
@@ -3440,7 +3513,7 @@ function Factions.banditProductionPulse(player)
     }, nil)
     if status == "pending" then
         banditHouseSearch = { job = job, day = day, memberCount = memberCount }
-        return false, reason or "house_searching"
+        return false, reason or "house_searching", true
     end
     if status ~= "complete" or not house then return false, reason end
     local group, createReason = createGroup(house, memberCount, false, "bandit_camp")
@@ -3592,46 +3665,101 @@ function Factions.debugSetBarter(id, unlocked)
     return true, unlocked == true and "barter_unlocked" or "barter_locked"
 end
 
-function Factions.pulse(player, current)
+local function pulseBackground(player, current, remainingBudget)
     current = current or nowMs()
+    -- A pending native spawn gets its bounded poll even if optional work used
+    -- this frame's allowance. The queue itself retains exact member ownership.
     pollSpawn()
-    observeContainerTransfers(current)
-    for _, id in ipairs(groupOrder) do
-        local group = groups[id]
-        lifecyclePulse(group, player)
-        if group and group.lifecycle ~= "destroyed" and group.oddball == nil
-            and SC.FactionLife
-            and type(SC.FactionLife.pulseGroup) == "function" then
-            SC.FactionLife.pulseGroup(group, player, current)
+    local pulse = backgroundPulse
+    if not pulse or pulse.orderRef ~= groupOrder then
+        pulse = { order = {}, orderRef = groupOrder, groupIndex = 1, groupPhase = 1, phase = "observations", lifecycle = {} }
+        for _, id in ipairs(groupOrder) do pulse.order[#pulse.order + 1] = id end
+        backgroundPulse = pulse
+    end
+    local function pending(reason)
+        backgroundCount("faction_background_yield")
+        return false, reason or "faction_background_pending", true
+    end
+    if pulse.phase == "observations" then
+        local _, reason, incomplete = observeContainerTransfers(current, remainingBudget, pulse)
+        if incomplete then return pending(reason) end
+        pulse.phase = "groups"
+    end
+    while pulse.phase == "groups" and pulse.groupIndex <= #pulse.order do
+        if not budgetAvailable(remainingBudget) then return pending() end
+        local group = groups[pulse.order[pulse.groupIndex]]
+        local incomplete
+        if group then
+            local live = group.lifecycle ~= "destroyed"
+            if pulse.groupPhase == 1 then
+                local _, _, more = lifecyclePulse(group, player, remainingBudget, pulse.lifecycle)
+                incomplete = more
+            elseif pulse.groupPhase == 2 and live and group.oddball == nil
+                and SC.FactionLife and SC.FactionLife.pulseGroup then
+                local _, _, more = SC.FactionLife.pulseGroup(group, player, current, remainingBudget)
+                incomplete = more
+            elseif pulse.groupPhase == 3 and live and group.oddball == nil
+                and Factions.supports(group, "social") and SC.FactionContracts and SC.FactionContracts.pulseGroup then
+                SC.FactionContracts.pulseGroup(group, player, current)
+            elseif pulse.groupPhase == 4 and Factions.supports(group, "recruitment")
+                and SC.FactionRecruitment and SC.FactionRecruitment.pulseGroup then
+                SC.FactionRecruitment.pulseGroup(group, player, current)
+            elseif pulse.groupPhase == 5 and live and type(group.oddball) == "table"
+                and SC.Oddballs and SC.Oddballs.pulseGroup then
+                local _, _, more = SC.Oddballs.pulseGroup(group, player, current, remainingBudget)
+                incomplete = more
+            end
         end
-        if group and group.lifecycle ~= "destroyed" and group.oddball == nil
-            and Factions.supports(group, "social")
-            and SC.FactionContracts
-            and type(SC.FactionContracts.pulseGroup) == "function" then
-            SC.FactionContracts.pulseGroup(group, player, current)
-        end
-        if group and Factions.supports(group, "recruitment") and SC.FactionRecruitment
-            and type(SC.FactionRecruitment.pulseGroup) == "function" then
-            SC.FactionRecruitment.pulseGroup(group, player, current)
-        end
-        if group and group.lifecycle ~= "destroyed" and type(group.oddball) == "table"
-            and SC.Oddballs and type(SC.Oddballs.pulseGroup) == "function" then
-            SC.Oddballs.pulseGroup(group, player, current)
+        if incomplete then return pending() end
+        backgroundCount("faction_background_group_phase_" .. pulse.groupPhase)
+        pulse.groupPhase = pulse.groupPhase + 1
+        if not group or pulse.groupPhase > 5 then
+            pulse.groupIndex, pulse.groupPhase, pulse.lifecycle = pulse.groupIndex + 1, 1, {}
         end
     end
-    if not Factions._nextProductionAt or current >= Factions._nextProductionAt then
-        Factions._nextProductionAt = current
-            + (tonumber(SC.Config.get("factionProductionCheckIntervalMs")) or 30000)
-        Factions.productionPulse(player)
-        Factions.banditProductionPulse(player)
+    if pulse.phase == "groups" then pulse.phase = "households" end
+    while pulse.phase ~= "done" do
+        if not budgetAvailable(remainingBudget) then return pending() end
+        if pulse.phase == "households" then
+            pulse.productionDue = not Factions._nextProductionAt or current >= Factions._nextProductionAt
+            if pulse.productionDue then
+                local _, _, more = Factions.productionPulse(player)
+                if more and type(remainingBudget) == "function" then return pending("house_searching") end
+            end
+            pulse.phase = "bandits"
+        elseif pulse.phase == "bandits" then
+            if pulse.productionDue then
+                local _, _, more = Factions.banditProductionPulse(player)
+                if more and type(remainingBudget) == "function" then return pending("house_searching") end
+                Factions._nextProductionAt = current + (tonumber(SC.Config.get("factionProductionCheckIntervalMs")) or 30000)
+            end
+            pulse.phase = "world"
+        elseif pulse.phase == "world" then
+            if SC.FactionWorld and type(SC.FactionWorld.pulse) == "function" then
+                local _, reason, more = SC.FactionWorld.pulse(worldAgeHours(), remainingBudget)
+                if more then return pending(reason) end
+            end
+            pulse.phase = "oddballs"
+        else
+            if SC.Oddballs and type(SC.Oddballs.pulse) == "function" then
+                local _, reason, more = SC.Oddballs.pulse(player, current, remainingBudget)
+                if more then return pending(reason) end
+            end
+            pulse.phase = "done"
+        end
     end
-    if SC.FactionWorld and type(SC.FactionWorld.pulse) == "function" then
-        SC.FactionWorld.pulse(worldAgeHours())
-    end
-    if SC.Oddballs and type(SC.Oddballs.pulse) == "function" then
-        SC.Oddballs.pulse(player, current)
-    end
-    return true
+    backgroundPulse = nil
+    backgroundCount("faction_background_complete")
+    return true, "faction_background_complete", false
+end
+
+function Factions.pulse(player, current, remainingBudget)
+    local previous = pulseRemainingBudget
+    pulseRemainingBudget = remainingBudget
+    local okay, result, reason, pending = pcall(pulseBackground, player, current, remainingBudget)
+    pulseRemainingBudget = previous
+    if not okay then error(result, 0) end
+    return result, reason, pending
 end
 
 function Factions.export()
@@ -4485,6 +4613,7 @@ function Factions.reset()
     recentPlayerAttacks = {}
     recentCompanionHits = {}
     fallbackRandomSequence = 0
+    backgroundPulse, pulseRemainingBudget = nil, nil
     streetLookup = { api = nil, bridge = nil, retryAt = 0 }
     Factions._nextProductionAt = nil
     if SC.FactionContracts and type(SC.FactionContracts.reset) == "function" then

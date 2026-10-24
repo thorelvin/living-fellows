@@ -1466,10 +1466,10 @@ storageFor = function(actor, item, category, dedicatedOnly, ownerState)
     end
     if ownerState and #choices > 0 and SC.Navigation
         and type(SC.Navigation.selectInteraction) == "function" then
-        local selected, reason = SC.Navigation.selectInteraction(actor, ownerState,
+        local selected, reason, receipt = SC.Navigation.selectInteraction(actor, ownerState,
             "logistics_deposit:" .. tostring(select(1, U().call(item, "getID")) or item),
-            choices, { nodeBudget = 1600 })
-        if selected then return selected.destination end
+            choices, { nodeBudget = 1600, retainRoute = true })
+        if selected then return selected.destination, nil, receipt end
         return nil, reason == "pending" and "storage_route_pending"
             or reason == "unknown" and "storage_route_unknown"
             or "storage_route_unreachable"
@@ -1848,6 +1848,8 @@ local function approachTransaction(actor, state, snapshot)
         logistics = true, arrivalDistance = 0.35, requireSameSquare = true,
         continuousApproach = true,
         supervisorToken = transaction.supervisorToken,
+        interactionRouteReceipt = state.interactionRouteReceipt,
+        interactionRouteOwner = state,
     })
     local service = supervisor()
     if service and transaction.supervisorToken and type(service.progress) == "function" then
@@ -1975,14 +1977,15 @@ function Logistics.update(actor, player, runtime)
         state.shelveOnly = audit.surplus.shelveOnly == true
         state.fieldReturnCleanup = audit.fieldReturnCleanup == true
         state.source = audit.surplus.source or audit.inventory
-        state.destination, state.navigationChoice = nil, nil
+        state.destination, state.navigationChoice, state.interactionRouteReceipt = nil, nil, nil
     end
     if not state.destination then
-        local destination, routeReason = storageFor(actor, state.item, state.category,
+        local destination, routeReason, receipt = storageFor(actor, state.item, state.category,
             state.proactive and not state.fieldReturnCleanup
                 and (state.category == "literature" or state.category == "farming"),
             state)
         state.destination = destination
+        state.interactionRouteReceipt = receipt
         if routeReason then
             -- A pending survey resumes next beat. A finished survey that
             -- found no walkable route (or ran out of budget) is a failed

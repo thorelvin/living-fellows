@@ -702,6 +702,23 @@ public final class SCNativeApiSignatureTest {
                 "Stats.get(CharacterStat) signature changed");
         require(method(stats, "set", characterStat, float.class).getReturnType() == boolean.class,
                 "Stats.set(CharacterStat,float) signature changed");
+        Class<?> traits = Class.forName("zombie.characters.traits.CharacterTraits");
+        Class<?> trait = Class.forName("zombie.scripting.objects.CharacterTrait");
+        Class<?> sandbox = Class.forName("zombie.SandboxOptions", false,
+                SCNativeApiSignatureTest.class.getClassLoader());
+        Class<?> globals = Class.forName("zombie.ZomboidGlobals");
+        require(method(stats, "add", characterStat, float.class).getReturnType() == boolean.class
+                        && method(character, "getCharacterTraits").getReturnType() == traits
+                        && method(traits, "get", trait).getReturnType() == boolean.class
+                        && method(character, "getFatiqueMultiplier").getReturnType() == double.class
+                        && method(character, "isSitting").getReturnType() == boolean.class
+                        && method(character, "isResting").getReturnType() == boolean.class
+                        && method(gameTime, "getDeltaMinutesPerDay").getReturnType() == float.class
+                        && method(sandbox, "getStatsDecreaseMultiplier").getReturnType() == double.class
+                        && globals.getField("fatigueIncrease").getType() == double.class
+                        && trait.getField("NEEDS_LESS_SLEEP").getType() == trait
+                        && trait.getField("NEEDS_MORE_SLEEP").getType() == trait,
+                "companion natural-fatigue contract changed");
         require(method(stats, "getNicotineStress").getReturnType() == float.class
                         && characterStat.getField("STRESS").getType() == characterStat
                         && characterStat.getField("NICOTINE_WITHDRAWAL").getType() == characterStat

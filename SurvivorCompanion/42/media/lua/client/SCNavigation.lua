@@ -6644,6 +6644,61 @@ end
 -- loop remains the sole owner of movement, portals, recovery, and progress.
 -- Keep route preparation outside request() to stay within Kahlua's upvalue
 -- limit for that already large function.
+function Navigation._adoptInteractionRoute(actor, state, sourceSquare, goalSquare, intent, now)
+    local receipt = intent.interactionRouteReceipt
+    if type(receipt) ~= "table" or receipt.used or receipt.invalidated
+        or state.path ~= nil or state.pathSearch ~= nil or state.nativeLease ~= nil then return false end
+    local function reject(reason)
+        receipt.invalidated, receipt.failure = true, reason
+        return false
+    end
+    local utility = U()
+    local data, known = utility.call(actor, "getModData")
+    local serial = known and type(data) == "table" and (tonumber(data.SC_CommandSerial) or 0) or nil
+    local _, token = supervisedToken(intent)
+    if not SC.WorkRoutes.storageRouteRequested(intent)
+        or actor ~= receipt.actor or receipt.ownerState ~= intent.interactionRouteOwner
+        or receipt.object ~= intent.object or receipt.commandSerial ~= serial
+        or now > (tonumber(receipt.expiresAt) or 0)
+        or not sameSquare(sourceSquare, receipt.source)
+        or not sameSquare(goalSquare, receipt.endpoint)
+        or intent.supervisorToken ~= nil and token ~= intent.supervisorToken
+        or receipt.boundToken ~= nil and receipt.boundToken ~= token then
+        return reject("receipt_owner_changed")
+    end
+    if token and (token.actor ~= actor or token.terminalAt ~= nil) then
+        return reject("receipt_token_changed")
+    end
+    local candidates = intent.goalCandidates
+    if type(candidates) == "table" then
+        local found = false
+        for _, candidate in ipairs(candidates) do
+            if sameSquare(candidate, receipt.endpoint) then found = true break end
+        end
+        if not found then return reject("receipt_candidate_changed") end
+    end
+    local options = { actor = actor, blockedEdges = state.blockedEdges,
+        blockedSquares = state.blockedSquares, routeMemory = state.routeMemory,
+        now = now, allowHazards = false, vegetationScale = 1 }
+    if intent.workCampOnly == true then
+        options.squareAdmission = function(square)
+            return Navigation._workSquareAdmitted(square, intent)
+        end
+    end
+    local valid, reason = SC.WorkRoutes.validateReceiptPath(
+        receipt.path, sourceSquare, goalSquare, options)
+    if not valid then return reject(reason or "receipt_edge_changed") end
+    receipt.used, receipt.boundToken = true, token
+    state.path, state.pathGoalSquare, state.pathIndex = receipt.path, goalSquare, 2
+    state.pathIsPartial, state.pathFailure, state.pathSearchHolding = nil, nil, nil
+    state.pathStealthAvoidance, state.pathEmergencyVegetation = false, false
+    state.pathReason, state.lastPlanDurationMs = "interaction_route_receipt", 0
+    state.lastProgressAt, state.nextRepathAt = now, now + (utility.config("navigationRepathMs") or 900)
+    SC.WorkRoutes.count("navigation.interaction-route.reused")
+    Navigation._resetRouteProjection(state)
+    return true
+end
+
 function Navigation._seedVerifiedRoute(actor, state, sourceSquare, goalSquare,
         requestIntent, now)
     if state.path ~= nil or requestIntent.preferVerifiedPath ~= true
@@ -7252,6 +7307,8 @@ function Navigation.request(actor, target, movementMode, intent)
         state.nextRepathAt = 0
     end
 
+    SC.Navigation._adoptInteractionRoute(actor, state, sourceSquare, goalSquare,
+        requestIntent, now)
     SC.Navigation._seedVerifiedRoute(actor, state, sourceSquare, goalSquare,
         requestIntent, now)
     if not state.path and now >= (state.nextRepathAt or 0) then
@@ -7356,10 +7413,24 @@ function Navigation.request(actor, target, movementMode, intent)
                     SC.WorkRoutes.count("navigation.stationary-fast.misses")
                 end
             end
-            if immediatePath == nil and requestedWorkRouteKey ~= nil
-                and not multipleGoals then
-                immediatePath, cachedEntry = SC.WorkRoutes.lookup(
-                    actor, sourceSquare, requestedWorkRouteKey, pathOptions, now)
+            if immediatePath == nil and requestedWorkRouteKey ~= nil then
+                if multipleGoals and SC.WorkRoutes.storageRouteRequested(requestIntent) then
+                    local endpoint, endpointKey
+                    immediatePath, cachedEntry, endpoint, endpointKey = SC.WorkRoutes.lookupCandidates(
+                        actor, sourceSquare, requestIntent.goalCandidates, requestIntent, pathOptions, now)
+                    if immediatePath ~= nil then
+                        goalSquare, requestedGoalSquare = endpoint, endpoint
+                        requestIntent.targetSquare, requestIntent.requestedGoalSquare = endpoint, endpoint
+                        state.goalSquare, state.multiGoalSelected = endpoint, endpoint
+                        currentTargetSignature = routeTargetSignature(endpoint, requestIntent)
+                        state.routeTargetSignature = currentTargetSignature
+                        requestedWorkRouteKey = endpointKey
+                        if state.lastApproachRequest then state.lastApproachRequest.goal = endpoint end
+                    end
+                elseif not multipleGoals then
+                    immediatePath, cachedEntry = SC.WorkRoutes.lookup(
+                        actor, sourceSquare, requestedWorkRouteKey, pathOptions, now)
+                end
                 if immediatePath ~= nil then immediateReason = "work_route_cache" end
             end
             if immediatePath ~= nil then
@@ -7953,6 +8024,10 @@ function Navigation.request(actor, target, movementMode, intent)
         end
         local companionBlocker = utility.isCompanion(blocker)
         local ownRightOfWay = companionBlocker and hasRightOfWay(actor, requestIntent, blocker)
+        if ownRightOfWay and SC.NavTraffic.pollYield(actor, now, requestIntent.snapshot) then
+            if not utility.stop(actor) then return false, "traffic_priority_stop_rejected" end
+            return true, "waiting_for_companion_clearance"
+        end
         local yieldAfter = utility.config("navigationYieldMs") or 900
         if blockerType == "player_crowd" and waited >= yieldAfter
             and utility.sameSquare(blocker, nextSquare) then
@@ -7988,15 +8063,9 @@ function Navigation.request(actor, target, movementMode, intent)
                 local clearance = SC.Navigation._crowdClearanceSquareForRequest(blocker, actor, nextSquare,
                     requestIntent.snapshot, not crowdChoke)
                 if clearance then
-                    otherState.forcedYieldFor = actor
-                    otherState.crowdMove = {
-                        square = clearance, requestedBy = actor,
-                        requestedAt = now,
-                        expiresAt = now + (not crowdChoke and 12000
-                            or (utility.config("navigationCrowdMoveMs") or 6000)),
-                        reason = not crowdChoke and "corridor" or "choke",
-                    }
-                    if SC.Banter and type(SC.Banter.crowdYield) == "function" then
+                    local session, started = SC.NavTraffic.beginYield(actor, blocker,
+                        state, otherState, clearance, nextSquare, requestIntent, now, not crowdChoke)
+                    if session and started and SC.Banter and type(SC.Banter.crowdYield) == "function" then
                         pcall(SC.Banter.crowdYield, actor, blocker, now)
                     end
                     recordMovement(actor, "yield_requested", {
@@ -8029,6 +8098,10 @@ function Navigation.request(actor, target, movementMode, intent)
         end
         if not utility.stop(actor) then return false, "personal_space_stop_rejected" end
         return true, "holding_personal_space"
+    end
+    SC.NavTraffic.pollYield(actor, now, requestIntent.snapshot)
+    if SC.Banter and type(SC.Banter.crowdYieldClear) == "function" then
+        pcall(SC.Banter.crowdYieldClear, actor, now)
     end
     state.yieldSince = nil
     state.yieldBlocker = nil
@@ -8346,7 +8419,7 @@ function Navigation.selectInteraction(actor, ownerState, choiceKey, choices, opt
     end
     if survey and survey.winnerId then
         for _, entry in ipairs(rows) do
-            if entry.id == survey.winnerId then return entry.choice, "selected" end
+            if entry.id == survey.winnerId then return entry.choice, "selected", survey.bestReceipt end
         end
         survey, ownerState.navigationChoice = nil, nil
     end
@@ -8385,7 +8458,7 @@ function Navigation.selectInteraction(actor, ownerState, choiceKey, choices, opt
     local function returnBest()
         survey.winnerId, survey.expiresAt = survey.bestId, now + 15000
         for _, entry in ipairs(rows) do
-            if entry.id == survey.bestId then return entry.choice, "selected" end
+            if entry.id == survey.bestId then return entry.choice, "selected", survey.bestReceipt end
         end
         survey, ownerState.navigationChoice = nil, nil
         return nil, "no_candidates"
@@ -8469,6 +8542,18 @@ function Navigation.selectInteraction(actor, ownerState, choiceKey, choices, opt
                     survey.bestId, survey.bestCost = winner.id, cost
                     survey.bestTier = winner.tier
                     survey.bestCanBound = routeCost ~= nil
+                    if options.retainRoute == true and type(path) == "table" and #path >= 2 and #path <= 192 then
+                        local saved, known = utility.call(actor, "getModData")
+                        local serial = known and type(saved) == "table" and (tonumber(saved.SC_CommandSerial) or 0)
+                        local copy = {}
+                        for index, square in ipairs(path) do copy[index] = square end
+                        survey.bestReceipt = serial and {
+                            actor = actor, ownerState = ownerState, object = winner.object,
+                            choiceKey = choiceKey, choiceId = winner.id,
+                            commandSerial = serial, source = path[1], endpoint = endpoint,
+                            path = copy, expiresAt = now + 5000,
+                        } or nil
+                    else survey.bestReceipt = nil end
                 end
                 if bestSettled(rows[survey.batch]) then return returnBest() end
             end
@@ -8693,6 +8778,17 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
             return approachScore(actor, first, intent) < approachScore(actor, second, intent)
         end)
     end
+    local receipt = intent.interactionRouteReceipt
+    if SC.WorkRoutes.storageRouteRequested(intent) and type(receipt) == "table"
+        and not receipt.used and not receipt.invalidated then
+        for index, square in ipairs(valid) do
+            if sameSquare(square, receipt.endpoint) then
+                table.remove(valid, index)
+                table.insert(valid, 1, square)
+                break
+            end
+        end
+    end
     for _, square in ipairs(valid) do
         local squareId = squareKey(square)
         if not state.multiGoalFailures[squareId] then
@@ -8795,9 +8891,35 @@ end
 -- Decision calls this before ordinary idle/work selection. A companion that
 -- was explicitly asked to clear a route walks to the reserved clearance tile
 -- instead of merely freezing and hoping the requester sidesteps around them.
+function Navigation._settleEndedCrowdYield(actor, state)
+    local ended = state and state.endedCrowdYield
+    if not ended then return false end
+    if state.lastApproachRequest ~= ended.request
+        or ended.request.crowdYieldSession ~= ended.session
+        or state.goalAction ~= "crowd_yield_order" then
+        state.endedCrowdYield = nil
+        return false
+    end
+    -- A subsequent live clearance request can replace this route normally.
+    if type(state.crowdMove) == "table" then return false end
+    local service = actionSupervisor()
+    local current = service and type(service.current) == "function" and service.current(actor) or nil
+    local permitted = navigationOwnershipPermission(actor, {
+        action = "crowd_yield_order", supervisorToken = ended.session.blockerToken,
+    })
+    if states[actor] ~= state or state.lastApproachRequest ~= ended.request then return true, "crowd_move_ended" end
+    if permitted ~= true or current ~= nil and current ~= ended.session.blockerToken then
+        return true, "crowd_move_cleanup_deferred"
+    end
+    Navigation.cancel(actor, "crowd_yield_" .. tostring(ended.session.endReason or "ended"))
+    return true, "crowd_move_ended"
+end
+
 function Navigation.serviceCrowdYield(actor, snapshot)
     local utility = U()
     local state = actor and states[actor] or nil
+    local ended, endedReason = Navigation._settleEndedCrowdYield(actor, state)
+    if ended then return false, endedReason end
     local move = state and state.crowdMove or nil
     if type(move) ~= "table" then
         local planned, planReason = Navigation._planUnstack(actor, snapshot, utility.nowMs())
@@ -8805,6 +8927,19 @@ function Navigation.serviceCrowdYield(actor, snapshot)
         state, move = states[actor], planned
     end
     local current = utility.nowMs()
+    if move.yieldSession then
+        local session, reason = SC.NavTraffic.pollYield(actor, current, snapshot)
+        if not session then
+            state.crowdMove, state.forcedYieldFor = nil, nil
+            Navigation._settleEndedCrowdYield(actor, state)
+            return false, "crowd_move_" .. tostring(reason or "ended")
+        end
+    end
+    local yieldToken = move.yieldSession and move.yieldSession.blockerToken
+    local permitted, permissionReason = navigationOwnershipPermission(actor, {
+        action = "crowd_yield_order", supervisorToken = yieldToken,
+    })
+    if permitted ~= true then return false, permissionReason end
     if current > (tonumber(move.expiresAt) or 0)
         or not move.square or not move.requestedBy or utility.isDead(move.requestedBy)
         or not utility.sameFloor(actor, move.requestedBy)
@@ -8820,6 +8955,14 @@ function Navigation.serviceCrowdYield(actor, snapshot)
         return false, "crowd_move_deferred_for_danger"
     end
     if utility.arrived(actor, move.square, { targetKind = "square", distance = 0.7 }) then
+        if move.yieldSession then
+            move.yieldSession.clearanceReached = true
+            local session = SC.NavTraffic.pollYield(actor, current, snapshot)
+            if session then
+                if not utility.stop(actor) then return false, "crowd_clearance_stop_rejected" end
+                return true, "holding_clearance_for_passage"
+            end
+        end
         state.crowdMove, state.forcedYieldFor = nil, nil
         utility.stop(actor)
         recordMovement(actor, "yield_completed", {
@@ -8828,10 +8971,16 @@ function Navigation.serviceCrowdYield(actor, snapshot)
         })
         return true, "crowd_path_cleared"
     end
+    local previousRequest = state.lastApproachRequest
     local accepted, reason = Navigation.request(actor, move.square, "walk", {
         action = "crowd_yield_order", targetSquare = move.square,
         snapshot = snapshot, continuousApproach = true,
+        supervisorToken = yieldToken,
     })
+    if move.yieldSession and states[actor] == state
+        and state.lastApproachRequest ~= previousRequest and state.lastApproachRequest then
+        state.lastApproachRequest.crowdYieldSession = move.yieldSession
+    end
     return accepted == true, reason or "crowd_yield_pathing"
 end
 
@@ -8852,8 +9001,13 @@ function Navigation.interact(actor, object, action, options)
         if not V() or type(V().interactDoor) ~= "function" then
             return false, "traversal_unavailable"
         end
-        return V().interactDoor(actor, state, object, action,
+        local accepted, status, detail = V().interactDoor(actor, state, object, action,
             utility.squareOf(actor), objectSquare, now, traversalContext)
+        if accepted == true and objectOpen(object) == desiredOpen
+            and SC.BaseLife and type(SC.BaseLife.noteWorkAccessChanged) == "function" then
+            pcall(SC.BaseLife.noteWorkAccessChanged, object)
+        end
+        return accepted, status, detail
     end
     if action == "open_curtain" or action == "close_curtain" then
         local desiredOpen = action == "open_curtain"

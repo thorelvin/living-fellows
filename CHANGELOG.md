@@ -4,6 +4,12 @@
 
 ## 0.26.62 - Floor-sort, bed, guard and planning fixes
 
+- Awake companions now gain fatigue using the player's native sleep traits, endurance and sandbox settings, allowing normal bed seeking and sleep without artificial fatigue timers.
+- Storage workers reuse validated routes found during destination selection. Companions yielding in a narrow passage retain their clearance until the worker passes, and repeated requests to move are limited to one reminder every 30 seconds.
+- Faction and camp maintenance scans resume across frames, keep complete inventory reports visible while counting, and respect the remaining background budget.
+- Parked jobs get one bounded retry after a relevant access change. Older parked navigation failures receive one saved recovery attempt, while reloads and unrelated camp changes no longer repeatedly restart failed work.
+- Floor sorting protects its exact carried item from ordinary bag packing, avoiding a loop of packing and unpacking that interrupted delivery.
+- Production finishes deposits and physically returns borrowed tools before ordinary sorting. Tool searches also check Weapons storage for axes, and exact saved loan receipts preserve returns across cancellation and reload.
 - A floor sorter carrying a lot (loose rounds count one item each) no longer gets stuck when the item it picked up goes missing because you took it or it was used up. Before, the job kept its claim, the Sorting floor could not be removed, and the resident refused every order that takes it off base duty. A miss found over several updates is now checked once more in a single pass of up to 1024 items before the claim is let go.
 - Cancelling a floor-sort job, for example by giving the sorter Follow, reads its whole pack in one go. One that carries a lot used to refuse the first order or two. If the item cannot be found at all, because the pack is very large or a bag in it cannot be read, the job lets the claim go instead of refusing. An item still in the pack stays there.
 - A cancelled floor-sort item's old marker cannot reserve it again when the job picks up something else. Reservations match the exact current cargo, and abandoned items dropped back onto the Sorting floor can be collected again.

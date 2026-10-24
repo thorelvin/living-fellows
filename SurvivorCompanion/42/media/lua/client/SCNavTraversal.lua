@@ -72,6 +72,9 @@ local function completeDoorInteraction(actor, state, object, action, fromSquare,
             utility.diagnostic("navigation-door", actor,
                 "action=opened_locked_door by_key_or_inside=true")
         end
+        if SC.BaseLife and type(SC.BaseLife.noteWorkAccessChanged) == "function" then
+            SC.BaseLife.noteWorkAccessChanged(object)
+        end
     elseif action == "close_door" and invoke(context, "objectOpen", object) then
         local result, toggled = utility.call(object, "ToggleDoor", actor)
         if not toggled or result == false or invoke(context, "objectOpen", object) then
@@ -158,6 +161,9 @@ local function completeWindowAction(actor, state, window, action, now, context)
         Traversal.release(window, actor)
         state.pendingInteraction = nil
         return false, action .. "_verification_timeout"
+    end
+    if SC.BaseLife and type(SC.BaseLife.noteWorkAccessChanged) == "function" then
+        SC.BaseLife.noteWorkAccessChanged(window)
     end
     state.pendingInteraction = nil
     return true, "done"

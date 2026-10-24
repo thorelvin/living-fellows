@@ -142,6 +142,14 @@ $stages = @(
         -Script (Join-Path $ProjectRoot 'tests\gameplay\run_navigation_stability_tests.ps1') `
         -Arguments @('-GameRoot', $GameRoot) `
         -Failure 'Navigation stability suite failed.'),
+    (New-ScPowerShellStep -Name 'storage-route-yield' `
+        -Script (Join-Path $ProjectRoot 'tests\gameplay\run_storage_route_yield_tests.ps1') `
+        -Arguments @('-GameRoot', $GameRoot) `
+        -Failure 'Storage route reuse and companion yielding regressions failed.'),
+    (New-ScPowerShellStep -Name 'floor-cargo-logistics' `
+        -Script (Join-Path $ProjectRoot 'tests\gameplay\run_floor_cargo_logistics_tests.ps1') `
+        -Arguments @('-GameRoot', $GameRoot) `
+        -Failure 'Floor cargo ownership versus inventory packing regressions failed.'),
     (New-ScPowerShellStep -Name 'perception-topology' `
         -Script (Join-Path $ProjectRoot 'tests\gameplay\run_perception_topology_tests.ps1') `
         -Arguments @('-GameRoot', $GameRoot) `
@@ -178,5 +186,6 @@ Write-Output ("PROJECT_TEST_PASS pz-runtime=true source=true core=true " +
     "oddball-deputy=true oddball-loretta=true oddball-milli=true taxi-booking=true taxi-fare-recovery=true oddball-animal-spawn=true " +
     "oddball-silas-rusty=true oddball-lonnie-virgil=true " +
     "oddball-clem-purdy=true oddball-phase2=true oddball-encounters=true gameplay=true " +
-    "navigation-stability=true perception-topology=true strike-barrier=true ui=true live-harness-static=true " +
+    "navigation-stability=true storage-route-yield=true floor-cargo-logistics=true " +
+    "perception-topology=true strike-barrier=true ui=true live-harness-static=true " +
     "workshop=true standalone=true seconds={0:N0} jobs={1}" -f $gate.Elapsed.TotalSeconds, $Jobs)

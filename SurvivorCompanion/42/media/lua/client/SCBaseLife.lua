@@ -180,6 +180,7 @@ local WORK_RECEIPT_PHASES = {
 local document
 local draftZone
 local operationsCache
+local operationsScan
 local autonomousTreeScan
 local autonomousBodyScan
 local autonomousBodyUrgencyBaseId, autonomousBodyUrgencyUntil
@@ -431,6 +432,7 @@ local function normalizeJob(source)
         reservedBy = nil, leaseUntil = 0, blocker = source.blocker ~= nil
             and cleanText(source.blocker, "blocked", 160) or nil,
         attempts = integer(source.attempts, 0, 0, 1000),
+        navigationRecovery = stableCopy(source.navigationRecovery, 3, { count = 32 }),
         fullAlertSpoken = source.fullAlertSpoken == true,
         retryAt = math.max(0, finite(source.retryAt, 0)),
         createdAt = math.max(0, finite(source.createdAt, 0)),
@@ -1414,6 +1416,7 @@ function BaseLife.finishZone(square, name)
         return false, "zone_outside_base_area"
     end
     base.zones[#base.zones + 1] = zone
+    if BaseLife.noteWorkAccessChanged then BaseLife.noteWorkAccessChanged(zone) end
     if zone.kind == "area" then
         base.autoFloorDisabled[tostring(zone.z)] = nil
         autoFloorScan = nil
@@ -1610,6 +1613,7 @@ function BaseLife.markRoom(square, kind)
     if plan.addArea then append("area", areaGroup) end
     append(kind, group)
     base.zones = zones
+    if BaseLife.noteWorkAccessChanged then BaseLife.noteWorkAccessChanged(room.point) end
     if plan.addArea or kind == "area" then
         base.autoFloorDisabled[tostring(room.point.z)] = nil
         autoFloorScan = nil
@@ -1931,6 +1935,7 @@ function BaseLife.registerStorage(object, category)
             storage.objectIndex, storage.objectId = descriptor.objectIndex, descriptor.objectId
             storage.objectSignature = descriptor.objectSignature
             storage.category = category
+            if BaseLife.noteWorkAccessChanged then BaseLife.noteWorkAccessChanged(storage) end
             return true, storage
         end
     end
@@ -1941,6 +1946,7 @@ function BaseLife.registerStorage(object, category)
     descriptor.withdrawals, descriptor.deposits, descriptor.createdAt = true, true, now()
     local storage = normalizeStorage(descriptor)
     base.storages[#base.storages + 1] = storage
+    if BaseLife.noteWorkAccessChanged then BaseLife.noteWorkAccessChanged(storage) end
     return true, storage
 end
 
@@ -1980,7 +1986,8 @@ function BaseLife.removeStorage(id)
             return false, "production_order_uses_storage"
         end
     end
-    table.remove(base.storages, index)
+    local removed = table.remove(base.storages, index)
+    if BaseLife.noteWorkAccessChanged then BaseLife.noteWorkAccessChanged(removed) end
     return true
 end
 
@@ -2005,6 +2012,7 @@ function BaseLife.setStorageCategory(id, category)
     local storage = base and findById(base.storages, id) or nil
     if not storage then return false, "unknown_storage" end
     storage.category = category
+    if BaseLife.noteWorkAccessChanged then BaseLife.noteWorkAccessChanged(storage) end
     return true, storage
 end
 
@@ -3008,12 +3016,21 @@ function BaseLife.jobAllowsWorkReach(job)
     return zone.kind == "lumber" or not BaseLife.zoneInsideAreaUnion(zone, base.zones)
 end
 
-local function pruneProductionRows(production)
+local function pruneProductionRows(production, base)
     local limit = U().config("productionOrderRecordLimit") or 16
     while #production.orders >= limit do
         local removed = false
         for index, order in ipairs(production.orders) do
-            if orderIsTerminal(order) then
+            local returningTools = false
+            for _, job in ipairs(base.jobs) do
+                if job.type == "production" and type(job.target) == "table"
+                    and job.target.orderId == order.id
+                    and type(job.target.productionTools) == "table" then
+                    returningTools = true
+                    break
+                end
+            end
+            if orderIsTerminal(order) and not returningTools then
                 table.remove(production.orders, index)
                 removed = true
                 break
@@ -3030,15 +3047,23 @@ local function removeProductionJobs(base, orderId, result, actorId)
         if job.type == "production" and type(job.target) == "table"
             and job.target.orderId == orderId
             and (actorId == nil or job.assignedId == actorId) then
-            if result ~= nil then
+            if type(job.target.productionTools) == "table" then
+                -- A cancelled order can relinquish work while its exact tools
+                -- still need a physical return after the worker resumes duty.
+                job.target.toolReturnOnly = true
+                job.state, job.reservedBy, job.leaseUntil = "pending", nil, 0
+                job.blocker = "production_tool_return_pending"
+            else
+              if result ~= nil then
                 base.completed[#base.completed + 1] = {
                     id = job.id, type = job.type, actorId = job.assignedId,
                     completedAt = now(), result = cleanText(result, "completed", 96),
                 }
                 while #base.completed > 24 do table.remove(base.completed, 1) end
+              end
+              table.remove(base.jobs, index)
+              removed = removed + 1
             end
-            table.remove(base.jobs, index)
-            removed = removed + 1
         end
     end
     return removed
@@ -3220,7 +3245,7 @@ function BaseLife.createProductionOrder(spec)
     if activeCount >= (U().config("productionMaximumOrders") or 6) then
         return false, "production_order_limit"
     end
-    pruneProductionRows(production)
+    pruneProductionRows(production, base)
     if #production.orders >= (U().config("productionOrderRecordLimit") or 16) then
         return false, "production_order_history_full"
     end
@@ -4205,7 +4230,7 @@ function BaseLife.outdoorJob(job)
     return job.type == "farm"
 end
 
-local function jobScore(actorId, job)
+local function jobScore(actorId, job, settlementId)
     if SC.BaseWatch and SC.BaseWatch.isLeaderId
         and SC.BaseWatch.isLeaderId(actorId)
         and BaseLife.outdoorJob(job) then return -math.huge end
@@ -4217,9 +4242,11 @@ local function jobScore(actorId, job)
     end
     if orderOwnedJob(job) then
         local order = orderForJob(activeBase(), job)
+        local toolReturnOnly = job.type == "production" and type(job.target) == "table"
+            and job.target.toolReturnOnly == true and type(job.target.productionTools) == "table"
         -- A blocked production order reopens itself once its job retry is
         -- due, so its job stays claimable exactly like a blocked gather job.
-        if not order or (order.state ~= "running"
+        if not order or (not toolReturnOnly and order.state ~= "running"
             and not (job.type == "production" and order.state == "blocked"
                 and (tonumber(order.retryAt) or 0) <= now())) then
             return -math.huge
@@ -4228,7 +4255,7 @@ local function jobScore(actorId, job)
         for _, workerId in ipairs(type(order.workers) == "table" and order.workers or {}) do
             if workerId == actorId then assigned = true break end
         end
-        if not assigned then return -math.huge end
+        if not assigned and not toolReturnOnly then return -math.huge end
     end
     local resident = ensure().residents[actorId] or { role = "generalist" }
     local role = BaseLife.ROLES[resident.role] and resident.role or "generalist"
@@ -4240,6 +4267,7 @@ local function jobScore(actorId, job)
         return -math.huge
     end
     local score = job.priority * 20 + ((roleAffinity[role] or {})[job.type] or 0)
+    if job.id == settlementId then score = score + 500 end
     if job.assignedId == actorId then score = score + 100 end
     if job.assignedId ~= nil and job.assignedId ~= actorId then return -math.huge end
     local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(actorId) or nil
@@ -4304,7 +4332,9 @@ function BaseLife.claimJob(actorId)
                 and order.workers or {}) do
                 if workerId == job.assignedId then assigned = true break end
             end
-            if not order or orderIsTerminal(order) or not assigned then
+            local returningTools = job.type == "production" and type(job.target) == "table"
+                and job.target.toolReturnOnly and job.target.productionTools
+            if not returningTools and (not order or orderIsTerminal(order) or not assigned) then
                 table.remove(base.jobs, index)
                 staleRemoved = true
             end
@@ -4313,6 +4343,9 @@ function BaseLife.claimJob(actorId)
     if staleRemoved then bumpWorkConsistencyRevision() end
     local existing = BaseLife.jobFor(actorId)
     if existing then return existing, "existing_job" end
+    local actor = U().resolveActor and U().resolveActor(actorId)
+    local settlement = actor and SC.Production and SC.Production.settlementFor
+        and SC.Production.settlementFor(actor)
     local best, bestScore
     for _, job in ipairs(base.jobs) do
         -- Older saves may already have parked a farm job after repeated
@@ -4339,7 +4372,7 @@ function BaseLife.claimJob(actorId)
                 and type(fuelWork.releaseAffinity) == "function" then
                 fuelWork.releaseAffinity(U().resolveActor(job.assignedId), job)
             end
-            local score = jobScore(actorId, job)
+            local score = jobScore(actorId, job, settlement and settlement.id)
             if bestScore == nil or score > bestScore
                 or (score == bestScore and tostring(job.id) < tostring(best.id)) then
                 best, bestScore = job, score
@@ -4436,6 +4469,12 @@ function BaseLife.blockJob(id, actorId, reason, retryMs)
     end
     local transientDelay = transientJobDelay(job, reason)
     job.attempts = transientDelay and 0 or (job.attempts or 0) + 1
+    if type(job.navigationRecovery) == "table" and job.navigationRecovery.rearmed
+        and BaseLife.navigationFailure and BaseLife.navigationFailure(job.blocker) then
+        job.attempts = tonumber(U().config("baseJobParkAfterFailures")) or 6
+        job.navigationRecovery.rearmed = nil
+    end
+    if BaseLife.noteJobNavigationFailure then BaseLife.noteJobNavigationFailure(job, worker) end
     job.updatedAt = now()
     -- Each failure doubles the wait, up to the cap; a caller's longer delay
     -- (a Chef receipt check) is its own cap. A parked job is skipped by
@@ -4634,12 +4673,19 @@ function BaseLife.retryJob(id)
         return BaseLife.retryGatherOrder(job.target.orderId)
     end
     if job.type == "production" and type(job.target) == "table"
-        and job.target.orderId then
+        and job.target.orderId and not (job.target.toolReturnOnly and job.target.productionTools) then
         return BaseLife.retryProductionOrder(job.target.orderId)
     end
     if job.state ~= "blocked" then return false, "job_not_blocked" end
     job.state, job.retryAt, job.blocker = "pending", 0, nil
     job.attempts, job.updatedAt = 0, now()
+    if type(job.navigationRecovery) == "table" then
+        job.navigationRecovery.generation, job.navigationRecovery.changed = 1, false
+        job.navigationRecovery.rearmed = nil
+    end
+    if job.type == "production" and SC.Production and SC.Production.retryOrder then
+        SC.Production.retryOrder(job.target.orderId)
+    end
     return true, job
 end
 
@@ -4653,6 +4699,132 @@ function BaseLife.jobParked(job)
         and not transientJobDelay(job, job.blocker)
         and (tonumber(job.attempts) or 0)
             >= (tonumber(U().config("baseJobParkAfterFailures")) or 6)
+end
+
+-- A recovery generation is saved on the job, not inferred from the release or
+-- a session clock. Reloading or moving unrelated stock never rearms a failure.
+BaseLife._navigationRecoveryCursor = 0
+BaseLife._navigationRecoveryChecks = setmetatable({}, { __mode = "k" })
+
+function BaseLife.navigationRecoveryGoal(target, zone)
+    local point = type(target) == "table" and target.x ~= nil and target.y ~= nil
+        and position(target) or nil
+    return point or zone and { x = math.floor((zone.x1 + zone.x2) / 2),
+        y = math.floor((zone.y1 + zone.y2) / 2), z = zone.z }
+end
+
+function BaseLife.navigationRecoverySignature(recovery, goal, actor)
+    if not goal or not SC.Topology or type(SC.Topology.localSignature) ~= "function" then return nil end
+    local parts = {}
+    for _, point in ipairs({ goal, recovery.source }) do
+        local square = point and U().gridSquare(point.x, point.y, point.z)
+        if not square then return nil end
+        local okay, value = pcall(SC.Topology.localSignature, actor, square)
+        if not okay then return nil end
+        parts[#parts + 1] = tostring(value)
+    end
+    return table.concat(parts, "|")
+end
+
+function BaseLife.navigationFailure(reason)
+    reason = tostring(reason or "")
+    return reason == "movement_rejected" or reason == "no_interaction_targets"
+        or reason == "no_path" or reason == "approach_timeout"
+        or string.find(reason, "path_blocked:", 1, true) == 1
+        or string.find(reason, "recovery_exhausted:", 1, true) == 1
+        or string.find(reason, "route_unreachable", 1, true) ~= nil
+end
+
+function BaseLife.noteJobNavigationFailure(job, workerId)
+    if not BaseLife.navigationFailure(job and job.blocker) then return end
+    local recovery = type(job.navigationRecovery) == "table" and job.navigationRecovery or {}
+    job.navigationRecovery = recovery
+    recovery.generation, recovery.changed = 1, false
+    local actor = workerId and U().resolveActor and U().resolveActor(workerId)
+    local nav = actor and SC.Navigation and SC.Navigation.peek and SC.Navigation.peek(actor)
+    recovery.source = actor and position(actor) or recovery.source
+    recovery.goal = nav and nav.goalSquare and position(nav.goalSquare)
+        or BaseLife.navigationRecoveryGoal(job.target) or recovery.goal
+    recovery.signature = BaseLife.navigationRecoverySignature(recovery, recovery.goal, actor)
+end
+
+function BaseLife.noteWorkAccessChanged(subject)
+    local base = activeBase()
+    if not base then return false end
+    local point = type(subject) == "table" and subject.x1 and {
+        x = math.floor((subject.x1 + subject.x2) / 2),
+        y = math.floor((subject.y1 + subject.y2) / 2), z = subject.z,
+    } or position(subject)
+    local changed = false
+    for _, job in ipairs(base.jobs or {}) do
+        if BaseLife.jobParked(job) and BaseLife.navigationFailure(job.blocker) then
+            local recovery = type(job.navigationRecovery) == "table" and job.navigationRecovery or {}
+            local target = type(job.target) == "table" and job.target or {}
+            local zone = target.zoneId and findById(base.zones, target.zoneId)
+            local goal = recovery.goal or BaseLife.navigationRecoveryGoal(target, zone)
+            local source = recovery.source or goal
+            local nearby = point and source and goal and point.z == goal.z
+                and point.x >= math.min(source.x, goal.x) - 2
+                and point.x <= math.max(source.x, goal.x) + 2
+                and point.y >= math.min(source.y, goal.y) - 2
+                and point.y <= math.max(source.y, goal.y) + 2
+            local matchingStorage = type(subject) == "table" and subject.category
+                and (subject.category == target.floorCategory
+                    or subject.category == target.destinationCategory)
+            if nearby or matchingStorage then
+                job.navigationRecovery = recovery
+                recovery.changed, changed = true, true
+            end
+        end
+    end
+    return changed
+end
+
+function BaseLife.auditJobRecovery()
+    local base = activeBase()
+    if not base or #base.jobs == 0 then return false, "no_parked_navigation_job" end
+    -- Check one candidate per maintenance pulse. No routes or inventories are
+    -- searched here; the job's ordinary controller owns its one retry.
+    for _ = 1, #base.jobs do
+        BaseLife._navigationRecoveryCursor = BaseLife._navigationRecoveryCursor % #base.jobs + 1
+        local job = base.jobs[BaseLife._navigationRecoveryCursor]
+        if BaseLife.jobParked(job) and BaseLife.navigationFailure(job.blocker) then
+            local recovery = type(job.navigationRecovery) == "table" and job.navigationRecovery or {}
+            job.navigationRecovery = recovery
+            local target = type(job.target) == "table" and job.target or {}
+            local zone = target.zoneId and findById(base.zones, target.zoneId)
+            local goal = recovery.goal or BaseLife.navigationRecoveryGoal(target, zone)
+            local claim = type(target.floorCargo) == "table" and target.floorCargo
+            local owner = job.assignedId and U().resolveActor and U().resolveActor(job.assignedId)
+            if (tonumber(recovery.generation) or 0) >= 1 and recovery.changed ~= true then
+                local checks = BaseLife._navigationRecoveryChecks
+                if now() >= (checks[job] or 0) then
+                    checks[job] = now() + 5000
+                    local signature = BaseLife.navigationRecoverySignature(recovery, goal, owner)
+                    if recovery.signature and signature and recovery.signature ~= signature then
+                        recovery.changed = true
+                    end
+                    if signature then recovery.signature = signature end
+                end
+                if recovery.changed ~= true then return false, "navigation_job_waiting_for_access_change" end
+            end
+            if not goal or not U().gridSquare(goal.x, goal.y, goal.z)
+                or job.type == "sort_floor" and not zone
+                or claim and (not owner or not U().gridSquare(claim.x, claim.y, claim.z))
+                or job.assignedId and not owner then
+                return false, "navigation_job_recovery_unloaded"
+            end
+            -- Consume this generation/change before dispatch; another failure
+            -- may park it again, but never starts a new six-attempt loop on load.
+            recovery.generation, recovery.changed = 1, false
+            recovery.goal = goal
+            recovery.signature = BaseLife.navigationRecoverySignature(recovery, goal, owner)
+            local retried, reason = BaseLife.retryJob(job.id)
+            if retried then recovery.rearmed = true end
+            return retried == true, retried and "navigation_job_rearmed" or reason
+        end
+    end
+    return false, "no_parked_navigation_job"
 end
 
 function BaseLife.assign(actorId, role, duty)
@@ -4864,37 +5036,84 @@ local function hasZone(base, kind)
     return false
 end
 
-function BaseLife.auditOperations(force)
+function BaseLife.auditOperations(force, remainingBudget)
     local base, current = activeBase(), now()
-    if not base then operationsCache = nil return nil, "base_missing" end
+    if not base then operationsCache, operationsScan = nil, nil return nil, "base_missing" end
     local interval = U() and U().config("baseOperationsAuditIntervalMs") or 5000
     if force ~= true and operationsCache and operationsCache.baseId == base.id
         and current - (operationsCache.auditedAt or 0) < interval then
-        return stableCopy(operationsCache, 5, { count = 512 })
+        local published, reason = stableCopy(operationsCache, 5, { count = 512 })
+        return published, reason, false
     end
-    local residents, roles = 0, {}
-    for id, resident in pairs(ensure().residents) do
-        if resident.baseId == base.id then
-            residents = residents + 1
-            roles[resident.role] = (roles[resident.role] or 0) + 1
+    local scan = operationsScan
+    if force == true and type(remainingBudget) ~= "function"
+        or not scan or scan.base ~= base or scan.document ~= document then
+        scan = { base = base, document = document, residentIndex = 1, storageIndex = 1,
+            residents = 0, roles = {}, counts = {}, stores = {}, unloaded = 0, ids = {} }
+        for id in pairs(ensure().residents) do scan.ids[#scan.ids + 1] = id end
+        operationsScan = scan
+    end
+    local function available()
+        -- Summary/UI reads consume only a completely published audit. The
+        -- background maintenance owner advances the pending scan.
+        if type(remainingBudget) == "function" then return (tonumber(remainingBudget()) or 0) > 0 end
+        return force == true
+    end
+    local function pending()
+        if SC.Performance and SC.Performance.count then SC.Performance.count("base_operations_yield") end
+        local cached = operationsCache and operationsCache.baseId == base.id
+            and stableCopy(operationsCache, 5, { count = 512 }) or nil
+        return cached, "base_operations_pending", true
+    end
+    while scan.residentIndex <= #scan.ids do
+        if not available() then return pending() end
+        local resident = ensure().residents[scan.ids[scan.residentIndex]]
+        scan.residentIndex = scan.residentIndex + 1
+        if resident and resident.baseId == base.id then
+            scan.residents = scan.residents + 1
+            scan.roles[resident.role] = (scan.roles[resident.role] or 0) + 1
         end
     end
-    local counts, stores, unloaded = {}, {}, 0
-    for _, storage in ipairs(base.storages or {}) do
+    while scan.storageIndex <= #(base.storages or {}) do
+        if not available() then return pending() end
+        local storage = base.storages[scan.storageIndex]
         local category = storage.category
         local stockCategory = category == "fresh_food" and "food" or category
         if defaultStockTargets[stockCategory] ~= nil then
-            stores[stockCategory] = (stores[stockCategory] or 0) + 1
-            local container = BaseLife.resolveContainer(storage)
-            if container then
-                counts[stockCategory] = (counts[stockCategory] or 0)
-                    + #U().inventoryItems(container,
-                        U().config("baseOperationsStorageItemBudget") or 160)
-            else
-                unloaded = unloaded + 1
+            if scan.storage ~= storage then
+                scan.storage, scan.container = storage, BaseLife.resolveContainer(storage)
+                scan.itemIndex, scan.itemCount, scan.itemLimit = 0, 0, nil
             end
+            local container = scan.container
+            if container then
+                if scan.itemLimit == nil then
+                    local items, read = U().call(container, "getItems")
+                    if not read then items = type(container) == "table" and (container.items or container) end
+                    local length = type(items) == "table" and #items
+                        or SC.NativeList and select(1, SC.NativeList.size(items)) or 0
+                    scan.items, scan.itemLimit = items, math.min(tonumber(length) or 0,
+                        U().config("baseOperationsStorageItemBudget") or 160)
+                end
+                local items, limit = scan.items, scan.itemLimit
+                while scan.itemIndex < limit do
+                    if not available() then return pending() end
+                    local item = type(items) == "table" and items[scan.itemIndex + 1]
+                        or SC.NativeList and select(1, SC.NativeList.get(items, scan.itemIndex))
+                    scan.itemIndex = scan.itemIndex + 1
+                    if item ~= nil then scan.itemCount = scan.itemCount + 1 end
+                    if SC.Performance and SC.Performance.count then SC.Performance.count("base_operations_item") end
+                end
+                scan.counts[stockCategory] = (scan.counts[stockCategory] or 0) + scan.itemCount
+            else
+                scan.unloaded = scan.unloaded + 1
+            end
+            scan.stores[stockCategory] = (scan.stores[stockCategory] or 0) + 1
         end
+        scan.storageIndex, scan.storage, scan.container, scan.items = scan.storageIndex + 1, nil, nil, nil
     end
+    if not available() then return pending() end
+    local residents, roles, counts, stores, unloaded = scan.residents, scan.roles,
+        scan.counts, scan.stores, scan.unloaded
     local stockRows, alerts, readiness, metrics = {}, {}, 0, 0
     local scale = math.max(1, residents)
     for _, category in ipairs({ "food", "water", "medical", "construction", "ammunition" }) do
@@ -4956,7 +5175,10 @@ function BaseLife.auditOperations(force)
         unloadedStores = unloaded, activeGuard = selectedGuard,
         guardCandidates = guardCandidates, policies = stableCopy(base.settings, 3, { count = 64 }),
     }
-    return stableCopy(operationsCache, 5, { count = 512 })
+    operationsScan = nil
+    if SC.Performance and SC.Performance.count then SC.Performance.count("base_operations_complete") end
+    local published, reason = stableCopy(operationsCache, 5, { count = 512 })
+    return published, reason, false
 end
 
 function BaseLife.restriction(actorId)

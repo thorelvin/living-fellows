@@ -653,9 +653,27 @@ local nextScanAt = 0
 local nextRecruitedPulseAt = 0
 local scanSerial = 0
 local pendingSetups = {}
+local backgroundPulse
+local groupPulses = setmetatable({}, { __mode = "k" })
 local seedPersonalKit
 
 local function U() return SC.GameplayUtil end
+
+local function backgroundAvailable(remainingBudget)
+    return type(remainingBudget) ~= "function"
+        or (tonumber(remainingBudget()) or 0) > 0
+end
+
+local function backgroundCount(name)
+    if SC.Performance and type(SC.Performance.count) == "function" then
+        SC.Performance.count(name)
+    end
+end
+
+local function backgroundPending(reason)
+    backgroundCount("oddball_background_yield")
+    return false, reason or "oddball_background_pending", true
+end
 
 local function roomGuard(method, ...)
     local owner = SC.OddballRoomGuard
@@ -3347,10 +3365,25 @@ function Oddballs.update(actor, player, runtime, intent, group)
     return handled == true, reason
 end
 
-function Oddballs.pulseGroup(group, player, current)
-    if type(group) ~= "table" or type(group.oddball) ~= "table" then return false end
+function Oddballs.pulseGroup(group, player, current, remainingBudget)
+    if type(group) ~= "table" or type(group.oddball) ~= "table"
+        or group.lifecycle == "destroyed" then
+        if type(group) == "table" then groupPulses[group] = nil end
+        return false, "not_an_oddball", false
+    end
+    current = tonumber(current) or U().nowMs()
+    local pulse = groupPulses[group]
+    if not pulse or pulse.state ~= state or pulse.player ~= player
+        or pulse.phase == "members" and pulse.members ~= group.members then
+        pulse = { state = state, player = player, members = group.members,
+            phase = "members", index = 1, setupIndex = 1, memberById = {} }
+        groupPulses[group] = pulse
+    end
     local setups = pendingSetups[group.id]
-    for _, member in ipairs(group.members or {}) do
+    while pulse.phase == "members" and pulse.index <= #(group.members or {}) do
+        if not backgroundAvailable(remainingBudget) then return backgroundPending() end
+        local member = group.members[pulse.index]
+        if member.actorId then pulse.memberById[member.actorId] = member end
         if member.actorId and (member.oddballKitPending
             or member.oddballScenePending) then
             if not setups then
@@ -3365,49 +3398,83 @@ function Oddballs.pulseGroup(group, player, current)
                 }
             end
         end
+        pulse.index = pulse.index + 1
+        backgroundCount("oddball_background_member")
     end
-    for actorId, setup in pairs(setups or {}) do
-        if (tonumber(current) or U().nowMs()) >= setup.nextAt then
+    if pulse.phase == "members" then
+        pulse.keys = {}
+        for actorId in pairs(setups or {}) do pulse.keys[#pulse.keys + 1] = actorId end
+        pulse.phase = "setups"
+    end
+    while pulse.phase == "setups" and pulse.setupIndex <= #pulse.keys do
+        if not backgroundAvailable(remainingBudget) then return backgroundPending() end
+        local actorId = pulse.keys[pulse.setupIndex]
+        local setup = setups and setups[actorId]
+        if setup and (pulse.setupPhase or current >= setup.nextAt) then
             local record = SC.Registry
                 and type(SC.Registry.byId) == "function"
                 and SC.Registry.byId(actorId)
             local actor = record and record.actor
-            if actor and U().isValidActor(actor) then
-                setup.nextAt = (tonumber(current) or U().nowMs()) + 30000
-                if setup.kit then
-                    local ready = seedPersonalKit(group, actor)
-                    setup.kit = ready ~= true
-                end
-                if setup.module then
-                    local ready = callModule(group, "onSpawn", group, actor)
-                    setup.module = ready ~= true
-                end
-                for _, member in ipairs(group.members or {}) do
-                    if member.actorId == actorId then
-                        member.oddballKitPending = setup.kit or nil
-                        member.oddballScenePending = setup.module or nil
-                        break
+            if actor and U().isValidActor(actor)
+                and (not pulse.actor or pulse.actor == actor) then
+                pulse.actor = actor
+                pulse.setupPhase = pulse.setupPhase or "kit"
+                if pulse.setupPhase == "kit" then
+                    if setup.kit then
+                        local ready = seedPersonalKit(group, actor)
+                        setup.kit = ready ~= true
+                        local member = pulse.memberById[actorId]
+                        if member then member.oddballKitPending = setup.kit or nil end
                     end
+                    pulse.setupPhase = "module"
                 end
+                if not backgroundAvailable(remainingBudget) then return backgroundPending() end
+                if pulse.setupPhase == "module" then
+                    if setup.module then
+                        local ready = callModule(group, "onSpawn", group, actor)
+                        setup.module = ready ~= true
+                        local member = pulse.memberById[actorId]
+                        if member then member.oddballScenePending = setup.module or nil end
+                    end
+                    pulse.setupPhase = "flags"
+                end
+                if not backgroundAvailable(remainingBudget) then return backgroundPending() end
+                -- Finish the receipt before advancing this setup. A yield after
+                -- kit/onSpawn must not replay either successful physical action.
+                local member = pulse.memberById[actorId]
+                if member then
+                    member.oddballKitPending = setup.kit or nil
+                    member.oddballScenePending = setup.module or nil
+                    if not setup.kit and not setup.module then member.spawnFailure = nil end
+                end
+                setup.nextAt = current + 30000
                 if not setup.kit and not setup.module then
                     setups[actorId] = nil
-                    for _, member in ipairs(group.members or {}) do
-                        if member.actorId == actorId then
-                            member.spawnFailure = nil
-                            break
-                        end
-                    end
                 end
             end
         end
+        pulse.setupIndex = pulse.setupIndex + 1
+        pulse.setupPhase, pulse.actor = nil, nil
+        backgroundCount("oddball_background_setup")
     end
-    roomGuard("pulse", group, player, current)
-    local handled, reason = callModule(group, "pulse", group, player, current)
-    if SC.OddballDistressRadio
-        and type(SC.OddballDistressRadio.pulse) == "function" then
+    if pulse.phase == "setups" then pulse.phase = "guard" end
+    if pulse.phase == "guard" then
+        if not backgroundAvailable(remainingBudget) then return backgroundPending() end
+        roomGuard("pulse", group, player, current)
+        pulse.phase = "story"
+    end
+    if pulse.phase == "story" then
+        if not backgroundAvailable(remainingBudget) then return backgroundPending() end
+        pulse.handled, pulse.reason = callModule(group, "pulse", group, player, current)
+        pulse.phase = "radio"
+    end
+    if not backgroundAvailable(remainingBudget) then return backgroundPending() end
+    if SC.OddballDistressRadio and type(SC.OddballDistressRadio.pulse) == "function" then
         SC.OddballDistressRadio.pulse(group, player, current)
     end
-    return handled ~= false, reason
+    groupPulses[group] = nil
+    backgroundCount("oddball_background_group_complete")
+    return pulse.handled ~= false, pulse.reason, false
 end
 
 function Oddballs.onZombieDead(zombie, attacker, player)
@@ -3664,11 +3731,40 @@ local function createAuthoredGroup(site, definition, debugCreated)
     return group
 end
 
-function Oddballs.pulse(player, current)
+function Oddballs.pulse(player, current, remainingBudget)
     current = tonumber(current) or U().nowMs()
-    if current >= nextRecruitedPulseAt then
-        nextRecruitedPulseAt = current + 1000
-        for _, group in ipairs(SC.Factions and SC.Factions.list(false) or {}) do
+    local pulse = backgroundPulse
+    if not pulse or pulse.state ~= state or pulse.player ~= player then
+        pulse = { state = state, player = player, phase = "recruited", groupIndex = 1,
+            groups = current >= nextRecruitedPulseAt
+                and (SC.Factions and SC.Factions.list(false) or {}) or {} }
+        backgroundPulse = pulse
+    end
+    local function finish(result, reason)
+        backgroundPulse = nil
+        backgroundCount("oddball_background_complete")
+        return result, reason, false
+    end
+    if pulse.px then
+        local x, y, z = U().position(player)
+        -- A search snapshot must not finish at an old place after a teleport
+        -- or floor change. Ordinary movement permits the short continuation.
+        if not x or math.floor(z or 0) ~= math.floor(pulse.pz or 0)
+            or (x - pulse.px) ^ 2 + (y - pulse.py) ^ 2 > 64 then
+            return finish(false, "oddball_search_moved")
+        end
+        if state.disabled or SC.Config and SC.Config.get("oddballsEnabled") == false then
+            return finish(false, "oddballs_disabled")
+        end
+        if state.pending then return finish(false, "oddball_spawn_pending") end
+        pulse.freeSlots = configInteger("oddballMaxActive", MAX_UNRESOLVED, 0,
+            MAX_UNRESOLVED) - unresolvedCount()
+        if pulse.freeSlots <= 0 then return finish(false, "oddball_cap_reached") end
+    end
+    while pulse.phase == "recruited" and pulse.groupIndex <= #pulse.groups do
+        if not backgroundAvailable(remainingBudget) then return backgroundPending() end
+        local group = pulse.groups[pulse.groupIndex]
+        if group.lifecycle ~= "destroyed" then
             local story = type(group.oddball) == "table" and group.oddball or nil
             local joinedId = story
                 and type(group.recruitment) == "table"
@@ -3684,168 +3780,211 @@ function Oddballs.pulse(player, current)
                 callModule(group, "pulseRecruited", group, record.actor, player, current)
             end
         end
+        pulse.groupIndex = pulse.groupIndex + 1
+        backgroundCount("oddball_background_recruited")
     end
-    if current < nextScanAt then return false, "oddball_scan_throttled" end
-    nextScanAt = current + configInteger("oddballScanIntervalMs",
-        SCAN_INTERVAL_MS, 1000, 300000)
-    if state.disabled then return false, "oddball_state_quarantined" end
-    if SC.Config and SC.Config.get("oddballsEnabled") == false then
-        return false, "oddballs_disabled"
+    if pulse.phase == "recruited" then
+        if #pulse.groups > 0 then nextRecruitedPulseAt = current + 1000 end
+        pulse.phase = "admit"
     end
-    if (type(isClient) == "function" and isClient() == true)
-        or (type(isServer) == "function" and isServer() == true) then
-        return false, "single_player_only"
-    end
-    if player == nil or not SC.Actor or type(SC.Actor.checkBridge) ~= "function" then
-        return false, "actor_provider_unavailable"
-    end
-    local ready = SC.Actor.checkBridge(false)
-    if ready ~= true then return false, "actor_provider_unavailable" end
-    local currentDay = worldDay()
-    local firstDay = configInteger("oddballFirstEligibleDay", 2, 0, 365)
-    if currentDay < firstDay then
-        return false, "first_day_not_reached"
-    end
-    if state.pending ~= nil then
-        local group = SC.Factions and SC.Factions.group(state.pending.groupId) or nil
-        local member = group and group.members and group.members[1] or nil
-        local record = member and member.actorId and SC.Registry
-            and SC.Registry.byId(member.actorId) or nil
-        if group and type(group.oddball) == "table"
-            and (group.oddball.spawned == true or record and record.actor) then
-            Oddballs.spawned(group, record and record.actor or nil)
-        elseif group == nil then
-            state.pending = nil
-        else
-            return false, "oddball_spawn_pending"
+    if pulse.phase == "admit" then
+        if not backgroundAvailable(remainingBudget) then return backgroundPending() end
+        if current < nextScanAt then return finish(false, "oddball_scan_throttled") end
+        nextScanAt = current + configInteger("oddballScanIntervalMs",
+            SCAN_INTERVAL_MS, 1000, 300000)
+        if state.disabled then return finish(false, "oddball_state_quarantined") end
+        if SC.Config and SC.Config.get("oddballsEnabled") == false then
+            return finish(false, "oddballs_disabled")
         end
-    end
-    local freeSlots = configInteger("oddballMaxActive",
-        MAX_UNRESOLVED, 0, MAX_UNRESOLVED) - unresolvedCount()
-    if freeSlots <= 0 then
-        return false, "oddball_cap_reached"
-    end
-    local cooldown = tonumber(SC.Config and SC.Config.get("oddballEncounterDays")) or 3
-    if state.lastSeedDay ~= nil and currentDay - state.lastSeedDay < cooldown then
-        return false, "oddball_cooldown"
-    end
-    local px, py, pz = U().position(player)
-    if px == nil then return false, "player_position_unavailable" end
-    local minimum = configInteger("factionSpawnMinDistance", MIN_DISTANCE, 1, 1000)
-    local maximum = configInteger("factionSpawnMaxDistance", MAX_DISTANCE,
-        minimum, 1000)
-    local budget = configInteger("oddballScanSampleBudget",
-        SAMPLE_BUDGET, 1, SAMPLE_BUDGET)
-    local visitedBuildings = {}
-    scanSerial = scanSerial + 1
-    -- A car encounter has no room tile for the building sampler to discover.
-    -- Try its one bounded loaded-vehicle scan periodically, after the same
-    -- global cap/cooldown checks as every other Strange Folk encounter.
-    local carDefinition = byId.loretta_ten_and_two
-    if carDefinition and state.seeded[carDefinition.id] == nil
-        and state.retired[carDefinition.id] == nil
-        and currentDay >= firstDay + (carDefinition.firstEligibleOffsetDays or 0)
-        and scanSerial % 4 == 0 and SC.OddballLoretta
-        and type(SC.OddballLoretta.siteFor) == "function" then
-        local site = SC.OddballLoretta.siteFor(player, false, minimum, maximum)
-        if site then
-            local group, reason = createAuthoredGroup(site, carDefinition)
-            if group then
-                state.pending = { id = carDefinition.id, groupId = group.id }
-                return true, group.id
-            end
-            if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
-                SC.Diagnostics.report("oddballs", carDefinition.id,
-                    "vehicle candidate deferred", tostring(reason))
+        if (type(isClient) == "function" and isClient() == true)
+            or (type(isServer) == "function" and isServer() == true) then
+            return finish(false, "single_player_only")
+        end
+        if player == nil or not SC.Actor or type(SC.Actor.checkBridge) ~= "function" then
+            return finish(false, "actor_provider_unavailable")
+        end
+        local ready = SC.Actor.checkBridge(false)
+        if ready ~= true then return finish(false, "actor_provider_unavailable") end
+        local currentDay = worldDay()
+        local firstDay = configInteger("oddballFirstEligibleDay", 2, 0, 365)
+        if currentDay < firstDay then
+            return finish(false, "first_day_not_reached")
+        end
+        if state.pending ~= nil then
+            local group = SC.Factions and SC.Factions.group(state.pending.groupId) or nil
+            local member = group and group.members and group.members[1] or nil
+            local record = member and member.actorId and SC.Registry
+                and SC.Registry.byId(member.actorId) or nil
+            if group and type(group.oddball) == "table"
+                and (group.oddball.spawned == true or record and record.actor) then
+                Oddballs.spawned(group, record and record.actor or nil)
+            elseif group == nil then
+                state.pending = nil
+            else
+                return finish(false, "oddball_spawn_pending")
             end
         end
+        local freeSlots = configInteger("oddballMaxActive",
+            MAX_UNRESOLVED, 0, MAX_UNRESOLVED) - unresolvedCount()
+        if freeSlots <= 0 then
+            return finish(false, "oddball_cap_reached")
+        end
+        local cooldown = tonumber(SC.Config and SC.Config.get("oddballEncounterDays")) or 3
+        if state.lastSeedDay ~= nil and currentDay - state.lastSeedDay < cooldown then
+            return finish(false, "oddball_cooldown")
+        end
+        local px, py, pz = U().position(player)
+        if px == nil then return finish(false, "player_position_unavailable") end
+        local minimum = configInteger("factionSpawnMinDistance", MIN_DISTANCE, 1, 1000)
+        local maximum = configInteger("factionSpawnMaxDistance", MAX_DISTANCE,
+            minimum, 1000)
+        scanSerial = scanSerial + 1
+        pulse.px, pulse.py, pulse.pz = px, py, pz
+        pulse.minimum, pulse.maximum = minimum, maximum
+        pulse.freeSlots, pulse.currentDay, pulse.firstDay = freeSlots, currentDay, firstDay
+        pulse.samples = configInteger("oddballScanSampleBudget", SAMPLE_BUDGET, 1, SAMPLE_BUDGET)
+        pulse.visitedBuildings, pulse.serial = {}, scanSerial
+        pulse.index, pulse.definitionIndex, pulse.phase = 1, 1, "vehicle"
     end
-    for index = 1, budget do
-        local angle = index * GOLDEN_ANGLE + scanSerial * 0.61
-        local distance = minimum + ((index * 17 + scanSerial * 11)
-            % (maximum - minimum + 1))
-        local x = math.floor(px + math.cos(angle) * distance)
-        local y = math.floor(py + math.sin(angle) * distance)
-        -- One rotated neighborhood point per ring anchor keeps the entire
-        -- pass at 96 loaded-square probes while covering nearby landmarks
-        -- across successive pulses.
-        local offset = SEARCH_OFFSETS[((index + scanSerial * 3 - 1)
-            % #SEARCH_OFFSETS) + 1]
+    local px, py, pz = pulse.px, pulse.py, pulse.pz
+    local minimum, maximum = pulse.minimum, pulse.maximum
+    local freeSlots, currentDay, firstDay = pulse.freeSlots, pulse.currentDay, pulse.firstDay
+    local visitedBuildings = pulse.visitedBuildings
+    local activeSquare
+    if pulse.phase == "vehicle" then
+        if not backgroundAvailable(remainingBudget) then return backgroundPending() end
+        -- A car encounter has no room tile for the building sampler to discover.
+        -- Try its one bounded loaded-vehicle scan periodically, after the same
+        -- global cap/cooldown checks as every other Strange Folk encounter.
+        local carDefinition = byId.loretta_ten_and_two
+        if carDefinition and state.seeded[carDefinition.id] == nil
+            and state.retired[carDefinition.id] == nil
+            and currentDay >= firstDay + (carDefinition.firstEligibleOffsetDays or 0)
+            and pulse.serial % 4 == 0 and SC.OddballLoretta
+            and type(SC.OddballLoretta.siteFor) == "function" then
+            local site = SC.OddballLoretta.siteFor(player, false, minimum, maximum)
+            if site then
+                local group, reason = createAuthoredGroup(site, carDefinition)
+                if group then
+                    state.pending = { id = carDefinition.id, groupId = group.id }
+                    return finish(true, group.id)
+                end
+                if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
+                    SC.Diagnostics.report("oddballs", carDefinition.id,
+                        "vehicle candidate deferred", tostring(reason))
+                end
+            end
+        end
+        pulse.phase = "samples"
+    end
+    while pulse.index <= pulse.samples do
+        if not backgroundAvailable(remainingBudget) then return backgroundPending() end
+        local index = pulse.index
+        if not pulse.sampleReady then
+            local angle = index * GOLDEN_ANGLE + pulse.serial * 0.61
+            local distance = minimum + ((index * 17 + pulse.serial * 11)
+                % (maximum - minimum + 1))
+            local x = math.floor(px + math.cos(angle) * distance)
+            local y = math.floor(py + math.sin(angle) * distance)
+            -- One rotated neighborhood point per ring anchor keeps the entire
+            -- pass at 96 loaded-square probes while covering nearby landmarks
+            -- across successive pulses.
+            local offset = SEARCH_OFFSETS[((index + pulse.serial * 3 - 1)
+                % #SEARCH_OFFSETS) + 1]
             local cx, cy = x + offset[1], y + offset[2]
             local dx, dy = cx - px, cy - py
             local rangeSq = dx * dx + dy * dy
             if rangeSq >= minimum * minimum and rangeSq <= maximum * maximum then
                 local square = U().gridSquare(cx, cy, math.floor(pz or 0))
                 if square and not U().canSee(player, square) then
-                    local name = roomName(square)
-                    local building = name and select(1, U().call(square, "getBuilding"))
-                    for _, definition in ipairs(definitions) do
-                        if state.seeded[definition.id] == nil
-                            and state.retired[definition.id] == nil
-                            and (definition.kind ~= "rival_pair" or freeSlots >= 2)
-                            and currentDay >= firstDay
-                                + (definition.firstEligibleOffsetDays or 0) then
-                            local site
-                            if definition.kind == "patrol" then
-                                site = siteForDefenseLeague(square, player)
-                            elseif definition.kind == "knight" then
-                                site = siteForKnight(square, player, 1, false)
-                            elseif definition.kind == "trickster" then
-                                site = siteForRoyce(square, player, false)
-                            elseif definition.kind == "mose" then
-                                site = siteForMose(square, player, false)
-                            elseif definition.kind == "visitors" then
-                                site = siteForVisitors(square, player, false)
-                            elseif definition.kind == "rival_pair" then
-                                site = siteForRivals(square, player,
-                                    definition, false)
-                            elseif definition.kind == "challenge" then
+                    -- Retain coordinates, never a native square across frames:
+                    -- streaming can replace it while the archetype loop yields.
+                    pulse.square = { x = cx, y = cy, z = math.floor(pz or 0) }
+                    activeSquare = square
+                end
+            end
+            pulse.sampleReady = true
+            backgroundCount("oddball_background_sample")
+        end
+        if pulse.square then
+            local square = activeSquare or U().gridSquare(pulse.square.x,
+                pulse.square.y, pulse.square.z)
+            if square and not U().canSee(player, square) then
+                local name = roomName(square)
+                local building = name and select(1, U().call(square, "getBuilding"))
+                while pulse.definitionIndex <= #definitions do
+                    if not backgroundAvailable(remainingBudget) then return backgroundPending() end
+                    local definition = definitions[pulse.definitionIndex]
+                    if state.seeded[definition.id] == nil
+                        and state.retired[definition.id] == nil
+                        and (definition.kind ~= "rival_pair" or freeSlots >= 2)
+                        and currentDay >= firstDay
+                            + (definition.firstEligibleOffsetDays or 0) then
+                        local site
+                        if definition.kind == "patrol" then
+                            site = siteForDefenseLeague(square, player)
+                        elseif definition.kind == "knight" then
+                            site = siteForKnight(square, player, 1, false)
+                        elseif definition.kind == "trickster" then
+                            site = siteForRoyce(square, player, false)
+                        elseif definition.kind == "mose" then
+                            site = siteForMose(square, player, false)
+                        elseif definition.kind == "visitors" then
+                            site = siteForVisitors(square, player, false)
+                        elseif definition.kind == "rival_pair" then
+                            site = siteForRivals(square, player,
+                                definition, false)
+                        elseif definition.kind == "challenge" then
+                            site = siteForEbb(square, player, false, true)
+                        elseif definition.kind == "trash_runner" then
+                            site = siteForBigChris(square, player, false)
+                        elseif definition.kind == "forest_camp"
+                            and SC.OddballCampStoryteller
+                            and type(SC.OddballCampStoryteller.siteFor)
+                                == "function" then
+                            site = SC.OddballCampStoryteller.siteFor(
+                                square, player, false)
+                        elseif definition.kind == "roamer" then
+                            if definition.id == "peddler_mister_ebb" then
+                                site = siteForEbb(square, player)
+                            elseif definition.id == "dewey_prentice_hollowell" then
                                 site = siteForEbb(square, player, false, true)
-                            elseif definition.kind == "trash_runner" then
-                                site = siteForBigChris(square, player, false)
-                            elseif definition.kind == "forest_camp"
-                                and SC.OddballCampStoryteller
-                                and type(SC.OddballCampStoryteller.siteFor)
-                                    == "function" then
-                                site = SC.OddballCampStoryteller.siteFor(
-                                    square, player, false)
-                            elseif definition.kind == "roamer" then
-                                if definition.id == "peddler_mister_ebb" then
-                                    site = siteForEbb(square, player)
-                                elseif definition.id == "dewey_prentice_hollowell" then
-                                    site = siteForEbb(square, player, false, true)
-                                else
-                                    site = siteForRed(square, player)
-                                end
-                            elseif isResidentRoom(definition.id, name) and building
-                                and not (visitedBuildings[definition.id]
-                                    and visitedBuildings[definition.id][building]) then
-                                visitedBuildings[definition.id] =
-                                    visitedBuildings[definition.id] or {}
-                                visitedBuildings[definition.id][building] = true
-                                site = siteForResident(square, player,
-                                    definition, name)
+                            else
+                                site = siteForRed(square, player)
                             end
-                            if site then
-                                local group, reason = createAuthoredGroup(
-                                    site, definition)
-                                if group then
-                                    state.pending = { id = definition.id,
-                                        groupId = group.id }
-                                    return true, group.id
-                                end
-                                if SC.Diagnostics
-                                    and type(SC.Diagnostics.report) == "function" then
-                                    SC.Diagnostics.report("oddballs", definition.id,
-                                        "candidate site deferred", tostring(reason))
-                                end
+                        elseif isResidentRoom(definition.id, name) and building
+                            and not (visitedBuildings[definition.id]
+                                and visitedBuildings[definition.id][building]) then
+                            visitedBuildings[definition.id] =
+                                visitedBuildings[definition.id] or {}
+                            visitedBuildings[definition.id][building] = true
+                            site = siteForResident(square, player,
+                                definition, name)
+                        end
+                        if site then
+                            local group, reason = createAuthoredGroup(
+                                site, definition)
+                            if group then
+                                state.pending = { id = definition.id,
+                                    groupId = group.id }
+                                return finish(true, group.id)
+                            end
+                            if SC.Diagnostics
+                                and type(SC.Diagnostics.report) == "function" then
+                                SC.Diagnostics.report("oddballs", definition.id,
+                                    "candidate site deferred", tostring(reason))
                             end
                         end
                     end
+                    pulse.definitionIndex = pulse.definitionIndex + 1
+                    backgroundCount("oddball_background_archetype")
                 end
             end
+        end
+        pulse.index, pulse.definitionIndex = pulse.index + 1, 1
+        pulse.square, pulse.sampleReady, activeSquare = nil, nil, nil
     end
-    return false, "no_eligible_loaded_site"
+    return finish(false, "no_eligible_loaded_site")
 end
 
 -- A private playtest control: skip the calendar and encounter cap, but still
@@ -4039,6 +4178,7 @@ function Oddballs.restore(document)
     candidate.disabled = nil
     state = candidate
     pendingSetups = {}
+    backgroundPulse, groupPulses = nil, setmetatable({}, { __mode = "k" })
     nextScanAt, nextRecruitedPulseAt, scanSerial = 0, 0, 0
     return true
 end
@@ -4051,6 +4191,7 @@ function Oddballs.reset()
     end
     state = freshState()
     pendingSetups = {}
+    backgroundPulse, groupPulses = nil, setmetatable({}, { __mode = "k" })
     nextScanAt, nextRecruitedPulseAt, scanSerial = 0, 0, 0
     return true
 end

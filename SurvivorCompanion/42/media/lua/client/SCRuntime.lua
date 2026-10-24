@@ -1082,9 +1082,15 @@ local function productionSpawnTask(current)
     SC.Spawn.productionPulse(player(), SC.State, current)
 end
 
-local function factionTask(current)
+local function backgroundBudget(remaining)
+    local clock = SC.Performance.preciseNowMs
+    local deadline = clock() + math.max(0, math.min(1, tonumber(remaining) or 1))
+    return function() return math.max(0, deadline - clock()) end
+end
+
+local function factionTask(current, remaining)
     if SC.Factions and type(SC.Factions.pulse) == "function" then
-        SC.Factions.pulse(player(), current)
+        return SC.Factions.pulse(player(), current, backgroundBudget(remaining))
     end
 end
 
@@ -1114,9 +1120,9 @@ local function bridgeGenerationTask()
     observedBridgeGeneration = generation
 end
 
-local function baseMaintenanceTask(current)
+local function baseMaintenanceTask(current, remaining)
     if SC.BaseWork ~= nil and type(SC.BaseWork.auditMaintenance) == "function" then
-        SC.BaseWork.auditMaintenance(player(), current)
+        return SC.BaseWork.auditMaintenance(player(), backgroundBudget(remaining))
     end
 end
 
@@ -1261,6 +1267,8 @@ local function registerTasks()
                 lane = definition[5], reportFailure = definition[6] == true,
                 fixedInterval = definition[7] == true,
                 maxDelayMs = definition[8],
+                continuations = definition[1] == "factions"
+                    or definition[1] == "base-maintenance",
             })
         if not called or ok ~= true then
             SC.Scheduler.reset(true)

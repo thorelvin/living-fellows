@@ -15,6 +15,8 @@ param(
     # Load the save, leave every companion alone for this long and log what
     # they do. Zero runs the ordinary harness checks instead.
     [ValidateRange(0, 3600)][int]$ObserveSeconds = 0,
+    # Natural sleep-cycle control, without seeding companion fatigue.
+    [ValidateSet(1, 2, 3)][int]$ObserveSpeed = 1,
     # Safely cancel a blocked recovered cook job in the cloned save before observation.
     [switch]$RestartChefBeforeObserve,
     # Disposable regression: put an inbound upstairs team in the former
@@ -1772,6 +1774,7 @@ $config = @(
     ('posted_stream_only=' + $PostedStreamOnly.IsPresent.ToString().ToLowerInvariant()),
     ('observe_only=' + ($ObserveSeconds -gt 0).ToString().ToLowerInvariant()),
     ('observe_ms=' + ($ObserveSeconds * 1000)),
+    ('observe_speed=' + $ObserveSpeed),
     ('restart_chef_before_observe=' + $RestartChefBeforeObserve.IsPresent.ToString().ToLowerInvariant()),
     ('observe_inbound_return_fault=' + $ObserveInboundReturnFault.IsPresent.ToString().ToLowerInvariant()),
     ('internal_timeout_ms=' + (($TimeoutSeconds - 15) * 1000))

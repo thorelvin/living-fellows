@@ -15,6 +15,8 @@ local trafficSequence = 0
 local nextChokeSweepAt = 0
 local stepReservations = {}
 local nextStepSweepAt = 0
+local yieldSessions = setmetatable({}, { __mode = "k" })
+local yieldRecipients = setmetatable({}, { __mode = "k" })
 
 local function U()
     return SC.GameplayUtil
@@ -334,6 +336,101 @@ function Traffic.priority(intent)
     return 40
 end
 
+local function commandSerial(actor)
+    local value, known = U().call(actor, "getModData")
+    if not known or type(value) ~= "table" then return nil end
+    return tonumber(value.SC_CommandSerial) or 0
+end
+
+local function endYield(session, reason)
+    if not session then return end
+    session.ended, session.endReason = true, reason
+    if yieldSessions[session.requester] == session then yieldSessions[session.requester] = nil end
+    if yieldRecipients[session.blocker] == session then yieldRecipients[session.blocker] = nil end
+    local state = session.blockerState
+    if state then
+        if state.crowdMove and state.crowdMove.yieldSession == session then
+            state.crowdMove = nil
+            local request = state.lastApproachRequest
+            if request and request.crowdYieldSession == session then
+                -- The requester may end this session before the recipient's
+                -- next turn. Retain proof of the exact physical move to revoke.
+                state.endedCrowdYield = { session = session, request = request }
+            end
+        end
+        if state.forcedYieldFor == session.requester then state.forcedYieldFor = nil end
+    end
+end
+
+function Traffic.cancelYield(actor, reason)
+    endYield(yieldSessions[actor], reason or "cancelled")
+    endYield(yieldRecipients[actor], reason or "cancelled")
+end
+
+function Traffic.pollYield(actor, now, snapshot)
+    local session = yieldSessions[actor] or yieldRecipients[actor]
+    if not session then return nil end
+    local utility = U()
+    snapshot = type(snapshot) == "table" and snapshot or {}
+    local reason
+    if now >= session.expiresAt then reason = "expired"
+    elseif not utility.isValidActor(session.requester) or utility.isDead(session.requester)
+        or not utility.isValidActor(session.blocker) or utility.isDead(session.blocker)
+        or not utility.sameFloor(session.requester, session.blocker) then reason = "actor_unavailable"
+    elseif commandSerial(session.requester) ~= session.requesterSerial
+        or commandSerial(session.blocker) ~= session.blockerSerial
+        or session.requesterState.routeTargetSignature ~= session.targetSignature then reason = "owner_changed"
+    elseif (tonumber(snapshot.immediateCount) or 0) > 0
+        or (tonumber(snapshot.pressure) or 0) >= 1.5 or snapshot.humanThreat ~= nil then reason = "danger"
+    else
+        local rx, ry = utility.position(session.requester)
+        local dx, dy = session.toX - session.fromX, session.toY - session.fromY
+        local length = math.sqrt(dx * dx + dy * dy)
+        local passed = rx and length > 0.001
+            and ((rx - session.fromX) * dx + (ry - session.fromY) * dy) / length >= length + 0.25
+        local arrived = utility.sameSquare(session.requester, session.contested)
+        if session.clearanceReached and (passed or arrived)
+            and utility.distanceSq(session.requester, session.blocker) >= 1 then reason = "passed" end
+    end
+    if reason then endYield(session, reason) return nil, reason end
+    return session
+end
+
+function Traffic.beginYield(requester, blocker, requesterState, blockerState, clearance,
+        contested, intent, now, corridor)
+    local snapshot = type(intent) == "table" and type(intent.snapshot) == "table" and intent.snapshot or {}
+    if (tonumber(snapshot.immediateCount) or 0) > 0
+        or (tonumber(snapshot.pressure) or 0) >= 1.5 or snapshot.humanThreat ~= nil then
+        return nil, false
+    end
+    local existing = Traffic.pollYield(requester, now, intent and intent.snapshot)
+    if existing then return existing, false end
+    local occupied = Traffic.pollYield(blocker, now, intent and intent.snapshot)
+    if occupied then return nil, false end
+    local utility = U()
+    local fromX, fromY = utility.position(requester)
+    local toX, toY = utility.position(contested)
+    if fromX == nil or toX == nil or clearance == nil then return nil, false end
+    local session = {
+        requester = requester, blocker = blocker, requesterState = requesterState,
+        blockerState = blockerState, clearance = clearance, contested = contested,
+        requesterSerial = commandSerial(requester), blockerSerial = commandSerial(blocker),
+        targetSignature = requesterState.routeTargetSignature,
+        fromX = fromX, fromY = fromY, toX = toX + 0.5, toY = toY + 0.5,
+        startedAt = now, expiresAt = now + (corridor and 12000 or 6000),
+        blockerToken = blockerState.lastApproachRequest and blockerState.lastApproachRequest.intent
+            and blockerState.lastApproachRequest.intent.supervisorToken,
+    }
+    yieldSessions[requester], yieldRecipients[blocker] = session, session
+    blockerState.forcedYieldFor = requester
+    blockerState.crowdMove = {
+        square = clearance, requestedBy = requester, requestedAt = now,
+        expiresAt = session.expiresAt, reason = corridor and "corridor" or "choke",
+        yieldSession = session,
+    }
+    return session, true
+end
+
 function Traffic.releaseChoke(state, actor, context)
     local released = state and type(state.chokeReservationKeys) == "table"
         and #state.chokeReservationKeys > 0
@@ -535,6 +632,7 @@ function Traffic.reserveStep(square, actor, state, intent, now, context)
 end
 
 function Traffic.cancel(actor, state, context)
+    Traffic.cancelYield(actor, "navigation_cancelled")
     local passageKey = actor and actorPassages[actor] or nil
     local passage = passageKey and groupPassages[passageKey] or nil
     if passage and actor then passage.crossed[actor] = true end
@@ -545,6 +643,7 @@ end
 
 function Traffic.releaseActor(actor)
     if actor == nil then return false end
+    Traffic.cancelYield(actor, "actor_removed")
     chokeWaiters[actor] = nil
     actorPassages[actor] = nil
     for key, entry in pairs(chokeReservations) do
@@ -581,6 +680,9 @@ function Traffic.releaseActor(actor)
 end
 
 function Traffic.reset()
+    for _, session in pairs(yieldSessions) do endYield(session, "reset") end
+    yieldSessions = setmetatable({}, { __mode = "k" })
+    yieldRecipients = setmetatable({}, { __mode = "k" })
     chokeReservations = {}
     chokeWaiters = setmetatable({}, { __mode = "k" })
     groupPassages = {}

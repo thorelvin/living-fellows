@@ -4527,4 +4527,212 @@ end
             .. tostring(reason) .. "/" .. tostring(saved and saved.blocker))
 end)()
 
+-- Recover one old parked route once; repeated loads and unrelated stock
+-- mutations do not restart expensive failures or discard exact floor cargo.
+do
+    local ctx = setup()
+    SC.BaseLife.beginZone("sorting_floor", sq(5, 5))
+    local marked, zone = SC.BaseLife.finishZone(sq(5, 5), "Recovery floor")
+    check(marked, "a recovery sorting floor is marked")
+    local cargo = makeItem("Base.Hammer")
+    ctx.actor.inventory:AddItem(cargo)
+    local queued, job = SC.BaseLife.enqueueJob({ type = "sort_floor", assignedId = ctx.id,
+        target = { zoneId = zone.id, x = 5, y = 5, z = 0,
+            floorCargo = { zoneId = zone.id, itemId = cargo.nativeId, x = 5, y = 5, z = 0 } } })
+    job.state, job.blocker, job.attempts = "blocked", "movement_rejected", 6
+    local claim = job.target.floorCargo
+    check(queued and SC.BaseLife.auditJobRecovery() == true and job.state == "pending"
+            and job.target.floorCargo == claim and job.assignedId == ctx.id,
+        "one legacy recovery rearms the route without changing cargo or worker")
+    SC.BaseLife.blockJob(job.id, nil, "movement_rejected")
+    check(SC.BaseLife.jobParked(job) and job.attempts == 6,
+        "one failed recovery parks immediately rather than starting six more attempts")
+    local exported = SC.BaseLife.export()
+    check(SC.BaseLife.restore(exported), "the saved recovery generation restores")
+    job = SC.BaseLife.job(job.id)
+    SC.BaseLife.noteWorkOwnershipMutation()
+    check(SC.BaseLife.auditJobRecovery() == false and job.state == "blocked"
+            and job.target.floorCargo.itemId == cargo.nativeId and job.assignedId == ctx.id,
+        "reload and unrelated inventory work do not revive a parked route")
+    check(SC.BaseLife.noteWorkAccessChanged({ x = -11, y = -11, z = 0 }) == false
+            and SC.BaseLife.auditJobRecovery() == false,
+        "a remote access change leaves this route parked")
+    check(SC.BaseLife.noteWorkAccessChanged(sq(5, 5)) == true,
+        "changing the failed destination grants one new opportunity")
+    local unloaded = sq(5, 5)
+    squares[squareKey(5, 5, 0)] = nil
+    check(SC.BaseLife.auditJobRecovery() == false and job.state == "blocked",
+        "a queued recovery waits while its source square is unloaded")
+    squares[squareKey(5, 5, 0)] = unloaded
+    check(SC.BaseLife.auditJobRecovery() == true and job.state == "pending"
+            and job.target.floorCargo.itemId == cargo.nativeId,
+        "a relevant loaded access change rearms the same exact receipt")
+end
+
+-- Search every bounded slice before saying a tool is missing. Axes can
+-- legitimately be sorted to Weapons, and every borrowed tool returns home.
+do
+    local ctx = setup()
+    local weapons = makeStorage(sq(2, -1))
+    check(SC.BaseLife.registerStorage(weapons, "weapons"), "a weapons tool fallback registers")
+    for _ = 1, 180 do weapons.container:AddItem(makeItem("Base.Paperclip")) end
+    local axe = makeItem("Base.Axe", { tags = { choptree = true }, treeDamage = 20 })
+    weapons.container:AddItem(axe)
+    local tree = makeTree(sq(3, 2), 10)
+    local order = start(ctx, { operation = "fell_trees", zoneId = ctx.lumber.id,
+        requested = 1, settings = { haulLogs = false } })
+    local searching, missing = 0, false
+    for _ = 1, 24 do
+        local _, reason = tick(ctx)
+        if reason == "production_tool_scanning" then searching = searching + 1 end
+        if reason == "missing_tool:choptree" then missing = true end
+        if SC.NativeActions.workKind(ctx.actor) == "chop_tree" then break end
+    end
+    check(searching > 0 and not missing and SC.NativeActions.workKind(ctx.actor) == "chop_tree"
+            and ctx.actor.primary == axe and axe.container == ctx.actor.inventory,
+        "an axe beyond a crowded Weapons shelf is discovered without a false missing-tool block")
+    current(ctx.actor):animEvent("ChopTree")
+    check(tree.removed, "the borrowed exact axe fells the real fixture tree")
+    current(ctx.actor):perform()
+    for _ = 1, 12 do
+        tick(ctx)
+        if SC.BaseLife.productionOrder(order.id).state == "completed" then break end
+    end
+    check(axe.container == weapons.container
+            and axe.modData.LF_ProductionToolKey == nil
+            and SC.BaseLife.productionOrder(order.id).state == "completed",
+        "felling completes only after the same borrowed axe is returned physically")
+end
+
+-- A tool key never replaces an outstanding exact loan when that tool breaks.
+do
+    local ctx = setup()
+    local first = makeItem("Base.Axe", { tags = { choptree = true }, treeDamage = 20 })
+    ctx.toolsObject.container:AddItem(first)
+    makeTree(sq(3, 2), 10)
+    local order = start(ctx, { operation = "fell_trees", zoneId = ctx.lumber.id,
+        requested = 1, settings = { haulLogs = false } })
+    for _ = 1, 12 do
+        local _, reason = tick(ctx)
+        if reason == "production_tool_taken" then break end
+    end
+    local job = SC.BaseLife.jobFor(ctx.id)
+    check(first.container == ctx.actor.inventory and job.target.productionTools.choptree,
+        "an axe is borrowed before its breakage")
+    first.broken = true
+    local replacement = makeItem("Base.Axe", { tags = { choptree = true }, treeDamage = 30 })
+    ctx.toolsObject.container:AddItem(replacement)
+    local returnedFirst, lostLoan = false, false
+    for _ = 1, 24 do
+        tick(ctx)
+        if first.container == ctx.toolsObject.container then returnedFirst = true end
+        if replacement.container == ctx.actor.inventory then
+            if not returnedFirst then lostLoan = true end
+            break
+        end
+        if first.container == ctx.actor.inventory
+            and (not job.target.productionTools
+                or job.target.productionTools.choptree.itemId ~= first.nativeId) then lostLoan = true end
+    end
+    check(returnedFirst and not lostLoan and replacement.container == ctx.actor.inventory,
+        "a broken borrowed axe returns physically before its replacement can overwrite the receipt")
+end
+
+-- Cancelling can accept a newer order without teleporting a borrowed saw.
+-- Its saved return obligation remains claimable after cancellation and load.
+do
+    local ctx = setup()
+    local saw = makeItem("Base.Saw", { tags = { saw = true } })
+    ctx.toolsObject.container:AddItem(saw)
+    ctx.logsObject.container:AddItem(makeItem("Base.Log"))
+    local order = start(ctx, { operation = "saw_planks", sourceStorageId = ctx.logs.id,
+        destinationStorageId = ctx.planks.id, requested = 3 })
+    for _ = 1, 10 do
+        local _, reason = tick(ctx)
+        if reason == "production_tool_taken" then break end
+    end
+    local job = SC.BaseLife.jobFor(ctx.id)
+    check(saw.container == ctx.actor.inventory and job.target.productionTools.saw.itemId == saw.nativeId,
+        "the exact saw loan is saved at verified withdrawal")
+    local originalRestore = SC.BaseWork.restoreToStorage
+    SC.BaseWork.restoreToStorage = function() error("tool return must not teleport") end
+    check(SC.BaseLife.cancelProductionOrder(order.id), "cancellation accepts the deferred tool obligation")
+    SC.BaseWork.restoreToStorage = originalRestore
+    check(saw.container == ctx.actor.inventory and SC.BaseLife.job(job.id) ~= nil
+            and job.target.toolReturnOnly and SC.Production.toolReserved(saw)
+            and SC.WorkTransport.foreignProtected(saw, ctx.actor)
+            and SC.WorkTransport.isCargoProtected(saw, ctx.actor, "surplus_sort"),
+        "cancelled work preserves the carried saw and its independent pending return")
+    for _ = 1, (SC.GameplayUtil.config("productionOrderRecordLimit") or 16) + 2 do
+        local newer = start(ctx, { operation = "saw_planks", sourceStorageId = ctx.logs.id,
+            destinationStorageId = ctx.planks.id, requested = 1 })
+        check(SC.BaseLife.cancelProductionOrder(newer.id), "newer unused history can be cancelled")
+    end
+    check(SC.BaseLife.productionOrder(order.id) ~= nil and SC.Production.toolReserved(saw),
+        "history pruning retains a cancelled order until its exact borrowed tool is returned")
+    local saved = SC.BaseLife.export()
+    check(SC.BaseLife.restore(saved), "a cancelled order's pending loan survives save/load")
+    check(SC.BaseLife.setDuty(ctx.id, false), "a newer order may take the borrower off duty")
+    local _, offDutyReason = tick(ctx)
+    check(offDutyReason == "not_on_base_duty" and saw.container == ctx.actor.inventory,
+        "a pending return never overrides the worker's newer order")
+    SC.BaseLife.setDuty(ctx.id, true)
+    saw.nativeId = saw.nativeId + 100000 -- companion inventory restore can rebuild native IDs
+    local duplicate = makeItem("Base.Saw", { tags = { saw = true } })
+    duplicate.modData.LF_ProductionOrderId = order.id
+    duplicate.modData.LF_ProductionToolKey = "saw"
+    ctx.actor.inventory:AddItem(duplicate)
+    check(SC.Production.toolReserved(duplicate) == false,
+        "reusing an order/key marker never reserves an unrelated saw of the same type")
+    check(SC.WorkTransport.foreignProtected(duplicate, ctx.actor) == false
+            and SC.WorkTransport.isCargoProtected(duplicate, ctx.actor, "surplus_sort") == false,
+        "stale tool markers cannot fall through to an unrelated live production reservation")
+    duplicate.modData.LF_ItemStableId = saw.modData.LF_ItemStableId
+    local _, ambiguousReason = tick(ctx)
+    check(ambiguousReason == "production_tool_loan_ambiguous"
+            and saw.container == ctx.actor.inventory and duplicate.container == ctx.actor.inventory,
+        "duplicate saved tool markers fail closed rather than selecting a replacement")
+    ctx.actor.inventory:Remove(duplicate)
+    check(SC.BaseLife.retryJob(job.id), "the existing Retry control also retries a cancelled loan return")
+    for _ = 1, 12 do
+        tick(ctx)
+        if SC.BaseLife.job(job.id) == nil then break end
+    end
+    check(saw.container == ctx.toolsObject.container and SC.BaseLife.job(job.id) == nil
+            and countType(ctx.planksObject.container, "Base.Plank") == 0
+            and countType(ctx.logsObject.container, "Base.Log") == 1,
+        "resumed duty physically returns the saw without restarting cancelled production")
+end
+
+-- Metadata cleanup is ordinary production work, not a fabricated completion.
+-- It wins the next free duty slot without stealing another active lease.
+do
+    local ctx = setup()
+    local order = start(ctx, { operation = "collect_bodies", zoneId = ctx.burial.id,
+        requested = 1, settings = { fromCamp = true, withBelongings = false } })
+    SC.BaseLife.recordProductionProgress(order.id, 1)
+    local productionJob
+    for _, job in ipairs(ctx.base.jobs) do
+        if job.type == "production" and job.target.orderId == order.id then productionJob = job end
+    end
+    productionJob.blocker = "expired_job_subsystem_owned"
+    local queued, other = SC.BaseLife.enqueueJob({ type = "sort", priority = 5,
+        assignedId = ctx.id, target = { x = 0, y = 0, z = 0 } })
+    other.state, other.reservedBy, other.leaseUntil = "active", ctx.id, SC_TEST_CLOCK + 45000
+    check(queued and SC.Production.settlementFor(ctx.actor) == productionJob
+            and SC.BaseLife.claimJob(ctx.id) == other,
+        "settlement facts never displace a currently owned active commitment")
+    SC.BaseLife.releaseJob(other.id, ctx.id, "finished_commitment")
+    check(SC.BaseLife.claimJob(ctx.id) == productionJob,
+        "quota-complete recovered production wins the next free duty slot over routine sorting")
+    local before = SC.BaseLife.productionCounters().bodiesBuried
+    for _ = 1, 12 do
+        tick(ctx)
+        if SC.BaseLife.productionOrder(order.id).state == "completed" then break end
+    end
+    check(SC.BaseLife.productionOrder(order.id).state == "completed"
+            and SC.BaseLife.productionCounters().bodiesBuried == before,
+        "normal production settlement closes the old order without inventing another burial")
+end
+
 print("PRODUCTION_HARNESS_PASS checks=" .. tostring(checks))

@@ -10,6 +10,13 @@ local MAX_RELATIONS = 64
 local MAX_NEWS = 48
 local state
 local spreading = false
+local pulseScan
+local function budgetAvailable(remainingBudget)
+    return type(remainingBudget) ~= "function" or (tonumber(remainingBudget()) or 0) > 0
+end
+local function phaseCount(name)
+    if SC.Performance and SC.Performance.count then SC.Performance.count(name) end
+end
 
 local eventDefinitions = {
     shared_warning = { delta = 5, text = "%s warned %s about danger moving through the area." },
@@ -293,26 +300,49 @@ function World.noteNeighborhoodReport(kind, leftId, rightId)
     return applyEvent(kind, relation, worldHour())
 end
 
-function World.pulse(currentHour)
+function World.pulse(currentHour, remainingBudget)
     currentHour = finite(currentHour, worldHour())
-    ensureAllRelations()
+    local scan = pulseScan
+    if not scan or scan.state ~= state then
+        scan = { state = state, rows = orderedGroups(true), left = 1, right = 2 }
+        pulseScan = scan
+    end
+    while scan.left < #scan.rows do
+        if not budgetAvailable(remainingBudget) then phaseCount("faction_world_yield") return false, "faction_world_pending", true end
+        local left, right = scan.rows[scan.left], scan.rows[scan.right]
+        if group(left.id) == left and group(right.id) == right then ensureRelation(left.id, right.id) end
+        phaseCount("faction_world_pair")
+        scan.right = scan.right + 1
+        if scan.right > #scan.rows then scan.left, scan.right = scan.left + 1, scan.left + 2 end
+    end
     local interval = SC.Config and type(SC.Config.get) == "function"
         and finite(SC.Config.get("factionWorldEventIntervalHours"), 24) or 24
     interval = math.max(1, interval)
     if state.nextEventHour == nil then
         state.nextEventHour = currentHour + interval
+        pulseScan = nil
         return false, "world_event_scheduled"
     end
-    if currentHour < state.nextEventHour then return false, "world_event_not_due" end
-    state.nextEventHour = currentHour + interval
-    local candidates = {}
-    for _, relation in pairs(state.relations) do
-        local left, right = group(relation.leftId), group(relation.rightId)
+    if currentHour < state.nextEventHour then pulseScan = nil return false, "world_event_not_due" end
+    if not scan.keys then
+        scan.keys, scan.index, scan.candidates = {}, 1, {}
+        for key in pairs(state.relations) do scan.keys[#scan.keys + 1] = key end
+    end
+    while scan.index <= #scan.keys do
+        if not budgetAvailable(remainingBudget) then phaseCount("faction_world_yield") return false, "faction_world_pending", true end
+        local relation = state.relations[scan.keys[scan.index]]
+        scan.index = scan.index + 1
+        local left, right = relation and group(relation.leftId), relation and group(relation.rightId)
         if left and right and left.lifecycle ~= "destroyed" and right.lifecycle ~= "destroyed" then
-            candidates[#candidates + 1] = relation
+            scan.candidates[#scan.candidates + 1] = relation
         end
     end
+    if not budgetAvailable(remainingBudget) then phaseCount("faction_world_yield") return false, "faction_world_pending", true end
+    local candidates = scan.candidates
     table.sort(candidates, function(left, right) return left.key < right.key end)
+    state.nextEventHour = currentHour + interval
+    pulseScan = nil
+    phaseCount("faction_world_complete")
     if #candidates == 0 then return false, "faction_pair_unavailable" end
     local relation = candidates[((state.serial + math.floor(currentHour)) % #candidates) + 1]
     local kinds = eventsForRelation(relation)

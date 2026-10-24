@@ -270,6 +270,37 @@ check(cacheStats.entries == 0 and cacheStats.expired > 0
         and cacheStats.namespaceQueueTokens == 0,
     "bounded incremental sweep removes expired dynamic cache entries")
 
+do
+    SC.Scheduler.reset(true)
+    local steps, urgent = 0, 0
+    SC.Scheduler.register("chunked-audit", 500, 19, function(_, remaining)
+        check(type(remaining) == "number" and remaining > 0,
+            "a continuation receives the current frame's available budget")
+        steps = steps + 1
+        clock = clock + 0.25
+        return true, "audit_pending", steps < 3
+    end, { lane = "background", continuations = true })
+    SC.Scheduler.register("urgent-between-chunks", 1, 100, function()
+        urgent = urgent + 1
+    end, { lane = "critical" })
+    SC.Scheduler.tick()
+    clock = clock + 500
+    for _ = 1, 3 do SC.Scheduler.tick(); clock = clock + 1 end
+    check(steps == 3 and urgent == 3,
+        "bounded work resumes next frame while urgent decisions keep running")
+    SC.Scheduler.tick()
+    check(steps == 3, "a completed audit returns to its ordinary interval")
+    SC.Scheduler.reset(true)
+    local legacy = 0
+    SC.Scheduler.register("legacy-third-return", 500, 19, function()
+        legacy = legacy + 1
+        return true, "legacy", true
+    end, { lane = "background" })
+    SC.Scheduler.tick(); clock = clock + 500; SC.Scheduler.tick()
+    clock = clock + 1; SC.Scheduler.tick()
+    check(legacy == 1, "an unrelated third return cannot opt a legacy task into continuations")
+end
+
 SC.Performance._setClock(nil)
 SC.Scheduler._setClock(nil)
 local priorBridge = rawget(_G, "SCBridge")

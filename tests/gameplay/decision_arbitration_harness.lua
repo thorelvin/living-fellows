@@ -77,6 +77,7 @@ end
 local function modules()
     nativePhase, nativeOwner, nativeName, delegated = "none", nil, nil, nil
     SC.Personality, SC.Objectives = nil, nil
+    SC.Production = nil
     SC.Combat = { update = record("combat"), onlyUnreachableThreats = function() return false end }
     SC.Medical = { update = record("medical") }
     SC.Needs = { update = record("needs"), refill = record("water_refill") }
@@ -210,6 +211,27 @@ local baseRuntime = { snapshot = quiet() }
 check(D.update(resident, player, baseRuntime, clock) == true
     and D.peek(resident).current == "downtime" and delegated == "downtime",
     "base work with no actionable job releases selection to ordinary downtime")
+
+-- A closing production receipt wins routine sorting, while overload, danger
+-- and a newer explicit player order retain their ordinary priority.
+for _, mode in ipairs({ "routine", "weapon", "overload", "danger", "follow" }) do
+    modules()
+    SC.Production = { settlementFor = function() return { id = "closing" } end }
+    local snapshot, commands = quiet(), order(mode == "follow" and "follow" or "base_duty")
+    if mode == "danger" then snapshot.threatCount, snapshot.immediateCount = 1, 1 end
+    SC.Logistics.status = function()
+        return { shouldManage = mode ~= "follow", overloaded = mode == "overload",
+            weaponReady = mode == "weapon" }
+    end
+    local candidates = D._evaluateForTests(actor, player, snapshot, commands,
+        healthy(), {}, {}, clock)
+    local selected = D._selectWithHysteresisForTests({}, candidates, clock)
+    local expected = (mode == "routine" or mode == "weapon") and "base_work"
+        or mode == "overload" and "logistics" or mode == "danger" and "combat" or "follow"
+    check(selected and selected.kind == expected,
+        "production settlement arbitration respects " .. mode)
+end
+modules()
 
 local function hold(snapshot, assessment, needs, commands, state)
     return D._holdOwnedActivityOrPacingForTests(actor, player, snapshot or quiet(),

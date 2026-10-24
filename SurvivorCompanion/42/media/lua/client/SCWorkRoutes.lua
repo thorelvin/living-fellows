@@ -66,6 +66,12 @@ function Routes.stationaryFastRouteRequested(intent)
     return stationaryFastActions[tostring(intent.action or "")] == true
 end
 
+function Routes.storageRouteRequested(intent)
+    return type(intent) == "table" and Routes.stationaryFastRouteRequested(intent)
+        and (intent.workRouteClass or workRouteClasses[tostring(intent.action or "")]) == "storage"
+        and intent.draggingBody ~= true
+end
+
 local function activeBaseRouteScope()
     local base = SC.BaseLife and type(SC.BaseLife.active) == "function"
         and SC.BaseLife.active() or nil
@@ -362,6 +368,39 @@ function Routes.lookup(actor, sourceSquare, key, options, now)
             lookupWithinBatch, actor, sourceSquare, key, options, now)
     end
     return lookupWithinBatch(actor, sourceSquare, key, options, now)
+end
+
+-- A physical storage interaction can offer several usable standing tiles.
+-- Reuse a learned route only when its exact endpoint is still one of them.
+function Routes.lookupCandidates(actor, sourceSquare, candidates, intent, options, now)
+    if not Routes.storageRouteRequested(intent) then return nil end
+    for index = 1, math.min(#(candidates or {}), 8) do
+        local goal = candidates[index]
+        local key = Routes.key(actor, goal, intent)
+        if key ~= nil and routes[key] ~= nil then
+            local path, entry = Routes.lookup(actor, sourceSquare, key, options, now)
+            if path and N()._sameSquareForWorkRoutes(path[#path], goal) then
+                return path, entry, goal, key
+            end
+        end
+    end
+    return nil
+end
+
+function Routes.validateReceiptPath(path, sourceSquare, goalSquare, options)
+    if type(path) ~= "table" or #path < 2 or #path > 192
+        or not N()._sameSquareForWorkRoutes(path[1], sourceSquare)
+        or not N()._sameSquareForWorkRoutes(path[#path], goalSquare) then
+        return false, "receipt_endpoint_changed"
+    end
+    for index = 1, math.min(#path, 5) do
+        local x, y, z = U().position(path[index])
+        if x == nil or U().gridSquare(x, y, z) ~= path[index] then
+            return false, "receipt_square_unloaded"
+        end
+    end
+    local valid, reason = validatePrefix(path, options)
+    return valid, reason
 end
 
 function Routes.validateNext(actor, state, sourceSquare, nextSquare, goalSquare, intent, now)
