@@ -303,6 +303,8 @@ end
 local function workCargo(actor, item, keptHarvestDeposit)
     if SC.BaseWork and type(SC.BaseWork.cargoReserved) == "function"
         and SC.BaseWork.cargoReserved(actor, item) then return true end
+    if SC.Fishing and type(SC.Fishing.gearReserved) == "function"
+        and SC.Fishing.gearReserved(actor, item) then return true end
     if SC.ExpeditionPrototype and SC.ExpeditionPrototype.receiptPending
         and SC.ExpeditionPrototype.receiptPending(item) then return true end
     local itemData = select(1, U().call(item, "getModData"))

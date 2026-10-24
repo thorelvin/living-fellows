@@ -7,6 +7,8 @@ SC.Fishing = SC.Fishing or {}
 local Angling = SC.Fishing
 
 local states = setmetatable({}, { __mode = "k" })
+local preparations = setmetatable({}, { __mode = "k" })
+local preparationBlocked = setmetatable({}, { __mode = "k" })
 local engineRetryAt = setmetatable({}, { __mode = "k" })
 local lastPartyFishingLineAt = -math.huge
 local SEARCH_RADIUS = 24
@@ -363,6 +365,224 @@ function Angling.checkGear(actor)
         return false, "fishing_bait_missing"
     end
     return true
+end
+
+local function baitItem(item)
+    return item ~= nil and Fishing and Fishing.lure and Fishing.lure.All
+        and Fishing.lure.All[U().itemType(item)] and true or false
+end
+
+local function fishingLeader(actor)
+    local expedition = SC.ExpeditionPrototype
+    local mission = expedition and type(expedition.current) == "function"
+        and expedition.current() or nil
+    local scout = mission and mission.scout
+    local search = scout and scout.search
+    return mission ~= nil and not mission.terminal and mission.leader ~= nil
+        and mission.leader.actor == actor and search ~= nil
+        and search.request ~= nil and search.request.category == "fish"
+        and search.endReason == nil and scout.phase ~= "inbound"
+        and scout.phase ~= "awaiting_player"
+end
+
+-- This must not call Logistics.audit: audit itself asks which work cargo is
+-- protected. Reconstruct the exact carried pair after a restart or preemption.
+local function carriedPreparationGear(actor)
+    local rod, lure
+    local primary = select(1, U().call(actor, "getPrimaryHandItem"))
+    if primary and U().itemHasTag(primary, "FISHING_ROD") then
+        rod = primary
+        if primary:getModData().fishing_Lure then return rod end
+    end
+    for _, item in ipairs(U().inventoryItemsDeep(U().inventory(actor), 512, 24)) do
+        if U().itemHasTag(item, "FISHING_ROD") then
+            if item:getModData().fishing_Lure then return item end
+            rod = rod or item
+        elseif baitItem(item) then
+            lure = lure or item
+        end
+    end
+    return rod, lure
+end
+
+function Angling.gearReserved(actor, item)
+    if not actor or not item then return false end
+    local state = preparations[actor]
+    if state and (state.rod == item or state.lure == item) then return true end
+    if not fishingLeader(actor) or (not U().itemHasTag(item, "FISHING_ROD")
+        and not baitItem(item)) then return false end
+    local rod, lure = carriedPreparationGear(actor)
+    return item == rod or item == lure
+end
+
+local function stopPreparation(actor, state)
+    if not state then return end
+    if state.visualToken and SC.NativeActions
+        and type(SC.NativeActions.cancelVisualOwned) == "function" then
+        pcall(SC.NativeActions.cancelVisualOwned, actor, state.visualToken,
+            "fishing_preparation_cancelled")
+    end
+    local navigation = SC.Navigation
+    local current = navigation and type(navigation.peek) == "function"
+        and navigation.peek(actor) or nil
+    if current ~= nil and current == state.navigationState
+        and current.goalAction == "move_to_base_storage"
+        and current.approachRequestSerial == state.navigationSerial
+        and type(navigation.cancel) == "function" then
+        pcall(navigation.cancel, actor, "fishing_preparation_cancelled")
+    end
+    state.source, state.transaction, state.scan = nil, nil, nil
+    state.navigationState, state.navigationSerial, state.visualToken = nil, nil, nil
+end
+
+function Angling.cancelPreparation(actor)
+    stopPreparation(actor, preparations[actor])
+    preparations[actor] = nil
+    return true
+end
+
+local function permittedGearSource(actor, source)
+    local base = SC.BaseLife
+    local storage, container, item = source.storage, source.container, source.item
+    if base.storage(storage.id) ~= storage or not base.withdrawable(storage)
+        or base.resolveContainer(storage) ~= container
+        or not U().inventoryContains(container, item) then return false end
+    if SC.BaseWork.choreReserved and SC.BaseWork.choreReserved(item) then return false end
+    if SC.WorkTransport and SC.WorkTransport.foreignProtected
+        and SC.WorkTransport.foreignProtected(item, actor) then return false end
+    if SC.PersonalItems and SC.PersonalItems.isProtected
+        and SC.PersonalItems.isProtected(item, actor, "camp_supply") then return false end
+    return base.availableCountExact(storage, U().itemType(item)) > 0
+end
+
+-- Scan finite slices and retain the cursor. A rod beyond the first eighty
+-- entries remains discoverable, and an already baited rod wins over a bare one.
+local function preparationSource(actor, state, kind)
+    local scan = state.scan
+    if not scan or scan.kind ~= kind then
+        scan = { kind = kind, rows = SC.BaseLife.storageRows(nil, true),
+            row = 1, index = 0 }
+        state.scan = scan
+    end
+    local examined, containers = 0, 0
+    while scan.row <= #scan.rows and examined < 80 and containers < 8 do
+        local storage = scan.rows[scan.row]
+        local blocked = state.blocked and state.blocked[storage.id]
+        if blocked and blocked.untilMs <= now() then
+            state.blocked[storage.id], blocked = nil, nil
+        end
+        if blocked then scan.blocker = blocked.reason end
+        local container = not blocked and SC.BaseLife.storage(storage.id) == storage
+            and SC.BaseLife.withdrawable(storage)
+            and SC.BaseLife.resolveContainer(storage) or nil
+        local items = container and select(1, U().call(container, "getItems")) or nil
+        local size = U().listSize(items)
+        containers = containers + 1
+        while scan.index < size and examined < 80 do
+            local item = U().listGet(items, scan.index)
+            scan.index, examined = scan.index + 1, examined + 1
+            local matches = kind == "rod" and U().itemHasTag(item, "FISHING_ROD")
+                or kind == "bait" and baitItem(item)
+            if matches then
+                local source = { storage = storage, container = container, item = item }
+                if permittedGearSource(actor, source) then
+                    if kind == "bait" or item:getModData().fishing_Lure then
+                        state.scan = nil
+                        return source, true
+                    end
+                    scan.fallback = scan.fallback or source
+                end
+            end
+        end
+        if scan.index >= size then scan.row, scan.index = scan.row + 1, 0 end
+    end
+    if scan.row <= #scan.rows then return nil, false end
+    state.scan = nil
+    if scan.fallback and permittedGearSource(actor, scan.fallback) then
+        return scan.fallback, true
+    end
+    return nil, true, scan.blocker
+end
+
+local function blockPreparationSource(actor, state, source, reason)
+    state.blocked = state.blocked or {}
+    preparationBlocked[actor] = state.blocked
+    state.blocked[source.storage.id] = {
+        untilMs = now() + 60000, reason = reason or "fishing_gear_unreachable",
+    }
+end
+
+-- Preparation borrows one real rod and, if needed, one real lure from marked
+-- camp storage. The caller owns the mission wait/retry deadline, not this
+-- transient navigation/animation transaction. Acquired gear stays on cancel.
+function Angling.prepareGear(actor)
+    if not actor then return false, "fishing_rod_missing" end
+    local state = preparations[actor]
+    if not state then
+        state = { blocked = preparationBlocked[actor] }
+        preparations[actor] = state
+    end
+    state.rod, state.lure = gear(actor)
+    if state.rod and (state.rod:getModData().fishing_Lure or state.lure) then
+        stopPreparation(actor, state)
+        return true, "fishing_gear_ready"
+    end
+    local kind = state.rod and "bait" or "rod"
+    if not SC.BaseLife or not SC.BaseWork
+        or type(SC.BaseWork.withdrawFromStorage) ~= "function" then
+        return false, "fishing_gear_unavailable"
+    end
+    local source = state.source
+    if source and (state.kind ~= kind or not permittedGearSource(actor, source)) then
+        stopPreparation(actor, state)
+        source = nil
+    end
+    if not source then
+        local complete, blocker
+        source, complete, blocker = preparationSource(actor, state, kind)
+        if not source then
+            return not complete, complete and (blocker or "fishing_" .. kind .. "_missing")
+                or ("fishing_preparing_" .. kind)
+        end
+        state.source, state.kind, state.transaction = source, kind, {}
+    end
+    local room, roomReason = U().containerHasRoom(U().inventory(actor), actor, source.item)
+    if not room then
+        blockPreparationSource(actor, state, source, roomReason or "fishing_gear_capacity")
+        stopPreparation(actor, state)
+        return false, roomReason or "fishing_gear_capacity"
+    end
+    local taken, reason = SC.BaseWork.withdrawFromStorage(actor, state.transaction,
+        source.storage, source.container, source.item)
+    local navigation = SC.Navigation
+    local navState = navigation and type(navigation.peek) == "function"
+        and navigation.peek(actor) or nil
+    local request = navState and navState.lastApproachRequest
+    state.navigationState = request and request.intent
+        and request.intent.object == SC.BaseLife.resolveObject(source.storage)
+        and navState or nil
+    state.navigationSerial = state.navigationState
+        and state.navigationState.approachRequestSerial or nil
+    state.visualToken = state.transaction.visualAt ~= nil and SC.NativeActions
+        and type(SC.NativeActions.visualToken) == "function"
+        and SC.NativeActions.visualToken(actor, "loot_container") or nil
+    if taken and reason == "base_supply_taken" then
+        if not U().inventoryContains(U().inventory(actor), source.item)
+            or U().inventoryContains(source.container, source.item) then
+            blockPreparationSource(actor, state, source, "fishing_gear_transfer_unverified")
+            stopPreparation(actor, state)
+            return false, "fishing_gear_transfer_unverified"
+        end
+        if kind == "rod" then state.rod = source.item else state.lure = source.item end
+        stopPreparation(actor, state)
+        return true, "fishing_preparing_" .. kind
+    end
+    if not taken then
+        blockPreparationSource(actor, state, source, reason)
+        stopPreparation(actor, state)
+        return false, reason or "fishing_gear_unreachable"
+    end
+    return true, "fishing_preparing_" .. kind
 end
 
 local function cancelBaitAction(actor, state)
@@ -872,6 +1092,10 @@ function Angling.reset()
     local actors = {}
     for actor in pairs(states) do actors[#actors + 1] = actor end
     for _, actor in ipairs(actors) do Angling.cancel(actor, "reset") end
+    actors = {}
+    for actor in pairs(preparations) do actors[#actors + 1] = actor end
+    for _, actor in ipairs(actors) do Angling.cancelPreparation(actor) end
+    preparationBlocked = setmetatable({}, { __mode = "k" })
     engineRetryAt = setmetatable({}, { __mode = "k" })
     lastPartyFishingLineAt = -math.huge
     bankListCache = nil

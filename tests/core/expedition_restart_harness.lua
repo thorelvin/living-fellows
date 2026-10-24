@@ -1067,8 +1067,11 @@ check(expedition.pulse() == true
 check(expedition.finishAtPlayer(player) == true
         and expedition.lastDebrief().site.id == place.id,
     "the read-only debrief names the same selected site")
+do
 local formerFishing = SC.Fishing
 local fishingReady = false
+local gearAttempts, gearCancels = 0, 0
+local gearAvailable = false
 SC.Fishing = {
     bankCandidates = function(actor, radius, limit, offset)
         check(actor == reserve and radius == 1000 and limit == 32
@@ -1086,6 +1089,13 @@ SC.Fishing = {
         check(actor == reserve, "only the selected leader needs fishing gear")
         return fishingReady, fishingReady and nil or "fishing_rod_missing"
     end,
+    prepareGear = function(actor)
+        check(actor == reserve, "only the leader physically collects fishing gear")
+        gearAttempts = gearAttempts + 1
+        return gearAvailable, gearAvailable and "fishing_preparing_rod"
+            or "fishing_rod_missing"
+    end,
+    cancelPreparation = function() gearCancels = gearCancels + 1 end,
     cancel = function() return true end,
 }
 local fishingChoices = expedition.fishingBankCandidates("delta", 1)
@@ -1096,18 +1106,100 @@ local fishingPreview = expedition.previewAtFishingBank(
 check(fishingPreview and fishingPreview.mode == "local",
     "a distant listed fishing bank uses the fishing radius during review")
 local promotedBeforeFishing = promotions
-local fishStarted, fishReason, missingName = expedition.startAtFishingBank(
+local departureCount = #departures
+local fishStarted, preparedMission = expedition.startAtFishingBank(
     { { id = "delta", actor = reserve, name = "Reserve" } }, "bank:800:25",
-    { request = { category = "fish", quantity = 1 } })
-check(not fishStarted and fishReason == "fishing_rod_missing"
-        and missingName == "Reserve" and promotions == promotedBeforeFishing,
-    "missing fishing gear prevents departure before second-player promotion")
+    { request = { category = "fish", quantity = 1 }, turnHomeAfterHours = 1 })
+check(fishStarted and preparedMission.scout.fishingPreparation
+        and promotions == promotedBeforeFishing + 1 and #departures == departureCount,
+    "missing gear starts automatic preparation without announcing departure")
+expedition.pulse()
+check(preparedMission.testWaypoint == nil and preparedMission.scout.legs == 0
+        and preparedMission.scout.search.startedHour == nil,
+    "preparation holds walking and the fishing clock before any route leg")
+local oldCarPulse, carPulses = SC.ExpeditionCar.pulse, 0
+SC.ExpeditionCar.pulse = function() carPulses = carPulses + 1 return true end
+preparedMission.scout.vehicle = { state = "walking_to_car" }
+expedition.pulse()
+check(carPulses == 0, "preparation also holds car boarding and departure")
+preparedMission.scout.vehicle = nil
+SC.ExpeditionCar.pulse = oldCarPulse
+check(expedition.fishingPreparationFor(follower) == nil
+        and expedition.updateFishingPreparation(reserve)
+        and preparedMission.scout.fishingPreparation.reason == "fishing_rod_missing"
+        and gearAttempts == 1,
+    "a shortage keeps only the leader waiting for shared storage")
+expedition.updateFishingPreparation(reserve)
+check(gearAttempts == 1, "a missing supply retries on a bounded cooldown")
+local prepSaved = expedition.export()
+check(prepSaved.scout.fishingPreparation.retryAt == nil
+        and expedition.prepareReset() and expedition.reset(),
+    "preparation saves no native references or stale timers")
+prepSaved.scout.fishingPreparation.reason = "invented"
+check(not expedition.restore(prepSaved), "malformed preparation is rejected")
+prepSaved.scout.fishingPreparation.reason = "fishing_rod_missing"
+local carPrep = {}
+for key, value in pairs(prepSaved) do carPrep[key] = value end
+carPrep.schema, carPrep.scout = 6, {}
+for key, value in pairs(prepSaved.scout) do carPrep.scout[key] = value end
+carPrep.scout.phase, carPrep.scout.travelMode = "walking_to_car", "drive"
+carPrep.scout.road = nil
+carPrep.scout.vehicle = {
+    state = "walking_to_car", leg = "outbound", sqlId = 44,
+    script = "Base.CarNormal", seats = { delta = 0 }, parkingZoneId = "zone:42",
+    parking = { x1 = 20, y1 = 18, x2 = 27, y2 = 25, z = 0 },
+    departure = { x = 23, y = 20, z = 0 }, home = { x = 24, y = 20, z = 0 },
+    siteStop = { x = 795, y = 25, z = 0 }, position = { x = 23, y = 20, z = 0 },
+    departureFuel = 10, departureHeading = 0,
+}
+check(expedition.restore(carPrep)
+        and expedition.current().scout.vehicle.state == "walking_to_car"
+        and expedition.current().scout.fishingPreparation,
+    "a saved car preparation resumes without inventing interrupted driving")
+expedition.current().suspended = true
+check(expedition.reset() and expedition.restore(prepSaved) and expedition.pulse() == true,
+    "preparation survives reload without native references or stale timers")
+preparedMission = expedition.current()
+gearAvailable = true
+expedition.updateFishingPreparation(reserve)
+check(gearAttempts == 2 and preparedMission.scout.fishingPreparation
+        and preparedMission.scout.fishingPreparation.reason == "fishing_preparing_rod",
+    "restored preparation automatically resumes physical collection")
+fishingReady = true
+worldHour = (worldHour or 431.25) + 2
+expedition.updateFishingPreparation(reserve)
+check(preparedMission.scout.fishingPreparation == nil
+        and preparedMission.scout.departureHour == worldHour
+        and preparedMission.scout.turnHomeAtHour == worldHour + 1
+        and #departures == departureCount + 1 and gearCancels > 0,
+    "verified gear starts the trip and its return timer exactly once")
+preparedMission.scout.phase = "awaiting_player"
+check(expedition.finishAtPlayer(player), "a prepared fishing mission closes normally")
+fishingReady = false
+local timedPreparation
+fishStarted, timedPreparation = expedition.startAtFishingBank(
+    { { id = "delta", actor = reserve, name = "Reserve" } }, "bank:800:25",
+    { request = { category = "fish", quantity = 1 }, arriveByHour = worldHour + 0.25 })
+worldHour = worldHour + 0.5
+departureCount, gearAttempts = #departures, 0
+check(fishStarted and expedition.updateFishingPreparation(reserve)
+        and timedPreparation.scout.phase == "inbound"
+        and timedPreparation.scout.fishingPreparation == nil
+        and timedPreparation.scout.search.endReason == "arrival_reserve_reached"
+        and gearAttempts == 0 and #departures == departureCount,
+    "an expired absolute return deadline cancels preparation without departing")
+local expiredPreparationSave = expedition.export()
+check(expedition.prepareReset() and expedition.reset()
+        and expedition.restore(expiredPreparationSave) and expedition.pulse()
+        and expedition.finishAtPlayer(player),
+    "an expired preparation preserves a valid restorable return clock")
 fishingReady = true
 check(expedition.fishingGearStatus({
         { id = "delta", actor = reserve, name = "Reserve" },
         { id = "gamma", actor = follower, name = "Follower" },
     }) == true,
     "ungeared escort does not block a geared fishing leader")
+local newMission
 fishStarted, newMission = expedition.startAtFishingBank(
     { { id = "delta", actor = reserve, name = "Reserve" } }, "bank:800:25",
     { request = { category = "fish", quantity = 1 } })
@@ -1120,6 +1212,7 @@ newMission.scout.phase = "awaiting_player"
 check(expedition.finishAtPlayer(player) == true,
     "the shoreline expedition can close through normal debrief")
 SC.Fishing = formerFishing
+end
 SC.ExpeditionPlaces.siteContainsPoint = function(siteId, x, y, z)
     return siteId == place.id and x >= 70 and x <= 90
         and y >= 10 and y <= 30 and z == 0

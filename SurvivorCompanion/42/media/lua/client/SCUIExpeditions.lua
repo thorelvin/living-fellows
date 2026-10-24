@@ -48,6 +48,49 @@ local function tr(key, ...)
     return SC.UI.text(key, ...)
 end
 
+local function readableName(value)
+    if type(value) ~= "string" then return nil end
+    local name = string.gsub(string.gsub(value, "^%s+", ""), "%s+$", "")
+    if name == "" or name == "?" or string.match(string.lower(name), "^sc%-") then
+        return nil
+    end
+    return name
+end
+
+local function recordName(record)
+    if type(record) ~= "table" then return nil end
+    local identity = type(record.identity) == "table" and record.identity or {}
+    local first, last = readableName(identity.forename), readableName(identity.surname)
+    if first then return first .. (last and (" " .. last) or "") end
+    if last then return last end
+    local name = readableName(record.name) or readableName(record.fullName)
+    if name then return name end
+    local utility = SC.GameplayUtil
+    if record.actor and utility and type(utility.nameOf) == "function" then
+        local ok, value = pcall(utility.nameOf, record.actor)
+        if ok and readableName(value) then return readableName(value) end
+    end
+    return nil
+end
+
+-- Backend reports and old delivery receipts can contain an internal companion
+-- id in their name field. Resolve it at the presentation boundary, preserving
+-- the id used by squad selections and mission ownership.
+local function memberName(value, fallback)
+    local record = type(value) == "table" and value or nil
+    local id = record and (record.id or record.companionId)
+        or type(value) == "string" and string.match(value, "^sc%-") and value or nil
+    if id and SC.Registry and type(SC.Registry.byId) == "function" then
+        local ok, registered = pcall(SC.Registry.byId, id)
+        local name = ok and recordName(registered) or nil
+        if name then return name end
+    end
+    local name = recordName(record) or readableName(value)
+    if name then return name end
+    if fallback ~= nil then return memberName(fallback) end
+    return tr("UI_SC_Expedition_SquadMember")
+end
+
 -- getText returns the key itself for a missing entry. A phase without its own
 -- phrase falls back to the plain "leader nearby" line, never a raw key.
 local function observedPhaseText(phase)
@@ -159,6 +202,8 @@ function Planner.viewStructureSignature()
     return table.concat({ "expedition", tostring(mission.radioSession or mission),
         joinedExpeditionView(mission) and "joined" or "pending",
         tostring(view and view.plannedSite or ""),
+        tostring(view and view.preparation or ""),
+        tostring(view and view.preparationMemberId or ""),
         tostring(view and view.observedPhase or ""),
         tostring(view and view.visibleMembers or 0),
         tostring(view and view.supplyProgress
@@ -368,14 +413,26 @@ local function currentTeam(detail)
     return records
 end
 
-local function gearMessage(reason, name)
+local function gearMessage(reason, name, record)
     if reason == "fishing_rod_missing" then
-        return tr("UI_SC_Expedition_FishingRodMissing", name or "?")
+        return tr("UI_SC_Expedition_FishingRodMissing", memberName(name, record))
     end
     if reason == "fishing_bait_missing" then
-        return tr("UI_SC_Expedition_FishingBaitMissing", name or "?")
+        return tr("UI_SC_Expedition_FishingBaitMissing", memberName(name, record))
     end
     return reason
+end
+
+local function fishingPreparationMessage(view, mission)
+    local keys = {
+        fishing_preparing_rod = "UI_SC_Expedition_FishingPreparingRod",
+        fishing_preparing_bait = "UI_SC_Expedition_FishingPreparingBait",
+        fishing_rod_missing = "UI_SC_Expedition_FishingRodWaiting",
+        fishing_bait_missing = "UI_SC_Expedition_FishingBaitWaiting",
+    }
+    local key = view and keys[view.preparation]
+    if not key then return nil end
+    return tr(key, memberName(view.preparationMemberId, mission and mission.leader))
 end
 
 local function dispatch(detail)
@@ -408,7 +465,7 @@ local function dispatch(detail)
             draft.placeId, draft.kind, options)
     end
     if not ok or accepted ~= true then
-        return false, ok and gearMessage(result, memberName)
+        return false, ok and gearMessage(result, memberName, records[1])
             or tostring(accepted)
     end
     return true
@@ -454,15 +511,6 @@ function Planner.onButton(detail, button)
             detail:rebuild(true)
             return
         end
-        if draft.kind == "fish" then
-            local ready, gearReason, memberName =
-                SC.ExpeditionPrototype.fishingGearStatus(team)
-            if not ready then
-                feedback(detail, gearMessage(gearReason, memberName), false)
-                detail:rebuild(true)
-                return
-            end
-        end
         if draft.travelMode == "drive" then
             draft.preview, draft.previewError =
                 SC.ExpeditionPrototype.previewDrive(team,
@@ -480,7 +528,21 @@ function Planner.onButton(detail, button)
         draft.review = false
     elseif action == "launch" then
         local ok, reason = dispatch(detail)
-        feedback(detail, ok and tr("UI_SC_Expedition_Departed")
+        local preparation
+        if ok then
+            local expedition = SC.ExpeditionPrototype
+            local mission = expedition.current()
+            local pending = mission and mission.scout and mission.scout.fishingPreparation
+            -- The accepted plan is known even when the leader is out of sight.
+            -- Ordinary active status still uses only the observed description.
+            if pending then
+                preparation = fishingPreparationMessage({
+                    preparation = pending.reason,
+                    preparationMemberId = mission.leader and mission.leader.id,
+                }, mission)
+            end
+        end
+        feedback(detail, ok and (preparation or tr("UI_SC_Expedition_Departed"))
             or tr("UI_SC_Expedition_Failed", reason), ok)
         if ok then draft.review = false end
     end
@@ -495,13 +557,13 @@ local function addDeliveryItems(detail, panel, y, report)
     for _, row in ipairs(report.items) do
         y = detail:addInformationLine(panel, y,
             "UI_SC_Info_Message", tr("UI_SC_Expedition_DeliveryItem",
-                row.itemType, row.finderName,
+                row.itemType, memberName(row.finderName, row.finderId),
                 row.carrierKind == "trunk"
                     and (row.carrierName == "Car trunk"
                         and tr("UI_SC_Expedition_TrunkOnly")
                         or tr("UI_SC_Expedition_TrunkCarrier",
-                            row.carrierName or "?"))
-                    or row.carrierName or "?",
+                            memberName(row.carrierName, row.carrierId)))
+                    or memberName(row.carrierName, row.carrierId),
                 row.stored and tr("UI_SC_Expedition_Stored")
                     or row.reason and SC.UI.baseFailureReason(row.reason)
                     or tr("UI_SC_Expedition_Pending")))
@@ -511,7 +573,7 @@ local function addDeliveryItems(detail, panel, y, report)
             y = detail:addInformationLine(panel, y,
                 "UI_SC_Info_Message", tr(
                     "UI_SC_Expedition_RestockShortage",
-                    member.name, category, amount))
+                    memberName(member.name, member.id), category, amount))
         end
     end
     return y
@@ -578,8 +640,9 @@ function Planner.build(detail, panel)
     if expedition and expedition.current and expedition.current() then
         local mission = expedition.current()
         local view = expedition.describeForPlayer(getSpecificPlayer(0))
+        local leaderName = memberName(view and view.leaderName, mission.leader)
         y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
-            tr("UI_SC_Expedition_Active", view and view.leaderName or "?"))
+            tr("UI_SC_Expedition_Active", leaderName))
         if view and view.plannedSite then
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
                 tr("UI_SC_Expedition_PlannedDestination", view.plannedSite))
@@ -610,15 +673,18 @@ function Planner.build(detail, panel)
                     report.collected, report.broughtBack,
                     report.stored, report.pending))
         end
-        if view and view.helpRequest then
+        local preparation = fishingPreparationMessage(view, mission)
+        if preparation then
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message", preparation)
+        elseif view and view.helpRequest then
             local request = view.helpRequest
             if request.shelter then
                 y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
-                    tr("UI_SC_Expedition_ShelterRequest", view.leaderName,
+                    tr("UI_SC_Expedition_ShelterRequest", leaderName,
                         math.floor(request.x), math.floor(request.y)))
             else
                 y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
-                    tr("UI_SC_Expedition_HelpRequest", view.leaderName,
+                    tr("UI_SC_Expedition_HelpRequest", leaderName,
                         math.floor(request.x), math.floor(request.y),
                         tr("UI_SC_Expedition_Help_" .. request.mode)))
             end
@@ -678,9 +744,9 @@ function Planner.build(detail, panel)
     if draft.review then
         local place = selectedPlace(draft)
         local team = squadRows(detail, draft.group)
-        local leaderName = "?"
+        local leaderName = tr("UI_SC_Expedition_SquadMember")
         for _, row in ipairs(team) do
-            if row.id == draft.leaderId then leaderName = row.name break end
+            if row.id == draft.leaderId then leaderName = memberName(row) break end
         end
         local styleName = draft.style
         for _, style in ipairs(STYLES) do
@@ -695,6 +761,8 @@ function Planner.build(detail, panel)
         if draft.kind == "fish" then
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
                 tr("UI_SC_Expedition_FishRequest", draft.quantity))
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                tr("UI_SC_Expedition_FishingPreparationPlan"))
         elseif draft.kind == "search" then
             local categoryName = draft.category
             for _, option in ipairs(CATEGORIES) do
@@ -781,7 +849,7 @@ function Planner.build(detail, panel)
     end
     local leaderOptions = {}
     for _, row in ipairs(members) do
-        leaderOptions[#leaderOptions + 1] = { value = row.id, label = row.name }
+        leaderOptions[#leaderOptions + 1] = { value = row.id, label = memberName(row) }
     end
     if #leaderOptions > 0 then
         local present = false

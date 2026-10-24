@@ -87,7 +87,8 @@ local function modules()
     SC.Encounter = { update = record("encounter"), peek = function() return nil end }
     SC.Logistics = { update = record("logistics") }
     SC.FieldWork = { update = record("field_work"), wants = function() return false end }
-    SC.ExpeditionPrototype = { updateIntegration = record("expedition_delivery") }
+    SC.ExpeditionPrototype = { updateIntegration = record("expedition_delivery"),
+        updateFishingPreparation = record("fishing_preparation") }
     SC.Fishing = { update = record("fishing") }
     SC.InfectionCrisis = { updateActor = record("infection_crisis") }
     SC.FactionBehavior = { update = record("faction") }
@@ -130,6 +131,10 @@ local rows = {
     end },
     { "field_work", "field_work", function() SC.FieldWork.wants = function() return true end end },
     { "fishing", "fishing", function()
+        SC.ExpeditionPrototype.fishingRequestFor = function() return { water = true } end
+    end },
+    { "fishing_preparation", "fishing_preparation", function()
+        SC.ExpeditionPrototype.fishingPreparationFor = function() return { waiting = true } end
         SC.ExpeditionPrototype.fishingRequestFor = function() return { water = true } end
     end },
     { "logistics", "logistics", function()
@@ -185,6 +190,122 @@ for _, row in ipairs(rows) do
         { snapshot = snapshot }, commands, snapshot, {})
     check(handled == true and delegated == row[2], row[1] .. " reaches its controller: " .. tostring(reason))
 end
+
+-- Missing gear keeps the mission leader on its preparation controller through
+-- cooldowns instead of yielding to chores; independent danger still preempts.
+modules()
+local preparing = person("fishing-preparation", 0)
+local preparationDescriptor = { waiting = true }
+SC.Commands = { effective = function() return order("stay") end }
+SC.ExpeditionPrototype.isMember = function() return false end
+SC.ExpeditionPrototype.fishingPreparationFor = function(value)
+    return value == preparing and preparationDescriptor or nil
+end
+SC.ExpeditionPrototype.updateFishingPreparation = function(value)
+    check(value == preparing, "fishing preparation services its selected leader")
+    delegated = "fishing_preparation"
+    return true, "fishing_preparation_waiting"
+end
+SC.Logistics.status = function() return { shouldManage = true } end
+local cancelledPreparation = 0
+SC.Fishing.cancelPreparation = function(value)
+    check(value == preparing, "preemption cancels the selected leader's preparation")
+    cancelledPreparation = cancelledPreparation + 1
+    return true
+end
+local preparingRuntime = { snapshot = quiet() }
+local handoffAttempts, workCancellations, quietCancellations, packingResets = 0, 0, 0, 0
+local quietActive, packingActive = true, true
+SC.BaseWork.cancel = function(value, reason)
+    check(value == preparing and reason == "expedition_fishing_preparation",
+        "the preparation handoff targets its own leader's previous camp receipt")
+    handoffAttempts = handoffAttempts + 1
+    return handoffAttempts > 1, "haul_cargo_return_pending"
+end
+SC.NativeActions.cancelWork = function()
+    workCancellations = workCancellations + 1
+    nativePhase, nativeOwner = "none", nil
+    return true
+end
+SC.Downtime.peek = function() return quietActive and { active = { kind = "sit" } } or nil end
+SC.Downtime.cancel = function(value)
+    check(value == preparing, "the handoff releases only this leader's ambient activity")
+    quietActive, quietCancellations = false, quietCancellations + 1
+    return true
+end
+SC.Logistics.busy = function(value) return value == preparing and packingActive end
+SC.Logistics.reset = function(value)
+    check(value == preparing, "the handoff releases only this leader's pending packing")
+    packingActive, packingResets = false, packingResets + 1
+    return true
+end
+nativePhase, nativeOwner, nativeName = "active", "work", "chop_tree"
+clock = clock + 1000
+local handoffWaiting, handoffReason = D.update(preparing, player, preparingRuntime, clock)
+check(handoffWaiting and handoffReason == "haul_cargo_return_pending"
+    and delegated == nil and handoffAttempts == 1 and workCancellations == 0
+    and quietCancellations == 0 and packingResets == 0,
+    "an unresolved prior cargo receipt waits before any fishing pickup or native cancellation")
+for _ = 1, 3 do
+    clock = clock + 1000
+    local handled, reason = D.update(preparing, player, preparingRuntime, clock)
+    check(handled and reason == "fishing_preparation_waiting"
+        and D.peek(preparing).current == "fishing_preparation"
+        and delegated == "fishing_preparation" and cancelledPreparation == 0,
+        "waiting for fishing gear retains priority over routine inventory work")
+end
+check(handoffAttempts == 2 and workCancellations == 1
+    and quietCancellations == 1 and packingResets == 1,
+    "verified handoff settles once and never cancels later fishing preparation poses")
+local originalDue = SC.GameplayUtil.isDue
+SC.GameplayUtil.isDue = function(_, key, interval)
+    if key == "decision_fishing_preparation" then
+        check(interval == 250, "fishing preparation uses the normal fishing decision cadence")
+        return false
+    end
+    return true
+end
+SC.Navigation.sustainDecisionApproach = function(value, kind)
+    check(value == preparing and kind == "fishing_preparation",
+        "the retained storage approach belongs to fishing preparation")
+    return true, "fishing_storage_approach_sustained"
+end
+clock = clock + 100
+local sustained, sustainedReason = D.update(preparing, player, preparingRuntime, clock)
+check(sustained and sustainedReason == "fishing_storage_approach_sustained"
+    and handoffAttempts == 2,
+    "native storage movement stays alive between preparation controller polls")
+SC.GameplayUtil.isDue, SC.Navigation.sustainDecisionApproach = originalDue, nil
+preparingRuntime.snapshot.threatCount, preparingRuntime.snapshot.immediateCount = 1, 1
+clock = clock + 1000
+check(D.update(preparing, player, preparingRuntime, clock) == true
+    and D.peek(preparing).current == "combat" and cancelledPreparation == 1,
+    "combat releases fishing preparation before its own controller runs")
+preparingRuntime.snapshot = quiet()
+clock = clock + 1000
+check(D.update(preparing, player, preparingRuntime, clock) == true
+    and D.peek(preparing).current == "fishing_preparation",
+    "fishing preparation resumes after the independent danger clears")
+nativePhase, nativeOwner, nativeName = "active", "visual", "loot_container"
+clock = clock + 1000
+check(D.update(preparing, player, preparingRuntime, clock) == true
+    and D.peek(preparing).current == "activity" and cancelledPreparation == 1,
+    "an owned gear pickup pose keeps its native activity until completion")
+preparingRuntime.snapshot.threatCount, preparingRuntime.snapshot.immediateCount = 1, 1
+clock = clock + 1000
+check(D.update(preparing, player, preparingRuntime, clock) == true
+    and D.peek(preparing).current == "combat" and cancelledPreparation == 2,
+    "combat releases preparation even after a native pose temporarily owns the decision")
+preparationDescriptor = { waiting = true }
+clock = clock + 1000
+check(D.update(preparing, player, preparingRuntime, clock) == true
+    and D.peek(preparing).current == "combat" and handoffAttempts == 2,
+    "a new preparation never settles old chores ahead of immediate survival")
+preparingRuntime.snapshot = quiet()
+clock = clock + 1000
+check(D.update(preparing, player, preparingRuntime, clock) == true
+    and D.peek(preparing).current == "fishing_preparation" and handoffAttempts == 3,
+    "a new preparation descriptor gets its own handoff after danger clears")
 
 -- Drive the complete update/fallback loop as well: a chore that has no
 -- concrete action must not leave the actor stuck on that failed decision.

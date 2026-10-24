@@ -237,4 +237,44 @@ local finishedPacking, finishedReason = SC.Logistics.update(actor, nil, { snapsh
 check(resumedPacking and finishedPacking and finishedReason == "item_packed"
     and shelfCargo.container == bagInventory,
     "normal packing physically resumes after shelf ownership ends")
+
+-- Fishing preparation reserves its carried gear through its own controller.
+-- Logistics must honor that claim even if its packing choice predates it.
+local fishingRod = item(104, "Base.FishingRod", "Item")
+local fishingBait = item(105, "Base.Worm", "Item")
+local fishingMission = false
+SC.Fishing = { gearReserved = function(worker, value)
+    return fishingMission and worker == actor
+        and (value == fishingRod or value == fishingBait)
+end }
+add(root, fishingRod)
+add(root, fishingBait)
+SC.Logistics.reset(actor)
+current = current + 2000
+local packingRod, rodPackReason = SC.Logistics.update(actor, nil, { snapshot = {} })
+check(packingRod and rodPackReason == "logistics_action_active",
+    "fishing gear without a mission remains normally packable")
+fishingMission = true
+local reservedRod, rodReason = SC.Logistics.update(actor, nil, { snapshot = {} })
+check(not reservedRod and rodReason == "logistics_item_reserved"
+    and fishingRod.container == root and fishingBait.container == root,
+    "a newly reserved fishing rod cannot finish its old packing transaction")
+current = current + 2000
+audit = SC.Logistics.status(actor)
+check(audit.packMove == nil and audit.cargoWeight == 2,
+    "the mission's exact rod and bait stay ready rather than becoming surplus or packing targets")
+add(root, stale)
+current = current + 2000
+audit = SC.Logistics.status(actor)
+check(audit.packMove and audit.packMove.item == stale,
+    "reserving fishing gear still allows unrelated items to be packed")
+root.items[#root.items], stale.container = nil, nil
+fishingMission = false
+current = current + 31000
+audit = SC.Logistics.status(actor)
+check(audit.packMove and (audit.packMove.item == fishingRod
+        or audit.packMove.item == fishingBait) and audit.cargoWeight == 0,
+    "ending the mission releases fishing gear back to ordinary inventory management: "
+        .. tostring(audit.packMove and audit.packMove.item.fullType)
+        .. "/" .. tostring(audit.cargoWeight))
 print("FLOOR_CARGO_LOGISTICS_PASS checks=" .. checks)

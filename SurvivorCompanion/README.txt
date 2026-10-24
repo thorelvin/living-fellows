@@ -5,6 +5,9 @@ and manual Retry still available. Shelf sorters keep carried stock reserved
 for delivery. Base Watch restores the primary camera and sight caches when
 its second view closes. Base policies use native checkboxes, and companion
 names remain visible during speech.
+Fishing expedition leaders collect rods and bait from shared camp storage
+before departure, retry missing supplies automatically, and keep their gear
+reserved for the trip. Expedition messages display companion names.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added

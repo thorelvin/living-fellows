@@ -27,6 +27,38 @@ local SUPPLY_CATEGORIES = {
 local MISSION_DOCTRINES = {
     stealth = true, close_defense = true, weapons_free = true,
 }
+local FISHING_PREPARATION_REASONS = {
+    fishing_preparing_rod = true, fishing_preparing_bait = true,
+    fishing_rod_missing = true, fishing_bait_missing = true,
+}
+local function copyFishingPreparation(value)
+    return value and { reason = value.reason } or nil
+end
+
+local function cancelFishingPreparation()
+    if SC.Fishing and type(SC.Fishing.cancelPreparation) == "function"
+        and mission then
+        for _, record in ipairs(mission.roster) do
+            if record.actor then SC.Fishing.cancelPreparation(record.actor) end
+        end
+    end
+end
+
+local function announceDeparture(active)
+    local actor, scout = active.leader.actor, active.scout
+    if SC.Dialogue and type(SC.Dialogue.say) == "function" then
+        pcall(SC.Dialogue.say, actor, "expedition.departure")
+    end
+    if scout and SC.GameplayUtil
+        and type(SC.GameplayUtil.diagnostic) == "function" then
+        SC.GameplayUtil.diagnostic("expedition", actor,
+            "action=depart kind=" .. tostring(scout.kind)
+                .. " travel=" .. tostring(scout.travelMode)
+                .. " target=" .. tostring(scout.destination.x)
+                .. "," .. tostring(scout.destination.y)
+                .. " members=" .. tostring(#active.roster))
+    end
+end
 
 local function validTile(value)
     return type(value) == "number" and value == value
@@ -849,6 +881,9 @@ function Expedition.start(records, plan)
                 radius = plan.radius or 5,
             } or nil,
             homeBaseId = homeBase and homeBase.id or nil,
+            fishingPreparation = fishingPlan and SC.Fishing
+                and not SC.Fishing.checkGear(roster[1].actor)
+                and { reason = "fishing_preparing_rod" } or nil,
             roadRoute = roadRoute,
             road = roadRoute and SC.ExpeditionRoute.descriptor(
                 roadRoute, "outbound") or nil,
@@ -872,6 +907,12 @@ function Expedition.start(records, plan)
         if roadRoute ~= nil then
             scout.extended = extended
                 or remainingTravelDistance(scout, roster[1].actor) > 120
+        end
+        if scout.fishingPreparation then
+            local _, missing = SC.Fishing.checkGear(roster[1].actor)
+            if missing == "fishing_bait_missing" then
+                scout.fishingPreparation.reason = "fishing_preparing_bait"
+            end
         end
         ensureTravelBudget(scout, roster[1].actor)
     end
@@ -908,18 +949,7 @@ function Expedition.start(records, plan)
         Events.OnDeviceText.Add(radioTextReceived)
         mission.radioTextHooked = true
     end
-    if SC.Dialogue and type(SC.Dialogue.say) == "function" then
-        pcall(SC.Dialogue.say, roster[1].actor, "expedition.departure")
-    end
-    if scout ~= nil and SC.GameplayUtil
-        and type(SC.GameplayUtil.diagnostic) == "function" then
-        SC.GameplayUtil.diagnostic("expedition", roster[1].actor,
-            "action=depart kind=" .. tostring(scout.kind)
-                .. " travel=" .. tostring(scout.travelMode)
-                .. " target=" .. tostring(scout.destination.x)
-                .. "," .. tostring(scout.destination.y)
-                .. " members=" .. tostring(#roster))
-    end
+    if not scout or not scout.fishingPreparation then announceDeparture(mission) end
     return true, mission
 end
 
@@ -989,8 +1019,10 @@ function Expedition.startAtFishingBank(records, bankId, options)
         or options.request.category ~= "fish" then
         return false, "invalid_search_plan"
     end
-    local ready, gearReason, memberName = Expedition.fishingGearStatus(records)
-    if not ready then return false, gearReason, memberName end
+    if type(SC.Fishing.checkGear) ~= "function"
+        or type(SC.Fishing.prepareGear) ~= "function" then
+        return false, "fishing_gear_unavailable"
+    end
     return Expedition.start(records, {
         kind = "search", destination = copyPoint(selected.anchor),
         request = options.request,
@@ -1018,6 +1050,64 @@ function Expedition.fishingGearStatus(records)
         return false, reason, leader.name or leader.id or "?"
     end
     return true
+end
+
+-- Preparation uses the ordinary decision/action owner. The itinerary pulse
+-- holds every travel mode until physical, verified storage pickups finish.
+function Expedition.fishingPreparationFor(actor)
+    if mission and not mission.restoring and not mission.terminal
+        and mission.leader.actor == actor and alive(mission.leader)
+        and mission.scout then return mission.scout.fishingPreparation end
+    return nil
+end
+
+function Expedition.updateFishingPreparation(actor)
+    local preparation = Expedition.fishingPreparationFor(actor)
+    if not preparation then return false, "fishing_preparation_inactive" end
+    local scout, now = mission.scout, SC.GameplayUtil.nowMs()
+    local worldHour = scoutWorldHour()
+    if scout.arriveByHour and worldHour and worldHour >= scout.arriveByHour then
+        if scout.vehicle and SC.ExpeditionCar then
+            local recalled, why = SC.ExpeditionCar.requestReturn(
+                mission, now, "arrival_reserve_reached")
+            if not recalled then return true, preparation.reason end
+            cancelFishingPreparation()
+            scout.fishingPreparation = nil
+        else
+            startReturnFromSite(scout, "arrival_reserve_reached")
+        end
+        return true, "arrival_reserve_reached"
+    end
+    if now < (preparation.retryAt or 0) then
+        return true, preparation.reason
+    end
+    local active = SC.Fishing.prepareGear(actor)
+    if SC.Fishing.checkGear(actor) then
+        if scout.departureHour ~= nil then
+            if worldHour == nil then return true, preparation.reason end
+            if scout.turnHomeAtHour ~= nil then
+                scout.turnHomeAtHour = worldHour
+                    + (scout.turnHomeAtHour - scout.departureHour)
+            end
+            scout.departureHour = worldHour
+        end
+        cancelFishingPreparation()
+        scout.fishingPreparation = nil
+        -- The leader may have walked to another shelf while gathering gear.
+        -- Rebuild road entry and travel allowance from its actual position.
+        scout.roadRoute, scout.travelBudget = nil, nil
+        scout.trail = { { x = math.floor(actor:getX()),
+            y = math.floor(actor:getY()), z = math.floor(actor:getZ()) } }
+        announceDeparture(mission)
+        return true, "fishing_gear_ready"
+    end
+    local _, missing = SC.Fishing.checkGear(actor)
+    preparation.reason = active and (missing == "fishing_bait_missing"
+        and "fishing_preparing_bait" or "fishing_preparing_rod")
+        or (missing == "fishing_bait_missing"
+            and "fishing_bait_missing" or "fishing_rod_missing")
+    preparation.retryAt = not active and now + 30000 or nil
+    return true, preparation.reason
 end
 
 function Expedition.startAtPlace(records, placeId, kind, options)
@@ -1246,6 +1336,8 @@ function Expedition.export()
             turnHomeAtHour = mission.scout.turnHomeAtHour,
             arriveByHour = mission.scout.arriveByHour,
             departureHour = mission.scout.departureHour,
+            fishingPreparation = copyFishingPreparation(
+                mission.scout.fishingPreparation),
             endReason = mission.scout.endReason,
             returnRequested = mission.scout.returnRequested == true or nil,
             road = mission.scout.road and {
@@ -1316,6 +1408,11 @@ function Expedition.restore(saved)
         local car, carReason = SC.ExpeditionCar.restoreDescriptor(
             carSaved, mission.roster, saved.roster[1])
         if car then
+            -- No seat or engine action has begun during gear preparation.
+            if mission.scout.fishingPreparation and type(carSaved) == "table"
+                and carSaved.state == "walking_to_car" then
+                car.state = "walking_to_car"
+            end
             mission.scout.vehicle = car
             mission.scout.travelMode = "drive"
             mission.scout.phase = car.state == "interrupted_by_load"
@@ -1382,6 +1479,16 @@ function Expedition.restore(saved)
             or (saved.schema == 3 and (scout.kind ~= nil
                 and scout.kind ~= "scout" or scout.search ~= nil
                 or scout.phase == "searching"))
+            or (scout.fishingPreparation ~= nil and (
+                type(scout.fishingPreparation) ~= "table"
+                or not FISHING_PREPARATION_REASONS[
+                    scout.fishingPreparation.reason]
+                or scout.phase ~= "outbound" or scout.kind ~= "search"
+                or type(scout.search) ~= "table"
+                or type(scout.search.request) ~= "table"
+                or scout.search.request.category ~= "fish"
+                or scout.search.startedHour ~= nil
+                or scout.search.endReason ~= nil))
             or ((saved.schema == 4 or saved.schema == 5
                     and scout.kind == "search") and (scout.kind ~= "search"
                 or scout.phase == "observing"
@@ -1498,6 +1605,7 @@ function Expedition.restore(saved)
             turnHomeAtHour = scout.turnHomeAtHour,
             arriveByHour = scout.arriveByHour,
             departureHour = scout.departureHour,
+            fishingPreparation = copyFishingPreparation(scout.fishingPreparation),
             endReason = scout.endReason,
             returnRequested = scout.returnRequested == true,
             road = scout.road and {
@@ -1684,6 +1792,7 @@ end
 function Expedition.prepareReset()
     if mission == nil then return true end
     if mission.suspended then return true end
+    cancelFishingPreparation()
     if mission.scout and mission.scout.vehicle and mission.leader
         and mission.leader.actor then
         local stopped, reason = SC.Driving.release(mission.leader.actor,
@@ -1889,6 +1998,11 @@ function Expedition.describeForPlayer(viewer)
         leaderVisible = leaderVisible,
         visibleMembers = visibleMembers,
         observedPhase = leaderVisible and itinerary and itinerary.phase or nil,
+        preparation = leaderVisible and itinerary
+            and itinerary.fishingPreparation
+            and itinerary.fishingPreparation.reason or nil,
+        preparationMemberId = leaderVisible and itinerary
+            and itinerary.fishingPreparation and leader.id or nil,
         kind = itinerary and itinerary.kind or nil,
         plannedSite = itinerary and (itinerary.site
             and itinerary.site.label or itinerary.search
@@ -2168,6 +2282,8 @@ function Expedition.sendRadioOrder(player, command, payload)
             local requested, why = SC.ExpeditionCar.requestReturn(
                 mission, SC.GameplayUtil.nowMs(), "radio_return")
             if not requested then return false, why end
+            cancelFishingPreparation()
+            mission.scout.fishingPreparation = nil
         else
             startReturnFromSite(mission.scout, "radio_return")
         end
@@ -3053,6 +3169,10 @@ local function playerMetSearchSquad(player, leader)
 end
 
 startReturnFromSite = function(itinerary, reason)
+    if itinerary.fishingPreparation then
+        cancelFishingPreparation()
+        itinerary.fishingPreparation = nil
+    end
     if itinerary.phase ~= "inbound" and itinerary.phase ~= "awaiting_player" then
         itinerary.travelBudget = nil
         itinerary.legs = 0
@@ -3288,6 +3408,7 @@ local function pulseScout()
     local scout = mission and mission.scout
     if scout == nil or mission.restoring or not alive(mission.leader) then return end
     local now = SC.GameplayUtil.nowMs()
+    if scout.fishingPreparation then return end
     if mission.technicalIssue
         and mission.technicalIssue.reason == "scout_leg_limit" then
         if scout.travelBudget == nil then
@@ -4380,6 +4501,7 @@ function Expedition.finishAtPlayer(player)
         and mission.scout.phase ~= "awaiting_player" then
         return false, "return_route_not_finished"
     end
+    cancelFishingPreparation()
     homecomingRecord()
     if mission.scout and mission.scout.vehicle then
         local car = mission.scout.vehicle
@@ -4738,6 +4860,7 @@ function Expedition.pulse()
         return false, mission.cohesionHold and "expedition_regroup"
             or "leader_alive"
     end
+    cancelFishingPreparation()
     if mission.scout and mission.scout.vehicle
         and mission.scout.vehicle.state ~= "abandoned" then
         local recovered, reason = SC.ExpeditionCar.recoverDeadDriver(mission)

@@ -473,3 +473,268 @@ SC.Dialogue.requestMissingTool, SC.Logistics.audit, util.itemHasTag =
     oldRequestTool, oldAudit, oldItemHasTag
 SC.Dialogue.say, SC.Dialogue.lastSpokenAt, ZombRand = oldSay, oldLast, oldRand
 print("FISHING_VOICE_PASS checks=24")
+
+do
+    local saved = { base = SC.BaseLife, transport = SC.WorkTransport,
+        personal = SC.PersonalItems, native = SC.NativeActions,
+        navigation = SC.Navigation, expedition = SC.ExpeditionPrototype,
+        audit = SC.Logistics.audit, tag = util.itemHasTag,
+        access = util.directInteractionAccess, move = util.move,
+        stop = util.stop, clock = util.nowMs, chore = SC.BaseWork.choreReserved,
+        fishing = Fishing }
+    local clock, rows, registered = 1000, {}, {}
+    local visuals, navigation = {}, {}
+    local starts, cancellations, navigationCancellations = 0, 0, 0
+    local function gearItem(kind, baited)
+        local value = item()
+        value.kind = kind
+        value.data.fishing_Lure = baited and true or nil
+        function value:getFullType()
+            return self.kind == "rod" and "Base.FishingRod"
+                or self.kind == "bait" and "Base.Worm" or "Base.Stone"
+        end
+        return value
+    end
+    local function worker()
+        local value = { inventory = inventory() }
+        function value:getInventory() return self.inventory end
+        function value:getPrimaryHandItem() return nil end
+        function value.inventory:hasRoomFor() return self.accepts ~= false end
+        return value
+    end
+    local function shelf(id, contents, options)
+        local storage = options or {}
+        storage.id, storage.container = id, inventory()
+        storage.object = { id = id, square = bank, blocked = storage.blocked,
+            wait = storage.wait }
+        function storage.object:getSquare() return self.square end
+        for _, value in ipairs(contents or {}) do storage.container:AddItem(value) end
+        rows[#rows + 1], registered[id] = storage, storage
+        return storage
+    end
+    SC.BaseLife = {
+        storage = function(id) return registered[id] end,
+        withdrawable = function(storage)
+            return storage.withdrawals ~= false and storage.category ~= "memorial"
+        end,
+        storageRows = function(category, withdrawals)
+            assert(category == nil and withdrawals == true,
+                "fishing considers only registered permitted camp supplies")
+            local result = {}
+            for _, storage in ipairs(rows) do
+                if SC.BaseLife.withdrawable(storage) then result[#result + 1] = storage end
+            end
+            return result
+        end,
+        resolveContainer = function(storage) return storage.container end,
+        resolveObject = function(storage) return storage.object end,
+        availableCountExact = function(storage, fullType)
+            local count = 0
+            for _, value in ipairs(storage.container.items) do
+                if value:getFullType() == fullType then count = count + 1 end
+            end
+            return math.max(0, count - (storage.reserve or 0))
+        end,
+    }
+    SC.WorkTransport = { foreignProtected = function(value) return value.foreign == true end }
+    SC.PersonalItems = { isProtected = function(value) return value.personal == true end }
+    SC.BaseWork.choreReserved = function(value) return value.chore == true end
+    Fishing = { lure = { All = { ["Base.Worm"] = true } } }
+    util.itemHasTag = function(value, tag)
+        return value ~= nil and value.kind == "rod" and tag == "FISHING_ROD"
+    end
+    SC.Logistics.audit = function(actor)
+        local result = {}
+        for _, value in ipairs(util.inventoryItemsDeep(actor.inventory, 512, 24)) do
+            result[#result + 1] = { item = value }
+        end
+        return { items = result }
+    end
+    util.nowMs = function() return clock end
+    util.directInteractionAccess = function(_, object)
+        return not (object.blocked or object.wait), { bank },
+            object.blocked and "blocked_static" or nil
+    end
+    util.stop = function() end
+    SC.Navigation = {
+        peek = function(actor) return navigation[actor] end,
+        requestAny = function(actor, _, _, intent)
+            local previous = navigation[actor]
+            local serial = previous and previous.approachRequestSerial + 1 or 1
+            navigation[actor] = { goalAction = intent.action,
+                approachRequestSerial = serial, lastApproachRequest = { intent = intent } }
+            return not intent.object.blocked, "blocked_static"
+        end,
+        cancel = function(actor)
+            navigationCancellations = navigationCancellations + 1
+            navigation[actor] = nil
+            return true
+        end,
+    }
+    util.move = function(actor, _, intent)
+        assert(intent.action == "loot_container", "gear pickup uses the storage loot action")
+        starts = starts + 1
+        visuals[actor] = { token = {}, state = "active" }
+        return true
+    end
+    SC.NativeActions = {
+        stopDirect = function() end,
+        visualStatus = function(actor)
+            return visuals[actor] and visuals[actor].state or nil
+        end,
+        visualToken = function(actor) return visuals[actor] and visuals[actor].token end,
+        clearVisual = function(actor) visuals[actor] = nil end,
+        cancelVisualOwned = function(actor, token)
+            if visuals[actor] and visuals[actor].token == token then
+                cancellations = cancellations + 1
+                visuals[actor] = nil
+            end
+            return true
+        end,
+    }
+    SC.ExpeditionPrototype = nil
+    local fisher = worker()
+    local contents = {}
+    for index = 1, 81 do contents[index] = gearItem("junk") end
+    local bare, baited = gearItem("rod"), gearItem("rod", true)
+    contents[82], contents[83] = bare, baited
+    local source = shelf("tools", contents)
+    local preparing, explanation = angling.prepareGear(fisher)
+    assert(preparing and explanation == "fishing_preparing_rod" and starts == 0,
+        "a bounded scan continues beyond its first eighty entries")
+    preparing, explanation = angling.prepareGear(fisher)
+    assert(preparing and explanation == "fishing_preparing_rod" and starts == 1
+            and source.container:contains(baited) and #fisher.inventory.items == 0,
+        "the baited rod wins over a bare rod and stays in storage during its loot pose")
+    visuals[fisher].state = "completed"
+    preparing, explanation = angling.prepareGear(fisher)
+    assert(preparing and fisher.inventory:contains(baited)
+            and not source.container:contains(baited) and source.container:contains(bare),
+        "preparation moves the exact real rod once through the verified storage transaction")
+    preparing, explanation = angling.prepareGear(fisher)
+    assert(preparing and explanation == "fishing_gear_ready" and starts == 1,
+        "an already baited carried rod finishes preparation without another pickup")
+    angling.cancelPreparation(fisher)
+    assert(fisher.inventory:contains(baited), "cancelling never deletes acquired gear")
+
+    rows, registered = {}, {}
+    fisher = worker()
+    local blockedRod, reachableRod = gearItem("rod", true), gearItem("rod", true)
+    shelf("blocked", { blockedRod }, { blocked = true })
+    local reachable = shelf("reachable", { reachableRod })
+    preparing, explanation = angling.prepareGear(fisher)
+    assert(not preparing and explanation == "blocked_static",
+        "an unreachable shelf reports a bounded physical failure")
+    angling.cancelPreparation(fisher)
+    clock = clock + 30000
+    preparing, explanation = angling.prepareGear(fisher)
+    assert(preparing and visuals[fisher] and reachable.container:contains(reachableRod),
+        "a failed shelf cools down so a reachable alternative is tried next")
+    visuals[fisher].state = "completed"
+    angling.prepareGear(fisher)
+    assert(fisher.inventory:contains(reachableRod)
+            and registered.blocked.container:contains(blockedRod),
+        "alternative-source recovery never takes the blocked shelf's rod")
+    angling.cancelPreparation(fisher)
+
+    rows, registered = {}, {}
+    fisher = worker()
+    bare = gearItem("rod")
+    fisher.inventory:AddItem(bare)
+    local personal, foreign, chore = gearItem("bait"), gearItem("bait"), gearItem("bait")
+    personal.personal, foreign.foreign, chore.chore = true, true, true
+    source = shelf("shared", { personal, foreign, chore })
+    shelf("reserved", { gearItem("bait") }, { reserve = 1 })
+    shelf("memorial", { gearItem("bait") }, { category = "memorial" })
+    shelf("closed", { gearItem("bait") }, { withdrawals = false })
+    preparing, explanation = angling.prepareGear(fisher)
+    assert(not preparing and explanation == "fishing_bait_missing"
+            and #fisher.inventory.items == 1,
+        "personal, foreign work cargo, chore tools, reserves and forbidden stores stay untouched")
+    local firstBait, spareBait = gearItem("bait"), gearItem("bait")
+    source.container:AddItem(firstBait)
+    source.container:AddItem(spareBait)
+    assert(angling.prepareGear(fisher) and visuals[fisher],
+        "a newly available permitted bait starts a real pickup")
+    source.withdrawals = false
+    visuals[fisher].state = "completed"
+    preparing, explanation = angling.prepareGear(fisher)
+    assert(not preparing and explanation == "fishing_bait_missing"
+            and source.container:contains(firstBait) and not fisher.inventory:contains(firstBait),
+        "revoking withdrawals during the pose prevents its transfer")
+    source.withdrawals = true
+    angling.prepareGear(fisher)
+    firstBait.personal = true
+    preparing, explanation = angling.prepareGear(fisher)
+    assert(preparing and source.container:contains(firstBait)
+            and not fisher.inventory:contains(firstBait),
+        "an item becoming personal during pickup is replaced without moving it")
+    local replacementVisual = {}
+    visuals[fisher] = { token = replacementVisual, state = "active" }
+    local cancelledBefore = cancellations
+    angling.cancelPreparation(fisher)
+    assert(visuals[fisher].token == replacementVisual and cancellations == cancelledBefore,
+        "cancellation cannot stop another controller's newer loot pose")
+    visuals[fisher] = nil
+    angling.prepareGear(fisher)
+    visuals[fisher].state = "completed"
+    angling.prepareGear(fisher)
+    preparing, explanation = angling.prepareGear(fisher)
+    assert(preparing and explanation == "fishing_gear_ready"
+            and fisher.inventory:contains(spareBait) and source.container:contains(firstBait)
+            and #fisher.inventory.items == 2,
+        "a bare rod needs exactly one permitted bait, without creating extras")
+    local mission = { leader = { actor = fisher }, scout = { phase = "outbound",
+        search = { request = { category = "fish" } } } }
+    SC.ExpeditionPrototype = { current = function() return mission end }
+    angling.cancelPreparation(fisher)
+    assert(angling.gearReserved(fisher, bare) and angling.gearReserved(fisher, spareBait)
+            and not angling.gearReserved(fisher, firstBait),
+        "active mission gear protection reconstructs exact carried items after cancel or reload")
+    local startsBefore = starts
+    preparing, explanation = angling.prepareGear(fisher)
+    assert(preparing and explanation == "fishing_gear_ready" and starts == startsBefore,
+        "reconstructed preparation does not withdraw a second rod or bait")
+    angling.cancelPreparation(fisher)
+    mission.scout.phase = "inbound"
+    assert(not angling.gearReserved(fisher, bare) and not angling.gearReserved(fisher, spareBait),
+        "mission-derived protection ends on the return journey")
+
+    rows, registered = {}, {}
+    fisher = worker()
+    for index = 1, 8 do shelf("empty-" .. index, {}) end
+    source = shelf("ninth", { gearItem("rod", true) })
+    preparing, explanation = angling.prepareGear(fisher)
+    assert(preparing and explanation == "fishing_preparing_rod" and not visuals[fisher],
+        "one preparation step never scans more than eight storage containers")
+    fisher.inventory.accepts = false
+    preparing, explanation = angling.prepareGear(fisher)
+    assert(not preparing and #fisher.inventory.items == 0 and #source.container.items == 1,
+        "native capacity rejection leaves the gear in its original container")
+    angling.cancelPreparation(fisher)
+
+    rows, registered = {}, {}
+    fisher = worker()
+    shelf("approach", { gearItem("rod", true) }, { wait = true })
+    angling.prepareGear(fisher)
+    local ownedNavigation = navigation[fisher]
+    local cancelledNavigationBefore = navigationCancellations
+    angling.cancelPreparation(fisher)
+    assert(ownedNavigation and navigation[fisher] == nil
+            and navigationCancellations == cancelledNavigationBefore + 1,
+        "cancellation releases the preparation's exact active storage approach")
+    angling.prepareGear(fisher)
+    local foreignNavigation = { goalAction = "combat_approach", approachRequestSerial = 2 }
+    navigation[fisher] = foreignNavigation
+    cancelledNavigationBefore = navigationCancellations
+    angling.cancelPreparation(fisher)
+    assert(navigation[fisher] == foreignNavigation
+            and navigationCancellations == cancelledNavigationBefore,
+        "cancellation leaves a replacement navigation owner alone")
+    SC.BaseLife, SC.WorkTransport, SC.PersonalItems = saved.base, saved.transport, saved.personal
+    SC.NativeActions, SC.Navigation, SC.ExpeditionPrototype = saved.native, saved.navigation, saved.expedition
+    SC.Logistics.audit, SC.BaseWork.choreReserved = saved.audit, saved.chore
+    util.itemHasTag, util.directInteractionAccess, util.move = saved.tag, saved.access, saved.move
+    util.stop, util.nowMs, Fishing = saved.stop, saved.clock, saved.fishing
+    print("FISHING_PREPARATION_PASS checks=21")
+end

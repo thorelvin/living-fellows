@@ -95,6 +95,19 @@ end
 function ISLabel:initialise() end
 function ISLabel:setName(name) self.name = name end
 
+ISButton = {}
+function ISButton:new() return setmetatable({}, { __index = self }) end
+function ISButton:initialise() end
+ISComboBox = {}
+function ISComboBox:new()
+    return setmetatable({ options = {} }, { __index = self })
+end
+function ISComboBox:initialise() end
+function ISComboBox:instantiate() end
+function ISComboBox:addOptionWithData(label, data)
+    self.options[#self.options + 1] = { label = label, data = data }
+end
+
 ISSliderPanel = {}
 function ISSliderPanel:new(x, y, width, height, target, onChange)
     return setmetatable({ x = x, y = y, width = width,

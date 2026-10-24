@@ -811,11 +811,15 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
                 add("base_work", settlement and 86 or 58, false)
             end
         end
-        if threatCount == 0 and not bleeding
-            and SC.ExpeditionPrototype
-            and type(SC.ExpeditionPrototype.fishingRequestFor) == "function" then
-            local request = SC.ExpeditionPrototype.fishingRequestFor(actor)
-            if request then add("fishing", 86, false, request) end
+        if threatCount == 0 and not bleeding and SC.ExpeditionPrototype then
+            local preparation = type(SC.ExpeditionPrototype.fishingPreparationFor) == "function"
+                and SC.ExpeditionPrototype.fishingPreparationFor(actor) or nil
+            if preparation then
+                add("fishing_preparation", 86, false, preparation)
+            elseif type(SC.ExpeditionPrototype.fishingRequestFor) == "function" then
+                local request = SC.ExpeditionPrototype.fishingRequestFor(actor)
+                if request then add("fishing", 86, false, request) end
+            end
         end
         -- A companion with its own task (an expedition leader searching its
         -- site) keeps looting while combat has just judged every zombie in
@@ -2089,6 +2093,14 @@ local function delegate(candidate, actor, player, rootRuntime, commands, snapsho
         return callSubsystem("field-work", actor, function()
             return SC.FieldWork.update(actor, player)
         end)
+    elseif candidate.kind == "fishing_preparation" then
+        if not SC.ExpeditionPrototype
+            or type(SC.ExpeditionPrototype.updateFishingPreparation) ~= "function" then
+            return false, "fishing_preparation_unavailable"
+        end
+        return callSubsystem("fishing-preparation", actor, function()
+            return SC.ExpeditionPrototype.updateFishingPreparation(actor)
+        end)
     elseif candidate.kind == "fishing" then
         if not SC.Fishing or type(SC.Fishing.update) ~= "function" then
             return false, "fishing_unavailable"
@@ -2363,7 +2375,7 @@ local function candidateInterval(candidate)
         return 250
     elseif candidate.kind == "field_work" then
         return 250
-    elseif candidate.kind == "fishing" then
+    elseif candidate.kind == "fishing" or candidate.kind == "fishing_preparation" then
         return 250
     elseif candidate.kind == "logistics" then
         return U().config("logisticsUpdateIntervalMs") or 750
@@ -2383,6 +2395,7 @@ local retainedApproachKinds = {
     logistics = true, infection_crisis = true, encounter = true,
     scavenge = true, downtime = true, needs = true, water_refill = true,
     base_work = true, expedition_delivery = true, fishing = true,
+    fishing_preparation = true,
     faction = true, purposeful_idle = true,
     field_work = true,
     joy_response = true, ritual = true,
@@ -3227,6 +3240,61 @@ function Decision.update(actor, player, runtime, roundTimestamp)
         end
     end
 
+    -- A mission changes the effective order without issuing another Commands
+    -- serial. Settle the previous camp task before its native owner can hold
+    -- this leader indefinitely. Do this once per preparation descriptor so a
+    -- later gear pickup is never mistaken for the old task being cancelled.
+    local preparation = SC.ExpeditionPrototype
+        and type(SC.ExpeditionPrototype.fishingPreparationFor) == "function"
+        and SC.ExpeditionPrototype.fishingPreparationFor(actor) or nil
+    if preparation == nil then
+        state.fishingPreparationHandoff = nil
+    elseif state.fishingPreparationHandoff ~= preparation
+        and (tonumber(snapshot.threatCount) or 0) == 0
+        and not ownerNeedsImmediatePreemption("work", snapshot, assessment, needs,
+            commands, factionNeedsImmediateControl(actor, player, snapshot, commands)) then
+        local safe, settled, settleReason = utility.safeSubsystem(
+            "fishing-preparation-handoff", actor, function()
+                local packing = SC.Logistics and type(SC.Logistics.busy) == "function"
+                    and SC.Logistics.busy(actor)
+                local token = packing and SC.ActionSupervisor
+                    and type(SC.ActionSupervisor.current) == "function"
+                    and SC.ActionSupervisor.current(actor) or nil
+                if token and (token.phase == "committing" or token.phase == "verifying"
+                    or token.rollbackObligation ~= nil) then
+                    return false, "fishing_preparation_inventory_pending"
+                end
+                if SC.BaseWork and type(SC.BaseWork.cancel) == "function" then
+                    local cancelled, why = SC.BaseWork.cancel(actor,
+                        "expedition_fishing_preparation")
+                    if cancelled ~= true then return false, why end
+                end
+                local cancelled, why = cancelWork(actor, state,
+                    "expedition_fishing_preparation")
+                if cancelled ~= true then return false, why end
+                if SC.Downtime and type(SC.Downtime.peek) == "function"
+                    and type(SC.Downtime.cancel) == "function" then
+                    local quiet = SC.Downtime.peek(actor)
+                    if quiet and (quiet.active or quiet.curtainTask) then
+                        local stopped, stopReason = SC.Downtime.cancel(actor,
+                            "expedition_fishing_preparation")
+                        if stopped ~= true then return false, stopReason end
+                    end
+                end
+                if packing and type(SC.Logistics.reset) == "function" then
+                    SC.Logistics.reset(actor)
+                end
+                return true
+            end)
+        if not safe or settled ~= true then
+            state.current, state.currentKey = "fishing_preparation", "fishing_preparation"
+            state.intent = settleReason or "fishing_preparation_handoff_pending"
+            state.lastHandledAt = current
+            return true, state.intent
+        end
+        state.fishingPreparationHandoff = preparation
+    end
+
     local held, heldReason = holdOwnedActivityOrPacing(
         actor, player, snapshot, assessment, needs, commands, state, current, rootRuntime)
     if held then
@@ -3363,6 +3431,13 @@ function Decision.update(actor, player, runtime, roundTimestamp)
     if previous == "fishing" and selected.kind ~= "fishing" and not recheck
         and SC.Fishing and type(SC.Fishing.cancel) == "function" then
         SC.Fishing.cancel(actor, "fishing_preempted")
+    end
+    if selected.kind ~= "fishing_preparation" and not recheck and SC.Fishing
+        and type(SC.Fishing.cancelPreparation) == "function"
+        and (previous == "fishing_preparation" or (SC.ExpeditionPrototype
+            and type(SC.ExpeditionPrototype.fishingPreparationFor) == "function"
+            and SC.ExpeditionPrototype.fishingPreparationFor(actor) ~= nil)) then
+        SC.Fishing.cancelPreparation(actor, "fishing_preparation_preempted")
     end
     if state.workAction and not recheck
         and (selected.kind ~= "tactical" or commands.order ~= "work") then

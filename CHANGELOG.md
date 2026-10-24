@@ -9,6 +9,7 @@
 - Closing Base Watch or an expedition now explicitly restores the primary camera and refreshes its sight and wall-cutaway caches once after releasing the second view.
 - Ordinary blocked camp jobs, including sorting, get one automatic attempt every three minutes after repeated failures. Their targets and carried stock are retained, the Base view shows a retry countdown, and manual Retry remains available. A relevant access change can allow an earlier attempt; reloading preserves the saved wait. Unresolved native effects retain their existing recovery delays.
 - Shelf sorters keep carried stock reserved for delivery, preventing ordinary bag packing from interrupting storage transfers. A packing action selected before the sorter claimed the item rechecks ownership before moving it.
+- Fishing expedition leaders collect a real rod and bait from shared camp storage before walking or boarding a car. Missing supplies pause the launch and retry automatically; preparation survives reload, and the trip timer starts when gear is ready. Expedition messages use companion names instead of internal IDs.
 - The native bridge protocol remains `42.21-isocompanion-24`, targeting Project Zomboid 42.21.0.
 
 ## 0.26.63 - Natural sleep, camp work recovery and clearer tool requests

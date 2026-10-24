@@ -168,4 +168,159 @@ end
 assert(previousShown and Planner.viewStructureSignature() ~= reportSignature,
     "a subsequent expedition keeps earlier pending supplies in the tab")
 
-print("SCUI expedition zoom tests passed")
+-- Registry records have identity fields, not necessarily a top-level name.
+-- Exercise the actual review and launch callbacks, including legacy reports
+-- whose saved name strings were internal companion ids.
+fixture.endTrip()
+local id = "sc-1.792185651862E9-2-990140"
+local record = { id = id, actor = { name = "Actor Name" },
+    identity = { forename = "  Tess ", surname = "Nolan " } }
+SurvivorCompanion.Registry = { byId = function(value)
+    return value == id and record or nil
+end }
+SurvivorCompanion.Commands = { describe = function()
+    return { recruited = true, group = "alpha", alive = true, available = true }
+end }
+SurvivorCompanion.GameplayUtil = { nameOf = function(actor) return actor.name end }
+local originalText = SurvivorCompanion.UI.text
+SurvivorCompanion.UI.text = function(key, ...)
+    local values = { ... }
+    if key == "UI_SC_Expedition_SquadMember" then return "A squad member" end
+    for index, value in ipairs(values) do values[index] = tostring(value) end
+    return key .. (#values > 0 and (":" .. table.concat(values, "|")) or "")
+end
+SurvivorCompanion.UI.fitText = function(_, value) return value end
+SCSplitScreenProbe = {}
+local expedition = SurvivorCompanion.ExpeditionPrototype
+local gearReason, gearMember = "fishing_rod_missing", id
+expedition.fishingGearStatus = function() return false, gearReason, gearMember end
+expedition.startAtPlace = function() return false end
+expedition.startAtFishingBank = function() return false, gearReason, gearMember end
+expedition.placeCandidates = function() return {} end
+expedition.fishingBankCandidates = function() return {} end
+local gearDetail = newDetail()
+gearDetail.root = { roster = { items = { { item = { id = id, actor = record.actor,
+    name = id, group = "alpha", recruited = true } } } } }
+gearDetail.expeditionDraft = { kind = "fish", group = "alpha", leaderId = id,
+    placeId = "bank", places = { { id = "bank", label = "River bank" } },
+    placesLoaded = true, placesTotal = 1, travelMode = "road" }
+function gearDetail:rebuild() end
+Planner.onButton(gearDetail, { scExpeditionAction = "launch" })
+assert(gearDetail.feedback == "UI_SC_Expedition_Failed:UI_SC_Expedition_FishingRodMissing:Tess Nolan",
+    "a missing-rod footer resolves the registry identity instead of showing its id")
+record.identity = nil
+record.name = "Mara Ellis"
+gearReason = "fishing_bait_missing"
+Planner.onButton(gearDetail, { scExpeditionAction = "launch" })
+assert(gearDetail.feedback == "UI_SC_Expedition_Failed:UI_SC_Expedition_FishingBaitMissing:Mara Ellis",
+    "a record without identity fields uses its saved human name")
+record.name = id
+Planner.onButton(gearDetail, { scExpeditionAction = "launch" })
+assert(gearDetail.feedback == "UI_SC_Expedition_Failed:UI_SC_Expedition_FishingBaitMissing:Actor Name",
+    "an invalid saved name falls back to the actor's own name")
+record.actor.name = id
+Planner.onButton(gearDetail, { scExpeditionAction = "launch" })
+assert(gearDetail.feedback == "UI_SC_Expedition_Failed:UI_SC_Expedition_FishingBaitMissing:A squad member",
+    "a missing human identity uses a readable fallback and never an internal id")
+record.identity = { forename = "Tess", surname = "Nolan" }
+gearReason, gearMember = "fishing_rod_missing", record
+Planner.onButton(gearDetail, { scExpeditionAction = "launch" })
+assert(gearDetail.feedback == "UI_SC_Expedition_Failed:UI_SC_Expedition_FishingRodMissing:Tess Nolan",
+    "the gear status may also return the affected member record")
+gearMember = id
+Planner.onButton(gearDetail, { scExpeditionAction = "launch" })
+assert(string.find(gearDetail.feedback, "Tess Nolan", 1, true)
+        and not string.find(gearDetail.feedback, id, 1, true),
+    "launch rejection resolves the same name before wrapping the footer")
+
+fixture.setDebrief(nil)
+fixture.setPendingReports({})
+local namingPanel = newPanel(300)
+Planner.build(gearDetail, namingPanel)
+local leaderOption
+for _, child in ipairs(namingPanel.children) do
+    if child.scField == "leaderId" then leaderOption = child.options[1] end
+end
+assert(leaderOption and leaderOption.label == "Tess Nolan"
+        and leaderOption.data.value == id,
+    "leader selectors show a real name while preserving the exact internal selection id")
+expedition.fishingGearStatus = function()
+    error("review must allow automatic preparation instead of requiring carried gear")
+end
+expedition.previewAtFishingBank = function() return { mode = "straight", distance = 10 } end
+Planner.onButton(gearDetail, { scExpeditionAction = "review" })
+assert(gearDetail.expeditionDraft.review, "fishing review never refuses missing carried gear")
+gearDetail.lines = {}
+Planner.build(gearDetail, newPanel(300))
+assert(string.find(table.concat(gearDetail.lines, "\n"),
+    "UI_SC_Expedition_FishingPreparationPlan", 1, true),
+    "fishing review explains automatic collection from shared camp storage")
+local preparationVisible = true
+expedition.startAtFishingBank = function()
+    fixture.startTrip()
+    local trip = expedition.current()
+    trip.leader.id = id
+    trip.scout = { fishingPreparation = { reason = "fishing_preparing_rod" } }
+    fixture.view.preparation = preparationVisible and "fishing_preparing_rod" or nil
+    fixture.view.preparationMemberId = preparationVisible and id or nil
+    return true
+end
+Planner.onButton(gearDetail, { scExpeditionAction = "launch" })
+assert(gearDetail.feedbackSuccess and gearDetail.feedback
+        == "UI_SC_Expedition_FishingPreparingRod:Tess Nolan",
+    "accepted fishing preparation must not claim the squad has already departed")
+fixture.endTrip()
+preparationVisible = false
+Planner.onButton(gearDetail, { scExpeditionAction = "launch" })
+assert(gearDetail.feedbackSuccess and gearDetail.feedback
+        == "UI_SC_Expedition_FishingPreparingRod:Tess Nolan",
+    "launch feedback uses the known accepted plan even when the leader is unseen")
+local unseen = newDetail()
+Planner.build(unseen, newPanel(300))
+local unseenText = table.concat(unseen.lines, "\n")
+assert(string.find(unseenText, "UI_SC_Expedition_AwayStatus", 1, true)
+        and not string.find(unseenText, "UI_SC_Expedition_FishingPreparingRod", 1, true),
+    "the active tab still keeps an unobserved leader's preparation private")
+fixture.view.preparationMemberId = id
+local previousPreparationSignature
+for _, phase in ipairs({
+    { "fishing_preparing_rod", "UI_SC_Expedition_FishingPreparingRod" },
+    { "fishing_preparing_bait", "UI_SC_Expedition_FishingPreparingBait" },
+    { "fishing_rod_missing", "UI_SC_Expedition_FishingRodWaiting" },
+    { "fishing_bait_missing", "UI_SC_Expedition_FishingBaitWaiting" },
+}) do
+    fixture.view.preparation = phase[1]
+    local signature = Planner.viewStructureSignature()
+    assert(signature ~= previousPreparationSignature, "preparation changes refresh the tab")
+    previousPreparationSignature = signature
+    local preparation = newDetail()
+    Planner.build(preparation, newPanel(300))
+    local text = table.concat(preparation.lines, "\n")
+    assert(string.find(text, phase[2] .. ":Tess Nolan", 1, true)
+            and not string.find(text, id, 1, true)
+            and not string.find(text, "UI_SC_Expedition_AwayStatus", 1, true),
+        "active gear collection or waiting has a named status rather than an away message")
+end
+fixture.view.preparation, fixture.view.preparationMemberId = nil, nil
+assert(Planner.viewStructureSignature() ~= previousPreparationSignature,
+    "finishing preparation restores ordinary expedition status")
+fixture.view.leaderName = id
+local activeNames = newDetail()
+Planner.build(activeNames, newPanel(300))
+assert(string.find(table.concat(activeNames.lines, "\n"), "Tess Nolan", 1, true)
+        and not string.find(table.concat(activeNames.lines, "\n"), id, 1, true),
+    "active expedition summaries resolve old leader-name ids")
+fixture.endTrip()
+fixture.setPendingReports({ { tripId = "legacy-names", summary = {
+    requested = 1, collected = 1, broughtBack = 1, stored = 0, pending = 1,
+    items = { { itemType = "Base.Hammer", finderName = id, carrierName = id } },
+    members = { { id = id, name = id, shortages = { food = 1 } } },
+} } })
+local deliveryNames = newDetail()
+Planner.build(deliveryNames, newPanel(300))
+local deliveryText = table.concat(deliveryNames.lines, "\n")
+assert(string.find(deliveryText, "Tess Nolan", 1, true)
+        and not string.find(deliveryText, id, 1, true),
+    "legacy finder, carrier and restock reports never expose companion ids")
+SurvivorCompanion.UI.text = originalText
+print("SCUI expedition zoom and companion-name tests passed")
