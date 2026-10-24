@@ -349,6 +349,8 @@
     "UI_SC_BaseWatch_Finished": "Base Watch ended.",
     "UI_SC_BaseWatch_PlayerAtBase": "Stand in the marked camp area to start Base Watch.",
     "UI_SC_BaseWatch_ViewBusy": "The companion view is already in use.",
+    "UI_SC_View_BridgeUpdateRequired": "The installed Living Fellows native bridge needs updating. Update the native installation and restart the game.",
+    "UI_SC_View_RenderUnavailable": "Companion views cannot open because the game's render event is unavailable. Restart the game and check the Living Fellows installation.",
     "UI_SC_BaseWatch_NoAck": "No radio reply was received. Check power, channel, and range.",
     "UI_SC_Base_Section_Selected": "Selected companion",
     "UI_SC_Base_Section_Queue": "Work queue",

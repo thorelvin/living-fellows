@@ -153,6 +153,228 @@ public final class SCIsoCompanionControlTest {
         }
     }
 
+    private static Object privateField(Object target, String name) throws Exception {
+        var field = target.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        return field.get(target);
+    }
+
+    private static void testDeferredPrimaryViewRestore(IsoPlayer primary,
+            SCNativeCompanion formerLeader, IsoCell cell) throws Exception {
+        var camera = zombie.iso.IsoCamera.frameState;
+        var core = zombie.core.Core.getInstance();
+        int previousWidth = zombie.core.Core.width, previousHeight = zombie.core.Core.height;
+        boolean previousDebug = zombie.core.Core.debug;
+        Thread previousThread = zombie.MainThread.mainThread;
+        int previousFrame = camera.frameCount, previousIndex = camera.playerIndex;
+        var previousFrameOwner = camera.camCharacter;
+        var previousFrameSquare = camera.camCharacterSquare;
+        int previousFrameWidth = camera.offscreenWidth, previousFrameHeight = camera.offscreenHeight;
+        float previousZoom = camera.zoom;
+        boolean previousGrid = primary.dirtyRecalcGridStack;
+        float previousGridTime = primary.dirtyRecalcGridStackTime;
+        boolean[] dirty = cell.playerCutawaysDirty.clone();
+        boolean[] los = zombie.iso.LosUtil.cachecleared.clone();
+        var chunks = cell.getChunkMap(0).getChunks();
+        var previousChunk = chunks[0];
+        var rendered = new zombie.iso.IsoChunk(cell);
+        var primaryLevels = rendered.getRenderLevels(0);
+        var secondaryLevels = rendered.getRenderLevels(1);
+        Method clear = primaryLevels.getClass().getMethod("clearDirty", int.class, float.class);
+        Method isDirty = primaryLevels.getClass().getMethod("isDirty", int.class, long.class, float.class);
+        var cutaways = zombie.iso.fboRenderChunk.FBORenderCutaways.getInstance();
+        Object[] cutawayPlayers = (Object[]) privateField(cutaways, "perPlayerData");
+        var checkSquare = cutawayPlayers[0].getClass().getDeclaredField("checkSquare");
+        checkSquare.setAccessible(true);
+        Object previousCheck0 = checkSquare.get(cutawayPlayers[0]);
+        Object previousCheck1 = checkSquare.get(cutawayPlayers[1]);
+        Object[] renderPlayers = (Object[]) privateField(
+                zombie.iso.fboRenderChunk.FBORenderCell.instance, "perPlayerData");
+        var lastZ = renderPlayers[0].getClass().getDeclaredField("lastZ");
+        lastZ.setAccessible(true);
+        int[] previousLastZ = new int[4];
+        for (int index = 0; index < 4; index++) previousLastZ[index] = lastZ.getInt(renderPlayers[index]);
+        try {
+            zombie.MainThread.mainThread = Thread.currentThread();
+            zombie.core.Core.width = 1280;
+            zombie.core.Core.height = 720;
+            zombie.core.Core.debug = false;
+            require(!SCSplitScreenProbe.debugSetPrimaryViewRestoreMode("C"),
+                    "non-debug gameplay selected the experimental renderer reset");
+            zombie.core.Core.debug = true;
+            require(SCSplitScreenProbe.debugSetPrimaryViewRestoreMode("B"), "B mode unavailable");
+            camera.playerIndex = 0;
+            camera.camCharacter = primary;
+            camera.camCharacterSquare = primary.getCurrentSquare();
+            camera.offscreenWidth = core.getOffscreenWidth(0);
+            camera.offscreenHeight = core.getOffscreenHeight(0);
+            camera.zoom = core.getZoom(0);
+            require(camera.offscreenWidth > 0 && camera.offscreenHeight > 0,
+                    "deferred view fixture has no native solo viewport");
+            chunks[0] = rendered;
+            rendered.lightingNeverDone[0] = false;
+            clear.invoke(primaryLevels, 0, 1.0f);
+            clear.invoke(secondaryLevels, 0, 1.0f);
+            checkSquare.set(cutawayPlayers[0], primary.getCurrentSquare());
+            checkSquare.set(cutawayPlayers[1], primary.getCurrentSquare());
+            lastZ.setInt(renderPlayers[0], 9);
+            Arrays.fill(cell.playerCutawaysDirty, false);
+            Arrays.fill(zombie.iso.LosUtil.cachecleared, false);
+            primary.dirtyRecalcGridStack = false;
+            primary.dirtyRecalcGridStackTime = 1;
+            camera.frameCount = 100;
+            zombie.iso.IsoCamera.setCameraCharacter(formerLeader);
+            SCSplitScreenProbe.armPrimaryViewRestore(primary, cell);
+            require(!primary.dirtyRecalcGridStack && !cell.playerCutawaysDirty[0]
+                            && !(Boolean) isDirty.invoke(primaryLevels, 0, 2048L, 1.0f),
+                    "release applied renderer work before a completed solo frame");
+            require("waiting".equals(SCSplitScreenProbe.pollPrimaryViewRestore()),
+                    "release consumed its own unfinished frame");
+            camera.frameCount++;
+            camera.playerIndex = 1;
+            require("waiting".equals(SCSplitScreenProbe.pollPrimaryViewRestore())
+                            && checkSquare.get(cutawayPlayers[0]) != null,
+                    "stale slot-one frame consumed primary restoration");
+            camera.playerIndex = 0;
+            camera.offscreenWidth--;
+            require("waiting".equals(SCSplitScreenProbe.pollPrimaryViewRestore()),
+                    "split viewport dimensions consumed primary restoration");
+            camera.offscreenWidth++;
+            camera.camCharacter = formerLeader;
+            require("waiting".equals(SCSplitScreenProbe.pollPrimaryViewRestore()),
+                    "former leader frame consumed primary restoration");
+            camera.camCharacter = primary;
+            camera.frameCount++;
+            require("applied".equals(SCSplitScreenProbe.pollPrimaryViewRestore())
+                            && primary.dirtyRecalcGridStack && primary.dirtyRecalcGridStackTime == 20
+                            && cell.playerCutawaysDirty[0] && !cell.playerCutawaysDirty[1]
+                            && zombie.iso.LosUtil.cachecleared[0] && !zombie.iso.LosUtil.cachecleared[1]
+                            && checkSquare.get(cutawayPlayers[0]) == null
+                            && checkSquare.get(cutawayPlayers[1]) != null
+                            && (Boolean) isDirty.invoke(primaryLevels, 0, 2048L, 1.0f)
+                            && !(Boolean) isDirty.invoke(secondaryLevels, 0, 2048L, 1.0f)
+                            && lastZ.getInt(renderPlayers[0]) == 9,
+                    "B restoration missed primary caches, reset C state, or leaked to slot one");
+            primary.dirtyRecalcGridStack = false;
+            require("applied".equals(SCSplitScreenProbe.pollPrimaryViewRestore())
+                            && !primary.dirtyRecalcGridStack,
+                    "completed restoration repeated its renderer mutations");
+
+            require(SCSplitScreenProbe.debugSetPrimaryViewRestoreMode("C"), "C mode unavailable");
+            for (Object player : renderPlayers) lastZ.setInt(player, 9);
+            primary.dirtyRecalcGridStackTime = 90;
+            SCSplitScreenProbe.armPrimaryViewRestore(primary, cell);
+            camera.frameCount++;
+            require("applied".equals(SCSplitScreenProbe.pollPrimaryViewRestore())
+                            && primary.dirtyRecalcGridStackTime == 90,
+                    "C restoration shortened a longer native grid timer");
+            for (Object player : renderPlayers) require(lastZ.getInt(player) == Integer.MAX_VALUE,
+                    "C restoration did not call the native CPU view reset");
+
+            require(SCSplitScreenProbe.debugSetPrimaryViewRestoreMode("observe"), "observe unavailable");
+            SCSplitScreenProbe.armPrimaryViewRestore(primary, cell);
+            require(primary.dirtyRecalcGridStackTime == 0,
+                    "observe baseline changed the previously shipped immediate refresh");
+            primary.dirtyRecalcGridStack = false;
+            clear.invoke(primaryLevels, 0, 1.0f);
+            checkSquare.set(cutawayPlayers[0], primary.getCurrentSquare());
+            camera.frameCount++;
+            require("applied".equals(SCSplitScreenProbe.pollPrimaryViewRestore())
+                            && !primary.dirtyRecalcGridStack
+                            && checkSquare.get(cutawayPlayers[0]) != null
+                            && !(Boolean) isDirty.invoke(primaryLevels, 0, 2048L, 1.0f),
+                    "observe mode changed renderer state at the deferred boundary");
+
+            require(SCSplitScreenProbe.debugSetPrimaryViewRestoreMode("B"), "B mode unavailable");
+            SCSplitScreenProbe.armPrimaryViewRestore(primary, cell);
+            IsoPlayer.numPlayers = 2;
+            require("cancelled".equals(SCSplitScreenProbe.pollPrimaryViewRestore()),
+                    "new multiplayer layout retained the old solo restoration");
+            IsoPlayer.numPlayers = 1;
+            SCSplitScreenProbe.armPrimaryViewRestore(primary, cell);
+            require(SCSplitScreenProbe.releaseForWorldExit()
+                            && "cancelled".equals(SCSplitScreenProbe.pollPrimaryViewRestore())
+                            && !primary.dirtyRecalcGridStack,
+                    "world exit performed or retained pending renderer work");
+            SCSplitScreenProbe.armPrimaryViewRestore(primary, cell);
+            camera.camCharacter = formerLeader;
+            for (int count = 0; count < 60; count++) {
+                camera.frameCount++;
+                String status = SCSplitScreenProbe.pollPrimaryViewRestore();
+                require(status.equals(count == 59 ? "failed" : "waiting"),
+                        "primary-frame wait was not bounded to sixty callbacks");
+            }
+            camera.camCharacter = primary;
+            require("failed".equals(SCSplitScreenProbe.pollPrimaryViewRestore())
+                            && !primary.dirtyRecalcGridStack,
+                    "failed restoration later repeated a partial renderer reset");
+
+            // A real promoted-to-detached transition must complete its native
+            // postupdate pass while leaving local owners and frame state intact.
+            formerLeader.markCoopLeaderForProbe();
+            formerLeader.unmarkCoopLeaderForProbe();
+            var updates = SCNativeCompanion.class.getDeclaredField("bridgePostUpdateCount");
+            updates.setAccessible(true);
+            long before = updates.getLong(formerLeader);
+            // Use the engine's ordinary offscreen animation-skip frame. The
+            // headless fixture has no body model/GL context; the rest of the
+            // actual native postupdate must still return and advance count.
+            var animationFrame = zombie.characters.IsoGameCharacter.class
+                    .getDeclaredField("animationUpdatingThisFrame");
+            animationFrame.setAccessible(true);
+            boolean previousAnimationFrame = animationFrame.getBoolean(formerLeader);
+            try {
+                animationFrame.setBoolean(formerLeader, false);
+                formerLeader.postupdate();
+            } finally {
+                animationFrame.setBoolean(formerLeader, previousAnimationFrame);
+            }
+            require(updates.getLong(formerLeader) > before
+                            && formerLeader.getBridgeFailure().isEmpty()
+                            && formerLeader.getPlayerNum() == 3
+                            && IsoPlayer.numPlayers == 1 && IsoPlayer.players[0] == primary
+                            && IsoPlayer.players[1] == null && IsoPlayer.getInstance() == primary
+                            && zombie.iso.IsoCamera.getCameraCharacter() == primary
+                            && camera.camCharacter == primary && camera.playerIndex == 0,
+                    "completed post-demotion update changed local-player or frame ownership: count="
+                            + before + "/" + updates.getLong(formerLeader)
+                            + " index=" + formerLeader.getPlayerNum()
+                            + " countPlayers=" + IsoPlayer.numPlayers
+                            + " singleton=" + (IsoPlayer.getInstance() == primary)
+                            + " camera=" + (zombie.iso.IsoCamera.getCameraCharacter() == primary)
+                            + " frame=" + (camera.camCharacter == primary) + "/" + camera.playerIndex
+                            + " failure=" + formerLeader.getBridgeFailure()
+                            + " post=" + formerLeader.getCompanionPostUpdateDiagnostic());
+        } finally {
+            var cancel = SCSplitScreenProbe.class.getDeclaredMethod("cancelPrimaryViewRestore", String.class);
+            cancel.setAccessible(true);
+            cancel.invoke(null, "test_cleanup");
+            SCSplitScreenProbe.debugSetPrimaryViewRestoreMode("B");
+            zombie.core.Core.debug = previousDebug;
+            zombie.core.Core.width = previousWidth;
+            zombie.core.Core.height = previousHeight;
+            zombie.MainThread.mainThread = previousThread;
+            camera.frameCount = previousFrame;
+            camera.playerIndex = previousIndex;
+            camera.camCharacter = previousFrameOwner;
+            camera.camCharacterSquare = previousFrameSquare;
+            camera.offscreenWidth = previousFrameWidth;
+            camera.offscreenHeight = previousFrameHeight;
+            camera.zoom = previousZoom;
+            primary.dirtyRecalcGridStack = previousGrid;
+            primary.dirtyRecalcGridStackTime = previousGridTime;
+            System.arraycopy(dirty, 0, cell.playerCutawaysDirty, 0, 4);
+            System.arraycopy(los, 0, zombie.iso.LosUtil.cachecleared, 0, 4);
+            chunks[0] = previousChunk;
+            checkSquare.set(cutawayPlayers[0], previousCheck0);
+            checkSquare.set(cutawayPlayers[1], previousCheck1);
+            for (int index = 0; index < 4; index++) lastZ.setInt(renderPlayers[index], previousLastZ[index]);
+            IsoPlayer.numPlayers = 1;
+            IsoPlayer.setInstance(primary);
+            zombie.iso.IsoCamera.setCameraCharacter(primary);
+        }
+    }
+
     private static void testRetainedMovementAndPathState(SCNativeCompanion actor) throws Exception {
         // Repeat the previously oscillating 0.54-tile alignment pulse at several
         // decision gaps and game multipliers, using production endpoint clamping.
@@ -343,6 +565,235 @@ public final class SCIsoCompanionControlTest {
                         && actor.getActionContext().hasEventOccurred("EventHitReaction"),
                 "pending climb cancellation failed or cleared an unrelated native event");
         actor.getActionContext().clearEvent("EventHitReaction");
+    }
+
+    private static void testStockObserverCustomTeardown(IsoPlayer primary,
+            SCNativeCompanion retained, IsoCell cell) throws Exception {
+        boolean debug = zombie.core.Core.debug;
+        Thread mainThread = zombie.MainThread.mainThread;
+        IsoPlayer singleton = IsoPlayer.getInstance();
+        var cameraOwner = zombie.iso.IsoCamera.getCameraCharacter();
+        IsoPlayer[] slots = IsoPlayer.players.clone();
+        int count = IsoPlayer.numPlayers;
+        int primarySql = primary.sqlId, retainedSql = retained.sqlId;
+        var joins = zombie.iso.IsoWorld.instance.addCoopPlayers;
+        int joinCount = joins.size();
+        var map = cell.getChunkMap(1);
+        boolean ignored = map.ignore;
+        var primaryMap = cell.getChunkMap(0);
+        boolean primaryIgnored = primaryMap.ignore;
+        String[] boundsNames = { "xMinTiles", "xMaxTiles", "yMinTiles", "yMaxTiles" };
+        int[] previousBounds = new int[4];
+        for (int index = 0; index < 4; index++) {
+            var field = primaryMap.getClass().getDeclaredField(boundsNames[index]);
+            field.setAccessible(true);
+            previousBounds[index] = field.getInt(primaryMap);
+        }
+        IsoPlayer observer = null;
+        try {
+            zombie.MainThread.mainThread = Thread.currentThread();
+            zombie.core.Core.debug = false;
+            boolean rejected = false;
+            try { SCSplitScreenProbe.start(0, 0, 0); }
+            catch (IllegalStateException expected) { rejected = true; }
+            require(rejected && !SCSplitScreenProbe.debugReleaseStockObserver(primary)
+                            && SCSplitScreenProbe.debugPlayerSqlId(primary) == Integer.MIN_VALUE,
+                    "stock diagnostic was admitted outside debug mode");
+            zombie.core.Core.debug = true;
+            require(!SCSplitScreenProbe.debugReleaseStockObserver(primary)
+                            && !SCSplitScreenProbe.debugReleaseStockObserver(retained)
+                            && SCSplitScreenProbe.debugPlayerSqlId(primary) == primary.sqlId,
+                    "stock teardown accepted an untracked primary or retained companion");
+            // No PlayerDB is opened by this fixture. A positive identity that
+            // its allocator has never reserved must be rejected before joining.
+            primary.sqlId = 1234567;
+            rejected = false;
+            try { SCSplitScreenProbe.start(0, 0, 0); }
+            catch (IllegalStateException expected) {
+                rejected = String.valueOf(expected.getMessage()).contains("not reserved");
+            }
+            primary.sqlId = primarySql;
+            require(rejected && IsoPlayer.numPlayers == 1 && IsoPlayer.players[1] == null,
+                    "stock observer risked assigning an unreserved retained SQL row");
+
+            observer = SCSplitScreenProbe.start(0, 0, 0);
+            require(observer.getClass() == IsoPlayer.class && observer.sqlId == -1
+                            && primary.sqlId == primarySql && retained.sqlId == retainedSql
+                            && joins.size() == joinCount + 1
+                            && !SCSplitScreenProbe.debugReleaseStockObserver(observer),
+                    "stock start copied a retained identity or released an incomplete join");
+            require(SCSplitScreenProbe.acceptsDebugStockObserverLayout(IsoPlayer.players)
+                            && SCSplitScreenProbe.isDebugStockObserver(observer),
+                    "exact tracked stock loader did not preserve companions during its asynchronous join");
+            var loader = joins.remove(joins.size() - 1);
+            require(!SCSplitScreenProbe.acceptsDebugStockObserverLayout(IsoPlayer.players),
+                    "missing exact loader retained permission for a pending stock view");
+            joins.add(loader);
+            // Complete only the loader's public layout in this deterministic
+            // fixture. Actual AddCoopPlayer streaming/render is the live gate.
+            joins.remove(joins.size() - 1);
+            IsoPlayer.players[1] = observer;
+            observer.setCurrentSquare(primary.getCurrentSquare());
+            observer.setSquare(primary.getCurrentSquare());
+            observer.setMovingSquare(primary.getCurrentSquare());
+            cell.getObjectList().add(observer);
+            cell.getAddList().add(observer);
+            map.ignore = false;
+            primaryMap.ignore = false;
+            for (int index = 0; index < 4; index++) {
+                var field = primaryMap.getClass().getDeclaredField(boundsNames[index]);
+                field.setAccessible(true);
+                field.setInt(primaryMap, index % 2 == 0 ? -8 : 8);
+            }
+            zombie.core.Core.debug = false;
+            require(!SCSplitScreenProbe.acceptsDebugStockObserverLayout(IsoPlayer.players)
+                            && !SCSplitScreenProbe.isDebugStockObserver(observer),
+                    "stock layout exception escaped its debug guard");
+            zombie.core.Core.debug = true;
+            IsoPlayer.players[1] = primary;
+            require(!SCSplitScreenProbe.acceptsDebugStockObserverLayout(IsoPlayer.players)
+                            && !SCSplitScreenProbe.isDebugStockObserver(primary),
+                    "a foreign slot-one player inherited the tracked stock exception");
+            IsoPlayer.players[1] = observer;
+            var isolation = SCBridge.class.getDeclaredMethod("localPlayerIsolationFailure");
+            isolation.setAccessible(true);
+            require("".equals(isolation.invoke(null)),
+                    "tracked stock comparator would retire retained companions through the runtime gate");
+            primary.sqlId = primarySql + 1;
+            require(!SCSplitScreenProbe.debugReleaseStockObserver(observer)
+                            && SCSplitScreenProbe.releaseDiagnostics().contains("stockIssue=protected_sql_changed"),
+                    "stock teardown ignored a changed primary SQL identity");
+            primary.sqlId = primarySql;
+            float x = observer.getX();
+            observer.setX(primary.getX() + 17.0f);
+            require(!SCSplitScreenProbe.debugReleaseStockObserver(observer)
+                            && SCSplitScreenProbe.releaseDiagnostics().contains("stockIssue=primary_area_unavailable"),
+                    "stock teardown unloaded a remote area the primary does not own");
+            observer.setX(x);
+            // Vanilla removeFromWorld always obtains its animation player to
+            // release ragdoll state. Supply an initialized empty native player
+            // because this headless fixture has no body model to allocate one.
+            Class<?> animationType = Class.forName("zombie.core.skinnedmodel.animation.AnimationPlayer");
+            var animationConstructor = animationType.getDeclaredConstructor();
+            animationConstructor.setAccessible(true);
+            var animationField = zombie.characters.IsoGameCharacter.class.getDeclaredField("animPlayer");
+            animationField.setAccessible(true);
+            animationField.set(observer, animationConstructor.newInstance());
+            require(SCSplitScreenProbe.debugReleaseStockObserver(observer),
+                    "guarded stock custom teardown failed: " + SCSplitScreenProbe.releaseDiagnostics());
+            require(SCSplitScreenProbe.isReleased() && IsoPlayer.getInstance() == primary
+                            && zombie.iso.IsoCamera.getCameraCharacter() == primary
+                            && observer.getCurrentSquare() == null && !observer.isExistInTheWorld()
+                            && !cell.getObjectList().contains(observer) && !cell.getAddList().contains(observer)
+                            && primary.sqlId == primarySql && retained.sqlId == retainedSql && observer.sqlId == -1
+                            && SCSplitScreenProbe.releaseDiagnostics().contains("stockIssue=released_custom_stock_teardown")
+                            && "waiting".equals(SCSplitScreenProbe.pollPrimaryViewRestore())
+                            && !SCSplitScreenProbe.debugReleaseStockObserver(observer),
+                    "stock teardown changed retained SQL/actors, repeated removal, or missed deferred restoration");
+        } finally {
+            SCSplitScreenProbe.releaseForWorldExit();
+            while (joins.size() > joinCount) joins.remove(joins.size() - 1);
+            System.arraycopy(slots, 0, IsoPlayer.players, 0, slots.length);
+            IsoPlayer.numPlayers = count;
+            primary.sqlId = primarySql;
+            retained.sqlId = retainedSql;
+            if (observer != null) {
+                cell.getObjectList().remove(observer);
+                cell.getAddList().remove(observer);
+            }
+            map.ignore = ignored;
+            primaryMap.ignore = primaryIgnored;
+            for (int index = 0; index < 4; index++) {
+                var field = primaryMap.getClass().getDeclaredField(boundsNames[index]);
+                field.setAccessible(true);
+                field.setInt(primaryMap, previousBounds[index]);
+            }
+            IsoPlayer.setInstance(singleton);
+            zombie.iso.IsoCamera.setCameraCharacter(cameraOwner);
+            zombie.MainThread.mainThread = mainThread;
+            zombie.core.Core.debug = debug;
+        }
+    }
+
+    private static void testReadOnlyGroundWallSample(IsoPlayer primary, IsoCell cell) throws Exception {
+        var square = primary.getCurrentSquare();
+        var map = cell.getChunkMap(0);
+        var chunks = map.getChunks();
+        var previousChunk = chunks[0];
+        boolean previousIgnore = map.ignore, previousDebug = zombie.core.Core.debug;
+        var chunkField = square.getClass().getField("chunk");
+        Object previousSquareChunk = chunkField.get(square);
+        String[] boundsNames = { "xMinTiles", "xMaxTiles", "yMinTiles", "yMaxTiles" };
+        int[] previousBounds = new int[4];
+        var performance = Class.forName("zombie.core.PerformanceSettings").getField("fboRenderChunk");
+        boolean previousFbo = performance.getBoolean(null);
+        byte[] flags = (byte[]) privateField(square, "targetPlayerCutawayFlags");
+        byte previousFlag = flags[0];
+        var chunk = new zombie.iso.IsoChunk(cell);
+        try {
+            zombie.core.Core.debug = true;
+            performance.setBoolean(null, true);
+            map.ignore = false;
+            for (int index = 0; index < 4; index++) {
+                var field = map.getClass().getDeclaredField(boundsNames[index]);
+                field.setAccessible(true);
+                previousBounds[index] = field.getInt(map);
+                field.setInt(map, index % 2 == 0 ? 0 : 8);
+            }
+            chunk.getClass().getField("loaded").setBoolean(chunk, true);
+            chunk.getClass().getMethod("setSquare", int.class, int.class, int.class,
+                    zombie.iso.IsoGridSquare.class).invoke(chunk, 0, 0, 0, square);
+            chunkField.set(square, chunk);
+            chunks[0] = chunk;
+            require(cell.getGridSquare(0, 0, 0) == square,
+                    "ground-wall diagnostic fixture is not in the primary map");
+            Object level = chunk.getClass().getMethod("getCutawayDataForLevel", int.class).invoke(chunk, 0);
+            Object levelMap = privateField(privateField(chunk, "cutawayData"), "levelData");
+            require(levelMap.getClass().getMethod("get", int.class).invoke(levelMap, 32) == level,
+                    "native ground cutaway level is not keyed at z+32");
+            var wallType = Class.forName("zombie.iso.fboRenderChunk.FBORenderCutaways$CutawayWall");
+            Object wall = wallType.getConstructor().newInstance();
+            wallType.getField("x1").setInt(wall, 0);
+            wallType.getField("x2").setInt(wall, 1);
+            wallType.getField("y1").setInt(wall, 0);
+            wallType.getField("y2").setInt(wall, 0);
+            var trueRange = Class.forName("zombie.iso.fboRenderChunk.FBORenderCutaways$PlayerInRange")
+                    .getField("True");
+            trueRange.setAccessible(true);
+            Object range = trueRange.get(null);
+            java.lang.reflect.Array.set(privateField(wall, "playerInRange"), 0, range);
+            ((int[]) privateField(wall, "occludedSquaresMaskForSeenRooms"))[0] = 7;
+            ((List<Object>) privateField(level, "allWalls")).add(wall);
+            flags[0] = 1;
+            chunk.getRenderLevels(0).invalidateAll(2048L);
+            Object[] levelSlots = (Object[]) privateField(chunk, "renderLevels");
+            Object[] previousLevelSlots = levelSlots.clone();
+            int levelCount = (Integer) levelMap.getClass().getMethod("size").invoke(levelMap);
+            String facts = SCSplitScreenProbe.debugPrimaryCutawaySample(0, 0, 0);
+            require(facts.contains("sample=loaded;fbo=true;targetBits=1")
+                            && facts.contains("cutawaysDirty=true")
+                            && facts.contains("wallsTotal=1;wallsScanned=1;wallsMatched=1;walls=N,True,7")
+                            && facts.contains("frameRoom=") && facts.contains("primaryRoom=")
+                            && facts.contains("viewport=") && facts.contains("primaryZoom=")
+                            && Arrays.equals(levelSlots, previousLevelSlots)
+                            && (Integer) levelMap.getClass().getMethod("size").invoke(levelMap) == levelCount
+                            && flags[0] == 1,
+                    "read-only ground-wall sample missed native z+32 data or changed cache state: " + facts);
+            require(SCSplitScreenProbe.debugPrimaryCutawaySample(0, 0, 32).contains("sample=invalid_z"),
+                    "cutaway sample accepted an invalid native floor");
+        } finally {
+            chunks[0] = previousChunk;
+            chunkField.set(square, previousSquareChunk);
+            flags[0] = previousFlag;
+            map.ignore = previousIgnore;
+            zombie.core.Core.debug = previousDebug;
+            performance.setBoolean(null, previousFbo);
+            for (int index = 0; index < 4; index++) {
+                var field = map.getClass().getDeclaredField(boundsNames[index]);
+                field.setAccessible(true);
+                field.setInt(map, previousBounds[index]);
+            }
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -1393,6 +1844,11 @@ public final class SCIsoCompanionControlTest {
                 (SCNativeCompanion) actor, (SCNativeCompanion) secondActor);
         testPrimaryViewReleaseRefresh((IsoPlayer) localPlayer,
                 (SCNativeCompanion) secondActor, (IsoCell) cell);
+        testDeferredPrimaryViewRestore((IsoPlayer) localPlayer,
+                (SCNativeCompanion) secondActor, (IsoCell) cell);
+        testStockObserverCustomTeardown((IsoPlayer) localPlayer,
+                (SCNativeCompanion) secondActor, (IsoCell) cell);
+        testReadOnlyGroundWallSample((IsoPlayer) localPlayer, (IsoCell) cell);
         require((Boolean) playerClass.getMethod("getCoopPVP").invoke(null),
                 "owned NPCs did not enable the vanilla IsoPlayer hit gate");
         Class<?> movingObjectClass = Class.forName("zombie.iso.IsoMovingObject");
@@ -1441,7 +1897,7 @@ public final class SCIsoCompanionControlTest {
         playerClass.getMethod("setCoopPVP", boolean.class).invoke(null, coopPvpBefore);
         System.out.println("ISO_COMPANION_CONTROL_PASS actors=2 index=3 components=true voice-position=true local-state=unchanged"
                 + " movement=true animation-scalars=true rollback=true transient-ownership=true ownership=true pvp-hit-gate=true permadeath=true teardown=true"
-                + " cleanup-retry=true view-release-refresh=true update="
+                + " cleanup-retry=true view-release-refresh=true view-release-deferred=true stock-custom-teardown=true ground-wall-sample=true post-demotion-postupdate-complete=true update="
                 + (updateReachedRenderBoundary ? "contained-render-boundary" : "complete"));
     }
 }

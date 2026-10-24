@@ -133,4 +133,23 @@ for _, action in ipairs(actions) do
 end
 assert(manualRetries.sort and manualRetries.fire and not manualRetries.chef,
     "Retry now remains available while uncertain Chef receipts retain recovery controls")
+
+ISButton = ISPanel:derive("ISButton")
+function ISButton:new(x, y, width, height, title, target, callback)
+    local button = ISPanel.new(self, x, y, width, height)
+    button.target, button.callback = target, callback
+    return button
+end
+local watchPanel = ISPanel:new(0, 0, 300, 300)
+for reason, key in pairs({
+    local_view_restore_bridge_unavailable = "UI_SC_View_BridgeUpdateRequired",
+    local_view_restore_event_unavailable = "UI_SC_View_RenderUnavailable",
+}) do
+    SurvivorCompanion.BaseWatch.start = function() return false, reason end
+    detail:addBaseWatchAction(watchPanel, 0, "UI_SC_BaseWatch_Start", "start")
+    local button = watchPanel.childrenInOrder[#watchPanel.childrenInOrder]
+    button.callback(button.target, button)
+    assert(detail.feedback == key and not detail.feedbackSuccess,
+        "Base Watch capability failures give actionable translated feedback")
+end
 SC_TEST_REPORT = "Base policy native checkbox and job retry UI interactions PASS"

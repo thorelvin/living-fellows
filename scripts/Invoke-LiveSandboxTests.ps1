@@ -54,6 +54,15 @@ param(
     [switch]$OfficeHaulSurveyOnly,
     [switch]$OfficeHaulBaseline,
     [switch]$BaseAlertProbe,
+    # Exercise real rendered wall cutaways across companion-view releases.
+    [switch]$ViewCutawayProbe,
+    [ValidateSet('observe', 'B', 'C')]
+    [string]$ViewCutawayRestoreMode = 'B',
+    [ValidateRange(1, 3)][int]$ViewCutawayCycles = 3,
+    # Use a saved crew/car and the ordinary expedition controller, then capture
+    # the kitchen after the crew returns naturally.
+    [switch]$NormalExpeditionKitchenProbe,
+    [ValidateSet(1, 2)][int]$NormalExpeditionKitchenCrewSize = 2,
     [string]$PyreBurnScreenshot = '',
     [switch]$HygieneProbe,
     [switch]$OddballCoreyProbe,
@@ -1448,6 +1457,21 @@ if ($IsolatedSourceBridge) {
 }
 Copy-Item -LiteralPath $sourceMod -Destination (Join-Path $SandboxMods 'SurvivorCompanion') -Recurse
 Copy-Item -LiteralPath $harnessMod -Destination (Join-Path $SandboxMods 'SCRealSandboxHarness') -Recurse
+if ($ViewCutawayProbe -or $NormalExpeditionKitchenProbe -or $SplitScreenOnly) {
+    # Keep view diagnostics focused. Unrelated large probes can exceed
+    # Kahlua's debug-local limit when native stock-player diagnostics are enabled.
+    $wallHarnessClient = [IO.Path]::GetFullPath((Join-Path $SandboxMods `
+        'SCRealSandboxHarness\42\media\lua\client'))
+    if (-not $wallHarnessClient.StartsWith($runsPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Wall probe fixture is outside the owned run: $wallHarnessClient"
+    }
+    foreach ($fixtureFile in Get-ChildItem -LiteralPath $wallHarnessClient -File -Filter '*.lua') {
+        if ($fixtureFile.Name -notin @('SCRealSandboxHarness.lua', 'SCViewCutawayProbe.lua',
+                'SCNormalExpeditionKitchenProbe.lua')) {
+            Remove-Item -LiteralPath $fixtureFile.FullName -Force
+        }
+    }
+}
 if ($OfficeHaulBaseline) {
     if (-not $OfficeHaulProbe) { throw 'OfficeHaulBaseline requires OfficeHaulProbe.' }
     foreach ($name in @('SCProduction.lua', 'SCNavigation.lua', 'SCNavTraversal.lua')) {
@@ -1574,6 +1598,11 @@ $config = @(
     ('office_haul_probe=' + $OfficeHaulProbe.IsPresent.ToString().ToLowerInvariant()),
     ('office_haul_survey_only=' + $OfficeHaulSurveyOnly.IsPresent.ToString().ToLowerInvariant()),
     ('base_alert_probe=' + $BaseAlertProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('view_cutaway_probe=' + $ViewCutawayProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('view_cutaway_restore_mode=' + $ViewCutawayRestoreMode),
+    ('view_cutaway_cycles=' + $ViewCutawayCycles),
+    ('normal_expedition_kitchen_probe=' + $NormalExpeditionKitchenProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('normal_expedition_kitchen_crew_size=' + $NormalExpeditionKitchenCrewSize),
     ('hygiene_probe=' + $HygieneProbe.IsPresent.ToString().ToLowerInvariant()),
     ('oddball_corey_probe=' + $OddballCoreyProbe.IsPresent.ToString().ToLowerInvariant()),
     ('oddball_earl_probe=' + $OddballEarlProbe.IsPresent.ToString().ToLowerInvariant()),
@@ -1804,6 +1833,11 @@ $manifest = [ordered]@{
     sourceBridgeSha256 = $sourceBridgeHash
     installedBridgeMatches = $installedBridgeHash -eq $sourceBridgeHash
     livingFellowsOnly = $LivingFellowsOnly.IsPresent
+    viewCutawayProbe = $ViewCutawayProbe.IsPresent
+    viewCutawayRestoreMode = $ViewCutawayRestoreMode
+    viewCutawayCycles = $ViewCutawayCycles
+    normalExpeditionKitchenProbe = $NormalExpeditionKitchenProbe.IsPresent
+    normalExpeditionKitchenCrewSize = $NormalExpeditionKitchenCrewSize
     squadCombatProbe = $SquadCombatProbe.IsPresent
     squadCombatFrontOnly = $SquadCombatFrontOnly.IsPresent
     squadCombatSingleCase = $SquadCombatSingleCase.IsPresent
@@ -1875,6 +1909,7 @@ if ($PrepareOnly) {
 }
 
 $argumentLine = '-cachedir="' + $CacheRoot + '" -nosound -novoip -debuglog=+General,+Lua'
+if ($ViewCutawayProbe -or $SplitScreenOnly) { $argumentLine += ' -debug' }
 if ($NoSteam) { $argumentLine += ' -nosteam' }
 $autoGateAgent = -not $SteamLaunch -and -not $ExternalUiControl
 if ($ConvoyProbe -and -not $autoGateAgent) {

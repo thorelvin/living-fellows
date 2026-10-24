@@ -691,7 +691,7 @@ function Watch.prepareReset()
         if not released or result ~= true then return false, tostring(result) end
     end
     if SC.ViewSession.owner() == "base_watch" then
-        SC.ViewSession.released("base_watch", session.slotSqlId)
+        SC.ViewSession.released("base_watch", session.slotSqlId, true)
     end
     unhookRadio()
     session.suspended = true

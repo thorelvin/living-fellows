@@ -11,9 +11,16 @@ public final class IsoCamera {
     public static final FrameState frameState = new FrameState();
 
     public static final class FrameState {
+        public int frameCount;
         public int playerIndex;
         public float camCharacterX;
         public float camCharacterY;
+        public IsoGameCharacter camCharacter;
+        public IsoGridSquare camCharacterSquare;
+        public zombie.iso.areas.IsoRoom camCharacterRoom;
+        public int offscreenWidth;
+        public int offscreenHeight;
+        public float zoom;
     }
 
     public static IsoGameCharacter getCameraCharacter() { return null; }

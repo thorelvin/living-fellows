@@ -20,6 +20,7 @@ public class IsoGridSquare {
     public int getX() { return 0; }
     public int getY() { return 0; }
     public int getZ() { return 0; }
+    public int getPlayerCutawayFlag(int playerIndex, long timeMs) { return 0; }
     public ArrayList<IsoMovingObject> getMovingObjects() { return null; }
     public PZArrayList<IsoObject> getObjects() { return null; }
     public IsoRoom getRoom() { return null; }

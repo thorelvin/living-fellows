@@ -191,6 +191,13 @@ try {
         )
         Add-ScJvmStep 'view-control' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $viewControlFiles 'Companion Peek camera-control harness failed.'
 
+        $viewRestoreFiles = @(
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Client 'SCViewSession.lua'),
+            (Join-Path $TestRoot 'view_session_restore_harness.lua')
+        )
+        Add-ScJvmStep 'view-session-restore' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $viewRestoreFiles 'Companion view post-render restoration harness failed.'
+
         $drivingFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),

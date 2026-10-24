@@ -121,6 +121,9 @@ public final class SCNativeBridgeExposureTest {
                 + "SC_TEST_PROTOCOL = SCBridge.getProtocol()\n"
                 + "SC_TEST_READY = SCBridge.checkReady()\n"
                 + "SC_TEST_VIEW_API = SCBridge.setViewOffset ~= nil and SCBridge.clearViewOffset ~= nil\n"
+                + "SC_TEST_VIEW_RESTORE_API = SCSplitScreenProbe ~= nil and SCSplitScreenProbe.pollPrimaryViewRestore ~= nil and SCSplitScreenProbe.debugSetPrimaryViewRestoreMode ~= nil and SCSplitScreenProbe.debugPrimaryCutawaySample ~= nil\n"
+                + "SC_TEST_VIEW_RESTORE_IDLE = SCSplitScreenProbe.pollPrimaryViewRestore()\n"
+                + "SC_TEST_STOCK_COMPARATOR_API = SCSplitScreenProbe.debugReleaseStockObserver ~= nil and SCSplitScreenProbe.debugPlayerSqlId ~= nil and not SCSplitScreenProbe.debugReleaseStockObserver(nil)\n"
                 + "SC_TEST_BED_POSE_API = SCBridge.shiftOnBedPoseTowardPillow ~= nil\n"
                 + "SC_TEST_BED_POSE_REJECTS_NIL = not SCBridge.shiftOnBedPoseTowardPillow(nil, 0, 0, 0)\n"
                 + "SC_TEST_BED_RENDER_LIFT_API = SCBridge.setOnBedRenderLift ~= nil\n"
@@ -188,6 +191,12 @@ public final class SCNativeBridgeExposureTest {
                         && Boolean.TRUE.equals(rawget.invoke(environment,
                                 "SC_TEST_EXPEDITION_ZOOM_REJECTS_UNJOINED")),
                 "production bridge did not expose a guarded expedition zoom contract");
+        require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_VIEW_RESTORE_API"))
+                        && "cancelled".equals(rawget.invoke(environment, "SC_TEST_VIEW_RESTORE_IDLE")),
+                "production Kahlua bridge omitted the additive deferred-view capability");
+        require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_STOCK_COMPARATOR_API"))
+                        && SCSplitScreenProbe.debugPlayerSqlId(null) == Integer.MIN_VALUE,
+                "production Kahlua bridge omitted or opened the guarded stock comparator");
         require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_STORY_SHELTER_API")),
                 "production bridge did not expose the owned story zombie shelter API");
         require(Boolean.TRUE.equals(rawget.invoke(environment,

@@ -528,6 +528,11 @@ function Planner.onButton(detail, button)
         draft.review = false
     elseif action == "launch" then
         local ok, reason = dispatch(detail)
+        local viewFailures = {
+            local_view_restore_bridge_unavailable = "UI_SC_View_BridgeUpdateRequired",
+            local_view_restore_event_unavailable = "UI_SC_View_RenderUnavailable",
+        }
+        if not ok and viewFailures[reason] then reason = tr(viewFailures[reason]) end
         local preparation
         if ok then
             local expedition = SC.ExpeditionPrototype

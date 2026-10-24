@@ -1832,7 +1832,7 @@ function Expedition.prepareReset()
         end
         if SC.ViewSession.owner() == "expedition" then
             SC.ViewSession.released("expedition",
-                mission.slotSqlId or reusableSlotSqlId)
+                mission.slotSqlId or reusableSlotSqlId, true)
         end
     end
     mission.pendingRadio = nil

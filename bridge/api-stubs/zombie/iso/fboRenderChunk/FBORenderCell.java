@@ -5,4 +5,5 @@ package zombie.iso.fboRenderChunk;
 public final class FBORenderCell {
     public static final FBORenderCell instance = new FBORenderCell();
     public boolean renderTranslucentOnly;
+    public void Reset() {}
 }

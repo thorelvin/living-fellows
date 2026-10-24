@@ -2732,16 +2732,19 @@ public final class SCBridge {
     private static String localPlayerIsolationFailure() {
         IsoPlayer[] slots = IsoPlayer.players;
         if (slots == null || slots.length != 4) return "unexpected local-player slot layout";
-        if (IsoPlayer.numPlayers != 1 && !SCSplitScreenProbe.acceptsCurrentLayout(slots)) {
+        if (IsoPlayer.numPlayers != 1 && !SCSplitScreenProbe.acceptsCurrentLayout(slots)
+                && !SCSplitScreenProbe.acceptsDebugStockObserverLayout(slots)) {
             return "split-screen or multiple local players are unsupported";
         }
         if (slots[0] == null || slots[0].getPlayerNum() != 0
                 || !slots[0].isLocalPlayer()
                 || (IsoPlayer.getInstance() != slots[0]
-                    && !SCSplitScreenProbe.isLeader(IsoPlayer.getInstance()))) {
+                    && !SCSplitScreenProbe.isLeader(IsoPlayer.getInstance())
+                    && !SCSplitScreenProbe.isDebugStockObserver(IsoPlayer.getInstance()))) {
             return "primary local-player singleton or slot is not ready";
         }
-        if ((slots[1] != null && !SCSplitScreenProbe.isLeader(slots[1]))
+        if ((slots[1] != null && !SCSplitScreenProbe.isLeader(slots[1])
+                    && !SCSplitScreenProbe.isDebugStockObserver(slots[1]))
                 || slots[2] != null || slots[3] != null) {
             return "local player slots 1-3 have an unsupported occupant";
         }

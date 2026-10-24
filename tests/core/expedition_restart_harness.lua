@@ -2,6 +2,14 @@
 -- Exercise a resumed mission with a saved casualty and a pending distant team.
 local SC = SurvivorCompanion
 local expedition = SC.ExpeditionPrototype
+local renderHook, restorePolls = nil, 0
+local postRenderEvent = {
+    Add = function(callback) renderHook = callback end,
+    Remove = function(callback)
+        if renderHook == callback then renderHook = nil end
+    end,
+}
+Events = { OnPostRender = postRenderEvent }
 SC.GameplayUtil = {
     nameOf = function(actor) return actor.name or "Companion" end,
     position = function(actor) return actor.x, actor.y, actor:getZ() end,
@@ -76,6 +84,12 @@ function destroyPlayerData(actor)
     uiDestroyed = true
 end
 SCSplitScreenProbe = {
+    pollPrimaryViewRestore = function()
+        check(slot1 == nil and zoomRestores > 0,
+            "native render follow-up runs after release and zoom restoration")
+        restorePolls = restorePolls + 1
+        return "applied"
+    end,
     promote = function(actor, slotSqlId)
         promotions = promotions + 1
         lastPromotionSlot = slotSqlId
@@ -223,6 +237,11 @@ check(finished == true and reason == "returned" and uiDestroyed and released,
     "the team returns even though the saved casualty has no actor")
 check(zoomRestores == 1,
     "expedition view release restores the previous slot-1 auto-zoom setting")
+check(renderHook ~= nil and restorePolls == 0,
+    "expedition release waits for a completed primary render")
+renderHook()
+check(renderHook == nil and restorePolls == 1,
+    "expedition post-render recovery finishes once and detaches")
 check(homecomingCount() == 0,
     "a mission with a lost roster member has no all-survived homecoming line")
 check(expedition.current() == nil, "completed mission relinquishes ownership")
@@ -372,7 +391,7 @@ Events = { OnDeviceText = {
             "only the expedition's own radio callback is removed")
         attachedRadioHook = nil
     end,
-} }
+}, OnPostRender = postRenderEvent }
 started, newMission = expedition.start({ { id = "delta", actor = reserve } })
 check(started == true and newMission.leader.actor == reserve
         and slot1 == reserve and lastPromotionSlot == 2
@@ -383,6 +402,8 @@ local prepared, prepareReason = expedition.prepareReset()
 check(prepared == true and slot1 == nil and attachedRadioHook == nil
         and newMission.suspended == true and released and uiDestroyed,
     "world exit releases only its view, UI and callback before actor disposal")
+check(renderHook == nil,
+    "expedition world exit removes recovery hooks instead of scheduling a render")
 check(expedition.prepareReset() == true,
     "retrying world exit does not release the slot twice")
 check(expedition.reset() == true and SC.ViewSession.reset() == true

@@ -31,6 +31,7 @@ local alice, bob = actor("sc-alice", 3), actor("sc-bob", 4)
 local cold = actor("cold-loader", 3)
 local slot, nativeLeader, policy, detached
 local radioHook
+local renderHook, restorePolls = nil, 0
 local hudClock = { y = 10 }
 local speedControls = { y = 42 }
 function hudClock:setY(y) self.y = y end
@@ -122,8 +123,19 @@ Events = { OnDeviceText = {
     Remove = function(callback)
         if radioHook == callback then radioHook = nil end
     end,
+}, OnPostRender = {
+    Add = function(callback) renderHook = callback end,
+    Remove = function(callback)
+        if renderHook == callback then renderHook = nil end
+    end,
 } }
 SCSplitScreenProbe = {
+    pollPrimaryViewRestore = function()
+        check(slot == nil and hudClock.y == 10 and speedControls.y == 42,
+            "native render follow-up runs after solo HUD resize")
+        restorePolls = restorePolls + 1
+        return "applied"
+    end,
     promote = function(value, sqlId)
         check(nativeLeader == nil and slot == nil, "single view is claimed once")
         nativeLeader = value
@@ -227,6 +239,11 @@ check(watch.pulse() == true and watch.current() == nil
     "return to camp releases second view and reuses one SQL row")
 check(hudClock.y == 10 and speedControls.y == 42,
     "Base Watch return restores clock and speed controls to primary HUD")
+check(renderHook ~= nil and restorePolls == 0,
+    "Base Watch release queues recovery until a completed render event")
+renderHook()
+check(renderHook == nil and restorePolls == 1,
+    "Base Watch post-render recovery removes its one-shot hook")
 
 alice.outside = false
 check(watch.start(alice.id) == true, "watch can start again")
@@ -241,6 +258,8 @@ check(saved.departed and saved.slotSqlId == 2,
     "away save keeps watch and stable slot identity")
 check(watch.prepareReset() == true and watch.reset() == true,
     "world exit releases native view before module reset")
+check(renderHook == nil and restorePolls == 1,
+    "Base Watch world exit does not queue a live-world render repair")
 view.reset()
 records[alice.id].actor = nil
 records[bob.id].actor = nil

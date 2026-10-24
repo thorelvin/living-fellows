@@ -3,11 +3,18 @@ package survivorcompanion.bridge;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.lang.reflect.Array;
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.IdentityHashMap;
+import java.util.Map;
+import java.util.Set;
 import java.util.zip.CRC32;
 
 import zombie.characters.IsoPlayer;
+import zombie.MainThread;
+import zombie.core.Core;
 import zombie.characters.SurvivorDesc;
 import zombie.characters.SurvivorFactory;
 import zombie.iso.IsoCell;
@@ -19,19 +26,66 @@ import zombie.iso.IsoWorld;
 import zombie.iso.ChunkSaveWorker;
 import zombie.iso.LosUtil;
 import zombie.iso.fboRenderChunk.FBORenderChunk;
+import zombie.iso.fboRenderChunk.FBORenderCell;
+import zombie.iso.fboRenderChunk.FBORenderCutaways;
+import zombie.iso.fboRenderChunk.FBORenderLevels;
 import zombie.iso.objects.IsoDeadBody;
 import zombie.radio.ZomboidRadio;
 import zombie.savefile.PlayerDB;
 import zombie.util.AddCoopPlayer;
 import zombie.world.moddata.GlobalModData;
 
-/** Disposable native co-op loader probe. Never include in a release build. */
+/** Owned companion view lifecycle and guarded private co-op diagnostics. */
 public final class SCSplitScreenProbe {
     private static volatile SCNativeCompanion leader;
     private static volatile SCNativeCompanion coldProbe;
     private static final ArrayList<IsoChunk> retainedCorpseChunks = new ArrayList<>();
     private static final ArrayList<SCNativeCompanion> retainedCorpseActors = new ArrayList<>();
     private static IsoChunkMap retainedCorpseOwner;
+    private static long primaryRestoreGeneration;
+    private static PrimaryViewRestore primaryViewRestore;
+    private static String primaryRestoreMode = "B";
+    private static String primaryRestoreStatus = "cancelled";
+    private static String primaryRestoreReason = "idle";
+    private static String lastPrimaryRestoreMode = "B";
+    private static int primaryRestoreFrames;
+    private static final int PRIMARY_RESTORE_FRAME_LIMIT = 60;
+    private static StockObserverProbe stockObserverProbe;
+    private static String stockObserverIssue = "idle";
+
+    private static final class StockObserverProbe {
+        final IsoPlayer actor;
+        final IsoPlayer primary;
+        final IsoCell cell;
+        final AddCoopPlayer loader;
+        final IdentityHashMap<IsoPlayer, Integer> protectedSqlIds;
+        boolean teardownStarted;
+
+        StockObserverProbe(IsoPlayer actor, IsoPlayer primary, IsoCell cell,
+                IdentityHashMap<IsoPlayer, Integer> protectedSqlIds, AddCoopPlayer loader) {
+            this.actor = actor;
+            this.primary = primary;
+            this.cell = cell;
+            this.loader = loader;
+            this.protectedSqlIds = protectedSqlIds;
+        }
+    }
+
+    private static final class PrimaryViewRestore {
+        final IsoPlayer primary;
+        final IsoCell cell;
+        final long generation;
+        final String mode;
+        final int releaseFrame;
+
+        PrimaryViewRestore(IsoPlayer primary, IsoCell cell, long generation, String mode) {
+            this.primary = primary;
+            this.cell = cell;
+            this.generation = generation;
+            this.mode = mode;
+            this.releaseFrame = IsoCamera.frameState.frameCount;
+        }
+    }
 
     private static final class CorpseChunkSnapshot {
         final IsoChunk chunk;
@@ -174,6 +228,32 @@ public final class SCSplitScreenProbe {
                     || IsoPlayer.getInstance() == current);
     }
 
+    /** Only the explicitly tracked private comparator may use a plain slot 1. */
+    static boolean acceptsDebugStockObserverLayout(IsoPlayer[] slots) {
+        StockObserverProbe probe = stockObserverProbe;
+        IsoWorld world = IsoWorld.instance;
+        if (!Core.debug || Thread.currentThread() != MainThread.mainThread || probe == null
+                || probe.teardownStarted || leader != null || coldProbe != null
+                || slots == null || slots != IsoPlayer.players || slots.length != 4
+                || IsoPlayer.numPlayers != 2 || slots[0] != probe.primary
+                || slots[2] != null || slots[3] != null || probe.primary.getPlayerNum() != 0
+                || probe.actor.getClass() != IsoPlayer.class || probe.actor.getPlayerNum() != 1
+                || world == null || world.getCell() != probe.cell || world.addCoopPlayers == null
+                || (IsoPlayer.getInstance() != probe.primary && IsoPlayer.getInstance() != probe.actor)) {
+            return false;
+        }
+        boolean joining = world.addCoopPlayers.size() == 1
+                && world.addCoopPlayers.get(0) == probe.loader;
+        return slots[1] == null ? joining : slots[1] == probe.actor
+                && (world.addCoopPlayers.isEmpty() || joining);
+    }
+
+    static boolean isDebugStockObserver(IsoPlayer candidate) {
+        StockObserverProbe probe = stockObserverProbe;
+        return candidate != null && probe != null && candidate == probe.actor
+                && acceptsDebugStockObserverLayout(IsoPlayer.players);
+    }
+
     public static SCNativeCompanion promote(SCNativeCompanion actor) {
         return promote(actor, -1);
     }
@@ -199,6 +279,7 @@ public final class SCSplitScreenProbe {
             throw new IllegalStateException("leader or co-op world loader is unavailable");
         }
         int previousSqlId = actor.sqlId;
+        cancelPrimaryViewRestore("new_view");
         try {
             if (savedSlotSqlId >= 2 && actor.sqlId == -1) {
                 actor.sqlId = savedSlotSqlId;
@@ -534,13 +615,18 @@ public final class SCSplitScreenProbe {
         IsoPlayer.numPlayers = 1;
         IsoPlayer.setInstance(primary);
         leader = null;
-        restorePrimaryViewAfterRelease(primary, world.getCell());
+        armPrimaryViewRestore(primary, world.getCell());
         restoreZoomAfterRelease();
         return true;
     }
 
     /** Main-menu teardown: unload only LF's second map before actor disposal. */
     public static boolean releaseForWorldExit() {
+        cancelPrimaryViewRestore("world_exit");
+        // A plain stock observer belongs to vanilla full-world teardown. It
+        // has no retained LF actor; never carry this debug authority to a reload.
+        stockObserverProbe = null;
+        stockObserverIssue = "world_exit";
         SCNativeCompanion current = leader;
         if (current == null) {
             if (coldProbe != null) {
@@ -590,7 +676,6 @@ public final class SCSplitScreenProbe {
         IsoPlayer.numPlayers = 1;
         IsoPlayer.setInstance(primary);
         leader = null;
-        restorePrimaryViewAfterRelease(primary, world.getCell());
         restoreZoomAfterRelease();
         if (current == coldProbe) {
             if (!SCBridge.disposeColdProbeActor(current)) {
@@ -672,16 +757,12 @@ public final class SCSplitScreenProbe {
         IsoPlayer.numPlayers = 1;
         IsoPlayer.setInstance(primary);
         leader = null;
-        restorePrimaryViewAfterRelease(primary, IsoWorld.instance.getCell());
+        armPrimaryViewRestore(primary, IsoWorld.instance.getCell());
         restoreZoomAfterRelease();
         return true;
     }
 
-    /**
-     * Leaving the second view must restore its render owner as well as its
-     * player slots. Rebuild only the primary view's sight and wall caches once;
-     * ordinary camera movement does not invalidate every cached cutaway.
-     */
+    /** Retain the prior refresh exactly for the debug-only observe baseline. */
     static void restorePrimaryViewAfterRelease(IsoPlayer primary, IsoCell cell) {
         // Slot teardown has already committed. A render cleanup failure must
         // not report a failed release and leave Lua trying to close slot 1 again.
@@ -706,6 +787,230 @@ public final class SCSplitScreenProbe {
                     + failure.getClass().getSimpleName() + ": "
                     + String.valueOf(failure.getMessage()));
         }
+    }
+
+    /** Arm after committed slot teardown; no render cache work belongs here. */
+    static void armPrimaryViewRestore(IsoPlayer primary, IsoCell cell) {
+        primaryViewRestore = new PrimaryViewRestore(primary, cell,
+                ++primaryRestoreGeneration, primaryRestoreMode);
+        primaryRestoreFrames = 0;
+        primaryRestoreStatus = "waiting";
+        primaryRestoreReason = "primary_frame";
+        lastPrimaryRestoreMode = primaryRestoreMode;
+        // The old release refreshed immediately. Observe retains that exact
+        // behavior, including its zero grid timer, to make baseline A useful.
+        try {
+            if ("observe".equals(primaryRestoreMode)) {
+                restorePrimaryViewAfterRelease(primary, cell);
+            } else {
+                IsoCamera.setCameraCharacter(primary);
+            }
+        } catch (RuntimeException | LinkageError failure) {
+            failPrimaryViewRestore(failure.getClass().getSimpleName());
+        }
+    }
+
+    private static void cancelPrimaryViewRestore(String reason) {
+        primaryViewRestore = null;
+        primaryRestoreGeneration++;
+        primaryRestoreStatus = "cancelled";
+        primaryRestoreReason = reason;
+    }
+
+    /** Explicit live-test selection; ordinary gameplay always starts with B. */
+    public static boolean debugSetPrimaryViewRestoreMode(String mode) {
+        if (!Core.debug || primaryViewRestore != null || mode == null) return false;
+        if ("observe".equalsIgnoreCase(mode)) primaryRestoreMode = "observe";
+        else if ("B".equalsIgnoreCase(mode)) primaryRestoreMode = "B";
+        else if ("C".equalsIgnoreCase(mode)) primaryRestoreMode = "C";
+        else return false;
+        return true;
+    }
+
+    /**
+     * Called once by OnPostRender. A later completed primary frame with the
+     * native solo viewport/zoom consumes this one-shot record.
+     * All mutations affect CPU caches; the engine performs the next render.
+     */
+    public static String pollPrimaryViewRestore() {
+        PrimaryViewRestore pending = primaryViewRestore;
+        if (pending == null) return primaryRestoreStatus;
+        IsoPlayer[] slots = IsoPlayer.players;
+        IsoWorld world = IsoWorld.instance;
+        if (pending.generation != primaryRestoreGeneration || world == null
+                || world.getCell() != pending.cell || slots == null || slots.length != 4
+                || slots[0] != pending.primary || slots[1] != null
+                || slots[2] != null || slots[3] != null || IsoPlayer.numPlayers != 1
+                || leader != null) {
+            cancelPrimaryViewRestore("layout_changed");
+            return primaryRestoreStatus;
+        }
+        IsoCamera.FrameState frame = IsoCamera.frameState;
+        if (frame.playerIndex != 0) return "waiting";
+        primaryRestoreFrames++;
+        if (Thread.currentThread() != MainThread.mainThread) {
+            return failPrimaryViewRestore("wrong_thread");
+        }
+        Core core = Core.getInstance();
+        boolean valid = frame.frameCount != pending.releaseFrame
+                && IsoPlayer.getInstance() == pending.primary
+                && IsoCamera.getCameraCharacter() == pending.primary
+                && frame.camCharacter == pending.primary
+                && frame.camCharacterSquare != null
+                && frame.camCharacterSquare == pending.primary.getCurrentSquare()
+                && frame.camCharacterSquare.getCell() == pending.cell
+                && frame.offscreenWidth > 0 && frame.offscreenHeight > 0
+                && Float.isFinite(frame.zoom) && frame.zoom > 0.0f
+                && core != null && frame.offscreenWidth == core.getOffscreenWidth(0)
+                && frame.offscreenHeight == core.getOffscreenHeight(0)
+                && Float.compare(frame.zoom, core.getZoom(0)) == 0;
+        if (!valid) {
+            primaryRestoreReason = "primary_frame";
+        } else {
+            // Commit the record before mutating any cache. If a later engine
+            // call fails, polling must not repeat a partially applied reset.
+            primaryViewRestore = null;
+            try {
+                if (!"observe".equals(pending.mode)) applyPrimaryViewRestore(pending);
+                primaryRestoreStatus = "applied";
+                primaryRestoreReason = "observe".equals(pending.mode) ? "observed" : "complete";
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+                return failPrimaryViewRestore(failure.getClass().getSimpleName());
+            }
+            return primaryRestoreStatus;
+        }
+        if (primaryRestoreFrames >= PRIMARY_RESTORE_FRAME_LIMIT) {
+            return failPrimaryViewRestore("primary_frame_timeout");
+        }
+        return "waiting";
+    }
+
+    private static String failPrimaryViewRestore(String reason) {
+        primaryViewRestore = null;
+        primaryRestoreStatus = "failed";
+        primaryRestoreReason = reason;
+        return "failed";
+    }
+
+    private static void applyPrimaryViewRestore(PrimaryViewRestore pending)
+            throws ReflectiveOperationException {
+        IsoPlayer primary = pending.primary;
+        IsoCell cell = pending.cell;
+        IsoCamera.setCameraCharacter(primary);
+        LosUtil.cachecleared[0] = true;
+        primary.dirtyRecalcGridStack = true;
+        primary.dirtyRecalcGridStackTime = Math.max(primary.dirtyRecalcGridStackTime, 20.0f);
+        cell.invalidatePeekedRoom(0);
+        cell.playerCutawaysDirty[0] = true;
+        if ("C".equals(pending.mode)) FBORenderCell.instance.Reset();
+        // numPlayers is verified as one, so this invalidates only checkSquare0.
+        FBORenderCutaways.getInstance().squareChanged(null);
+        IsoChunkMap map = cell.getChunkMap(0);
+        if (map == null || map.getChunks() == null) return;
+        for (IsoChunk chunk : map.getChunks()) {
+            if (chunk == null || chunk.lightingNeverDone[0]) continue;
+            FBORenderLevels levels = existingRenderLevels(chunk, 0);
+            if (levels != null) levels.invalidateAll(FBORenderChunk.DIRTY_CUTAWAYS);
+        }
+    }
+
+    private static FBORenderLevels existingRenderLevels(IsoChunk chunk, int slot)
+            throws ReflectiveOperationException {
+        Object levels = readField(chunk, "renderLevels");
+        return levels == null ? null : (FBORenderLevels) Array.get(levels, slot);
+    }
+
+    private static Object readField(Object target, String name)
+            throws ReflectiveOperationException {
+        Field field = target.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        return field.get(target);
+    }
+
+    private static String squareLabel(IsoGridSquare square) {
+        return square == null ? "nil" : square.getX() + ":" + square.getY() + ":" + square.getZ();
+    }
+
+    /** Bounded read-only renderer facts for the explicit private live probe. */
+    public static String debugPrimaryCutawaySample(int x, int y, int z) {
+        if (!Core.debug) return "debug=disabled";
+        if (z < -32 || z > 31) return "debug=enabled;sample=invalid_z";
+        IsoPlayer[] slots = IsoPlayer.players;
+        IsoPlayer primary = slots != null && slots.length == 4 ? slots[0] : null;
+        IsoWorld world = IsoWorld.instance;
+        IsoCell cell = world == null ? null : world.getCell();
+        IsoCamera.FrameState frame = IsoCamera.frameState;
+        String prefix = "debug=enabled;numPlayers=" + IsoPlayer.numPlayers
+                + ";instancePrimary=" + (primary != null && IsoPlayer.getInstance() == primary)
+                + ";cameraPrimary=" + (primary != null && IsoCamera.getCameraCharacter() == primary)
+                + ";framePrimary=" + (primary != null && frame.camCharacter == primary)
+                + ";frameIndex=" + frame.playerIndex + ";frameCount=" + frame.frameCount
+                + ";frameSquare=" + squareLabel(frame.camCharacterSquare)
+                + ";primarySquare=" + squareLabel(primary == null ? null : primary.getCurrentSquare())
+                + ";frameRoom=" + roomLabel(frame.camCharacterRoom)
+                + ";primaryRoom=" + roomLabel(primary == null || primary.getCurrentSquare() == null
+                        ? null : primary.getCurrentSquare().getRoom())
+                + ";viewport=" + frame.offscreenWidth + "x" + frame.offscreenHeight
+                + ";zoom=" + frame.zoom
+                + ";primaryZoom=" + (Core.getInstance() == null ? "nil" : Core.getInstance().getZoom(0))
+                + ";gridDirty=" + (primary != null && primary.dirtyRecalcGridStack)
+                + ";gridDirtyTime=" + (primary == null ? "nil" : primary.dirtyRecalcGridStackTime)
+                + ";cellCutawaysDirty=" + (cell != null && cell.playerCutawaysDirty[0])
+                + ";restoreStatus=" + primaryRestoreStatus + ";restoreMode=" + lastPrimaryRestoreMode;
+        if (cell == null) return prefix + ";sample=world_unavailable";
+        IsoGridSquare square = cell.getGridSquare(x, y, z);
+        if (square == null) return prefix + ";sample=unloaded";
+        try {
+            Class<?> performance = Class.forName("zombie.core.PerformanceSettings");
+            boolean fbo = performance.getField("fboRenderChunk").getBoolean(null);
+            Field singleton = FBORenderCutaways.class.getDeclaredField("instance");
+            singleton.setAccessible(true);
+            Object cutaways = singleton.get(null);
+            Object data = cutaways == null ? null : Array.get(readField(cutaways, "perPlayerData"), 0);
+            IsoChunk chunk = square.getChunk();
+            FBORenderLevels primaryLevels = chunk == null ? null : existingRenderLevels(chunk, 0);
+            Object level = null;
+            if (chunk != null) {
+                Object levels = readField(chunk, "cutawayData");
+                Object levelMap = levels == null ? null : readField(levels, "levelData");
+                if (levelMap != null) level = levelMap.getClass().getMethod("get", int.class).invoke(levelMap, z + 32);
+            }
+            java.util.List<?> walls = level == null ? null
+                    : (java.util.List<?>) readField(level, "allWalls");
+            int count = walls == null ? 0 : walls.size();
+            int scanned = Math.min(count, 256);
+            int matched = 0;
+            StringBuilder facts = new StringBuilder();
+            for (int index = 0; index < scanned && matched < 8; index++) {
+                Object wall = walls.get(index);
+                int x1 = (Integer) readField(wall, "x1");
+                int x2 = (Integer) readField(wall, "x2");
+                int y1 = (Integer) readField(wall, "y1");
+                int y2 = (Integer) readField(wall, "y2");
+                boolean north = y1 == y2;
+                if (north ? y != y1 || x < x1 || x >= x2 : x != x1 || y < y1 || y >= y2) continue;
+                if (matched++ > 0) facts.append('|');
+                facts.append(north ? 'N' : 'W').append(',')
+                        .append(Array.get(readField(wall, "playerInRange"), 0)).append(',')
+                        .append(Array.getInt(readField(wall, "occludedSquaresMaskForSeenRooms"), 0));
+            }
+            return prefix + ";sample=loaded;fbo=" + fbo
+                    + ";targetBits=" + square.getPlayerCutawayFlag(0, System.currentTimeMillis())
+                    + ";cutawayCheckSquare=" + squareLabel(data == null ? null
+                            : (IsoGridSquare) readField(data, "checkSquare"))
+                    + ";lastPlayerRoomId=" + (data == null ? "nil" : readField(data, "lastPlayerRoomId"))
+                    + ";primaryLevels=" + (primaryLevels != null)
+                    + ";cutawaysDirty=" + (primaryLevels != null && primaryLevels.isDirty(z,
+                            FBORenderChunk.DIRTY_CUTAWAYS, Core.getInstance().getZoom(0)))
+                    + ";wallsTotal=" + count + ";wallsScanned=" + scanned
+                    + ";wallsMatched=" + matched + ";walls=" + facts;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            return prefix + ";sample=unavailable;error=" + failure.getClass().getSimpleName();
+        }
+    }
+
+    private static String roomLabel(Object room) {
+        return room == null ? "nil" : Integer.toHexString(System.identityHashCode(room));
     }
 
     private static void restoreZoomAfterRelease() {
@@ -753,14 +1058,146 @@ public final class SCSplitScreenProbe {
                 + " map=" + (map == null ? "nil" : "present")
                 + " mapIgnore=" + (map != null && map.ignore)
                 + " mapPlayerId=" + (map == null ? "nil" : map.playerId)
-                + " chunksReleased=" + chunksReleased(map);
+                + " chunksReleased=" + chunksReleased(map)
+                + " cameraIsPrimary=" + (slots != null && slots.length == 4
+                        && IsoCamera.getCameraCharacter() == slots[0])
+                + " frameIndex=" + IsoCamera.frameState.playerIndex
+                + " frameIsPrimary=" + (slots != null && slots.length == 4
+                        && IsoCamera.frameState.camCharacter == slots[0])
+                + " frameSquare=" + squareLabel(IsoCamera.frameState.camCharacterSquare)
+                + " frameRoom=" + (IsoCamera.frameState.camCharacterRoom == null ? "nil"
+                        : Integer.toHexString(System.identityHashCode(IsoCamera.frameState.camCharacterRoom)))
+                + " restoreStatus=" + primaryRestoreStatus + " restoreMode=" + lastPrimaryRestoreMode
+                + " restoreReason=" + primaryRestoreReason + " restoreGeneration=" + primaryRestoreGeneration
+                + " restoreFrames=" + primaryRestoreFrames
+                + " stockObserver=" + (stockObserverProbe == null ? "nil" : "present")
+                + " stockTeardown=" + (stockObserverProbe != null && stockObserverProbe.teardownStarted ? "started" : "idle")
+                + " stockIssue=" + stockObserverIssue;
+    }
+
+    /** Debug-only read; Kahlua does not expose IsoPlayer.sqlId as a field. */
+    public static int debugPlayerSqlId(IsoPlayer actor) {
+        return !Core.debug || actor == null ? Integer.MIN_VALUE : actor.sqlId;
+    }
+
+    private static IdentityHashMap<IsoPlayer, Integer> captureProtectedSqlIds(IsoPlayer primary)
+            throws ReflectiveOperationException {
+        IdentityHashMap<IsoPlayer, Integer> identities = new IdentityHashMap<>();
+        identities.put(primary, primary.sqlId);
+        Field field = SCBridge.class.getDeclaredField("OWNED");
+        field.setAccessible(true);
+        Set<?> owned = (Set<?>) field.get(null);
+        synchronized (owned) {
+            if (owned.size() > 128) throw new IllegalStateException("too many companion SQL identities");
+            for (Object candidate : owned) {
+                IsoPlayer companion = (IsoPlayer) candidate;
+                identities.put(companion, companion.sqlId);
+            }
+        }
+        // A stock actor starts with INVALID_ID. Verify every retained positive
+        // identity is already reserved in the native allocator so even an
+        // intervening vanilla autosave cannot assign that row to this observer.
+        Field databaseField = PlayerDB.class.getDeclaredField("instance");
+        databaseField.setAccessible(true);
+        Object database = databaseField.get(null);
+        Object used = database == null ? null : readField(database, "usedIds");
+        for (int id : identities.values()) {
+            if (id >= 1 && (used == null || !Boolean.TRUE.equals(used.getClass()
+                    .getMethod("contains", int.class).invoke(used, id)))) {
+                throw new IllegalStateException("stock observer SQL identity is not reserved: " + id);
+            }
+        }
+        return identities;
+    }
+
+    private static String stockObserverReleaseIssue(IsoPlayer actor) {
+        if (!Core.debug) return "debug_disabled";
+        if (Thread.currentThread() != MainThread.mainThread) return "wrong_thread";
+        StockObserverProbe probe = stockObserverProbe;
+        if (probe == null || actor == null || actor != probe.actor
+                || actor == probe.primary || actor.getClass() != IsoPlayer.class) return "untracked_stock_actor";
+        if (probe.teardownStarted) return "teardown_already_started";
+        IsoPlayer[] slots = IsoPlayer.players;
+        IsoWorld world = IsoWorld.instance;
+        if (leader != null || coldProbe != null || slots == null || slots.length != 4
+                || slots[0] != probe.primary || slots[1] != actor
+                || slots[2] != null || slots[3] != null || IsoPlayer.numPlayers != 2
+                || actor.getPlayerNum() != 1 || world == null || world.getCell() != probe.cell
+                || world.addCoopPlayers == null || !world.addCoopPlayers.isEmpty()
+                || (IsoPlayer.getInstance() != probe.primary && IsoPlayer.getInstance() != actor)) {
+            return "layout_changed";
+        }
+        if (probe.primary.isDead() || actor.isDead() || probe.primary.getCurrentSquare() == null
+                || actor.getCurrentSquare() == null || actor.getVehicle() != null) return "actor_unavailable";
+        for (Map.Entry<IsoPlayer, Integer> entry : probe.protectedSqlIds.entrySet()) {
+            if (entry.getKey().sqlId != entry.getValue()) return "protected_sql_changed";
+            if (actor.sqlId >= 0 && actor.sqlId == entry.getValue()) return "stock_sql_collision";
+        }
+        IsoChunkMap primaryMap = probe.cell.getChunkMap(0);
+        IsoChunkMap secondMap = probe.cell.getChunkMap(1);
+        int x = (int) Math.floor(actor.getX()), y = (int) Math.floor(actor.getY());
+        if (primaryMap == null || secondMap == null || primaryMap == secondMap
+                || primaryMap.ignore || secondMap.ignore || primaryMap.playerId != 0
+                || secondMap.playerId != 1 || x < primaryMap.getWorldXMinTiles()
+                || x > primaryMap.getWorldXMaxTiles() || y < primaryMap.getWorldYMinTiles()
+                || y > primaryMap.getWorldYMaxTiles()
+                || Math.abs(actor.getX() - probe.primary.getX()) > 16.0f
+                || Math.abs(actor.getY() - probe.primary.getY()) > 16.0f) return "primary_area_unavailable";
+        return null;
+    }
+
+    /**
+     * Custom diagnostic teardown, NOT a vanilla leave-player API. It removes
+     * only the exact plain actor created by start(), then uses the same selected
+     * primary reconciliation as LF release. No player database writes occur.
+     */
+    public static boolean debugReleaseStockObserver(IsoPlayer actor) {
+        String issue = stockObserverReleaseIssue(actor);
+        if (issue != null) {
+            stockObserverIssue = issue;
+            return false;
+        }
+        StockObserverProbe probe = stockObserverProbe;
+        // A failed native step requires aborting this diagnostic, not repeating
+        // possibly partial actor/map teardown against the running world.
+        probe.teardownStarted = true;
+        stockObserverIssue = "teardown_started";
+        try {
+            IsoChunkMap map = probe.cell.getChunkMap(1);
+            map.ignore = true;
+            map.Unload();
+            actor.setSceneCulled(true);
+            actor.removeFromWorld();
+            actor.removeFromSquare();
+            actor.setCurrentSquare(null);
+            actor.setSquare(null);
+            actor.setMovingSquare(null);
+            probe.cell.getAddList().remove(actor);
+            probe.cell.getObjectList().remove(actor);
+        } catch (RuntimeException | LinkageError failure) {
+            stockObserverIssue = "teardown_failed_" + failure.getClass().getSimpleName();
+            return false;
+        }
+        IsoPlayer.players[1] = null;
+        IsoPlayer.numPlayers = 1;
+        IsoPlayer.setInstance(probe.primary);
+        stockObserverProbe = null;
+        stockObserverIssue = "released_custom_stock_teardown";
+        armPrimaryViewRestore(probe.primary, probe.cell);
+        restoreZoomAfterRelease();
+        return true;
     }
 
     public static IsoPlayer start(int x, int y, int z) {
+        if (!Core.debug || Thread.currentThread() != MainThread.mainThread) {
+            throw new IllegalStateException("stock observer requires a debug main-thread session");
+        }
         IsoPlayer original = IsoPlayer.getInstance();
         if (original == null || IsoPlayer.players == null || IsoPlayer.players.length != 4
                 || IsoPlayer.players[0] != original || IsoPlayer.players[1] != null
-                || IsoPlayer.numPlayers != 1) {
+                || IsoPlayer.players[2] != null || IsoPlayer.players[3] != null
+                || IsoPlayer.numPlayers != 1 || leader != null || coldProbe != null
+                || stockObserverProbe != null) {
             throw new IllegalStateException("expected one original local player in slot 0");
         }
         IsoWorld world = IsoWorld.instance;
@@ -768,6 +1205,13 @@ public final class SCSplitScreenProbe {
             throw new IllegalStateException("co-op world loader is unavailable");
         }
         IsoCell cell = world.getCell();
+        IdentityHashMap<IsoPlayer, Integer> protectedSqlIds;
+        try {
+            protectedSqlIds = captureProtectedSqlIds(original);
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("stock observer SQL snapshot is unavailable", failure);
+        }
+        cancelPrimaryViewRestore("new_view");
         SurvivorDesc descriptor = SurvivorFactory.CreateSurvivor();
         if (descriptor == null) throw new IllegalStateException("survivor factory returned null");
 
@@ -778,9 +1222,13 @@ public final class SCSplitScreenProbe {
         IsoPlayer.setInstance(original);
         cell.getAddList().remove(observer);
         cell.getObjectList().remove(observer);
+        if (observer.sqlId != -1) throw new IllegalStateException("stock observer already has a SQL identity");
         observer.playerIndex = 1;
+        AddCoopPlayer loader = new AddCoopPlayer(observer, false);
+        stockObserverProbe = new StockObserverProbe(observer, original, cell, protectedSqlIds, loader);
+        stockObserverIssue = "joining";
         IsoPlayer.numPlayers = 2;
-        world.addCoopPlayers.add(new AddCoopPlayer(observer, false));
+        world.addCoopPlayers.add(loader);
         IsoPlayer.setInstance(original);
         return observer;
     }
@@ -810,6 +1258,7 @@ public final class SCSplitScreenProbe {
         if (cell.getGridSquare(x, y, z) != null) {
             throw new IllegalStateException("cold companion probe requires an unloaded square");
         }
+        cancelPrimaryViewRestore("new_view");
         SurvivorDesc descriptor = SurvivorFactory.CreateSurvivor();
         if (descriptor == null) throw new IllegalStateException("survivor factory returned null");
         SCNativeCompanion actor = null;

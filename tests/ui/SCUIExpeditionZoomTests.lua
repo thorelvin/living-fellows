@@ -208,6 +208,16 @@ function gearDetail:rebuild() end
 Planner.onButton(gearDetail, { scExpeditionAction = "launch" })
 assert(gearDetail.feedback == "UI_SC_Expedition_Failed:UI_SC_Expedition_FishingRodMissing:Tess Nolan",
     "a missing-rod footer resolves the registry identity instead of showing its id")
+for reason, key in pairs({
+    local_view_restore_bridge_unavailable = "UI_SC_View_BridgeUpdateRequired",
+    local_view_restore_event_unavailable = "UI_SC_View_RenderUnavailable",
+}) do
+    gearReason = reason
+    Planner.onButton(gearDetail, { scExpeditionAction = "launch" })
+    assert(gearDetail.feedback == "UI_SC_Expedition_Failed:" .. key
+        and not gearDetail.feedbackSuccess,
+        "expedition capability failures explain the missing update or render event")
+end
 record.identity = nil
 record.name = "Mara Ellis"
 gearReason = "fishing_bait_missing"

@@ -7,6 +7,91 @@ local View = SC.ViewSession
 
 local owner
 local reusableSlotSqlId
+local primaryRestore
+local primaryRestoreStatus, primaryRestoreReason = "idle", nil
+
+local function restoreCapability()
+    if SCSplitScreenProbe == nil
+        or type(SCSplitScreenProbe.pollPrimaryViewRestore) ~= "function" then
+        return false, "local_view_restore_bridge_unavailable"
+    end
+    if Events == nil or Events.OnPostRender == nil
+        or type(Events.OnPostRender.Add) ~= "function"
+        or type(Events.OnPostRender.Remove) ~= "function" then
+        return false, "local_view_restore_event_unavailable"
+    end
+    return true
+end
+
+local function finishPrimaryRestore(status, reason)
+    local pending = primaryRestore
+    primaryRestore = nil
+    if pending then
+        pending.active = false
+        local removed, failure = pcall(pending.event.Remove, pending.callback)
+        if not removed then
+            status, reason = "failed", "render hook removal failed: " .. tostring(failure)
+        end
+    end
+    primaryRestoreStatus = status
+    primaryRestoreReason = reason and string.sub(tostring(reason), 1, 512) or nil
+    if status == "failed" then
+        if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
+            pcall(SC.Diagnostics.report, "view_restore", nil,
+                "primary view restore failed", primaryRestoreReason)
+        else
+            print("Living Fellows: primary view restore failed: "
+                .. tostring(primaryRestoreReason))
+        end
+    end
+end
+
+local function cancelPrimaryRestore()
+    if primaryRestore then finishPrimaryRestore("cancelled") end
+end
+
+local function queuePrimaryRestore()
+    cancelPrimaryRestore()
+    local ready, reason = restoreCapability()
+    if not ready then finishPrimaryRestore("failed", reason) return end
+    local pending = { event = Events.OnPostRender, active = true }
+    pending.callback = function()
+        -- A late event callback cannot apply a previous world's or previous
+        -- view's recovery after reset, promotion, or terminal hook removal.
+        if not pending.active or primaryRestore ~= pending then return end
+        if owner ~= nil then finishPrimaryRestore("cancelled") return end
+        local native = SCSplitScreenProbe
+        if native == nil or type(native.pollPrimaryViewRestore) ~= "function" then
+            finishPrimaryRestore("failed", "local_view_restore_bridge_unavailable")
+            return
+        end
+        local called, status = pcall(native.pollPrimaryViewRestore)
+        if called and status == "waiting" then return end
+        if called and (status == "applied" or status == "cancelled") then
+            finishPrimaryRestore(status)
+            return
+        end
+        local failure = called and "unexpected native restore status: " .. tostring(status)
+            or "native restore call failed: " .. tostring(status)
+        if called and status == "failed" then
+            failure = "native primary view restore failed"
+            if type(native.releaseDiagnostics) == "function" then
+                local described, detail = pcall(native.releaseDiagnostics)
+                if described then failure = tostring(detail) end
+            end
+        end
+        finishPrimaryRestore("failed", failure)
+    end
+    primaryRestore = pending
+    primaryRestoreStatus, primaryRestoreReason = "waiting", nil
+    local added, failure = pcall(pending.event.Add, pending.callback)
+    if not added then finishPrimaryRestore("failed", "render hook install failed: " .. tostring(failure)) end
+end
+
+function View.primaryRestoreDiagnostic()
+    return { status = primaryRestoreStatus, reason = primaryRestoreReason,
+        pending = primaryRestore ~= nil }
+end
 
 local function validSlotId(value)
     return type(value) == "number" and value >= 2 and value <= 2147483647
@@ -53,6 +138,8 @@ function View.claim(mode, actor, legacySlotId)
     if mode ~= "expedition" and mode ~= "base_watch" then
         return false, "invalid_companion_view_mode"
     end
+    local ready, reason = restoreCapability()
+    if not ready then return false, reason end
     if owner == mode and SCSplitScreenProbe ~= nil
         and SCSplitScreenProbe.isLeader(actor) == true then
         -- AddCoopPlayer joins on a later engine tick. A restore pulse may
@@ -64,6 +151,7 @@ function View.claim(mode, actor, legacySlotId)
     local slotId = reusableSlotSqlId or legacySlotId or -1
     local called, promoted = pcall(SCSplitScreenProbe.promote, actor, slotId)
     if not called or promoted ~= actor then return false, tostring(promoted) end
+    cancelPrimaryRestore()
     owner = mode
     return true, actor
 end
@@ -73,6 +161,8 @@ function View.adopt(mode, actor, slotId)
     if mode ~= "expedition" and mode ~= "base_watch" then
         return false, "invalid_companion_view_mode"
     end
+    local ready, reason = restoreCapability()
+    if not ready then return false, reason end
     if owner ~= nil and owner ~= mode then return false, "companion_view_in_use" end
     if actor == nil or type(getSpecificPlayer) ~= "function"
         or getSpecificPlayer(1) ~= actor or SCSplitScreenProbe == nil
@@ -80,16 +170,19 @@ function View.adopt(mode, actor, slotId)
         return false, "companion_view_owner_mismatch"
     end
     if validSlotId(slotId) then reusableSlotSqlId = slotId end
+    cancelPrimaryRestore()
     owner = mode
     return true
 end
 
-function View.released(mode, slotId)
+function View.released(mode, slotId, worldExit)
     if owner ~= mode then return false, "companion_view_owner_mismatch" end
     if validSlotId(slotId) then reusableSlotSqlId = slotId end
     if mode == "expedition" then restoreExpeditionZoom() end
     owner = nil
     restorePrimaryHud()
+    if worldExit == true then cancelPrimaryRestore()
+    else queuePrimaryRestore() end
     return true
 end
 
@@ -109,6 +202,7 @@ function View.restore(saved)
 end
 
 function View.reset()
+    cancelPrimaryRestore()
     if owner == "expedition" then restoreExpeditionZoom() end
     owner, reusableSlotSqlId = nil, nil
     return true

@@ -539,6 +539,9 @@ public final class SCNativeApiSignatureTest {
         Class<?> chunk = Class.forName("zombie.iso.IsoChunk");
         Class<?> renderLevels = Class.forName("zombie.iso.fboRenderChunk.FBORenderLevels");
         Class<?> renderChunk = Class.forName("zombie.iso.fboRenderChunk.FBORenderChunk");
+        Class<?> renderCell = Class.forName("zombie.iso.fboRenderChunk.FBORenderCell");
+        Class<?> cutaways = Class.forName("zombie.iso.fboRenderChunk.FBORenderCutaways");
+        Class<?> frameState = Class.forName("zombie.iso.IsoCamera$FrameState");
         require(losUtil.getField("cachecleared").getType() == boolean[].class
                         && Modifier.isStatic(losUtil.getField("cachecleared").getModifiers())
                         && cell.getField("playerCutawaysDirty").getType() == boolean[].class
@@ -551,8 +554,35 @@ public final class SCNativeApiSignatureTest {
                                 == renderLevels
                         && method(renderLevels, "invalidateAll", long.class).getReturnType()
                                 == void.class
+                        && method(renderLevels, "isDirty", int.class, long.class, float.class).getReturnType()
+                                == boolean.class
                         && renderChunk.getField("DIRTY_CUTAWAYS").getLong(null) == 2048L,
                 "primary-view sight and cutaway invalidation signatures changed");
+        require(method(renderCell, "Reset").getReturnType() == void.class
+                        && method(cutaways, "getInstance").getReturnType() == cutaways
+                        && method(cutaways, "squareChanged", square).getReturnType() == void.class
+                        && camera.getField("frameState").getType() == frameState
+                        && frameState.getField("frameCount").getType() == int.class
+                        && frameState.getField("camCharacter").getType() == gameCharacter
+                        && frameState.getField("camCharacterSquare").getType() == square
+                        && frameState.getField("offscreenWidth").getType() == int.class
+                        && frameState.getField("offscreenHeight").getType() == int.class
+                        && frameState.getField("zoom").getType() == float.class
+                        && core.getField("debug").getType() == boolean.class
+                        && method(core, "getOffscreenWidth", int.class).getReturnType() == int.class
+                        && method(core, "getOffscreenHeight", int.class).getReturnType() == int.class
+                        && method(core, "getZoom", int.class).getReturnType() == float.class
+                        && method(square, "getPlayerCutawayFlag", int.class, long.class).getReturnType() == int.class
+                        && chunk.getDeclaredField("renderLevels").getType().getComponentType() == renderLevels,
+                "deferred primary-frame restore or diagnostic signatures changed");
+        Class<?> splitProbe = Class.forName("survivorcompanion.bridge.SCSplitScreenProbe");
+        require(method(splitProbe, "pollPrimaryViewRestore").getReturnType() == String.class
+                        && method(splitProbe, "debugSetPrimaryViewRestoreMode", String.class).getReturnType() == boolean.class
+                        && method(splitProbe, "debugPrimaryCutawaySample", int.class, int.class, int.class).getReturnType() == String.class,
+                "deferred primary-view Lua capability signatures changed");
+        require(method(splitProbe, "debugReleaseStockObserver", player).getReturnType() == boolean.class
+                        && method(splitProbe, "debugPlayerSqlId", player).getReturnType() == int.class,
+                "private stock comparator capability signatures changed");
         Constructor<?> constructor = player.getConstructor(cell, descriptor,
                 int.class, int.class, int.class, boolean.class);
         require(Modifier.isPublic(constructor.getModifiers()), "IsoPlayer NPC constructor is not public");

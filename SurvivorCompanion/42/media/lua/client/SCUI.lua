@@ -2998,6 +2998,8 @@ local function onBaseWatchButton(target, button)
         base_watch_radio_no_ack = "UI_SC_BaseWatch_NoAck",
         base_watch_report_not_received = "UI_SC_BaseWatch_NoAck",
         base_watch_radio_unavailable = "UI_SC_BaseWatch_RadioUnavailable",
+        local_view_restore_bridge_unavailable = "UI_SC_View_BridgeUpdateRequired",
+        local_view_restore_event_unavailable = "UI_SC_View_RenderUnavailable",
     }
     local message = messages[reason] and UI.text(messages[reason])
         or (ok and accepted == true and type(reason) == "string"
