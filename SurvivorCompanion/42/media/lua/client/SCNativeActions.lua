@@ -2509,7 +2509,7 @@ local function removeBarricadeTool(actor, object)
             return not brokenOk or broken ~= true
         end)
         if not foundOk or tool == nil then
-            return barricade, nil, "companion needs an unbroken pry or remove-barricade tool"
+            return barricade, nil, "companion needs a pry or remove-barricade tool"
         end
     end
     return barricade, tool
@@ -2559,9 +2559,9 @@ local function startDismantle(actor, intent, provider)
     local sawOk, saw = invoke(inventory, "getFirstTagEvalRecurse", sawTag, notBroken)
     local driverOk, screwdriver = invoke(
         inventory, "getFirstTagEvalRecurse", screwdriverTag, notBroken)
-    if not sawOk or saw == nil then return false, "companion needs an unbroken saw" end
+    if not sawOk or saw == nil then return false, "companion needs a saw" end
     if not driverOk or screwdriver == nil then
-        return false, "companion needs an unbroken screwdriver"
+        return false, "companion needs a screwdriver"
     end
     local record, prepareReason = prepareWorkInventory(actor, { saw, screwdriver }, nil, nil)
     if not record then return false, prepareReason end
@@ -2655,7 +2655,7 @@ local function startChopTree(actor, intent, provider)
         return false, "tree is no longer in the world"
     end
     local tool = taggedWorkTool(actor, intent.tool, "CHOP_TREE")
-    if tool == nil then return false, "companion needs an unbroken axe" end
+    if tool == nil then return false, "companion needs an axe" end
     local twoOk, twoHanded = invoke(tool, "isTwoHandWeapon")
     local record, prepareReason = prepareWorkInventory(actor, { tool }, tool,
         (twoOk and twoHanded == true) and tool or nil)
@@ -2708,7 +2708,7 @@ local function startBashDoor(actor, intent, provider)
         return false, "door_opens_normally"
     end
     local tool = taggedWorkTool(actor, intent.tool, "CHOP_TREE")
-    if tool == nil then return false, "companion needs an unbroken axe" end
+    if tool == nil then return false, "companion needs an axe" end
     local twoOk, twoHanded = invoke(tool, "isTwoHandWeapon")
     local record, prepareReason = prepareWorkInventory(actor, { tool }, tool,
         (twoOk and twoHanded == true) and tool or nil)
@@ -2730,7 +2730,7 @@ local function startSawLogs(actor, intent, provider)
     if type(ISHandcraftAction) ~= "table" or type(ISHandcraftAction.new) ~= "function" then
         return false, "native handcraft action is unavailable"
     end
-    if not unbrokenItem(saw) then return false, "companion needs an unbroken saw" end
+    if not unbrokenItem(saw) then return false, "companion needs a saw" end
     local recipe = craftRecipe("Base.SawLogs")
     if recipe == nil then return false, "saw logs recipe is unavailable" end
     local manual, manualReason = sawManualInputs(recipe, log, saw)
@@ -2802,7 +2802,7 @@ local function startDigGrave(actor, intent, provider)
     local class = graveActionClass()
     if class == nil then return false, "native build action is unavailable" end
     local tool = taggedWorkTool(actor, intent.tool, "DIG_GRAVE")
-    if tool == nil then return false, "companion needs an unbroken shovel" end
+    if tool == nil then return false, "companion needs a shovel" end
     local record, prepareReason = prepareWorkInventory(actor, { tool }, tool, tool)
     if not record then return false, prepareReason end
     local created, graves = pcall(ISEmptyGraves.new, ISEmptyGraves,
@@ -2873,7 +2873,7 @@ local function startFillGrave(actor, intent, provider)
         return false, "native grave filling is unavailable"
     end
     local tool = taggedWorkTool(actor, intent.tool, "DIG_GRAVE")
-    if tool == nil then return false, "companion needs an unbroken shovel" end
+    if tool == nil then return false, "companion needs a shovel" end
     local record, prepareReason = prepareWorkInventory(actor, { tool }, tool, tool)
     if not record then return false, prepareReason end
     local created, timedAction = pcall(ISFillGrave.new, ISFillGrave, actor, intent.grave, tool)
@@ -3014,7 +3014,7 @@ local function startBarricade(actor, intent, provider)
     local hammerOk, hammer = invoke(inventory, "getFirstTagEvalRecurse", hammerTag, notBroken)
     local plankOk, plank = invoke(inventory, "getFirstTypeRecurse", "Plank")
     local nailsOk, nails = invoke(inventory, "getSomeTypeRecurse", "Nails", 2)
-    if not hammerOk or hammer == nil then return false, "companion needs an unbroken hammer" end
+    if not hammerOk or hammer == nil then return false, "companion needs a hammer" end
     if not plankOk or plank == nil then return false, "companion needs one plank" end
     if not nailsOk or nativeListSize(nails) < 2 then return false, "companion needs two nails" end
     if SC.PersonalItems and (SC.PersonalItems.isProtected(hammer, actor, "build_material")

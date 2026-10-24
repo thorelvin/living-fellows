@@ -1443,15 +1443,15 @@ local function reportWorkFailure(actor, player, reason, snapshot)
     end
     local key, fallback, topic = "IGUI_SC_Work_Cannot", "I can't do that safely.", "work.cannot"
     if string.find(lowered, "hammer", 1, true) then
-        key, fallback, topic = "IGUI_SC_Work_NeedHammer", "I need an unbroken hammer.", "work.hammer"
+        key, fallback, topic = "IGUI_SC_Work_NeedHammer", "I need a hammer.", "work.hammer"
     elseif string.find(lowered, "plank", 1, true) then
         key, fallback, topic = "IGUI_SC_Work_NeedPlank", "I need a plank.", "work.plank"
     elseif string.find(lowered, "nail", 1, true) then
         key, fallback, topic = "IGUI_SC_Work_NeedNails", "I need two nails.", "work.nails"
     elseif string.find(lowered, "saw", 1, true) then
-        key, fallback, topic = "IGUI_SC_Work_NeedSaw", "I need an unbroken saw.", "work.saw"
+        key, fallback, topic = "IGUI_SC_Work_NeedSaw", "I need a saw.", "work.saw"
     elseif string.find(lowered, "screwdriver", 1, true) then
-        key, fallback, topic = "IGUI_SC_Work_NeedScrewdriver", "I need an unbroken screwdriver.", "work.screwdriver"
+        key, fallback, topic = "IGUI_SC_Work_NeedScrewdriver", "I need a screwdriver.", "work.screwdriver"
     elseif string.find(lowered, "blowtorch", 1, true) then
         key, fallback, topic = "IGUI_SC_Work_NeedBlowTorch", "I need a fueled blowtorch.", "work.blowtorch"
     elseif string.find(lowered, "remove", 1, true)

@@ -2083,7 +2083,7 @@ local buildRequirements = {
         key = "build_hammer",
         count = 1,
         predicate = matchesHammer,
-        missing = "companion needs an unbroken hammer",
+        missing = "companion needs a hammer",
     },
     {
         key = "build_plank",
