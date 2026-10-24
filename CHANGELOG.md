@@ -6,6 +6,7 @@
 
 - A floor sorter carrying a lot (loose rounds count one item each) no longer gets stuck when the item it picked up goes missing because you took it or it was used up. Before, the job kept its claim, the Sorting floor could not be removed, and the resident refused every order that takes it off base duty. A miss found over several updates is now checked once more in a single pass of up to 1024 items before the claim is let go.
 - Cancelling a floor-sort job, for example by giving the sorter Follow, reads its whole pack in one go. One that carries a lot used to refuse the first order or two. If the item cannot be found at all, because the pack is very large or a bag in it cannot be read, the job lets the claim go instead of refusing. An item still in the pack stays there.
+- A cancelled floor-sort item's old marker cannot reserve it again when the job picks up something else. Reservations match the exact current cargo, and abandoned items dropped back onto the Sorting floor can be collected again.
 - A resident whose rest is cancelled while it walks to the bedroom light switch stops walking there. 0.26.61 only retired the walk to the bed itself.
 - A guard pulled away from its post during the pause between patrol points walks back instead of standing where it ended up. A failed route still waits five seconds before trying again, wherever the guard is.
 - The 5 ms route-planning slice for quiet camp work is given only while recent frames keep to the frame budget. When the performance governor raises its load level, every search gets the normal 3 ms slice.

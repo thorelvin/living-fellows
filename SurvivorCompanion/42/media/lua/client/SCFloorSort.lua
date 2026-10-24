@@ -86,11 +86,19 @@ local function worldItemAt(square, id, jobId)
     return nil, nil
 end
 local function eligible(item, actor)
-    if not item or not itemId(item) then return false end
+    local nativeId = item and itemId(item)
+    if not nativeId then return false end
     local ownerJob = marker(item)
-    if ownerJob and (not SC.BaseLife or not SC.BaseLife.job
-        or SC.BaseLife.job(ownerJob)) then return false end
-    if ownerJob and not clear(item, ownerJob) then return false end
+    if ownerJob then
+        if not SC.BaseLife or type(SC.BaseLife.job) ~= "function" then return false end
+        local job = SC.BaseLife.job(ownerJob)
+        local claim = job and job.type == "sort_floor" and type(job.target) == "table"
+            and job.target.floorCargo or nil
+        if type(claim) == "table" and tonumber(claim.itemId) == nativeId then return false end
+        -- An intake job can outlive its claim and later carry another item.
+        -- Its old marker does not reserve this item against a fresh pickup.
+        if not clear(item, ownerJob) then return false end
+    end
     if SC.WorkTransport and SC.WorkTransport.foreignProtected
         and SC.WorkTransport.foreignProtected(item, actor) then return false end
     if SC.BaseWork and SC.BaseWork.choreReserved

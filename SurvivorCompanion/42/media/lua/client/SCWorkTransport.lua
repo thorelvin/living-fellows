@@ -366,10 +366,17 @@ function Transport.foreignProtected(item, actor)
     end
     if data.LF_FarmReceiptId ~= nil then return true, "farm_item_owned" end
     if data.LF_FloorSortJob ~= nil then
-        local job = SC.BaseLife and SC.BaseLife.job
-            and SC.BaseLife.job(data.LF_FloorSortJob) or nil
-        if job and job.type == "sort_floor" and type(job.target) == "table"
-            and job.target.floorCargo then
+        if not SC.BaseLife or type(SC.BaseLife.job) ~= "function" then
+            return true, "floor_sort_owner_unavailable"
+        end
+        local job = SC.BaseLife.job(data.LF_FloorSortJob)
+        local claim = job and job.type == "sort_floor" and type(job.target) == "table"
+            and job.target.floorCargo or nil
+        local nativeId = tonumber(itemNativeId(item))
+        -- The job survives a cancelled claim and can take on different cargo.
+        -- Only the exact current item remains reserved by its saved marker.
+        if type(claim) == "table" and nativeId ~= nil
+            and tonumber(claim.itemId) == nativeId then
             return true, "floor_sort_item_owned"
         end
     end

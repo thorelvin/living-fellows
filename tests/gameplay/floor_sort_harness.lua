@@ -2,7 +2,7 @@
 -- Exact floor intake, physical trash, blocked storage and reload recovery.
 local SC = SurvivorCompanion
 local Floor = SC.FloorSort
-local realBaseWork, realUtil = SC.BaseWork, SC.GameplayUtil
+local realBaseWork, realUtil, realTransport = SC.BaseWork, SC.GameplayUtil, SC.WorkTransport
 local now = 1000
 local serial = 0
 local function check(value, message)
@@ -384,7 +384,7 @@ do
     local function uncrowd()
         for index = #inventory.items, 1, -1 do
             local id = inventory.items[index].id
-            if id >= 5000 and id < 6000 then table.remove(inventory.items, index) end
+            if id >= 5000 and id <= 6100 then table.remove(inventory.items, index) end
         end
     end
     local function carry(id)
@@ -448,6 +448,49 @@ do
             .. tostring(leaveReason))
     table.remove(base.jobs, 1)
     uncrowd()
+
+    -- An unaccounted cancellation can leave the exact item beyond the proof
+    -- bound. The pending intake job is reused, so its next item's claim must
+    -- not revive the old item's marker or hide that old item from intake.
+    local abandoned, reusedJob = carry(133)
+    crowd(1100)
+    local released, releasedReason = Floor.cancel(actor, reusedJob)
+    check(released == true and releasedReason == "floor_cargo_unaccounted"
+            and contains(inventory, abandoned) and abandoned.worldItem == nil
+            and reusedJob.target.floorCargo == nil and reusedJob.assignedId == nil,
+        "unaccounted cancellation releases duty while preserving the hidden physical item")
+    uncrowd()
+    reusedJob.state, reusedJob.reservedBy = "pending", nil
+    local nextCargo, nextState = item(134, false), {}
+    addWorld(source, nextCargo)
+    Floor.update(actor, nextState, reusedJob)
+    Floor.update(actor, nextState, reusedJob)
+    check(reusedJob.target.floorCargo ~= nil
+            and reusedJob.target.floorCargo.itemId == nextCargo.id
+            and contains(inventory, nextCargo) and contains(inventory, abandoned),
+        "the same pending intake job collects a different exact item")
+    check(realTransport.foreignProtected(nextCargo, actor) == true
+            and realTransport.foreignProtected(abandoned, actor) == false,
+        "reused job protects its current cargo without reviving an abandoned marker")
+    check(select(2, Floor.update(actor, nextState, reusedJob)) == "floor_item_stored"
+            and contains(storage, nextCargo) and contains(inventory, abandoned),
+        "storing the new cargo leaves the abandoned physical item untouched")
+    local dropped, abandonedWrapper = SC.GameplayUtil.dropItem(inventory, source, abandoned)
+    check(dropped == true and abandoned.worldItem == abandonedWrapper,
+        "the abandoned exact item can be put back onto the sorting floor")
+    local retryState = {}
+    check(select(2, Floor.update(actor, retryState, reusedJob)) == "floor_pickup_animation",
+        "the same live job reclaims a stale-marked item instead of calling the floor empty")
+    check(select(2, Floor.update(actor, retryState, reusedJob)) == "floor_item_carried"
+            and reusedJob.target.floorCargo.itemId == abandoned.id
+            and contains(inventory, abandoned)
+            and SC.GameplayUtil.worldItemPresent(source, abandonedWrapper) == false,
+        "re-intake keeps the original identity with one physical owner")
+    check(select(2, Floor.update(actor, retryState, reusedJob)) == "floor_item_stored"
+            and contains(storage, abandoned) and not contains(inventory, abandoned)
+            and abandoned.modData.LF_FloorSortJob == nil,
+        "recovered cargo reaches storage and releases its marker")
+    table.remove(base.jobs, 1)
 end
 
 -- An item the worker has no room for is set aside like one with no storage.

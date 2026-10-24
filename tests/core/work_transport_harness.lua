@@ -2553,6 +2553,41 @@ do
     ItemTag, Fluid, ZomboidGlobals, SC.Downtime = oldTag, oldFluid, oldGlobals, oldDowntime
 end
 
+-- A reusable sorting-floor job may abandon an unreadable/oversized cargo
+-- claim when its worker leaves duty. Only the exact current claim remains
+-- reserved, including after a save has retained stale item markers.
+do
+    local ctx = setup("logs", 1)
+    local current, abandoned = makeItem("Base.Potato"), makeItem("Base.Potato")
+    ctx.actor.inventory:AddItem(current)
+    ctx.storageObject.container:AddItem(abandoned)
+    local queued, floorJob = SC.BaseLife.enqueueJob({ type = "sort_floor", priority = 2,
+        target = { zoneId = "sorting:ownership", x = 0, y = 0, z = 0 } })
+    check(queued == true and floorJob ~= nil, "a reusable floor intake job queues")
+    current.modData.LF_FloorSortJob, abandoned.modData.LF_FloorSortJob = floorJob.id, floorJob.id
+    floorJob.target.floorCargo = { itemId = current.nativeId }
+    check(SC.WorkTransport.foreignProtected(current, ctx.actor) == true
+            and SC.WorkTransport.foreignProtected(abandoned, ctx.actor) == false,
+        "floor ownership protects the exact current item, not old cargo in storage")
+    floorJob.target.floorCargo = nil
+    check(SC.WorkTransport.foreignProtected(current, ctx.actor) == false,
+        "a released floor claim does not reserve its previously carried item")
+    for _, malformed in ipairs({ true, "unreadable", {}, { itemId = "invalid" } }) do
+        floorJob.target.floorCargo = malformed
+        check(SC.WorkTransport.foreignProtected(current, ctx.actor) == false,
+            "malformed saved floor cargo cannot reserve an unrelated exact item")
+    end
+    floorJob.target.floorCargo = { itemId = current.nativeId }
+    local jobLookup = SC.BaseLife.job
+    SC.BaseLife.job = nil
+    check(SC.WorkTransport.foreignProtected(current, ctx.actor) == true,
+        "a temporarily unavailable ownership service preserves floor cargo protection")
+    SC.BaseLife.job = jobLookup
+    check(SC.BaseLife.completeJob(floorJob.id, nil, "ownership_test") == true
+            and SC.WorkTransport.foreignProtected(current, ctx.actor) == false,
+        "a deleted floor job leaves no reservation on its old physical item")
+end
+
 local gatherMetrics = SC.GatherWork.diagnostics()
 local transportMetrics = SC.WorkTransport.diagnostics()
 check(type(transportMetrics.pendingReceipts) == "number"

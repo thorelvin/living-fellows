@@ -148,6 +148,7 @@ try {
                 (Join-Path $SharedRoot 'SCNativeList.lua'),
                 (Join-Path $ClientRoot 'SCGameplayUtil.lua'),
                 (Join-Path $TestRoot 'base_work_fixture.lua'),
+                (Join-Path $ClientRoot 'SCWorkTransport.lua'),
                 (Join-Path $ClientRoot 'SCFloorSort.lua'),
                 (Join-Path $ClientRoot 'SCBaseWork.lua'),
                 (Join-Path $TestRoot 'floor_sort_harness.lua')
