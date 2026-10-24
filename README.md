@@ -12,7 +12,7 @@ Persistent companions, survivor households, and living bases for Project Zomboid
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.21.0-red.svg)](#requirements)
-[![Release](https://img.shields.io/badge/release-0.26.61-blue.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-0.26.62-blue.svg)](CHANGELOG.md)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 
 Living Fellows turns the survivors you meet into persistent people. They can join you, fight and travel with you, help run a base, and make their own survival decisions. Companions are native human actors with real inventories, injuries, skills, and permanent death.
@@ -225,7 +225,7 @@ A page is never rewritten, and nothing is written after the author dies. The boo
 
 Zones include the camp boundary, work area, sorting floor, trash pile, lumber area, farm area, burial ground, pyre, rest, social, guard, rally, and quarantine areas. Every zone lies inside the camp except lumber areas, farm areas, burial grounds, and pyres, which may also lie up to 30 tiles beyond the camp boundary. A pyre is at most nine tiles and must pass a fire-safety check when you draw it.
 
-**Sorting floor and trash pile.** Drop loot on a marked Sorting floor and residents on base duty, Quartermasters first, carry each exact item to marked storage of its category by the shelf sorter's rules; valuables wait for marked Valuables storage instead of going to General. Trash goes onto a marked Trash pile and stays there on the ground. An item with no marked storage, or only full storage, stays on the floor, and the camp list names the missing category. A worker that cannot store what it carries takes it back to its tile first, and one that is interrupted puts it down where it stands. Both zones lie inside the camp, are at most 256 tiles each, and may not overlap each other.
+**Sorting floor and trash pile.** Drop loot on a marked Sorting floor and residents on base duty, Quartermasters first, carry each exact item to marked storage of its category by the shelf sorter's rules; valuables wait for marked Valuables storage instead of going to General. Trash goes onto a marked Trash pile and stays there on the ground. An item with no marked storage, or only full storage, stays on the floor, and the camp list names the missing category. A worker that cannot store what it carries takes it back to its tile first, and one that is interrupted puts it down where it stands. If the item is gone from the worker's pack, because you took it or it was used up, the job lets it go. Both zones lie inside the camp, are at most 256 tiles each, and may not overlap each other.
 
 **Floors and stairs.** A complete staircase inside the camp area automatically extends the camp boundary to the connected floor, above or below, including a basement. This also happens after you build stairs, once the stair and landing tiles are loaded. The generated area follows the current camp rectangle and admits only tiles with a real floor; use **Show base layout** to inspect it. You can remove the generated area to stop this automatic extension on that floor, or draw your own area there. Mark upper-floor storage normally so residents can use it. A woodcutter can work in a marked lumber area outside camp, then use the stairs to carry logs to storage on a connected floor.
 

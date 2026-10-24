@@ -1,11 +1,9 @@
-Living Fellows 0.26.61 - public playtest
+Living Fellows 0.26.62 - public playtest
 
-Companions keep route progress through small crowd nudges, guards finish
-their patrol route before pausing, and searches share planning allowance
-more fairly. Body haulers keep dragging through doors. Cargo delivery finds
-the real trunk on modded vehicles and uses the worker's native capacity.
-Reading lasts one to three minutes, and base work handles action handoffs
-and borrowed cleaning supplies more reliably.
+A floor sorter carrying a lot no longer gets stuck on base duty when the
+item it picked up goes missing. A resident who stops resting on the way to
+a light switch stops walking there, a guard called away from its post walks
+back, and quiet camp route planning backs off when the game is struggling.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added
