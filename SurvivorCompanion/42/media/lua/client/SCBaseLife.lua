@@ -3293,22 +3293,22 @@ local function autonomousLogStorage(base, actorId)
                     for _, item in ipairs(U().inventoryItems(container, 128)) do
                         if U().itemType(item) == "Base.Log" then log = item break end
                     end
-                    local used, usedOk = U().call(container, "getCapacityWeight")
-                    local capacity, capacityOk = U().call(container, "getCapacity")
-                    if not capacityOk or type(capacity) ~= "number" or capacity <= 0 then
-                        capacity, capacityOk = U().call(container, "getMaxWeight")
-                    end
                     -- Use a real stored log when available. Base.Log weighs 9
                     -- in the base game; the haul action checks the actual item.
-                    local logWeight = log and U().itemWeight(log) or 9
-                    local numericRoom = not usedOk or not capacityOk
-                        or type(used) ~= "number" or type(capacity) ~= "number"
-                        or capacity <= 0 or used + logWeight <= capacity
-                    if numericRoom then
-                        if log and actor then
-                            local room, called = U().call(container, "hasRoomFor", actor, log)
-                            if not called or room == true then return storage end
-                        else
+                    if log then
+                        if U().containerHasRoom(container, actor, log) == true then
+                            return storage
+                        end
+                    else
+                        local free, freeOk = U().call(container, "getFreeCapacity", actor)
+                        if not freeOk or type(free) ~= "number" then
+                            local used, usedOk = U().call(container, "getCapacityWeight")
+                            local capacity, capacityOk = U().call(
+                                container, "getEffectiveCapacity", actor)
+                            free = usedOk and capacityOk and type(used) == "number"
+                                and type(capacity) == "number" and capacity - used or nil
+                        end
+                        if type(free) == "number" and free >= 9 then
                             return storage
                         end
                     end

@@ -151,6 +151,10 @@ SC.Commands = { peek = function(value)
 end }
 SC.BaseLife = { isInside = function() return false end }
 SC.Vehicle = { loadedBySqlId = function(id) return id == 42 and car or nil end,
+    cargoPart = function(vehicle)
+        local part = vehicle and (vehicle.cargoOverride or vehicle.part)
+        return part, part and part.bag, part == nil and "car_trunk_missing" or nil
+    end,
     isStationary = function() return true end,
     boardingSquares = function(value, vehicle, seat)
         if vehicle == car and seat < 2 then return { square(101, 102) }, seat end
@@ -175,7 +179,10 @@ SC.Dialogue = { say = function(_, topic)
     return true
 end }
 SC.TaxiCab = { isOwned = function() return false end }
-SC.WorkTransport = { hasRoom = function(bag) return bag.room ~= false end }
+SC.WorkTransport = { hasRoom = function(bag)
+    if bag.room == false then return false, "destination_full" end
+    return true
+end }
 SC.Navigation = {
     interactionTargets = function(value, target)
         return { square(target.x + 1, target.y) }
@@ -1447,6 +1454,174 @@ do
         and square(620, 620).tree == nil,
         "the handed-back tree is cleared before the order completes")
 end
+
+-- A native rejection with room available is not a full trunk. Preserve exact
+-- nested harvest cargo and allow the paused order to retry after save/load.
+(function()
+    local plainRoom = SC.WorkTransport.hasRoom
+    -- The real cargo resolver is covered by the vehicle harness. Here the
+    -- F-350 shape proves field work honors that resolver instead of selecting
+    -- the hidden compatibility TruckBed part by name.
+    Field.restore(nil)
+    spoken = {}
+    one.bag = inventory()
+    one.x, one.y, player.x, player.y, car.x, car.y = 760, 759, 760, 760, 770, 760
+    one.follow, two.follow, one.pending, one.active = true, false, nil, false
+    one.carryCapacity = 10
+    local originalPart, originalGetter, originalById = car.part, car.getTrunkPart, car.getPartById
+    local placeholder = { id = "TruckBed", bag = inventory() }
+    placeholder.bag.room, placeholder.bag.capacity = false, 0
+    function placeholder:getItemContainer() return self.bag end
+    function placeholder:getArea() return "TruckBed" end
+    local realCargo = { id = "F3502Trunk", bag = inventory() }
+    realCargo.bag.capacity, realCargo.bag.effectiveCapacity, realCargo.bag.weight = 155, 201, 84.7
+    function realCargo:getItemContainer() return self.bag end
+    function realCargo:getArea() return "Trunk" end
+    car.part, car.cargoOverride, car.getTrunkPart = placeholder, realCargo, nil
+    function car:getPartById(id) return id == "TruckBed" and placeholder or nil end
+    local crop = cropAt(760, 760, true)
+    Field.observePlayerVehicle(car)
+    check(Field.start("harvest", crop, player) == true, "F-350 custom cargo-part harvest starts")
+    SC.WorkTransport.hasRoom = function(destination, worker, exact)
+        check(destination == realCargo.bag and worker == one,
+            "field harvest checks the real155-unit F-350 trunk, never hidden zero-capacity TruckBed")
+        return plainRoom(destination, worker, exact)
+    end
+    for _ = 1, 180 do
+        Field.update(one, player)
+        if one.pending and one.pending.operation == "harvest" and one.active then
+            finish(one, "harvest", 3)
+        end
+        if Field.status().phase == "complete" then break end
+    end
+    check(Field.status().phase == "complete" and Field.status().loaded == 3
+            and #realCargo.bag.items == 3 and #placeholder.bag.items == 0
+            and #one.bag.items == 0 and Field.export().active.capacityNotice == nil,
+        "a partly filled custom F-350 trunk receives the exact harvest without a false-full warning")
+    car.part, car.cargoOverride, car.getTrunkPart, car.getPartById =
+        originalPart, nil, originalGetter, originalById
+    SC.WorkTransport.hasRoom = plainRoom
+    local cases = {
+        { name = "restricted item", reason = "destination_item_rejected" },
+        { name = "unavailable capacity", reason = "capacity_unavailable" },
+        { name = "unknown adapter result" },
+        { name = "native adapter error", throws = true },
+        { name = "missing adapter", missing = true },
+    }
+    for index, scenario in ipairs(cases) do
+        Field.restore(nil)
+        spoken = {}
+        one.bag, car.part.bag = inventory(), inventory()
+        one.x, one.y, player.x, player.y, car.x, car.y =
+            800 + index * 40, 799, 800 + index * 40, 800, 810 + index * 40, 800
+        one.follow, two.follow, one.pending, one.active = true, false, nil, false
+        one.carryCapacity = 10
+        local backpack, contents = item("Base.Duffelbag"), inventory()
+        function backpack:getItemContainer() return contents end
+        put(one.bag, backpack)
+        one.harvestDestination = contents
+        local crop = cropAt(player.x, player.y, true)
+        crop.plant.hasSeed = true
+        Field.observePlayerVehicle(car)
+        check(Field.start("harvest", crop, player) == true,
+            scenario.name .. " recovery order starts")
+        local blocked = true
+        if scenario.missing then SC.WorkTransport.hasRoom = nil
+        else
+            SC.WorkTransport.hasRoom = function(destination, worker, exact)
+                check(destination == car.part.bag and worker == one and exact.container == contents,
+                    "capacity checks use the assigned trunk, actual carrier and exact nested item")
+                if blocked then
+                    if scenario.throws then error("injected native capacity failure") end
+                    return false, scenario.reason
+                end
+                return plainRoom(destination, worker, exact)
+            end
+        end
+        for _ = 1, 180 do
+            Field.update(one, player)
+            if one.pending and one.pending.operation == "harvest" and one.active then
+                finish(one, "harvest", 3)
+            end
+            if Field.status().phase == "paused" then break end
+        end
+        one.harvestDestination = nil
+        local expected = scenario.reason or "capacity_unavailable"
+        local saved = Field.export()
+        local worker = saved.active.workers.one
+        check(Field.status().phase == "paused" and Field.status().blocker == expected
+                and Field.status().loaded == 0 and worker.skipDeposit ~= true
+                and saved.active.capacityNotice == nil and #contents.items == 4
+                and #car.part.bag.items == 0 and #crop.world == 0
+                and not string.find(tostring(Field.status().note), "trunk is full", 1, true),
+            scenario.name .. " pauses without claiming a full trunk or abandoning delivery")
+        local exactCargo = {}
+        for _, exact in ipairs(contents.items) do
+            exactCargo[#exactCargo + 1] = exact
+            check(exact.data.LF_FieldOrder == saved.active.id and Field.reserved(exact),
+                "paused cargo keeps its exact order reservation")
+        end
+        check(Field.restore(saved) == true and Field.resume() == true,
+            scenario.name .. " delivery remains resumable across save/load")
+        blocked = false
+        if scenario.missing then SC.WorkTransport.hasRoom = plainRoom end
+        for _ = 1, 180 do
+            Field.update(one, player)
+            if Field.status().phase == "complete" then break end
+        end
+        check(Field.status().phase == "complete" and Field.status().loaded == 4
+                and #contents.items == 0 and #one.bag.items == 1 and #car.part.bag.items == 4,
+            scenario.name .. " resumes and unloads produce and seed without moving the worn bag")
+        for _, exact in ipairs(exactCargo) do
+            check(exact.container == car.part.bag and exact.data.LF_FieldOrder == nil
+                    and not Field.reserved(exact),
+                "each resumed item reaches the assigned trunk exactly once")
+        end
+        SC.WorkTransport.hasRoom = plainRoom
+    end
+
+    -- A failed check partway through an eight-item batch must not re-transfer
+    -- already verified deposits when the same order resumes.
+    Field.restore(nil)
+    spoken = {}
+    one.bag, car.part.bag = inventory(), inventory()
+    one.x, one.y, player.x, player.y, car.x, car.y = 1100, 1099, 1100, 1100, 1110, 1100
+    one.pending, one.active = nil, false
+    local crop = cropAt(1100, 1100, true)
+    Field.observePlayerVehicle(car)
+    check(Field.start("harvest", crop, player) == true, "partial cargo batch order starts")
+    local checksAtTrunk, reject = 0, true
+    SC.WorkTransport.hasRoom = function(destination, worker, exact)
+        checksAtTrunk = checksAtTrunk + 1
+        if reject and checksAtTrunk == 3 then return false, "capacity_unavailable" end
+        return plainRoom(destination, worker, exact)
+    end
+    for _ = 1, 180 do
+        Field.update(one, player)
+        if one.pending and one.pending.operation == "harvest" and one.active then
+            finish(one, "harvest", 12)
+        end
+        if Field.status().phase == "paused" then break end
+    end
+    check(Field.status().phase == "paused" and Field.status().loaded == 2
+            and #car.part.bag.items == 2 and #one.bag.items == 10,
+        "only successful exact deposits count before a mid-batch check failure")
+    reject = false
+    check(Field.resume() == true, "a partial batch can resume")
+    for _ = 1, 180 do
+        Field.update(one, player)
+        if Field.status().phase == "complete" then break end
+    end
+    local seen = {}
+    for _, exact in ipairs(car.part.bag.items) do
+        check(not seen[exact], "resuming a partial batch never duplicates an item")
+        seen[exact] = true
+    end
+    check(Field.status().phase == "complete" and Field.status().loaded == 12
+            and #car.part.bag.items == 12 and #one.bag.items == 0,
+        "partial-batch recovery verifies all cargo once and finishes")
+    SC.WorkTransport.hasRoom = plainRoom
+end)()
 
 Field.restore(nil)
 local bad = Field.restore({ schema = 1, serial = -1 })

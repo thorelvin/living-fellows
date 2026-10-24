@@ -185,6 +185,7 @@ local function item(itemType, category, options)
     function value:getUses() return self.uses end
     function value:getKeyId() return self.keyId or -1 end
     function value:getActualWeight() return self.weight or 1 end
+    function value:getUnequippedWeight() return self:getActualWeight() end
     function value:getWeight() return self.weight or 1 end
     function value:getHungerChange() return self.hungerChange or 0 end
     function value:getHungChange() return self.hungerChange or 0 end
@@ -272,19 +273,22 @@ local function inventory(initial)
         for _, candidate in ipairs(self.items) do total = total + candidate:getActualWeight() end
         return total
     end
-    function value:getEffectiveCapacity(character) return self.capacity end
+    function value:getEffectiveCapacity(character) return self.effectiveCapacity or self.capacity end
+    function value:getFreeCapacity(character)
+        return math.max(0, self:getEffectiveCapacity(character) - self:getCapacityWeight())
+    end
     function value:getMaxWeight() return self.capacity end
     function value:getCapacity() return self.capacity end
     function value:hasRoomFor(character, candidate)
         if self.capacityCheckThrows then error("injected capacity check failure") end
-        if self.rejectRoom then return false end
         self.lastCapacityOwner = character
+        if self.rejectRoom then return false end
         if self.expectedCapacityOwner ~= nil and character ~= self.expectedCapacityOwner then
             self.capacityOwnerMismatch = true
             return false
         end
-        return self:getCapacityWeight() + candidate:getActualWeight()
-            <= self.capacity + 0.001
+        return self:getCapacityWeight() + candidate:getUnequippedWeight()
+            <= self:getEffectiveCapacity(character) + 0.001
     end
     function value:haveThisKeyId(keyId)
         for _, candidate in ipairs(self.items) do
@@ -13603,6 +13607,70 @@ SurvivorCompanion.Config.values.scavengeLootReactionChancePercent = savedReactio
 end
 
 do
+    -- Commit/verify do not yield during a normal loot pass. If a provider
+    -- raises between those steps, however, the base-job handoff must not wait
+    -- forever for a controller which no longer reaches its commit branch.
+    -- Use the real scavenge token/onCancel and the Decision ownership gate.
+    local SC = SurvivorCompanion
+    local originalClock, originalNative = clock, SC.NativeActions
+    SC.NativeActions = {
+        visualStatus = function() return "active", "loot_container" end,
+        clearVisual = function() end,
+        stopDirect = function() return true end,
+    }
+    for index, phase in ipairs({ "commit", "verify" }) do
+        local looter = actor("sc-loot-handoff-timeout-" .. phase, -22 - index, 4, {})
+        registry[looter.id] = looter
+        SC.Commands.issue(looter.id, "set_scavenge", true, player)
+        looter.hunger = 0.95
+        local exactItem = item("Base.CannedChili", "Food")
+        local source = containerObject(looter.square, { exactItem })
+        local runtime = { snapshot = { threats = {}, immediateAttackers = {},
+            immediateCount = 0, threatCount = 0, pressure = 0, player = { danger = 0 } } }
+        local started, startReason = SC.Encounter.tryScavenge(looter, nil, runtime)
+        local task = SC.Encounter.peek(looter).task
+        local token = task and task.supervisorToken
+        check(started and token and startReason == "looting"
+                and SC.ActionSupervisor.isCurrent(token),
+            "handoff timeout fixture acquires a real scavenge token for " .. phase)
+        SC.ActionSupervisor.markVisualVerified(token, { action = "loot_container" })
+        check(SC.ActionSupervisor.transition(token, "committing") == true,
+            "handoff timeout fixture reaches a protected commit")
+        if phase == "verify" then
+            check(SC.GameplayUtil.transferItemVerified(source, looter.inventory, exactItem) == true
+                    and SC.ActionSupervisor.transition(token, "verifying") == true,
+                "verify fixture has already moved the exact item once")
+        end
+        task.phase = phase
+        local cancelled, why = SC.Encounter.cancelScavenge(looter, "base_job_assigned")
+        check(cancelled == false and why == "scavenge_commit_in_progress"
+                and SC.ActionSupervisor.isCurrent(token),
+            "base work preserves the live " .. phase .. " transaction before its deadline")
+        local commands = { recruited = true, order = "base_duty", commandSerial = 0 }
+        local health = { alive = true, health = 100, bleedingCount = 0 }
+        check(SC.Decision._holdOwnedActivityOrPacingForTests(looter, player,
+                runtime.snapshot, health, {}, commands, {}, clock, runtime) == true,
+            "Decision preserves a protected scavenge transaction before timeout")
+        clock = clock + 1100
+        local held = SC.Decision._holdOwnedActivityOrPacingForTests(looter, player,
+            runtime.snapshot, health, {}, commands, {}, clock, runtime)
+        local released = SC.Encounter.cancelScavenge(looter, "base_job_assigned")
+        check(held == false and released == true
+                and SC.Encounter.peek(looter).task == nil
+                and not SC.ActionSupervisor.isCurrent(token)
+                and SC.ActionSupervisor.snapshot(looter).reservationCount == 0,
+            "the ordinary Decision poll times out and releases a stranded " .. phase .. " handoff")
+        check(source:contains(exactItem) == (phase == "commit")
+                and looter.inventory:contains(exactItem) == (phase == "verify"),
+            "timeout cleanup neither repeats nor undoes the exact " .. phase .. " item transfer")
+        SC.Encounter.reset(looter)
+        SC.Commands.reset(looter)
+        registry[looter.id] = nil
+    end
+    clock, SC.NativeActions = originalClock, originalNative
+end
+
+do
 local wornOutFood = item("Base.DentedMysteryCan", "Food", {
     condition = 2, conditionMax = 10,
 })
@@ -14049,6 +14117,35 @@ do
     SurvivorCompanion.Logistics.reset(carrier)
 end
 
+do
+    for _, case in ipairs({
+        { name = "organized", used = 10, effective = 13, allowed = true },
+        { name = "disorganized", used = 6, effective = 7, allowed = false },
+        { name = "restricted", used = 1, effective = 13, allowed = false, rejected = true },
+    }) do
+        local bagContents = inventory({ item("Base.StoredMass", "Item", { weight = case.used }) })
+        bagContents.capacity, bagContents.effectiveCapacity = 10, case.effective
+        bagContents.rejectRoom = case.rejected
+        local bag = item("Base.Bag_TraitCapacity" .. case.name, "Container", {
+            nestedInventory = bagContents, bagCapacity = 10, weightReduction = 80,
+            bodyLocation = "Back", equipLocation = "Back", weight = 1,
+        })
+        local food = item("Base.CannedCornTraitCapacity", "Food", { weight = 2 })
+        local carrier = actor("sc-logistics-capacity-" .. case.name, 11, 2,
+            { inventory = inventory({ bag, food }) })
+        carrier:setWornItem("Back", bag)
+        bagContents.expectedCapacityOwner = carrier
+        local destination = SurvivorCompanion.Logistics.preferredLootDestination(carrier, food)
+        local load = SurvivorCompanion.Logistics.status(carrier)
+        check((destination == bagContents) == case.allowed
+                and (load.packMove ~= nil and load.packMove.item == food) == case.allowed
+                and bagContents.lastCapacityOwner == carrier
+                and bagContents.capacityOwnerMismatch ~= true,
+            "loot and pack selection preserve native " .. case.name .. " bag admission")
+        SurvivorCompanion.Logistics.reset(carrier)
+    end
+end
+
 local fullInventory = inventory({ item("Base.HeavyJunk", "Item", { weight = 4 }) })
 fullInventory.capacity = 5
 local fullActor = actor("sc-loadout-full", 9, 0, { inventory = fullInventory })
@@ -14204,6 +14301,27 @@ check(not cancelledPack and cancelledPackReason == "logistics_unsafe"
         and SurvivorCompanion.ActionSupervisor.snapshot(phasedActor).phase == "idle"
         and SurvivorCompanion.ActionSupervisor.reservationCount(phasedActor) == 0,
     "danger cancels post-loot packing before mutation and releases its reservation")
+
+local capacityFood = item("Base.CannedCornPackCapacityRace", "Food", { weight = 2 })
+phasedActor.inventory:AddItem(capacityFood)
+SurvivorCompanion.Logistics.reset(phasedActor)
+phasedState = "active"
+check(SurvivorCompanion.Logistics.update(phasedActor, nil, { snapshot = {
+        threats = {}, immediateCount = 0, threatCount = 0, pressure = 0,
+    } }), "capacity-change pack fixture starts before the worn bag fills")
+phasedBagInventory.effectiveCapacity = phasedBagInventory:getCapacityWeight()
+phasedState = "completed"
+local capacityFinished, capacityReason = SurvivorCompanion.Logistics.update(
+    phasedActor, nil, { snapshot = {
+        threats = {}, immediateCount = 0, threatCount = 0, pressure = 0,
+    } })
+check(not capacityFinished and capacityReason == "destination_full"
+        and phasedActor.inventory:contains(capacityFood)
+        and not phasedBagInventory:contains(capacityFood)
+        and SurvivorCompanion.ActionSupervisor.snapshot(phasedActor).phase == "idle"
+        and SurvivorCompanion.ActionSupervisor.reservationCount(phasedActor) == 0,
+    "a bag filling during the Loot pose prevents the exact transfer and releases ownership")
+phasedBagInventory.effectiveCapacity = nil
 
 local stalledBagInventory = inventory()
 stalledBagInventory.capacity = 18
@@ -14927,7 +15045,16 @@ local safeRuntime = { snapshot = { threats = {}, threatCount = 0, immediateCount
 local downtimeStarted = SurvivorCompanion.Downtime.update(idleActor, player, safeRuntime)
 clock = clock + 1
 local downtimeFinished = SurvivorCompanion.Downtime.update(idleActor, player, safeRuntime)
-check(downtimeStarted and downtimeFinished and SurvivorCompanion.Downtime.peek(idleActor).lastFact.activity == "read", "safe actor reads despite a legacy craft preference")
+check(downtimeStarted and downtimeFinished
+        and SurvivorCompanion.Downtime.peek(idleActor).active.kind == "read"
+        and SurvivorCompanion.Downtime.peek(idleActor).active.durationMs >= 60000
+        and SurvivorCompanion.Downtime.peek(idleActor).active.durationMs <= 180000
+        and (idleActor.modData.SC_ReadingPages or {})[book:getFullType()] == nil,
+    "legacy craft preference permits reading without crediting the longer chapter early")
+clock = clock + SurvivorCompanion.Downtime.peek(idleActor).active.durationMs
+downtimeFinished = SurvivorCompanion.Downtime.update(idleActor, player, safeRuntime)
+check(downtimeFinished and SurvivorCompanion.Downtime.peek(idleActor).lastFact.activity == "read",
+    "safe actor finishes the full reading chapter despite a legacy craft preference")
 clock = clock + 1
 SurvivorCompanion.Downtime.update(idleActor, player, safeRuntime)
 check(SurvivorCompanion.Downtime.peek(idleActor).active == nil,
@@ -15095,6 +15222,14 @@ do
     local borrowed = reader.inventory:contains(sharedBook) and not shelf:contains(sharedBook)
     clock = clock + 1
     local finished = SurvivorCompanion.Downtime.update(reader, player, safeRuntime)
+    check(started and finished and borrowed
+            and SurvivorCompanion.Downtime.peek(reader).active.kind == "read"
+            and SurvivorCompanion.Downtime.peek(reader).active.durationMs >= 60000
+            and SurvivorCompanion.Downtime.peek(reader).active.durationMs <= 180000
+            and (reader.modData.SC_ReadingPages or {})[sharedBook:getFullType()] == nil,
+        "a newly borrowed library chapter stays active without early page credit")
+    clock = clock + SurvivorCompanion.Downtime.peek(reader).active.durationMs
+    finished = SurvivorCompanion.Downtime.update(reader, player, safeRuntime)
     check(started == true and borrowed and finished == true
             and not shelf:contains(sharedBook) and reader.inventory:contains(sharedBook)
             and (tonumber((reader.modData.SC_ReadingPages or {})["Base.BookCarpentry1"])

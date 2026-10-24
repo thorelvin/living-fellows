@@ -118,6 +118,48 @@ the clone so only the probe's body is collected:
 `UPSTAIRS_WINDOW` lines in the console list every upper window with what lies
 outside it; a failure reports the hauler's navigation and animation state.
 
+The office haul probe uses the loaded camp's actual rooms and doors, preferring
+Jill and the room named `office`. It reuses or creates a native empty grave in
+the marked burial plot, stages one real corpse and the worker on verified clear
+floor, then runs collection through the normal production controller. A pass
+requires three distinct real door crossings while dragging, no window throw,
+and the corpse released inside the burial plot within three minutes. It leaves
+other residents and the house's walls, furniture and doors in place. Jill's
+normal Decision scheduler, spatial batching, movement renewal and base-job
+lease run the job. Her other collection orders are paused in the clone and the
+actual fixture job receives priority 5. Staging issues the normal Base duty
+command and cancels the old retained work before placement. Selected unprotected
+surplus may be stowed in existing camp containers so routine unloading cannot
+replace the test job. Exact item identities and original containers are recorded
+and restored afterward; equipment, personal items and essential supplies remain
+carried. Temporary command, order/job states, body
+exclusions and the decision observer are restored when the probe finishes.
+Survey-only does not stage a hauling job.
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -OfficeHaulProbe -LivingFellowsOnly -TimeoutSeconds 420
+.\scripts\Invoke-LiveSandboxTests.ps1 -OfficeHaulProbe -OfficeHaulSurveyOnly -LivingFellowsOnly
+```
+
+`OFFICE_ROOM`, `OFFICE_DOOR`, `OFFICE_ZONE` and `OFFICE_HAUL_TRACE` record native
+geometry, door crossings, search age, expansions and active slice budget,
+Decision ownership, sensing completeness and the grappled body's position.
+Native screenshots remain in the run's cache.
+`-OfficeHaulBaseline` restores committed production/navigation/traversal Lua in
+the disposable payload for comparison; the checkout and installed game remain
+unchanged.
+
+The field cargo probe tests unloading into the installed '93 Ford F-350 Dually.
+The runner copies that mod and its DAMN Library dependency into the disposable
+cache, including when `-LivingFellowsOnly` is used. It does not download, install
+or change the user's mods. The probe stages real produce and seeds in a nested
+bag to represent a saved post-harvest delivery, checks the real cargo part and
+native worker capacity, and verifies exact item ownership after unloading.
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -FieldCargoProbe -LivingFellowsOnly -NoSteam -IsolatedSourceBridge -TimeoutSeconds 420
+```
+
 To verify the camp alarm, the probe puts one new resident to sleep in a real
 camp bed beside an outside wall, stands a second in the yard just outside that
 wall and a third about eight tiles off, sends the save's own residents out of

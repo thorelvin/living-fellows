@@ -74,6 +74,7 @@ end
 
 function Routes.key(actor, goalSquare, intent)
     intent = type(intent) == "table" and intent or {}
+    if intent.draggingBody == true then return nil end
     local routeClass = intent.workRouteClass
         or workRouteClasses[tostring(intent.action or "")]
     if intent.workRoute ~= true and routeClass == nil then return nil end

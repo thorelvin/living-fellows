@@ -154,6 +154,44 @@ try {
             )
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @floorSortFiles
             if ($LASTEXITCODE -ne 0) { throw 'Floor sorting regression harness failed.' }
+            $guardPatrolFiles = @(
+                (Join-Path $ProjectRoot 'tests\core\core_fixture.lua'),
+                (Join-Path $SharedRoot 'SCNamespace.lua'),
+                (Join-Path $SharedRoot 'SCCall.lua'),
+                (Join-Path $SharedRoot 'SCNativeList.lua'),
+                (Join-Path $TestRoot 'base_guard_patrol_fixture.lua'),
+                (Join-Path $ClientRoot 'SCBaseWork.lua'),
+                (Join-Path $TestRoot 'base_guard_patrol_harness.lua')
+            )
+            & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @guardPatrolFiles
+            if ($LASTEXITCODE -ne 0) { throw 'Base guard patrol liveness harness failed.' }
+            $encounterHandoffFiles = @(
+                (Join-Path $SharedRoot 'SCNamespace.lua'),
+                (Join-Path $ClientRoot 'SCEncounter.lua'),
+                (Join-Path $TestRoot 'encounter_handoff_harness.lua')
+            )
+            & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @encounterHandoffFiles
+            if ($LASTEXITCODE -ne 0) { throw 'Encounter work handoff regression harness failed.' }
+            $decisionArbitrationFiles = @(
+                (Join-Path $SharedRoot 'SCNamespace.lua'),
+                (Join-Path $SharedRoot 'SCCall.lua'),
+                (Join-Path $ClientRoot 'SCActionSupervisor.lua'),
+                (Join-Path $ClientRoot 'SCDecision.lua'),
+                (Join-Path $TestRoot 'decision_arbitration_harness.lua')
+            )
+            & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @decisionArbitrationFiles
+            if ($LASTEXITCODE -ne 0) { throw 'Decision arbitration regression harness failed.' }
+            $readingSessionFiles = @(
+                (Join-Path $SharedRoot 'SCNamespace.lua'),
+                (Join-Path $SharedRoot 'SCCall.lua'),
+                (Join-Path $SharedRoot 'SCConfig.lua'),
+                (Join-Path $TestRoot 'reading_session_fixture.lua'),
+                (Join-Path $ClientRoot 'SCActionSupervisor.lua'),
+                (Join-Path $ClientRoot 'SCDowntime.lua'),
+                (Join-Path $TestRoot 'reading_session_harness.lua')
+            )
+            & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @readingSessionFiles
+            if ($LASTEXITCODE -ne 0) { throw 'Reading session regression harness failed.' }
             $autonomyGroundFiles = @(
                 (Join-Path $SharedRoot 'SCNamespace.lua'),
                 (Join-Path $ClientRoot 'SCAutonomy.lua'),

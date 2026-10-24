@@ -234,7 +234,7 @@ SC.BaseWork.depositToStorage = originalDeposit
 local cargo = T.item("cargo", "food")
 T.car = { id = 77, locked = true, trunk = T.container({ cargo }) }
 function T.car:getPartById() return { getItemContainer = function()
-    return T.car.trunk end } end
+    return T.container({}) end } end
 mission.radioSession = "trip:4"
 mission.scout.vehicle = { sqlId = 77 }
 mission.scout.search.acquisitions = { { id = "cargo",

@@ -1283,9 +1283,13 @@ do
             "a search with no anchor is identified by the actor's own square")
         check(identity({ pathSearch = { anchorKey = "9:9:0" }, provisionalAdvances = 0 },
                 square(0, 0)) == tostring(here),
-            "an anchor is not used until a provisional advance has actually moved the actor")
+            "an anchor without a verified original start cannot retain source identity")
         check(identity({ pathSearch = { anchorKey = "9:9:0" }, provisionalAdvances = 1 },
-                square(0, 0)) == "9:9:0",
+                square(0, 0)) == tostring(here),
+            "a provisional flag alone cannot retain an unknown or arbitrarily distant origin")
+        check(identity({ pathSearch = { anchorKey = "9:1:0",
+                    route = { startSquare = square(9,1) } }, provisionalAdvances = 1 },
+                square(8, 1)) == "9:1:0",
             "a search that the actor has advanced under keeps its original anchor as its identity")
     end
 

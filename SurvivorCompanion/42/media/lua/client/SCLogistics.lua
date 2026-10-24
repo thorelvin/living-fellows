@@ -8,7 +8,6 @@ SC.Logistics = SC.Logistics or {}
 local Logistics = SC.Logistics
 local states = setmetatable({}, { __mode = "k" })
 local pendingGifts = setmetatable({}, { __mode = "k" })
-local containerHasRoom
 local storageFor
 
 local function U()
@@ -973,7 +972,7 @@ local function selectPackMove(actor, audit)
                     and record.category ~= "weapon"
                     and not clothingUpgrade and not bagUpgrade
                     and U().inventoryContains(record.source, record.item)
-                    and containerHasRoom(bagInventory, record.item) then
+                    and U().containerHasRoom(bagInventory, actor, record.item) == true then
                     local weight = U().itemWeight(record.item)
                     local priority = weight * 8
                         + ((roleWeights[audit.role] or {})[record.category] or 0)
@@ -1377,17 +1376,6 @@ function Logistics.status(actor)
     return audit
 end
 
-containerHasRoom = function(container, item)
-    local current, currentOk = U().call(container, "getCapacityWeight")
-    local capacity, capacityOk = U().call(container, "getCapacity")
-    if not capacityOk or type(capacity) ~= "number" or capacity <= 0 then
-        capacity, capacityOk = U().call(container, "getMaxWeight")
-    end
-    if not currentOk or not capacityOk or type(current) ~= "number"
-        or type(capacity) ~= "number" or capacity <= 0 then return true end
-    return current + U().itemWeight(item) <= capacity
-end
-
 -- Supplies go straight into the best worn bag when that bag can accept the
 -- exact item. Equipment upgrades remain at inventory root so the native equip
 -- action can take ownership without first creating another hidden transfer.
@@ -1404,11 +1392,14 @@ function Logistics.preferredLootDestination(actor, item, category, audit)
         if record.item ~= item then
             local score, location, nested = bagScore(record.item)
             if score and nested and isWorn(actor, record.item, location)
-                and containerHasRoom(nested, item) then
-                local current, currentOk = U().call(nested, "getCapacityWeight")
-                local capacity, capacityOk = U().call(nested, "getCapacity")
-                local free = currentOk and capacityOk and tonumber(capacity)
-                    and math.max(0, tonumber(capacity) - (tonumber(current) or 0)) or 0
+                and U().containerHasRoom(nested, actor, item) == true then
+                local free, freeOk = U().call(nested, "getFreeCapacity", actor)
+                if not freeOk or type(free) ~= "number" then
+                    local current, currentOk = U().call(nested, "getCapacityWeight")
+                    local capacity, capacityOk = U().call(nested, "getEffectiveCapacity", actor)
+                    free = currentOk and capacityOk and type(current) == "number"
+                        and type(capacity) == "number" and math.max(0, capacity - current) or 0
+                end
                 local candidateScore = score + free * 0.15
                 if bestScore == nil or candidateScore > bestScore then
                     best, bestScore, bestItem = nested, candidateScore, record.item
@@ -1452,7 +1443,8 @@ storageFor = function(actor, item, category, dedicatedOnly, ownerState)
         for _, storage in ipairs(SC.BaseLife.storageRows(storageType) or {}) do
             if storage.deposits ~= false then
                 local container, owner = SC.BaseLife.resolveContainer(storage)
-                if container and container ~= U().inventory(actor) and containerHasRoom(container, item) then
+                if container and container ~= U().inventory(actor)
+                    and U().containerHasRoom(container, actor, item) == true then
                     local distance = U().distance(actor, owner or container)
                     if distance <= (U().config("logisticsStorageRange") or 32)
                         and (bestDistance == nil or distance < bestDistance) then
@@ -1784,6 +1776,14 @@ local function executeTransaction(actor, state)
             or dropReason or "surplus_drop_failed"
         return terminalTransaction(actor, state, dropped == true, resultReason, {
             dropped = dropped == true, item = U().itemType(transaction.item),
+        })
+    end
+    -- Capacity or item restrictions can change while the transfer pose runs.
+    local room, capacityReason = U().containerHasRoom(
+        transaction.destination, actor, transaction.item)
+    if room ~= true then
+        return terminalTransaction(actor, state, false, capacityReason, {
+            kind = transaction.kind,
         })
     end
     local transferred, transferReason = U().transferItemVerified(

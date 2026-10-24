@@ -165,14 +165,20 @@ local function clearNativeVisual(actor)
     end
 end
 
-local function cancelOwnedVisual(actor, expectedAction, reason)
+local function cancelOwnedVisual(actor, expectedAction, reason, token)
+    if token and SC.NativeActions
+        and type(SC.NativeActions.cancelVisualOwned) == "function" then
+        return SC.NativeActions.cancelVisualOwned(actor, token, reason)
+    end
     local status = nativeVisualStatus(actor, expectedAction)
-    if status == nil or status == "none" or status == "different" then return end
+    if status == nil or status == "none" or status == "different" then return true end
     if SC.NativeActions and type(SC.NativeActions.cancelVisual) == "function" then
-        pcall(SC.NativeActions.cancelVisual, actor, reason)
+        local ok, cancelled, why = pcall(SC.NativeActions.cancelVisual, actor, reason)
+        return ok and cancelled ~= false, why
     else
         clearNativeVisual(actor)
     end
+    return true
 end
 
 local function containerOnCooldown(container, current)
@@ -1485,8 +1491,13 @@ cleanupScavengeTarget = function(actor, state, options)
     options = options or {}
     local task = state.task
     local container = task and task.container or state.container
-    if options.cancelVisual and task and task.phase == "animate" then
-        cancelOwnedVisual(actor, "loot_container", options.reason or "scavenge_cancelled")
+    if options.cancelVisual and task
+        and (task.phase == "animate" or task.visualToken ~= nil) then
+        local stopped = cancelOwnedVisual(actor, "loot_container",
+            options.reason or "scavenge_cancelled", task.visualToken)
+        if stopped == false and task.visualToken then
+            state.pendingVisualCancel = task.visualToken
+        end
     end
     if options.stopMovement then stopScavengeMovement(actor) end
     if options.cooldown and container then coolDownContainer(container, options.time or now()) end
@@ -1540,11 +1551,13 @@ local function resetScavengeTarget(actor, state, options)
         and service.isCurrent(token) and options.fromSupervisor ~= true then
         local terminal = options.phase or "cancelled"
         if terminal == "cancelled" and type(service.cancel) == "function" then
-            service.cancel(actor, options.reason or "scavenge_cancelled", nil, true)
+            local cancelled, why = service.cancel(actor,
+                options.reason or "scavenge_cancelled", nil, true)
+            if cancelled ~= true then return false, why or "scavenge_handoff_pending" end
             if state.task == task then
                 cleanupScavengeTarget(actor, state, options)
             end
-            return
+            return true
         end
         cleanupScavengeTarget(actor, state, options)
         if terminal == "failed" and type(service.fail) == "function" then
@@ -2084,6 +2097,10 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
     local utility = U()
     local rootRuntime = utility.actorState(actor, runtime)
     local state = stateFor(actor)
+    if state.pendingVisualCancel then
+        local stopped, why = Encounter.cancelScavenge(actor, "scavenge_cleanup_pending")
+        if stopped ~= true then return true, why or "scavenge_visual_cancel_pending" end
+    end
     local commands = commandState(actor)
     local snapshot = rootRuntime.senses and rootRuntime.senses.current or rootRuntime.snapshot
     local time = now()
@@ -2380,6 +2397,16 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
     end
 
     if task.phase == "animate" then
+        if task.visualToken and SC.NativeActions
+            and type(SC.NativeActions.visualToken) == "function"
+            and SC.NativeActions.visualToken(actor, "loot_container") ~= task.visualToken then
+            resetScavengeTarget(actor, state, {
+                cancelVisual = true, stopMovement = true,
+                reason = "loot_animation_replaced", phase = "failed",
+                cooldown = true, memoryResult = "animation_failed", time = time,
+            })
+            return false, "loot_animation_replaced"
+        end
         local visualState = nativeVisualStatus(actor, "loot_container")
         if visualState == "active" then
             task.visualObserved = true
@@ -2463,6 +2490,9 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
                 cooldown = true, memoryResult = "animation_failed", time = time,
             })
             return false, animationReason or "loot_action_rejected"
+        end
+        if SC.NativeActions and type(SC.NativeActions.visualToken) == "function" then
+            task.visualToken = SC.NativeActions.visualToken(actor, "loot_container")
         end
         local visualState = nativeVisualStatus(actor, "loot_container")
         if visualState == "active" then
@@ -2927,16 +2957,30 @@ end
 function Encounter.cancelScavenge(actor, reason)
     local state = actor and states[actor] or nil
     if not state then return true, reason or "no_scavenge_task" end
+    if state.pendingVisualCancel then
+        local stopped, why = cancelOwnedVisual(actor, "loot_container",
+            reason or "scavenge_cancelled", state.pendingVisualCancel)
+        if stopped == false then return false, why or "scavenge_visual_cancel_pending" end
+        state.pendingVisualCancel = nil
+    end
     if not state.task then
         clearSearchFields(actor, state)
         state.lastStatus = nil
         return true, reason or "scavenge_search_cancelled"
     end
-    resetScavengeTarget(actor, state, {
+    local task = state.task
+    if task.phase == "commit" or task.phase == "verify" then
+        return false, "scavenge_commit_in_progress"
+    end
+    local cancelled, why = resetScavengeTarget(actor, state, {
         cancelVisual = true, stopMovement = true,
         reason = reason or "cancelled", phase = "cancelled",
         memoryResult = Encounter._cancelMemoryResult(reason), time = now(),
     })
+    if cancelled == false then return false, why or "scavenge_handoff_pending" end
+    if state.task ~= nil or state.pendingVisualCancel ~= nil then
+        return false, "scavenge_handoff_pending"
+    end
     return true, reason or "scavenge_cancelled"
 end
 

@@ -2288,9 +2288,23 @@ do
             return true, "cleaned"
         end,
     }
-    local accepted, job = SC.BaseLife.requestCleaning(target)
-    check(accepted == true and job.type == "clean",
-        "stored supplies make a stained camp tile actionable: " .. tostring(job)
+    -- Automatic cleaning must still get a turn while the ordinary sorter is
+    -- waiting for space. The audit's separate families should offer the job
+    -- without a manual command and before the worker owns its supplies.
+    local sortQueued, fullSort = SC.BaseLife.enqueueJob({ type = "sort", priority = 2 })
+    check(sortQueued and SC.BaseLife.blockJob(fullSort.id, nil, "destination_full"),
+        "cleaning regression has a full-storage sorting job")
+    local job
+    for _ = 1, 80 do
+        SC_TEST_CLOCK = SC_TEST_CLOCK + 2000
+        SC.BaseWork.auditMaintenance(nil)
+        for _, candidate in ipairs(SC.BaseLife.active().jobs) do
+            if candidate.type == "clean" then job = candidate break end
+        end
+        if job then break end
+    end
+    check(job ~= nil and job.type == "clean" and fullSort.state == "blocked",
+        "automatic cleaning remains available with stored supplies and full sorting: " .. tostring(job)
             .. " stock=" .. tostring(SC.BaseWork.cleaningSuppliesAvailable(ctx.actor))
             .. " duty=" .. tostring(#SC.BaseLife.dutyResidentIds())
             .. " recruited=" .. tostring((SC.Registry.byId(ctx.actor.modData.SC_Id) or {}).recruited))
@@ -2438,6 +2452,105 @@ do
     ctx.storage.withdrawals = true
     ItemTag, Fluid, ZomboidGlobals, SC.Downtime =
         oldTag, oldFluid, oldGlobals, oldDowntime
+end
+
+-- Installed B42.21 generated item scripts give CLEAN_STAINS to exactly these
+-- eight tools. ISCleanBlood:isValid accepts either cleaner fluid at the same
+-- minimum amount; the Wet towel replacements have no CLEAN_STAINS tag.
+-- Exercise the real BaseWork eligibility/loan/return path for every pairing.
+do
+    local oldTag, oldFluid, oldGlobals, oldDowntime =
+        ItemTag, Fluid, ZomboidGlobals, SC.Downtime
+    ItemTag = { CLEAN_STAINS = "clean_stains" }
+    Fluid = { Bleach = "bleach", CleaningLiquid = "cleaning", Water = "water" }
+    ZomboidGlobals = { CleanBloodBleachAmount = 0.25 }
+    local tools = {
+        "Base.BathTowel", "Base.DishCloth", "Base.Sponge", "Base.GrillBrush",
+        "Base.ToiletBrush", "Base.Broom", "Base.Broom_Twig", "Base.Mop",
+    }
+    local cleaners = {
+        { itemType = "Base.Bleach", fluid = Fluid.Bleach },
+        { itemType = "Base.CleaningLiquid2", fluid = Fluid.CleaningLiquid },
+    }
+    local tagged = {}
+    for _, fullType in ipairs(tools) do tagged[fullType] = true end
+    local function cleaningCase(toolType, cleaner, amount, broken, expected)
+        local ctx = setup("logs", 1)
+        SC.BaseLife.cancelGatherOrder(ctx.order.id)
+        local target = ctx.actor.square
+        target.stained = true
+        function target:haveStains() return self.stained end
+        local tool = makeItem(toolType)
+        function tool:hasTag(tag)
+            return tag == ItemTag.CLEAN_STAINS and tagged[self.fullType] == true
+        end
+        function tool:isBroken() return broken == true end
+        local material = makeItem(cleaner.itemType)
+        local fluid = { amount = amount }
+        function fluid:contains(kind) return kind == cleaner.fluid end
+        function fluid:getAmount() return self.amount end
+        function material:getFluidContainer() return fluid end
+        ctx.storageObject.container:AddItem(tool)
+        ctx.storageObject.container:AddItem(material)
+        local cleaned = 0
+        SC.Downtime = {
+            peek = function() return nil end,
+            canCleanAt = function(actor, square, staged)
+                if actor ~= ctx.actor or square ~= target then return false, "wrong_target" end
+                if staged or actor.inventory:contains(tool)
+                    and actor.inventory:contains(material) then return true end
+                return false, "cleaning_supplies_missing"
+            end,
+            update = function(actor, _, _, kind, square)
+                check(kind == "clean_base" and square == target and actor == ctx.actor
+                    and actor.inventory:contains(tool) and actor.inventory:contains(material),
+                    toolType .. " + " .. cleaner.itemType .. " starts after exact withdrawals")
+                cleaned = cleaned + 1
+                fluid.amount = fluid.amount - ZomboidGlobals.CleanBloodBleachAmount
+                target.stained = false
+                return true, "cleaned"
+            end,
+        }
+        local label = toolType .. " + " .. cleaner.itemType .. ":" .. tostring(cleaner.fluid)
+        check(SC.BaseWork.cleaningSuppliesAvailable(ctx.actor) == expected,
+            label .. " eligibility agrees with the installed stain-tool/fluid rules")
+        local accepted, job = SC.BaseLife.requestCleaning(target)
+        if expected then
+            check(accepted == true and job.type == "clean", label .. " admits a cleaning job")
+            for _ = 1, 40 do
+                SC_TEST_CLOCK = SC_TEST_CLOCK + 100
+                SC.BaseWork.update(ctx.actor, nil, {})
+                if not SC.BaseLife.job(job.id) then break end
+            end
+            check(cleaned == 1 and target.stained == false and SC.BaseLife.job(job.id) == nil
+                and fluid.amount == amount - ZomboidGlobals.CleanBloodBleachAmount,
+                label .. " cleans once and consumes exactly one native fluid dose")
+        else
+            check(accepted == false and cleaned == 0 and target.stained == true
+                and fluid.amount == amount,
+                label .. " refuses unusable supplies without changing the stain or liquid")
+        end
+        check(ctx.storageObject.container:contains(tool)
+            and ctx.storageObject.container:contains(material)
+            and not ctx.actor.inventory:contains(tool)
+            and not ctx.actor.inventory:contains(material)
+            and tool.modData.LF_CleanToolJobId == nil
+            and material.modData.LF_CleanLiquidJobId == nil,
+            label .. " leaves both exact items at their source with no leaked reservation")
+    end
+    for _, toolType in ipairs(tools) do
+        for _, cleaner in ipairs(cleaners) do
+            cleaningCase(toolType, cleaner, 0.25, false, true)
+            cleaningCase(toolType, cleaner, 0.249, false, false)
+        end
+    end
+    for _, wetType in ipairs({ "Base.BathTowelWet", "Base.DishClothWet" }) do
+        for _, cleaner in ipairs(cleaners) do cleaningCase(wetType, cleaner, 1, false, false) end
+    end
+    for _, cleaner in ipairs(cleaners) do cleaningCase("Base.Mop", cleaner, 1, true, false) end
+    cleaningCase("Base.Mop", { itemType = "Base.WaterBottle", fluid = Fluid.Water },
+        1, false, false)
+    ItemTag, Fluid, ZomboidGlobals, SC.Downtime = oldTag, oldFluid, oldGlobals, oldDowntime
 end
 
 local gatherMetrics = SC.GatherWork.diagnostics()

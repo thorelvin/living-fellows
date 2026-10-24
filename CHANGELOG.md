@@ -2,6 +2,24 @@
 
 # Changelog
 
+## 0.26.61 - Camp work, cargo and navigation fixes
+
+- Base guards keep one patrol destination until they arrive, then take their patrol pause. A nearby post no longer stops a pending search, and a farther post no longer changes destination every work update.
+- Route searches return unused node allowance to the current frame so urgent planning cannot reserve all the ordinary workers' allowance without using it. Finishing pending edges or scoring a route counts as progress, preventing a progressing search from being restarted as idle.
+- A small crowd nudge no longer throws away an unfinished route search. The original start stays fixed through nearby shifts, and the completed route must pass a fresh local join check before movement. Larger displacement, a floor change or a new owner still starts a new search.
+- Planning reuses trap and furniture facts within one callback, reducing repeated native reads. The next callback checks the world again, so new obstacles still take effect.
+- Field workers, expedition deliveries and vehicle unloading find the real cargo compartment on modded vehicles instead of assuming it is named TruckBed. Hidden zero-capacity placeholders, including the one on the '93 Ford F-Series, are ignored alongside seats and gloveboxes.
+- A refused item or unavailable capacity check no longer becomes a false "trunk full" report that abandons crop delivery. The work pauses with the cargo retained and can be resumed; verified lack of space still leaves unharvested crops growing.
+- Packing, shelving and automatic log-storage planning use the worker's native Organized or Disorganized capacity. Transfers recheck native admission before committing, including when a bag fills during the action.
+- Body haulers keep their backward dragging movement while lining up with doors, yielding to another resident and recovering from a blocked step. Cardinal routes use matching distance guidance and rejoin a safe straight step after a drift. Recovery avoids climbs that cannot carry a body, and waiting to observe no longer switches the hauler into a weapon-ready pose.
+- Quiet base-duty route searches may use a 5 ms slice. Fresh observations must confirm no danger, and an alarm, combat, stale observation or departure from camp restores the normal 3 ms limit on the next slice.
+- A door stays open until the trailing body has cleared it, including a body hauled by another resident. An abandoned haul checks both the worker and body are on clear outdoor ground before releasing it; a misplaced body gets a fresh route before the next grab.
+- Reading a chapter now lasts a randomly chosen one to three minutes, with the same page and skill progress per chapter. Its animation and action deadlines allow the longer session; danger and new orders still interrupt it.
+- Emergency eating and drinking no longer cancel themselves repeatedly. A quiet camp contact also lets a higher-priority meal finish; evacuation and immediate danger still interrupt.
+- A base worker settles an earlier scavenging action before starting a job. Sorting-floor pickup poses now release their own animation on failure or cancellation, preserve a newer action, and retry an item after a failed approach.
+- Cleaning help now lists towels, sponges and brushes as well as brooms and mops. All eight vanilla stain tools work with bleach or Cleaning Liquid; workers can borrow and return either supply from marked storage even while a sorting destination is full.
+- The native bridge protocol remains `42.21-isocompanion-24`, targeting Project Zomboid 42.21.0.
+
 ## 0.26.60 - The camp alarm
 
 - A resident who sees zombies at the camp raises the alarm, and only those who can hear it know. One or two walkers within eight tiles of the camp get a quiet word. The resident who saw them keeps watch, the resident on watch and the nearest awake one who heard come to back it up, and sleepers sleep on. A lone watcher with nobody awake to hear walks over, wakes the nearest sleeper by hand, and goes back to its post.

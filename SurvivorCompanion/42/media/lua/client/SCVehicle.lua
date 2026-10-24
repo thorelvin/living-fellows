@@ -48,6 +48,68 @@ local function finite(value, fallback)
     return value
 end
 
+local function cargoCandidate(part, script)
+    local containerOk, container = invoke(part, "getItemContainer")
+    if not containerOk or container == nil then return nil end
+    local capacityOk, capacity = invoke(container, "getCapacity")
+    -- Organized can make a zero-capacity placeholder report one effective
+    -- slot. Only an actual positive native cargo capacity is selectable.
+    capacity = capacityOk and finite(capacity, 0) or 0
+    if capacity <= 0 then return nil end
+    local seatOk, seat = invoke(part, "isSeat")
+    if seatOk and seat == true then return nil end
+    local _, id = invoke(part, "getId")
+    local _, category = invoke(part, "getCategory")
+    local areaOk, area = invoke(part, "getArea")
+    id, category = string.lower(tostring(id or "")), string.lower(tostring(category or ""))
+    if id == "" or string.find(id, "glove", 1, true)
+        or string.sub(id, 1, 4) == "seat" or category == "seat" or category == "seats"
+        or string.find(category, "nodisplay", 1, true)
+        or string.find(category, "hidden", 1, true)
+        or not areaOk or type(area) ~= "string" or area == "" then return nil end
+    if script and method(script, "getAreaById") then
+        local validArea, definition = invoke(script, "getAreaById", area)
+        if not validArea or definition == nil then return nil end
+    end
+    local areaName = string.lower(area)
+    if string.find(areaName, "glove", 1, true)
+        or string.sub(areaName, 1, 4) == "seat" then return nil end
+    local score = 1
+    if id == "truckbed" then score = 100
+    elseif areaName == "truckbed" or areaName == "trunk"
+        or string.find(areaName, "cargo", 1, true) then score = 90
+    elseif string.find(id, "trunk", 1, true) or string.find(id, "truckbed", 1, true)
+        or string.find(id, "cargo", 1, true) then score = 80
+    elseif string.find(areaName, "roof", 1, true) then score = 60 end
+    return container, score
+end
+
+-- Vehicle mods may retain an invisible TruckBed placeholder while putting the
+-- real trunk under another part id. Resolve actual native container parts so
+-- farming, expeditions and unloading all approach and transfer the same cargo.
+function vehicleService.cargoPart(vehicle)
+    local countOk, count = invoke(vehicle, "getPartCount")
+    count = countOk and finite(count, nil) or nil
+    if count == nil or count < 0 or count % 1 ~= 0 or count > 512 then
+        return nil, nil, "car_cargo_unavailable"
+    end
+    local _, script = invoke(vehicle, "getScript")
+    local best, bestContainer, bestScore
+    for index = 0, count - 1 do
+        local called, part = invoke(vehicle, "getPartByIndex", index)
+        if not called then return nil, nil, "car_cargo_unavailable" end
+        if part then
+            local container, score = cargoCandidate(part, script)
+            if container and (bestScore == nil or score > bestScore) then
+                best, bestContainer, bestScore = part, container, score
+                if score == 100 then return best, bestContainer end
+            end
+        end
+    end
+    if best then return best, bestContainer end
+    return nil, nil, "car_trunk_missing"
+end
+
 local function vehicleIdentity(vehicle)
     if vehicle == nil then return nil end
     local idOk, id = invoke(vehicle, "getId")

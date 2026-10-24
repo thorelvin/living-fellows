@@ -168,6 +168,17 @@ try {
     Push-Location -LiteralPath $GameRoot
     try {
         Add-ScJvmStep 'core' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $coreFiles 'Core Kahlua integration harness failed.'
+        $capacityFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCCall.lua'),
+            (Join-Path $Shared 'SCNativeList.lua'),
+            (Join-Path $Shared 'SCConfig.lua'),
+            (Join-Path $Client 'SCGameplayUtil.lua'),
+            (Join-Path $Client 'SCWorkTransport.lua'),
+            (Join-Path $TestRoot 'container_capacity_harness.lua')
+        )
+        Add-ScJvmStep 'container-capacity' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $capacityFiles 'Actor-aware native container admission harness failed.'
 
         $viewControlFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
@@ -210,6 +221,15 @@ try {
             (Join-Path $TestRoot 'vehicle_hotwire_harness.lua')
         )
         Add-ScJvmStep 'vehicle-hotwire' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $hotwireFiles 'Companion hotwire order harness failed.'
+
+        $vehicleCargoFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCCall.lua'),
+            (Join-Path $Client 'SCVehicle.lua'),
+            (Join-Path $TestRoot 'vehicle_cargo_harness.lua')
+        )
+        Add-ScJvmStep 'vehicle-cargo' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $vehicleCargoFiles 'Native vehicle cargo part selection harness failed.'
 
         $vehicleUnloadFiles = @(
             (Join-Path $TestRoot 'vehicle_unload_fixture.lua'),
@@ -317,6 +337,7 @@ try {
 
         $navigationTraversalFiles = @($coreFiles | Select-Object -SkipLast 2)
         $navigationTraversalFiles += @(
+            (Join-Path $Client 'SCSenses.lua'),
             (Join-Path $Client 'SCTopology.lua'),
             (Join-Path $Client 'SCPathSearch.lua'),
             (Join-Path $Client 'SCNavTraffic.lua'),
@@ -327,6 +348,9 @@ try {
             (Join-Path $TestRoot 'navigation_traversal_regression_harness.lua')
         )
         Add-ScJvmStep 'navigation-traversal' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $navigationTraversalFiles 'Door/async traversal regression harness failed.'
+        $navigationLivenessFiles = @($navigationTraversalFiles | Select-Object -SkipLast 1)
+        $navigationLivenessFiles += Join-Path $TestRoot 'navigation_liveness_harness.lua'
+        Add-ScJvmStep 'navigation-liveness' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $navigationLivenessFiles 'Navigation quota fairness and incremental search progress harness failed.'
 
         $actorOwnershipFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),

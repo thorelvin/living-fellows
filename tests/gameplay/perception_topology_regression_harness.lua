@@ -1172,8 +1172,65 @@ for pulse = 1, 3 do
 end
 check(partySeen[1] and partySeen[2] and partySeen[3] and partySeen[4] and partyPeak <= 64,
     "four companions share one native-list chunk while retaining independent perception")
+local destinationScanCounts
+do
+    local previousBridge, previousMoving, previousFree = SCBridge, U.movingBlocker, U.isSquareFree
+    local destination, west, north = square(40, 40), square(39, 40), square(40, 39)
+    local scans, occupyingReads = 0, 0
+    local floor = { surface = 0 }
+    function floor:getSurfaceOffset()
+        occupyingReads = occupyingReads + 1
+        return self.surface
+    end
+    function floor:isMoveAble() return false end
+    function floor:getContainer() return nil end
+    destination.objects = { floor }
+    function destination:getObjects()
+        scans = scans + 1
+        return self.objects
+    end
+    local friendly = {}
+    U.movingBlocker = function(value, ...)
+        if value == destination then return friendly, "companion_crowd" end
+        return previousMoving(value, ...)
+    end
+    U.isSquareFree = function(value)
+        if value == destination then return true end
+        return previousFree(value)
+    end
+    SCBridge = { fillEdgeFacts = function(_, from, to, out)
+        for key in pairs(out) do out[key] = nil end
+        out.tree, out.fire, out.brokenGlass = false, false, false
+        out.squareFree = false -- The friendly body explains the occupied-square fact.
+        out.barrierKind, out.nativeBlocked = "open", false
+        return true
+    end }
+    local bothOpen = T.withReadBatch(function()
+        return T.classifyEdge(observer, west, destination, {}).traversable
+            and T.classifyEdge(observer, north, destination, {}).traversable
+    end)
+    destinationScanCounts = " two_edge_object_scans=" .. scans
+        .. " occupancy_reads=" .. occupyingReads
+    check(bothOpen and scans == 2 and occupyingReads == 1,
+        "two distinct native edges share one trap scan and one furniture scan per destination"
+            .. " scans=" .. scans .. " occupying=" .. occupyingReads)
+
+    destination.objects[2] = { __class = "IsoTrap" }
+    local trapped = T.withReadBatch(T.classifyEdge, observer, west, destination, {})
+    check(trapped.traversable ~= true and trapped.reason == "explosive_trap_hazard",
+        "a trap added after the read callback is observed by the next callback")
+    destination.objects[2], floor.surface = nil, 12
+    local furnished = T.withReadBatch(T.classifyEdge, observer, west, destination, {})
+    check(furnished.traversable ~= true and furnished.reason == "square_blocked",
+        "new furniture after the read callback cannot reuse its negative occupancy fact")
+    floor.surface = 0
+    check(T.withReadBatch(T.classifyEdge, observer, west, destination, {}).traversable == true,
+        "removing both obstructions after a callback restores current passability")
+    SCBridge, U.movingBlocker, U.isSquareFree = previousBridge, previousMoving, previousFree
+end
 U.call = nativeCall
 SC_TEST_REPORT = "PERCEPTION_TOPOLOGY_REGRESSION_PASS checks=" .. checks
     .. " native_boundary_calls=" .. plainCalls .. "->" .. batchCalls
     .. " detection_20m_ms=" .. tostring(seenAt) .. " escape_pulses=" .. pulses
     .. " four_actor_peak_native_reads=" .. partyPeak
+    .. destinationScanCounts

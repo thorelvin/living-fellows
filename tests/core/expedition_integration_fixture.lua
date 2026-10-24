@@ -126,6 +126,8 @@ SC.BaseWork = {
 }
 SC.Vehicle = { loadedBySqlId = function(id)
     return T.car and T.car.id == id and T.car or nil
+end, cargoPart = function(vehicle)
+    return vehicle and {}, vehicle and vehicle.trunk
 end }
 SC.VehicleUnload = { takeExact = function(actor, _, item, _, source)
     if T.car.locked then return false, "car_trunk_locked" end

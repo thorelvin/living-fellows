@@ -311,7 +311,8 @@ function Traversal.alignDoorApproach(actor, fromSquare, toSquare, intent, afford
         -- A moving formation should face through the door before the native
         -- crossing takes over. The old room sweep could leave the actor facing
         -- sideways; repeating that turn on every Follow pulse stalled entry.
-        if not fence and state and intent and (intent.action == "follow_formation"
+        if not fence and state and intent and intent.draggingBody ~= true
+            and (intent.action == "follow_formation"
             or intent.action == "regroup") then
             local facingX, hasX = utility.call(actor, "getForwardDirectionX")
             local facingY, hasY = utility.call(actor, "getForwardDirectionY")
@@ -368,6 +369,7 @@ function Traversal.alignDoorApproach(actor, fromSquare, toSquare, intent, afford
         doorwayAlignment = affordance ~= "fence",
         fenceAlignment = affordance == "fence",
         weaponReady = false,
+        draggingBody = intent and intent.draggingBody == true,
         supervisorToken = intent and intent.supervisorToken,
     }
     local accepted, reason = utility.move(actor, "walk", alignmentIntent)
@@ -652,9 +654,33 @@ local function actorClearOfDoorway(actor, entry)
     return progress ~= nil and progress >= (U().config("doorClearanceDistance") or 0.38)
 end
 
+local function grappleBlocksDoorway(actor, entry)
+    local utility = U()
+    if utility.call(actor, "isDraggingCorpse") ~= true then return false end
+    local body = utility.call(actor, "getGrapplingTarget")
+    if not body then return true end
+    local bodyProgress, bodyLateral = Traversal.doorGeometry(entry, body)
+    local actorProgress = Traversal.doorGeometry(entry, actor)
+    if bodyProgress == nil or actorProgress == nil then return true end
+    if bodyLateral > 0.55 then return false end
+    local clearance = utility.config("doorClearanceDistance") or 0.38
+    -- Another survivor may be crossing in either direction through a door
+    -- opened by this actor. Their feet can be clear while the body is at the
+    -- threshold or still on its opposite side.
+    return math.abs(bodyProgress) < clearance or actorProgress * bodyProgress <= 0
+end
+
 local function safeToCloseDoor(entry, snapshot, actor, context)
     local utility = U()
     if not actorClearOfDoorway(actor, entry) then return false end
+    local dragging = utility.call(actor, "isDraggingCorpse")
+    if dragging == true then
+        -- A backward hauler can clear the threshold before the grapple target.
+        -- Keep the door open until both have crossed; route arrival itself must
+        -- still advance by the carrier so the next step can pull the body clear.
+        local body = utility.call(actor, "getGrapplingTarget")
+        if not body or not actorClearOfDoorway(body, entry) then return false end
+    end
     if entry.passageKey and invoke(context, "passageActive", entry.passageKey, utility.nowMs()) then
         return false
     end
@@ -664,11 +690,13 @@ local function safeToCloseDoor(entry, snapshot, actor, context)
     end
     for _, ally in ipairs(snapshot.allies or {}) do
         local other = ally and (ally.actor or ally) or nil
-        if other and other ~= actor and Traversal.occupiesDoorway(other, entry) then return false end
+        if other and other ~= actor and (Traversal.occupiesDoorway(other, entry)
+            or grappleBlocksDoorway(other, entry)) then return false end
     end
     local player = snapshot.player
     player = type(player) == "table" and (player.actor or player) or nil
-    if player and player ~= actor and Traversal.occupiesDoorway(player, entry) then return false end
+    if player and player ~= actor and (Traversal.occupiesDoorway(player, entry)
+        or grappleBlocksDoorway(player, entry)) then return false end
     return true
 end
 

@@ -765,6 +765,151 @@ check(select(2, U.movingBlocker(destination, mover)) == "pushable_object",
 
 local oldMove, oldGrid, oldPosition = U.move, U.gridSquare, U.position
 U.move = function(value, mode, intent) value.lastIntent = intent return true end
+do
+    local oldPeek, oldCommands, oldActive, oldInside, oldAlert = U.peekActorState,
+        SC.Commands.peek, SC.BaseLife.active, SC.BaseLife.isInside, SC.BaseAlert
+    local oldGrid, oldClassify = U.gridSquare, SC.Topology.classifyEdge
+    local player, worker = actor(), actor()
+    function player:isAiming() return self.aiming == true end
+    function player:isAttacking() return self.attacking == true end
+    local snapshot = { valid = true, time = current, threatCount = 0,
+        scanComplete = true, scanDiscoveryComplete = true, scanVisualComplete = true,
+        threats = {}, immediateAttackers = {}, heardThreats = {},
+        player = { actor = player, danger = 0 } }
+    local runtime = { senses = { current = snapshot } }
+    U.peekActorState = function(value) return value == worker and runtime or nil end
+    local alarm, active, commandReads = nil, {}, 0
+    worker.data, worker.inventory = { SC_Order = "base_duty", SC_CommandSerial = 17 },
+        { "Base.Axe", "Base.WaterBottle" }
+    function worker:getModData() return self.data end
+    SC.Commands.peek = function()
+        commandReads = commandReads + 1
+        error("slice admission must not initialize commands or companion gear")
+    end
+    SC.BaseLife.active = function() return active end
+    SC.BaseLife.isInside = function(value) return value.inside ~= false end
+    SC.BaseAlert = { peek = function() return alarm end }
+    local source, goal = square(400, 0), square(409, 9)
+    worker.x, worker.y, worker.square = 400.5, 0.5, source
+    local job = N.beginPathSearch(source, goal, nil, { actor = worker, nodeBudget = 100 })
+    check(N._routeSearchSliceBudget(job) == 5,
+        "a fresh complete cached observation permits a5ms quiet-base resident slice without work metadata")
+    check(commandReads == 0 and #worker.inventory == 2 and worker.inventory[1] == "Base.Axe"
+            and worker.inventory[2] == "Base.WaterBottle" and worker.data.SC_CommandSerial == 17
+            and runtime.commands == nil,
+        "slice admission leaves fresh command state and carried gear unchanged without Commands.peek")
+    local oldModData = worker.getModData
+    worker.getModData = nil
+    check(N._routeSearchSliceBudget(job) == 3,
+        "unavailable persisted actor data keeps the ordinary planning budget")
+    worker.getModData, worker.data.SC_Order = oldModData, nil
+    check(N._routeSearchSliceBudget(job) == 3,
+        "missing persisted base duty cannot initialize commands to claim quiet planning time")
+    worker.data.SC_Order = "base_duty"
+    do
+        local oldRegistryActor = SC.Actor._isRegistryActor
+        SC.Actor._isRegistryActor = function(value) return value == worker end
+        local registered = SC.Registry.register(worker,
+            { id = "sc-quiet-budget-registered", recruited = true })
+        SC.Actor._isRegistryActor = oldRegistryActor
+        check(registered ~= nil, "quiet planning regression uses a real registered companion record")
+        registered.runtime = runtime
+        U.peekActorState = function() return nil end
+        check(SC.Senses.cached(worker) == nil
+                and SC.Senses.cached(worker, registered.runtime) == snapshot
+                and N._routeSearchSliceBudget(job) == 5,
+            "a resident with only Registry.record.runtime receives quiet planning time without a weak runtime")
+        registered.runtime = {}
+        U.peekActorState = function() return runtime end
+        check(N._routeSearchSliceBudget(job) == 3,
+            "a registered resident cannot substitute a weak runtime for its missing real observation")
+        registered.runtime = runtime
+        local impostor = actor()
+        function impostor:getModData() return { SC_Id = registered.id, SC_Order = "base_duty" } end
+        job.pathOptions.actor = impostor
+        local collisionBudget, collisionReason = N._routeSearchSliceBudget(job)
+        check(collisionBudget == 3 and collisionReason == "runtime_identity_mismatch",
+            "a colliding companion id cannot borrow another actor's safe registered observation")
+        job.pathOptions.actor = worker
+        SC.Registry.unregister(worker)
+        U.peekActorState = function(value) return value == worker and runtime or nil end
+        check(N._routeSearchSliceBudget(job) == 5,
+            "an unregistered actor retains the ordinary weak-runtime fallback")
+    end
+    snapshot.time = current - 1501
+    check(N._routeSearchSliceBudget(job) == 3, "a stale real Senses observation restores the3ms budget")
+    snapshot.time, snapshot.scanVisualComplete = current, false
+    check(N._routeSearchSliceBudget(job) == 3, "an incomplete visual scan cannot enable quiet-base time")
+    snapshot.scanVisualComplete, runtime.senses.current = true, nil
+    check(N._routeSearchSliceBudget(job) == 3, "missing cached senses cannot enable quiet-base time")
+    runtime.senses.current = snapshot
+    for _, field in ipairs({ "humanThreat", "lastHeardDanger", "lastKnownDanger" }) do
+        snapshot[field] = {}
+        check(N._routeSearchSliceBudget(job) == 3, "cached " .. field .. " restores the combat budget")
+        snapshot[field] = nil
+    end
+    for _, field in ipairs({ "threatCount", "immediateCount", "heardThreatCount", "pressure" }) do
+        snapshot[field] = 1
+        check(N._routeSearchSliceBudget(job) == 3, "cached " .. field .. " rejects the quiet bonus")
+        snapshot[field] = 0
+    end
+    snapshot.threats[1] = {}
+    check(N._routeSearchSliceBudget(job) == 3, "a populated threat list cannot be hidden by a zero count")
+    snapshot.threats[1] = nil
+    worker.inside = false
+    check(N._routeSearchSliceBudget(job) == 3, "leaving camp restores the ordinary budget")
+    worker.inside, goal.inside = true, false
+    check(N._routeSearchSliceBudget(job) == 3, "a work goal outside camp cannot claim quiet-base time")
+    goal.inside, source.inside = true, false
+    check(N._routeSearchSliceBudget(job) == 3, "a search originating outside camp keeps its normal budget")
+    source.inside, active = true, nil
+    check(N._routeSearchSliceBudget(job) == 3, "no active camp keeps the normal budget")
+    active, worker.data.SC_Order = {}, "follow"
+    check(N._routeSearchSliceBudget(job) == 3, "a following companion cannot claim resident planning time")
+    worker.data.SC_Order = "base_duty"
+    for _, field in ipairs({ "urgent", "emergency", "survivalCritical", "stealthAvoidance" }) do
+        job.pathOptions[field] = true
+        check(N._routeSearchSliceBudget(job) == 3, field .. " navigation keeps the normal budget")
+        job.pathOptions[field] = nil
+    end
+    job.pathOptions.action = "combat_approach"
+    check(N._routeSearchSliceBudget(job) == 3, "a combat action keeps the normal budget even without urgent metadata")
+    job.pathOptions.action, player.aiming = nil, true
+    check(N._routeSearchSliceBudget(job) == 3, "player aiming immediately removes quiet-base time")
+    player.aiming, player.attacking = false, true
+    check(N._routeSearchSliceBudget(job) == 3, "player attacking immediately removes quiet-base time")
+    player.attacking, job.pathOptions.sliceBudgetMs = false, 2
+    check(N._routeSearchSliceBudget(job) == 2, "an explicit smaller slice remains a cap in quiet camp")
+    job.pathOptions.sliceBudgetMs, alarm = 10, {}
+    check(N._routeSearchSliceBudget(job) == 3, "an explicit larger cap cannot override a camp alarm")
+    alarm, job.pathOptions.sliceBudgetMs = nil, nil
+    local grid, tick = {}, 0
+    U.gridSquare = function(x, y)
+        if x < 400 or x > 409 or y < 0 or y > 9 then return nil end
+        local key = x .. ":" .. y
+        grid[key] = grid[key] or square(x, y)
+        return grid[key]
+    end
+    SC.Topology.classifyEdge = function() return { traversable = true, cost = 1, affordance = "open" } end
+    job.pathOptions.clock = function() tick = tick + 1 return tick end
+    local status = N.resumePathSearch(job, 100)
+    check(status == "pending" and job.lastSliceBudgetMs == 5,
+        "a real resumable frontier uses the selected quiet-base5ms deadline")
+    local frontier = job.search
+    alarm = {}
+    status = N.resumePathSearch(job, 100)
+    check(status == "pending" and job.search == frontier and job.lastSliceBudgetMs == 3,
+        "an alarm entering the same pending job switches its next slice to3ms without losing the frontier")
+    local state = N._stateForTests(worker)
+    state.pathSearch = { route = job, startedAt = current }
+    check(N.status(worker).searchSliceBudgetMs == 3,
+        "live navigation status exposes the actual pending search deadline")
+    check(commandReads == 0, "every adaptive resume remains independent of command initialization")
+    N.cancel(worker, "test_finished")
+    U.peekActorState, SC.Commands.peek, SC.BaseLife.active, SC.BaseLife.isInside, SC.BaseAlert =
+        oldPeek, oldCommands, oldActive, oldInside, oldAlert
+    U.gridSquare, SC.Topology.classifyEdge = oldGrid, oldClassify
+end
 for _, goal in ipairs({ square(1, 0), square(-1, 0), square(0, 1), square(0, -1) }) do
     mover.x, mover.y = goal.x ~= 0 and 0.5 or 0.75, goal.y ~= 0 and 0.5 or 0.75
     local aligned = SC.NavTraversal.alignDoorApproach(mover, square(0, 0), goal, {}, "door", {})
@@ -772,6 +917,13 @@ for _, goal in ipairs({ square(1, 0), square(-1, 0), square(0, 1), square(0, -1)
     check(aligned == nil and intent.targetKind == "world"
         and intent.movementArrivalTolerance < 0.18 and intent.movementTargetTtlMs == 750,
         "door alignment sends a bounded exact endpoint in every orientation")
+    local token = { serial = 12 }
+    SC.NavTraversal.alignDoorApproach(mover, square(0, 0), goal,
+        { draggingBody = true, supervisorToken = token }, "door", {})
+    check(mover.lastIntent.draggingBody == true
+            and mover.lastIntent.supervisorToken == token
+            and mover.lastIntent.weaponReady == false,
+        "door alignment preserves the hauler's backward pose and action owner in every orientation")
 end
 do
     mover.x, mover.y, mover.lastIntent = 0.5, 0.5, nil
@@ -802,6 +954,65 @@ do
     check(SC.NavTraversal.alignDoorApproach(mover, source, destination,
             { action = "regroup" }, "door", {}, facingState) == true,
         "door facing timeout cannot hold a regrouping companion forever")
+    mover.facingTarget = nil
+    check(SC.NavTraversal.alignDoorApproach(mover, source, destination,
+            { action = "regroup", draggingBody = true }, "door", {}, {}) == true
+            and mover.facingTarget == nil,
+        "a centered hauler is not turned toward the door by regroup alignment")
+end
+
+do
+    local hauler, body = actor(), actor()
+    hauler.x, hauler.y, hauler.square = 1.5, 0.5, square(1, 0)
+    body.x, body.y = 0.8, 0.5
+    function hauler:isDraggingCorpse() return true end
+    function hauler:getGrapplingTarget() return self.body end
+    hauler.body = body
+    local door = { open = true, toggles = 0 }
+    function door:ToggleDoor() self.open = not self.open self.toggles = self.toggles + 1 end
+    local state = { openedDoors = { { object = door,
+        fromSquare = square(0, 0), toSquare = hauler.square,
+        openedAt = current - 1000, expires = current + 8000 } } }
+    local context = {
+        objectOpen = function(value) return value.open end,
+        sameSquare = U.sameSquare,
+    }
+    SC.NavTraversal.reserve(door, hauler, current)
+    SC.NavTraversal.closeOwnedDoors(hauler, state, current, nil, context)
+    check(door.toggles == 0 and #state.openedDoors == 1
+            and SC.NavTraversal.reserve(door, actor(), current) == false,
+        "a carrier crossing the door cannot close it onto its trailing corpse or release ownership")
+    body.x = 1.2
+    SC.NavTraversal.closeOwnedDoors(hauler, state, current, nil, context)
+    check(door.toggles == 0,
+        "the corpse must reach the existing doorway clearance before closure")
+    hauler.body = nil
+    SC.NavTraversal.closeOwnedDoors(hauler, state, current, nil, context)
+    check(door.toggles == 0,
+        "a temporarily unavailable grapple target keeps the door open")
+    hauler.body, body.x = body, 1.5
+    SC.NavTraversal.closeOwnedDoors(hauler, state, current, nil, context)
+    check(door.toggles == 1 and #state.openedDoors == 0
+            and SC.NavTraversal.reserve(door, actor(), current) == true,
+        "the door closes and releases ownership after the carrier and corpse both clear it")
+    local owner = actor()
+    owner.x, owner.y, owner.square = 1.5, 0.5, square(1, 0)
+    for _, direction in ipairs({ 1, -1 }) do
+        hauler.x = direction == 1 and 1.5 or 0.5
+        body.x = direction == 1 and 0.5 or 1.5
+        door.open, door.toggles = true, 0
+        state.openedDoors = { { object = door, fromSquare = square(0, 0),
+            toSquare = owner.square, openedAt = current - 1000, expires = current + 8000 } }
+        SC.NavTraversal.closeOwnedDoors(owner, state, current,
+            { allies = { { actor = hauler } } }, context)
+        check(door.toggles == 0 and #state.openedDoors == 1,
+            "another resident cannot close a door across an allied grapple in either travel direction")
+        body.x = hauler.x
+        SC.NavTraversal.closeOwnedDoors(owner, state, current,
+            { allies = { { actor = hauler } } }, context)
+        check(door.toggles == 1 and #state.openedDoors == 0,
+            "a resident can close the door once the allied carrier and body both clear either side")
+    end
 end
 mover.x, mover.y, mover.lastIntent = 0.5, 0.20, nil
 local fenceAligned = SC.NavTraversal.alignDoorApproach(
@@ -895,6 +1106,188 @@ do
         "an ordinary walk still checks the stair landing: " .. tostring(walkStatus))
     SC.NavTraffic.reset()
     U.canSee, U.stop = oldCanSee, oldStop
+end
+do
+    local source, crossing, after = square(280, 0), square(281, 0), square(282, 0)
+    local left, right, back = square(280, 1), square(280, -1), square(279, 0)
+    local oldBarrier, oldClassify, oldHash = SC.Topology.barrierBetween,
+        SC.Topology.classifyEdge, U.stableHash
+    local oldStop, priorGrid = U.stop, U.gridSquare
+    SC.Topology.barrierBetween = function() return nil, "open" end
+    SC.Topology.classifyEdge = function(_, _, destination)
+        return { traversable = true, cost = 1,
+            affordance = destination == left and "fence" or "open" }
+    end
+    U.stableHash = function() return 0 end
+    U.stop = function() return true end
+    U.gridSquare = function(x, y)
+        if x == 280 and y == 1 then return left end
+        if x == 280 and y == -1 then return right end
+        if x == 279 and y == 0 then return back end
+    end
+    local first, second = actor(), actor()
+    first.x, first.square = 280.5, source
+    second.x, second.square = 280.4, source
+    local intent = { action = "combat_approach", urgent = true,
+        draggingBody = true, snapshot = {} }
+    N._tacticalStepForTests(first, { openedDoors = {} }, source,
+        crossing, after, "door", intent, current)
+    local state = { openedDoors = {} }
+    local held, status = N._tacticalStepForTests(second, state, source,
+        crossing, after, "door", intent, current)
+    check(held == nil and status == "holding_choke_queue" and second.lastIntent == nil,
+        "a queued hauler holds its grapple pose instead of issuing ready-weapon")
+    current = current + 900
+    N._tacticalStepForTests(second, state, source, crossing, after,
+        "door", intent, current)
+    check(second.lastIntent and second.lastIntent.action == "right_of_way_yield"
+            and second.lastIntent.draggingBody == true
+            and second.lastIntent.nextSquare == right,
+        "a hauler yields backward onto an open edge instead of choosing a fence edge")
+    SC.NavTraffic.reset()
+    second.lastIntent = nil
+    -- Both side edges need a climb. The second recovery must use the clear
+    -- tile behind, retaining the body pose through the local maneuver.
+    SC.Topology.classifyEdge = function(_, _, destination)
+        return { traversable = true, cost = 1,
+            affordance = (destination == left or destination == right) and "fence" or "open" }
+    end
+    local recoveryState = { openedDoors = {}, blockedEdges = {}, blockedSquares = {},
+        routeMemory = {}, nativeRecoveryDue = true, stuckAttempts = 1,
+        lastProgressAt = current - 6000, lastAttemptFrom = source,
+        lastAttemptTo = crossing }
+    local handled, accepted = N._recoverFromStuckForTests(second, recoveryState,
+        after, "walk", { action = "drag_body", draggingBody = true }, current)
+    check(handled == true and accepted == true and second.lastIntent
+            and second.lastIntent.action == "collision_recovery"
+            and second.lastIntent.draggingBody == true
+            and second.lastIntent.nextSquare == back,
+        "collision recovery preserves backward hauling and rejects climb-only side edges")
+    SC.NavTraffic.reset()
+    SC.Topology.barrierBetween, SC.Topology.classifyEdge, U.stableHash =
+        oldBarrier, oldClassify, oldHash
+    second.lastIntent = nil
+    function second:tooDarkToRead() return true end
+    second.x, second.y = source.x + 0.5, source.y + 0.5
+    local arrived, arrivalStatus = N.request(second, source, "walk",
+        { action = "drag_body", draggingBody = true })
+    check(arrived == true and arrivalStatus == "arrived" and second.lastIntent == nil,
+        "arriving with a corpse in darkness does not replace the grapple with an aimed pose")
+    N.cancel(second, "test_finished")
+    U.stop, U.gridSquare = oldStop, priorGrid
+end
+do
+    local oldGrid, oldClassify = U.gridSquare, SC.Topology.classifyEdge
+    local oldCompanion, oldStopDirect = U.isCompanion, SC.NativeActions.stopDirect
+    local grid = {}
+    for x = 300, 303 do
+        for y = 0, 3 do grid[x .. ":" .. y] = square(x, y) end
+    end
+    U.gridSquare = function(x, y) return grid[x .. ":" .. y] end
+    local diagonalCalls, delay = 0, false
+    SC.Topology.classifyEdge = function(_, from, to)
+        if delay then current = current + 1 end
+        local diagonal = from.x ~= to.x and from.y ~= to.y
+        if diagonal then diagonalCalls = diagonalCalls + 1 end
+        return { traversable = true, cost = diagonal and math.sqrt(2) or 1,
+            affordance = diagonal and "diagonal_open" or "open" }
+    end
+    local source, goal = grid["300:0"], grid["302:2"]
+    local normal = N.findPath(source, goal, { nodeBudget = 100 })
+    check(normal and #normal == 3 and diagonalCalls > 0,
+        "ordinary navigation retains its direct diagonal route")
+    diagonalCalls = 0
+    local hauling = N.findPath(source, goal, { nodeBudget = 100, draggingBody = true })
+    local cardinal = hauling ~= nil
+    for index = 2, #(hauling or {}) do
+        cardinal = cardinal and math.abs(hauling[index].x - hauling[index - 1].x)
+            + math.abs(hauling[index].y - hauling[index - 1].y) == 1
+    end
+    check(cardinal and #hauling == 5 and diagonalCalls == 0,
+        "hauling A-star emits cardinal edges without any expensive diagonal classifications")
+    local allowed, _, haulReason = N._passableEdgeForTests(source, grid["301:1"], 1,
+        { draggingBody = true })
+    check(allowed == false and haulReason == "drag_non_cardinal",
+        "a drifted haul route cannot dispatch a diagonal even when world topology calls it open")
+    local worker = actor()
+    worker.x, worker.y, worker.square = 300.5, 0.5, source
+    U.isCompanion = function() return true end
+    local cacheIntent = { action = "move_to_base_storage", workRoute = true }
+    check(SC.WorkRoutes.key(worker, goal, cacheIntent) ~= nil,
+        "ordinary base storage routes remain eligible for route memory")
+    cacheIntent.draggingBody = true
+    check(SC.WorkRoutes.key(worker, goal, cacheIntent) == nil,
+        "hauling cannot reuse a cached ordinary diagonal work route")
+    SC.NativeActions.stopDirect = function() return true end
+    delay = true
+    N.request(worker, goal, "walk", { action = "haul_mode_test" })
+    local state = N._stateForTests(worker)
+    local normalSearch = state.pathSearch
+    check(normalSearch ~= nil, "a sliced ordinary search is retained for the mode-change regression")
+    local oldSignature = state.routeTargetSignature
+    N.request(worker, goal, "walk", { action = "haul_mode_test", draggingBody = true })
+    check(state.pathSearch and state.pathSearch ~= normalSearch
+            and state.pathSearch.key ~= normalSearch.key
+            and state.pathSearch.route.pathOptions.draggingBody == true
+            and state.routeTargetSignature ~= oldSignature,
+        "beginning a haul replaces the ordinary frontier and movement identity even for the same goal")
+    local haulSignature = state.routeTargetSignature
+    N.cancel(worker, "test_finished")
+    delay = false
+    -- Drift one tile beside a retained cardinal route. Its old next waypoint
+    -- is diagonal, while a later suffix tile is cardinal-adjacent.
+    local drift = grid["301:1"]
+    worker.x, worker.y, worker.square = 301.5, 1.5, drift
+    state = N._stateForTests(worker)
+    state.goalSquare, state.goalAction, state.routeTargetSignature = goal, "haul_mode_test", haulSignature
+    state.path, state.pathIndex, state.pathGoalSquare =
+        { source, grid["301:0"], grid["302:0"], grid["302:1"], goal }, 3, goal
+    state.pathStealthAvoidance = false
+    state.nextRepathAt, state.lastProgressAt = current + 10000, current
+    worker.lastIntent = nil
+    local accepted = N.request(worker, goal, "walk",
+        { action = "haul_mode_test", draggingBody = true })
+    check(accepted == true and worker.lastIntent and worker.lastIntent.nextSquare
+            and math.abs(worker.lastIntent.nextSquare.x - drift.x)
+                + math.abs(worker.lastIntent.nextSquare.y - drift.y) == 1
+            and (state.routeReuseCount or 0) > 0,
+        "a drifted hauler rejoins a cardinal-adjacent suffix before dispatching movement")
+    N.cancel(worker, "test_finished")
+    for x = 300, 308 do
+        for y = 0, 7 do grid[x .. ":" .. y] = square(x, y) end
+    end
+    SC.Topology.classifyEdge = function(_, from, to)
+        local crossesWall = math.min(from.x, to.x) == 303 and math.max(from.x, to.x) == 304
+            and from.y > 0 and from.y < 7
+        return { traversable = not crossesWall, cost = 1,
+            affordance = crossesWall and "blocked" or "open" }
+    end
+    local function detour(octile)
+        local job = N.beginPathSearch(grid["300:3"], grid["307:3"], nil,
+            { draggingBody = true, nodeBudget = 300 })
+        if octile then
+            local search = job.search
+            search.adapter.heuristic = function(first, last)
+                local dx, dy = math.abs(first.x - last.x), math.abs(first.y - last.y)
+                return dx + dy + (math.sqrt(2) - 2) * math.min(dx, dy)
+            end
+            local h = search.adapter.heuristic(search.startSquare, search.goalSquare)
+            search.nodes[search.startKey].h, search.nodes[search.startKey].f = h, h
+            search.open[1].h, search.open[1].f = h, h
+        end
+        local status, path, _, expanded = N.resumePathSearch(job, 300)
+        return status, path, expanded
+    end
+    local oldStatus, oldPath, oldExpanded = detour(true)
+    local newStatus, newPath, newExpanded = detour(false)
+    check(oldStatus == "complete" and newStatus == "complete" and #oldPath == #newPath
+            and newExpanded < oldExpanded,
+        "Manhattan reaches the same optimal doorway detour with fewer expansions than octile: "
+            .. tostring(newExpanded) .. " < " .. tostring(oldExpanded))
+    SC_TEST_HAUL_HEURISTIC = "octile=" .. tostring(oldExpanded)
+        .. " manhattan=" .. tostring(newExpanded) .. " pathTiles=" .. tostring(#newPath)
+    U.gridSquare, SC.Topology.classifyEdge = oldGrid, oldClassify
+    U.isCompanion, SC.NativeActions.stopDirect = oldCompanion, oldStopDirect
 end
 for _, goal in ipairs({ square(1, 0), square(-1, 0), square(0, 1), square(0, -1) }) do
     mover.x, mover.y = goal.x ~= 0 and 0.5 or 0.75, goal.y ~= 0 and 0.5 or 0.75
@@ -1108,3 +1501,4 @@ U.gridSquare = oldGrid
 getTimestampMs = oldClock
 T.reset()
 SC_TEST_REPORT = "NAVIGATION_TRAVERSAL_REGRESSION_PASS checks=" .. checks
+    .. " haulHeuristic=" .. tostring(SC_TEST_HAUL_HEURISTIC)

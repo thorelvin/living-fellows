@@ -1,9 +1,11 @@
-Living Fellows 0.26.60 - public playtest
+Living Fellows 0.26.61 - public playtest
 
-A resident who sees zombies at the camp now raises the alarm: a quiet word
-for a walker or two, a shout that wakes the sleepers for more. Whoever the
-defence policy sends runs to the one who saw them, and the rest stand to.
-Residents also sleep in beds whose light switch they cannot reach.
+Companions keep route progress through small crowd nudges, guards finish
+their patrol route before pausing, and searches share planning allowance
+more fairly. Body haulers keep dragging through doors. Cargo delivery finds
+the real trunk on modded vehicles and uses the worker's native capacity.
+Reading lasts one to three minutes, and base work handles action handoffs
+and borrowed cleaning supplies more reliably.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added

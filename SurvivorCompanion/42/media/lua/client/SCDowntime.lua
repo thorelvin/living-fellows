@@ -714,7 +714,7 @@ local function finishReadingPages(actor, activity)
     local before, pages = readingProgress(actor, item)
     if pages <= 0 or before >= pages then return false end
     -- One verified Read pose covers a short chapter, rather than awarding an
-    -- entire book for a six-second animation. The character's page ledger is
+    -- entire book for one animation. The character's page ledger is
     -- saved with the survivor; an unfinished book survives trips and reloads.
     local after = math.min(pages, before + math.max(1, math.floor(pages / 20)))
     local fullType = utility.itemType(item)
@@ -4224,6 +4224,16 @@ local function beginActivity(actor, state, activity, commands, now)
         -- the wait instead.
         activity.deadlines.waiting = activity.gameDurationHours and 0 or math.max(
             tonumber(activity.durationMs) or 0, 30000)
+    elseif activity.kind == "read" then
+        -- Pick once per chapter, for both carried and borrowed books. A
+        -- decision poll must never reroll an active session's end time.
+        -- ZombRand's upper endpoint is exclusive; include all three minutes.
+        activity.durationMs = math.max(60000, math.min(180000,
+            type(ZombRand) == "function" and ZombRand(60000, 180001)
+                or 60000 + math.abs(U().stableHash(tostring(U().idOf(actor))
+                    .. ":read:" .. tostring(now))) % 120001))
+        activity.deadlines = activity.deadlines or {}
+        activity.deadlines.animating = activity.durationMs * 2 + 5000
     elseif activity.kind == "tv_watch" or activity.kind == "radio_listen" then
         activity.deadlines = { waiting = (tonumber(activity.durationMs) or 90000)
             + 10000 }

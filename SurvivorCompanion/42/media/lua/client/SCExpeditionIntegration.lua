@@ -209,8 +209,8 @@ local function locations(record)
     end
     local car = record.carId and SC.Vehicle
         and SC.Vehicle.loadedBySqlId(record.carId)
-    local part = car and call(car, "getPartById", "TruckBed")
-    local trunk = part and call(part, "getItemContainer")
+    local _, trunk
+    if car and type(SC.Vehicle.cargoPart) == "function" then _, trunk = SC.Vehicle.cargoPart(car) end
     if trunk then
         scan(trunk, wanted, result, car, nil, "trunk",
             0, {}, { left = 2048 })
@@ -243,8 +243,10 @@ local function locate(record, row)
         if entry.kind == "trunk" then
             local car = record.carId and SC.Vehicle
                 and SC.Vehicle.loadedBySqlId(record.carId)
-            local part = car and call(car, "getPartById", "TruckBed")
-            root = part and call(part, "getItemContainer")
+            if car and type(SC.Vehicle.cargoPart) == "function" then
+                local ignored
+                ignored, root = SC.Vehicle.cargoPart(car)
+            end
         else
             root = entry.holder and U().inventory(entry.holder)
         end

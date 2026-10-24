@@ -35,9 +35,11 @@ local function expeditionReceipt(item)
 end
 
 local function trunkFor(vehicle)
-    local part = call(vehicle, "getPartById", "TruckBed")
-    local container = part and call(part, "getItemContainer") or nil
-    if not container then return nil, nil, "car_trunk_missing" end
+    if not SC.Vehicle or type(SC.Vehicle.cargoPart) ~= "function" then
+        return nil, nil, "car_cargo_unavailable"
+    end
+    local part, container, reason = SC.Vehicle.cargoPart(vehicle)
+    if not container then return nil, nil, reason or "car_trunk_missing" end
     if call(vehicle, "isTrunkLocked") == true then
         return nil, nil, "car_trunk_locked"
     end

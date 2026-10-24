@@ -66,13 +66,44 @@ local function trunk(vehicle)
     if not SC.Vehicle or SC.Vehicle.isStationary(vehicle) ~= true then
         return nil, nil, "car_moved"
     end
-    local part = call(vehicle, "getTrunkPart") or call(vehicle, "getPartById", "TruckBed")
-    local container = part and call(part, "getItemContainer")
-    if not container then return nil, nil, "car_trunk_missing" end
+    if type(SC.Vehicle.cargoPart) ~= "function" then
+        return nil, nil, "car_trunk_missing"
+    end
+    local part, container, reason = SC.Vehicle.cargoPart(vehicle)
+    if not container then return part, nil, reason or "car_trunk_missing" end
     if call(vehicle, "isTrunkLocked") == true then
         return part, nil, "car_trunk_locked"
     end
     return part, container
+end
+-- A rejected native check may mean a container restriction or an unavailable
+-- adapter. Only the shared capacity helper can prove that space is exhausted.
+local function cargoRoom(container, actor, item)
+    local transport = SC.WorkTransport
+    if not transport or type(transport.hasRoom) ~= "function" then
+        return false, "capacity_unavailable"
+    end
+    local checked, room, reason = pcall(transport.hasRoom, container, actor, item)
+    if checked and room == true then return true end
+    return false, checked and type(reason) == "string" and reason
+        or "capacity_unavailable"
+end
+local function pauseCargo(actor, order, reason)
+    reason = reason or "capacity_unavailable"
+    order.phase, order.blocker = "paused", reason
+    local message = reason == "destination_item_rejected"
+        and "The container won't accept this item. I'm keeping it until we sort that out."
+        or reason == "capacity_unavailable"
+            and "I couldn't check the container's space. I'm keeping the cargo; ask me to resume."
+        or nil
+    if message then
+        order.note = message
+        if order.cargoNotice ~= reason and type(U().say) == "function" then
+            U().say(actor, message)
+        end
+        order.cargoNotice = reason
+    end
+    return false, reason
 end
 local function carNear(center, id, kind)
     local vehicle = vehicleById(id)
@@ -594,8 +625,11 @@ local function loadCar(actor, worker, order)
     -- instead of making a separate trip through the decision loop per crop.
     for index = 1, math.min(#cargo, 8) do
         local item, source = cargo[index].item, cargo[index].source
-        if SC.WorkTransport and SC.WorkTransport.hasRoom
-            and SC.WorkTransport.hasRoom(container, actor, item) ~= true then
+        local room, roomReason = cargoRoom(container, actor, item)
+        if not room then
+            if roomReason ~= "destination_full" then
+                return pauseCargo(actor, order, roomReason)
+            end
             if order.kind == "chop" then
                 local _, _, load = U().carryLoad(actor)
                 return leaveWood(actor, worker, order, "car_trunk_full",
@@ -619,8 +653,7 @@ local function loadCar(actor, worker, order)
                 return keepHarvest(actor, worker, order,
                     load >= fullLoad(actor, worker, order))
             end
-            order.phase, order.blocker = "paused", moveReason
-            return false, moveReason
+            return pauseCargo(actor, order, moveReason)
         end
         if U().inventoryContains(container, item) ~= true then
             order.phase, order.blocker = "paused", "field_cargo_unverified"
@@ -1161,6 +1194,7 @@ function Field.resume()
         task.startedAt = U().nowMs()
     end
     active.phase, active.blocker = active.unlock and "unlocking" or "working", nil
+    if active.cargoNotice then active.note, active.cargoNotice = nil, nil end
     return true, "field_order_resumed"
 end
 local function pendingAxe(actor, pending)
@@ -1180,9 +1214,10 @@ local function pendingReturnAccess(actor, player, pending, axe)
         or distance(point(player), point(vehicle)) > CHOP_LEASH then
         return nil, nil, nil, "car_out_of_follow_range"
     end
-    if SC.WorkTransport and SC.WorkTransport.hasRoom
-        and SC.WorkTransport.hasRoom(container, actor, axe) ~= true then
-        return nil, nil, nil, "car_trunk_full"
+    local room, roomReason = cargoRoom(container, actor, axe)
+    if not room then
+        return nil, nil, nil, roomReason == "destination_full" and "car_trunk_full"
+            or roomReason
     end
     return vehicle, part, container
 end
@@ -1370,10 +1405,10 @@ function Field.update(actor, player, snapshot)
             worker.phase = "waiting_axe"
             return true, "field_waiting_for_shared_axe"
         end
-        if SC.WorkTransport and SC.WorkTransport.hasRoom
-            and SC.WorkTransport.hasRoom(inventory, actor, axe) ~= true then
-            order.phase, order.blocker = "paused", "inventory_full"
-            return false, order.blocker
+        local room, roomReason = cargoRoom(inventory, actor, axe)
+        if not room then
+            return pauseCargo(actor, order,
+                roomReason == "destination_full" and "inventory_full" or roomReason)
         end
         local moved, moveReason = U().transferItemVerified(container, inventory, axe)
         if not moved or not markAxe(axe, order.id, actorId) then
@@ -1424,8 +1459,11 @@ function Field.update(actor, player, snapshot)
         end
         if not axe then worker.axeId, worker.phase = nil, "done"
             return true, "field_axe_not_carried" end
-        if SC.WorkTransport and SC.WorkTransport.hasRoom
-            and SC.WorkTransport.hasRoom(container, actor, axe) ~= true then
+        local room, roomReason = cargoRoom(container, actor, axe)
+        if not room then
+            if roomReason ~= "destination_full" then
+                return pauseCargo(actor, order, roomReason)
+            end
             if order.kind == "chop" then
                 return leaveWood(actor, worker, order, "car_trunk_full", true)
             end

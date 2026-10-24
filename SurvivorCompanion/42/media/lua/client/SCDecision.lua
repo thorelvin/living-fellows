@@ -438,25 +438,38 @@ local function onlyUnreachableThreats(actor, snapshot, current)
     return ok and result == true
 end
 
+local function adjustedDecisionScore(actor, snapshot, commands, kind, score, emergency, detail)
+    if emergency ~= true then
+        if SC.Personality and type(SC.Personality.adjustDecision) == "function" then
+            score = score + SC.Personality.adjustDecision(commands.personalityProfile,
+                { kind = kind, score = score }, {
+                    rescue = type(detail) == "table" and detail.rescue == true,
+                    indoors = type(snapshot) == "table" and snapshot.indoors == true,
+                })
+        end
+        if SC.Objectives and type(SC.Objectives.decisionBonus) == "function" then
+            score = score + SC.Objectives.decisionBonus(commands.objectives, kind)
+        end
+        if SC.Autonomy and type(SC.Autonomy.decisionBonus) == "function" then
+            score = score + SC.Autonomy.decisionBonus(actor, kind)
+        end
+    end
+    return score
+end
+
+local function needsDecisionScore(needs, active)
+    needs = type(needs) == "table" and needs or {}
+    local pressure = math.max(needs.hunger or 0, needs.thirst or 0)
+    local score = (active or needs.active) and 112 or (62 + pressure * 42)
+    if needs.peeDue then score = math.max(score, needs.peeOverdue and 86 or 68) end
+    return score
+end
+
 local function evaluate(actor, player, snapshot, commands, assessment, needs, state, current)
     local candidates = {}
     local downtimeAdded = false
     local function add(kind, score, emergency, detail)
-        if emergency ~= true then
-            if SC.Personality and type(SC.Personality.adjustDecision) == "function" then
-                score = score + SC.Personality.adjustDecision(commands.personalityProfile,
-                    { kind = kind, score = score }, {
-                        rescue = type(detail) == "table" and detail.rescue == true,
-                        indoors = type(snapshot) == "table" and snapshot.indoors == true,
-                    })
-            end
-            if SC.Objectives and type(SC.Objectives.decisionBonus) == "function" then
-                score = score + SC.Objectives.decisionBonus(commands.objectives, kind)
-            end
-            if SC.Autonomy and type(SC.Autonomy.decisionBonus) == "function" then
-                score = score + SC.Autonomy.decisionBonus(actor, kind)
-            end
-        end
+        score = adjustedDecisionScore(actor, snapshot, commands, kind, score, emergency, detail)
         -- Stable decision identity (review 2.4): `kind` is the category used for
         -- interrupt/cancel policy; `key` distinguishes candidates that share a kind
         -- but are different decisions (e.g. self- vs rescue-medicine, or rescuing
@@ -571,10 +584,7 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
     if type(needs) == "table" and (needs.active or needs.hungry or needs.thirsty
         or needs.peeDue)
         and threatCount == 0 then
-        local pressure = math.max(needs.hunger or 0, needs.thirst or 0)
-        local priority = needs.active and 112 or (62 + pressure * 42)
-        if needs.peeDue then priority = math.max(priority, needs.peeOverdue and 86 or 68) end
-        add("needs", priority, needs.emergency)
+        add("needs", needsDecisionScore(needs), needs.emergency)
     end
     if commands.recruited and commands.temporaryStay ~= true
         and commands.expeditionMoving ~= true
@@ -2609,6 +2619,13 @@ local function ownerNeedsImmediatePreemption(owner, snapshot, assessment, needs,
             or type(needs) == "table" and needs.emergency == true
             or commands.order == "retreat" or policyEmergency == true
     end
+    -- Eating/drinking resolves the very hunger/thirst emergency that selected
+    -- it. Restarting that timed action every beat prevents its effects from
+    -- ever committing; independent danger or medical pressure still interrupts.
+    if owner == "needs" then
+        return survivalNeedsImmediateControl(snapshot, assessment, nil, commands)
+            or policyEmergency == true
+    end
     local urgent = survivalNeedsImmediateControl(snapshot, assessment, needs, commands)
     -- Bleeding/critical assessment is the reason a medical owner exists. Treating
     -- it as a fresh survival interrupt made emergency self-care cancel its own rip
@@ -2681,13 +2698,29 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
     local alarm = commands.order == "base_duty" and SC.BaseAlert
         and type(SC.BaseAlert.preempts) == "function"
         and SC.BaseAlert.preempts(actor, current) == true
+    local alarmDirective = alarm and type(SC.BaseAlert.directiveFor) == "function"
+        and SC.BaseAlert.directiveFor(actor, current) or nil
     local function alarmPreempts(owner)
-        return alarm and owner ~= "medical" and owner ~= "player_control"
-            and owner ~= "drive"
+        if not alarm or owner == "medical" or owner == "player_control"
+            or owner == "drive" then return false end
+        if owner == "needs" and alarmDirective
+            and alarmDirective.mode ~= "fall_back" and alarmDirective.level ~= "fall_back" then
+            if needs and needs.emergency == true then return false end
+            -- Match the scored decision: a low contact cannot repeatedly
+            -- cancel a meal that will win selection and restart immediately.
+            local ownScore = adjustedDecisionScore(actor, snapshot, commands, "needs",
+                needsDecisionScore(needs, true), false)
+            local alarmScore = adjustedDecisionScore(actor, snapshot, commands, "base_alert",
+                alarmDirective.score or 0, false, alarmDirective)
+            return alarmScore >= ownScore
+        end
+        return true
     end
+    local supervisedOwner
     if SC.ActionSupervisor and type(SC.ActionSupervisor.current) == "function" then
         local token = SC.ActionSupervisor.current(actor)
         if token then
+            supervisedOwner = token.owner
             urgent = ownerNeedsImmediatePreemption(
                 token.owner, snapshot, assessment, needs, commands, factionEmergency)
                 or alarmPreempts(token.owner)
@@ -2713,6 +2746,7 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
                     state.lastHandledAt = current
                     return true, state.intent
                 end
+                supervisedOwner = nil
             elseif token.rollbackObligation ~= nil then
                 state.current = "activity"
                 state.intent = tostring(token.owner) .. ":" .. tostring(token.action)
@@ -2783,7 +2817,12 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
     if type(native) ~= "table" then return false end
     if type(native.activityStatus) == "function" then
         local phase, owner, name = native.activityStatus(actor)
-        urgent = urgent or alarmPreempts(owner)
+        -- A supervised medical action often runs a generic native "visual"
+        -- child. Its surviving parent remains authoritative for preemption;
+        -- only an unsupervised action uses the native owner's own policy.
+        local effectiveOwner = supervisedOwner or owner
+        urgent = ownerNeedsImmediatePreemption(effectiveOwner, snapshot, assessment,
+            needs, commands, factionEmergency) or alarmPreempts(effectiveOwner)
         -- Production owns an indefinite native action (notably tree chopping).
         -- Poll its controller while the animation runs so the 45-second base-job
         -- lease, fallback events and completion proof cannot expire behind this

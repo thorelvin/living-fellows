@@ -16,6 +16,7 @@ local bridgeClockOwner = nil
 local bridgeClockMethod = nil
 local frame = nil
 local frameSequence = 0
+local unitClaims = setmetatable({}, { __mode = "k" })
 local systems = {}
 local actors = {}
 local frameSamples = {}
@@ -366,7 +367,7 @@ function Performance.endFrame(elapsedMs, deferred)
     return true
 end
 
-function Performance.claimUnits(kind, requested, urgent)
+function Performance.claimUnits(kind, requested, urgent, tracked)
     requested = math.max(0, math.floor(tonumber(requested) or 0))
     if requested == 0 or frame == nil then return requested end
     local configKey = quotaKeys[kind]
@@ -379,7 +380,27 @@ function Performance.claimUnits(kind, requested, urgent)
     local used = tonumber(frame.used[kind]) or 0
     local granted = math.max(0, math.min(requested, limit - used))
     frame.used[kind] = used + granted
+    if tracked == true and granted > 0 then
+        local receipt = {}
+        unitClaims[receipt] = { frame = frame, kind = kind, granted = granted }
+        return granted, receipt
+    end
     return granted
+end
+
+-- A time slice often stops before using its reserved node quota. Return only
+-- that claim's unused units, once, and only to the frame that issued it.
+function Performance.settleUnits(receipt, consumed)
+    local claim = type(receipt) == "table" and unitClaims[receipt] or nil
+    if not claim then return false, "unit_claim_unavailable" end
+    unitClaims[receipt] = nil
+    if claim.frame ~= frame or frame == nil then return false, "unit_claim_expired" end
+    consumed = tonumber(consumed) or 0
+    if consumed ~= consumed then consumed = 0 end
+    consumed = math.max(0, math.min(claim.granted, math.floor(consumed)))
+    local unused = claim.granted - consumed
+    frame.used[claim.kind] = math.max(0, (tonumber(frame.used[claim.kind]) or 0) - unused)
+    return true, consumed
 end
 
 function Performance.markYield(system, companionId, units)
@@ -702,6 +723,7 @@ end
 
 function Performance.reset()
     frame = nil
+    unitClaims = setmetatable({}, { __mode = "k" })
     systems = {}
     actors = {}
     frameSamples = {}

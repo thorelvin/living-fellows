@@ -15737,6 +15737,9 @@ end
 Harness.probeFieldWork = function(...)
     return externalProbe("SCFieldWorkProbe", ...)
 end
+Harness.probeFieldCargo = function(...)
+    return externalProbe("SCFieldCargoProbe", ...)
+end
 Harness.probeFollowRoad = function(...)
     return externalProbe("SCFollowRoadProbe", ...)
 end
@@ -15750,6 +15753,10 @@ end
 
 Harness.probeUpstairsHaul = function(...)
     return externalProbe("SCUpstairsHaulProbe", ...)
+end
+
+Harness.probeOfficeHaul = function(...)
+    return externalProbe("SCOfficeHaulProbe", ...)
 end
 
 Harness.probeBaseAlert = function(...)
@@ -15926,6 +15933,28 @@ function Harness.observeSample(current, report)
     if stackedNow > observe.maxStacked then observe.maxStacked = stackedNow end
     for _, entry in ipairs(actors) do
         local nav = SC.Navigation and SC.Navigation.peek(entry.actor) or nil
+        observe.searchSeen = observe.searchSeen or setmetatable({}, { __mode = "k" })
+        local pending = nav and nav.pathSearch or nil
+        local previous = observe.searchSeen[entry.actor]
+        if pending ~= previous then
+            local oldRoute = previous and previous.route
+            local positioning = SC.Positioning and type(SC.Positioning.debug) == "function"
+                and SC.Positioning.debug(entry.actor)
+            local conversation = positioning and positioning.conversation
+            print(string.format("SC_OBSERVE|search_transition|%s|kind=%s|pos=%.2f,%.2f|oldAge=%s|oldNodes=%s|newKey=%s|planMs=%s|firstMotionMs=%s",
+                entry.id, pending and (previous and "replaced" or "started") or "cleared",
+                entry.x, entry.y,
+                tostring(previous and current - (previous.startedAt or current)),
+                tostring(oldRoute and oldRoute.totalExpanded), tostring(pending and pending.key),
+                tostring(nav and nav.lastPlanDurationMs), tostring(nav and nav.lastFirstMotionMs)))
+            if conversation then
+                print(string.format("SC_OBSERVE|conversation_search|%s|action=%s|expiresIn=%s|posed=%s",
+                    entry.id, tostring(conversation.action),
+                    tostring((conversation.expires or current) - current),
+                    tostring(conversation.posed)))
+            end
+            observe.searchSeen[entry.actor] = pending
+        end
         local move = nav and nav.crowdMove or nil
         if move and move.reason == "unstack" and observe.unstackSeen[entry.actor] ~= move then
             observe.unstackSeen[entry.actor] = move
@@ -15949,6 +15978,22 @@ function Harness.observeSample(current, report)
             tostring(moving == true),
             tostring(decision and decision.current), tostring(decision and decision.intent),
             tostring(nav and nav.terminalReason)))
+        if nav then
+            local search = nav.pathSearch
+            local route = search and search.route
+            local status = SC.Navigation.status(entry.actor)
+            local goal = nav.goalSquare
+            local gx, gy, gz
+            if goal then gx, gy, gz = U.position(goal) end
+            print(string.format("SC_OBSERVE|path|%s|phase=%s|action=%s|goal=%s:%s:%s|reason=%s|searchAge=%s|idleAge=%s|nodes=%s|progress=%s|slice=%s:%s",
+                entry.id, tostring(status.phase), tostring(nav.goalAction),
+                tostring(gx), tostring(gy), tostring(gz), tostring(nav.pathReason),
+                tostring(search and current - (search.startedAt or current)),
+                tostring(search and current - (search.progressAt or current)),
+                tostring(nav.expandedNodes), tostring(route and route.progressSerial),
+                tostring(route and route.lastSliceBudgetMs or nav.lastSearchSliceBudgetMs),
+                tostring(route and route.lastSliceBudgetReason or nav.lastSearchSliceBudgetReason)))
+        end
         if nav and SC.ExpeditionPrototype
             and SC.ExpeditionPrototype.isMember(entry.actor) then
             local lease = nav.nativeLease
@@ -16266,6 +16311,8 @@ local function tick()
         Harness.probeVehicleUpkeep(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "field_work_", 1, true) == 1 then
         Harness.probeFieldWork(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "field_cargo_", 1, true) == 1 then
+        Harness.probeFieldCargo(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "follow_road_", 1, true) == 1 then
         Harness.probeFollowRoad(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "generator_refuel_", 1, true) == 1 then
@@ -16274,6 +16321,8 @@ local function tick()
         Harness.probePyreBurn(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "upstairs_haul_", 1, true) == 1 then
         Harness.probeUpstairsHaul(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "office_haul_", 1, true) == 1 then
+        Harness.probeOfficeHaul(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "base_alert_", 1, true) == 1 then
         Harness.probeBaseAlert(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "hygiene_", 1, true) == 1 then
@@ -16803,6 +16852,11 @@ local function tick()
                 observe.companions, observe.samples, observe.stackedSamples,
                 observe.maxStacked, observe.unstackMoves, observe.longestStackMs,
                 tostring(observe.longestStackPair)))
+            local performance = SurvivorCompanion.Performance
+            if performance and type(performance.summary) == "function" then
+                print("SC_OBSERVE|performance|" .. string.gsub(performance.summary(),
+                    "\n", "\nSC_OBSERVE|performance|"))
+            end
             setPhase("finish", current)
         end
     elseif Harness.phase == "wait_runtime" then
@@ -17150,12 +17204,16 @@ local function onGameStart()
         setPhase("vehicle_upkeep_setup", Harness.startedAt)
     elseif Harness.config.field_work_probe == "true" then
         setPhase("field_work_setup", Harness.startedAt)
+    elseif Harness.config.field_cargo_probe == "true" then
+        setPhase("field_cargo_setup", Harness.startedAt)
     elseif Harness.config.generator_refuel_probe == "true" then
         setPhase("generator_refuel_setup", Harness.startedAt)
     elseif Harness.config.pyre_burn_probe == "true" then
         setPhase("pyre_burn_setup", Harness.startedAt)
     elseif Harness.config.upstairs_haul_probe == "true" then
         setPhase("upstairs_haul_setup", Harness.startedAt)
+    elseif Harness.config.office_haul_probe == "true" then
+        setPhase("office_haul_setup", Harness.startedAt)
     elseif Harness.config.base_alert_probe == "true" then
         setPhase("base_alert_setup", Harness.startedAt)
     elseif Harness.config.hygiene_probe == "true" then

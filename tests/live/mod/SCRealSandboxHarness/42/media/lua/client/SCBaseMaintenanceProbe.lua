@@ -153,6 +153,37 @@ function Probe.step(H, current, check, result, setPhase)
         if (not base or #roster == 0) and current - H.phaseStartedAt < 12000 then return end
         if not check("maintenance_base_loaded", base ~= nil,
             base and base.name or "no active base") then setPhase("finish", current) return end
+        -- Record the save's cleaning admission before this disposable probe
+        -- supplies a mop, bleach or a new stain for its native-action test.
+        local stained, firstStain, examined = 0, nil, 0
+        for _, zone in ipairs(base.zones or {}) do
+            if zone.kind == "area" then
+                for y = zone.y1, zone.y2 do for x = zone.x1, zone.x2 do
+                    if examined < 4096 then
+                        examined = examined + 1
+                        local square = SC.GameplayUtil.gridSquare(x, y, zone.z)
+                        if call(square, "haveStains") == true then
+                            stained, firstStain = stained + 1, firstStain or square
+                        end
+                    end
+                end end
+            end
+        end
+        local stock = {}
+        for _, record in ipairs(roster) do
+            local resident = SC.BaseLife.resident(record.id)
+            if record.actor and resident and resident.duty == true then
+                stock[#stock + 1] = tostring(record.id) .. ":supplies="
+                    .. tostring(SC.BaseWork.cleaningSuppliesAvailable(record.actor))
+            end
+        end
+        local admitted, cleanReason = false, "no_loaded_stain"
+        if firstStain then admitted, cleanReason = SC.BaseLife.canRequestCleaning(firstStain) end
+        result("PASS", "maintenance_initial_cleaning",
+            "stained=" .. tostring(stained) .. " examined=" .. tostring(examined)
+                .. " maintenance=" .. tostring(base.settings and base.settings.autoMaintenance)
+                .. " admitted=" .. tostring(admitted) .. " reason=" .. tostring(cleanReason)
+                .. " workers=" .. table.concat(stock, ";"))
         local zones = {}
         for _, zone in ipairs(base.zones or {}) do
             zones[#zones + 1] = tostring(zone.kind) .. "@" .. tostring(zone.x1)

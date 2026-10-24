@@ -126,14 +126,18 @@ local function differentFloor(a, b)
     return az ~= nil and bz ~= nil and math.floor(az) ~= math.floor(bz)
 end
 
-local function adjacentStep(a, b)
+local function adjacentStep(a, b, cardinalOnly)
     local ax, ay, az = U().position(a)
     local bx, by, bz = U().position(b)
     if ax == nil or bx == nil then return false end
     local dx, dy = math.abs(math.floor(ax) - math.floor(bx)),
         math.abs(math.floor(ay) - math.floor(by))
     local dz = math.abs(math.floor(az or 0) - math.floor(bz or 0))
-    if dz == 0 then return dx <= 1 and dy <= 1 end
+    if dz == 0 then
+        if cardinalOnly then return dx + dy <= 1 end
+        return dx <= 1 and dy <= 1
+    end
+    if cardinalOnly then return false end
     return dz == 1 and dx + dy <= 1
 end
 
@@ -1152,7 +1156,8 @@ end
 local function stopAndObserve(actor, target, intent)
     local utility = U()
     if not utility.stop(actor) then return false end
-    if insideSecureBase(actor, intent and intent.snapshot) then return true end
+    if intent and intent.draggingBody == true
+        or insideSecureBase(actor, intent and intent.snapshot) then return true end
     local accepted = utility.move(actor, "walk", {
         action = "ready_weapon",
         targetSquare = target,
@@ -1222,6 +1227,9 @@ end
 local function passableEdge(fromSquare, toSquare, vegetationScale, options)
     local utility = U()
     options = type(options) == "table" and options or {}
+    if options.draggingBody == true and not adjacentStep(fromSquare, toSquare, true) then
+        return false, math.huge, "drag_non_cardinal"
+    end
     local state = options.actor and states[options.actor] or nil
     local edgeOwner = state and state.blockedEdges == options.blockedEdges
         and state or nil
@@ -1386,7 +1394,7 @@ local cardinalOffsets = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
 local diagonalOffsets = { { 1, 1 }, { -1, 1 }, { -1, -1 }, { 1, -1 } }
 local verticalOffsets = { -1, 1 }
 
-local function neighbors(square, goal, rotation)
+local function neighbors(square, goal, rotation, cardinalOnly)
     local utility = U()
     local x, y, z = utility.position(square)
     if not x then return {} end
@@ -1401,13 +1409,15 @@ local function neighbors(square, goal, rotation)
             keys[#keys + 1] = Navigation._clearanceKey(nx, ny, z)
         end
     end
-    for step = 1, #diagonalOffsets do
-        local delta = diagonalOffsets[((step - 1 + offset) % #diagonalOffsets) + 1]
-        local nx, ny = x + delta[1], y + delta[2]
-        local other = utility.gridSquare(nx, ny, z)
-        if other then
-            result[#result + 1] = other
-            keys[#keys + 1] = Navigation._clearanceKey(nx, ny, z)
+    if not cardinalOnly then
+        for step = 1, #diagonalOffsets do
+            local delta = diagonalOffsets[((step - 1 + offset) % #diagonalOffsets) + 1]
+            local nx, ny = x + delta[1], y + delta[2]
+            local other = utility.gridSquare(nx, ny, z)
+            if other then
+                result[#result + 1] = other
+                keys[#keys + 1] = Navigation._clearanceKey(nx, ny, z)
+            end
         end
     end
     -- Do not invent vertical graph edges. Build 42 stairs occupy several tiles and
@@ -1579,7 +1589,11 @@ local pathSearchAdapter = {
     key = Navigation._pathNodeKey,
     heuristic = heuristic,
     neighbors = function(square, goal, options)
-        return neighbors(square, goal, options and options.neighborRotation)
+        -- Backward corpse hauling cannot safely pull the trailing grapple
+        -- around a grid corner. Cardinal routes also avoid four extra native
+        -- cardinal classifications for each diagonal considered by A*.
+        return neighbors(square, goal, options and options.neighborRotation,
+            options and options.draggingBody == true)
     end,
     edge = function(fromSquare, toSquare, options, allowOccupiedGoal)
         options = type(options) == "table" and options or {}
@@ -1612,7 +1626,18 @@ local function newBoundedPathJob(startSquare, goalSquare, options)
             options.routeDistance = nil
         end
     end
-    return P().new(startSquare, goalSquare, options, pathSearchAdapter)
+    local adapter = pathSearchAdapter
+    if type(options) == "table" and options.draggingBody == true then
+        adapter = U().copyShallow(pathSearchAdapter)
+        adapter.heuristic = function(square, goal)
+            local x, y, z = U().position(square)
+            local gx, gy, gz = U().position(goal)
+            if x == nil or gx == nil then return math.huge end
+            return math.abs(x - gx) + math.abs(y - gy)
+                + math.abs((z or 0) - (gz or 0)) * 4
+        end
+    end
+    return P().new(startSquare, goalSquare, options, adapter)
 end
 
 local function resumeBoundedPathJob(job, expansionQuota, slice)
@@ -2828,13 +2853,105 @@ function Navigation._startDoorBashFallbackSearch(job, reason)
     job.bashRetried = true
     return true
 end
+-- A quiet camp resident may spend a little longer on one bounded planning
+-- slice. Recheck cached safety on every resume: an unfinished frontier must
+-- immediately return to the ordinary budget when combat or an alarm starts.
+function Navigation._routeSearchSliceBudget(job)
+    local utility = U()
+    local normal = math.max(0.1, tonumber(utility.config("navigationSliceBudgetMs")) or 3)
+    local options = type(job) == "table" and type(job.pathOptions) == "table"
+        and job.pathOptions or {}
+    local cap = tonumber(options.sliceBudgetMs)
+    local function budget(value, reason)
+        if cap and cap > 0 then value = math.min(value, cap) end
+        return value, reason
+    end
+    local actor = options.actor
+    local action = tostring(options.action or "")
+    if not actor or job.startSquare == nil or job.goalSquare == nil
+        or options.urgent == true or options.emergency == true
+        or options.survivalCritical == true or options.allowHazards == true
+        or options.stealthAvoidance == true or string.find(action, "combat", 1, true)
+        or string.find(action, "retreat", 1, true) or string.find(action, "alert", 1, true) then
+        return budget(normal, "ordinary_intent")
+    end
+    local base, senses, alert = SC.BaseLife, SC.Senses, SC.BaseAlert
+    if not base or type(base.active) ~= "function" or type(base.isInside) ~= "function"
+        or not senses or type(senses.cached) ~= "function"
+        or type(senses.isCompleteObservation) ~= "function"
+        or not alert or type(alert.peek) ~= "function" then
+        return budget(normal, "safety_unavailable")
+    end
+    -- Commands.peek lazily initializes command state and personal items. Slice
+    -- admission must be a read, including for a newly created survivor.
+    local data, known = utility.call(actor, "getModData")
+    if not known or type(data) ~= "table" or data.SC_Order ~= "base_duty" then
+        return budget(normal, "not_base_duty")
+    end
+    local active, camp = pcall(base.active)
+    if not active or camp == nil then return budget(normal, "no_active_camp") end
+    for _, value in ipairs({ actor, job.startSquare, job.goalSquare }) do
+        local checked, inside = pcall(base.isInside, value)
+        if not checked or inside ~= true then return budget(normal, "outside_camp") end
+    end
+    -- Runtime supplies a registered survivor's record.runtime directly to
+    -- Senses; it need not exist in GameplayUtil's fallback weak runtime map.
+    local suppliedRuntime
+    local registry = SC.Registry
+    if registry and type(registry.byId) == "function" then
+        local identified, id = pcall(utility.idOf, actor)
+        local resolved, record = pcall(registry.byId, id)
+        if not identified or not resolved then return budget(normal, "runtime_unavailable") end
+        if record ~= nil then
+            if type(record) ~= "table" or record.actor ~= actor
+                or type(record.runtime) ~= "table" then
+                return budget(normal, "runtime_identity_mismatch")
+            end
+            suppliedRuntime = record.runtime
+        end
+    end
+    local cached, snapshot = pcall(senses.cached, actor, suppliedRuntime)
+    local complete, safe = pcall(senses.isCompleteObservation, snapshot, 1500)
+    if not cached or not complete or safe ~= true or type(snapshot) ~= "table" then
+        return budget(normal, "observation_unavailable")
+    end
+    if (tonumber(snapshot.threatCount) or 0) > 0 or #(snapshot.threats or {}) > 0
+        or (tonumber(snapshot.immediateCount) or 0) > 0 or #(snapshot.immediateAttackers or {}) > 0
+        or (tonumber(snapshot.heardThreatCount) or 0) > 0 or #(snapshot.heardThreats or {}) > 0
+        or #(snapshot.fencedThreats or {}) > 0 or #(snapshot.groundedThreats or {}) > 0
+        or #(snapshot.stealthThreats or {}) > 0 or snapshot.humanThreat ~= nil
+        or snapshot.lastKnownDanger ~= nil or snapshot.lastHeardDanger ~= nil
+        or snapshot.threatOverflow == true or snapshot.immediateOverflow == true
+        or (tonumber(snapshot.pressure) or 0) > 0
+        or (tonumber(snapshot.directionalPressure) or 0) > 0 then
+        return budget(normal, "danger")
+    end
+    local alarmKnown, alarm = pcall(alert.peek)
+    if not alarmKnown or alarm ~= nil then return budget(normal, "camp_alarm") end
+    local playerState = type(snapshot.player) == "table" and snapshot.player or {}
+    if (tonumber(playerState.danger) or 0) > 0 or (tonumber(playerState.immediateThreats) or 0) > 0 then
+        return budget(normal, "player_danger")
+    end
+    local player = playerState.actor
+    local aiming, aimKnown = utility.call(player, "isAiming")
+    local attacking, attackKnown = utility.call(player, "isAttacking")
+    if not aimKnown or not attackKnown or aiming == true or attacking == true then
+        return budget(normal, "player_combat_or_unknown")
+    end
+    local quiet = tonumber(utility.config("navigationQuietBaseSliceBudgetMs")) or normal
+    return budget(math.max(normal, quiet), "quiet_base")
+end
+
 local function resumeRouteSearchSlice(job, expansionQuota)
     if type(job) ~= "table" then return "failed", nil, "invalid_job", 0, nil, 0 end
     if job.complete then
         return job.path and "complete" or "failed", job.path, job.reason,
             job.totalExpanded or 0, job.report, 0
     end
-    local slice = P().newSlice(job.pathOptions, U().config("navigationSliceBudgetMs") or 2)
+    local sliceBudget, sliceReason = Navigation._routeSearchSliceBudget(job)
+    job.lastSliceBudgetMs, job.lastSliceBudgetReason = sliceBudget, sliceReason
+    local slice = P().newSlice({ clock = job.pathOptions.clock,
+        sliceBudgetMs = sliceBudget }, sliceBudget)
     job.lastYieldReason = nil
     -- Refresh the stealth danger overlay before this slice so later-expanded nodes
     -- score against threats that are still live (review 3.5). Bounded and throttled.
@@ -2938,11 +3055,47 @@ local function resumeRouteSearchSlice(job, expansionQuota)
     return "pending", nil, "searching", job.totalExpanded, nil, totalUsed
 end
 
+function Navigation._resumeRouteSearchTracked(job, expansionQuota)
+    if type(job) ~= "table" then return resumeRouteSearchSlice(job, expansionQuota) end
+    local search, context, evaluation = job.search, job.evaluationContext, job.pendingEvaluation
+    local work = search and tonumber(search.workSerial) or 0
+    local contextStage, contextIndex, contextReady = context and context.stage,
+        context and context.index, context and context.ready
+    local evaluationIndex = evaluation and evaluation.index
+    local phase, complete = job.phase, job.complete
+    local status, path, reason, expanded, report, used = resumeRouteSearchSlice(job, expansionQuota)
+    if job.search ~= search or (search and (tonumber(search.workSerial) or 0) > (work or 0))
+        or job.evaluationContext ~= context
+        or (context and (context.stage ~= contextStage or context.index ~= contextIndex
+            or context.ready ~= contextReady))
+        or job.pendingEvaluation ~= evaluation
+        or (evaluation and evaluation.index ~= evaluationIndex)
+        or job.phase ~= phase or job.complete ~= complete then
+        job.progressSerial = (tonumber(job.progressSerial) or 0) + 1
+    end
+    return status, path, reason, expanded, report, used
+end
+
 local function resumeRouteSearch(job, expansionQuota)
     if SC.Topology and type(SC.Topology.withReadBatch) == "function" then
-        return SC.Topology.withReadBatch(resumeRouteSearchSlice, job, expansionQuota)
+        return SC.Topology.withReadBatch(Navigation._resumeRouteSearchTracked, job, expansionQuota)
     end
-    return resumeRouteSearchSlice(job, expansionQuota)
+    return Navigation._resumeRouteSearchTracked(job, expansionQuota)
+end
+
+function Navigation._noteSearchSliceProgress(pending, expanded, usedNodes, now)
+    if type(pending) ~= "table" then return false end
+    local serial = pending.route and tonumber(pending.route.progressSerial) or 0
+    local count = tonumber(expanded) or 0
+    local progressed = count > (tonumber(pending.lastExpanded) or 0)
+        or (tonumber(usedNodes) or 0) > 0
+        or serial > (tonumber(pending.lastProgressSerial) or 0)
+    pending.lastProgressSerial = serial
+    if progressed then
+        pending.lastExpanded = math.max(count, tonumber(pending.lastExpanded) or 0)
+        pending.progressAt = now
+    end
+    return progressed
 end
 
 local function chooseRememberedEgress(state, currentSquare, now, snapshot, actor)
@@ -3409,6 +3562,9 @@ local function lateralYield(actor, state, sourceSquare, nextSquare, intent, now)
         if square and utility.isSquareFree(square) and not water
             and not hazards.fire and not hazards.explosiveTrap
             and not utility.edgeBlocked(sourceSquare, square)
+            and (intent.draggingBody ~= true or select(1, passableEdge(
+                sourceSquare, square, 1, { actor = actor, draggingBody = true,
+                    now = now, allowOccupiedGoal = true })) == true)
             and not personalSpaceBlocker(actor, square, intent.snapshot)
             and reserveStep(square, actor, state, intent, now) then
             local accepted = utility.move(actor, "walk", {
@@ -3419,6 +3575,7 @@ local function lateralYield(actor, state, sourceSquare, nextSquare, intent, now)
                 direct = true,
                 collisionValidated = true,
                 yieldFor = state.yieldBlocker,
+                draggingBody = intent.draggingBody == true,
                 supervisorToken = intent and intent.supervisorToken,
             })
             if accepted then
@@ -4119,19 +4276,31 @@ end
 -- The actor is deliberately stationary while incremental A* yields. Let a
 -- forward-moving formation goal drift a few tiles without discarding that whole
 -- frontier; the completed route is repaired to the latest goal immediately.
--- The square a live search is identified by. A provisional advance moves the
--- actor on purpose while the search runs, so measuring the search against where
--- the actor is now discards exactly the progress the advance was meant to
--- overlap with: the companion crossed one tile, the leader drifted one tile,
--- and a frontier that was minutes from finishing was thrown away. Once an
--- advance has happened the search keeps its original anchor as its identity.
--- Everything else about it -- ownership, age, floor, heading, goal drift -- is
--- still checked by the caller.
+-- A search keeps its original start through deliberate provisional movement
+-- and small collision nudges. Re-keying on every tile boundary can otherwise
+-- discard a live frontier while the stationary actor shuffles in a crowd.
+-- Incidental drift is bounded against that original square, never the previous
+-- sample; the completed route still needs a freshly checked local join.
 function Navigation._searchSourceIdentity(state, sourceSquare)
     local pending = type(state) == "table" and state.pathSearch or nil
-    if pending ~= nil and pending.anchorKey ~= nil
-        and (tonumber(state.provisionalAdvances) or 0) > 0 then
-        return tostring(pending.anchorKey)
+    if pending ~= nil and pending.anchorKey ~= nil then
+        local route = pending.route
+        local origin = route and route.startSquare
+        local sx, sy, sz = U().position(sourceSquare)
+        local ox, oy, oz = U().position(origin)
+        local reach = 1
+        local advances = tonumber(state.provisionalAdvances) or 0
+        if advances > 0 then
+            reach = math.max(1, math.min(advances,
+                tonumber(U().config("navigationProvisionalAdvanceLimit")) or 3)
+                * math.max(1, tonumber(U().config("navigationProvisionalReach")) or 3))
+        end
+        if sx ~= nil and ox ~= nil
+            and math.floor(sz or 0) == math.floor(oz or 0)
+            and math.abs(math.floor(sx) - math.floor(ox)) <= reach
+            and math.abs(math.floor(sy) - math.floor(oy)) <= reach then
+            return tostring(pending.anchorKey)
+        end
     end
     return tostring(squareKey(sourceSquare))
 end
@@ -4296,6 +4465,20 @@ end
 -- Native collision steering may place the actor beside (or farther along) the
 -- Lua path. Rejoin a validated nearby suffix instead of discarding the route and
 -- starting another whole search.
+function Navigation._suffixWorkAdmitted(sourceSquare, target, context)
+    if context.workCampOnly ~= true then return true end
+    if not Navigation._workSquareAdmitted(target, context) then return false end
+    local sx, sy, sz = U().position(sourceSquare)
+    local tx, ty = U().position(target)
+    if sx ~= nil and tx ~= nil and math.floor(sx) ~= math.floor(tx)
+        and math.floor(sy) ~= math.floor(ty) then
+        -- A diagonal traverses both corner legs; neither may leave camp.
+        return Navigation._workSquareAdmitted(U().gridSquare(sx, ty, sz), context)
+            and Navigation._workSquareAdmitted(U().gridSquare(tx, sy, sz), context)
+    end
+    return true
+end
+
 local function tryReusePathSuffix(actor, state, sourceSquare, context, now)
     if type(state.path) ~= "table" then return false end
     local startIndex = math.max(2, tonumber(state.pathIndex) or 2)
@@ -4314,11 +4497,13 @@ local function tryReusePathSuffix(actor, state, sourceSquare, context, now)
         -- not make the companion step backwards before resuming the route.
         for index = finishIndex, startIndex, -1 do
             local candidate = state.path[index]
-            if adjacentStep(sourceSquare, candidate) then
+            if adjacentStep(sourceSquare, candidate, context.draggingBody == true)
+                and Navigation._suffixWorkAdmitted(sourceSquare, candidate, context) then
                 local passable = passableEdge(sourceSquare, candidate,
                     context.urgent == true
                         and (U().config("navigationEmergencyVegetationScale") or 0.2) or 1, {
                         actor = actor,
+                        draggingBody = context.draggingBody == true,
                         blockedEdges = state.blockedEdges,
                         blockedSquares = state.blockedSquares,
                         routeMemory = state.routeMemory,
@@ -4343,6 +4528,34 @@ local function tryReusePathSuffix(actor, state, sourceSquare, context, now)
         SC.Performance.record("navigation.reuse", U().idOf(actor), 0, 1, false)
     end
     return true
+end
+
+-- The actor can have been nudged beside the origin while A* was yielding.
+-- Joining its result is a new edge: validate it against current geometry and
+-- work/hauling policy before projection or native movement sees the old path.
+function Navigation._joinCompletedSearchPath(actor, state, sourceSquare,
+        completedSearch, context, now)
+    if not state.path or not completedSearch
+        or sameSquare(sourceSquare, completedSearch.startSquare) then return true end
+    local joined = tryReusePathSuffix(actor, state, sourceSquare, context, now)
+    local nextSquare = joined and state.path[state.pathIndex]
+    if joined and (nextSquare == nil or (adjacentStep(sourceSquare, nextSquare,
+            context.draggingBody == true)
+        and Navigation._suffixWorkAdmitted(sourceSquare, nextSquare, context)
+        and passableEdge(sourceSquare, nextSquare,
+            context.urgent == true
+                and (U().config("navigationEmergencyVegetationScale") or 0.2) or 1, {
+                actor = actor, draggingBody = context.draggingBody == true,
+                blockedEdges = state.blockedEdges, blockedSquares = state.blockedSquares,
+                routeMemory = state.routeMemory, now = now,
+                allowOccupiedGoal = state.pathIndex == #state.path,
+            }))) then return true end
+    releaseStep(state, actor)
+    state.path, state.pathGoalSquare, state.pathSearch = nil, nil, nil
+    state.pathIndex, state.nextRepathAt = 1, 0
+    context.pathSearchReason = "path_deviation"
+    Navigation._resetRouteProjection(state)
+    return false
 end
 
 local function correctRouteProjection(actor, state, sourceSquare, context, now)
@@ -5666,6 +5879,7 @@ local function routeTargetSignature(goalSquare, intent)
         .. (moving and "moving" or tostring(squareKey(goalSquare))) .. "|"
         .. tostring(semanticTarget) .. "|" .. tostring(intent.item or "none")
         .. "|" .. tostring(explicit) .. "|token=" .. tostring(tokenSerial(intent) or "none")
+        .. (intent.draggingBody == true and "|dragging_body" or "")
         .. ((intent.action == "follow_formation" or intent.action == "regroup")
             and "|formation=" .. tostring(intent.formationMode or "none") or "")
 end
@@ -6144,7 +6358,9 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
     end
     for _, square in ipairs(candidates) do
         local _, kind = barrierBetween(actorSquare, square)
-        local passable = square and select(1, passableEdge(actorSquare, square)) == true
+        local passable = square and select(1, passableEdge(actorSquare, square, 1,
+            { actor = actor, draggingBody = intent and intent.draggingBody == true,
+                now = now, allowOccupiedGoal = true })) == true
         if square and kind == "open" and passable and utility.isSquareFree(square)
             and not utility.edgeBlocked(actorSquare, square)
             and not edgeBlacklistEntry(state.blockedEdges, actorSquare, square,
@@ -6160,6 +6376,7 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
                 collisionValidated = true,
                 doorwayRecovery = nearbyDoor ~= nil,
                 treeRecovery = treeAwayX ~= nil,
+                draggingBody = intent and intent.draggingBody == true,
                 supervisorToken = intent and intent.supervisorToken,
             })
             if accepted then
@@ -6427,10 +6644,12 @@ function Navigation._seedVerifiedRoute(actor, state, sourceSquare, goalSquare,
         or type(Navigation.findPath) ~= "function" then return end
     local attemptKey = tostring(squareKey(sourceSquare)) .. ">"
         .. tostring(squareKey(goalSquare))
+        .. (requestIntent.draggingBody == true and ":dragging_body" or "")
     if state.verifiedPathAttemptKey == attemptKey then return end
     state.verifiedPathAttemptKey = attemptKey
     local verified = Navigation.findPath(sourceSquare, goalSquare,
         { actor = actor, nodeBudget = 900,
+            draggingBody = requestIntent.draggingBody == true,
             blockedEdges = state.blockedEdges,
             blockedSquares = state.blockedSquares,
             routeMemory = state.routeMemory, now = now })
@@ -6792,7 +7011,8 @@ function Navigation.request(actor, target, movementMode, intent)
         clearTerminalEpisode(actor, state, "arrived", now)
         clearMovementTransients(actor, state)
         if not utility.stop(actor) then return false, "arrival_stop_rejected" end
-        if poorSight(actor, sourceSquare, goalSquare, nil, requestIntent) then
+        if requestIntent.draggingBody ~= true
+            and poorSight(actor, sourceSquare, goalSquare, nil, requestIntent) then
             local ready = utility.move(actor, "walk", {
                 action = "ready_weapon", targetSquare = goalSquare,
                 facingTarget = goalSquare, weaponReady = true,
@@ -7034,6 +7254,10 @@ function Navigation.request(actor, target, movementMode, intent)
         local evaluateAlternatives = followRouting and not isMovingTargetIntent(requestIntent)
         local pathOptions = {
             actor = actor,
+            action = requestIntent.action,
+            urgent = requestIntent.urgent == true,
+            emergency = requestIntent.emergency == true,
+            survivalCritical = requestIntent.survivalCritical == true,
             blockedEdges = state.blockedEdges,
             blockedSquares = state.blockedSquares,
             routeMemory = state.routeMemory,
@@ -7181,16 +7405,13 @@ function Navigation.request(actor, target, movementMode, intent)
             and state.pathSearch.alternatives == (evaluateAlternatives == true) then
             planningGoal = state.pathSearch.route.goalSquare
         end
-        -- A search is keyed on the square it was planned from, so a companion
-        -- that advances while it runs would discard and restart it on every
-        -- tile -- a treadmill, worse than standing still. Once a provisional
-        -- advance has moved the actor, the search keeps its original anchor
-        -- and keeps running; the completed route is rejoined further along by
-        -- the ordinary suffix reuse below.
+        -- Provisional advances and bounded crowd drift keep the original
+        -- anchor. Ownership, goal and policy still participate in this key.
         local searchKey = SC.Navigation._searchSourceIdentity(state, sourceSquare) .. ">" .. tostring(squareKey(planningGoal))
             .. ":" .. tostring(requestIntent.stealthAvoidance == true)
             .. ":" .. tostring(followRouting == true)
             .. ":" .. tostring(evaluateAlternatives == true)
+            .. (requestIntent.draggingBody == true and ":dragging_body" or "")
         if not state.pathSearch or state.pathSearch.key ~= searchKey then
             state.provisionalAdvances = 0
             state.pathSearch = {
@@ -7261,9 +7482,10 @@ function Navigation.request(actor, target, movementMode, intent)
         local requestedNodes = tonumber(pathOptions.nodeBudget)
             or utility.config("navigationNodeBudget") or 220
         local grantedNodes = requestedNodes
+        local unitClaim
         if not overdue and SC.Performance and type(SC.Performance.claimUnits) == "function" then
-            grantedNodes = SC.Performance.claimUnits(
-                "navigation", requestedNodes, requestIntent.urgent == true)
+            grantedNodes, unitClaim = SC.Performance.claimUnits(
+                "navigation", requestedNodes, requestIntent.urgent == true, true)
         end
         if not overdue and grantedNodes <= 0 then
             if SC.Performance and type(SC.Performance.markYield) == "function" then
@@ -7285,12 +7507,13 @@ function Navigation.request(actor, target, movementMode, intent)
                 resumeRouteSearch(state.pathSearch.route, grantedNodes)
         end
         local search = state.pathSearch
-        local expandedCount = tonumber(expanded) or 0
-        if search and (expandedCount > (tonumber(search.lastExpanded) or -1)
-                or (tonumber(usedNodes) or 0) > 0) then
-            search.lastExpanded = math.max(expandedCount,
-                tonumber(search.lastExpanded) or 0)
-            search.progressAt = now
+        local sliceProgress = SC.Navigation._noteSearchSliceProgress(search, expanded, usedNodes, now)
+        if unitClaim and SC.Performance and type(SC.Performance.settleUnits) == "function" then
+            -- Finishing pending edges or scoring a route can use zero new
+            -- expansions while still doing real work. Charge one unit for that
+            -- progress; the existing wall-clock slice and scheduler bound CPU.
+            SC.Performance.settleUnits(unitClaim,
+                math.max(tonumber(usedNodes) or 0, sliceProgress and 1 or 0))
         end
         if SC.Performance and type(SC.Performance.record) == "function" then
             SC.Performance.record("navigation", utility.idOf(actor),
@@ -7314,6 +7537,8 @@ function Navigation.request(actor, target, movementMode, intent)
         end
 
         local completedSearch = state.pathSearch and state.pathSearch.route or nil
+        state.lastSearchSliceBudgetMs = completedSearch and completedSearch.lastSliceBudgetMs
+        state.lastSearchSliceBudgetReason = completedSearch and completedSearch.lastSliceBudgetReason
         local completedSearchStartedAt = state.pathSearch and state.pathSearch.startedAt or now
         state.pathSearch = nil
         state.pathSearchHolding = nil
@@ -7388,6 +7613,8 @@ function Navigation.request(actor, target, movementMode, intent)
         state.routeSelectedScore = routeReport and routeReport.selectedScore or nil
         state.routeEvaluations = routeReport and routeReport.routes or nil
         state.nextRepathAt = now + (utility.config("navigationRepathMs") or 900)
+        SC.Navigation._joinCompletedSearchPath(actor, state, sourceSquare,
+            completedSearch, requestIntent, now)
         end
     end
 
@@ -7402,7 +7629,8 @@ function Navigation.request(actor, target, movementMode, intent)
         end
         nextSquare = state.path[state.pathIndex]
         afterSquare = state.path[state.pathIndex + 1]
-        if nextSquare and not adjacentStep(sourceSquare, nextSquare)
+        if nextSquare and not adjacentStep(sourceSquare, nextSquare,
+                requestIntent.draggingBody == true)
             and tryReusePathSuffix(actor, state, sourceSquare, requestIntent, now) then
             while state.pathIndex <= #state.path
                 and sameSquare(sourceSquare, state.path[state.pathIndex]) do
@@ -7411,7 +7639,8 @@ function Navigation.request(actor, target, movementMode, intent)
             nextSquare = state.path[state.pathIndex]
             afterSquare = state.path[state.pathIndex + 1]
         end
-        if nextSquare and not adjacentStep(sourceSquare, nextSquare) then
+        if nextSquare and not adjacentStep(sourceSquare, nextSquare,
+                requestIntent.draggingBody == true) then
             -- A native local detour can move the actor off the Lua path while
             -- clearing a collision capsule. Discard that stale edge instead of
             -- issuing a non-adjacent manual step through world geometry.
@@ -8703,6 +8932,12 @@ function Navigation.status(actor)
         pathReason = state.pathReason,
         pathSearchAgeMs = state.pathSearch and state.pathSearch.startedAt
             and math.max(0, current - state.pathSearch.startedAt) or nil,
+        searchSliceBudgetMs = state.pathSearch and state.pathSearch.route
+            and state.pathSearch.route.lastSliceBudgetMs
+            or state.lastSearchSliceBudgetMs,
+        searchSliceBudgetReason = state.pathSearch and state.pathSearch.route
+            and state.pathSearch.route.lastSliceBudgetReason
+            or state.lastSearchSliceBudgetReason,
         expandedNodes = state.expandedNodes or 0,
         lastPlanDurationMs = state.lastPlanDurationMs,
         lastFirstMotionMs = state.lastFirstMotionMs,

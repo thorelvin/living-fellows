@@ -164,7 +164,7 @@ local visualActionSpecs = {
     rip_clothing_for_bandage = { animation = "Craft", animationEnum = true, ticks = 120,
         sound = "ClothesRipping" },
     read = { animation = "Read", animationEnum = true, event = "EventRead",
-        secondaryItem = true, ticks = 360 },
+        secondaryItem = true, ticks = 3600, maxTicks = 10800 },
     -- Writing in a private diary uses the same verified pose as vanilla's own
     -- ISWriteSomething (the Read animation with the book in hand). The page
     -- itself is committed by SCDiary only after this completes.

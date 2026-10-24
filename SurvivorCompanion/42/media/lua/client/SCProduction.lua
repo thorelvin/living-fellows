@@ -3769,11 +3769,43 @@ end
 -- in the kitchen. Retry the grave route briefly, then look for a clear outdoor
 -- square on the same floor before giving up the haul. Threats still use the
 -- immediate emergency drop above.
+function Disposal.clearOutdoorDrop(actor)
+    local utility = U()
+    local square = utility.squareOf(actor)
+    local navigation = SC.Navigation
+    local function clear(square)
+        return square ~= nil and select(1, invoke(square, "getRoom")) == nil
+            and utility.isSquareFree(square) and not Disposal.hasBody(square)
+            and not (navigation and type(navigation.doorThresholdSquare) == "function"
+                and navigation.doorThresholdSquare(square))
+    end
+    if not clear(square) then return false end
+    -- The hauler crosses the threshold before its trailing grapple does.
+    -- Releasing on the first outdoor actor tile leaves the body indoors or
+    -- across the doorway. Check the actual body point, not their distance.
+    local bx, by = Disposal.bodyPoint(actor)
+    if bx == nil then return true end -- Older native providers expose neither point nor facing.
+    local _, _, z = utility.position(actor)
+    local bodySquare = utility.gridSquare(bx, by, z)
+    if not clear(bodySquare) then return false end
+    if not utility.sameSquare(square, bodySquare) then
+        local sx, sy = utility.position(square)
+        if math.abs(math.floor(bx) - math.floor(sx)) > 1
+            or math.abs(math.floor(by) - math.floor(sy)) > 1 then return false end
+        if navigation and type(navigation.dragEdgeAllowed) == "function" then
+            return navigation.dragEdgeAllowed(actor, bodySquare, square, now()) == true
+        end
+        local reachable, known = invoke(bodySquare, "canReachTo", square)
+        if known and reachable ~= true then return false end
+    end
+    return true
+end
+
 function Disposal.safeDropOutside(actor, haul)
     local utility = U()
     local square = utility.squareOf(actor)
     if square == nil then return false, "actor_square_unavailable" end
-    if select(1, invoke(square, "getRoom")) == nil then return true, "already_outside" end
+    if Disposal.clearOutdoorDrop(actor) then return true, "already_outside" end
     if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
         return false, "navigation_unavailable"
     end
@@ -3788,7 +3820,10 @@ function Disposal.safeDropOutside(actor, haul)
                         local target = utility.gridSquare(x + dx, y + dy, z)
                         if target and select(1, invoke(target, "getRoom")) == nil
                             and utility.isSquareFree(target)
-                            and not Disposal.hasBody(target) then
+                            and not Disposal.hasBody(target)
+                            and not utility.sameSquare(target, square)
+                            and not (type(SC.Navigation.doorThresholdSquare) == "function"
+                                and SC.Navigation.doorThresholdSquare(target)) then
                             candidates[#candidates + 1] = target
                         end
                     end
@@ -3805,7 +3840,7 @@ function Disposal.safeDropOutside(actor, haul)
         workCampOnly = true, workReach = true, draggingBody = true,
     })
     if accepted ~= true then return false, reason or "safe_drop_path_blocked" end
-    if select(1, invoke(utility.squareOf(actor), "getRoom")) == nil then
+    if Disposal.clearOutdoorDrop(actor) then
         return true, "outside_reached"
     end
     return nil, reason or "approaching_outdoor_drop"
@@ -4727,6 +4762,9 @@ function Disposal.pollDrop(actor, order, state, context, options)
     if native and type(native.settleDrag) == "function" then pcall(native.settleDrag, actor) end
     haul.body, haul.square, haul.key = body, square, bodyKey(body)
     haul.stage = "placed"
+    -- A missed drop can land on the other side of the room or beyond a
+    -- doorway. The next grab needs a route survey from that new body tile.
+    haul.departure, haul.departureIgnored = nil, nil
     claim(haul.key, order.id, context.actorId)
     speak(actor, "burial.haul.drop", nil, haul.tag, context.runtime)
     if options.settleOnly == true then

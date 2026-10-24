@@ -1421,6 +1421,44 @@ function U.itemWeight(item)
     return value
 end
 
+-- Native container admission includes traits, item filters, nesting and seat
+-- rules. Keep its answer authoritative; only diagnose a refusal afterward.
+function U.containerHasRoom(container, actor, item)
+    if container == nil or actor == nil or item == nil then
+        return false, "capacity_context_missing"
+    end
+    local allowed, called = U.call(container, "hasRoomFor", actor, item)
+    if not called or type(allowed) ~= "boolean" then
+        return false, "capacity_unavailable"
+    end
+    if allowed then return true end
+
+    local function number(value)
+        return type(value) == "number" and value == value
+            and value >= 0 and value < math.huge and value or nil
+    end
+    local used = number(select(1, U.call(container, "getCapacityWeight")))
+    local base = number(select(1, U.call(container, "getCapacity")))
+    local effective = number(select(1, U.call(container, "getEffectiveCapacity", actor)))
+    local free = number(select(1, U.call(container, "getFreeCapacity", actor)))
+    local weight = number(select(1, U.call(item, "getUnequippedWeight")))
+    -- The native free-capacity getter applies the game's weight rounding.
+    if free == nil and used ~= nil and effective ~= nil then
+        free = math.max(0, effective - math.floor(used * 100 + 0.5) / 100)
+    end
+    local detail = { used = used, baseCapacity = base, effectiveCapacity = effective,
+        freeCapacity = free, itemWeight = weight, itemType = U.itemType(item) }
+    local part = select(1, U.call(container, "getVehiclePart"))
+    if part then detail.partId = select(1, U.call(part, "getId")) end
+    if free == nil or weight == nil then
+        return false, "capacity_unavailable", detail
+    end
+    if weight > free + 0.000001 then return false, "destination_full", detail end
+    -- Enough direct space does not override a native filter, maximum item
+    -- size, or an outer container limit. Do not call acceptance callbacks twice.
+    return false, "destination_item_rejected", detail
+end
+
 -- Two scales describe a companion's load, and callers choose deliberately:
 -- inventoryLoad is the physical one. Build 42's transfer checks compare
 -- ItemContainer:getCapacityWeight() against getEffectiveCapacity(character),

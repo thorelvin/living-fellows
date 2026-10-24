@@ -15,7 +15,9 @@ local visualDeposit = false
 local falseDelivery = false
 
 function car:getSqlId() return self.id end
-function car:getPartById(id) return id == "TruckBed" and part or nil end
+function car:getPartById(id)
+    return id == "TruckBed" and { getItemContainer = function() return { items = {} } end } or nil
+end
 function car:isTrunkLocked() return false end
 function car:getX() return 10 end
 function car:getY() return 10 end
@@ -59,6 +61,7 @@ SC.GameplayUtil = {
     end,
 }
 SC.Vehicle = {
+    cargoPart = function(value) return value == car and part or nil, value == car and trunk or nil end,
     isStationary = function(value) return value.stationary end,
     loadedVehicles = function() return { car } end,
     loadedBySqlId = function(id) return id == car.id and car or nil end,

@@ -313,7 +313,7 @@
     "UI_SC_Base_CleanReason_cleaning_already_queued": "A companion is already assigned to clean this spot.",
     "UI_SC_Base_CleanReason_cleaning_worker_missing": "No companion is on base duty to clean this spot.",
     "UI_SC_Base_CleanReason_cleaning_worker_away": "A cleaner needs to return to the camp first.",
-    "UI_SC_Base_CleanReason_cleaning_supplies_missing": "Put a mop and bleach or cleaning liquid in marked storage, or give them to a base-duty companion.",
+    "UI_SC_Base_CleanReason_cleaning_supplies_missing": "Provide a dry towel, sponge, cleaning brush, broom or mop, plus bleach or cleaning liquid. Keep them in marked storage or give them to a base-duty companion.",
     "UI_SC_Base_CleanReason_cleaning_route_unavailable": "No cleaner can reach this spot from their current room.",
     "UI_SC_Base_CleanReason_cleaning_outside_camp": "Mark this spot inside the camp area first.",
     "UI_SC_Base_CleanReason_cleaning_target_unavailable": "This spot is not currently loaded.",

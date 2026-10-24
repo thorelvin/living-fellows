@@ -43,9 +43,13 @@ param(
     [switch]$VehicleRefuelProbe,
     [switch]$VehicleUpkeepProbe,
     [switch]$FieldWorkProbe,
+    [switch]$FieldCargoProbe,
     [switch]$GeneratorRefuelProbe,
     [switch]$PyreBurnProbe,
     [switch]$UpstairsHaulProbe,
+    [switch]$OfficeHaulProbe,
+    [switch]$OfficeHaulSurveyOnly,
+    [switch]$OfficeHaulBaseline,
     [switch]$BaseAlertProbe,
     [string]$PyreBurnScreenshot = '',
     [switch]$HygieneProbe,
@@ -1441,6 +1445,18 @@ if ($IsolatedSourceBridge) {
 }
 Copy-Item -LiteralPath $sourceMod -Destination (Join-Path $SandboxMods 'SurvivorCompanion') -Recurse
 Copy-Item -LiteralPath $harnessMod -Destination (Join-Path $SandboxMods 'SCRealSandboxHarness') -Recurse
+if ($OfficeHaulBaseline) {
+    if (-not $OfficeHaulProbe) { throw 'OfficeHaulBaseline requires OfficeHaulProbe.' }
+    foreach ($name in @('SCProduction.lua', 'SCNavigation.lua', 'SCNavTraversal.lua')) {
+        $relative = 'SurvivorCompanion/42/media/lua/client/' + $name
+        $baselineText = & git -C $ProjectRoot show "HEAD:$relative"
+        if ($LASTEXITCODE -ne 0) { throw "Could not load office-haul baseline: $relative" }
+        $targetPath = Join-Path $SandboxMods ($relative -replace '/', '\')
+        [System.IO.File]::WriteAllText($targetPath,
+            (($baselineText -join "`n") + "`n"), [System.Text.UTF8Encoding]::new($false))
+    }
+    Write-Output 'Restored committed corpse-hauling and navigation modules in the disposable sandbox.'
+}
 if ($FollowRoadBaseline) {
     if (-not $FollowRoadProbe) { throw 'FollowRoadBaseline requires FollowRoadProbe.' }
     foreach ($relative in @(
@@ -1494,6 +1510,23 @@ if ($ProjectALifeDamageProbe) {
     }
     Copy-Item -LiteralPath $ProjectALifeModPath -Destination (Join-Path $SandboxMods 'ProjectALifeNPCs') -Recurse
 }
+if ($FieldCargoProbe) {
+    # Exact installed test dependencies, copied only into the disposable cache.
+    $cargoWorkshopRoot = Join-Path (Split-Path (Split-Path $GameRoot -Parent) -Parent) 'workshop\content\108600'
+    foreach ($cargoDependency in @(
+        @{ Id = '3171167894'; Name = 'damnlib' },
+        @{ Id = '3073430075'; Name = '93fordF350' }
+    )) {
+        $cargoSource = Join-Path $cargoWorkshopRoot ($cargoDependency.Id + '\mods\' + $cargoDependency.Name)
+        if (-not (Test-Path -LiteralPath $cargoSource -PathType Container)) {
+            throw "Field cargo probe dependency is not installed: $cargoSource"
+        }
+        $cargoDestination = Join-Path $SandboxMods $cargoDependency.Name
+        if (-not (Test-Path -LiteralPath $cargoDestination)) {
+            Copy-Item -LiteralPath $cargoSource -Destination $cargoDestination -Recurse
+        }
+    }
+}
 
 $modText = if ($LivingFellowsOnly) {
     "VERSION = 1,`r`n`r`nmods`r`n{`r`n}`r`n`r`nmaps`r`n{`r`n}`r`n"
@@ -1504,6 +1537,10 @@ foreach ($excludedId in $ExcludeModId) {
     $modText = Remove-ModEntry $modText $excludedId
 }
 $modText = Add-ModEntry $modText 'SurvivorCompanion'
+if ($FieldCargoProbe) {
+    $modText = Add-ModEntry $modText 'damnlib'
+    $modText = Add-ModEntry $modText '93fordF350'
+}
 $modText = if ($ProjectALifeDamageProbe) { Add-ModEntry $modText 'ProjectALifeNPCs' } else { $modText }
 $modText = Add-ModEntry $modText 'SCRealSandboxHarness'
 [System.IO.File]::WriteAllText((Join-Path $SandboxMods 'default.txt'), $modText, $utf8NoBom)
@@ -1526,9 +1563,12 @@ $config = @(
     ('vehicle_refuel_probe=' + $VehicleRefuelProbe.IsPresent.ToString().ToLowerInvariant()),
     ('vehicle_upkeep_probe=' + $VehicleUpkeepProbe.IsPresent.ToString().ToLowerInvariant()),
     ('field_work_probe=' + $FieldWorkProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('field_cargo_probe=' + $FieldCargoProbe.IsPresent.ToString().ToLowerInvariant()),
     ('generator_refuel_probe=' + $GeneratorRefuelProbe.IsPresent.ToString().ToLowerInvariant()),
     ('pyre_burn_probe=' + $PyreBurnProbe.IsPresent.ToString().ToLowerInvariant()),
     ('upstairs_haul_probe=' + $UpstairsHaulProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('office_haul_probe=' + $OfficeHaulProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('office_haul_survey_only=' + $OfficeHaulSurveyOnly.IsPresent.ToString().ToLowerInvariant()),
     ('base_alert_probe=' + $BaseAlertProbe.IsPresent.ToString().ToLowerInvariant()),
     ('hygiene_probe=' + $HygieneProbe.IsPresent.ToString().ToLowerInvariant()),
     ('oddball_corey_probe=' + $OddballCoreyProbe.IsPresent.ToString().ToLowerInvariant()),

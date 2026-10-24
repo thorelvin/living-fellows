@@ -192,6 +192,9 @@ end
 
 local function capacity(container, actor, item)
     if not container or not actor or not item then return false, "capacity_context_missing" end
+    if type(U().containerHasRoom) == "function" then
+        return U().containerHasRoom(container, actor, item)
+    end
     local allowed, called = invoke(container, "hasRoomFor", actor, item)
     if not called then return false, "capacity_unavailable" end
     if allowed ~= true then return false, "destination_full" end

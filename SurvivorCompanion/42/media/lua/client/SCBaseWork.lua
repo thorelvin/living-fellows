@@ -1844,39 +1844,104 @@ end
 
 BaseWork._guardPostForTests = guardPost
 
+local function clearGuardPatrol(actor, state, reason)
+    state.guardPatrolTarget, state.guardPatrolKey = nil, nil
+    local navigation = SC.Navigation
+    local route = navigation and type(navigation.peek) == "function"
+        and navigation.peek(actor) or nil
+    -- A named job or quiet activity may already own a different route. Only
+    -- release the patrol's own movement when its waypoint is retired.
+    if route and route.goalAction == "base_guard_patrol"
+        and type(navigation.cancel) == "function" then
+        navigation.cancel(actor, reason or "guard_patrol_cancelled")
+    end
+end
+
+local function guardPatrolKey(base, center)
+    local x, y, z = U().position(center)
+    local parts = { tostring(base), tostring(base and base.id),
+        tostring(x), tostring(y), tostring(z) }
+    -- A room-wide mark can change shape without moving its centre. The
+    -- compact zone signature invalidates that old patrol as well.
+    for _, zone in ipairs(base and base.zones or {}) do
+        if zone.kind == "guard" or zone.kind == "rally" then
+            parts[#parts + 1] = table.concat({ tostring(zone.id), zone.kind,
+                tostring(zone.x1), tostring(zone.y1), tostring(zone.x2),
+                tostring(zone.y2), tostring(zone.z) }, ":")
+        end
+    end
+    return table.concat(parts, "|")
+end
+
+local function guardTargetClear(actor, target)
+    return target and SC.BaseLife.isInside(target)
+        and SC.Navigation and SC.Navigation.standingSquareClear
+        and SC.Navigation.standingSquareClear(actor, target)
+        and (not SC.BaseLife.outdoorNightRestricted()
+            and not (SC.BaseWatch and SC.BaseWatch.isLeader(actor))
+            or SC.BaseLife.isOutdoorSquare(target) == false)
+end
+
 local function guardRoutine(actor, state)
+    local base = SC.BaseLife.active()
     local center = guardPost(actor)
         or SC.BaseLife.zoneCenter("guard") or SC.BaseLife.zoneCenter("rally")
-    if not center then return false, "guard_zone_missing" end
-    if now() < (state.nextRoutineAt or 0) and U().distance(actor, center) <= 3 then
+    if not center or not base then
+        clearGuardPatrol(actor, state, "guard_zone_missing")
+        return false, "guard_zone_missing"
+    end
+    local key = guardPatrolKey(base, center)
+    if state.guardPatrolKey ~= key then
+        clearGuardPatrol(actor, state, "guard_area_changed")
+        state.guardPatrolKey, state.nextRoutineAt = key, 0
+    end
+    local point = state.guardPatrolTarget
+    local target = point and U().gridSquare(point.x, point.y, point.z) or nil
+    if point and not guardTargetClear(actor, target) then
+        clearGuardPatrol(actor, state, "guard_spot_changed")
+        state.guardPatrolKey, state.nextRoutineAt = key, 0
+        target = nil
+    end
+    if not target and now() < (state.nextRoutineAt or 0) then
         return false, "guard_holding"
     end
     local offsets = { { 0, 0 }, { 2, 0 }, { 0, 2 }, { -2, 0 }, { 0, -2 } }
-    local target
-    for _ = 1, #offsets do
-        state.patrolIndex = (state.patrolIndex % #offsets) + 1
-        local offset = offsets[state.patrolIndex]
-        local candidate = U().gridSquare(center.x + offset[1],
-            center.y + offset[2], center.z)
-        if candidate and SC.BaseLife.isInside(candidate)
-            and SC.Navigation and SC.Navigation.standingSquareClear
-            and SC.Navigation.standingSquareClear(actor, candidate)
-            and (not SC.BaseLife.outdoorNightRestricted()
-                and not (SC.BaseWatch and SC.BaseWatch.isLeader(actor))
-                or SC.BaseLife.isOutdoorSquare(candidate) == false) then
-            target = candidate
-            break
+    if not target then
+        for _ = 1, #offsets do
+            state.patrolIndex = ((state.patrolIndex or 0) % #offsets) + 1
+            local offset = offsets[state.patrolIndex]
+            local candidate = U().gridSquare(center.x + offset[1],
+                center.y + offset[2], center.z)
+            if guardTargetClear(actor, candidate) then
+                target = candidate
+                local x, y, z = U().position(target)
+                state.guardPatrolTarget = { x = x, y = y, z = z }
+                break
+            end
         end
     end
-    state.nextRoutineAt = now() + (U().config("baseGuardPatrolIntervalMs") or 30000)
-    if not target then return false, "guard_target_unloaded" end
+    if not target then
+        state.nextRoutineAt = now() + 5000
+        return false, "guard_target_unloaded"
+    end
     if not SC.Navigation or type(SC.Navigation.request) ~= "function" then
         return false, "navigation_unavailable"
     end
-    return SC.Navigation.request(actor, target, "walk", workRoute({
+    local handled, reason = SC.Navigation.request(actor, target, "walk", workRoute({
         action = "base_guard_patrol", targetSquare = target,
     }))
+    if handled and reason == "arrived" then
+        clearGuardPatrol(actor, state, "guard_patrol_complete")
+        state.guardPatrolKey = key
+        state.nextRoutineAt = now() + (U().config("baseGuardPatrolIntervalMs") or 30000)
+    elseif handled ~= true then
+        clearGuardPatrol(actor, state, "guard_patrol_failed")
+        state.guardPatrolKey, state.nextRoutineAt = key, now() + 5000
+    end
+    return handled, reason
 end
+
+BaseWork._guardRoutineForTests = guardRoutine
 
 local NIGHT_SHELTER_SCAN_BUDGET = 128
 local NIGHT_SHELTER_TARGET_LIMIT = 8
@@ -1984,8 +2049,14 @@ BaseWork._sleepBeforeNewJobForTests = sleepBeforeNewJob
 function BaseWork.update(actor, player, runtime)
     local id, state = actorId(actor), stateFor(actor)
     local resident = SC.BaseLife and SC.BaseLife.resident(id) or nil
-    if not resident or resident.duty ~= true then return false, "not_on_base_duty" end
-    if not SC.BaseLife.active() then return false, "base_missing" end
+    if not resident or resident.duty ~= true then
+        clearGuardPatrol(actor, state, "not_on_base_duty")
+        return false, "not_on_base_duty"
+    end
+    if not SC.BaseLife.active() then
+        clearGuardPatrol(actor, state, "base_missing")
+        return false, "base_missing"
+    end
     -- A sleeper owns the bed through the whole rest, even after fatigue falls
     -- below the threshold or the base scheduler offers another job.
     local activeRest = SC.Downtime and type(SC.Downtime.peek) == "function"
@@ -1993,10 +2064,12 @@ function BaseWork.update(actor, player, runtime)
     if activeRest and activeRest.active
         and activeRest.active.kind == "rest_bed"
         and type(SC.Downtime.update) == "function" then
+        clearGuardPatrol(actor, state, "guard_resting")
         return SC.Downtime.update(actor, player, runtime, "rest_bed")
     end
     reportBlockedTool(actor, player, state, runtime)
     local job = SC.BaseLife.jobFor(id)
+    if job then clearGuardPatrol(actor, state, "guard_job_assigned") end
     -- A corpse in tow belongs to a production haul. Without that job in hand
     -- (blocked, released or finished), the body goes down before rest,
     -- downtime or another chore can walk off with it.
@@ -2122,6 +2195,7 @@ function BaseWork.update(actor, player, runtime)
     else
         activeGuard = resident.role == "guard"
     end
+    if not activeGuard then clearGuardPatrol(actor, state, "guard_shift_ended") end
     -- A watched camp leader gets an occasional social pause between jobs.
     -- Keep the visit in Downtime so its navigation, supervisor ownership and
     -- danger cancellation follow the same rules as every quiet activity.
@@ -2135,6 +2209,7 @@ function BaseWork.update(actor, player, runtime)
         SC.Downtime.cancel(actor, "base_job_assigned")
     elseif not job and activeQuiet
         and SC.Downtime and type(SC.Downtime.update) == "function" then
+        clearGuardPatrol(actor, state, "guard_quiet_activity")
         -- Once a quiet action owns the actor, let it finish before the next
         -- queue claim. A fresh base job used to strand an active lookout.
         return SC.Downtime.update(actor, player, runtime,
@@ -2193,6 +2268,7 @@ function BaseWork.update(actor, player, runtime)
     if not job and (not (activeGuard and resident.role == "guard") or namedJobWaiting(id)) then
         job = select(1, SC.BaseLife.claimJob(id))
     end
+    if job then clearGuardPatrol(actor, state, "guard_job_assigned") end
     if not job then
         if not activeGuard and SC.LogYard
             and type(SC.LogYard.updateBundle) == "function"
@@ -2218,7 +2294,24 @@ function BaseWork.update(actor, player, runtime)
         end
         return false, "no_base_job"
     end
+    -- Base duty can win while an opportunistic scavenger still owns its
+    -- approach or loot pose. Release that owner's reservation/visual first;
+    -- a pending handoff keeps this lease instead of counting a job failure.
+    if SC.Encounter and type(SC.Encounter.cancelScavenge) == "function" then
+        local released, why = SC.Encounter.cancelScavenge(actor, "base_job_assigned")
+        if released ~= true then
+            SC.BaseLife.touchJob(job.id, id)
+            return true, why or "base_scavenge_handoff_pending"
+        end
+    end
     if state.jobId ~= job.id then
+        if SC.FloorSort and type(SC.FloorSort.pause) == "function" then
+            local released, why = SC.FloorSort.pause(actor, nil, "base_job_changed")
+            if released ~= true then
+                SC.BaseLife.touchJob(job.id, id)
+                return true, why or "floor_visual_release_pending"
+            end
+        end
         state.jobId, state.phase, state.action, state.transfer = job.id, "idle", nil, nil
         state.visualAt, state.requirementsReady, state.cleanStartedAt = nil, nil, nil
         state.cleanFailureReason, state.floorCandidate = nil, nil
@@ -2332,6 +2425,14 @@ function BaseWork.update(actor, player, runtime)
         handled, reason, terminal = updateChore(actor, state, job, player, runtime)
     end
     if terminal then
+        if job.type == "sort_floor" and SC.FloorSort
+            and type(SC.FloorSort.pause) == "function" then
+            local released, why = SC.FloorSort.pause(actor, job, "floor_job_blocked")
+            if released ~= true then
+                SC.BaseLife.touchJob(job.id, id)
+                return true, why or "floor_visual_release_pending"
+            end
+        end
         local uncertainChef = job.type == "cook" and (reason == "chef_restart_needs_recovery"
             or string.find(tostring(reason or ""), "receipt", 1, true) ~= nil
             or string.find(tostring(reason or ""), "outcome_unknown", 1, true) ~= nil
@@ -2691,6 +2792,7 @@ function BaseWork.cancel(actor, reason)
         and type(SC.NativeActions.cancelVisual) == "function" then
         pcall(SC.NativeActions.cancelVisual, actor, reason or "base_work_cancelled")
     end
+    clearGuardPatrol(actor, state, reason or "base_work_cancelled")
     states[actor] = nil
     return true
 end

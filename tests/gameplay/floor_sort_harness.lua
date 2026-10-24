@@ -580,4 +580,117 @@ check(select(2, realBaseWork.update(actor)) == "floor_pickup_animation"
     and selectedForVisual == secondSelection,
     "replacement floor job selects from its own zone")
 
-SC_TEST_REPORT = "FLOOR_SORT_PASS pickup=verified reload=verified trash=physical blocked=reported cancel=returned alternate=verified carryback=walked interrupted=feet gone=released absent=released heavy=deferred log_bundle=settled cancel_selection=cleared crowded=root_and_bag_delivered nested=delivered"
+check(realBaseWork.cancelJob(job.id, actor.id) == true,
+    "ownership regressions start with no retained pickup")
+base.jobs, source.worldItems, otherSource.worldItems, inventory.items = {}, {}, {}, {}
+local currentVisual, visualSerial, visualCancels = nil, 0, 0
+local canCancelVisual, scavengeOwner, handoffAllowed = true, false, true
+SC.NativeActions.visualToken = function() return currentVisual end
+SC.NativeActions.visualStatus = function()
+    return currentVisual and currentVisual.status or "none"
+end
+SC.NativeActions.cancelVisualOwned = function(_, token)
+    if currentVisual ~= token then return true, "visual_no_longer_owned" end
+    if not canCancelVisual then return false, "cancel_pending" end
+    visualCancels = visualCancels + 1
+    currentVisual = nil
+    return true
+end
+SC.GameplayUtil.move = function(_, _, intent)
+    check(not scavengeOwner, "scavenge owner is released before floor animation")
+    visualSerial = visualSerial + 1
+    currentVisual = { serial = visualSerial, status = "active" }
+    return true
+end
+local function queueVisualItem(id)
+    base.jobs, source.worldItems = {}, {}
+    actor.x, actor.y, actor.z = source.x, source.y, source.z
+    local candidate = item(id, false)
+    addWorld(source, candidate)
+    local accepted, nextJob
+    for _ = 1, 3 do
+        accepted, nextJob = Floor.audit(base)
+        if accepted then break end
+    end
+    check(accepted, "visual ownership fixture queues its item")
+    job = nextJob
+    job.reservedBy, job.state = actor.id, "reserved"
+    return candidate, {}
+end
+local timedOut, timedState = queueVisualItem(120)
+check(select(2, Floor.update(actor, timedState, job)) == "floor_pickup_animation",
+    "timeout fixture starts a tracked floor visual")
+local timedToken = currentVisual
+now = now + 13000
+canCancelVisual = false
+local pendingHandled, pendingReason, pendingTerminal = Floor.update(actor, timedState, job)
+check(pendingHandled == true and pendingReason == "cancel_pending"
+    and pendingTerminal ~= true and currentVisual == timedToken
+    and timedOut.worldItem ~= nil,
+    "a pending native cancellation keeps the pickup owned and retryable")
+canCancelVisual = true
+local _, timedReason, timedTerminal = Floor.update(actor, timedState, job)
+check(timedReason == "floor_pickup_animation_failed" and timedTerminal == true
+    and currentVisual == nil and timedOut.worldItem ~= nil,
+    "a timed-out floor pickup cancels its exact native visual before blocking")
+check(select(2, Floor.update(actor, timedState, job)) == "floor_pickup_animation"
+    and currentVisual ~= timedToken,
+    "retry starts a fresh pickup after the old native visual was settled")
+currentVisual.status = "completed"
+check(select(2, Floor.update(actor, timedState, job)) == "floor_item_carried"
+    and select(2, Floor.update(actor, timedState, job)) == "floor_item_stored",
+    "fresh retry verifies and deposits the exact item")
+
+local replaced, replacedState = queueVisualItem(121)
+Floor.update(actor, replacedState, job)
+local oldToken = currentVisual
+local foreignToken = { serial = "newer-job", status = "active" }
+currentVisual = foreignToken
+check(Floor.pause(actor, job, "old_job_blocked") == true
+    and currentVisual == foreignToken and oldToken ~= currentVisual
+    and replaced.worldItem ~= nil,
+    "an old floor job never cancels another job's replacement visual")
+currentVisual = nil
+
+-- A base job first releases an opportunistic scavenger's owner. If release
+-- must wait, it keeps the job lease instead of consuming a failed attempt.
+local handoffCalls, leaseTouches, blocks = 0, 0, {}
+SC.Encounter = { cancelScavenge = function()
+    handoffCalls = handoffCalls + 1
+    if not handoffAllowed then return false, "scavenge_handoff_pending" end
+    scavengeOwner = false
+    return true
+end }
+SC.BaseLife.touchJob = function() leaseTouches = leaseTouches + 1 return true end
+SC.BaseLife.blockJob = function(_, _, why)
+    blocks[#blocks + 1] = why
+    return true
+end
+local blockedItem = queueVisualItem(122)
+scavengeOwner, handoffAllowed = true, false
+local waiting, waitingReason = realBaseWork.update(actor)
+check(waiting == true and waitingReason == "scavenge_handoff_pending"
+    and leaseTouches > 0 and #blocks == 0 and currentVisual == nil,
+    "a pending scavenge handoff does not block the floor job")
+handoffAllowed = true
+check(select(2, realBaseWork.update(actor)) == "floor_pickup_animation"
+    and handoffCalls >= 2 and not scavengeOwner,
+    "base work starts after the scavenge owner releases")
+local blockedToken = currentVisual
+local normalRequest = SC.Navigation.requestAny
+actor.x, actor.y = 15, 10
+SC.Navigation.requestAny = function() return false, "movement_rejected" end
+realBaseWork.update(actor)
+check(#blocks == 1 and blocks[1] == "movement_rejected" and currentVisual == nil
+    and blockedItem.worldItem ~= nil,
+    "terminal navigation failure releases the floor pickup's native visual")
+actor.x, actor.y = source.x, source.y
+SC.Navigation.requestAny = normalRequest
+check(select(2, realBaseWork.update(actor)) == "floor_pickup_animation"
+    and currentVisual ~= blockedToken and #blocks == 1,
+    "blocked floor work retries with a fresh visual and no phantom owner")
+check(realBaseWork.cancelJob(job.id, actor.id) == true and currentVisual == nil
+    and visualCancels >= 4,
+    "the final floor job releases its exact visual")
+
+SC_TEST_REPORT = "FLOOR_SORT_PASS pickup=verified reload=verified trash=physical blocked=reported cancel=returned alternate=verified carryback=walked interrupted=feet gone=released absent=released heavy=deferred log_bundle=settled cancel_selection=cleared crowded=root_and_bag_delivered nested=delivered visual_timeout=settled visual_replacement=preserved handoff=leased"

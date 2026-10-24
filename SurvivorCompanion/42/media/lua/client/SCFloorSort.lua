@@ -480,22 +480,58 @@ local function carryBack(actor, job, claim, item, owner, why)
     return okay, okay and reason or dropReason, true
 end
 
-local function pickupVisual(actor, state, item, wrapper, square)
+function Floor.pause(actor, job, reason)
+    local visual = actor and visuals[actor] or nil
+    local zone = job and type(job.target) == "table"
+        and zoneById(job.target.zoneId, "sorting_floor") or nil
+    if not visual or job and visual.jobId ~= job.id then
+        if zone then rewind(zone) end
+        return true
+    end
+    local native = SC.NativeActions
+    local stopped, why = true, nil
+    if native and visual.token and type(native.cancelVisualOwned) == "function" then
+        stopped, why = native.cancelVisualOwned(actor, visual.token,
+            reason or "floor_sort_paused")
+    elseif native and type(native.visualToken) ~= "function"
+        and type(native.cancelVisual) == "function" then
+        -- Lightweight adapters have no ownership tokens. The live adapter
+        -- always supplies one; never cancel another job's replacement there.
+        stopped, why = native.cancelVisual(actor, reason or "floor_sort_paused")
+    end
+    if stopped == false then return false, why or "floor_pickup_cancel_pending" end
+    visuals[actor] = nil
+    if zone then rewind(zone) end
+    return true
+end
+
+local function pickupVisual(actor, job, item, wrapper, square)
     local visual = visuals[actor]
-    if visual and visual.item == item then
+    if visual and visual.item == item and visual.jobId == job.id then
+        if visual.token and SC.NativeActions
+            and type(SC.NativeActions.visualToken) == "function"
+            and SC.NativeActions.visualToken(actor, "loot_container") ~= visual.token then
+            visuals[actor] = nil
+            return false, "floor_pickup_animation_replaced", true
+        end
         local status = SC.NativeActions and SC.NativeActions.visualStatus
             and SC.NativeActions.visualStatus(actor, "loot_container") or nil
-        if status == "active" and now() - visual.startedAt < 5000 then
+        local timeout = type(U().config) == "function"
+            and tonumber(U().config("actionAnimationTimeoutMs")) or nil
+        if status == "active" and now() - visual.startedAt < (timeout or 12000) then
             return false, "floor_pickup_animation", false
         end
-        if status == "completed" and SC.NativeActions.clearVisual then
-            SC.NativeActions.clearVisual(actor)
-        end
-        visuals[actor] = nil
+        local stopped, stopReason = Floor.pause(actor, job,
+            status == "completed" and "floor_pickup_completed" or "floor_pickup_failed")
+        if stopped ~= true then return false, stopReason, false end
         return status == "completed" or status == nil,
             status == "completed" and "floor_pickup_ready"
                 or status == nil and "floor_pickup_ready"
                 or "floor_pickup_animation_failed", status ~= nil and status ~= "completed"
+    end
+    if visual then
+        local stopped, why = Floor.pause(actor, nil, "floor_pickup_changed")
+        if stopped ~= true then return false, why, false end
     end
     if SC.Navigation and SC.Navigation.cancel then
         SC.Navigation.cancel(actor, "floor_pickup")
@@ -508,7 +544,9 @@ local function pickupVisual(actor, state, item, wrapper, square)
         targetSquare = square, lootPosition = "Low", floorSort = true,
     })
     if accepted ~= true then return false, "floor_pickup_animation_rejected", true end
-    visuals[actor] = { item = item, startedAt = now() }
+    visuals[actor] = { item = item, jobId = job.id, startedAt = now(),
+        token = SC.NativeActions and type(SC.NativeActions.visualToken) == "function"
+            and SC.NativeActions.visualToken(actor, "loot_container") or nil }
     return false, "floor_pickup_animation", false
 end
 
@@ -645,7 +683,7 @@ function Floor.update(actor, baseState, job)
     local arrived, reason, moving = approach(actor, selected.square,
         selected.worldItem, "move_to_floor_item")
     if not arrived then return moving, reason, not moving end
-    local ready, visualReason, failed = pickupVisual(actor, baseState,
+    local ready, visualReason, failed = pickupVisual(actor, job,
         selected.item, selected.worldItem, selected.square)
     if not ready then return not failed, visualReason, failed end
     local x, y, z = U().position(selected.square)
@@ -679,13 +717,9 @@ function Floor.update(actor, baseState, job)
 end
 
 function Floor.cancel(actor, job)
+    local stopped, why = Floor.pause(actor, job, "floor_sort_cancelled")
+    if stopped ~= true then return false, why end
     if not job or type(job.target) ~= "table" or not job.target.floorCargo then
-        if actor and visuals[actor] then
-            if SC.NativeActions and SC.NativeActions.cancelVisual then
-                SC.NativeActions.cancelVisual(actor, "floor_sort_cancelled")
-            end
-            visuals[actor] = nil
-        end
         return true
     end
     local claim = job.target.floorCargo

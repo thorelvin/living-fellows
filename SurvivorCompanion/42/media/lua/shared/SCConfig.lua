@@ -264,6 +264,8 @@ local valueData = {
     navigationMicroDistance = 1.45,
     navigationNodeBudget = 220,
     navigationSliceBudgetMs = 3,
+    -- Quiet camp work may think a little longer; danger keeps the normal slice.
+    navigationQuietBaseSliceBudgetMs = 5,
     uiRefreshSliceBudgetMs = 0.5,
     uiRefreshMaximumLagMs = 500,
     uiRefreshCadenceMs = 500,

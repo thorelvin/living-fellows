@@ -192,13 +192,17 @@ local function makeInventory(kind)
         for _, item in ipairs(self.items) do weight = weight + item:getActualWeight() end
         return weight
     end
-    function inventory:getEffectiveCapacity()
-        return self.capacity or 1000
+    function inventory:getEffectiveCapacity(actor)
+        self.lastCapacityOwner = actor
+        return self.effectiveCapacity or self.capacity or 1000
+    end
+    function inventory:getFreeCapacity(actor)
+        return math.max(0, self:getEffectiveCapacity(actor) - self:getCapacityWeight())
     end
     function inventory:getCapacity() return self.capacity end
-    function inventory:hasRoomFor(_, item)
-        return self.room == true and (self.capacity == nil
-            or self:getCapacityWeight() + item:getActualWeight() <= self.capacity)
+    function inventory:hasRoomFor(actor, item)
+        return self.room == true and (self.capacity == nil and self.effectiveCapacity == nil
+            or self:getCapacityWeight() + item:getUnequippedWeight() <= self:getEffectiveCapacity(actor))
     end
     function inventory:getType() return self.kind end
     function inventory:AddItem(value)
@@ -247,6 +251,7 @@ makeItem = function(fullType, options)
         return self.tags[wanted] == true
     end
     function item:getActualWeight() return self.fullType == "Base.Log" and 9 or 1 end
+    function item:getUnequippedWeight() return self:getActualWeight() end
     function item:getInventory() return nil end
     function item:getAllWeaponParts() return {} end
     return item
@@ -3087,6 +3092,101 @@ do
         "the departure survey plans a drag route from the body inside the work area")
 end
 
+-- A hauler is outdoors before its trailing corpse. Failed multi-door routes
+-- must clear both ends of the grapple before an ordinary recovery release.
+do
+    local ctx = setup()
+    local order, room = startIndoorDrag(ctx, "the exterior clearance test")
+    local threshold, outside, otherSide = sq(5, -4), sq(5, -3), sq(6, -3)
+    local proxy = { x = room.x + 0.8, y = room.y + 0.5, z = 0 }
+    function ctx.actor:getGrapplingTarget() return proxy end
+    ctx.actor.square, ctx.actor.x, ctx.actor.y = threshold, 5.1, -3.5
+    local originalRequestAny = SC.Navigation.requestAny
+    local safeRequests, allowedEdge = 0, false
+    SC.Navigation.doorThresholdSquare = function(square)
+        return square == threshold or square == room
+    end
+    SC.Navigation.dragEdgeAllowed = function() return allowedEdge end
+    SC.Navigation.requestAny = function(actor, candidates, mode, intent)
+        if intent.action == "drag_body_to_grave" then
+            return false, "path_blocked:blocked_static"
+        end
+        if intent.action == "drag_body_to_safe_drop" then
+            safeRequests = safeRequests + 1
+            for _, square in ipairs(candidates) do
+                check(square ~= threshold and square ~= room,
+                    "a safe corpse drop never targets either doorway threshold tile")
+            end
+            return true, "fixture_path_started"
+        end
+        return originalRequestAny(actor, candidates, mode, intent)
+    end
+    tick(ctx)
+    local _, waiting = tick(ctx, nil, nil, 16000)
+    check(safeRequests == 1 and ctx.actor:isDraggingCorpse()
+            and #room.staticMoving == 0 and #threshold.staticMoving == 0,
+        "an outdoor actor with its corpse still inside keeps hauling: " .. tostring(waiting))
+    ctx.actor.square, ctx.actor.x, ctx.actor.y = outside, 5.5, -2.5
+    tick(ctx)
+    check(ctx.actor:isDraggingCorpse(),
+        "a clear outdoor actor tile does not hide the corpse still in the office")
+    proxy.x, proxy.y = otherSide.x + 0.5, otherSide.y + 0.5
+    tick(ctx)
+    check(ctx.actor:isDraggingCorpse(),
+        "nearby outdoor body coordinates across an impassable edge are not clearance")
+    proxy.x, proxy.y = 5.6, -2.5
+    local _, released = tick(ctx)
+    SC.Navigation.requestAny = originalRequestAny
+    SC.Navigation.doorThresholdSquare, SC.Navigation.dragEdgeAllowed = nil, nil
+    check(not ctx.actor:isDraggingCorpse() and #outside.staticMoving == 1
+            and #room.staticMoving == 0 and #threshold.staticMoving == 0
+            and SC.BaseLife.productionOrder(order.id).completed == 0,
+        "only a body and hauler both clear of the doorway are released, without disposal credit: "
+            .. tostring(released))
+end
+
+-- A misplaced drop can relocate a body to a room whose exit is on a different
+-- side. Re-grabbing must survey that new tile rather than reuse the old side.
+do
+    local ctx = setup()
+    createGrave(-2, -3, 0, false)
+    local original, relocated = sq(4, -4), sq(0, -4)
+    original.room, relocated.room = true, true
+    makeBody(original)
+    local surveyed = {}
+    SC.Navigation.beginPathSearch = function(source)
+        surveyed[#surveyed + 1] = source
+        return { source = source }
+    end
+    SC.Navigation.resumePathSearch = function(job)
+        local nextSquare = job.source == original and sq(4, -3) or sq(-1, -4)
+        return "complete", { job.source, nextSquare }
+    end
+    SC.Navigation._workSquareAdmitted = function() return true end
+    start(ctx, {
+        operation = "collect_bodies", zoneId = ctx.burial.id, requested = 1,
+        settings = { fromLumber = false },
+    })
+    check(tickUntil(ctx, function(value) return value == "production_grabbing" end, 10),
+        "the relocated departure test grabs from the original room")
+    current(ctx.actor):perform()
+    tick(ctx)
+    check(tickUntil(ctx, function(value) return value == "production_placing" end, 8),
+        "the relocated departure test reaches its first drop")
+    SC_TEST_DROP_SQUARE = relocated
+    current(ctx.actor):perform()
+    SC_TEST_DROP_SQUARE = nil
+    local _, misplaced = tick(ctx)
+    check(misplaced == "production_replacing_body",
+        "the nearby misplaced body keeps its existing haul for recovery: " .. tostring(misplaced))
+    local regrabbed = tickUntil(ctx, function(value) return value == "production_grabbing" end, 10)
+    SC.Navigation.beginPathSearch, SC.Navigation.resumePathSearch = nil, nil
+    SC.Navigation._workSquareAdmitted = nil
+    check(regrabbed and #surveyed == 2 and surveyed[2] == relocated
+            and ctx.actor.square == sq(-1, -4),
+        "a relocated corpse is grabbed on its new route departure side")
+end
+
 -- A slow drag that keeps reaching new tiles is not cut off by the clock. One
 -- that reaches no new tile for the stall time gives up and lets go.
 do
@@ -3974,6 +4074,34 @@ do
     local created, order = SC.BaseLife.auditRoleProduction()
     check(created == true and order.destinationStorageId == ctx.logs.id,
         "woodcutter chooses another marked container when a log cannot fit in the first")
+end
+
+do
+    for _, case in ipairs({
+        { name = "organized", capacity = 17, effective = 22, existing = true, expected = true },
+        { name = "disorganized", capacity = 18, effective = 12, existing = true, expected = false },
+        { name = "organized forecast", capacity = 7, effective = 9, expected = true },
+        { name = "disorganized forecast", capacity = 12, effective = 8, expected = false },
+        { name = "native restriction", capacity = 30, effective = 39,
+            existing = true, rejected = true, expected = false },
+    }) do
+        local ctx = setup()
+        SC.BaseLife.assign(ctx.id, "woodcutter", true)
+        makeTree(sq(3, 2), 20)
+        local destination = ctx.planksObject.container
+        destination.capacity, destination.effectiveCapacity = case.capacity, case.effective
+        if case.existing then destination:AddItem("Base.Log") end
+        if case.rejected then destination.room = false end
+        ctx.logsObject.container.capacity = 0
+        local before = #destination.items
+        local created, order = SC.BaseLife.auditRoleProduction()
+        check((created == true) == case.expected
+                and (not created or order.destinationStorageId == ctx.planks.id)
+                and #destination.items == before
+                and destination.lastCapacityOwner == ctx.actor,
+            "automatic logging uses actor-effective " .. case.name
+                .. " capacity without creating forecast items")
+    end
 end
 
 do

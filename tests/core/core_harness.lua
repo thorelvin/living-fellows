@@ -3649,8 +3649,17 @@ local readOk, readReason = SC.Actor.setMovement(actor, "walk", {
 })
 check(readOk and string.find(readReason, "visual_timed_action_started", 1, true) ~= nil
         and actor.lastAnimation == CharacterActionAnims.Read and actor.reading == true
+        and ISTimedActionQueue.getTimedActionQueue(actor).current.maxTime == 3600
         and actor.lastAnimVariable.key == "ReadType" and actor.lastAnimVariable.value == "book",
     "reading uses the exact CharacterActionAnims enum and vanilla ReadType state")
+check(SC.NativeActions.cancelVisual(actor, "test_long_read"),
+    "the initial reading visual cancels before testing a full-length session")
+ISTimedActionQueue.queues[actor] = nil
+readOk = SC.Actor.setMovement(actor, "walk", {
+    action = "read", item = book, durationMs = 180000,
+})
+check(readOk and ISTimedActionQueue.getTimedActionQueue(actor).current.maxTime == 10800,
+    "a three-minute reading session reaches the native action without being shortened")
 do
     local originalStop = SC.NativeActions.stopDirect
     local foreignStops = 0

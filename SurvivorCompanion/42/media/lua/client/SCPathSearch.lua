@@ -251,6 +251,7 @@ function PathSearch.resume(job, expansionQuota, slice)
                 end
                 job.closed[bestKey] = true
                 job.expanded = job.expanded + 1
+                job.workSerial = (tonumber(job.workSerial) or 0) + 1
                 used = used + 1
                 -- Production neighbors can supply keys from the coordinates
                 -- already used for grid lookup. Other adapters keep the
@@ -272,6 +273,7 @@ function PathSearch.resume(job, expansionQuota, slice)
                 -- Advance only after remembering the edge being processed; a
                 -- resumed node neither skips neighbors nor repeats their costs.
                 pending.index = pending.index + 1
+                job.workSerial = (tonumber(job.workSerial) or 0) + 1
                 local otherKey = pending.neighborKeys
                     and pending.neighborKeys[pending.index - 1]
                     or adapter.key(otherSquare)

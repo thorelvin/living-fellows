@@ -17,7 +17,7 @@ local edgeFactsScratch = {}
 -- inside the callback; traversal execution always runs outside these batches.
 function Topology.withReadBatch(callback, ...)
     if readBatch then return callback(...) end
-    local batch = { edges = {}, hazards = {}, trees = {}, occupying = {}, count = 0, hits = 0 }
+    local batch = { edges = {}, hazards = {}, traps = {}, trees = {}, occupying = {}, count = 0, hits = 0 }
     readBatch = batch
     local results = SC.Call.pack(pcall(callback, ...))
     readBatch = nil
@@ -233,6 +233,22 @@ function Topology.squareHasSheetRope(square)
     return false
 end
 
+local function squareHasExplosiveTrap(square)
+    if readBatch then
+        local cached = readBatch.traps[square]
+        if cached ~= nil then return cached end
+    end
+    local found = false
+    U().squareObjects(square, function(object)
+        if U().instanceOf(object, "IsoTrap") then
+            found = true
+            return false
+        end
+    end, 64)
+    if readBatch then readBatch.traps[square] = found end
+    return found
+end
+
 function Topology.squareHazards(square)
     if readBatch and readBatch.hazards[square] then return readBatch.hazards[square] end
     local hazards = {}
@@ -247,7 +263,10 @@ function Topology.squareHazards(square)
         elseif U().instanceOf(object, "IsoBrokenGlass") then hazards.brokenGlass = true
         elseif U().instanceOf(object, "IsoTrap") then hazards.explosiveTrap = true end
     end, 64)
-    if readBatch then readBatch.hazards[square] = hazards end
+    if readBatch then
+        readBatch.hazards[square] = hazards
+        readBatch.traps[square] = hazards.explosiveTrap == true
+    end
     return hazards
 end
 
@@ -835,13 +854,8 @@ local function classifyEdge(actor, fromSquare, toSquare, options)
     } or Topology.squareHazards(toSquare)
     -- Explosive traps are policy-sensitive and not represented by a stable
     -- public square getter, so preserve the Lua object scan for that one fact.
-    if nativeFacts then
-        U().squareObjects(toSquare, function(object)
-            if U().instanceOf(object, "IsoTrap") then
-                hazards.explosiveTrap = true
-                return false
-            end
-        end, 64)
+    if nativeFacts and squareHasExplosiveTrap(toSquare) then
+        hazards.explosiveTrap = true
     end
     result.hazards = hazards
     local hazardCost = 0
@@ -887,7 +901,7 @@ local function classifyEdge(actor, fromSquare, toSquare, options)
         if occupant ~= nil
             and (kind == "companion_crowd" or kind == "player_crowd")
             and U().isSquareFree(toSquare)
-            and U().squareOccupyingObject(toSquare) == nil then
+            and not occupyingFurniture(toSquare) then
             squareFree = true
         end
     end
