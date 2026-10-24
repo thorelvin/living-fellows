@@ -13,6 +13,8 @@
 - Store expeditions search the selected building in bounded steps instead of remaining near the entrance. Everything useful requests can collect camp stock beyond a carrier's personal supply targets, while respecting carry limits. A searcher who finds no eligible supplies pauses briefly without holding back productive teammates.
 - Expedition crews switch off and verify their car's engine before getting out at a destination or returning home, including fallback parking and canceled departures.
 - Upstairs container approaches remember a blocked native route and survey an alternate stair approach instead of repeatedly walking into the same locked door. Inside-door checks use public door geometry when the opposite-square helper is unavailable, and garage doors respect the game's physical-side rules. Distant or upstairs shelves get a bounded 45-second approach allowance while the no-progress timeout stays in effect.
+- Expedition boarding uses the portal-aware route planner, so a returning driver can avoid a remembered locked doorway instead of repeatedly taking the native nearest-door shortcut. Boarding failures and deadlines retain the actual navigation reason and position.
+- Markus's taxi finds stops across overlapping road zones and short junction sections, with a separate connected road arrival point beyond the camera. Pickup searches run in bounded slices to reduce call-time lag spikes while retaining physical clearance and road-route checks.
 - The native bridge protocol remains `42.21-isocompanion-24`, targeting Project Zomboid 42.21.0.
 
 ## 0.26.63 - Natural sleep, camp work recovery and clearer tool requests

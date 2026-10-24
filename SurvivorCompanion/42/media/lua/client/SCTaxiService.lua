@@ -7,6 +7,7 @@ SC.TaxiService = SC.TaxiService or {}
 local Service = SC.TaxiService
 
 local visit, driver, spawnTicket, nextSearchAt = nil, nil, nil, 0
+local pickupSearch
 local persistentDriverId
 local resumePending = false
 local resumeDriverAt = 0
@@ -255,13 +256,25 @@ end
 
 -- Check a car-width strip in the loaded cell, including street furniture and
 -- other vehicles. Never ask the native spawner to resolve an obstructed patch.
-local function openPatch(x, y, radius)
+local function roadAt(meta, x, y)
+    local zones = call(meta, "getZonesAt", x, y, 0)
+    for index = 0, math.min(tonumber(call(zones, "size")) or 0, 32) - 1 do
+        local zone = call(zones, "get", index)
+        if call(zone, "getType") == "Nav"
+            and call(zone, "contains", x, y, 0) == true then return true end
+    end
+    return false
+end
+local function openPatch(x, y, radius, requireRoad)
+    local world = requireRoad and type(getWorld) == "function" and getWorld() or nil
+    local meta = world and call(world, "getMetaGrid")
     for dx = -radius, radius do
         for dy = -radius, radius do
             local tx, ty = math.floor(x + dx), math.floor(y + dy)
             local square = U().gridSquare(tx, ty, 0)
             local why
             if not square then why = "unloaded"
+            elseif requireRoad and not roadAt(meta, tx, ty) then why = "off_road"
             elseif call(square, "isOutside") ~= true then why = "inside"
             elseif call(square, "getRoom") ~= nil then why = "room"
             elseif call(square, "isSolid") ~= false then why = "solid"
@@ -324,15 +337,14 @@ local function outsideViews(x, y)
     end
     return true
 end
-local function roadZone(square)
-    local zone = square and call(square, "getZone")
+local function roadZone(zone)
     if tostring(call(zone, "getType")) ~= "Nav" then return nil end
     local x, y = tonumber(call(zone, "getX")), tonumber(call(zone, "getY"))
     local w, h = tonumber(call(zone, "getWidth")), tonumber(call(zone, "getHeight"))
-    if not x or not y or not w or not h then return nil end
+    if not finite(x) or not finite(y) or not finite(w) or not finite(h) then return nil end
     local horizontal = w >= h
-    if math.max(w, h) < 55 or math.min(w, h) < 5
-        or math.min(w, h) > 24 then return nil end
+    if math.max(w, h) < 8 or math.min(w, h) < 5
+        or call(zone, "isRectangle") == true and math.min(w, h) > 24 then return nil end
     return { x = x, y = y, w = w, h = h, horizontal = horizontal }
 end
 local function pickupRoute(from, pickup, reusedCab)
@@ -358,110 +370,223 @@ local function pickupRoute(from, pickup, reusedCab)
     if not finite(length) or length > (reusedCab and 1000 or 120) then
         return false, "pickup_route_too_long"
     end
-    return true
+    return true, nil, route
 end
-local function siteForZone(zone, origin, actor, parkedCar)
-    local along = zone.horizontal and origin.x or origin.y
-    local low = (zone.horizontal and zone.x or zone.y) + 8
-    local high = (zone.horizontal and zone.x + zone.w or zone.y + zone.h) - 8
-    if low >= high then return nil, "zone_too_short" end
-    local cross = zone.horizontal and zone.y + zone.h / 2
-        or zone.x + zone.w / 2
-    local rejected = {}
-    for _, shift in ipairs({ 0, -6, 6, -12, 12 }) do
-        local stop = math.max(low, math.min(high, along + shift))
-        for _, offset in ipairs({ -38, 38, -32, 32, -26, 26, -20, 20,
-            -44, 44 }) do
-            local sign = offset < 0 and -1 or 1
-            local spawn = stop + offset
-            if spawn >= low and spawn <= high then
-                local px = zone.horizontal and stop or cross
-                local py = zone.horizontal and cross or stop
-                local sx = zone.horizontal and spawn or cross
-                local sy = zone.horizontal and cross or spawn
-                local square = U().gridSquare(math.floor(sx), math.floor(sy), 0)
-                if not square then
-                    rejected.unloaded = true
-                elseif not outsideViews(sx, sy) then
-                    rejected.visible = true
-                elseif not openPatch(sx, sy, 2) then
-                    local _, why = openPatch(sx, sy, 2)
-                    rejected["spawn_blocked:" .. tostring(why)] = true
-                elseif not openPatch(px, py, 2) then
-                    rejected.pickup_blocked = true
-                else
-                    local clear = true
-                    for step = 1, 18 do
-                        local t = step / 18
-                        if not openPatch(sx + (px - sx) * t,
-                            sy + (py - sy) * t, 1) then
-                            clear = false break
-                        end
-                    end
-                    if clear then
-                        local facing = zone.horizontal
-                            and (sign < 0 and IsoDirections.E or IsoDirections.W)
-                            or (sign < 0 and IsoDirections.S or IsoDirections.N)
-                        local from = { x = sx, y = sy, z = 0 }
-                        local pickup = { x = px, y = py, z = 0 }
-                        local source = parkedCar and point(parkedCar) or from
-                        local routable, routeReason
-                        if source then
-                            routable, routeReason = pickupRoute(
-                                source, pickup, parkedCar ~= nil)
-                        end
-                        if routable then
-                            return { spawn = from, pickup = pickup,
-                                facing = facing }
-                        end
-                        rejected[routeReason or "pickup_route_unavailable"] = true
-                    else
-                        rejected.corridor_blocked = true
-                    end
+
+-- Stop and materialization need not share one map rectangle: a short block
+-- can connect to a longer street beyond the camera. Copy native metadata now;
+-- subsequent bounded slices only inspect actual loaded road footprints.
+local function beginPickupSearch(origin, parkedCar)
+    local world = type(getWorld) == "function" and getWorld() or nil
+    local meta = call(world, "getMetaGrid")
+    local native = call(meta, "getZonesIntersecting", math.floor(origin.x) - 96,
+        math.floor(origin.y) - 96, 0, 193, 193)
+    return { origin = copyPoint(origin), car = parkedCar, native = native,
+        nativeCount = math.min(tonumber(call(native, "size")) or 0, 1024),
+        nativeIndex = 0, zones = {}, seen = {}, index = 1, rejected = {} }
+end
+
+local function preparePickupSearch(search, deadline)
+    for _ = 1, 8 do
+        if search.nativeIndex >= search.nativeCount then break end
+        local zone = roadZone(call(search.native, "get", search.nativeIndex))
+        search.nativeIndex = search.nativeIndex + 1
+        local key = zone and (zone.x .. ":" .. zone.y .. ":"
+            .. zone.w .. ":" .. zone.h)
+        if key and not search.seen[key] then
+            search.seen[key] = true
+            search.zones[#search.zones + 1] = zone
+        end
+        if now() >= deadline then return false end
+    end
+    if search.nativeIndex < search.nativeCount then return false end
+    local origin = search.origin
+    if not search.candidateIndex then
+        search.candidateIndex, search.stopsBuilding, search.spawnBuckets = 1, {}, {}
+        search.stopKeys, search.spawnKeys = {}, {}
+        search.spawnsBuilding, search.bucketIndex, search.bucketOffset = {}, 1, 1
+        search.zoneCount = #search.zones
+        search.native, search.seen = nil, nil
+    end
+    local function nearest(a, b)
+        if a.gap ~= b.gap then return a.gap < b.gap end
+        if a.x ~= b.x then return a.x < b.x end
+        return a.y < b.y
+    end
+    local function add(zone, along, radius, stop)
+        local low = (zone.horizontal and zone.x or zone.y) + 3
+        local high = (zone.horizontal and zone.x + zone.w or zone.y + zone.h) - 3
+        along = math.max(low, math.min(high, along))
+        local x = zone.horizontal and along or zone.x + zone.w / 2
+        local y = zone.horizontal and zone.y + zone.h / 2 or along
+        local gap = (x - origin.x)^2 + (y - origin.y)^2
+        local key = x .. ":" .. y
+        local keys = stop and search.stopKeys or search.spawnKeys
+        if gap <= radius^2 and not keys[key] then
+            keys[key] = true
+            local candidate = { x = x, y = y, z = 0, gap = gap }
+            if stop then
+                local stops, index = search.stopsBuilding, 1
+                while index <= #stops and not nearest(candidate, stops[index]) do
+                    index = index + 1
+                end
+                if index <= 12 then
+                    table.insert(stops, index, candidate)
+                    if #stops > 12 then table.remove(stops) end
                 end
             else
-                rejected.outside_zone = true
+                local bucket = math.floor(math.sqrt(gap) / 4) + 1
+                search.spawnBuckets[bucket] = search.spawnBuckets[bucket] or {}
+                local values = search.spawnBuckets[bucket]
+                values[#values + 1] = candidate
             end
         end
     end
-    local reasons = {}
-    for reason in pairs(rejected) do reasons[#reasons + 1] = reason end
-    table.sort(reasons)
-    return nil, table.concat(reasons, "+")
+    -- Generating anchors is a separate bounded stage; a dense collection of
+    -- Nav metadata must not build and sort thousands of candidates at once.
+    for _ = 1, 8 do
+        local zone = search.zones[search.candidateIndex]
+        if not zone then break end
+        search.candidateIndex = search.candidateIndex + 1
+        local along = zone.horizontal and origin.x or origin.y
+        for _, shift in ipairs({ 0, -6, 6, -12, 12 }) do
+            add(zone, along + shift, 48, true)
+        end
+        for _, shift in ipairs({ -38, 38, -50, 50, -62, 62,
+            -74, 74, -86, 86, 0 }) do
+            add(zone, along + shift, 96, false)
+        end
+        if now() >= deadline then return false end
+    end
+    if search.candidateIndex <= #search.zones then return false end
+    -- Four-tile distance buckets keep nearby anchors first without a global
+    -- sort or dropping the farther anchors needed by a zoomed-out viewport.
+    for _ = 1, 128 do
+        local bucket = search.spawnBuckets[search.bucketIndex]
+        if bucket and search.bucketOffset <= #bucket then
+            local spawns = search.spawnsBuilding
+            spawns[#spawns + 1] = bucket[search.bucketOffset]
+            search.bucketOffset = search.bucketOffset + 1
+        else
+            search.bucketIndex, search.bucketOffset = search.bucketIndex + 1, 1
+        end
+        if search.bucketIndex > 25 then
+            search.stops = search.stopsBuilding
+            search.spawns = search.car and { point(search.car) } or search.spawnsBuilding
+            search.zones, search.stopKeys, search.spawnKeys = nil, nil, nil
+            search.stopsBuilding, search.spawnsBuilding, search.spawnBuckets = nil, nil, nil
+            return true
+        end
+        if now() >= deadline then return false end
+    end
+    return false
 end
+
+local function clearPickupRoute(pending, deadline)
+    local points = pending.points
+    if type(points) ~= "table" or #points < 2 or #points > 130 then
+        return false, "pickup_route_geometry_missing"
+    end
+    for _ = 1, 8 do
+        if pending.segment > #points then return true end
+        local first, last = points[pending.segment - 1], points[pending.segment]
+        if not finite(first.x) or not finite(first.y)
+            or not finite(last.x) or not finite(last.y) then return false end
+        local steps = math.max(1, math.ceil(math.sqrt(
+            (last.x - first.x)^2 + (last.y - first.y)^2) / 2))
+        pending.samples = pending.samples + 1
+        if pending.samples > 128 then return false, "pickup_route_geometry_budget" end
+        local t = pending.step / steps
+        if not openPatch(first.x + (last.x - first.x) * t,
+            first.y + (last.y - first.y) * t, 1, true) then
+            return false, "pickup_corridor_blocked"
+        end
+        pending.step = pending.step + 1
+        if pending.step > steps then pending.segment, pending.step = pending.segment + 1, 0 end
+        if now() >= deadline then return nil end
+    end
+    return nil
+end
+
 local function findSite(actor, origin, parkedCar)
     if not SC.ExpeditionRoute or not SC.ExpeditionRoute.planFromPoint
         or type(addVehicleDebug) ~= "function" then
         return nil, "taxi_creation_unavailable"
     end
-    local seen, rejected = {}, {}
-    local zoneCount = 0
-    for radius = 0, 24, 3 do
-        for dx = -radius, radius, 3 do
-            for dy = -radius, radius, 3 do
-                if math.max(math.abs(dx), math.abs(dy)) == radius then
-                    local square = U().gridSquare(origin.x + dx,
-                        origin.y + dy, 0)
-                    local zone = roadZone(square)
-                    local key = zone and (zone.x .. ":" .. zone.y .. ":"
-                        .. zone.w .. ":" .. zone.h)
-                    if key and not seen[key] then
-                        seen[key] = true
-                        zoneCount = zoneCount + 1
-                        local site, why = siteForZone(zone, origin, actor,
-                            parkedCar)
-                        if site then return site end
-                        rejected[why or "unknown"] = true
-                    end
+    if not pickupSearch or pickupSearch.car ~= parkedCar
+        or pickupSearch.origin.x ~= origin.x or pickupSearch.origin.y ~= origin.y then
+        pickupSearch = beginPickupSearch(origin, parkedCar)
+    end
+    local search, deadline, patches = pickupSearch, now() + 3, 0
+    if not search.stops and not preparePickupSearch(search, deadline) then
+        return nil, nil, true
+    end
+    if search.pending then
+        local pending = search.pending
+        local okay, why = clearPickupRoute(pending, deadline)
+        if okay then
+            pickupSearch = nil
+            return pending.site
+        end
+        if okay == false then
+            search.rejected[why or "pickup_route_unavailable"] = true
+            search.pending = nil
+        end
+        return nil, nil, true
+    end
+    -- Interleave stops for each spawn. Each slice checks at most four car
+    -- patches or one native road route; corridor validation resumes separately.
+    for _ = 1, 24 do
+        if #search.stops == 0 or search.index > #search.stops * #search.spawns then
+            local reasons = {}
+            for reason in pairs(search.rejected) do reasons[#reasons + 1] = reason end
+            table.sort(reasons)
+            pickupSearch = nil
+            return nil, "no_safe_loaded_road:zones=" .. search.zoneCount
+                .. ":" .. table.concat(reasons, ",")
+        end
+        local stop = search.stops[(search.index - 1) % #search.stops + 1]
+        local spawn = search.spawns[math.floor((search.index - 1) / #search.stops) + 1]
+        if stop.clear == nil then
+            if patches >= 4 or now() >= deadline then return nil, nil, true end
+            patches = patches + 1
+            stop.clear = openPatch(stop.x, stop.y, 2, true)
+        end
+        if spawn.clear == nil then
+            if patches >= 4 or now() >= deadline then return nil, nil, true end
+            patches = patches + 1
+            spawn.clear = parkedCar ~= nil
+                or outsideViews(spawn.x, spawn.y) and openPatch(spawn.x, spawn.y, 2, true)
+        end
+        search.index = search.index + 1
+        if not stop.clear then search.rejected.pickup_blocked = true
+        elseif not spawn.clear then search.rejected.spawn_visible_or_blocked = true
+        elseif distanceSquared(spawn, stop) < 400 and not parkedCar then
+            search.rejected.spawn_too_close = true
+        else
+            local okay, why, route = pickupRoute(spawn, stop, parkedCar ~= nil)
+            if okay then
+                local nextPoint = route and route.points and route.points[2] or stop
+                local dx, dy = nextPoint.x - spawn.x, nextPoint.y - spawn.y
+                local facing = math.abs(dx) >= math.abs(dy)
+                    and (dx >= 0 and IsoDirections.E or IsoDirections.W)
+                    or (dy >= 0 and IsoDirections.S or IsoDirections.N)
+                local site = { spawn = copyPoint(spawn), pickup = copyPoint(stop), facing = facing }
+                if parkedCar then pickupSearch = nil return site end
+                local corridor = { copyPoint(spawn) }
+                for _, value in ipairs(route.points or {}) do
+                    corridor[#corridor + 1] = { x = value.x, y = value.y }
                 end
+                corridor[#corridor + 1] = copyPoint(stop)
+                search.pending = { points = corridor, site = site,
+                    segment = 2, step = 0, samples = 0 }
+                return nil, nil, true
             end
+            search.rejected[why or "pickup_route_unavailable"] = true
+            return nil, nil, true
         end
     end
-    local reasons = {}
-    for reason in pairs(rejected) do reasons[#reasons + 1] = reason end
-    table.sort(reasons)
-    return nil, "no_safe_loaded_road:zones=" .. tostring(zoneCount)
-        .. ":" .. table.concat(reasons, ",")
+    return nil, nil, true
 end
 
 local function doorSquare(car)
@@ -525,14 +650,17 @@ local function spawnDriver(car, token, restoredId, preservePhase)
 end
 
 local function spawnCab(actor, site)
+    if not outsideViews(site.spawn.x, site.spawn.y)
+        or not openPatch(site.spawn.x, site.spawn.y, 2, true)
+        or not openPatch(site.pickup.x, site.pickup.y, 2, true) then
+        return false, "spawn_site_changed"
+    end
     local ready, token = SC.TaxiCab.prepareSpawn(visit.bookingGeneration)
     if not ready then return false, token end
     visit.cabToken, visit.phase = token, "spawn_pending"
     visit.pickup = copyPoint(site.pickup)
     local square = U().gridSquare(math.floor(site.spawn.x),
         math.floor(site.spawn.y), 0)
-    if not outsideViews(site.spawn.x, site.spawn.y) or not openPatch(site.spawn.x,
-        site.spawn.y, 2) then return false, "spawn_site_changed" end
     local okay, car = pcall(addVehicleDebug, "Base.CarTaxi",
         site.facing, nil, square)
     if not okay or not car or not call(car, "getSquare") then
@@ -611,7 +739,7 @@ function Service.request(actor, radio)
     serviceRounds, driverGun, lastDefenseTrace = 15, nil, nil
     visit = { bookingGeneration = booking.generation,
         phase = "searching", driverId = persistentDriverId }
-    nextSearchAt = 0
+    nextSearchAt, pickupSearch = 0, nil
     return true, reason, snapshot()
 end
 
@@ -627,7 +755,7 @@ function Service.updatePickup(actor, radio)
         return false, "pickup_locked"
     end
     local okay, reason = SC.TaxiBooking.updatePickup(actor, radio)
-    if okay then nextSearchAt = 0 end
+    if okay then nextSearchAt, pickupSearch = 0, nil end
     return okay, reason, snapshot()
 end
 
@@ -652,6 +780,7 @@ function Service.cancel(actor, radio)
         return false, "leave_cab_before_cancelling"
     end
     stopDrive("taxi_cancelled")
+    pickupSearch = nil
     local fare = SC.TaxiFares and SC.TaxiFares.current()
     if fare and fare.bookingGeneration == visit.bookingGeneration
         and fare.phase ~= "committed" then
@@ -1193,8 +1322,13 @@ function Service.tick(current)
             car, recoverReason = cab()
             if not car then visit.reason = recoverReason return true end
         end
-        local site, why = findSite(actor, booking.requestedAt, car)
-        if not site then visit.reason = why return true end
+        local site, why, pending = findSite(actor, booking.requestedAt, car)
+        if not site then
+            if pending then nextSearchAt = current + 250
+            else visit.reason = why end
+            return true
+        end
+        visit.reason = nil
         if existing then
             local bound, boundReason = SC.TaxiCab.beginVisit(car,
                 visit.bookingGeneration)
@@ -1210,7 +1344,10 @@ function Service.tick(current)
             end
         else
             local spawned, spawnReason = spawnCab(actor, site)
-            if not spawned then fail(spawnReason) end
+            if not spawned and spawnReason == "spawn_site_changed" then
+                visit.phase, visit.reason = "searching", spawnReason
+                nextSearchAt = current + 250
+            elseif not spawned then fail(spawnReason) end
         end
     elseif visit.phase == "driver_pending" then
         if not spawnTicket then fail("driver_spawn_unresolved") return false end
@@ -1417,6 +1554,7 @@ end
 
 function Service.restore(saved)
     if saved == nil then
+        pickupSearch = nil
         visit, driver, spawnTicket, nextSearchAt = nil, nil, nil, 0
         persistentDriverId = nil
         resumePending = false
@@ -1517,6 +1655,7 @@ function Service.restore(saved)
         end
     end
     visit, persistentDriverId = candidate, saved.driverId
+    pickupSearch = nil
     driver, spawnTicket, nextSearchAt = nil, nil, 0
     resumePending = candidate ~= nil and (candidate.phase == "board_driver"
         or candidate.phase == "pickup_drive"
@@ -1537,6 +1676,7 @@ function Service.restore(saved)
 end
 
 function Service.reset()
+    pickupSearch = nil
     visit, driver, spawnTicket, nextSearchAt = nil, nil, nil, 0
     persistentDriverId = nil
     resumePending = false

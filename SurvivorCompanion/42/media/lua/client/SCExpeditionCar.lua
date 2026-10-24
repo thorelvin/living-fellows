@@ -472,57 +472,93 @@ function Car.ownsSeat(actor, vehicle)
     return seated and current == vehicle and actualSeat == seat
 end
 
+local function boardingResult(actor, order, accepted, reason, navigationReason)
+    local mission, trip, seat = activeSeat(actor)
+    if not mission or trip.sqlId ~= order.sqlId or seat ~= order.seat then
+        return accepted, reason
+    end
+    trip.boardingStatus = trip.boardingStatus or {}
+    local id = SC.Registry.idOf(actor)
+    local previous = trip.boardingStatus[id]
+    local now = SC.GameplayUtil.nowMs()
+    local reportedAt = previous and previous.reportedAt
+    local x, y, z = SC.GameplayUtil.position(actor)
+    if accepted ~= true and (not previous or previous.reason ~= reason
+        or now - (reportedAt or 0) >= 10000)
+        and type(SC.GameplayUtil.diagnostic) == "function" then
+        local at = point(order.car)
+        SC.GameplayUtil.diagnostic("expedition-car-boarding", actor,
+            "action=approach_failed car=" .. tostring(order.sqlId)
+                .. " seat=" .. tostring(seat) .. " reason=" .. tostring(reason)
+                .. " actor=" .. tostring(x) .. "," .. tostring(y) .. "," .. tostring(z)
+                .. " carPoint=" .. tostring(at and at.x) .. "," .. tostring(at and at.y))
+        reportedAt = now
+    end
+    trip.boardingStatus[id] = { reason = reason, accepted = accepted == true,
+        navigationReason = navigationReason or previous and previous.navigationReason,
+        x = x, y = y, z = z, at = now, reportedAt = reportedAt }
+    return accepted, reason
+end
+
 function Car.boardMember(actor, order, snapshot)
     local car, seat = order.car, order.seat
     local seated, current, actualSeat = SC.Vehicle.isNativeSeated(actor)
     if seated then
-        if current == car and actualSeat == seat then return true, "already_boarded" end
-        return false, "wrong_vehicle_or_seat"
+        if current == car and actualSeat == seat then
+            return boardingResult(actor, order, true, "already_boarded")
+        end
+        return boardingResult(actor, order, false, "wrong_vehicle_or_seat")
     end
     local began, beginReason = SC.Vehicle.beginBoarding(actor, car, seat,
         { driverSeat = seat == 0,
             playerCommand = order.hotwire == true or order.fieldWork == true })
-    if began == nil then return false, beginReason end
+    if began == nil then return boardingResult(actor, order, false, beginReason) end
     local prepared, reason = SC.Vehicle.preflightBoard(actor, car, seat,
         seat == 0)
     if prepared then
         local options = { driverSeat = seat == 0,
             playerCommand = order.hotwire == true or order.fieldWork == true,
             allowVirtualSeat = false, preflight = prepared }
-        if seat == 0 then return SC.Vehicle.boardDriver(actor, car, options) end
-        return SC.Vehicle.board(actor, car, seat, options)
+        local boarded, boardReason
+        if seat == 0 then boarded, boardReason = SC.Vehicle.boardDriver(actor, car, options)
+        else boarded, boardReason = SC.Vehicle.board(actor, car, seat, options) end
+        return boardingResult(actor, order, boarded, boardReason)
     end
     if reason ~= "companion is not at the passenger door" then
         SC.Vehicle.failTransaction(actor, "expedition_board_preflight_failed",
             { reason = reason })
-        return false, reason
+        return boardingResult(actor, order, false, reason)
     end
     local squares, _, squareReason = SC.Vehicle.boardingSquares(
         actor, car, seat, seat == 0)
     if not squares then
         SC.Vehicle.failTransaction(actor, "expedition_door_unavailable",
             { reason = squareReason })
-        return false, squareReason
+        return boardingResult(actor, order, false, squareReason)
     end
     if not SC.Navigation or not SC.Navigation.requestAny then
-        return false, "navigation_unavailable"
+        return boardingResult(actor, order, false, "navigation_unavailable")
     end
     local x, y = SC.GameplayUtil.position(actor)
     local sx, sy = SC.GameplayUtil.position(squares[1])
     local gap = x and sx and math.sqrt((x - sx)^2 + (y - sy)^2) or 0
     local accepted, moveReason = SC.Navigation.requestAny(actor, squares,
         gap > 8 and "run" or "walk", {
-            action = "approach_vehicle", vehicle = car, seat = seat,
+            action = "approach_vehicle", vehicle = car, object = car, seat = seat,
             snapshot = snapshot, desiredDistance = 0,
             arrivalDistance = 0.15, continuousApproach = true,
             movementPriority = 30,
+            -- A shop's locked doorway can be between the returning driver and
+            -- the car. Keep the shared portal-aware search instead of sending
+            -- an opaque nearest-target route through that same blocked edge.
+            preferVerifiedPath = true,
             supervisorToken = began.supervisorToken,
         })
     if not accepted then
         SC.Vehicle.failTransaction(actor, "expedition_door_approach_failed",
             { reason = moveReason })
     end
-    return accepted, moveReason
+    return boardingResult(actor, order, accepted, moveReason, moveReason)
 end
 
 local function sameParkingArea(zone, saved)
@@ -1346,6 +1382,20 @@ function Car.pulse(mission, now, worldHour)
             if now - (trip.boardStartedAt or now) > 120000 then
                 trip.state = "boarding_rollback"
                 trip.blocker = "boarding_deadline"
+                for _, member in ipairs(mission.roster) do
+                    if travelMember(mission, member) then
+                        local seated, current, seat = SC.Vehicle.isNativeSeated(member.actor)
+                        if not seated or current ~= car or seat ~= trip.seats[member.id] then
+                            local status = trip.boardingStatus and trip.boardingStatus[member.id]
+                            local x, y, z = SC.GameplayUtil.position(member.actor)
+                            traceTrip(trip, "boarding_deadline", "actor=" .. tostring(member.id)
+                                .. " seat=" .. tostring(trip.seats[member.id])
+                                .. " reason=" .. tostring(status and status.reason or "boarding_not_attempted")
+                                .. " navigation=" .. tostring(status and status.navigationReason or "none")
+                                .. " point=" .. tostring(x) .. "," .. tostring(y) .. "," .. tostring(z))
+                        end
+                    end
+                end
             end
             return true
         end

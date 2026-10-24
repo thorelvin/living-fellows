@@ -14,6 +14,9 @@ including when a blocked parking approach requires returning on foot.
 Upstairs searches recover through checked stair approaches after a locked
 door blocks a native route. Distant and upstairs shelves allow longer walks
 while stalled approaches still time out.
+Returning drivers use checked routes to the car door. Taxi pickup searches
+handle junctions and overlapping road zones, spreading clearance checks
+across updates so a call does not perform the whole search at once.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added

@@ -349,6 +349,12 @@ try {
             (Join-Path $TestRoot 'navigation_traversal_regression_harness.lua')
         )
         Add-ScJvmStep 'navigation-traversal' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $navigationTraversalFiles 'Door/async traversal regression harness failed.'
+        $carBoardingNavigationFiles = @($navigationTraversalFiles | Select-Object -SkipLast 1)
+        $carBoardingNavigationFiles += @(
+            (Join-Path $Client 'SCExpeditionCar.lua'),
+            (Join-Path $TestRoot 'car_boarding_navigation_harness.lua')
+        )
+        Add-ScJvmStep 'car-boarding-navigation' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $carBoardingNavigationFiles 'Expedition driver door-route ownership and boarding deadline regression failed.'
         $navigationLivenessFiles = @($navigationTraversalFiles | Select-Object -SkipLast 1)
         $navigationLivenessFiles += Join-Path $TestRoot 'navigation_liveness_harness.lua'
         Add-ScJvmStep 'navigation-liveness' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $navigationLivenessFiles 'Navigation quota fairness and incremental search progress harness failed.'

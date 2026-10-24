@@ -37,6 +37,12 @@ try {
             (Join-Path $TestRoot 'taxi_service_harness.lua')
         if ($LASTEXITCODE -ne 0) { throw 'Taxi service state regression failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner `
+            (Join-Path $Shared 'SCNamespace.lua') `
+            (Join-Path $Client 'SCTaxiBooking.lua') `
+            (Join-Path $Client 'SCTaxiService.lua') `
+            (Join-Path $TestRoot 'taxi_pickup_harness.lua')
+        if ($LASTEXITCODE -ne 0) { throw 'Taxi physical pickup regression failed.' }
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner `
             (Join-Path $TestRoot 'taxi_context_harness.lua') `
             (Join-Path $Client 'SCUIContext.lua') `
             (Join-Path $TestRoot 'taxi_context_run.lua')
