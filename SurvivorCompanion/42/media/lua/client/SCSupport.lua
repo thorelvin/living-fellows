@@ -111,9 +111,33 @@ local function companionActionEvidence()
             if type(actor.getDisplayName) == "function" then return actor:getDisplayName() end
             return id
         end, id)
+        -- Read persisted controls directly: Commands.peek initializes command
+        -- state and personal items. Copying a diagnostic must not do that.
+        local saved = safeCall(function() return actor:getModData() end, {})
+        local resident = safeCall(function()
+            return SC.BaseLife and SC.BaseLife.resident and SC.BaseLife.resident(id)
+        end, {})
+        local decision = safeCall(function()
+            return SC.Decision and SC.Decision.peek and SC.Decision.peek(actor)
+        end, {})
+        saved = type(saved) == "table" and saved or {}
+        resident = type(resident) == "table" and resident or {}
+        decision = type(decision) == "table" and decision or {}
         result[#result + 1] = {
             id = tostring(id),
             name = redact(name),
+            control = {
+                order = saved.SC_Order, commandSerial = saved.SC_CommandSerial,
+                duty = resident.duty, role = resident.role,
+                decision = decision.current, intent = decision.intent,
+                seating = safeCall(function()
+                    return SC.NativeActions and SC.NativeActions.seatingStatus
+                        and SC.NativeActions.seatingStatus(actor)
+                end, "unavailable"),
+                context = safeCall(function()
+                    return actor:getCurrentActionContextStateName()
+                end, "unavailable"),
+            },
             summary = SC.ActionSupervisor.summary(actor),
             position = safeCall(function()
                 local x, y, z = actor:getX(), actor:getY(), actor:getZ()
@@ -342,6 +366,16 @@ function support.summary(force)
     for _, actor in ipairs(data.companionActions or {}) do
         local current = actor.summary or {}
         local navigation = actor.navigation or {}
+        local control = actor.control or {}
+        lines[#lines + 1] = "Companion control " .. tostring(actor.id)
+            .. ": order " .. tostring(control.order or "unavailable")
+            .. ", serial " .. tostring(control.commandSerial or "unavailable")
+            .. ", base duty " .. tostring(control.duty)
+            .. "/" .. tostring(control.role or "none")
+            .. ", decision " .. tostring(control.decision or "none")
+            .. "/" .. tostring(control.intent or "none")
+            .. ", seating " .. tostring(control.seating or "unavailable")
+            .. ", native context " .. tostring(control.context or "unavailable")
         lines[#lines + 1] = "Companion action " .. tostring(actor.id) .. " ("
             .. tostring(actor.name) .. "): " .. tostring(current.owner or "none") .. "/"
             .. tostring(current.action or "idle") .. "/" .. tostring(current.phase or "idle")

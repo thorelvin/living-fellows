@@ -1856,6 +1856,33 @@ local function floorRestActivity(actor, furnitureAvailable)
     }
 end
 
+-- Furniture can accept a nearby use position before the route's exact tile is
+-- reached. Retire that route before entry, including an older route left after
+-- entry cleared `approaching`. Its exact token and object must still match.
+function Downtime._retireFurnitureApproach(actor, activity, reason)
+    local navigation = SC.Navigation
+    if not activity or activity.object == nil or activity.supervisorToken == nil
+        or not navigation or type(navigation.peek) ~= "function"
+        or type(navigation.cancel) ~= "function" then return true end
+    local route = navigation.peek(actor)
+    local request = route and route.lastApproachRequest
+    local intent = request and request.intent
+    local token = activity.supervisorToken
+    if not route or route.goalAction ~= "move_to_seat"
+        or type(intent) ~= "table" or intent.action ~= "move_to_seat"
+        or intent.object ~= activity.object or intent.supervisorToken ~= token
+        or (route.actionTokenSerial ~= nil and route.actionTokenSerial ~= token.serial)
+        or (route.nativeLease and route.nativeLease.supervisorToken ~= token) then
+        return true, "seat_route_not_owned"
+    end
+    local okay, cancelled, why = pcall(navigation.cancel, actor,
+        reason or "furniture_access_reached")
+    if not okay or cancelled ~= true then
+        return false, why or "seat_approach_cancel_failed"
+    end
+    return true, "seat_approach_retired"
+end
+
 local function approachFurniture(actor, activity)
     if activity.kind == "rest_bed" and activity.lightChecked ~= true then
         local bedSquare = U().squareOf(activity.object)
@@ -1939,6 +1966,8 @@ local function approachFurniture(actor, activity)
     local arrived, targets, accessReason = freeFurnitureAccess(actor, activity.object)
     if arrived == true then
         activity.busySince = nil
+        local retired, why = Downtime._retireFurnitureApproach(actor, activity)
+        if retired ~= true then return false, why end
         return true, "arrived"
     end
     if accessReason == "seat_spot_busy" then
@@ -1955,13 +1984,18 @@ local function approachFurniture(actor, activity)
     if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
         return false, "navigation_unavailable"
     end
-    return SC.Navigation.requestAny(actor, targets, "walk", {
+    local accepted, status = SC.Navigation.requestAny(actor, targets, "walk", {
         action = "move_to_seat", targetSquare = activity.square,
         object = activity.object, arrivalDistance = 0.35,
         requireSameSquare = true, continuousApproach = true,
         workCampOnly = activity.crossFloor == true,
         supervisorToken = activity.supervisorToken,
     })
+    if accepted and status == "arrived" then
+        local retired, why = Downtime._retireFurnitureApproach(actor, activity)
+        if retired ~= true then return false, why end
+    end
+    return accepted, status
 end
 
 -- ---------------------------------------------------------------------------
@@ -3724,7 +3758,11 @@ local function releaseDowntimeResources(actor, state, activity, reason)
         and activity.startedAt then
         pcall(SC.NativeActions.cancelVisual, actor, reason or "downtime_cancelled")
     end
-    if activity.approaching and SC.Navigation and type(SC.Navigation.cancel) == "function" then
+    if activity.kind == "sit" or activity.kind == "rest_bed" then
+        local retired, why = Downtime._retireFurnitureApproach(actor, activity,
+            reason or "downtime_cancelled")
+        if retired ~= true then return false, why end
+    elseif activity.approaching and SC.Navigation and type(SC.Navigation.cancel) == "function" then
         pcall(SC.Navigation.cancel, actor, reason or "downtime_cancelled")
     end
     releaseActivity(actor, activity)

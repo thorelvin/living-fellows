@@ -165,6 +165,19 @@ try {
             )
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @guardPatrolFiles
             if ($LASTEXITCODE -ne 0) { throw 'Base guard patrol liveness harness failed.' }
+            $followHandoffFiles = @(
+                (Join-Path $ProjectRoot 'tests\core\core_fixture.lua'),
+                (Join-Path $SharedRoot 'SCNamespace.lua'),
+                (Join-Path $SharedRoot 'SCCall.lua'),
+                (Join-Path $SharedRoot 'SCStableValue.lua'),
+                (Join-Path $SharedRoot 'SCNativeList.lua'),
+                (Join-Path $TestRoot 'base_guard_patrol_fixture.lua'),
+                (Join-Path $ClientRoot 'SCBaseWork.lua'),
+                (Join-Path $ClientRoot 'SCCommands.lua'),
+                (Join-Path $TestRoot 'follow_order_handoff_harness.lua')
+            )
+            & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @followHandoffFiles
+            if ($LASTEXITCODE -ne 0) { throw 'Follow order handoff harness failed.' }
             $encounterHandoffFiles = @(
                 (Join-Path $SharedRoot 'SCNamespace.lua'),
                 (Join-Path $ClientRoot 'SCEncounter.lua'),
@@ -192,6 +205,10 @@ try {
             )
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @readingSessionFiles
             if ($LASTEXITCODE -ne 0) { throw 'Reading session regression harness failed.' }
+            $seatRouteFiles = @($readingSessionFiles | Select-Object -SkipLast 1)
+            $seatRouteFiles += Join-Path $TestRoot 'downtime_seat_route_harness.lua'
+            & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @seatRouteFiles
+            if ($LASTEXITCODE -ne 0) { throw 'Downtime seat route handoff harness failed.' }
             $autonomyGroundFiles = @(
                 (Join-Path $SharedRoot 'SCNamespace.lua'),
                 (Join-Path $ClientRoot 'SCAutonomy.lua'),

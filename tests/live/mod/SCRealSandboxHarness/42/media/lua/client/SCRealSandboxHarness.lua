@@ -15740,6 +15740,9 @@ end
 Harness.probeFieldCargo = function(...)
     return externalProbe("SCFieldCargoProbe", ...)
 end
+Harness.probeGuardFollow = function(...)
+    return externalProbe("SCGuardFollowProbe", ...)
+end
 Harness.probeFollowRoad = function(...)
     return externalProbe("SCFollowRoadProbe", ...)
 end
@@ -16313,6 +16316,8 @@ local function tick()
         Harness.probeFieldWork(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "field_cargo_", 1, true) == 1 then
         Harness.probeFieldCargo(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "guard_follow_", 1, true) == 1 then
+        Harness.probeGuardFollow(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "follow_road_", 1, true) == 1 then
         Harness.probeFollowRoad(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "generator_refuel_", 1, true) == 1 then
@@ -17206,6 +17211,8 @@ local function onGameStart()
         setPhase("field_work_setup", Harness.startedAt)
     elseif Harness.config.field_cargo_probe == "true" then
         setPhase("field_cargo_setup", Harness.startedAt)
+    elseif Harness.config.guard_follow_probe == "true" then
+        setPhase("guard_follow_setup", Harness.startedAt)
     elseif Harness.config.generator_refuel_probe == "true" then
         setPhase("generator_refuel_setup", Harness.startedAt)
     elseif Harness.config.pyre_burn_probe == "true" then

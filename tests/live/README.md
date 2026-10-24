@@ -160,6 +160,22 @@ native worker capacity, and verifies exact item ownership after unloading.
 .\scripts\Invoke-LiveSandboxTests.ps1 -FieldCargoProbe -LivingFellowsOnly -NoSteam -IsolatedSourceBridge -TimeoutSeconds 420
 ```
 
+The guard-to-Follow probe uses one existing recruited camp resident and existing
+native furniture in a disposable save clone. It issues ordinary Follow during
+an actual guard path search, then stages a guarded seated break through public
+`Downtime.update(..., "sit")` while ordinary Decision remains scheduled. The
+second Follow must clear the old route and activity token, leave duty, stand up,
+and physically move toward the observer. No companion is relocated or forced
+into a pose. Only the observer moves to a clear loaded tile 9–15 tiles away.
+Original command/resident state and observer position are restored afterward;
+protected and equipped gear retains its exact owning actor. A missing chair or
+unachievable native seated break is a fixture failure, not a passing handoff.
+`GUARD_FOLLOW_TRACE` and before/after native screenshots record both cases.
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -GuardFollowProbe -LivingFellowsOnly -NoSteam -IsolatedSourceBridge -TimeoutSeconds 600
+```
+
 To verify the camp alarm, the probe puts one new resident to sleep in a real
 camp bed beside an outside wall, stands a second in the yard just outside that
 wall and a third about eight tiles off, sends the save's own residents out of

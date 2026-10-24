@@ -728,7 +728,7 @@ local function clearWorkState(state)
     state.returnWorkMode = nil
 end
 
-local function setOrder(actor, entry, state, order, anchor)
+local function setOrder(actor, entry, state, order, anchor, updates)
     local id = U().idOf(actor)
     if not groupStaging and state.order == "base_duty" and order ~= "base_duty" then
         if not SC.BaseLife or type(SC.BaseLife.setDuty) ~= "function"
@@ -788,6 +788,9 @@ local function setOrder(actor, entry, state, order, anchor)
     state.pendingInteraction = nil
     if anchor then state.anchor = positionTable(anchor) end
     if order == "follow" or order == "regroup" then state.anchor = nil end
+    -- Follow variants share the same release transaction. Apply their options
+    -- only after it succeeds, in time for the one command snapshot below.
+    for key, value in pairs(updates or {}) do state[key] = value end
     markCommand(actor, entry, state)
     return true, order
 end
@@ -1114,11 +1117,11 @@ local function handleAssignFollowCar(actor, entry, state, payload, player)
     local vehicle = type(payload) == "table" and payload.vehicle or nil
     local sqlId, reason = SC.Convoy.preflight(actor, vehicle, player)
     if not sqlId then return false, reason end
-    clearWorkState(state)
-    state.order, state.anchor = "follow", nil
-    state.rideWithPlayer = true
-    state.followCarSqlId = sqlId
-    markCommand(actor, entry, state)
+    local accepted, orderReason = setOrder(actor, entry, state, "follow", nil, {
+        rideWithPlayer = true, followCarSqlId = sqlId,
+    })
+    if accepted ~= true then return false, orderReason end
+    if groupStaging then return true, "follow_car_assigned" end
     SC.Convoy.activate(actor)
     if SC.Vehicle and SC.Vehicle.invalidateManifests then
         SC.Vehicle.invalidateManifests()
@@ -1138,15 +1141,10 @@ local function handleCancelFollowCar(actor, entry, state)
 end
 
 local function handleCautiousFollow(actor, entry, state)
-    clearWorkState(state)
-    state.order = "follow"
-    state.anchor = nil
-    state.moveMode = "sneak"
-    state.moveModeVersion = 2
-    state.scavenge = true
-    state.tacticalTarget = nil
-    state.pendingInteraction = nil
-    markCommand(actor, entry, state)
+    local accepted, reason = setOrder(actor, entry, state, "follow", nil, {
+        moveMode = "sneak", moveModeVersion = 2, scavenge = true,
+    })
+    if accepted ~= true then return false, reason end
     return true, "cautious_follow"
 end
 
@@ -2299,9 +2297,14 @@ local function issueOne(companionId, command, payload, player)
         if not ok then return false, a end
         return false, b
     end
+    -- A faction-trial return commits a detached replacement state. Continue
+    -- its accepted transaction, rather than persisting the old trial state.
+    state = states[actor] or state
     if convoyClearingCommands[command] and state.followCarSqlId ~= nil then
         state.followCarSqlId = nil
-        markCommand(actor, entry, state)
+        -- The handler already recorded this command and cancelled its old
+        -- owner. Persist the convoy option without issuing a second command.
+        writeStable(actor, entry, state)
         if SC.Convoy then SC.Convoy.release(actor, "new_player_order") end
         if SC.Vehicle and SC.Vehicle.invalidateManifests then
             SC.Vehicle.invalidateManifests()

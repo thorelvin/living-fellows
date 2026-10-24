@@ -4606,6 +4606,51 @@ function runSupportReportChecks()
                 1, true) ~= nil
             and string.find(copiedText, "C:\\Users\\Tester", 1, true) == nil,
         "bounded support report includes action health and redacts private paths")
+    local oldLiving, oldId = SC.Registry.living, SC.Registry.idOf
+    local oldResident, oldDecision = SC.BaseLife.resident, SC.Decision
+    local oldSeating, oldPeek = SC.NativeActions.seatingStatus, SC.Commands.peek
+    local saved = { SC_Order = "follow", SC_CommandSerial = 17 }
+    local guard = { getModData = function() return saved end,
+        getDisplayName = function() return "Guard" end,
+        getX = function() return 1 end, getY = function() return 2 end,
+        getZ = function() return 0 end,
+        getCurrentActionContextStateName = function() return "GetUp" end }
+    SC.Registry.living = function() return { guard } end
+    SC.Registry.idOf = function(value)
+        if value == guard then return "sc-support-handoff" end
+        return oldId(value)
+    end
+    SC.BaseLife.resident = function(id)
+        if id == "sc-support-handoff" then return { duty = false, role = "guard" } end
+        return oldResident(id)
+    end
+    SC.Decision = { peek = function(value)
+        if value == guard then return { current = "follow", intent = "standing_from_furniture" } end
+        return oldDecision and oldDecision.peek and oldDecision.peek(value)
+    end }
+    SC.NativeActions.seatingStatus = function(value)
+        if value == guard then return "furniture" end
+        return oldSeating(value)
+    end
+    local commandReads = 0
+    SC.Commands.peek = function(value)
+        if value == guard then commandReads = commandReads + 1 error("diagnostic initialized controls") end
+        return oldPeek(value)
+    end
+    local handoffReport, handoffSnapshot = SC.Support.summary(false)
+    local control = handoffSnapshot.companionActions[1].control
+    check(control.order == "follow" and control.commandSerial == 17 and control.duty == false
+            and control.decision == "follow" and control.seating == "furniture"
+            and control.context == "GetUp" and commandReads == 0
+            and saved.SC_Order == "follow" and saved.SC_CommandSerial == 17,
+        "support records the accepted order and ownership handoff without initializing controls")
+    check(string.find(handoffReport, "order follow, serial 17, base duty false/guard", 1, true)
+            and string.find(handoffReport,
+                "decision follow/standing_from_furniture, seating furniture, native context GetUp", 1, true),
+        "support report distinguishes an accepted Follow from a remaining seated native handoff")
+    SC.Registry.living, SC.Registry.idOf = oldLiving, oldId
+    SC.BaseLife.resident, SC.Decision = oldResident, oldDecision
+    SC.NativeActions.seatingStatus, SC.Commands.peek = oldSeating, oldPeek
     SC.ExpeditionPrototype = previousExpedition
     SC.Diagnostics.disable("support-retry-test", nil, "injected manual latch")
     local retryOk, retryCount = SC.Support.retryFailures()

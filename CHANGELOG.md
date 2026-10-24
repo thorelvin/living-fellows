@@ -4,6 +4,8 @@
 
 ## 0.26.61 - Camp work, cargo and navigation fixes
 
+- Cautious Follow and car-follow commands release base duty and owned work through the same transaction as Follow. A blocked release preserves the old order and options, and clearing an old convoy assignment records the new command once.
+- Accepting a chair or bed use position retires that activity's exact approach route before seating. Cancelling an older break preserves a newer route. Support reports now include the accepted order, command serial, base duty, current decision and native seating context.
 - Base guards keep one patrol destination until they arrive, then take their patrol pause. A nearby post no longer stops a pending search, and a farther post no longer changes destination every work update.
 - Route searches return unused node allowance to the current frame so urgent planning cannot reserve all the ordinary workers' allowance without using it. Finishing pending edges or scoring a route counts as progress, preventing a progressing search from being restarted as idle.
 - A small crowd nudge no longer throws away an unfinished route search. The original start stays fixed through nearby shifts, and the completed route must pass a fresh local join check before movement. Larger displacement, a floor change or a new owner still starts a new search.
