@@ -1868,9 +1868,16 @@ function Downtime._retireFurnitureApproach(actor, activity, reason)
     local request = route and route.lastApproachRequest
     local intent = request and request.intent
     local token = activity.supervisorToken
-    if not route or route.goalAction ~= "move_to_seat"
-        or type(intent) ~= "table" or intent.action ~= "move_to_seat"
-        or intent.object ~= activity.object or intent.supervisorToken ~= token
+    -- A bed's first leg can be the walk to its bedroom light switch, under the
+    -- same owner. A rest cancelled on that leg retires it as well.
+    local action, object = "move_to_seat", activity.object
+    if route and route.goalAction == "move_to_light_switch"
+        and activity.lightSwitch ~= nil then
+        action, object = "move_to_light_switch", activity.lightSwitch
+    end
+    if not route or route.goalAction ~= action
+        or type(intent) ~= "table" or intent.action ~= action
+        or intent.object ~= object or intent.supervisorToken ~= token
         or (route.actionTokenSerial ~= nil and route.actionTokenSerial ~= token.serial)
         or (route.nativeLease and route.nativeLease.supervisorToken ~= token) then
         return true, "seat_route_not_owned"

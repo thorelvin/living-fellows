@@ -329,15 +329,82 @@ end
 -- update and 256 distinct containers, with a cycle guard and 32-level ancestry
 -- bound. A found item's
 -- ancestor bags remain part of its ownership proof while it is delivered.
--- A multi-pulse miss stays uncertain because inventories can change between
--- updates; only an exhaustive synchronous miss proves absence.
-local function carried(actor, claim, jobId)
+local CARGO_PULSE_VISITS = 128
+-- A miss read across several updates can race an item moving between bags,
+-- so it is confirmed by one synchronous pass. 0.26.60 read up to 1024 entries
+-- on every update; the cursor spends that only once, after a miss.
+local CARGO_PROOF_VISITS = 1024
+
+local function newCargoSearch(actor, root)
+    return { actor = actor, root = root, queue = { { container = root, index = 0 } },
+        seen = { [root] = true }, cursor = 1, pulses = 0, incomplete = false }
+end
+
+-- At most `budget` item/node visits. Returns the exact item and its container,
+-- or nil, nil and whether the search has read everything it can.
+local function stepCargoSearch(search, claim, jobId, budget)
+    local root = search.root
+    search.pulses = search.pulses + 1
+    local work = 0
+    local readNode, list, length, owned
+    while search.cursor <= #search.queue and work < budget do
+        local node = search.queue[search.cursor]
+        if readNode ~= node then
+            work = work + 1
+            readNode = node
+            list, length = containerItems(node.container)
+            owned = ownedContainer(node, root)
+        end
+        if length == nil or not owned then
+            search.incomplete = true
+            search.cursor = search.cursor + 1
+        elseif node.index >= length then
+            search.cursor = search.cursor + 1
+        elseif work >= budget then
+            break
+        else
+            local item = entry(list, node.index)
+            node.index, work = node.index + 1, work + 1
+            if not item then search.incomplete = true end
+            if item and itemId(item) == claim.itemId and marker(item) == jobId
+                and call(item, "getContainer") == node.container
+                and U().inventoryContains(node.container, item) == true then
+                search.found = { item = item, node = node }
+                return item, node.container
+            end
+            local nested = item and call(item, "getItemContainer") or nil
+            if nested and not search.seen[nested] then
+                if #search.queue < 256 then
+                    search.seen[nested] = true
+                    search.queue[#search.queue + 1] = {
+                        container = nested, bag = item, parent = node, index = 0,
+                    }
+                else search.incomplete = true end
+            end
+        end
+    end
+    return nil, nil, search.cursor > #search.queue
+end
+
+-- Returns item, owner, complete, searching. `complete` on a miss means the
+-- item is proven absent. `proving` runs only the synchronous pass, which never
+-- reports `searching`: past its bound the answer is simply unproven.
+local function carried(actor, claim, jobId, proving)
     local root = U().inventory(actor)
     if not root then return nil, nil, false end
+    if proving then
+        local proof = newCargoSearch(actor, root)
+        local item, owner, done = stepCargoSearch(proof, claim, jobId, CARGO_PROOF_VISITS)
+        if item then
+            cargoSearches[jobId] = proof
+            return item, owner, true
+        end
+        cargoSearches[jobId] = nil
+        return nil, nil, done and not proof.incomplete, false
+    end
     local search = cargoSearches[jobId]
     if not search or search.actor ~= actor or search.root ~= root then
-        search = { actor = actor, root = root, queue = { { container = root, index = 0 } },
-            seen = { [root] = true }, cursor = 1, pulses = 0, incomplete = false }
+        search = newCargoSearch(actor, root)
         cargoSearches[jobId] = search
     end
     local found = search.found
@@ -351,48 +418,12 @@ local function carried(actor, claim, jobId)
         cargoSearches[jobId] = nil
         return carried(actor, claim, jobId)
     end
-    search.pulses = search.pulses + 1
-    local work = 0
-    local readNode, list, length, owned
-    while search.cursor <= #search.queue and work < 128 do
-        local node = search.queue[search.cursor]
-        if readNode ~= node then
-            work = work + 1
-            readNode = node
-            list, length = containerItems(node.container)
-            owned = ownedContainer(node, root)
-        end
-        if length == nil or not owned then
-            search.incomplete = true
-            search.cursor = search.cursor + 1
-        elseif node.index >= length then
-            search.cursor = search.cursor + 1
-        elseif work >= 128 then
-            break
-        else
-            local item = entry(list, node.index)
-            node.index, work = node.index + 1, work + 1
-            if not item then search.incomplete = true end
-            if item and itemId(item) == claim.itemId and marker(item) == jobId
-                and call(item, "getContainer") == node.container
-                and U().inventoryContains(node.container, item) == true then
-                search.found = { item = item, node = node }
-                return item, node.container, true
-            end
-            local nested = item and call(item, "getItemContainer") or nil
-            if nested and not search.seen[nested] then
-                if #search.queue < 256 then
-                    search.seen[nested] = true
-                    search.queue[#search.queue + 1] = {
-                        container = nested, bag = item, parent = node, index = 0,
-                    }
-                else search.incomplete = true end
-            end
-        end
-    end
-    if search.cursor <= #search.queue then return nil, nil, false, true end
+    local item, owner, done = stepCargoSearch(search, claim, jobId, CARGO_PULSE_VISITS)
+    if item then return item, owner, true end
+    if not done then return nil, nil, false, true end
     cargoSearches[jobId] = nil
-    return nil, nil, search.pulses == 1 and not search.incomplete, false
+    if search.pulses == 1 then return nil, nil, not search.incomplete, false end
+    return carried(actor, claim, jobId, true)
 end
 
 local function releaseClaim(job)
@@ -734,7 +765,9 @@ function Floor.cancel(actor, job)
         if sourceZone then rewind(sourceZone) end
         return true, "floor_worker_gone"
     end
-    local item, owner, complete = carried(actor, claim, job.id)
+    -- Cancel is one call, so it reads the carrier in one bounded pass rather
+    -- than leaving a cursor search half done.
+    local item, owner, complete = carried(actor, claim, job.id, true)
     if item then
         local okay, reason = setDown(actor, job, claim, item, owner)
         if okay then
@@ -756,7 +789,17 @@ function Floor.cancel(actor, job)
         visuals[actor] = nil
         return true, "floor_cargo_absent"
     end
-    return false, "floor_cargo_owner_unknown"
+    -- An unloaded source tile may still hold it; that settles once it loads.
+    if not square then return false, "floor_source_unloaded" end
+    -- Not found in the readable part of an inventory past the proof bound, or
+    -- behind an unreadable bag. Nothing in the game will settle that, and a
+    -- refusal here keeps the worker on duty and the zone in use for good. If
+    -- the item is there it stays where it is; its marker no longer protects it
+    -- once the claim is gone.
+    releaseClaim(job)
+    if sourceZone then rewind(sourceZone) end
+    visuals[actor] = nil
+    return true, "floor_cargo_unaccounted"
 end
 
 function Floor.cancelActor(actor)

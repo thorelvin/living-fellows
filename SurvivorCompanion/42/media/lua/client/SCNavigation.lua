@@ -2875,6 +2875,15 @@ function Navigation._routeSearchSliceBudget(job)
         or string.find(action, "retreat", 1, true) or string.find(action, "alert", 1, true) then
         return budget(normal, "ordinary_intent")
     end
+    -- The longer slice spends time past the frame budget. Offer it only while
+    -- recent frames keep to budget: the performance governor raises its load
+    -- level when they do not, and then every search gets the ordinary slice.
+    local performance = SC.Performance
+    if not performance or type(performance.loadLevel) ~= "function" then
+        return budget(normal, "load_unknown")
+    end
+    local loadRead, load = pcall(performance.loadLevel)
+    if not loadRead or load ~= 0 then return budget(normal, "load_pressure") end
     local base, senses, alert = SC.BaseLife, SC.Senses, SC.BaseAlert
     if not base or type(base.active) ~= "function" or type(base.isInside) ~= "function"
         or not senses or type(senses.cached) ~= "function"

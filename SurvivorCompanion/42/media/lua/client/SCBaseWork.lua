@@ -1893,17 +1893,25 @@ local function guardRoutine(actor, state)
     local key = guardPatrolKey(base, center)
     if state.guardPatrolKey ~= key then
         clearGuardPatrol(actor, state, "guard_area_changed")
-        state.guardPatrolKey, state.nextRoutineAt = key, 0
+        state.guardPatrolKey, state.nextRoutineAt, state.guardRetryAt = key, 0, nil
     end
     local point = state.guardPatrolTarget
     local target = point and U().gridSquare(point.x, point.y, point.z) or nil
     if point and not guardTargetClear(actor, target) then
         clearGuardPatrol(actor, state, "guard_spot_changed")
-        state.guardPatrolKey, state.nextRoutineAt = key, 0
+        state.guardPatrolKey, state.nextRoutineAt, state.guardRetryAt = key, 0, nil
         target = nil
     end
-    if not target and now() < (state.nextRoutineAt or 0) then
-        return false, "guard_holding"
+    if not target then
+        local current = now()
+        -- A failed route or an unloaded post backs off wherever the guard is.
+        if current < (state.guardRetryAt or 0) then return false, "guard_holding" end
+        -- The pause between waypoints is for a guard at its post. One pulled
+        -- away by an alarm or a short job walks back first.
+        if current < (state.nextRoutineAt or 0)
+            and U().distance(actor, center) <= 3 then
+            return false, "guard_holding"
+        end
     end
     local offsets = { { 0, 0 }, { 2, 0 }, { 0, 2 }, { -2, 0 }, { 0, -2 } }
     if not target then
@@ -1921,7 +1929,7 @@ local function guardRoutine(actor, state)
         end
     end
     if not target then
-        state.nextRoutineAt = now() + 5000
+        state.guardRetryAt = now() + 5000
         return false, "guard_target_unloaded"
     end
     if not SC.Navigation or type(SC.Navigation.request) ~= "function" then
@@ -1932,11 +1940,11 @@ local function guardRoutine(actor, state)
     }))
     if handled and reason == "arrived" then
         clearGuardPatrol(actor, state, "guard_patrol_complete")
-        state.guardPatrolKey = key
+        state.guardPatrolKey, state.guardRetryAt = key, nil
         state.nextRoutineAt = now() + (U().config("baseGuardPatrolIntervalMs") or 30000)
     elseif handled ~= true then
         clearGuardPatrol(actor, state, "guard_patrol_failed")
-        state.guardPatrolKey, state.nextRoutineAt = key, now() + 5000
+        state.guardPatrolKey, state.guardRetryAt = key, now() + 5000
     end
     return handled, reason
 end

@@ -127,4 +127,63 @@ check(okay == false and rejected == "test_route_cancel_rejected" and actor.entry
     "a refused route stop cannot start a competing furniture animation")
 actor.rejectRouteCancel = false
 D.cancel(actor,"fixture_done")
+
+-- A bed's first leg can be the walk to its bedroom light switch. A rest
+-- cancelled on that leg (danger, an order) retires the switch route too, and
+-- leaves a switch route that is not its own alone.
+do
+    local room, tiles = {}, {}
+    local function tile(x, y)
+        local key = x .. ":" .. y
+        tiles[key] = tiles[key] or { x = x, y = y, z = 0, objects = {},
+            getRoom = function() return room end }
+        return tiles[key]
+    end
+    local light = { __class = "IsoLightSwitch", x = 13, y = 10, z = 0,
+        useSquare = { x = 13, y = 11, z = 0 } }
+    function light:isActivated() return true end
+    function light:canSwitchLight() return true end
+    tile(13, 10).objects[1] = light
+    local priorGrid, priorObjects, priorInstance = U.gridSquare, U.squareObjects, U.instanceOf
+    U.gridSquare = function(x, y) return tile(x, y) end
+    U.squareObjects = function(square, visit)
+        for _, object in ipairs(square.objects or {}) do
+            if visit(object) == false then return end
+        end
+    end
+    U.instanceOf = function(object, class)
+        return type(object) == "table" and object.__class == class
+    end
+    local function lightLeg(id)
+        SC_READING_CLOCK = SC_READING_CLOCK + 10000
+        local sleeper = SC_READING_ACTOR("seat:" .. id)
+        local bed = { x = 11, y = 10, z = 0, useSquare = { x = 11, y = 10, z = 0 },
+            square = tile(11, 10) }
+        local rest = { kind = "rest_bed", object = bed, square = bed,
+            fact = { activity = "rest_bed" } }
+        local started, why = begin(sleeper, stateFor(sleeper), rest,
+            sleeper.commands, SC_READING_CLOCK)
+        local leg = routes[sleeper]
+        check(started and rest.approaching and rest.lightSwitch == light and leg
+                and leg.goalAction == "move_to_light_switch"
+                and leg.lastApproachRequest.intent.object == light,
+            "a bed rest first walks to its bedroom light switch: " .. tostring(why))
+        return sleeper, rest, leg
+    end
+    local sleeper = lightLeg("light_leg")
+    before = cancelled
+    local okay = D.cancel(sleeper, "danger_seen")
+    check(okay and routes[sleeper] == nil and cancelled == before + 1
+            and S.current(sleeper) == nil,
+        "a rest cancelled on its light-switch leg retires that route")
+    local leg
+    sleeper, _, leg = lightLeg("light_leg_foreign")
+    leg.lastApproachRequest.intent.object = {}
+    before = cancelled
+    okay = D.cancel(sleeper, "old_activity_cleanup")
+    check(okay and routes[sleeper] == leg and cancelled == before,
+        "old bed cleanup preserves a light-switch route for another switch")
+    routes[sleeper] = nil
+    U.gridSquare, U.squareObjects, U.instanceOf = priorGrid, priorObjects, priorInstance
+end
 SC_TEST_REPORT = "DOWNTIME_SEAT_ROUTE_PASS checks="..checks

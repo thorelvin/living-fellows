@@ -368,6 +368,88 @@ check(absentHandled == true and absentReason == "floor_cargo_absent"
 
 table.remove(base.jobs, 1)
 
+-- A crowded carrier (loose rounds count one entry each) takes several updates
+-- to read. Cargo it no longer has is still proven absent, and cancel reads the
+-- whole inventory in one call. Before 0.26.62 such a miss never settled: the
+-- job kept its claim, the zone stayed in use and the worker could not leave
+-- base duty.
+do
+    local function crowd(amount)
+        for index = 1, amount do
+            local filler = item(5000 + index, false)
+            filler.container = inventory
+            table.insert(inventory.items, 1, filler)
+        end
+    end
+    local function uncrowd()
+        for index = #inventory.items, 1, -1 do
+            local id = inventory.items[index].id
+            if id >= 5000 and id < 6000 then table.remove(inventory.items, index) end
+        end
+    end
+    local function carry(id)
+        local cargo = item(id, false)
+        addWorld(source, cargo)
+        local queuedNow, carriedJob = Floor.audit(base)
+        check(queuedNow, "crowded carrier test " .. id .. " queues")
+        local carrierState = {}
+        Floor.update(actor, carrierState, carriedJob)
+        Floor.update(actor, carrierState, carriedJob)
+        check(contains(inventory, cargo) and carriedJob.target.floorCargo ~= nil,
+            "crowded carrier test " .. id .. " has carried cargo")
+        return cargo, carriedJob, carrierState
+    end
+
+    local lost, lostJob, lostState = carry(130)
+    crowd(200)
+    remove(inventory, lost)
+    local reason, pending, blocked = nil, 0, false
+    for _ = 1, 8 do
+        local handled, why, terminal = Floor.update(actor, lostState, lostJob)
+        reason = why
+        if why ~= "floor_cargo_search_pending" then
+            blocked = handled ~= true or terminal == true
+            break
+        end
+        pending = pending + 1
+    end
+    check(pending > 0 and not blocked and reason == "floor_cargo_absent"
+            and lostJob.target.floorCargo == nil
+            and Floor.zoneInUse("zone:sorting") == false,
+        "cargo gone from a crowded carrier is proven absent and releases the claim: "
+            .. tostring(reason))
+    table.remove(base.jobs, 1)
+    uncrowd()
+
+    local kept, keptJob = carry(131)
+    crowd(200)
+    local cancelledNow, cancelReason = Floor.cancel(actor, keptJob)
+    check(cancelledNow == true and kept.worldItem ~= nil and not contains(inventory, kept)
+            and keptJob.target.floorCargo == nil
+            and Floor.zoneInUse("zone:sorting") == false,
+        "one cancel finds cargo behind a crowd and puts it back on its tile: "
+            .. tostring(cancelReason))
+    remove({ items = source.worldItems }, kept.worldItem)
+    kept.worldItem = nil
+    table.remove(base.jobs, 1)
+    uncrowd()
+
+    local sealedCargo, sealedJob = carry(132)
+    local sealedInside = {}
+    local sealed = item(5999, false)
+    sealed.getItemContainer = function() return sealedInside end
+    sealed.container = inventory
+    table.insert(inventory.items, 1, sealed)
+    remove(inventory, sealedCargo)
+    local leftDuty, leaveReason = Floor.cancelActor(actor)
+    check(leftDuty == true and sealedJob.target.floorCargo == nil
+            and Floor.zoneInUse("zone:sorting") == false,
+        "cargo not found past an unreadable bag cannot hold the worker on duty: "
+            .. tostring(leaveReason))
+    table.remove(base.jobs, 1)
+    uncrowd()
+end
+
 -- An item the worker has no room for is set aside like one with no storage.
 -- Lighter items are still stored, and the job stays open with the reason
 -- instead of completing and being queued again for the same item.

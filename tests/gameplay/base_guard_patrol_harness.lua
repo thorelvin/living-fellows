@@ -109,6 +109,21 @@ routine(actor, state)
 check(#calls == count + 1 and calls[#calls].target ~= target,
     "guard selects next waypoint after its completed pause")
 
+-- The pause belongs to the post. A guard pulled away inside it (an alarm, a
+-- short job) walks back instead of standing where it ended up.
+actor, state = fresh(2)
+requestReason = "arrived"
+actor.x, actor.y = center.x, center.y
+routine(actor, state)
+local pausedAt = clock
+check(state.nextRoutineAt == pausedAt + 30000, "displacement test starts its patrol pause")
+actor.x, actor.y, requestReason = center.x + 9, 0, "path_searching"
+clock, count = pausedAt + 10000, #calls
+handled, reason = routine(actor, state)
+check(handled and reason == "path_searching" and #calls == count + 1
+        and calls[#calls].intent.action == "base_guard_patrol",
+    "a guard pulled away from its post walks back during the pause")
+
 actor, state = fresh(10)
 routine(actor, state)
 target = calls[1].target

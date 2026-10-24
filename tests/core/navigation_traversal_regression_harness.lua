@@ -883,6 +883,16 @@ do
     job.pathOptions.sliceBudgetMs, alarm = 10, {}
     check(N._routeSearchSliceBudget(job) == 3, "an explicit larger cap cannot override a camp alarm")
     alarm, job.pathOptions.sliceBudgetMs = nil, nil
+    do
+        local priorLoad = SC.Performance.loadLevel
+        SC.Performance.loadLevel = function() return 1 end
+        local pressured, pressureReason = N._routeSearchSliceBudget(job)
+        SC.Performance.loadLevel = priorLoad
+        check(pressured == 3 and pressureReason == "load_pressure",
+            "sustained frame pressure withdraws the quiet-base planning bonus")
+        check(N._routeSearchSliceBudget(job) == 5,
+            "the quiet-base bonus returns once frames keep to budget")
+    end
     local grid, tick = {}, 0
     U.gridSquare = function(x, y)
         if x < 400 or x > 409 or y < 0 or y > 9 then return nil end
