@@ -89,6 +89,8 @@ Navigation.request = function(actor, goal, _, intent)
     routeCalls = routeCalls + 1
     check(actor == driver and goal == target and intent.supervisorToken == token,
         "the same vehicle owner retains each bounded detour planning slice")
+    if intent.preferVerifiedPath then check(intent.verifiedSelectedGoal == true,
+        "boarding requests immediate physical verification of its assigned seat contact route") end
     if routeFailure then return false, routeFailure end
     return true, "path_searching"
 end

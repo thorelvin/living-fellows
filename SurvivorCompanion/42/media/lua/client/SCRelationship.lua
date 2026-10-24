@@ -545,6 +545,12 @@ local function backgroundResponse(state)
 end
 
 local doingLabels = {
+    wood = "cutting and hauling logs",
+    wood_preparation = "collecting an axe for a wood expedition",
+    wood_move_to_tree = "heading to a tree",
+    wood_collect_log = "collecting a log",
+    wood_car_cargo = "hauling logs to the car",
+    expedition_wood_storage = "putting expedition logs into camp storage",
     auxiliary_return_to_kitchen = "heading back to the kitchen counter",
     bandage_treatment = "bandaging a wound",
     chris_chase_rascal = "going after Rascal",

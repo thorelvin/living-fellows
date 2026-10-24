@@ -438,6 +438,57 @@ public final class SCRoadFollowerTest {
         return drive;
     }
 
+    private static void perpendicularParkedDeparture() {
+        // Returning from a roadside forest stop, the parked car still faces
+        // west but its home route begins south. A solid verge is ahead; there
+        // is real room behind and beside the car for the ordinary bounded turn.
+        SCLaneScan.World forestStop = new SCLaneScan.World() {
+            @Override
+            public int squareKind(int x, int y, int z) {
+                if (x < 0 || x >= 120 || y < 0 || y >= 200) return SCLaneScan.UNLOADED;
+                boolean clearing = x >= 13 && x <= 29 && y >= 94 && y <= 110;
+                boolean road = x >= 16 && x <= 27 && y >= 94 && y <= 170;
+                return clearing || road ? SCLaneScan.CLEAR : SCLaneScan.SOLID;
+            }
+
+            @Override
+            public boolean edgeBlocked(int fx, int fy, int tx, int ty, int z) { return false; }
+        };
+        SCRoadFollower follower = new SCRoadFollower(
+                SCDrivePath.parse("20,100,8;20,160,8"), 10.0f, true);
+        Drive drive = new Drive(null, new Car(20.0f, 100.0f, (float) Math.PI), follower);
+        drive.world = forestStop;
+        drive.run(0.1f, () -> false);
+        boolean initiallyTurning = follower.mode() == SCRoadFollower.Mode.TURNING && follower.turn() != null;
+        drive.run(120.0f, () -> follower.mode() == SCRoadFollower.Mode.ARRIVED);
+        require(!drive.collided && follower.mode() == SCRoadFollower.Mode.ARRIVED && drive.car.y > 155.0f
+                        && drive.minSpeedKmh < -0.5f && follower.turn() != null
+                        && follower.turn().legs() <= SCTurnAround.MAX_LEGS,
+                "a real bounded forward/reverse departure leaves the forest stop and follows home untouched: "
+                        + drive.trace + " mode=" + follower.mode() + " at=" + drive.car.x + "," + drive.car.y);
+        require(initiallyTurning,
+                "a perpendicular parked departure aligns before driving into the visible solid verge");
+
+        SCLaneScan.World rearBlocked = new SCLaneScan.World() {
+            @Override
+            public int squareKind(int x, int y, int z) {
+                if (x >= 24 && y >= 98 && y <= 103) return SCLaneScan.SOLID;
+                return forestStop.squareKind(x, y, z);
+            }
+
+            @Override
+            public boolean edgeBlocked(int fx, int fy, int tx, int ty, int z) { return false; }
+        };
+        SCRoadFollower unsafe = new SCRoadFollower(
+                SCDrivePath.parse("20,100,8;20,160,8"), 10.0f, true);
+        Drive held = new Drive(null, new Car(20.0f, 100.0f, (float) Math.PI), unsafe);
+        held.world = rearBlocked;
+        held.run(8.0f, () -> false);
+        require(!held.collided && unsafe.turn() == null && held.minSpeedKmh >= -0.1f
+                        && Math.hypot(held.car.x - 20.0f, held.car.y - 100.0f) < 0.2f,
+                "a constrained perpendicular departure without rear clearance holds without forcing a turn or reverse");
+    }
+
     private static void turnRound() {
         Drive drive = turnAndReturn(false);
         SCRoadFollower follower = drive.follower;
@@ -621,6 +672,7 @@ public final class SCRoadFollowerTest {
         wedgedWithoutRoomBehind();
         wedgedForeverIsBounded();
         newRouteBehind();
+        perpendicularParkedDeparture();
         turnRound();
         personInLane();
         tooNarrowToTurn();

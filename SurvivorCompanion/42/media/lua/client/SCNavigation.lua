@@ -6707,7 +6707,8 @@ function Navigation._seedVerifiedRoute(actor, state, sourceSquare, goalSquare,
     if state.path ~= nil or requestIntent.preferVerifiedPath ~= true
         or (requestIntent.multiGoalFallback == true
             and type(requestIntent.goalCandidates) == "table"
-            and #requestIntent.goalCandidates > 1)
+            and #requestIntent.goalCandidates > 1
+            and requestIntent.verifiedSelectedGoal ~= true)
         or type(Navigation.findPath) ~= "function" then return end
     local attemptKey = tostring(squareKey(sourceSquare)) .. ">"
         .. tostring(squareKey(goalSquare))

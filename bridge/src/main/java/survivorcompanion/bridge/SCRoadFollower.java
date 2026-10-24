@@ -42,6 +42,8 @@ final class SCRoadFollower {
     private static final float DEFAULT_WIDTH = 6.0f;
     private static final float TURN_FIRST_ANGLE = (float) Math.toRadians(120.0);
     private static final float TURN_FIRST_KMH = 3.0f;
+    private static final float DEPARTURE_ALIGN_ANGLE = (float) Math.toRadians(60.0);
+    private static final float DEPARTURE_FRONT_ROOM = 8.0f;
     /**
      * Stopped this long while asking to go forward through a clear bumper scan:
      * something the scan cannot see (a wall corner beside the wheel, a kerb)
@@ -250,8 +252,21 @@ final class SCRoadFollower {
         if (initialAlignmentPending) {
             path.pointAt(along, 0.0f, point);
             float routeHeading = (float) Math.atan2(point[3], point[2]);
-            if (Math.abs(SCTurnAround.wrap(routeHeading - heading)) > TURN_FIRST_ANGLE) {
+            float headingError = Math.abs(SCTurnAround.wrap(routeHeading - heading));
+            // A parked roadside car can face almost across its return route.
+            // Normal pursuit first drives along that old heading and brakes
+            // forever at the solid verge before completing the turn. Reuse
+            // the bounded manoeuvre only while stopped, with a real front
+            // obstruction and verified room behind; moving-road steering and
+            // precise parking retain their existing behavior.
+            boolean constrainedDeparture = !preciseArrival
+                    && Math.abs(speedKmh) < TURN_FIRST_KMH
+                    && headingError > DEPARTURE_ALIGN_ANGLE
+                    && frontClear >= 0.0f && frontClear <= DEPARTURE_FRONT_ROOM;
+            if (headingError > TURN_FIRST_ANGLE || constrainedDeparture) {
                 if (cruiseKmh <= 0.0f) return command;
+                if (constrainedDeparture && !(rearClear < 0.0f
+                        || rearClear > SCTurnAround.LEG_CLEARANCE)) return command;
                 // A replacement route can lead back from the block. Brake a
                 // rolling car before the slow turn, then keep this new path.
                 if (Math.abs(speedKmh) < TURN_FIRST_KMH) {

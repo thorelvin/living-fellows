@@ -15773,6 +15773,9 @@ end
 Harness.probeNormalExpeditionKitchen = function(...)
     return externalProbe("SCNormalExpeditionKitchenProbe", ...)
 end
+Harness.probeWoodExpedition = function(...)
+    return externalProbe("SCWoodExpeditionProbe", ...)
+end
 
 Harness.probeMedicalCheck = function(...)
     return externalProbe("SCMedicalCheckProbe", ...)
@@ -16354,6 +16357,8 @@ local function tick()
         Harness.probeViewCutaway(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "normal_kitchen_", 1, true) == 1 then
         Harness.probeNormalExpeditionKitchen(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "wood_expedition_", 1, true) == 1 then
+        Harness.probeWoodExpedition(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "hygiene_", 1, true) == 1 then
         Harness.probeHygiene(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "base_second_floor_", 1, true) == 1 then
@@ -17215,7 +17220,9 @@ local function onGameStart()
         finish()
         return
     end
-    if Harness.config.normal_expedition_kitchen_probe == "true" then
+    if Harness.config.wood_expedition_probe == "true" then
+        setPhase("wood_expedition_setup", Harness.startedAt)
+    elseif Harness.config.normal_expedition_kitchen_probe == "true" then
         setPhase("normal_kitchen_setup", Harness.startedAt)
     elseif Harness.config.view_cutaway_probe == "true" then
         setPhase("view_cutaway_setup", Harness.startedAt)

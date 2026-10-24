@@ -95,6 +95,7 @@ try {
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCIsoCompanionControlTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCNativeCleanupTransactionTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCNativeBridgeExposureTest.java') `
+        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCViewpointCompatibilityTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCStreetLookupTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCFishingMapTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCRoadRouterTest.java') `
@@ -297,6 +298,13 @@ try {
         )
         Add-ScJvmStep 'expedition-integration' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $expeditionIntegrationFiles 'Expedition exact receipt delivery and restock harness failed.'
 
+        $woodIntegrationFiles = @(
+            (Join-Path $TestRoot 'expedition_integration_fixture.lua'),
+            (Join-Path $Client 'SCExpeditionIntegration.lua'),
+            (Join-Path $TestRoot 'wood_expedition_integration_harness.lua')
+        )
+        Add-ScJvmStep 'wood-expedition-integration' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $woodIntegrationFiles 'Wood cargo delivery, roadside recovery and retry harness failed.'
+
         $baseWatchFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
@@ -450,11 +458,48 @@ try {
         $fieldWorkFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Client 'SCLoggingWork.lua'),
             (Join-Path $Client 'SCFieldWork.lua'),
             (Join-Path $Client 'SCLogistics.lua'),
             (Join-Path $TestRoot 'field_work_harness.lua')
         )
         Add-ScJvmStep 'field-work' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $fieldWorkFiles 'Off-base squad work and cargo harness failed.'
+
+        $expeditionWoodFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Client 'SCLoggingWork.lua'),
+            (Join-Path $Client 'SCExpeditionWood.lua'),
+            (Join-Path $TestRoot 'expedition_wood_harness.lua')
+        )
+        Add-ScJvmStep 'expedition-wood' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $expeditionWoodFiles 'Mission wood chopping, native pickups, capacity and shared claims harness failed.'
+
+        $woodDecisionFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Client 'SCDecision.lua'),
+            (Join-Path $Client 'SCPersonalItems.lua'),
+            (Join-Path $Client 'SCExpeditionWood.lua'),
+            (Join-Path $TestRoot 'wood_decision_harness.lua')
+        )
+        Add-ScJvmStep 'wood-decision' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $woodDecisionFiles 'Wood decision ownership, danger and cargo protection harness failed.'
+
+        $expeditionForestFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Client 'SCExpeditionForests.lua'),
+            (Join-Path $TestRoot 'expedition_forests_harness.lua')
+        )
+        Add-ScJvmStep 'expedition-forests' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $expeditionForestFiles 'Bounded woodland discovery and mature-tree verification harness failed.'
+
+        $woodMissionFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Client 'SCExpeditionRoute.lua'),
+            (Join-Path $Client 'SCExpeditionForests.lua'),
+            (Join-Path $Client 'SCExpeditionWood.lua'),
+            (Join-Path $Client 'SCExpeditionPrototype.lua'),
+            (Join-Path $TestRoot 'expedition_wood_mission_harness.lua')
+        )
+        Add-ScJvmStep 'wood-expedition-mission' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $woodMissionFiles 'Wood mission lifecycle, quota, return and schema 7 harness failed.'
 
         $farmingFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
@@ -694,6 +739,7 @@ try {
     Add-ScJvmStep 'sc-movement-clearance' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCMovementClearanceTest') @() 'Companion wedge-escape clearance gate failed.'
     Add-ScJvmStep 'sc-companion-driving' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCCompanionDrivingTest') @() 'Companion cruise control and lane scan gate failed.'
     Add-ScJvmStep 'sc-road-follower' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCRoadFollowerTest') @() 'Route following, wreck avoidance and turning round gate failed.'
+    Add-ScJvmStep 'sc-viewpoint-compatibility' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCViewpointCompatibilityTest') @() 'Optional Viewpoint mode compatibility failed.'
 
     $clothingCatalog = Join-Path $GameRoot 'media\clothing\clothing.xml'
     [xml]$clothing = Get-Content -LiteralPath $clothingCatalog -Raw -Encoding utf8

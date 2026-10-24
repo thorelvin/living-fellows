@@ -27,6 +27,43 @@ assert(fixture.labels[2].red == 0.84 and fixture.labels[2].green == 0.92,
     "unselected companion names must keep their usual blue color")
 fixture.labels = {}
 
+local previousBridge = SCBridge
+local active3D = false
+local modeReads = 0
+SCBridge = { isViewpoint3DActive = function()
+    modeReads = modeReads + 1
+    return active3D
+end }
+Events.OnPreUIDraw.callback()
+assert(#fixture.labels == 2 and modeReads == 1,
+    "installed but inactive Viewpoint must retain isometric names")
+fixture.labels = {}
+active3D = true
+fixture.splitScreen = true
+SurvivorCompanion.UI = { instance = { selectedId = "sc-addy" } }
+Events.OnPreUIDraw.callback()
+assert(#fixture.labels == 0 and modeReads == 2,
+    "active 3D must suppress selected and ordinary names in every viewport with one mode query")
+active3D = false
+Events.OnPreUIDraw.callback()
+assert(#fixture.labels == 4, "returning to isometric must restore both viewport names immediately")
+fixture.labels = {}
+fixture.config.companionNameLabels = false
+active3D = true
+Events.OnPreUIDraw.callback()
+active3D = false
+Events.OnPreUIDraw.callback()
+assert(#fixture.labels == 0 and fixture.config.companionNameLabels == false,
+    "camera toggles must never enable the player's disabled name setting")
+fixture.config.companionNameLabels = true
+fixture.splitScreen = false
+SurvivorCompanion.UI = nil
+SCBridge.isViewpoint3DActive = function() error("optional renderer unavailable") end
+Events.OnPreUIDraw.callback()
+assert(#fixture.labels == 2, "an optional compatibility failure must not break ordinary labels")
+fixture.labels = {}
+SCBridge = previousBridge
+
 fixture.splitScreen = true
 SurvivorCompanion.UI = { instance = { selectedId = "sc-addy" } }
 Events.OnPreUIDraw.callback()
@@ -108,6 +145,18 @@ assert(fixture.labels[1].value == "Camp area"
         and fixture.labels[3].value == "Workshop"
         and fixture.labels[5].value == "Food" and fixture.labels[7].value == "Addy",
     "labels must identify zones, localized storage categories, and the companion first name")
+local isometricLabels = fixture.labels
+local isometricLegend = fixture.legend
+SCBridge = { isViewpoint3DActive = function() return true end }
+fixture.labels = {}
+fixture.legend = {}
+Events.OnPreUIDraw.callback()
+assert(#fixture.labels == 6 and fixture.labels[1].value == "Camp area"
+        and fixture.labels[5].value == "Food",
+    "3D compatibility must suppress only companion names, preserving base labels")
+fixture.labels = isometricLabels
+fixture.legend = isometricLegend
+SCBridge = previousBridge
 
 assert(#fixture.fills == 3 and fixture.fills[1].player == 0
         and fixture.fills[1].x1 == 8 and fixture.fills[1].x2 == 19

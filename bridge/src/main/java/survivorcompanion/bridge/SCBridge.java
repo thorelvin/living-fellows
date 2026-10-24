@@ -74,6 +74,12 @@ import zombie.worldMap.WorldMap;
 /** Narrow Lua-facing authority for creating and owning native companions. */
 public final class SCBridge {
     public static final String PROTOCOL = "42.21-isocompanion-24";
+
+    /** True only while the optional Viewpoint renderer reports active 3D. */
+    public static boolean isViewpoint3DActive() {
+        return SCViewpointCompatibility.active();
+    }
+
     public static final int ITEM_FACT_FOOD = 1;
     public static final int ITEM_FACT_DRAINABLE = 1 << 1;
     public static final int ITEM_FACT_HAND_WEAPON = 1 << 2;

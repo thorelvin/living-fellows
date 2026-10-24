@@ -332,5 +332,118 @@ local deliveryText = table.concat(deliveryNames.lines, "\n")
 assert(string.find(deliveryText, "Tess Nolan", 1, true)
         and not string.find(deliveryText, id, 1, true),
     "legacy finder, carrier and restock reports never expose companion ids")
+fixture.setPendingReports({})
+local woodDetail = newDetail()
+woodDetail.root = gearDetail.root
+woodDetail.rebuild = function() end
+woodDetail.expeditionDraft = { kind = "wood", group = "alpha", leaderId = id,
+    travelMode = "road", restockBaseDuty = false }
+local previewCalls, launchOptions = 0, nil
+expedition.previewWoodCollection = function(records, options)
+    assert(records[1] == record and options.request.quantity == 12,
+        "wood uses the actual crew and defaults to twelve logs")
+    previewCalls = previewCalls + 1
+    if previewCalls == 1 then return nil, "forest_scan_pending" end
+    return { mode = "road", distance = 90,
+        site = { id = "forest-test", label = "Woodland northeast of camp" } }
+end
+expedition.placeCandidates = function() error("wood finds woodland automatically") end
+expedition.startWoodCollection = function(records, options)
+    assert(records[1] == record)
+    launchOptions = options
+    return true
+end
+local woodPanel = newPanel(400)
+Planner.build(woodDetail, woodPanel)
+assert(woodDetail.expeditionDraft.previewError == "forest_scan_pending",
+    "a bounded woodland scan stays pending")
+local quantityCombo
+for _, child in ipairs(woodPanel.children) do
+    if child.scField == "woodQuantity" then quantityCombo = child end
+    assert(child.scField ~= "quantity" and child.scField ~= "placeId",
+        "wood has its own quantity and no manual destination selector")
+end
+assert(quantityCombo and #quantityCombo.options == 7,
+    "wood offers six log counts and full load")
+assert(quantityCombo.options[quantityCombo.selected].data.value == 12,
+    "the displayed default matches the twelve-log launch request")
+local choices = { 1, 2, 4, 8, 12, 24, "full" }
+for index, expected in ipairs(choices) do
+    assert(quantityCombo.options[index].data.value == expected)
+end
+assert(Planner.refreshForestPreview(woodDetail)
+        and woodDetail.expeditionDraft.forestSite.id == "forest-test",
+    "later bounded slices provide a readable automatic forest destination")
+Planner.onButton(woodDetail, { scExpeditionAction = "review" })
+woodDetail.lines = {}
+Planner.build(woodDetail, newPanel(400))
+local woodReview = table.concat(woodDetail.lines, "\n")
+assert(string.find(woodReview, "UI_SC_Expedition_WoodCountPlan:12", 1, true)
+        and string.find(woodReview, "UI_SC_Expedition_WoodEquipmentPlan", 1, true),
+    "review explains the quantity and automatic axe/storage plan")
+Planner.onButton(woodDetail, { scExpeditionAction = "launch" })
+assert(launchOptions.request.mode == "count" and launchOptions.request.quantity == 12
+        and launchOptions.restockBaseDuty == false,
+    "count launch preserves the independent restock setting")
+woodDetail.expeditionDraft.woodQuantity = "full"
+Planner.onButton(woodDetail, { scExpeditionAction = "launch" })
+assert(launchOptions.request.mode == "full" and launchOptions.request.quantity == nil,
+    "full load uses its explicit request mode")
+fixture.startTrip()
+expedition.current().scout = { kind = "wood", wood = { preparation = true,
+    preparationReason = "wood_axe_missing" } }
+fixture.view.kind, fixture.view.preparation = "wood", "wood_axe_missing"
+fixture.view.woodProgress = { collected = 2, carried = 1, stored = 0 }
+local woodSignature = Planner.viewStructureSignature()
+fixture.view.woodProgress.carried = 2
+assert(Planner.viewStructureSignature() ~= woodSignature,
+    "physical cargo changes refresh the wood display even in the same phase")
+local preparingWood = newDetail()
+Planner.build(preparingWood, newPanel(400))
+assert(string.find(table.concat(preparingWood.lines, "\n"),
+        "UI_SC_Expedition_WoodAxeWaiting", 1, true),
+    "wood preparation explains missing axes without claiming departure")
+fixture.endTrip()
+fixture.view.kind, fixture.view.preparation, fixture.view.woodProgress = nil, nil, nil
+fixture.setPendingReports({ { tripId = "wood-delivery", summary = {
+    kind = "wood", version = 2, tripId = "wood-delivery", requested = 12,
+    collected = 3, carried = 2, returned = 3, stored = 1, pending = 2,
+    deliveryPending = true, items = {}, members = {},
+} } })
+local retryTrip
+expedition.retryDelivery = function(tripId)
+    retryTrip = tripId
+    return true, "delivery_retry_queued"
+end
+local delivery = newDetail()
+delivery.root, delivery.rebuild = gearDetail.root, function() end
+delivery.expeditionDraft = { kind = "scout", group = "alpha", placesLoaded = true, places = {} }
+local deliveryPanel = newPanel(400)
+Planner.build(delivery, deliveryPanel)
+assert(string.find(table.concat(delivery.lines, "\n"),
+        "UI_SC_Expedition_WoodDeliveryCounts:3|2|1|2", 1, true),
+    "the delivery report separates collected, carried, stored and pending")
+for _, child in ipairs(deliveryPanel.children) do
+    if child.scExpeditionAction == "retry_delivery" then Planner.onButton(delivery, child) end
+end
+assert(retryTrip == "wood-delivery" and delivery.feedbackSuccess,
+    "manual delivery retry retains the exact trip identity")
+fixture.setDebrief({ kind = "wood", endReason = "forest_no_mature_trees",
+    carFailure = { reason = "route_blocked" } })
+fixture.setPendingReports({ { tripId = "wood-cargo", summary = {
+    kind = "wood", version = 2, tripId = "wood-cargo", requested = 2,
+    collected = 1, carried = 0, stored = 0, pending = 1,
+    items = { { itemType = "Base.Log", finderName = "Tess Nolan",
+        carrierName = "Tess Nolan", reason = "cargo_pending" } }, members = {},
+} } })
+delivery.lines = {}
+Planner.build(delivery, newPanel(400))
+local partialWoodText = table.concat(delivery.lines, "\n")
+assert(string.find(partialWoodText, "UI_SC_Expedition_WoodForestEmpty", 1, true)
+        and string.find(partialWoodText, "UI_SC_Expedition_WoodCargoPending", 1, true)
+        and string.find(partialWoodText, "UI_SC_Expedition_WoodLog", 1, true)
+        and string.find(partialWoodText, "UI_SC_Expedition_CarFailure", 1, true)
+        and not string.find(partialWoodText, "Base.Log", 1, true),
+    "partial wood debriefs explain empty woodland and pending cargo with readable log names")
 SurvivorCompanion.UI.text = originalText
-print("SCUI expedition zoom and companion-name tests passed")
+print("SCUI expedition zoom, wood controls and companion-name tests passed")

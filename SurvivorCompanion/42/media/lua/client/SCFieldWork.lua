@@ -227,6 +227,7 @@ local function crop(square)
     return plant and call(plant, "canHarvest") == true and plant or nil
 end
 local function tree(square)
+    if SC.LoggingWork then return SC.LoggingWork.tree(square) end
     local value = call(square, "getTree")
     if not value or (tonumber(call(value, "getObjectIndex")) or -1) < 0 then
         return nil
@@ -305,7 +306,16 @@ local function nextTarget(order, worker)
         local y = order.center.y - range + math.floor(index / width)
         local square = targetAt(order, x, y)
         local targetKey = key(x, y, order.center.z)
-        if square and not claimed(order, targetKey) then
+        local shared = true
+        if square and not claimed(order, targetKey) and order.kind == "chop" and SC.LoggingWork then
+            local workerId
+            for candidate, state in pairs(order.workers) do
+                if state == worker then workerId = candidate break end
+            end
+            shared = SC.LoggingWork.claimTree(order.id, workerId, square)
+            if shared then worker.loggingOwner, worker.loggingWorker = order.id, workerId end
+        end
+        if square and shared and not claimed(order, targetKey) then
             worker.target, worker.x, worker.y = targetKey, x, y
             worker.phase = "approach"
             return square
@@ -534,36 +544,9 @@ local function axeIn(container, ownerId)
     end
     return nil
 end
-local function carSquares(actor, vehicle, part)
-    local area = call(part, "getArea")
-    local centre = area and call(vehicle, "getAreaCenter", area)
-    local center = point(centre)
-    local squares = {}
-    if not center then return squares end
-    center.z = (point(vehicle) or center).z
-    local centreSquare = U().gridSquare(center.x, center.y, center.z)
-    if not centreSquare or not SC.Navigation
-        or not SC.Navigation.interactionTargets then return squares end
-    -- The trunk is a fixed interaction point. Distance alone admits a tile
-    -- through a wall or fence; Navigation checks the actual contact edges.
-    squares = SC.Navigation.interactionTargets(actor, centreSquare,
-        { requireDirectAccess = true, maximum = 8 }) or {}
-    return squares
-end
 local function atCar(actor, vehicle, part)
-    local squares = carSquares(actor, vehicle, part)
-    if #squares == 0 then return false, "car_access_blocked" end
-    local okay, reason, reached = SC.Navigation.requestAny(actor, squares, "walk", {
-        action = "field_car_cargo", targetSquare = point(vehicle),
-        requireSameSquare = true, arrivalDistance = 0.5,
-    })
-    if not okay then return false, reason end
-    if reason == "arrived" and reached and U().sameSquare(actor, reached) then
-        for _, current in ipairs(carSquares(actor, vehicle, part)) do
-            if U().sameSquare(actor, current) then return true, "arrived" end
-        end
-    end
-    return true, "approaching"
+    return SC.LoggingWork.atCar(actor, vehicle, part,
+        { action = "field_car_cargo", accessReason = "car_access_blocked" })
 end
 local function cargoItems(actor, orderId)
     local result = {}
@@ -576,6 +559,10 @@ local function cargoItems(actor, orderId)
 end
 
 local function release(worker)
+    if SC.LoggingWork and worker.loggingOwner then
+        SC.LoggingWork.releaseTree(worker.loggingOwner, worker.loggingWorker)
+        worker.loggingOwner, worker.loggingWorker = nil, nil
+    end
     worker.target, worker.x, worker.y, worker.before = nil, nil, nil, nil
     worker.groundBefore, worker.startedAt, worker.phase = nil, nil, "seek"
 end
@@ -642,7 +629,7 @@ local function loadCar(actor, worker, order)
             order.phase, order.blocker = "paused", "car_trunk_full"
             return false, order.blocker
         end
-        local moved, moveReason = U().transferItemVerified(source, container, item)
+        local moved, moveReason = SC.LoggingWork.transferVerified(source, container, item)
         if not moved then
             if order.kind == "chop" and moveReason == "destination_full" then
                 local _, _, load = U().carryLoad(actor)
@@ -1053,6 +1040,7 @@ end
 function Field.stop(reason)
     if not active then return false, "no_field_order" end
     local order = active
+    if SC.LoggingWork then SC.LoggingWork.releaseTree(order.id) end
     if order.unlock then
         local unlocker = actorFor(order.unlock.actorId)
         if unlocker and SC.Vehicle then
@@ -1098,6 +1086,7 @@ function Field.stop(reason)
             }
         end
     end
+    if SC.LoggingWork then SC.LoggingWork.releaseTree(order.id) end
     order.phase = "stopped"
     order.blocker = reason or "stopped_by_player"
     Field.clearArea()
@@ -1301,6 +1290,15 @@ function Field.update(actor, player, snapshot)
         return false, "leader_left_work_area"
     end
     local order = active
+    if order.kind == "chop" and worker.x and SC.LoggingWork then
+        local square = currentTarget(worker, order)
+        if square and not SC.LoggingWork.claimTree(order.id, actorId, square, actor) then
+            stopAction(actor)
+            release(worker)
+            return true, "field_tree_claimed"
+        end
+        worker.loggingOwner, worker.loggingWorker = order.id, actorId
+    end
     local inventory = U().inventory(actor)
     if not inventory then return false, "inventory_unavailable" end
     local _, _, load = U().carryLoad(actor)
@@ -1569,10 +1567,8 @@ function Field.update(actor, player, snapshot)
             okay, reason = SC.NativeActions.startFarm(actor,
                 { operation = "harvest", plant = object, square = square })
         else
-            okay, reason = U().move(actor, "walk", {
-                action = "chop_tree", tree = object, tool = axeIn(inventory, actorId),
-                targetSquare = square,
-            })
+            okay, reason = SC.LoggingWork.startChop(actor, point(square), axeIn(inventory, actorId),
+                { cancelReason = false, deferActiveCheck = true })
         end
         if not okay then return false, reason or "field_action_rejected" end
         if SC.NativeActions.isWorkActive(actor) ~= true then
@@ -1594,24 +1590,12 @@ function Field.update(actor, player, snapshot)
     if worker.phase == "working" then
         if SC.NativeActions.isWorkActive(actor) == true then
             if order.kind == "chop" then
-                local object = tree(square)
-                local health = object and tonumber(call(object, "getHealth"))
-                if health and worker.lastHealth and health < worker.lastHealth then
-                    worker.nativeHit = true
-                    worker.lastProgressAt = U().nowMs()
-                end
-                worker.lastHealth = health or worker.lastHealth
-                if object and not worker.nativeHit
-                    and U().nowMs() - (worker.lastProgressAt or 0) >= 6000
-                    and U().nowMs() - (worker.lastEmulatedAt or 0) >= 1500
-                    and SC.NativeActions.emulateWorkEvent then
-                    worker.lastEmulatedAt = U().nowMs()
-                    SC.NativeActions.emulateWorkEvent(actor, "chop_tree", "ChopTree")
-                    local after = tonumber(call(object, "getHealth"))
-                    if after and health and after < health then
-                        worker.lastProgressAt, worker.lastHealth = U().nowMs(), after
-                    end
-                end
+                local progress = { lastHealth = worker.lastHealth, nativeHit = worker.nativeHit,
+                    progressAt = worker.lastProgressAt, emulatedAt = worker.lastEmulatedAt,
+                    startedAt = worker.startedAt }
+                SC.LoggingWork.chopProgress(actor, tree(square), progress)
+                worker.lastHealth, worker.nativeHit = progress.lastHealth, progress.nativeHit
+                worker.lastProgressAt, worker.lastEmulatedAt = progress.progressAt, progress.emulatedAt
             end
             if U().nowMs() - (worker.startedAt or 0) < 180000 then
                 return true, "field_action_active"

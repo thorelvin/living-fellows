@@ -866,6 +866,25 @@ local heardReport, heardReason = expedition.sendRadioOrder(player,
 check(heardReport == true and heardReason == "progress_acknowledged"
         and newMission.lastProgressReport.collected == 0,
     "the acknowledged report snapshots the actual searched-item count")
+local originalSearch, originalKind, originalVehicle, originalWood, originalReport =
+    newMission.scout.search, newMission.scout.kind, newMission.scout.vehicle,
+    SC.ExpeditionWood, newMission.lastProgressReport
+newMission.scout.search, newMission.scout.kind = nil, "wood"
+newMission.scout.vehicle = { sqlId = 44 }
+newMission.scout.wood = { request = { mode = "count", quantity = 2 },
+    acquisitions = { { id = "log-1", memberId = "delta" }, { id = "log-2", memberId = "delta" } },
+    sites = { { label = "Forest north" } }, siteIndex = 1 }
+SC.ExpeditionWood = { cargoCounts = function(_, _, visibleIds, carId)
+    check(visibleIds == nil and carId == 44, "acknowledged wood radio audits the full crew and exact trip trunk")
+    return { carried = 0, loaded = 2, complete = true }
+end }
+check(expedition.sendRadioOrder(player, "progress_report", "status")
+        and newMission.lastProgressReport.carried == 2
+        and expedition.describeForPlayer(nil).woodProgress.carried == 2,
+    "full radio progress includes both exact logs loaded in the car when nobody carries one personally")
+newMission.scout.search, newMission.scout.kind, newMission.scout.vehicle, newMission.scout.wood =
+    originalSearch, originalKind, originalVehicle, nil
+SC.ExpeditionWood, newMission.lastProgressReport = originalWood, originalReport
 end
 observed = expedition.describeForPlayer(nil)
 check(observed.leaderName == "Test Leader"

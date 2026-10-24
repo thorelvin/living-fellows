@@ -363,6 +363,10 @@ function PersonalItems.reset(actor)
 end
 
 function PersonalItems.isProtected(item, actorOrId, operation)
+    if SC.ExpeditionWood and type(SC.ExpeditionWood.reserved) == "function"
+        and SC.ExpeditionWood.reserved(item, actorOrId, operation) then
+        return true
+    end
     if SC.WorkTransport and type(SC.WorkTransport.isCargoProtected) == "function"
         and SC.WorkTransport.isCargoProtected(item, actorOrId, operation) then
         return true

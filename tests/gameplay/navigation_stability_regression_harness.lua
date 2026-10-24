@@ -61,6 +61,62 @@ function actor:getCurrentSquare() return self:getSquare() end
 function actor:getModData() return self.data end
 function actor:isDead() return false end
 SC.Config._values.movementRecorderEnabled = true
+do
+    -- A nearby driver door is across a kitchen wall. Use the real topology
+    -- classifier and A-star, with two blocked transparent tiles and one real
+    -- closed, unlocked door well to the west. The actor must remain untouched.
+    local door = { __class = "IsoDoor", open = false, locked = false }
+    function door:IsOpen() return self.open end
+    function door:isLocked() return self.locked end
+    function door:isBarricaded() return false end
+    local function crossing(a, b)
+        return a.z == 0 and b.z == 0 and math.min(a.y, b.y) == 1 and math.max(a.y, b.y) == 2
+    end
+    local function contact(a, b) return crossing(a, b) and a.x == -3 and b.x == -3 end
+    for x = -300, 300 do for y = -8, 8 do
+        local tile = square(x, y, 0)
+        function tile:isBlockedTo(other) return crossing(self, other) and not contact(self, other) end
+        function tile:getDoorTo(other) if contact(self, other) then return door end end
+        function tile:isSolidTrans() return self.y == 2 and (self.x == 0 or self.x == 1) end
+    end end
+    local source, goal = square(0, 0), square(3, 4)
+    local generic = {}
+    N._seedVerifiedRoute(actor, generic, source, goal, {
+        preferVerifiedPath = true, multiGoalFallback = true,
+        goalCandidates = { goal, square(4, 4) },
+    }, 1000)
+    check(generic.path == nil, "ordinary multi-goal requests retain incremental route selection")
+    local state = {}
+    N._seedVerifiedRoute(actor, state, source, goal, {
+        preferVerifiedPath = true, verifiedSelectedGoal = true,
+        multiGoalFallback = true, goalCandidates = { goal, square(4, 4) },
+    }, 1000)
+    check(state.path and state.path[1] == source and state.path[#state.path] == goal,
+        "assigned car door gets a real route despite multiple contact candidates")
+    local doorCrossed, safe = false, true
+    for index = 2, #(state.path or {}) do
+        local from, to = state.path[index - 1], state.path[index]
+        local edge = SC.Topology.classifyEdge(actor, from, to)
+        if edge.traversable ~= true then safe = false end
+        if contact(from, to) and edge.affordance == "door" and edge.requiresNative then doorCrossed = true end
+        if to.y == 2 and (to.x == 0 or to.x == 1) then safe = false end
+    end
+    check(safe and doorCrossed and door.open == false,
+        "verified boarding route uses native closed-door affordance and never cuts transparent wall tiles")
+    check(actor.x == 0.5 and actor.y == 0.5 and actor:getSquare() == source,
+        "route verification neither teleports actor nor opens its door")
+    door.locked = true
+    local sealed = {}
+    N._seedVerifiedRoute(actor, sealed, source, goal, {
+        preferVerifiedPath = true, verifiedSelectedGoal = true,
+        multiGoalFallback = true, goalCandidates = { goal, square(4, 4) },
+    }, 1001)
+    check(sealed.path == nil, "locked only exit never becomes a fabricated boarding route")
+    for _, tile in pairs(grid) do
+        tile.isBlockedTo, tile.getDoorTo = nil, nil
+        tile.isSolidTrans = function() return false end
+    end
+end
 local edgeCalls, edgeDelay, elapsed = 0, 0, 0
 -- These tests isolate search bookkeeping from physical obstacle classification;
 -- the separate traversal suite exercises the real world-edge implementation.

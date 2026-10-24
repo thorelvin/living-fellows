@@ -4,6 +4,11 @@
 
 ## 0.26.64 - Automatic job retries and companion view fixes
 
+- Collect wood expeditions walk or drive to nearby woodland, borrow a real axe from permitted camp supplies and bring physical logs home. Choose 1, 2, 4, 8, 12 or 24 logs, or Full load (at most 256 logs per round trip). Capacity, danger, night policy, tool condition and the return timer can produce a partial load.
+- Wood reports distinguish collected, carried and stored logs. Crews unload into permitted Log Yard, Construction or General storage, including their verified stopped car within camp work reach. Full or inaccessible storage preserves cargo and retries every three minutes; manual Retry remains available. Delivery does not depend on the restock/resume-duty option.
+- Wood trips retain exact log identities, borrowed tools and unfinished delivery across saves. Expedition schema 7 and wood integration version 2 retain older search and fishing saves and limits. Ordinary field clearing keeps its existing behavior.
+- Companion overhead names are hidden while Viewpoint's 3D mode is active and return in isometric mode. This reads the optional native mode flag without changing the player's name-label setting.
+- Car boarding now seeds a verified route through doors when approaching one of several possible door-contact tiles. Stopped roadside cars facing across their return route use bounded turn recovery when their front is obstructed and there is room behind. Original car failure details remain available after fallback or reload.
 - Base policy switches use native checkboxes with wrapped labels. Rejected changes restore the previous selection, and remote camp policies stay disabled.
 - Companion names remain visible during speech; their dialogue bubbles already sit above the name labels.
 - Closing Base Watch or an expedition restores the primary camera, zoom and HUD, then waits for a completed solo frame before refreshing the primary player's sight and wall-cutaway caches once. A new view or world exit cancels the pending refresh, and an incompatible frame times out without repeating a partial reset. An outdated native installation is reported before opening a companion view.

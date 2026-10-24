@@ -20,6 +20,7 @@ local function item(kind, axe)
     serial = serial + 1
     local value = { kind = kind, id = "item-" .. serial, data = {}, axe = axe }
     function value:getModData() return self.data end
+    function value:getContainer() return self.container end
     function value:isBroken() return false end
     return value
 end

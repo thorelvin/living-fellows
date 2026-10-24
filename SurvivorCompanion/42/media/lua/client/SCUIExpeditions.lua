@@ -39,10 +39,17 @@ local QUANTITIES = {
     { value = 1, label = "1" }, { value = 2, label = "2" },
     { value = 4, label = "4" }, { value = 8, label = "8" },
 }
+local WOOD_QUANTITIES = {
+    { value = 1, label = "1" }, { value = 2, label = "2" },
+    { value = 4, label = "4" }, { value = 8, label = "8" },
+    { value = 12, label = "12" }, { value = 24, label = "24" },
+    { value = "full", key = "UI_SC_Expedition_WoodFullLoad" },
+}
 -- A building usually sits well within this of its street; name longer
 -- off-road stretches in the review.
 local OFF_ROAD_NOTE = 25
 local ZOOM_STEPS = 10
+local currentTeam
 
 local function tr(key, ...)
     return SC.UI.text(key, ...)
@@ -163,6 +170,9 @@ local function deliverySignature(expedition)
         if not record or seen[record.tripId] then return end
         seen[record.tripId] = true
         parts[#parts + 1] = record.tripId
+        parts[#parts + 1] = tostring(record.carried or "")
+        parts[#parts + 1] = tostring(record.toolsPending or false)
+        parts[#parts + 1] = tostring(record.toolReason or "")
         for _, row in ipairs(record.items or {}) do
             parts[#parts + 1] = row.stored and "stored"
                 or row.reason or "pending"
@@ -174,13 +184,7 @@ local function deliverySignature(expedition)
     append(latest)
     for _, report in ipairs(expedition and expedition.pendingDeliveryReports
             and expedition.pendingDeliveryReports() or {}) do
-        if report.summary and not seen[report.tripId] then
-            parts[#parts + 1] = report.tripId
-            for _, row in ipairs(report.summary.items) do
-                parts[#parts + 1] = row.stored and "stored"
-                    or row.reason or "pending"
-            end
-        end
+        append(report.summary)
     end
     return table.concat(parts, ":")
 end
@@ -210,6 +214,10 @@ function Planner.viewStructureSignature()
             and view.supplyProgress.collected or ""),
         tostring(view and view.supplyProgress
             and view.supplyProgress.at or ""),
+        tostring(view and view.woodProgress and view.woodProgress.collected or ""),
+        tostring(view and view.woodProgress and view.woodProgress.carried or ""),
+        tostring(view and view.woodProgress and view.woodProgress.stored or ""),
+        tostring(view and view.woodProgress and view.woodProgress.reason or ""),
         tostring(view and view.delivery and view.delivery.broughtBack or ""),
         tostring(view and view.delivery and view.delivery.stored or ""),
         tostring(view and view.delivery and view.delivery.pending or ""),
@@ -222,6 +230,9 @@ function Planner.viewStructureSignature()
 end
 
 function Planner.refreshZoom(detail)
+    local draft = detail and detail.expeditionDraft
+    if draft and draft.kind == "wood" and Planner.refreshForestPreview
+        and Planner.refreshForestPreview(detail) then return false end
     local slider = detail and detail.expeditionZoomSlider
     local expedition = SC.ExpeditionPrototype
     local mission = expedition and type(expedition.current) == "function"
@@ -314,10 +325,84 @@ local function squadRows(detail, group)
 end
 
 local function selectedPlace(draft)
+    if draft.kind == "wood" then return draft.forestSite end
     for _, place in ipairs(draft.places or {}) do
         if place.id == draft.placeId then return place end
     end
     return nil
+end
+
+local function woodOptions(draft)
+    return { turnHomeAfterHours = draft.hours,
+        doctrine = draft.style, travelMode = draft.travelMode,
+        restockBaseDuty = draft.restockBaseDuty == true,
+        parkingZoneId = draft.parkingZoneId, vehicleSqlId = draft.vehicleSqlId,
+        request = draft.woodQuantity == "full" and { mode = "full" }
+            or { mode = "count", quantity = tonumber(draft.woodQuantity) or 12 } }
+end
+
+local function woodReason(reason)
+    local keys = {
+        forest_scan_pending = "UI_SC_Expedition_WoodFindingForest",
+        forest_not_found = "UI_SC_Expedition_WoodNoForest",
+        forest_unavailable = "UI_SC_Expedition_WoodNoForest",
+        no_suitable_forest = "UI_SC_Expedition_WoodNoForest",
+        no_reachable_forest = "UI_SC_Expedition_WoodNoForest",
+        wood_forest_too_far_from_road = "UI_SC_Expedition_WoodForestRoadAccess",
+        wood_axe_missing = "UI_SC_Expedition_WoodAxeWaiting",
+        axe_missing = "UI_SC_Expedition_WoodAxeWaiting",
+        wood_no_carry_capacity = "UI_SC_Expedition_WoodCarrySpace",
+        no_log_capacity = "UI_SC_Expedition_WoodCarrySpace",
+        wood_carry_capacity = "UI_SC_Expedition_WoodCarrySpace",
+        wood_trunk_capacity = "UI_SC_Expedition_WoodCarrySpace",
+        wood_capacity_full = "UI_SC_Expedition_WoodCargoFull",
+        wood_capacity_reached = "UI_SC_Expedition_WoodCargoFull",
+        wood_trunk_full = "UI_SC_Expedition_WoodCargoFull",
+        wood_storage_pending = "UI_SC_Expedition_WoodStorageWaiting",
+        cargo_pending = "UI_SC_Expedition_WoodCargoPending",
+        wood_tool_broken = "UI_SC_Expedition_WoodAxeBroken",
+        wood_axe_unavailable = "UI_SC_Expedition_WoodAxeBroken",
+        wood_preparing_axe = "UI_SC_Expedition_WoodPreparingAxe",
+        wood_preparing_axes = "UI_SC_Expedition_WoodPreparingAxe",
+        wood_waiting_for_daylight = "UI_SC_Expedition_WoodWaitingDaylight",
+        wood_night = "UI_SC_Expedition_WoodNightReturn",
+        wood_unsafe = "UI_SC_Expedition_WoodUnsafeReturn",
+        wood_injured = "UI_SC_Expedition_WoodUnsafeReturn",
+        wood_worker_dead = "UI_SC_Expedition_WoodUnsafeReturn",
+        wood_exhausted = "UI_SC_Expedition_WoodExhaustedReturn",
+        wood_forest_empty = "UI_SC_Expedition_WoodForestEmpty",
+        wood_forest_unloaded = "UI_SC_Expedition_WoodForestEmpty",
+        forest_no_mature_trees = "UI_SC_Expedition_WoodForestEmpty",
+        forest_unloaded = "UI_SC_Expedition_WoodForestEmpty",
+        wood_logs_unreachable = "UI_SC_Expedition_WoodLogsUnreachable",
+        wood_target_met = "UI_SC_Expedition_WoodTargetMet",
+        wood_quota_met = "UI_SC_Expedition_WoodTargetMet",
+        wood_quantity_met = "UI_SC_Expedition_WoodTargetMet",
+        wood_storage_missing = "UI_SC_Expedition_WoodStorageMissing",
+        wood_base_missing = "UI_SC_Expedition_WoodStorageMissing",
+    }
+    if keys[reason] then return tr(keys[reason]) end
+    if SC.UI and type(SC.UI.baseFailureReason) == "function" then
+        return SC.UI.baseFailureReason(reason)
+    end
+    return tostring(reason or "")
+end
+
+function Planner.refreshForestPreview(detail)
+    local draft = detail and detail.expeditionDraft
+    local expedition = SC.ExpeditionPrototype
+    if not draft or draft.kind ~= "wood" or draft.woodPreviewComplete
+        or not expedition or expedition.current()
+        or type(expedition.previewWoodCollection) ~= "function" then return false end
+    local records, teamReason = currentTeam(detail)
+    local previous = tostring(draft.previewError) .. ":" .. tostring(draft.forestSite and draft.forestSite.id)
+    local preview, reason
+    if records then preview, reason = expedition.previewWoodCollection(records, woodOptions(draft))
+    else reason = teamReason end
+    draft.preview, draft.previewError = preview, reason
+    draft.forestSite = preview and preview.site or nil
+    draft.woodPreviewComplete = preview ~= nil or reason ~= "forest_scan_pending"
+    return previous ~= tostring(reason) .. ":" .. tostring(draft.forestSite and draft.forestSite.id)
 end
 
 local function optionLabel(option)
@@ -330,6 +415,8 @@ local function onSelect(detail, combo)
     local draft = detail.expeditionDraft
     draft[combo.scField] = option.value
     draft.preview, draft.previewError = nil, nil
+    draft.woodPreviewComplete, draft.forestSite = nil, nil
+    if draft.kind == "wood" and draft.woodQuantity == nil then draft.woodQuantity = 12 end
     if combo.scField == "group" then
         draft.leaderId = nil
         local preferred = SC.ExpeditionCar and
@@ -373,7 +460,7 @@ local function addSelector(detail, panel, y, titleKey, field, options)
     return y + metrics.buttonHeight + 7
 end
 
-local function addButton(detail, panel, y, key, action)
+local function addButton(detail, panel, y, key, action, tripId)
     local metrics = detail.metrics or SC.UI.layoutMetrics()
     local width = math.max(100, panel:getWidth() - 28)
     local title = tr(key)
@@ -383,12 +470,13 @@ local function addButton(detail, panel, y, key, action)
     button:initialise()
     button.backgroundColor = { r = 0.12, g = 0.13, b = 0.12, a = 0.78 }
     button.scExpeditionAction = action
+    button.scTripId = tripId
     button.tooltip = title
     panel:addChild(button)
     return y + metrics.buttonHeight + 7
 end
 
-local function currentTeam(detail)
+currentTeam = function(detail)
     local draft = detail.expeditionDraft
     local player = type(getSpecificPlayer) == "function"
         and getSpecificPlayer(0) or nil
@@ -437,7 +525,7 @@ end
 
 local function dispatch(detail)
     local draft = detail.expeditionDraft
-    if not selectedPlace(draft) then return false, "destination_changed" end
+    if draft.kind ~= "wood" and not selectedPlace(draft) then return false, "destination_changed" end
     local expedition = SC.ExpeditionPrototype
     if not expedition or type(expedition.startAtPlace) ~= "function"
         or SCSplitScreenProbe == nil then
@@ -451,6 +539,11 @@ local function dispatch(detail)
         restockBaseDuty = draft.restockBaseDuty == true,
         parkingZoneId = draft.parkingZoneId,
         vehicleSqlId = draft.vehicleSqlId }
+    if draft.kind == "wood" then
+        if type(expedition.startWoodCollection) ~= "function" then return false, "wood_expedition_unavailable" end
+        local called, accepted, failure = pcall(expedition.startWoodCollection, records, woodOptions(draft))
+        return called and accepted == true, called and woodReason(failure) or tostring(accepted)
+    end
     if draft.kind == "search" or draft.kind == "fish" then
         options.request = { category = draft.kind == "fish" and "fish"
                 or draft.category,
@@ -474,7 +567,16 @@ end
 function Planner.onButton(detail, button)
     local draft = detail.expeditionDraft
     local action = button.scExpeditionAction
-    if action == "refresh_cars" then
+    if action == "retry_delivery" then
+        local called, accepted, why = pcall(SC.ExpeditionPrototype.retryDelivery, button.scTripId)
+        feedback(detail, called and accepted == true and tr("UI_SC_Expedition_WoodRetryQueued")
+            or woodReason(why or accepted), called and accepted == true)
+    elseif action == "refresh" and draft.kind == "wood" then
+        draft.woodPreviewComplete, draft.forestSite = nil, nil
+        Planner.refreshForestPreview(detail)
+        draft.review = false
+    elseif action == "refresh_cars" then
+        draft.woodPreviewComplete = nil
         draft.review = false
     elseif action == "refresh" or action == "next_places"
         or action == "previous_places" then
@@ -501,7 +603,10 @@ function Planner.onButton(detail, button)
         draft.review = false
     elseif action == "review" then
         local team, reason = currentTeam(detail)
-        if not team or not selectedPlace(draft) then
+        if draft.kind == "wood" and team then
+            Planner.refreshForestPreview(detail)
+            draft.review = true
+        elseif not team or not selectedPlace(draft) then
             local message = not team and tr("UI_SC_Expedition_Failed", reason)
                 or draft.kind == "fish" and tr((draft.placesTotal or 0) == 0
                     and "UI_SC_Expedition_NoFishingBanks"
@@ -510,8 +615,7 @@ function Planner.onButton(detail, button)
             feedback(detail, message, false)
             detail:rebuild(true)
             return
-        end
-        if draft.travelMode == "drive" then
+        elseif draft.travelMode == "drive" then
             draft.preview, draft.previewError =
                 SC.ExpeditionPrototype.previewDrive(team,
                     selectedPlace(draft), draft.kind == "fish",
@@ -545,6 +649,9 @@ function Planner.onButton(detail, button)
                     preparation = pending.reason,
                     preparationMemberId = mission.leader and mission.leader.id,
                 }, mission)
+            elseif mission and mission.scout and mission.scout.wood
+                and mission.scout.wood.preparation then
+                preparation = woodReason(mission.scout.wood.preparationReason or "wood_preparing_axes")
             end
         end
         feedback(detail, ok and (preparation or tr("UI_SC_Expedition_Departed"))
@@ -555,14 +662,39 @@ function Planner.onButton(detail, button)
 end
 
 local function addDeliveryItems(detail, panel, y, report)
+    if report.kind == "wood" or report.version == 2 then
+        y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+            tr("UI_SC_Expedition_WoodDeliveryCounts", report.collected or 0,
+                report.carried or 0, report.stored or 0, report.pending or 0))
+        if report.toolsPending then
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                tr("UI_SC_Expedition_WoodToolsPending"))
+        end
+        if report.deliveryPending or (report.pending or 0) > 0 then
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                tr((tonumber(report.retryRemainingMs) or 0) > 0
+                    and "UI_SC_Expedition_WoodStorageWaiting"
+                    or "UI_SC_Expedition_WoodDeliveryPending"))
+            y = addButton(detail, panel, y, "UI_SC_Expedition_WoodRetryDelivery",
+                "retry_delivery", report.tripId)
+        end
+    else
     y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
         tr("UI_SC_Expedition_DeliveryCounts", report.requested,
             report.collected, report.broughtBack,
             report.stored, report.pending))
-    for _, row in ipairs(report.items) do
+    end
+    local maximum = (report.kind == "wood" or report.version == 2) and 8 or 16
+    for index, row in ipairs(report.items) do
+        if index > maximum then
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                tr("UI_SC_Expedition_WoodMoreLogs", #report.items - maximum))
+            break
+        end
         y = detail:addInformationLine(panel, y,
             "UI_SC_Info_Message", tr("UI_SC_Expedition_DeliveryItem",
-                row.itemType, memberName(row.finderName, row.finderId),
+                report.kind == "wood" and tr("UI_SC_Expedition_WoodLog") or row.itemType,
+                memberName(row.finderName, row.finderId),
                 row.carrierKind == "trunk"
                     and (row.carrierName == "Car trunk"
                         and tr("UI_SC_Expedition_TrunkOnly")
@@ -570,7 +702,8 @@ local function addDeliveryItems(detail, panel, y, report)
                             memberName(row.carrierName, row.carrierId)))
                     or memberName(row.carrierName, row.carrierId),
                 row.stored and tr("UI_SC_Expedition_Stored")
-                    or row.reason and SC.UI.baseFailureReason(row.reason)
+                    or row.reason and (report.kind == "wood" and woodReason(row.reason)
+                        or SC.UI.baseFailureReason(row.reason))
                     or tr("UI_SC_Expedition_Pending")))
     end
     for _, member in ipairs(report.members) do
@@ -590,6 +723,14 @@ local function addReturnReports(detail, panel, y, expedition)
     if debrief and debrief.endReason == "site_entry_blocked" then
         y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
             tr("UI_SC_Expedition_SiteEntryBlocked"))
+    end
+    if debrief and debrief.kind == "wood" and debrief.endReason then
+        y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+            woodReason(debrief.endReason))
+    end
+    if debrief and debrief.carFailure then
+        y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+            tr("UI_SC_Expedition_CarFailure", SC.UI.baseFailureReason(debrief.carFailure.reason)))
     end
     local latest = debrief and debrief.integration
     if latest and SC.ExpeditionIntegration then
@@ -674,11 +815,28 @@ function Planner.build(detail, panel)
         if view and view.delivery then
             local report = view.delivery
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
-                tr("UI_SC_Expedition_DeliveryCounts", report.requested,
-                    report.collected, report.broughtBack,
-                    report.stored, report.pending))
+                (report.kind == "wood" or report.version == 2)
+                    and tr("UI_SC_Expedition_WoodDeliveryCounts", report.collected or 0,
+                        report.carried or 0, report.stored or 0, report.pending or 0)
+                    or tr("UI_SC_Expedition_DeliveryCounts", report.requested,
+                        report.collected, report.broughtBack, report.stored, report.pending))
+        end
+        if view and view.woodProgress then
+            local progress = view.woodProgress
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                tr(progress.source == "radio" and "UI_SC_Expedition_WoodRadioProgress"
+                    or progress.partial and "UI_SC_Expedition_WoodVisibleProgressPartial"
+                    or "UI_SC_Expedition_WoodProgress", progress.collected or 0,
+                    progress.carried or 0, progress.stored or 0,
+                    progress.at and string.format("%.1f", progress.at) or ""))
+            if progress.reason then
+                y = detail:addInformationLine(panel, y, "UI_SC_Info_Message", woodReason(progress.reason))
+            end
         end
         local preparation = fishingPreparationMessage(view, mission)
+        if not preparation and view and view.kind == "wood" and view.preparation then
+            preparation = woodReason(view.preparation)
+        end
         if preparation then
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message", preparation)
         elseif view and view.helpRequest then
@@ -736,7 +894,10 @@ function Planner.build(detail, panel)
         end
         if not found then draft.leaderId = initialMembers[1].id end
     end
-    if not draft.placesLoaded then
+    if draft.kind == "wood" then
+        if draft.woodQuantity == nil then draft.woodQuantity = 12 end
+        Planner.refreshForestPreview(detail)
+    elseif not draft.placesLoaded then
         local candidates = draft.kind == "fish"
             and expedition.fishingBankCandidates
             or expedition.placeCandidates
@@ -763,7 +924,13 @@ function Planner.build(detail, panel)
                 leaderName, #team,
                 place and place.label or "?", draft.hours,
                 styleName))
-        if draft.kind == "fish" then
+        if draft.kind == "wood" then
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                draft.woodQuantity == "full" and tr("UI_SC_Expedition_WoodFullPlan")
+                    or tr("UI_SC_Expedition_WoodCountPlan", tonumber(draft.woodQuantity) or 12))
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                tr("UI_SC_Expedition_WoodEquipmentPlan"))
+        elseif draft.kind == "fish" then
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
                 tr("UI_SC_Expedition_FishRequest", draft.quantity))
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
@@ -841,6 +1008,9 @@ function Planner.build(detail, panel)
                 draft.restockBaseDuty and tr("UI_SC_Expedition_Yes")
                     or tr("UI_SC_Expedition_No")))
         y = addButton(detail, panel, y + 4, "UI_SC_Expedition_Edit", "edit")
+        if draft.kind == "wood" and not draft.preview then
+            return detail:addInformationLine(panel, y, "UI_SC_Info_Message", woodReason(draft.previewError))
+        end
         return addButton(detail, panel, y, "UI_SC_Expedition_Launch", "launch")
     end
     y = addSelector(detail, panel, y + 4, "UI_SC_Expedition_Squad", "group", GROUPS)
@@ -869,14 +1039,21 @@ function Planner.build(detail, panel)
         { value = "scout", key = "UI_SC_Expedition_Scout" },
         { value = "search", key = "UI_SC_Expedition_Search" },
         { value = "fish", key = "UI_SC_Expedition_Fish" },
+        { value = "wood", key = "UI_SC_Expedition_Wood" },
     })
     if draft.kind == "search" then
         y = addSelector(detail, panel, y, "UI_SC_Expedition_Supplies",
             "category", CATEGORIES)
     end
-    if draft.kind == "search" or draft.kind == "fish" then
+    if draft.kind == "wood" then
+        y = addSelector(detail, panel, y, "UI_SC_Expedition_WoodQuantity",
+            "woodQuantity", WOOD_QUANTITIES)
+    end
+    if draft.kind == "search" or draft.kind == "fish" or draft.kind == "wood" then
+        if draft.kind ~= "wood" then
         y = addSelector(detail, panel, y, "UI_SC_Expedition_Quantity",
             "quantity", QUANTITIES)
+        end
         y = addSelector(detail, panel, y,
             "UI_SC_Expedition_RestockBaseDuty", "restockBaseDuty", {
                 { value = false, key = "UI_SC_Expedition_No" },
@@ -932,6 +1109,18 @@ function Planner.build(detail, panel)
             "vehicleSqlId", carOptions)
         y = addButton(detail, panel, y,
             "UI_SC_Expedition_RefreshCars", "refresh_cars")
+    end
+    if draft.kind == "wood" then
+        y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+            tr("UI_SC_Expedition_WoodAutomaticForest"))
+        if draft.forestSite then
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message", draft.forestSite.label)
+        elseif draft.previewError then
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message", woodReason(draft.previewError))
+        end
+        y = detail:addInformationLine(panel, y, "UI_SC_Info_Message", tr("UI_SC_Expedition_WoodFullPlan"))
+        y = addButton(detail, panel, y, "UI_SC_Expedition_WoodRefreshForest", "refresh")
+        return addButton(detail, panel, y, "UI_SC_Expedition_Review", "review")
     end
     local places = { { value = nil, key = draft.kind == "fish"
         and "UI_SC_Expedition_SelectBank"

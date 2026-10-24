@@ -439,6 +439,11 @@ function Car.preflight(records, zoneId, sqlId, destination)
     return nil, firstReason or "car_unavailable"
 end
 
+local function preparingSupplies(scout)
+    return scout and (scout.fishingPreparation ~= nil
+        or scout.wood and scout.wood.preparation == true)
+end
+
 local function activeSeat(actor)
     local expedition = SC.ExpeditionPrototype
     local mission = expedition and expedition.current and expedition.current()
@@ -452,6 +457,7 @@ end
 function Car.boardingOrderFor(actor)
     local mission, trip, seat = activeSeat(actor)
     if not mission or seat == nil then return nil end
+    if preparingSupplies(mission.scout) then return nil end
     if trip.state ~= "walking_to_car" and trip.state ~= "boarding_out"
         and trip.state ~= "returning_to_car"
         and trip.state ~= "boarding_home" then return nil end
@@ -502,6 +508,10 @@ end
 
 function Car.boardMember(actor, order, snapshot)
     local car, seat = order.car, order.seat
+    local mission, trip = activeSeat(actor)
+    if mission and trip.sqlId == order.sqlId and preparingSupplies(mission.scout) then
+        return false, "expedition_preparing_supplies"
+    end
     local seated, current, actualSeat = SC.Vehicle.isNativeSeated(actor)
     if seated then
         if current == car and actualSeat == seat then
@@ -552,6 +562,10 @@ function Car.boardMember(actor, order, snapshot)
             -- the car. Keep the shared portal-aware search instead of sending
             -- an opaque nearest-target route through that same blocked edge.
             preferVerifiedPath = true,
+            -- Door candidates belong to one fixed assigned seat. Verify the
+            -- selected contact route immediately, including its house exit;
+            -- the generic multi-goal fallback otherwise skips this proof.
+            verifiedSelectedGoal = true,
             supervisorToken = began.supervisorToken,
         })
     if not accepted then
@@ -950,7 +964,11 @@ end
 local function recordReturnIntent(scout, reason)
     reason = reason or "radio_return"
     scout.returnRequested = true
-    if scout.search then
+    if scout.wood then
+        scout.wood.endReason = reason
+        scout.wood.pendingCarReturnReason = nil
+        scout.wood.pendingReturnReason = nil
+    elseif scout.search then
         scout.search.endReason = reason
     else
         scout.endReason = reason
@@ -963,6 +981,19 @@ function Car.requestReturn(mission, now, reason)
     if not trip or trip.state == "abandoned" then return false, "no_car_trip" end
     if trip.leg == "home" or trip.state == "home_wait" then
         return false, "expedition_already_returning"
+    end
+    if scout.wood then
+        if not SC.ExpeditionWood or type(SC.ExpeditionWood.stop) ~= "function" then
+            return false, "wood_work_unavailable"
+        end
+        local wood = scout.wood
+        wood.complete, wood.doneReason = true, wood.doneReason or reason or "radio_return"
+        wood.pendingCarReturnReason = reason or "radio_return"
+        local stopped, why = SC.ExpeditionWood.stop(wood, reason or "radio_return")
+        if not stopped then
+            return false, why or "wood_work_settling"
+        end
+        wood.preparation, wood.preparationReason = nil, nil
     end
     if trip.state == "held" or trip.state == "interrupted_by_load" then
         return false, trip.blocker or "car_recovery_required"
@@ -1246,6 +1277,7 @@ function Car.pulse(mission, now, worldHour)
     local scout = mission and mission.scout
     local trip = scout and scout.vehicle
     if not trip or trip.state == "abandoned" then return false end
+    if preparingSupplies(scout) then return true end
     if trip.state == "parked_at_site" then
         if scout.phase ~= "inbound" then return false end
         trip.state, trip.leg = "returning_to_car", "home"
@@ -1455,6 +1487,10 @@ function Car.pulse(mission, now, worldHour)
             local native = type(SC.Driving.status) == "function"
                 and SC.Driving.status(mission.leader.actor) or nil
             local failedAt = point(car)
+            trip.lastFailure = { reason = type(status.reason) == "string"
+                    and status.reason:sub(1, 128) or "drive_failed",
+                at = failedAt, obstacle = native and type(native.obstacleKind) == "string"
+                    and native.obstacleKind:sub(1, 64) or nil }
             traceTrip(trip, "road_failed", "reason="
                 .. tostring(status.reason) .. " at="
                 .. tostring(failedAt and failedAt.x) .. ","
@@ -1733,6 +1769,14 @@ function Car.copyDescriptor(value, roster, leaderId)
         return nil, "vehicle_heading_invalid"
     end
     local state = value.state
+    local failure = value.lastFailure
+    local failureAt = failure and type(failure) == "table" and pointCopy(failure.at) or nil
+    if failure ~= nil and (type(failure) ~= "table" or type(failure.reason) ~= "string"
+        or #failure.reason < 1 or #failure.reason > 128
+        or failure.at ~= nil and not failureAt
+        or failure.obstacle ~= nil and (type(failure.obstacle) ~= "string" or #failure.obstacle > 64)) then
+        return nil, "vehicle_failure_invalid"
+    end
     local resumeState = value.resumeState
     if state == "held" and not validStates[resumeState] then
         return nil, "vehicle_hold_invalid"
@@ -1752,6 +1796,8 @@ function Car.copyDescriptor(value, roster, leaderId)
         returnRequested = value.returnRequested == true,
         blocker = type(value.blocker) == "string"
             and value.blocker:sub(1, 128) or nil,
+        lastFailure = failure and { reason = failure.reason,
+            at = failureAt, obstacle = failure.obstacle } or nil,
     }
     return result
 end

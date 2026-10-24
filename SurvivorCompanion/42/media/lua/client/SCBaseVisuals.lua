@@ -723,6 +723,15 @@ local function renderCompanionLabels(occupied)
         or type(SC.Registry) ~= "table" or type(SC.Registry.records) ~= "function" then
         return 0
     end
+    -- Our head anchors use isometric projection. Preserve the player's name
+    -- preference and resume drawing when Viewpoint returns to that camera.
+    if SCBridge ~= nil then
+        local found, query = pcall(function() return SCBridge.isViewpoint3DActive end)
+        if found and type(query) == "function" then
+            local checked, active = pcall(query)
+            if checked and active == true then return 0 end
+        end
+    end
     local ok, records = pcall(SC.Registry.records)
     if not ok or type(records) ~= "table" then return 0 end
     local selectedId = SC.UI and SC.UI.instance and SC.UI.instance.selectedId or nil

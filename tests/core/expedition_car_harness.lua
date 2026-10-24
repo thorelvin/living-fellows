@@ -177,6 +177,58 @@ T.mission = { roster = T.team, leader = T.team[1],
     scout = { vehicle = Car.restoreDescriptor(descriptor, T.team, "leader"),
         phase = "interrupted_by_load" } }
 T.mission.scout.vehicle.position = { x = 102, y = 102, z = 0 }
+local preparingTrip = T.mission.scout.vehicle
+local priorState, priorPhase = preparingTrip.state, T.mission.scout.phase
+preparingTrip.state, T.mission.scout.phase = "walking_to_car", "walking_to_car"
+T.mission.scout.wood = { preparation = true, loans = { leader = { itemId = "axe-1" } } }
+check(Car.boardingOrderFor(T.team[1].actor) == nil and Car.boardingOrderFor(T.team[2].actor) == nil,
+    "wood gear preparation suppresses early driver and passenger boarding orders")
+local staleOrder = { car = T.cars[1], seat = 0, sqlId = 44 }
+check(not Car.boardMember(T.team[1].actor, staleOrder) and T.team[1].actor.car == nil,
+    "a stale boarding order cannot take native ownership during wood preparation")
+local beforePreparationDrive = T.driveCalls
+check(Car.pulse(T.mission, 999, 999) and preparingTrip.state == "walking_to_car"
+    and T.driveCalls == beforePreparationDrive,
+    "car pulse holds deadlines, key transfers and travel until wood preparation finishes")
+T.mission.scout.wood.preparation = nil
+check(Car.boardingOrderFor(T.team[1].actor) ~= nil,
+    "verified wood preparation completion immediately releases ordinary boarding")
+T.mission.scout.wood.preparation = true
+T.mission.scout.wood.pendingReturnReason = "radio_return"
+local originalWood, stopReady = SC.ExpeditionWood, false
+SC.ExpeditionWood = { stop = function() return stopReady, "wood_work_settling" end }
+check(not Car.requestReturn(T.mission, 999) and preparingTrip.state == "walking_to_car"
+    and T.mission.scout.wood.pendingCarReturnReason == "radio_return",
+    "predeparture recall waits for native wood gear actions to settle")
+stopReady = true
+check(Car.requestReturn(T.mission, 1000) and preparingTrip.state == "boarding_rollback"
+    and not T.mission.scout.wood.preparation and T.mission.scout.wood.endReason == "radio_return"
+    and T.mission.scout.wood.pendingCarReturnReason == nil
+    and T.mission.scout.wood.pendingReturnReason == nil
+    and T.mission.scout.wood.loans.leader.itemId == "axe-1",
+    "settled recall clears preparation and retains exact borrowed-tool obligations")
+preparingTrip.state, preparingTrip.leg = "held", "outbound"
+T.mission.scout.wood.preparation = true
+check(not Car.requestReturn(T.mission, 1001, "wood_night")
+    and T.mission.scout.wood.pendingCarReturnReason == "wood_night"
+    and not T.mission.scout.wood.preparation,
+    "held car recall settles preparation but keeps its requested direction queued during recovery")
+preparingTrip.state, preparingTrip.leg = "parked_at_site", "outbound"
+T.mission.scout.wood.doneReason = "wood_quantity_met"
+check(Car.requestReturn(T.mission, 1002, "wood_quantity_met")
+    and preparingTrip.state == "returning_to_car" and preparingTrip.leg == "home"
+    and T.mission.scout.phase == "returning_to_car"
+    and T.mission.scout.wood.pendingCarReturnReason == nil,
+    "wood quota completion at the forest changes the native car leg before boarding home")
+SC.ExpeditionWood = originalWood
+T.mission.scout.wood = nil
+preparingTrip.state, preparingTrip.leg, T.mission.scout.phase = priorState, "outbound", priorPhase
+preparingTrip.blocker = nil
+T.mission.scout.fishingPreparation = { reason = "fishing_preparing_rod" }
+check(Car.boardingOrderFor(T.team[1].actor) == nil and Car.pulse(T.mission, 1000)
+    and preparingTrip.state == priorState,
+    "the same native boarding gate also preserves fishing preparation")
+T.mission.scout.fishingPreparation = nil
 check(Car.boardingOrderFor(T.team[1].actor) == nil,
     "load interruption cannot board before car and roster revalidation")
 check(Car.pulse(T.mission, 1000) and
@@ -743,6 +795,26 @@ do
         "a resolver returning the wrong vehicle identity cannot stop that vehicle")
     SC.Vehicle.loadedBySqlId = loader
     Car.pulse(T.mission, 805000)
+
+    local failedRoad = seatedTrip("driving_home", "home")
+    car.x, car.y = 160, 160
+    local nativeStatus = SC.Driving.status
+    SC.Driving.status = function() return { obstacleKind = "solid" } end
+    T.driveStatus = { result = "failed", reason = "route_blocked", attempts = 3 }
+    check(Car.pulse(T.mission, 806000) and failedRoad.lastFailure.reason == "route_blocked"
+        and failedRoad.lastFailure.obstacle == "solid" and failedRoad.lastFailure.at.x == 160,
+        "a failed native home drive retains the original reason, obstacle and physical position")
+    T.driveStatus = nil
+    check(Car.pulse(T.mission, 807000) and failedRoad.state == "abandoned",
+        "failed drive cleanup still switches off and leaves the actual blocked car")
+    local retainedFailure = Car.copyDescriptor(failedRoad, T.team, "leader")
+    check(retainedFailure and retainedFailure.lastFailure.reason == "route_blocked"
+        and retainedFailure.lastFailure.obstacle == "solid",
+        "precise drive failure survives abandonment and stable descriptor export")
+    retainedFailure.lastFailure.at.x = 0
+    check(failedRoad.lastFailure.at.x == 160, "saved failure coordinates cannot alias the live trip")
+    SC.Driving.status = nativeStatus
+    car.x, car.y = 102, 102
 
     local dead = seatedTrip("driving_home", "home")
     local aliveDriver, alivePassenger = T.team[1].actor.isDead, T.team[2].actor.isDead

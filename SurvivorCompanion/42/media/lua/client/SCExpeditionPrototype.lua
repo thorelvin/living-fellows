@@ -197,8 +197,8 @@ local function copyReceipt(value)
         sourceObjectIndex = value.sourceObjectIndex }
 end
 
-local function validReceipts(values)
-    if type(values) ~= "table" or #values > 16 then return false end
+local function validReceipts(values, maximum)
+    if type(values) ~= "table" or #values > (maximum or 16) then return false end
     local seen = {}
     for _, value in ipairs(values) do
         if not validReceipt(value) or seen[value.id] then return false end
@@ -260,6 +260,44 @@ local function copySearch(value)
     }
 end
 
+local function validWoodRequest(value)
+    if type(value) ~= "table" then return false end
+    if value.mode == "full" then return value.quantity == nil end
+    return value.mode == "count" and type(value.quantity) == "number"
+        and value.quantity == math.floor(value.quantity)
+        and value.quantity >= 1 and value.quantity <= 256
+end
+
+local function copyWoodRequest(value)
+    return value and { mode = value.mode, quantity = value.quantity } or nil
+end
+
+local function validWood(value)
+    if type(value) ~= "table" or value.version ~= 1 or not validWoodRequest(value.request)
+        or type(value.sites) ~= "table" or #value.sites < 1 or #value.sites > 3
+        or type(value.siteIndex) ~= "number" or value.siteIndex ~= math.floor(value.siteIndex)
+        or value.siteIndex < 1 or value.siteIndex > #value.sites
+        or not validReceipts(value.acquisitions, 256)
+        or (value.preparation ~= nil and type(value.preparation) ~= "boolean")
+        or (value.preparationReason ~= nil and (type(value.preparationReason) ~= "string"
+            or #value.preparationReason > 96))
+        or (value.startedHour ~= nil and not validWorldHour(value.startedHour))
+        or (value.endReason ~= nil and (type(value.endReason) ~= "string" or #value.endReason > 64))
+        or not SC.ExpeditionForests or not SC.ExpeditionWood then return false end
+    for _, site in ipairs(value.sites) do
+        if not SC.ExpeditionForests.validSite(site) then return false end
+    end
+    for _, receipt in ipairs(value.acquisitions) do
+        if receipt.itemType ~= "Base.Log" then return false end
+    end
+    local ok, valid = pcall(SC.ExpeditionWood.valid, value)
+    return ok and valid == true
+end
+
+local function copyWood(value)
+    return value and SC.ExpeditionWood and SC.ExpeditionWood.copy(value) or nil
+end
+
 local function validObservation(value)
     return type(value) == "table"
         and (value.status == "complete" or value.status == "partial"
@@ -293,15 +331,27 @@ local function copyObservation(value)
     }
 end
 
+local function validCarFailure(value)
+    return value == nil or type(value) == "table" and type(value.reason) == "string"
+        and #value.reason > 0 and #value.reason <= 128
+        and (value.at == nil or validWorldPosition(value.at))
+        and (value.obstacle == nil or type(value.obstacle) == "string" and #value.obstacle <= 64)
+end
+
+local function copyCarFailure(value)
+    return value and { reason = value.reason, at = value.at and copyPoint(value.at),
+        obstacle = value.obstacle } or nil
+end
+
 local function copyDebrief(value)
     if value == nil then return nil end
-    if value.kind == "search" then
+    if value.kind == "search" or value.kind == "wood" then
         local returned = {}
         for index, id in ipairs(value.returnedIds or {}) do returned[index] = id end
         return {
-            kind = "search", destination = copyPoint(value.destination),
+            kind = value.kind, destination = copyPoint(value.destination),
             returnPoint = copyPoint(value.returnPoint),
-            request = copyRequest(value.request),
+            request = value.kind == "wood" and copyWoodRequest(value.request) or copyRequest(value.request),
             acquisitions = copyReceipts(value.acquisitions),
             returnedIds = returned, endReason = value.endReason,
             inventoryComplete = value.inventoryComplete,
@@ -310,6 +360,7 @@ local function copyDebrief(value)
             site = copySite(value.site),
             abandonedCarAt = value.abandonedCarAt
                 and copyPoint(value.abandonedCarAt) or nil,
+            carFailure = copyCarFailure(value.carFailure),
         }
     end
     return {
@@ -320,15 +371,18 @@ local function copyDebrief(value)
         site = copySite(value.site),
         abandonedCarAt = value.abandonedCarAt
             and copyPoint(value.abandonedCarAt) or nil,
+        carFailure = copyCarFailure(value.carFailure),
     }
 end
 
 local function validDebrief(value)
-    if type(value) == "table" and value.kind == "search" then
+    if type(value) == "table" and not validCarFailure(value.carFailure) then return false end
+    if type(value) == "table" and (value.kind == "search" or value.kind == "wood") then
         if not validPoint(value.destination)
             or not validPoint(value.returnPoint)
-            or not validRequest(value.request)
-            or not validReceipts(value.acquisitions)
+            or (value.kind == "wood" and not validWoodRequest(value.request)
+                or value.kind ~= "wood" and not validRequest(value.request))
+            or not validReceipts(value.acquisitions, value.kind == "wood" and 256 or 16)
             or type(value.returnedIds) ~= "table"
             or #value.returnedIds > #value.acquisitions
             or type(value.endReason) ~= "string"
@@ -408,33 +462,59 @@ local function pruneCompletedDeliveries()
     end
 end
 
--- The saved list is bounded. When it is full the oldest unfinished record
--- gives way: its items stay with their carriers as ordinary gear, and no new
--- expedition is refused because an older delivery could not finish.
+-- Older ordinary delivery records can yield their bounded history slot.
+-- Owned wood cargo and borrowed axes keep their recovery record until settled.
 local function queueDelivery(record)
     pruneCompletedDeliveries()
     while #pendingDeliveries >= DELIVERY_LIMIT do
-        table.remove(pendingDeliveries, 1)
+        local removable
+        for index, pending in ipairs(pendingDeliveries) do
+            if pending.kind ~= "wood" then removable = index break end
+        end
+        if not removable then return false, "wood_delivery_queue_full" end
+        table.remove(pendingDeliveries, removable)
     end
     pendingDeliveries[#pendingDeliveries + 1] = record
+    return true
+end
+
+function Expedition.retryDelivery(tripId, receiptId)
+    local integration = SC.ExpeditionIntegration
+    if type(tripId) ~= "string" or not integration or type(integration.retry) ~= "function" then
+        return false, "delivery_unavailable"
+    end
+    if mission and mission.integration and mission.integration.tripId == tripId then
+        return integration.retry(mission.integration, receiptId)
+    end
+    for _, record in ipairs(pendingDeliveries) do
+        if record.tripId == tripId then return integration.retry(record, receiptId) end
+    end
+    return false, "delivery_not_found"
 end
 
 local function validProgressReport(value)
     return value == nil or type(value) == "table"
         and validWorldHour(value.at)
         and type(value.collected) == "number"
-        and value.collected >= 0 and value.collected <= 16
+        and value.collected >= 0 and value.collected <= (value.kind == "wood" and 256 or 16)
         and value.collected == math.floor(value.collected)
         and type(value.requested) == "number"
-        and value.requested >= 1 and value.requested <= 8
+        and value.requested >= 1 and value.requested <= (value.kind == "wood" and 256 or 8)
         and value.requested == math.floor(value.requested)
         and type(value.phase) == "string" and #value.phase <= 32
+        and (value.kind == nil or value.kind == "wood")
+        and (value.mode == nil or value.mode == "count" or value.mode == "full")
+        and (value.carried == nil or type(value.carried) == "number" and value.carried >= 0
+            and value.carried <= 256 and value.carried == math.floor(value.carried))
+        and (value.stored == nil or type(value.stored) == "number" and value.stored >= 0
+            and value.stored <= 256 and value.stored == math.floor(value.stored))
 end
 
 local function copyProgressReport(value)
     if value == nil then return nil end
     return { at = value.at, collected = value.collected,
-        requested = value.requested, phase = value.phase }
+        requested = value.requested, phase = value.phase,
+        kind = value.kind, mode = value.mode, carried = value.carried, stored = value.stored }
 end
 
 local function distanceToPoint(actor, point)
@@ -790,13 +870,14 @@ function Expedition.start(records, plan)
             return false, "invalid_return_time"
         end
         local searchPlan = type(plan) == "table" and plan.kind == "search"
+        local woodPlan = type(plan) == "table" and plan.kind == "wood"
         local player = type(getSpecificPlayer) == "function"
             and getSpecificPlayer(0) or nil
         local returnPoint = player and {
             x = math.floor(player:getX()), y = math.floor(player:getY()),
             z = math.floor(player:getZ()),
         } or nil
-        local homeBase = searchPlan and SC.BaseLife
+        local homeBase = (searchPlan or woodPlan) and SC.BaseLife
             and SC.BaseLife.active() or nil
         if homeBase and validPoint(homeBase.core)
             and homeBase.core.z == plan.destination.z then
@@ -820,11 +901,12 @@ function Expedition.start(records, plan)
         end
         local fishingPlan = searchPlan and type(plan.request) == "table"
             and plan.request.category == "fish"
-        local destinationRadius = SC.Config and SC.Config.get(fishingPlan
+        local destinationRadius = woodPlan and 1000 or SC.Config and SC.Config.get(fishingPlan
             and "expeditionFishingRadius" or "expeditionDestinationRadius")
             or (fishingPlan and 1000 or 200)
         if type(plan) ~= "table"
-            or (plan.kind ~= "scout" and not searchPlan)
+            or (plan.kind ~= "scout" and not searchPlan and not woodPlan)
+            or (woodPlan and not validWood(plan.wood))
             or not validPoint(plan.destination)
             or not validPoint(returnPoint)
             or plan.destination.z ~= returnPoint.z
@@ -832,7 +914,7 @@ function Expedition.start(records, plan)
                 (carPlan.departure.x - plan.destination.x)^2
                 + (carPlan.departure.y - plan.destination.y)^2)
                 or distanceToPoint(roster[1].actor, plan.destination))
-                < (searchPlan and 8 or 20)
+                < ((searchPlan or woodPlan) and 8 or 20)
             or (travelMode == "drive" and math.sqrt(
                 (carPlan.departure.x - plan.destination.x)^2
                 + (carPlan.departure.y - plan.destination.y)^2)
@@ -880,6 +962,7 @@ function Expedition.start(records, plan)
                 request = copyRequest(plan.request), acquisitions = {},
                 radius = plan.radius or 5,
             } or nil,
+            wood = woodPlan and copyWood(plan.wood) or nil,
             homeBaseId = homeBase and homeBase.id or nil,
             fishingPreparation = fishingPlan and SC.Fishing
                 and not SC.Fishing.checkGear(roster[1].actor)
@@ -949,7 +1032,9 @@ function Expedition.start(records, plan)
         Events.OnDeviceText.Add(radioTextReceived)
         mission.radioTextHooked = true
     end
-    if not scout or not scout.fishingPreparation then announceDeparture(mission) end
+    if not scout or (not scout.fishingPreparation and not (scout.wood and scout.wood.preparation)) then
+        announceDeparture(mission)
+    end
     return true, mission
 end
 
@@ -1034,6 +1119,189 @@ function Expedition.startAtFishingBank(records, bankId, options)
         vehicleSqlId = options.vehicleSqlId,
         restockBaseDuty = options.restockBaseDuty == true,
     })
+end
+
+local function woodDiscoveryKey(records, options)
+    local parts = { tostring(options.parkingZoneId or "auto"), tostring(options.vehicleSqlId or "auto") }
+    for _, record in ipairs(records) do parts[#parts + 1] = tostring(record.id) end
+    local cars = {}
+    if options.vehicleSqlId and SC.Vehicle and type(SC.Vehicle.loadedBySqlId) == "function" then
+        cars[1] = { sqlId = options.vehicleSqlId, vehicle = SC.Vehicle.loadedBySqlId(options.vehicleSqlId) }
+    elseif SC.ExpeditionCar and type(SC.ExpeditionCar.parkedCars) == "function" then
+        cars = SC.ExpeditionCar.parkedCars(options.parkingZoneId)
+    end
+    local positions = {}
+    for _, car in ipairs(cars) do
+        local x, y = SC.GameplayUtil.position(car.vehicle)
+        positions[#positions + 1] = tostring(car.sqlId) .. "@" .. tostring(x) .. "," .. tostring(y)
+    end
+    table.sort(positions)
+    for _, value in ipairs(positions) do parts[#parts + 1] = value end
+    return table.concat(parts, "|")
+end
+
+local function selectWoodSite(records, options)
+    if type(records) ~= "table" or not records[1] or not records[1].actor then
+        return nil, "expedition_member_unavailable"
+    end
+    if not SC.ExpeditionForests then return nil, "forest_lookup_unavailable" end
+    local mode = options.travelMode or "road"
+    if mode == "drive" and not SC.ExpeditionCar then return nil, "driving_unavailable" end
+    local cacheKey = mode == "drive" and woodDiscoveryKey(records, options) or nil
+    local found, reason = SC.ExpeditionForests.preview(records[1].actor, mode,
+        { radius = 1000, cacheKey = cacheKey })
+    if not found then return nil, reason end
+    local failure, rejected
+    for index, site in ipairs(found.candidates) do
+        local route, why
+        if mode == "drive" then
+            if SC.ExpeditionCar then
+                route, why = SC.ExpeditionCar.preflight(records,
+                    options.parkingZoneId, options.vehicleSqlId, site.anchor)
+            end
+        elseif mode == "road" then
+            if SC.ExpeditionRoute then
+                route, why = SC.ExpeditionRoute.plan(records[1].actor, site.anchor)
+            end
+            if route then
+                local ready, entryReason = SC.ExpeditionRoute.verifyEntry(route, records[1].actor)
+                if not ready then route, why = nil, entryReason end
+            end
+        elseif mode == "straight" then route = true end
+        if route and mode == "drive" then
+            local stop = route.exit
+            local nearby = {}
+            if stop and (site.anchor.x - stop.x)^2 + (site.anchor.y - stop.y)^2 <= 64^2 then
+                nearby[1] = site
+                local localBank, localReason = SC.ExpeditionForests.nearCar(records[1].actor,
+                    stop, site, cacheKey .. "@" .. site.id)
+                if not localBank and localReason == "forest_scan_pending" then return nil, localReason end
+                if not localBank and localReason ~= "no_suitable_forest" then return nil, localReason end
+                for _, alternative in ipairs(localBank and localBank.candidates or {}) do
+                    if alternative.id ~= site.id and (alternative.anchor.x - stop.x)^2
+                        + (alternative.anchor.y - stop.y)^2 <= 64^2 then
+                        nearby[#nearby + 1] = alternative
+                    end
+                end
+                return site, nil, nearby, 1, route
+            end
+            route, why = nil, "wood_forest_too_far_from_road"
+        elseif route then return site, nil, found.candidates, index, route end
+        failure = why or "forest_route_unavailable"
+        if failure == "DATA_NOT_READY" then return nil, failure end
+        if mode == "drive" then
+            -- Vehicle/crew faults need a repaired car, not another forest.
+            -- Native route statuses and distant road stops are site failures.
+            if failure ~= "wood_forest_too_far_from_road" and not failure:match("^[A-Z_]+$") then
+                return nil, failure
+            end
+            local continued = SC.ExpeditionForests.reject(records[1].actor, mode, site.id, cacheKey)
+            if not continued then return nil, "no_reachable_forest" end
+            rejected = true
+        end
+    end
+    if rejected then return nil, "forest_scan_pending" end
+    return nil, failure or "no_reachable_forest"
+end
+
+function Expedition.startWoodCollection(records, options)
+    if mission ~= nil then return false, "expedition_already_active" end
+    options = type(options) == "table" and options or {}
+    local worker = SC.ExpeditionWood
+    if not worker or type(worker.normalizeRequest) ~= "function" then
+        return false, "wood_collection_unavailable"
+    end
+    local request, reason = worker.normalizeRequest(options.request or { mode = "count", quantity = 12 })
+    if not request then return false, reason or "invalid_wood_request" end
+    pruneCompletedDeliveries()
+    if #pendingDeliveries >= DELIVERY_LIMIT then
+        local available = false
+        for _, pending in ipairs(pendingDeliveries) do
+            if pending.kind ~= "wood" then available = true break end
+        end
+        if not available then return false, "wood_delivery_queue_full" end
+    end
+    local integration = SC.ExpeditionIntegration
+    if not integration or type(integration.woodDestinationAvailable) ~= "function" then
+        return false, "wood_delivery_unavailable"
+    end
+    local ready, storageReason = integration.woodDestinationAvailable(records and records[1] and records[1].actor)
+    if ready ~= true then return false, storageReason or "wood_storage_missing" end
+    local site, why, sites, index = selectWoodSite(records, options)
+    if not site then return false, why end
+    local wood = { version = 1, request = request, sites = sites, siteIndex = index,
+        acquisitions = {}, preparation = true, preparationReason = "wood_preparing_axes",
+        workers = {}, loans = {} }
+    local started, value = Expedition.start(records, {
+        kind = "wood", destination = copyPoint(site.anchor), wood = wood,
+        turnHomeAfterHours = options.turnHomeAfterHours or (not options.arriveByHour and 4 or nil),
+        arriveByHour = options.arriveByHour,
+        doctrine = options.doctrine, travelMode = options.travelMode or "road",
+        parkingZoneId = options.parkingZoneId, vehicleSqlId = options.vehicleSqlId,
+        restockBaseDuty = options.restockBaseDuty == true,
+    })
+    if started and mission and mission.scout and mission.scout.wood then
+        mission.scout.wood.tripId = mission.radioSession
+    end
+    return started, value
+end
+
+local function activeWoodCar(itinerary)
+    local car = itinerary and itinerary.vehicle
+    return car and car.state ~= "abandoned" and car or nil
+end
+
+function Expedition.woodRequestFor(actor)
+    local itinerary = mission and mission.scout
+    local wood = itinerary and itinerary.wood
+    if actor == nil or not wood or not mission.members[actor] or mission.terminal
+        or mission.technicalIssue then return nil end
+    if wood.pendingCarReturnReason then return nil end
+    if wood.preparation and actor ~= mission.leader.actor then return nil end
+    if not wood.preparation and itinerary.phase ~= "wood_working" then return nil end
+    local car = activeWoodCar(itinerary)
+    return { missionId = mission.radioSession, wood = wood, roster = mission.roster,
+        destination = itinerary.destination, bounds = wood.sites[wood.siteIndex].bounds,
+        radius = 8, carId = car and car.sqlId,
+        phase = wood.preparation and "preparing" or "working" }
+end
+
+function Expedition.woodPreparationFor(actor)
+    local context = Expedition.woodRequestFor(actor)
+    return context and context.wood.preparation and context or nil
+end
+
+function Expedition.updateWood(actor, snapshot)
+    local context = Expedition.woodRequestFor(actor)
+    if not context or not SC.ExpeditionWood then return false, "wood_work_unavailable" end
+    context.snapshot = snapshot
+    if context.wood.preparation then
+        local handled, reason, ready = SC.ExpeditionWood.prepare(context.roster, context.wood,
+            activeWoodCar(mission.scout))
+        context.wood.preparationReason = reason
+        if ready == true then
+            local hour = scoutWorldHour()
+            local policies = SC.BaseLife and SC.BaseLife.policies and SC.BaseLife.policies() or {}
+            if hour and (hour % 24 >= 21 or hour % 24 < 6)
+                and policies.workOutsideAtNight ~= true then
+                context.wood.preparationReason = "wood_waiting_for_daylight"
+                return true, "wood_waiting_for_daylight"
+            end
+            context.wood.preparation = nil
+            context.wood.preparationReason = nil
+            local scout = mission.scout
+            if hour and scout.departureHour and scout.turnHomeAtHour then
+                scout.turnHomeAtHour = hour + scout.turnHomeAtHour - scout.departureHour
+            end
+            scout.departureHour = hour or scout.departureHour
+            scout.roadRoute, scout.travelBudget = nil, nil
+            scout.trail = { { x = math.floor(mission.leader.actor:getX()),
+                y = math.floor(mission.leader.actor:getY()), z = math.floor(mission.leader.actor:getZ()) } }
+            announceDeparture(mission)
+        end
+        return handled == true or ready ~= true, reason or "wood_preparing_axes"
+    end
+    return SC.ExpeditionWood.update(actor, context)
 end
 
 function Expedition.fishingGearStatus(records)
@@ -1245,6 +1513,35 @@ function Expedition.previewDrive(records, place, fishing, parkingZoneId, vehicle
         fuelRequired = string.format("%.1f", trip.fuelRequired) }
 end
 
+function Expedition.previewWoodCollection(records, options)
+    options = type(options) == "table" and options or {}
+    local site, reason, _, _, trip = selectWoodSite(records, options)
+    if not site then return nil, reason end
+    local mode = options.travelMode or "road"
+    local preview, why
+    if mode == "drive" then
+        local streets, seen = {}, {}
+        for _, point in ipairs(trip.route and trip.route.points or {}) do
+            if type(point.street) == "string" and point.street ~= "" and not seen[point.street] then
+                seen[point.street], streets[#streets + 1] = true, point.street
+            end
+        end
+        preview = { mode = "road", distance = math.floor((trip.route and trip.route.roadLength or site.distance) + 0.5),
+            streets = streets, carSqlId = trip.sqlId,
+            carName = SC.ExpeditionCar.displayName(trip.vehicle),
+            provisional = true, fuel = string.format("%.1f", trip.fuel or 0),
+            fuelRequired = string.format("%.1f", trip.fuelRequired or 0),
+            offRoadStart = math.floor((trip.access or 0) + 0.5),
+            offRoadEnd = math.floor(math.sqrt((trip.exit.x - site.anchor.x)^2
+                + (trip.exit.y - site.anchor.y)^2) + 0.5) }
+    else
+        preview, why = previewToPoint(records[1], site.anchor, mode)
+    end
+    if not preview then return nil, why end
+    preview.site, preview.provisional = SC.ExpeditionForests.copySite(site), true
+    return preview
+end
+
 -- Persist only stable companion IDs and command serials. Native actors,
 -- chunk maps, UI, and in-flight radio callbacks cannot cross a save boundary.
 function Expedition.export()
@@ -1252,7 +1549,9 @@ function Expedition.export()
     if mission == nil or mission.terminal then
         local idleSlotId = SC.ViewSession.slotSqlId() or reusableSlotSqlId
         if validSlotSqlId(idleSlotId) then
-            return { schema = 2, state = "idle",
+            local wood = lastDebrief and lastDebrief.kind == "wood"
+            for _, record in ipairs(pendingDeliveries) do if record.kind == "wood" then wood = true break end end
+            return { schema = wood and 7 or 2, state = "idle",
                 slotSqlId = idleSlotId,
                 debrief = copyDebrief(lastDebrief),
                 deliveries = copyDeliveryList(pendingDeliveries) }
@@ -1302,7 +1601,7 @@ function Expedition.export()
         end
     end
     return {
-        schema = mission.scout and (mission.scout.vehicle and 6
+        schema = mission.scout and (mission.scout.wood and 7 or mission.scout.vehicle and 6
             or ((mission.scout.extended
                 or mission.scout.road ~= nil) and 5
             or mission.scout.kind == "search" and 4 or 3))
@@ -1332,6 +1631,7 @@ function Expedition.export()
             returnIndex = mission.scout.returnIndex,
             observation = copyObservation(mission.scout.observation),
             search = copySearch(mission.scout.search),
+            wood = copyWood(mission.scout.wood),
             site = copySite(mission.scout.site),
             turnHomeAtHour = mission.scout.turnHomeAtHour,
             arriveByHour = mission.scout.arriveByHour,
@@ -1364,6 +1664,63 @@ end
 
 function Expedition.restore(saved)
     if mission ~= nil then return false, "expedition is already active" end
+    if type(saved) == "table" and saved.schema == 7 and saved.state == "idle" then
+        local shared = {}
+        for key, value in pairs(saved) do shared[key] = value end
+        shared.schema = 2
+        return Expedition.restore(shared)
+    end
+    if type(saved) == "table" and saved.schema == 7 then
+        local scout = saved.scout
+        if type(scout) ~= "table" or scout.kind ~= "wood" or scout.search ~= nil
+            or not validWood(scout.wood) or not validPoint(scout.destination)
+            or scout.wood.tripId ~= saved.radioSession
+            or (scout.phase == "wood_working" and not scout.wood.startedHour)
+            or scout.site ~= nil or scout.observation ~= nil
+            or (scout.wood.preparation and scout.phase ~= "outbound"
+                and scout.phase ~= "walking_to_car" and scout.phase ~= "boarding_out") then
+            return false, "saved wood itinerary is invalid"
+        end
+        local known = {}
+        for _, id in ipairs(type(saved.roster) == "table" and saved.roster or {}) do known[id] = true end
+        if scout.wood.cutterId ~= nil and not known[scout.wood.cutterId] then
+            return false, "saved wood cutter is outside the roster"
+        end
+        for id in pairs(scout.wood.workers or {}) do
+            if not known[id] then return false, "saved wood worker is outside the roster" end
+        end
+        for id in pairs(scout.wood.loans or {}) do
+            if not known[id] then return false, "saved wood tool loan is outside the roster" end
+        end
+        for _, receipt in ipairs(scout.wood.acquisitions) do
+            if not known[receipt.memberId] then return false, "saved wood cargo is outside the roster" end
+        end
+        -- Reuse the established roster/travel/car validator. The temporary
+        -- search descriptor exists only during validation, never as live work.
+        local shared = {}
+        for key, value in pairs(saved) do shared[key] = value end
+        shared.schema = scout.vehicle ~= nil and 6 or 5
+        shared.scout = {}
+        for key, value in pairs(scout) do shared.scout[key] = value end
+        shared.scout.kind, shared.scout.wood = "search", nil
+        if scout.phase == "wood_working" then shared.scout.phase = "searching" end
+        local begun = scout.wood.startedHour
+        shared.scout.search = { request = { category = "construction", quantity = 1 },
+            acquisitions = {}, radius = 5, startedHour = begun,
+            deadlineHour = begun and begun + 24 or nil,
+            endReason = (scout.phase == "inbound" or scout.phase == "awaiting_player")
+                and (begun and "quantity_met" or "radio_return") or nil }
+        local restored, reason = Expedition.restore(shared)
+        if not restored then return false, reason end
+        mission.scout.kind, mission.scout.search = "wood", nil
+        mission.scout.wood = copyWood(scout.wood)
+        mission.scout.phase = scout.phase
+        if scout.wood.preparation and mission.scout.vehicle
+            and scout.vehicle.state == "walking_to_car" then
+            mission.scout.vehicle.state = "walking_to_car"
+        end
+        return true
+    end
     if type(saved) == "table" and saved.schema == 6 then
         if type(saved.scout) ~= "table" then
             return false, "saved scout itinerary is invalid"
@@ -1698,7 +2055,7 @@ function Expedition.current() return mission end
 function Expedition.lastOutcome() return lastOutcome end
 function Expedition.lastDebrief()
     local copy = copyDebrief(lastDebrief)
-    if copy and copy.kind == "search" and copy.integration then
+    if copy and (copy.kind == "search" or copy.kind == "wood") and copy.integration then
         for _, record in ipairs(pendingDeliveries) do
             if record.tripId == copy.integration.tripId then
                 copy.integration = SC.ExpeditionIntegration.copy(record)
@@ -1736,7 +2093,7 @@ end
 
 local function homecomingRecord()
     if mission == nil or mission.scout == nil
-        or mission.scout.search == nil
+        or (mission.scout.search == nil and mission.scout.wood == nil)
         or mission.scout.phase ~= "awaiting_player"
         or mission.integration ~= nil
         or not SC.ExpeditionIntegration then return end
@@ -1769,8 +2126,8 @@ function Expedition.receiptPending(item)
     if not item then return false end
     local id = SC.GameplayUtil.itemStableId(item, false)
     if not id then return false end
-    if mission and mission.scout and mission.scout.search then
-        for _, receipt in ipairs(mission.scout.search.acquisitions) do
+    if mission and mission.scout and (mission.scout.search or mission.scout.wood) then
+        for _, receipt in ipairs((mission.scout.search or mission.scout.wood).acquisitions) do
             if receipt.id == id then
                 if not mission.integration then return true end
                 for _, row in ipairs(mission.integration.items) do
@@ -1793,6 +2150,10 @@ function Expedition.prepareReset()
     if mission == nil then return true end
     if mission.suspended then return true end
     cancelFishingPreparation()
+    if mission.scout and mission.scout.wood and SC.ExpeditionWood then
+        local stopped, reason = SC.ExpeditionWood.stop(mission.scout.wood, "expedition_world_exit")
+        if stopped ~= true then return false, reason or "wood_work_settling" end
+    end
     if mission.scout and mission.scout.vehicle and mission.leader
         and mission.leader.actor then
         local stopped, reason = SC.Driving.release(mission.leader.actor,
@@ -1858,6 +2219,7 @@ function Expedition.reset()
     end
     reusableSlotSqlId = nil
     holdColdHandoffForTest = false
+    if SC.ExpeditionForests then SC.ExpeditionForests.reset() end
     return true
 end
 
@@ -1970,10 +2332,11 @@ function Expedition.describeForPlayer(viewer)
             visible = visible,
         }
     end
-    local progress
-    if itinerary and itinerary.search then
+    local progress, woodProgress
+    local resource = itinerary and (itinerary.search or itinerary.wood)
+    if resource then
         local observed = 0
-        for _, receipt in ipairs(itinerary.search.acquisitions) do
+        for _, receipt in ipairs(resource.acquisitions) do
             for _, row in ipairs(members) do
                 if row.id == receipt.memberId and row.visible then
                     observed = observed + 1
@@ -1983,7 +2346,7 @@ function Expedition.describeForPlayer(viewer)
         end
         if visibleMembers > 0 then
             progress = { collected = observed,
-                requested = itinerary.search.request.quantity,
+                requested = resource.request.quantity or 256,
                 partial = visibleMembers < #members,
                 source = "visible" }
         elseif mission.lastProgressReport then
@@ -1992,6 +2355,28 @@ function Expedition.describeForPlayer(viewer)
                 requested = report.requested, phase = report.phase,
                 at = report.at, source = "radio" }
         end
+        if itinerary.wood and progress then
+            local carried, stored = 0, 0
+            if progress.source == "visible" then
+                local visibleIds = {}
+                for _, row in ipairs(members) do if row.visible then visibleIds[row.id] = true end end
+                local counts = SC.ExpeditionWood.cargoCounts(resource, mission.roster, visibleIds)
+                carried = counts.carried
+                if mission.integration and SC.ExpeditionIntegration then
+                    local summary = SC.ExpeditionIntegration.summary(mission.integration)
+                    carried, stored = summary.carried or carried, summary.stored or 0
+                end
+            else
+                carried, stored = mission.lastProgressReport.carried, mission.lastProgressReport.stored
+            end
+            woodProgress = { collected = progress.collected,
+                carried = carried, stored = stored, requested = progress.requested,
+                mode = resource.request.mode, phase = leaderVisible and itinerary.phase or progress.phase,
+                reason = leaderVisible and resource.endReason or nil,
+                partial = progress.partial or itinerary.vehicle ~= nil and mission.integration == nil,
+                source = progress.source, at = progress.at }
+            progress = nil
+        end
     end
     return {
         leaderName = leader and leader.name or "?",
@@ -1999,8 +2384,8 @@ function Expedition.describeForPlayer(viewer)
         visibleMembers = visibleMembers,
         observedPhase = leaderVisible and itinerary and itinerary.phase or nil,
         preparation = leaderVisible and itinerary
-            and itinerary.fishingPreparation
-            and itinerary.fishingPreparation.reason or nil,
+            and (itinerary.fishingPreparation and itinerary.fishingPreparation.reason
+                or itinerary.wood and itinerary.wood.preparation and itinerary.wood.preparationReason) or nil,
         preparationMemberId = leaderVisible and itinerary
             and itinerary.fishingPreparation and leader.id or nil,
         kind = itinerary and itinerary.kind or nil,
@@ -2008,14 +2393,17 @@ function Expedition.describeForPlayer(viewer)
             and itinerary.site.label or itinerary.search
             and itinerary.search.request.category == "fish"
             and ("Fishing bank " .. itinerary.destination.x .. ", "
-                .. itinerary.destination.y)) or nil,
+                .. itinerary.destination.y) or itinerary.wood
+                and itinerary.wood.sites[itinerary.wood.siteIndex].label) or nil,
         turnHomeAtHour = itinerary and itinerary.turnHomeAtHour or nil,
         vehicleState = itinerary and itinerary.vehicle
             and itinerary.vehicle.state or nil,
         vehicleIssue = itinerary and itinerary.vehicle
-            and itinerary.vehicle.blocker or mission.vehicleRestoreIssue,
+            and (itinerary.vehicle.blocker or itinerary.vehicle.lastFailure
+                and itinerary.vehicle.lastFailure.reason) or mission.vehicleRestoreIssue,
         members = members,
         supplyProgress = progress,
+        woodProgress = woodProgress,
         delivery = visibleMembers > 0 and mission.integration
             and SC.ExpeditionIntegration
             and SC.ExpeditionIntegration.summary(mission.integration) or nil,
@@ -2255,13 +2643,19 @@ function Expedition.sendRadioOrder(player, command, payload)
         return false, "radio_no_ack"
     end
     if progressRequest then
-        local search = mission.scout and mission.scout.search
+        local search = mission.scout and (mission.scout.search or mission.scout.wood)
         if not search then return false, "no_supply_request" end
+        local counts = mission.scout.wood and SC.ExpeditionWood.cargoCounts(search,
+            mission.roster, nil, mission.scout.vehicle and mission.scout.vehicle.sqlId) or nil
         mission.lastProgressReport = {
             at = scoutWorldHour() or 0,
             collected = #search.acquisitions,
-            requested = search.request.quantity,
+            requested = search.request.quantity or 256,
             phase = mission.scout.phase,
+            kind = mission.scout.wood and "wood" or nil,
+            mode = mission.scout.wood and search.request.mode or nil,
+            carried = counts and ((counts.carried or 0) + (counts.loaded or 0)),
+            stored = counts and 0,
         }
         return true, "progress_acknowledged"
     end
@@ -3172,6 +3566,33 @@ local function playerMetSearchSquad(player, leader)
 end
 
 startReturnFromSite = function(itinerary, reason)
+    if itinerary.wood then
+        local wood = itinerary.wood
+        local car = itinerary.vehicle
+        if car and car.state ~= "abandoned" then
+            if car.leg == "home" or car.state == "home_wait" then
+                wood.pendingReturnReason = nil
+                return true
+            end
+            -- Car owns direction changes, native driver release, boarding
+            -- rollback and the home route. Never replace those states with
+            -- an on-foot inbound descriptor while its engine is running.
+            wood.pendingCarReturnReason = reason
+            local accepted, why = SC.ExpeditionCar.requestReturn(mission,
+                SC.GameplayUtil.nowMs(), reason)
+            if accepted then wood.pendingReturnReason = nil end
+            return accepted, why
+        end
+        wood.complete, wood.doneReason = true, wood.doneReason or reason
+        local stopped, stopReason = SC.ExpeditionWood.stop(wood, reason)
+        if stopped ~= true then
+            wood.pendingReturnReason = reason
+            wood.blocker = stopReason or "wood_work_settling"
+            return false
+        end
+        wood.pendingReturnReason, wood.preparation, wood.preparationReason = nil, nil, nil
+        wood.endReason = reason
+    end
     if itinerary.fishingPreparation then
         cancelFishingPreparation()
         itinerary.fishingPreparation = nil
@@ -3416,11 +3837,94 @@ local function beginSearchAtSite(scout, now)
     return true
 end
 
+local function woodNight()
+    local hour = scoutWorldHour()
+    local policies = SC.BaseLife and SC.BaseLife.policies and SC.BaseLife.policies() or {}
+    return hour and (hour % 24 >= 21 or hour % 24 < 6)
+        and policies.workOutsideAtNight ~= true
+end
+
+local function nextWoodSite(scout)
+    local wood = scout.wood
+    local index = wood.siteIndex + 1
+    while index <= #wood.sites do
+        local site = wood.sites[index]
+        -- Drive candidates were bounded to this parked work area at dispatch.
+        -- Retain the check when restoring an older or externally edited save.
+        local car = activeWoodCar(scout)
+        local stop = car and car.siteStop
+        if not stop or math.sqrt((site.anchor.x - stop.x)^2
+                + (site.anchor.y - stop.y)^2) <= 64 then
+            SC.ExpeditionWood.nextSite(wood)
+            wood.siteIndex = index
+            scout.destination = copyPoint(site.anchor)
+            scout.phase, scout.roadRoute, scout.road = "outbound", nil, nil
+            scout.lastPlanAt, scout.lastStalledTarget = nil, nil
+            scout.replans, scout.firstPlanFailureAt = 0, nil
+            if mission.testWaypoint then Expedition.clearTestWaypoint(mission.leader.actor) end
+            if scout.travelMode == "road" then
+                local route = SC.ExpeditionRoute.plan(mission.leader.actor, scout.destination)
+                if route and SC.ExpeditionRoute.verifyEntry(route, mission.leader.actor) then
+                    scout.roadRoute = route
+                    scout.road = SC.ExpeditionRoute.descriptor(route, "outbound")
+                else
+                    index = index + 1
+                    wood.siteIndex = index - 1
+                end
+            end
+            if scout.travelMode ~= "road" or scout.roadRoute then return true end
+        else index = index + 1 end
+    end
+    return false
+end
+
 local function pulseScout()
     local scout = mission and mission.scout
     if scout == nil or mission.restoring or not alive(mission.leader) then return end
     local now = SC.GameplayUtil.nowMs()
-    if scout.fishingPreparation then return end
+    if scout.wood and scout.wood.pendingCarReturnReason and SC.ExpeditionCar then
+        local reason = scout.wood.pendingCarReturnReason
+        local car = scout.vehicle
+        if not car or car.state == "abandoned" then
+            scout.wood.pendingCarReturnReason = nil
+            startReturnFromSite(scout, reason)
+        elseif car.leg == "home" or car.state == "home_wait" then
+            scout.wood.pendingCarReturnReason, scout.wood.pendingReturnReason = nil, nil
+        else
+            local accepted = SC.ExpeditionCar.requestReturn(mission, now, reason)
+            if not accepted and not scout.wood.preparation
+                and (car.state == "held" or car.state == "interrupted_by_load"
+                    or car.state == "fallback_unloading" or car.state == "boarding_rollback"
+                    or car.state == "unloading_site") then
+                SC.ExpeditionCar.pulse(mission, now, scoutWorldHour())
+            end
+        end
+        return
+    end
+    if scout.fishingPreparation or scout.wood and scout.wood.preparation then return end
+    if scout.wood and scout.wood.pendingReturnReason then
+        startReturnFromSite(scout, scout.wood.pendingReturnReason)
+        return
+    end
+    if scout.wood and scout.phase ~= "inbound" and scout.phase ~= "awaiting_player"
+        and not (scout.vehicle and scout.vehicle.leg == "home") then
+        if woodNight() then startReturnFromSite(scout, "wood_night") return end
+    end
+    -- Tree work exposes cutters and haulers on foot. Travel retains the
+    -- established road-horde and vehicle safety policy, including protection
+    -- while seated; ordinary roadside contacts must not cancel a car trip.
+    if scout.wood and scout.phase == "wood_working" then
+        local snapshot = squadRoadSnapshot(now)
+        for _, threat in ipairs(snapshot and snapshot.threats or {}) do
+            for _, member in ipairs(mission.roster) do
+                if alive(member) and distanceToPoint(member.actor,
+                        { x = threat.x, y = threat.y, z = 0 }) <= 20 then
+                    startReturnFromSite(scout, "wood_unsafe")
+                    return
+                end
+            end
+        end
+    end
     if mission.technicalIssue
         and mission.technicalIssue.reason == "scout_leg_limit" then
         if scout.travelBudget == nil then
@@ -3523,7 +4027,7 @@ local function pulseScout()
         and (scout.turnHomeAtHour ~= nil or scout.arriveByHour ~= nil)
         and (scout.phase == "outbound" or scout.phase == "entering_site"
             or scout.phase == "observing"
-            or scout.phase == "searching") then
+            or scout.phase == "searching" or scout.phase == "wood_working") then
         scout.nextReturnCheckAt = now + 1000
         local worldHour = scoutWorldHour()
         if worldHour == nil then
@@ -3600,7 +4104,7 @@ local function pulseScout()
     if wounded and (scout.phase == "outbound"
             or scout.phase == "entering_site"
             or scout.phase == "observing"
-            or scout.phase == "searching") then
+            or scout.phase == "searching" or scout.phase == "wood_working") then
         -- The expedition is optional; a bleeding or critically weak member
         -- turns the whole party home. Preserve a visible roadside hazard so
         -- the return planner does not simply retrace through the fight.
@@ -3699,6 +4203,16 @@ local function pulseScout()
             return
         end
     end
+    if scout.phase == "wood_working" then
+        mission.cohesionHold = nil
+        local status = SC.ExpeditionWood.status(scout.wood)
+        if status.done then
+            if (status.reason == "wood_forest_empty" or status.reason == "wood_forest_unloaded")
+                and nextWoodSite(scout) then return end
+            startReturnFromSite(scout, status.reason or "wood_finished")
+        end
+        return
+    end
     if mission.cohesionHold ~= nil and not wounded then return end
     -- Scouting needs a fresh view of the destination, not a foot on its exact
     -- tile. A fence, window, or occupied approach can leave a safe exterior
@@ -3736,23 +4250,32 @@ local function pulseScout()
     -- more often than twice a second.
     local player = type(getSpecificPlayer) == "function"
         and getSpecificPlayer(0) or nil
-    local reunionDue = scout.phase == "inbound" and scout.search ~= nil
-        and scout.site ~= nil and scout.site.id ~= nil and player ~= nil
+    local reunionDue = scout.phase == "inbound" and player ~= nil
+        and (scout.wood ~= nil or scout.search ~= nil and scout.site ~= nil and scout.site.id ~= nil)
         and now >= (scout.nextReunionCheckAt or -math.huge)
     if reunionDue then
         scout.nextReunionCheckAt = now + REUNION_CHECK_INTERVAL_MS
     end
-    if reunionDue and scoutFollowersNearLeader()
-        and SC.ExpeditionPlaces
-        and type(SC.ExpeditionPlaces.siteContainsPoint) == "function"
+    local woodHome = reunionDue and scout.wood ~= nil and mission.homeBaseId ~= nil
+        and SC.BaseLife and SC.BaseLife.active()
+        and SC.BaseLife.active().id == mission.homeBaseId
+        and (SC.BaseLife.isInside(mission.leader.actor)
+            or SC.BaseLife.isInside(mission.leader.actor, "parking"))
+        and (not scout.vehicle or scout.vehicle.state == "home_wait" or scout.vehicle.state == "abandoned")
+    local searchSite = reunionDue and scout.search ~= nil and scout.site ~= nil
+        and SC.ExpeditionPlaces and type(SC.ExpeditionPlaces.siteContainsPoint) == "function"
         and SC.ExpeditionPlaces.siteContainsPoint(scout.site.id,
-            math.floor(player:getX()), math.floor(player:getY()),
-            math.floor(player:getZ()))
+            math.floor(player:getX()), math.floor(player:getY()), math.floor(player:getZ()))
+    if reunionDue and (woodHome or searchSite) and scoutFollowersNearLeader()
         and distanceToPoint(mission.leader.actor, {
             x = math.floor(player:getX()), y = math.floor(player:getY()),
             z = math.floor(player:getZ()),
         }) <= 10
         and playerMetSearchSquad(player, mission.leader.actor) then
+        if woodHome then
+            scout.phase = "awaiting_player"
+            if mission.testWaypoint then Expedition.clearTestWaypoint(mission.leader.actor) end
+        end
         local finished = Expedition.finishAtPlayer(player)
         if finished then return end
     end
@@ -4112,7 +4635,7 @@ local function pulseScout()
     -- Stage one adjacent stair transition at a time. This also handles an
     -- upper storey above z=1 and a basement below z=0; the distant ground
     -- trail waypoint remains separate from each temporary stair target.
-    if pause == nil and scout.phase == "inbound" and scout.search ~= nil
+    if pause == nil and scout.phase == "inbound" and (scout.search ~= nil or scout.wood ~= nil)
         and scout.roadRoute == nil then
         local stairTarget, stairReason = stairTransitionTarget(scout, mission.leader.actor,
             routeTarget, now)
@@ -4147,7 +4670,18 @@ local function pulseScout()
     if scout.phase == "outbound" and close <= 4
         and (scout.roadRoute == nil
             or scout.roadRoute.index > #scout.roadRoute.points) then
-        if scout.search then
+        if scout.wood then
+            local ready, reason = SC.ExpeditionForests.verify(
+                scout.wood.sites[scout.wood.siteIndex], mission.leader.actor)
+            if ready == nil then return end
+            if ready ~= true then
+                if not nextWoodSite(scout) then startReturnFromSite(scout, reason) end
+                return
+            end
+            scout.wood.startedHour = scout.wood.startedHour or scoutWorldHour()
+            scout.phase = "wood_working"
+            if mission.testWaypoint then Expedition.clearTestWaypoint(mission.leader.actor) end
+        elseif scout.search then
             if scout.site ~= nil then
                 scout.phase = "entering_site"
                 scout.siteEntryStartedAt = now
@@ -4278,6 +4812,11 @@ end
 -- Hysteresis gives delayed followers room to rejoin without toggling the
 -- leader's route every decision beat. Survival decisions still run while held.
 local function updateWaypointCohesion()
+    if mission and mission.scout and (mission.scout.phase == "wood_working"
+        or mission.scout.wood and mission.scout.wood.preparation) then
+        mission.cohesionHold = nil
+        return
+    end
     if mission == nil or mission.testWaypoint == nil
         or not alive(mission.leader) then return end
     local leader = mission.leader.actor
@@ -4445,7 +4984,7 @@ function Expedition.notePlacementRestored(actor)
 end
 
 local function searchDebrief(itinerary)
-    local search = itinerary.search
+    local search = itinerary.search or itinerary.wood
     local wanted, carried = {}, {}
     for _, receipt in ipairs(search.acquisitions) do wanted[receipt.id] = true end
     local complete = SC.Logistics ~= nil
@@ -4478,16 +5017,17 @@ local function searchDebrief(itinerary)
         end
     end
     return {
-        kind = "search", destination = copyPoint(itinerary.destination),
+        kind = itinerary.wood and "wood" or "search", destination = copyPoint(itinerary.destination),
         returnPoint = copyPoint(itinerary.returnPoint),
         site = copySite(itinerary.site),
-        request = copyRequest(search.request),
+        request = itinerary.wood and copyWoodRequest(search.request) or copyRequest(search.request),
         acquisitions = copyReceipts(search.acquisitions),
         returnedIds = returned, inventoryComplete = complete,
         endReason = search.endReason or "returned_early",
         abandonedCarAt = itinerary.vehicle
             and itinerary.vehicle.abandonedAt
             and copyPoint(itinerary.vehicle.abandonedAt) or nil,
+        carFailure = copyCarFailure(itinerary.vehicle and itinerary.vehicle.lastFailure),
     }
 end
 
@@ -4509,7 +5049,7 @@ function Expedition.finishAtPlayer(player)
         and not SC.BaseLife.isInside(mission.leader.actor, "parking") then
         return false, "return_to_camp_for_delivery"
     end
-    if mission.homeBaseId and mission.scout and mission.scout.search
+    if mission.homeBaseId and mission.scout and (mission.scout.search or mission.scout.wood)
         and mission.scout.phase ~= "awaiting_player" then
         return false, "return_route_not_finished"
     end
@@ -4584,7 +5124,7 @@ function Expedition.finishAtPlayer(player)
         or type(destroyPlayerData) ~= "function" then
         return false, "return_primary_area_unavailable"
     end
-    local pendingDebrief = mission.scout and mission.scout.search
+    local pendingDebrief = mission.scout and (mission.scout.search or mission.scout.wood)
         and searchDebrief(mission.scout) or nil
     if pendingDebrief and mission.integration then
         SC.ExpeditionIntegration.refresh(mission.integration)
@@ -4632,6 +5172,7 @@ function Expedition.finishAtPlayer(player)
             abandonedCarAt = mission.scout.vehicle
                 and mission.scout.vehicle.abandonedAt
                 and copyPoint(mission.scout.vehicle.abandonedAt) or nil,
+            carFailure = copyCarFailure(mission.scout.vehicle and mission.scout.vehicle.lastFailure),
         }
     end
     if mission.integration then queueDelivery(mission.integration) end
@@ -4873,6 +5414,10 @@ function Expedition.pulse()
             or "leader_alive"
     end
     cancelFishingPreparation()
+    if mission.scout and mission.scout.wood then
+        local stopped, reason = SC.ExpeditionWood.stop(mission.scout.wood, "expedition_leader_dead")
+        if stopped ~= true then return false, reason or "wood_work_settling" end
+    end
     if mission.scout and mission.scout.vehicle
         and mission.scout.vehicle.state ~= "abandoned" then
         local recovered, reason = SC.ExpeditionCar.recoverDeadDriver(mission)
@@ -4919,6 +5464,13 @@ function Expedition.pulse()
             end
         end
     end
+    local woodRecovery
+    if mission.scout and mission.scout.wood then
+        mission.scout.wood.endReason = "all_dead"
+        woodRecovery = mission.integration or SC.ExpeditionIntegration.create(mission)
+        if not woodRecovery then return false, "wood_recovery_record_unavailable" end
+        SC.ExpeditionIntegration.refresh(woodRecovery)
+    end
     -- Stock split-screen teardown removes all slot-1 panels and their update
     -- callbacks. They otherwise keep dereferencing a cleared player slot.
     if type(destroyPlayerData) ~= "function" then
@@ -4950,6 +5502,11 @@ function Expedition.pulse()
     if mission.radioTextHooked then
         Events.OnDeviceText.Remove(radioTextReceived)
         mission.radioTextHooked = false
+    end
+    if woodRecovery then
+        lastDebrief = searchDebrief(mission.scout)
+        lastDebrief.integration = SC.ExpeditionIntegration.copy(woodRecovery)
+        queueDelivery(woodRecovery)
     end
     mission = nil
     lastOutcome = "all_dead"

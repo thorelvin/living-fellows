@@ -29,6 +29,7 @@ $FloorSortLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\clien
 $BaseAlertLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCBaseAlertProbe.lua'
 $ViewCutawayLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCViewCutawayProbe.lua'
 $NormalKitchenLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCNormalExpeditionKitchenProbe.lua'
+$WoodExpeditionLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCWoodExpeditionProbe.lua'
 $Shared = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\shared'
 $Client = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\client'
 
@@ -43,12 +44,14 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Live harness Lua compiler build failed.' }
     Push-Location -LiteralPath $GameRoot
     try {
-        & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $Lua $DrivingLua $SixSeatLua $SquadCombatLua $FarmCorridorLua $WaterSourceLua $UpstairsHaulLua $FloorSortLua $BaseAlertLua $ViewCutawayLua $NormalKitchenLua
+        & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $Lua $DrivingLua $SixSeatLua $SquadCombatLua $FarmCorridorLua $WaterSourceLua $UpstairsHaulLua $FloorSortLua $BaseAlertLua $ViewCutawayLua $NormalKitchenLua $WoodExpeditionLua
         if ($LASTEXITCODE -ne 0) { throw 'Live harness Kahlua compilation failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner $ViewCutawayLua (Join-Path $TestRoot 'view_cutaway_probe_regression_harness.lua')
         if ($LASTEXITCODE -ne 0) { throw 'View cutaway live probe regression failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner $NormalKitchenLua (Join-Path $TestRoot 'normal_expedition_kitchen_regression_harness.lua')
         if ($LASTEXITCODE -ne 0) { throw 'Normal expedition kitchen probe regression failed.' }
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner $WoodExpeditionLua (Join-Path $TestRoot 'wood_expedition_probe_regression_harness.lua')
+        if ($LASTEXITCODE -ne 0) { throw 'Wood expedition live probe regression failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $OddballProbe
         if ($LASTEXITCODE -ne 0) { throw 'Oddball live probe Kahlua compilation failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $ArthurPackProbe

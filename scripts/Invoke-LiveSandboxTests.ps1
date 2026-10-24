@@ -63,6 +63,16 @@ param(
     # the kitchen after the crew returns naturally.
     [switch]$NormalExpeditionKitchenProbe,
     [ValidateSet(1, 2)][int]$NormalExpeditionKitchenCrewSize = 2,
+    # Existing Scarlet/car46, real trees and axes, ordinary production task.
+    # Run each mode in a fresh disposable clone: one walking or two driving logs.
+    [switch]$WoodExpeditionProbe,
+    [ValidateSet('walk', 'drive')][string]$WoodExpeditionTravelMode = 'walk',
+    # Explicit disposable fixture: seed one real axe into permitted camp
+    # storage only when the saved camp has no usable permitted axe.
+    [switch]$WoodExpeditionStockEquipment,
+    # Explicit disposable happy-path fixture; removes nearby zombies only
+    # at the work site so cargo transport can be checked independently.
+    [switch]$WoodExpeditionQuietSite,
     [string]$PyreBurnScreenshot = '',
     [switch]$HygieneProbe,
     [switch]$OddballCoreyProbe,
@@ -315,6 +325,12 @@ if ($SplitScreenOnly -and ($PathingOnly -or $FactionMapOnly -or $BaseLayoutOnly)
 }
 if ($OddballCoreyProbe -and $OddballEarlProbe) {
     throw 'Choose one focused oddball probe per cloned-save run.'
+}
+if ($WoodExpeditionStockEquipment -and -not $WoodExpeditionProbe) {
+    throw '-WoodExpeditionStockEquipment requires -WoodExpeditionProbe.'
+}
+if ($WoodExpeditionQuietSite -and -not $WoodExpeditionProbe) {
+    throw '-WoodExpeditionQuietSite requires -WoodExpeditionProbe.'
 }
 if ((@($OddballCoreyProbe, $OddballEarlProbe, $OddballArthurProbe,
     $OddballPackProbe, $OddballSmokerProbe, $MilliProbe) | Where-Object { $_ }).Count -gt 1) {
@@ -1457,7 +1473,7 @@ if ($IsolatedSourceBridge) {
 }
 Copy-Item -LiteralPath $sourceMod -Destination (Join-Path $SandboxMods 'SurvivorCompanion') -Recurse
 Copy-Item -LiteralPath $harnessMod -Destination (Join-Path $SandboxMods 'SCRealSandboxHarness') -Recurse
-if ($ViewCutawayProbe -or $NormalExpeditionKitchenProbe -or $SplitScreenOnly) {
+if ($ViewCutawayProbe -or $NormalExpeditionKitchenProbe -or $WoodExpeditionProbe -or $SplitScreenOnly) {
     # Keep view diagnostics focused. Unrelated large probes can exceed
     # Kahlua's debug-local limit when native stock-player diagnostics are enabled.
     $wallHarnessClient = [IO.Path]::GetFullPath((Join-Path $SandboxMods `
@@ -1467,7 +1483,7 @@ if ($ViewCutawayProbe -or $NormalExpeditionKitchenProbe -or $SplitScreenOnly) {
     }
     foreach ($fixtureFile in Get-ChildItem -LiteralPath $wallHarnessClient -File -Filter '*.lua') {
         if ($fixtureFile.Name -notin @('SCRealSandboxHarness.lua', 'SCViewCutawayProbe.lua',
-                'SCNormalExpeditionKitchenProbe.lua')) {
+                'SCNormalExpeditionKitchenProbe.lua', 'SCWoodExpeditionProbe.lua')) {
             Remove-Item -LiteralPath $fixtureFile.FullName -Force
         }
     }
@@ -1603,6 +1619,10 @@ $config = @(
     ('view_cutaway_cycles=' + $ViewCutawayCycles),
     ('normal_expedition_kitchen_probe=' + $NormalExpeditionKitchenProbe.IsPresent.ToString().ToLowerInvariant()),
     ('normal_expedition_kitchen_crew_size=' + $NormalExpeditionKitchenCrewSize),
+    ('wood_expedition_probe=' + $WoodExpeditionProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('wood_expedition_travel_mode=' + $WoodExpeditionTravelMode),
+    ('wood_expedition_stock_equipment=' + $WoodExpeditionStockEquipment.IsPresent.ToString().ToLowerInvariant()),
+    ('wood_expedition_quiet_site=' + $WoodExpeditionQuietSite.IsPresent.ToString().ToLowerInvariant()),
     ('hygiene_probe=' + $HygieneProbe.IsPresent.ToString().ToLowerInvariant()),
     ('oddball_corey_probe=' + $OddballCoreyProbe.IsPresent.ToString().ToLowerInvariant()),
     ('oddball_earl_probe=' + $OddballEarlProbe.IsPresent.ToString().ToLowerInvariant()),
@@ -1838,6 +1858,10 @@ $manifest = [ordered]@{
     viewCutawayCycles = $ViewCutawayCycles
     normalExpeditionKitchenProbe = $NormalExpeditionKitchenProbe.IsPresent
     normalExpeditionKitchenCrewSize = $NormalExpeditionKitchenCrewSize
+    woodExpeditionProbe = $WoodExpeditionProbe.IsPresent
+    woodExpeditionTravelMode = $WoodExpeditionTravelMode
+    woodExpeditionStockEquipment = $WoodExpeditionStockEquipment.IsPresent
+    woodExpeditionQuietSite = $WoodExpeditionQuietSite.IsPresent
     squadCombatProbe = $SquadCombatProbe.IsPresent
     squadCombatFrontOnly = $SquadCombatFrontOnly.IsPresent
     squadCombatSingleCase = $SquadCombatSingleCase.IsPresent

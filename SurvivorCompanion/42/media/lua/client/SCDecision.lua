@@ -812,6 +812,12 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
             end
         end
         if threatCount == 0 and not bleeding and SC.ExpeditionPrototype then
+            local woodPreparation = type(SC.ExpeditionPrototype.woodPreparationFor) == "function"
+                and SC.ExpeditionPrototype.woodPreparationFor(actor) or nil
+            local woodRequest = type(SC.ExpeditionPrototype.woodRequestFor) == "function"
+                and SC.ExpeditionPrototype.woodRequestFor(actor) or nil
+            if woodPreparation then add("wood_preparation", 86, false, woodPreparation)
+            elseif woodRequest then add("wood", 86, false, woodRequest) end
             local preparation = type(SC.ExpeditionPrototype.fishingPreparationFor) == "function"
                 and SC.ExpeditionPrototype.fishingPreparationFor(actor) or nil
             if preparation then
@@ -2093,6 +2099,13 @@ local function delegate(candidate, actor, player, rootRuntime, commands, snapsho
         return callSubsystem("field-work", actor, function()
             return SC.FieldWork.update(actor, player)
         end)
+    elseif candidate.kind == "wood" or candidate.kind == "wood_preparation" then
+        if not SC.ExpeditionPrototype or type(SC.ExpeditionPrototype.updateWood) ~= "function" then
+            return false, "wood_expedition_unavailable"
+        end
+        return callSubsystem("wood-expedition", actor, function()
+            return SC.ExpeditionPrototype.updateWood(actor, snapshot)
+        end)
     elseif candidate.kind == "fishing_preparation" then
         if not SC.ExpeditionPrototype
             or type(SC.ExpeditionPrototype.updateFishingPreparation) ~= "function" then
@@ -2375,7 +2388,8 @@ local function candidateInterval(candidate)
         return 250
     elseif candidate.kind == "field_work" then
         return 250
-    elseif candidate.kind == "fishing" or candidate.kind == "fishing_preparation" then
+    elseif candidate.kind == "fishing" or candidate.kind == "fishing_preparation"
+        or candidate.kind == "wood" or candidate.kind == "wood_preparation" then
         return 250
     elseif candidate.kind == "logistics" then
         return U().config("logisticsUpdateIntervalMs") or 750
@@ -2395,7 +2409,7 @@ local retainedApproachKinds = {
     logistics = true, infection_crisis = true, encounter = true,
     scavenge = true, downtime = true, needs = true, water_refill = true,
     base_work = true, expedition_delivery = true, fishing = true,
-    fishing_preparation = true,
+    fishing_preparation = true, wood = true, wood_preparation = true,
     faction = true, purposeful_idle = true,
     field_work = true,
     joy_response = true, ritual = true,
@@ -2851,6 +2865,20 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
         -- candidate pass while a single known owner is active.
         if not urgent and owner == "work"
             and (phase == "active" or phase == "result_pending")
+            and SC.ExpeditionPrototype
+            and type(SC.ExpeditionPrototype.woodRequestFor) == "function"
+            and SC.ExpeditionPrototype.woodRequestFor(actor)
+            and type(SC.ExpeditionPrototype.updateWood) == "function" then
+            local safe, _, workReason = U().safeSubsystem("wood-expedition", actor,
+                SC.ExpeditionPrototype.updateWood, actor, snapshot)
+            state.current, state.currentKey = "wood", "wood"
+            state.intent = safe and (workReason or "owned_wood_work_polled")
+                or "owned_wood_work_poll_failed"
+            state.lastHandledAt = current
+            return true, state.intent
+        end
+        if not urgent and owner == "work"
+            and (phase == "active" or phase == "result_pending")
             and commands.order == "base_duty" and SC.BaseWork
             and type(SC.BaseWork.update) == "function" then
             local safe, _, workReason = U().safeSubsystem("base-work", actor,
@@ -3247,6 +3275,14 @@ function Decision.update(actor, player, runtime, roundTimestamp)
     local preparation = SC.ExpeditionPrototype
         and type(SC.ExpeditionPrototype.fishingPreparationFor) == "function"
         and SC.ExpeditionPrototype.fishingPreparationFor(actor) or nil
+    local preparationKind = "fishing_preparation"
+    local woodPreparation = SC.ExpeditionPrototype
+        and type(SC.ExpeditionPrototype.woodPreparationFor) == "function"
+        and SC.ExpeditionPrototype.woodPreparationFor(actor) or nil
+    if woodPreparation then
+        preparation = woodPreparation.wood
+        preparationKind = "wood_preparation"
+    end
     if preparation == nil then
         state.fishingPreparationHandoff = nil
     elseif state.fishingPreparationHandoff ~= preparation
@@ -3254,7 +3290,8 @@ function Decision.update(actor, player, runtime, roundTimestamp)
         and not ownerNeedsImmediatePreemption("work", snapshot, assessment, needs,
             commands, factionNeedsImmediateControl(actor, player, snapshot, commands)) then
         local safe, settled, settleReason = utility.safeSubsystem(
-            "fishing-preparation-handoff", actor, function()
+            (preparationKind == "wood_preparation" and "wood-preparation-handoff"
+                or "fishing-preparation-handoff"), actor, function()
                 local packing = SC.Logistics and type(SC.Logistics.busy) == "function"
                     and SC.Logistics.busy(actor)
                 local token = packing and SC.ActionSupervisor
@@ -3262,22 +3299,22 @@ function Decision.update(actor, player, runtime, roundTimestamp)
                     and SC.ActionSupervisor.current(actor) or nil
                 if token and (token.phase == "committing" or token.phase == "verifying"
                     or token.rollbackObligation ~= nil) then
-                    return false, "fishing_preparation_inventory_pending"
+                    return false, preparationKind .. "_inventory_pending"
                 end
                 if SC.BaseWork and type(SC.BaseWork.cancel) == "function" then
                     local cancelled, why = SC.BaseWork.cancel(actor,
-                        "expedition_fishing_preparation")
+                        "expedition_" .. preparationKind)
                     if cancelled ~= true then return false, why end
                 end
                 local cancelled, why = cancelWork(actor, state,
-                    "expedition_fishing_preparation")
+                    "expedition_" .. preparationKind)
                 if cancelled ~= true then return false, why end
                 if SC.Downtime and type(SC.Downtime.peek) == "function"
                     and type(SC.Downtime.cancel) == "function" then
                     local quiet = SC.Downtime.peek(actor)
                     if quiet and (quiet.active or quiet.curtainTask) then
                         local stopped, stopReason = SC.Downtime.cancel(actor,
-                            "expedition_fishing_preparation")
+                            "expedition_" .. preparationKind)
                         if stopped ~= true then return false, stopReason end
                     end
                 end
@@ -3287,8 +3324,8 @@ function Decision.update(actor, player, runtime, roundTimestamp)
                 return true
             end)
         if not safe or settled ~= true then
-            state.current, state.currentKey = "fishing_preparation", "fishing_preparation"
-            state.intent = settleReason or "fishing_preparation_handoff_pending"
+            state.current, state.currentKey = preparationKind, preparationKind
+            state.intent = settleReason or preparationKind .. "_handoff_pending"
             state.lastHandledAt = current
             return true, state.intent
         end

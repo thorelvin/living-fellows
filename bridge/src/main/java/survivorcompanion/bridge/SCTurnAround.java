@@ -26,6 +26,9 @@ final class SCTurnAround {
      * leg ends instead of waiting out its timer against a wall.
      */
     static final float LEG_CLEARANCE = 2.0f;
+    // Leaving reverse at the stop gap immediately starts another blocked
+    // forward leg. Keep enough room to begin that leg and rotate the nose.
+    private static final float FINISH_FORWARD_CLEARANCE = LEG_CLEARANCE + 2.0f;
     /** A leg whose car has not moved for this long is over. */
     private static final long STALL_MS = 1200L;
     private static final float STALL_KMH = 0.4f;
@@ -172,9 +175,11 @@ final class SCTurnAround {
             if (rest > legStartRemaining + WRONG_WAY) reverseSign = -reverseSign;
         }
         boolean blocked = rearClear >= 0.0f && rearClear <= LEG_CLEARANCE;
-        if (blocked || stalled || elapsed > LEG_LIMIT_MS || rest <= FINISH_FORWARD) {
+        boolean forwardCanFinish = rest <= FINISH_FORWARD
+                && (frontClear < 0.0f || frontClear > FINISH_FORWARD_CLEARANCE);
+        if (blocked || stalled || elapsed > LEG_LIMIT_MS || forwardCanFinish) {
             endLeg(State.FORWARD, blocked ? "rear_close" : stalled ? "stalled"
-                    : rest <= FINISH_FORWARD ? "forward_can_finish" : "leg_time");
+                    : forwardCanFinish ? "forward_can_finish" : "leg_time");
             step.settling = true;
             return step;
         }
