@@ -29,7 +29,7 @@ local function square(x, y, z)
     function value:isFree() return not self.solid end
     function value:isBlockedTo(other) return self.blockAll == true end
     function value:getDoorTo(other) return self.portals[other] end
-    function value:getRoom() return nil end
+    function value:getRoom() return self.room end
     function value:has() return false end
     function value:testPathFindAdjacent() return false end
     grid[key] = value
@@ -90,6 +90,90 @@ check(T.withReadBatch(T.classifyEdge, observer, origin, destination, {}).travers
 door.open, door.locked = false, true
 check(not T.withReadBatch(T.classifyEdge, observer, origin, destination, {}).traversable,
     "a door locked between slices cannot retain cached passability")
+do
+    local room = {}
+    local owner = square(20, 20)
+    local northSide, westSide = square(20, 19), square(19, 20)
+    local player = actor(20.5, 20.5)
+    local properties = { GarageDoor = false, InteriorSide = false, forceLocked = false }
+    function properties:has(name) return self[name] == true end
+    local nativeDoor = { __class = "IsoDoor", north = true, keyId = -1, data = {} }
+    function nativeDoor:getSquare() return owner end
+    function nativeDoor:getNorth() return self.north end
+    function nativeDoor:getProperties() return properties end
+    function nativeDoor:getSprite() return { getProperties = function() return properties end } end
+    function nativeDoor:getModData() return self.data end
+    function nativeDoor:getKeyId() return self.keyId end
+    function nativeDoor:isLockedByKey() return self.keyLocked == true end
+    function nativeDoor:isPermaLocked() return self.permanent == true end
+    function nativeDoor:getLockedByCode() return self.code or 0 end
+    function nativeDoor:isLocked() return true end
+    function nativeDoor:IsOpen() return false end
+    check(nativeDoor.getOppositeSquare == nil,
+        "native-shaped door does not invent the optional interface-default Lua method")
+    for _, north in ipairs({ true, false }) do
+        nativeDoor.north = north
+        local opposite = north and northSide or westSide
+        opposite.room, owner.room = room, nil
+        check(T.doorOpensFromInside(player, nativeDoor, opposite)
+                and T.actorCanUnlock(player, nativeDoor, opposite),
+            "north/west public orientation resolves a loaded interior opposite square: " .. tostring(north))
+        check(not T.actorCanUnlock(player, nativeDoor, owner),
+            "the same locked regular door remains closed to its exterior side: " .. tostring(north))
+        opposite.portals[owner], owner.portals[opposite] = nativeDoor, nativeDoor
+        check(T.classifyEdge(player, opposite, owner, {}).traversable
+                and not T.classifyEdge(player, owner, opposite, {}).traversable,
+            "live topology shares the native-shaped inside/outside permission: " .. tostring(north))
+        opposite.portals[owner], owner.portals[opposite] = nil, nil
+        opposite.room = nil
+        owner.room = room
+        check(T.doorOpensFromInside(player, nativeDoor, owner),
+            "the owning room can open its door without an exposed opposite-square method")
+        owner.room = nil
+    end
+    properties.GarageDoor = true
+    for _, north in ipairs({ true, false }) do
+        nativeDoor.north = north
+        local opposite = north and northSide or westSide
+        for _, interior in ipairs({ true, false }) do
+            properties.InteriorSide = interior
+            local allowed, refused = interior and owner or opposite, interior and opposite or owner
+            check(T.actorCanUnlock(player, nativeDoor, allowed)
+                    and not T.actorCanUnlock(player, nativeDoor, refused),
+                "roomless garage respects its native orientation and InteriorSide: "
+                    .. tostring(north) .. ":" .. tostring(interior))
+        end
+    end
+    nativeDoor.north, properties.InteriorSide = true, true
+    properties.forceLocked = true
+    check(not T.actorCanUnlock(player, nativeDoor, owner), "garage side allowance never bypasses forceLocked")
+    properties.forceLocked = false
+    nativeDoor.data.CustomLock = true
+    check(not T.actorCanUnlock(player, nativeDoor, owner), "garage side allowance never bypasses a custom lock")
+    nativeDoor.data.CustomLock, nativeDoor.keyLocked = nil, true
+    check(not T.actorCanUnlock(player, nativeDoor, owner), "garage side allowance never bypasses a key lock")
+    nativeDoor.keyLocked, nativeDoor.keyId = false, 42
+    check(not T.actorCanUnlock(player, nativeDoor, owner),
+        "a real key ID still requires the actor's matching key before the garage-side exception")
+    function player:getInventory()
+        return { haveThisKeyId = function(_, id) return id == 42 and {} or nil end }
+    end
+    check(T.actorCanUnlock(player, nativeDoor, northSide), "a physically held key retains its ordinary permission")
+    nativeDoor.keyId, player.getInventory = -1, nil
+    nativeDoor.permanent = true
+    check(not T.actorCanUnlock(player, nativeDoor, owner), "garage allowance keeps permanent locks closed")
+    nativeDoor.permanent, nativeDoor.code = false, 123
+    check(not T.actorCanUnlock(player, nativeDoor, owner), "garage allowance keeps code locks closed")
+    nativeDoor.code = nil
+    local zombie = actor(20.5, 20.5, 0, "IsoZombie")
+    check(not T.actorCanUnlock(zombie, nativeDoor, owner), "native garage inside allowance is limited to player-shaped actors")
+    local northGetter = nativeDoor.getNorth
+    nativeDoor.getNorth = nil
+    check(not T.actorCanUnlock(player, nativeDoor, owner), "missing orientation fails closed instead of guessing a garage side")
+    nativeDoor.getNorth = northGetter
+    properties.GarageDoor = false
+    check(not T.actorCanUnlock(player, nativeDoor, owner), "ordinary roomless doors never inherit garage permissions")
+end
 do
     local zombie = actor(1.5, 0.5, 0, "IsoZombie")
     local originalFacts = SC.ZombieFacts.get

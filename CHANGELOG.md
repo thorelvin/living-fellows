@@ -12,6 +12,7 @@
 - Fishing expedition leaders collect a real rod and bait from shared camp storage before walking or boarding a car. Missing supplies pause the launch and retry automatically; preparation survives reload, and the trip timer starts when gear is ready. Expedition messages use companion names instead of internal IDs.
 - Store expeditions search the selected building in bounded steps instead of remaining near the entrance. Everything useful requests can collect camp stock beyond a carrier's personal supply targets, while respecting carry limits. A searcher who finds no eligible supplies pauses briefly without holding back productive teammates.
 - Expedition crews switch off and verify their car's engine before getting out at a destination or returning home, including fallback parking and canceled departures.
+- Upstairs container approaches remember a blocked native route and survey an alternate stair approach instead of repeatedly walking into the same locked door. Inside-door checks use public door geometry when the opposite-square helper is unavailable, and garage doors respect the game's physical-side rules. Distant or upstairs shelves get a bounded 45-second approach allowance while the no-progress timeout stays in effect.
 - The native bridge protocol remains `42.21-isocompanion-24`, targeting Project Zomboid 42.21.0.
 
 ## 0.26.63 - Natural sleep, camp work recovery and clearer tool requests

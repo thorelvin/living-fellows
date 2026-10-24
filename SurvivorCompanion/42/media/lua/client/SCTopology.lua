@@ -302,11 +302,48 @@ function Topology.doorOpensFromInside(actor, object, fromSquare)
     local data = U().modData(object)
     if type(data) == "table" and data.CustomLock == true then return false end
     local owner, ownerKnown = U().call(object, "getSquare")
-    local opposite, oppositeKnown = U().call(object, "getOppositeSquare")
-    if not ownerKnown or not oppositeKnown then return false end
+    if not ownerKnown or owner == nil then return false end
     local ownerRoom = select(1, U().call(owner, "getRoom"))
+    if room == ownerRoom then return true end
+    local opposite, oppositeKnown = U().call(object, "getOppositeSquare")
+    if not oppositeKnown then
+        -- B42 supplies this as an interface default, which is not exposed on
+        -- every Lua door surface. Its public edge orientation gives the same
+        -- opposite square without depending on that optional method.
+        local north, northKnown = U().call(object, "getNorth")
+        local x, y, z = U().position(owner)
+        if not northKnown or type(north) ~= "boolean" or x == nil then return false end
+        opposite = U().gridSquare(math.floor(x) - (north and 0 or 1),
+            math.floor(y) - (north and 1 or 0), math.floor(z or 0))
+    end
     local oppositeRoom = select(1, U().call(opposite, "getRoom"))
-    return room == ownerRoom or room == oppositeRoom
+    return room == oppositeRoom
+end
+
+local function garageOpensFromSide(actor, object, fromSquare)
+    if not U().instanceOf(actor, "IsoPlayer")
+        or not U().instanceOf(object, "IsoDoor") then return false end
+    local sprite, spriteKnown = U().call(object, "getSprite")
+    local properties, propertiesKnown
+    if spriteKnown then properties, propertiesKnown = U().call(sprite, "getProperties")
+    else properties, propertiesKnown = U().call(object, "getProperties") end
+    if not propertiesKnown or properties == nil then return false end
+    local garage, garageKnown = U().call(properties, "has", "GarageDoor")
+    local interior, interiorKnown = U().call(properties, "has", "InteriorSide")
+    local forced, forcedKnown = U().call(properties, "has", "forceLocked")
+    if not garageKnown or garage ~= true or not interiorKnown
+        or type(interior) ~= "boolean" or not forcedKnown or forced ~= false then return false end
+    local data = U().modData(object)
+    if type(data) == "table" and data.CustomLock == true then return false end
+    local north, northKnown = U().call(object, "getNorth")
+    local owner = select(1, U().call(object, "getSquare"))
+    local x, y = U().position(owner)
+    local ax, ay = U().position(fromSquare or actor)
+    if not northKnown or type(north) ~= "boolean" or x == nil or ax == nil then return false end
+    -- Native ToggleDoorActual's garage allowance is based on the physical
+    -- side, including garages whose inside tiles have no room definition.
+    local ownerSide = north and ay >= y or not north and ax >= x
+    return interior and ownerSide or not interior and not ownerSide
 end
 
 function Topology.actorCanUnlock(actor, object, fromSquare)
@@ -318,10 +355,13 @@ function Topology.actorCanUnlock(actor, object, fromSquare)
     local code, codeOk = U().call(object, "getLockedByCode")
     if codeOk and type(code) == "number" and code > 0 then return false end
     local keyId, keyOk = U().call(object, "getKeyId")
-    if not keyOk or type(keyId) ~= "number" or keyId < 0 then return false end
-    local inventory = U().inventory(actor)
-    local key, hasKey = U().call(inventory, "haveThisKeyId", keyId)
-    return hasKey and key ~= nil and key ~= false
+    if not keyOk or type(keyId) ~= "number" then return false end
+    if keyId >= 0 then
+        local key, hasKey = U().call(U().inventory(actor), "haveThisKeyId", keyId)
+        return hasKey and key ~= nil and key ~= false
+    end
+    if callBoolean(object, "isLockedByKey") then return false end
+    return garageOpensFromSide(actor, object, fromSquare)
 end
 
 function Topology.doorBashable(object, tool)

@@ -119,6 +119,15 @@ assert(state.task and state.task.container == farSource and state.task.pendingIt
         and moves > 0 and contentReads == 0,
     "the far upstairs shelf is discovered, selected blindly and physically approached")
 assert(state.containerSearch == scan, "walking across the store retains the discovery cursor")
+local farTask = state.task
+local approachStart = farTask.approachStartedAt
+assert(not SC.Encounter._approachExpired(farTask, approachStart + 26000, 1,
+        { expandedNodes = 100 }, actor)
+        and not SC.Encounter._approachExpired(farTask, approachStart + 45000, 1,
+            { expandedNodes = 200 }, actor)
+        and SC.Encounter._approachExpired(farTask, approachStart + 45001, 1,
+            { expandedNodes = 232 }, actor),
+    "a distant store route keeps its full 45-second allowance when it nears the shelf")
 actor.square = farSquare
 SC.Encounter.tryScavenge(actor, nil, runtime)
 clock = clock + 1000
@@ -137,6 +146,28 @@ SC.Encounter.tryScavenge(actor, nil, runtime)
 state = SC.Encounter.peek(actor)
 assert(state.task and state.containerSearch and state.containerSearch.index < state.containerSearch.total
         and contentReads == 0, "a discovered shelf begins approach before the footprint scan completes")
+approachStart = state.task.approachStartedAt
+assert(SC.Encounter._approachExpired(state.task, approachStart + 25001, 1,
+        { expandedNodes = 100 }, actor),
+    "nearby same-floor expedition sources retain the existing 25-second total cap")
+
+SC.Encounter.reset()
+cells, contentReads = {}, 0
+actor.square = square(138, 101, 0)
+source(square(139, 101, 1))
+for _ = 1, 5 do
+    SC.Encounter.tryScavenge(actor, nil, runtime)
+    if SC.Encounter.peek(actor).task then break end
+end
+state = SC.Encounter.peek(actor)
+assert(state.task, "the nearby upstairs fixture selects a loaded shelf")
+approachStart = state.task.approachStartedAt
+assert(not SC.Encounter._approachExpired(state.task, approachStart + 26000, 2,
+        { expandedNodes = 100 }, actor),
+    "a nearby shelf on another floor gets time to reach and cross the stairs")
+assert(SC.Encounter._approachExpired(state.task, approachStart + 38001, 2,
+        { expandedNodes = 100 }, actor),
+    "an extended route still fails after twelve seconds without meaningful progress")
 
 SC.Encounter.reset()
 cells, failures = {}, 0

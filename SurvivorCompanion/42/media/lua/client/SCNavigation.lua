@@ -6821,7 +6821,7 @@ function Navigation._breakRestartedNativeLease(actor, state, now)
     return true
 end
 
-function Navigation.noteMultiLevelFailure(state, goalSquare)
+function Navigation.noteMultiLevelFailure(state, goalSquare, reason)
     local transition = state.stairTransition and state.stairTransition.descent
     if transition then
         state.stairTransition.lastStalledTarget = transition.key
@@ -6836,6 +6836,12 @@ function Navigation.noteMultiLevelFailure(state, goalSquare)
     end
     state.multiLevelFailedGoal = { x = gx, y = gy, z = math.floor(gz or 0) }
     state.multiLevelFailureCount = (state.multiLevelFailureCount or 0) + 1
+    -- An observed locked portal already proves that retrying the opaque
+    -- engine route cannot work. Survey a stair approach through the ordinary
+    -- portal-aware planner without waiting for a second identical collision.
+    if reason == "path_blocked:door_locked" then
+        state.multiLevelFailureCount = math.max(2, state.multiLevelFailureCount)
+    end
 end
 
 function Navigation.stairFallbackGoal(actor, state, goalSquare, now, intent)
@@ -7225,7 +7231,10 @@ function Navigation.request(actor, target, movementMode, intent)
     if leaseState == "active" then return true, leaseStatus or "native_path_owned" end
     if leaseState == "failed" then
         if failedMultiLevel then
-            SC.Navigation.noteMultiLevelFailure(state, goalSquare)
+            SC.Navigation.noteMultiLevelFailure(state, goalSquare, leaseStatus)
+            if leaseStatus == "path_blocked:door_locked" then
+                return true, "planning_stair_transition"
+            end
         end
         local fromSquare = state.lastAttemptFrom or sourceSquare
         local toSquare = state.lastAttemptTo or goalSquare
@@ -8729,12 +8738,20 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
     -- Poll it before the nearest-path fast path can issue a replacement,
     -- especially when a changed candidate set arrives halfway down stairs.
     if state.nativeLease and (state.nativeLease.multiGoalKey == key or keep) then
+        local nativeGoal = state.nativeLease.ultimateGoal or valid[1]
+        local failedMultiLevel = state.nativeLease.affordance == "multi_level"
         local leaseState, leaseStatus = maintainNativeLease(actor, state,
-            state.nativeLease.ultimateGoal or valid[1], now)
+            nativeGoal, now)
         if leaseState == "active" then return true, leaseStatus end
         if leaseState == "arrived" then return true, "arrived", leaseStatus end
         if leaseState == "failed" then
             state.nativeMultiUnavailableUntil = now + 5000
+            if failedMultiLevel then
+                SC.Navigation.noteMultiLevelFailure(state, nativeGoal, leaseStatus)
+                if leaseStatus == "path_blocked:door_locked" then
+                    return true, "planning_stair_transition"
+                end
+            end
             -- A locked door on the engine route is final for this approach;
             -- replanning only walks the same way again until the caller's
             -- approach timeout.

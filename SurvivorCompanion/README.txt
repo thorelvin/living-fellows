@@ -11,6 +11,9 @@ reserved for the trip. Expedition messages display companion names.
 Store searches cover the selected building and collect requested camp stock
 beyond personal supply targets. Cars are switched off before the crew exits,
 including when a blocked parking approach requires returning on foot.
+Upstairs searches recover through checked stair approaches after a locked
+door blocks a native route. Distant and upstairs shelves allow longer walks
+while stalled approaches still time out.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added

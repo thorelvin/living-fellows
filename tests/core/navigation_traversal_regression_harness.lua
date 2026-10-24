@@ -677,6 +677,38 @@ do
     local phase = N._maintainNativeLeaseForTests(follower, state, upstairs, current)
     check(phase == "active" and eastDoor.opened and state.nativeLease ~= nil,
         "cross-floor follow opens the held first-floor door without dropping movement")
+    local oldUnlock = SC.Topology.actorCanUnlock
+    SC.Topology.actorCanUnlock = function() return false end
+    function eastDoor:isLocked() return true end
+    eastDoor.opened = false
+    state = N._stateForTests(follower)
+    state.nativeLease = {
+        targets = { upstairs }, fromSquare = source, toSquare = upstairs,
+        ultimateGoal = upstairs, affordance = "multi_level",
+        startedAt = current, expires = current + 6000,
+        positionProgressAt = current - 500, progressSquareKey = "0:0:0",
+        lastWorldX = follower.x, lastWorldY = follower.y, lastWorldZ = follower.z,
+    }
+    local accepted, reason = N.requestAny(follower, { upstairs }, "walk", {
+        action = "move_to_scavenge", preferVerifiedPath = true,
+    })
+    check(accepted and reason == "planning_stair_transition"
+            and state.nativeLease == nil and not eastDoor.opened
+            and state.multiLevelFailureCount >= 2,
+        "a locked portal on a multi-goal upstairs route retains the task for a stair detour: "
+            .. tostring(accepted) .. ":" .. tostring(reason) .. ":"
+            .. tostring(state.multiLevelFailureCount))
+    local oldStairTarget, surveys = N.stairTransitionTarget, 0
+    N.stairTransitionTarget = function()
+        surveys = surveys + 1
+        return nil, "planning"
+    end
+    local stairGoal, adjusted = N.stairFallbackGoal(follower, state, upstairs,
+        current + 1, { action = "move_to_scavenge" })
+    check(stairGoal == nil and adjusted and surveys == 1,
+        "the next request surveys an alternate stair approach instead of restarting the blocked engine route")
+    N.stairTransitionTarget, SC.Topology.actorCanUnlock = oldStairTarget, oldUnlock
+    N.cancel(follower, "test_finished")
     SC.NativeActions = oldActions
     SC.Topology.barrierBetween = oldBarrierBetween
     U.gridSquare = oldGridSquare

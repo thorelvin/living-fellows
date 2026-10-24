@@ -1774,6 +1774,7 @@ local function beginTask(actor, state, container, item, category, owner, utility
         commandSerial = tonumber(commands.commandSerial) or 0,
         scavengeRequestedCategory = commands.scavengeRequestedCategory,
         scavengeMissionId = commands.scavengeMissionId,
+        scavengeSiteId = commands.scavengeSite and commands.scavengeSite.buildingId,
     }
     state.container = container
     state.item = item
@@ -1794,6 +1795,12 @@ local function beginTask(actor, state, container, item, category, owner, utility
         task.containerX = math.floor(task.containerX) + 0.5
         task.containerY = math.floor(task.containerY) + 0.5
     end
+    local _, _, sourceLevel = U().position(actor)
+    task.extendedSiteApproach = task.scavengeMissionId ~= nil
+        and task.scavengeSiteId ~= nil
+        and (ownerDistance(actor, task.owner) > (U().config("scavengeRadius") or 14)
+            or sourceLevel ~= nil and task.containerZ ~= nil
+                and math.floor(sourceLevel) ~= math.floor(task.containerZ))
     local service = supervisor()
     if service and type(service.begin) == "function" then
         local x, y, z = U().position(taskSquare)
@@ -2661,7 +2668,8 @@ end
 -- seconds without progress. Progress is a half tile gained on the container,
 -- a route search that is still expanding, or the actor walking at least a
 -- tile: a valid detour round a wall moves away before it closes in, and must
--- not be abandoned for that. The 25-second cap still bounds a wandering one.
+-- not be abandoned for that. Nearby mission sources have a 25-second cap;
+-- a selected building's distant shelves or other floors get at most 45 seconds.
 function Encounter._approachExpired(task, time, distance, navigation, mover)
     if type(task) ~= "table" or tonumber(task.approachStartedAt) == nil
         or tonumber(time) == nil then
@@ -2669,7 +2677,7 @@ function Encounter._approachExpired(task, time, distance, navigation, mover)
     end
     local limit = tonumber(U().config("scavengeApproachMaxMs")) or 45000
     if task.scavengeMissionId ~= nil then
-        limit = math.min(limit, 25000)
+        limit = math.min(limit, task.extendedSiteApproach and 45000 or 25000)
         distance = tonumber(distance)
         if distance ~= nil and (task.bestDeadlineDistance == nil
             or distance <= task.bestDeadlineDistance - 0.5) then
