@@ -706,15 +706,8 @@ local function visibleCompanionLabel(record, subject, px, py, pz, playerIndex)
         and targetAlphaOk and tonumber(targetAlpha) and tonumber(targetAlpha) <= 0.05 then
         return nil
     end
-    -- The vanilla chat element occupies the same head anchor. Let speech take
-    -- the lane while active instead of painting the name through the sentence.
-    local speaking, speakingOk = safeMethod(actor, "isSpeaking")
-    if speakingOk then
-        if speaking == true then return nil end
-    else
-        local line, lineOk = safeMethod(actor, "getSayLine")
-        if lineOk and type(line) == "string" and line ~= "" then return nil end
-    end
+    -- SCNativeCompanion lifts its chat bubble above this name anchor. Keep the
+    -- name visible during speech so a busy camp still identifies its speakers.
     local name = firstName(record)
     if name == nil then return nil end
     local distance = math.sqrt(distanceSq)

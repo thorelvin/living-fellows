@@ -135,4 +135,106 @@ check(handled and reason == "floor_item_stored" and cargo.container == store,
 check(not contains(root, cargo) and not contains(bagInventory, cargo) and contains(store, cargo)
     and cargo.modData.LF_FloorSortJob == nil and job.target.floorCargo == nil,
     "verified delivery has one owner and clears both marker and receipt")
+
+-- Ordinary shelf sorting keeps its receipt in BaseWork rather than on the
+-- item. Exercise that production controller alongside the real Logistics path.
+local shelfSource, shelfDestination = container(), container()
+local sourceRow = { id = "storage:source", category = "general" }
+local destinationRow = { id = "storage:destination", category = "crafting" }
+local shelfCargo = item(103, "Base.TinCan", "Item")
+local shelfJob = { id = "job:116", type = "sort", state = "active",
+    reservedBy = actor.id, target = {} }
+base.jobs = { shelfJob }
+SC.BaseWatch, SC.Downtime, SC.ChefWork, SC.Production, SC.GatherWork = nil, nil, nil, nil, nil
+SC.BaseLife.job = function(id) return id == shelfJob.id and shelfJob or nil end
+SC.BaseLife.jobFor = function() return shelfJob.state == "active" and shelfJob or nil end
+SC.BaseLife.resident = function() return { role = "generalist", duty = true } end
+SC.BaseLife.outdoorNightRestricted = function() return false end
+SC.BaseLife.storageRows = function() return { sourceRow } end
+SC.BaseLife.depositStorageRows = function() return { destinationRow } end
+SC.BaseLife.storage = function(id)
+    return id == sourceRow.id and sourceRow or id == destinationRow.id and destinationRow or nil
+end
+SC.BaseLife.resolveContainer = function(row)
+    return row == sourceRow and shelfSource or row == destinationRow and shelfDestination or nil
+end
+SC.BaseLife.storageReserve = function() return 0 end
+SC.BaseLife.availableCountExact = function() return 1 end
+SC.BaseLife.withdrawable = function() return true end
+SC.BaseLife.isValuableItem = function() return false end
+SC.BaseLife.touchJob = function() return true end
+SC.BaseLife.completeJob = function() shelfJob.state = "completed" return true end
+SC.BaseLife.releaseJob = function() shelfJob.state = "pending" return true end
+utility.listSize = function(values) return #(values or {}) end
+utility.listGet = function(values, index) return values[index + 1] end
+utility.characterStatValue = function(_, _, fallback) return fallback end
+utility.modData = function(value) return value.modData end
+local visualPhase = "active"
+utility.move = function() moves = moves + 1 visualPhase = "active" return true end
+SC.NativeActions.visualStatus = function() return visualPhase end
+SC.NativeActions.cancelVisual = function() return true end
+SC.Logistics.reset(actor)
+add(root, shelfCargo)
+current = current + 2000
+local packing, packReason = SC.Logistics.update(actor, nil, { snapshot = {} })
+check(packing and packReason == "logistics_action_active",
+    "an ordinary unclaimed shelf item can start a real packing transaction")
+-- The cached selection predates the work receipt. The item is now withdrawn
+-- by the shelf job before that old packing transaction gets its commit turn.
+check(transfer(root, shelfSource, shelfCargo), "the cached item can return to its source shelf")
+local startedShelf = SC.BaseWork.update(actor, nil, {})
+visualPhase = "completed"
+local tookShelf = SC.BaseWork.update(actor, nil, {})
+check(startedShelf and tookShelf and contains(root, shelfCargo)
+    and SC.BaseWork.cargoReserved(actor, shelfCargo)
+    and not SC.BaseWork.cargoReserved({ id = "other" }, shelfCargo)
+    and not SC.BaseWork.cargoReserved(actor, stale),
+    "the real shelf withdrawal reserves only its exact item for this worker")
+local movesBeforeRecheck = moves
+local packedCargo, reservedReason = SC.Logistics.update(actor, nil, { snapshot = {} })
+check(not packedCargo and reservedReason == "logistics_item_reserved"
+    and shelfCargo.container == root and moves == movesBeforeRecheck,
+    "a cached pack transaction refuses newly owned shelf cargo before another Loot or transfer")
+current = current + 2000
+audit = SC.Logistics.status(actor)
+check(audit.packMove == nil and audit.cargoWeight == 1,
+    "live shelf cargo is excluded from packing and ordinary gear load")
+add(root, stale)
+current = current + 2000
+audit = SC.Logistics.status(actor)
+check(audit.packMove and audit.packMove.item == stale,
+    "shelf cargo protection leaves unrelated loose items packable")
+root.items[#root.items], stale.container = nil, nil
+visualPhase = "completed"
+local deliveredShelf, deliveredReason = SC.BaseWork.update(actor, nil, {})
+check(deliveredShelf and deliveredReason == "base_transfer_complete"
+    and shelfCargo.container == shelfDestination
+    and not SC.BaseWork.cargoReserved(actor, shelfCargo),
+    "the protected shelf cargo still delivers normally and releases its runtime receipt")
+
+-- Cancelling a later haul also releases protection only after its exact item
+-- has been verified back at the registered source.
+check(transfer(shelfDestination, shelfSource, shelfCargo), "the next haul starts at its shelf")
+shelfJob.state = "active"
+local startedReturn = SC.BaseWork.update(actor, nil, {})
+visualPhase = "completed"
+local tookReturn = SC.BaseWork.update(actor, nil, {})
+check(startedReturn and tookReturn and SC.BaseWork.cargoReserved(actor, shelfCargo),
+    "the next shelf haul owns its newly withdrawn cargo")
+local cancelledShelf = SC.BaseWork.cancel(actor, "test_shelf_cancelled")
+check(cancelledShelf and shelfCargo.container == shelfSource
+    and not SC.BaseWork.cargoReserved(actor, shelfCargo),
+    "verified cancellation returns shelf cargo and releases its protection")
+check(transfer(shelfSource, root, shelfCargo), "a later unreserved gift can be carried normally")
+SC.Logistics.reset(actor)
+current = current + 2000
+audit = SC.Logistics.status(actor)
+check(audit.packMove and audit.packMove.item == shelfCargo,
+    "released shelf cargo becomes packable again")
+local resumedPacking = SC.Logistics.update(actor, nil, { snapshot = {} })
+visualPhase = "completed"
+local finishedPacking, finishedReason = SC.Logistics.update(actor, nil, { snapshot = {} })
+check(resumedPacking and finishedPacking and finishedReason == "item_packed"
+    and shelfCargo.container == bagInventory,
+    "normal packing physically resumes after shelf ownership ends")
 print("FLOOR_CARGO_LOGISTICS_PASS checks=" .. checks)

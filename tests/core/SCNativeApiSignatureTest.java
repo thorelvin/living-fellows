@@ -535,6 +535,24 @@ public final class SCNativeApiSignatureTest {
                         && method(camera, "setCameraCharacter", gameCharacter).getReturnType()
                                 == boolean.class,
                 "Project Zomboid camera ownership signatures changed");
+        Class<?> losUtil = Class.forName("zombie.iso.LosUtil");
+        Class<?> chunk = Class.forName("zombie.iso.IsoChunk");
+        Class<?> renderLevels = Class.forName("zombie.iso.fboRenderChunk.FBORenderLevels");
+        Class<?> renderChunk = Class.forName("zombie.iso.fboRenderChunk.FBORenderChunk");
+        require(losUtil.getField("cachecleared").getType() == boolean[].class
+                        && Modifier.isStatic(losUtil.getField("cachecleared").getModifiers())
+                        && cell.getField("playerCutawaysDirty").getType() == boolean[].class
+                        && method(cell, "invalidatePeekedRoom", int.class).getReturnType()
+                                == void.class
+                        && player.getField("dirtyRecalcGridStack").getType() == boolean.class
+                        && player.getField("dirtyRecalcGridStackTime").getType() == float.class
+                        && chunk.getField("lightingNeverDone").getType() == boolean[].class
+                        && method(chunk, "getRenderLevels", int.class).getReturnType()
+                                == renderLevels
+                        && method(renderLevels, "invalidateAll", long.class).getReturnType()
+                                == void.class
+                        && renderChunk.getField("DIRTY_CUTAWAYS").getLong(null) == 2048L,
+                "primary-view sight and cutaway invalidation signatures changed");
         Constructor<?> constructor = player.getConstructor(cell, descriptor,
                 int.class, int.class, int.class, boolean.class);
         require(Modifier.isPublic(constructor.getModifiers()), "IsoPlayer NPC constructor is not public");
@@ -974,7 +992,7 @@ public final class SCNativeApiSignatureTest {
                 + " reflection-contract=true cleanup-retry=true"
                 + " reaction-states=" + reactionStates.length + " movement-owner=true"
                  + " attack-continuation=true outgoing-receipts=true door-guard=true swing-sound=true aim-steadying=true"
-                 + " camera-offset=true local-save-id=true window-success=true"
+                 + " camera-offset=true view-release-refresh=true local-save-id=true window-success=true"
                  + " timed-path=true");
     }
 }

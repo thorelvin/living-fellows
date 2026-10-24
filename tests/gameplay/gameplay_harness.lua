@@ -20683,6 +20683,124 @@ do
     BaseLife.cancelJob(loopJob.id)
 end
 do
+    local priorDocument, priorClock = BaseLife.export(), clock
+    local accepted, waiting = BaseLife.enqueueJob({ type = "sort_floor", priority = 5,
+        assignedId = fellow.id, target = { x = 2, y = 2, z = 0,
+            floorCargo = { itemId = 72931, x = 2, y = 2, z = 0 } } })
+    local function claimedOther(job)
+        local claimedJob = BaseLife.claimJob(fellow.id)
+        if claimedJob and claimedJob ~= job then
+            BaseLife.releaseJob(claimedJob.id, fellow.id, "retry_fixture")
+        end
+        return claimedJob ~= job
+    end
+    for _ = 1, 6 do BaseLife.blockJob(waiting.id, nil, "path_blocked:blocked_static") end
+    local deadline = waiting.retryAt
+    check(accepted and waiting.attempts == 6 and deadline - clock == 180000
+            and BaseLife.jobParked(waiting) and BaseLife.jobAutoRetry(waiting),
+        "safe camp work pauses three minutes after its initial failure budget")
+    local row
+    for _, candidate in ipairs(BaseLife.summary().rows) do
+        if candidate.id == waiting.id then row = candidate end
+    end
+    check(row and row.parked and row.autoRetry == true and row.retryRemainingMs == 180000,
+        "a capped automatic job reports its actual remaining pause for the Base tab")
+    clock = deadline - 1
+    check(claimedOther(waiting), "a safe capped job cannot be reclaimed before its pause ends")
+    local saved = BaseLife.export()
+    check(BaseLife.restore(saved), "an automatic retry deadline and cargo survive save normalization")
+    waiting = BaseLife.job(waiting.id)
+    local cargo = waiting.target.floorCargo
+    check(waiting.retryAt == deadline and waiting.attempts == 6
+            and waiting.assignedId == fellow.id and cargo.itemId == 72931
+            and claimedOther(waiting),
+        "reloading neither bypasses the pause nor grants a fresh failure budget")
+    clock = deadline
+    check(BaseLife.claimJob(fellow.id) == waiting and waiting.attempts == 6
+            and waiting.assignedId == fellow.id and waiting.target.floorCargo == cargo,
+        "the due retry claims the same job, worker and exact floor cargo without resetting attempts")
+    BaseLife.blockJob(waiting.id, fellow.id, "path_blocked:blocked_static")
+    check(waiting.attempts == 7 and waiting.retryAt - clock == 180000
+            and waiting.target.floorCargo == cargo and claimedOther(waiting),
+        "another failure pauses three minutes rather than starting six quick attempts")
+    clock = waiting.retryAt
+    check(BaseLife.claimJob(fellow.id) == waiting and waiting.attempts == 7,
+        "a second automatic retry retains the exhausted failure budget")
+    BaseLife.blockJob(waiting.id, fellow.id, "hauled_item_missing")
+    check(waiting.retryAt - clock == 180000 and BaseLife.jobAutoRetry(waiting),
+        "a conclusively absent previous haul can safely reselect on the next timed retry")
+    check(BaseLife.retryJob(waiting.id) and waiting.state == "pending"
+            and waiting.attempts == 0 and BaseLife.claimJob(fellow.id) == waiting,
+        "manual Retry remains immediate and explicitly grants a fresh attempt budget")
+    BaseLife.releaseJob(waiting.id, fellow.id, "retry_fixture")
+    for _ = 1, 6 do BaseLife.blockJob(waiting.id, nil, "movement_rejected", 600000) end
+    deadline = waiting.retryAt
+    check(deadline - clock == 600000, "a caller's longer retry pause is never shortened")
+    local legacy = BaseLife.export()
+    for _, storedBase in pairs(legacy.bases) do
+        for _, storedJob in ipairs(storedBase.jobs) do
+            if storedJob.id == waiting.id then storedJob.navigationRecovery = nil end
+        end
+    end
+    check(BaseLife.restore(legacy), "a legacy capped job with its own deadline still loads")
+    waiting = BaseLife.job(waiting.id)
+    clock = deadline - 1
+    check(waiting.retryAt == deadline and waiting.attempts == 6 and claimedOther(waiting),
+        "an older saved capped job retains its deadline instead of resetting on load")
+    BaseLife.auditJobRecovery()
+    check(waiting.state == "blocked" and waiting.attempts == 6 and waiting.retryAt == deadline,
+        "legacy navigation recovery cannot bypass a saved automatic pause")
+    clock = deadline
+    BaseLife.auditJobRecovery()
+    check(BaseLife.claimJob(fellow.id) == waiting and waiting.attempts == 6,
+        "an older due job is claimed without legacy recovery restarting six quick attempts")
+    BaseLife.releaseJob(waiting.id, fellow.id, "retry_fixture")
+    BaseLife.cancelJob(waiting.id)
+
+    for _, reason in ipairs({ "floor_pickup_unverified", "haul_cargo_owner_unknown",
+        "cleaning_marker_uncertain", "chef_restart_needs_recovery", "fire_spread" }) do
+        local queuedUnsafe, unsafe = BaseLife.enqueueJob({ type = "sort", priority = 5,
+            assignedId = fellow.id, target = { x = 2, y = 2, z = 0 } })
+        for _ = 1, 6 do BaseLife.blockJob(unsafe.id, nil, reason, 3600000) end
+        clock = unsafe.retryAt
+        local unsafeRow
+        for _, candidate in ipairs(BaseLife.summary().rows) do
+            if candidate.id == unsafe.id then unsafeRow = candidate end
+        end
+        check(queuedUnsafe and BaseLife.jobParked(unsafe)
+                and not BaseLife.jobAutoRetry(unsafe) and claimedOther(unsafe)
+                and unsafeRow and unsafeRow.autoRetry == false
+                and unsafeRow.retryRemainingMs == nil,
+            "uncertain native outcomes stay parked for review: " .. reason)
+        BaseLife.cancelJob(unsafe.id)
+    end
+    for _, kind in ipairs({ "gather_materials", "production" }) do
+        check(not BaseLife.jobAutoRetry({ type = kind, state = "blocked",
+                blocker = "path_blocked:blocked_static", attempts = 6 }),
+            "order-owned " .. kind .. " keeps its existing retry and pause controller")
+    end
+    for _, reason in ipairs({ "chef_supply_missing", "chef_supply_changed",
+        "chef_food_storage_unavailable", "chef_carry_capacity_low", "chef_craft_surface_missing" }) do
+        check(BaseLife.jobAutoRetry({ type = "cook", state = "blocked",
+                blocker = reason, attempts = 6 }),
+            "safe cooking preparation can retry after a pause: " .. reason)
+    end
+    for _, reason in ipairs({ "fuel_receipt_missing", "fuel_state_missing",
+        "native_amount_unreadable", "transfer_uncertain" }) do
+        check(not BaseLife.jobAutoRetry({ type = "refuel_vehicle", state = "blocked",
+                blocker = reason, attempts = 6 }),
+            "fuel recovery retains its conservative native check: " .. reason)
+    end
+    for _, state in ipairs({ "pending", "manual", "cancelled", "completed", "paused" }) do
+        check(not BaseLife.jobAutoRetry({ type = "sort", state = state,
+                blocker = "path_blocked:blocked_static", attempts = 6 }),
+            "the automatic blocked policy does not reopen " .. state .. " work")
+    end
+    check(BaseLife.restore(priorDocument), "retry regression restores the prior camp document")
+    clock = priorClock
+end
+
+do
     local queuedFarm, farmJob = BaseLife.enqueueJob({ type = "farm", priority = 5,
         target = { x = 3, y = 2, z = 0, operation = "water", zoneId = "zone:fixture" } })
     for _ = 1, 8 do

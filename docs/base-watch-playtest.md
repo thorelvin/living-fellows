@@ -22,7 +22,10 @@ cannot run together.
    work order, and the one reused local-player save slot.
 5. Return to camp near the leader. The second view should close once the
    primary player's map owns that area. Starting a later expedition should
-   reuse the released slot.
+   reuse the released slot. Walk behind the camp's south-facing wall and
+   confirm it hides from the primary player's position. Nearby residents,
+   including the former watched leader, should show their names when visible;
+   names should remain visible while a companion speaks.
 6. In a separate clone, move the watched leader outdoors for several seconds
    while another indoor resident is nearby. The indoor resident should take
    the view. If the leader dies, the next eligible resident should take it;

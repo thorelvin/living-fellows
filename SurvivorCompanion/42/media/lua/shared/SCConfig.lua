@@ -1234,11 +1234,12 @@ local valueData = {
     baseHistoryLimit = 96,
     baseJobLeaseMs = 45000,
     baseJobRetryMs = 10000,
-    -- A blocked job retries after baseJobRetryMs, doubling per failure up to
-    -- the cap. After this many failures it waits for the player's Retry or
-    -- Cancel in the Base tab instead of looping on its own.
+    -- Initial failures back off to the cap. Safe blocked camp work then gets
+    -- one attempt every few minutes, retaining its saved failure count and
+    -- deadline. The player's Retry is still immediate.
     baseJobRetryMaxMs = 600000,
     baseJobParkAfterFailures = 6,
+    baseJobBlockedRetryMs = 180000,
     baseAuditIntervalMs = 2000,
     baseGuardPatrolIntervalMs = 30000,
     baseGuardShiftMs = 180000,

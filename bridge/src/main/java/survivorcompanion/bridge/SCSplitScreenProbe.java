@@ -13,9 +13,12 @@ import zombie.characters.SurvivorFactory;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoChunk;
 import zombie.iso.IsoChunkMap;
+import zombie.iso.IsoCamera;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoWorld;
 import zombie.iso.ChunkSaveWorker;
+import zombie.iso.LosUtil;
+import zombie.iso.fboRenderChunk.FBORenderChunk;
 import zombie.iso.objects.IsoDeadBody;
 import zombie.radio.ZomboidRadio;
 import zombie.savefile.PlayerDB;
@@ -531,6 +534,7 @@ public final class SCSplitScreenProbe {
         IsoPlayer.numPlayers = 1;
         IsoPlayer.setInstance(primary);
         leader = null;
+        restorePrimaryViewAfterRelease(primary, world.getCell());
         restoreZoomAfterRelease();
         return true;
     }
@@ -586,6 +590,7 @@ public final class SCSplitScreenProbe {
         IsoPlayer.numPlayers = 1;
         IsoPlayer.setInstance(primary);
         leader = null;
+        restorePrimaryViewAfterRelease(primary, world.getCell());
         restoreZoomAfterRelease();
         if (current == coldProbe) {
             if (!SCBridge.disposeColdProbeActor(current)) {
@@ -667,8 +672,40 @@ public final class SCSplitScreenProbe {
         IsoPlayer.numPlayers = 1;
         IsoPlayer.setInstance(primary);
         leader = null;
+        restorePrimaryViewAfterRelease(primary, IsoWorld.instance.getCell());
         restoreZoomAfterRelease();
         return true;
+    }
+
+    /**
+     * Leaving the second view must restore its render owner as well as its
+     * player slots. Rebuild only the primary view's sight and wall caches once;
+     * ordinary camera movement does not invalidate every cached cutaway.
+     */
+    static void restorePrimaryViewAfterRelease(IsoPlayer primary, IsoCell cell) {
+        // Slot teardown has already committed. A render cleanup failure must
+        // not report a failed release and leave Lua trying to close slot 1 again.
+        try {
+            IsoCamera.setCameraCharacter(primary);
+            LosUtil.cachecleared[0] = true;
+            primary.dirtyRecalcGridStack = true;
+            primary.dirtyRecalcGridStackTime = 0.0f;
+            cell.invalidatePeekedRoom(0);
+            cell.playerCutawaysDirty[0] = true;
+            IsoChunkMap map = cell.getChunkMap(0);
+            if (map == null || map.getChunks() == null) return;
+            for (IsoChunk chunk : map.getChunks()) {
+                // Match the native FBORenderCell.invalidateAll(int) path:
+                // untouched chunks have no primary-view rendering to refresh.
+                if (chunk != null && !chunk.lightingNeverDone[0]) {
+                    chunk.getRenderLevels(0).invalidateAll(FBORenderChunk.DIRTY_CUTAWAYS);
+                }
+            }
+        } catch (RuntimeException | LinkageError failure) {
+            System.err.println("[SurvivorCompanionBridge] primary view refresh after release failed: "
+                    + failure.getClass().getSimpleName() + ": "
+                    + String.valueOf(failure.getMessage()));
+        }
     }
 
     private static void restoreZoomAfterRelease() {

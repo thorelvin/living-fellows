@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 0.26.64 - Automatic job retries and companion view fixes
+
+- Base policy switches use native checkboxes with wrapped labels. Rejected changes restore the previous selection, and remote camp policies stay disabled.
+- Companion names remain visible during speech; their dialogue bubbles already sit above the name labels.
+- Closing Base Watch or an expedition now explicitly restores the primary camera and refreshes its sight and wall-cutaway caches once after releasing the second view.
+- Ordinary blocked camp jobs, including sorting, get one automatic attempt every three minutes after repeated failures. Their targets and carried stock are retained, the Base view shows a retry countdown, and manual Retry remains available. A relevant access change can allow an earlier attempt; reloading preserves the saved wait. Unresolved native effects retain their existing recovery delays.
+- Shelf sorters keep carried stock reserved for delivery, preventing ordinary bag packing from interrupting storage transfers. A packing action selected before the sorter claimed the item rechecks ownership before moving it.
+- The native bridge protocol remains `42.21-isocompanion-24`, targeting Project Zomboid 42.21.0.
+
 ## 0.26.63 - Natural sleep, camp work recovery and clearer tool requests
 
 - Awake companions now gain fatigue using the player's native sleep traits, endurance and sandbox settings, allowing normal bed seeking and sleep without artificial fatigue timers.

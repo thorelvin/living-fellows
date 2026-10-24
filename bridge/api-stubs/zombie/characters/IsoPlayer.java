@@ -11,6 +11,8 @@ public class IsoPlayer extends IsoLivingCharacter {
     public int playerIndex;
     public int serverPlayerIndex;
     public int sqlId = -1;
+    public boolean dirtyRecalcGridStack;
+    public float dirtyRecalcGridStackTime;
     protected boolean isPlayerMoving;
     private boolean initiateAttack;
     private boolean attackStarted;

@@ -137,6 +137,29 @@ local TRANSIENT_SORT_BLOCKERS = {
     floor_trash_pile_unavailable = 30000,
 }
 local TRANSIENT_GATHER_BLOCKERS = { destination_full = 30000 }
+-- These failures occur before a new effect, or after an exact cargo check
+-- has settled the previous transfer. A later ordinary attempt can reselect.
+local AUTO_RETRY_BLOCKERS = {
+    base_storage_unloaded = true, base_storage_changed = true,
+    base_storage_withdrawals_disabled = true, base_supply_reserved = true,
+    base_supply_moved = true, hauled_item_missing = true,
+    build_target_unloaded = true, build_approach_missing = true,
+    carried_supply_unreachable = true,
+    barricade_target_unloaded = true, maintenance_target_unloaded = true,
+    cleaning_target_unavailable = true, cleaning_supplies_missing = true,
+    cleaning_supply_reserved = true,
+    farm_output_storage_missing = true, farm_food_storage_missing = true,
+    floor_zone_missing = true, floor_worker_unavailable = true,
+    floor_source_changed = true, no_floor_items = true,
+    chef_supply_missing = true, chef_supply_changed = true,
+    chef_food_storage_unavailable = true, chef_carry_capacity_low = true,
+    chef_craft_surface_missing = true,
+}
+local AUTO_RETRY_UNCERTAIN_MARKERS = {
+    "uncertain", "unverified", "unreadable", "outcome_unknown", "receipt",
+    "owner_unknown", "marker", "ambiguous", "chef_native",
+    "restart_needs_recovery", "fire_spread",
+}
 local function transientJobDelay(job, reason)
     if type(job) ~= "table" then return nil end
     if reason == "destination_full" or reason == "haul_destinations_full"
@@ -4359,7 +4382,7 @@ function BaseLife.claimJob(actorId)
             releaseExpiredJob(job)
         end
         if job.state == "pending" or (job.state == "blocked" and job.retryAt <= current
-            and not BaseLife.jobParked(job)) then
+            and (not BaseLife.jobParked(job) or BaseLife.jobAutoRetry(job))) then
             -- A restored or expired unload may still name its first worker.
             -- Let another resident claim it once that worker is loaded and
             -- the exact cargo/action recovery check says there is no owner.
@@ -4476,12 +4499,15 @@ function BaseLife.blockJob(id, actorId, reason, retryMs)
     end
     if BaseLife.noteJobNavigationFailure then BaseLife.noteJobNavigationFailure(job, worker) end
     job.updatedAt = now()
-    -- Each failure doubles the wait, up to the cap; a caller's longer delay
-    -- (a Chef receipt check) is its own cap. A parked job is skipped by
-    -- claimJob until the player retries or cancels it.
+    -- Safe ordinary work gets one attempt per longer pause after exhausting
+    -- its initial failure budget. Keep the attempt count: neither this retry
+    -- nor a reload starts another burst of six attempts.
     local delay = math.max(1000, integer(retryMs, U().config("baseJobRetryMs") or 10000))
     if transientDelay then
         job.retryAt = now() + math.max(delay, transientDelay)
+    elseif BaseLife.jobParked(job) and BaseLife.jobAutoRetry(job) then
+        job.retryAt = now() + math.max(delay,
+            tonumber(U().config("baseJobBlockedRetryMs")) or 180000)
     else
         local cap = math.max(delay, tonumber(U().config("baseJobRetryMaxMs")) or 600000)
         job.retryAt = now() + math.min(cap, delay * 2 ^ math.min(job.attempts - 1, 16))
@@ -4689,8 +4715,8 @@ function BaseLife.retryJob(id)
     return true, job
 end
 
--- Repeated failures stop the automatic retries; the job then waits for the
--- player. Derived from the persisted attempt count, so it survives a reload.
+-- Repeated failures exhaust the initial quick attempts. Safe ordinary work
+-- remains paused until its saved retryAt; other blockers need player review.
 -- Gather and production jobs follow their order's own retry, pause and
 -- cancel controls instead.
 function BaseLife.jobParked(job)
@@ -4699,6 +4725,27 @@ function BaseLife.jobParked(job)
         and not transientJobDelay(job, job.blocker)
         and (tonumber(job.attempts) or 0)
             >= (tonumber(U().config("baseJobParkAfterFailures")) or 6)
+end
+
+function BaseLife.jobAutoRetry(job)
+    if type(job) ~= "table" or job.state ~= "blocked" or orderOwnedJob(job) then
+        return false
+    end
+    local reason = tostring(job.blocker or "")
+    -- Preserve conservative native-effect/receipt recovery. In particular,
+    -- vehicle controllers deliberately request a longer check for any missing
+    -- native state; the ordinary few-minute policy must never shorten it.
+    for _, marker in ipairs(AUTO_RETRY_UNCERTAIN_MARKERS) do
+        if string.find(reason, marker, 1, true) then return false end
+    end
+    if (job.type == "refuel_vehicle" or job.type == "refuel_generator"
+        or job.type == "inflate_tires" or job.type == "wash_vehicle")
+        and string.find(reason, "missing", 1, true) then return false end
+    return transientJobDelay(job, reason) ~= nil or AUTO_RETRY_BLOCKERS[reason] == true
+        or BaseLife.navigationFailure(reason)
+        or string.find(reason, "missing_build_supply:", 1, true) == 1
+        or string.find(reason, "missing_tool:", 1, true) == 1
+        or string.find(reason, "missing_supply:", 1, true) == 1
 end
 
 -- A recovery generation is saved on the job, not inferred from the release or
@@ -4807,6 +4854,14 @@ function BaseLife.auditJobRecovery()
                     if signature then recovery.signature = signature end
                 end
                 if recovery.changed ~= true then return false, "navigation_job_waiting_for_access_change" end
+            end
+            if BaseLife.jobAutoRetry(job) and recovery.changed ~= true
+                and (tonumber(job.retryAt) or 0) > 0 then
+                -- A legacy recovery generation must not bypass a saved timed
+                -- pause or reset its exhausted attempt count. claimJob owns
+                -- this due retry; an observed access change may still rearm it.
+                return false, job.retryAt > now() and "navigation_job_waiting_for_retry"
+                    or "navigation_job_retry_due"
             end
             if not goal or not U().gridSquare(goal.x, goal.y, goal.z)
                 or job.type == "sort_floor" and not zone
@@ -5246,10 +5301,18 @@ function BaseLife.summary()
                 result.jobs.active = result.jobs.active + 1
             elseif job.state == "blocked" then result.jobs.blocked = result.jobs.blocked + 1 end
             if job.state ~= "completed" and job.state ~= "cancelled" then
+                local autoRetry
+                if not orderOwnedJob(job) then
+                    autoRetry = job.state == "blocked"
+                        and (not BaseLife.jobParked(job) or BaseLife.jobAutoRetry(job))
+                end
                 result.rows[#result.rows + 1] = {
                     id = job.id, type = job.type, priority = job.priority, state = job.state,
                     reservedBy = job.reservedBy, blocker = job.blocker,
                     assignedId = job.assignedId, parked = BaseLife.jobParked(job),
+                    autoRetry = autoRetry,
+                    retryRemainingMs = autoRetry
+                        and math.max(0, (tonumber(job.retryAt) or 0) - now()) or nil,
                     kind = job.buildKind, planId = job.planId, target = job.target,
                     stageIndex = job.stageIndex,
                     stageCount = type(job.stages) == "table" and #job.stages or 0,

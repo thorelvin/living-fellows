@@ -492,7 +492,7 @@ class UIStaticContractTests(unittest.TestCase):
         # Every job counted as blocked must expose its reason and controls,
         # including failures that will retry on their own.
         stalled = base[base.index("if #stalled > 0 then"):]
-        self.assertIn('if job.state == "blocked" then', base)
+        self.assertIn("UI.baseJobRetryText(job)", base)
         self.assertIn("for _, job in ipairs(stalled) do", stalled)
         self.assertNotIn("math.min(#stalled", stalled)
         self.assertEqual(base.count('"retry_job"'), 1)

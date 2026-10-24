@@ -1,10 +1,10 @@
-Living Fellows 0.26.63 - public playtest
+Living Fellows 0.26.64 - public playtest
 
-Companions naturally grow tired and seek beds. Storage workers reuse valid
-approach routes, floor cargo stays protected from ordinary bag packing, and
-borrowed tools retain their physical return trips across cancellation and
-reload. Camp and encounter scans share work across frames, and tool requests
-use plain language such as "I need a hammer."
+Ordinary blocked camp jobs retry automatically after a pause, with a countdown
+and manual Retry still available. Shelf sorters keep carried stock reserved
+for delivery. Base Watch restores the primary camera and sight caches when
+its second view closes. Base policies use native checkboxes, and companion
+names remain visible during speech.
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added
@@ -49,6 +49,9 @@ lock the rectangle while choosing Finish zone here. With the layout visible,
 right-click a zone to remove it. Mark opened containers as storage and assign
 residents in More > Base. Residents sort, repair, craft, keep watch, patrol,
 maintain barricades, build, farm, read and gather loose logs or planks.
+Ordinary blocked jobs retry automatically after a pause. Repeated failures
+allow one new attempt every three minutes; the Base view shows the wait and
+keeps Retry available for an immediate attempt.
 
 PRODUCTION
 The Base view's Production section gives one or two residents a finite order.

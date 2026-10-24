@@ -542,6 +542,7 @@ local signatureExcludedFields = {
     ageMs = true,
     phaseAgeMs = true,
     remainingMs = true,
+    retryRemainingMs = true,
     retryAt = true,
     failedAt = true,
     at = true,
@@ -653,12 +654,21 @@ local function baseDetailSignature()
     if not SC.BaseLife or type(SC.BaseLife.summary) ~= "function" then return "base:none" end
     local summary = SC.BaseLife.summary()
     local operations = summary.operations or {}
+    -- Countdown text changes by the displayed minute, rather than rebuilding
+    -- the scrolling page for every millisecond in the summary's retry clock.
+    local jobRetries = {}
+    for _, job in ipairs(summary.rows or {}) do
+        if job.state == "blocked" and job.autoRetry == true then
+            jobRetries[#jobRetries + 1] = { id = job.id, text = UI.baseJobRetryText(job) }
+        end
+    end
     local visuals = SC.BaseVisuals and type(SC.BaseVisuals.status) == "function"
         and SC.BaseVisuals.status() or {}
     return "base:" .. stableSignatureValue({
         configured = summary.configured, name = summary.name, zones = summary.zones,
         storages = summary.storages, residents = summary.residents, duty = summary.duty,
         jobs = summary.jobs, rows = summary.rows, zoneRows = summary.zoneRows,
+        jobRetries = jobRetries,
         storageRows = summary.storageRows, maintenanceRows = summary.maintenanceRows,
         residentRows = summary.residentRows,
         operations = {
@@ -973,6 +983,22 @@ function UI.actionFailureText(summary)
             math.max(1, math.ceil((tonumber(retry.remainingMs) or 0) / 1000)))
     end
     return value
+end
+
+function UI.baseJobRetryText(job)
+    if type(job) ~= "table" or job.state ~= "blocked" then return nil end
+    if job.blocker == "chef_restart_needs_recovery" then return nil end
+    if job.autoRetry == true then
+        local remaining = math.max(0, tonumber(job.retryRemainingMs) or 0)
+        if remaining > 0 then
+            return UI.text("UI_SC_Base_JobRetryMinutes", math.ceil(remaining / 60000))
+        end
+        return UI.text("UI_SC_Base_JobRetryReady")
+    end
+    if job.parked == true or job.autoRetry == false then
+        return UI.text("UI_SC_Base_JobPaused")
+    end
+    return UI.text("UI_SC_Base_JobRetryWaiting")
 end
 
 local function summaryTooltip(row)
@@ -1565,15 +1591,23 @@ local function onCrisisButton(target, button)
     UI.refresh()
 end
 
-local function onBaseToggle(target, button)
-    if not SC.BaseLife or type(SC.BaseLife.setPolicy) ~= "function" then return end
+local function onBaseToggle(target, index, selected, policyKey, _argument, tickBox)
+    local previous = tickBox.scSelected == true
+    if not SC.BaseLife or type(SC.BaseLife.setPolicy) ~= "function" then
+        tickBox:setSelected(index, previous)
+        return
+    end
     if SC.BaseWatch and SC.BaseWatch.isRemote(playerForUI()) then
+        tickBox:setSelected(index, previous)
         setButtonFeedback(target, UI.text("UI_SC_BaseWatch_RadioOnly"), false)
         return
     end
-    local policyKey = button and button.scPolicyKey
-    local selected = button and button.scSelected ~= true
     local ok, accepted, reason = pcall(SC.BaseLife.setPolicy, policyKey, selected == true)
+    if ok and accepted == true then
+        tickBox.scSelected = selected == true
+    else
+        tickBox:setSelected(index, previous)
+    end
     setButtonFeedback(target, ok and accepted == true
         and UI.text("UI_SC_Base_PolicyUpdated")
         or UI.text("UI_SC_Base_ActionFailed", tostring(reason or accepted)),
@@ -2873,22 +2907,37 @@ function SCUIDetail:addBaseToggle(panel, y, labelKey, policyKey, selected)
     local metrics = self.metrics or UI.layoutMetrics()
     local width = math.max(100, panel:getWidth() - 28)
     local label = UI.text(labelKey)
-    -- A native tick box keeps its tooltip in UIManager while this long Base
-    -- page rebuilds and scrolls. Put the wrapped policy name on its own line
-    -- and use a normal button for the state so neither can cover stock rows.
-    y = self:addInformationLine(panel, y, "UI_SC_Info_Message", label)
-    local stateLabel = UI.text(selected == true
-        and "UI_SC_Value_On" or "UI_SC_Value_Off")
-    local button = ISButton:new(8, y, width, metrics.buttonHeight,
-        (selected == true and "[x] " or "[ ] ") .. stateLabel,
-        self, onBaseToggle)
-    button:initialise()
-    makeButtonTranslucent(button)
-    button.scPolicyKey = policyKey
-    button.scSelected = selected == true
-    panel:addChild(button)
+    local boxHeight = math.max(18, metrics.fontHeight)
+    local tickBox = ISTickBox:new(12, y, width, boxHeight, "", self,
+        onBaseToggle, policyKey)
+    tickBox:initialise()
+    tickBox.background = false
+    local labelX = 12 + tickBox.boxSize + tickBox.textGap
+    local lines = UI.wrapText(UIFont.Small, label,
+        math.max(40, width - tickBox.boxSize - tickBox.textGap))
+    tickBox:addOption(lines[1], policyKey)
+    tickBox:setSelected(1, selected == true)
+    tickBox.scSelected = selected == true
+    local remote = SC.BaseWatch and SC.BaseWatch.isRemote(playerForUI())
+    local enabled = SC.BaseLife and type(SC.BaseLife.setPolicy) == "function"
+        and not remote
+    tickBox:disableOption(lines[1], not enabled)
+    tickBox.enable = enabled == true
+    tickBox.tooltip = remote and UI.text("UI_SC_BaseWatch_RadioOnly") or nil
+    panel:addChild(tickBox)
+    -- Show the entire policy name without a floating tooltip over stock rows.
+    -- Continuations align with the native checkbox's first text line.
+    local lineY = y + tickBox:getHeight()
+    for index = 2, #lines do
+        local tint = enabled and 0.7 or 0.5
+        local continuation = ISLabel:new(labelX, lineY, metrics.fontHeight,
+            lines[index], tint, tint, tint, 1, UIFont.Small, true)
+        continuation:initialise()
+        panel:addChild(continuation)
+        lineY = lineY + metrics.infoLineHeight
+    end
     panel.scContentWidth = panel:getWidth()
-    return y + metrics.buttonHeight + 8
+    return math.max(y + metrics.buttonHeight, lineY) + 8
 end
 
 function SCUIDetail:addBasePolicySelector(panel, y, labelKey, policyKey, current, options)
@@ -3725,11 +3774,6 @@ function SCUIDetail:buildBase(panel, row)
                     or job.state == "pending" and job.blocker == "expired_job_subsystem_owned"
                         and UI.text("UI_SC_Base_RecoveryPending")
                     or UI.humanize(job.blocker or "blocked")
-                if job.parked then
-                    blocker = blocker .. " — " .. UI.text("UI_SC_Base_JobPaused")
-                elseif job.state == "blocked" then
-                    blocker = blocker .. " — " .. UI.text("UI_SC_Base_JobRetryWaiting")
-                end
                 if job.type == "sort_floor" then
                     local category = type(job.target) == "table"
                         and job.target.floorCategory or nil
@@ -3743,6 +3787,8 @@ function SCUIDetail:buildBase(panel, row)
                         blocker = UI.text("UI_SC_Base_FloorTrashMissing")
                     end
                 end
+                local retryText = UI.baseJobRetryText(job)
+                if retryText then blocker = blocker .. " — " .. retryText end
                 y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
                     UI.text(rowKey,
                         worker and (kind .. " (" .. worker .. ")") or kind,

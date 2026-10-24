@@ -12,7 +12,7 @@ Persistent companions, survivor households, and living bases for Project Zomboid
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.21.0-red.svg)](#requirements)
-[![Release](https://img.shields.io/badge/release-0.26.63-blue.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-0.26.64-blue.svg)](CHANGELOG.md)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 
 Living Fellows turns the survivors you meet into persistent people. They can join you, fight and travel with you, help run a base, and make their own survival decisions. Companions are native human actors with real inventories, injuries, skills, and permanent death.
@@ -261,7 +261,7 @@ Tools and materials come from camp storage. The underlying work actions remain f
 - Fire is real. A pyre must be outdoors on open ground, away from buildings, stored goods, trees, vehicles, and loose items. Nothing is lit in the rain unless you allow it, nobody else may stand close to the body being lit, and if fire appears beyond the pyre every worker stops and the order waits for your Retry.
 - A fallen companion found by Collect the dead gets an empty grave of their own and always a cross, and the grave keeps their name. Fallen companions are never burned. A body whose identity is not certain is treated as a stranger, and your own body is never touched.
 - A blocked order shows the reason and tries again on its own; a spreading fire stops disposal until the area is safe.
-- Any other base job waits a little longer after each failure, up to ten minutes. After six failures in a row it stops trying and appears under **Stalled jobs** in the Base view, with its reason and **Retry** and **Cancel** buttons.
+- Temporary shortages and full storage are checked again automatically. Ordinary blocked jobs wait longer after each failed attempt; after six failures, eligible work gets one fresh attempt every three minutes. The same job keeps its target and any carried stock. The Base view shows the pause and retry countdown; **Retry** lets you try immediately, and **Cancel** remains available. An unresolved native action keeps its longer recovery delay and existing controls.
 
 Every closed grave gets a few words: a short prayer or a line of bleak gallows humor depending on who holds the shovel, a salute, and sometimes an "Amen" from a friend nearby. Lighting a pyre may earn a "Burn, baby, burn!" or "Disco inferno!", a burned-out pyre gets its own prayer or gallows line, and a fallen companion's grave closes with their name instead of a joke.
 

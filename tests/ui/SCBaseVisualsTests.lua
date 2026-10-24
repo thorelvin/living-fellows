@@ -62,6 +62,21 @@ assert(#fixture.labels == 6 and fixture.labels[2].value == "Addy"
 assert(fixture.labels[2].red == 0.84 and fixture.labels[4].red == 0.99
         and fixture.labels[6].red == 0.99,
     "changing roster selection must return the old name to blue and turn the new one gold")
+local originalPlayerX, originalPlayerY = fixture.player.x, fixture.player.y
+fixture.player.x, fixture.player.y = 1000, 1000
+fixture.labels = {}
+Events.OnPreUIDraw.callback()
+assert(#fixture.labels == 2 and fixture.labels[2].value == "Beth"
+        and fixture.labels[2].x > 960,
+    "Base Watch labels must follow the camp viewer when the primary player leaves")
+fixture.player.x, fixture.player.y = originalPlayerX, originalPlayerY
+fixture.secondPlayer = originalSecondPlayer
+fixture.splitScreen = false
+fixture.labels = {}
+Events.OnPreUIDraw.callback()
+assert(#fixture.labels == 4 and fixture.labels[2].value == "Addy"
+        and fixture.labels[4].value == "Beth" and fixture.labels[2].x < 960,
+    "ending Base Watch must restore the former leader's name in the single player view")
 fixture.records[2] = nil
 fixture.otherCompanion = nil
 fixture.secondPlayer = originalSecondPlayer
@@ -221,7 +236,8 @@ fixture.companion.speech = "One zombie ahead."
 fixture.companion.speaking = true
 fixture.labels = {}
 Events.OnPreUIDraw.callback()
-assert(#fixture.labels == 6, "active overhead speech must own the companion head-text lane")
+assert(#fixture.labels == 8 and fixture.labels[8].value == "Addy",
+    "native lifted speech must keep the companion's identifying name visible")
 fixture.companion.speaking = false
 fixture.labels = {}
 Events.OnPreUIDraw.callback()

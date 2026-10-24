@@ -77,6 +77,82 @@ public final class SCIsoCompanionControlTest {
         }
     }
 
+    private static void testPrimaryViewReleaseRefresh(IsoPlayer primary,
+            SCNativeCompanion formerLeader, IsoCell cell) throws Exception {
+        Class<?> losClass = Class.forName("zombie.iso.LosUtil");
+        boolean[] los = (boolean[]) losClass.getField("cachecleared").get(null);
+        boolean[] previousLos = los.clone();
+        boolean[] previousDirty = cell.playerCutawaysDirty.clone();
+        var directionsField = IsoCell.class.getField("lastPlayerDir");
+        Object[] directions = (Object[]) directionsField.get(cell);
+        Object[] previousDirections = directions.clone();
+        boolean previousGridDirty = primary.dirtyRecalcGridStack;
+        float previousGridTime = primary.dirtyRecalcGridStackTime;
+        var map = cell.getChunkMap(0);
+        require(map != null && map.getChunks() != null && map.getChunks().length > 1,
+                "primary view release fixture needs its native chunk map");
+        zombie.iso.IsoChunk[] chunks = map.getChunks();
+        zombie.iso.IsoChunk previousChunk = chunks[0];
+        zombie.iso.IsoChunk previousUntouched = chunks[1];
+        var rendered = new zombie.iso.IsoChunk(cell);
+        var untouched = new zombie.iso.IsoChunk(cell);
+        Object firstLevels = rendered.getRenderLevels(0);
+        Object secondLevels = rendered.getRenderLevels(1);
+        Method clearDirty = firstLevels.getClass().getMethod("clearDirty", int.class, float.class);
+        Method isDirty = firstLevels.getClass().getMethod("isDirty", int.class, long.class, float.class);
+        var nativeLevels = zombie.iso.IsoChunk.class.getDeclaredField("renderLevels");
+        nativeLevels.setAccessible(true);
+        Object[] untouchedLevels = (Object[]) nativeLevels.get(untouched);
+        Object previousUntouchedLevels = untouchedLevels[0];
+        try {
+            Arrays.fill(los, false);
+            Arrays.fill(cell.playerCutawaysDirty, false);
+            Arrays.fill(directions, zombie.iso.IsoDirections.S);
+            primary.dirtyRecalcGridStack = false;
+            primary.dirtyRecalcGridStackTime = 90.0f;
+            rendered.lightingNeverDone[0] = false;
+            untouched.lightingNeverDone[0] = true;
+            chunks[0] = rendered;
+            chunks[1] = untouched;
+            clearDirty.invoke(firstLevels, 0, 1.0f);
+            clearDirty.invoke(secondLevels, 0, 1.0f);
+            require(!(Boolean) isDirty.invoke(firstLevels, 0, 2048L, 1.0f)
+                            && !(Boolean) isDirty.invoke(secondLevels, 0, 2048L, 1.0f),
+                    "view release fixture starts with clean per-view cutaways");
+            IsoPlayer.setInstance(primary);
+            zombie.iso.IsoCamera.setCameraCharacter(formerLeader);
+
+            SCSplitScreenProbe.restorePrimaryViewAfterRelease(primary, cell);
+
+            require(zombie.iso.IsoCamera.getCameraCharacter() == primary
+                            && IsoPlayer.getInstance() == primary
+                            && IsoPlayer.players[0] == primary && IsoPlayer.players[1] == null
+                            && IsoPlayer.numPlayers == 1,
+                    "released companion view retained its former camera owner or altered player slots");
+            require(los[0] && !los[1] && !los[2] && !los[3]
+                            && cell.playerCutawaysDirty[0]
+                            && !cell.playerCutawaysDirty[1] && !cell.playerCutawaysDirty[2]
+                            && !cell.playerCutawaysDirty[3]
+                            && directions[0] == null && directions[1] == zombie.iso.IsoDirections.S
+                            && primary.dirtyRecalcGridStack && primary.dirtyRecalcGridStackTime == 0.0f,
+                    "view release did not invalidate only the primary sight, peeking and grid caches");
+            require((Boolean) isDirty.invoke(firstLevels, 0, 2048L, 1.0f)
+                            && !(Boolean) isDirty.invoke(secondLevels, 0, 2048L, 1.0f)
+                            && untouchedLevels[0] == previousUntouchedLevels,
+                    "view release did not refresh rendered primary cutaways independently of other views");
+        } finally {
+            System.arraycopy(previousLos, 0, los, 0, los.length);
+            System.arraycopy(previousDirty, 0, cell.playerCutawaysDirty, 0, previousDirty.length);
+            System.arraycopy(previousDirections, 0, directions, 0, directions.length);
+            primary.dirtyRecalcGridStack = previousGridDirty;
+            primary.dirtyRecalcGridStackTime = previousGridTime;
+            chunks[0] = previousChunk;
+            chunks[1] = previousUntouched;
+            IsoPlayer.setInstance(primary);
+            zombie.iso.IsoCamera.setCameraCharacter(primary);
+        }
+    }
+
     private static void testRetainedMovementAndPathState(SCNativeCompanion actor) throws Exception {
         // Repeat the previously oscillating 0.54-tile alignment pulse at several
         // decision gaps and game multipliers, using production endpoint clamping.
@@ -1315,6 +1391,8 @@ public final class SCIsoCompanionControlTest {
         attackMarker.rawset("SC_PlayerAttackProtected", Boolean.FALSE);
         testLivingViewHandoff((IsoPlayer) localPlayer,
                 (SCNativeCompanion) actor, (SCNativeCompanion) secondActor);
+        testPrimaryViewReleaseRefresh((IsoPlayer) localPlayer,
+                (SCNativeCompanion) secondActor, (IsoCell) cell);
         require((Boolean) playerClass.getMethod("getCoopPVP").invoke(null),
                 "owned NPCs did not enable the vanilla IsoPlayer hit gate");
         Class<?> movingObjectClass = Class.forName("zombie.iso.IsoMovingObject");
@@ -1363,7 +1441,7 @@ public final class SCIsoCompanionControlTest {
         playerClass.getMethod("setCoopPVP", boolean.class).invoke(null, coopPvpBefore);
         System.out.println("ISO_COMPANION_CONTROL_PASS actors=2 index=3 components=true voice-position=true local-state=unchanged"
                 + " movement=true animation-scalars=true rollback=true transient-ownership=true ownership=true pvp-hit-gate=true permadeath=true teardown=true"
-                + " cleanup-retry=true update="
+                + " cleanup-retry=true view-release-refresh=true update="
                 + (updateReachedRenderBoundary ? "contained-render-boundary" : "complete"));
     }
 }

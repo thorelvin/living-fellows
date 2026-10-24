@@ -1486,6 +1486,14 @@ local function cargoContainer(actor, cargo)
     return nil, "absent"
 end
 
+-- Shelf hauling keeps its exact receipt in the worker's runtime state. Other
+-- inventory decisions must leave that item available until delivery or return.
+function BaseWork.cargoReserved(actor, item)
+    local state = actor and states[actor]
+    return item ~= nil and state ~= nil and type(state.cargo) == "table"
+        and state.cargo.item == item
+end
+
 -- Put carried cargo back where it came from, so a blocked job never leaves a
 -- worker quietly holding base stock.
 local function returnCargo(actor, cargo)

@@ -301,6 +301,8 @@ end
 -- expedition receipts. keptHarvestDeposit admits one case: a harvest kept for
 -- pickup because no car was chosen may go into camp storage.
 local function workCargo(actor, item, keptHarvestDeposit)
+    if SC.BaseWork and type(SC.BaseWork.cargoReserved) == "function"
+        and SC.BaseWork.cargoReserved(actor, item) then return true end
     if SC.ExpeditionPrototype and SC.ExpeditionPrototype.receiptPending
         and SC.ExpeditionPrototype.receiptPending(item) then return true end
     local itemData = select(1, U().call(item, "getModData"))
@@ -1725,10 +1727,10 @@ local function executeTransaction(actor, state)
             kind = transaction.kind,
         })
     end
-    -- A harvest can finish after surplus selection but before this transfer
-    -- commits. Recheck ownership so a cached overload decision cannot drop
-    -- or shelve newly reserved field cargo.
-    if (transaction.kind == "drop" or transaction.kind == "deposit")
+    -- Work may claim an item after inventory selection but before this move
+    -- commits. Recheck ownership before packing, dropping or shelving it.
+    if (transaction.kind == "drop" or transaction.kind == "deposit"
+            or transaction.kind == "pack")
         and isProtected(actor, transaction.item,
             transaction.kind == "deposit" and transaction.keptHarvest == true) then
         return terminalTransaction(actor, state, false, "logistics_item_reserved", {

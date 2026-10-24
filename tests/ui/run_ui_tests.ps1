@@ -47,6 +47,14 @@ try {
         )
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @userOptionsFiles
         if ($LASTEXITCODE -ne 0) { throw 'User options Kahlua tests failed.' }
+        $basePolicyFiles = @(
+            (Join-Path $TestRoot 'SCUIBasePolicyFixture.lua'),
+            (Join-Path $GameRoot 'media\lua\client\ISUI\ISTickBox.lua'),
+            (Join-Path $Client 'SCUI.lua'),
+            (Join-Path $TestRoot 'SCUIBasePolicyTests.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @basePolicyFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Base policy checkbox UI tests failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @files
         if ($LASTEXITCODE -ne 0) { throw 'UI Kahlua tests failed.' }
         $expeditionZoomFiles = @(
