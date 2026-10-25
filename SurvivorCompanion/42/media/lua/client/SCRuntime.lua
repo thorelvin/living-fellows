@@ -1151,6 +1151,10 @@ local function banterTask(current)
     if SC.Banter ~= nil and type(SC.Banter.update) == "function" then
         SC.Banter.update(player(), SC.Registry.snapshot(), current)
     end
+    -- Work and expedition talk keeps its own pacing; it only shares the lane.
+    if SC.WorkVoice ~= nil and type(SC.WorkVoice.update) == "function" then
+        SC.WorkVoice.update(player(), SC.Registry.snapshot(), current)
+    end
 end
 
 local function companionGiftTask(current)
@@ -2030,6 +2034,7 @@ function runtime.reset(detach)
     resetModule("life events", SC.LifeEvents, "reset")
     resetModule("expedition", SC.ExpeditionPrototype, "reset")
     resetModule("expedition forests", SC.ExpeditionForests, "reset")
+    resetModule("work voice", SC.WorkVoice, "reset")
     resetModule("logging claims", SC.LoggingWork, "reset")
     resetModule("taxi booking", SC.TaxiBooking, "reset")
     resetModule("taxi cab", SC.TaxiCab, "reset")

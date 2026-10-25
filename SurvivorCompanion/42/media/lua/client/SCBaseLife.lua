@@ -4406,6 +4406,9 @@ function BaseLife.claimJob(actorId)
     best.state, best.reservedBy = "reserved", actorId
     best.leaseUntil = current + (U().config("baseJobLeaseMs") or 45000)
     best.updatedAt, best.blocker = current, nil
+    if SC.WorkVoice and type(SC.WorkVoice.jobEvent) == "function" then
+        pcall(SC.WorkVoice.jobEvent, "start", best, actorId)
+    end
     return best, "job_claimed"
 end
 
@@ -4491,6 +4494,13 @@ function BaseLife.blockJob(id, actorId, reason, retryMs)
         end
     end
     local transientDelay = transientJobDelay(job, reason)
+    -- Storage-full and missing-floor warnings above already said their piece.
+    if worker ~= nil and not storageFull and not transientDelay
+        and not (job.type == "sort_floor" and (job.blocker == "floor_storage_missing"
+            or job.blocker == "floor_trash_pile_missing"))
+        and SC.WorkVoice and type(SC.WorkVoice.jobEvent) == "function" then
+        pcall(SC.WorkVoice.jobEvent, "blocked", job, worker)
+    end
     job.attempts = transientDelay and 0 or (job.attempts or 0) + 1
     if type(job.navigationRecovery) == "table" and job.navigationRecovery.rearmed
         and BaseLife.navigationFailure and BaseLife.navigationFailure(job.blocker) then
@@ -4544,6 +4554,9 @@ function BaseLife.completeJob(id, actorId, result)
     }
     while #base.completed > 24 do table.remove(base.completed, 1) end
     table.remove(base.jobs, index)
+    if SC.WorkVoice and type(SC.WorkVoice.jobEvent) == "function" then
+        pcall(SC.WorkVoice.jobEvent, "done", job, actorId)
+    end
     return true, job
 end
 

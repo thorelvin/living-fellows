@@ -1739,4 +1739,15 @@ function Field.restore(saved)
     return true
 end
 
+-- Work speech reads each worker result after the fact; it never changes one.
+local updateWorker = Field.update
+function Field.update(actor, player, snapshot)
+    local kind = active and active.kind
+    local handled, reason, extra = updateWorker(actor, player, snapshot)
+    if SC.WorkVoice and type(SC.WorkVoice.fieldResult) == "function" then
+        pcall(SC.WorkVoice.fieldResult, actor, handled, reason, kind)
+    end
+    return handled, reason, extra
+end
+
 return Field

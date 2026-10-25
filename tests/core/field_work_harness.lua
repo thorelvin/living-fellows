@@ -268,6 +268,15 @@ check(Field.start("harvest", square(100, 100), player) == true,
 check(#placedMarkers == 1 and placedMarkers[1].square == square(100, 100),
     "field order marks only the clicked tile")
 check(Field.status().carId == 42, "car selected by SQL identity")
+-- The voice layer reads each worker result, with the order kind, after the fact.
+local fieldVoice = {}
+SC.WorkVoice = { fieldResult = function(_, handled, reason, kind)
+    fieldVoice[#fieldVoice + 1] = tostring(reason) .. ":" .. tostring(kind) .. ":" .. tostring(handled)
+end }
+local function heard(entry)
+    for _, value in ipairs(fieldVoice) do if value == entry then return true end end
+    return false
+end
 advance({ one, two }, 40)
 check(one.pending and one.pending.operation == "harvest"
     or two.pending and two.pending.operation == "harvest", "ripe crop action started")
@@ -280,6 +289,10 @@ local unrelated = item("Base.Pen")
 put(first.bag, unrelated)
 advance({ one, two }, 5)
 check(Field.status().completed >= 1, "harvest has world proof")
+check(heard("field_action_started:harvest:true") and heard("field_target_completed:harvest:true"),
+    "field results reach the voice layer with their order kind: " .. table.concat(fieldVoice, ", "))
+-- From here on the voice layer faults; field work must not notice.
+SC.WorkVoice = { fieldResult = function() error("voice fault") end }
 check(unrelated.data.LF_FieldOrder == nil,
     "a concurrent unrelated inventory addition is not adopted as crop yield")
 for index, value in ipairs(first.bag.items) do

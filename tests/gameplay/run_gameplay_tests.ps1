@@ -79,6 +79,7 @@ $LuaFiles += @(
     'SCTales.lua',
     'SCIntrusiveLines.lua',
     'SCBanter.lua',
+    'SCWorkVoiceLines.lua',
     'SCGestures.lua',
     'SCObjectives.lua',
     'SCJournal.lua',
@@ -304,6 +305,20 @@ try {
         )
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @giftFiles
         if ($LASTEXITCODE -ne 0) { throw 'Companion gift offer harness failed.' }
+        $workVoiceFiles = @(
+            (Join-Path $SharedRoot 'SCNamespace.lua'),
+            (Join-Path $SharedRoot 'SCCall.lua'),
+            (Join-Path $SharedRoot 'SCStableValue.lua'),
+            (Join-Path $SharedRoot 'SCNativeList.lua'),
+            (Join-Path $SharedRoot 'SCConfig.lua'),
+            (Join-Path $ClientRoot 'SCGameplayUtil.lua'),
+            (Join-Path $ClientRoot 'SCDialogue.lua'),
+            (Join-Path $ClientRoot 'SCWorkVoiceLines.lua'),
+            (Join-Path $ClientRoot 'SCWorkVoice.lua'),
+            (Join-Path $TestRoot 'work_voice_harness.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @workVoiceFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Expedition and work voice harness failed.' }
     }
     finally {
         Pop-Location

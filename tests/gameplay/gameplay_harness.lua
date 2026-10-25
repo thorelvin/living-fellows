@@ -20634,6 +20634,13 @@ check(SurvivorCompanion.Logistics.roleOf(loadedBuilder) == "builder"
     "builder loadout keeps a role reserve and deposits excess materials in classified base storage: "
         .. tostring(storedReason) .. ", carried=" .. tostring(#builderLoad.items)
         .. ", stored=" .. tostring(#store.container.items))
+-- Base job speech reports each claim, block and verified finish to the voice
+-- layer after the job state is settled; the voice layer never changes a job.
+SurvivorCompanion.WorkVoice = { events = {}, jobEvent = function(event, job, actorId)
+    local events = SurvivorCompanion.WorkVoice.events
+    events[#events + 1] = event .. ":" .. tostring(job and job.type) .. ":"
+        .. tostring(job and job.state) .. ":" .. tostring(actorId)
+end }
 local queued, baseJob = BaseLife.enqueueJob({ type = "build", priority = 4,
     recipeId = "ES_Wood_Wallframe", target = { x = 3, y = 2, z = 0 } })
 local claimed = queued and BaseLife.claimJob(fellow.id)
@@ -20646,6 +20653,32 @@ check(blockedJob and retriedJob and baseJob.state == "pending"
         and baseJob.blocker == nil and baseJob.reservedBy == nil,
     "blocked base jobs expose a retry operation that clears their blocker: "
         .. tostring(blockedReason) .. "/" .. tostring(retryReason))
+do
+    local events = SurvivorCompanion.WorkVoice.events
+    local id = tostring(fellow.id)
+    check(events[1] == "start:build:reserved:" .. id
+            and events[2] == "blocked:build:blocked:" .. id and #events == 2,
+        "a claimed and then blocked base job reports both to the voice layer: "
+            .. table.concat(events, ", "))
+    -- A failing voice layer can never cost a job its verified finish.
+    SurvivorCompanion.WorkVoice = { jobEvent = function() error("voice fault") end }
+    local again = BaseLife.claimJob(fellow.id)
+    local finished = again and BaseLife.completeJob(again.id, fellow.id, "fixture_done")
+    check(again and finished == true and BaseLife.job(again.id) == nil,
+        "speech errors are contained and the job still completes")
+    local done = {}
+    SurvivorCompanion.WorkVoice = { jobEvent = function(event, job)
+        done[#done + 1] = event .. ":" .. tostring(job and job.state)
+    end }
+    local queuedClean, cleanJob = BaseLife.enqueueJob({ type = "repair", priority = 9,
+        assignedId = fellow.id, target = { x = 2, y = 2, z = 0 } })
+    local claimedClean = queuedClean and BaseLife.claimJob(fellow.id)
+    if claimedClean then BaseLife.completeJob(claimedClean.id, fellow.id, "fixture_done") end
+    check(claimedClean and done[#done] == "done:completed" and done[#done - 1] == "start:reserved",
+        "a verified completion reports done after the job is marked complete: "
+            .. table.concat(done, ", ") .. " / " .. tostring(cleanJob and cleanJob.id))
+    SurvivorCompanion.WorkVoice = nil
+end
 do
     -- A job that keeps failing backs off, then waits for the player instead
     -- of retrying every ten seconds for the rest of the game.

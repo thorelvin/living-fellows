@@ -70,7 +70,14 @@ check(active.scout.wood.preparation and departures == 0 and active.scout.turnHom
     "accepted mission pauses for automatic gear preparation with a bounded default trip time")
 check(E.woodPreparationFor(leader) and E.woodPreparationFor(follower) == nil,
     "only the leader owns predeparture tool-fetch actions")
+-- The voice layer reads each pulse and work result after the fact.
+local voiceCalls = {}
+SC.WorkVoice = {
+    expeditionPulse = function(m) voiceCalls[#voiceCalls + 1] = "pulse:" .. tostring(m == active) end,
+    woodResult = function(_, reason) voiceCalls[#voiceCalls + 1] = "wood:" .. tostring(reason) end,
+}
 E.pulse()
+check(voiceCalls[1] == "pulse:true", "each expedition pulse is offered to the voice layer")
 check(active.testWaypoint == nil and verifyCalls == 0, "preparing crew cannot begin travel or site work")
 local recallRetries, normalCar = 0, SC.ExpeditionCar
 SC.ExpeditionCar = { requestReturn = function() recallRetries = recallRetries + 1 return false, "wood_work_settling" end }
@@ -91,6 +98,11 @@ hour, prepared = 22, true
 E.updateWood(leader)
 check(active.scout.wood.preparationReason == "wood_waiting_for_daylight" and departures == 0,
     "night policy delays departure while retaining borrowed tool state")
+check(voiceCalls[#voiceCalls] == "wood:wood_waiting_for_daylight"
+        and voiceCalls[#voiceCalls - 1] == "wood:wood_preparing_axes",
+    "wood preparation results reach the voice layer unchanged: " .. table.concat(voiceCalls, ", "))
+SC.WorkVoice = { expeditionPulse = function() error("voice fault") end,
+    woodResult = function() error("voice fault") end }
 hour = 30
 E.updateWood(leader)
 check(not active.scout.wood.preparation and active.scout.departureHour == 30

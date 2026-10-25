@@ -1271,7 +1271,7 @@ function Expedition.woodPreparationFor(actor)
     return context and context.wood.preparation and context or nil
 end
 
-function Expedition.updateWood(actor, snapshot)
+function Expedition._updateWoodWork(actor, snapshot)
     local context = Expedition.woodRequestFor(actor)
     if not context or not SC.ExpeditionWood then return false, "wood_work_unavailable" end
     context.snapshot = snapshot
@@ -1302,6 +1302,15 @@ function Expedition.updateWood(actor, snapshot)
         return handled == true or ready ~= true, reason or "wood_preparing_axes"
     end
     return SC.ExpeditionWood.update(actor, context)
+end
+
+-- Work speech reads each result after the fact; it never changes one.
+function Expedition.updateWood(actor, snapshot)
+    local handled, reason, done = Expedition._updateWoodWork(actor, snapshot)
+    if SC.WorkVoice and type(SC.WorkVoice.woodResult) == "function" then
+        pcall(SC.WorkVoice.woodResult, actor, reason)
+    end
+    return handled, reason, done
 end
 
 function Expedition.fishingGearStatus(records)
@@ -1375,6 +1384,9 @@ function Expedition.updateFishingPreparation(actor)
         or (missing == "fishing_bait_missing"
             and "fishing_bait_missing" or "fishing_rod_missing")
     preparation.retryAt = not active and now + 30000 or nil
+    if SC.WorkVoice and type(SC.WorkVoice.fishingPrepResult) == "function" then
+        pcall(SC.WorkVoice.fishingPrepResult, actor, preparation.reason)
+    end
     return true, preparation.reason
 end
 
@@ -2119,7 +2131,11 @@ end
 function Expedition.updateIntegration(actor)
     local record = Expedition.integrationFor(actor)
     if not record then return false, "delivery_not_ready" end
-    return SC.ExpeditionIntegration.update(record, actor)
+    local handled, reason, extra = SC.ExpeditionIntegration.update(record, actor)
+    if SC.WorkVoice and type(SC.WorkVoice.deliveryResult) == "function" then
+        pcall(SC.WorkVoice.deliveryResult, actor, record, handled, reason)
+    end
+    return handled, reason, extra
 end
 
 function Expedition.receiptPending(item)
@@ -2921,6 +2937,9 @@ function Expedition.noteSearchWorkerFailure(actor, missionId, reason)
     end
     search.workerFailures = search.workerFailures or {}
     search.workerFailures[member.id] = SC.GameplayUtil.nowMs() + 30000
+    if SC.WorkVoice and type(SC.WorkVoice.searchResult) == "function" then
+        pcall(SC.WorkVoice.searchResult, actor, reason)
+    end
     return true
 end
 
@@ -5454,6 +5473,10 @@ function Expedition.pulse()
         updateWaypointCohesion()
         pulseScout()
         if mission == nil then return true, "returned" end
+        -- Speech reads the itinerary after this pulse; it never changes it.
+        if SC.WorkVoice and type(SC.WorkVoice.expeditionPulse) == "function" then
+            pcall(SC.WorkVoice.expeditionPulse, mission, SC.GameplayUtil.nowMs())
+        end
         return false, mission.cohesionHold and "expedition_regroup"
             or "leader_alive"
     end
