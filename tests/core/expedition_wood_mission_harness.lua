@@ -165,6 +165,18 @@ check(E.prepareReset() and E.reset(), "world exit releases mission-owned native 
 check(E.restore(saved), "an active schema7 wood mission restores through strict travel and roster validation")
 check(E.current().scout.wood.request.quantity == 24 and E.current().scout.search == nil,
     "restore never leaves its validation-only search request in the live mission")
+check(E.woodMarkerLive({ tripId = E.current().radioSession, id = "log-1" }, nil)
+    and E.woodMarkerLive(nil, { id = "axe-1", memberId = "leader" }),
+    "the active trip keeps its cargo and borrowed-axe markers live")
+check(not E.woodMarkerLive({ tripId = "settled-trip", id = "log-x" }, nil)
+    and not E.woodMarkerLive(nil, { id = "axe-2", memberId = "leader" })
+    and not E.woodMarkerLive(nil, { id = "axe-1", memberId = "follower" }),
+    "a marker whose trip and loan are gone protects nothing")
+local savedPersistence = SC.Persistence
+SC.Persistence = { restoreStatus = function() return false end }
+check(E.woodMarkerLive({ tripId = "settled-trip", id = "log-x" }, nil),
+    "every marker stays live until the save has been restored")
+SC.Persistence = savedPersistence
 check(E.pulse(), "restored wood mission reacquires its exact native crew before work resumes")
 SC.Senses = { cached = function() return { valid = true, reflexTime = SC_TEST_CLOCK,
     threats = { { x = 142, y = 100, visible = true } } } end }

@@ -294,6 +294,44 @@ missing.loans.borrower = { itemId = "missing-original", storageId = source.id }
 put(borrower.bag, item("Base.Axe"))
 local _, missingReason, missingDone = Wood.returnTools(borrower, { wood = missing })
 check(not missingDone and missingReason == "wood_borrowed_axe_missing", "same-type substitute cannot settle loan")
+-- Delivery settlement may release a loan only once the borrower's whole
+-- inventory was read without the exact axe.
+check(Wood.loanState(missing, "borrower", borrower) == "missing"
+    and Wood.loanState(missing, "nobody", borrower) == "none",
+    "a fully read inventory without the exact axe proves the loan cannot be repaid")
+local keptAxe = item("Base.Axe") put(borrower.bag, keptAxe)
+local keptLoan = Wood.createState({ mode = "full" })
+keptLoan.loans.borrower = { itemId = keptAxe.id, storageId = source.id }
+check(Wood.loanState(keptLoan, "borrower", borrower) == "carried"
+    and Wood.loanState(keptLoan, "borrower", nil) == "unknown",
+    "a carried or uninspectable axe keeps its loan")
+local stuffed = actor("stuffed", 20)
+for _ = 1, 4097 do put(stuffed.bag, item("Base.Nail")) end
+check(Wood.loanState(keptLoan, "stuffed", stuffed) == "none", "loan lookup is by borrower")
+keptLoan.loans.stuffed = { itemId = keptAxe.id, storageId = source.id }
+check(Wood.loanState(keptLoan, "stuffed", stuffed) == "unknown",
+    "an inventory past the scan limit is not proof the axe is gone")
+-- A marker is only as live as its trip. Leftover protection from a settled
+-- trip must not keep a log or axe away from camp work forever.
+local leftover = item("Base.Axe")
+leftover.data.LF_ExpeditionWoodTool = { id = leftover.id, memberId = "borrower" }
+local leftoverLog = item("Base.Log")
+leftoverLog.data.LF_ExpeditionWood = { tripId = "settled-trip", id = leftoverLog.id, memberId = "borrower" }
+check(Wood.reserved(leftover) and Wood.reserved(leftoverLog),
+    "without the expedition owner every marker stays protective")
+local liveTrips = {}
+SC.ExpeditionPrototype = { woodMarkerLive = function(cargo, tool)
+    return cargo and liveTrips[cargo.tripId] or tool and liveTrips[tool.id] or false
+end }
+check(not Wood.reserved(leftover) and not Wood.reserved(leftoverLog),
+    "a settled trip's markers no longer reserve the log or axe")
+check(Wood._tests.toolAllowed(leftover, "borrower", Wood.createState({ mode = "full" })),
+    "a stale loan marker does not stop its holder using that axe on a new trip")
+liveTrips["settled-trip"], liveTrips[leftover.id] = true, true
+check(Wood.reserved(leftover) and Wood.reserved(leftoverLog)
+    and not Wood._tests.toolAllowed(leftover, "borrower", Wood.createState({ mode = "full" })),
+    "a live trip's markers still reserve its cargo and borrowed axe")
+SC.ExpeditionPrototype = nil
 
 -- Full walking crews stop before felling, and a full trunk stops further
 -- felling while preserving already acquired raw cargo on its real carrier.

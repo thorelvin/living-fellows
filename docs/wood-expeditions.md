@@ -45,6 +45,13 @@ exact cargo and automatically tries again. **Retry wood delivery** allows an
 immediate manual attempt. Delivery remains required when **Restock and resume
 base duty** is off. Borrowed axes return before optional restocking.
 
+A delivery ends without storing a log once no crew member or the loaded trip
+car still holds it: you took it from the trunk, it stayed on a fallen
+companion, or the companion left the group. A borrowed axe stops being owed
+when its borrower no longer carries it or its source storage is unmarked.
+While a companion is still loading in or the car is out of reach, the cargo
+stays pending. Logs and axes from a finished delivery are ordinary items again.
+
 Mission schema 7 saves work progress, native cargo identities, tool loans and
 delivery retries. Wood integration version 2 supports at most 256 logs. Older
 missions and version 1 search/fishing deliveries retain their existing limits.

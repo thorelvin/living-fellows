@@ -106,6 +106,15 @@ SC.ExpeditionWood = {
     carryDestination = function(actor)
         return actor.carry or actor.inventory
     end,
+    loanState = function(wood, actorId, actor)
+        local loan = wood.loans[actorId]
+        if not loan then return "none" end
+        if not actor or T.loanUnreadable then return "unknown" end
+        for _, carried in ipairs(U.inventoryItemsDeep(actor.inventory)) do
+            if carried.id == loan.itemId then return "carried" end
+        end
+        return "missing"
+    end,
     returnTools = function(actor, ctx)
         T.toolCalls = T.toolCalls + 1
         T.toolContext = ctx
@@ -364,9 +373,13 @@ yard()
 record = create(a, { item })
 T.dropAmbiguous = true
 check(I.update(record, a) == false and not record.items[1].stored and #T.yard.worlds == 1
-    and T.moves == 1 and T.arrangeCalls == 0 and not I.settle(record),
+    and T.moves == 1 and T.arrangeCalls == 0,
     "an ambiguous native world link cannot be arranged, duplicated or counted as delivered")
+check(I.settle(record) and not record.items[1].stored and #T.yard.worlds == 1 and T.moves == 1,
+    "a log that left every holder ends the obligation without being counted as stored")
 
+-- Settlement follows the supply-record rule: an exact log stays owed while a
+-- holder cannot be inspected, and is released, never replaced, once none can.
 clear()
 item = log("missing:log")
 a = T.actor("a", "Alice", { item })
@@ -376,13 +389,75 @@ construction = T.storage("construction:1", "construction", { log("different:nati
 a.inventory.items, item.container = {}, nil
 I.refresh(record)
 check(not record.items[1].stored and I.summary(record).carried == 0
-    and record.items[1].reason == "cargo_pending" and not I.settle(record) and T.moves == 0,
-    "missing cargo never becomes a different log or a completed obligation")
-a.dead = true
-check(not I.settle(record) and not I.wants(record, a), "death preserves ambiguous cargo without creating replacements")
+    and record.items[1].reason == "cargo_pending" and T.moves == 0,
+    "missing cargo never becomes a different log")
+saved = I.copy(record)
 T.actors.a = nil
-I.reset()
-check(not I.settle(I.copy(record)), "unloaded or cancelled crew do not silently erase wood receipts")
+SC.Persistence = { isPending = function(id) return id == "a" end }
+check(not I.settle(saved), "a crew member still loading keeps the exact log owed")
+SC.Persistence = nil
+check(I.settle(saved) and not saved.items[1].stored, "a dismissed crew member's log is released")
+T.actors.a = a
+check(I.settle(record) and not record.items[1].stored and record.items[1].reason == "item_not_found"
+    and T.moves == 0 and #construction.container.items == 1,
+    "a log no inspected holder carries ends the obligation without a replacement")
+
+clear()
+item = log("dead:log")
+a = T.actor("a", "Alice", { item })
+construction = T.storage("construction:1", "construction", {}, 2)
+record = create(a, { item })
+a.dead = true
+check(I.settle(record) and not record.items[1].stored and item.container == a.inventory
+    and #construction.container.items == 0 and T.moves == 0 and not I.wants(record, a),
+    "a dead carrier's log stays on the body and releases the record")
+
+clear()
+do
+    local kept, taken = log("trunk:kept"), log("trunk:taken")
+    a = T.actor("a", "Alice", {})
+    local trunkCar = carFor(kept)
+    trunkCar.trunk.items[2], taken.container = taken, trunkCar.trunk
+    construction = T.storage("construction:1", "construction", {}, 4)
+    record = create(a, { kept, taken }, { car = trunkCar })
+    table.remove(trunkCar.trunk.items, 2)
+    local playerBag = T.container({ taken })
+    check(not I.settle(record) and taken.container == playerBag,
+        "an exact log still in the loaded expedition trunk keeps the record open")
+    record.items[1].destination = { kind = "container", id = "construction:1" }
+    table.remove(trunkCar.trunk.items, 1)
+    construction.container.items[1], kept.container = kept, construction.container
+    check(I.settle(record) and record.items[1].stored and not record.items[2].stored
+        and record.items[2].reason == "item_not_found",
+        "a log the player took from the trunk no longer holds the delivery record open")
+end
+
+clear()
+do
+    a = T.actor("a", "Alice", {})
+    local axe = T.item("axe:held", "tools", "Base.Axe")
+    a.inventory.items[1], axe.container = axe, a.inventory
+    record = create(a, {}, { loans = { a = { itemId = "axe:held", storageId = "tools:1" } } })
+    check(not I.settle(record), "a borrower still carrying the exact axe keeps the loan")
+    T.loanUnreadable = true
+    a.inventory.items, axe.container = {}, nil
+    check(not I.settle(record), "an uninspectable borrower keeps the loan")
+    T.loanUnreadable = nil
+    check(I.settle(record), "an axe the borrower no longer carries cannot hold the record forever")
+    a.inventory.items[1], axe.container = axe, a.inventory
+    SC.BaseLife.storage = function(id)
+        for _, row in ipairs(T.storages) do if row.id == id then return row end end
+    end
+    local tools = T.storage("tools:1", "tools", {}, 2)
+    check(not I.settle(record), "a carried axe with its marked source keeps the loan")
+    T.storages = {}
+    check(I.settle(record) and axe.container == a.inventory,
+        "an axe whose source storage was unmarked stays with its borrower and ends the loan")
+    SC.BaseLife.storage = nil
+    T.storages = { tools }
+    T.actors.a = nil
+    check(I.settle(record), "a gone borrower ends the loan")
+end
 
 clear()
 item = log("ambiguous:log")

@@ -2144,6 +2144,31 @@ function Expedition.receiptPending(item)
     return false
 end
 
+-- Wood cargo and axe markers persist on native items, but the obligation
+-- behind them lives in this mission or a queued delivery record. A marker
+-- whose trip and loan are both gone protects nothing. Until the save has been
+-- restored, every marker is treated as live.
+function Expedition.woodMarkerLive(cargo, tool)
+    local persistence = SC.Persistence
+    if type(persistence) == "table" and type(persistence.restoreStatus) == "function"
+        and persistence.restoreStatus() ~= true then return true end
+    local function lends(wood)
+        local loans = type(wood) == "table" and type(wood.loans) == "table" and wood.loans
+        local loan = loans and loans[tool.memberId]
+        return type(loan) == "table" and loan.itemId == tool.id
+    end
+    if mission then
+        if cargo and cargo.tripId == mission.radioSession then return true end
+        if tool and (mission.scout and lends(mission.scout.wood)
+            or mission.integration and lends(mission.integration.woodWork)) then return true end
+    end
+    for _, record in ipairs(pendingDeliveries) do
+        if cargo and record.tripId == cargo.tripId then return true end
+        if tool and lends(record.woodWork) then return true end
+    end
+    return false
+end
+
 -- Runtime calls this before disposing native actors. Keep the mission's stable
 -- descriptor available to the save owner until world teardown commits.
 function Expedition.prepareReset()

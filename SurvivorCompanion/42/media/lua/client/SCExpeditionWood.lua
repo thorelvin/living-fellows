@@ -137,15 +137,27 @@ local function initialize(wood)
         wood.workers or {}, wood.loans or {}, wood.acquisitions or {}, wood.pendingLogs or {}
     return wood
 end
+-- A marker is only as live as the trip behind it. Once the mission and its
+-- delivery record have settled, a log the player took or an axe left on a
+-- corpse is ordinary property again.
 function Wood.reserved(item)
     local value = data(item)
-    return type(value) == "table" and (type(value[CARGO]) == "table" or type(value[TOOL]) == "table")
+    if type(value) ~= "table" then return false end
+    local cargo = type(value[CARGO]) == "table" and value[CARGO] or nil
+    local tool = type(value[TOOL]) == "table" and value[TOOL] or nil
+    if not cargo and not tool then return false end
+    local expedition = SC.ExpeditionPrototype
+    if not expedition or type(expedition.woodMarkerLive) ~= "function" then return true end
+    return expedition.woodMarkerLive(cargo, tool) ~= false
 end
 local function toolAllowed(item, memberId, wood)
     local value = data(item) or {}
     local loan = value[TOOL]
-    if loan then return loan.memberId == memberId and wood.loans[memberId]
-        and wood.loans[memberId].itemId == U().itemStableId(item, true) end
+    if type(loan) == "table" then
+        if loan.memberId == memberId and wood.loans[memberId]
+            and wood.loans[memberId].itemId == U().itemStableId(item, true) then return true end
+        if Wood.reserved(item) then return false end
+    end
     if value.LF_FieldBorrowedAxe or value.LF_ProductionToolLoan
         or value.LF_WorkTransport or value.SC_ChefSupplyReceipt then return false end
     return true
@@ -825,6 +837,18 @@ function Wood.returnTools(actor, ctx)
         return true, "wood_axe_returned", true
     end
     return returned, reason or "wood_returning_axe", false
+end
+-- Delivery settlement asks whether a recorded loan can still be repaid.
+-- "missing" means the borrower's whole inventory was read without the exact
+-- axe; an unreadable inventory is "unknown" and keeps the obligation.
+function Wood.loanState(wood, memberId, actor)
+    local loans = type(wood) == "table" and type(wood.loans) == "table" and wood.loans or nil
+    local loan = loans and loans[tostring(memberId)]
+    if type(loan) ~= "table" then return "none" end
+    if not actor or not L() then return "unknown" end
+    local item, _, reason = L().findItem(actor, loan.itemId)
+    if item then return "carried" end
+    return reason == "item_not_carried" and "missing" or "unknown"
 end
 function Wood.toolsPending(wood, memberId)
     if type(wood) ~= "table" or type(wood.loans) ~= "table" then return false end

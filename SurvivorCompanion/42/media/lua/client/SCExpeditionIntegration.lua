@@ -550,21 +550,41 @@ local function memberPresence(member)
     return "gone"
 end
 
+-- A borrowed axe stays owed while its borrower may still carry it. The loan
+-- ends without a return once the borrower is gone, the borrower's whole
+-- inventory was read without the exact axe (the player took it), or the
+-- storage it came from is no longer marked. A loan nothing can repay must not
+-- hold the trip record, and with it the axe's protection, forever.
+local function woodLoansSettled(record, lostBase)
+    local loans = record.woodWork and record.woodWork.loans
+    if type(loans) ~= "table" then return true end
+    local worker = SC.ExpeditionWood
+    local base = SC.BaseLife
+    for memberId, loan in pairs(loans) do
+        local presence, actor = memberPresence({ id = memberId })
+        local orphaned = restoreFinished() and base and type(base.storage) == "function"
+            and type(loan) == "table" and base.storage(loan.storageId) == nil
+        if not lostBase and presence ~= "gone" and not orphaned then
+            if presence ~= "present" or not worker or type(worker.loanState) ~= "function"
+                or worker.loanState(record.woodWork, memberId, actor) ~= "missing" then
+                return false
+            end
+        end
+    end
+    return true
+end
+
 -- A trip record ends once nothing it waits for can still happen: an item
 -- eaten, dropped or handed over before storage, a dead or reassigned
 -- restocking member, or a camp that was moved. Without this the bounded
 -- delivery list fills with records that can never finish.
 function Integration.settle(record)
     if not Integration.valid(record) then return true end
-    if woodRecord(record) then
-        Integration.refresh(record)
-        -- Unknown ownership, an unloaded trunk or changed camp never authorizes
-        -- deletion of an exact timber obligation. Keep it available for retry.
-        for _, row in ipairs(record.items) do
-            if not row.stored then return false end
-        end
-        if woodToolsPending and woodToolsPending(record) then return false end
-    end
+    local wood = woodRecord(record)
+    -- Exact logs follow the same evidence rule as supply rows below: a log
+    -- stays owed while any crew member is unknown or the trunk is unloaded,
+    -- and is released only once every possible holder was inspected.
+    if wood then Integration.refresh(record) end
     local base = SC.BaseLife and SC.BaseLife.active and SC.BaseLife.active()
     local lostBase = restoreFinished() and (base == nil and "camp_missing"
         or record.baseId ~= nil and base.id ~= record.baseId
@@ -603,6 +623,7 @@ function Integration.settle(record)
             end
         end
     end
+    if wood and settled then settled = woodLoansSettled(record, lostBase) end
     return settled
 end
 
