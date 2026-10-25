@@ -5,7 +5,7 @@ param(
     [string]$ProjectRoot = '',
     [string]$GameRoot = 'C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid',
     [ValidateSet('playtest', 'public-beta', 'release')]
-    [string]$Channel = 'playtest',
+    [string]$Channel = 'release',
     # build\native-bridge is a shared directory that every caller wipes and
     # rebuilds. Test-Project builds it once up front and passes this, so the
     # stages can run side by side without destroying each other's classes.
