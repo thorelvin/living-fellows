@@ -13,6 +13,7 @@ public class IsoChunk {
     public final ArrayList<IsoChunkMap> refs = new ArrayList<>();
     public IsoChunk(IsoCell cell) {}
     public void removeFromWorld() {}
+    public void checkLightingLater_OnePlayer_AllLevels(int playerIndex) {}
     public zombie.iso.fboRenderChunk.FBORenderLevels getRenderLevels(int playerIndex) { return null; }
     public ByteBuffer Save(ByteBuffer buffer, CRC32 crc, boolean hotSave) throws IOException { return buffer; }
     public static void SafeWrite(int wx, int wy, ByteBuffer buffer) throws IOException {}

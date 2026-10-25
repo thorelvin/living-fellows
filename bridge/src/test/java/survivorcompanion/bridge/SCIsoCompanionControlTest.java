@@ -159,6 +159,34 @@ public final class SCIsoCompanionControlTest {
         return field.get(target);
     }
 
+    private static void clearLightingWork(zombie.iso.IsoChunk chunk) throws Exception {
+        Arrays.fill((boolean[]) zombie.iso.IsoChunk.class.getField("lightCheck").get(chunk), false);
+        int minimum = (Integer) zombie.iso.IsoChunk.class.getMethod("getMinLevel").invoke(chunk);
+        int maximum = (Integer) zombie.iso.IsoChunk.class.getMethod("getMaxLevel").invoke(chunk);
+        for (int level = minimum; level <= maximum; level++) {
+            Object data = zombie.iso.IsoChunk.class.getMethod("getLevelData", int.class).invoke(chunk, level);
+            Arrays.fill((boolean[]) data.getClass().getField("lightCheck").get(data), false);
+        }
+    }
+
+    private static boolean lightingWorkMatches(zombie.iso.IsoChunk chunk,
+            boolean primary, boolean secondary) throws Exception {
+        boolean[] checks = (boolean[]) zombie.iso.IsoChunk.class.getField("lightCheck").get(chunk);
+        int minimum = (Integer) zombie.iso.IsoChunk.class.getMethod("getMinLevel").invoke(chunk);
+        int maximum = (Integer) zombie.iso.IsoChunk.class.getMethod("getMaxLevel").invoke(chunk);
+        for (int player = 0; player < 4; player++) {
+            boolean expected = player == 0 ? primary : player == 1 && secondary;
+            if (checks[player] != expected) return false;
+            for (int level = minimum; level <= maximum; level++) {
+                Object data = zombie.iso.IsoChunk.class.getMethod("getLevelData", int.class)
+                        .invoke(chunk, level);
+                if (((boolean[]) data.getClass().getField("lightCheck").get(data))[player]
+                        != expected) return false;
+            }
+        }
+        return true;
+    }
+
     private static void testDeferredPrimaryViewRestore(IsoPlayer primary,
             SCNativeCompanion formerLeader, IsoCell cell) throws Exception {
         var camera = zombie.iso.IsoCamera.frameState;
@@ -177,7 +205,16 @@ public final class SCIsoCompanionControlTest {
         boolean[] los = zombie.iso.LosUtil.cachecleared.clone();
         var chunks = cell.getChunkMap(0).getChunks();
         var previousChunk = chunks[0];
+        var previousUnlitChunk = chunks[1];
+        var secondaryChunks = cell.getChunkMap(1).getChunks();
+        var previousSecondaryChunk = secondaryChunks[0];
         var rendered = new zombie.iso.IsoChunk(cell);
+        var unlit = new zombie.iso.IsoChunk(cell);
+        var secondaryOnly = new zombie.iso.IsoChunk(cell);
+        Method setLevels = zombie.iso.IsoChunk.class.getMethod("setMinMaxLevel", int.class, int.class);
+        setLevels.invoke(rendered, -1, 1);
+        setLevels.invoke(unlit, -1, 1);
+        setLevels.invoke(secondaryOnly, -1, 1);
         var primaryLevels = rendered.getRenderLevels(0);
         var secondaryLevels = rendered.getRenderLevels(1);
         Method clear = primaryLevels.getClass().getMethod("clearDirty", int.class, float.class);
@@ -212,7 +249,15 @@ public final class SCIsoCompanionControlTest {
             require(camera.offscreenWidth > 0 && camera.offscreenHeight > 0,
                     "deferred view fixture has no native solo viewport");
             chunks[0] = rendered;
+            chunks[1] = unlit;
+            secondaryChunks[0] = secondaryOnly;
             rendered.lightingNeverDone[0] = false;
+            unlit.lightingNeverDone[0] = true;
+            clearLightingWork(rendered);
+            clearLightingWork(unlit);
+            clearLightingWork(secondaryOnly);
+            zombie.iso.IsoChunk.class.getMethod("checkLightingLater_OnePlayer_AllLevels", int.class)
+                    .invoke(secondaryOnly, 1);
             clear.invoke(primaryLevels, 0, 1.0f);
             clear.invoke(secondaryLevels, 0, 1.0f);
             checkSquare.set(cutawayPlayers[0], primary.getCurrentSquare());
@@ -226,22 +271,30 @@ public final class SCIsoCompanionControlTest {
             zombie.iso.IsoCamera.setCameraCharacter(formerLeader);
             SCSplitScreenProbe.armPrimaryViewRestore(primary, cell);
             require(!primary.dirtyRecalcGridStack && !cell.playerCutawaysDirty[0]
-                            && !(Boolean) isDirty.invoke(primaryLevels, 0, 2048L, 1.0f),
+                            && !(Boolean) isDirty.invoke(primaryLevels, 0, 2048L, 1.0f)
+                            && lightingWorkMatches(rendered, false, false)
+                            && lightingWorkMatches(unlit, false, false),
                     "release applied renderer work before a completed solo frame");
             require("waiting".equals(SCSplitScreenProbe.pollPrimaryViewRestore()),
                     "release consumed its own unfinished frame");
             camera.frameCount++;
             camera.playerIndex = 1;
             require("waiting".equals(SCSplitScreenProbe.pollPrimaryViewRestore())
-                            && checkSquare.get(cutawayPlayers[0]) != null,
+                            && checkSquare.get(cutawayPlayers[0]) != null
+                            && lightingWorkMatches(rendered, false, false)
+                            && lightingWorkMatches(unlit, false, false),
                     "stale slot-one frame consumed primary restoration");
             camera.playerIndex = 0;
             camera.offscreenWidth--;
-            require("waiting".equals(SCSplitScreenProbe.pollPrimaryViewRestore()),
+            require("waiting".equals(SCSplitScreenProbe.pollPrimaryViewRestore())
+                            && lightingWorkMatches(rendered, false, false)
+                            && lightingWorkMatches(unlit, false, false),
                     "split viewport dimensions consumed primary restoration");
             camera.offscreenWidth++;
             camera.camCharacter = formerLeader;
-            require("waiting".equals(SCSplitScreenProbe.pollPrimaryViewRestore()),
+            require("waiting".equals(SCSplitScreenProbe.pollPrimaryViewRestore())
+                            && lightingWorkMatches(rendered, false, false)
+                            && lightingWorkMatches(unlit, false, false),
                     "former leader frame consumed primary restoration");
             camera.camCharacter = primary;
             camera.frameCount++;
@@ -253,11 +306,18 @@ public final class SCIsoCompanionControlTest {
                             && checkSquare.get(cutawayPlayers[1]) != null
                             && (Boolean) isDirty.invoke(primaryLevels, 0, 2048L, 1.0f)
                             && !(Boolean) isDirty.invoke(secondaryLevels, 0, 2048L, 1.0f)
-                            && lastZ.getInt(renderPlayers[0]) == 9,
+                            && lastZ.getInt(renderPlayers[0]) == 9
+                            && lightingWorkMatches(rendered, true, false)
+                            && lightingWorkMatches(unlit, true, false)
+                            && lightingWorkMatches(secondaryOnly, false, true),
                     "B restoration missed primary caches, reset C state, or leaked to slot one");
             primary.dirtyRecalcGridStack = false;
+            clearLightingWork(rendered);
+            clearLightingWork(unlit);
             require("applied".equals(SCSplitScreenProbe.pollPrimaryViewRestore())
-                            && !primary.dirtyRecalcGridStack,
+                            && !primary.dirtyRecalcGridStack
+                            && lightingWorkMatches(rendered, false, false)
+                            && lightingWorkMatches(unlit, false, false),
                     "completed restoration repeated its renderer mutations");
 
             require(SCSplitScreenProbe.debugSetPrimaryViewRestoreMode("C"), "C mode unavailable");
@@ -286,11 +346,28 @@ public final class SCIsoCompanionControlTest {
                     "observe mode changed renderer state at the deferred boundary");
 
             require(SCSplitScreenProbe.debugSetPrimaryViewRestoreMode("B"), "B mode unavailable");
+            clearLightingWork(rendered);
+            clearLightingWork(unlit);
             SCSplitScreenProbe.armPrimaryViewRestore(primary, cell);
             IsoPlayer.numPlayers = 2;
             require("cancelled".equals(SCSplitScreenProbe.pollPrimaryViewRestore()),
                     "new multiplayer layout retained the old solo restoration");
+            require(lightingWorkMatches(rendered, false, false)
+                            && lightingWorkMatches(unlit, false, false),
+                    "cancelled new-view restoration queued stale primary lighting work");
             IsoPlayer.numPlayers = 1;
+            SCSplitScreenProbe.armPrimaryViewRestore(primary, cell);
+            var worldCell = zombie.iso.IsoWorld.class.getField("currentCell");
+            var previousCell = worldCell.get(zombie.iso.IsoWorld.instance);
+            try {
+                worldCell.set(zombie.iso.IsoWorld.instance, null);
+                require("cancelled".equals(SCSplitScreenProbe.pollPrimaryViewRestore())
+                                && lightingWorkMatches(rendered, false, false)
+                                && lightingWorkMatches(unlit, false, false),
+                        "world identity change applied old-world lighting work");
+            } finally {
+                worldCell.set(zombie.iso.IsoWorld.instance, previousCell);
+            }
             SCSplitScreenProbe.armPrimaryViewRestore(primary, cell);
             require(SCSplitScreenProbe.releaseForWorldExit()
                             && "cancelled".equals(SCSplitScreenProbe.pollPrimaryViewRestore())
@@ -306,8 +383,30 @@ public final class SCIsoCompanionControlTest {
             }
             camera.camCharacter = primary;
             require("failed".equals(SCSplitScreenProbe.pollPrimaryViewRestore())
-                            && !primary.dirtyRecalcGridStack,
+                            && !primary.dirtyRecalcGridStack
+                            && lightingWorkMatches(rendered, false, false)
+                            && lightingWorkMatches(unlit, false, false),
                     "failed restoration later repeated a partial renderer reset");
+
+            SCSplitScreenProbe.armPrimaryViewRestore(primary, cell);
+            camera.playerIndex = 1;
+            for (int count = 0; count < 60; count++) {
+                camera.frameCount++;
+                String status = SCSplitScreenProbe.pollPrimaryViewRestore();
+                require(status.equals(count == 59 ? "failed" : "waiting")
+                                && !primary.dirtyRecalcGridStack
+                                && lightingWorkMatches(rendered, false, false)
+                                && lightingWorkMatches(unlit, false, false),
+                        "permanent slot-one frame escaped the bounded primary recovery");
+            }
+            require(SCSplitScreenProbe.releaseDiagnostics().contains("primary_frame_timeout"),
+                    "stale slot-one frame timeout lost its concrete diagnostic");
+            camera.playerIndex = 0;
+            require("failed".equals(SCSplitScreenProbe.pollPrimaryViewRestore())
+                            && lightingWorkMatches(rendered, false, false)
+                            && lightingWorkMatches(unlit, false, false)
+                            && lightingWorkMatches(secondaryOnly, false, true),
+                    "a late primary frame applied timed-out lighting or altered secondary work");
 
             // A real promoted-to-detached transition must complete its native
             // postupdate pass while leaving local owners and frame state intact.
@@ -366,6 +465,8 @@ public final class SCIsoCompanionControlTest {
             System.arraycopy(dirty, 0, cell.playerCutawaysDirty, 0, 4);
             System.arraycopy(los, 0, zombie.iso.LosUtil.cachecleared, 0, 4);
             chunks[0] = previousChunk;
+            chunks[1] = previousUnlitChunk;
+            secondaryChunks[0] = previousSecondaryChunk;
             checkSquare.set(cutawayPlayers[0], previousCheck0);
             checkSquare.set(cutawayPlayers[1], previousCheck1);
             for (int index = 0; index < 4; index++) lastZ.setInt(renderPlayers[index], previousLastZ[index]);
@@ -679,8 +780,18 @@ public final class SCIsoCompanionControlTest {
             var animationField = zombie.characters.IsoGameCharacter.class.getDeclaredField("animPlayer");
             animationField.setAccessible(true);
             animationField.set(observer, animationConstructor.newInstance());
+            int lightingOriginX = (Integer) map.getClass().getMethod("getWorldXMin").invoke(map);
+            int lightingOriginY = (Integer) map.getClass().getMethod("getWorldYMin").invoke(map);
             require(SCSplitScreenProbe.debugReleaseStockObserver(observer),
                     "guarded stock custom teardown failed: " + SCSplitScreenProbe.releaseDiagnostics());
+            var pendingRestore = SCSplitScreenProbe.class.getDeclaredField("primaryViewRestore");
+            pendingRestore.setAccessible(true);
+            Object lightingPlan = privateField(pendingRestore.get(null), "lightingRelease");
+            require(lightingPlan != null
+                            && ((Integer) privateField(lightingPlan, "originX")) == lightingOriginX
+                            && ((Integer) privateField(lightingPlan, "originY")) == lightingOriginY
+                            && SCSplitScreenProbe.releaseDiagnostics().contains("secondaryLighting=pending"),
+                    "committed release lost the active secondary lighting origin before deferred retirement");
             require(SCSplitScreenProbe.isReleased() && IsoPlayer.getInstance() == primary
                             && zombie.iso.IsoCamera.getCameraCharacter() == primary
                             && observer.getCurrentSquare() == null && !observer.isExistInTheWorld()

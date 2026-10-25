@@ -64,7 +64,7 @@ makeItem = function(fullType, options)
         __class = "InventoryItem", fullType = fullType, nativeId = nextNativeId,
         modData = options.modData or {}, favorite = options.favorite == true,
         condition = options.condition or 100, category = options.category,
-        offAgeMax = options.offAgeMax,
+        offAgeMax = options.offAgeMax, worldRotation = options.worldRotation or 123,
     }
     function item:getFullType() return self.fullType end
     function item:getType() return string.match(self.fullType, "[^%.]+$") end
@@ -81,6 +81,14 @@ makeItem = function(fullType, options)
     function item:getContainer() return self.container end
     function item:getWorldItem() return self.worldItem end
     function item:setWorldItem(value) self.worldItem = value end
+    function item:getWorldZRotation()
+        self.rotationReads = (self.rotationReads or 0) + 1
+        return self.worldRotation
+    end
+    function item:setWorldZRotation(value)
+        self.rotationWrites = (self.rotationWrites or 0) + 1
+        self.worldRotation = value
+    end
     function item:getInventory() return nil end
     function item:getAllWeaponParts() return {} end
     return item
@@ -108,11 +116,23 @@ local function makeSquare(x, y, z)
     function square:removeWorldObject(worldItem)
         if not self.rejectRemove then removeIdentity(self.worldItems, worldItem) end
     end
-    function square:AddWorldInventoryItem(item)
-        local wrapper = { item = item, square = self, x = self.x, y = self.y, z = self.z }
+    function square:AddWorldInventoryItem(item, xoff, yoff, zoff)
+        self.worldAdds = (self.worldAdds or 0) + 1
+        local wrapper = { item = item, square = self, x = self.x, y = self.y, z = self.z,
+            offX = xoff or 0.5, offY = yoff or 0.5, offZ = zoff or 0 }
         function wrapper:getItem() return self.item end
         function wrapper:getSquare() return self.square end
         function wrapper:setSquare(value) self.square = value end
+        function wrapper:getOffX() self.offsetReads = (self.offsetReads or 0) + 1 return self.offX end
+        function wrapper:getOffY() self.offsetReads = (self.offsetReads or 0) + 1 return self.offY end
+        function wrapper:getOffZ() self.offsetReads = (self.offsetReads or 0) + 1 return self.offZ end
+        function wrapper:setOffset(x, y, z)
+            self.offsetWrites = (self.offsetWrites or 0) + 1
+            self.offX, self.offY, self.offZ = x, y, z
+        end
+        function wrapper:syncExtendedPlacement()
+            self.placementSyncs = (self.placementSyncs or 0) + 1
+        end
         function wrapper:removeFromWorld()
             if self.square and not self.square.rejectRemove then
                 removeIdentity(self.square.worldItems, self)
@@ -1763,6 +1783,245 @@ do
     getPlayer = priorGetPlayer
 end
 
+-- Presentation arranges existing raw native logs without inventing a bundle,
+-- changing their owner or disturbing a pending receipt. Three form the lower
+-- layer and the fourth rests above them; no rope is needed for that pile.
+do
+    local ctx = setup("logs", 1)
+    local yardSquare = addSquare(2, 1, 0)
+    function yardSquare:isOutside() return true end
+    check(SC.BaseLife.beginZone("log_yard", yardSquare) == true, "layout yard begins")
+    local marked, zone = SC.BaseLife.finishZone(yardSquare, "Layout yard")
+    check(marked == true, "layout yard registers")
+    local logs, wrappers = {}, {}
+    for index = 1, 4 do
+        logs[index] = makeItem("Base.Log")
+        wrappers[index] = putOnGround(yardSquare, logs[index])
+    end
+    local unrelated = makeItem("Base.Nails", { worldRotation = 17 })
+    local otherWrapper = putOnGround(yardSquare, unrelated)
+    otherWrapper.offX, otherWrapper.offY, otherWrapper.offZ = 0.13, 0.27, 0.03
+    local claim = "pending-layout-receipt"
+    logs[1].modData[SC.WorkTransport.MARKERS.id] = claim
+    local idsBefore, addsBefore = nextNativeId, yardSquare.worldAdds
+    check(SC.LogYard.arrange(yardSquare) == true, "existing native logs can be arranged")
+    local coordinates, lower, upper, writes = {}, 0, 0, 0
+    for index, world in ipairs(wrappers) do
+        local x, y, z = world:getOffX(), world:getOffY(), world:getOffZ()
+        check(world == logs[index].worldItem and world:getItem() == logs[index]
+            and world:getSquare() == yardSquare and logs[index]:getContainer() == nil,
+            "pile placement retains exact item, native wrapper and square ownership")
+        check(x == 0.5 and y > 0 and y < 1 and logs[index]:getWorldZRotation() == 0,
+            "all raw logs share a centered, aligned orientation")
+        coordinates[tostring(x) .. ":" .. tostring(y) .. ":" .. tostring(z)] = true
+        if z == 0 then lower = lower + 1 elseif z > 0 and z < 0.2 then upper = upper + 1 end
+        writes = writes + (world.offsetWrites or 0) + (logs[index].rotationWrites or 0)
+            + (world.placementSyncs or 0)
+    end
+    local unique = 0
+    for _ in pairs(coordinates) do unique = unique + 1 end
+    check(unique == 4 and lower == 3 and upper == 1
+        and nextNativeId == idsBefore and yardSquare.worldAdds == addsBefore,
+        "four raw logs form a three-plus-one pile without creating items or wrappers")
+    check(logs[1].modData[SC.WorkTransport.MARKERS.id] == claim
+        and otherWrapper.offX == 0.13 and otherWrapper.offY == 0.27 and otherWrapper.offZ == 0.03
+        and unrelated:getWorldZRotation() == 17,
+        "layout leaves pending receipt claims and unrelated world items untouched")
+    check(SC.LogYard.arrange(yardSquare) == true, "arranging the same snapshot is idempotent")
+    local repeatedWrites = 0
+    for index, world in ipairs(wrappers) do
+        repeatedWrites = repeatedWrites + (world.offsetWrites or 0) + (logs[index].rotationWrites or 0)
+            + (world.placementSyncs or 0)
+    end
+    check(repeatedWrites == writes, "already correct native offsets and rotation are not written again")
+    local rotatedWorld, rotatedItem = wrappers[2], logs[2]
+    local priorOffsetWrites, priorSyncs = rotatedWorld.offsetWrites or 0, rotatedWorld.placementSyncs or 0
+    rotatedItem.worldRotation = 91
+    check(SC.LogYard.arrange(yardSquare) == true and rotatedItem:getWorldZRotation() == 0
+        and (rotatedWorld.offsetWrites or 0) == priorOffsetWrites
+        and (rotatedWorld.placementSyncs or 0) == priorSyncs + 1,
+        "a rotation-only repair synchronizes the same native wrapper without rewriting its correct offsets")
+    local function poseReads()
+        local total = 0
+        for index, world in ipairs(wrappers) do
+            total = total + (world.offsetReads or 0) + (logs[index].rotationReads or 0)
+        end
+        return total
+    end
+    local readsBefore = poseReads()
+    for _ = 1, 5 do SC.LogYard.contents(yardSquare) end
+    check(poseReads() == readsBefore,
+        "repeated unchanged yard scans reuse cached poses without native offset or rotation getters")
+    wrappers[1].offX = 0.17
+    check(SC.LogYard.arrange(yardSquare) == true and wrappers[1].offX == 0.5
+        and poseReads() > readsBefore,
+        "explicit arrangement checks native getters and repairs a manually changed cached wrapper")
+    check(select(2, SC.LogYard.bundleAt(ctx.actor, yardSquare)) == "log_yard_bundle_not_ready"
+        and logs[1].modData[SC.WorkTransport.MARKERS.id] == claim,
+        "cosmetic arrangement cannot consume a claimed pending log")
+    logs[1].modData[SC.WorkTransport.MARKERS.id] = nil
+    check(select(2, SC.LogYard.bundleAt(ctx.actor, yardSquare)) == "log_yard_rope_missing"
+        and #SC.LogYard.contents(yardSquare).logs == 4,
+        "an orderly four-log pile remains four usable raw logs when rope is missing")
+    local fifth = makeItem("Base.Log")
+    ctx.actor.inventory:AddItem(fifth)
+    check(select(2, SC.LogYard.deposit(ctx.actor, fifth,
+        { x = 2, y = 1, z = 0, zoneId = zone.id })) == "destination_full"
+        and ctx.actor.inventory:contains(fifth) and fifth:getContainer() == ctx.actor.inventory
+        and yardSquare.worldAdds == addsBefore,
+        "visual stacking retains the four-log capacity and a refused fifth log's exact owner")
+    local split = { v = 1, id = "pending-physical-split", role = "log", index = 1,
+        ownerId = "waiting-worker", zoneId = zone.id, x = 2, y = 1, z = 0, count = 4, ropeCount = 2 }
+    logs[2].modData.LF_LogYardSplit = split
+    wrappers[1].offX = 0.21
+    SC.LogYard.arrange(yardSquare)
+    check(wrappers[1].offX == 0.21 and logs[2].modData.LF_LogYardSplit == split
+        and yardSquare.worldAdds == addsBefore and nextNativeId == idsBefore + 1,
+        "a provisional split preserves the entire native tile for ownership recovery")
+    logs[2].modData.LF_LogYardSplit = nil
+    ctx.actor.inventory:Remove(fifth)
+    putOnGround(yardSquare, fifth)
+    SC.LogYard.arrange(yardSquare)
+    check(wrappers[1].offX == 0.21 and #yardSquare.worldItems == 6,
+        "an already over-capacity world tile is not cosmetically rewritten")
+end
+
+do
+    local ctx = setup("logs", 1)
+    local square = addSquare(2, 1, 0)
+    function square:isOutside() return true end
+    check(SC.BaseLife.beginZone("log_yard", square) == true, "cached-membership yard begins")
+    check(SC.BaseLife.finishZone(square, "Cached membership") == true, "cached-membership yard registers")
+    local first = makeItem("Base.Log")
+    local firstWorld = putOnGround(square, first)
+    SC.LogYard.contents(square)
+    local oldY, priorReads = firstWorld.offY, firstWorld.offsetReads or 0
+    local second = makeItem("Base.Log")
+    local secondWorld = putOnGround(square, second)
+    local contents = SC.LogYard.contents(square)
+    check(contents.units == 2 and firstWorld.offY ~= oldY and firstWorld.offY ~= secondWorld.offY
+        and (firstWorld.offsetReads or 0) > priorReads and first.worldItem == firstWorld
+        and second.worldItem == secondWorld,
+        "membership changes invalidate desired slots and compact the same cached native wrappers")
+end
+
+do
+    local ctx = setup("logs", 1)
+    local square = addSquare(2, 1, 0)
+    function square:isOutside() return true end
+    check(SC.BaseLife.beginZone("log_yard", square) == true, "mixed-stack yard begins")
+    check(SC.BaseLife.finishZone(square, "Mixed stacks") == true, "mixed-stack yard registers")
+    local tied = makeItem("Base.LogStacks2", { modData = { ropeItems = { [0] = "Base.Rope", [1] = "Base.Rope" } } })
+    local tiedWorld = putOnGround(square, tied)
+    local looseA, looseB = makeItem("Base.Log"), makeItem("Base.Log")
+    local aWorld, bWorld = putOnGround(square, looseA), putOnGround(square, looseB)
+    local addsBefore, idsBefore = square.worldAdds, nextNativeId
+    check(SC.LogYard.arrange(square) == true and tied.worldItem == tiedWorld
+        and looseA.worldItem == aWorld and looseB.worldItem == bWorld
+        and tiedWorld:getOffX() == 0.5 and tiedWorld:getOffY() == 0.5 and tiedWorld:getOffZ() == 0
+        and aWorld:getOffX() == 0.5 and bWorld:getOffX() == 0.5
+        and aWorld:getOffY() ~= bWorld:getOffY() and aWorld:getOffZ() > 0
+        and aWorld:getOffZ() == bWorld:getOffZ() and tied:getWorldZRotation() == 0
+        and looseA:getWorldZRotation() == 0 and looseB:getWorldZRotation() == 0,
+        "mixed tied and loose stock retains exact wrappers while loose logs align above the tied base")
+    check(square.worldAdds == addsBefore and nextNativeId == idsBefore
+        and tied.modData.ropeItems[0] == "Base.Rope" and tied.modData.ropeItems[1] == "Base.Rope"
+        and SC.LogYard.contents(square).units == 4,
+        "mixed visual stacking neither makes stock nor consumes rope metadata or extra capacity")
+end
+
+-- Missing presentation APIs or incomplete native snapshots must not affect
+-- physical ownership or turn an unknown world tile into a completed transfer.
+do
+    local ctx = setup("logs", 1)
+    local square = addSquare(2, 1, 0)
+    function square:isOutside() return true end
+    check(SC.BaseLife.beginZone("log_yard", square) == true, "unavailable-layout yard begins")
+    check(SC.BaseLife.finishZone(square, "Unavailable layout") == true, "unavailable-layout yard registers")
+    local log = makeItem("Base.Log")
+    local world = putOnGround(square, log)
+    log.setWorldZRotation = false
+    local okay = pcall(SC.LogYard.arrange, square)
+    check(okay and log.worldItem == world and world:getItem() == log and #square.worldItems == 1,
+        "missing native presentation support is nonfatal and never recreates cargo")
+    local readableWorldItems = square.worldItems
+    square.worldListUnreadable, square.worldItems = true, nil
+    world.offX = 0.12
+    okay = pcall(SC.LogYard.arrange, square)
+    check(okay and world.offX == 0.12 and log.worldItem == world,
+        "unreadable native ownership evidence is left untouched")
+    square.worldListUnreadable, square.worldItems = false, readableWorldItems
+    for _ = 1, 64 do putOnGround(square, makeItem("Base.Nails")) end
+    SC.LogYard.arrange(square)
+    check(world.offX == 0.12 and #square.worldItems == 65,
+        "layout does not read or rewrite a world snapshot beyond its 64-wrapper bound")
+end
+
+-- Choose a nearby zone first; within it, complete a partial pile before
+-- opening another tile, then advance through empty tiles in deterministic rows.
+do
+    local ctx = setup("logs", 1)
+    local first, second = addSquare(2, 1, 0), addSquare(3, 1, 0)
+    local third, fourth = addSquare(2, 2, 0), addSquare(3, 2, 0)
+    for _, square in ipairs({ first, second, third, fourth }) do function square:isOutside() return true end end
+    check(SC.BaseLife.beginZone("log_yard", first) == true, "row-selection yard begins")
+    local marked, zone = SC.BaseLife.finishZone(fourth, "Rows")
+    check(marked == true, "row-selection yard registers")
+    ctx.actor.square, ctx.actor.x, ctx.actor.y = fourth, 3.5, 2.5
+    local selected = SC.LogYard.select(ctx.actor)
+    check(selected and selected.x == first.x and selected.y == first.y,
+        "the next new pile starts at the first row and column rather than the worker's nearest empty tile")
+    local partial = makeItem("Base.Log")
+    putOnGround(second, partial)
+    ctx.actor.square, ctx.actor.x, ctx.actor.y = first, 2.5, 1.5
+    selected = SC.LogYard.select(ctx.actor)
+    check(selected and selected.x == second.x and selected.y == second.y,
+        "a farther partial pile is filled before a nearer empty tile in the chosen zone")
+    for _ = 1, 3 do putOnGround(second, makeItem("Base.Log")) end
+    for _ = 1, 4 do putOnGround(first, makeItem("Base.Log")) end
+    selected = SC.LogYard.select(ctx.actor)
+    check(selected and selected.x == third.x and selected.y == third.y,
+        "after a full row, the next pile starts at the following row's first column")
+    third.worldListUnreadable, third.worldItems = true, nil
+    selected = SC.LogYard.select(ctx.actor)
+    check(selected and selected.x == fourth.x and selected.y == fourth.y,
+        "unreadable tiles remain unavailable and do not stop a later loaded row tile")
+    local distant = addSquare(8, 1, 0)
+    function distant:isOutside() return true end
+    check(SC.BaseLife.beginZone("log_yard", distant) == true, "farther yard begins")
+    check(SC.BaseLife.finishZone(distant, "Farther yard") == true, "farther yard registers")
+    putOnGround(distant, makeItem("Base.Log"))
+    selected = SC.LogYard.select(ctx.actor)
+    check(selected and selected.zoneId == zone.id and selected.x == fourth.x,
+        "a partial pile in a farther zone cannot displace available space in the nearest zone")
+end
+
+do
+    local ctx = setup("logs", 1)
+    ctx.base.zones[#ctx.base.zones + 1] = { id = "bounded-layout-yard", kind = "log_yard",
+        x1 = 2, y1 = 1, x2 = 1100, y2 = 1, z = 0 }
+    local gridSquare, reads = SC.GameplayUtil.gridSquare, 0
+    SC.GameplayUtil.gridSquare = function() reads = reads + 1 return nil end
+    local selected, reason = SC.LogYard.select(ctx.actor)
+    SC.GameplayUtil.gridSquare = gridSquare
+    check(selected == nil and reason == "log_yard_scan_limit" and reads <= 1024,
+        "yard selection never scans more than 1024 tile coordinates in one call")
+    local partial = addSquare(2, 1, 0)
+    function partial:isOutside() return true end
+    putOnGround(partial, makeItem("Base.Log"))
+    local inspected = {}
+    SC.GameplayUtil.gridSquare = function(x, y, z)
+        inspected[squareKey(x, y, z)] = true
+        return x == 2 and y == 1 and z == 0 and partial or nil
+    end
+    selected = SC.LogYard.select(ctx.actor)
+    SC.GameplayUtil.gridSquare = gridSquare
+    local coordinates = 0
+    for _ in pairs(inspected) do coordinates = coordinates + 1 end
+    check(selected and selected.x == partial.x and selected.y == partial.y and coordinates <= 1024,
+        "hitting the coordinate bound preserves a known partial pile instead of losing the candidate")
+end
+
 -- The marked yard must preserve four exact logs through bundling and
 -- unbundling. With no rope, the four loose logs remain usable in place.
 do
@@ -1802,6 +2061,14 @@ do
             and afterBundle.bundles[1].item.modData.ropeItems[0] == "Base.Rope"
             and afterBundle.bundles[1].item.modData.ropeItems[1] == "Base.Rope",
         "two ropes and four logs become one vanilla tied bundle")
+    local tiedItem = afterBundle.bundles[1].item
+    local tiedWorld = tiedItem.worldItem
+    local tiedAdds = yardSquare.worldAdds
+    check(tiedWorld and tiedWorld:getOffX() == 0.5 and tiedWorld:getOffY() == 0.5
+        and tiedWorld:getOffZ() == 0 and tiedItem:getWorldZRotation() == 0
+        and SC.LogYard.arrange(yardSquare) == true and tiedItem.worldItem == tiedWorld
+        and tiedWorld:getItem() == tiedItem and yardSquare.worldAdds == tiedAdds,
+        "the vanilla tied bundle is aligned on its same native world wrapper")
     local taken, takeReason, log = SC.LogYard.takeOne(ctx.actor,
         { x = 2, y = 1, z = 0, zoneId = zone.id })
     local afterTake = SC.LogYard.contents(yardSquare)
@@ -1814,6 +2081,12 @@ do
             and afterTake.units == 3 and #afterTake.logs == 3
             and returnedRopes == 2,
         "building opens one bundle, leaves three logs and returns both ropes")
+    local compacted = true
+    for _, row in ipairs(afterTake.logs) do
+        compacted = compacted and row.world:getOffX() == 0.5 and row.world:getOffZ() == 0
+            and row.item:getWorldZRotation() == 0
+    end
+    check(compacted, "opening the tied bundle compacts its three raw remainders into the lower pile layer")
 end
 
 -- A refused bundle drop must restore the exact original items regardless of

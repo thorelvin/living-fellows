@@ -19,6 +19,7 @@ local function clear()
     T.now, T.moves, T.animations, T.toolCalls = 0, 0, 0, 0
     T.storages, T.actors, T.car, T.yard = {}, {}, nil, nil
     T.blockToolReturn, T.access, T.transferFault, T.dropFault = nil, nil, nil, nil
+    T.dropRefused, T.dropAmbiguous, T.arrangeCalls, T.arrangeVerified = nil, nil, 0, nil
     T.minimums = { food = 0, water = 0, medicine = 0, ammunition = 0 }
 end
 U.modData = function(item) return item.data end
@@ -37,6 +38,7 @@ U.worldItemPresent = function(square, world)
     return false
 end
 U.dropItem = function(source, square, item)
+    if T.dropRefused then return false, "native_drop_refused" end
     for index, candidate in ipairs(source.items) do
         if candidate == item then
             table.remove(source.items, index)
@@ -46,6 +48,7 @@ U.dropItem = function(source, square, item)
             item.world = world
             square.worlds[#square.worlds + 1] = world
             T.moves = T.moves + 1
+            if T.dropAmbiguous then item.world = { unverified = true } end
             if T.dropFault then return false, "native_drop_return_failed" end
             return true, world
         end
@@ -122,6 +125,21 @@ SC.LogYard = {
         if T.yard and x == 10 and y == 10 and z == 0 and zoneId == "yard:1" then return T.yard end
     end,
     contents = function(square) return { units = #square.worlds, splitPending = false } end,
+    arrange = function(square)
+        T.arrangeCalls = T.arrangeCalls + 1
+        T.arrangeVerified = true
+        for _, world in ipairs(square.worlds) do
+            local item = world:getItem()
+            T.arrangeVerified = T.arrangeVerified and item:getContainer() == nil
+                and item:getWorldItem() == world and U.worldItemPresent(square, world) == true
+            for _, actor in pairs(T.actors) do
+                for _, carriedItem in ipairs(U.inventoryItemsDeep(actor.inventory)) do
+                    if carriedItem == item then T.arrangeVerified = false end
+                end
+            end
+        end
+        return true
+    end,
 }
 local function log(id)
     local item = T.item(id, "construction", "Base.Log")
@@ -239,8 +257,9 @@ record = create(a, { item })
 check(select(2, I.update(record, a)) == "expedition_supply_stored"
     and item.container == nil and item.world == T.yard.worlds[1]
     and item.world:getItem() == item and #construction.container.items == 0
-    and record.items[1].storageId == "yard:1",
-    "Log Yard is preferred and verifies the exact native world wrapper")
+    and record.items[1].storageId == "yard:1"
+    and T.arrangeCalls == 1 and T.arrangeVerified == true,
+    "Log Yard is preferred and shares native pile arrangement only after exact world ownership proof")
 
 clear()
 item = log("general:log")
@@ -318,8 +337,8 @@ yard()
 record = create(a, { item })
 T.dropFault = true
 check(select(2, I.update(record, a)) == "expedition_supply_stored"
-    and #T.yard.worlds == 1 and T.moves == 1,
-    "native drop mutation followed by false return reconciles its native world wrapper")
+    and #T.yard.worlds == 1 and T.moves == 1 and T.arrangeCalls == 1 and T.arrangeVerified == true,
+    "native drop mutation followed by false return reconciles and arranges its same verified world wrapper")
 saved = I.copy(record)
 saved.items[1].stored, saved.items[1].returned, saved.items[1].storageId = false, false, nil
 I.reset()
@@ -327,6 +346,26 @@ I.refresh(saved)
 check(saved.items[1].stored and saved.items[1].storageId == "yard:1"
     and I.summary(saved).stored == 1 and T.moves == 1,
     "reload repairs a journalled ground deposit by exact ID and ownership proof")
+
+clear()
+item = log("yard:refused")
+a = T.actor("a", "Alice", { item })
+yard()
+record = create(a, { item })
+T.dropRefused = true
+check(I.update(record, a) == false and not record.items[1].stored
+    and item.container == a.inventory and #T.yard.worlds == 0 and T.moves == 0 and T.arrangeCalls == 0,
+    "a refused native yard drop keeps cargo and receipts pending without cosmetic layout")
+
+clear()
+item = log("yard:ambiguous")
+a = T.actor("a", "Alice", { item })
+yard()
+record = create(a, { item })
+T.dropAmbiguous = true
+check(I.update(record, a) == false and not record.items[1].stored and #T.yard.worlds == 1
+    and T.moves == 1 and T.arrangeCalls == 0 and not I.settle(record),
+    "an ambiguous native world link cannot be arranged, duplicated or counted as delivered")
 
 clear()
 item = log("missing:log")

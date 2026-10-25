@@ -67,6 +67,40 @@ function Format.humanize(value)
     return readable
 end
 
+local BASE_ZONE_NAMES = {
+    area = "Camp boundary", work = "Work area", rest = "Rest area",
+    social = "Social area", guard = "Guard area", rally = "Rally area",
+    quarantine = "Quarantine area", farm = "Farm area", fishing = "Fishing bank",
+    lumber = "Lumber area", log_yard = "Outdoor log yard", sorting_floor = "Sorting floor",
+    trash_pile = "Trash pile", parking = "Parking area", burial = "Burial ground",
+    pyre = "Pyre (burn site)",
+}
+
+local function tileCoordinate(value)
+    if type(value) ~= "number" and type(value) ~= "string" then return nil end
+    local number = tonumber(value)
+    if not number or number ~= number or math.abs(number) == math.huge then return nil end
+    return math.floor(number)
+end
+
+function Format.baseZoneLabel(zone, textFunction)
+    zone = type(zone) == "table" and zone or {}
+    local name = type(zone.name) == "string" and zone.name:match("^%s*(.-)%s*$") or ""
+    -- Older camp zones use their raw kind as an automatic name. Internal
+    -- identifiers also belong in option data, never in the visible label.
+    if name ~= "" and name ~= zone.kind and name ~= zone.id then return name end
+    local fallback = BASE_ZONE_NAMES[zone.kind] or "Zone"
+    local key = "UI_SC_Base_Zone_" .. (BASE_ZONE_NAMES[zone.kind] and zone.kind or "")
+    local label = translated(textFunction, key)
+    if label == key or not label:find("%S") then label = fallback end
+    local x = tileCoordinate(zone.x1) or tileCoordinate(zone.x)
+    local y = tileCoordinate(zone.y1) or tileCoordinate(zone.y)
+    if x == nil or y == nil then return label end
+    local z = tileCoordinate(zone.z)
+    return label .. " (" .. tostring(x) .. ", " .. tostring(y)
+        .. (z ~= nil and (", " .. tostring(z)) or "") .. ")"
+end
+
 function Format.numberText(value, decimals, textFunction)
     local number = tonumber(value)
     if not number then

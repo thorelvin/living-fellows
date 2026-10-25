@@ -90,13 +90,45 @@ end
 -- have captured its callback before our wrapper was installed. Bind the actual
 -- clicked menu option as well, without adding a duplicate Medical Check entry.
 function Context.ensureCompanionMedicalOption(context, worldObjects, player, row)
-    if not context or not row or not row.actor then return nil end
+    if not context then return nil end
     local name = getText and getText("ContextMenu_Medical_Check") or "Medical Check"
     local option = type(context.getOptionFromName) == "function"
         and context:getOptionFromName(name) or nil
+    local wrapped = option and type(context.onGetUpAndThen) == "function"
+        and option.onSelect == context.onGetUpAndThen
+    if option then
+        -- The native body hit-test can identify a patient while the clicked
+        -- floor square misses their feet. Keep that exact patient rather than
+        -- substituting the companion selected for ground orders, even when a
+        -- later floor hit finds a different companion. Existing human-player,
+        -- other-requester and unrelated options retain their native callback.
+        local callback = wrapped and option.param1 or option.onSelect
+        local requester = wrapped and option.param3 or option.param1
+        local patient = wrapped and option.param4 or option.param2
+        local medicalCallback = type(callback) == "function"
+            and (callback == Context.onMedicalCheck
+                or callback == Context._originalMedicalCheck
+                or ISWorldObjectContextMenu
+                    and callback == ISWorldObjectContextMenu.onMedicalCheck)
+        local ok, companion = pcall(function()
+            return medicalCallback and requester == player and SC.Actor
+                and type(SC.Actor.isCompanion) == "function"
+                and SC.Actor.isCompanion(patient) == true
+        end)
+        if not ok or companion ~= true then return nil end
+        if not row or row.actor ~= patient then row = { actor = patient } end
+    end
+    if not row or not row.actor then return nil end
     if not option then
         option = context:addOption(name, worldObjects, Context.onMedicalCheck,
             player, row.actor)
+    elseif wrapped then
+        -- Retain the native stand-up action before examining the patient.
+        option.target = context
+        option.param1 = Context.onMedicalCheck
+        option.param2 = worldObjects
+        option.param3 = player
+        option.param4 = row.actor
     else
         option.target = worldObjects
         option.onSelect = Context.onMedicalCheck
@@ -114,7 +146,14 @@ function Context.ensureCompanionMedicalOption(context, worldObjects, player, row
         local tooltip = ISToolTip:new()
         tooltip:initialise()
         tooltip:setVisible(false)
-        tooltip.description = argument and text(reason, argument) or text(reason)
+        if reason == "UI_SC_Disabled_TooFar" then
+            local patientName = SC.UI and type(SC.UI.displayName) == "function"
+                and SC.UI.displayName(row.actor, row.name) or row.name
+            tooltip.description = text("UI_SC_MedicalCheck_TooFar",
+                patientName or text("UI_SC_Value_UnknownCompanion"), argument)
+        else
+            tooltip.description = argument and text(reason, argument) or text(reason)
+        end
         option.toolTip = tooltip
     else
         option.toolTip = nil
@@ -1711,6 +1750,9 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
     local player = getSpecificPlayer and getSpecificPlayer(playerIndex) or (getPlayer and getPlayer() or nil)
     if not player then
         return
+    end
+    if test ~= true then
+        Context.ensureCompanionMedicalOption(context, worldObjects, player)
     end
     local memorialName = namedGraveMarker(worldObjects)
     local square, door, targetPayload, doorPayload, barricadeTarget, barricadePayload,

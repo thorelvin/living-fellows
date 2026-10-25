@@ -49,6 +49,8 @@ public final class SCSplitScreenProbe {
     private static String primaryRestoreReason = "idle";
     private static String lastPrimaryRestoreMode = "B";
     private static int primaryRestoreFrames;
+    private static int primaryRestoreLightingChunks;
+    private static String secondaryLightingRetirement = "none";
     private static final int PRIMARY_RESTORE_FRAME_LIMIT = 60;
     private static StockObserverProbe stockObserverProbe;
     private static String stockObserverIssue = "idle";
@@ -77,13 +79,29 @@ public final class SCSplitScreenProbe {
         final long generation;
         final String mode;
         final int releaseFrame;
+        final SecondaryLightingRelease lightingRelease;
 
-        PrimaryViewRestore(IsoPlayer primary, IsoCell cell, long generation, String mode) {
+        PrimaryViewRestore(IsoPlayer primary, IsoCell cell, long generation, String mode,
+                SecondaryLightingRelease lightingRelease) {
             this.primary = primary;
             this.cell = cell;
             this.generation = generation;
             this.mode = mode;
             this.releaseFrame = IsoCamera.frameState.frameCount;
+            this.lightingRelease = lightingRelease;
+        }
+    }
+
+    private static final class SecondaryLightingRelease {
+        final int originX;
+        final int originY;
+
+        SecondaryLightingRelease(IsoChunkMap map) {
+            if (map == null || map.playerId != 1 || map.ignore) {
+                throw new IllegalStateException("active owned secondary lighting map is unavailable");
+            }
+            originX = map.getWorldXMin();
+            originY = map.getWorldYMin();
         }
     }
 
@@ -600,6 +618,7 @@ public final class SCSplitScreenProbe {
         if (map == null || map.playerId != 1 || retainedCorpseChunks.isEmpty()) {
             throw new IllegalStateException("owned second chunk map is unavailable");
         }
+        SecondaryLightingRelease lightingRelease = new SecondaryLightingRelease(map);
         // Native Unload releases only this map's chunk references, queues
         // unshared chunks for save and clears pending loads and physics state.
         // Ignore late worker completions before invoking it.
@@ -615,7 +634,7 @@ public final class SCSplitScreenProbe {
         IsoPlayer.numPlayers = 1;
         IsoPlayer.setInstance(primary);
         leader = null;
-        armPrimaryViewRestore(primary, world.getCell());
+        armPrimaryViewRestore(primary, world.getCell(), lightingRelease);
         restoreZoomAfterRelease();
         return true;
     }
@@ -745,6 +764,7 @@ public final class SCSplitScreenProbe {
         IsoPlayer[] slots = IsoPlayer.players;
         IsoPlayer primary = slots[0];
         IsoChunkMap map = IsoWorld.instance.getCell().getChunkMap(1);
+        SecondaryLightingRelease lightingRelease = new SecondaryLightingRelease(map);
         map.ignore = true;
         map.Unload();
         try {
@@ -757,7 +777,7 @@ public final class SCSplitScreenProbe {
         IsoPlayer.numPlayers = 1;
         IsoPlayer.setInstance(primary);
         leader = null;
-        armPrimaryViewRestore(primary, IsoWorld.instance.getCell());
+        armPrimaryViewRestore(primary, IsoWorld.instance.getCell(), lightingRelease);
         restoreZoomAfterRelease();
         return true;
     }
@@ -791,12 +811,21 @@ public final class SCSplitScreenProbe {
 
     /** Arm after committed slot teardown; no render cache work belongs here. */
     static void armPrimaryViewRestore(IsoPlayer primary, IsoCell cell) {
+        armPrimaryViewRestore(primary, cell, null);
+    }
+
+    private static void armPrimaryViewRestore(IsoPlayer primary, IsoCell cell,
+            SecondaryLightingRelease lightingRelease) {
         primaryViewRestore = new PrimaryViewRestore(primary, cell,
-                ++primaryRestoreGeneration, primaryRestoreMode);
+                ++primaryRestoreGeneration, primaryRestoreMode, lightingRelease);
         primaryRestoreFrames = 0;
+        primaryRestoreLightingChunks = 0;
+        secondaryLightingRetirement = lightingRelease == null ? "none" : "pending";
         primaryRestoreStatus = "waiting";
         primaryRestoreReason = "primary_frame";
         lastPrimaryRestoreMode = primaryRestoreMode;
+        System.out.println("[SurvivorCompanionBridge] primary view restore armed generation="
+                + primaryRestoreGeneration + " mode=" + primaryRestoreMode);
         // The old release refreshed immediately. Observe retains that exact
         // behavior, including its zero grid timer, to make baseline A useful.
         try {
@@ -811,6 +840,9 @@ public final class SCSplitScreenProbe {
     }
 
     private static void cancelPrimaryViewRestore(String reason) {
+        if (primaryViewRestore != null && primaryViewRestore.lightingRelease != null) {
+            secondaryLightingRetirement = "cancelled";
+        }
         primaryViewRestore = null;
         primaryRestoreGeneration++;
         primaryRestoreStatus = "cancelled";
@@ -830,7 +862,8 @@ public final class SCSplitScreenProbe {
     /**
      * Called once by OnPostRender. A later completed primary frame with the
      * native solo viewport/zoom consumes this one-shot record.
-     * All mutations affect CPU caches; the engine performs the next render.
+     * Retires the owned secondary native lighting context and invalidates
+     * primary CPU caches; the engine performs the next lighting/render pass.
      */
     public static String pollPrimaryViewRestore() {
         PrimaryViewRestore pending = primaryViewRestore;
@@ -846,8 +879,13 @@ public final class SCSplitScreenProbe {
             return primaryRestoreStatus;
         }
         IsoCamera.FrameState frame = IsoCamera.frameState;
-        if (frame.playerIndex != 0) return "waiting";
         primaryRestoreFrames++;
+        if (frame.playerIndex != 0) {
+            if (primaryRestoreFrames >= PRIMARY_RESTORE_FRAME_LIMIT) {
+                return failPrimaryViewRestore("primary_frame_timeout");
+            }
+            return "waiting";
+        }
         if (Thread.currentThread() != MainThread.mainThread) {
             return failPrimaryViewRestore("wrong_thread");
         }
@@ -871,9 +909,23 @@ public final class SCSplitScreenProbe {
             // call fails, polling must not repeat a partially applied reset.
             primaryViewRestore = null;
             try {
+                if (pending.lightingRelease != null) {
+                    if ("observe".equals(pending.mode)) {
+                        secondaryLightingRetirement = "observe";
+                    } else {
+                        secondaryLightingRetirement = "attempted";
+                        boolean retired = SCLightingSlotRetirement.retire(
+                                pending.lightingRelease.originX, pending.lightingRelease.originY);
+                        secondaryLightingRetirement = retired ? "retired" : "offline";
+                    }
+                }
                 if (!"observe".equals(pending.mode)) applyPrimaryViewRestore(pending);
                 primaryRestoreStatus = "applied";
                 primaryRestoreReason = "observe".equals(pending.mode) ? "observed" : "complete";
+                System.out.println("[SurvivorCompanionBridge] primary view restore applied generation="
+                        + pending.generation + " mode=" + pending.mode
+                        + " lightingChunks=" + primaryRestoreLightingChunks
+                        + " frames=" + primaryRestoreFrames);
             } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
                 return failPrimaryViewRestore(failure.getClass().getSimpleName());
             }
@@ -886,9 +938,16 @@ public final class SCSplitScreenProbe {
     }
 
     private static String failPrimaryViewRestore(String reason) {
+        if ("attempted".equals(secondaryLightingRetirement)) {
+            secondaryLightingRetirement = "failed";
+        } else if ("pending".equals(secondaryLightingRetirement)) {
+            secondaryLightingRetirement = "not_retired";
+        }
         primaryViewRestore = null;
         primaryRestoreStatus = "failed";
         primaryRestoreReason = reason;
+        System.err.println("[SurvivorCompanionBridge] primary view restore failed generation="
+                + primaryRestoreGeneration + " reason=" + reason);
         return "failed";
     }
 
@@ -908,7 +967,13 @@ public final class SCSplitScreenProbe {
         IsoChunkMap map = cell.getChunkMap(0);
         if (map == null || map.getChunks() == null) return;
         for (IsoChunk chunk : map.getChunks()) {
-            if (chunk == null || chunk.lightingNeverDone[0]) continue;
+            if (chunk == null) continue;
+            // Native shared-chunk attachment queues the same all-level work.
+            // Cutaway invalidation alone does not resend primary visibility
+            // geometry; cars and overhead names both depend on that sight data.
+            chunk.checkLightingLater_OnePlayer_AllLevels(0);
+            primaryRestoreLightingChunks++;
+            if (chunk.lightingNeverDone[0]) continue;
             FBORenderLevels levels = existingRenderLevels(chunk, 0);
             if (levels != null) levels.invalidateAll(FBORenderChunk.DIRTY_CUTAWAYS);
         }
@@ -960,6 +1025,11 @@ public final class SCSplitScreenProbe {
         if (cell == null) return prefix + ";sample=world_unavailable";
         IsoGridSquare square = cell.getGridSquare(x, y, z);
         if (square == null) return prefix + ";sample=unloaded";
+        // Capture Java's cached sight before any lighting visibility getter can
+        // refresh it. Keep this independent of the cutaway diagnostic so an
+        // unavailable JNI library never discards the existing renderer facts.
+        prefix += debugPrimaryVisibilityFacts(square, x, y, z);
+        prefix += debugPrimaryLightingFacts(cell);
         try {
             Class<?> performance = Class.forName("zombie.core.PerformanceSettings");
             boolean fbo = performance.getField("fboRenderChunk").getBoolean(null);
@@ -1007,6 +1077,95 @@ public final class SCSplitScreenProbe {
         } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
             return prefix + ";sample=unavailable;error=" + failure.getClass().getSimpleName();
         }
+    }
+
+    private static String debugPrimaryVisibilityFacts(IsoGridSquare square,
+            int x, int y, int z) {
+        StringBuilder facts = new StringBuilder();
+        try {
+            Object lighting = Array.get(readField(square, "lighting"), 0);
+            facts.append(";visibilityCachedClass=")
+                    .append(lighting == null ? "nil" : lighting.getClass().getSimpleName());
+            if (lighting != null) {
+                int vis = ((Number) readField(lighting, "vis")).intValue();
+                facts.append(";visibilityCachedSlot=").append(readField(lighting, "playerIndex"))
+                        .append(";visibilityCachedTick=").append(readField(lighting, "updateTick"))
+                        .append(";visibilityCachedVis=").append(vis)
+                        .append(";visibilityCachedSeen=").append((vis & 1) != 0)
+                        .append(";visibilityCachedCanSee=").append((vis & 2) != 0)
+                        .append(";visibilityCachedCouldSee=").append((vis & 4) != 0);
+            }
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            facts.append(";visibilityCached=unavailable:")
+                    .append(failure.getClass().getSimpleName());
+        }
+        try {
+            Class<?> lightingJNI = Class.forName("zombie.iso.LightingJNI");
+            boolean initialized = lightingJNI.getField("init").getBoolean(null);
+            facts.append(";visibilityJNIInit=").append(initialized)
+                    .append(";visibilityNativeCounter0=")
+                    .append(lightingJNI.getMethod("getUpdateCounter", int.class).invoke(null, 0));
+            if (!initialized) return facts.append(";visibilityRaw=unavailable:not_initialized").toString();
+            Class<?>[] signature = { int.class, int.class, int.class, int.class };
+            facts.append(";visibilityRawSeen=")
+                    .append(lightingJNI.getMethod("getSeen", signature).invoke(null, 0, x, y, z + 32))
+                    .append(";visibilityRawCanSee=")
+                    .append(lightingJNI.getMethod("getCanSee", signature).invoke(null, 0, x, y, z + 32))
+                    .append(";visibilityRawCouldSee=")
+                    .append(lightingJNI.getMethod("getCouldSee", signature).invoke(null, 0, x, y, z + 32));
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            Throwable cause = failure.getCause() == null ? failure : failure.getCause();
+            facts.append(";visibilityRaw=unavailable:").append(cause.getClass().getSimpleName());
+        }
+        return facts.toString();
+    }
+
+    /** Debug-only observations; never submits or consumes native lighting work. */
+    private static String debugPrimaryLightingFacts(IsoCell cell) {
+        StringBuilder facts = new StringBuilder();
+        for (int slot = 0; slot < 2; slot++) {
+            IsoChunkMap map = cell.getChunkMap(slot);
+            facts.append(";lightingMap").append(slot).append('=');
+            if (map == null) {
+                facts.append("nil");
+            } else {
+                facts.append(Integer.toHexString(System.identityHashCode(map)))
+                        .append(",ignore:").append(map.ignore)
+                        .append(",playerId:").append(map.playerId)
+                        .append(",chunks:").append(map.getChunks() == null ? -1 : map.getChunks().length);
+            }
+            facts.append(";losCleared").append(slot).append('=').append(LosUtil.cachecleared[slot]);
+        }
+        try {
+            Class<?> type = Class.forName("zombie.iso.LightingThread");
+            Object worker = type.getField("instance").get(null);
+            Object value = type.getField("lightingThread").get(worker);
+            Thread thread = value instanceof Thread ? (Thread) value : null;
+            facts.append(";lightingFinished=").append(type.getField("finished").get(worker))
+                    .append(";lightingInterrupted=").append(type.getField("interrupted").get(worker))
+                    .append(";lightingThread=").append(thread == null ? "nil" : thread.getState())
+                    .append(";lightingThreadAlive=").append(thread != null && thread.isAlive());
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            facts.append(";lightingWorker=unavailable:").append(failure.getClass().getSimpleName());
+        }
+        try {
+            Class<?> type = Class.forName("zombie.iso.LightingJNI");
+            facts.append(";lightingJavaCounter0=").append(type.getMethod("getUpdateCounter", int.class).invoke(null, 0))
+                    .append(";lightingJavaCounter1=").append(type.getMethod("getUpdateCounter", int.class).invoke(null, 1));
+            if (type.getField("init").getBoolean(null)) {
+                facts.append(";lightingRawCounter0=").append(type.getMethod("stateUpdateCounter", int.class).invoke(null, 0))
+                        .append(";lightingRawCounter1=").append(type.getMethod("stateUpdateCounter", int.class).invoke(null, 1))
+                        .append(";lightingWaitingForMain=").append(type.getMethod("WaitingForMain").invoke(null));
+            }
+            Field field = type.getDeclaredField("checkLightsFuture");
+            field.setAccessible(true);
+            Object future = field.get(null);
+            facts.append(";lightingFuture=").append(future == null ? "nil"
+                    : ((java.util.concurrent.CompletableFuture<?>) future).isDone() ? "done" : "pending");
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            facts.append(";lightingNative=unavailable:").append(failure.getClass().getSimpleName());
+        }
+        return facts.toString();
     }
 
     private static String roomLabel(Object room) {
@@ -1070,6 +1229,8 @@ public final class SCSplitScreenProbe {
                 + " restoreStatus=" + primaryRestoreStatus + " restoreMode=" + lastPrimaryRestoreMode
                 + " restoreReason=" + primaryRestoreReason + " restoreGeneration=" + primaryRestoreGeneration
                 + " restoreFrames=" + primaryRestoreFrames
+                + " lightingChunks=" + primaryRestoreLightingChunks
+                + " secondaryLighting=" + secondaryLightingRetirement
                 + " stockObserver=" + (stockObserverProbe == null ? "nil" : "present")
                 + " stockTeardown=" + (stockObserverProbe != null && stockObserverProbe.teardownStarted ? "started" : "idle")
                 + " stockIssue=" + stockObserverIssue;
@@ -1158,6 +1319,8 @@ public final class SCSplitScreenProbe {
             return false;
         }
         StockObserverProbe probe = stockObserverProbe;
+        SecondaryLightingRelease lightingRelease = new SecondaryLightingRelease(
+                probe.cell.getChunkMap(1));
         // A failed native step requires aborting this diagnostic, not repeating
         // possibly partial actor/map teardown against the running world.
         probe.teardownStarted = true;
@@ -1183,7 +1346,7 @@ public final class SCSplitScreenProbe {
         IsoPlayer.setInstance(probe.primary);
         stockObserverProbe = null;
         stockObserverIssue = "released_custom_stock_teardown";
-        armPrimaryViewRestore(probe.primary, probe.cell);
+        armPrimaryViewRestore(probe.primary, probe.cell, lightingRelease);
         restoreZoomAfterRelease();
         return true;
     }

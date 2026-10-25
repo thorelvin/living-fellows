@@ -93,6 +93,8 @@ try {
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCBootstrapLifecycleTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCIsoPlayerControlTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCIsoCompanionControlTest.java') `
+        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCLightingSlotRetirementTest.java') `
+        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCLightingSlotLifecycleTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCNativeCleanupTransactionTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCNativeBridgeExposureTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCViewpointCompatibilityTest.java') `
@@ -758,6 +760,8 @@ try {
         Add-ScJvmStep 'sc-kahlua-exposure-test' @('-cp', "$BuildRoot;$Jar", 'survivorcompanion.bridge.SCKahluaExposureTest') @() 'Actual LuaManager exposure gate failed.'
         Add-ScJvmStep 'sc-iso-player-control-test' @('-cp', "$BuildRoot;$Jar", 'survivorcompanion.bridge.SCIsoPlayerControlTest') @() 'Actual IsoPlayer control gate failed.'
         Add-ScJvmStep 'sc-iso-companion-control-test' @('-cp', "$BuildRoot;$NativeJar;$Jar", 'survivorcompanion.bridge.SCIsoCompanionControlTest') @() 'Native IsoCompanion isolation control failed.'
+        Add-ScJvmStep 'sc-lighting-slot-retirement-test' @('-cp', "$BuildRoot;$NativeJar;$Jar", 'survivorcompanion.bridge.SCLightingSlotRetirementTest') @() 'Owned secondary lighting retirement transaction failed.'
+        Add-ScJvmStep 'sc-lighting-slot-lifecycle-test' @("-XX:ErrorFile=$BuildRoot\hs_err_lighting_slot_%p.log", '-cp', "$BuildRoot;$NativeJar;$Jar", 'survivorcompanion.bridge.SCLightingSlotLifecycleTest') @() 'Isolated native lighting join/close protocol failed.'
         Add-ScJvmStep 'sc-native-cleanup-transaction-test' @('-cp', "$BuildRoot;$NativeJar;$Jar", 'survivorcompanion.bridge.SCNativeCleanupTransactionTest') @() 'Native cleanup transaction control failed.'
         Add-ScJvmStep 'sc-native-bridge-exposure-test' @('-cp', "$BuildRoot;$NativeJar;$Jar", 'survivorcompanion.bridge.SCNativeBridgeExposureTest') @() 'Production native bridge Kahlua exposure failed.'
         Add-ScJvmStep 'sc-launcher' @('-cp', "$NativeJar;$Jar", 'survivorcompanion.bridge.SCLauncher', '--sc-bridge-smoke-test') @() 'Native bridge launcher smoke test failed.'

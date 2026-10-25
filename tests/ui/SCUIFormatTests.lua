@@ -45,6 +45,9 @@ local translations = {
     UI_SC_State_moderate = "Moderate",
     UI_SC_State_defensive = "Defensive",
     UI_SC_State_steady = "Steady",
+    UI_SC_Base_Zone_parking = "Parking area",
+    UI_SC_Base_Zone_lumber = "Lumber area",
+    UI_SC_Base_Zone_ = "Zone",
 }
 
 local function text(key, ...)
@@ -55,6 +58,30 @@ local function text(key, ...)
     end
     return value
 end
+
+assert(Format.baseZoneLabel({ id = "zone:42", name = "  North orchard  ", kind = "farm",
+        x1 = 12030, y1 = 6748, z = 0 }, text) == "North orchard",
+    "meaningful custom zone names are preserved with surrounding whitespace trimmed")
+assert(Format.baseZoneLabel({ id = "zone:42", name = " \t ", kind = "parking",
+        x1 = 12030, y1 = 6748, z = 0 }, text) == "Parking area (12030, 6748, 0)",
+    "a blank parking name becomes a translated location instead of an invisible entry")
+assert(Format.baseZoneLabel({ id = "zone:42", name = "", kind = "lumber",
+        x = 100.9, y = 200.2, z = 1 }, text) == "Lumber area (100, 200, 1)",
+    "point-style coordinates identify unnamed locations using actual integer tiles")
+assert(Format.baseZoneLabel({ kind = "parking", name = "parking", x1 = 10, y1 = 20 }, text)
+        == "Parking area (10, 20)", "old raw kind names receive the translated label and omit unknown floors")
+assert(Format.baseZoneLabel({ id = "zone:42", name = "zone:42", kind = "parking" }, text)
+        == "Parking area", "internal zone identifiers never become visible fallback names")
+assert(Format.baseZoneLabel({ id = "zone:private", x = 10, y = 20 }, text) == "Zone (10, 20)",
+    "missing kinds use a readable generic zone label without leaking an identifier")
+assert(Format.baseZoneLabel({ kind = "parking", x = 0 / 0, y = math.huge }, text) == "Parking area",
+    "unreadable coordinates cannot put NaN or infinity in a location selector")
+assert(Format.baseZoneLabel(nil, text) == "Zone", "unavailable location data still has a nonblank label")
+assert(Format.baseZoneLabel({ kind = "parking" }, function() return "" end) == "Parking area",
+    "an empty translation cannot erase the location label")
+assert(Format.baseZoneLabel({ kind = "parking", x = 10, y = 20 }, function(key)
+        return key == "UI_SC_Base_Zone_parking" and "Translated parking" or key
+    end) == "Translated parking (10, 20)", "zone-kind labels use the supplied translation provider")
 
 local description = {
     id = "sc-format-test",

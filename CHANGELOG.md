@@ -4,6 +4,10 @@
 
 ## 0.26.65 - Wood collection expeditions and Viewpoint compatibility
 
+- The Base tab puts the selected companion's job controls first and storage management last. Scrolled checkboxes retain their content position, keeping policy labels together without overlap or blank gaps. Unnamed zones and expedition parking choices show readable area names and coordinates.
+- Medical Check also recognizes companions found by the game's neighboring-square selection. It keeps the actual patient and native stand-up step, and distance hints use the companion's readable name instead of the native player name.
+- Log Yards arrange real logs into aligned four-log stacks and fill partial stacks before starting the next tile in a row. Expedition deliveries use the same placement, and existing loaded stacks straighten when visited without replacing their items.
+- Returning to solo view retires the companion's native lighting state, allowing the main player's sight to keep updating after the second view closes. Primary lighting and wall cutaways then refresh together. Return checks its view owner before teardown, and support diagnostics record retirement, refresh and timeout details.
 - Packages the tested wood collection expeditions, exact cargo tracking, automatic delivery retries and Viewpoint 3D name suppression from the current playtest build.
 - Includes verified car-door approaches and bounded roadside turn recovery for the return journey. Walking and driving cargo delivery passed in cloned saves; the driving cargo test used an explicitly quiet work site.
 - The native bridge protocol remains `42.21-isocompanion-24`, targeting Project Zomboid 42.21.0. Install the matching Lua payload and rebuilt bridge together.

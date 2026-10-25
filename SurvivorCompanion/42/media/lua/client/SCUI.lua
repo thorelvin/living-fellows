@@ -2673,6 +2673,8 @@ function SCUIDetail:addBooleanCommand(panel, y, labelKey, command, rowField, sel
         math.max(40, availableWidth - boxHeight - 14))
     local tickBox = ISTickBox:new(12, y, availableWidth, boxHeight, "", self,
         onBooleanCommand, command, "enabled")
+    -- addOption resizes an unparented native widget; retain its scroll-content Y.
+    tickBox.keepOnScreen = false
     tickBox:initialise()
     tickBox.background = false
     tickBox:addOption(visibleLabel, command)
@@ -2910,6 +2912,7 @@ function SCUIDetail:addBaseToggle(panel, y, labelKey, policyKey, selected)
     local boxHeight = math.max(18, metrics.fontHeight)
     local tickBox = ISTickBox:new(12, y, width, boxHeight, "", self,
         onBaseToggle, policyKey)
+    tickBox.keepOnScreen = false
     tickBox:initialise()
     tickBox.background = false
     local labelX = 12 + tickBox.boxSize + tickBox.textGap
@@ -3242,12 +3245,14 @@ function SCUIDetail:addTradeChoice(panel, y, side, factionId, row, selected)
     local width = math.max(100, panel:getWidth() - 28)
     local name = SC.GameplayUtil and SC.GameplayUtil.itemName
         and SC.GameplayUtil.itemName(row.item) or UI.humanize(row.type)
-    local label = fitText(UIFont.Small,
-        tostring(name) .. " | value " .. tostring(row.value or 0), math.max(40, width - 28))
     local tick = ISTickBox:new(12, y, width, math.max(18, metrics.fontHeight), "",
         self, onTradeChoice, side, factionId)
+    tick.keepOnScreen = false
     tick:initialise()
     tick.background = false
+    local label = fitText(UIFont.Small,
+        tostring(name) .. " | value " .. tostring(row.value or 0),
+        math.max(40, width - tick.boxSize - tick.textGap))
     tick:addOption(label, row.item)
     tick:setSelected(1, selected == true)
     tick.scTradeRow = row
@@ -3660,6 +3665,7 @@ function SCUIDetail:buildMore(panel, row)
     local showLabel = UI.text("UI_SC_Nickname_Show")
     local show = ISTickBox:new(12, y, width, math.max(18, metrics.fontHeight), "",
         self, onShowNicknames)
+    show.keepOnScreen = false
     show:initialise()
     show.background = false
     show:addOption(showLabel, "showNicknames")
@@ -3714,6 +3720,36 @@ function SCUIDetail:buildBase(panel, row)
     local crisisByResident = {}
     for _, crisis in ipairs(crises.rows or {}) do
         if crisis.subjectId then crisisByResident[crisis.subjectId] = crisis end
+    end
+    if base.configured then
+        y = self:addSection(panel, y + 4, "UI_SC_Base_Section_Selected")
+        if row then
+            local resident = SC.BaseLife and SC.BaseLife.resident
+                and SC.BaseLife.resident(row.id) or nil
+            -- A saved role is only a preference while the companion is off duty.
+            -- Derive the summary and selector from one active assignment so a
+            -- stale resident row cannot say "Generalist | On" beside "No job".
+            local assigned = resident and resident.duty == true
+                and row.order == "base_duty"
+            local selectedRole = assigned and resident.role or "off"
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                UI.text("UI_SC_Base_Resident", row.name,
+                    UI.text(assigned and ("UI_SC_Base_JobRole_" .. resident.role)
+                        or "UI_SC_Base_JobRole_unassigned"),
+                    UI.booleanText(assigned == true)))
+            y = self:addCommandSelector(panel, y, "UI_SC_Base_JobRoleSelector",
+                selectedRole, BASE_JOB_ROLES, "set_base_role", "role",
+                "UI_SC_Base_JobRoleHint")
+            local restriction = SC.BaseLife and SC.BaseLife.restriction
+                and SC.BaseLife.restriction(row.id) or nil
+            if restriction then
+                y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                    UI.text("UI_SC_Base_WorkRestricted", UI.humanize(restriction)))
+            end
+        else
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                UI.text("UI_SC_NoSelection"))
+        end
     end
     y = self:addSection(panel, y, "UI_SC_Base_Section_Status")
     if not base.configured then
@@ -3829,34 +3865,6 @@ function SCUIDetail:buildBase(panel, row)
                 end
             end
         end
-        y = self:addSection(panel, y + 4, "UI_SC_Base_Section_Selected")
-        if row then
-            local resident = SC.BaseLife and SC.BaseLife.resident
-                and SC.BaseLife.resident(row.id) or nil
-            -- A saved role is only a preference while the companion is off duty.
-            -- Derive the summary and selector from one active assignment so a
-            -- stale resident row cannot say "Generalist | On" beside "No job".
-            local assigned = resident and resident.duty == true
-                and row.order == "base_duty"
-            local selectedRole = assigned and resident.role or "off"
-            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
-                UI.text("UI_SC_Base_Resident", row.name,
-                    UI.text(assigned and ("UI_SC_Base_JobRole_" .. resident.role)
-                        or "UI_SC_Base_JobRole_unassigned"),
-                    UI.booleanText(assigned == true)))
-            y = self:addCommandSelector(panel, y, "UI_SC_Base_JobRoleSelector",
-                selectedRole, BASE_JOB_ROLES, "set_base_role", "role",
-                "UI_SC_Base_JobRoleHint")
-            local restriction = SC.BaseLife and SC.BaseLife.restriction
-                and SC.BaseLife.restriction(row.id) or nil
-            if restriction then
-                y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
-                    UI.text("UI_SC_Base_WorkRestricted", UI.humanize(restriction)))
-            end
-        else
-            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
-                UI.text("UI_SC_NoSelection"))
-        end
         local operations = base.operations or {}
         y = self:addSection(panel, y + 4, "UI_SC_Base_Section_Operations")
         y = self:addInformationLine(panel, y, "UI_SC_Base_Readiness",
@@ -3938,11 +3946,12 @@ function SCUIDetail:buildBase(panel, row)
                 UI.text("UI_SC_Base_NoZones"))
         else
             for _, zone in ipairs(base.zoneRows) do
+                local zoneLabel = Format.baseZoneLabel(zone, UI.text)
                 y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
-                    UI.text("UI_SC_Base_ZoneRow", zone.name, UI.humanize(zone.kind),
+                    UI.text("UI_SC_Base_ZoneRow", zoneLabel, UI.humanize(zone.kind),
                         zone.x1, zone.y1, zone.x2, zone.y2, zone.z))
                 y = self:addBaseManagementAction(panel, y,
-                    UI.text("UI_SC_Base_Visual_FocusZone", zone.name), "focus_zone",
+                    UI.text("UI_SC_Base_Visual_FocusZone", zoneLabel), "focus_zone",
                     { id = zone.id }, nil)
                 -- The same check removeZone enforces, so a confirmed removal
                 -- cannot fail on a rule this list did not know about.
@@ -3953,34 +3962,9 @@ function SCUIDetail:buildBase(panel, row)
                             or UI.baseFailureReason(refusal))
                 else
                     y = self:addBaseManagementAction(panel, y,
-                        UI.text("UI_SC_Base_RemoveZone", zone.name), "remove_zone",
-                        { id = zone.id }, UI.text("UI_SC_Base_RemoveZoneConfirm", zone.name))
+                        UI.text("UI_SC_Base_RemoveZone", zoneLabel), "remove_zone",
+                        { id = zone.id }, UI.text("UI_SC_Base_RemoveZoneConfirm", zoneLabel))
                 end
-            end
-        end
-        y = self:addSection(panel, y + 4, "UI_SC_Base_Section_Storages")
-        if type(base.storageRows) ~= "table" or #base.storageRows == 0 then
-            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
-                UI.text("UI_SC_Base_NoStorages"))
-        else
-            for _, storage in ipairs(base.storageRows) do
-                y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
-                    UI.text("UI_SC_Base_StorageRow", UI.humanize(storage.category),
-                        storage.x, storage.y, storage.z, storage.reserve or 0))
-                y = self:addBaseManagementAction(panel, y,
-                    UI.text("UI_SC_Base_Visual_FocusStorage",
-                        UI.text("UI_SC_Base_Storage_" .. storage.category)),
-                    "focus_storage", { id = storage.id }, nil)
-                y = self:addBaseRecordSelector(panel, y,
-                    "UI_SC_Base_StorageCategorySelector", storage.category,
-                    BASE_STORAGE_CATEGORIES, "set_storage_category", storage.id, "category")
-                y = self:addBaseRecordSelector(panel, y,
-                    "UI_SC_Base_StorageReserveSelector", tonumber(storage.reserve) or 0,
-                    BASE_RESERVE_LEVELS, "set_storage_reserve", storage.id, "amount")
-                y = self:addBaseManagementAction(panel, y,
-                    UI.text("UI_SC_Base_RemoveStorage", storage.x, storage.y, storage.z),
-                    "remove_storage", { id = storage.id },
-                    UI.text("UI_SC_Base_RemoveStorageConfirm"))
             end
         end
         y = self:addSection(panel, y + 4, "UI_SC_Base_Section_MaintenanceTargets")
@@ -4052,6 +4036,33 @@ function SCUIDetail:buildBase(panel, row)
                     crisis.outcome == "bleach" and "UI_SC_Base_AuthorizeBleach"
                         or "UI_SC_Base_AuthorizeFinal",
                     crisis.id, crisis.outcome, "authorize")
+            end
+        end
+    end
+    if base.configured then
+        y = self:addSection(panel, y + 4, "UI_SC_Base_Section_Storages")
+        if type(base.storageRows) ~= "table" or #base.storageRows == 0 then
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                UI.text("UI_SC_Base_NoStorages"))
+        else
+            for _, storage in ipairs(base.storageRows) do
+                y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                    UI.text("UI_SC_Base_StorageRow", UI.humanize(storage.category),
+                        storage.x, storage.y, storage.z, storage.reserve or 0))
+                y = self:addBaseManagementAction(panel, y,
+                    UI.text("UI_SC_Base_Visual_FocusStorage",
+                        UI.text("UI_SC_Base_Storage_" .. storage.category)),
+                    "focus_storage", { id = storage.id }, nil)
+                y = self:addBaseRecordSelector(panel, y,
+                    "UI_SC_Base_StorageCategorySelector", storage.category,
+                    BASE_STORAGE_CATEGORIES, "set_storage_category", storage.id, "category")
+                y = self:addBaseRecordSelector(panel, y,
+                    "UI_SC_Base_StorageReserveSelector", tonumber(storage.reserve) or 0,
+                    BASE_RESERVE_LEVELS, "set_storage_reserve", storage.id, "amount")
+                y = self:addBaseManagementAction(panel, y,
+                    UI.text("UI_SC_Base_RemoveStorage", storage.x, storage.y, storage.z),
+                    "remove_storage", { id = storage.id },
+                    UI.text("UI_SC_Base_RemoveStorageConfirm"))
             end
         end
     end

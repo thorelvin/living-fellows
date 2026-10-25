@@ -241,6 +241,11 @@ function support.snapshot(force)
         companionActions = companionActionEvidence(),
         persistence = persistenceEvidence(),
         expedition = expeditionEvidence(),
+        view = {
+            owner = safeCall(function() return SC.ViewSession.owner() or "none" end, "unavailable"),
+            restore = safeCall(function() return SC.ViewSession.primaryRestoreDiagnostic() end, {}),
+            native = safeCall(function() return SCSplitScreenProbe.releaseDiagnostics() end, "unavailable"),
+        },
         sandbox = safeCall(function()
             return SC.Config.sandboxSnapshot()
         end, {}),
@@ -259,12 +264,16 @@ function support.summary(force)
     local performance = data.performance or {}
     local persistence = data.persistence or {}
     local expedition = data.expedition or {}
+    local view = data.view or {}
     local lines = {
         "Living Fellows support report",
         "Release: " .. data.release,
         "Game build: " .. data.gameVersion .. " (target " .. data.expectedGameVersion .. ")",
         "Save schema: " .. tostring(data.saveSchema),
         "Runtime active: " .. booleanText(data.runtimeActive),
+        "Companion view owner: " .. tostring(view.owner or "none"),
+        "Primary view restore: " .. tostring(view.restore and view.restore.status or "unavailable")
+            .. " | " .. tostring(view.native or "unavailable"),
         "Bridge: " .. tostring(bridge.code or "unknown"),
         "Bridge provider: " .. tostring(bridge.provider or "none"),
         "Install/bridge mode: " .. tostring(bridge.provider or bridge.code or "unknown"),

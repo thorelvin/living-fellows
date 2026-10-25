@@ -53,6 +53,7 @@ local actors = { beta = leader, gamma = follower }
 local actorRuntimes = { beta = {}, gamma = {} }
 local uiDestroyed = false
 local released = false
+local teardownCounts = { ui = 0, persist = 0, release = 0 }
 local zoomRestores = 0
 SCBridge = {
     restoreExpeditionZoom = function()
@@ -82,6 +83,7 @@ function destroyPlayerData(actor)
     check(actor == leader or actor == follower or actor == reserve,
         "only the mission leader owns the second view UI")
     uiDestroyed = true
+    teardownCounts.ui = teardownCounts.ui + 1
 end
 SCSplitScreenProbe = {
     pollPrimaryViewRestore = function()
@@ -117,6 +119,7 @@ SCSplitScreenProbe = {
         check(slot1 == leader or slot1 == follower or slot1 == reserve,
             "only a joined expedition leader may persist the native slot")
         slot1.sqlId = slot1.sqlId or 2
+        teardownCounts.persist = teardownCounts.persist + 1
         return slot1.sqlId
     end,
     persistDeadLeaderSlotForReuse = function()
@@ -130,6 +133,7 @@ SCSplitScreenProbe = {
             "release targets the current expedition leader")
         slot1 = nil
         released = true
+        teardownCounts.release = teardownCounts.release + 1
         return true
     end,
     releaseDeadLeader = function()
@@ -232,10 +236,50 @@ local finished, refusal = expedition.finishAtPlayer(player)
 check(finished == false and refusal == "return_member_not_assembled",
     "a distant living follower still prevents release")
 follower.x, follower.y = 22, 20
+do
+    local returning = expedition.current()
+    local diagnostics = SC.Diagnostics
+    local reports = {}
+    local beforePersist, beforeUi, beforeRelease = teardownCounts.persist,
+        teardownCounts.ui, teardownCounts.release
+    check(SC.ViewSession.reset(), "fixture simulates a missing Lua view owner")
+    SC.Diagnostics = { report = function(subsystem, actor, message, detail)
+        reports[#reports + 1] = { subsystem = subsystem, actor = actor,
+            message = message, detail = detail }
+    end }
+    local refused, why = expedition.finishAtPlayer(player)
+    check(refused == false and why == "companion_view_owner_mismatch"
+        and expedition.current() == returning and returning.terminal == nil
+        and SC.ViewSession.owner() == nil and slot1 == leader
+        and renderHook == nil and not uiDestroyed and not released
+        and teardownCounts.persist == beforePersist
+        and teardownCounts.ui == beforeUi and teardownCounts.release == beforeRelease,
+        "missing Lua ownership preserves mission, native slot and UI before any teardown")
+    check(#reports == 1 and reports[1].subsystem == "view_restore"
+        and reports[1].actor == nil
+        and string.find(reports[1].detail, "owner=nil", 1, true),
+        "missing-owner refusal retains a concrete diagnostic")
+    check(SC.ViewSession.adopt("base_watch", leader, 2),
+        "fixture simulates another mode owning the same native leader")
+    local beforeZoom = zoomRestores
+    SC.Diagnostics.report = function() error("diagnostic fixture failure") end
+    refused, why = expedition.finishAtPlayer(player)
+    check(refused == false and why == "companion_view_owner_mismatch"
+        and expedition.current() == returning and returning.technicalIssue == nil
+        and SC.ViewSession.owner() == "base_watch" and slot1 == leader
+        and zoomRestores == beforeZoom and renderHook == nil
+        and teardownCounts.persist == beforePersist
+        and teardownCounts.ui == beforeUi and teardownCounts.release == beforeRelease,
+        "wrong-mode ownership is never adopted/reset or torn down even when diagnostics fail")
+    SC.Diagnostics = diagnostics
+    check(SC.ViewSession.reset() and SC.ViewSession.adopt("expedition", leader, 2),
+        "fixture restores the exact expedition owner for a legitimate retry")
+end
+local beforeFirstReturnZoom = zoomRestores
 finished, reason = expedition.finishAtPlayer(player)
 check(finished == true and reason == "returned" and uiDestroyed and released,
     "the team returns even though the saved casualty has no actor")
-check(zoomRestores == 1,
+check(zoomRestores == beforeFirstReturnZoom + 1,
     "expedition view release restores the previous slot-1 auto-zoom setting")
 check(renderHook ~= nil and restorePolls == 0,
     "expedition release waits for a completed primary render")

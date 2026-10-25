@@ -31,6 +31,368 @@ local function screenshot(H, fixture, label)
     local okay = pcall(function() getCore():TakeFullScreenshot(name) end)
     return okay, name .. "; queued; inspect resulting PNG"
 end
+local function point(object)
+    local x, y, z = tonumber(call(object, "getX")), tonumber(call(object, "getY")), tonumber(call(object, "getZ"))
+    if not x or not y or not z then return nil end
+    local square = call(object, "getCurrentSquare") or call(object, "getSquare")
+    local floor = tonumber(call(square, "getZ")) or math.floor(z)
+    return { x = x, y = y, z = z, floor = floor, direction = tostring(call(object, "getDir")) }
+end
+local function samePoint(first, second)
+    return first and second and first.floor == second.floor and math.abs(first.z - second.z) <= 0.05
+        and first.direction == second.direction
+        and math.abs(first.x - second.x) <= 0.05 and math.abs(first.y - second.y) <= 0.05
+end
+local function observeWitnessMovement(fixture)
+    local baseline = fixture.visibility
+    if not baseline then return end
+    if not samePoint(baseline.primary, point(fixture.primary)) then baseline.primaryMoved = true end
+    for _, row in ipairs(baseline.cars) do
+        if not samePoint(row.before.point, point(row.vehicle)) or call(row.vehicle, "isEngineRunning") ~= false
+            or math.abs(tonumber(call(row.vehicle, "getCurrentSpeedKmHour")) or 0) > 0.1 then row.moved = true end
+    end
+end
+local function nativeSample(at)
+    if not at or SCSplitScreenProbe == nil or type(SCSplitScreenProbe.debugPrimaryCutawaySample) ~= "function" then
+        return "native_sample_unavailable"
+    end
+    local okay, detail = pcall(SCSplitScreenProbe.debugPrimaryCutawaySample,
+        math.floor(at.x), math.floor(at.y), at.floor)
+    return okay and tostring(detail) or "native_sample_failed:" .. tostring(detail)
+end
+local function squareFacts(square)
+    return "square=" .. tostring(square) .. ";floor=" .. tostring(call(square, "getZ"))
+        .. ";canSee0=" .. tostring(call(square, "getCanSee", 0))
+        .. ";couldSee0=" .. tostring(call(square, "isCouldSee", 0))
+        .. ";seen0=" .. tostring(call(square, "isSeen", 0))
+end
+local function visibilityFacts(object, vehicle)
+    local at = point(object)
+    local square = call(object, "getCurrentSquare") or call(object, "getSquare")
+    local cell = type(getCell) == "function" and getCell() or nil
+    local canonical = at and call(cell, "getGridSquare", math.floor(at.x), math.floor(at.y), at.floor)
+    local alpha, target = tonumber(call(object, "getAlpha", 0)), tonumber(call(object, "getTargetAlpha", 0))
+    local intersected
+    if vehicle then intersected = call(object, "couldSeeIntersectedSquare", 0) end
+    local visibleSquare = square ~= nil and canonical == square and call(square, "getCanSee", 0) == true
+    if vehicle then visibleSquare = square ~= nil and call(square, "isSeen", 0) == true and intersected ~= false end
+    return { point = at, square = square, canonical = canonical, alpha = alpha, target = target,
+        visible = visibleSquare and alpha ~= nil and alpha > 0.05 and target ~= nil and target > 0.05
+            and (vehicle or call(object, "getDoRender") ~= false),
+        detail = "position=" .. position(object) .. ";dir=" .. tostring(at and at.direction)
+            .. ";floor=" .. tostring(at and at.floor)
+            .. ";alpha0=" .. tostring(alpha) .. ";targetAlpha0=" .. tostring(target)
+            .. ";couldSeeIntersectedSquare0=" .. tostring(intersected)
+            .. ";doRender=" .. tostring(call(object, "getDoRender"))
+            .. ";current{" .. squareFacts(square) .. "};canonicalSame=" .. tostring(canonical ~= nil and square == canonical)
+            .. ";canonical{" .. squareFacts(canonical) .. "};native{" .. nativeSample(at) .. "}" }
+end
+local function readableName(SC, member)
+    if SC.Names and type(SC.Names.displayName) == "function" then
+        local okay, name = pcall(SC.Names.displayName, member.actor)
+        if okay and type(name) == "string" and name ~= "" then return name end
+    end
+    return tostring(call(member.actor, "getDisplayName") or member.id)
+end
+local function visibilityLine(label, detail)
+    local line = "visibility:" .. label .. "|" .. detail
+    print("SC_REAL_SANDBOX|WOOD_EXPEDITION|" .. line)
+    local writer = type(getFileWriter) == "function"
+        and getFileWriter("SurvivorCompanionHarness/wood-expedition.log", true, true)
+    if writer then writer:writeln(line); writer:close() end
+end
+local function selectCrew(SC, size)
+    local leader, others = nil, {}
+    for _, record in ipairs(SC.Registry.records()) do
+        local actor = record.actor
+        local command = actor and SC.Commands.peek(actor)
+        local name = actor and SC.GameplayUtil.nameOf(actor)
+        if command and command.recruited and healthy(actor)
+            and (size == 1 or SC.BaseLife.isInside(actor)) then
+            local member = { id = record.id, actor = actor }
+            if not leader and type(name) == "string" and string.find(string.lower(name), "scarlet", 1, true) then
+                leader = member
+            else others[#others + 1] = member end
+        end
+    end
+    if not leader then return {} end
+    table.sort(others, function(a, b) return a.id < b.id end)
+    local crew = { leader }
+    for index = 1, math.min(size - 1, #others) do crew[#crew + 1] = others[index] end
+    return crew
+end
+local function snapshotVisibility(SC, fixture, primary)
+    fixture.primary = primary
+    fixture.visibility = { primary = point(primary), actors = {}, cars = {}, frames = 0 }
+    local baseline, selected = fixture.visibility, {}
+    for _, member in ipairs(fixture.crew) do
+        baseline.actors[#baseline.actors + 1] = { id = member.id, actor = member.actor, group = "crew" }
+        selected[member.id] = true
+    end
+    local home = {}
+    for _, record in ipairs(SC.Registry.records()) do
+        local command = record.actor and SC.Commands.peek(record.actor)
+        if not selected[record.id] and command and command.recruited and SC.BaseLife.isInside(record.actor) then
+            home[#home + 1] = { id = record.id, actor = record.actor, group = "home" }
+        end
+    end
+    table.sort(home, function(a, b) return a.id < b.id end)
+    for index = 1, math.min(8, #home) do baseline.actors[#baseline.actors + 1] = home[index] end
+    -- Build42 exposes a Set here. Reuse the production adapter that converts
+    -- that native collection to a bounded Lua array instead of indexing it.
+    local vehicles, candidates = {}, {}
+    if SC.Vehicle and type(SC.Vehicle.loadedVehicles) == "function" then
+        local okay, loaded = pcall(SC.Vehicle.loadedVehicles)
+        if okay and type(loaded) == "table" then vehicles = loaded end
+    end
+    local size = #vehicles
+    -- Native loaded-vehicle inventory only; cap both inspected objects and retained witnesses.
+    for index = 0, math.min(256, size) - 1 do
+        local vehicle = vehicles[index + 1]
+        local at = point(vehicle)
+        local speed = tonumber(call(vehicle, "getCurrentSpeedKmHour"))
+        local engine, removed = call(vehicle, "isEngineRunning"), call(vehicle, "isRemovedFromWorld")
+        local reason, distance = "admitted", nil
+        if not at then reason = "position_unavailable"
+        elseif not baseline.primary then reason = "primary_position_unavailable"
+        elseif at.floor ~= baseline.primary.floor then reason = "different_square_floor"
+        elseif not speed then reason = "speed_unavailable"
+        elseif math.abs(speed) > 0.1 then reason = "moving"
+        elseif engine ~= false then reason = "engine_running_or_unavailable"
+        elseif removed == true then reason = "removed"
+        else
+            distance = (at.x - baseline.primary.x)^2 + (at.y - baseline.primary.y)^2
+            if distance > 60 * 60 then reason = "beyond60tiles" end
+        end
+        visibilityLine("vehicle-inventory", "index=" .. index .. "|sqlId=" .. tostring(call(vehicle, "getSqlId"))
+            .. "|position=" .. position(vehicle) .. "|squareFloor=" .. tostring(at and at.floor)
+            .. "|primaryFloor=" .. tostring(baseline.primary and baseline.primary.floor)
+            .. "|speed=" .. tostring(speed) .. "|engine=" .. tostring(engine) .. "|reason=" .. reason
+            .. "|alpha0=" .. tostring(call(vehicle, "getAlpha", 0))
+            .. "|targetAlpha0=" .. tostring(call(vehicle, "getTargetAlpha", 0))
+            .. "|" .. squareFacts(call(vehicle, "getCurrentSquare") or call(vehicle, "getSquare")))
+        if reason == "admitted" then
+            candidates[#candidates + 1] = { vehicle = vehicle, id = call(vehicle, "getSqlId"), distance = distance }
+        end
+    end
+    table.sort(candidates, function(a, b)
+        if a.distance ~= b.distance then return a.distance < b.distance end
+        return tostring(a.id) < tostring(b.id)
+    end)
+    for index = 1, math.min(8, #candidates) do
+        local row = candidates[index]
+        row.before = visibilityFacts(row.vehicle, true)
+        baseline.cars[#baseline.cars + 1] = row
+    end
+    baseline.vehicleInventorySize, baseline.vehicleInspected = size, math.min(256, size)
+end
+local function captureVisibility(SC, fixture, label)
+    local baseline = fixture.visibility
+    if not baseline then return end
+    local restore = SC.ViewSession and type(SC.ViewSession.primaryRestoreDiagnostic) == "function"
+        and SC.ViewSession.primaryRestoreDiagnostic() or {}
+    local native = SCSplitScreenProbe and type(SCSplitScreenProbe.releaseDiagnostics) == "function"
+        and select(2, pcall(SCSplitScreenProbe.releaseDiagnostics)) or "unavailable"
+    visibilityLine(label, "kind=primary|frames=" .. baseline.frames .. "|owner="
+        .. tostring(SC.ViewSession and SC.ViewSession.owner()) .. "|restore=" .. tostring(restore.status)
+        .. ";pending=" .. tostring(restore.pending) .. ";reason=" .. tostring(restore.reason)
+        .. "|nativeRelease=" .. tostring(native) .. "|" .. visibilityFacts(fixture.primary).detail)
+    for _, member in ipairs(baseline.actors) do
+        visibilityLine(label, "kind=actor|group=" .. member.group .. "|id=" .. member.id
+            .. "|name=" .. readableName(SC, member) .. "|vehicle=" .. tostring(call(member.actor, "getVehicle"))
+            .. "|" .. visibilityFacts(member.actor).detail)
+    end
+    for _, row in ipairs(baseline.cars) do
+        visibilityLine(label, "kind=car|sqlId=" .. tostring(row.id) .. "|initialVisible=" .. tostring(row.before.visible)
+            .. "|unmoved=" .. tostring(not row.moved and samePoint(row.before.point, point(row.vehicle)))
+            .. "|primaryFixed=" .. tostring(not baseline.primaryMoved and samePoint(baseline.primary, point(fixture.primary)))
+            .. "|" .. visibilityFacts(row.vehicle, true).detail)
+    end
+end
+local function compareVisibleCars(fixture, result)
+    local baseline, compared = fixture.visibility, 0
+    for _, row in ipairs(baseline.cars) do
+        local reason
+        if not row.before.visible then reason = "not initially primary-visible"
+        elseif baseline.primaryMoved or not samePoint(baseline.primary, point(fixture.primary)) then reason = "primary pose changed"
+        elseif row.moved or not samePoint(row.before.point, point(row.vehicle)) then reason = "car moved"
+        elseif call(row.vehicle, "isEngineRunning") ~= false then reason = "car engine state changed" end
+        local name = "wood_probe_primary_car_visible_" .. tostring(row.id)
+        if reason then result("SKIP", name, reason .. "; no forced visibility or repositioning")
+        else
+            compared = compared + 1
+            local facts = visibilityFacts(row.vehicle, true)
+            result(facts.visible and "PASS" or "FAIL", name,
+                "initially primary-visible stationary car; unchanged primary pose and car; " .. facts.detail)
+        end
+    end
+    if compared == 0 then result("SKIP", "wood_probe_primary_car_visibility_comparison",
+        "no unchanged initially primary-visible car witness; inspect bounded before/after facts and PNGs") end
+    return compared
+end
+local function visibilityNow(current)
+    if type(getTimestampMs) == "function" then
+        local okay, value = pcall(getTimestampMs)
+        if okay and tonumber(value) then return tonumber(value) end
+    end
+    local utility = SurvivorCompanion and SurvivorCompanion.GameplayUtil
+    if utility and type(utility.nowMs) == "function" then
+        local okay, value = pcall(utility.nowMs)
+        if okay and tonumber(value) then return tonumber(value) end
+    end
+    return tonumber(current)
+end
+local function observeSoloVisibility(H, fixture, result, current)
+    local SC, baseline = SurvivorCompanion, fixture.visibility
+    if not baseline or baseline.done or not fixture.dispatchedAt or SC.ExpeditionPrototype.current() ~= nil then return end
+    local restore = SC.ViewSession and type(SC.ViewSession.primaryRestoreDiagnostic) == "function"
+        and SC.ViewSession.primaryRestoreDiagnostic() or nil
+    if getSpecificPlayer(1) ~= nil or SC.ViewSession.owner() ~= nil
+        or (restore and (restore.pending or restore.status ~= "applied")) then
+        baseline.frames, baseline.soloStartedAt = 0, nil
+        return
+    end
+    if type(getPlayerScreenWidth) == "function" and getPlayerScreenWidth(0) ~= getCore():getScreenWidth() then
+        baseline.frames, baseline.soloStartedAt = 0, nil
+        return
+    end
+    local now = visibilityNow(current)
+    if baseline.soloStartedAt == nil then baseline.soloStartedAt = now end
+    baseline.frames = baseline.frames + 1
+    if baseline.frames == 2 or baseline.frames == 12 then
+        local label = "postsolo-frame" .. baseline.frames
+        captureVisibility(SC, fixture, label)
+        local okay, detail = screenshot(H, fixture, label)
+        result(okay and "PASS" or "FAIL", "wood_probe_visibility_" .. label .. "_png", detail)
+    end
+    -- Native restoration queues asynchronous lighting work. Twelve frames at
+    -- high refresh can elapse before that thread has consumed the request.
+    if baseline.frames >= 12 and now and baseline.soloStartedAt and now - baseline.soloStartedAt >= 1500 then
+        captureVisibility(SC, fixture, "postsolo-settled")
+        local okay, detail = screenshot(H, fixture, "postsolo-settled")
+        result(okay and "PASS" or "FAIL", "wood_probe_visibility_postsolo-settled_png",
+            detail .. ";normalSoloMs=" .. (now - baseline.soloStartedAt) .. ";frames=" .. baseline.frames)
+        compareVisibleCars(fixture, result)
+        baseline.done = true
+    end
+end
+local KITCHEN = { x = 12035.5, y = 6746.5, z = 0 }
+local function kitchenRequested(H)
+    return tonumber(H.config.wood_expedition_crew_size) == 3
+end
+local function kitchenPose(primary, kitchen)
+    local at = point(primary)
+    local room = call(call(primary, "getCurrentSquare"), "getRoom")
+    return at and at.floor == 0 and math.abs(at.x - KITCHEN.x) <= 0.6
+        and math.abs(at.y - KITCHEN.y) <= 0.6 and room ~= nil and room == kitchen.room
+end
+local function cleanupKitchen(fixture, failed)
+    local kitchen = fixture.kitchen
+    if not kitchen then return end
+    kitchen.active = false
+    local action = kitchen.action
+    if not failed or not action or kitchen.pathComplete then return end
+    -- Stop/remove this exact probe-owned action only; never clear the player's queue.
+    if action.action ~= nil then call(action, "forceStop") end
+    if kitchen.queue then call(kitchen.queue, "removeFromQueue", action) end
+    kitchen.action = nil
+end
+local function captureKitchen(H, fixture, label, result)
+    local kitchen = fixture.kitchen
+    if not kitchen or not kitchen.wall then return end
+    local wall, now = kitchen.wall, visibilityNow(fixture.latestStepAt) or 0
+    local flags = call(wall.square, "getPlayerCutawayFlag", 0, now)
+    local room = call(call(fixture.primary, "getCurrentSquare"), "getRoom")
+    local detail = "kind=kitchen|frames=" .. tostring(kitchen.frames) .. "|wall="
+        .. wall.x .. "," .. wall.y .. ",0|wallRoom=" .. tostring(wall.roomName)
+        .. "|primaryRoom=" .. tostring(call(room, "getName")) .. ";identity=" .. tostring(room)
+        .. "|flags=" .. tostring(flags) .. "|southHidden="
+        .. tostring(type(flags) == "number" and math.floor(flags) % 2 == 1)
+        .. "|wallVisibility{" .. squareFacts(wall.square) .. "}|native{"
+        .. nativeSample({ x = wall.x, y = wall.y, z = 0, floor = 0 }) .. "}|adjacentKitchen{"
+        .. nativeSample({ x = wall.x, y = wall.y - 1, z = 0, floor = 0 }) .. "}|primary{"
+        .. visibilityFacts(fixture.primary).detail .. "}"
+    visibilityLine(label, detail)
+    local okay, png = screenshot(H, fixture, label)
+    result(okay and "PASS" or "FAIL", "wood_probe_" .. label .. "_png", png)
+    return flags
+end
+local function startKitchenRoute(H, fixture, current, result)
+    local SC, probes = SurvivorCompanion, SCRealSandboxHarnessProbes
+    local wallProbe = probes and probes.SCViewCutawayProbe
+    if not wallProbe then
+        pcall(require, "SCViewCutawayProbe")
+        wallProbe = SCRealSandboxHarnessProbes and SCRealSandboxHarnessProbes.SCViewCutawayProbe
+    end
+    local wallTests = wallProbe and wallProbe._tests
+    if not wallTests or type(wallTests.wallAt) ~= "function" then return false, "kitchen wall fixture helper unavailable" end
+    local utility = SC.GameplayUtil
+    local square = utility.gridSquare(math.floor(KITCHEN.x), math.floor(KITCHEN.y), 0)
+    local room = call(square, "getRoom")
+    local roomName = call(room, "getName")
+    if type(roomName) ~= "string" or not string.find(string.lower(roomName), "kitchen", 1, true)
+        or call(square, "TreatAsSolidFloor") ~= true or call(square, "hasFloor") ~= true then
+        return false, "fixed kitchen point is unloaded or is not an actual kitchen: " .. tostring(roomName)
+    end
+    local candidates = {}
+    for x = math.floor(KITCHEN.x) - 4, math.floor(KITCHEN.x) + 4 do
+        for y = math.floor(KITCHEN.y) - 4, math.floor(KITCHEN.y) + 4 do
+            local wall = wallTests.wallAt(utility, x, y, 1)
+            local inside = wall and utility.gridSquare(x, y - 1, 0)
+            if wall and string.find(string.lower(wall.roomName), "kitchen", 1, true)
+                and call(inside, "getRoom") == room then candidates[#candidates + 1] = wall end
+        end
+    end
+    local wall = wallTests.chooseWall(candidates, 1, true)
+    if not wall then return false, "no verified south wall for the actual kitchen within81 anchors" end
+    if ISPathFindAction == nil then pcall(require, "Vehicles/TimedActions/ISPathFindAction") end
+    if ISPathFindAction == nil or type(ISPathFindAction.pathToLocationF) ~= "function"
+        or ISTimedActionQueue == nil or type(ISTimedActionQueue.add) ~= "function" then
+        return false, "ordinary player path action unavailable"
+    end
+    local okay, action = pcall(ISPathFindAction.pathToLocationF, ISPathFindAction,
+        H.player, KITCHEN.x, KITCHEN.y, KITCHEN.z)
+    if not okay or not action or type(action.setOnComplete) ~= "function" or type(action.setOnFail) ~= "function" then
+        return false, "ordinary player path action construction failed: " .. tostring(action)
+    end
+    local kitchen = { active = true, action = action, room = room, wall = wall,
+        frames = 0, startedAt = current, stage = "walking" }
+    fixture.kitchen = kitchen
+    if type(ISTimedActionQueue.getTimedActionQueue) == "function" then
+        kitchen.queue = ISTimedActionQueue.getTimedActionQueue(H.player)
+    end
+    action:setOnComplete(function() if kitchen.active then kitchen.pathComplete = true end end)
+    action:setOnFail(function() if kitchen.active then kitchen.pathFailed = true end end)
+    captureKitchen(H, fixture, "kitchen-before-walk", result)
+    local queued, failure = pcall(ISTimedActionQueue.add, action)
+    if not queued then cleanupKitchen(fixture, true) return false, "player path queue rejected: " .. tostring(failure) end
+    result("PASS", "wood_probe_kitchen_walk_queued", "ordinary native ISPathFindAction; target=12035.5,6746.5,0"
+        .. ";actualRoom=" .. roomName .. ";southWall=" .. wall.x .. "," .. wall.y
+        .. ";bounded81-anchor discovery; no teleport or wall/cache changes")
+    return true
+end
+local function observeKitchen(H, fixture, result)
+    local kitchen = fixture.kitchen
+    if not kitchen or not kitchen.active or kitchen.stage ~= "observing" or kitchen.done then return end
+    if not kitchenPose(fixture.primary, kitchen) then kitchen.poseLost = true return end
+    local now = visibilityNow(fixture.latestStepAt)
+    if not now then return end
+    kitchen.frames = kitchen.frames + 1
+    if kitchen.frames == 2 or kitchen.frames == 12 or kitchen.frames == 120 then
+        captureKitchen(H, fixture, "kitchen-frame" .. kitchen.frames, result)
+    end
+    if kitchen.frames >= 120 and now - kitchen.arrivedAt >= 1500 then
+        local flags = captureKitchen(H, fixture, "kitchen-settled", result)
+        local hidden = type(flags) == "number" and math.floor(flags) % 2 == 1
+        result(hidden and "PASS" or "FAIL", "wood_probe_kitchen_south_cutaway",
+            "actual kitchen after natural expedition return and normal player walk;flags=" .. tostring(flags)
+                .. ";frames=" .. kitchen.frames .. ";normalRoomMs=" .. (now - kitchen.arrivedAt))
+        result("SKIP", "wood_probe_kitchen_pixels_require_review",
+            "inspect kitchen-before-walk/frame2/frame12/frame120/settled PNGs; native flags alone do not prove rendered wall pixels")
+        captureVisibility(SurvivorCompanion, fixture, "kitchen-settled-crew")
+        kitchen.done = true
+    end
+end
 local function trace(H, fixture, label)
     local SC = SurvivorCompanion
     local mission = SC.ExpeditionPrototype.current()
@@ -64,6 +426,7 @@ local function trace(H, fixture, label)
     if writer then writer:writeln(line); writer:close() end
 end
 local function fail(H, fixture, current, result, setPhase, name, detail)
+    cleanupKitchen(fixture, true)
     if fixture.observer and Events and Events.OnPostRender then Events.OnPostRender.Remove(fixture.observer) fixture.observer = nil end
     trace(H, fixture, "failure:" .. name)
     screenshot(H, fixture, "failure")
@@ -186,6 +549,9 @@ local function startObserver(H, fixture, result)
     if not Events or not Events.OnPostRender or not Events.OnPostRender.Add then return end
     fixture.observer = function()
         local SC = SurvivorCompanion
+        observeWitnessMovement(fixture)
+        observeSoloVisibility(H, fixture, result, fixture.latestStepAt)
+        observeKitchen(H, fixture, result)
         local mission = SC.ExpeditionPrototype.current()
         if not mission or not mission.scout or not mission.scout.wood then return end
         local current = SC.GameplayUtil.nowMs()
@@ -376,7 +742,10 @@ local function stockEquipment(SC, H, fixture, survey, check, result)
 end
 local function setup(H, current, check, result, setPhase)
     local SC = SurvivorCompanion
-    if (not SC.BaseLife.active() or #SC.Registry.records() == 0) and current - H.phaseStartedAt < 15000 then return end
+    local crewSize = tonumber(H.config.wood_expedition_crew_size) or 1
+    if not check("wood_probe_crew_size_option", crewSize == 1 or crewSize == 3,
+        "requested crew=" .. tostring(crewSize)) then setPhase("finish", current) return end
+    if (not SC.BaseLife.active() or #SC.Registry.records() < crewSize) and current - H.phaseStartedAt < 15000 then return end
     local fixture = { mode = H.config.wood_expedition_travel_mode or "walk", crew = {},
         trees = {}, ground = {}, objects = {}, receipts = {}, carried = {}, loaded = {}, protected = {}, loans = {},
         startedAt = current, nextTraceAt = current }
@@ -387,17 +756,12 @@ local function setup(H, current, check, result, setPhase)
     if not check("wood_probe_no_prior_view", SC.ExpeditionPrototype.current() == nil
         and SC.BaseWatch.current() == nil and SC.ViewSession.owner() == nil and getSpecificPlayer(1) == nil,
         "refuse an existing session; never reset it") then setPhase("finish", current) return end
-    for _, record in ipairs(SC.Registry.records()) do
-        local name = record.actor and SC.GameplayUtil.nameOf(record.actor)
-        local command = record.actor and SC.Commands.peek(record.actor)
-        if type(name) == "string" and string.find(string.lower(name), "scarlet", 1, true)
-            and command and command.recruited and healthy(record.actor) then
-            fixture.crew[1] = { id = record.id, actor = record.actor }
-            break
-        end
-    end
-    if not check("wood_probe_saved_scarlet", #fixture.crew == 1,
+    fixture.crew = selectCrew(SC, crewSize)
+    if not check("wood_probe_saved_scarlet", fixture.crew[1] ~= nil,
         "requires the saved healthy Scarlet; no companion placement, stat changes or respawn") then setPhase("finish", current) return end
+    if not check("wood_probe_saved_crew", #fixture.crew == crewSize,
+        "requested=" .. crewSize .. ";healthy recruited saved crew=" .. #fixture.crew
+            .. ";three-person crew requires existing camp residents; no movement or AI overrides") then setPhase("finish", current) return end
     for _, car in ipairs(SC.ExpeditionCar.parkedCars()) do if car.sqlId == 46 then fixture.car = car break end end
     if fixture.mode == "drive" and not check("wood_probe_saved_car46", fixture.car ~= nil,
         "requires existing parked SQL46; no vehicle spawning or fuel edits") then setPhase("finish", current) return end
@@ -419,14 +783,28 @@ local function setup(H, current, check, result, setPhase)
     result("PASS", "wood_probe_quiet_site_configuration", "enabled="
         .. tostring(H.config.wood_expedition_quiet_site == "true")
         .. ";existing helper only; radius=60; site work only; no crew, cargo, tree, health or stat changes")
+    snapshotVisibility(SC, fixture, H.player)
+    captureVisibility(SC, fixture, "before")
+    local initiallyVisible = 0
+    for _, row in ipairs(fixture.visibility.cars) do if row.before.visible then initiallyVisible = initiallyVisible + 1 end end
+    result("PASS", "wood_probe_visibility_inventory", "native loaded cars=" .. fixture.visibility.vehicleInventorySize
+        .. ";inspected=" .. fixture.visibility.vehicleInspected .. ";stationary nearby witnesses=" .. #fixture.visibility.cars
+        .. ";initially primary-visible=" .. initiallyVisible .. ";crew=" .. #fixture.crew
+        .. ";home witnesses=" .. (#fixture.visibility.actors - #fixture.crew))
+    local beforePNG, beforeDetail = screenshot(H, fixture, "before")
+    check("wood_probe_visibility_before_png", beforePNG, beforeDetail)
+    if not check("wood_probe_visibility_baseline", initiallyVisible >= 1,
+        "requires at least one actually primary-visible unchanged-car witness; all up to8 are retained; no camera or alpha changes") then
+        setPhase("finish", current) return
+    end
     startObserver(H, fixture, result)
-    screenshot(H, fixture, "before")
     setPhase("wood_expedition_dispatch", current)
 end
 function Probe.step(H, current, check, result, setPhase)
     if H.phase == "wood_expedition_setup" then return setup(H, current, check, result, setPhase) end
     local SC, fixture = SurvivorCompanion, H.woodExpedition
     if not fixture then result("FAIL", "wood_probe_fixture_missing", H.phase) setPhase("finish", current) return end
+    fixture.latestStepAt = current
     if fixture.quietError then return fail(H, fixture, current, result, setPhase,
         "wood_probe_quiet_site_helper", fixture.quietError) end
     if current - fixture.startedAt > 780000 then
@@ -461,7 +839,9 @@ function Probe.step(H, current, check, result, setPhase)
         screenshot(H, fixture, "natural-return")
         if not check("wood_probe_natural_trip", fixture.departed and fixture.worked and count(fixture.receipts) == fixture.quantity,
             "actual departure=" .. tostring(fixture.departed) .. ";forest work=" .. tostring(fixture.worked)
-                .. ";actual picked logs=" .. count(fixture.receipts) .. ";requested=" .. fixture.quantity) then setPhase("finish", current) return end
+                .. ";actual picked logs=" .. count(fixture.receipts) .. ";requested=" .. fixture.quantity) then
+            setPhase("wood_expedition_visibility", current) return
+        end
         check("wood_probe_native_tree_effect", treeEffects(fixture) >= 1, "observed mature native trees removed=" .. treeEffects(fixture))
         check("wood_probe_native_ground_output", count(fixture.ground) >= fixture.quantity,
             "actual raw Base.Log world IDs observed=" .. count(fixture.ground))
@@ -473,6 +853,12 @@ function Probe.step(H, current, check, result, setPhase)
         end
         setPhase("wood_expedition_storage", current)
     elseif H.phase == "wood_expedition_storage" then
+        if fixture.visibility and not fixture.visibility.done then
+            if current - fixture.returnedAt < 30000 then return end
+            captureVisibility(SC, fixture, "postsolo-timeout")
+            return fail(H, fixture, current, result, setPhase, "wood_probe_visibility_restore_deadline",
+                "no12 normal primary render frames plus1500ms after restore within30s; native diagnostic and before/after facts retained")
+        end
         local debrief = SC.ExpeditionPrototype.lastDebrief() or {}
         local integration = debrief.integration
         local stored = 0
@@ -512,25 +898,79 @@ function Probe.step(H, current, check, result, setPhase)
             check("wood_probe_fixture_bag_physical_capacity", fixture.bagCargoVerified == true,
                 "actual native log observed inside the worn fixture bag while native load stayed below Strength limit")
         end
-        check("wood_probe_saved_actor_healthy", SC.Registry.byId(fixture.crew[1].id).actor == fixture.crew[1].actor
-            and healthy(fixture.crew[1].actor), "same original Scarlet healthy at " .. position(fixture.crew[1].actor))
+        for index, member in ipairs(fixture.crew) do
+            local record = SC.Registry.byId(member.id)
+            check(index == 1 and "wood_probe_saved_actor_healthy" or "wood_probe_saved_actor_healthy_" .. member.id,
+                record and record.actor == member.actor and healthy(member.actor),
+                "same original " .. readableName(SC, member) .. " healthy at " .. position(member.actor))
+        end
         check("wood_probe_engine_off", not fixture.car or call(fixture.car.vehicle, "isEngineRunning") == false,
             "saved car46 engine=" .. tostring(call(fixture.car and fixture.car.vehicle, "isEngineRunning")))
         check("wood_probe_solo_released", getSpecificPlayer(1) == nil and SC.ViewSession.owner() == nil,
             "ordinary expedition released its view")
         screenshot(H, fixture, "stored")
-        removeObserver(fixture)
         result("PASS", "wood_probe_completed", fixture.mode .. ";requested=" .. fixture.quantity
             .. ";collected=" .. count(fixture.receipts) .. ";stored=" .. actualStored
             .. ";felled=" .. treeEffects(fixture) .. ";elapsedMs=" .. (current - fixture.dispatchedAt)
             .. ";quiet_site=" .. tostring(H.config.wood_expedition_quiet_site == "true")
             .. ";quiet_removed=" .. tostring(fixture.quietRemoved or 0))
-        setPhase("finish", current)
+        if kitchenRequested(H) and actualStored == fixture.quantity then
+            local started, reason = startKitchenRoute(H, fixture, current, result)
+            if not started then return fail(H, fixture, current, result, setPhase,
+                "wood_probe_kitchen_route_fixture", reason) end
+            setPhase("wood_expedition_kitchen_walk", current)
+        else removeObserver(fixture) setPhase("finish", current) end
+    elseif H.phase == "wood_expedition_kitchen_walk" then
+        local kitchen = fixture.kitchen
+        if not kitchen or kitchen.pathFailed then
+            captureKitchen(H, fixture, "kitchen-path-failed", result)
+            return fail(H, fixture, current, result, setPhase, "wood_probe_kitchen_native_path",
+                "ordinary native player path failed; no relocation, retry or wall reset")
+        end
+        if current - kitchen.startedAt > 90000 then
+            captureKitchen(H, fixture, "kitchen-path-timeout", result)
+            return fail(H, fixture, current, result, setPhase, "wood_probe_kitchen_walk_deadline",
+                "90s ordinary player path deadline; target12035.5,6746.5,0")
+        end
+        if kitchen.pathComplete then
+            if not kitchenPose(fixture.primary, kitchen) then
+                captureKitchen(H, fixture, "kitchen-arrival-mismatch", result)
+                return fail(H, fixture, current, result, setPhase, "wood_probe_kitchen_actual_arrival",
+                    "native completion callback did not leave the same player at the verified kitchen point")
+            end
+            kitchen.stage, kitchen.arrivedAt = "observing", current
+            result("PASS", "wood_probe_kitchen_actual_arrival", "normal native path callback; same primary at " .. position(fixture.primary))
+            setPhase("wood_expedition_kitchen_capture", current)
+        end
+    elseif H.phase == "wood_expedition_kitchen_capture" then
+        local kitchen = fixture.kitchen
+        if kitchen.poseLost or current - kitchen.arrivedAt > 30000 then
+            captureKitchen(H, fixture, "kitchen-observation-interrupted", result)
+            return fail(H, fixture, current, result, setPhase, "wood_probe_kitchen_observation",
+                "left verified kitchen pose or did not render120frames plus1500ms within30s; no reposition or cache change")
+        end
+        if kitchen.done then
+            cleanupKitchen(fixture, false)
+            removeObserver(fixture)
+            setPhase("finish", current)
+        end
+    elseif H.phase == "wood_expedition_visibility" then
+        if fixture.visibility and fixture.visibility.done then removeObserver(fixture) setPhase("finish", current)
+        elseif current - fixture.returnedAt >= 30000 then
+            captureVisibility(SC, fixture, "postsolo-timeout")
+            fail(H, fixture, current, result, setPhase, "wood_probe_visibility_restore_deadline",
+                "unsuccessful ordinary trip still requires return-view diagnostics; no12 primary render frames plus1500ms within30s")
+        end
     end
 end
 Probe._tests = { healthy = healthy, count = count, treeEffects = treeEffects, storageOwned = storageOwned,
     equipmentSurvey = equipmentSurvey, stockEquipment = stockEquipment, projectedCarry = projectedCarry,
-    maintainQuietSite = maintainQuietSite }
+    maintainQuietSite = maintainQuietSite, selectCrew = selectCrew, visibilityFacts = visibilityFacts,
+    snapshotVisibility = snapshotVisibility, captureVisibility = captureVisibility,
+    compareVisibleCars = compareVisibleCars, observeSoloVisibility = observeSoloVisibility,
+    observeWitnessMovement = observeWitnessMovement, kitchenRequested = kitchenRequested,
+    startKitchenRoute = startKitchenRoute, observeKitchen = observeKitchen,
+    kitchenPose = kitchenPose, cleanupKitchen = cleanupKitchen }
 SCRealSandboxHarnessProbes = SCRealSandboxHarnessProbes or {}
 SCRealSandboxHarnessProbes.SCWoodExpeditionProbe = Probe
 return Probe

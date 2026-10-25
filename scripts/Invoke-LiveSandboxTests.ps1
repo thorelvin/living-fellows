@@ -35,6 +35,8 @@ param(
     # Use this checkout's bridge only in the disposable direct-Java process.
     # The installed game launcher and bridge remain untouched.
     [switch]$IsolatedSourceBridge,
+    # Optional exact bridge for old/new native comparisons in isolated clones.
+    [string]$IsolatedBridgePath = '',
     [string]$SteamExe = 'C:\Program Files (x86)\Steam\steam.exe',
     [switch]$LivingFellowsOnly,
     [switch]$UIMenuProbe,
@@ -56,6 +58,7 @@ param(
     [switch]$BaseAlertProbe,
     # Exercise real rendered wall cutaways across companion-view releases.
     [switch]$ViewCutawayProbe,
+    [switch]$ViewCutawayQuickWatch,
     [ValidateSet('observe', 'B', 'C')]
     [string]$ViewCutawayRestoreMode = 'B',
     [ValidateRange(1, 3)][int]$ViewCutawayCycles = 3,
@@ -67,6 +70,7 @@ param(
     # Run each mode in a fresh disposable clone: one walking or two driving logs.
     [switch]$WoodExpeditionProbe,
     [ValidateSet('walk', 'drive')][string]$WoodExpeditionTravelMode = 'walk',
+    [ValidateSet(1, 3)][int]$WoodExpeditionCrewSize = 1,
     # Explicit disposable fixture: seed one real axe into permitted camp
     # storage only when the saved camp has no usable permitted axe.
     [switch]$WoodExpeditionStockEquipment,
@@ -328,6 +332,9 @@ if ($OddballCoreyProbe -and $OddballEarlProbe) {
 }
 if ($WoodExpeditionStockEquipment -and -not $WoodExpeditionProbe) {
     throw '-WoodExpeditionStockEquipment requires -WoodExpeditionProbe.'
+}
+if ($ViewCutawayQuickWatch -and -not $ViewCutawayProbe) {
+    throw '-ViewCutawayQuickWatch requires -ViewCutawayProbe.'
 }
 if ($WoodExpeditionQuietSite -and -not $WoodExpeditionProbe) {
     throw '-WoodExpeditionQuietSite requires -WoodExpeditionProbe.'
@@ -900,7 +907,15 @@ if ($SteamLaunch -and $HiddenWindow -and -not $PrepareOnly) {
 if ($SteamLaunch -and $NoSteam) {
     throw '-NoSteam requires the direct Project Zomboid launcher.'
 }
-if ($IsolatedSourceBridge -and ($SteamLaunch -or $ExternalUiControl)) {
+if ($IsolatedBridgePath) {
+    if (-not $IsolatedSourceBridge) { throw '-IsolatedBridgePath requires -IsolatedSourceBridge.' }
+    if (-not (Test-Path -LiteralPath $IsolatedBridgePath -PathType Leaf) -or
+        [IO.Path]::GetExtension($IsolatedBridgePath) -ine '.jar') {
+        throw '-IsolatedBridgePath requires an existing exact .jar file.'
+    }
+    $IsolatedBridgePath = (Resolve-Path -LiteralPath $IsolatedBridgePath).Path
+}
+if ($IsolatedSourceBridge -and $SteamLaunch) {
     throw '-IsolatedSourceBridge requires the direct isolated-Java launch.'
 }
 if ($RestartChefBeforeObserve -and $ObserveSeconds -le 0) {
@@ -1409,6 +1424,7 @@ if (-not (Test-Path -LiteralPath $sourceMod -PathType Container) -or
     throw 'Source mod or live harness mod is missing.'
 }
 $sourceBridge = Join-Path $sourceMod '42\media\java\SurvivorCompanionBridge.jar'
+if ($IsolatedBridgePath) { $sourceBridge = $IsolatedBridgePath }
 if (-not (Test-Path -LiteralPath $sourceBridge -PathType Leaf)) {
     throw "Source payload native bridge is missing: $sourceBridge"
 }
@@ -1615,12 +1631,14 @@ $config = @(
     ('office_haul_survey_only=' + $OfficeHaulSurveyOnly.IsPresent.ToString().ToLowerInvariant()),
     ('base_alert_probe=' + $BaseAlertProbe.IsPresent.ToString().ToLowerInvariant()),
     ('view_cutaway_probe=' + $ViewCutawayProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('view_cutaway_quick_watch=' + $ViewCutawayQuickWatch.IsPresent.ToString().ToLowerInvariant()),
     ('view_cutaway_restore_mode=' + $ViewCutawayRestoreMode),
     ('view_cutaway_cycles=' + $ViewCutawayCycles),
     ('normal_expedition_kitchen_probe=' + $NormalExpeditionKitchenProbe.IsPresent.ToString().ToLowerInvariant()),
     ('normal_expedition_kitchen_crew_size=' + $NormalExpeditionKitchenCrewSize),
     ('wood_expedition_probe=' + $WoodExpeditionProbe.IsPresent.ToString().ToLowerInvariant()),
     ('wood_expedition_travel_mode=' + $WoodExpeditionTravelMode),
+    ('wood_expedition_crew_size=' + $WoodExpeditionCrewSize),
     ('wood_expedition_stock_equipment=' + $WoodExpeditionStockEquipment.IsPresent.ToString().ToLowerInvariant()),
     ('wood_expedition_quiet_site=' + $WoodExpeditionQuietSite.IsPresent.ToString().ToLowerInvariant()),
     ('hygiene_probe=' + $HygieneProbe.IsPresent.ToString().ToLowerInvariant()),
@@ -1850,16 +1868,19 @@ $manifest = [ordered]@{
     } else { $null }
     oddballSceneScreenshot = if ($captureOddballScene) { $OddballSceneScreenshot } else { $null }
     sourceBridge = $sourceBridge
+    isolatedBridgePath = $IsolatedBridgePath
     sourceBridgeSha256 = $sourceBridgeHash
     installedBridgeMatches = $installedBridgeHash -eq $sourceBridgeHash
     livingFellowsOnly = $LivingFellowsOnly.IsPresent
     viewCutawayProbe = $ViewCutawayProbe.IsPresent
+    viewCutawayQuickWatch = $ViewCutawayQuickWatch.IsPresent
     viewCutawayRestoreMode = $ViewCutawayRestoreMode
     viewCutawayCycles = $ViewCutawayCycles
     normalExpeditionKitchenProbe = $NormalExpeditionKitchenProbe.IsPresent
     normalExpeditionKitchenCrewSize = $NormalExpeditionKitchenCrewSize
     woodExpeditionProbe = $WoodExpeditionProbe.IsPresent
     woodExpeditionTravelMode = $WoodExpeditionTravelMode
+    woodExpeditionCrewSize = $WoodExpeditionCrewSize
     woodExpeditionStockEquipment = $WoodExpeditionStockEquipment.IsPresent
     woodExpeditionQuietSite = $WoodExpeditionQuietSite.IsPresent
     squadCombatProbe = $SquadCombatProbe.IsPresent
@@ -1933,7 +1954,8 @@ if ($PrepareOnly) {
 }
 
 $argumentLine = '-cachedir="' + $CacheRoot + '" -nosound -novoip -debuglog=+General,+Lua'
-if ($ViewCutawayProbe -or $SplitScreenOnly) { $argumentLine += ' -debug' }
+if ($ViewCutawayProbe -or $SplitScreenOnly -or
+    ($WoodExpeditionProbe -and $WoodExpeditionCrewSize -eq 3)) { $argumentLine += ' -debug' }
 if ($NoSteam) { $argumentLine += ' -nosteam' }
 $autoGateAgent = -not $SteamLaunch -and -not $ExternalUiControl
 if ($ConvoyProbe -and -not $autoGateAgent) {
@@ -2020,7 +2042,7 @@ if ($SteamLaunch) {
 } else {
     $directExecutable = $gameExe
     $directArguments = $argumentLine
-    if ($autoGateAgent) {
+    if ($autoGateAgent -or $IsolatedSourceBridge) {
         $directExecutable = Join-Path $GameRoot 'jre64\bin\javaw.exe'
         if (-not (Test-Path -LiteralPath $directExecutable -PathType Leaf)) {
             throw "Bundled game Java runtime is missing: $directExecutable"
@@ -2031,9 +2053,12 @@ if ($SteamLaunch) {
             } else { $_ }
         })
         $gameClassPath = ($classPathEntries -join ';')
+        $gateAgentArgument = ''
+        if ($autoGateAgent) {
+            $gateAgentArgument = ' -javaagent:"' + $gateAgentJar + '"=' + $gateAgentMarker
+        }
         $directArguments = (($launcher.vmArgs -join ' ') +
-            ' -XX:+UseZGC -javaagent:"' + $gateAgentJar + '"=' +
-            $gateAgentMarker + ' -cp "' + $gameClassPath +
+            ' -XX:+UseZGC' + $gateAgentArgument + ' -cp "' + $gameClassPath +
             '" survivorcompanion.bridge.SCLauncher ' + $argumentLine)
     }
     $startOptions = @{
@@ -2050,7 +2075,7 @@ if ($SteamLaunch) {
     } finally {
         $env:SC_LIVE_CONVOY_HARNESS = $priorConvoyHarness
     }
-    Write-Output "Started real Project Zomboid client test pid=$($process.Id) mode=$(if ($autoGateAgent) { 'isolated-java' } else { 'game-exe' })"
+    Write-Output "Started real Project Zomboid client test pid=$($process.Id) mode=$(if ($autoGateAgent -or $IsolatedSourceBridge) { 'isolated-java' } else { 'game-exe' })"
 }
 if ($ExternalUiControl) {
     Write-Output 'External UI control is active: click the Build 42 start gate after world load.'

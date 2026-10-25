@@ -10,6 +10,7 @@ local trace, hooks, oldCallbacks, reports = {}, {}, {}, {}
 local polls, promotions, adds, removes = 0, 0, 0, 0
 local nativePending, primaryFrame, stableFrames = false, false, 0
 local forcedStatus, throwPoll, throwAdd, throwRemove
+local nativeReason = "fixture_failure"
 local render = {}
 function render.Add(callback)
     adds = adds + 1
@@ -71,7 +72,7 @@ SCSplitScreenProbe = {
         nativePending = false
         return "applied"
     end,
-    releaseDiagnostics = function() return "restoreReason=fixture_failure" end,
+    releaseDiagnostics = function() return "restoreReason=" .. nativeReason end,
 }
 local function release(mode, worldExit)
     slot, nativePending, stableFrames = nil, worldExit ~= true, 0
@@ -104,6 +105,15 @@ check(select(2, View.claim("expedition", companion)) == "local_view_restore_even
 Events.OnPostRender = render
 
 begin()
+local beforeWrongModeTrace = table.concat(trace, ",")
+local beforeWrongModeSlot = View.slotSqlId()
+local beforeWrongModeAdds, beforeWrongModeRemoves = adds, removes
+check(select(2, View.released("base_watch", 42)) == "companion_view_owner_mismatch"
+    and View.owner() == "expedition" and slot == companion
+    and View.slotSqlId() == beforeWrongModeSlot and #hooks == 0
+    and table.concat(trace, ",") == beforeWrongModeTrace
+    and adds == beforeWrongModeAdds and removes == beforeWrongModeRemoves,
+    "wrong release owner cannot clear the live view, remember another slot or change HUD/hooks")
 release("expedition")
 check(table.concat(trace, ",") == "native_release,zoom,clock,resize,hook"
     and polls == 0 and #hooks == 1,
@@ -167,6 +177,28 @@ renderOnce()
 check(#hooks == 0 and View.primaryRestoreDiagnostic().status == "cancelled"
     and #reports == 0, "native world or primary identity change cancels quietly")
 forcedStatus = nil
+
+begin()
+release("expedition")
+stale, beforePoll = hooks[1], polls
+local beforeTimeoutReports, beforeTimeoutAdds = #reports, adds
+forcedStatus = "waiting"
+for _ = 1, 59 do renderOnce() end
+check(View.primaryRestoreDiagnostic().pending and #hooks == 1
+    and polls == beforePoll + 59 and adds == beforeTimeoutAdds
+    and #reports == beforeTimeoutReports,
+    "native-incompatible frames keep one listener without recreating the release or HUD")
+nativeReason, forcedStatus = "primary_frame_timeout", "failed"
+renderOnce()
+check(not View.primaryRestoreDiagnostic().pending and #hooks == 0
+    and View.primaryRestoreDiagnostic().status == "failed"
+    and #reports == beforeTimeoutReports + 1
+    and string.find(reports[#reports].detail, "primary_frame_timeout", 1, true),
+    "bounded native frame failure terminates the hook and preserves its timeout reason")
+stale()
+check(polls == beforePoll + 60 and #reports == beforeTimeoutReports + 1,
+    "a late primary callback cannot revive timed-out native lighting recovery")
+forcedStatus, nativeReason = nil, "fixture_failure"
 
 for _, outcome in ipairs({ "failed", "unexpected", "exception" }) do
     begin()

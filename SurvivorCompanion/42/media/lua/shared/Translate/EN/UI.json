@@ -740,6 +740,7 @@
     "UI_SC_EquipOnCompanion": "Equip on %1",
     "UI_SC_WearOnCompanion": "Wear on %1",
     "UI_SC_MedicalCheck_Opened": "Checking companion health.",
+    "UI_SC_MedicalCheck_TooFar": "Move within %2 tiles of %1 for a medical check.",
     "UI_SC_Action_Bandage":  "Bandage companion",
     "UI_SC_Action_CookMeal": "Cook me a meal",
     "UI_SC_Action_GroupNone":  "Remove from group",

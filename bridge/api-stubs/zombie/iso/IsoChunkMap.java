@@ -10,6 +10,8 @@ public class IsoChunkMap {
     public IsoChunkMap(IsoCell cell) {}
     public void Unload() {}
     public IsoChunk[] getChunks() { return null; }
+    public int getWorldXMin() { return -1; }
+    public int getWorldYMin() { return -1; }
     public int getWorldXMinTiles() { return -1; }
     public int getWorldYMinTiles() { return -1; }
     public int getWorldXMaxTiles() { return -1; }

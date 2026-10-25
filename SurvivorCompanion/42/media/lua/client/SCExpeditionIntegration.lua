@@ -777,9 +777,13 @@ local function woodDeposit(actor, state, storage, destination, item, source, rec
         if not U().inventoryContains(source, item) and call(item, "getContainer") == nil
             and world and call(world, "getItem") == item and call(item, "getWorldItem") == world
             and U().worldItemPresent(square, world) == true then
+            if SC.LogYard.arrange then SC.LogYard.arrange(square) end
             return true, "wood_supply_deposited"
         end
-        if reconcileWoodStorage(record, row) then return true, "wood_supply_deposited" end
+        if reconcileWoodStorage(record, row) then
+            if SC.LogYard.arrange then SC.LogYard.arrange(square) end
+            return true, "wood_supply_deposited"
+        end
         return false, dropped and "wood_drop_unverified" or world or "wood_drop_failed"
     end
     if SC.BaseLife.storageAcceptsDeposit(storage, destination) ~= true

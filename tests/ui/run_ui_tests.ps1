@@ -49,16 +49,29 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'User options Kahlua tests failed.' }
         $basePolicyFiles = @(
             (Join-Path $TestRoot 'SCUIBasePolicyFixture.lua'),
+            (Join-Path $GameRoot 'media\lua\shared\ISBaseObject.lua'),
+            (Join-Path $GameRoot 'media\lua\client\ISUI\ISUIElement.lua'),
             (Join-Path $GameRoot 'media\lua\client\ISUI\ISTickBox.lua'),
+            (Join-Path $Client 'SCUIFormat.lua'),
             (Join-Path $Client 'SCUI.lua'),
             (Join-Path $TestRoot 'SCUIBasePolicyTests.lua')
         )
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @basePolicyFiles
         if ($LASTEXITCODE -ne 0) { throw 'Base policy checkbox UI tests failed.' }
+        $medicalContextFiles = @(
+            (Join-Path $TestRoot 'SCMedicalContextFixture.lua'),
+            (Join-Path $GameRoot 'media\lua\client\ISUI\ISContextMenu.lua'),
+            (Join-Path $Client 'SCMedicalUI.lua'),
+            (Join-Path $Client 'SCUIContext.lua'),
+            (Join-Path $TestRoot 'SCMedicalContextTests.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @medicalContextFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Medical context native-patient rebinding tests failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @files
         if ($LASTEXITCODE -ne 0) { throw 'UI Kahlua tests failed.' }
         $expeditionZoomFiles = @(
             (Join-Path $TestRoot 'SCUIExpeditionZoomFixture.lua'),
+            (Join-Path $Client 'SCUIFormat.lua'),
             (Join-Path $Client 'SCUIExpeditions.lua'),
             (Join-Path $TestRoot 'SCUIExpeditionZoomTests.lua')
         )

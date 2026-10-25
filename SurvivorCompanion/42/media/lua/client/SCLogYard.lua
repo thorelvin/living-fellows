@@ -10,6 +10,8 @@ local SPLIT_MARK = "LF_LogYardSplit"
 local LOG_WEIGHT = 9 -- Base.Log in the pinned Build 42.21 item script.
 local splitSerial = 0
 local ropeCursors = setmetatable({}, { __mode = "k" })
+local layoutCache = setmetatable({}, { __mode = "k" })
+local arrangeContents
 
 local function splitOf(item)
     local data = item and U().modData(item) or nil
@@ -53,7 +55,7 @@ local function worldItems(square)
     return rows
 end
 
-function Yard.contents(square)
+function Yard.contents(square, skipLayout)
     local rows = worldItems(square)
     if not rows then return nil end
     local units, logs, bundles, splitPending = 0, {}, {}, false
@@ -71,8 +73,12 @@ function Yard.contents(square)
             bundles[#bundles + 1] = row
         end
     end
-    return { units = units, logs = logs, bundles = bundles,
+    local contents = { units = units, logs = logs, bundles = bundles,
         splitPending = splitPending }
+    -- Normalize only this already-visited, loaded tile. Presentation never
+    -- changes its inventory identities, claims or square membership.
+    if arrangeContents and not skipLayout then arrangeContents(square, contents) end
+    return contents
 end
 
 local function unclaimed(item)
@@ -146,30 +152,129 @@ function Yard.tile(x, y, z, zoneId)
     return nil
 end
 
+local function closeOffset(actual, expected)
+    return type(actual) == "number" and math.abs(actual - expected) < 0.0001
+end
+
+local function arrangeRow(row, x, y, z, force)
+    local item, world = row.item, row.world
+    local cached = layoutCache[world]
+    -- Repeated yard scans reuse verified poses. Membership changes alter the
+    -- desired slots; reloaded wrappers and explicit deposits recheck natively.
+    if not force and cached and row.layoutId ~= nil and cached.id == row.layoutId
+        and cached.x == x and cached.y == y and cached.z == z then return true end
+    if select(1, U().call(world, "getItem")) ~= item
+        or select(1, U().call(item, "getWorldItem")) ~= world then return false end
+    local rotation = select(1, U().call(item, "getWorldZRotation"))
+    local rotated = closeOffset(rotation, 0)
+    local rotationChanged = false
+    if not rotated then
+        local _, called = U().call(item, "setWorldZRotation", 0)
+        rotated = called and closeOffset(select(1, U().call(item, "getWorldZRotation")), 0)
+        rotationChanged = rotated
+    end
+    local positioned = closeOffset(select(1, U().call(world, "getOffX")), x)
+        and closeOffset(select(1, U().call(world, "getOffY")), y)
+        and closeOffset(select(1, U().call(world, "getOffZ")), z)
+    if not positioned then
+        -- Unlike individual offset setters, the native combined setter also
+        -- invalidates the render chunk and synchronizes placement.
+        U().call(world, "setOffset", x, y, z)
+        positioned = closeOffset(select(1, U().call(world, "getOffX")), x)
+            and closeOffset(select(1, U().call(world, "getOffY")), y)
+            and closeOffset(select(1, U().call(world, "getOffZ")), z)
+    end
+    if rotationChanged then U().call(world, "syncExtendedPlacement") end
+    if rotated and positioned then
+        layoutCache[world] = { id = row.layoutId, x = x, y = y, z = z }
+    else layoutCache[world] = nil end
+    return rotated and positioned
+end
+
+local function stableRows(rows)
+    local allIds = true
+    for index, row in ipairs(rows) do
+        row.layoutOrder = index
+        local nativeId = select(1, U().call(row.item, "getID"))
+        row.layoutId = tonumber(nativeId)
+        if row.layoutId == nil then allIds = false end
+    end
+    table.sort(rows, function(a, b)
+        if allIds and a.layoutId ~= b.layoutId then
+            return a.layoutId < b.layoutId
+        end
+        return a.layoutOrder < b.layoutOrder
+    end)
+end
+
+arrangeContents = function(square, contents, force)
+    if not contents then return false, "log_yard_unloaded" end
+    if contents.splitPending then return false, "log_yard_split_pending" end
+    if contents.units > 4 then return false, "log_yard_overfilled" end
+    if contents.units == 0 then return true, "log_yard_empty" end
+    local x, y, z = U().position(square)
+    if type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number"
+        or not Yard.tile(x, y, z) then return false, "log_yard_unavailable" end
+    stableRows(contents.logs)
+    stableRows(contents.bundles)
+    local arranged = true
+    for index, row in ipairs(contents.bundles) do
+        if not arrangeRow(row, 0.5, 0.5, (index - 1) * 0.10, force) then arranged = false end
+    end
+    local count = #contents.logs
+    for index, row in ipairs(contents.logs) do
+        local baseCount = math.min(3, count)
+        local rowY = 0.5 + (index - (baseCount + 1) / 2) * 0.2
+        local rowZ = #contents.bundles * 0.10
+        if index == 4 then rowY, rowZ = 0.5, rowZ + 0.08 end
+        if not arrangeRow(row, 0.5, rowY, rowZ, force) then arranged = false end
+    end
+    -- An unavailable presentation API never reverses a verified physical drop.
+    return arranged, arranged and "log_yard_arranged" or "log_yard_layout_unavailable"
+end
+
+function Yard.arrange(square)
+    local contents = Yard.contents(square, true)
+    return arrangeContents(square, contents, true)
+end
+
 function Yard.select(actor, preferredId)
     local best, bestDistance
     local splitPending = false
     local inspected = 0
     for _, zone in ipairs(zones(preferredId)) do
+        local partial, empty, zoneDistance
         for y = zone.y1, zone.y2 do
             for x = zone.x1, zone.x2 do
                 inspected = inspected + 1
                 if inspected > 1024 then
+                    local candidate = partial or empty
+                    if candidate and (bestDistance == nil or zoneDistance < bestDistance) then
+                        return candidate
+                    end
                     if best then return best end
                     return nil, "log_yard_scan_limit"
                 end
                 local square = Yard.tile(x, y, zone.z, zone.id)
                 local contents = square and Yard.contents(square) or nil
+                local distance = square and (actor and U().distance(actor, square) or 0)
+                if distance and (zoneDistance == nil or distance < zoneDistance) then
+                    zoneDistance = distance
+                end
                 if contents and contents.splitPending then splitPending = true end
                 if contents and contents.units < 4 and not contents.splitPending then
-                    local distance = actor and U().distance(actor, square) or 0
-                    if bestDistance == nil or distance < bestDistance then
-                        best = { kind = "log_yard", zoneId = zone.id,
-                            x = x, y = y, z = zone.z, square = square }
-                        bestDistance = distance
-                    end
+                    local candidate = { kind = "log_yard", zoneId = zone.id,
+                        x = x, y = y, z = zone.z, square = square }
+                    -- Finish a four-log stack before starting the next tile;
+                    -- ties follow the yard's fixed row order, not worker feet.
+                    if contents.units > 0 then partial = partial or candidate
+                    else empty = empty or candidate end
                 end
             end
+        end
+        local candidate = partial or empty
+        if candidate and (bestDistance == nil or zoneDistance < bestDistance) then
+            best, bestDistance = candidate, zoneDistance
         end
     end
     if best then return best end
@@ -209,6 +314,7 @@ function Yard.deposit(actor, item, destination)
     if U().worldItemPresent(square, world) ~= true then
         return false, "log_yard_drop_unverified"
     end
+    Yard.arrange(square)
     return true, world
 end
 
@@ -644,6 +750,7 @@ function Yard.bundleAt(actor, square)
                 or "log_yard_bundle_recovery_pending"
         end
     end
+    Yard.arrange(square)
     return true, "log_yard_bundled"
 end
 
@@ -777,6 +884,7 @@ function Yard.takeOne(actor, destination)
         local room, roomReason = canCarryLog(actor, loose.item, true)
         if not room then return false, roomReason end
         local taken, reason = U().takeWorldItemVerified(loose.world, inventory, loose.item)
+        if taken == true then Yard.arrange(square) end
         return taken == true, taken and "log_yard_log_taken" or reason, loose.item
     end
     local tied = bundleAvailable(contents)

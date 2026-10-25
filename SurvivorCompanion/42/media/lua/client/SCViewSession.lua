@@ -35,6 +35,13 @@ local function finishPrimaryRestore(status, reason)
     end
     primaryRestoreStatus = status
     primaryRestoreReason = reason and string.sub(tostring(reason), 1, 512) or nil
+    local detail = primaryRestoreReason
+    if SCSplitScreenProbe and type(SCSplitScreenProbe.releaseDiagnostics) == "function" then
+        local described, native = pcall(SCSplitScreenProbe.releaseDiagnostics)
+        if described then detail = tostring(native) end
+    end
+    print("[SurvivorCompanion/view-restore] status=" .. tostring(status)
+        .. " owner=" .. tostring(owner) .. " detail=" .. tostring(detail))
     if status == "failed" then
         if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
             pcall(SC.Diagnostics.report, "view_restore", nil,

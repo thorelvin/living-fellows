@@ -515,7 +515,330 @@ local function discover(H, fixture, SC, check, result, setPhase, current)
     setPhase("view_cutaway_baseline", current)
 end
 
+-- Opt-in fast lifecycle control. It never stages actors or holds Decision;
+-- use one ordinary resident and the public BaseWatch join/close operations.
+local function quickHelpers()
+    local probes = SCRealSandboxHarnessProbes
+    local wood = probes and probes.SCWoodExpeditionProbe
+    if not wood then
+        pcall(require, "SCWoodExpeditionProbe")
+        wood = SCRealSandboxHarnessProbes and SCRealSandboxHarnessProbes.SCWoodExpeditionProbe
+    end
+    return wood and wood._tests
+end
+local function quickNative(at)
+    if not at or SCSplitScreenProbe == nil or type(SCSplitScreenProbe.debugPrimaryCutawaySample) ~= "function" then
+        return "sample=unavailable"
+    end
+    local okay, detail = pcall(SCSplitScreenProbe.debugPrimaryCutawaySample,
+        math.floor(at.x), math.floor(at.y), math.floor(at.z))
+    return okay and tostring(detail) or "sample=failed:" .. tostring(detail)
+end
+local function quickOwnFact(value)
+    return { counter = tonumber(value:match("visibilityNativeCounter0=(%-?%d+)")),
+        rawCounter = tonumber(value:match("lightingRawCounter0=(%-?%d+)")),
+        canSee = value:match("visibilityRawCanSee=([a-z]+)") == "true",
+        couldSee = value:match("visibilityRawCouldSee=([a-z]+)") == "true", detail = value }
+end
+local function quickCapture(H, fixture, label, png)
+    local primary = point(H.player)
+    local room = call(call(H.player, "getCurrentSquare"), "getRoom")
+    local own = quickNative(primary)
+    local detail = label .. "|phase=" .. tostring(H.phase) .. "|frames=" .. fixture.frames
+        .. "|primary=" .. tostring(primary.x) .. "," .. tostring(primary.y) .. "," .. tostring(primary.z)
+        .. "|room=" .. tostring(call(room, "getName")) .. "|own{" .. own .. "}|kitchen{"
+        .. quickNative({ x = 12035, y = 6746, z = 0 }) .. "}|adjacentKitchen{"
+        .. quickNative(fixture.adjacentKitchen) .. "}"
+    print("SC_REAL_SANDBOX|VIEW_QUICK|" .. detail)
+    local writer = type(getFileWriter) == "function"
+        and getFileWriter("SurvivorCompanionHarness/view-cutaway-quick.log", true, true)
+    if writer then writer:writeln(detail); writer:close() end
+    if png then
+        pcall(function() getCore():TakeFullScreenshot(tostring(H.config.run_id)
+            .. "-view-quick-" .. label .. ".png") end)
+        if fixture.helpers then fixture.helpers.captureVisibility(SurvivorCompanion, fixture, "quick-" .. label) end
+    end
+    return quickOwnFact(own)
+end
+local function quickCarPose(primary, walk)
+    local at = point(primary)
+    return at.x and at.y and math.floor(at.z or -1) == 0 and math.abs(at.x - walk.target.x) <= 0.6
+        and math.abs(at.y - walk.target.y) <= 0.6 and call(call(primary, "getCurrentSquare"), "getRoom") == nil
+end
+local function quickStartCarWalk(H, fixture, current, result)
+    local U, target = SurvivorCompanion.GameplayUtil, nil
+    for _, offset in ipairs({ { 0, 0 }, { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 },
+            { 1, 1 }, { -1, 1 }, { 1, -1 }, { -1, -1 } }) do
+        local x, y = 12035 + offset[1], 6753 + offset[2]
+        local square = U.gridSquare(x, y, 0)
+        if safeFloor(square) and call(square, "getRoom") == nil then target = { x = x + 0.5, y = y + 0.5, z = 0 } break end
+    end
+    if not target then return false, "no verified standable outdoor point in9 squares near12035.5,6753.5" end
+    local okay, action = pcall(ISPathFindAction.pathToLocationF, ISPathFindAction,
+        H.player, target.x, target.y, target.z)
+    if not okay or not action then return false, "ordinary outdoor path construction failed" end
+    local walk = { active = true, action = action, target = target, stage = "walking", startedAt = current, frames = 0 }
+    fixture.carWalk = walk
+    if type(ISTimedActionQueue.getTimedActionQueue) == "function" then walk.queue = ISTimedActionQueue.getTimedActionQueue(H.player) end
+    action:setOnComplete(function() if walk.active then walk.pathComplete = true end end)
+    action:setOnFail(function() if walk.active then walk.pathFailed = true end end)
+    quickCapture(H, fixture, "car-before-walk", true)
+    local queued, failure = pcall(ISTimedActionQueue.add, action)
+    if not queued then return false, tostring(failure) end
+    result("PASS", "view_quick_car_walk_queued", "normal native path to verified outdoor point="
+        .. target.x .. "," .. target.y .. ",0; no camera, visibility or parked-car changes")
+    return true
+end
+local function quickObserveCar(H, fixture, result, now)
+    local walk = fixture.carWalk
+    if not walk or not walk.active or walk.stage ~= "observing" or walk.done then return end
+    if not quickCarPose(H.player, walk) then walk.poseLost = true return end
+    walk.frames = walk.frames + 1
+    if walk.frames == 2 or walk.frames == 12 or walk.frames == 120 then
+        quickCapture(H, fixture, "car-frame" .. walk.frames, true)
+    end
+    if walk.frames >= 120 and now - walk.arrivedAt >= 1500 then
+        local after = quickCapture(H, fixture, "car-settled", true)
+        result(after.canSee and after.couldSee and "PASS" or "FAIL", "view_quick_primary_own_visibility_at_car",
+            "normal player walk back outdoors; own raw can/couldSee=" .. tostring(after.canSee) .. "/" .. tostring(after.couldSee))
+        local progressed = after.counter and fixture.afterKitchen.counter and after.counter > fixture.afterKitchen.counter
+        result(progressed and "PASS" or "FAIL", "view_quick_primary_counter_at_car",
+            "Java counter kitchen/outdoor=" .. tostring(fixture.afterKitchen.counter) .. "/" .. tostring(after.counter)
+                .. ";raw=" .. tostring(fixture.afterKitchen.rawCounter) .. "/" .. tostring(after.rawCounter))
+        walk.done = true
+    end
+end
+local function quickCleanupCar(fixture, failed)
+    local walk = fixture.carWalk
+    if not walk then return end
+    walk.active = false
+    if failed and walk.action and not walk.pathComplete then
+        if walk.action.action then call(walk.action, "forceStop") end
+        if walk.queue then call(walk.queue, "removeFromQueue", walk.action) end
+    end
+end
+local function quickCleanup(fixture, failed)
+    local SC = SurvivorCompanion
+    if fixture.postRender and Events and Events.OnPostRender then Events.OnPostRender.Remove(fixture.postRender) end
+    if fixture.helpers then fixture.helpers.cleanupKitchen(fixture, failed) end
+    quickCleanupCar(fixture, failed)
+    local watch = SC.BaseWatch.current()
+    if failed and watch and watch.leaderActor == fixture.leader.actor then
+        pcall(SC.BaseWatch.cancelBeforeDeparture)
+    end
+    fixture.active = false
+    Probe.active = nil
+end
+local function quickFail(H, fixture, current, result, setPhase, name, detail)
+    quickCapture(H, fixture, "failed-" .. name, true)
+    quickCleanup(fixture, true)
+    result("FAIL", name, detail)
+    setPhase("finish", current)
+end
+local function quickSetup(H, current, check, result, setPhase)
+    local SC, helpers = SurvivorCompanion, quickHelpers()
+    if (not SC.BaseLife.active() or #SC.Registry.records() == 0) and current - H.phaseStartedAt < 15000 then return end
+    if not check("view_quick_helpers", helpers ~= nil, "existing physical kitchen route/visibility helpers") then setPhase("finish", current) return end
+    if not check("view_quick_no_prior_session", SC.BaseWatch.current() == nil
+        and SC.ExpeditionPrototype.current() == nil and SC.ViewSession.owner() == nil and getSpecificPlayer(1) == nil,
+        "fresh solo world; never reset another view") then setPhase("finish", current) return end
+    local leader
+    for _, candidate in ipairs(SC.BaseWatch.candidates() or {}) do
+        if candidate.actor and helpers.healthy(candidate.actor) and SC.BaseLife.isInside(candidate.actor) then
+            leader = { id = candidate.id, actor = candidate.actor }
+            break
+        end
+    end
+    if leader == nil and current - H.phaseStartedAt < 90000 then return end
+    if not check("view_quick_real_resident", leader ~= nil,
+        "requires one actually healthy public BaseWatch candidate at camp; no placement, health or AI changes") then setPhase("finish", current) return end
+    local home = point(H.player)
+    local room = call(SC.GameplayUtil.gridSquare(12035, 6746, 0), "getRoom")
+    local roomName, adjacent = call(room, "getName"), nil
+    if type(roomName) == "string" and string.find(string.lower(roomName), "kitchen", 1, true) then
+        for _, offset in ipairs({ { 0, -1 }, { 1, 0 }, { -1, 0 }, { 0, 1 } }) do
+            local x, y = 12035 + offset[1], 6746 + offset[2]
+            if call(SC.GameplayUtil.gridSquare(x, y, 0), "getRoom") == room then adjacent = { x = x, y = y, z = 0 } break end
+        end
+    end
+    if not check("view_quick_two_positions", home.x and home.y and home.z == 0
+        and (home.x - 12035.5)^2 + (home.y - 6746.5)^2 >= 1 and adjacent ~= nil,
+        "initial primary point must differ from verified kitchen by>=1tile; same-room adjacent square required") then setPhase("finish", current) return end
+    local mode = H.config.view_cutaway_restore_mode or "B"
+    local selected, accepted = pcall(SCSplitScreenProbe.debugSetPrimaryViewRestoreMode, mode)
+    if not check("view_quick_restore_mode", selected and accepted == true, "mode=" .. mode) then setPhase("finish", current) return end
+    local fixture = { quick = true, active = true, mode = "quick-base-watch", primary = H.player,
+        leader = leader, crew = { leader }, helpers = helpers, home = home, adjacentKitchen = adjacent,
+        frames = 0, startedAt = current, baselineAt = current, baselineFrame = 0, latestStepAt = current }
+    H.viewCutaway, Probe.active = fixture, fixture
+    helpers.snapshotVisibility(SC, fixture, H.player)
+    fixture.before = quickCapture(H, fixture, "before-watch", true)
+    fixture.postRender = function()
+        if not fixture.active then return end
+        fixture.frames = fixture.frames + 1
+        local now = type(getTimestampMs) == "function" and getTimestampMs() or fixture.latestStepAt
+        helpers.observeWitnessMovement(fixture)
+        if fixture.closedAt then helpers.observeSoloVisibility(H, fixture, result, now) end
+        helpers.observeKitchen(H, fixture, result)
+        quickObserveCar(H, fixture, result, now)
+        if now >= (fixture.nextStateSampleAt or 0) then
+            fixture.nextStateSampleAt = now + 1000
+            quickCapture(H, fixture, "state-" .. tostring(H.phase), false)
+        end
+    end
+    Events.OnPostRender.Add(fixture.postRender)
+    setPhase("view_cutaway_quick_baseline", current)
+end
+local function quickTryWatch(H, fixture, current, result, setPhase)
+    if fixture.watchAccepted then return true end
+    if current - fixture.watchStartAt >= 90000 then
+        quickFail(H, fixture, current, result, setPhase, "view_quick_available_resident_deadline",
+            "90s waiting for ordinary public watch eligibility;last=" .. tostring(fixture.lastStartReason)
+                .. ";no resident job or position changed")
+        return false
+    end
+    if current < (fixture.nextWatchAttemptAt or 0) then return false end
+    fixture.nextWatchAttemptAt = current + 1000
+    local SC, candidates = SurvivorCompanion, SurvivorCompanion.BaseWatch.candidates() or {}
+    local count = #candidates
+    local offset = fixture.watchCandidateOffset or 0
+    local attempted = 0
+    for index = 1, math.min(count, 8) do
+        local candidate = candidates[(offset + index - 1) % count + 1]
+        if candidate.actor and fixture.helpers.healthy(candidate.actor) and SC.BaseLife.isInside(candidate.actor) then
+            attempted = attempted + 1
+            local started, reason = SC.BaseWatch.start(candidate.id)
+            if started then
+                fixture.leader = { id = candidate.id, actor = candidate.actor }
+                fixture.crew = { fixture.leader }
+                local found = false
+                for _, member in ipairs(fixture.visibility and fixture.visibility.actors or {}) do
+                    member.group = member.id == candidate.id and "crew" or "home"
+                    if member.id == candidate.id then found = true end
+                end
+                if fixture.visibility and not found then
+                    fixture.visibility.actors[#fixture.visibility.actors + 1] = {
+                        id = candidate.id, actor = candidate.actor, group = "crew" }
+                end
+                fixture.watchAccepted = true
+                fixture.dispatchedAt, fixture.openAt = current, current
+                result("PASS", "view_quick_public_watch_start", "exact eligible saved resident=" .. candidate.id
+                    .. ";waitMs=" .. (current - fixture.watchStartAt) .. ";normal public start; no work cancellation")
+                setPhase("view_cutaway_quick_join", current)
+                return true
+            end
+            fixture.lastStartReason = reason
+            if reason ~= "leader_finishing_outdoor_work" and reason ~= "base_watch_leader_unavailable" then
+                quickFail(H, fixture, current, result, setPhase, "view_quick_public_watch_start", tostring(reason))
+                return false
+            end
+        end
+    end
+    fixture.watchCandidateOffset = count > 0 and (offset + math.min(count, 8)) % count or 0
+    if attempted == 0 then fixture.lastStartReason = "waiting_for_healthy_indoor_resident" end
+    quickCapture(H, fixture, "watch-start-wait-" .. tostring(fixture.lastStartReason), false)
+    return false
+end
+local function quickStep(H, current, check, result, setPhase)
+    if H.phase == "view_cutaway_setup" then return quickSetup(H, current, check, result, setPhase) end
+    local SC, fixture = SurvivorCompanion, H.viewCutaway
+    if not fixture or not fixture.quick then result("FAIL", "view_quick_fixture", "missing quick fixture") setPhase("finish", current) return end
+    fixture.latestStepAt = current
+    if current - fixture.startedAt > 180000 then return quickFail(H, fixture, current, result, setPhase,
+        "view_quick_deadline", "180s total bound; no view reset, actor relocation or native state forcing") end
+    if H.phase == "view_cutaway_quick_baseline" then
+        if current - fixture.baselineAt < 1500 or fixture.frames < 12 then return end
+        local before = quickCapture(H, fixture, "before-watch-settled", true)
+        if not check("view_quick_baseline_primary_visibility", before.canSee and before.couldSee
+            and before.counter ~= nil and fixture.before.counter ~= nil and before.counter > fixture.before.counter,
+            "primary own raw can/couldSee=true and native cached counter progresses before opening view") then
+            return quickFail(H, fixture, current, result, setPhase, "view_quick_invalid_baseline", before.detail)
+        end
+        fixture.before = before
+        fixture.watchStartAt = current
+        setPhase("view_cutaway_quick_start", current)
+        quickTryWatch(H, fixture, current, result, setPhase)
+    elseif H.phase == "view_cutaway_quick_start" then
+        quickTryWatch(H, fixture, current, result, setPhase)
+    elseif H.phase == "view_cutaway_quick_join" then
+        if getSpecificPlayer(1) == fixture.leader.actor then
+            fixture.joinedAt, fixture.joinedFrame = fixture.joinedAt or current, fixture.joinedFrame or fixture.frames
+            if current - fixture.joinedAt >= 1500 and fixture.frames - fixture.joinedFrame >= 12 then
+                quickCapture(H, fixture, "watch-joined", true)
+                setPhase("view_cutaway_quick_close", current)
+            end
+        elseif current - fixture.openAt > 30000 then return quickFail(H, fixture, current, result, setPhase,
+            "view_quick_join_deadline", "public BaseWatch did not join within30s") end
+    elseif H.phase == "view_cutaway_quick_close" then
+        local closed, reason = SC.BaseWatch.cancelBeforeDeparture()
+        if not closed then
+            if current - H.phaseStartedAt > 30000 then return quickFail(H, fixture, current, result, setPhase,
+                "view_quick_public_watch_close", tostring(reason)) end
+            return
+        end
+        fixture.closedAt = current
+        fixture.afterClose = quickCapture(H, fixture, "watch-closed", true)
+        setPhase("view_cutaway_quick_solo", current)
+    elseif H.phase == "view_cutaway_quick_solo" then
+        if not fixture.visibility.done then
+            if current - fixture.closedAt > 30000 then return quickFail(H, fixture, current, result, setPhase,
+                "view_quick_primary_restore", "solo restore did not settle within30s") end
+            return
+        end
+        quickCapture(H, fixture, "solo-restored", true)
+        local started, reason = fixture.helpers.startKitchenRoute(H, fixture, current, result)
+        if not started then return quickFail(H, fixture, current, result, setPhase, "view_quick_kitchen_route", tostring(reason)) end
+        setPhase("view_cutaway_quick_kitchen_walk", current)
+    elseif H.phase == "view_cutaway_quick_kitchen_walk" then
+        local kitchen = fixture.kitchen
+        if kitchen.pathFailed or current - kitchen.startedAt > 90000 then return quickFail(H, fixture, current, result, setPhase,
+            "view_quick_kitchen_walk", "ordinary native player path failed or exceeded90s") end
+        if kitchen.pathComplete then
+            if not fixture.helpers.kitchenPose(H.player, kitchen) then return quickFail(H, fixture, current, result, setPhase,
+                "view_quick_kitchen_pose", "native callback did not leave the same primary at the verified kitchen point") end
+            kitchen.stage, kitchen.arrivedAt = "observing", current
+            setPhase("view_cutaway_quick_kitchen_capture", current)
+        end
+    elseif H.phase == "view_cutaway_quick_kitchen_capture" then
+        local kitchen = fixture.kitchen
+        if kitchen.poseLost or current - kitchen.arrivedAt > 30000 then return quickFail(H, fixture, current, result, setPhase,
+            "view_quick_kitchen_observation", "actual pose lost or120frames+1500ms not completed within30s") end
+        if not kitchen.done then return end
+        local after = quickCapture(H, fixture, "kitchen-after-watch", true)
+        check("view_quick_primary_own_visibility_after_walk", after.canSee and after.couldSee,
+            "same native primary0 moved normally to distinct verified kitchen; own raw can/couldSee must remaintrue")
+        check("view_quick_primary_counter_after_walk", after.counter and fixture.afterClose.counter
+            and after.counter > fixture.afterClose.counter,
+            "Java published counter before/after ordinary walk=" .. tostring(fixture.afterClose.counter) .. "/" .. tostring(after.counter)
+                .. ";native raw before/after=" .. tostring(fixture.afterClose.rawCounter) .. "/" .. tostring(after.rawCounter))
+        fixture.afterKitchen = after
+        fixture.helpers.cleanupKitchen(fixture, false)
+        local started, reason = quickStartCarWalk(H, fixture, current, result)
+        if not started then return quickFail(H, fixture, current, result, setPhase, "view_quick_car_route", reason) end
+        setPhase("view_cutaway_quick_car_walk", current)
+    elseif H.phase == "view_cutaway_quick_car_walk" then
+        local walk = fixture.carWalk
+        if walk.pathFailed or current - walk.startedAt > 90000 then return quickFail(H, fixture, current, result, setPhase,
+            "view_quick_car_walk", "ordinary native outdoor path failed or exceeded90s") end
+        if walk.pathComplete then
+            if not quickCarPose(H.player, walk) then return quickFail(H, fixture, current, result, setPhase,
+                "view_quick_car_pose", "native completion did not reach the verified outdoor target") end
+            walk.stage, walk.arrivedAt = "observing", current
+            setPhase("view_cutaway_quick_car_capture", current)
+        end
+    elseif H.phase == "view_cutaway_quick_car_capture" then
+        local walk = fixture.carWalk
+        if walk.poseLost or current - walk.arrivedAt > 30000 then return quickFail(H, fixture, current, result, setPhase,
+            "view_quick_car_observation", "outdoor pose lost or120frames+1500ms not completed within30s") end
+        if not walk.done then return end
+        quickCleanup(fixture, false)
+        result("SKIP", "view_quick_pixel_review", "inspect quick before/join/closed/kitchen/car PNGs; failed flags/counters remain reported")
+        setPhase("finish", current)
+    end
+end
+
 function Probe.step(H, current, check, result, setPhase)
+    if H.config.view_cutaway_quick_watch == "true" then return quickStep(H, current, check, result, setPhase) end
     local SC = SurvivorCompanion
     if H.phase == "view_cutaway_setup" then return setup(H, SC, check, result, setPhase, current) end
     local fixture = H.viewCutaway
@@ -753,7 +1076,8 @@ Probe._tests = { hasBit = hasBit, healthy = healthy, wallAt = wallAt,
     place = place, snapshotSql = snapshotSql, sameSql = sameSql,
     retainedIdentity = retainedIdentity, capture = capture, preferRemote = preferRemote,
     releaseReceipt = releaseReceipt, releaseTransition = releaseTransition,
-    safeFloor = safeFloor, excursionSafe = excursionSafe, chooseWall = chooseWall }
+    safeFloor = safeFloor, excursionSafe = excursionSafe, chooseWall = chooseWall,
+    quickOwnFact = quickOwnFact, quickStep = quickStep, quickTryWatch = quickTryWatch }
 SCRealSandboxHarnessProbes = SCRealSandboxHarnessProbes or {}
 SCRealSandboxHarnessProbes.SCViewCutawayProbe = Probe
 return Probe

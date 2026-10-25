@@ -50,7 +50,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'View cutaway live probe regression failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner $NormalKitchenLua (Join-Path $TestRoot 'normal_expedition_kitchen_regression_harness.lua')
         if ($LASTEXITCODE -ne 0) { throw 'Normal expedition kitchen probe regression failed.' }
-        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner $WoodExpeditionLua (Join-Path $TestRoot 'wood_expedition_probe_regression_harness.lua')
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner $ViewCutawayLua $WoodExpeditionLua (Join-Path $TestRoot 'wood_expedition_probe_regression_harness.lua')
         if ($LASTEXITCODE -ne 0) { throw 'Wood expedition live probe regression failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $OddballProbe
         if ($LASTEXITCODE -ne 0) { throw 'Oddball live probe Kahlua compilation failed.' }

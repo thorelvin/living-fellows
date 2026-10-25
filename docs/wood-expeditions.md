@@ -34,6 +34,12 @@ Log Yard, then Construction storage, then General storage. The trip's stopped,
 verified car can be unloaded after roadside fallback when it remains within
 camp work reach. Distant or unavailable cargo remains pending.
 
+Log Yards arrange up to four physical logs per tile in aligned stacks and rows,
+finishing a partial stack before starting another tile. Each log stays available
+for normal pickup and use. Already loaded yard stock straightens when inspected;
+the placement is saved with the original items. Tying a stack still uses the
+existing four-log, two-rope recipe.
+
 Full or inaccessible storage pauses delivery for three minutes, preserves the
 exact cargo and automatically tries again. **Retry wood delivery** allows an
 immediate manual attempt. Delivery remains required when **Restock and resume

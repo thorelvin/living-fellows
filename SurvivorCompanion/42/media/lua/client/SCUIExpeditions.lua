@@ -1074,7 +1074,7 @@ function Planner.build(detail, panel)
         local selectedArea
         for _, area in ipairs(areas) do
             areaOptions[#areaOptions + 1] = { value = area.id,
-                label = area.name or ("Parking " .. tostring(area.id)) }
+                label = SC.UIFormat.baseZoneLabel(area, tr) }
             if area.id == draft.parkingZoneId then selectedArea = area end
         end
         if draft.parkingZoneId ~= nil and not selectedArea then
@@ -1097,7 +1097,7 @@ function Planner.build(detail, panel)
         for _, car in ipairs(cars) do
             carOptions[#carOptions + 1] = { value = car.sqlId,
                 label = tr("UI_SC_Expedition_CarOption", car.name,
-                    car.sqlId, car.seats, car.zone.name or car.zone.id) }
+                    car.sqlId, car.seats, SC.UIFormat.baseZoneLabel(car.zone, tr)) }
             if car.sqlId == draft.vehicleSqlId then chosenPresent = true end
         end
         if draft.vehicleSqlId ~= nil and not chosenPresent then

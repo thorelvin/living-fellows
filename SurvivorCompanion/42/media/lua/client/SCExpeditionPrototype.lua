@@ -5043,6 +5043,17 @@ function Expedition.finishAtPlayer(player)
     if mission.pendingRadio ~= nil or mission.technicalIssue ~= nil then
         return false, "return_busy_or_paused"
     end
+    local viewOwner = SC.ViewSession.owner()
+    if viewOwner ~= "expedition" then
+        -- The matching Lua owner installs the primary render follow-up after
+        -- native release. Refuse before dismantling a view it cannot finish.
+        if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
+            pcall(SC.Diagnostics.report, "view_restore", nil,
+                "expedition return blocked before view teardown",
+                "companion_view_owner_mismatch: owner=" .. tostring(viewOwner))
+        end
+        return false, "companion_view_owner_mismatch"
+    end
     if mission.homeBaseId and SC.BaseLife and SC.BaseLife.active()
         and SC.BaseLife.active().id == mission.homeBaseId
         and not SC.BaseLife.isInside(mission.leader.actor)
@@ -5152,7 +5163,15 @@ function Expedition.finishAtPlayer(player)
         mission.technicalIssue = { reason = "return_view_release_failed" }
         return false, tostring(value)
     end
-    SC.ViewSession.released("expedition", slotSqlId)
+    local restored, restoreReason = SC.ViewSession.released("expedition", slotSqlId)
+    if restored ~= true then
+        -- Native teardown has committed: report the missing follow-up without
+        -- repeating actor/UI/map removal or concealing it behind a finished trip.
+        if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
+            pcall(SC.Diagnostics.report, "view_restore", nil,
+                "expedition native release committed without Lua view follow-up", restoreReason)
+        end
+    end
     if mission.radioTextHooked then
         Events.OnDeviceText.Remove(radioTextReceived)
     end
