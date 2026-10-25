@@ -311,23 +311,21 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <p class="subtitle">A Complete Guide to Living with the Fellows of Knox County</p>
   <p class="divider">· · · ✚ · · ·</p>
   <p class="edition">Living Fellows — Project Zomboid Build 42.21.0 Edition</p>
-  <p class="version">Release 0.26.62 — First Edition, Eighteenth Printing — You won't die... alone.</p>
+  <p class="version">Release 0.26.67 — First Edition, Nineteenth Printing — You won't die... alone.</p>
 </div>
 
-<div class="callout callout-tip" style="margin-bottom:2.5rem;"><span class="callout-label">Note — </span>
-<strong>What changed in this printing</strong> — through release 0.26.62:
+<div class="callout callout-tip" style="margin-bottom:2rem;"><span class="callout-label">Note — </span>
+<strong>Make a life out here</strong>
 <ul style="margin-top:0.5rem;margin-bottom:0;">
-  <li><a href="#ch14_alarm"><strong>The camp alarm.</strong></a> A resident who sees zombies at the camp raises the alarm. One or two get a quiet word; three or more get a shout that wakes the sleepers in earshot, and whoever the defence policy names runs to the one who saw them. Eight or more send everyone to the Rally area.</li>
-  <li><a href="#ch9e"><strong>Sleeping through it.</strong></a> A sleeper no longer wakes to zombies it could only have seen; an attack, a zombie beside the bed, thumping at a door nearby or the alarm still wakes it. Before bed it switches off the bedroom light, and leaves it on if it can't reach the switch.</li>
-  <li><a href="#ch14b_clean"><strong>Clean this stain.</strong></a> Right-click a stain in camp and a resident on duty scrubs it, borrowing a towel, sponge, brush, broom or mop and bleach or cleaning liquid from marked storage.</li>
-  <li><a href="#ch4_field"><strong>Any car's trunk.</strong></a> Field work finds the real cargo space on modded vehicles too. A trunk that refuses an item pauses the order with the cargo kept, instead of calling it full.</li>
-  <li><a href="#ch14b"><strong>Guards walk their rounds.</strong></a> A guard walks to each point around its post, pauses about half a minute, and walks straight back if it is called away. Reading a chapter now takes one to three minutes (<a href="#ch9e">Ch 9e</a>).</li>
+  <li><a href="#ch17"><strong>Send an expedition.</strong></a> Scout, search, fish or collect wood. Choose a squad, walk or drive, and watch them bring the haul home.</li>
+  <li><a href="#ch14c"><strong>Leave someone on Base Watch.</strong></a> Keep the camp working while you travel, and call in by radio to hear how things are going.</li>
+  <li><a href="#ch5c_taxi"><strong>Call Markus's taxi.</strong></a> Find a road, call from a working walkie-talkie and let someone else do the driving.</li>
 </ul>
-<p style="margin:0.6rem 0 0;">Also current: <a href="#ch11_floor">a sorting floor and trash pile</a>, <a href="#ch4_field">field work that clears the whole spot</a>, <a href="#ch9e">proper sleep in beds</a>, <a href="#ch16_haul">bodies dragged out of houses and down from upstairs, and laid on the pyre</a>, <a href="#ch7_carry">two carrying limits</a>, <a href="#ch4_field">bigger field harvests</a>, <a href="#ch11">Fresh food, Valuables and Outdoor log yard storage</a>, <a href="#ch17_delivery">supplies tracked from finder to shelf</a>, <a href="#ch17">car expeditions</a>, <a href="#ch14b">camp car and generator upkeep</a>, <a href="#ch5c">a companion-driven second car and Markus Sloane's taxi</a>, <a href="#ch6">coordinated squad fighting</a>, <a href="#appB_mod">companion chatter and comfort settings</a>, <a href="#ch18c">sixty-five Strange Folk</a> with <a href="#ch18c_calls">calls for help</a> on 90 MHz, the hands-on <a href="#ch3b">Medical Check</a>, and <a href="#ch11">25 by 25 camps</a>. This release uses native bridge protocol <code>42.21-isocompanion-24</code>.</p>
+<p style="margin:0.7rem 0 0;">This edition covers <strong>0.26.67</strong>, including <a href="#ch17_wood">wood collection and delivery</a>, <a href="#ch14b">automatic job retries</a> and <a href="#ch18c">Strange Folk from the second day</a>. Need the essentials? Open the <a href="#appF">quick reference card</a>.</p>
 </div>
 
-<div class="callout callout-tip" style="margin-bottom:2.5rem;"><span class="callout-label">Note — </span>
-<strong>About this manual</strong> — it covers what the companion panel does not explain: how the fellows think, what they need from you, and the rules they follow when nobody is giving orders. Everything here describes release 0.26.62 and was checked against the mod itself. Living Fellows is a <strong>public playtest</strong>: back up important saves, and send logs when something goes wrong (<a href="#appD">Appendix D</a>). The mod lives at <a href="https://github.com/thorelvin/living-fellows">github.com/thorelvin/living-fellows</a>. The <em>Overheard</em> quotes are real lines from the mod's own voice pools.
+<div class="callout callout-tip" style="margin-bottom:2rem;"><span class="callout-label">Note — </span>
+<strong>About this guide</strong> — how the fellows think, what they need from you and how to run a camp together. Start with <a href="#ch2">the first five minutes</a>, or use the contents to find a job, journey or problem. The <em>Overheard</em> quotes are lines you can hear in the mod. <a href="https://github.com/thorelvin/living-fellows">Get Living Fellows</a> · <a href="#appD">Help and bug reports</a>.
 </div>
 
 <!-- TABLE OF CONTENTS -->
@@ -375,7 +373,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
         <li><a href="#ch16">Ch 16: Laying the Dead to Rest</a></li>
       </ol>
     </li>
-    <li><a href="#part4">Part IV — Beyond the Fence</a> <span class="toc-stage">Experimental &amp; Strangers</span>
+    <li><a href="#part4">Part IV — Beyond the Fence</a> <span class="toc-stage">Journeys &amp; Strangers</span>
       <ol>
         <li><a href="#ch17">Ch 17: Expeditions</a></li>
         <li><a href="#ch18">Ch 18: Households, Trade and Bandits</a></li>
@@ -408,7 +406,6 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <strong>Before you proceed</strong> — the short version of the next four chapters:
 <ul class="checklist" style="margin-top:0.6rem;margin-bottom:0;">
   <li>Install exactly one copy of Living Fellows: Workshop with ZombieBuddy, or the standalone <code>Install.bat</code></li>
-  <li>Back up your save folder before the first long session</li>
   <li>Load a single-player save and press <kbd>Home</kbd> to open the companion panel</li>
   <li>Find a survivor, select them in the panel, and press <span class="menu">Recruit</span></li>
   <li>Pick a main order on <span class="menu">Orders</span>; new recruits start on Follow</li>
@@ -466,14 +463,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <p>It installs the mod under <code>%USERPROFILE%\Zomboid\mods\SurvivorCompanion</code>, keeps its bridge under <code>%LOCALAPPDATA%\LivingFellows</code>, and backs up <code>ProjectZomboid64.json</code> before changing it. It never edits <code>projectzomboid.jar</code>. <strong>Uninstall.bat</strong>, run from the same folder, removes Living Fellows' files and launcher entries. If another mod has changed the launcher since installation, the uninstaller keeps that mod's settings.</p>
 
-<h3>Back Up Your Save</h3>
-<p>Companions, households, relationships, contracts, bases and production orders are saved with the world, so they outlive your character. That also means the mod is woven into the save. Before installing or updating:</p>
-<ol class="steps">
-  <li><span class="step-n">1</span>Close the game.</li>
-  <li><span class="step-n">2</span>Copy your save folder from <code>%USERPROFILE%\Zomboid\Saves</code> somewhere safe.</li>
-  <li><span class="step-n">3</span>Keep at least one backup from before your first Living Fellows session.</li>
-</ol>
-<div class="callout callout-warn"><span class="callout-label">Take care — </span>Don't remove the mod from an important save without a backup.</div>
+<h3>A World That Remembers</h3>
+<p>Companions, households, relationships, contracts, bases and production orders are saved with the world. They remain if your character dies and you start another survivor in the same world.</p>
 
 <!-- CH 2 -->
 <h2 class="chapter" id="ch2"><img class="ico" src="https://pzwiki.net/w/images/7/7f/KeyRing.png" alt="">Chapter 2: The First Five Minutes<span class="stage stage-early">Day One</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
@@ -520,7 +511,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Status</strong></td><td>Health and needs, current action, order, distance, and a relationship summary</td></tr>
   <tr><td><strong>Orders</strong></td><td>Direct orders, movement and follow distance, combat doctrine, scavenging</td></tr>
   <tr><td><strong>Squad</strong></td><td>Group assignment, group orders, movement and fire signals</td></tr>
-  <tr><td><strong>Expeditions</strong></td><td>The experimental squad mission planner and active mission status</td></tr>
+  <tr><td><strong>Expeditions</strong></td><td>Plan a squad mission and follow its progress</td></tr>
   <tr><td><strong>Loadout</strong></td><td>Wounds and treatment, inventory, weapon and carry policy, vehicle status</td></tr>
   <tr><td><strong>More</strong></td><td><strong>Base</strong> (camp operations), <strong>Factions</strong> (households, trade, standing), <strong>Journal</strong> (history, relationships, memories, goals) and <strong>Support</strong> (runtime health)</td></tr>
 </table>
@@ -540,7 +531,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <h3>On-Screen Helpers</h3>
 <ul>
-  <li><strong>First-name labels</strong> above companions you can see (a sandbox option).</li>
+  <li><strong>First-name labels</strong> above companions you can see (a sandbox option). Viewpoint's 3D mode hides these labels until you switch back to isometric view.</li>
   <li><strong>Minimap markers</strong> for your companions.</li>
   <li><strong>The base layout overlay</strong>, toggled with <kbd>Insert</kbd> (<a href="#ch11">Chapter 11</a>).</li>
   <li><strong>The Support page</strong> under <span class="menu">More → Support</span>: runtime health, leaked-action counters, and a report you can copy into a bug report.</li>
@@ -661,7 +652,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td>Day 4+</td><td>Watch for households, and for bandit camps, which appear from day four</td><td><a href="#ch18">Ch 18</a></td></tr>
   <tr><td>Day 5+</td><td>Feed the camp: a Chef for the fridge, an Angler at the water</td><td><a href="#ch15b">Ch 15b</a></td></tr>
   <tr><td>Before a long trip</td><td>Start Base Watch so the camp keeps working while you're away</td><td><a href="#ch14c">Ch 14c</a></td></tr>
-  <tr><td>When ready</td><td>On a disposable save, try sending a squad on an expedition</td><td><a href="#ch17">Ch 17</a></td></tr>
+  <tr><td>When ready</td><td>Send a squad to search for supplies, fish or collect wood</td><td><a href="#ch17">Ch 17</a></td></tr>
 </table>
 
 <!-- ═══ PART II ═══ -->
@@ -773,8 +764,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h3>Another Car Behind Yours</h3>
 <p>Right-click a usable second car and choose <span class="menu">Drive this car and follow me</span> for a recruited companion. One companion-driven follow car can be assigned at a time. When you enter and drive your own car, its driver follows by road instead of trying to take a passenger seat. If the route fails, the engine dies, or that car is left too far behind, the assignment ends with a reason and the companion returns to ordinary Ride with player behaviour.</p>
 
-<h3>Markus's Taxi</h3>
-<p>With a powered portable walkie-talkie that can transmit, right-click it and choose <span class="menu">Markus's Taxi → Call for pickup</span>. Markus Sloane finds a safe road stop and brings his cab there. Enter a passenger seat, then right-click inside the cab or right-click a road on the world map to give him a destination. He asks for the map location if you wait too long. Offer jewelry toward the quoted fare through the same taxi menu. At the destination, everyone leaves the cab with their belongings; Markus then drives away. The radio menu can report his approach or cancel a pending pickup.</p>
+<h3 id="ch5c_taxi">Markus's Taxi</h3>
+<p>With a powered portable walkie-talkie that can transmit, right-click it and choose <span class="menu">Markus's Taxi → Call for pickup</span>. Stand beside an open road or junction so Markus Sloane can find a clear pickup spot. His cab comes to the road; wait for it to stop before boarding. Enter a passenger seat, then right-click inside the cab or right-click a road on the world map to give him a destination. He asks for the map location if you wait too long. Offer jewelry toward the quoted fare through the same taxi menu. At the destination, everyone leaves the cab with their belongings; Markus then drives away. The radio menu can report his approach or cancel a pending pickup.</p>
 
 <!-- CH 6 -->
 <h2 class="chapter" id="ch6"><img class="ico" src="https://pzwiki.net/w/images/4/40/BaseballBat.png" alt="">Chapter 6: Combat and the Rules of Engagement<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
@@ -1025,6 +1016,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>Companions yawn late at night, and the yawn spreads to whoever stands nearby. They stretch after sitting and first thing in the morning at base, sneeze in dusty storerooms and cough in the cold. They stay seated while reading or writing, prefer usable furniture when tired, and can rest on the floor when no seat or bed is free. A companion who rests on a bed, cot or the floor with a book or its diary to hand reads or writes there before getting up. Athletic companions do a short morning workout at base, and others sometimes join them. All of it is animation only, with no sound and no effect on stats.</p>
 
 <!-- CH 9b -->
+<p>Expedition crews and residents talk about the work in front of them: a tree coming down, the trunk filling up, a job getting stuck or the last supplies put away. Companions sometimes trade a few words along the road or between jobs. These remarks stay occasional, and danger takes priority.</p>
+
 <h2 class="chapter" id="ch9b"><img class="ico" src="https://pzwiki.net/w/images/0/07/Teabag.png" alt="">Chapter 9b: Talking with the Fellows<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
 <p>Every word in the Talk view is a real conversation. You choose what to say, the companion walks over until it is close enough to speak, and then it answers in its own voice from what is true right now: its body, its mood, its memories of you. Some answers only tell you something. Others change how they feel.</p>
@@ -1522,7 +1515,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Rally area</strong></td><td>Where the camp gathers</td><td>Inside the camp</td></tr>
   <tr><td><strong>Quarantine area</strong></td><td>Somewhere to keep a bitten companion apart</td><td>Inside the camp</td></tr>
   <tr><td><img class="ico-sm" src="https://pzwiki.net/w/images/4/45/WoodAxe.png" alt=""><strong>Lumber area</strong></td><td>Standing trees for the woodcutter</td><td>Up to 30 tiles beyond the boundary</td></tr>
-  <tr><td><img class="ico-sm" src="https://pzwiki.net/w/images/2/2d/Logs.png" alt=""><strong>Outdoor log yard</strong></td><td>Open ground for logs. Each tile holds four, loose or tied in a bundle: workers bundle them when they have rope and open a bundle when building or carpentry needs logs.</td><td>Entirely outdoors, up to 30 tiles beyond the boundary</td></tr>
+  <tr><td><img class="ico-sm" src="https://pzwiki.net/w/images/2/2d/Logs.png" alt=""><strong>Outdoor log yard</strong></td><td>Open ground for neat four-log stacks, filled in rows. Workers finish a partial stack before starting another. Rope can tie a stack into a bundle, which workers open when construction or carpentry needs logs.</td><td>Entirely outdoors, up to 30 tiles beyond the boundary</td></tr>
   <tr><td><img class="ico-sm" src="https://pzwiki.net/w/images/8/87/Hoe.png" alt=""><strong>Farm area</strong></td><td>Existing plots for the farmer</td><td>Up to 30 tiles beyond the boundary</td></tr>
   <tr><td><img class="ico-sm" src="https://pzwiki.net/w/images/2/2f/FishingRod.png" alt=""><strong>Fishing bank</strong></td><td>Dry ground beside at least two tiles of open water, for the angler (<a href="#ch15b">Ch 15b</a>)</td><td>Up to 30 tiles beyond the boundary, at ground level</td></tr>
   <tr><td><img class="ico-sm" src="https://pzwiki.net/w/images/4/43/Map.png" alt=""><strong>Parking area</strong></td><td>A place for a car expedition to start and finish (<a href="#ch17">Ch 17</a>)</td><td>Ground level, inside camp or up to 20 tiles beyond its ground-floor boundary</td></tr>
@@ -1694,7 +1687,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h3>Safety Rules for Camp Work</h3>
 <ul>
   <li><strong>Chopping is loud.</strong> No tree is started while danger is visible nearby, winded residents rest, and a chop that gets stuck is abandoned after three minutes.</li>
-  <li><strong>Nights indoors.</strong> From 21:00 to 06:00 outdoor camp work pauses: workers head to an indoor camp square, outdoor jobs wait for daylight, and indoor chores carry on. A farm job already under way is finished, and a Chef stays by a pot on a lit fire. Switch on <strong>Work outside at night</strong> in the base policies (<a href="#ch14b">Ch 14b</a>) to keep everyone working. That switch covers the gravekeeper and woodcutter too: at night, without it, no tree outdoors is started and no body lying outdoors is fetched.</li>
+  <li><strong>Nights indoors.</strong> From 21:00 to 06:00 outdoor camp work pauses: workers head to an indoor camp square, outdoor jobs wait for daylight, and indoor chores carry on. A farm job already under way is finished, and a Chef stays by a pot on a lit fire. Switch on <strong>Work outside at night</strong> in the base policies (<a href="#ch14b">Ch 14b</a>) to keep everyone working. That switch covers the gravekeeper, woodcutter and wood expeditions too: without it, outdoor work waits from 21:00 until 06:00.</li>
   <li><strong>Sleep first.</strong> A resident tired enough to sleep (<a href="#ch9e">Ch 9e</a>) sleeps in a bed before claiming its next job, and keeps the bed until rested. A job already in hand is finished first, unless the resident is close to exhaustion and finds a bed it can reach: then it settles what it carries for the camp, sleeps, and the job waits for later.</li>
   <li><strong>Loot first.</strong> A gravekeeper with a burial ground takes bodies as they lie, clothes, pockets and all, and buries them with their belongings. A pyre still leaves a body carrying items for you to loot.</li>
   <li><strong>Dragging.</strong> A resident dragging a body walks backwards with it through doors, never over fences or up and down stairs (<a href="#ch16_haul">Ch 16</a>). It drops the body at once when danger shows up, and puts it down before it eats, scavenges, rests or takes up any other work. The body stays where it was left.</li>
@@ -1722,6 +1715,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <!-- CH 14b -->
 <h2 class="chapter" id="ch14b"><img class="ico" src="https://pzwiki.net/w/images/c/c7/Clipboard.png" alt="">Chapter 14b: Running the Camp<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>The selected companion's job controls are at the top of <span class="menu">More → Base</span>. Readiness, policies, parked cars and the work queue follow. Storage management is at the bottom, for when you need to change a container's category or permissions.</p>
 
 <p><span class="menu">More → Base</span> is the camp's ledger. It reads top to bottom like a morning report: how the camp stands, what it's short of, who's on watch, and what work is waiting.</p>
 
@@ -1778,14 +1773,14 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Continuous useful work</strong></td><td>All of that, plus safe routines whenever someone is free</td></tr>
 </table>
 
-<p>Three switches sit beside them, each with its name and an On/Off button. <strong>Allow safe routines and downtime</strong> turns residents' downtime and routines on or off. <strong>Automatically maintain and sort the base</strong> covers sorting and barricade maintenance; with it off, only a resident with the <strong>Maintainer</strong> job still repairs barricades. <strong>Work outside at night</strong>, off by default, lets outdoor camp work carry on from 21:00 to 06:00 (<a href="#ch14">Ch 14</a>).</p>
+<p>Use the labelled checkboxes to change individual policies. <strong>Allow safe routines and downtime</strong> turns residents' downtime and routines on or off. <strong>Automatically maintain and sort the base</strong> covers sorting and barricade maintenance; with it off, only a resident with the <strong>Maintainer</strong> job still repairs barricades. <strong>Work outside at night</strong>, off by default, lets outdoor camp work carry on from 21:00 to 06:00 (<a href="#ch14">Ch 14</a>). <strong>Unload parked cars automatically</strong> lets residents move eligible cargo into marked storage.</p>
 
 <h3>Staffing and Shifts</h3>
 <p>Every resident is listed with their job and state: <em>on watch</em>, <em>available</em> or <em>off duty</em>. Select one to set their base job or start base duty (<a href="#ch14">Chapter 14</a>).</p>
 
 <h3>The Work Queue</h3>
 <p>The status lines count jobs pending, active and blocked, and planned construction is listed with its state and what it is <strong>blocked by</strong> (<a href="#ch13">Ch 13</a>). A blocked job tries again on its own, waiting twice as long after each failure: 10 seconds, then 20, 40 and so on, up to ten minutes.</p>
-<p>After <strong>six failures in a row</strong> a job stops trying and appears under <strong>Stalled jobs</strong>, with its worker, the reason, and two buttons: <span class="menu">Retry blocked job</span> gives it a fresh run, and <span class="menu">Cancel job</span> removes it after a confirmation. Gathering and production jobs follow their own order's controls instead.</p>
+<p>After repeated failures, ordinary blocked jobs pause and try again every <strong>three minutes</strong>. The Base tab names the worker and reason, and shows the retry countdown. <span class="menu">Retry blocked job</span> starts an immediate attempt; <span class="menu">Cancel job</span> removes it after confirmation. The job keeps its target and carried supplies while waiting. Gathering and production orders retain their own controls.</p>
 <div class="callout callout-warn"><span class="callout-label">Take care — </span>A cancel can be refused while a job can't safely stop, such as a Chef's pot still on the heat, or a carried item that can't be put back yet. The reason is shown; try again once it has settled.</div>
 
 <h3>Parked Cars and Generators</h3>
@@ -1805,7 +1800,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <div class="callout callout-tip"><span class="callout-label">Note — </span>Older saves may still show <strong>Gather materials</strong> orders, for logs or planks from a work or lumber area. Residents finish the ones already there, and the view shows each worker's phase, from seeking material to depositing it.</div>
 
 <!-- CH 14c -->
-<h2 class="chapter" id="ch14c"><img class="ico" src="https://pzwiki.net/w/images/3/31/Radio.png" alt="">Chapter 14c: Base Watch<span class="stage stage-end">Experimental</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+<h2 class="chapter" id="ch14c"><img class="ico" src="https://pzwiki.net/w/images/3/31/Radio.png" alt="">Chapter 14c: Base Watch<span class="stage stage-end">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
 <p>A camp lives only while the game has it loaded. Travel far enough and it unloads, and the camp's work stops with it. Its residents step back in where they were as soon as their ground loads again, even before you reach them. <strong>Base Watch</strong> keeps the camp loaded while you travel: one indoor resident holds it in a second local view, the way an expedition leader does, and the other residents carry on working around them.</p>
 
@@ -1835,7 +1830,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </ul>
 <p>Come back into camp within 16 tiles of the watcher and the second view closes on its own, once your own map covers the camp. Your clock and game-speed controls come back with it.</p>
 
-<div class="callout callout-warn"><span class="callout-label">Take care — </span>Base Watch is a playtest feature. Use a disposable save. If the panel shows <em>Camp view needs attention</em>, note the reason with the Support report (<a href="#appD">Appendix D</a>).</div>
+<div class="callout callout-warn"><span class="callout-label">Take care — </span>If the panel shows <em>Camp view needs attention</em>, note the reason with the Support report (<a href="#appD">Appendix D</a>).</div>
 
 <!-- CH 15 -->
 <h2 class="chapter" id="ch15"><img class="ico" src="https://pzwiki.net/w/images/9/96/WateringCan.png" alt="">Chapter 15: Farming<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
@@ -1944,13 +1939,11 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <img class="ico-lg" src="https://pzwiki.net/w/images/1/1d/Tent.png" alt="">
   <p class="part-label">Part IV</p>
   <h2>Beyond the Fence</h2>
-  <p class="part-desc">Past the camp there are roads, other people, and the long walk home. Some of it is still being tested; all of it is worth knowing before you send anyone out.</p>
+  <p class="part-desc">Past the camp there are roads, other people and the long walk home. Here is how to send a squad out, bring its supplies back and deal with the people it leaves you time to meet.</p>
 </div>
 
 <!-- CH 17 -->
-<h2 class="chapter" id="ch17"><img class="ico" src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Chapter 17: Expeditions<span class="stage stage-end">Experimental</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
-
-<div class="callout callout-warn"><span class="callout-label">Take care — </span>Expeditions are an <strong>incomplete playtest feature</strong>. Use a disposable save. Departure from the Riverside gas station has intermittently stalled on a native path. Walking road missions have passed in a cloned test save; car driving and recovery still need broad live playtesting.</div>
+<h2 class="chapter" id="ch17"><img class="ico" src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Chapter 17: Expeditions<span class="stage stage-end">Journeys</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
 <p>An expedition sends a squad out on its own while you stay behind. The squad's actual leader appears in a second local view while the team moves, and the other members follow that leader. <a href="#ch14c">Base Watch</a> uses the same view, so the two never run at once.</p>
 
@@ -1963,8 +1956,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <ol class="steps">
   <li><span class="step-n">1</span>On <span class="menu">Squad</span>, assign one to four companions to a squad.</li>
   <li><span class="step-n">2</span>Open <span class="menu">Expeditions</span> and choose the squad's <strong>leader</strong>.</li>
-  <li><span class="step-n">3</span>Choose the mission: <strong>Scout</strong>, <strong>Search</strong> or <strong>Fish nearby water</strong>. Search also lets you request a supply type and quantity, including <strong>Everything useful</strong> for supplies across categories.</li>
-  <li><span class="step-n">4</span>Choose a building within 200 tiles (32 per page), or a fishing bank up to 1,000 tiles away for a fishing trip.</li>
+  <li><span class="step-n">3</span>Choose the mission: <strong>Scout</strong>, <strong>Search</strong>, <strong>Fish nearby water</strong> or <strong>Collect wood</strong>. Search also lets you request a supply type and quantity, including <strong>Everything useful</strong> for supplies across categories.</li>
+  <li><span class="step-n">4</span>Choose a building within 200 tiles (32 per page), a fishing bank up to 1,000 tiles away, or let Collect wood find nearby woodland.</li>
   <li><span class="step-n">5</span>Choose how to travel, how long before they turn home, and the combat style.</li>
   <li><span class="step-n">6</span>Review the plan and select <span class="menu">Send squad</span>.</li>
 </ol>
@@ -1976,12 +1969,12 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><th>Option</th><th>Choices</th></tr>
   <tr><td><strong>Squad</strong></td><td>A group from the Squad tab, one to four companions</td></tr>
   <tr><td><strong>Team leader</strong></td><td>The member who gets the second view and leads the column</td></tr>
-  <tr><td><strong>Task</strong></td><td>Scout the location, Search for supplies, or Fish nearby water</td></tr>
+  <tr><td><strong>Task</strong></td><td>Scout the location, Search for supplies, Fish nearby water, or Collect wood</td></tr>
   <tr><td><strong>Supplies</strong> (Search)</td><td>Food, Water, Medicine, Ammunition, Tools, Clothing, or Everything useful, and how many items</td></tr>
-  <tr><td><strong>Target location</strong></td><td>A building within 200 tiles, 32 to a page, or a fishing bank up to 1,000 tiles away; refresh the list as you move</td></tr>
+  <tr><td><strong>Target location</strong></td><td>A building within 200 tiles, a fishing bank up to 1,000 tiles away, or automatically chosen woodland within 1,000 tiles</td></tr>
   <tr><td><strong>Travel route</strong></td><td>Follow roads, Head straight for target, or Drive car</td></tr>
   <tr><td><strong>Parking area and vehicle</strong> (Drive car)</td><td>A marked ground-floor parking area and a usable car fully inside it</td></tr>
-  <tr><td><strong>Restock and resume base duty</strong> (Search, Fish)</td><td>Yes or No: on return, refill from camp storage and go back to base jobs (<a href="#ch17_delivery">below</a>)</td></tr>
+  <tr><td><strong>Restock and resume base duty</strong> (Search, Fish, Wood)</td><td>Yes or No: on return, refill from camp storage and go back to base jobs (<a href="#ch17_delivery">below</a>)</td></tr>
   <tr><td><strong>Time before turning home</strong></td><td>1, 2, 4 or 8 game hours</td></tr>
   <tr><td><strong>Combat style</strong></td><td>Stealth, Close Defense, or Aggressive (weapons free)</td></tr>
 </table>
@@ -1994,12 +1987,17 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </div>
 <div>
 <h4><img class="ico-sm" src="https://pzwiki.net/w/images/b/b1/Backpack.png" alt="">Search</h4>
-<p>The squad has to get inside the building itself. If the leader can't get in within about a minute, the squad comes home: <em>The squad could not get into the selected building and came home.</em> Inside, it looks for what you asked for; for a small request, only as many members search as items remain, and one that can't reach a container passes it to another. Then it plans a fresh route home. From an upper floor or a basement it comes down one staircase at a time.</p>
+<p>The squad has to get inside the building itself. If the leader can't get in within about a minute, the squad comes home: <em>The squad could not get into the selected building and came home.</em> Inside, it looks for what you asked for; for a small request, only as many members search as items remain, and one that can't reach a container passes it to another. Large buildings get time for a first pass through their rooms and shelves before the usual search time runs out; the return time you chose still comes first. Then the squad plans a fresh route home. From an upper floor or a basement it comes down one staircase at a time.</p>
 </div>
 </div>
 
 <h4><img class="ico-sm" src="https://pzwiki.net/w/images/2/2f/FishingRod.png" alt="">Fish nearby water</h4>
-<p>Set how many fish to bring home, and the planner lists <strong>fishing banks</strong> instead of buildings: confirmed shores in the loaded world, and possible shores from the map's water up to 1,000 tiles away, which the leader checks on arrival. A remote shore is only a suggestion until the squad reaches it. Paging through the list reuses one scan; <span class="menu">Refresh</span> looks again. The leader must carry a rod and bait to set out. Other members with their own gear fish too, and the rest stand guard. Only fish caught near the chosen bank count. The squad heads home with the catch, after about two hours at the water, or at the turn-home time, and earlier if the bank has no usable water or the bait runs out.</p>
+<p>Set how many fish to bring home, and the planner lists <strong>fishing banks</strong> instead of buildings: confirmed shores in the loaded world, and possible shores from the map's water up to 1,000 tiles away, which the leader checks on arrival. A remote shore is only a suggestion until the squad reaches it. Paging through the list reuses one scan; <span class="menu">Refresh</span> looks again. Before departure, the leader collects a usable rod and bait from permitted camp storage. Missing supplies pause preparation and retry automatically, without spending the trip's relative return timer. Other members with their own gear fish too, and the rest stand guard. Only fish caught near the chosen bank count. The squad heads home with the catch, after about two hours at the water, or at the turn-home time, and earlier if the bank has no usable water or the bait runs out.</p>
+
+<h4 id="ch17_wood"><img class="ico-sm" src="https://pzwiki.net/w/images/4/45/WoodAxe.png" alt="">Collect wood</h4>
+<p>Send the crew on foot or by car. Choose <strong>1, 2, 4, 8, 12 or 24 logs</strong> (12 by default), or <strong>Full load</strong>, limited by real carrying space and a ceiling of 256 logs per trip. The planner finds woodland within 1,000 tiles. The crew checks for mature trees on arrival and can try up to three nearby sites.</p>
+<p>Preparation borrows a usable axe from permitted camp storage, waiting and retrying if none is available. One companion cuts while the others haul and protect them; a lone worker does both. Walkers need room for logs as well as tools and essentials. Driving crews shuttle logs to the trunk. A full load, the requested amount, danger, a broken last axe or the return timer sends them home with what they have. Unless <strong>Work outside at night</strong> is enabled, preparation waits until 06:00 and outdoor wood work ends at 21:00.</p>
+<p><strong>Collected, carried and stored are separate counts.</strong> Home delivery prefers permitted Log Yard, Construction, then General storage. Logs form four-log stacks in rows in a yard. Full or unreachable storage keeps the cargo pending and retries every three minutes; <strong>Retry</strong> is there if you have just made room. Borrowed axes go back too, even from a bag. Delivery is required whether or not <strong>Restock and resume base duty</strong> is enabled.</p>
 
 <h3>Three Ways to Travel</h3>
 <div class="two-col">
@@ -2022,7 +2020,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <h4 id="ch17_car_recovery">When the car cannot continue</h4>
 <p>A driver whose road is blocked detours, up to three tries, before the drive counts as failed. A car pinned by something its bumper scan misses, such as a wall corner beside a front wheel after a tight turn, reverses about a tile and a half with the wheel at opposite lock and drives on. It never reverses without room behind, and backs off at most three times before the route has to make real progress again.</p>
-<p>A failed drive stops and unloads the team before they continue on foot. A temporarily blocked return parking area is retried briefly; if the obstruction remains, the squad exits safely and walks home. A blocked door or unsafe exit keeps them waiting with a reason instead of placing anyone outside the car. After loading a save, an interrupted trip checks the same car and the whole team before re-boarding automatically. If the car does not load again, the squad waits for its members to be present and on foot before leaving it behind. If the driver dies, the vehicle is stopped and living passengers get out before the mission appoints another leader and continues on foot. <span class="menu">More → Support</span> lists the active car state, outbound or home leg, and blocker. The Expeditions tab describes each car-trip phase in words, such as driving to the destination, parking at base or getting out of the car.</p>
+<p>The driver switches off the engine before the crew gets out, including on a roadside return. A failed drive stops and unloads the team before they continue on foot. A temporarily blocked return parking area is retried briefly; if the obstruction remains, the squad exits safely and walks home. A blocked door or unsafe exit keeps them waiting with a reason instead of placing anyone outside the car. After loading a save, an interrupted trip checks the same car and the whole team before re-boarding automatically. If the car does not load again, the squad waits for its members to be present and on foot before leaving it behind. If the driver dies, the vehicle is stopped and living passengers get out before the mission appoints another leader and continues on foot. <span class="menu">More → Support</span> lists the active car state, outbound or home leg, and blocker. The Expeditions tab describes each car-trip phase in words, such as driving to the destination, parking at base or getting out of the car.</p>
 
 <figure class="plate">
   <img loading="lazy" decoding="async" src="https://pzwiki.net/w/images/e/e8/DecomposingGroup.jpg" alt="Four zombies shambling along a two-lane road.">
@@ -2039,7 +2037,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Sheltered</strong></td><td>The squad has taken shelter inside a house at a map point</td><td>Go and meet them there</td></tr>
   <tr><td><strong>No way home</strong></td><td>After four fresh route attempts, often from an upper floor, the squad holds and radios <em>Can't find a way home from near X, Y. Need orders: return, push on, or hold position.</em></td><td><span class="menu">Return</span> or <span class="menu">push on</span> starts one fresh attempt; so does reaching them on their floor</td></tr>
 </table>
-<p>During a Search you can ask how it's going: right-click your equipped walkie-talkie and choose <span class="menu">Ask for progress report</span>. The Expeditions tab then shows the answer, such as <em>Last radio report at world hour 14: 3 of 10 requested supplies collected.</em></p>
+<p>During a Search you can ask how it's going: right-click your equipped walkie-talkie and choose <span class="menu">Ask for progress report</span>. The Expeditions tab then shows the answer, such as <em>Last radio report at world hour 14: 3 of 8 requested supplies collected.</em></p>
 <div class="callout callout-warn"><span class="callout-label">Take care — </span>If the squad hears your recall but can find no safe way back, it says so and waits for backup. Go and get them; they won't walk into a death trap because you told them to.</div>
 <div class="callout callout-tip"><span class="callout-label">Note — </span>If a call shows <em>No radio receipt</em>, check that both radios are powered, equipped and on the same channel. Standing within three tiles of the leader also counts as no receipt; step further away.</div>
 
@@ -2055,7 +2053,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>The time you choose decides when the team turns home; it doesn't promise when they arrive. On the way back, a stale route or stair approach gets a bounded retry, and a follower left on the last stair tread is guided to the verified exit. A returning Search squad finishes its trip once everyone has reached you, including when you're standing on a staircase. An intact squad says one of twenty homecoming lines once its leader view is released.</p>
 
 <h3 id="ch17_delivery">Bringing the Supplies Home</h3>
-<p>The squad keeps a ledger of what you asked for. Requested items found on its members, in their bags or in the car's trunk are carried to matching marked storage at camp, and unrelated gear stays where it is. If that storage is full or can't be reached, the items stay with their carrier and delivery tries again when room opens. The debrief counts every step, for example <em>Requested 10; collected 8; brought back 8; stored 6; pending 2.</em>, and names who found and who carried each item. Pending deliveries survive a save and reload, and the Expeditions tab lists earlier supplies still awaiting storage.</p>
+<p>The squad keeps a ledger of what you asked for. Requested items found on its members, in their bags or in the car's trunk are carried to matching marked storage at camp, and unrelated gear stays where it is. If that storage is full or can't be reached, the items stay with their carrier and delivery tries again when room opens. The debrief counts every step, for example <em>Requested 8; collected 8; brought back 8; stored 6; pending 2.</em>, and names who found and who carried each item. Pending deliveries survive a save and reload, and the Expeditions tab lists earlier supplies still awaiting storage.</p>
+<p>For a wood trip, a verified stopped car left near camp can still be unloaded while it remains within camp work reach. A car farther away keeps its cargo pending. Heavy logs use short shuttles to nearby storage; a longer walk needs safe carrying capacity. If you take a log away yourself, it is no longer owed to storage and is not counted as stored. Tool returns and optional base duty can still finish.</p>
 <p>With <strong>Restock and resume base duty</strong> set to Yes, each member then tops up food, water, medicine and, if it holds a firearm, ammunition to its role's minimum from marked storage. A supply it can't find within about 30 seconds is reported, such as <em>Jill could not restock 2 medicine supplies.</em> Then the member goes back to its base job, unless you've given it a newer order.</p>
 
 <div class="lore-pull"><span class="lore-label">Overheard — </span>Kentucky tried its best. We came back anyway.<span class="who">— a squad back home</span></div>
@@ -2225,13 +2224,13 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 18c -->
 <h2 class="chapter" id="ch18c"><img class="ico" src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Chapter 18c: Strange Folk<span class="stage stage-end">Strangers</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<div class="callout callout-tip"><span class="callout-label">Note — </span>Strange Folk arrived in 0.26.35. Release 0.26.59 uses native bridge protocol <code>42.21-isocompanion-24</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Release 0.26.67 uses native bridge protocol <code>42.21-isocompanion-24</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
 
 <p>Not every stranger is a household looking for supplies. Sixty-five hand-made characters live in Knox County: a butcher with a back room, a deputy still running her checkpoint, a grandmother guarding a child's bedroom with a broken bottle, a man who smeared himself in the dead so they'd leave him alone. Each one is a one-off with their own rules, voice and ending. They use the same standing, trade, combat, navigation and recruitment rules as other survivors, and their animals are real Build 42 animals with names that survive saves.</p>
 
 <h3>How They Turn Up</h3>
 <ul>
-  <li><strong>One at a time, now and then.</strong> From the third day, every few days (three by default) the next stranger may settle into a fitting building 35 to 90 tiles from you, somewhere you can't see at that moment. Without a suitable place the meeting waits. At most two stories run at once; Doctor Pest and the Bluegrass Bolt arrive together and take both places.</li>
+  <li><strong>One at a time, now and then.</strong> From the second day, after 24 game hours, every few days (three by default) a randomly chosen eligible stranger may settle into a fitting building 35 to 90 tiles from you, somewhere you can't see at that moment. Without a suitable place the meeting waits. At most two stories run at once; Doctor Pest and the Bluegrass Bolt arrive together and take both places.</li>
   <li><strong>Each appears once per save.</strong> When a story ends, that character is done.</li>
   <li><strong>Some hold back.</strong> Most can turn up in the first week. The Knox Defense League, Doctor Pest and the Bolt, the Bledsoe brothers, Dalton Reese, Renfro, Gordon, Morton and Elmer wait about two weeks; the Trestle Goatman and the Tolliver siege wait into the third.</li>
   <li><strong>They live around you.</strong> A stranger sleeps while you are more than about 120 tiles away and wakes when you come back within about 100. Expeditions don't meet them: a squad passing a sleeping stranger's house finds it empty, and no story starts or ends without you.</li>
@@ -2433,7 +2432,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>Remove one copy. Keep only one <code>SurvivorCompanion</code> mod folder, restart the game, and enable the remaining copy for the save.</p>
 
 <h3>The standalone install broke after reinstalling the game</h3>
-<p>Reinstalling or repairing Project Zomboid restores the game's own launcher file, while Living Fellows' install record stays behind. <code>Install.bat</code> usually recovers on its own. If Support still shows the launcher as inactive, close the game and open <code>ProjectZomboid64.json</code> in the game folder. If its <code>mainClass</code> is <code>zombie/gameStates/MainScreenState</code> and its <code>classpath</code> has no <code>SurvivorCompanionBridge.jar</code>, rename <code>%LOCALAPPDATA%\LivingFellows\bridge</code> to <code>bridge-before-game-reinstall</code> and run <code>Install.bat</code> from the latest standalone package. Keep the renamed folder as a backup. If either check fails, send the launcher file and the install error with a Support report before changing anything.</p>
+<p>Close the game and rerun <code>Install.bat</code> from the latest complete standalone download. It restores Living Fellows' launcher entry when its retained ownership records still verify. If recovery is refused, keep <code>%LOCALAPPDATA%\LivingFellows</code> intact and send the exact error and <code>ProjectZomboid64.json</code> with a Support report. There is no need to rename folders or edit the launcher by hand.</p>
 
 <h3>Another mod changed the launcher</h3>
 <p>With the game closed, run the latest standalone <code>Install.bat</code>. It accepts a launcher that still contains verified Living Fellows entries and preserves the other mod's settings. <code>Uninstall.bat</code> removes only Living Fellows' launcher class and bridge JAR if another mod changed the file after installation. If either script refuses because ownership is unclear, keep the launcher and install records intact and send the exact error and <span class="menu">More → Support</span> report.</p>
@@ -2446,14 +2445,14 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <h3>Playing alongside Project A-Life</h3>
 <p>Project A-Life's NPCs are zombie-shaped game objects. Living Fellows recognises A-Life's own ownership mark, so its NPCs are never counted as zombies: companions don't target them, count them as spawn danger or offer zombie actions on them, and still treat them as people in the way. A neutral A-Life NPC is protected from friendly fire like any bystander. One that A-Life itself reports as hostile to you, and that a companion can see, becomes a human threat, and a truce clears it. Zombies that A-Life's horde control is holding are left alone until it lets go.</p>
-<div class="callout callout-warn"><span class="callout-label">Take care — </span>This is a playtest pairing. Try it on a disposable save with both mods enabled: the two mods' combat controllers have not yet been checked together in a live game.</div>
+<div class="callout callout-warn"><span class="callout-label">Take care — </span>Compatibility depends on both mods' versions. If a mixed encounter behaves oddly, include both versions and a Support report when reporting it.</div>
 
 
 <h3>Reading the Support Page</h3>
 <p><span class="menu">More → Support</span> is the first place to look when something is wrong, and the report it copies is the most useful thing to attach to a bug report.</p>
 <table>
   <tr><th>Line</th><th>What a healthy game shows</th></tr>
-  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.62</td></tr>
+  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.67</td></tr>
   <tr><td>Game build / supported build</td><td>42.21.0 on both sides</td></tr>
   <tr><td>Runtime active</td><td>Yes. If not, <strong>Runtime disabled reason</strong> says why.</td></tr>
   <tr><td>Native bridge status, actor provider, bridge protocol</td><td>The bridge is ready, and its protocol matches the expected one. A mismatch means an old or mixed install.</td></tr>
@@ -2637,7 +2636,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p><span class="k">Stock per resident</span>: food 3 · water 2 · medical 1 · construction 2 · ammunition 6 per guard.</p>
 <p><span class="k">Roles needed</span>: guard and builder (Carpenter) at 2 residents · medic at 3 · quartermaster at 4 · farmer with a farm area.</p>
 <p><span class="k">Defence</span>: Rotating watch · Role based · All hands. <span class="k">Workload</span>: Essential · Balanced · Continuous.</p>
-<p><span class="k">Stalled jobs</span>: six failures in a row, then Retry or Cancel. <span class="k">Base Watch</span> keeps camp loaded while you travel.</p>
+<p><span class="k">Blocked jobs</span>: pause and retry automatically; after repeated failures, every three minutes. Retry or Cancel remains available. <span class="k">Base Watch</span> keeps camp loaded while you travel.</p>
 <p><span class="k">Sorting floor</span>: drop loot there for marked storage; trash goes to a Trash pile.</p>
 <p><span class="k">Camp alarm</span>: a quiet word for one or two zombies; a shout for three or more wakes sleepers in earshot; eight or more, everyone to the Rally area.</p>
 <p class="tbl-note">Ch 11, 14b, 14c</p>
@@ -2652,13 +2651,14 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </div>
 
 <div class="card">
-<h4><img src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Expeditions <span class="stage stage-end" style="margin-left:auto">Experimental</span></h4>
+<h4><img src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Expeditions <span class="stage stage-end" style="margin-left:auto">Journeys</span></h4>
 <ol>
   <li>Put 1–4 companions in a group on <span class="k">Squad</span>.</li>
-  <li><span class="k">Expeditions</span>: leader, Scout, Search or Fish, a building within 200 tiles or fishing bank within 1,000, walking or car route, 1/2/4/8 h, combat style.</li>
-  <li><span class="k">Send squad</span>, on a disposable save.</li>
+  <li><span class="k">Expeditions</span>: choose a leader, Scout, Search, Fish or Collect wood, walking or car route, return time and combat style.</li>
+  <li><span class="k">Review mission</span>, then <span class="k">Send squad</span>.</li>
 </ol>
 <p><span class="k">Recall</span>: powered walkie-talkies on you and the leader, same channel → right-click your radio → <em>Return immediately</em>.</p>
+<p><span class="k">Wood</span>: 1/2/4/8/12/24 logs or Full load (up to 256). Keep permitted Log Yard, Construction or General storage ready.</p>
 <p class="tbl-note">Ch 17</p>
 </div>
 
@@ -2678,7 +2678,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CARD END -->
 
 <div class="page-footer">
-  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.59 &nbsp;·&nbsp; First Edition, Seventeenth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
+  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.67 &nbsp;·&nbsp; First Edition, Nineteenth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
 </div>
 <script>
 (function () {
