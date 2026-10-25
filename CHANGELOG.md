@@ -4,6 +4,7 @@
 
 ## 0.26.65 - Wood collection expeditions and Viewpoint compatibility
 
+- Strange Folk can first appear on the second day, after 24 game hours. Encounter types are chosen randomly from eligible characters with suitable nearby sites, while each character's later unlock, the encounter cooldown and the saved uniqueness ledger remain in effect.
 - The Base tab puts the selected companion's job controls first and storage management last. Scrolled checkboxes retain their content position, keeping policy labels together without overlap or blank gaps. Unnamed zones and expedition parking choices show readable area names and coordinates.
 - Medical Check also recognizes companions found by the game's neighboring-square selection. It keeps the actual patient and native stand-up step, and distance hints use the companion's readable name instead of the native player name.
 - Log Yards arrange real logs into aligned four-log stacks and fill partial stacks before starting the next tile in a row. Expedition deliveries use the same placement, and existing loaded stacks straighten when visited without replacing their items.

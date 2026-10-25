@@ -318,6 +318,89 @@ check("unreadable_set_sql_reseat", spatialSpawned == true
     spatialReason)
 C.vehicleListMode = nil
 
+-- Random selection may yield after discovery. Revalidate its exact SQL id near
+-- the saved door even when the opaque Set's rotating discovery scan has moved on.
+do
+    local originalCars, originalMode = C.cars, C.vehicleListMode
+    local originalReserved, originalList = SC.Vehicle.isSeatReserved, SC.Factions.list
+    local originalCanSee = SC.GameplayUtil.canSee
+    C.cars, C.vehicleListMode = {}, "set_unreadable"
+    local candidateCar = SC_LORETTA_CAR(61, 610, 10)
+    local candidateObserver = SC_LORETTA_ACTOR(600, 10)
+    candidateObserver.visible = false
+    local candidateSite
+    for _ = 1, 8 do
+        candidateSite = Loretta.siteFor(candidateObserver, false, 1, 20)
+        if candidateSite then break end
+    end
+    check("candidate_opaque_set_discovery", candidateSite ~= nil
+        and candidateSite.carSqlId == 61)
+
+    -- This nearer car stays eligible throughout rejection cases. A failed
+    -- candidate must not turn into discovery of a replacement vehicle.
+    local alternateCar = SC_LORETTA_CAR(62, 602, 10)
+    local function revalidate()
+        return Loretta.siteFor(candidateObserver, false, 1, 20, candidateSite)
+    end
+    local confirmed = revalidate()
+    check("candidate_opaque_set_exact_sql", confirmed ~= nil
+        and confirmed.carSqlId == 61 and confirmed.vehicle.sqlId == 61
+        and confirmed.spawn.x == candidateSite.spawn.x
+        and confirmed.spawn.y == candidateSite.spawn.y)
+    C.vehicleListMode = "set_iterator"
+    local alternateSite = Loretta.siteFor(candidateObserver, false, 1, 20)
+    check("candidate_alternate_car_is_viable", alternateSite ~= nil
+        and alternateSite.carSqlId == 62)
+    C.vehicleListMode = "set_unreadable"
+
+    candidateCar.speed = 20
+    check("candidate_new_motion_rejected", revalidate() == nil)
+    candidateCar.speed = 0
+    candidateCar.x = 640
+    check("candidate_relocated_out_of_range_rejected", revalidate() == nil)
+    candidateCar.x = 610
+
+    C.cars = { alternateCar }
+    check("candidate_unloaded_no_alternate", revalidate() == nil)
+    C.cars = { candidateCar, alternateCar }
+    candidateCar.sqlId = 163
+    check("candidate_changed_sql_no_alternate", revalidate() == nil)
+    candidateCar.sqlId = 61
+    confirmed = revalidate()
+    check("candidate_live_identity_recovered", confirmed ~= nil
+        and confirmed.carSqlId == 61)
+
+    SC.Vehicle.isSeatReserved = function(vehicle, seat)
+        return vehicle == candidateCar and seat == 2
+    end
+    check("candidate_new_reservation_no_alternate", revalidate() == nil)
+    SC.Vehicle.isSeatReserved = originalReserved
+    candidateObserver.vehicle = candidateCar
+    check("candidate_new_player_claim_no_alternate", revalidate() == nil)
+    candidateObserver.vehicle = nil
+    SC.Factions.list = function()
+        return { { lifecycle = "settled", oddball = { carSqlId = 61 } } }
+    end
+    check("candidate_new_story_claim_no_alternate", revalidate() == nil)
+    SC.Factions.list = originalList
+
+    SC.GameplayUtil.canSee = function(observer, square)
+        if square and square.x == candidateCar.x and square.y == candidateCar.y then
+            return true
+        end
+        return originalCanSee(observer, square)
+    end
+    check("candidate_new_visibility_no_alternate", revalidate() == nil)
+    SC.GameplayUtil.canSee = originalCanSee
+    confirmed = revalidate()
+    check("candidate_clear_again_keeps_exact_sql", confirmed ~= nil
+        and confirmed.carSqlId == 61)
+    check("candidate_missing_identity_rejected",
+        Loretta.siteFor(candidateObserver, false, 1, 20,
+            { spawn = candidateSite.spawn }) == nil)
+    C.cars, C.vehicleListMode = originalCars, originalMode
+end
+
 local hurtCar, hurtActor, hurtPlayer, hurtGroup = scene(52)
 Loretta.onSpawn(hurtGroup, hurtActor)
 C.profanityEnabled = false

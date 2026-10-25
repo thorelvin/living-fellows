@@ -3731,6 +3731,67 @@ local function createAuthoredGroup(site, definition, debugCreated)
     return group
 end
 
+local function ambientEligible(definition, currentDay, firstDay, freeSlots)
+    return state.seeded[definition.id] == nil
+        and state.retired[definition.id] == nil
+        and (definition.kind ~= "rival_pair" or freeSlots >= 2)
+        and currentDay >= firstDay + (definition.firstEligibleOffsetDays or 0)
+end
+
+local function ambientCooldown(currentDay)
+    local days = tonumber(SC.Config and SC.Config.get("oddballEncounterDays")) or 3
+    return state.lastSeedDay ~= nil and currentDay - state.lastSeedDay < days
+end
+
+local function ambientSiteFor(square, player, definition, name, building, visitedBuildings)
+    if definition.kind == "patrol" then
+        return siteForDefenseLeague(square, player)
+    elseif definition.kind == "knight" then
+        return siteForKnight(square, player, 1, false)
+    elseif definition.kind == "trickster" then
+        return siteForRoyce(square, player, false)
+    elseif definition.kind == "mose" then
+        return siteForMose(square, player, false)
+    elseif definition.kind == "visitors" then
+        return siteForVisitors(square, player, false)
+    elseif definition.kind == "rival_pair" then
+        return siteForRivals(square, player, definition, false)
+    elseif definition.kind == "challenge" then
+        return siteForEbb(square, player, false, true)
+    elseif definition.kind == "trash_runner" then
+        return siteForBigChris(square, player, false)
+    elseif definition.kind == "forest_camp" and SC.OddballCampStoryteller
+        and type(SC.OddballCampStoryteller.siteFor) == "function" then
+        return SC.OddballCampStoryteller.siteFor(square, player, false)
+    elseif definition.kind == "roamer" then
+        if definition.id == "peddler_mister_ebb" then
+            return siteForEbb(square, player)
+        elseif definition.id == "dewey_prentice_hollowell" then
+            return siteForEbb(square, player, false, true)
+        end
+        return siteForRed(square, player)
+    elseif isResidentRoom(definition.id, name) and building then
+        if visitedBuildings then
+            if visitedBuildings[definition.id] and visitedBuildings[definition.id][building] then
+                return nil
+            end
+            visitedBuildings[definition.id] = visitedBuildings[definition.id] or {}
+            visitedBuildings[definition.id][building] = true
+        end
+        return siteForResident(square, player, definition, name)
+    end
+end
+
+local function rememberAmbientCandidate(pulse, definition, square, carSqlId)
+    if pulse.found[definition.id] then return end
+    pulse.found[definition.id] = true
+    -- Keep only a type and coordinates/identity across budget slices. A live
+    -- square, car or scene snapshot can go stale before the random choice.
+    pulse.candidates[#pulse.candidates + 1] = { id = definition.id,
+        square = square and { x = square.x, y = square.y, z = square.z } or nil,
+        carSqlId = carSqlId }
+end
+
 function Oddballs.pulse(player, current, remainingBudget)
     current = tonumber(current) or U().nowMs()
     local pulse = backgroundPulse
@@ -3757,6 +3818,11 @@ function Oddballs.pulse(player, current, remainingBudget)
             return finish(false, "oddballs_disabled")
         end
         if state.pending then return finish(false, "oddball_spawn_pending") end
+        if ambientCooldown(worldDay()) then return finish(false, "oddball_cooldown") end
+        if not SC.Actor or type(SC.Actor.checkBridge) ~= "function"
+            or SC.Actor.checkBridge(false) ~= true then
+            return finish(false, "actor_provider_unavailable")
+        end
         pulse.freeSlots = configInteger("oddballMaxActive", MAX_UNRESOLVED, 0,
             MAX_UNRESOLVED) - unresolvedCount()
         if pulse.freeSlots <= 0 then return finish(false, "oddball_cap_reached") end
@@ -3806,7 +3872,7 @@ function Oddballs.pulse(player, current, remainingBudget)
         local ready = SC.Actor.checkBridge(false)
         if ready ~= true then return finish(false, "actor_provider_unavailable") end
         local currentDay = worldDay()
-        local firstDay = configInteger("oddballFirstEligibleDay", 2, 0, 365)
+        local firstDay = configInteger("oddballFirstEligibleDay", 1, 0, 365)
         if currentDay < firstDay then
             return finish(false, "first_day_not_reached")
         end
@@ -3829,8 +3895,7 @@ function Oddballs.pulse(player, current, remainingBudget)
         if freeSlots <= 0 then
             return finish(false, "oddball_cap_reached")
         end
-        local cooldown = tonumber(SC.Config and SC.Config.get("oddballEncounterDays")) or 3
-        if state.lastSeedDay ~= nil and currentDay - state.lastSeedDay < cooldown then
+        if ambientCooldown(currentDay) then
             return finish(false, "oddball_cooldown")
         end
         local px, py, pz = U().position(player)
@@ -3844,6 +3909,7 @@ function Oddballs.pulse(player, current, remainingBudget)
         pulse.freeSlots, pulse.currentDay, pulse.firstDay = freeSlots, currentDay, firstDay
         pulse.samples = configInteger("oddballScanSampleBudget", SAMPLE_BUDGET, 1, SAMPLE_BUDGET)
         pulse.visitedBuildings, pulse.serial = {}, scanSerial
+        pulse.candidates, pulse.found = {}, {}
         pulse.index, pulse.definitionIndex, pulse.phase = 1, 1, "vehicle"
     end
     local px, py, pz = pulse.px, pulse.py, pulse.pz
@@ -3854,25 +3920,15 @@ function Oddballs.pulse(player, current, remainingBudget)
     if pulse.phase == "vehicle" then
         if not backgroundAvailable(remainingBudget) then return backgroundPending() end
         -- A car encounter has no room tile for the building sampler to discover.
-        -- Try its one bounded loaded-vehicle scan periodically, after the same
-        -- global cap/cooldown checks as every other Strange Folk encounter.
+        -- Include its bounded vehicle search in the same random type pool;
+        -- finding a car must not give it priority over every other encounter.
         local carDefinition = byId.loretta_ten_and_two
-        if carDefinition and state.seeded[carDefinition.id] == nil
-            and state.retired[carDefinition.id] == nil
-            and currentDay >= firstDay + (carDefinition.firstEligibleOffsetDays or 0)
-            and pulse.serial % 4 == 0 and SC.OddballLoretta
+        if carDefinition and ambientEligible(carDefinition, currentDay, firstDay, freeSlots)
+            and SC.OddballLoretta
             and type(SC.OddballLoretta.siteFor) == "function" then
             local site = SC.OddballLoretta.siteFor(player, false, minimum, maximum)
-            if site then
-                local group, reason = createAuthoredGroup(site, carDefinition)
-                if group then
-                    state.pending = { id = carDefinition.id, groupId = group.id }
-                    return finish(true, group.id)
-                end
-                if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
-                    SC.Diagnostics.report("oddballs", carDefinition.id,
-                        "vehicle candidate deferred", tostring(reason))
-                end
+            if site and tonumber(site.carSqlId) then
+                rememberAmbientCandidate(pulse, carDefinition, site.spawn, tonumber(site.carSqlId))
             end
         end
         pulse.phase = "samples"
@@ -3886,8 +3942,8 @@ function Oddballs.pulse(player, current, remainingBudget)
                 % (maximum - minimum + 1))
             local x = math.floor(px + math.cos(angle) * distance)
             local y = math.floor(py + math.sin(angle) * distance)
-            -- One rotated neighborhood point per ring anchor keeps the entire
-            -- pass at 96 loaded-square probes while covering nearby landmarks
+            -- One rotated neighborhood point per ring anchor keeps discovery
+            -- at 96 anchors while covering nearby landmarks
             -- across successive pulses.
             local offset = SEARCH_OFFSETS[((index + pulse.serial * 3 - 1)
                 % #SEARCH_OFFSETS) + 1]
@@ -3915,65 +3971,12 @@ function Oddballs.pulse(player, current, remainingBudget)
                 while pulse.definitionIndex <= #definitions do
                     if not backgroundAvailable(remainingBudget) then return backgroundPending() end
                     local definition = definitions[pulse.definitionIndex]
-                    if state.seeded[definition.id] == nil
-                        and state.retired[definition.id] == nil
-                        and (definition.kind ~= "rival_pair" or freeSlots >= 2)
-                        and currentDay >= firstDay
-                            + (definition.firstEligibleOffsetDays or 0) then
-                        local site
-                        if definition.kind == "patrol" then
-                            site = siteForDefenseLeague(square, player)
-                        elseif definition.kind == "knight" then
-                            site = siteForKnight(square, player, 1, false)
-                        elseif definition.kind == "trickster" then
-                            site = siteForRoyce(square, player, false)
-                        elseif definition.kind == "mose" then
-                            site = siteForMose(square, player, false)
-                        elseif definition.kind == "visitors" then
-                            site = siteForVisitors(square, player, false)
-                        elseif definition.kind == "rival_pair" then
-                            site = siteForRivals(square, player,
-                                definition, false)
-                        elseif definition.kind == "challenge" then
-                            site = siteForEbb(square, player, false, true)
-                        elseif definition.kind == "trash_runner" then
-                            site = siteForBigChris(square, player, false)
-                        elseif definition.kind == "forest_camp"
-                            and SC.OddballCampStoryteller
-                            and type(SC.OddballCampStoryteller.siteFor)
-                                == "function" then
-                            site = SC.OddballCampStoryteller.siteFor(
-                                square, player, false)
-                        elseif definition.kind == "roamer" then
-                            if definition.id == "peddler_mister_ebb" then
-                                site = siteForEbb(square, player)
-                            elseif definition.id == "dewey_prentice_hollowell" then
-                                site = siteForEbb(square, player, false, true)
-                            else
-                                site = siteForRed(square, player)
-                            end
-                        elseif isResidentRoom(definition.id, name) and building
-                            and not (visitedBuildings[definition.id]
-                                and visitedBuildings[definition.id][building]) then
-                            visitedBuildings[definition.id] =
-                                visitedBuildings[definition.id] or {}
-                            visitedBuildings[definition.id][building] = true
-                            site = siteForResident(square, player,
-                                definition, name)
-                        end
+                    if not pulse.found[definition.id]
+                        and ambientEligible(definition, currentDay, firstDay, freeSlots) then
+                        local site = ambientSiteFor(square, player, definition,
+                            name, building, visitedBuildings)
                         if site then
-                            local group, reason = createAuthoredGroup(
-                                site, definition)
-                            if group then
-                                state.pending = { id = definition.id,
-                                    groupId = group.id }
-                                return finish(true, group.id)
-                            end
-                            if SC.Diagnostics
-                                and type(SC.Diagnostics.report) == "function" then
-                                SC.Diagnostics.report("oddballs", definition.id,
-                                    "candidate site deferred", tostring(reason))
-                            end
+                            rememberAmbientCandidate(pulse, definition, pulse.square)
                         end
                     end
                     pulse.definitionIndex = pulse.definitionIndex + 1
@@ -3983,6 +3986,42 @@ function Oddballs.pulse(player, current, remainingBudget)
         end
         pulse.index, pulse.definitionIndex = pulse.index + 1, 1
         pulse.square, pulse.sampleReady, activeSquare = nil, nil, nil
+    end
+    while #pulse.candidates > 0 do
+        if not backgroundAvailable(remainingBudget) then return backgroundPending() end
+        -- Each discovered type has one ticket regardless of how many matching
+        -- rooms it owns. Yielding preserves this pool without rerolling it.
+        local index = type(ZombRand) == "function" and ZombRand(#pulse.candidates) + 1
+            or math.random(#pulse.candidates)
+        local choice = table.remove(pulse.candidates, index)
+        local definition, site = byId[choice.id], nil
+        if definition and ambientEligible(definition, worldDay(), firstDay, freeSlots) then
+            if choice.carSqlId and SC.OddballLoretta
+                and type(SC.OddballLoretta.siteFor) == "function" then
+                local fresh = SC.OddballLoretta.siteFor(player, false, minimum, maximum,
+                    { carSqlId = choice.carSqlId, spawn = choice.square })
+                if fresh and tonumber(fresh.carSqlId) == choice.carSqlId then site = fresh end
+            elseif choice.square then
+                local square = U().gridSquare(choice.square.x, choice.square.y, choice.square.z)
+                if square and not U().canSee(player, square) then
+                    local name = roomName(square)
+                    local building = name and select(1, U().call(square, "getBuilding"))
+                    site = ambientSiteFor(square, player, definition, name, building)
+                end
+            end
+        end
+        if site then
+            local group, reason = createAuthoredGroup(site, definition)
+            if group then
+                state.pending = { id = definition.id, groupId = group.id }
+                return finish(true, group.id)
+            end
+            if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
+                SC.Diagnostics.report("oddballs", definition.id,
+                    "candidate site deferred", tostring(reason))
+            end
+        end
+        backgroundCount("oddball_background_choice")
     end
     return finish(false, "no_eligible_loaded_site")
 end

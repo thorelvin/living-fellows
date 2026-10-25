@@ -1525,7 +1525,8 @@ local valueData = {
     -- encounter cadence and never consume the ordinary household cap.
     oddballsEnabled = true,
     oddballEncounterDays = 3,
-    oddballFirstEligibleDay = 2,
+    -- Zero-based world days: 24 elapsed world hours; the second day.
+    oddballFirstEligibleDay = 1,
     oddballMaxActive = 2,
     oddballScanIntervalMs = 30000,
     oddballScanSampleBudget = 96,

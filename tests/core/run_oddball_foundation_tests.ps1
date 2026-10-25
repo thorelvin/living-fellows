@@ -32,7 +32,7 @@ try {
     try {
         $Shared = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\shared'
         $Client = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\client'
-        foreach ($harness in @('oddball_foundation_harness.lua', 'oddball_budget_harness.lua')) {
+        foreach ($harness in @('oddball_foundation_harness.lua', 'oddball_budget_harness.lua', 'oddball_random_selection_harness.lua', 'oddball_schedule_harness.lua')) {
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner `
                 (Join-Path $TestRoot 'core_fixture.lua') `
                 (Join-Path $Shared 'SCNamespace.lua') `
@@ -40,6 +40,7 @@ try {
                 (Join-Path $Shared 'SCStableValue.lua') `
                 (Join-Path $Shared 'SCNativeList.lua') `
                 (Join-Path $TestRoot 'faction_lifecycle_fixture.lua') `
+                $(if ($harness -eq 'oddball_schedule_harness.lua') { Join-Path $Shared 'SCConfig.lua' }) `
                 (Join-Path $Client 'SCFactions.lua') `
                 (Join-Path $Client 'SCFactionRecruitment.lua') `
                 (Join-Path $Client 'SCOddballs.lua') `

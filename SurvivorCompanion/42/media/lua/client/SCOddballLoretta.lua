@@ -355,7 +355,7 @@ local function doorSquare(car, seat, player, allowSeen)
 end
 
 -- Called once per encounter scan, after the normal range has been selected.
-function Loretta.siteFor(player, allowSeen, minimumDistance, maximumDistance)
+function Loretta.siteFor(player, allowSeen, minimumDistance, maximumDistance, candidate)
     if not player then return nil end
     local minimum = math.max(0, tonumber(minimumDistance) or 35)
     local maximum = math.max(minimum, tonumber(maximumDistance) or 90)
@@ -428,6 +428,15 @@ function Loretta.siteFor(player, allowSeen, minimumDistance, maximumDistance)
             end
         end
         return true
+    end
+    if candidate ~= nil then
+        -- Random encounter selection can yield after discovery. Revalidate the
+        -- exact saved car near its known door, rather than advancing the
+        -- rotating discovery sampler and accidentally missing it on this pass.
+        local sqlId = type(candidate) == "table" and tonumber(candidate.carSqlId)
+        if not sqlId or sqlId <= 0 then return nil end
+        considerCar(loadedCar(sqlId, candidate.spawn))
+        return best
     end
     local centerX, centerY, floorZ = math.floor(px), math.floor(py),
         math.floor(pz or 0)
