@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
--- Disposable single-player expedition prototype; no release packaging yet.
+-- Single-player expedition travel, physical work, delivery and persistence.
 require "SCViewSession"
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
@@ -1277,13 +1277,11 @@ function Expedition._updateWoodWork(actor, snapshot)
     context.snapshot = snapshot
     if context.wood.preparation then
         local handled, reason, ready = SC.ExpeditionWood.prepare(context.roster, context.wood,
-            activeWoodCar(mission.scout))
+            activeWoodCar(mission.scout), mission.leader.id)
         context.wood.preparationReason = reason
         if ready == true then
             local hour = scoutWorldHour()
-            local policies = SC.BaseLife and SC.BaseLife.policies and SC.BaseLife.policies() or {}
-            if hour and (hour % 24 >= 21 or hour % 24 < 6)
-                and policies.workOutsideAtNight ~= true then
+            if not SC.ExpeditionWood.outsideWorkAllowed() then
                 context.wood.preparationReason = "wood_waiting_for_daylight"
                 return true, "wood_waiting_for_daylight"
             end
@@ -2147,14 +2145,14 @@ function Expedition.receiptPending(item)
             if receipt.id == id then
                 if not mission.integration then return true end
                 for _, row in ipairs(mission.integration.items) do
-                    if row.id == id then return row.stored ~= true end
+                    if row.id == id then return row.stored ~= true and row.released ~= true end
                 end
             end
         end
     end
     for _, record in ipairs(pendingDeliveries) do
         for _, row in ipairs(record.items) do
-            if row.id == id then return row.stored ~= true end
+            if row.id == id then return row.stored ~= true and row.released ~= true end
         end
     end
     return false
@@ -2173,13 +2171,22 @@ function Expedition.woodMarkerLive(cargo, tool)
         local loan = loans and loans[tool.memberId]
         return type(loan) == "table" and loan.itemId == tool.id
     end
+    local function holds(record)
+        for _, row in ipairs(record and record.items or {}) do
+            if row.id == cargo.id then return not row.stored and not row.released end
+        end
+        return false
+    end
     if mission then
-        if cargo and cargo.tripId == mission.radioSession then return true end
+        if cargo and cargo.tripId == mission.radioSession
+            and (mission.integration == nil or holds(mission.integration)) then
+            return true
+        end
         if tool and (mission.scout and lends(mission.scout.wood)
             or mission.integration and lends(mission.integration.woodWork)) then return true end
     end
     for _, record in ipairs(pendingDeliveries) do
-        if cargo and record.tripId == cargo.tripId then return true end
+        if cargo and record.tripId == cargo.tripId and holds(record) then return true end
         if tool and lends(record.woodWork) then return true end
     end
     return false
@@ -3865,6 +3872,21 @@ local function beginSearchAtSite(scout, now)
     scout.search.deadlineHour = worldHour
         + (scout.search.request.category == "fish" and 2 or SEARCH_HOURS)
         + 0.25 * math.max(0, carriersNeeded - 1)
+    if scout.search.request.category ~= "fish" and scout.site
+        and SC.Encounter and type(SC.Encounter.siteDiscoverySeconds) == "function" then
+        local seconds = SC.Encounter.siteDiscoverySeconds(mission.leader.actor,
+            { x = scout.destination.x, y = scout.destination.y, z = scout.destination.z,
+                buildingId = scout.site.id })
+        local gameTime = type(getGameTime) == "function" and getGameTime()
+        local minutes = gameTime and tonumber((SC.GameplayUtil.call(gameTime, "getMinutesPerDay"))) or 60
+        if not minutes or minutes ~= minutes or minutes <= 0 then minutes = 60 end
+        if type(seconds) == "number" and seconds == seconds and seconds > 0 then
+            scout.search.deadlineHour = scout.search.deadlineHour + math.min(600, seconds) * 24 / (minutes * 60)
+        end
+    end
+    if scout.turnHomeAtHour then
+        scout.search.deadlineHour = math.min(scout.search.deadlineHour, scout.turnHomeAtHour)
+    end
     scout.phase = "searching"
     scout.siteEntryTarget = nil
     scout.siteEntryCandidates = nil
@@ -3882,10 +3904,7 @@ local function beginSearchAtSite(scout, now)
 end
 
 local function woodNight()
-    local hour = scoutWorldHour()
-    local policies = SC.BaseLife and SC.BaseLife.policies and SC.BaseLife.policies() or {}
-    return hour and (hour % 24 >= 21 or hour % 24 < 6)
-        and policies.workOutsideAtNight ~= true
+    return not SC.ExpeditionWood.outsideWorkAllowed()
 end
 
 local function nextWoodSite(scout)

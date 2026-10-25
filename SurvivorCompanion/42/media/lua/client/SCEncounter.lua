@@ -1322,6 +1322,18 @@ local function newContainerSearch(actor, state, allowCorpses, current,
     }
 end
 
+-- A selected store is visited in one-second discovery slices. Account for
+-- one bounded footprint pass before spending its ordinary loot time. This
+-- uses the very same axes/floors as the live cursor; it reads no world items.
+function Encounter.siteDiscoverySeconds(actor, site)
+    local x, y = U().position(actor)
+    if not x or not y or not siteSearchAxes(site, x, y) then return 0 end
+    local budget = math.max(1, math.min(tonumber(U().config("scavengeSquareBudget")) or 100,
+        tonumber(U().config("performanceScavengeSquaresPerFrame")) or 28))
+    local job = newContainerSearch(actor, {}, false, 0, 14, budget, site, 5)
+    return math.min(600, math.ceil(job.total / budget) + 1)
+end
+
 local function containerSearchInvalid(job, actor, allowCorpses,
         radius, budget, site, siteRadius)
     if type(job) ~= "table" or job.allowCorpses ~= (allowCorpses == true)

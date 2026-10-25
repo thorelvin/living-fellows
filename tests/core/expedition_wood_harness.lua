@@ -217,6 +217,34 @@ local rejected = item("Base.Log") bag.bag.reject = true
 check(not Wood._tests.carryDestination(walker, rejected, false), "native bag admission required")
 bag.bag.reject = nil
 check(Wood._tests.carryDestination(walker, rejected, true), "short car shuttle admits physical load")
+do
+    remove(walker.bag, bag)
+    walker.worn, walker.x, walker.y = nil, 20, 20
+    check(not Wood.carryDestination(walker, rejected), "axe plus log exceeds walking limit of ten")
+    check(not Wood.carryDestination(walker, rejected, true), "unvalidated boolean cannot bypass walking capacity")
+    check(Wood.carryDestination(walker, rejected, { carId = 42, target = { x = 21, y = 20, z = 0 } }) == walker.bag,
+        "public return helper admits real nearby car-to-storage shuttle with axe three and log nine")
+    check(not Wood.carryDestination(walker, rejected, { carId = 42, target = { x = 50, y = 20, z = 0 } }),
+        "distant storage cannot use heavy short shuttle")
+    walker.x = 50
+    check(not Wood.carryDestination(walker, rejected, { carId = 42, target = { x = 21, y = 20, z = 0 } }),
+        "actor must also be close to stopped car")
+    walker.x, walker.bag.capacity = 20, 10
+    check(not Wood.carryDestination(walker, rejected, { carId = 42, target = { x = 21, y = 20, z = 0 } }),
+        "short shuttle never bypasses physical inventory capacity")
+    walker.bag.capacity, walker.limit = 50, 20
+    check(Wood.carryDestination(walker, rejected) == walker.bag, "ordinary under-limit walking remains available")
+    walker.limit = 10
+    local w, members = Wood.createState({ mode = "count", quantity = 1 }), { { id = walker.id, actor = walker } }
+    local integration = SC.ExpeditionIntegration
+    SC.ExpeditionIntegration = { woodReturnShuttleAvailable = function() return false end }
+    local _, why, ready = Wood.prepare(members, w, { sqlId = 42 })
+    check(not ready and why == "wood_return_carry_capacity", "heavy-only crew cannot depart without a short home delivery path")
+    SC.ExpeditionIntegration.woodReturnShuttleAvailable = function() return true end
+    local _, _, readyNear = Wood.prepare(members, w, { sqlId = 42 })
+    check(readyNear == true, "nearby permitted home destination admits heavy car crew")
+    SC.ExpeditionIntegration = integration
+end
 
 -- All logging controllers contend for the same tree and an active native
 -- chop keeps ownership even if its ordinary ten-second heartbeat elapsed.
@@ -401,6 +429,68 @@ check(borrowed.owner == pendingBorrower.bag and Wood.toolsPending(ambiguous, pen
 check(Wood.returnTools(pendingBorrower, { wood = ambiguous }) and borrowed.owner == source.container,
     "ambiguous committed axe returns as the exact original")
 SC.BaseWork.withdrawFromStorage, U.stop = originalWithdraw, originalStop
+
+-- A handoff retains roster order. Preparation must use living registered
+-- members rather than the dead original first member or their usable axe.
+do
+    local dead, nextLeader = actor("dead-preparer"), actor("next-preparer")
+    dead.dead = true
+    local corpseAxe = item("Base.Axe")
+    put(dead.bag, corpseAxe)
+    local members = { { id = dead.id, actor = dead }, { id = nextLeader.id, actor = nextLeader } }
+    local w = Wood.createState({ mode = "count", quantity = 1 })
+    local _, _, ready = Wood.prepare(members, w, nil, nextLeader.id)
+    check(not ready and borrowed.owner == nextLeader.bag and w.loans[nextLeader.id],
+        "new leader borrows exact axe while original corpse's usable axe is ignored")
+    local _, _, readyNext = Wood.prepare(members, w, nil, nextLeader.id)
+    check(readyNext == true and w.cutterId == nextLeader.id and corpseAxe.owner == dead.bag,
+        "living replacement cutter is selected without reordering roster")
+    nextLeader.dead = true
+    local _, why, readyDead = Wood.prepare(members, w, nil, nextLeader.id)
+    check(not readyDead and why == "wood_worker_unavailable" and w.loans[nextLeader.id],
+        "no viable actor fails safely and preserves already committed tool loan")
+    nextLeader.dead = false
+    Wood.returnTools(nextLeader, { wood = w })
+    actors[nextLeader.id] = nil
+    local _, unknownWhy = Wood.prepare(members, Wood.createState({ mode = "count", quantity = 1 }))
+    check(unknownWhy == "wood_worker_unavailable", "unregistered live roster object cannot prepare")
+    actors[nextLeader.id] = nextLeader
+    local waiting = actor("waiting-preparer")
+    members[#members + 1] = { id = waiting.id, actor = waiting }
+    local pendingState = Wood.createState({ mode = "count", quantity = 1 })
+    SC.BaseWork.withdrawFromStorage = function() return true, "base_storage_looting" end
+    Wood.prepare(members, pendingState, nil, nextLeader.id)
+    nextLeader.dead = true
+    SC.BaseWork.withdrawFromStorage = originalWithdraw
+    Wood.prepare(members, pendingState, nil, waiting.id)
+    check(borrowed.owner == waiting.bag and pendingState.loans[waiting.id]
+        and not pendingState.loans[nextLeader.id], "pending gear transaction is replaced after borrower death")
+    local savedState = Wood.copy(pendingState)
+    check(savedState.loans[waiting.id].itemId == borrowed.id, "handoff tool ownership persists across reload")
+    Wood.returnTools(waiting, { wood = pendingState })
+    local interrupted = Wood.createState({ mode = "count", quantity = 1 })
+    SC.BaseWork.withdrawFromStorage = function(value, _, _, owner, tool)
+        U.transferItemVerified(owner, value.bag, tool)
+        error("interrupted native receipt")
+    end
+    check(not pcall(Wood.prepare, members, interrupted, nil, waiting.id), "fixture interrupts after physical axe commit")
+    waiting.dead = true
+    check(Wood.stop(interrupted, "leader_dead") and interrupted.loans[waiting.id]
+        and Wood.copy(interrupted).loans[waiting.id].itemId == borrowed.id,
+        "handoff teardown journals an already committed axe before clearing transient preparation")
+    waiting.dead = false
+    SC.BaseWork.withdrawFromStorage = originalWithdraw
+    Wood.returnTools(waiting, { wood = interrupted })
+    local daylight = Wood.createState({ mode = "count", quantity = 1 })
+    put(nextLeader.bag, item("Base.Axe"))
+    nextLeader.dead = false
+    Wood.prepare(members, daylight, nil, nextLeader.id)
+    nextLeader.dead = true
+    put(waiting.bag, item("Base.Axe"))
+    local _, _, resumed = Wood.prepare(members, daylight, nil, waiting.id)
+    check(resumed == true and daylight.cutterId == waiting.id,
+        "prepared daylight-wait state revalidates cutter after leader death")
+end
 
 -- Carrying an axe does not elect every member as a cutter. Persist the
 -- elected member and hand the role over only when their tool is unusable.

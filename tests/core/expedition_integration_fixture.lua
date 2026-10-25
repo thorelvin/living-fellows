@@ -6,6 +6,7 @@ local T = INTEGRATION_TEST
 
 function T.container(items, capacity)
     local container = { items = items or {}, capacity = capacity or 99 }
+    function container:getItems() return self.items end
     for _, item in ipairs(container.items) do item.container = container end
     return container
 end
@@ -35,7 +36,9 @@ SC.GameplayUtil = {
         if not object or type(object[method]) ~= "function" then
             return nil, false
         end
-        return object[method](object, ...), true
+        local okay, value = pcall(object[method], object, ...)
+        if okay then return value, true end
+        return nil, false
     end,
     itemStableId = function(item) return item and item.id end,
     itemType = function(item) return item.fullType end,

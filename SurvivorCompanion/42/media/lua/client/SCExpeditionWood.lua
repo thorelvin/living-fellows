@@ -216,20 +216,32 @@ local function carryDestination(actor, log, car)
     end
     return nil, "wood_carry_capacity"
 end
-function Wood.carryDestination(actor, log)
-    return carryDestination(actor, log, false)
-end
 local function shortShuttle(actor, carId, target)
     local vehicle = carId and SC.Vehicle and SC.Vehicle.loadedBySqlId(carId)
     local carPoint = vehicle and L().point(vehicle)
-    local from = target or L().point(actor)
+    local from = L().point(actor)
     if not carPoint or not from or from.z ~= carPoint.z then return false end
     local dx, dy = from.x - carPoint.x, from.y - carPoint.y
-    return dx * dx + dy * dy <= 400 and SC.Vehicle.isStationary(vehicle) == true
+    if dx * dx + dy * dy > 400 or SC.Vehicle.isStationary(vehicle) ~= true then return false end
+    if target then
+        if not finite(target.x) or not finite(target.y) or target.z ~= carPoint.z then return false end
+        dx, dy = target.x - carPoint.x, target.y - carPoint.y
+        if dx * dx + dy * dy > 400 then return false end
+    end
+    return true
+end
+function Wood.carryDestination(actor, log, shuttle)
+    local short = type(shuttle) == "table" and shuttle.target ~= nil
+        and shortShuttle(actor, shuttle.carId, shuttle.target)
+    return carryDestination(actor, log, short == true)
+end
+local function eligible(member)
+    return type(member) == "table" and member.actor ~= nil
+        and call(member.actor, "isDead") == false and resolve(member.id) == member.actor
 end
 local function rosterCanCarry(roster, carId, target)
     for _, member in ipairs(roster or {}) do
-        if member.actor and call(member.actor, "isDead") ~= true
+        if eligible(member)
             and carryDestination(member.actor, nil, shortShuttle(member.actor, carId, target)) then return true end
     end
     return false
@@ -251,17 +263,54 @@ local function sourceAllowed(actor, storage, container, item)
             or not SC.PersonalItems.isProtected(item, actor, "camp_supply"))
         and SC.BaseLife.availableCountExact(storage, U().itemType(item)) > 0
 end
-function Wood.prepare(roster, wood, carDescriptor)
+local function recordGearLoan(wood, pending)
+    if not pending or not pending.actor or not pending.nativeId or not pending.marker then return false end
+    local root = U().inventory(pending.actor)
+    if U().inventoryContains(root, pending.item) ~= true or call(pending.item, "getContainer") ~= root
+        or U().inventoryContains(pending.container, pending.item) ~= false then return false end
+    wood.loans[pending.memberId] = { itemId = pending.nativeId, storageId = pending.storage.id,
+        itemType = U().itemType(pending.item), memberId = pending.memberId }
+    pending.marker[TOOL] = { id = pending.nativeId, memberId = pending.memberId }
+    return true
+end
+function Wood.prepare(roster, wood, carDescriptor, leaderId)
     if type(wood) ~= "table" or not Wood.normalizeRequest(wood.request) or not L() then
         return false, "invalid_wood_request", false
     end
     initialize(wood)
     local carId = carDescriptor and carDescriptor.sqlId
+    local members = {}
+    for _, member in ipairs(roster or {}) do
+        if eligible(member) and member.id == leaderId then members[#members + 1] = member end
+    end
+    for _, member in ipairs(roster or {}) do
+        if eligible(member) and member.id ~= leaderId then members[#members + 1] = member end
+    end
+    if #members == 0 then return false, "wood_worker_unavailable", false end
+    local state = rt(wood)
+    local pending = state.gear
+    if pending and pending.actor then
+        -- Retain a commit even when the invocation receipt was lost just
+        -- before death/handoff. Never reassign a native transaction's owner.
+        if recordGearLoan(wood, pending) then
+            state.gear, pending = nil, nil
+        elseif not eligible({ id = pending.memberId, actor = pending.actor })
+            or pending.actor ~= members[1].actor then
+            U().stop(pending.actor)
+            if SC.NativeActions.clearVisual then SC.NativeActions.clearVisual(pending.actor) end
+            state.gear, state.scan, pending = nil, nil, nil
+        end
+    end
     local cutter
-    for _, member in ipairs(roster or {}) do if member.actor and axe(member.actor, wood) then cutter = member break end end
+    for _, member in ipairs(members) do if axe(member.actor, wood) then cutter = member break end end
     if cutter then
         wood.cutterId = actorId(cutter.actor)
         if not rosterCanCarry(roster, carId) then return false, "wood_carry_capacity", false end
+        if carId and not rosterCanCarry(roster, nil)
+            and (not SC.ExpeditionIntegration or not SC.ExpeditionIntegration.woodReturnShuttleAvailable
+                or SC.ExpeditionIntegration.woodReturnShuttleAvailable(cutter.actor, carId) ~= true) then
+            return false, "wood_return_carry_capacity", false
+        end
         if carId then
             local vehicle = SC.Vehicle.loadedBySqlId(carId)
             local container
@@ -275,11 +324,9 @@ function Wood.prepare(roster, wood, carDescriptor)
         wood.prepared, wood.blocker = true, nil
         return true, "wood_ready", true
     end
-    local member = roster and roster[1]
+    local member = members[1]
     local actor = member and member.actor
     if not actor or not SC.BaseLife or not SC.BaseWork then return false, "wood_axe_missing", false end
-    local state = rt(wood)
-    local pending = state.gear
     if pending and not sourceAllowed(actor, pending.storage, pending.container, pending.item) then state.gear, pending = nil, nil end
     if not pending then
         state.scan = state.scan or { rows = storageRows(), row = 1, index = 0 }
@@ -317,16 +364,7 @@ function Wood.prepare(roster, wood, carDescriptor)
     end
     local taken, reason = SC.BaseWork.withdrawFromStorage(actor, pending.transaction,
         pending.storage, pending.container, pending.item)
-    local root = U().inventory(actor)
-    local physicallyTaken = U().inventoryContains(root, pending.item) == true
-        and call(pending.item, "getContainer") == root
-        and U().inventoryContains(pending.container, pending.item) == false
-    if physicallyTaken then
-        local nativeId, marker = pending.nativeId, pending.marker
-        local memberId = actorId(actor)
-        wood.loans[memberId] = { itemId = nativeId, storageId = pending.storage.id,
-            itemType = U().itemType(pending.item), memberId = memberId }
-        marker[TOOL] = { id = nativeId, memberId = memberId }
+    if recordGearLoan(wood, pending) then
         state.gear = nil
         return true, "wood_preparing_axe", false
     end
@@ -568,6 +606,13 @@ local function logsReachable(ctx)
     end
     return false
 end
+function Wood.outsideWorkAllowed()
+    local policies = SC.BaseLife and SC.BaseLife.policies and SC.BaseLife.policies() or {}
+    if policies.workOutsideAtNight == true then return true end
+    local gameTime = type(getGameTime) == "function" and getGameTime()
+    local hour = gameTime and tonumber(call(gameTime, "getTimeOfDay"))
+    return not finite(hour) or hour % 24 >= 6 and hour % 24 < 21
+end
 local function unsafe(actor, ctx)
     if call(actor, "isDead") == true then return "wood_worker_dead" end
     if call(actor, "isOnFire") == true then return "wood_unsafe" end
@@ -578,10 +623,7 @@ local function unsafe(actor, ctx)
     for _, threat in ipairs(type(snapshot) == "table" and snapshot.threats or {}) do
         if (tonumber(threat.distanceSq) or math.huge) <= 400 then return "wood_unsafe" end
     end
-    local gameTime = type(getGameTime) == "function" and getGameTime()
-    local hour = gameTime and tonumber(call(gameTime, "getTimeOfDay"))
-    local policies = SC.BaseLife and SC.BaseLife.policies and SC.BaseLife.policies() or {}
-    if hour and (hour % 24 >= 21 or hour % 24 < 6) and policies.workOutsideAtNight ~= true then return "wood_night" end
+    if not Wood.outsideWorkAllowed() then return "wood_night" end
 end
 function Wood.safety(actor, ctx) return unsafe(actor, ctx or {}) end
 local function allScanned(ctx)
@@ -791,6 +833,7 @@ function Wood.stop(wood, reason)
     local transient = runtime[wood]
     local gear = transient and transient.gear
     if gear and gear.actor then
+        recordGearLoan(wood, gear)
         -- BaseWork performs the actual withdrawal synchronously after its
         -- loot pose, with no deferred inventory callback. Cancel only the
         -- preparation owned movement/pose before forgetting that transaction.
@@ -818,11 +861,35 @@ function Wood.returnTools(actor, ctx)
     local wood, memberId = ctx and ctx.wood, actorId(actor)
     local loan = wood and wood.loans and wood.loans[memberId]
     if not loan then return true, "wood_tools_returned", true end
-    local item = L().findItem(actor, loan.itemId)
+    local item, source = L().findItem(actor, loan.itemId)
     if not item then return false, "wood_borrowed_axe_missing", false end
     local storage = SC.BaseLife.storage(loan.storageId)
     local container = storage and SC.BaseLife.resolveContainer(storage)
     if not container then return false, "wood_tool_source_unavailable", false end
+    local inventory = U().inventory(actor)
+    if source ~= inventory then
+        local entries = L().inventoryEntries(actor)
+        local owned = false
+        for _, entry in ipairs(entries or {}) do
+            if entry.item == item and entry.source == source then owned = true break end
+        end
+        if not owned or not source or call(item, "getContainer") ~= source
+            or U().inventoryContains(source, item) ~= true then
+            return false, "wood_tool_source_changed", false
+        end
+        if not inventory or not SC.WorkTransport
+            or SC.WorkTransport.hasRoom(inventory, actor, item) ~= true then
+            return false, "wood_tool_staging_full", false
+        end
+        if SC.WorkTransport.transferVerified then
+            SC.WorkTransport.transferVerified(source, inventory, item, actor)
+        else U().transferItemVerified(source, inventory, item) end
+        if call(item, "getContainer") ~= inventory
+            or U().inventoryContains(inventory, item) ~= true
+            or U().inventoryContains(source, item) == true then
+            return false, "wood_tool_staging_unverified", false
+        end
+    end
     local transient = rt(wood)
     transient.returns = transient.returns or {}
     transient.returns[memberId] = transient.returns[memberId] or {}

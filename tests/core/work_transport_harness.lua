@@ -2887,6 +2887,68 @@ do
         "only the carrier may shelve its own kept harvest; live field cargo stays owned")
     SC.FieldWork = savedField
 end
+-- A nested borrowed tool must go through the actual production return helper,
+-- whose contract accepts only a tool currently in the actor's main inventory.
+do
+    local ctx = setup("logs", 1, 1)
+    local actor = ctx.actor
+    local axe, bag = makeItem("Base.Axe"), makeItem("Base.Bag")
+    local nested = makeInventory("bag")
+    function bag:getInventory() return nested end
+    function bag:getItemContainer() return nested end
+    actor.inventory:AddItem(bag)
+    nested:AddItem(axe)
+    local memberId = SC.GameplayUtil.idOf(actor)
+    local itemId = SC.GameplayUtil.itemStableId(axe, true)
+    axe.modData.LF_ExpeditionWoodTool = { memberId = memberId, id = itemId, tripId = "tool-return" }
+    local wood = SC.ExpeditionWood.createState({ mode = "count", quantity = 1 })
+    wood.loans[memberId] = { memberId = memberId, itemId = itemId,
+        itemType = "Base.Axe", storageId = ctx.storage.id }
+    local context = { missionId = "tool-return", wood = wood }
+    local attempts, done = 0, false
+    while attempts < 6 and not done do
+        attempts = attempts + 1
+        local _, _, finished = SC.ExpeditionWood.returnTools(actor, context)
+        done = finished == true
+    end
+    check(done and ctx.storageObject.container:contains(axe) and not nested:contains(axe)
+        and not actor.inventory:contains(axe) and not SC.ExpeditionWood.toolsPending(wood)
+        and axe.modData.LF_ExpeditionWoodTool == nil,
+        "bag-held borrowed axe stages and returns through actual BaseWork exactly once")
+    local adds = ctx.storageObject.container.addCalls
+    check(select(3, SC.ExpeditionWood.returnTools(actor, context)) == true
+        and ctx.storageObject.container.addCalls == adds, "completed axe return is idempotent")
+
+    ctx = setup("logs", 1, 1)
+    actor, nested, bag, axe = ctx.actor, makeInventory("bag"), makeItem("Base.Bag"), makeItem("Base.Axe")
+    function bag:getInventory() return nested end
+    actor.inventory:AddItem(bag)
+    nested:AddItem(axe)
+    memberId, itemId = SC.GameplayUtil.idOf(actor), SC.GameplayUtil.itemStableId(axe, true)
+    wood = SC.ExpeditionWood.createState({ mode = "count", quantity = 1 })
+    wood.loans[memberId] = { memberId = memberId, itemId = itemId,
+        itemType = "Base.Axe", storageId = ctx.storage.id }
+    context = { missionId = "blocked-tool-return", wood = wood }
+    actor.inventory.room = false
+    check(select(2, SC.ExpeditionWood.returnTools(actor, context)) == "wood_tool_staging_full"
+        and nested:contains(axe) and SC.ExpeditionWood.toolsPending(wood),
+        "physical main-inventory capacity can pause staging without losing the loan")
+    actor.inventory.room, actor.inventory.rejectAdd = true, true
+    check(select(3, SC.ExpeditionWood.returnTools(actor, context)) == false
+        and nested:contains(axe) and SC.ExpeditionWood.toolsPending(wood),
+        "failed verified staging retains the exact bag tool and obligation")
+    actor.inventory.rejectAdd = nil
+    local foreign = makeInventory("external")
+    nested:Remove(axe)
+    foreign:AddItem(axe)
+    check(select(3, SC.ExpeditionWood.returnTools(actor, context)) == false
+        and foreign:contains(axe) and not ctx.storageObject.container:contains(axe),
+        "an externally owned former loan is never returned from another holder")
+    nested.items[#nested.items + 1] = axe -- stale list entry, actual owner remains external
+    check(select(2, SC.ExpeditionWood.returnTools(actor, context)) == "wood_tool_source_changed"
+        and foreign:contains(axe) and SC.ExpeditionWood.toolsPending(wood),
+        "stale nested membership cannot authorize moving an external axe")
+end
 print("WORK_TRANSPORT_PASS checks=" .. tostring(checks)
     .. " scanned=" .. tostring(gatherMetrics.examinedObjects)
     .. " recovery=" .. tostring(transportMetrics.recoveryAttempts))

@@ -301,8 +301,12 @@ try {
         Add-ScJvmStep 'expedition-integration' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $expeditionIntegrationFiles 'Expedition exact receipt delivery and restock harness failed.'
 
         $woodIntegrationFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $TestRoot 'expedition_integration_fixture.lua'),
+            (Join-Path $Client 'SCLoggingWork.lua'),
+            (Join-Path $Client 'SCExpeditionWood.lua'),
             (Join-Path $Client 'SCExpeditionIntegration.lua'),
+            (Join-Path $Client 'SCExpeditionPrototype.lua'),
             (Join-Path $TestRoot 'wood_expedition_integration_harness.lua')
         )
         Add-ScJvmStep 'wood-expedition-integration' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $woodIntegrationFiles 'Wood cargo delivery, roadside recovery and retry harness failed.'
@@ -439,6 +443,8 @@ try {
             (Join-Path $Client 'SCBaseWork.lua'),
             (Join-Path $Client 'SCBaseFuel.lua'),
             (Join-Path $Client 'SCVehicleRefuel.lua'),
+            (Join-Path $Client 'SCLoggingWork.lua'),
+            (Join-Path $Client 'SCExpeditionWood.lua'),
             (Join-Path $TestRoot 'work_transport_harness.lua')
         )
         Add-ScJvmStep 'work-transport' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $workTransportFiles 'Gathering/transport ownership integration harness failed.'

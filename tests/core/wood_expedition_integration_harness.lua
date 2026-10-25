@@ -2,6 +2,7 @@
 -- Exact timber delivery is exercised separately from ordinary search receipts.
 local SC, T = SurvivorCompanion, INTEGRATION_TEST
 local I, U = SC.ExpeditionIntegration, SC.GameplayUtil
+local physicalWood, physicalLogging = SC.ExpeditionWood, SC.LoggingWork
 local checks = 0
 local function check(value, label)
     checks = checks + 1
@@ -589,5 +590,181 @@ check(I.retry(record) == true and I.wants(record, a), "manual retry also resumes
 for _ = 1, 6 do I.update(record, a) end
 check(a.order == "base_duty" and I.summary(record).complete,
     "optional restock and base duty run only after borrowed tool delivery")
+
+-- A missing receipt is terminal cargo, not a fabricated storage deposit, and
+-- cannot keep independent borrowed-tool or return-to-duty work unreachable.
+clear()
+item = log("released:with-axe")
+local borrowed = T.item("released:axe", "tools", "Base.Axe")
+a = T.actor("a", "Alice", { item, borrowed })
+record = create(a, { item }, { loans = { a = { itemId = borrowed.id, storageId = "tools:1" } } })
+table.remove(a.inventory.items, 1)
+item.container = T.container({ item }) -- the player took the exact item
+check(not I.settle(record) and record.items[1].released and not record.items[1].stored,
+    "confirmed missing log releases cargo but keeps the carried borrowed axe owed")
+check(I.wants(record, a) and select(2, I.update(record, a)) == "wood_axe_returned"
+    and T.toolCalls == 1 and I.settle(record), "released cargo allows independent axe return and settlement")
+status = I.summary(record)
+check(status.stored == 0 and status.released == 1 and status.pending == 0 and status.complete,
+    "released wood is reported separately from actual stored wood")
+saved = I.copy(record)
+I.reset()
+check(I.valid(saved) and saved.items[1].released and I.settle(saved) and not I.wants(saved, a),
+    "terminal cargo persists across reload without recreating its circular wait")
+saved.items[1].released = nil
+check(I.valid(saved) and I.settle(saved) and saved.items[1].released,
+    "old records without the additive terminal field are inspected and upgraded")
+saved.items[1].stored = true
+check(not I.valid(saved), "a released receipt cannot also claim verified storage")
+
+clear()
+item = log("released:duty")
+a = T.actor("a", "Alice", { item })
+record = create(a, { item }, { restock = true })
+a.inventory.items, item.container = {}, nil
+for _ = 1, 7 do I.update(record, a); T.now = T.now + 180001 end
+check(record.items[1].released and a.order == "base_duty" and I.settle(record)
+    and T.toolCalls == 0 and I.summary(record).stored == 0,
+    "missing cargo alone allows restock and duty without a borrowed axe or a manual reset")
+
+clear()
+do
+    local stored, carried, missing = log("mixed:stored"), log("mixed:carried"), log("mixed:missing")
+    a = T.actor("a", "Alice", { stored, carried, missing })
+    construction = T.storage("construction:1", "construction", {}, 4)
+    record = create(a, { stored, carried, missing })
+    check(select(2, I.update(record, a)) == "expedition_supply_stored", "mixed fixture stores one real log")
+    table.remove(a.inventory.items, 2)
+    missing.container = nil
+    check(not I.settle(record) and record.items[3].released and not record.items[2].released,
+        "a live receipt protects its delivery while another absent receipt becomes terminal")
+    status = I.summary(record)
+    check(status.collected == 3 and status.stored == 1 and status.carried == 1
+        and status.released == 1 and status.pending == 1,
+        "mixed stored, carried and released totals remain truthful")
+end
+
+-- Exercise the real controller's report/export pruning with a cached main
+-- inventory location, then a player moving the same log into a carried bag.
+clear()
+do
+    local E = assert(SC.ExpeditionPrototype, "real expedition controller must be loaded")
+    SC.ViewSession = { slotSqlId = function() return 2 end, rememberSlotSqlId = function() return true end }
+    item = log("cache:player-bag-move")
+    a = T.actor("a", "Alice", { item })
+    bag = bagFor(a, {})
+    record = create(a, { item })
+    check(E.restore({ schema = 7, state = "idle", slotSqlId = 2, deliveries = { record } }),
+        "real pending delivery list accepts the saved wood trip")
+    check(#E.pendingDeliveryReports() == 1, "real report path primes the holder cache")
+    transfer(a.inventory, bag, item)
+    T.now = 100
+    saved = E.export()
+    check(saved and #saved.deliveries == 1 and not saved.deliveries[1].items[1].released
+        and E.receiptPending(item), "save-triggered pruning retains cargo moved into a bag inside750ms")
+    T.now = 5100
+    check(E.integrationFor(a) ~= nil, "normal decision can locate the same nested log")
+    transfer(bag, a.inventory, item)
+    T.now = 5200
+    check(#E.pendingDeliveryReports() == 1 and E.receiptPending(item),
+        "periodic pruning also retains a fresh rearrangement across tracked containers")
+    construction = T.storage("construction:1", "construction", {}, 4)
+    check(select(2, E.updateIntegration(a)) == "expedition_supply_stored"
+        and item.container == construction.container and #E.export().deliveries == 0,
+        "fresh ownership recovery permits normal physical delivery and releases its queue slot")
+end
+
+for _, failure in ipairs({ "unreadable", "oversized", "broken-list" }) do
+    clear()
+    item = log("unknown:" .. failure)
+    a = T.actor("a", "Alice", {})
+    record = create(a, { item })
+    if failure == "unreadable" then a.inventory.getItems = function() error("unreadable inventory") end
+    elseif failure == "oversized" then
+        for index = 1, 4097 do
+            local other = T.item("over-budget:" .. index, "general")
+            a.inventory.items[index], other.container = other, a.inventory
+        end
+    else a.inventory.getItems = function() return { size = function() error("unreadable size") end } end end
+    check(not I.settle(record) and not record.items[1].released and not record.items[1].stored,
+        failure .. " inspection cannot prove absence or discard the record")
+    saved = I.copy(record)
+    I.reset()
+    check(not I.settle(saved) and not saved.items[1].released,
+        failure .. " remains unknown after delivery save and retry reset")
+end
+
+do
+    clear()
+    local E = SC.ExpeditionPrototype
+    SC.ViewSession = { slotSqlId = function() return 2 end, rememberSlotSqlId = function() return true end }
+    item = log("released:protected")
+    local axe = T.item("released:protected-axe", "tools", "Base.Axe")
+    a = T.actor("a", "Alice", { axe })
+    record = create(a, { item }, { loans = { a = { itemId = axe.id, storageId = "tools:1" } } })
+    check(not I.settle(record) and record.items[1].released, "missing cargo can finish while a tool keeps trip open")
+    check(E.restore({ schema = 7, state = "idle", slotSqlId = 2, deliveries = { record } }),
+        "partly completed trip restores with its terminal cargo and outstanding loan")
+    check(not E.receiptPending(item) and not E.woodMarkerLive(item.data.LF_ExpeditionWood, nil)
+        and E.woodMarkerLive(nil, { memberId = a.id, id = axe.id }),
+        "released log loses cargo protection while the exact borrowed axe remains protected")
+    check(select(2, E.updateIntegration(a)) == "wood_axe_returned" and #E.export().deliveries == 0,
+        "normal worker returns outstanding axe then export pruning frees the completed trip slot")
+end
+
+-- Use the production carry helper in the actual trunk-to-storage dispatcher,
+-- including the public argument contract that previously dropped `true`.
+do
+    local oldCarry, oldRoom = SC.ExpeditionWood.carryDestination, SC.WorkTransport.hasRoom
+    local oldLoad, oldWeight = U.carryLoad, U.itemWeight
+    local oldEntries, oldPoint = SC.LoggingWork.inventoryEntries, SC.LoggingWork.point
+    SC.ExpeditionWood.carryDestination = physicalWood.carryDestination
+    SC.LoggingWork.inventoryEntries, SC.LoggingWork.point = physicalLogging.inventoryEntries, physicalLogging.point
+    U.itemWeight = function(value) return value.fullType == "Base.Log" and 9 or 3 end
+    U.carryLoad = function(actor)
+        local total = 0
+        for _, value in ipairs(actor.inventory.items) do total = total + U.itemWeight(value) end
+        return total, 10
+    end
+    local function setupShuttle(distance, physicalCapacity)
+        clear()
+        item = log("heavy:shuttle")
+        a = T.actor("a", "Alice", { T.item("heavy:axe", "tools", "Base.Axe") })
+        a.x, a.y = 10, 10
+        function a.inventory:getFreeCapacity() return physicalCapacity - U.carryLoad(a) end
+        local car = carFor(item)
+        car.x, car.y, car.z = 10, 10, 0
+        construction = T.storage("construction:near-car", "construction", {}, 5)
+        construction.x, construction.y = 10 + distance, 10
+        record = create(a, { item }, { car = car })
+        SC.WorkTransport.hasRoom = function(destination, actor, value)
+            if destination == a.inventory then return destination:getFreeCapacity() >= U.itemWeight(value) end
+            return oldRoom(destination, actor, value)
+        end
+        return car
+    end
+    local car = setupShuttle(2, 50)
+    check(I.woodReturnShuttleAvailable(a, car.id), "dispatch sees permitted home storage within short shuttle reach")
+    check(select(2, I.update(record, a)) == "car_trunk_looting", "heavy car unload begins native loot pose")
+    check(select(2, I.update(record, a)) == "car_item_carried" and item.container == a.inventory,
+        "real dispatcher and real capacity helper carry exact nine-weight log with three-weight axe")
+    construction.x = 50
+    check(I.update(record, a) == false and item.container == a.inventory and not record.items[1].stored,
+        "a storage change after pickup cannot send the heavy carrier on a long walk")
+    construction.x = 12
+    I.retry(record)
+    check(select(2, I.update(record, a)) == "expedition_supply_stored"
+        and item.container == construction.container and I.summary(record).stored == 1,
+        "nearby heavy delivery deposits exact item and completes with truthful storage count")
+    car = setupShuttle(40, 50)
+    check(not I.woodReturnShuttleAvailable(a, car.id) and I.update(record, a) == false
+        and item.container == car.trunk, "distant home storage blocks heavy unloading before trunk removal")
+    car = setupShuttle(2, 10)
+    check(I.update(record, a) == false and item.container == car.trunk,
+        "physical inventory limit blocks actual trunk pickup despite nearby storage")
+    SC.ExpeditionWood.carryDestination, SC.WorkTransport.hasRoom = oldCarry, oldRoom
+    U.carryLoad, U.itemWeight = oldLoad, oldWeight
+    SC.LoggingWork.inventoryEntries, SC.LoggingWork.point = oldEntries, oldPoint
+end
 
 SC_TEST_REPORT = "Wood expedition integration: " .. checks .. " checks passed"

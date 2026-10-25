@@ -3,14 +3,15 @@ local SC = SurvivorCompanion
 local E, W, F = SC.ExpeditionPrototype, SC.ExpeditionWood, SC.ExpeditionForests
 local metadataPreview = F.preview
 local metadataNearCar = F.nearCar
-local checks, hour, slot, departures = 0, 12, nil, 0
+local checks, hour, slot, departures = 0, 5, nil, 0
+local timeOfDay, nightWork = 12, false
 local function check(value, message)
     checks = checks + 1
     assert(value, "wood mission check " .. checks .. ": " .. message)
 end
 local function actor(id, x)
     return { id = id, x = x, y = 100, z = 0,
-        isDead = function() return false end,
+        isDead = function(a) return a.dead == true end,
         getX = function(a) return a.x end, getY = function(a) return a.y end,
         getZ = function() return 0 end,
         getCurrentSquare = function() return { getRoom = function() return nil end } end }
@@ -28,7 +29,7 @@ SC.GameplayUtil = { position = function(a) return a.x, a.y, a.z end,
 SC.Commands, SC.BaseWatch, SC.Medical, SC.ZombieAttack, SC.Senses = nil, nil, nil, nil, nil
 SC.Dialogue = { say = function() departures = departures + 1 return true end }
 SC.BaseLife = { active = function() return { id = "camp", core = { x = 100, y = 100, z = 0 } } end,
-    policies = function() return {} end, isInside = function(a) return a.x <= 110 end }
+    policies = function() return { workOutsideAtNight = nightWork } end, isInside = function(a) return a.x <= 110 end }
 SC.ExpeditionIntegration = { woodDestinationAvailable = function() return true end,
     settle = function() return false end, reset = function() end }
 SC.ViewSession = { claim = function(_, a) slot = a return true, a end,
@@ -39,15 +40,28 @@ SCSplitScreenProbe = { isLeader = function(a) return slot == a end,
     leaderSqlId = function() return 2 end, releaseForWorldExit = function() slot = nil return true end }
 function getSpecificPlayer(i) if i == 0 then return player elseif i == 1 then return slot end end
 function destroyPlayerData() end
-function getGameTime() return { getWorldAgeHours = function() return hour end } end
+function getGameTime() return { getWorldAgeHours = function() return hour end,
+    getTimeOfDay = function() return timeOfDay end } end
 Events = nil
 local site = { id = "forest:140:100:Forest", label = "Forest east near Oak Street", type = "Forest",
     anchor = { x = 140, y = 100, z = 0 }, bounds = { x1 = 132, y1 = 92, x2 = 148, y2 = 108, z = 0 }, distance = 40 }
 F.preview = function() return { candidates = { site }, provisional = true } end
 local verifyCalls = 0
 F.verify = function() verifyCalls = verifyCalls + 1 return true, "forest_verified" end
-local prepared, preparationCar = false, nil
-W.prepare = function(_, _, car) preparationCar = car return true, "wood_preparing_axes", prepared end
+local prepared, preparationCar, preparationLeader = false, nil, nil
+W.prepare = function(_, _, car, leaderId)
+    preparationCar, preparationLeader = car, leaderId
+    return true, "wood_preparing_axes", prepared
+end
+for _, sample in ipairs({ { 0, false }, { 5.999, false }, { 6, true }, { 12, true },
+    { 20.999, true }, { 21, false }, { 23.999, false }, { 24, false } }) do
+    timeOfDay = sample[1]
+    check(W.outsideWorkAllowed() == sample[2], "actual time of day policy at " .. timeOfDay)
+    check((W.safety(leader, {}) ~= "wood_night") == sample[2], "worker shares daylight policy at " .. timeOfDay)
+end
+nightWork, timeOfDay = true, 22
+check(W.outsideWorkAllowed() and not W.safety(leader, {}), "night-work permission bypasses clock restriction")
+nightWork, timeOfDay = false, 12
 W.status = function(wood) return { done = wood.testDone == true, reason = "wood_quantity_met" } end
 local realStart, originalCar, captured = E.start, SC.ExpeditionCar, nil
 local near, far = F.copySite(site), F.copySite(site)
@@ -66,7 +80,7 @@ F.nearCar = metadataNearCar
 local began, active = E.startWoodCollection(roster, { travelMode = "straight", request = { mode = "count", quantity = 24 } })
 check(began and active.scout.kind == "wood" and active.scout.search == nil,
     "wood is a separate physical mission, never generic container search")
-check(active.scout.wood.preparation and departures == 0 and active.scout.turnHomeAtHour == 16,
+check(active.scout.wood.preparation and departures == 0 and active.scout.turnHomeAtHour == 9,
     "accepted mission pauses for automatic gear preparation with a bounded default trip time")
 check(E.woodPreparationFor(leader) and E.woodPreparationFor(follower) == nil,
     "only the leader owns predeparture tool-fetch actions")
@@ -94,7 +108,7 @@ E.updateWood(leader)
 check(preparationCar == nil and E.woodPreparationFor(leader).carId == nil,
     "a restored abandoned car cannot grant predeparture shuttle capacity or require a usable trunk")
 active.scout.vehicle = nil
-hour, prepared = 22, true
+hour, timeOfDay, prepared = 15, 22, true
 E.updateWood(leader)
 check(active.scout.wood.preparationReason == "wood_waiting_for_daylight" and departures == 0,
     "night policy delays departure while retaining borrowed tool state")
@@ -103,10 +117,10 @@ check(voiceCalls[#voiceCalls] == "wood:wood_waiting_for_daylight"
     "wood preparation results reach the voice layer unchanged: " .. table.concat(voiceCalls, ", "))
 SC.WorkVoice = { expeditionPulse = function() error("voice fault") end,
     woodResult = function() error("voice fault") end }
-hour = 30
+hour, timeOfDay = 29, 12
 E.updateWood(leader)
-check(not active.scout.wood.preparation and active.scout.departureHour == 30
-    and active.scout.turnHomeAtHour == 34 and departures == 1,
+check(not active.scout.wood.preparation and active.scout.departureHour == 29
+    and active.scout.turnHomeAtHour == 33 and departures == 1,
     "actual departure resets travel deadlines after the preparation pause")
 leader.x, follower.x = 140, 141
 E.pulse()
@@ -141,14 +155,14 @@ SC.ExpeditionCar = {
     pulse = function() homePulses = homePulses + 1 return true end,
 }
 active.scout.vehicle, active.scout.phase = { state = "driving_out", leg = "outbound" }, "driving_out"
-hour = 45
+hour, timeOfDay = 38, 21
 E.pulse()
 check(delegated[1] == "wood_night" and active.scout.phase == "boarding_home"
     and active.scout.vehicle.leg == "home", "night recall delegates a running car to native homeward transition")
 E.pulse()
 check(homePulses == 1 and #delegated == 1,
     "homeward car remains controlled by Car.pulse at night without repeated wood recalls")
-hour = 30
+hour, timeOfDay = 29, 12
 active.scout.vehicle, active.scout.phase = { state = "parked_at_site", leg = "outbound" }, "wood_working"
 active.scout.wood.pendingReturnReason = "wood_quantity_met"
 E.pulse()
@@ -294,4 +308,21 @@ end
 check(captured and captured.destination.x >= 400 and routeChecks > 3 and #captured.wood.sites == 3,
     "drive admission finds a farther usable forest plus two patches near its road stop before dispatch")
 E.start, SC.ExpeditionCar, getWorld = realStart, originalCar, originalWorld
+do
+    prepared = false
+    F.preview = function() return { candidates = { site } } end
+    local started, trip = E.startWoodCollection(roster, { travelMode = "straight" })
+    check(started and E.updateWood(leader) and preparationLeader == leader.id,
+        "production preparation passes current expedition leader to worker")
+    SCSplitScreenProbe.handoff = function(a) slot = a return a end
+    leader.dead = true
+    E.pulse()
+    check(trip.leader.id == follower.id and E.woodPreparationFor(follower)
+        and not E.woodPreparationFor(leader) and trip.roster[1].id == leader.id,
+        "native-view handoff transfers preparation while retaining original roster order")
+    E.updateWood(follower)
+    check(preparationLeader == follower.id, "subsequent tool preparation receives actual living handoff leader")
+    check(E.prepareReset() and E.reset(), "handoff preparation tears down cleanly")
+    leader.dead, F.preview = nil, metadataPreview
+end
 print("EXPEDITION_WOOD_MISSION_KAHLUA_PASS checks=" .. checks)

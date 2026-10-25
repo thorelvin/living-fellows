@@ -194,6 +194,15 @@ try {
             )
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @expeditionContainerFiles
             if ($LASTEXITCODE -ne 0) { throw 'Expedition store container discovery regression harness failed.' }
+            $expeditionDeadlineFiles = @(
+                (Join-Path $ProjectRoot 'tests/core/core_fixture.lua'),
+                (Join-Path $SharedRoot 'SCNamespace.lua'),
+                (Join-Path $ClientRoot 'SCEncounter.lua'),
+                (Join-Path $ClientRoot 'SCExpeditionPrototype.lua'),
+                (Join-Path $TestRoot 'expedition_search_deadline_harness.lua')
+            )
+            & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @expeditionDeadlineFiles
+            if ($LASTEXITCODE -ne 0) { throw 'Expedition bounded discovery and real return clock regression harness failed.' }
             $decisionArbitrationFiles = @(
                 (Join-Path $SharedRoot 'SCNamespace.lua'),
                 (Join-Path $SharedRoot 'SCCall.lua'),

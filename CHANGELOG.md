@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 0.26.67 - Reliable wood delivery and expedition preparation
+
+- Missing wood is released from the delivery ledger after a fresh, complete inspection, without crediting it as stored. Borrowed axes can then return and optional restocking and base duty can finish. Unreadable or partly scanned cargo remains pending, and moving a log between crew inventories, bags or the trunk cannot discard a live delivery through a stale location cache.
+- Borrowed axes carried in a bag stage into the borrower's main inventory before the normal verified storage return. Full inventories, failed transfers and changed ownership pause the return while preserving the exact loan.
+- Wood preparation, travel recall and chopping share the actual time-of-day policy: work starts at 06:00 and stops at 21:00 unless night work is enabled. Preparation revalidates living registered crew and the current leader after a handoff, preserving loans already acquired.
+- Driving wood crews can shuttle heavy logs between their verified stopped car and nearby permitted storage under the same physical-capacity rules used in the woods. Distant storage requires safe walking capacity; crews unable to handle the home delivery path pause before departure.
+- Store searches receive one bounded discovery allowance based on the selected building's footprint, floors and scan budget. Large stores have time to reveal distant shelves, with the ordinary search time, threats, cancellation and overall return deadline still enforced.
+- The native bridge protocol remains `42.21-isocompanion-24`, targeting Project Zomboid 42.21.0. Ship the matching Lua payload and rebuilt bridge together. See [the work-order validation report](docs/validation-0.26.67.md) for LF-01 through LF-07 and test limits.
+
 ## 0.26.66 - Solo view recovery, base controls, Strange Folk and work voices
 
 - Strange Folk can first appear on the second day, after 24 game hours. Encounter types are chosen randomly from eligible characters with suitable nearby sites, while each character's later unlock, the encounter cooldown and the saved uniqueness ledger remain in effect.
