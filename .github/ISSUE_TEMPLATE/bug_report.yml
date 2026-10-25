@@ -7,19 +7,19 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thank you for testing Living Fellows. Back up important saves and remove private information from logs before uploading them.
+        Tell us what happened and how to reproduce it. Remove private information from logs before uploading them.
   - type: input
     id: mod-version
     attributes:
       label: Living Fellows version
-      placeholder: 0.22.7
+      placeholder: 0.26.67
     validations:
       required: true
   - type: input
     id: game-version
     attributes:
       label: Project Zomboid version
-      placeholder: 42.20.4
+      placeholder: 42.21.0
     validations:
       required: true
   - type: dropdown

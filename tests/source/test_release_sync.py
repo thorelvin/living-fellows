@@ -77,7 +77,7 @@ installer_compiled_game = capture(
 require(version == lua_release, "VERSION.txt and SC.Identity.release disagree")
 require(f"release-{version}-blue.svg" in readme,
         "README release badge disagrees with VERSION.txt")
-require(payload_readme.startswith(f"Living Fellows {version} - public playtest"),
+require(payload_readme.startswith(f"Living Fellows {version} - release"),
         "shipped README version disagrees with VERSION.txt")
 require(re.search(rf"^## {re.escape(version)}(?:\s|$)", changelog, re.MULTILINE) is not None,
         "CHANGELOG has no current release heading")

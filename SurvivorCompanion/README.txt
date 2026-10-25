@@ -1,97 +1,51 @@
-Living Fellows 0.26.67 - public playtest
+Living Fellows 0.26.67 - release
 
-Ordinary blocked camp jobs retry automatically after a pause, with a countdown
-and manual Retry still available. Shelf sorters keep carried stock reserved
-for delivery. Base Watch restores the primary camera and sight caches when
-its second view closes. Base policies use native checkboxes, and companion
-names remain visible during speech.
-Fishing expedition leaders collect rods and bait from shared camp storage
-before departure, retry missing supplies automatically, and keep their gear
-reserved for the trip. Expedition messages display companion names.
-Store searches cover the selected building and collect requested camp stock
-beyond personal supply targets. Cars are switched off before the crew exits,
-including when a blocked parking approach requires returning on foot.
-Upstairs searches recover through checked stair approaches after a locked
-door blocks a native route. Distant and upstairs shelves allow longer walks
-while stalled approaches still time out.
-Returning drivers use checked routes to the car door. Taxi pickup searches
-handle junctions and overlapping road zones, spreading clearance checks
-across updates so a call does not perform the whole search at once.
+FIELD GUIDE
+https://thorelvin.github.io/living-fellows/
+Quick reference: https://thorelvin.github.io/living-fellows/quick-reference.html
 
-Persistent companions, survivor households and living bases for Project
-Zomboid Build 42.21.0. Single-player only: multiplayer and user-added
-split-screen players are refused. Experimental expeditions temporarily show
-their companion leader in a second local view.
+You won't die... alone.
+Companions, survivor households and working bases for Project Zomboid 42.21.0.
+Single-player only.
+
+TAKE THE OTHERS WITH YOU
+- Expeditions: send one to four companions to scout, search, fish or collect
+  wood. Walk or drive, watch the leader's view and bring supplies home.
+- Base Watch: leave an indoor resident on watch so the camp keeps working
+  while you travel. Base Watch and expeditions share one companion view.
+- Markus's taxi: call from a working walkie-talkie, get picked up on the road
+  and choose a destination on the map. Bring jewelry for the fare.
+- Persistent companions: real inventories, needs, wounds, relationships,
+  memories and private diaries. Death is permanent.
+- Living bases: assign jobs, sort loot, farm, cook, build and collect wood.
+  Blocked jobs retry automatically, with manual Retry still available.
+- Households and Strange Folk: trade, requests, recruitment and people with
+  their own stories. Random eligible encounters can begin on the second day.
 
 INSTALL
-Workshop: requires ZombieBuddy 2.3.3 or newer. Subscribe to it, complete its
-one-time loader installation, then enable both mods. For an existing save use
-More... > Choose Mods. Subscribing to ZombieBuddy alone is not enough.
-Standalone (Windows): run Install.bat from the release ZIP. No ZombieBuddy.
-Use only one copy; both editions share the mod ID SurvivorCompanion.
-Back up your save before a long session.
+Workshop: subscribe to ZombieBuddy 2.3.3 or newer, complete its one-time loader
+setup, then enable both mods. For an existing save, use More... > Choose Mods.
+Standalone Windows: extract the whole package, close the game and run
+Install.bat. Enable Living Fellows for the game and the save. No ZombieBuddy
+is needed. Uninstall.bat removes the standalone installation.
+Use one edition at a time.
 
 GETTING STARTED
-- Press Home to open the companion panel, or click the small LF launcher.
-- Meet a survivor, select them in the panel and choose Recruit.
-- Use Talk in the panel header or right-click a nearby companion to start a
-  conversation. They approach and answer when close enough.
-- Orders sets follow/stay/guard, movement, combat doctrine and scavenging.
-- Expeditions plans a mission from an existing squad. Select the leader,
-  nearby location, task, time to turn home and combat style. Departure needs
-  no radio; remote Return immediately needs powered, equipped walkie-talkies
-  on the player and leader, tuned to the same channel.
-- Hold keypad 1 to peek through the selected companion, press keypad 2 to
-  toggle Watch, and hold keypad 3 to steer them toward the mouse. All three
-  keys are rebindable. Watch and Stop watching are also in the right-click menu.
-- Right-click the world for the Living Fellows menu: move here, doors,
-  barricades, room checks, squad signals and base work.
-- More > Support shows runtime health and a copyable diagnostic report.
+- Press Home or click LF to open the companion panel.
+- Meet a survivor, select them and choose Recruit when offered. Use Talk to
+  start a conversation, Orders for behavior and Squad for groups.
+- Right-click the ground: Living Fellows > Base life > Set camp core here.
+  Mark storage and assign jobs at the top of More > Base.
+- Hold keypad 1 to Peek, press keypad 2 for Watch and hold keypad 3 to Steer.
+  These keys can be rebound.
+- More > Support provides a diagnostic report if something goes wrong.
 
-COMPANIONS
-Up to 16 companions with professions, traits, personalities, relationships,
-memories, needs, wounds and permanent death. They move in formation, fight
-with the game's own attacks, retreat when overrun, scavenge, manage bags and
-gear, eat, drink, wash and treat wounds. Bites can infect and turn them.
+Wood expeditions borrow a usable axe, find nearby woodland and return logs
+to permitted Log Yard, Construction or General storage. Collected, carried
+and stored counts are separate. Full storage preserves the cargo and retries
+every three minutes. Manual Retry is available.
 
-BASE LIFE
-Right-click the ground: Living Fellows > Base life > Set camp core here. Start
-a zone on its first tile, move the mouse, then right-click its final tile to
-lock the rectangle while choosing Finish zone here. With the layout visible,
-right-click a zone to remove it. Mark opened containers as storage and assign
-residents in More > Base. Residents sort, repair, craft, keep watch, patrol,
-maintain barricades, build, farm, read and gather loose logs or planks.
-Ordinary blocked jobs retry automatically after a pause. Repeated failures
-allow one new attempt every three minutes; the Base view shows the wait and
-keeps Retry available for an immediate attempt.
-
-PRODUCTION
-The Base view's Production section gives one or two residents a finite order.
-Tools and materials come from camp storage.
-- Fell trees in a Lumber area, inside the camp or up to 30 tiles outside it.
-  Outside the camp no new tree is started at night. Felled logs can be
-  hauled to storage automatically. Multiple Lumber areas are supported.
-- Tend existing vanilla plots in one or more Farm areas. Farmers borrow and
-  return exact supplies, prioritize urgent crops and route harvests to storage.
-- Saw logs from one storage into planks (three per log) for another storage.
-- Dig graves on natural ground in a Burial ground.
-- Bury bodies lying next to an open grave, fill the grave and optionally add
-  a wooden cross. Bodies still carrying items are left for looting unless
-  the order buries belongings.
-Each closed grave gets a short prayer or a line of gallows humor, a salute,
-and sometimes an "Amen".
-
-HOUSEHOLDS AND BANDITS
-Survivor households barricade their homes, trade, remember how you treat
-them, and offer contracts, quests and recruitment trials. Rare bandit camps
-appear from day four and are always hostile.
-
-SANDBOX
-The Living Fellows sandbox page sets survivor, household and bandit spawning,
-the companion limit, hunger and thirst rate, menu opacity and name labels.
-Lowering a limit never deletes anything already in the save.
-
-Documentation and change history:
+Documentation, updates and bug reports:
 https://github.com/thorelvin/living-fellows
 
 Project Zomboid belongs to The Indie Stone. This unofficial mod is not
