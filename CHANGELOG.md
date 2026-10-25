@@ -2,13 +2,15 @@
 
 # Changelog
 
-## 0.26.66 - Solo view recovery, base controls and Strange Folk
+## 0.26.66 - Solo view recovery, base controls, Strange Folk and work voices
 
 - Strange Folk can first appear on the second day, after 24 game hours. Encounter types are chosen randomly from eligible characters with suitable nearby sites, while each character's later unlock, the encounter cooldown and the saved uniqueness ledger remain in effect.
 - The Base tab puts the selected companion's job controls first and storage management last. Scrolled checkboxes retain their content position, keeping policy labels together without overlap or blank gaps. Unnamed zones and expedition parking choices show readable area names and coordinates.
 - Medical Check also recognizes companions found by the game's neighboring-square selection. It keeps the actual patient and native stand-up step, and distance hints use the companion's readable name instead of the native player name.
 - Log Yards arrange real logs into aligned four-log stacks and fill partial stacks before starting the next tile in a row. Expedition deliveries use the same placement, and existing loaded stacks straighten when visited without replacing their items.
 - Returning to solo view retires the companion's native lighting state, allowing the main player's sight to keep updating after the second view closes. Primary lighting and wall cutaways then refresh together. Return checks its view owner before teardown, and support diagnostics record retirement, refresh and timeout details.
+- Wood deliveries now finish once their cargo is gone. A log you took from the trunk, a log left on a dead or dismissed companion, or a borrowed axe the borrower no longer carries no longer keeps the delivery open forever or blocks new wood expeditions after 32 trips. Cargo stays pending while a companion is still loading in or the trip car is out of reach, and nothing is ever replaced. Logs and axes from a finished delivery are ordinary items again for building, the log yard and later axe loans.
+- Expeditions and work orders talk. Crews mark the car pulling away, the site, the woods, a tree down, a full trunk, the turn for home and why, the camp in sight and the haul put away, and two crew members trade a few words on the march, in the car, chopping, searching, fishing and at field and camp work. Residents speak when they take, finish or get stuck on a camp job. Lines are short and dry with a clean twin for every rough word; a party gap, per-speaker cooldowns, a quiet period and a chance roll keep it occasional, the chatter option stretches every gap, and danger or sleep silences it.
 - The native bridge protocol remains `42.21-isocompanion-24`, targeting Project Zomboid 42.21.0. Install the matching Lua payload and rebuilt bridge together.
 
 ## 0.26.65 - Wood collection expeditions and Viewpoint compatibility
