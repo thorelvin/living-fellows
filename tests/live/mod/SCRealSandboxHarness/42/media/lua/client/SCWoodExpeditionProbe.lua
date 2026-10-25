@@ -393,6 +393,37 @@ local function observeKitchen(H, fixture, result)
         kitchen.done = true
     end
 end
+local function tracePoint(at)
+    if type(at) ~= "table" then return "nil" end
+    return tostring(at.x) .. "," .. tostring(at.y) .. "," .. tostring(at.z)
+end
+local function traceNavigation(SC, actor, current)
+    local nav, route, owner = {}, {}, {}
+    if SC.Navigation and type(SC.Navigation.status) == "function" then
+        local okay, value = pcall(SC.Navigation.status, actor)
+        if okay and type(value) == "table" then nav = value end
+    end
+    if SC.Navigation and type(SC.Navigation.peek) == "function" then
+        local okay, value = pcall(SC.Navigation.peek, actor)
+        if okay and type(value) == "table" then route = value end
+    end
+    -- current()/snapshot() reconcile action deadlines. Read history instead so
+    -- diagnostic sampling cannot advance or release an actor's action owner.
+    if SC.ActionSupervisor and type(SC.ActionSupervisor.history) == "function" then
+        local okay, value = pcall(SC.ActionSupervisor.history, actor, 1)
+        if okay and type(value) == "table" and type(value[1]) == "table" then owner = value[1] end
+    end
+    local rows = { "fsm=" .. tostring(call(actor, "getCurrentStateName")),
+        "vehicle=" .. tostring(call(actor, "getVehicle") ~= nil),
+        "nav=" .. tostring(nav.phase), "navTarget=" .. tostring(nav.target),
+        "navReason=" .. tostring(nav.pathReason), "moveReason=" .. tostring(nav.lastMovementReason),
+        "stuck=" .. tostring(nav.stuckAttempts), "terminal=" .. tostring(nav.terminalReason),
+        "blocker=" .. tostring(nav.blockerType) .. "@" .. tostring(nav.blockerSquare),
+        "searchMs=" .. tostring(nav.pathSearchAgeMs), "expanded=" .. tostring(nav.expandedNodes),
+        "motionAgeMs=" .. tostring(route.lastProgressAt and math.max(0, current - route.lastProgressAt)),
+        "ownerLast=" .. tostring(owner.action) .. "/" .. tostring(owner.phase) .. "/" .. tostring(owner.event) }
+    return table.concat(rows, ";")
+end
 local function trace(H, fixture, label)
     local SC = SurvivorCompanion
     local mission = SC.ExpeditionPrototype.current()
@@ -401,9 +432,15 @@ local function trace(H, fixture, label)
     local state = wood and SC.ExpeditionWood.status(wood) or {}
     local counts = wood and SC.ExpeditionWood.cargoCounts(wood, fixture.crew, nil,
         fixture.mode == "drive" and 46 or nil) or {}
-    local rows = { label, "mode=" .. fixture.mode, "phase=" .. tostring(scout and scout.phase or "idle"),
+    local current = tonumber(fixture.latestStepAt) or tonumber(fixture.startedAt) or 0
+    local hold = mission and mission.cohesionHold
+    local rows = { label, "elapsedMs=" .. math.max(0, current - fixture.startedAt),
+        "mode=" .. fixture.mode, "phase=" .. tostring(scout and scout.phase or "idle"),
         "carState=" .. tostring(scout and scout.vehicle and scout.vehicle.state),
         "carLeg=" .. tostring(scout and scout.vehicle and scout.vehicle.leg),
+        "carBlocker=" .. tostring(scout and scout.vehicle and scout.vehicle.blocker),
+        "carFailure=" .. tostring(scout and scout.vehicle and scout.vehicle.lastFailure
+            and scout.vehicle.lastFailure.reason),
         "site=" .. tostring(wood and wood.siteIndex),
         "target=" .. tostring(scout and scout.destination and scout.destination.x)
             .. "," .. tostring(scout and scout.destination and scout.destination.y),
@@ -414,16 +451,35 @@ local function trace(H, fixture, label)
         "quietSite=" .. tostring(H.config.wood_expedition_quiet_site == "true"),
         "quietRemoved=" .. tostring(fixture.quietRemoved or 0),
         "quietCalls=" .. tostring(fixture.quietCalls or 0),
-        "engine=" .. tostring(call(fixture.car and fixture.car.vehicle, "isEngineRunning")) }
+        "engine=" .. tostring(call(fixture.car and fixture.car.vehicle, "isEngineRunning")),
+        "waypoint=" .. tracePoint(mission and mission.testWaypoint),
+        "waypointBest=" .. tostring(scout and scout.bestDistanceToWaypoint),
+        "waypointAgeMs=" .. tostring(scout and scout.waypointStagedAt and current - scout.waypointStagedAt),
+        "progressAgeMs=" .. tostring(scout and scout.lastProgressAt and current - scout.lastProgressAt),
+        "replans=" .. tostring(scout and scout.replans),
+        "hold=" .. tostring(hold and hold.reason) .. ":" .. tostring(hold and hold.memberId)
+            .. ":" .. tostring(hold and hold.maxGap) }
     for _, member in ipairs(fixture.crew) do
         local worker = wood and wood.workers and wood.workers[member.id]
         rows[#rows + 1] = member.id .. "@" .. position(member.actor) .. ";worker=" .. tostring(worker and worker.phase)
+            .. ";dead=" .. tostring(call(member.actor, "isDead"))
+            .. ";health=" .. tostring(call(call(member.actor, "getBodyDamage"), "getOverallBodyHealth"))
+            .. ";" .. traceNavigation(SC, member.actor, current)
     end
     local line = table.concat(rows, "|")
     print("SC_REAL_SANDBOX|WOOD_EXPEDITION|" .. line)
     local writer = type(getFileWriter) == "function"
         and getFileWriter("SurvivorCompanionHarness/wood-expedition.log", true, true)
     if writer then writer:writeln(line); writer:close() end
+    if fixture.mode == "drive" and scout and scout.phase == "outbound"
+        and scout.vehicle and scout.vehicle.state == "parked_at_site" then
+        fixture.approachObservedAt = fixture.approachObservedAt or current
+        local number = fixture.approachScreenshots or 0
+        if number < 4 and current - fixture.approachObservedAt >= (number + 1) * 60000 then
+            fixture.approachScreenshots = number + 1
+            screenshot(H, fixture, "approach-minute" .. fixture.approachScreenshots)
+        end
+    end
 end
 local function fail(H, fixture, current, result, setPhase, name, detail)
     cleanupKitchen(fixture, true)
@@ -805,10 +861,20 @@ function Probe.step(H, current, check, result, setPhase)
     local SC, fixture = SurvivorCompanion, H.woodExpedition
     if not fixture then result("FAIL", "wood_probe_fixture_missing", H.phase) setPhase("finish", current) return end
     fixture.latestStepAt = current
+    for _, member in ipairs(fixture.crew or {}) do
+        if call(member.actor, "isDead") == true then
+            return fail(H, fixture, current, result, setPhase, "wood_probe_crew_died",
+                "saved crew member died at " .. position(member.actor)
+                    .. "; storage cannot make this a successful healthy-crew trip")
+        end
+    end
     if fixture.quietError then return fail(H, fixture, current, result, setPhase,
         "wood_probe_quiet_site_helper", fixture.quietError) end
-    if current - fixture.startedAt > 780000 then
-        return fail(H, fixture, current, result, setPhase, "wood_probe_deadline", "780s ordinary dispatch/work/return/storage deadline; no manual rescue")
+    local deadline = tonumber(H.config.wood_expedition_deadline_seconds) or 780
+    if deadline < 120 or deadline > 1500 or deadline ~= math.floor(deadline) then deadline = 780 end
+    if current - fixture.startedAt > deadline * 1000 then
+        return fail(H, fixture, current, result, setPhase, "wood_probe_deadline",
+            deadline .. "s ordinary dispatch/work/return/storage deadline; no manual rescue")
     end
     if H.phase == "wood_expedition_dispatch" then
         local car = fixture.car
@@ -969,7 +1035,7 @@ Probe._tests = { healthy = healthy, count = count, treeEffects = treeEffects, st
     snapshotVisibility = snapshotVisibility, captureVisibility = captureVisibility,
     compareVisibleCars = compareVisibleCars, observeSoloVisibility = observeSoloVisibility,
     observeWitnessMovement = observeWitnessMovement, kitchenRequested = kitchenRequested,
-    startKitchenRoute = startKitchenRoute, observeKitchen = observeKitchen,
+    startKitchenRoute = startKitchenRoute, observeKitchen = observeKitchen, traceNavigation = traceNavigation,
     kitchenPose = kitchenPose, cleanupKitchen = cleanupKitchen }
 SCRealSandboxHarnessProbes = SCRealSandboxHarnessProbes or {}
 SCRealSandboxHarnessProbes.SCWoodExpeditionProbe = Probe

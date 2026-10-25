@@ -122,6 +122,55 @@ E.updateWood(leader)
 check(not active.scout.wood.preparation and active.scout.departureHour == 29
     and active.scout.turnHomeAtHour == 33 and departures == 1,
     "actual departure resets travel deadlines after the preparation pause")
+-- A remote squad can need more than eight seconds of bounded Lua planning.
+-- The expedition watchdog must not cancel that live search before Navigation
+-- can finish it or hand it to the native pathfinder.
+local normalScout, normalNavigation, normalClock = active.scout, SC.Navigation, SC_TEST_CLOCK
+local routeProbe = {}
+for key, value in pairs(normalScout) do routeProbe[key] = value end
+active.scout = routeProbe
+local navigationStatus, routeCancels = { phase = "planning", action = "ordered_move", pathSearchAgeMs = 9000 }, 0
+SC.Navigation = {
+    status = function() return navigationStatus end,
+    cancel = function(a, reason)
+        check(a == leader and reason == "scout_stalled", "only the stalled leader route is cancelled")
+        routeCancels = routeCancels + 1
+    end,
+}
+local function stageRouteProbe(current, age)
+    SC_TEST_CLOCK = current
+    active.testWaypoint = { x = 120, y = 100, z = 0 }
+    routeProbe.bestDistanceToWaypoint = 20
+    routeProbe.waypointStagedAt, routeProbe.lastProgressAt = current - age, current - age
+    routeProbe.replans, routeProbe.lastStalledTarget = 0, nil
+    routeProbe.lastPlanAt, routeProbe.firstPlanFailureAt = nil, nil
+end
+stageRouteProbe(100000, 9000)
+E.pulse()
+check(active.testWaypoint ~= nil and routeCancels == 0,
+    "a live ordered-move search survives the eight-second movement watchdog")
+stageRouteProbe(120000, 29000)
+navigationStatus.pathSearchAgeMs = 29000
+E.pulse()
+check(active.testWaypoint ~= nil and routeCancels == 0,
+    "bounded planning may use the existing thirty-second waypoint allowance")
+stageRouteProbe(150000, 31000)
+navigationStatus.pathSearchAgeMs = 31000
+E.pulse()
+check(active.testWaypoint == nil and routeCancels == 1,
+    "planning cannot suppress the thirty-second hard waypoint watchdog")
+stageRouteProbe(170000, 9000)
+navigationStatus.phase = "moving"
+E.pulse()
+check(active.testWaypoint == nil and routeCancels == 2,
+    "an ordinary route with no motion still recovers after eight seconds")
+stageRouteProbe(190000, 9000)
+navigationStatus.phase, navigationStatus.action = "planning", "move_to_base_storage"
+E.pulse()
+check(active.testWaypoint == nil and routeCancels == 3,
+    "an unrelated planner cannot retain the expedition waypoint")
+active.scout, SC.Navigation, SC_TEST_CLOCK = normalScout, normalNavigation, normalClock
+active.testWaypoint, active.cohesionHold = nil, nil
 leader.x, follower.x = 140, 141
 E.pulse()
 check(active.scout.phase == "wood_working" and verifyCalls == 1,

@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.26.68 - Preserve live expedition path searches
+
+- Expeditions allow an active ordered-move path search to finish within the existing thirty-second waypoint limit. The eight-second movement watchdog no longer repeatedly discards its search after the car parks. Ordinary movement stalls retain their existing recovery, and unrelated planners receive no exemption.
+- Driving wood diagnostics record staged waypoints, path-search age, squad holds, car failures and crew health without advancing action ownership. Longer observation budgets leave the mission's return timer unchanged, and crew death fails the probe immediately. The private taxi probe can also book a pickup at the turn-test junction.
+- Real-game driving tests collected and physically trunk-loaded the requested logs, but return acceptance still fails: a blocked route can leave the car behind, and a survival/medical interruption can unload the crew near zombies. These return-safety issues remain open. See the [driving investigation](docs/driving-expedition-investigation-0.26.67.md) for results and limits.
+- The native bridge protocol remains `42.21-isocompanion-24`, targeting Project Zomboid 42.21.0. The matching bridge is rebuilt with version 0.26.68 metadata; native behavior and save schemas are unchanged. See the [validation record](docs/validation-0.26.68.md) for checks and live-test limits.
+
 ## 0.26.67 - Reliable wood delivery and expedition preparation
 
 - Missing wood is released from the delivery ledger after a fresh, complete inspection, without crediting it as stored. Borrowed axes can then return and optional restocking and base duty can finish. Unreadable or partly scanned cargo remains pending, and moving a log between crew inventories, bags or the trunk cannot discard a live delivery through a stale location cache.

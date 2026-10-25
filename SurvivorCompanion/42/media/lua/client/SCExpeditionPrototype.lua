@@ -4355,6 +4355,21 @@ local function pulseScout()
             and now - (scout.waypointStagedAt or now) < 30000 then
             return
         end
+        -- Navigation holds the actor still while a bounded search yields.
+        -- Restarting it at eight seconds discards its frontier before it can
+        -- finish or fall back to a native path. Retain the existing absolute
+        -- thirty-second waypoint ceiling even if a planner stops advancing.
+        if now - (scout.waypointStagedAt or now) < 30000
+            and SC.Navigation and type(SC.Navigation.status) == "function" then
+            local navigation = SC.Navigation.status(leader)
+            if navigation and navigation.phase == "planning"
+                and navigation.action == "ordered_move"
+                and type(navigation.pathSearchAgeMs) == "number"
+                and navigation.pathSearchAgeMs >= 0 and navigation.pathSearchAgeMs < 30000 then
+                scout.lastProgressAt = now
+                return
+            end
+        end
         -- Smashing, clearing and climbing a window can hold the leader on the
         -- approach square longer than the walking stall interval. Keep the
         -- current portal waypoint while native traversal owns the actor;

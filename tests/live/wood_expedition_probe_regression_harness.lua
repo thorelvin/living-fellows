@@ -26,6 +26,19 @@ SurvivorCompanion = {
     },
 }
 getFileWriter = function() return nil end
+local historyReads = 0
+SurvivorCompanion.ActionSupervisor = {
+    current = function() error("diagnostics must not reconcile actor actions") end,
+    history = function(actor, limit)
+        expect(actor == original and limit == 1, "bounded read-only action history")
+        historyReads = historyReads + 1
+        return { { action = "ordered_move", phase = "waiting", event = "progress" } }
+    end,
+}
+local navigationTrace = Probe._tests.traceNavigation(SurvivorCompanion, original, 1000)
+expect(historyReads == 1 and string.find(navigationTrace, "ordered_move/waiting/progress", 1, true),
+    "observer reports action history without updating the action supervisor")
+SurvivorCompanion.ActionSupervisor = nil
 local function fixture(mode)
     return { config = {}, phase = "wood_expedition_dispatch",
         woodExpedition = { mode = mode, quantity = mode == "drive" and 2 or 1,
@@ -50,6 +63,13 @@ Probe.step(H, 3, check, result, phase)
 expect(calls[3].options.request.quantity == 2 and calls[3].options.travelMode == "drive"
     and calls[3].options.vehicleSqlId == 46 and calls[3].options.parkingZoneId == "saved-parking",
     "driving uses two raw logs and saved car46 without replacement")
+local deadH = fixture("drive")
+deadH.phase = "wood_expedition_storage"
+original.isDead = function() return true end
+Probe.step(deadH, 4, check, result, function(value) deadH.phase = value end)
+expect(deadH.phase == "finish" and rows.wood_probe_crew_died == "FAIL",
+    "a dead crew fails immediately instead of waiting for impossible delivery")
+original.isDead = nil
 
 local tree = { getObjectIndex = function() return 0 end }
 local square = { getTree = function() return tree end }

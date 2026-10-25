@@ -7,7 +7,7 @@ param(
     [string]$UserCache = (Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Zomboid'),
     [string]$SeedSave,
     [string]$GameMode,
-    [ValidateRange(45, 900)]
+    [ValidateRange(45, 1800)]
     # Large mod lists can spend more than three minutes in script, map and
     # asset loading before Build 42 exposes its click-to-start gate. The
     # in-game harness retains its own bounded deadline once play begins.
@@ -71,6 +71,8 @@ param(
     [switch]$WoodExpeditionProbe,
     [ValidateSet('walk', 'drive')][string]$WoodExpeditionTravelMode = 'walk',
     [ValidateSet(1, 3)][int]$WoodExpeditionCrewSize = 1,
+    # Observation budget only; never changes the mission's own return timer.
+    [ValidateRange(120, 1500)][int]$WoodExpeditionDeadlineSeconds = 780,
     # Explicit disposable fixture: seed one real axe into permitted camp
     # storage only when the saved camp has no usable permitted axe.
     [switch]$WoodExpeditionStockEquipment,
@@ -843,7 +845,10 @@ $drivingExclusiveModes = @($DrivingRoute, $DrivingTurn, $DrivingBlocked,
     $DrivingSaveStage, $DrivingSaveResume, $DrivingRemote, $TeamDriveProbe, $ConvoyProbe,
     $TaxiPassengerProbe, $TaxiCallProbe, $TaxiCallResume,
     $TaxiRecoveryResume) | Where-Object { $_.IsPresent }
-if ($drivingExclusiveModes.Count -gt 1) {
+# Taxi booking can reuse the turn probe's real junction and roadside observer.
+# Its service controller still owns the pickup and ride, not the turn scenario.
+$taxiJunctionCombination = $TaxiCallProbe -and $DrivingTurn -and $drivingExclusiveModes.Count -eq 2
+if ($drivingExclusiveModes.Count -gt 1 -and -not $taxiJunctionCombination) {
     throw 'Choose one driving route, turn, blocked, save-stage, or save-resume mode.'
 }
 if (($DrivingBlocked -or $DrivingSaveStage -or $DrivingSaveResume -or $DrivingRemote -or $TeamDriveProbe) -and -not $DrivingProbe) {
@@ -1639,6 +1644,7 @@ $config = @(
     ('wood_expedition_probe=' + $WoodExpeditionProbe.IsPresent.ToString().ToLowerInvariant()),
     ('wood_expedition_travel_mode=' + $WoodExpeditionTravelMode),
     ('wood_expedition_crew_size=' + $WoodExpeditionCrewSize),
+    ('wood_expedition_deadline_seconds=' + $WoodExpeditionDeadlineSeconds),
     ('wood_expedition_stock_equipment=' + $WoodExpeditionStockEquipment.IsPresent.ToString().ToLowerInvariant()),
     ('wood_expedition_quiet_site=' + $WoodExpeditionQuietSite.IsPresent.ToString().ToLowerInvariant()),
     ('hygiene_probe=' + $HygieneProbe.IsPresent.ToString().ToLowerInvariant()),
@@ -1881,6 +1887,7 @@ $manifest = [ordered]@{
     woodExpeditionProbe = $WoodExpeditionProbe.IsPresent
     woodExpeditionTravelMode = $WoodExpeditionTravelMode
     woodExpeditionCrewSize = $WoodExpeditionCrewSize
+    woodExpeditionDeadlineSeconds = $WoodExpeditionDeadlineSeconds
     woodExpeditionStockEquipment = $WoodExpeditionStockEquipment.IsPresent
     woodExpeditionQuietSite = $WoodExpeditionQuietSite.IsPresent
     squadCombatProbe = $SquadCombatProbe.IsPresent

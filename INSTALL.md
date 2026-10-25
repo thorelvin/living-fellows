@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: MIT -->
 
-# Install Living Fellows 0.26.67
+# Install Living Fellows 0.26.68
 
 For **Project Zomboid Build 42.21.0, single-player**. Choose Workshop or standalone; use one copy at a time.
 

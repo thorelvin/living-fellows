@@ -2,6 +2,24 @@
 
 # Real sandbox harness
 
+For wood driving diagnostics, the probe uses the saved crew, car, real trees
+and permitted storage. Its log records elapsed time, staged waypoints, squad
+holds, path-search age, recovery attempts and crew health. Action history is
+read without advancing the action supervisor. Crew death fails the run immediately.
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -WoodExpeditionProbe -WoodExpeditionTravelMode drive `
+    -WoodExpeditionCrewSize 3 -LivingFellowsOnly -NoSteam -IsolatedSourceBridge `
+    -WoodExpeditionDeadlineSeconds 1500 -TimeoutSeconds 1650
+```
+
+The default wood observation deadline is 780 seconds. Extending it changes
+the test's observation budget, while the expedition retains its ordinary
+return timer. Optional `-WoodExpeditionStockEquipment` and
+`-WoodExpeditionQuietSite` are explicit clone fixtures: missing equipment may
+be stocked, and zombies within 60 tiles of forest work may be removed. Neither
+flag clears the return road. Additions and removals are recorded in the results.
+
 This is a private in-game integration harness for the real Project Zomboid
 42.21.0 single-player client. It is deliberately outside `SurvivorCompanion`
 and is not copied into Workshop staging or release archives.
@@ -322,6 +340,15 @@ and asks the planner for a route 26 tiles up the side street. It checks that the
 route turns at least 60 degrees and that the car takes the corner, arrives
 within 4 tiles of the route end, and keeps to the right-hand lane of the new
 street. The screenshot, when asked for, is `driving-corner.png`.
+
+Combine `-DrivingTurn` with `-TaxiCallProbe` to book Markus from the far verge
+of that same real junction. The public taxi service owns the pickup and ride;
+the turn fixture only selects the junction and initial observer position.
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -DrivingProbe -TaxiCallProbe -DrivingTurn `
+    -LivingFellowsOnly -NoSteam -IsolatedSourceBridge -TimeoutSeconds 600
+```
 
 WP5 verifies normal companion AI without unregistering Decision. The route
 holds at the outbound wreck for 2.5 real seconds, then checks seat zero again
