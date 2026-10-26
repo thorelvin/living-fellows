@@ -23,6 +23,12 @@ Base tab previously included the selected companion's entire live roster descrip
 
 Local evidence is under `build/ui-refresh-fix/`: `project-gate.log`, `negative-overlay.log` and `negative-base-refresh.log`.
 
+## EMMA integration
+
+The `living_fellows/0.26.70` branch merges Claude's EMMA commit `44d009f1` with the UI fix `6984e963`, preserving both histories. EMMA's production code, documentation and dedicated tests remain unchanged; the combined UI runner executes both sets of regressions.
+
+The merged branch passes all 29 project-gate stages, including EMMA's gameplay, terminal UI and world-menu tests, the Base refresh regression and all nine overlay redraw ratios. Stages took 101.1 seconds, or 104 seconds including preparation. The combined log is `build/ui-emma-integration/project-gate.log` in the `rv67` worktree.
+
 ## Live confirmation
 
 No new in-game visual acceptance was run for this patch. The redraw-rate tests model the inspected native lifetime; they are not screenshots or an observed game session. Local installation and visual confirmation of an updating Base tab remain pending.
