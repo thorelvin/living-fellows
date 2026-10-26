@@ -54,7 +54,8 @@ try {
             (Join-Path $GameRoot 'media\lua\client\ISUI\ISTickBox.lua'),
             (Join-Path $Client 'SCUIFormat.lua'),
             (Join-Path $Client 'SCUI.lua'),
-            (Join-Path $TestRoot 'SCUIBasePolicyTests.lua')
+            (Join-Path $TestRoot 'SCUIBasePolicyTests.lua'),
+            (Join-Path $TestRoot 'SCUIBaseRefreshTests.lua')
         )
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @basePolicyFiles
         if ($LASTEXITCODE -ne 0) { throw 'Base policy checkbox UI tests failed.' }
@@ -87,6 +88,13 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Camp computer terminal UI tests failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @files
         if ($LASTEXITCODE -ne 0) { throw 'UI Kahlua tests failed.' }
+        $baseRedrawFiles = @(
+            (Join-Path $TestRoot 'SCBaseVisualsFixture.lua'),
+            (Join-Path $Client 'SCBaseVisuals.lua'),
+            (Join-Path $TestRoot 'SCBaseVisualsRedrawTests.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @baseRedrawFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Base overlay UI redraw tests failed.' }
         $expeditionZoomFiles = @(
             (Join-Path $TestRoot 'SCUIExpeditionZoomFixture.lua'),
             (Join-Path $Client 'SCUIFormat.lua'),

@@ -4,6 +4,7 @@
 
 ## Unreleased - A-Life compatibility and human combat recovery
 
+- Fixed flashing base-area and storage tints when the menu refreshes. Marking previews and construction guides now follow the game's UI redraw cycle, and ordinary companion health, hunger and activity changes no longer rebuild Base tab.
 - Added an optional Project A-Life 1.4.6 adapter for 42.21.0 single-player, with two-way combat discovery, protected firing lanes and native wound handling. Companions share your faction reputation; independent LF people keep their own relations.
 - A-Life sees distinct LF identities while its player-state callbacks leave the main player's lifecycle and UI alone. Options can disable combat integration, and Support reports readiness or changed interfaces. See the [scope](docs/compatibility-project-alife.md) and [validation](docs/validation-project-alife.md); live scenarios are recorded separately from automated checks.
 
