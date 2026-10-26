@@ -1713,7 +1713,8 @@ function Combat.scoreTargets(actor, player, snapshot, previousTarget)
                 sameFloor = utility.sameFloor(actor, threat.actor)
             end
         end
-        if threat.actor and not gone and sightCandidate and sameFloor then
+        if threat.actor and not gone and sightCandidate and sameFloor
+            and not utility.isExternalHuman(threat.actor) then
             local record = utility.copyShallow(threat)
             record.square = nativeZombie and facts.square
                 or utility.squareOf(threat.actor)

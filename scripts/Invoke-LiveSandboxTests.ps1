@@ -39,6 +39,19 @@ param(
     [string]$IsolatedBridgePath = '',
     [string]$SteamExe = 'C:\Program Files (x86)\Steam\steam.exe',
     [switch]$LivingFellowsOnly,
+    [switch]$CompanionFirearmsProbe,
+    [switch]$CompanionFacingProbe,
+    [ValidateSet('fresh', 'saved', 'both')][string]$CompanionFacingMode = 'fresh',
+    [switch]$BanditsAdapterProbe,
+    [switch]$BanditsEnabled,
+    [ValidateSet('legacy', 'firearms', 'firearms_zombie_control', 'melee', 'unarmed', 'infected', 'lifecycle', 'armor', 'vehicle_window', 'vehicle_bullets', 'solid_wall', 'protected_lane')][string]$BanditsCombatScenario = 'legacy',
+    [ValidateSet('random', 'policeofficer', 'veteran', 'unemployed')][string]$BanditsLFProfession = 'random',
+    [ValidateSet(2, 4)][int]$BanditsCombatants = 2,
+    [ValidateSet('weapons_free', 'close_defense', 'ranged_support', 'stealth')][string]$BanditsCombatDoctrine = 'weapons_free',
+    [ValidateSet('before', 'after')][string]$BanditsLoadOrder = 'after',
+    [ValidateSet('saved', 'resident', 'household', 'strange_folk', 'strange_folk_save', 'performance', 'reload')][string]$BanditsLFRole = 'saved',
+    [ValidatePattern('^(sc-[A-Za-z0-9.+-]+)?$')][string]$BanditsExpectedLFId = '',
+    [string]$BanditsModPath = 'C:\Program Files (x86)\Steam\steamapps\workshop\content\108600\3268487204\mods\Bandits',
     [switch]$UIMenuProbe,
     [switch]$UserOptionsProbe,
     [switch]$MedicalCheckProbe,
@@ -1567,6 +1580,12 @@ if ($DrivingGateNegativeControl) {
         $decisionText.Replace($driveGate, $disabledGate), $utf8NoBom)
     Write-Output 'Disabled the driving gate only in the disposable sandbox mod copy.'
 }
+if ($BanditsAdapterProbe -or $BanditsEnabled) {
+    if (-not (Test-Path -LiteralPath (Join-Path $BanditsModPath '42.21\mod.info') -PathType Leaf)) {
+        throw 'BanditsAdapterProbe requires the official Bandits 42.21 payload.'
+    }
+    Copy-Item -LiteralPath $BanditsModPath -Destination (Join-Path $SandboxMods 'Bandits') -Recurse
+}
 if ($ProjectALifeDamageProbe) {
     if ([string]::IsNullOrWhiteSpace($ProjectALifeModPath) -or
         -not (Test-Path -LiteralPath (Join-Path $ProjectALifeModPath '42.20\mod.info') -PathType Leaf)) {
@@ -1600,7 +1619,13 @@ $modText = if ($LivingFellowsOnly) {
 foreach ($excludedId in $ExcludeModId) {
     $modText = Remove-ModEntry $modText $excludedId
 }
-$modText = Add-ModEntry $modText 'SurvivorCompanion'
+if ($BanditsAdapterProbe -or $BanditsEnabled) {
+    $modText = Remove-ModEntry $modText 'SurvivorCompanion'
+    $modText = Remove-ModEntry $modText 'Bandits2'
+    if ($BanditsLoadOrder -eq 'before') { $modText = Add-ModEntry $modText 'Bandits2' }
+    $modText = Add-ModEntry $modText 'SurvivorCompanion'
+    if ($BanditsLoadOrder -eq 'after') { $modText = Add-ModEntry $modText 'Bandits2' }
+} else { $modText = Add-ModEntry $modText 'SurvivorCompanion' }
 if ($FieldCargoProbe) {
     $modText = Add-ModEntry $modText 'damnlib'
     $modText = Add-ModEntry $modText '93fordF350'
@@ -1613,6 +1638,18 @@ $modText = Add-ModEntry $modText 'SCRealSandboxHarness'
     ($runId + [Environment]::NewLine + $GameMode + [Environment]::NewLine), $utf8NoBom)
 
 $config = @(
+    ('companion_firearms_probe=' + $CompanionFirearmsProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('companion_facing_probe=' + $CompanionFacingProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('companion_facing_mode=' + $CompanionFacingMode),
+    ('bandits_adapter_probe=' + $BanditsAdapterProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('bandits_enabled=' + ($BanditsAdapterProbe.IsPresent -or $BanditsEnabled.IsPresent).ToString().ToLowerInvariant()),
+    ('bandits_combat_scenario=' + $(if ($CompanionFirearmsProbe) { 'firearms_zombie_control' } else { $BanditsCombatScenario })),
+    ('bandits_lf_profession=' + $BanditsLFProfession),
+    ('bandits_combatants=' + $BanditsCombatants),
+    ('bandits_combat_doctrine=' + $BanditsCombatDoctrine),
+    ('bandits_load_order=' + $BanditsLoadOrder),
+    ('bandits_lf_role=' + $BanditsLFRole),
+    ('bandits_expected_lf_id=' + $BanditsExpectedLFId),
     'enabled=true',
     'autoload=true',
     ('run_id=' + $runId),
@@ -1878,6 +1915,18 @@ $manifest = [ordered]@{
     sourceBridgeSha256 = $sourceBridgeHash
     installedBridgeMatches = $installedBridgeHash -eq $sourceBridgeHash
     livingFellowsOnly = $LivingFellowsOnly.IsPresent
+    companionFirearmsProbe = $CompanionFirearmsProbe.IsPresent
+    companionFacingProbe = $CompanionFacingProbe.IsPresent
+    companionFacingMode = $CompanionFacingMode
+    banditsAdapterProbe = $BanditsAdapterProbe.IsPresent
+    banditsEnabled = ($BanditsAdapterProbe.IsPresent -or $BanditsEnabled.IsPresent)
+    banditsCombatScenario = $BanditsCombatScenario
+    banditsLFProfession = $BanditsLFProfession
+    banditsCombatants = $BanditsCombatants
+    banditsCombatDoctrine = $BanditsCombatDoctrine
+    banditsLoadOrder = $BanditsLoadOrder
+    banditsLFRole = $BanditsLFRole
+    banditsExpectedLFId = $BanditsExpectedLFId
     viewCutawayProbe = $ViewCutawayProbe.IsPresent
     viewCutawayQuickWatch = $ViewCutawayQuickWatch.IsPresent
     viewCutawayRestoreMode = $ViewCutawayRestoreMode

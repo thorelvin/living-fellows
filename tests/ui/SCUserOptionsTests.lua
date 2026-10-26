@@ -4,7 +4,8 @@ local user = SurvivorCompanion.UserOptions
 local api = PZAPI.ModOptions
 local group = api:getOptions("SurvivorCompanion")
 
-assert(group ~= nil and #group.data == 4, "four built-in options registered")
+assert(group ~= nil and #group.data == 5, "five built-in options registered")
+assert(user.get("banditsCompatibility") == true, "Bandits compatibility defaults on")
 assert(user.get("chatter") == "normal", "chatter default before load")
 assert(user.get("coughSneezes") == "normal", "cough default before load")
 assert(user.get("ordinaryColds") == true, "ordinary colds default before load")
@@ -16,6 +17,7 @@ assert(loaded == true, tostring(reason))
 assert(user.get("chatter") == "rare", "saved chatter loaded before runtime")
 assert(user.get("coughSneezes") == "rare", "saved cough setting loaded")
 assert(user.get("ordinaryColds") == false, "saved cold setting loaded")
+assert(user.get("banditsCompatibility") == false, "saved Bandits Off setting loaded")
 assert(user.get("protectRecruitedCompanions") == true,
     "saved player-attack protection loaded")
 assert(SCBridge.calls[#SCBridge.calls] == true, "saved protection synced to native gate")
@@ -29,6 +31,7 @@ assert(SurvivorCompanion.Gestures.nativeOptionApplies == 1,
 group:getOption("chatter"):setValue(2)
 group:getOption("coughSneezes"):setValue(3)
 group:getOption("ordinaryColds"):setValue(true)
+group:getOption("banditsCompatibility"):setValue(true)
 group:getOption("protectRecruitedCompanions"):setValue(false)
 group:apply()
 assert(user.get("chatter") == "less", "Apply updates chatter live")
@@ -49,6 +52,7 @@ assert(disk[1] == "combobox|SurvivorCompanion|chatter|2")
 assert(disk[2] == "combobox|SurvivorCompanion|coughSneezes|3")
 assert(disk[3] == "tickbox|SurvivorCompanion|ordinaryColds|true")
 assert(disk[4] == "tickbox|SurvivorCompanion|protectRecruitedCompanions|false")
+assert(disk[5] == "tickbox|SurvivorCompanion|banditsCompatibility|true")
 
 -- Changing memory and reloading must restore the persisted values.
 group:getOption("chatter"):setValue(1)

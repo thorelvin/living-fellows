@@ -473,7 +473,7 @@ local ALIFE_PROTECTED_LIMIT = 64
 
 local function rememberALifeNpc(state, actor, candidate, now, radiusSq)
     local U = util()
-    if not U.isALifeNpc(candidate) or U.isGoneTarget(candidate)
+    if not U.isExternalHuman(candidate) or U.isGoneTarget(candidate)
         or not U.sameFloor(actor, candidate)
         or U.distanceSq(actor, candidate) > radiusSq then return end
     state.alifeNpcs = state.alifeNpcs or setmetatable({}, { __mode = "k" })
@@ -532,7 +532,7 @@ local function collectRelationships(actor, player, alifeNpcs, now)
     for candidate, seenAt in pairs(alifeNpcs or {}) do
         if type(seenAt) == "number" and type(now) == "number"
             and now - seenAt <= ALIFE_CONTACT_MS
-            and U.isALifeNpc(candidate) and not U.isGoneTarget(candidate)
+            and U.isExternalHuman(candidate) and not U.isGoneTarget(candidate)
             and U.sameFloor(actor, candidate)
             and U.distanceSq(actor, candidate)
                 <= (U.config("perceptionRadius") or 24) ^ 2 then
@@ -555,7 +555,7 @@ local function collectRelationships(actor, player, alifeNpcs, now)
                         x = x, y = y, z = z, square = row.square,
                         distance = math.sqrt(row.distanceSq),
                         distanceSq = row.distanceSq, visible = true,
-                        external = "project_alife" }
+                        external = U.isBanditsNpc(candidate) and "bandits2" or "project_alife" }
                 end
             else
                 externalProtectedCandidates[#externalProtectedCandidates + 1] = row

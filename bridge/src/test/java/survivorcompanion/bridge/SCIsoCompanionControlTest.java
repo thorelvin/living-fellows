@@ -1439,6 +1439,134 @@ public final class SCIsoCompanionControlTest {
         return descriptor;
     }
 
+    private static void testCompanionBallisticInput(SCNativeCompanion actor, IsoPlayer primary) throws Exception {
+        Class<?> characterClass = Class.forName("zombie.characters.IsoGameCharacter");
+        Class<?> controllerClass = Class.forName("zombie.core.physics.BallisticsController");
+        Class<?> vectorClass = Class.forName("zombie.iso.Vector3");
+        var controllerField = characterClass.getDeclaredField("ballisticsController");
+        var squareField = Class.forName("zombie.iso.IsoObject").getDeclaredField("square");
+        var aimField = SCNativeCompanion.class.getDeclaredField("bridgeAimTarget");
+        controllerField.setAccessible(true);
+        squareField.setAccessible(true);
+        aimField.setAccessible(true);
+        Object oldController = controllerField.get(actor), oldAim = aimField.get(actor);
+        Object oldSquare = squareField.get(primary);
+        Object square = oldSquare != null ? oldSquare : actor.getCurrentSquare();
+        require(square != null, "ballistic input fixture needs a loaded square");
+        @SuppressWarnings("unchecked")
+        List<Object> movers = (List<Object>) invoke(square, "getMovingObjects");
+        boolean added = !movers.contains(primary) && movers.add(primary);
+        Object controller = controllerClass.getMethod("alloc").invoke(null);
+        Object reticle = controllerClass.getMethod("getIsoAimingPosition").invoke(controller);
+        var set = vectorClass.getMethod("set", float.class, float.class, float.class);
+        set.invoke(reticle, -100f, -101f, -102f);
+        var select = SCNativeCompanion.class.getDeclaredMethod("selectCompanionBallisticReticle");
+        var restore = SCNativeCompanion.class.getDeclaredMethod("restoreCompanionBallisticReticle", Object[].class);
+        select.setAccessible(true);
+        restore.setAccessible(true);
+        IsoPlayer[] slots = IsoPlayer.players.clone();
+        int count = IsoPlayer.numPlayers;
+        Object targetPoint = vectorClass.getConstructor().newInstance();
+        set.invoke(targetPoint, primary.getX(), primary.getY(), primary.getZ());
+        Class<?> combatClass = Class.forName("zombie.CombatManager");
+        Object combat = combatClass.getMethod("getInstance").invoke(null);
+        var physicsHeight = SCNativeCompanion.class.getDeclaredMethod("companionPhysicsAimHeight",
+                Class.forName("zombie.iso.IsoMovingObject"));
+        physicsHeight.setAccessible(true);
+        var onFloor = primary.getClass().getMethod("setOnFloor", boolean.class);
+        boolean priorFloor = (Boolean) invoke(primary, "isOnFloor");
+        try {
+            onFloor.invoke(primary, false);
+            float standingHeight = ((Number) physicsHeight.invoke(null, primary)).floatValue();
+            require(standingHeight > primary.getZ()
+                            && standingHeight == ((Number) invoke(primary, "getAimOriginPosZ")).floatValue(),
+                    "standing NPC aim must use the native chest height, not its feet");
+            onFloor.invoke(primary, true);
+            require((Boolean) invoke(primary, "isProne")
+                            && ((Number) physicsHeight.invoke(null, primary)).floatValue() == primary.getZ(),
+                    "a prone target must retain low physical aim");
+        } finally {
+            onFloor.invoke(primary, priorFloor);
+        }
+        var hittable = combatClass.getDeclaredMethod("isHittableBallisticsTarget",
+                controllerClass, float.class, vectorClass);
+        hittable.setAccessible(true);
+        try {
+            squareField.set(primary, square);
+            require(primary.isExistInTheWorld(), "ballistic target not in native square");
+            controllerField.set(actor, controller);
+            aimField.set(actor, primary);
+            require(!(Boolean) hittable.invoke(combat, controller, 0.25f, targetPoint),
+                    "pre-fix native reticle filter must reject an enemy away from the player's cursor");
+            Object[] outer = (Object[]) select.invoke(actor);
+            require((Boolean) hittable.invoke(combat, controller, 0.25f, targetPoint),
+                    "actor-local aim input did not reach the stock native target filter");
+            Object[] nested = (Object[]) select.invoke(actor);
+            restore.invoke(null, new Object[] { nested });
+            require((Boolean) hittable.invoke(combat, controller, 0.25f, targetPoint),
+                    "nested restore lost the outer shot's selected input");
+            restore.invoke(null, new Object[] { outer });
+            require(vectorClass.getField("x").getFloat(reticle) == -100f
+                            && vectorClass.getField("y").getFloat(reticle) == -101f
+                            && vectorClass.getField("z").getFloat(reticle) == -102f,
+                    "shot scope did not restore the exact previous controller input");
+            Object[] retiredInput = (Object[]) select.invoke(actor);
+            controllerField.set(actor, null);
+            set.invoke(reticle, 777f, 778f, 779f);
+            restore.invoke(null, new Object[] { retiredInput });
+            require(vectorClass.getField("x").getFloat(reticle) == 777f
+                            && vectorClass.getField("y").getFloat(reticle) == 778f
+                            && vectorClass.getField("z").getFloat(reticle) == 779f,
+                    "a retired shot changed a released/pooled controller's new input");
+            controllerField.set(actor, controller);
+            aimField.set(actor, null);
+            require(select.invoke(actor) == null, "an absent target invented ballistic input");
+            aimField.set(actor, primary);
+            movers.remove(primary);
+            require(select.invoke(actor) == null, "a removed target retained ballistic input");
+            if (!added) movers.add(primary);
+            require(Arrays.equals(slots, IsoPlayer.players) && IsoPlayer.numPlayers == count
+                            && IsoPlayer.getInstance() == primary && !actor.isLocalPlayer(),
+                    "NPC ballistic input changed local-player ownership");
+
+            var captureScratch = SCNativeCompanion.class.getDeclaredMethod("captureCompanionBallisticScratch", Class.class);
+            var restoreScratch = SCNativeCompanion.class.getDeclaredMethod("restoreCompanionBallisticScratch", Object[].class);
+            captureScratch.setAccessible(true);
+            restoreScratch.setAccessible(true);
+            Object[] originalScratch = (Object[]) captureScratch.invoke(null, combatClass);
+            var rangeFilter = combatClass.getDeclaredMethod("lambda$calculateHitListWeapon$0",
+                    float.class, Class.forName("zombie.iso.IsoMovingObject"));
+            rangeFilter.setAccessible(true);
+            try {
+                Object start = originalScratch[0];
+                set.invoke(start, primary.getX() + 1000f, primary.getY(), primary.getZ());
+                require((Boolean) rangeFilter.invoke(null, 12f, primary),
+                        "stock range prefilter must reject a nearby enemy when another actor owns the shared ray");
+                Object[] outerScratch = (Object[]) captureScratch.invoke(null, combatClass);
+                set.invoke(start, primary.getX(), primary.getY(), primary.getZ());
+                require(!(Boolean) rangeFilter.invoke(null, 12f, primary),
+                        "native range prefilter did not honor the shot's current muzzle origin");
+                Object[] nestedScratch = (Object[]) captureScratch.invoke(null, combatClass);
+                set.invoke(start, 2000f, 2001f, 2002f);
+                restoreScratch.invoke(null, new Object[] { nestedScratch });
+                require(!(Boolean) rangeFilter.invoke(null, 12f, primary),
+                        "nested shot failed to restore its outer native muzzle origin");
+                restoreScratch.invoke(null, new Object[] { outerScratch });
+                require((Boolean) rangeFilter.invoke(null, 12f, primary),
+                        "scoped shot leaked its origin into another character's targeting context");
+            } finally {
+                restoreScratch.invoke(null, new Object[] { originalScratch });
+            }
+        } finally {
+            controllerField.set(actor, oldController);
+            aimField.set(actor, oldAim);
+            squareField.set(primary, oldSquare);
+            if (added) movers.remove(primary);
+            else if (!movers.contains(primary)) movers.add(primary);
+            controllerClass.getMethod("release").invoke(controller);
+        }
+    }
+
     public static void main(String[] args) throws Exception {
         Class<?> randomClass = Class.forName("zombie.core.random.RandStandard");
         Object random = randomClass.getField("INSTANCE").get(null);
@@ -1806,6 +1934,7 @@ public final class SCIsoCompanionControlTest {
                         && SCNativeCompanion.corpseDragFacingSign(true) == -1.0f,
                 "corpse dragging must face against travel on both direct and native paths");
         testRetainedMovementAndPathState((SCNativeCompanion) actor);
+        testCompanionBallisticInput((SCNativeCompanion) actor, (IsoPlayer) localPlayer);
         testNativeTraversalOwnership((SCNativeCompanion) actor);
         testNativeReactionOwnership((SCNativeCompanion) actor,
                 (zombie.iso.IsoMovingObject) secondActor);

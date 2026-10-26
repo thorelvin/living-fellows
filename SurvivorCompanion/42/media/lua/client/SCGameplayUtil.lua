@@ -557,6 +557,14 @@ function U.isALifeHordeHeld(value)
     return type(data) == "table" and data.ALifeHold ~= nil
 end
 
+function U.isBanditsNpc(value)
+    return SC.BanditsAdapter ~= nil and SC.BanditsAdapter.owns(value) == true
+end
+
+function U.isExternalHuman(value)
+    return U.isALifeNpc(value) or U.isBanditsNpc(value)
+end
+
 function U.isZombie(value)
     if value == nil then return false end
     local zombie = U.instanceOf(value, "IsoZombie")
@@ -564,7 +572,7 @@ function U.isZombie(value)
         local reported, ok = U.call(value, "isZombie")
         zombie = ok and reported == true
     end
-    return zombie and not U.isALifeNpc(value)
+    return zombie and not U.isExternalHuman(value)
 end
 
 function U.isDead(value)
@@ -602,10 +610,10 @@ function U.isGoneTarget(value)
     if U.isDead(value) or U.isCorpseProxy(value) then return true end
     local exists, ok = U.call(value, "isExistInTheWorld")
     if not ok or exists ~= false then return false end
-    -- A-Life's owned IsoZombie shell can report false here while it is loaded.
+    -- An external human's owned zombie shell can report false while loaded.
     -- Check its local square membership, rather than querying the global zombie
     -- list for every candidate. The ordinary-zombie path keeps the native flag.
-    if U.isALifeNpc(value) then
+    if U.isExternalHuman(value) then
         local square = U.squareOf(value)
         local present = false
         U.squareMovingObjects(square, function(candidate)
@@ -814,7 +822,7 @@ function U.movingBlocker(square, actor, options)
         if collisionKnown and collidable == false then return end
         -- Giblets, blood drops and particles are IsoMovingObjects too. Only
         -- physical pushables and living character bodies are traffic.
-        local character = U.isZombie(other) or U.isALifeNpc(other) or U.isCompanion(other)
+        local character = U.isZombie(other) or U.isExternalHuman(other) or U.isCompanion(other)
             or U.instanceOf(other, "IsoPlayer") or U.instanceOf(other, "IsoGameCharacter")
             or U.instanceOf(other, "IsoAnimal") or U.hasMethod(other, "getBodyDamage")
         if not character and not U.instanceOf(other, "IsoPushableObject") then return end

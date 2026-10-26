@@ -146,6 +146,12 @@ local function approach()
     actor:updateFrame()
     target.x = actor.x + 0.9
 end
+local priorCommands, beforeHoldFire = SC.Commands, actor.attacks
+SC.Commands = { peek = function() return { holdFire = true } end }
+local heldFire, heldReason = dispatch("attack_firearm")
+check(not heldFire and heldReason == "hold_fire" and actor.attacks == beforeHoldFire,
+    "native dispatch rechecks Hold Fire before a provider or native firearm attack can start")
+SC.Commands = priorCommands
 approach()
 local before = actor.x
 local held = dispatch("ready_weapon", { combatSpacingHold = true })

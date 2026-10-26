@@ -1434,8 +1434,27 @@ public final class SCNativeCompanion extends IsoPlayer {
             // one target, and must not be replayed by a second animation layer.
             set(SwipeStatePlayer.ATTACKED, true);
             bridgeAttackAttemptSerial++;
-            inFlight = true;
-            ATTACK_COLLISION_CHECK.invoke(combatManager, this, weapon, swipeState, attackType);
+            Object[] ballisticInput = null, ballisticScratch = null;
+            try {
+                if (WEAPON_IS_AIMED_FIREARM != null
+                        && Boolean.TRUE.equals(WEAPON_IS_AIMED_FIREARM.invoke(weapon))) {
+                    ballisticInput = selectCompanionBallisticReticle();
+                    selectCompanionPhysicsReticle(ballisticInput);
+                    ballisticScratch = selectCompanionBallisticScratch(combatManager, weapon);
+                }
+                inFlight = true;
+                ATTACK_COLLISION_CHECK.invoke(combatManager, this, weapon, swipeState, attackType);
+            } finally {
+                try {
+                    restoreCompanionBallisticScratch(ballisticScratch);
+                } finally {
+                    try {
+                        restoreCompanionPhysicsReticle(ballisticInput);
+                    } finally {
+                        restoreCompanionBallisticReticle(ballisticInput);
+                    }
+                }
+            }
             inFlight = false;
             int hitCount = getLastHitCount();
             driveCompanionHitSound(weapon, hitCount);
@@ -1512,10 +1531,198 @@ public final class SCNativeCompanion extends IsoPlayer {
             out.append(" attackStarted=").append(isAttackStarted());
             out.append(" handToHand=").append(probeBoolean("isAuthorizedHandToHandAction"));
             out.append(" shove=").append(probeBoolean("isDoShove"));
+            appendBallisticsDiagnostics(out);
         } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
             out.append(" probeFailed=").append(failure.getClass().getSimpleName());
         }
         return out.toString();
+    }
+
+    /** Read-only, actor-local evidence for a shot with no native hit candidates. */
+    private void appendBallisticsDiagnostics(StringBuilder out) {
+        try {
+            Method getter = IsoGameCharacter.class.getMethod("getBallisticsController");
+            Object controller = getter.invoke(this);
+            if (controller == null) {
+                out.append(" ballistics=none");
+                return;
+            }
+            out.append(" ballisticsID=").append(controller.getClass().getMethod("getID").invoke(controller));
+            out.append(" muzzle=").append(diagnosticVector(controller.getClass()
+                    .getMethod("getMuzzlePosition").invoke(controller)));
+            out.append(" muzzleDir=").append(diagnosticVector(controller.getClass()
+                    .getMethod("getMuzzleDirection").invoke(controller)));
+            out.append(" reticle=").append(diagnosticVector(controller.getClass()
+                    .getMethod("getIsoAimingPosition").invoke(controller)));
+            out.append(" ballisticTargets=").append(controller.getClass()
+                    .getMethod("getNumberOfTargets").invoke(controller));
+            out.append(" cachedTargets=").append(controller.getClass()
+                    .getMethod("getCachedNumberOfTargets").invoke(controller));
+            out.append(" animAngle=").append(hasAnimationPlayer()
+                    ? getAnimationPlayer().getRenderedAngle() : Float.NaN);
+            Class<?> vectorType = Class.forName("zombie.iso.Vector3");
+            Object muzzle = vectorType.getConstructor().newInstance();
+            Object direction = vectorType.getConstructor().newInstance();
+            controller.getClass().getMethod("calculateMuzzlePosition", vectorType, vectorType)
+                    .invoke(controller, muzzle, direction);
+            out.append(" currentMuzzle=").append(diagnosticVector(muzzle));
+            out.append(" currentMuzzleDir=").append(diagnosticVector(direction));
+            out.append(" aimOrigin=").append(diagnosticAimOrigin(this));
+            var target = bridgeAimTarget;
+            out.append(" aimTarget=").append(target == null ? "none"
+                    : target.getX() + "," + target.getY() + "," + target.getZ());
+            if (target instanceof IsoGameCharacter character) {
+                out.append(" targetOrigin=").append(diagnosticAimOrigin(character));
+            }
+            out.append(" pitch=").append(IsoGameCharacter.class
+                    .getMethod("getCurrentVerticalAimAngle").invoke(this));
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            out.append(" ballisticsProbeFailed=").append(failure.getClass().getSimpleName());
+        }
+        try {
+            Object model = IsoGameCharacter.class.getField("primaryHandModel").get(this);
+            Object script = model == null ? null : model.getClass().getField("modelScript").get(model);
+            out.append(" handScript=").append(script == null ? "none"
+                    : script.getClass().getMethod("getName").invoke(script));
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            out.append(" handScript=unavailable");
+        }
+    }
+
+    private static String diagnosticVector(Object vector) throws ReflectiveOperationException {
+        if (vector == null) return "none";
+        Class<?> type = vector.getClass();
+        return type.getField("x").getFloat(vector) + ","
+                + type.getField("y").getFloat(vector) + ","
+                + type.getField("z").getFloat(vector);
+    }
+
+    private static String diagnosticAimOrigin(IsoGameCharacter actor) throws ReflectiveOperationException {
+        return IsoGameCharacter.class.getMethod("getAimOriginPosX").invoke(actor) + ","
+                + IsoGameCharacter.class.getMethod("getAimOriginPosY").invoke(actor) + ","
+                + IsoGameCharacter.class.getMethod("getAimOriginPosZ").invoke(actor);
+    }
+
+    /**
+     * 42.21's hit-list prefilter reads this controller's isometric cursor point.
+     * Its normal update fills that point from AimingReticle using a player slot,
+     * even for a non-local NPC. Supply our actual selected aim input during the
+     * one stock collision call. This never writes mouse input, player slots,
+     * hit candidates, accuracy, ammunition or health. Native line-of-sight,
+     * armor and hit rolls still decide what the shot does.
+     */
+    private Object[] selectCompanionBallisticReticle() throws ReflectiveOperationException {
+        var target = bridgeAimTarget;
+        if (target == null || !target.isExistInTheWorld()
+                || target instanceof IsoGameCharacter character && character.isDead()) return null;
+        float x = target.getX(), y = target.getY(), z = target.getZ();
+        if (!Float.isFinite(x) || !Float.isFinite(y) || !Float.isFinite(z)) return null;
+        Object controller = IsoGameCharacter.class.getMethod("getBallisticsController").invoke(this);
+        if (controller == null) return null;
+        Object reticle = controller.getClass().getMethod("getIsoAimingPosition").invoke(controller);
+        Class<?> type = reticle.getClass();
+        float[] original = { type.getField("x").getFloat(reticle),
+                type.getField("y").getFloat(reticle), type.getField("z").getFloat(reticle) };
+        Object[] captured = { reticle, original, this, controller, target };
+        type.getMethod("set", float.class, float.class, float.class).invoke(reticle, x, y, z);
+        return captured;
+    }
+
+    private static void restoreCompanionBallisticReticle(Object[] captured) throws ReflectiveOperationException {
+        if (captured == null || !ownsCompanionBallisticInput(captured)) return;
+        Object reticle = captured[0];
+        float[] prior = (float[]) captured[1];
+        reticle.getClass().getMethod("set", float.class, float.class, float.class)
+                .invoke(reticle, prior[0], prior[1], prior[2]);
+    }
+
+    private static boolean ownsCompanionBallisticInput(Object[] captured) throws ReflectiveOperationException {
+        if (captured.length == 2) return true; // CombatManager's unpooled scratch vector.
+        SCNativeCompanion owner = (SCNativeCompanion) captured[2];
+        return !owner.bridgeDisabled && IsoGameCharacter.class.getMethod("getBallisticsController")
+                .invoke(owner) == captured[3];
+    }
+
+    // The Java reticle is the broad-phase input; Bullet owns the corresponding
+    // camera ray used to refine native body intersections. Both are per actor.
+    private void selectCompanionPhysicsReticle(Object[] captured) throws ReflectiveOperationException {
+        if (captured == null) return;
+        Object reticle = captured[0];
+        Class<?> type = reticle.getClass();
+        // A known character supplies a 3D aim point. Feeding its floor point
+        // into Bullet's camera ray aims between the feet of walking targets.
+        // The broad-phase Java reticle stays at the floor coordinate, as the
+        // stock range filter expects; only the physical ray aims at the body.
+        float z = companionPhysicsAimHeight((zombie.iso.IsoMovingObject) captured[4]);
+        updateCompanionPhysicsReticle(type.getField("x").getFloat(reticle),
+                type.getField("y").getFloat(reticle), z);
+    }
+
+    private static float companionPhysicsAimHeight(zombie.iso.IsoMovingObject target)
+            throws ReflectiveOperationException {
+        if (target instanceof IsoGameCharacter character
+                && !Boolean.TRUE.equals(target.getClass().getMethod("isProne").invoke(target))) {
+            return ((Number) IsoGameCharacter.class.getMethod("getAimOriginPosZ").invoke(character)).floatValue();
+        }
+        return target.getZ();
+    }
+
+    private void restoreCompanionPhysicsReticle(Object[] captured) throws ReflectiveOperationException {
+        if (captured == null || !ownsCompanionBallisticInput(captured)) return;
+        float[] prior = (float[]) captured[1];
+        updateCompanionPhysicsReticle(prior[0], prior[1], prior[2]);
+    }
+
+    private void updateCompanionPhysicsReticle(float x, float y, float z) throws ReflectiveOperationException {
+        Object controller = IsoGameCharacter.class.getMethod("getBallisticsController").invoke(this);
+        int id = ((Number) controller.getClass().getMethod("getID").invoke(controller)).intValue();
+        Class.forName("zombie.core.physics.Bullet").getMethod("updateBallisticsAimReticlePosition",
+                int.class, float.class, float.class, float.class).invoke(null, id, x, z * 2.44949f, y);
+    }
+
+    /** CombatManager shares these scratch rays across all characters. The
+     * local aiming update normally fills them, before the later impact event.
+     * Another actor can overwrite them between those steps. Refresh from the
+     * stock muzzle calculation for this one shot and restore the outer context. */
+    private Object[] selectCompanionBallisticScratch(Object combat, Object weapon)
+            throws ReflectiveOperationException {
+        Class<?> combatType = combat.getClass();
+        Object[] captured = captureCompanionBallisticScratch(combatType);
+        Method calculate = combatType.getDeclaredMethod("calculateBallistics", IsoGameCharacter.class, float.class);
+        calculate.setAccessible(true);
+        float range = ((Number) weapon.getClass().getMethod("getMaxRange", IsoGameCharacter.class)
+                .invoke(weapon, this)).floatValue()
+                * ((Number) weapon.getClass().getMethod("getRangeMod", IsoGameCharacter.class)
+                .invoke(weapon, this)).floatValue();
+        try {
+            calculate.invoke(combat, this, range);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            restoreCompanionBallisticScratch(captured);
+            throw failure;
+        }
+        return captured;
+    }
+
+    private static Object[] captureCompanionBallisticScratch(Class<?> combatType) throws ReflectiveOperationException {
+        Object[] captured = new Object[6];
+        String[] names = { "ballisticsStartPosition", "ballisticsEndPosition", "ballisticsDirectionVector" };
+        for (int index = 0; index < names.length; index++) {
+            var field = combatType.getDeclaredField(names[index]);
+            field.setAccessible(true);
+            Object vector = field.get(null);
+            Class<?> type = vector.getClass();
+            captured[index * 2] = vector;
+            captured[index * 2 + 1] = new float[] { type.getField("x").getFloat(vector),
+                    type.getField("y").getFloat(vector), type.getField("z").getFloat(vector) };
+        }
+        return captured;
+    }
+
+    private static void restoreCompanionBallisticScratch(Object[] captured) throws ReflectiveOperationException {
+        if (captured == null) return;
+        for (int index = 0; index < captured.length; index += 2) {
+            restoreCompanionBallisticReticle(new Object[] { captured[index], captured[index + 1] });
+        }
     }
 
     /**

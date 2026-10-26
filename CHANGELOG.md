@@ -2,6 +2,21 @@
 
 # Changelog
 
+## 0.26.69 - Bandits compatibility, companion shooting and storage controls
+
+- Right-click a marked container and choose Base life → Unmark storage. Only its camp registration is removed; the container and items stay in place. Jobs still using it explain why removal must wait.
+- Added optional Bandits2 core integration for 42.21.0 single-player. LF characters have distinct Bandits identities, appear in its derived targeting list and use the human-threat lane while preserving combat orders and household pursuit limits. Native player slots and each mod's actor ownership remain unchanged.
+- Bandits' original damage models deliver wounds to the exact LF victim, preserving armor, timing and wound behavior. Its existing shared hostility and witness APIs handle retaliation. Options can disable combat integration; Support reports activation or missing interfaces.
+- Hardened resets, late initialization and changing interfaces. Retired wrappers and callbacks cannot rejoin a new world, malformed lists and wounds fail safely, and stale hostility no longer triggers retreat. A bounded watchdog retries missing interfaces without replacing another mod's hooks.
+- Human combat now carries protected bystanders into both ranged and melee lane checks, including neutral Bandits. Party protection reads the registry's record snapshot correctly.
+- Fixed companion firearms using a human player's ballistic aim point or another character's muzzle context. Shots now supply the companion's own aim input to the original native collision, with scoped cleanup and unchanged hit rolls and damage. A released ballistic controller cannot be overwritten by an old shot's cleanup.
+- Standing targets use native chest height for the physical aim ray, fixing further misses at walking zombies. This also works in ordinary LF combat with Bandits absent; prone targets keep low aim.
+- Hold Fire also blocks shots at hostile humans and retains close shove defense. Native firearm dispatch checks the order again before starting an attack.
+- Native removal immediately excludes an LF actor from Bandits lookup, targeting and damage, even before its registry and square references are cleared.
+- Retired alias lookups cannot fall through another mod's default-player fallback. Retained damage hooks preserve fresh wrapper chains while refusing standalone LF wounds outside a current routing scope.
+- See [compatibility details](docs/compatibility-bandits2.md) and the [validation record](docs/validation-bandits2.md) for completed checks and remaining live acceptance. No Bandits code is packaged and no save schema changes are required.
+- Ships the matching Lua and rebuilt native bridge. Protocol remains `42.21-isocompanion-24`, targeting Project Zomboid 42.21.0. Full Bandits live acceptance and driving return safety remain open; the reported persistent isometric moonwalking has not been reproduced or fixed.
+
 ## 0.26.68 - Preserve live expedition path searches
 
 - Expeditions allow an active ordered-move path search to finish within the existing thirty-second waypoint limit. The eight-second movement watchdog no longer repeatedly discards its search after the car parks. Ordinary movement stalls retain their existing recovery, and unrelated planners receive no exemption.

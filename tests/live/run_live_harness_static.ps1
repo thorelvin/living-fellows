@@ -20,6 +20,8 @@ $ArthurPackProbe = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\cl
 $SmokerProbe = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCOddballSmokerProbe.lua'
 $MilliProbe = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCMilliLiveProbe.lua'
 $DrivingLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCDrivingProbe.lua'
+$FollowRoadLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCFollowRoadProbe.lua'
+$FacingLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCFacingProbe.lua'
 $SixSeatLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCSixSeatProbe.lua'
 $SquadCombatLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCSquadCombatLiveProbe.lua'
 $FarmCorridorLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCFarmCorridorProbe.lua'
@@ -30,6 +32,15 @@ $BaseAlertLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\clien
 $ViewCutawayLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCViewCutawayProbe.lua'
 $NormalKitchenLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCNormalExpeditionKitchenProbe.lua'
 $WoodExpeditionLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCWoodExpeditionProbe.lua'
+$BanditsAdapterLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCBanditsAdapterProbe.lua'
+$BanditsCombatLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCBanditsCombatAcceptance.lua'
+$BanditsCloseLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCBanditsCloseCombatAcceptance.lua'
+$BanditsLifecycleLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCBanditsLifecycleAcceptance.lua'
+$BanditsArmorLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCBanditsArmorEvidence.lua'
+$BanditsVehicleLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCBanditsVehicleAcceptance.lua'
+$BanditsLaneLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCBanditsProtectedLaneAcceptance.lua'
+$BanditsVehicleFireLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCBanditsVehicleFireEvidence.lua'
+$BanditsWallLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCBanditsWallAcceptance.lua'
 $Shared = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\shared'
 $Client = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\client'
 
@@ -44,8 +55,28 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Live harness Lua compiler build failed.' }
     Push-Location -LiteralPath $GameRoot
     try {
-        & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $Lua $DrivingLua $SixSeatLua $SquadCombatLua $FarmCorridorLua $WaterSourceLua $UpstairsHaulLua $FloorSortLua $BaseAlertLua $ViewCutawayLua $NormalKitchenLua $WoodExpeditionLua
+        & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $Lua $DrivingLua $FollowRoadLua $FacingLua $SixSeatLua $SquadCombatLua $FarmCorridorLua $WaterSourceLua $UpstairsHaulLua $FloorSortLua $BaseAlertLua $ViewCutawayLua $NormalKitchenLua $WoodExpeditionLua $BanditsAdapterLua $BanditsCombatLua
         if ($LASTEXITCODE -ne 0) { throw 'Live harness Kahlua compilation failed.' }
+        & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $BanditsCloseLua $BanditsLifecycleLua $BanditsArmorLua $BanditsVehicleLua $BanditsLaneLua $BanditsVehicleFireLua $BanditsWallLua
+        if ($LASTEXITCODE -ne 0) { throw 'Bandits close-combat probe compilation failed.' }
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner $BanditsCombatLua $BanditsCloseLua (Join-Path $TestRoot 'bandits_close_observer_regression.lua')
+        if ($LASTEXITCODE -ne 0) { throw 'Bandits close-combat observer regression failed.' }
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner $BanditsCombatLua (Join-Path $TestRoot 'bandits_combat_evidence_regression.lua')
+        if ($LASTEXITCODE -ne 0) { throw 'Bandits live combat evidence regression failed.' }
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner $BanditsCombatLua (Join-Path $TestRoot 'bandits_firearm_observer_regression.lua')
+        if ($LASTEXITCODE -ne 0) { throw 'Bandits native-shot observer regression failed.' }
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner $BanditsCombatLua $BanditsArmorLua (Join-Path $TestRoot 'bandits_armor_evidence_regression.lua')
+        if ($LASTEXITCODE -ne 0) { throw 'Bandits native armor evidence regression failed.' }
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner $BanditsCombatLua $BanditsCloseLua $BanditsVehicleLua (Join-Path $TestRoot 'bandits_vehicle_evidence_regression.lua')
+        if ($LASTEXITCODE -ne 0) { throw 'Bandits native vehicle evidence regression failed.' }
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner $BanditsCombatLua $BanditsLaneLua (Join-Path $TestRoot 'bandits_protected_lane_regression.lua')
+        if ($LASTEXITCODE -ne 0) { throw 'Bandits protected firing-lane evidence regression failed.' }
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner $BanditsCombatLua $BanditsVehicleFireLua (Join-Path $TestRoot 'bandits_vehicle_fire_regression.lua')
+        if ($LASTEXITCODE -ne 0) { throw 'Bandits vehicle bullet evidence regression failed.' }
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner $BanditsCombatLua $BanditsWallLua (Join-Path $TestRoot 'bandits_wall_scene_regression.lua')
+        if ($LASTEXITCODE -ne 0) { throw 'Bandits native wall scene regression failed.' }
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner $BanditsCombatLua $FacingLua (Join-Path $TestRoot 'facing_observer_regression.lua')
+        if ($LASTEXITCODE -ne 0) { throw 'Native facing observer regression failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner $ViewCutawayLua (Join-Path $TestRoot 'view_cutaway_probe_regression_harness.lua')
         if ($LASTEXITCODE -ne 0) { throw 'View cutaway live probe regression failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner $NormalKitchenLua (Join-Path $TestRoot 'normal_expedition_kitchen_regression_harness.lua')

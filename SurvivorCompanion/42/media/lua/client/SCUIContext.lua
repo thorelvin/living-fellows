@@ -895,6 +895,8 @@ local function baseAction(target, action, payload, player)
         end
     elseif action == "storage" then
         ok, result = SC.BaseLife.registerStorage(payload.object, payload.category)
+    elseif action == "storage_remove" then
+        ok, result = SC.BaseLife.removeStorage(payload.id)
     elseif action == "clean" then
         ok, result = SC.BaseLife.requestCleaning(payload.square)
     elseif action == "maintenance" then
@@ -1037,6 +1039,27 @@ local function removeZoneFromContext(_, zone, player)
     end
 end
 
+local function storageForObject(object)
+    if not object or not SC.BaseLife
+        or type(SC.BaseLife.storageRows) ~= "function"
+        or type(SC.BaseLife.resolveObject) ~= "function" then return nil end
+    for _, storage in ipairs(SC.BaseLife.storageRows()) do
+        -- Coordinates and a mutable object index can refer to another
+        -- container. Only the registered object's identity may offer removal.
+        if SC.BaseLife.resolveObject(storage) == object then return storage end
+    end
+end
+
+local function removeStorageFromContext(_, storage, player)
+    if type(storage) ~= "table" or not storage.id then return end
+    local execute = function()
+        baseAction(nil, "storage_remove", { id = storage.id }, player)
+    end
+    if SC.UI and type(SC.UI.confirmBaseAction) == "function" then
+        SC.UI.confirmBaseAction(text("UI_SC_Base_RemoveStorageConfirm"), execute)
+    end
+end
+
 -- Abandoning is how a camp moves: once it is gone, "Set camp core here"
 -- returns to the menu. Always confirmed first.
 local function abandonBaseFromContext(_, player)
@@ -1112,7 +1135,8 @@ end
 
 local function addBaseMenu(context, square, containerTarget, barricadeTarget, player)
     if not square or not SC.BaseLife then return false end
-    if not baseMenuRelevant(square) then return false end
+    local storage = storageForObject(containerTarget)
+    if not baseMenuRelevant(square) and not storage then return false end
     local rootOption = context:addOption(text("UI_SC_Context_BaseLife"), nil, nil)
     local menu = ISContextMenu:getNew(context)
     context:addSubMenu(rootOption, menu)
@@ -1219,6 +1243,10 @@ local function addBaseMenu(context, square, containerTarget, barricadeTarget, pl
             storageMenu:addOption(text("UI_SC_Base_Storage_" .. category), nil, baseAction,
                 "storage", { object = containerTarget, category = category }, player)
         end
+    end
+    if storage then
+        menu:addOption(text("UI_SC_Base_UnmarkStorage"), nil,
+            removeStorageFromContext, storage, player)
     end
     if inside and barricadeTarget then
         menu:addOption(text("UI_SC_Base_MaintainBarricade"), nil, baseAction, "maintenance",
@@ -1799,7 +1827,7 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
     local sealedDoorGroup = SC.Oddballs
         and type(SC.Oddballs.sealedDoorGroup) == "function"
         and SC.Oddballs.sealedDoorGroup(door, player) or nil
-    local baseRelevant = baseMenuRelevant(clickSquare)
+    local baseRelevant = baseMenuRelevant(clickSquare) or storageForObject(containerTarget) ~= nil
     local watchStatus = SC.ViewControl and type(SC.ViewControl.status) == "function"
         and SC.ViewControl.status() or {}
     if #rows == 0 and #factions == 0 and #oddballs == 0 and not baseRelevant

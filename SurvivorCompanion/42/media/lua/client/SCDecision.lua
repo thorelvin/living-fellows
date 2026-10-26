@@ -604,6 +604,7 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
     end
     local humanThreat = type(snapshot) == "table" and snapshot.humanThreat or nil
     if threatCount > 0 or humanThreat then
+        local humanUrgent = humanThreat and humanThreat.visible == true
         local combatScore = 72 + immediate * 17
             + Decision._engagementPressure(snapshot) * 5
         local doctrine = commands.combatDoctrine
@@ -621,6 +622,12 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         end
         if humanThreat and threatCount == 0 then
             combatScore = humanThreat.visible == true and 106 or 84
+            if humanThreat.external == "bandits2" and doctrine ~= "weapons_free" then
+                humanUrgent = U().distance(actor, humanThreat.actor) <= 6
+                    or SC.BanditsAdapter.isAttacking(humanThreat.actor, actor)
+                    or commands.recruited and SC.BanditsAdapter.isAttacking(humanThreat.actor, player)
+                if not humanUrgent then combatScore = 28 end
+            end
         end
         -- Critical health still makes real danger urgent, even when there is no
         -- wound medicine can treat. Combat retains its health-aware retreat logic.
@@ -641,7 +648,7 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         end
         add("combat", combatScore,
             assessment.critical or immediate > 0 or snapshot.encircled
-                or humanThreat and humanThreat.visible == true,
+                or humanUrgent,
             threatCount == 0 and humanThreat and {
                 mode = "human_hostile",
                 targetId = humanThreat.id,
@@ -2050,10 +2057,16 @@ local function delegate(candidate, actor, player, rootRuntime, commands, snapsho
         if type(candidate.detail) == "table" and candidate.detail.humanThreat
             and SC.FactionBehavior
             and type(SC.FactionBehavior.updateHumanCombat) == "function" then
-            return callSubsystem("human-combat", actor, function()
+            local handled, reason = callSubsystem("human-combat", actor, function()
                 return SC.FactionBehavior.updateHumanCombat(actor, player, rootRuntime,
-                    candidate.detail.humanThreat)
+                    candidate.detail.humanThreat, snapshot)
             end)
+            if not handled and reason == "hold_fire" and commands.holdFire == true
+                and commands.order == "move_to" and snapshot.encircled ~= true
+                and (tonumber(snapshot.immediateCount) or #(snapshot.immediateAttackers or {})) == 0 then
+                return doTactical(actor, player, rootRuntime, commands, snapshot, state)
+            end
+            return handled, reason
         end
         if not SC.Combat or type(SC.Combat.update) ~= "function" then return false, "combat_unavailable" end
         return callSubsystem("combat", actor, function() return SC.Combat.update(actor, player, rootRuntime) end)
@@ -2987,6 +3000,10 @@ end
 Decision._holdOwnedActivityOrPacingForTests = holdOwnedActivityOrPacing
 
 local function chooseHumanThreat(actor, player, external, faction)
+    if external and external.external == "bandits2" and (not SC.BanditsAdapter
+        or SC.BanditsAdapter.relationship(external.actor, actor) ~= "hostile") then
+        external = nil
+    end
     if external and external.external == "project_alife"
         and not U().isALifeHostileToParty(external.actor, player, actor) then
         external = nil
@@ -3052,6 +3069,8 @@ function Decision.update(actor, player, runtime, roundTimestamp)
         local externalThreat = snapshot.humanThreat
         snapshot.humanThreat = chooseHumanThreat(actor, player,
             externalThreat, ok and humanThreat or nil)
+    elseif snapshot.humanThreat and snapshot.humanThreat.external == "bandits2" then
+        snapshot.humanThreat = chooseHumanThreat(actor, player, snapshot.humanThreat, nil)
     else
         snapshot.humanThreat = nil
     end

@@ -540,7 +540,37 @@ local function quickOwnFact(value)
         canSee = value:match("visibilityRawCanSee=([a-z]+)") == "true",
         couldSee = value:match("visibilityRawCouldSee=([a-z]+)") == "true", detail = value }
 end
+function Probe.banditsViewState(H, fixture, label)
+    if not H.config or H.config.bandits_enabled ~= "true" then return true end
+    local SC = SurvivorCompanion
+    if not SC.BanditsAdapter or not SC.BanditsAdapter.status().active then return false, "adapter inactive" end
+    local list, seen, primaryCount, leaderCount = BanditPlayer.GetPlayers(), {}, 0, 0
+    for index = 0, list:size() - 1 do
+        local actor = list:get(index)
+        if actor == nil then return false, "nil actor in Bandits player list" end
+        if seen[actor] then return false, "duplicate native actor in Bandits player list" end
+        seen[actor] = true
+        if actor == H.player then primaryCount = primaryCount + 1 end
+        if fixture.leader and actor == fixture.leader.actor then leaderCount = leaderCount + 1 end
+    end
+    if primaryCount ~= 1 or BanditUtils.GetCharacterID(H.player) ~= 1
+        or BanditPlayer.GetPlayerById(1) ~= H.player then return false, "Bandits main-player identity changed" end
+    if fixture.leader then
+        local alias = "lf:" .. fixture.leader.id
+        if BanditUtils.GetCharacterID(fixture.leader.actor) ~= alias then return false, "view leader impersonates real player" end
+        if fixture.closedAt and fixture.visibility and fixture.visibility.done
+            and (leaderCount ~= 1 or BanditPlayer.GetPlayerById(alias) ~= fixture.leader.actor) then
+            return false, "solo return lost living leader alias"
+        end
+    end
+    fixture.banditsSamples = (fixture.banditsSamples or 0) + 1
+    print("SC_REAL_SANDBOX|VIEW_BANDITS_IDENTITY|label=" .. label .. "|samples=" .. fixture.banditsSamples
+        .. "|primary_count=" .. primaryCount .. "|leader_count=" .. leaderCount .. "|duplicates=false")
+    return true
+end
 local function quickCapture(H, fixture, label, png)
+    local banditsOkay, banditsReason = Probe.banditsViewState(H, fixture, label)
+    if not banditsOkay then fixture.banditsViewFailure = banditsReason end
     local primary = point(H.player)
     local room = call(call(H.player, "getCurrentSquare"), "getRoom")
     local own = quickNative(primary)
@@ -743,6 +773,8 @@ local function quickStep(H, current, check, result, setPhase)
     if H.phase == "view_cutaway_setup" then return quickSetup(H, current, check, result, setPhase) end
     local SC, fixture = SurvivorCompanion, H.viewCutaway
     if not fixture or not fixture.quick then result("FAIL", "view_quick_fixture", "missing quick fixture") setPhase("finish", current) return end
+    if fixture.banditsViewFailure then return quickFail(H, fixture, current, result, setPhase,
+        "view_quick_bandits_identity", fixture.banditsViewFailure) end
     fixture.latestStepAt = current
     if current - fixture.startedAt > 180000 then return quickFail(H, fixture, current, result, setPhase,
         "view_quick_deadline", "180s total bound; no view reset, actor relocation or native state forcing") end

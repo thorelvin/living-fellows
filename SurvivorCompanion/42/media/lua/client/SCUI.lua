@@ -372,6 +372,11 @@ end
 -- humanized rather than printed raw, so no internal reason reaches the player.
 function UI.baseFailureReason(reason)
     if type(reason) ~= "string" then return UI.humanize(tostring(reason)) end
+    if reason == "sort_cargo_uses_storage" or reason == "work_order_uses_storage"
+        or reason == "work_receipt_uses_storage" or reason == "farm_receipt_uses_storage"
+        or reason == "production_order_uses_storage" then
+        return UI.text("UI_SC_Base_Reason_storage_in_use")
+    end
     local known = {
         room_unavailable = true,
         room_out_of_reach = true,

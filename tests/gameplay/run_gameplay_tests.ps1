@@ -32,6 +32,7 @@ $LuaFiles = @(
 )
 $LuaFiles += @(
     'SCGameplayUtil.lua',
+    'SCBanditsAdapter.lua',
     'SCNames.lua',
     'SCInventoryIndex.lua',
     'SCVitalsTrace.lua',

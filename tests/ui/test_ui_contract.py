@@ -531,7 +531,7 @@ class UIStaticContractTests(unittest.TestCase):
             self.context,
             "local function addBaseMenu(context, square, containerTarget, barricadeTarget, player)",
         )
-        self.assertIn("if not baseMenuRelevant(square) then return false end", base)
+        self.assertIn("if not baseMenuRelevant(square) and not storage then return false end", base)
         self.assertIn("if inside then", base)
         button = lua_function(self.ui, "local function onCommandButton(target, button)")
         self.assertIn('button.scCommand == "dismiss"', button)

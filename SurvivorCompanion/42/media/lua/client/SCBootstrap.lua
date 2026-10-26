@@ -27,6 +27,7 @@ require "SCVehicle"
 require "SCSpawn"
 
 require "SCGameplayUtil"
+require "SCBanditsAdapter"
 require "SCVitalsTrace"
 require "SCBaseObjectRef"
 require "SCTopology"

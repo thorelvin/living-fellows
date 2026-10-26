@@ -1073,6 +1073,125 @@ do
     end
 
     local alifeNpc = zombie(4, 1, {})
+    local banditNpc = zombie(4, 3, {})
+    local savedBanditVariable = banditNpc.getVariableBoolean
+    function banditNpc:getVariableBoolean(key)
+        if key == "Bandit" then return true end
+        return savedBanditVariable and savedBanditVariable(self, key) or false
+    end
+    local banditIgnored = Targeting.consider(banditNpc, closeCompanion)
+    check(SurvivorCompanion.GameplayUtil.isBanditsNpc(banditNpc)
+        and not SurvivorCompanion.GameplayUtil.isZombie(banditNpc)
+        and not SurvivorCompanion.Senses._isActiveZombieForTests(banditNpc)
+        and not banditIgnored and banditNpc.spottedCalls == nil,
+        "Bandits are excluded from both perception and zombie steering even before their brain is ready")
+    local adapter = SurvivorCompanion.BanditsAdapter
+    local originalRelation = adapter.relationship
+    adapter.relationship = function() return "hostile" end
+    local _, _, human = SurvivorCompanion.Senses._collectRelationshipsForTests(closeCompanion, player,
+        { [banditNpc] = clock }, clock)
+    check(human and human.actor == banditNpc and human.external == "bandits2",
+        "Bandits enter the production human threat lane")
+    adapter.relationship = function() return "neutral" end
+    local alliesB, protectedB, neutralHuman = SurvivorCompanion.Senses._collectRelationshipsForTests(
+        closeCompanion, player, { [banditNpc] = clock }, clock)
+    local protectedBandit, alliedBandit = false, false
+    for _, row in ipairs(protectedB) do if row.actor == banditNpc then protectedBandit = true end end
+    for _, row in ipairs(alliesB) do if row.actor == banditNpc then alliedBandit = true end end
+    check(protectedBandit and not alliedBandit and not neutralHuman,
+        "neutral Bandits block friendly fire without becoming party allies")
+    check(SurvivorCompanion.Decision._chooseHumanThreatForTests(closeCompanion, player, human, nil) == nil,
+        "a stale Bandits contact is rejected after hostility ends")
+    do
+        local SC = SurvivorCompanion
+        local oldPeek, oldAffiliation = SC.Commands.peek, SC.Factions.affiliation
+        local oldRequest, oldEscape = SC.Navigation.request, SC.Combat.sharedRetreatTarget
+        local doctrine, requested, holdFire = "weapons_free", nil, false
+        local home = makeSquare(math.floor(closeCompanion:getX()) + 4,
+            math.floor(closeCompanion:getY()) + 4, 0)
+        local group = { id = "bandits-household-test", members = {},
+            house = { anchor = home, bounds = { x1 = home.x - 2, x2 = home.x + 2,
+                y1 = home.y - 2, y2 = home.y + 2, z = 0 } } }
+        SC.Commands.peek = function(actor)
+            if actor == closeCompanion then return { recruited = false, combatDoctrine = doctrine, holdFire = holdFire } end
+            return oldPeek(actor)
+        end
+        SC.Factions.affiliation = function(actor)
+            if actor == closeCompanion then return { group = group } end
+            return oldAffiliation(actor)
+        end
+        SC.Navigation.request = function(actor, target, mode, intent)
+            requested = { target = target, intent = intent }
+            return true, intent.action
+        end
+        adapter.relationship = function() return "hostile" end
+        local handled = SC.FactionBehavior.updateHumanCombat(closeCompanion, player, {}, {
+            actor = banditNpc, external = "bandits2", visible = false, x = home.x + 100,
+            y = home.y + 100, z = 0,
+        }, {})
+        check(handled and requested and requested.intent.action == "faction_break_pursuit"
+            and requested.intent.cohortKey == "faction:" .. group.id,
+            "an independent household does not pursue a last-seen Bandit beyond its territory leash")
+        doctrine, requested = "stealth", nil
+        SC.Combat.sharedRetreatTarget = function() return home end
+        handled = SC.FactionBehavior.updateHumanCombat(closeCompanion, player, {}, human, {})
+        check(handled and requested and requested.intent.action == "human_threat_retreat",
+            "a non-recruited character preserves its retreat doctrine against a hostile Bandit")
+        adapter.relationship = function() return "neutral" end
+        requested = nil
+        local staleHandled, staleReason = SC.FactionBehavior.updateHumanCombat(closeCompanion, player, {}, human, {})
+        check(not staleHandled and staleReason == "human_hostility_ended" and requested == nil,
+            "a stale Bandits contact cannot trigger retreat after hostility ends")
+        local bx = (closeCompanion:getX() + banditNpc:getX()) / 2
+        local by = (closeCompanion:getY() + banditNpc:getY()) / 2
+        local bystander = zombie(math.floor(bx), math.floor(by), {})
+        function bystander:getX() return bx end
+        function bystander:getY() return by end
+        function bystander:getVariableBoolean(key) return key == "Bandit" end
+        adapter.relationship = function(candidate) return candidate == banditNpc and "hostile" or "neutral" end
+        doctrine = "weapons_free"
+        local savedPrimary, savedRange = closeCompanion.getPrimaryHandItem, SC.Combat.meleeRange
+        SC.Combat.meleeRange = function() return 0, 10 end
+        for _, ranged in ipairs({ false, true }) do
+            local weapon = { isRanged = function() return ranged end }
+            closeCompanion.getPrimaryHandItem = function() return weapon end
+            local laneHandled, laneReason = SC.FactionBehavior.updateHumanCombat(closeCompanion, nil, {}, human, {
+                protectedActors = { { actor = bystander, relationship = "neutral" } },
+            })
+            check(laneHandled and laneReason == "friendly_in_attack_lane",
+                "human combat preserves neutral Bandits in the " .. (ranged and "ranged" or "melee") .. " firing lane")
+        end
+        holdFire = true
+        local held, heldReason = SC.FactionBehavior.updateHumanCombat(closeCompanion, nil, {}, human, {})
+        check(not held and heldReason == "hold_fire",
+            "Hold Fire blocks a loaded firearm against a hostile human even with Weapons Free doctrine")
+        closeCompanion.getPrimaryHandItem = function() return { isRanged = function() return false end } end
+        local meleeHeld, meleeReason = SC.FactionBehavior.updateHumanCombat(closeCompanion, nil, {}, human, {
+            protectedActors = { { actor = bystander, relationship = "neutral" } },
+        })
+        check(meleeHeld and meleeReason == "friendly_in_attack_lane",
+            "Hold Fire retains melee defense and its protected-bystander check")
+        local oldMove, oldX, oldY = SC.GameplayUtil.move, banditNpc.getX, banditNpc.getY
+        local defense
+        SC.GameplayUtil.move = function(_, _, intent) defense = intent.action return true, intent.action end
+        banditNpc.getX = function() return closeCompanion:getX() + 0.8 end
+        banditNpc.getY = function() return closeCompanion:getY() end
+        closeCompanion.getPrimaryHandItem = function() return { isRanged = function() return true end } end
+        local closeHeld = SC.FactionBehavior.updateHumanCombat(closeCompanion, nil, {}, human, {})
+        check(closeHeld and defense == "shove",
+            "a companion holding a loaded gun can still shove an immediate human attacker under Hold Fire")
+        SC.GameplayUtil.move, banditNpc.getX, banditNpc.getY = oldMove, oldX, oldY
+        closeCompanion.getPrimaryHandItem, SC.Combat.meleeRange = savedPrimary, savedRange
+        for index = #bystander.square.moving, 1, -1 do
+            if bystander.square.moving[index] == bystander then table.remove(bystander.square.moving, index) end
+        end
+        SC.Commands.peek, SC.Factions.affiliation = oldPeek, oldAffiliation
+        SC.Navigation.request, SC.Combat.sharedRetreatTarget = oldRequest, oldEscape
+    end
+    adapter.relationship = originalRelation
+    for index = #banditNpc.square.moving, 1, -1 do
+        if banditNpc.square.moving[index] == banditNpc then table.remove(banditNpc.square.moving, index) end
+    end
     alifeNpc.modData.ProjectALifeOwned = true
     alifeNpc.modData.ProjectALifeUID = "playtest-alife-npc"
     local ignoredNpc, ignoredNpcReason = Targeting.consider(alifeNpc, closeCompanion)

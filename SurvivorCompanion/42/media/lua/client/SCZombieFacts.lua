@@ -65,6 +65,9 @@ end
 
 function ZombieFacts.get(zombie)
     if zombie == nil then return ABSENT end
+    -- A shell can become a Bandit during the same frame as a cached zombie
+    -- observation. Its new owner takes effect before any bite/steering reuse.
+    if SC.GameplayUtil and SC.GameplayUtil.isExternalHuman(zombie) then return ABSENT end
     local runtime = SC.Runtime
     local frame = runtime and type(runtime.frameSerial) == "function"
         and runtime.frameSerial() or nil

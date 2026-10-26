@@ -13771,6 +13771,17 @@ local function closeEntryWindows(tag)
                 local name = tostring(el)
                 local simple = shortUiName(name)
                 seen[#seen + 1] = simple
+                if (Harness.config.bandits_adapter_probe == "true" or Harness.config.bandits_enabled == "true")
+                    and (simple == "ISPanelJoypad" or simple == "ISModalRichText") then
+                    local okay, panel = pcall(function()
+                        return type(el) == "table" and el or el:getTable()
+                    end)
+                    if okay and type(panel) == "table" and type(panel.text) == "string"
+                        and string.find(panel.text, "Bandit Automated Tests Results", 1, true)
+                        and type(panel.destroy) == "function" and el:isVisible() then
+                        targets[#targets + 1] = { element = el, name = "BanditsStartupReport", panel = panel }
+                    end
+                end
                 if not ENTRY_HUD_BASELINE[simple] then
                     novel[#novel + 1] = simple
                     local lower = string.lower(name)
@@ -13787,7 +13798,9 @@ local function closeEntryWindows(tag)
     end)
     local closed = {}
     for _, entry in ipairs(targets) do
-        local hidden = pcall(function() entry.element:setVisible(false) end)
+        local hidden = pcall(function()
+            if entry.panel then entry.panel:destroy() else entry.element:setVisible(false) end
+        end)
         if hidden then closed[#closed + 1] = entry.name end
     end
     -- Only log when something non-HUD is on screen (or when explicitly tagged), so
@@ -15776,6 +15789,13 @@ end
 Harness.probeWoodExpedition = function(...)
     return externalProbe("SCWoodExpeditionProbe", ...)
 end
+Harness.probeBanditsAdapter = function(...)
+    return externalProbe(Harness.config.companion_firearms_probe == "true"
+        and "SCBanditsCombatAcceptance" or "SCBanditsAdapterProbe", ...)
+end
+Harness.probeCompanionFacing = function(...)
+    return externalProbe("SCFacingProbe", ...)
+end
 
 Harness.probeMedicalCheck = function(...)
     return externalProbe("SCMedicalCheckProbe", ...)
@@ -16357,6 +16377,11 @@ local function tick()
         Harness.probeViewCutaway(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "normal_kitchen_", 1, true) == 1 then
         Harness.probeNormalExpeditionKitchen(Harness, current, check, result, setPhase)
+    elseif Harness.phase == "companion_facing_probe" then
+        Harness.probeCompanionFacing(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "bandits_adapter_", 1, true) == 1
+        or Harness.phase == "companion_firearms_probe" then
+        Harness.probeBanditsAdapter(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "wood_expedition_", 1, true) == 1 then
         Harness.probeWoodExpedition(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "hygiene_", 1, true) == 1 then
@@ -17220,7 +17245,13 @@ local function onGameStart()
         finish()
         return
     end
-    if Harness.config.wood_expedition_probe == "true" then
+    if Harness.config.companion_facing_probe == "true" then
+        setPhase("companion_facing_probe", Harness.startedAt)
+    elseif Harness.config.companion_firearms_probe == "true" then
+        setPhase("companion_firearms_probe", Harness.startedAt)
+    elseif Harness.config.bandits_adapter_probe == "true" then
+        setPhase("bandits_adapter_setup", Harness.startedAt)
+    elseif Harness.config.wood_expedition_probe == "true" then
         setPhase("wood_expedition_setup", Harness.startedAt)
     elseif Harness.config.normal_expedition_kitchen_probe == "true" then
         setPhase("normal_kitchen_setup", Harness.startedAt)

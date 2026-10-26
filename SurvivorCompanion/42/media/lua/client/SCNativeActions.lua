@@ -3487,6 +3487,14 @@ local function attack(actor, action, intent, provider)
     if attackTargetDead(target) then
         return false, "attack target is dead"
     end
+    if action == "attack_firearm" and SC.Commands and type(SC.Commands.peek) == "function" then
+        local commands = SC.Commands.peek(actor)
+        if type(commands) == "table" and commands.holdFire == true then return false, "hold_fire" end
+    end
+    if SC.BanditsAdapter and SC.BanditsAdapter.owns(target)
+        and SC.BanditsAdapter.relationship(target, actor) ~= "hostile" then
+        return false, "bandits_target_not_hostile"
+    end
     -- Acquire stationary combat ownership before any range/equip/model check.
     -- A failed or completed swing must never revive a retained approach vector.
     if not actions.holdCombatPosition(actor) then

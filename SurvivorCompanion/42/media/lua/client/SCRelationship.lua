@@ -612,6 +612,7 @@ local doingLabels = {
     collision_recovery = "finding a clear step",
     combat_approach = "closing on a threat",
     combat_retreat = "falling back",
+    human_threat_retreat = "falling back from armed people",
     conversation_approach = "coming over to talk",
     conversation_pose = "talking",
     copy_player_posture = "matching your posture",

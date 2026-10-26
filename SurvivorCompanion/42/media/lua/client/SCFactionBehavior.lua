@@ -104,6 +104,13 @@ local function territoryDistance(group, value)
     return math.sqrt(dx * dx + dy * dy)
 end
 
+local function pursuitLeash(group)
+    return group and group.archetype == "bandit_camp"
+        and (tonumber(SC.Config.get("banditFactionPursuitLeash")) or 24)
+        or group and type(group.oddball) == "table" and 20
+        or (tonumber(SC.Config.get("factionPursuitLeash")) or 15)
+end
+
 local function speaker(group)
     local fallback
     for _, member in ipairs(group.members or {}) do
@@ -377,7 +384,11 @@ function Behavior.fortifyOddball(actor, group)
     return fortify(actor, group, stateFor(actor))
 end
 
-local function friendlyInLine(actor, target, group, player, kind)
+local function friendlyInLine(actor, target, group, player, kind, snapshot)
+    if snapshot == nil and SC.Registry and type(SC.Registry.byId) == "function" then
+        local record = SC.Registry.byId(U().idOf(actor))
+        snapshot = record and type(record.runtime) == "table" and record.runtime.snapshot or nil
+    end
     local allies = {}
     if group then
         for _, member in ipairs(group.members or {}) do
@@ -389,9 +400,10 @@ local function friendlyInLine(actor, target, group, player, kind)
         end
     else
         if player and player ~= actor then allies[#allies + 1] = player end
-        if SC.Registry and type(SC.Registry.living) == "function" then
-            for _, record in ipairs(SC.Registry.living() or {}) do
-                if record.recruited == true and record.actor and record.actor ~= actor then
+        if SC.Registry and type(SC.Registry.snapshot) == "function" then
+            for _, record in ipairs(SC.Registry.snapshot() or {}) do
+                if record.recruited == true and record.actor ~= actor
+                    and U().isValidActor(record.actor) then
                     allies[#allies + 1] = record.actor
                 end
             end
@@ -399,7 +411,7 @@ local function friendlyInLine(actor, target, group, player, kind)
     end
     return SC.Combat and type(SC.Combat.friendlyFireBlocked) == "function"
         and SC.Combat.friendlyFireBlocked(actor, target, {
-            player = player, allies = allies, kind = kind or "ranged",
+            player = player, allies = allies, snapshot = snapshot, kind = kind or "ranged",
         }) == true
 end
 
@@ -451,12 +463,9 @@ local function approachHostile(actor, target, swingMax, group)
     return false, "hostile_path_unavailable"
 end
 
-local function hostile(actor, target, group, state, player)
+local function hostile(actor, target, group, state, player, snapshot, commands)
     if target == nil then return false, "hostile_target_unavailable" end
-    local leash = group and group.archetype == "bandit_camp"
-        and (tonumber(SC.Config.get("banditFactionPursuitLeash")) or 24)
-        or group and type(group.oddball) == "table" and 20
-        or (tonumber(SC.Config.get("factionPursuitLeash")) or 15)
+    local leash = pursuitLeash(group)
     if group and territoryDistance(group, target) > leash then
         local target = group.house and U().loadedSquare(group.house.anchor) or nil
         if target and SC.Navigation then
@@ -483,10 +492,22 @@ local function hostile(actor, target, group, state, player)
         local rangedValue, rangedOk = U().call(primary, "isRanged")
         ranged = rangedOk and rangedValue == true
     end
+    if ranged and type(commands) == "table" and commands.holdFire == true then
+        if not visible or distance > (tonumber(SC.Config.get("combatShoveDistance")) or 1.35) then
+            -- Let Decision continue an explicit Move here order, or hold
+            -- safely. A loaded gun must not turn Hold Fire into a melee
+            -- attack intent that the native weapon then fires anyway.
+            return false, "hold_fire"
+        end
+        primary, primaryOk, ranged = nil, false, false
+    end
     local rangedLimit = group and group.archetype == "bandit_camp"
         and (tonumber(SC.Config.get("banditFactionFirearmMaxRange")) or 8) or 12
-    if ranged and visible and distance <= rangedLimit
-        and not friendlyInLine(actor, target, group, player, "ranged") then
+    if ranged and visible and distance <= rangedLimit then
+        if friendlyInLine(actor, target, group, player, "ranged", snapshot) then
+            U().stop(actor)
+            return true, "friendly_in_attack_lane"
+        end
         return U().move(actor, "walk", {
             action = "attack_firearm", weapon = primary, target = target,
             factionCombat = true,
@@ -499,7 +520,7 @@ local function hostile(actor, target, group, state, player)
         swingMin, swingMax = SC.Combat.meleeRange(actor, primary)
     end
     if swingMax and visible and distance >= swingMin and distance <= swingMax then
-        if friendlyInLine(actor, target, group, player, "melee") then
+        if friendlyInLine(actor, target, group, player, "melee", snapshot) then
             U().stop(actor)
             return true, "friendly_in_attack_lane"
         end
@@ -509,7 +530,7 @@ local function hostile(actor, target, group, state, player)
     end
     local shoveDistance = tonumber(SC.Config.get("combatShoveDistance")) or 1.35
     if visible and distance <= shoveDistance and (not swingMin or distance < swingMin) then
-        if friendlyInLine(actor, target, group, player, "melee") then
+        if friendlyInLine(actor, target, group, player, "melee", snapshot) then
             U().stop(actor)
             return true, "friendly_in_attack_lane"
         end
@@ -1020,11 +1041,12 @@ function Behavior.update(actor, player, runtime, intent)
     return guard(actor, group, state, affiliation and affiliation.role)
 end
 
-function Behavior.updateHumanCombat(actor, player, runtime, threat)
+function Behavior.updateHumanCombat(actor, player, runtime, threat, snapshot)
     if type(threat) ~= "table" or not threat.actor then
         return false, "human_threat_unavailable"
     end
     local state = stateFor(actor)
+    local commands = SC.Commands and type(SC.Commands.peek) == "function" and SC.Commands.peek(actor) or {}
     if U().isALifeNpc(threat.actor)
         and not U().isALifeHostileToParty(threat.actor, player, actor) then
         state.humanContact = nil
@@ -1035,13 +1057,39 @@ function Behavior.updateHumanCombat(actor, player, runtime, threat)
         U().stop(actor)
         return false, "human_hostility_ended"
     end
+    if threat.external == "bandits2" then
+        local doctrine = commands.combatDoctrine or (commands.holdFire and "stealth") or "close_defense"
+        local health = U().nativeHealth(actor)
+        if doctrine == "stealth" or (type(health) == "number" and health < 35) then
+            local escape = SC.Combat and SC.Combat.sharedRetreatTarget(actor, player, snapshot, threat)
+            if escape and SC.Navigation then
+                return SC.Navigation.request(actor, escape, "jog", {
+                    action = "human_threat_retreat", seekOpenEscape = true,
+                })
+            end
+            U().stop(actor)
+            return true, "human_retreat_position_unavailable"
+        end
+        if doctrine == "close_defense" and U().distance(actor, threat.actor) > 6
+            and not SC.BanditsAdapter.isAttacking(threat.actor, actor)
+            and not (commands.recruited and SC.BanditsAdapter.isAttacking(threat.actor, player)) then
+            return false, "human_outside_close_defense"
+        end
+    end
+    local group = groupFor(actor)
+    if commands.recruited then group = nil end
     if threat.visible ~= true then
+        if group and territoryDistance(group, threat) > pursuitLeash(group) then
+            state.humanContact = nil
+            return moveToStaticPosition(actor, group.house and group.house.anchor, "jog",
+                "faction_break_pursuit", group)
+        end
         local handled, reason = moveToStaticPosition(actor, threat, "jog",
-            "companion_search_hostile_last_seen")
+            "companion_search_hostile_last_seen", group)
         if reason == "search_position_reached" then state.humanContact = nil end
         return handled, reason
     end
-    return hostile(actor, threat.actor, nil, state, player)
+    return hostile(actor, threat.actor, group, state, player, snapshot, commands)
 end
 
 function Behavior.reset(actor)

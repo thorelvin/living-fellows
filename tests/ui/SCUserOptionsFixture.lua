@@ -33,6 +33,7 @@ local diskLines = {
     "combobox|SurvivorCompanion|coughSneezes|2",
     "tickbox|SurvivorCompanion|ordinaryColds|false",
     "tickbox|SurvivorCompanion|protectRecruitedCompanions|true",
+    "tickbox|SurvivorCompanion|banditsCompatibility|false",
 }
 
 function getFileReader(name)

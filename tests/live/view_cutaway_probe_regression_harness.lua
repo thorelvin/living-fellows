@@ -144,4 +144,34 @@ after.z = 0
 check(not T.excursionSafe(before, after, { z = 1 }), "fall to lower floor invalidates fixture")
 after.z, after.bleeding, after.deep = 1, 2, 2
 check(not T.excursionSafe(before, after, { z = 1 }), "new bleeding/deep wounds invalidate excursion")
+local viewProbe = SCRealSandboxHarnessProbes.SCViewCutawayProbe
+local main, leader, members, active = {}, {}, nil, true
+members = { main, leader }
+SurvivorCompanion.BanditsAdapter = { status = function() return { active = active } end }
+BanditPlayer = { GetPlayers = function() return { size = function() return #members end,
+    get = function(_, index) return members[index + 1] end } end,
+    GetPlayerById = function(id) if id == 1 then return main elseif id == "lf:sc-view" then return leader end end }
+BanditUtils = { GetCharacterID = function(actor) return actor == main and 1 or "lf:sc-view" end }
+local viewH = { player = main, config = { bandits_enabled = "true" } }
+local viewF = { leader = { actor = leader, id = "sc-view" }, closedAt = 1, visibility = { done = true } }
+check(viewProbe.banditsViewState(viewH, viewF, "unit"), "settled main and living leader aliases stay unique")
+members = { main, leader, leader }
+check(not viewProbe.banditsViewState(viewH, viewF, "unit"), "owned secondary slot must not duplicate its registry actor")
+members = { main }
+check(not viewProbe.banditsViewState(viewH, viewF, "unit"), "solo return must retain the living former leader")
+members = { main, leader }
+local lookup = BanditPlayer.GetPlayerById
+BanditPlayer.GetPlayerById = function() return leader end
+check(not viewProbe.banditsViewState(viewH, viewF, "unit"), "player ID 1 must never resolve to the companion")
+BanditPlayer.GetPlayerById = function() return main end
+check(not viewProbe.banditsViewState(viewH, viewF, "unit"), "LF alias must never fall through to the real player")
+BanditPlayer.GetPlayerById = lookup
+local identity = BanditUtils.GetCharacterID
+BanditUtils.GetCharacterID = function() return 1 end
+check(not viewProbe.banditsViewState(viewH, viewF, "unit"), "view leader must retain its LF identity")
+BanditUtils.GetCharacterID = identity
+active = false
+check(not viewProbe.banditsViewState(viewH, viewF, "unit"), "enabled but inactive adapter cannot pass the scenario")
+viewH.config.bandits_enabled = "false"
+check(viewProbe.banditsViewState(viewH, viewF, "unit"), "ordinary view controls do not require an absent dependency")
 print("View cutaway probe evidence PASS: " .. checks .. " checks; GL output still requires live run")

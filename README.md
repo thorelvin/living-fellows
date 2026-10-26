@@ -10,7 +10,7 @@
   <img src="assets/banner.png" width="100%" alt="Living Fellows: survivors walking a dusk street together">
 </p>
 
-[![Release](https://img.shields.io/badge/release-0.26.68-blue.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-0.26.69-blue.svg)](CHANGELOG.md)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.21.0-red.svg)](#requirements)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -36,6 +36,8 @@ The [Field Guide](https://thorelvin.github.io/living-fellows/) covers orders, ca
 
 Choose one installation method. Workshop and standalone copies share the same mod ID and should not be enabled together.
 
+Using Bandits2 too? See the [optional adapter's scope and test results](docs/compatibility-bandits2.md).
+
 ### Steam Workshop
 
 1. Subscribe to [ZombieBuddy](https://steamcommunity.com/sharedfiles/filedetails/?id=3619862853) **2.3.3 or newer** and complete its one-time loader setup. Subscribing alone is not enough.
@@ -55,7 +57,7 @@ This edition includes its own bridge and does not need ZombieBuddy. Keep the ext
 1. Press **Home** to open the companion panel, or click the small **LF** launcher.
 2. Meet a survivor, select them and choose **Recruit** when offered. Use **Talk** to get to know them.
 3. Set orders and combat style in **Orders**; put companions into groups in **Squad**.
-4. Right-click the ground and choose **Living Fellows → Base life → Set camp core here**. Mark storage, then assign jobs at the top of **More → Base**.
+4. Right-click the ground and choose **Living Fellows → Base life → Set camp core here**. Mark storage, then assign jobs at the top of **More → Base**. To remove a storage marking, right-click its container and choose **Base life → Unmark storage**.
 
 Hold **keypad 1** to Peek, press **keypad 2** to toggle Watch, or hold **keypad 3** to steer the selected companion toward the cursor. All three keys can be rebound. Companions, households and camp work are saved with the world, even if your character dies.
 

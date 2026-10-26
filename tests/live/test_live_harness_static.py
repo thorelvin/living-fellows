@@ -29,6 +29,8 @@ def require(condition: bool, message: str) -> None:
 
 require(re.search(r"tonumber\s*\(\s*select\s*\(", lua) is None,
         "harness must isolate a selected Java number before passing it to Kahlua tonumber")
+require("('bandits_enabled=' + ($BanditsAdapterProbe.IsPresent -or $BanditsEnabled.IsPresent).ToString().ToLowerInvariant())" in runner,
+        "non-combat Bandits scenarios must receive the same enabled flag as their run manifest")
 
 for info in (root_info, version_info):
     require("id=SCRealSandboxHarness" in info, "harness mod id must be isolated")

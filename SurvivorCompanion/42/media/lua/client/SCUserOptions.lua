@@ -20,6 +20,7 @@ local values = {
     coughSneezes = "normal",
     ordinaryColds = true,
     protectRecruitedCompanions = false,
+    banditsCompatibility = true,
 }
 
 local api = PZAPI.ModOptions
@@ -56,6 +57,8 @@ local coldOption = tickBox("ordinaryColds", "UI_SC_ModOptions_OrdinaryColds",
 local protectionOption = tickBox("protectRecruitedCompanions",
     "UI_SC_ModOptions_ProtectRecruitedCompanions", false,
     "UI_SC_ModOptions_ProtectRecruitedCompanions_Tooltip")
+local banditsOption = tickBox("banditsCompatibility", "UI_SC_ModOptions_BanditsCompatibility",
+    true, "UI_SC_ModOptions_BanditsCompatibility_Tooltip")
 
 local function selectedChoice(option, choices)
     local index = tonumber(option.selected)
@@ -90,6 +93,8 @@ function UserOptions.apply()
     values.coughSneezes = selectedChoice(coughOption, COUGH_SNEEZES)
     values.ordinaryColds = coldOption:getValue() == true
     values.protectRecruitedCompanions = protectionOption:getValue() == true
+    values.banditsCompatibility = banditsOption:getValue() == true
+    if SC.State and SC.State.active and SC.BanditsAdapter then SC.BanditsAdapter.initialize() end
     UserOptions.syncNative()
     if (priorCoughSneezes ~= values.coughSneezes
             or priorOrdinaryColds ~= values.ordinaryColds)
