@@ -1782,6 +1782,16 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
     if test ~= true then
         Context.ensureCompanionMedicalOption(context, worldObjects, player)
     end
+    -- Camp computers work with or without companions, so this runs before
+    -- the early return for menus with nothing else of ours on them.
+    if test ~= true and SC.Terminal
+        and type(SC.Terminal.fillWorldObjectContextMenu) == "function" then
+        local ok, failure = pcall(SC.Terminal.fillWorldObjectContextMenu,
+            playerIndex, context, worldObjects, player)
+        if not ok and SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
+            SC.Diagnostics.report("terminal", nil, "computer menu failed", failure)
+        end
+    end
     local memorialName = namedGraveMarker(worldObjects)
     local square, door, targetPayload, doorPayload, barricadeTarget, barricadePayload,
         containerTarget, removeBarricadeTarget, removeBarricadePayload,

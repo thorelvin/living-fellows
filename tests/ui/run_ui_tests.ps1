@@ -71,6 +71,20 @@ try {
         $storageContextFiles += Join-Path $TestRoot 'SCStorageContextTests.lua'
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @storageContextFiles
         if ($LASTEXITCODE -ne 0) { throw 'Storage context removal tests failed.' }
+        $terminalContextFiles = @($medicalContextFiles | Select-Object -SkipLast 1)
+        $terminalContextFiles += Join-Path $TestRoot 'SCTerminalContextTests.lua'
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @terminalContextFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Camp computer menu hook tests failed.' }
+        $terminalFiles = @(
+            (Join-Path $TestRoot 'SCTerminalFixture.lua'),
+            (Join-Path $Client 'SCTerminalLines.lua'),
+            (Join-Path $Client 'SCTerminalBrain.lua'),
+            (Join-Path $Client 'SCTerminalWorld.lua'),
+            (Join-Path $Client 'SCTerminal.lua'),
+            (Join-Path $TestRoot 'SCTerminalTests.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @terminalFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Camp computer terminal UI tests failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @files
         if ($LASTEXITCODE -ne 0) { throw 'UI Kahlua tests failed.' }
         $expeditionZoomFiles = @(

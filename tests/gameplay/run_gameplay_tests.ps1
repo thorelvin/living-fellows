@@ -330,6 +330,15 @@ try {
         )
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @workVoiceFiles
         if ($LASTEXITCODE -ne 0) { throw 'Expedition and work voice harness failed.' }
+        $terminalFiles = @(
+            (Join-Path $SharedRoot 'SCNamespace.lua'),
+            (Join-Path $ClientRoot 'SCTerminalLines.lua'),
+            (Join-Path $ClientRoot 'SCTerminalBrain.lua'),
+            (Join-Path $ClientRoot 'SCTerminalWorld.lua'),
+            (Join-Path $TestRoot 'terminal_harness.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @terminalFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Camp computer terminal harness failed.' }
     }
     finally {
         Pop-Location

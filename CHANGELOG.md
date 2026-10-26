@@ -15,6 +15,7 @@
 - Cornered companions defend against close or actively attacking humans when no escape is available. Stealth still avoids distant passive contacts, and Hold Fire, firing lanes and territory limits still apply.
 - Zombie classification skips native adapter ownership probes when Bandits and A-Life are absent. Native aiming also reuses cached class, method and field metadata instead of looking it up each frame.
 - Added gameplay regressions for these cases, including bagged ammunition and moving threats. See the [validation record](docs/validation-human-combat-fixes.md) for verification and limits.
+- Added EMMA, the camp computer. Right-click a powered desktop computer and choose Use computer to ask, in plain English, about your people, storage counts, food, jobs, power, weather, time, nearby zombies and expeditions. She tolerates typos, follows up on the last question, gives advice from what she can see and keeps notes on each computer. Everything runs offline from the save; storage and work questions need the computer inside camp. See [the camp computer](docs/camp-computer.md).
 
 ## 0.26.69 - Bandits compatibility, companion shooting and storage controls
 
