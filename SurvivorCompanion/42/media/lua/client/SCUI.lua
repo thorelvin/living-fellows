@@ -624,6 +624,15 @@ local function detailStructureSignature(row, tab)
         }, 3, { count = 32 }, {})
     end
     if tab == "orders" then return row and "orders:row" or "orders:none" end
+    if tab == "base" then
+        -- The base page uses this resident's identity and duty order, not live
+        -- health/hunger/activity. Base-wide state has its own signature below.
+        return stableSignatureValue({
+            id = row and row.id or nil,
+            name = row and row.name or nil,
+            order = row and row.order or nil,
+        }, 2, { count = 8 }, {})
+    end
     if tab == "loadout" then
         local vehicle = row and row.vehicleStatus or nil
         return stableSignatureValue({

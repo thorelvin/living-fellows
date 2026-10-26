@@ -129,6 +129,7 @@ local enabled, enabledState = Visuals.setEnabled(true)
 assert(enabled == true and enabledState == true)
 Events.OnRenderTick.callback()
 local status = Visuals.status()
+assert(#fixture.fills == 0, "world renders must not submit UI-lived area highlights")
 assert(status.enabled == true and status.visibleZones == 2 and status.visibleStorages == 1,
     "only nearby records on the player's floor may enter the render cache")
 assert(#fixture.lines == 8, "each visible zone needs a four-line isometric perimeter")
@@ -150,6 +151,7 @@ local isometricLegend = fixture.legend
 SCBridge = { isViewpoint3DActive = function() return true end }
 fixture.labels = {}
 fixture.legend = {}
+fixture.fills = {}
 Events.OnPreUIDraw.callback()
 assert(#fixture.labels == 6 and fixture.labels[1].value == "Camp area"
         and fixture.labels[5].value == "Food",
@@ -196,6 +198,7 @@ assert(#fixture.fills == 5 and bedroomLabels == 2,
 Visuals.flashRoom("room:visual")
 fixture.fills = {}
 Events.OnRenderTick.callback()
+Events.OnPreUIDraw.callback()
 assert(fixture.fills[4].alpha > 0.3 and fixture.fills[5].alpha > 0.3,
     "the complete grouped room flashes immediately after marking")
 table.remove(fixture.summary.zoneRows)
@@ -428,6 +431,8 @@ fixture.lines, fixture.fills = {}, {}
 Events.OnRenderTick.callback()
 assert(ghosts == 2 and barricadeGhosts == 1,
     "queued builds and barricades must render outside Base Layout mode")
+assert(#fixture.fills == 0, "construction tints must also wait for the UI redraw")
+Events.OnPreUIDraw.callback()
 assert(#fixture.lines == 8 and #fixture.fills == 1
         and fixture.lines[1].x1 == 12 and fixture.lines[1].y1 == 12
         and fixture.lines[1].x2 == 13 and fixture.lines[1].y2 == 12
@@ -438,6 +443,7 @@ fixture.splitScreen = true
 fixture.clock = fixture.clock + 500
 fixture.lines, fixture.fills = {}, {}
 Events.OnRenderTick.callback()
+Events.OnPreUIDraw.callback()
 assert(ghosts == 2 and barricadeGhosts == 1
         and #fixture.lines == 0 and #fixture.fills == 3
         and fixture.fills[1].player == 0
@@ -449,6 +455,7 @@ fixture.summary.blueprints = false
 fixture.clock = fixture.clock + 500
 fixture.lines, fixture.fills = {}, {}
 Events.OnRenderTick.callback()
+Events.OnPreUIDraw.callback()
 assert(ghosts == 2 and barricadeGhosts == 1
         and #fixture.lines == 0 and #fixture.fills == 0,
     "hidden construction blueprints must stop rendering")
@@ -467,6 +474,7 @@ Visuals.refresh()
 fixture.clock = fixture.clock + 500
 fixture.lines, fixture.fills = {}, {}
 Events.OnRenderTick.callback()
+Events.OnPreUIDraw.callback()
 assert(#fixture.lines == 0 and #fixture.fills == 0 and ghosts == 4,
     "removing a saved plan must clear its persistent guide")
 fixture.reports = {}

@@ -285,9 +285,9 @@ local FOCUS_FILL_ALPHA = 0.36
 local STORAGE_FILL_ALPHA = 0.45
 local DRAFT_FILL_ALPHA = 0.16
 
--- A translucent floor tint over a zone or under a container. Build 42 keeps an
--- area highlight for a single frame, so it is added again every render tick
--- and disappears on its own once the layout is hidden.
+-- Build 42 retains area highlights until UIManager's next UI redraw timestamp.
+-- Submit them only from OnPreUIDraw: adding them on each world render stacks
+-- duplicate tints when the UI redraws less often than the world.
 local function fillArea(row, color, alpha)
     local x1, y1, x2, y2 = bounds(row)
     local z = tonumber(row.z)
@@ -305,6 +305,30 @@ local function fillArea(row, color, alpha)
     return false
 end
 
+local function areaHighlightsAvailable(split)
+    return type(addAreaHighlightForPlayer) == "function"
+        or (not split and type(addAreaHighlight) == "function")
+end
+
+local function constructionColor(row)
+    return row.state == "blocked" and { r = 1.00, g = 0.68, b = 0.12 }
+        or (row.state == "active" or row.state == "manual")
+            and { r = 0.10, g = 0.94, b = 0.95 }
+        or { r = 0.24, g = 0.70, b = 1.00 }
+end
+
+local function fillConstructionGuide(row, color, alpha, split)
+    local x, y, z = tonumber(row.x), tonumber(row.y), tonumber(row.z)
+    if not x or not y or not z then return false end
+    local tile = { x1 = x, y1 = y, x2 = x, y2 = y, z = z }
+    if row.kind == "floor" then
+        return fillArea(tile, color, math.max(0.28, alpha * 0.7))
+    elseif split or type(renderIsoLine) ~= "function" then
+        return fillArea(tile, color, math.max(0.24, alpha * 0.5))
+    end
+    return true
+end
+
 -- Build recipe ghost sprites do not always survive outside the placement
 -- cursor. Keep a world-space guide for each queued segment so the plan stays
 -- visible until the job is built or cancelled, even if its sprite is absent.
@@ -313,14 +337,11 @@ local function renderConstructionGuide(row, color, alpha, split)
     if not x or not y or not z then return false end
     local tile = { x1 = x, y1 = y, x2 = x, y2 = y, z = z }
     if row.kind == "floor" then
-        local filled = fillArea(tile, color, math.max(0.28, alpha * 0.7))
-        return renderRectangle(tile, color, 3, math.max(0.85, alpha), split) or filled
+        return renderRectangle(tile, color, 3, math.max(0.85, alpha), split)
+            or areaHighlightsAvailable(split)
     end
-    if split then
-        return fillArea(tile, color, math.max(0.24, alpha * 0.5))
-    end
-    if type(renderIsoLine) ~= "function" then
-        return fillArea(tile, color, math.max(0.24, alpha * 0.5))
+    if split or type(renderIsoLine) ~= "function" then
+        return areaHighlightsAvailable(split)
     end
     local face = tonumber(row.face) or 1
     local x1, y1, x2, y2 = x, y, x, y + 1
@@ -425,17 +446,31 @@ end
 
 local reportFailure
 
+local function draftPreview(draft)
+    if type(draft) ~= "table" or type(draft.first) ~= "table" then return nil end
+    local _, _, pz = playerPosition(player())
+    if pz ~= tonumber(draft.first.z) then return nil end
+    local endpoint = draftEndpoint(draft)
+    if not endpoint then return nil end
+    local preview = { x1 = draft.first.x, y1 = draft.first.y,
+        x2 = endpoint.x, y2 = endpoint.y, z = endpoint.z }
+    local color = draftIsValid(draft, endpoint) and colorFor(ZONE_COLORS, draft.kind)
+        or { r = 1.00, g = 0.08, b = 0.04 }
+    return preview, color, endpoint
+end
+
+local function zoneFocused(zone)
+    return (focusKind == "zone" and focusId == zone.id)
+        or (flashGroupId == zone.roomGroupId and now() < flashUntil)
+end
+
 function Visuals.renderWorld()
     local split = splitScreenActive()
     local draft = currentDraft()
     refreshConstruction(false)
     if SC.ConstructionPlanner then
         for _, row in ipairs(cachedConstruction) do
-            local color = row.state == "blocked"
-                and { r = 1.00, g = 0.68, b = 0.12 }
-                or (row.state == "active" or row.state == "manual")
-                    and { r = 0.10, g = 0.94, b = 0.95 }
-                or { r = 0.24, g = 0.70, b = 1.00 }
+            local color = constructionColor(row)
             local alpha = enabled and 0.58 or 0.35
             if split then
                 -- Ghost sprites render in both world views. During split screen,
@@ -476,21 +511,12 @@ function Visuals.renderWorld()
     if enabled then
         refreshCache(false)
         for _, zone in ipairs(cachedZones) do
-            local focused = (focusKind == "zone" and focusId == zone.id)
-                or (flashGroupId == zone.roomGroupId and now() < flashUntil)
+            local focused = zoneFocused(zone)
             local color = colorFor(ZONE_COLORS, zone.kind)
-            fillArea(zone, color, focused and FOCUS_FILL_ALPHA
-                or (zone.kind == "area" and AREA_FILL_ALPHA or ZONE_FILL_ALPHA))
             renderRectangle(zone, color, focused and 4 or 2,
                 focused and 0.98 or 0.80, split)
         end
         for _, entry in ipairs(cachedStorages) do
-            local tile = storageTile(entry.record)
-            if tile then
-                local focused = focusKind == "storage" and focusId == entry.record.id
-                fillArea(tile, focused and { r = 1.00, g = 1.00, b = 1.00 }
-                    or colorFor(STORAGE_COLORS, entry.record.category), STORAGE_FILL_ALPHA)
-            end
             pcall(applyStorageHighlight, entry)
         end
     end
@@ -499,38 +525,65 @@ function Visuals.renderWorld()
         for _, zone in ipairs(cachedZones) do
             if zone.roomGroupId == flashGroupId then
                 local color = colorFor(ZONE_COLORS, zone.kind)
-                fillArea(zone, color, FOCUS_FILL_ALPHA)
                 renderRectangle(zone, color, 4, 0.98, split)
             end
         end
     elseif flashGroupId and now() >= flashUntil then
         flashGroupId = nil
     end
-    if draft and type(draft.first) == "table" then
-        local subject = player()
-        local _, _, pz = playerPosition(subject)
-        if pz == tonumber(draft.first.z) then
-            local endpoint = draftEndpoint(draft)
-            if endpoint then
-                local preview = {
-                    x1 = draft.first.x, y1 = draft.first.y,
-                    x2 = endpoint.x, y2 = endpoint.y, z = endpoint.z,
-                }
-                local valid = draftIsValid(draft, endpoint)
-                local color = valid and colorFor(ZONE_COLORS, draft.kind)
-                    or { r = 1.00, g = 0.08, b = 0.04 }
-                fillArea(preview, color, DRAFT_FILL_ALPHA)
-                renderRectangle(preview, color, 3, 0.92, split)
-                if not split and type(renderIsoCircle) == "function" then
-                    renderIsoCircle(draft.first.x + 0.5, draft.first.y + 0.5,
-                        draft.first.z, 0.24, 12, 2, color.r, color.g, color.b, 0.95)
-                    renderIsoCircle(endpoint.x + 0.5, endpoint.y + 0.5,
-                        endpoint.z, 0.24, 12, 2, color.r, color.g, color.b, 0.95)
+    local preview, color, endpoint = draftPreview(draft)
+    if preview then
+        renderRectangle(preview, color, 3, 0.92, split)
+        if not split and type(renderIsoCircle) == "function" then
+            renderIsoCircle(draft.first.x + 0.5, draft.first.y + 0.5,
+                draft.first.z, 0.24, 12, 2, color.r, color.g, color.b, 0.95)
+            renderIsoCircle(endpoint.x + 0.5, endpoint.y + 0.5,
+                endpoint.z, 0.24, 12, 2, color.r, color.g, color.b, 0.95)
+        end
+    end
+    return true
+end
+
+function Visuals.renderAreaHighlights()
+    local split = splitScreenActive()
+    refreshConstruction(false)
+    if SC.ConstructionPlanner then
+        for _, row in ipairs(cachedConstruction) do
+            if split or row.type ~= "barricade" then
+                local okay, rendered = pcall(fillConstructionGuide,
+                    row, constructionColor(row), enabled and 0.58 or 0.35, split)
+                if not okay or rendered ~= true then
+                    reportFailure("base-visuals-build-guide",
+                        okay and tostring(row.id) .. ": tint unavailable" or rendered)
                 end
             end
         end
     end
-    return true
+    if enabled then
+        refreshCache(false)
+        for _, zone in ipairs(cachedZones) do
+            fillArea(zone, colorFor(ZONE_COLORS, zone.kind),
+                zoneFocused(zone) and FOCUS_FILL_ALPHA
+                    or (zone.kind == "area" and AREA_FILL_ALPHA or ZONE_FILL_ALPHA))
+        end
+        for _, entry in ipairs(cachedStorages) do
+            local tile = storageTile(entry.record)
+            if tile then
+                local focused = focusKind == "storage" and focusId == entry.record.id
+                fillArea(tile, focused and { r = 1.00, g = 1.00, b = 1.00 }
+                    or colorFor(STORAGE_COLORS, entry.record.category), STORAGE_FILL_ALPHA)
+            end
+        end
+    elseif flashGroupId and now() < flashUntil then
+        refreshCache(false)
+        for _, zone in ipairs(cachedZones) do
+            if zone.roomGroupId == flashGroupId then
+                fillArea(zone, colorFor(ZONE_COLORS, zone.kind), FOCUS_FILL_ALPHA)
+            end
+        end
+    end
+    local preview, color = draftPreview(currentDraft())
+    if preview then fillArea(preview, color, DRAFT_FILL_ALPHA) end
 end
 
 local function zoomFor(playerIndex)
@@ -911,6 +964,8 @@ function Visuals.onRenderTick()
 end
 
 function Visuals.onPreUIDraw()
+    local areaOk, areaReason = pcall(Visuals.renderAreaHighlights)
+    if not areaOk then reportFailure("base-visuals-areas", areaReason) end
     local ok, reason = pcall(Visuals.renderLabels)
     if not ok then reportFailure("base-visuals-labels", reason) end
 end
