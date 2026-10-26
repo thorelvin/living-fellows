@@ -170,6 +170,10 @@ $stages = @(
         -Script (Join-Path $ProjectRoot 'tests\gameplay\run_bandits_adapter_tests.ps1') `
         -Arguments @('-GameRoot', $GameRoot) `
         -Failure 'Bandits adapter regression failed.'),
+    (New-ScPowerShellStep -Name 'alife-adapter' `
+        -Script (Join-Path $ProjectRoot 'tests\gameplay\run_alife_adapter_tests.ps1') `
+        -Arguments @('-GameRoot', $GameRoot) `
+        -Failure 'A-Life adapter regression failed.'),
     (New-ScPowerShellStep -Name 'workshop' `
         -Script (Join-Path $ProjectRoot 'scripts\Build-Workshop.ps1') `
         -Arguments @('-ProjectRoot', $ProjectRoot, '-GameRoot', $GameRoot,
@@ -191,5 +195,5 @@ Write-Output ("PROJECT_TEST_PASS pz-runtime=true source=true core=true " +
     "oddball-silas-rusty=true oddball-lonnie-virgil=true " +
     "oddball-clem-purdy=true oddball-phase2=true oddball-encounters=true gameplay=true " +
     "navigation-stability=true storage-route-yield=true floor-cargo-logistics=true " +
-    "perception-topology=true strike-barrier=true ui=true live-harness-static=true bandits-adapter=true " +
+    "perception-topology=true strike-barrier=true ui=true live-harness-static=true bandits-adapter=true alife-adapter=true " +
     "workshop=true standalone=true seconds={0:N0} jobs={1}" -f $gate.Elapsed.TotalSeconds, $Jobs)

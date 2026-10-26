@@ -463,6 +463,25 @@ local function approachHostile(actor, target, swingMax, group)
     return false, "hostile_path_unavailable"
 end
 
+local function humanAttack(actor, intent)
+    local accepted, reason = U().move(actor, "walk", intent)
+    if not accepted and (reason == "native_attack_active" or reason == "native_melee_recovery"
+        or reason == "native_recoil_recovery") then
+        -- Recovery belongs to the native attack, just as in ordinary combat.
+        -- Returning failure invokes Decision's safety stop, which lowers the
+        -- weapon and clears its aim before the next animation/hit can finish.
+        local native = SC.NativeActions
+        if native and type(native.holdCombatPosition) == "function" then
+            if not native.holdCombatPosition(actor) then return false, "native_combat_stop_failed" end
+        else
+            local _, held = U().call(actor, "setMoving", false)
+            if not held then return false, "native_combat_stop_failed" end
+        end
+        return true, "combat_recovery_wait"
+    end
+    return accepted, reason
+end
+
 local function hostile(actor, target, group, state, player, snapshot, commands)
     if target == nil then return false, "hostile_target_unavailable" end
     local leash = pursuitLeash(group)
@@ -476,7 +495,21 @@ local function hostile(actor, target, group, state, player, snapshot, commands)
         return false, "hostile_target_outside_leash"
     end
     local primary, primaryOk = U().call(actor, "getPrimaryHandItem")
-    if (not primaryOk or primary == nil) and SC.Combat
+    local distance = U().distance(actor, target)
+    local visible = U().sameFloor(actor, target) and U().canSee(actor, target)
+    local shoveDistance = tonumber(SC.Config.get("combatShoveDistance")) or 1.35
+    if primary and select(1, U().call(primary, "isRanged")) == true
+        and visible and distance <= shoveDistance then
+        if friendlyInLine(actor, target, group, player, "melee", snapshot) then
+            U().stop(actor)
+            return true, "friendly_in_attack_lane"
+        end
+        return humanAttack(actor, { action = "shove", target = target, factionCombat = true })
+    end
+    local unusable = primary ~= nil and SC.Combat
+        and type(SC.Combat.primaryWeaponUsable) == "function"
+        and not SC.Combat.primaryWeaponUsable(actor)
+    if (not primaryOk or primary == nil or unusable) and SC.Combat
         and type(SC.Combat.equipPreferred) == "function"
         and U().nowMs() >= (state.nextEquipAt or 0) then
         state.nextEquipAt = U().nowMs() + 2500
@@ -484,9 +517,8 @@ local function hostile(actor, target, group, state, player, snapshot, commands)
         if equipped then return true, equipReason or "equipping_for_faction_combat" end
         primary, primaryOk = U().call(actor, "getPrimaryHandItem")
     end
+    if unusable then primary, primaryOk = nil, false end
 
-    local distance = U().distance(actor, target)
-    local visible = U().sameFloor(actor, target) and U().canSee(actor, target)
     local ranged = false
     if primaryOk and primary then
         local rangedValue, rangedOk = U().call(primary, "isRanged")
@@ -501,6 +533,10 @@ local function hostile(actor, target, group, state, player, snapshot, commands)
         end
         primary, primaryOk, ranged = nil, false, false
     end
+    if ranged and SC.Combat and type(SC.Combat.maintainFirearm) == "function" then
+        local maintained, reason = SC.Combat.maintainFirearm(actor, primary, target)
+        if maintained ~= nil then return maintained, reason end
+    end
     local rangedLimit = group and group.archetype == "bandit_camp"
         and (tonumber(SC.Config.get("banditFactionFirearmMaxRange")) or 8) or 12
     if ranged and visible and distance <= rangedLimit then
@@ -508,7 +544,7 @@ local function hostile(actor, target, group, state, player, snapshot, commands)
             U().stop(actor)
             return true, "friendly_in_attack_lane"
         end
-        return U().move(actor, "walk", {
+        return humanAttack(actor, {
             action = "attack_firearm", weapon = primary, target = target,
             factionCombat = true,
         })
@@ -519,22 +555,30 @@ local function hostile(actor, target, group, state, player, snapshot, commands)
         and type(SC.Combat.meleeRange) == "function" then
         swingMin, swingMax = SC.Combat.meleeRange(actor, primary)
     end
+    -- The tolerant acceptance band is not a stance target. Waiting at its
+    -- outer edge leaves a stationary human just beyond the native weapon
+    -- reach, so every completed swing misses without another closing step.
+    if swingMax and type(SC.Combat.meleeSpacing) == "function" then
+        local spacing = SC.Combat.meleeSpacing(actor, primary)
+        if spacing and tonumber(spacing.desired) then
+            swingMax = math.min(swingMax, spacing.desired)
+        end
+    end
     if swingMax and visible and distance >= swingMin and distance <= swingMax then
         if friendlyInLine(actor, target, group, player, "melee", snapshot) then
             U().stop(actor)
             return true, "friendly_in_attack_lane"
         end
-        return U().move(actor, "walk", {
+        return humanAttack(actor, {
             action = "attack_melee", weapon = primary, target = target, factionCombat = true,
         })
     end
-    local shoveDistance = tonumber(SC.Config.get("combatShoveDistance")) or 1.35
     if visible and distance <= shoveDistance and (not swingMin or distance < swingMin) then
         if friendlyInLine(actor, target, group, player, "melee", snapshot) then
             U().stop(actor)
             return true, "friendly_in_attack_lane"
         end
-        return U().move(actor, "walk", {
+        return humanAttack(actor, {
             action = "shove", target = target, factionCombat = true,
         })
     end
@@ -1057,7 +1101,9 @@ function Behavior.updateHumanCombat(actor, player, runtime, threat, snapshot)
         U().stop(actor)
         return false, "human_hostility_ended"
     end
-    if threat.external == "bandits2" then
+    local externalAdapter = threat.external == "project_alife" and SC.ALifeAdapter
+        or threat.external == "bandits2" and SC.BanditsAdapter
+    if externalAdapter then
         local doctrine = commands.combatDoctrine or (commands.holdFire and "stealth") or "close_defense"
         local health = U().nativeHealth(actor)
         if doctrine == "stealth" or (type(health) == "number" and health < 35) then
@@ -1071,8 +1117,8 @@ function Behavior.updateHumanCombat(actor, player, runtime, threat, snapshot)
             return true, "human_retreat_position_unavailable"
         end
         if doctrine == "close_defense" and U().distance(actor, threat.actor) > 6
-            and not SC.BanditsAdapter.isAttacking(threat.actor, actor)
-            and not (commands.recruited and SC.BanditsAdapter.isAttacking(threat.actor, player)) then
+            and not externalAdapter.isAttacking(threat.actor, actor)
+            and not (commands.recruited and externalAdapter.isAttacking(threat.actor, player)) then
             return false, "human_outside_close_defense"
         end
     end

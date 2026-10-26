@@ -500,6 +500,7 @@ end
 -- present on both server-created and client-mirrored shells; avoid allocating
 -- mod data on ordinary zombies during the hot perception scan.
 function U.isALifeNpc(value)
+    if SC.ALifeAdapter then return SC.ALifeAdapter.owns(value) end
     if value == nil then return false end
     local hasData, hasDataOk = U.call(value, "hasModData")
     if hasDataOk and hasData ~= true then return false end
@@ -514,6 +515,9 @@ end
 -- A-Life owns the stance decision. Its combat phase alone is insufficient:
 -- an NPC may be fighting zombies or another faction rather than our party.
 function U.isALifeHostileToParty(shell, player, companion)
+    if SC.ALifeAdapter and companion then
+        return SC.ALifeAdapter.relationship(shell, companion) == "hostile"
+    end
     if not U.isALifeNpc(shell) or U.isGoneTarget(shell) then return false end
     local data, dataOk = U.call(shell, "getModData")
     if not dataOk and type(shell) == "table" then data = shell.modData or shell.__modData end

@@ -2552,9 +2552,9 @@ local function allegianceFacts(source, target, player)
         externalHostile = SC.BanditsAdapter.relationship(target, source) == "hostile"
     elseif SC.BanditsAdapter and source ~= nil and U().isBanditsNpc(source) then
         externalHostile = SC.BanditsAdapter.relationship(source, target) == "hostile"
-    elseif sourceParty and target ~= nil and U().isALifeNpc(target) then
+    elseif source ~= nil and target ~= nil and U().isALifeNpc(target) then
         externalHostile = U().isALifeHostileToParty(target, player, source)
-    elseif targetParty and source ~= nil and U().isALifeNpc(source) then
+    elseif target ~= nil and source ~= nil and U().isALifeNpc(source) then
         externalHostile = U().isALifeHostileToParty(source, player, target)
     end
     return {

@@ -4303,6 +4303,11 @@ local function finish()
         Harness.radioTextHook = nil
     end
     Harness.restoreCombatArena()
+    if Harness.config.project_alife_enabled == "true" and (Harness.config.view_cutaway_probe == "true"
+        or Harness.config.normal_expedition_kitchen_probe == "true" or Harness.config.wood_expedition_probe == "true") then
+        require "SCALifeAdapterProbe"
+        SCRealSandboxHarnessProbes.SCALifeAdapterProbe.auditView(check)
+    end
     Harness.finished = true
     writeSnapshot(true)
     print("SC_REAL_SANDBOX|SUMMARY|status="
@@ -15793,6 +15798,9 @@ Harness.probeBanditsAdapter = function(...)
     return externalProbe(Harness.config.companion_firearms_probe == "true"
         and "SCBanditsCombatAcceptance" or "SCBanditsAdapterProbe", ...)
 end
+Harness.probeALifeAdapter = function(...)
+    return externalProbe("SCALifeAdapterProbe", ...)
+end
 Harness.probeCompanionFacing = function(...)
     return externalProbe("SCFacingProbe", ...)
 end
@@ -16382,6 +16390,8 @@ local function tick()
     elseif string.find(tostring(Harness.phase), "bandits_adapter_", 1, true) == 1
         or Harness.phase == "companion_firearms_probe" then
         Harness.probeBanditsAdapter(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "alife_adapter_", 1, true) == 1 then
+        Harness.probeALifeAdapter(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "wood_expedition_", 1, true) == 1 then
         Harness.probeWoodExpedition(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "hygiene_", 1, true) == 1 then
@@ -17251,6 +17261,8 @@ local function onGameStart()
         setPhase("companion_firearms_probe", Harness.startedAt)
     elseif Harness.config.bandits_adapter_probe == "true" then
         setPhase("bandits_adapter_setup", Harness.startedAt)
+    elseif Harness.config.project_alife_adapter_probe == "true" then
+        setPhase("alife_adapter_setup", Harness.startedAt)
     elseif Harness.config.wood_expedition_probe == "true" then
         setPhase("wood_expedition_setup", Harness.startedAt)
     elseif Harness.config.normal_expedition_kitchen_probe == "true" then

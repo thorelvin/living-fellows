@@ -34,6 +34,7 @@ local diskLines = {
     "tickbox|SurvivorCompanion|ordinaryColds|false",
     "tickbox|SurvivorCompanion|protectRecruitedCompanions|true",
     "tickbox|SurvivorCompanion|banditsCompatibility|false",
+    "tickbox|SurvivorCompanion|alifeCompatibility|false",
 }
 
 function getFileReader(name)

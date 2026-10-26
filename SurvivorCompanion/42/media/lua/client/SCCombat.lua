@@ -1320,6 +1320,24 @@ function Combat.primaryWeaponUsable(actor)
     return weaponUsableNow(U().inventory(actor), weaponRecord(primary))
 end
 
+-- nil means the equipped firearm is ready; a boolean reports the native
+-- maintenance dispatch. Human combat shares ordinary combat's exact ammo and
+-- magazine checks rather than repeatedly clicking an empty gun.
+function Combat.maintainFirearm(actor, item, target)
+    local weapon = weaponRecord(item)
+    if not weapon or not weapon.ranged then return nil, "not_a_firearm" end
+    local action
+    if weapon.jammed then action = "unjam"
+    elseif weapon.ammo <= 0 then
+        if not hasReloadAmmo(U().inventory(actor), weapon) then return false, "no_ammunition" end
+        action = "reload"
+    else return nil, "firearm_ready" end
+    local accepted, reason = U().move(actor, "walk", {
+        action = action, weapon = item, target = target,
+    })
+    return accepted == true, reason or (accepted and action or action .. "_rejected")
+end
+
 function Combat.equipExactWeapon(actor, item)
     if not U().isValidActor(actor) then return false, "invalid_actor" end
     local weapon = weaponRecord(item)

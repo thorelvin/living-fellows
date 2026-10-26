@@ -457,6 +457,33 @@ local function adjustedDecisionScore(actor, snapshot, commands, kind, score, eme
     return score
 end
 
+-- Candidate selection and active-action preemption must agree: a distant
+-- Bandit outside this doctrine's engagement rules cannot restart treatment.
+local function humanThreatUrgent(snapshot, commands, actor, player)
+    local threat = type(snapshot) == "table" and snapshot.humanThreat or nil
+    if not threat then return false end
+    local adapter = threat.external == "project_alife" and SC.ALifeAdapter
+        or threat.external == "bandits2" and SC.BanditsAdapter
+    if not adapter then return true end
+    commands = type(commands) == "table" and commands or {}
+    local doctrine = commands.combatDoctrine
+        or (commands.combatMode == "aggressive" and "weapons_free")
+        or (commands.combatMode == "passive" and "stealth") or "close_defense"
+    if doctrine == "weapons_free" then return threat.visible == true end
+    actor = actor or snapshot.actor
+    player = player or (type(snapshot.player) == "table" and snapshot.player.actor or nil)
+    local distanceSq = tonumber(threat.distanceSq)
+    local distance = actor and threat.actor and U().distance(actor, threat.actor)
+        or tonumber(threat.distance)
+        or (distanceSq and math.sqrt(math.max(0, distanceSq)))
+        or math.huge
+    if distance <= 6 then return true end
+    return adapter ~= nil and type(adapter.isAttacking) == "function"
+        and (actor ~= nil and adapter.isAttacking(threat.actor, actor)
+            or commands.recruited == true and player ~= nil
+                and adapter.isAttacking(threat.actor, player)) == true
+end
+
 local function needsDecisionScore(needs, active)
     needs = type(needs) == "table" and needs or {}
     local pressure = math.max(needs.hunger or 0, needs.thirst or 0)
@@ -605,6 +632,10 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
     local humanThreat = type(snapshot) == "table" and snapshot.humanThreat or nil
     if threatCount > 0 or humanThreat then
         local humanUrgent = humanThreat and humanThreat.visible == true
+        if humanThreat and (humanThreat.external == "bandits2"
+            or humanThreat.external == "project_alife" and SC.ALifeAdapter) then
+            humanUrgent = humanThreatUrgent(snapshot, commands, actor, player)
+        end
         local combatScore = 72 + immediate * 17
             + Decision._engagementPressure(snapshot) * 5
         local doctrine = commands.combatDoctrine
@@ -622,10 +653,9 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         end
         if humanThreat and threatCount == 0 then
             combatScore = humanThreat.visible == true and 106 or 84
-            if humanThreat.external == "bandits2" and doctrine ~= "weapons_free" then
-                humanUrgent = U().distance(actor, humanThreat.actor) <= 6
-                    or SC.BanditsAdapter.isAttacking(humanThreat.actor, actor)
-                    or commands.recruited and SC.BanditsAdapter.isAttacking(humanThreat.actor, player)
+            if (humanThreat.external == "bandits2"
+                or humanThreat.external == "project_alife" and SC.ALifeAdapter)
+                and doctrine ~= "weapons_free" then
                 if not humanUrgent then combatScore = 28 end
             end
         end
@@ -2628,13 +2658,13 @@ local function warnAboutHeardThreat(actor, snapshot, state, current)
     end
 end
 
-local function survivalNeedsImmediateControl(snapshot, assessment, needs, commands)
+local function survivalNeedsImmediateControl(snapshot, assessment, needs, commands, actor, player)
     snapshot = type(snapshot) == "table" and snapshot or {}
     local immediate = tonumber(snapshot.immediateCount)
         or #(snapshot.immediateAttackers or {})
     local playerDanger = type(snapshot.player) == "table"
         and tonumber(snapshot.player.danger) or 0
-    return immediate > 0 or snapshot.humanThreat ~= nil
+    return immediate > 0 or humanThreatUrgent(snapshot, commands, actor, player)
         or Decision._engagementPressure(snapshot) >= 1.5
         or playerDanger > 0 or commands.order == "retreat"
         or assessment.downed == true
@@ -2644,20 +2674,20 @@ local function survivalNeedsImmediateControl(snapshot, assessment, needs, comman
         or type(needs) == "table" and needs.emergency == true
 end
 
-local function nonMedicalSurvivalNeedsImmediateControl(snapshot, needs, commands)
+local function nonMedicalSurvivalNeedsImmediateControl(snapshot, needs, commands, actor, player)
     snapshot = type(snapshot) == "table" and snapshot or {}
     local immediate = tonumber(snapshot.immediateCount)
         or #(snapshot.immediateAttackers or {})
     local playerDanger = type(snapshot.player) == "table"
         and tonumber(snapshot.player.danger) or 0
-    return immediate > 0 or snapshot.humanThreat ~= nil
+    return immediate > 0 or humanThreatUrgent(snapshot, commands, actor, player)
         or Decision._engagementPressure(snapshot) >= 1.5
         or playerDanger > 0 or commands.order == "retreat"
         or type(needs) == "table" and needs.emergency == true
 end
 
 local function ownerNeedsImmediatePreemption(owner, snapshot, assessment, needs, commands,
-        policyEmergency)
+        policyEmergency, actor, player)
     if owner == "drive" then
         -- Foot combat contacts do not transfer control from a seated driver.
         -- Medical, needs and explicit control emergencies still park the car;
@@ -2671,16 +2701,16 @@ local function ownerNeedsImmediatePreemption(owner, snapshot, assessment, needs,
     -- it. Restarting that timed action every beat prevents its effects from
     -- ever committing; independent danger or medical pressure still interrupts.
     if owner == "needs" then
-        return survivalNeedsImmediateControl(snapshot, assessment, nil, commands)
+        return survivalNeedsImmediateControl(snapshot, assessment, nil, commands, actor, player)
             or policyEmergency == true
     end
-    local urgent = survivalNeedsImmediateControl(snapshot, assessment, needs, commands)
+    local urgent = survivalNeedsImmediateControl(snapshot, assessment, needs, commands, actor, player)
     -- Bleeding/critical assessment is the reason a medical owner exists. Treating
     -- it as a fresh survival interrupt made emergency self-care cancel its own rip
     -- and bandage animations every decision tick. Only independent pressure may
     -- preempt an already-active medical transaction.
     if urgent and owner == "medical" and policyEmergency ~= true
-        and not nonMedicalSurvivalNeedsImmediateControl(snapshot, needs, commands) then
+        and not nonMedicalSurvivalNeedsImmediateControl(snapshot, needs, commands, actor, player) then
         return false
     end
     return urgent or policyEmergency == true
@@ -2739,7 +2769,7 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
     -- owner can indefinitely hide the hostile candidate behind the activity gate.
     local factionEmergency = factionNeedsImmediateControl(
         actor, player, snapshot, commands)
-    local urgent = survivalNeedsImmediateControl(snapshot, assessment, needs, commands)
+    local urgent = survivalNeedsImmediateControl(snapshot, assessment, needs, commands, actor, player)
         or factionEmergency
     -- The camp alarm calls a resident away from chores, downtime and meals,
     -- never from treatment or a player's own control.
@@ -2770,7 +2800,7 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
         if token then
             supervisedOwner = token.owner
             urgent = ownerNeedsImmediatePreemption(
-                token.owner, snapshot, assessment, needs, commands, factionEmergency)
+                token.owner, snapshot, assessment, needs, commands, factionEmergency, actor, player)
                 or alarmPreempts(token.owner)
             local serialChanged = token.owner == "downtime"
                 and type(token.metadata) == "table"
@@ -2870,7 +2900,7 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
         -- only an unsupervised action uses the native owner's own policy.
         local effectiveOwner = supervisedOwner or owner
         urgent = ownerNeedsImmediatePreemption(effectiveOwner, snapshot, assessment,
-            needs, commands, factionEmergency) or alarmPreempts(effectiveOwner)
+            needs, commands, factionEmergency, actor, player) or alarmPreempts(effectiveOwner)
         -- Production owns an indefinite native action (notably tree chopping).
         -- Poll its controller while the animation runs so the 45-second base-job
         -- lease, fallback events and completion proof cannot expire behind this
@@ -3069,7 +3099,8 @@ function Decision.update(actor, player, runtime, roundTimestamp)
         local externalThreat = snapshot.humanThreat
         snapshot.humanThreat = chooseHumanThreat(actor, player,
             externalThreat, ok and humanThreat or nil)
-    elseif snapshot.humanThreat and snapshot.humanThreat.external == "bandits2" then
+    elseif snapshot.humanThreat and (snapshot.humanThreat.external == "bandits2"
+        or snapshot.humanThreat.external == "project_alife") then
         snapshot.humanThreat = chooseHumanThreat(actor, player, snapshot.humanThreat, nil)
     else
         snapshot.humanThreat = nil
@@ -3169,7 +3200,7 @@ function Decision.update(actor, player, runtime, roundTimestamp)
     -- the wheel immediately after Driving.stop() succeeds.
     local convoyEmergency = ownerNeedsImmediatePreemption("drive", snapshot,
         assessment, needs, commands,
-        factionNeedsImmediateControl(actor, player, snapshot, commands))
+        factionNeedsImmediateControl(actor, player, snapshot, commands), actor, player)
     if SC.Convoy and type(SC.Convoy.suspendForSurvival) == "function" then
         local token = SC.ActionSupervisor and SC.ActionSupervisor.current
             and SC.ActionSupervisor.current(actor) or nil
@@ -3307,7 +3338,7 @@ function Decision.update(actor, player, runtime, roundTimestamp)
     elseif state.fishingPreparationHandoff ~= preparation
         and (tonumber(snapshot.threatCount) or 0) == 0
         and not ownerNeedsImmediatePreemption("work", snapshot, assessment, needs,
-            commands, factionNeedsImmediateControl(actor, player, snapshot, commands)) then
+            commands, factionNeedsImmediateControl(actor, player, snapshot, commands), actor, player) then
         local safe, settled, settleReason = utility.safeSubsystem(
             (preparationKind == "wood_preparation" and "wood-preparation-handoff"
                 or "fishing-preparation-handoff"), actor, function()

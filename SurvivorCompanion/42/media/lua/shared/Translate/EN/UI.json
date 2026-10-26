@@ -1639,6 +1639,8 @@
     "UI_SC_ModOptions_OrdinaryColds_Tooltip": "Turn off ordinary colds for companions. Knox infection and other illness effects are unchanged.",
     "UI_SC_ModOptions_BanditsCompatibility": "Bandits NPC compatibility",
     "UI_SC_ModOptions_BanditsCompatibility_Tooltip": "Enable two-way combat with Bandits2. Activates when Bandits is enabled. Turning this off retains identity safeguards but disables combat integration.",
+    "UI_SC_ModOptions_ALifeCompatibility": "A-Life NPC compatibility",
+    "UI_SC_ModOptions_ALifeCompatibility_Tooltip": "Enable two-way combat with Project A-Life. Companions share your faction reputation; independent LF people retain their own relations. Turning this off retains identity safeguards. Simultaneous A-Life and Bandits is not supported.",
     "UI_SC_ModOptions_ProtectRecruitedCompanions": "Protect recruits from your attacks",
     "UI_SC_ModOptions_ProtectRecruitedCompanions_Tooltip": "Prevents your attacks from damaging recruited companions. Off by default.",
     "UI_SC_ModOptions_Normal": "Normal",

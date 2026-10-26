@@ -20,6 +20,7 @@ import zombie.vehicles.BaseVehicle;
 import zombie.chat.ChatElement;
 
 public class IsoGameCharacter extends IsoMovingObject {
+    public void updateBallistics() {}
     private String sayLine;
     private final java.util.Stack<BaseAction> characterActions = new java.util.Stack<>();
     private boolean aiming;

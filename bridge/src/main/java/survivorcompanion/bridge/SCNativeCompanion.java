@@ -40,6 +40,7 @@ import zombie.util.list.PZArrayList;
 import zombie.pathfind.PathFindBehavior2;
 import zombie.pathfind.PolygonalMap2;
 import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
+import zombie.core.skinnedmodel.ModelManager;
 import zombie.core.skinnedmodel.advancedanimation.AnimLayer;
 import zombie.core.skinnedmodel.animation.AnimationMultiTrack;
 import zombie.core.skinnedmodel.animation.AnimationPlayer;
@@ -109,6 +110,7 @@ public final class SCNativeCompanion extends IsoPlayer {
     private static final Method SWIPE_STATE_INSTANCE = resolveStatic("zombie.ai.states.SwipeStatePlayer", "instance");
     private static final Method ATTACK_COLLISION_CHECK = resolveAttackCollisionCheck();
     private static final Method GET_USE_HAND_WEAPON = resolveNoArg(IsoGameCharacter.class, "getUseHandWeapon");
+    private static final Method GET_PRIMARY_HAND_ITEM = resolveNoArg(IsoGameCharacter.class, "getPrimaryHandItem");
     private static final Method GET_ATTACK_TYPE = resolveNoArg(IsoPlayer.class, "getAttackType");
     private static final Method COMBAT_MANAGER_GET_WEAPON = resolveCombatManagerGetWeapon();
     private static final Method WEAPON_IS_AIMED_FIREARM = resolveWeaponIsAimedFirearm();
@@ -1573,6 +1575,13 @@ public final class SCNativeCompanion extends IsoPlayer {
                     : target.getX() + "," + target.getY() + "," + target.getZ());
             if (target instanceof IsoGameCharacter character) {
                 out.append(" targetOrigin=").append(diagnosticAimOrigin(character));
+                Object animation = character.getAnimationPlayer();
+                out.append(" targetAnimationReady=").append(animation != null
+                        && Boolean.TRUE.equals(animation.getClass().getMethod("isReady").invoke(animation)));
+                out.append(" targetModel=").append(character.isAddedToModelManager())
+                        .append('/').append(character.hasActiveModel());
+                out.append(" targetPhysics=").append(IsoGameCharacter.class
+                        .getMethod("getBallisticsTarget").invoke(character) != null);
             }
             out.append(" pitch=").append(IsoGameCharacter.class
                     .getMethod("getCurrentVerticalAimAngle").invoke(this));
@@ -1665,6 +1674,23 @@ public final class SCNativeCompanion extends IsoPlayer {
             return ((Number) IsoGameCharacter.class.getMethod("getAimOriginPosZ").invoke(character)).floatValue();
         }
         return target.getZ();
+    }
+
+    /** Keep this actor's physical aim input current between impact callbacks.
+     * The stock update reads a local camera reticle, which is not NPC input.
+     * Bullet's simulation needs the selected world point during aiming too;
+     * replacing it only at impact leaves the preceding physics frame aimed at
+     * the player's cursor. This controller belongs solely to this companion. */
+    @Override
+    public void updateBallistics() {
+        super.updateBallistics();
+        if (bridgeDisabled || bridgeAimTarget == null) return;
+        try {
+            Object[] input = selectCompanionBallisticReticle();
+            selectCompanionPhysicsReticle(input);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
+            // Retain the stock collision contract; never manufacture a hit.
+        }
     }
 
     private void restoreCompanionPhysicsReticle(Object[] captured) throws ReflectiveOperationException {
@@ -2421,6 +2447,44 @@ public final class SCNativeCompanion extends IsoPlayer {
      */
     public void setCompanionAimTarget(zombie.iso.IsoMovingObject target) {
         bridgeAimTarget = target;
+        prepareCompanionBallisticTarget();
+    }
+
+    /** A native shot needs the target's real skeleton even outside the local
+     * camera. Culling can leave a loaded zombie with no animation/model at all;
+     * Bullet then has no body to intersect. Ask the stock renderer to prepare
+     * that one live, in-range target. Its owner and ordinary culling still own
+     * its lifecycle; this changes no visibility alpha, AI, inventory or health. */
+    private void prepareCompanionBallisticTarget() {
+        if (bridgeDisabled || !(bridgeAimTarget instanceof IsoGameCharacter target)
+                || target == this || target.isDead() || !target.isExistInTheWorld()) return;
+        try {
+            Object weapon = GET_PRIMARY_HAND_ITEM == null ? null : GET_PRIMARY_HAND_ITEM.invoke(this);
+            if (weapon == null || WEAPON_IS_AIMED_FIREARM == null
+                    || !Boolean.TRUE.equals(WEAPON_IS_AIMED_FIREARM.invoke(weapon))) return;
+            float range = ((Number) weapon.getClass().getMethod("getMaxRange", IsoGameCharacter.class)
+                    .invoke(weapon, this)).floatValue()
+                    * ((Number) weapon.getClass().getMethod("getRangeMod", IsoGameCharacter.class)
+                    .invoke(weapon, this)).floatValue();
+            float dx = target.getX() - getX(), dy = target.getY() - getY();
+            if (!isCompanionBallisticTargetInRange(dx, dy, target.getZ() - getZ(), range)) return;
+            // Even a ready skeleton can have a queued camera-cull removal.
+            // Cancel it while this one body remains our actual aim target.
+            target.setSceneCulled(false);
+            if (!target.isAddedToModelManager()) ModelManager.instance.Add(target);
+            if (!target.isAddedToModelManager() && target.hasActiveModel()) {
+                target.setAddedToModelManager(ModelManager.instance, true);
+            }
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
+            // The stock attack remains authoritative. A missing model must
+            // never become a synthetic hit or a second damage callback.
+        }
+    }
+
+    static boolean isCompanionBallisticTargetInRange(float dx, float dy, float dz, float range) {
+        return Float.isFinite(dx) && Float.isFinite(dy) && Float.isFinite(dz)
+                && Float.isFinite(range) && range > 0 && Math.abs(dz) <= 3.3f
+                && dx * dx + dy * dy <= range * range;
     }
 
     public boolean hasCompanionAimTarget() {
@@ -2434,6 +2498,7 @@ public final class SCNativeCompanion extends IsoPlayer {
             bridgeAimTarget = null;
             return;
         }
+        prepareCompanionBallisticTarget();
         // A stock non-local IsoPlayer can never use PathFindBehavior2's strafe
         // branch (isStrafing() explicitly returns false for non-local players).
         // Re-facing an ordinary path/run toward the combat target after its

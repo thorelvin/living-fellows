@@ -111,6 +111,7 @@ $LuaFiles += Join-Path $TestRoot 'base_work_fixture.lua'
 $LuaFiles += Join-Path $ClientRoot 'SCFloorSort.lua'
 $LuaFiles += Join-Path $ClientRoot 'SCBaseWork.lua'
 $BaseLuaFiles = @($LuaFiles)
+$LuaFiles += Join-Path $TestRoot 'human_combat_regressions.lua'
 $LuaFiles += Join-Path $TestRoot 'gameplay_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'tv_watching_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'radio_listening_harness.lua'

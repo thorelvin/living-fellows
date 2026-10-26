@@ -3495,6 +3495,10 @@ local function attack(actor, action, intent, provider)
         and SC.BanditsAdapter.relationship(target, actor) ~= "hostile" then
         return false, "bandits_target_not_hostile"
     end
+    if SC.ALifeAdapter and SC.ALifeAdapter.owns(target)
+        and SC.ALifeAdapter.relationship(target, actor) ~= "hostile" then
+        return false, "alife_target_not_hostile"
+    end
     -- Acquire stationary combat ownership before any range/equip/model check.
     -- A failed or completed swing must never revive a retained approach vector.
     if not actions.holdCombatPosition(actor) then

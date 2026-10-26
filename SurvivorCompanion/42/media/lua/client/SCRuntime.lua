@@ -6,6 +6,7 @@ require "SCConfig"
 require "SCDiagnostics"
 require "SCRegistry"
 require "SCBanditsAdapter"
+require "SCALifeAdapter"
 require "SCScheduler"
 require "SCPerformance"
 require "SCActor"
@@ -1322,6 +1323,9 @@ local function productionTickCore(current, tickStarted)
     if SC.BanditsAdapter and type(SC.BanditsAdapter.pulse) == "function" then
         pcall(SC.BanditsAdapter.pulse)
     end
+    if SC.ALifeAdapter and type(SC.ALifeAdapter.pulse) == "function" then
+        pcall(SC.ALifeAdapter.pulse)
+    end
     local key = scheduleRepairRosterKey()
     if key ~= scheduleRepairKey
         or (now - scheduleRepairAt) >= SC.Config.get("scheduleRepairIntervalMs") then
@@ -1818,6 +1822,7 @@ function runtime.start()
     end
     running = true
     if SC.BanditsAdapter then SC.BanditsAdapter.initialize() end
+    if SC.ALifeAdapter then SC.ALifeAdapter.initialize() end
     lastStartReady = ready == true
     lastStartReason = reason
     startupFailureReason = nil
@@ -2061,6 +2066,7 @@ function runtime.reset(detach)
         end
         if #resetFailures == 0 then
             resetModule("Bandits adapter", SC.BanditsAdapter, "reset")
+            resetModule("A-Life adapter", SC.ALifeAdapter, "reset")
             resetModule("registry", SC.Registry, "reset")
         end
         -- Diagnostics is deliberately last. If any earlier cleanup rejects,

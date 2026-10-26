@@ -178,6 +178,13 @@ param(
     # driving-crash.png after the crash test into this directory.
     [string]$DrivingScreenshotDirectory = '',
     [switch]$ProjectALifeDamageProbe,
+    [switch]$ProjectALifeAdapterProbe,
+    [switch]$ProjectALifeEnabled,
+    [ValidateSet('combat', 'reload_stage', 'reload', 'performance')][string]$ProjectALifeScenario = 'combat',
+    [ValidateSet('pistol', 'melee')][string]$ProjectALifeWeapon = 'pistol',
+    [switch]$ProjectALifeObserveHousehold,
+    [ValidateSet('member', 'resident', 'household', 'strange_folk')][string]$ProjectALifeRole = 'member',
+    [ValidateSet('before', 'after')][string]$ProjectALifeLoadOrder = 'after',
     [string]$ProjectALifeModPath = '',
     [string[]]$ExcludeModId = @(),
     [string]$FactionMapScreenshot = '',
@@ -1517,7 +1524,7 @@ if ($ViewCutawayProbe -or $NormalExpeditionKitchenProbe -or $WoodExpeditionProbe
     }
     foreach ($fixtureFile in Get-ChildItem -LiteralPath $wallHarnessClient -File -Filter '*.lua') {
         if ($fixtureFile.Name -notin @('SCRealSandboxHarness.lua', 'SCViewCutawayProbe.lua',
-                'SCNormalExpeditionKitchenProbe.lua', 'SCWoodExpeditionProbe.lua')) {
+                'SCNormalExpeditionKitchenProbe.lua', 'SCWoodExpeditionProbe.lua', 'SCALifeAdapterProbe.lua')) {
             Remove-Item -LiteralPath $fixtureFile.FullName -Force
         }
     }
@@ -1586,7 +1593,7 @@ if ($BanditsAdapterProbe -or $BanditsEnabled) {
     }
     Copy-Item -LiteralPath $BanditsModPath -Destination (Join-Path $SandboxMods 'Bandits') -Recurse
 }
-if ($ProjectALifeDamageProbe) {
+if ($ProjectALifeDamageProbe -or $ProjectALifeAdapterProbe -or $ProjectALifeEnabled) {
     if ([string]::IsNullOrWhiteSpace($ProjectALifeModPath) -or
         -not (Test-Path -LiteralPath (Join-Path $ProjectALifeModPath '42.20\mod.info') -PathType Leaf)) {
         throw '-ProjectALifeDamageProbe requires -ProjectALifeModPath pointing at the ProjectALifeNPCs mod directory.'
@@ -1630,7 +1637,13 @@ if ($FieldCargoProbe) {
     $modText = Add-ModEntry $modText 'damnlib'
     $modText = Add-ModEntry $modText '93fordF350'
 }
-$modText = if ($ProjectALifeDamageProbe) { Add-ModEntry $modText 'ProjectALifeNPCs' } else { $modText }
+if ($ProjectALifeDamageProbe -or $ProjectALifeAdapterProbe -or $ProjectALifeEnabled) {
+    $modText = Remove-ModEntry $modText 'SurvivorCompanion'
+    $modText = Remove-ModEntry $modText 'ProjectALifeNPCs'
+    if ($ProjectALifeLoadOrder -eq 'before') { $modText = Add-ModEntry $modText 'ProjectALifeNPCs' }
+    $modText = Add-ModEntry $modText 'SurvivorCompanion'
+    if ($ProjectALifeLoadOrder -eq 'after') { $modText = Add-ModEntry $modText 'ProjectALifeNPCs' }
+}
 $modText = Add-ModEntry $modText 'SCRealSandboxHarness'
 [System.IO.File]::WriteAllText((Join-Path $SandboxMods 'default.txt'), $modText, $utf8NoBom)
 [System.IO.File]::WriteAllText((Join-Path $TargetSave 'mods.txt'), $modText, $utf8NoBom)
@@ -1656,6 +1669,12 @@ $config = @(
     ('world=' + $runId),
     ('mode=' + $GameMode),
     ('project_alife_damage_probe=' + $ProjectALifeDamageProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('project_alife_adapter_probe=' + $ProjectALifeAdapterProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('project_alife_enabled=' + ($ProjectALifeAdapterProbe.IsPresent -or $ProjectALifeEnabled.IsPresent -or $ProjectALifeDamageProbe.IsPresent).ToString().ToLowerInvariant()),
+    ('project_alife_role=' + $ProjectALifeRole),
+    ('project_alife_scenario=' + $ProjectALifeScenario),
+    ('project_alife_weapon=' + $ProjectALifeWeapon),
+    ('project_alife_observe_household=' + $ProjectALifeObserveHousehold.IsPresent.ToString().ToLowerInvariant()),
     ('ui_menu_probe=' + $UIMenuProbe.IsPresent.ToString().ToLowerInvariant()),
     ('user_options_probe=' + $UserOptionsProbe.IsPresent.ToString().ToLowerInvariant()),
     ('medical_check_probe=' + $MedicalCheckProbe.IsPresent.ToString().ToLowerInvariant()),
@@ -1919,6 +1938,13 @@ $manifest = [ordered]@{
     companionFacingProbe = $CompanionFacingProbe.IsPresent
     companionFacingMode = $CompanionFacingMode
     banditsAdapterProbe = $BanditsAdapterProbe.IsPresent
+    projectALifeAdapterProbe = $ProjectALifeAdapterProbe.IsPresent
+    projectALifeEnabled = ($ProjectALifeAdapterProbe.IsPresent -or $ProjectALifeEnabled.IsPresent -or $ProjectALifeDamageProbe.IsPresent)
+    projectALifeRole = $ProjectALifeRole
+    projectALifeScenario = $ProjectALifeScenario
+    projectALifeWeapon = $ProjectALifeWeapon
+    projectALifeObserveHousehold = $ProjectALifeObserveHousehold.IsPresent
+    projectALifeLoadOrder = $ProjectALifeLoadOrder
     banditsEnabled = ($BanditsAdapterProbe.IsPresent -or $BanditsEnabled.IsPresent)
     banditsCombatScenario = $BanditsCombatScenario
     banditsLFProfession = $BanditsLFProfession

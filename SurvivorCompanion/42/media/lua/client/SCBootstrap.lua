@@ -28,6 +28,7 @@ require "SCSpawn"
 
 require "SCGameplayUtil"
 require "SCBanditsAdapter"
+require "SCALifeAdapter"
 require "SCVitalsTrace"
 require "SCBaseObjectRef"
 require "SCTopology"

@@ -1924,6 +1924,17 @@ public final class SCIsoCompanionControlTest {
                 "an active attack lost the target angle required by its hit arc");
         require(SCNativeCompanion.shouldApplyCompanionAim(false, false, false),
                 "a stationary companion no longer tracks its combat target");
+        require(SCNativeCompanion.isCompanionBallisticTargetInRange(3f, 4f, 0f, 5f)
+                        && !SCNativeCompanion.isCompanionBallisticTargetInRange(3f, 4.01f, 0f, 5f)
+                        && !SCNativeCompanion.isCompanionBallisticTargetInRange(0f, 0f, 3.31f, 5f),
+                "ballistic model preparation escaped the weapon's actual range or native floor limit");
+        require(!SCNativeCompanion.isCompanionBallisticTargetInRange(Float.NaN, 0f, 0f, 5f)
+                        && !SCNativeCompanion.isCompanionBallisticTargetInRange(0f, Float.POSITIVE_INFINITY, 0f, 5f)
+                        && !SCNativeCompanion.isCompanionBallisticTargetInRange(0f, 0f, Float.NaN, 5f)
+                        && !SCNativeCompanion.isCompanionBallisticTargetInRange(0f, 0f, 0f, Float.POSITIVE_INFINITY)
+                        && !SCNativeCompanion.isCompanionBallisticTargetInRange(0f, 0f, 0f, -5f)
+                        && !SCNativeCompanion.isCompanionBallisticTargetInRange(0f, 0f, 0f, 0f),
+                "invalid native coordinates or weapon range admitted model preparation");
         require(SCNativeCompanion.shouldBridgeMovementOwnFacing(true, false, false),
                 "ordinary manual movement did not own its forward direction");
         require(!SCNativeCompanion.shouldBridgeMovementOwnFacing(true, true, false),

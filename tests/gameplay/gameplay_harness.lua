@@ -1012,6 +1012,9 @@ local woundedPart = bodyPart({ name = "ForeArm_L", isBleeding = true, isScratche
 local player = actor("player", 0, 1, { className = "IsoPlayer", recruited = false, body = bodyDamage(42, { woundedPart }) })
 player.modData.SC_Recruited = false
 
+SC_HUMAN_COMBAT_REGRESSIONS({ check = check, actor = actor, zombie = zombie,
+    item = item, inventory = inventory, cell = cell, registry = registry, player = player, clock = clock })
+
 do
     local Targeting = SurvivorCompanion.ZombieTargeting
     local closeCompanion = actor("sc-zombie-target-close", 3, 0, {})
@@ -1153,7 +1156,7 @@ do
         local savedPrimary, savedRange = closeCompanion.getPrimaryHandItem, SC.Combat.meleeRange
         SC.Combat.meleeRange = function() return 0, 10 end
         for _, ranged in ipairs({ false, true }) do
-            local weapon = { isRanged = function() return ranged end }
+            local weapon = item(ranged and "Base.Pistol" or "Base.Crowbar", "Weapon", { ranged = ranged, ammo = 15 })
             closeCompanion.getPrimaryHandItem = function() return weapon end
             local laneHandled, laneReason = SC.FactionBehavior.updateHumanCombat(closeCompanion, nil, {}, human, {
                 protectedActors = { { actor = bystander, relationship = "neutral" } },
@@ -1165,7 +1168,7 @@ do
         local held, heldReason = SC.FactionBehavior.updateHumanCombat(closeCompanion, nil, {}, human, {})
         check(not held and heldReason == "hold_fire",
             "Hold Fire blocks a loaded firearm against a hostile human even with Weapons Free doctrine")
-        closeCompanion.getPrimaryHandItem = function() return { isRanged = function() return false end } end
+        closeCompanion.getPrimaryHandItem = function() return item("Base.Crowbar", "Weapon") end
         local meleeHeld, meleeReason = SC.FactionBehavior.updateHumanCombat(closeCompanion, nil, {}, human, {
             protectedActors = { { actor = bystander, relationship = "neutral" } },
         })
@@ -1176,7 +1179,7 @@ do
         SC.GameplayUtil.move = function(_, _, intent) defense = intent.action return true, intent.action end
         banditNpc.getX = function() return closeCompanion:getX() + 0.8 end
         banditNpc.getY = function() return closeCompanion:getY() end
-        closeCompanion.getPrimaryHandItem = function() return { isRanged = function() return true end } end
+        closeCompanion.getPrimaryHandItem = function() return item("Base.Pistol", "Weapon", { ranged = true, ammo = 15 }) end
         local closeHeld = SC.FactionBehavior.updateHumanCombat(closeCompanion, nil, {}, human, {})
         check(closeHeld and defense == "shove",
             "a companion holding a loaded gun can still shove an immediate human attacker under Hold Fire")
@@ -22693,6 +22696,8 @@ do
     SurvivorCompanion.Navigation.reset(residentOne)
     residentOne.square = cell:getGridSquare(1, 1, 0)
     residentOne.lastIntent = nil
+    local spacing = SurvivorCompanion.Combat.meleeSpacing(residentOne, hostileCleaver)
+    residentOne.worldX, residentOne.worldY = player:getX() + spacing.desired, player:getY()
     local attacked = SurvivorCompanion.FactionBehavior.update(
         residentOne, player, { snapshot = {} }, { mode = "hostile" })
     check(attacked and residentOne.lastIntent
@@ -22700,6 +22705,7 @@ do
             and residentOne.lastIntent.weapon == hostileCleaver,
         "the same hostile resident attacks only after entering the cleaver's real swing range")
     SurvivorCompanion.Navigation.reset(residentOne)
+    residentOne.worldX, residentOne.worldY = nil, nil
     residentOne.square = cell:getGridSquare(2, 2, 0)
     residentOne.primary = nil
 end

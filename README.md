@@ -37,6 +37,7 @@ The [Field Guide](https://thorelvin.github.io/living-fellows/) covers orders, ca
 Choose one installation method. Workshop and standalone copies share the same mod ID and should not be enabled together.
 
 Using Bandits2 too? See the [optional adapter's scope and test results](docs/compatibility-bandits2.md).
+The unreleased source also includes [Project A-Life compatibility](docs/compatibility-project-alife.md). Use one external NPC mod at a time.
 
 ### Steam Workshop
 

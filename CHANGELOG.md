@@ -2,6 +2,18 @@
 
 # Changelog
 
+## Unreleased - A-Life compatibility and human combat recovery
+
+- Added an optional Project A-Life 1.4.6 adapter for 42.21.0 single-player, with two-way combat discovery, protected firing lanes and native wound handling. Companions share your faction reputation; independent LF people keep their own relations.
+- A-Life sees distinct LF identities while its player-state callbacks leave the main player's lifecycle and UI alone. Options can disable combat integration, and Support reports readiness or changed interfaces. See the [scope](docs/compatibility-project-alife.md) and [validation](docs/validation-project-alife.md); live scenarios are recorded separately from automated checks.
+
+- Companions can find escape routes when a hostile Bandit is the only threat, including under Stealth orders or at low health. Escape safety accounts for humans and zombies together while keeping their threat classifications separate.
+- Distant Bandits outside a companion's combat rules no longer repeatedly interrupt wound treatment. Nearby enemies, actual attacks and emergency orders still take priority.
+- Human combat reloads empty firearms, clears jams and switches to a usable carried weapon when ammunition is unavailable. Hold Fire and close-range shove defense remain in effect.
+- Human combat waits through native recoil and melee recovery without lowering the weapon or clearing its aim target. Firearms keep their own ballistic aim current between shots, and loaded targets keep their native skeleton available even when the player is looking elsewhere. Native accuracy, armour and damage still apply.
+- Human melee closes inside the weapon's normal stance distance before swinging, rather than repeatedly missing from the outer acceptance tolerance.
+- Added gameplay regressions for these cases, including bagged ammunition and moving threats. See the [validation record](docs/validation-human-combat-fixes.md) for verification and limits.
+
 ## 0.26.69 - Bandits compatibility, companion shooting and storage controls
 
 - Right-click a marked container and choose Base life → Unmark storage. Only its camp registration is removed; the container and items stay in place. Jobs still using it explain why removal must wait.

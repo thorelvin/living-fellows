@@ -588,7 +588,7 @@ end
 
 Senses._collectRelationshipsForTests = collectRelationships
 
-local function collectEscapeSquares(actor, threats, state, current, immediateCount, player)
+local function collectEscapeSquares(actor, threats, state, current, immediateCount, player, humanThreat)
     local U = util()
     local actorSquare = U.squareOf(actor)
     if actorSquare == nil or type(SC.Topology) ~= "table"
@@ -610,10 +610,12 @@ local function collectEscapeSquares(actor, threats, state, current, immediateCou
     end
     local originKey = U.squareKey(actorSquare)
     local cache = state.escapeTopology
+    local human = type(humanThreat) == "table" and humanThreat.actor
+        and not U.isGoneTarget(humanThreat.actor) and humanThreat or nil
     -- Peaceful followers do not need a fresh 64-node combat escape flood-fill.
     -- Actual threats still trigger the immediate four-edge probe before deeper
     -- work is allowed to yield.
-    if #(threats or {}) == 0 and (tonumber(immediateCount) or 0) <= 0 then
+    if #(threats or {}) == 0 and (tonumber(immediateCount) or 0) <= 0 and not human then
         -- A partial flood-fill is not a reusable topology snapshot. If calm
         -- cancels it, discard its partial result as well so a threat returning
         -- inside the cache TTL starts from verified immediate exits.
@@ -683,19 +685,28 @@ local function collectEscapeSquares(actor, threats, state, current, immediateCou
     end
     state.escapeImmediateCount = tonumber(immediateCount) or 0
 
-    -- Geometry is cached briefly; live danger is never cached. A moving zombie
+    -- Geometry is cached briefly; live danger is never cached. A moving threat
     -- therefore changes the preferred exit on every reflex pulse without paying
     -- for another flood-fill until the topology TTL or origin changes.
     local escapeScoreStarted = durationNowMs()
     local candidates = {}
     local threatPositions = {}
-    for _, threat in ipairs(threats or {}) do
+    local positioned = {}
+    local function addThreatPosition(threat)
+        if threat.actor and positioned[threat.actor] then return end
         local tx, ty, tz = tonumber(threat.x), tonumber(threat.y), tonumber(threat.z)
-        if tx == nil then tx, ty, tz = U.position(threat.actor) end
+        if (threat == human and threat.visible == true) or tx == nil then
+            tx, ty, tz = U.position(threat.actor)
+        end
         if tx ~= nil then
             threatPositions[#threatPositions + 1] = { x = tx, y = ty, z = tz or 0 }
+            if threat.actor then positioned[threat.actor] = true end
         end
     end
+    for _, threat in ipairs(threats or {}) do addThreatPosition(threat) end
+    -- Human positions affect escape safety without entering undead threat
+    -- counts, bite assistance or zombie attack selection.
+    if human then addThreatPosition(human) end
     local destinationRadius = tonumber(U.config("combatRetreatDestinationThreatRadius")) or 5
     local destinationRadiusSq = destinationRadius * destinationRadius
     local corridorRadius = tonumber(U.config("combatRetreatCorridorThreatRadius")) or 4.5
@@ -1296,8 +1307,19 @@ function Senses.snapshot(actor, player, runtime)
             and math.min(1, (job.index - 1) / #job.offsets) or 1
     end
 
+    local relationshipsFresh = state.alifeNpcsDirty == true or not state.allies
+        or now - (state.alliesAt or 0) > 250
+    local allies, protectedActors, externalThreat =
+        state.allies, state.protectedActors, state.externalThreat
+    if relationshipsFresh then
+        allies, protectedActors, externalThreat = collectRelationships(actor, player,
+            state.alifeNpcs, now)
+        state.allies, state.protectedActors, state.externalThreat, state.alliesAt =
+            allies, protectedActors, externalThreat, now
+        state.alifeNpcsDirty = false
+    end
     local escapeSquares, exits, escapeMeta = collectEscapeSquares(
-        actor, threats, state, now, #immediate, player)
+        actor, threats, state, now, #immediate, player, externalThreat)
     local threatSectors, occupiedThreatSectors, closeThreatCount, closeImmediateCount =
         directionalThreats(actor, threats, immediate)
     local recentSounds = relevantSounds(actor, rootRuntime.sounds, now)
@@ -1331,17 +1353,6 @@ function Senses.snapshot(actor, player, runtime)
         heardThreats[1] = remembered
     end
 
-    local relationshipsFresh = state.alifeNpcsDirty == true or not state.allies
-        or now - (state.alliesAt or 0) > 250
-    local allies, protectedActors, externalThreat =
-        state.allies, state.protectedActors, state.externalThreat
-    if relationshipsFresh then
-        allies, protectedActors, externalThreat = collectRelationships(actor, player,
-            state.alifeNpcs, now)
-        state.allies, state.protectedActors, state.externalThreat, state.alliesAt =
-            allies, protectedActors, externalThreat, now
-        state.alifeNpcsDirty = false
-    end
     local actorRoom, actorRoomOk = U.call(actorSquare, "getRoom")
     local snapshot = {
         valid = true,
@@ -1601,7 +1612,7 @@ function Senses.refreshImmediate(actor, player, snapshot, runtime)
     local immediateVisibleCount = threatMeta.immediateVisibleCount
     phaseStarted = durationNowMs()
     local escapeSquares, exits, escapeMeta = collectEscapeSquares(
-        actor, threats, state, now, #immediate, player)
+        actor, threats, state, now, #immediate, player, snapshot.humanThreat)
     recordReflexPhase("escape", phaseStarted)
     phaseStarted = durationNowMs()
     local sectors, occupied, closeCount, closeImmediate =

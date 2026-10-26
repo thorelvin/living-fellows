@@ -237,6 +237,8 @@ function support.snapshot(force)
         diagnostics = diagnosticSummary(),
         bandits = safeCall(function() return SC.BanditsAdapter.status() end,
             { state = "absent", reason = "Adapter unavailable" }),
+        alife = safeCall(function() return SC.ALifeAdapter.status() end,
+            { state = "absent", reason = "Adapter unavailable" }),
         actionSupervisor = actionHealth,
         actionLeaks = actionLeaks,
         actionQuarantine = actionQuarantine,
@@ -286,6 +288,8 @@ function support.summary(force)
         "Active companions: " .. tostring(data.companions),
         "Bandits adapter: " .. tostring(data.bandits and data.bandits.state or "absent")
             .. " | " .. tostring(data.bandits and data.bandits.reason or "unavailable"),
+        "A-Life adapter: " .. tostring(data.alife and data.alife.state or "absent")
+            .. " | " .. tostring(data.alife and data.alife.reason or "unavailable"),
         "Known households: " .. tostring(data.factions),
         "Scheduler: " .. tostring(scheduler.taskCount or 0) .. " tasks, "
             .. tostring(scheduler.exceptions or 0) .. " exceptions, "
