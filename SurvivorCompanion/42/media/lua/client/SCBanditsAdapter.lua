@@ -25,6 +25,8 @@ local owners, damageHandler = nil, nil
 local listFactory = nil
 local lastVictim, lastModel = nil, nil
 local damageScope = nil
+-- Cache proven world absence without discarding marked actors during startup.
+local modPresent = nil
 local unpackValues = unpack or table.unpack
 local function pack(...) return { n = select("#", ...), ... } end
 local function object(value) return type(value) == "table" or type(value) == "userdata" end
@@ -126,6 +128,7 @@ local function readyBrain(actor)
 end
 
 function Adapter.owns(actor)
+    if modPresent == false then return false end
     if not object(actor) then return false end
     local marked = call(actor, "getVariableBoolean", "Bandit") == true
     if marked then recognized[actor] = true return true end
@@ -395,7 +398,9 @@ end
 
 function Adapter.initialize()
     watching = true
-    if not enabledMod("Bandits2") then changeState("absent", "Bandits2 is not enabled") return false end
+    local present = enabledMod("Bandits2")
+    if type(getActivatedMods) == "function" then modPresent = present end
+    if not present then changeState("absent", "Bandits2 is not enabled") return false end
     if (type(isClient) == "function" and isClient())
         or (type(isServer) == "function" and isServer()) then
         changeState("unsupported", "Bandits interop supports single-player only") return false
@@ -508,6 +513,7 @@ end
 
 function Adapter.reset()
     watching = false
+    modPresent = nil
     damageScope = nil
     lifetime = lifetime + 1
     changeState("absent", "World stopped")

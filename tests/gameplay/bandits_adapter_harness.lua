@@ -87,6 +87,7 @@ check(A.status().bulletHits == 1 and A.status().meleeHits == 1 and A.status().ba
     "diagnostics identify the stock damage models without additional health deductions")
 SC.UserOptions.get = function() return false end
 check(not A.initialize() and A.status().state == "disabled", "Off disables combat integration")
+check(A.owns(enemy), "Off retains human classification for enabled Bandits")
 check(A.resolve(A.idFor(second)) == nil and BanditPlayer.GetPlayers():size() == 1,
     "Off conceals NPCs, including an owned view slot, while retaining identity safety")
 PlayerDamageModel.BulletHit(enemy, { damage = 30 }, second)

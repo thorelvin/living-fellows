@@ -1113,8 +1113,21 @@ function Behavior.updateHumanCombat(actor, player, runtime, threat, snapshot)
                     action = "human_threat_retreat", seekOpenEscape = true,
                 })
             end
-            U().stop(actor)
-            return true, "human_retreat_position_unavailable"
+            -- A failed escape must not suppress contact defence every tick.
+            -- Keep distant Stealth contacts passive, but let a cornered actor
+            -- defend against a visible close threat or a confirmed attack.
+            local defenceRange = tonumber(SC.Config.get("combatShoveDistance")) or 1.35
+            if SC.Combat and type(SC.Combat.meleeRange) == "function" then
+                local weapon = select(1, U().call(actor, "getPrimaryHandItem"))
+                local _, reach = SC.Combat.meleeRange(actor, weapon)
+                if type(reach) == "number" then defenceRange = math.max(defenceRange, reach) end
+            end
+            local close = U().distance(actor, threat.actor) <= defenceRange
+            if threat.visible ~= true or not close
+                and not externalAdapter.isAttacking(threat.actor, actor) then
+                U().stop(actor)
+                return true, "human_retreat_position_unavailable"
+            end
         end
         if doctrine == "close_defense" and U().distance(actor, threat.actor) > 6
             and not externalAdapter.isAttacking(threat.actor, actor)

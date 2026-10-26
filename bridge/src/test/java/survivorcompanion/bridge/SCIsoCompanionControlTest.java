@@ -1440,6 +1440,26 @@ public final class SCIsoCompanionControlTest {
     }
 
     private static void testCompanionBallisticInput(SCNativeCompanion actor, IsoPlayer primary) throws Exception {
+        Class<?> access = Class.forName(SCNativeCompanion.class.getName() + "$BallisticAccess");
+        for (String name : new String[] { "GET_CONTROLLER", "GET_RETICLE", "GET_ID", "SET_VECTOR",
+                "X", "Y", "Z", "IS_PRONE", "AIM_HEIGHT", "UPDATE_RETICLE", "MAX_RANGE", "RANGE_MOD" }) {
+            var cached = access.getDeclaredField(name);
+            cached.setAccessible(true);
+            require(java.lang.reflect.Modifier.isStatic(cached.getModifiers())
+                            && java.lang.reflect.Modifier.isFinal(cached.getModifiers()) && cached.get(null) != null,
+                    "supported game is missing cached native ballistic metadata: " + name);
+        }
+        var missingType = SCNativeCompanion.class.getDeclaredMethod("resolveBallisticClass", String.class);
+        var missingMethod = SCNativeCompanion.class.getDeclaredMethod("resolveBallisticMethod",
+                Class.class, String.class, Class[].class);
+        var missingField = SCNativeCompanion.class.getDeclaredMethod("resolveBallisticField", Class.class, String.class);
+        missingType.setAccessible(true);
+        missingMethod.setAccessible(true);
+        missingField.setAccessible(true);
+        require(missingType.invoke(null, "survivorcompanion.nonexistent.Ballistics") == null
+                        && missingMethod.invoke(null, null, "absent", new Class<?>[0]) == null
+                        && missingField.invoke(null, null, "absent") == null,
+                "optional ballistic lookup failure escaped its existing fallback");
         Class<?> characterClass = Class.forName("zombie.characters.IsoGameCharacter");
         Class<?> controllerClass = Class.forName("zombie.core.physics.BallisticsController");
         Class<?> vectorClass = Class.forName("zombie.iso.Vector3");

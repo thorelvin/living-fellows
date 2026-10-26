@@ -69,6 +69,46 @@ function SC_HUMAN_COMBAT_REGRESSIONS(f)
     check(SC.FactionBehavior.updateHumanCombat(actor, nil, {}, snapshot.humanThreat, snapshot)
             and requested and requested.intent.action == "human_threat_retreat",
         "an injured aggressive companion also retreats from a human-only threat")
+    local oldCorneredALife = SC.ALifeAdapter
+    -- A fresh cornered encounter has no assignment from the escape test above.
+    SC.Combat.reset()
+    local cornered = { threats = {}, threatCount = 0, immediateCount = 0, escapeSquares = {}, pressure = 0 }
+    for _, external in ipairs({ "bandits2", "project_alife" }) do
+        if external == "project_alife" then
+            SC.ALifeAdapter = { owns = function(value) return value == enemy end,
+                relationship = function() return "hostile" end,
+                isAttacking = function(_, value) return value == attacking end }
+        end
+        place(enemy, -2, -3)
+        local contact = human()
+        contact.external = external
+        for _, mode in ipairs({ { "stealth", 100 }, { "weapons_free", 30 } }) do
+            commands.combatDoctrine, actor.body.health, intent, requested = mode[1], mode[2], nil, nil
+            local defended, why = SC.FactionBehavior.updateHumanCombat(actor, nil, {}, contact, cornered)
+            check(defended and intent and intent.action == "shove" and requested == nil
+                    and why ~= "human_retreat_position_unavailable",
+                external .. " cornered " .. mode[1] .. " companion defends contact without an escape square: "
+                    .. tostring(why) .. "/" .. tostring(intent and intent.action)
+                    .. "/" .. tostring(requested and requested.intent.action))
+        end
+        place(enemy, 2, -3)
+        contact = human()
+        contact.external = external
+        commands.combatDoctrine, actor.body.health, intent = "stealth", 100, nil
+        local held, why = SC.FactionBehavior.updateHumanCombat(actor, nil, {}, contact, cornered)
+        check(held and why == "human_retreat_position_unavailable" and intent == nil,
+            external .. " cornered Stealth actor does not initiate a distant fight")
+        place(enemy, -2, -3)
+        contact = human()
+        contact.external, contact.visible, attacking, intent = external, false, actor, nil
+        held, why = SC.FactionBehavior.updateHumanCombat(actor, nil, {}, contact, cornered)
+        check(held and why == "human_retreat_position_unavailable" and intent == nil,
+            external .. " cornered actor does not chase an unseen attacker")
+        attacking = nil
+    end
+    SC.ALifeAdapter = oldCorneredALife
+    SC.FactionBehavior.releaseActor(actor)
+    place(enemy, 2, -3)
     commands.combatDoctrine, actor.body.health = "stealth", 100
     local walker = f.zombie(-8, -3, {})
     local undead = { { actor = walker, x = walker:getX(), y = walker:getY(), z = 0 } }

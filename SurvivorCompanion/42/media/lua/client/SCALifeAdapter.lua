@@ -18,6 +18,8 @@ local scope, nextCheck, lastCheck = nil, 0, nil
 local roster, rosterAt, rosterVersion = nil, -math.huge, nil
 local metrics = { listBuilds = 0, wounds = 0, rejected = 0 }
 local listeners = {}
+-- Unknown until world initialization: early marked shells remain protected.
+local modPresent = nil
 
 local function pack(...) return { n = select("#", ...), ... } end
 local function object(value) return type(value) == "table" or type(value) == "userdata" end
@@ -109,6 +111,7 @@ local function party(actor)
 end
 
 function Adapter.owns(actor)
+    if modPresent == false then return false end
     local data = dataOf(actor)
     if data and (data.ProjectALifeOwned == true or data.ProjectALifeActor == true) then return true end
     local marked = call(actor, "getVariableString", "ALifeActor")
@@ -542,7 +545,9 @@ local function validate(api)
 end
 function Adapter.initialize()
     watching = true
-    if not enabled("ProjectALifeNPCs") then changeState("absent", "Project A-Life is not enabled") return false end
+    local present = enabled("ProjectALifeNPCs")
+    if type(getActivatedMods) == "function" then modPresent = present end
+    if not present then changeState("absent", "Project A-Life is not enabled") return false end
     if type(isClient) == "function" and isClient() or type(isServer) == "function" and isServer() then
         changeState("unsupported", "A-Life interop supports single-player only") return false
     end
@@ -616,6 +621,7 @@ function Adapter.pulse(current)
 end
 function Adapter.reset()
     watching, scope = false, nil
+    modPresent = nil
     lifetime = lifetime + 1
     changeState("absent", "World stopped")
     for _, listener in pairs(listeners) do pcall(listener.event.Remove, listener.callback) end

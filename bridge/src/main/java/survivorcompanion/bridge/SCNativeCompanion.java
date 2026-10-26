@@ -4,6 +4,7 @@ package survivorcompanion.bridge;
 import se.krka.kahlua.vm.KahluaTable;
 
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -122,6 +123,33 @@ public final class SCNativeCompanion extends IsoPlayer {
     private static final Method WEAPON_IS_RANGED = resolveWeaponIsRanged();
     private static final Method CHARACTER_PLAY_SOUND = resolveCharacterPlaySound();
     private static final Method CHAT_ELEMENT_UPDATE = resolveNoArg(ChatElement.class, "update");
+    /** Lazy metadata only: resolving Bullet must not initialize its native
+     * state while the bridge itself is loading. No lookups run per aim tick. */
+    private static final class BallisticAccess {
+        static final Class<?> CONTROLLER = resolveBallisticClass("zombie.core.physics.BallisticsController");
+        static final Class<?> VECTOR = resolveBallisticClass("zombie.iso.Vector3");
+        static final Class<?> BULLET = resolveBallisticClass("zombie.core.physics.Bullet");
+        static final Method GET_CONTROLLER = resolveBallisticMethod(IsoGameCharacter.class, "getBallisticsController");
+        static final Method GET_RETICLE = resolveBallisticMethod(CONTROLLER, "getIsoAimingPosition");
+        static final Method GET_ID = resolveBallisticMethod(CONTROLLER, "getID");
+        static final Method SET_VECTOR = resolveBallisticMethod(VECTOR, "set", float.class, float.class, float.class);
+        static final Field X = resolveBallisticField(VECTOR, "x");
+        static final Field Y = resolveBallisticField(VECTOR, "y");
+        static final Field Z = resolveBallisticField(VECTOR, "z");
+        static final Method IS_PRONE = resolveBallisticMethod(IsoGameCharacter.class, "isProne");
+        static final Method AIM_HEIGHT = resolveBallisticMethod(IsoGameCharacter.class, "getAimOriginPosZ");
+        static final Method UPDATE_RETICLE = resolveBallisticMethod(BULLET, "updateBallisticsAimReticlePosition",
+                int.class, float.class, float.class, float.class);
+        static final Method MAX_RANGE = resolveBallisticMethod(HandWeapon.class, "getMaxRange", IsoGameCharacter.class);
+        static final Method RANGE_MOD = resolveBallisticMethod(HandWeapon.class, "getRangeMod", IsoGameCharacter.class);
+
+        static void requireReticle() throws ReflectiveOperationException {
+            if (GET_CONTROLLER == null || GET_RETICLE == null || SET_VECTOR == null
+                    || X == null || Y == null || Z == null) {
+                throw new ReflectiveOperationException("Native ballistic reticle interface is unavailable");
+            }
+        }
+    }
     private static volatile String RUNTIME_CONTRACT_FAILURE_FOR_TESTS = "";
     private static final int MIN_SPEECH_DISPLAY_MILLIS = 4_000;
     private static final int MAX_SPEECH_DISPLAY_MILLIS = 30_000;
@@ -1626,14 +1654,14 @@ public final class SCNativeCompanion extends IsoPlayer {
                 || target instanceof IsoGameCharacter character && character.isDead()) return null;
         float x = target.getX(), y = target.getY(), z = target.getZ();
         if (!Float.isFinite(x) || !Float.isFinite(y) || !Float.isFinite(z)) return null;
-        Object controller = IsoGameCharacter.class.getMethod("getBallisticsController").invoke(this);
+        BallisticAccess.requireReticle();
+        Object controller = BallisticAccess.GET_CONTROLLER.invoke(this);
         if (controller == null) return null;
-        Object reticle = controller.getClass().getMethod("getIsoAimingPosition").invoke(controller);
-        Class<?> type = reticle.getClass();
-        float[] original = { type.getField("x").getFloat(reticle),
-                type.getField("y").getFloat(reticle), type.getField("z").getFloat(reticle) };
+        Object reticle = BallisticAccess.GET_RETICLE.invoke(controller);
+        float[] original = { BallisticAccess.X.getFloat(reticle),
+                BallisticAccess.Y.getFloat(reticle), BallisticAccess.Z.getFloat(reticle) };
         Object[] captured = { reticle, original, this, controller, target };
-        type.getMethod("set", float.class, float.class, float.class).invoke(reticle, x, y, z);
+        BallisticAccess.SET_VECTOR.invoke(reticle, x, y, z);
         return captured;
     }
 
@@ -1641,15 +1669,14 @@ public final class SCNativeCompanion extends IsoPlayer {
         if (captured == null || !ownsCompanionBallisticInput(captured)) return;
         Object reticle = captured[0];
         float[] prior = (float[]) captured[1];
-        reticle.getClass().getMethod("set", float.class, float.class, float.class)
-                .invoke(reticle, prior[0], prior[1], prior[2]);
+        BallisticAccess.SET_VECTOR.invoke(reticle, prior[0], prior[1], prior[2]);
     }
 
     private static boolean ownsCompanionBallisticInput(Object[] captured) throws ReflectiveOperationException {
         if (captured.length == 2) return true; // CombatManager's unpooled scratch vector.
         SCNativeCompanion owner = (SCNativeCompanion) captured[2];
-        return !owner.bridgeDisabled && IsoGameCharacter.class.getMethod("getBallisticsController")
-                .invoke(owner) == captured[3];
+        return !owner.bridgeDisabled && BallisticAccess.GET_CONTROLLER != null
+                && BallisticAccess.GET_CONTROLLER.invoke(owner) == captured[3];
     }
 
     // The Java reticle is the broad-phase input; Bullet owns the corresponding
@@ -1657,21 +1684,24 @@ public final class SCNativeCompanion extends IsoPlayer {
     private void selectCompanionPhysicsReticle(Object[] captured) throws ReflectiveOperationException {
         if (captured == null) return;
         Object reticle = captured[0];
-        Class<?> type = reticle.getClass();
         // A known character supplies a 3D aim point. Feeding its floor point
         // into Bullet's camera ray aims between the feet of walking targets.
         // The broad-phase Java reticle stays at the floor coordinate, as the
         // stock range filter expects; only the physical ray aims at the body.
         float z = companionPhysicsAimHeight((zombie.iso.IsoMovingObject) captured[4]);
-        updateCompanionPhysicsReticle(type.getField("x").getFloat(reticle),
-                type.getField("y").getFloat(reticle), z);
+        updateCompanionPhysicsReticle(BallisticAccess.X.getFloat(reticle),
+                BallisticAccess.Y.getFloat(reticle), z);
     }
 
     private static float companionPhysicsAimHeight(zombie.iso.IsoMovingObject target)
             throws ReflectiveOperationException {
-        if (target instanceof IsoGameCharacter character
-                && !Boolean.TRUE.equals(target.getClass().getMethod("isProne").invoke(target))) {
-            return ((Number) IsoGameCharacter.class.getMethod("getAimOriginPosZ").invoke(character)).floatValue();
+        if (target instanceof IsoGameCharacter character) {
+            if (BallisticAccess.IS_PRONE == null || BallisticAccess.AIM_HEIGHT == null) {
+                throw new ReflectiveOperationException("Native ballistic target height interface is unavailable");
+            }
+            if (!Boolean.TRUE.equals(BallisticAccess.IS_PRONE.invoke(target))) {
+                return ((Number) BallisticAccess.AIM_HEIGHT.invoke(character)).floatValue();
+            }
         }
         return target.getZ();
     }
@@ -1700,10 +1730,13 @@ public final class SCNativeCompanion extends IsoPlayer {
     }
 
     private void updateCompanionPhysicsReticle(float x, float y, float z) throws ReflectiveOperationException {
-        Object controller = IsoGameCharacter.class.getMethod("getBallisticsController").invoke(this);
-        int id = ((Number) controller.getClass().getMethod("getID").invoke(controller)).intValue();
-        Class.forName("zombie.core.physics.Bullet").getMethod("updateBallisticsAimReticlePosition",
-                int.class, float.class, float.class, float.class).invoke(null, id, x, z * 2.44949f, y);
+        if (BallisticAccess.GET_CONTROLLER == null || BallisticAccess.GET_ID == null
+                || BallisticAccess.UPDATE_RETICLE == null) {
+            throw new ReflectiveOperationException("Native physics reticle interface is unavailable");
+        }
+        Object controller = BallisticAccess.GET_CONTROLLER.invoke(this);
+        int id = ((Number) BallisticAccess.GET_ID.invoke(controller)).intValue();
+        BallisticAccess.UPDATE_RETICLE.invoke(null, id, x, z * 2.44949f, y);
     }
 
     /** CombatManager shares these scratch rays across all characters. The
@@ -2462,10 +2495,9 @@ public final class SCNativeCompanion extends IsoPlayer {
             Object weapon = GET_PRIMARY_HAND_ITEM == null ? null : GET_PRIMARY_HAND_ITEM.invoke(this);
             if (weapon == null || WEAPON_IS_AIMED_FIREARM == null
                     || !Boolean.TRUE.equals(WEAPON_IS_AIMED_FIREARM.invoke(weapon))) return;
-            float range = ((Number) weapon.getClass().getMethod("getMaxRange", IsoGameCharacter.class)
-                    .invoke(weapon, this)).floatValue()
-                    * ((Number) weapon.getClass().getMethod("getRangeMod", IsoGameCharacter.class)
-                    .invoke(weapon, this)).floatValue();
+            if (BallisticAccess.MAX_RANGE == null || BallisticAccess.RANGE_MOD == null) return;
+            float range = ((Number) BallisticAccess.MAX_RANGE.invoke(weapon, this)).floatValue()
+                    * ((Number) BallisticAccess.RANGE_MOD.invoke(weapon, this)).floatValue();
             float dx = target.getX() - getX(), dy = target.getY() - getY();
             if (!isCompanionBallisticTargetInRange(dx, dy, target.getZ() - getZ(), range)) return;
             // Even a ready skeleton can have a queued camera-cull removal.
@@ -3430,6 +3462,30 @@ public final class SCNativeCompanion extends IsoPlayer {
             method.setAccessible(true);
             return method;
         } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    private static Class<?> resolveBallisticClass(String name) {
+        try {
+            return Class.forName(name, false, SCNativeCompanion.class.getClassLoader());
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
+            return null;
+        }
+    }
+
+    private static Method resolveBallisticMethod(Class<?> owner, String name, Class<?>... parameters) {
+        try {
+            return owner.getMethod(name, parameters);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
+            return null;
+        }
+    }
+
+    private static Field resolveBallisticField(Class<?> owner, String name) {
+        try {
+            return owner.getField(name);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
             return null;
         }
     }

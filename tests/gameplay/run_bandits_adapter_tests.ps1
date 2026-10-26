@@ -29,6 +29,16 @@ try {
     )
     & .\jre64\bin\java.exe -cp "$taskOut;$GameRoot\projectzomboid.jar" KahluaTestRunner @taskHardeningFiles
     if ($LASTEXITCODE -ne 0) { throw 'Bandits hardening regression failed' }
+    $taskFastPathFiles = @(
+        (Join-Path $taskRoot 'SurvivorCompanion\42\media\lua\shared\SCCall.lua'),
+        (Join-Path $taskRoot 'SurvivorCompanion\42\media\lua\client\SCGameplayUtil.lua'),
+        (Join-Path $taskRoot 'SurvivorCompanion\42\media\lua\client\SCZombieFacts.lua'),
+        (Join-Path $taskRoot 'SurvivorCompanion\42\media\lua\client\SCBanditsAdapter.lua'),
+        (Join-Path $taskRoot 'SurvivorCompanion\42\media\lua\client\SCALifeAdapter.lua'),
+        (Join-Path $PSScriptRoot 'external_human_fastpath_harness.lua')
+    )
+    & .\jre64\bin\java.exe -cp "$taskOut;$GameRoot\projectzomboid.jar" KahluaTestRunner @taskFastPathFiles
+    if ($LASTEXITCODE -ne 0) { throw 'External human absent-mod fast path regression failed' }
     if (Test-Path -LiteralPath $BanditsRoot) {
         $taskLua = Join-Path $BanditsRoot 'media\lua'
         $taskSourceFiles = @(

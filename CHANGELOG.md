@@ -12,6 +12,8 @@
 - Human combat reloads empty firearms, clears jams and switches to a usable carried weapon when ammunition is unavailable. Hold Fire and close-range shove defense remain in effect.
 - Human combat waits through native recoil and melee recovery without lowering the weapon or clearing its aim target. Firearms keep their own ballistic aim current between shots, and loaded targets keep their native skeleton available even when the player is looking elsewhere. Native accuracy, armour and damage still apply.
 - Human melee closes inside the weapon's normal stance distance before swinging, rather than repeatedly missing from the outer acceptance tolerance.
+- Cornered companions defend against close or actively attacking humans when no escape is available. Stealth still avoids distant passive contacts, and Hold Fire, firing lanes and territory limits still apply.
+- Zombie classification skips native adapter ownership probes when Bandits and A-Life are absent. Native aiming also reuses cached class, method and field metadata instead of looking it up each frame.
 - Added gameplay regressions for these cases, including bagged ammunition and moving threats. See the [validation record](docs/validation-human-combat-fixes.md) for verification and limits.
 
 ## 0.26.69 - Bandits compatibility, companion shooting and storage controls

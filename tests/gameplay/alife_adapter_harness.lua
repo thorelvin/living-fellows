@@ -115,6 +115,7 @@ check(#P.Perception.adapters.players() == 4, "roster lifecycle changes invalidat
 ALIFE_TEST_OPTIONS.alifeCompatibility = false
 check(not A.initialize() and A.status().state == "disabled" and #P.Perception.adapters.players() == 1,
     "Off filters owned view slots and removes extra combat targets")
+check(A.owns(shell), "Off retains human classification for enabled A-Life shells")
 check(not P.Combat.resolveAttack(record, shell, member, { damage = 20 }) and P.Reputation.playerKey(member) ~= "sp:0",
     "Off retains identity and damage isolation")
 ALIFE_TEST_OPTIONS.alifeCompatibility = true
