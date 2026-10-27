@@ -105,6 +105,7 @@ check(not window.requestTicket and text(window):find("Please name one target",1,
 local kate={name="Kate",hurt=true}
 local alice={name="Alice",level=7}
 local bob={name="Bob",level=2}
+local expectedMedic=alice
 function alice:getPerkLevel() return self.level end
 function bob:getPerkLevel() return self.level end
 local records={kate={id="kate",actor=kate,recruited=true,runtime={}},
@@ -113,10 +114,11 @@ SC.Registry={ living=function() return {kate,bob,alice} end, byId=function(id) r
     idOf=function(actor) for id,row in pairs(records) do if row.actor==actor then return id end end end }
 SC.Medical={ assess=function(actor) return {hurt=actor.hurt} end,
     hasActionableNeed=function(_,assessment) return assessment.hurt==true end,
+    peek=function(helper) return helper.treatment end,
     travelRescueEligible=function() return available end,
     canTreatPatient=function() return available end,
     treat=function(helper,patient,runtime)
-        check(helper==alice and patient==kate and runtime==records.alice.runtime,"highest qualified medic uses native checked treatment path and actual runtime")
+        check(helper==expectedMedic and patient==kate and runtime==records[helper.name:lower()].runtime,"selected medic uses native checked treatment path and actual runtime")
         calls=calls+1 return true
     end }
 send(window,"send medic to Kate")
@@ -156,6 +158,42 @@ local world=SC.TerminalWorld.new(player,computer)
 for _,question in ipairs({"who is hurt","power","why is work blocked","how much fuel","yes"}) do
     check(not Brain.respond(Brain.newSession({random=function() return 1 end}),question,world).proposal,"read-only question cannot propose an action: "..question)
 end
+
+-- Readiness for Kate does not imply that a medic is free: treat() continues
+-- the helper's existing patient. Keep that ownership bound to the proposal.
+window=open()
+local beforeMedic=calls
+alice.treatment={patient=bob}
+expectedMedic=bob
+send(window,"send medic to Kate")
+check(window.requestTicket and text(window):find("Bob to check Kate",1,true) and calls==beforeMedic,
+    "an idle medic is selected instead of a more skilled medic treating someone else")
+send(window,"yes")
+check(calls==beforeMedic+1,"the selected idle medic treats the confirmed patient")
+bob.treatment={patient=alice}
+send(window,"send medic to Kate")
+check(not window.requestTicket and calls==beforeMedic+1 and text(window):find("No available camp medic",1,true),
+    "no proposal is created when all medics own other patients")
+alice.treatment=nil expectedMedic=alice
+send(window,"send medic to Kate")
+local changedPatientTicket=window.requestTicket
+check(changedPatientTicket~=nil,"an available medic can be proposed again")
+alice.treatment={patient=bob}
+send(window,"yes")
+check(calls==beforeMedic+1 and not window.requestTicket
+    and Actions.execute(window,changedPatientTicket)==false,
+    "taking another patient after the proposal refuses and consumes its confirmation")
+alice.treatment={patient=kate}
+send(window,"send medic to Kate") send(window,"yes")
+check(calls==beforeMedic+2,"care already targeting the confirmed patient remains eligible")
+alice.treatment,bob.treatment=nil,nil
+local savedPeek=SC.Medical.peek
+SC.Medical.peek=nil
+send(window,"send medic to Kate")
+check(not window.requestTicket and calls==beforeMedic+2,
+    "unavailable treatment ownership cannot be assumed idle")
+SC.Medical.peek=savedPeek
+window:close()
 Actions.reset()
 SC.BaseLife,SC.Vehicle,SC.VehicleRefuel,SC.GeneratorRefuel=saved.life,saved.vehicle,saved.refuel,saved.generator
 SC.Medical,SC.Registry,SC.ExpeditionPrototype,SC.TaxiService,SC.UI=saved.medical,saved.registry,saved.expedition,saved.taxi,saved.ui

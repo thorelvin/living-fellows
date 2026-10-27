@@ -1,5 +1,8 @@
 -- SPDX-License-Identifier: MIT
 local SC, UI = SurvivorCompanion, SurvivorCompanion.UI
+local savedCrisis = SC.InfectionCrisis
+local crises = { rows = {}, history = {} }
+SC.InfectionCrisis = { summary = function() return crises end }
 local base = { configured = true, name = "Camp", zoneRows = {}, storageRows = {},
     residentRows = { { id = "resident", role = "generalist", duty = true } },
     rows = { { id = "sort", state = "blocked", autoRetry = true, retryRemainingMs = 180000 } },
@@ -62,4 +65,40 @@ changed("the displayed retry-minute boundary still refreshes")
 local before = rebuilds
 refresh()
 assert(rebuilds == before, "an unchanged base reuses the existing controls")
-SC_TEST_REPORT = SC_TEST_REPORT .. "; Base refresh PASS: live roster values retain controls; identity, duty, roles, policies, markings and retry text refresh"
+local crisis = { id = "crisis-1", subjectId = "resident", subjectName = "Alice Smith",
+    phase = "deliberating", strategy = "watch", infectionLevel = 89.1,
+    knownToViewer = true, finalAuthorized = false, subjectIsPlayer = false }
+crises.rows = { crisis }
+changed("a new crisis appears without depending on another base change")
+local function unchanged(message)
+    local count = rebuilds
+    refresh()
+    assert(rebuilds == count, message)
+end
+crisis.infectionLevel = 89.9
+row.health, row.hunger = 74.9, 46.1
+unchanged("fractional infection and ordinary health changes keep the existing Base controls")
+crisis.infectionLevel = 90
+changed("crossing the infection threshold refreshes newly eligible crisis actions")
+crisis.infectionLevel = 90.2
+crises.history = { { id = crisis.id, at = 1001 } }
+unchanged("unchanged displayed infection and historical timestamps do not rebuild Base")
+crisis.infectionLevel = 91
+changed("the displayed infection percentage remains current")
+crisis.phase = "resolved"
+changed("crisis phase changes refresh its actions")
+crisis.outcome = "quarantine"
+changed("a changed crisis outcome refreshes its actions")
+crisis.finalAuthorized = true
+changed("final authorization retires the obsolete crisis choices")
+crisis.knownToViewer = false
+changed("changed crisis knowledge refreshes the visible details and controls")
+crisis.restriction = "quarantine"
+changed("crisis restrictions refresh even without a resident-row change")
+crisis.subjectName = "Alice"
+changed("crisis subject names refresh independently of the selected resident")
+crises.rows = {}
+changed("a closed crisis disappears without an unrelated roster change")
+unchanged("a stable crisis list retains Base controls")
+SC.InfectionCrisis = savedCrisis
+SC_TEST_REPORT = SC_TEST_REPORT .. "; Base refresh PASS: ordinary live values retain controls; identity, duty, roles, policies, markings, retry text and crisis changes refresh"

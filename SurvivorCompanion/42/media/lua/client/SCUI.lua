@@ -678,6 +678,22 @@ local function baseDetailSignature()
     end
     local visuals = SC.BaseVisuals and type(SC.BaseVisuals.status) == "function"
         and SC.BaseVisuals.status() or {}
+    local crises = SC.InfectionCrisis and type(SC.InfectionCrisis.summary) == "function"
+        and SC.InfectionCrisis.summary() or { rows = {} }
+    local crisisSignatures = {}
+    for _, crisis in ipairs(crises.rows or {}) do
+        -- Match the visible percentage and action gates, not fractional health
+        -- changes or history. A separate budget keeps a busy base from hiding
+        -- a crisis change behind its other controls' signature limit.
+        crisisSignatures[#crisisSignatures + 1] = stableSignatureValue({
+            id = crisis.id, subjectId = crisis.subjectId, subjectName = crisis.subjectName,
+            subjectIsPlayer = crisis.subjectIsPlayer, phase = crisis.phase,
+            strategy = crisis.strategy, outcome = crisis.outcome,
+            infectionLevel = math.floor(tonumber(crisis.infectionLevel) or 0),
+            finalAuthorized = crisis.finalAuthorized, knownToViewer = crisis.knownToViewer,
+            restriction = crisis.restriction,
+        }, 2, { count = 16 }, {})
+    end
     return "base:" .. stableSignatureValue({
         configured = summary.configured, name = summary.name, zones = summary.zones,
         storages = summary.storages, residents = summary.residents, duty = summary.duty,
@@ -694,7 +710,7 @@ local function baseDetailSignature()
         visuals = visuals,
         baseWatch = SC.BaseWatch and SC.BaseWatch.describe
             and SC.BaseWatch.describe() or nil,
-    }, 6, { count = 480 }, {})
+    }, 6, { count = 480 }, {}) .. ":crises:" .. table.concat(crisisSignatures, ";")
 end
 
 function UI.getSettings()

@@ -74,6 +74,16 @@ local function actorRecord(id, expected)
         or SC.TaxiService and type(SC.TaxiService.isDriver) == "function" and SC.TaxiService.isDriver(actor) then return nil end
     return record
 end
+local function medicAvailableFor(helper, patient, player)
+    local medical = SC.Medical
+    if not medical or type(medical.peek) ~= "function" then return false end
+    -- treat() advances any treatment the helper already owns, even when
+    -- called with another patient. Readiness alone cannot bind this request.
+    local active = medical.peek(helper)
+    if active ~= nil and active.patient ~= patient then return false end
+    return medical.travelRescueEligible(helper, patient, player)
+        and medical.canTreatPatient(helper, patient)
+end
 local function prepareMedic(query, window)
     local medical, registry = SC.Medical, SC.Registry
     if not medical or not registry then return nil, "Medical requests are unavailable." end
@@ -95,8 +105,7 @@ local function prepareMedic(query, window)
     local best, score
     for _, record in ipairs(helpers) do
         local helper = record.actor
-        if helper ~= patient.actor and medical.travelRescueEligible(helper, patient.actor, window.player)
-            and medical.canTreatPatient(helper, patient.actor) then
+        if helper ~= patient.actor and medicAvailableFor(helper, patient.actor, window.player) then
             local level = Perks and Perks.Doctor and tonumber(call(helper, "getPerkLevel", Perks.Doctor)) or 0
             if not best or level > score or level == score and tostring(record.id) < tostring(best.id) then
                 best, score = record, level
@@ -182,8 +191,7 @@ function Actions.execute(window, ticket)
     elseif target.kind == "medic" then
         local helper = actorRecord(target.helperId, target.helper)
         local patient = actorRecord(target.patientId, target.patient)
-        if not helper or not patient or not SC.Medical.travelRescueEligible(helper.actor, patient.actor, window.player)
-            or not SC.Medical.canTreatPatient(helper.actor, patient.actor) then
+        if not helper or not patient or not medicAvailableFor(helper.actor, patient.actor, window.player) then
             return false, "The medic or patient is no longer available for this request."
         end
         okay, detail = SC.Medical.treat(helper.actor, patient.actor, helper.runtime)

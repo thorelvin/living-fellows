@@ -13,6 +13,10 @@
   restore normal collision afterward. Already-stranded companions, including
   saved standing positions inside a mattress, can step to a clear adjacent tile
   on the same floor without crossing walls or changing rooms.
+- EMMA selects medics who are available for the named patient and checks again
+  at confirmation, preventing an unrelated treatment from being reported as accepted.
+- The Base tab refreshes infection-crisis details and choices when they change,
+  while routine health and hunger updates keep the existing controls in place.
 
 - EMMA terminals fill the player view with centred content, an opaque background and much larger text that scales with resolution. Menu/chat focus, immediate number shortcuts, a skippable 1993-style POST sequence and persistent green, sand, aqua or rare purple phosphor complete the display. Business logos retain their original colours; the catalog references stock artwork and adds custom camp and fallback emblems.
 - Terminal text colours pair with each company's artwork, with aquamarine for Fossoil and rare purple kept as an exception. Logos share subdued CRT brightness, scanlines and consistent spacing; Fossoil uses a transparent boot logo instead of its station sign. Existing computers calibrate once without changing locks, files or notes.
