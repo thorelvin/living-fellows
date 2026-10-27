@@ -4,6 +4,7 @@
 /native-acceptance/*.png
 !/native-acceptance/emma-lore-*.png
 !/native-acceptance/emma-computer-*.png
+!/native-acceptance/emma-controls-*.png
 !/native-acceptance/camp-logo-*.png
 !/native-acceptance/confirmation-prompt.png
 !/native-acceptance/medical-report.png

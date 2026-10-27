@@ -16,6 +16,18 @@ ISPanel:new(0, 0, 200, 300):addChild(attached)
 attached:addOption("Parented native control")
 assert(attached.y == 2200, "fixture parenting preserves the stock getKeepOnScreen contract")
 UI.text = function(key) return key end
+for _, reason in ipairs({ "floor_pickup_animation_replaced", "floor_pickup_animation_failed",
+    "floor_pickup_animation_rejected" }) do
+    assert(UI.baseFailureReason(reason, true) == "UI_SC_Base_Reason_work_pickup_interrupted",
+        "pickup interruptions have a player-facing explanation instead of animation diagnostics")
+end
+assert(UI.baseFailureReason("path_blocked:blocked_static", true) == "UI_SC_Base_Reason_work_path_blocked",
+    "path details do not leak through a compound blocker code")
+assert(UI.baseFailureReason("floor_pickup_unverified", true) == "UI_SC_Base_Reason_work_item_unconfirmed",
+    "unconfirmed item ownership stays distinct from an interrupted pickup")
+assert(UI.baseFailureReason("future_native_callback_failed", true) == nil
+    and UI.baseFailureReason("future_native_callback_failed") == "Future native callback failed",
+    "terminal callers can refuse unknown diagnostics without changing general menu fallback")
 local detail = fixture.classes.SCUIDetail:new(0, 0, 200, 300, {})
 local panel = ISPanel:new(0, 0, 200, 300)
 local label = "Automatically maintain and sort the base"

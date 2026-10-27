@@ -98,10 +98,19 @@ try {
             (Join-Path $TestRoot 'SCTerminalAudioTests.lua'),
             (Join-Path $TestRoot 'SCTerminalActionTests.lua'),
             (Join-Path $TestRoot 'SCTerminalLoreTests.lua'),
-            (Join-Path $TestRoot 'SCTerminalCompanionTests.lua')
+            (Join-Path $TestRoot 'SCTerminalCompanionTests.lua'),
+            (Join-Path $TestRoot 'SCTerminalReadingTests.lua')
         )
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @terminalFiles
         if ($LASTEXITCODE -ne 0) { throw 'Camp computer terminal UI tests failed.' }
+        $buildingFiles = @($terminalFiles | Where-Object { $_ -notmatch 'Tests\.lua$' })
+        foreach ($module in @('SCControlUtil','SCBuildingControls','SCTerminalHardware','SCRadioEndpoints',
+            'SCGeneratorServices','SCBuildingSecurity','SCBuildingCircuits','SCTerminalServices')) {
+            $buildingFiles += Join-Path $Client ($module + '.lua')
+        }
+        $buildingFiles += Join-Path $TestRoot 'SCBuildingServicesTests.lua'
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @buildingFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Building services and station ownership tests failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @files
         if ($LASTEXITCODE -ne 0) { throw 'UI Kahlua tests failed.' }
         $baseRedrawFiles = @(

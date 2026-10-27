@@ -1,0 +1,5 @@
+Built-in imagegen; transparent output.
+Reference: SurvivorCompanion/42/media/textures/Terminal/Skin/crt-frame.png (style only).
+Output: SurvivorCompanion/42/media/textures/Terminal/Skin/crt-radio-antenna.png
+
+Original 1993 walkie-talkie expedition-station attachment: orthographic front view, narrow charcoal radio on a warm beige mounting foot, tall telescoping steel antenna, small amber indicator, knurled knob and tucked coiled cable. Match the existing lightly weathered beige CRT. Transparent surroundings; no monitor, screen, lettering or branding. Preserve the existing screen aperture by drawing the attachment as a separate outer-bezel overlay.

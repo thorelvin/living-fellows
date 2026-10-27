@@ -176,10 +176,18 @@ window:otherKey(Keyboard.KEY_PRIOR)
 check(window.scroll == 15 + window:visibleRows() - 2, "Page Up scrolls a screen back")
 window:onMouseWheel(-1000)
 check(window.scroll == #window.rows - window:visibleRows(), "scrolling stops at the oldest line")
+local drawText, pageHint = window.drawText
+window.drawText = function(self, value, x, y, ...)
+    if y == self.layout.hintY then pageHint = value end
+    return drawText(self, value, x, y, ...)
+end
 window:prerender()
-check(T.lastDrawn == "-- more below --", "scrolled back, the view says there is more")
+window.drawText = drawText
+check(pageHint and pageHint:find("PgUp/PgDn",1,true) and pageHint:find("/80",1,true),
+    "paging guidance shows the visible range without covering the transcript")
 window:print("new")
-check(window.scroll == 0, "new output returns to the bottom")
+window:prerender()
+check(window.scroll == #window.rows - window:visibleRows(), "new output preserves the oldest text being read")
 for index = 1, Terminal.SCROLLBACK_ROWS + 50 do window:print("flood " .. index) end
 check(#window.rows == Terminal.SCROLLBACK_ROWS, "scrollback is bounded")
 

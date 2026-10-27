@@ -2403,6 +2403,14 @@ function BaseWork.update(actor, player, runtime)
                 return true, reason
             end
         end
+    elseif job.type == "generator_service" then
+        local complete
+        handled, reason, terminal, complete = SC.GeneratorServices.update(actor, state, job)
+        if complete then
+            SC.BaseLife.completeJob(job.id, id, reason)
+            state.jobId = nil
+            return true, reason
+        end
     elseif job.type == "refuel_generator" then
         if not SC.GeneratorRefuel or type(SC.GeneratorRefuel.update) ~= "function" then
             handled, reason, terminal = false, "generator_refuel_unavailable", true
@@ -2841,7 +2849,8 @@ function BaseWork.cancel(actor, reason)
         end
         local fuelWork = job and (job.type == "unload_vehicle" and SC.VehicleUnload
             or job.type == "refuel_vehicle" and SC.VehicleRefuel
-            or job.type == "refuel_generator" and SC.GeneratorRefuel
+            or job.type == "generator_service" and SC.GeneratorServices
+                or job.type == "refuel_generator" and SC.GeneratorRefuel
             or (job.type == "inflate_tires" or job.type == "wash_vehicle")
                 and SC.VehicleUpkeep) or nil
         if fuelWork then
@@ -2950,6 +2959,7 @@ function BaseWork.cancelJob(jobId, ownerId, reason)
     end
     if unloadJob and (unloadJob.type == "unload_vehicle"
         or unloadJob.type == "refuel_vehicle"
+        or unloadJob.type == "generator_service"
         or unloadJob.type == "refuel_generator"
         or unloadJob.type == "inflate_tires"
         or unloadJob.type == "wash_vehicle") then
@@ -2957,7 +2967,8 @@ function BaseWork.cancelJob(jobId, ownerId, reason)
         local owner = worker and U().resolveActor(worker) or nil
         local fuelWork = unloadJob.type == "unload_vehicle"
             and SC.VehicleUnload or unloadJob.type == "refuel_vehicle"
-            and SC.VehicleRefuel or unloadJob.type == "refuel_generator"
+            and SC.VehicleRefuel or unloadJob.type == "generator_service"
+            and SC.GeneratorServices or unloadJob.type == "refuel_generator"
             and SC.GeneratorRefuel or SC.VehicleUpkeep
         if fuelWork and type(fuelWork.cancel) == "function" then
             return fuelWork.cancel(owner, unloadJob)
@@ -3048,13 +3059,14 @@ function BaseWork.reconcileExpiredJob(job, ownerId)
             return false, "expired_cleaning_loan_pending" end
         job.target.cleanLoans, job.assignedId = nil, nil
     end
-    if (job.type == "refuel_vehicle" or job.type == "refuel_generator"
+    if (job.type == "refuel_vehicle" or job.type == "generator_service" or job.type == "refuel_generator"
         or job.type == "inflate_tires" or job.type == "wash_vehicle")
         and type(job.target) == "table"
         and job.target.stage ~= nil then
         -- Only the chore can release a receipt whose worker is gone for good.
         local work = job.type == "refuel_vehicle" and SC.VehicleRefuel
-            or job.type == "refuel_generator" and SC.GeneratorRefuel
+            or job.type == "generator_service" and SC.GeneratorServices
+                or job.type == "refuel_generator" and SC.GeneratorRefuel
             or SC.VehicleUpkeep
         if not BaseWork.workerUnregistered(ownerId) or not work
             or type(work.releaseAffinity) ~= "function"

@@ -34,7 +34,7 @@ BaseLife.STORAGE_CATEGORIES = {
 }
 BaseLife.JOB_TYPES = {
     haul = true, sort = true, sort_floor = true, fetch = true, unload_vehicle = true,
-    refuel_vehicle = true, refuel_generator = true,
+    refuel_vehicle = true, refuel_generator = true, generator_service = true,
     inflate_tires = true, wash_vehicle = true,
     repair = true, replace_bandage = true, clean = true,
     craft_supply = true, barricade = true, maintain = true, build = true,
@@ -151,6 +151,11 @@ local AUTO_RETRY_BLOCKERS = {
     farm_output_storage_missing = true, farm_food_storage_missing = true,
     floor_zone_missing = true, floor_worker_unavailable = true,
     floor_source_changed = true, no_floor_items = true,
+    -- Pickup visuals finish before any item transfer. Interrupted/rejected
+    -- visuals can retry without replaying a native inventory effect.
+    floor_pickup_animation_replaced = true,
+    floor_pickup_animation_failed = true,
+    floor_pickup_animation_rejected = true,
     chef_supply_missing = true, chef_supply_changed = true,
     chef_food_storage_unavailable = true, chef_carry_capacity_low = true,
     chef_craft_surface_missing = true,
@@ -2996,7 +3001,7 @@ function BaseLife.jobAllowsWorkReach(job)
     if type(job) ~= "table" or type(job.target) ~= "table" then return false end
     local base = activeBase()
     local order
-    if job.type == "refuel_generator" then
+    if job.type == "refuel_generator" or job.type == "generator_service" then
         local target = job.target
         return type(target.objectId) == "string"
             and BaseLife.withinWorkReach(target)
@@ -4388,7 +4393,8 @@ function BaseLife.claimJob(actorId)
             -- the exact cargo/action recovery check says there is no owner.
             local fuelWork = job.type == "unload_vehicle" and SC.VehicleUnload
                 or job.type == "refuel_vehicle" and SC.VehicleRefuel
-                or job.type == "refuel_generator" and SC.GeneratorRefuel
+                or job.type == "generator_service" and SC.GeneratorServices
+        or job.type == "refuel_generator" and SC.GeneratorRefuel
                 or (job.type == "inflate_tires" or job.type == "wash_vehicle")
                     and SC.VehicleUpkeep or nil
             if fuelWork and job.assignedId ~= nil
@@ -4429,6 +4435,7 @@ function BaseLife.releaseJob(id, actorId, reason)
     if not job or (actorId ~= nil and job.reservedBy ~= actorId) then return false, "job_not_owned" end
     local fuelWork = job.type == "unload_vehicle" and SC.VehicleUnload
         or job.type == "refuel_vehicle" and SC.VehicleRefuel
+        or job.type == "generator_service" and SC.GeneratorServices
         or job.type == "refuel_generator" and SC.GeneratorRefuel
         or (job.type == "inflate_tires" or job.type == "wash_vehicle")
             and SC.VehicleUpkeep or nil
@@ -4454,6 +4461,7 @@ function BaseLife.blockJob(id, actorId, reason, retryMs)
     local worker = actorId or job.reservedBy
     local fuelWork = job.type == "unload_vehicle" and SC.VehicleUnload
         or job.type == "refuel_vehicle" and SC.VehicleRefuel
+        or job.type == "generator_service" and SC.GeneratorServices
         or job.type == "refuel_generator" and SC.GeneratorRefuel
         or (job.type == "inflate_tires" or job.type == "wash_vehicle")
             and SC.VehicleUpkeep or nil
@@ -4581,7 +4589,7 @@ function BaseLife.cancelJob(id)
         or job.type == "sort_floor"
         or job.type == "clean"
         or job.type == "fetch" or job.type == "unload_vehicle"
-        or job.type == "refuel_vehicle" or job.type == "refuel_generator"
+        or job.type == "refuel_vehicle" or job.type == "generator_service" or job.type == "refuel_generator"
         or job.type == "inflate_tires" or job.type == "wash_vehicle"
     if (job.type == "build" and job.reservedBy ~= nil) or transferJob then
         if not SC.BaseWork or type(SC.BaseWork.cancelJob) ~= "function" then
@@ -4754,7 +4762,7 @@ function BaseLife.jobAutoRetry(job)
     if (job.type == "refuel_vehicle" or job.type == "refuel_generator"
         or job.type == "inflate_tires" or job.type == "wash_vehicle")
         and string.find(reason, "missing", 1, true) then return false end
-    return transientJobDelay(job, reason) ~= nil or AUTO_RETRY_BLOCKERS[reason] == true
+    return reason == "generator_service_retry" or reason == "generator_service_unloaded" or transientJobDelay(job, reason) ~= nil or AUTO_RETRY_BLOCKERS[reason] == true
         or BaseLife.navigationFailure(reason)
         or string.find(reason, "missing_build_supply:", 1, true) == 1
         or string.find(reason, "missing_tool:", 1, true) == 1

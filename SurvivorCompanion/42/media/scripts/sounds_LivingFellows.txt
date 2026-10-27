@@ -1,5 +1,31 @@
 module Base
 {
+    sound LFBuildingSiren
+    {
+        category = World,
+        loop = true,
+        maxInstancesPerEmitter = 1,
+        clip
+        {
+            file = media/sound/LFBuildingSiren.wav,
+            is3D = true,
+            distanceMax = 200,
+            volume = 0.85,
+        }
+    }
+    sound LFBuildingAnnouncement
+    {
+        category = World,
+        loop = false,
+        maxInstancesPerEmitter = 1,
+        clip
+        {
+            file = media/sound/LFBuildingAnnouncement.wav,
+            is3D = true,
+            distanceMax = 60,
+            volume = 0.8,
+        }
+    }
     sound LFTaxiRadioCall
     {
         category = UI,

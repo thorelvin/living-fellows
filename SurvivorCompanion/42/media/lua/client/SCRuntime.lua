@@ -1248,6 +1248,12 @@ local function registerTasks()
         -- slice promptly so a complete pass stays responsive at 16 members.
         { "ui-refresh", 50, 20, uiTask, "background", false, true, 1 },
         { "nearby-inventory", 250, 22, nearbyInventoryTask, "background" },
+        { "computer-services", 1000, 21, function()
+            if SC.TerminalHardware then SC.TerminalHardware.pulse() end
+            if SC.GeneratorServices then SC.GeneratorServices.pulse() end
+            if SC.BuildingControls then SC.BuildingControls.pulse() end
+            return true
+        end, "background" },
         { "bridge-generation", 1000, 21, bridgeGenerationTask, "background" },
         { "base-maintenance", SC.Config.get("baseAuditIntervalMs"), 19,
             baseMaintenanceTask, "background" },
@@ -1855,6 +1861,10 @@ function runtime.save()
                 .. tostring(called and restoreReason or committed)
         end
     end
+    if SC.TerminalHardware then
+        local okay, reason = SC.TerminalHardware.save()
+        if not okay then return false, reason end
+    end
     return SC.Persistence.save(player())
 end
 
@@ -2030,6 +2040,10 @@ function runtime.reset(detach)
     resetModule("decision", SC.Decision, "resetAll")
     resetModule("ui", SC.UI, "reset")
     resetModule("computer terminal", SC.Terminal, "reset")
+    resetModule("building security", SC.BuildingSecurity, "reset")
+    resetModule("terminal hardware", SC.TerminalHardware, "reset")
+    resetModule("building controls", SC.BuildingControls, "reset")
+    resetModule("radio endpoints", SC.RadioEndpoints, "reset")
     resetModule("companion gifts", SC.CompanionGifts, "reset")
     resetModule("view control", SC.ViewControl, "reset")
     resetModule("steering", SC.Steering, "reset")

@@ -1215,6 +1215,18 @@ function H.person(session, reply, turn, world)
     if #needs > 0 then add(reply, "Current needs: " .. table.concat(needs, ", ") .. ".") end
 end
 
+local function jobRetries(row)
+    return row.autoRetry == true or row.autoRetry == nil and tonumber(row.retryRemainingMs) ~= nil
+end
+
+local function addJobRetry(reply, row)
+    if not jobRetries(row) then return end
+    local remaining = math.max(0, tonumber(row.retryRemainingMs) or 0)
+    if remaining == 0 then return addTemplate(reply, "job_retry_ready") end
+    local minutes = math.max(1, math.ceil(remaining / 60000))
+    addTemplate(reply, minutes == 1 and "job_retry_minute" or "job_retry_minutes", { n = minutes })
+end
+
 function H.jobs(session, reply, turn, world)
     reply.category = "jobs"
     local access, reason = campAccess(turn, world)
@@ -1249,8 +1261,7 @@ function H.blocked(session, reply, turn, world)
         addTemplate(reply, "blocked_row", { job = rows[index].job or "Work",
             reason = rows[index].reason or "reason unknown" })
         local row = rows[index]
-        if row.retryRemainingMs then add(reply, "    Automatic retry in about "
-            .. math.max(1, math.ceil(row.retryRemainingMs / 1000)) .. " seconds.") end
+        addJobRetry(reply, row)
         if row.id then add(reply, "    To retry now: retry job " .. tostring(row.id)) end
     end
 end
@@ -1404,11 +1415,20 @@ function H.advice(session, reply, turn, world)
     local access = campAccess(turn, world)
     if access then
         local jobs = jobFacts(turn, world)
+        local paused
         for _, row in ipairs(jobs and jobs.rows or {}) do
             if row.state == "blocked" then
-                return addTemplate(reply, "advice_blocked", { job = row.job or "Work",
-                    reason = capitalize(row.reason or "reason unknown") })
+                if not jobRetries(row) then
+                    return addTemplate(reply, "advice_blocked", { job = row.job or "Work",
+                        reason = capitalize(row.reason or L().T.job_reason_unknown):gsub("[%.%s]+$", "") })
+                end
+                paused = paused or row
             end
+        end
+        if paused then
+            addTemplate(reply, "advice_paused", { job = paused.job or "Work",
+                reason = capitalize(paused.reason or L().T.job_reason_unknown):gsub("[%.%s]+$", "") })
+            return addJobRetry(reply, paused)
         end
         local index = ask(turn, world, "storage")
         if type(index) == "table" then

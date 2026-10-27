@@ -1,0 +1,84 @@
+LOG  : General      f:0> 27-10-2026 13:19:21
+WARN : General      f:0 at WmiQueryHandler.handleComException  > COM exception querying Win32_Processor, which might not be on your system. Will not attempt to query it again. Error was -2147024891: Ingen tilgang.(HRESULT: 80070005)
+WARN : General      f:0 at WmiQueryHandler.handleComException  > COM exception querying Win32_Processor, which might not be on your system. Will not attempt to query it again. Error was -2147024891: Ingen tilgang.(HRESULT: 80070005)
+LOG  : General      f:0> ===== System specs =====
+LOG  : General      f:0> CPU: 13th Gen Intel(R) Core(TM) i7-13700F, vendor: GenuineIntel, cores: 16, threads: 24
+LOG  : General      f:0> RAM: 32581 Mb
+WARN : General      f:0 at WmiQueryHandler.handleComException  > COM exception querying Win32_BaseBoard, which might not be on your system. Will not attempt to query it again. Error was -2147024891: Ingen tilgang.(HRESULT: 80070005)
+LOG  : General      f:0> Base board: unknown, vendor: unknown
+LOG  : General      f:0> GPU: NVIDIA GeForce RTX 4070 Ti, vendor: NVIDIA, video memory: 12282 Mb, driver: 32.0.16.1088
+LOG  : General      f:0> Disk info: 1861.30 Gb, free space: 38.72 Gb, usable space: 38.72 Gb
+WARN : General      f:0 at WindowsOperatingSystem.querySystemLog> Unable to open configured system Event log "System". Calculating boot time from uptime.
+WARN : General      f:0 at Advapi32UtilFFM.querySystemLog      > Unable to open configured system Event log "System". Calculating boot time from uptime.
+WARN : General      f:0 at Advapi32UtilFFM.querySystemBootTime > Unable to open system Event Log. Falling back to uptime.
+WARN : General      f:0 at WmiQueryHandler.handleComException  > COM exception querying Win32_OperatingSystem, which might not be on your system. Will not attempt to query it again. Error was -2147024891: Ingen tilgang.(HRESULT: 80070005)
+LOG  : General      f:0> OS: Windows 11, version: 10.0, arch: amd64, build:
+LOG  : General      f:0> JVM (free: 404 Mb, max: 3072 Mb, total available: 510 Mb)
+LOG  : General      f:0> ========================
+LOG  : General      f:0> java.specification.version=25
+LOG  : General      f:0> sun.cpu.isalist=amd64
+LOG  : General      f:0> sun.jnu.encoding=Cp1252
+LOG  : General      f:0> java.vm.vendor=Azul Systems, Inc.
+LOG  : General      f:0> sun.arch.data.model=64
+LOG  : General      f:0> java.vendor.url=http://www.azul.com/
+LOG  : General      f:0> zomboid.steam=1
+LOG  : General      f:0> java.vm.specification.version=25
+LOG  : General      f:0> os.name=Windows 11
+LOG  : General      f:0> sun.java.launcher=SUN_STANDARD
+LOG  : General      f:0> zomboid.znetlog=1
+LOG  : General      f:0> sun.java.command=survivorcompanion.bridge.SCLauncher -...
+LOG  : General      f:0> slf4j.provider=zombie.core.logger.Slf4jBridge
+LOG  : General      f:0> jdk.debug=release
+LOG  : General      f:0> sun.cpu.endian=little
+LOG  : General      f:0> java.specification.vendor=Oracle Corporation
+LOG  : General      f:0> java.version.date=2025-10-21
+LOG  : General      f:0> java.home=C:\Program Files (x86)\Steam\steamapp...
+LOG  : General      f:0> file.separator=\
+LOG  : General      f:0> line.separator=
+
+LOG  : General      f:0> java.vm.specification.vendor=Oracle Corporation
+LOG  : General      f:0> java.specification.name=Java Platform API Specification
+LOG  : General      f:0> java.awt.headless=true
+LOG  : General      f:0> sun.management.compiler=HotSpot 64-Bit Tiered Compilers
+LOG  : General      f:0> java.runtime.version=25.0.1+8-LTS
+LOG  : General      f:0> stdout.encoding=Cp1252
+LOG  : General      f:0> os.version=10.0
+LOG  : General      f:0> jna.nosys=false
+LOG  : General      f:0> java.runtime.name=OpenJDK Runtime Environment
+LOG  : General      f:0> file.encoding=UTF-8
+LOG  : General      f:0> java.vm.name=OpenJDK 64-Bit Server VM
+LOG  : General      f:0> java.vendor.version=Zulu25.30+17-CA
+LOG  : General      f:0> jna.loaded=true
+LOG  : General      f:0> java.vendor.url.bug=http://www.azul.com/support/
+LOG  : General      f:0> java.version=25.0.1
+LOG  : General      f:0> os.arch=amd64
+LOG  : General      f:0> java.vm.specification.name=Java Virtual Machine Specification
+LOG  : General      f:0> sun.os.patch.level=
+LOG  : General      f:0> native.encoding=Cp1252
+LOG  : General      f:0> java.vm.info=mixed mode, sharing
+LOG  : General      f:0> stderr.encoding=Cp1252
+LOG  : General      f:0> java.vendor=Azul Systems, Inc.
+LOG  : General      f:0> java.vm.version=25.0.1+8-LTS
+LOG  : General      f:0> stdin.encoding=cp850
+LOG  : General      f:0> sun.io.unicode.encoding=UnicodeLittle
+LOG  : General      f:0> java.class.version=69.0
+LOG  : General      f:0> -----
+LOG  : General      f:0> version=42.21.0 4a0e9546ec demo=false
+LOG  : General      f:0> revision=4a0e9546ec pzbullet=1.0.0.28
+LOG  : General      f:0> You can setup the log levels in the debuglog.cfg file
+LOG  : General      f:0> Logs configuration:
+LOG  : General      f:0>      General: General
+LOG  : General      f:0>      Network: General
+LOG  : General      f:0>          Lua: General
+LOG  : General      f:0>          Mod: General
+LOG  : General      f:0>  Multiplayer: General
+LOG  : General      f:0> ClientCommand: General
+LOG  : General      f:0>      Default: Off
+LOG  : General      f:0> LightingFPS set to 15
+LOG  : General      f:0> Display mode changed to 1280x720 freq=0 fullScreen=false
+LOG  : General      f:0> GraphicsCard: NVIDIA Corporation NVIDIA GeForce RTX 4070 Ti/PCIe/SSE2
+LOG  : General      f:0> OpenGL version: 4.6.0 NVIDIA 610.88
+LOG  : General      f:0> Desktop resolution 2560x1440
+LOG  : General      f:0> Initial resolution 1280x720 fullScreen=false
+LOG  : General      f:0> OpenGL 1.5 buffer objects supported
+LOG  : General      f:0> VSync: OFF

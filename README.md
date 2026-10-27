@@ -10,7 +10,7 @@
   <img src="assets/banner.png" width="100%" alt="Living Fellows: survivors walking a dusk street together">
 </p>
 
-[![Release](https://img.shields.io/badge/release-0.26.71-blue.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-0.26.72-blue.svg)](CHANGELOG.md)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.21.0-red.svg)](#requirements)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)

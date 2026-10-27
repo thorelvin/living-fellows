@@ -2335,6 +2335,34 @@ end
 -- The stock generator action owns the fluid transfer. Snapshot its immediate
 -- completion rather than comparing distant tank readings: an activated
 -- generator burns fuel while the companion is pouring.
+function actions.startGeneratorService(actor, generator, operation, jobId)
+    local class = operation == "repair" and ISFixGenerator or ISActivateGenerator
+    if not class or not class.new then return false, "generator_service_action_unavailable" end
+    local items={}
+    if operation=="repair" then
+        local inventory=SC.ControlUtil.inventory(actor)
+        local scrap=SC.ControlUtil.call(inventory,"getFirstTypeRecurse","ElectronicsScrap")
+        if not scrap then return false,"missing_supply:Base.ElectronicsScrap" end
+        items[1]=scrap
+    end
+    local record, reason = prepareWorkInventory(actor, items, nil, nil)
+    if not record then return false, reason end
+    local okay, action = pcall(class.new, class, actor, generator, operation == "start")
+    if not okay or not action then restoreWorkInventory(actor, record) return false, "generator_service_action_creation_failed" end
+    local valid, complete = action.isValid, action.complete
+    -- The base job owns repair continuation, cancellation and retry, rather
+    -- than allowing stock repair to enqueue untracked follow-up actions.
+    if operation == "repair" then action.continueFixing = function() end end
+    action.isValid = function(self)
+        return SC.GeneratorServices.canContinue(actor, generator, jobId) == true and valid(self) == true
+    end
+    action.complete = function(self)
+        if not self:isValid() then return false end
+        return complete(self)
+    end
+    return queueTrackedWork(actor, action, record, "generator_service")
+end
+
 function actions.startGeneratorRefuel(actor, generator, item, jobId)
     if actor == nil or generator == nil or item == nil
         or type(ISAddFuel) ~= "table" or type(ISAddFuel.new) ~= "function" then

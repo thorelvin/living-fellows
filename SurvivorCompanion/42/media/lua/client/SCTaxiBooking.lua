@@ -42,6 +42,9 @@ local function owned(actor, item)
 end
 
 function Booking.checkRadio(actor, item)
+    if SC.RadioEndpoints and SC.RadioEndpoints.isEndpoint(item) then
+        return SC.RadioEndpoints.validate(actor, item)
+    end
     if not actor or not item or not U() or not U().instanceOf(item, "Radio") then
         return false, "not_a_radio"
     end
@@ -67,8 +70,11 @@ function Booking.checkRadio(actor, item)
     return true, "radio_ready"
 end
 
-local function callerPoint(actor)
-    local x, y, z = U().position(actor)
+local function callerPoint(actor, source)
+    local x, y, z
+    if SC.RadioEndpoints and SC.RadioEndpoints.isEndpoint(source) then
+        x, y, z = SC.RadioEndpoints.origin(source)
+    else x, y, z = U().position(actor) end
     if not finite(x) or not finite(y) or not finite(z) then return nil end
     return { x = math.floor(x), y = math.floor(y), z = math.floor(z) }
 end
@@ -88,7 +94,7 @@ function Booking.request(actor, radio)
     local valid, reason = Booking.checkRadio(actor, radio)
     if not valid then return false, reason end
     if active then return true, "already_booked", snapshot() end
-    local point = callerPoint(actor)
+    local point = callerPoint(actor, radio)
     if not point then return false, "caller_position_unavailable" end
     local generation = nextGeneration
     active = { generation = generation, phase = "awaiting_pickup",
@@ -109,7 +115,7 @@ function Booking.updatePickup(actor, radio)
     if not valid then return false, reason end
     if not active then return false, "no_booking" end
     if active.phase ~= "awaiting_pickup" then return false, "pickup_locked" end
-    local point = callerPoint(actor)
+    local point = callerPoint(actor, radio)
     if not point then return false, "caller_position_unavailable" end
     active.requestedAt = point
     return true, "pickup_updated", snapshot()

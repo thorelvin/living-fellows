@@ -80,6 +80,15 @@ public final class SCBridge {
         return SCViewpointCompatibility.active();
     }
 
+    public static boolean isControlDoorObstructed(IsoObject door) { return SCTerminalDevices.obstructed(door); }
+    public static String controlDoorClearanceDiagnostic() { return SCTerminalDevices.clearanceReason(); }
+    public static boolean setControlDoorLocked(IsoObject door, boolean locked) { return SCTerminalDevices.locked(door, locked); }
+    public static boolean setControlDoorOpen(IsoObject door, boolean open, IsoGameCharacter operator) { return SCTerminalDevices.opened(door, open, operator); }
+    public static String packTerminalItem(Object item) { return SCTerminalDevices.pack(item); }
+    public static Object unpackTerminalItem(String payload) { return SCTerminalDevices.unpack(payload); }
+    public static Object createTerminalReceiver(Object item, IsoObject computer) { return SCTerminalDevices.receiver(item, computer); }
+    public static int silenceControlBuildingAlarm(Object building, Object manager) { return SCTerminalDevices.silence(building, manager); }
+
     /** One scoped terminal-header draw, never a world or camera render pass. */
     public static boolean drawTerminalLogo(zombie.ui.UIElement host, zombie.core.textures.Texture texture,
             double x, double y, double width, double height, double alpha, double red, double green, double blue,

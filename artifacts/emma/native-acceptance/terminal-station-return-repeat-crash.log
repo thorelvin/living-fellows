@@ -1,0 +1,1018 @@
+LOG  : General      f:0> 27-10-2026 13:36:54
+WARN : General      f:0 at WmiQueryHandler.handleComException  > COM exception querying Win32_Processor, which might not be on your system. Will not attempt to query it again. Error was -2147024891: Ingen tilgang.(HRESULT: 80070005)
+WARN : General      f:0 at WmiQueryHandler.handleComException  > COM exception querying Win32_Processor, which might not be on your system. Will not attempt to query it again. Error was -2147024891: Ingen tilgang.(HRESULT: 80070005)
+LOG  : General      f:0> ===== System specs =====
+LOG  : General      f:0> CPU: 13th Gen Intel(R) Core(TM) i7-13700F, vendor: GenuineIntel, cores: 16, threads: 24
+LOG  : General      f:0> RAM: 32581 Mb
+WARN : General      f:0 at WmiQueryHandler.handleComException  > COM exception querying Win32_BaseBoard, which might not be on your system. Will not attempt to query it again. Error was -2147024891: Ingen tilgang.(HRESULT: 80070005)
+LOG  : General      f:0> Base board: unknown, vendor: unknown
+LOG  : General      f:0> GPU: NVIDIA GeForce RTX 4070 Ti, vendor: NVIDIA, video memory: 12282 Mb, driver: 32.0.16.1088
+LOG  : General      f:0> Disk info: 1861.30 Gb, free space: 38.64 Gb, usable space: 38.64 Gb
+WARN : General      f:0 at WindowsOperatingSystem.querySystemLog> Unable to open configured system Event log "System". Calculating boot time from uptime.
+WARN : General      f:0 at Advapi32UtilFFM.querySystemLog      > Unable to open configured system Event log "System". Calculating boot time from uptime.
+WARN : General      f:0 at Advapi32UtilFFM.querySystemBootTime > Unable to open system Event Log. Falling back to uptime.
+WARN : General      f:0 at WmiQueryHandler.handleComException  > COM exception querying Win32_OperatingSystem, which might not be on your system. Will not attempt to query it again. Error was -2147024891: Ingen tilgang.(HRESULT: 80070005)
+LOG  : General      f:0> OS: Windows 11, version: 10.0, arch: amd64, build:
+LOG  : General      f:0> JVM (free: 404 Mb, max: 3072 Mb, total available: 510 Mb)
+LOG  : General      f:0> ========================
+LOG  : General      f:0> java.specification.version=25
+LOG  : General      f:0> sun.cpu.isalist=amd64
+LOG  : General      f:0> sun.jnu.encoding=Cp1252
+LOG  : General      f:0> java.vm.vendor=Azul Systems, Inc.
+LOG  : General      f:0> sun.arch.data.model=64
+LOG  : General      f:0> java.vendor.url=http://www.azul.com/
+LOG  : General      f:0> zomboid.steam=1
+LOG  : General      f:0> java.vm.specification.version=25
+LOG  : General      f:0> os.name=Windows 11
+LOG  : General      f:0> sun.java.launcher=SUN_STANDARD
+LOG  : General      f:0> zomboid.znetlog=1
+LOG  : General      f:0> sun.java.command=survivorcompanion.bridge.SCLauncher -...
+LOG  : General      f:0> slf4j.provider=zombie.core.logger.Slf4jBridge
+LOG  : General      f:0> jdk.debug=release
+LOG  : General      f:0> sun.cpu.endian=little
+LOG  : General      f:0> java.specification.vendor=Oracle Corporation
+LOG  : General      f:0> java.version.date=2025-10-21
+LOG  : General      f:0> java.home=C:\Program Files (x86)\Steam\steamapp...
+LOG  : General      f:0> file.separator=\
+LOG  : General      f:0> line.separator=
+
+LOG  : General      f:0> java.vm.specification.vendor=Oracle Corporation
+LOG  : General      f:0> java.specification.name=Java Platform API Specification
+LOG  : General      f:0> java.awt.headless=true
+LOG  : General      f:0> sun.management.compiler=HotSpot 64-Bit Tiered Compilers
+LOG  : General      f:0> java.runtime.version=25.0.1+8-LTS
+LOG  : General      f:0> stdout.encoding=Cp1252
+LOG  : General      f:0> os.version=10.0
+LOG  : General      f:0> jna.nosys=false
+LOG  : General      f:0> java.runtime.name=OpenJDK Runtime Environment
+LOG  : General      f:0> file.encoding=UTF-8
+LOG  : General      f:0> java.vm.name=OpenJDK 64-Bit Server VM
+LOG  : General      f:0> java.vendor.version=Zulu25.30+17-CA
+LOG  : General      f:0> jna.loaded=true
+LOG  : General      f:0> java.vendor.url.bug=http://www.azul.com/support/
+LOG  : General      f:0> java.version=25.0.1
+LOG  : General      f:0> os.arch=amd64
+LOG  : General      f:0> java.vm.specification.name=Java Virtual Machine Specification
+LOG  : General      f:0> sun.os.patch.level=
+LOG  : General      f:0> native.encoding=Cp1252
+LOG  : General      f:0> java.vm.info=mixed mode, sharing
+LOG  : General      f:0> stderr.encoding=Cp1252
+LOG  : General      f:0> java.vendor=Azul Systems, Inc.
+LOG  : General      f:0> java.vm.version=25.0.1+8-LTS
+LOG  : General      f:0> stdin.encoding=cp850
+LOG  : General      f:0> sun.io.unicode.encoding=UnicodeLittle
+LOG  : General      f:0> java.class.version=69.0
+LOG  : General      f:0> -----
+LOG  : General      f:0> version=42.21.0 4a0e9546ec demo=false
+LOG  : General      f:0> revision=4a0e9546ec pzbullet=1.0.0.28
+LOG  : General      f:0> You can setup the log levels in the debuglog.cfg file
+LOG  : General      f:0> Logs configuration:
+LOG  : General      f:0>      General: General
+LOG  : General      f:0>      Network: General
+LOG  : General      f:0>          Lua: General
+LOG  : General      f:0>          Mod: General
+LOG  : General      f:0>  Multiplayer: General
+LOG  : General      f:0> ClientCommand: General
+LOG  : General      f:0>      Default: Off
+LOG  : General      f:0> LightingFPS set to 15
+LOG  : General      f:0> Display mode changed to 1280x720 freq=0 fullScreen=false
+LOG  : General      f:0> GraphicsCard: NVIDIA Corporation NVIDIA GeForce RTX 4070 Ti/PCIe/SSE2
+LOG  : General      f:0> OpenGL version: 4.6.0 NVIDIA 610.88
+LOG  : General      f:0> Desktop resolution 2560x1440
+LOG  : General      f:0> Initial resolution 1280x720 fullScreen=false
+LOG  : General      f:0> OpenGL 1.5 buffer objects supported
+LOG  : General      f:0> VSync: OFF
+LOG  : General      f:0> Loading networking libraries...
+LOG  : General      f:0> Loading RakNet64...
+LOG  : General      f:0> Loading ZNetNoSteam64...
+LOG  : General      f:0> SteamUtils started without Steam
+LOG  : General      f:0> Loading Mods
+LOG  : Mod          f:0> loading SurvivorCompanion
+LOG  : Mod          f:0> mod "SurvivorCompanion" overrides media/lua/shared/translate/en/sandbox.json
+LOG  : Mod          f:0> mod "SurvivorCompanion" overrides media/lua/shared/translate/en/ui.json
+LOG  : Mod          f:0> loading SCRealSandboxHarness
+LOG  : Mod          f:0> mod "SCRealSandboxHarness" overrides
+LOG  : General      f:0> Loading Translations
+LOG  : General      f:0> texturepack: loading UI
+LOG  : General      f:0> Loading UI texture pack
+LOG  : General      f:0> texturepack: loading UI2
+LOG  : General      f:0> Loading UI2 texture pack
+LOG  : General      f:0> texturepack: loading IconsMoveables
+LOG  : General      f:0> Loading IconsMoveables texture pack
+LOG  : General      f:0> texturepack: loading RadioIcons
+LOG  : General      f:0> Loading RadioIcons texture pack
+LOG  : General      f:0> texturepack: loading ApComUI
+LOG  : General      f:0> Loading ApComUI texture pack
+LOG  : General      f:0> texturepack: loading Mechanics
+LOG  : General      f:0> Loading Mechanics texture pack
+LOG  : General      f:0> texturepack: loading WeatherFx
+LOG  : General      f:0> Loading WeatherFx texture pack
+LOG  : General      f:0> Loading Scripts
+WARN : General      f:0 at XuiSkin$EntityUiStyle.Load          > Could not find icon: Build_AnvilStone, script = Stone Anvil
+WARN : General      f:0 at XuiSkin$EntityUiStyle.LoadComponentInfo> Could not find icon: Build_AnvilStone
+WARN : General      f:0 at XuiSkin$EntityUiStyle.Load          > Could not find icon: Build_AnvilStone, script = Stone Anvil
+WARN : General      f:0 at XuiSkin$EntityUiStyle.LoadComponentInfo> Could not find icon: Build_AnvilStone
+WARN : General      f:0 at XuiSkin$EntityUiStyle.Load          > Could not find icon: Build_AnvilStone, script = Stone Anvil
+WARN : General      f:0 at XuiSkin$EntityUiStyle.LoadComponentInfo> Could not find icon: Build_AnvilStone
+WARN : General      f:0 at XuiSkin$EntityUiStyle.Load          > Could not find icon: Build_AnvilStone, script = Stone Anvil
+WARN : General      f:0 at XuiSkin$EntityUiStyle.LoadComponentInfo> Could not find icon: Build_AnvilStone
+WARN : General      f:0 at TaggedObjectManager.createTagBits   > manager-> new tag discovered that was not preprocessed, tag: keyduplicator
+WARN : General      f:0 at TaggedObjectManager.createTagBits   > manager-> new tag discovered that was not preprocessed, tag: choppingblock
+LOG  : General      f:0> Loading Clothing
+LOG  : General      f:0>
+LOG  : General      f:0> Loading Lua
+WARN : Lua          f:0 at Lua(Vanilla).corpseStorageCheck     > require("ISUI/ISInventoryPaneContextMenu") failed
+WARN : Lua          f:0 at Lua(Vanilla).corpseStorageCheck     > require("ISUI/ISVehicleMenu") failed
+WARN : Lua          f:0 at Lua(Vanilla).corpseStorageCheck     > require("ISUI/ISContextMenu") failed
+WARN : Lua          f:0 at Lua(Vanilla).ISCampingMenu          > require("Camping/CCampfireSystem") failed
+WARN : Lua          f:0 at Lua(Vanilla).ISInventoryTransferUtil> require("TimedActions/ISInventoryTransferAction") failed
+WARN : Lua          f:0 at Lua(Vanilla).ISInventoryTransferUtil> require("ISUI/PlayerData/ISPlayerData") failed
+WARN : Lua          f:0 at Lua(Vanilla).ISAnimalContextMenu    > require("BuildingObjects/ISAnimalPickMateCursor") failed
+WARN : Lua          f:0 at Lua(Vanilla).TakeSameType           > require("ISUI/InventoryWindow/ISLootWindowControlHandler") failed
+WARN : Lua          f:0 at Lua(Vanilla).FloorTakeSameType      > require("ISUI/InventoryWindow/ISLootWindowControlHandler") failed
+WARN : Lua          f:0 at Lua(Vanilla).testUI                 > require("pzapi/ui/ui") failed
+LOG  : Lua          f:0> [SurvivorCompanion/senses] actor=global action=world_noise_hooks events=none
+LOG  : Lua          f:0> OnLoadSoundbanks
+LOG  : General      f:0> texturepack: loading Tiles2x
+LOG  : General      f:0> Loading Tiles2x texture pack
+LOG  : General      f:0> texturepack: loading Overlays2x
+LOG  : General      f:0> Loading Overlays2x texture pack
+LOG  : General      f:0> texturepack: loading JumboTrees2x
+LOG  : General      f:0> Loading JumboTrees2x texture pack
+LOG  : General      f:0> texturepack: loading JumboTreesBigs2x
+LOG  : General      f:0> Loading JumboTreesBigs2x texture pack
+LOG  : General      f:0> texturepack: loading Tiles2x.floor
+LOG  : General      f:0> Loading Tiles2x.floor texture pack
+LOG  : General      f:0> texturepack: loading B42ChunkCaching2x
+LOG  : General      f:0> Loading B42ChunkCaching2x texture pack
+LOG  : General      f:0> texturepack: loading B42ChunkCaching2x.floor
+LOG  : General      f:0> Loading B42ChunkCaching2x.floor texture pack
+LOG  : General      f:0> texturepack: loading Clock2x
+LOG  : General      f:0> Loading Clock2x texture pack
+LOG  : General      f:0> Loading models and animations
+LOG  : General      f:0> Game booting
+LOG  : General      f:0> [SurvivorCompanionBridge] ready protocol=42.21-isocompanion-24
+LOG  : General      f:0> STATE: exit zombie.gameStates.TISLogoState
+LOG  : General      f:0> STATE: exit zombie.gameStates.TermsOfServiceState
+LOG  : General      f:0> binkId: 1
+WARN : Lua          f:0 at Lua(Vanilla).namedColorToTable      > env.lua-> namedColorToTable color not found: ProgressYellow
+LOG  : Lua          f:0> SC_REAL_SANDBOX|BOOT|world=SC-Harness-20261026-185641-59f036f8|mode=Rising
+LOG  : General      f:0> binkId: 2
+LOG  : Lua          f:0> SC_REAL_SANDBOX|AUTOLOAD_CONFIRM|world=SC-Harness-20261026-185641-59f036f8|count=1
+LOG  : General      f:0> STATE: exit zombie.gameStates.MainScreenState
+LOG  : General      f:0> LOADED UP A TOTAL OF 616 TEXTURES
+LOG  : General      f:0> STATE: exit zombie.gameStates.LoadingQueueState
+LOG  : Lua          f:0> Initializing Randomized World Tabletop Clutter Tables
+WARN : Lua          f:0 at Lua(Vanilla).Features               > recursive require(): C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/lua/server/WorldGen/WorldGen.lua
+WARN : Lua          f:0 at Lua(Vanilla).Biomes                 > recursive require(): C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/lua/server/WorldGen/WorldGen.lua
+WARN : Lua          f:0 at Lua(Vanilla).Selection              > recursive require(): C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/lua/server/WorldGen/WorldGen.lua
+WARN : Lua          f:0 at Lua(Vanilla).Veins                  > recursive require(): C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/lua/server/WorldGen/WorldGen.lua
+WARN : Lua          f:0 at Lua(Vanilla).Roads                  > recursive require(): C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/lua/server/WorldGen/WorldGen.lua
+WARN : Lua          f:0 at Lua(Vanilla).WorldGen               > recursive require(): C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/lua/server/WorldGen/attachments/Priorities.lua
+LOG  : General      f:0> SafeMode is off
+LOG  : General      f:0> Loading worldgen params
+LOG  : General      f:0> IsoMetaGrid.Create: begin scanning directories
+LOG  : General      f:0> Looking in these map folders:
+LOG  : General      f:0> <End of map-folders list>
+LOG  : General      f:0> IsoMetaGrid.Create: X: [ -250 250 ], Y: [ -250 250 ]
+LOG  : General      f:0> World seed: NthDhsmmnHCfRXaV -1313871579
+LOG  : General      f:0> IsoMetaGrid.Create: finished scanning directories in 0.055 seconds
+LOG  : General      f:0> IsoMetaGrid.Create: begin loading
+LOG  : General      f:0> VehiclesDB2.init() start
+LOG  : General      f:0> VehiclesDB2.init() end
+LOG  : General      f:0> triggerEvent OnInitWorld
+LOG  : General      f:0> SandboxOptions.load() start
+LOG  : General      f:0> SandboxOptions.load() end
+LOG  : General      f:0> ItemPickerJava.Parse() start
+LOG  : General      f:0> ItemPickerJava.Parse() end
+LOG  : General      f:0> LoadTileDefinitions start
+LOG  : General      f:0> LoadTileDefinitions end
+LOG  : General      f:0> triggerEvent OnLoadedTileDefinitions
+LOG  : General      f:0> loadAnimalDefinitions start
+LOG  : General      f:0> loadAnimalDefinitions end
+LOG  : General      f:0> GameTime.init() and load() start
+LOG  : General      f:0> GameTime.init() and load() end
+LOG  : General      f:0> ZomboidRadio.Init() start
+LOG  : Lua          f:0> scriptmanager = zombie.radio.scripting.RadioScriptManager@6d88aeb5, isNewGame = false
+LOG  : Lua          f:0> name = Automated Emergency Broadcast System, freq = 94800, cat = Emergency, uuid = EMRG-711984
+LOG  : General      f:0> Radio Loading channels...
+LOG  : General      f:0> ZomboidRadio.Init() end
+LOG  : General      f:0> GlobalModData.init() start
+LOG  : General      f:0> GlobalModData.init() end
+LOG  : General      f:0> InstanceTracker.load() start
+LOG  : General      f:0> InstanceTracker.load() end
+LOG  : General      f:0> ErosionGlobals.Boot() start
+LOG  : General      f:0> ErosionGlobals.Boot() end
+LOG  : General      f:0> WorldDictionary.init() start
+LOG  : General      f:0> WorldDictionary: Checking dictionary...
+LOG  : General      f:0> Loading WorldDictionary:C:\ZOMBOID\work\rv67\build\live-sandbox-runs\SC-Harness-20261026-185641-59f036f8\cache\Saves\Rising\SC-Harness-20261026-185641-59f036f8\WorldDictionary.bin
+LOG  : General      f:0> WorldDictionary.init() end
+LOG  : General      f:0> GameEntityManager.Init() start
+LOG  : General      f:0> GameEntityManager.Init() end
+LOG  : General      f:0> PersistentOutfits.init() start
+LOG  : General      f:0> PersistentOutfits.init() end
+LOG  : General      f:0> IsoMetaGrid.Create: finished loading in 10.236 seconds
+WARN : Lua          f:0 at Lua(Vanilla).doMapZones             > can't find map objects file: media/maps/West Point, KY/objects.lua
+WARN : Lua          f:0 at Lua(Vanilla).doMapZones             > can't find map objects file: media/maps/Valley Station, KY/objects.lua
+WARN : Lua          f:0 at Lua(Vanilla).doMapZones             > can't find map objects file: media/maps/Rosewood, KY/objects.lua
+WARN : Lua          f:0 at Lua(Vanilla).doMapZones             > can't find map objects file: media/maps/Riverside, KY/objects.lua
+WARN : Lua          f:0 at Lua(Vanilla).doMapZones             > can't find map objects file: media/maps/March Ridge, KY/objects.lua
+WARN : Lua          f:0 at Lua(Vanilla).doMapZones             > can't find map objects file: media/maps/Irvington, KY/objects.lua
+WARN : Lua          f:0 at Lua(Vanilla).doMapZones             > can't find map objects file: media/maps/Fallas Lake, KY/objects.lua
+WARN : Lua          f:0 at Lua(Vanilla).doMapZones             > can't find map objects file: media/maps/Ekron, KY/objects.lua
+WARN : Lua          f:0 at Lua(Vanilla).doMapZones             > can't find map objects file: media/maps/Echo Creek, KY/objects.lua
+WARN : Lua          f:0 at Lua(Vanilla).doMapZones             > can't find map objects file: media/maps/Brandenburg, KY/objects.lua
+LOG  : General      f:0> 111ERROR: not adding suspicious zone "" "Nav" 8343,12316,0 2244x18
+LOG  : General      f:0> loading 6261 zones from map_zone.bin
+LOG  : General      f:0> loading 121 zones from map_animals.bin
+LOG  : General      f:0> Max #ZONES on one chunk is 27
+LOG  : General      f:0> triggerEvent OnLoadedMapZones
+LOG  : General      f:0> ItemConfigurator.Preprocess() start
+LOG  : General      f:0> ItemConfigurator.Preprocess() end
+LOG  : General      f:0> MapCollisionData.init() start
+LOG  : General      f:0> MapCollisionData.init() end
+LOG  : General      f:0> AnimalPopulationManager.init() start
+LOG  : General      f:0> AnimalPopulationManager.init() end
+LOG  : General      f:0> ZombiePopulationManager.init() start
+LOG  : General      f:0> ZombiePopulationManager.init() end
+LOG  : General      f:0> Pathfind init() start
+LOG  : General      f:0> Pathfind init() end
+LOG  : General      f:0> WorldStreamer.create() start
+LOG  : General      f:0> WorldStreamer.create() end
+LOG  : General      f:0> CellLoader.LoadCellBinaryChunk start
+LOG  : General      f:0> CellLoader.LoadCellBinaryChunk start
+LOG  : General      f:0> MapItem.LoadWorldMap() start
+LOG  : General      f:0> MapItem.LoadWorldMap() start
+LOG  : General      f:0> WorldStreamer.isBusy() loop start
+LOG  : General      f:0> WorldStreamer.isBusy() loop end
+LOG  : General      f:0> MetaTracker.load() start
+LOG  : General      f:0> MetaTracker.load() end
+LOG  : General      f:0> triggerEvent OnGameTimeLoaded
+LOG  : General      f:0> GlobalObjects.initSystems() start
+LOG  : General      f:0> GlobalObjects.initSystems() end
+LOG  : General      f:0> bWaitForAssetLoadingToFinish2 start
+LOG  : General      f:0> bWaitForAssetLoadingToFinish2 end
+LOG  : General      f:0> FBORenderChunkManager.gameLoaded() start
+LOG  : General      f:0> FBORenderChunkManager.gameLoaded() end
+LOG  : General      f:0> Bullet.initPhysicsMeshes() start
+LOG  : General      f:0> Bullet.initPhysicsMeshes() end
+LOG  : General      f:0> game loading took 19 seconds
+LOG  : General      f:0> STATE: exit zombie.gameStates.GameLoadingState
+LOG  : Lua          f:0> 1 players found
+LOG  : Lua          f:0> player 0 is mouse
+LOG  : General      f:0> Game Mode: Rising
+LOG  : General      f:0> Sandbox Options:
+LOG  : General      f:0> Zombies 5
+LOG  : General      f:0> Distribution 1
+LOG  : General      f:0> ZombieVoronoiNoise true
+LOG  : General      f:0> ZombieRespawn 3
+LOG  : General      f:0> ZombieMigrate true
+LOG  : General      f:0> DayLength 4
+LOG  : General      f:0> StartYear 1
+LOG  : General      f:0> StartMonth 7
+LOG  : General      f:0> StartDay 9
+LOG  : General      f:0> StartTime 2
+LOG  : General      f:0> DayNightCycle 1
+LOG  : General      f:0> ClimateCycle 1
+LOG  : General      f:0> FogCycle 1
+LOG  : General      f:0> WaterShut 3
+LOG  : General      f:0> ElecShut 3
+LOG  : General      f:0> AlarmDecay 2
+LOG  : General      f:0> WaterShutModifier 16
+LOG  : General      f:0> ElecShutModifier 26
+LOG  : General      f:0> AlarmDecayModifier 14
+LOG  : General      f:0> FoodLootNew 0.6
+LOG  : General      f:0> LiteratureLootNew 0.6
+LOG  : General      f:0> SkillBookLoot 0.4
+LOG  : General      f:0> RecipeResourceLoot 0.8
+LOG  : General      f:0> MedicalLootNew 0.6
+LOG  : General      f:0> SurvivalGearsLootNew 2.0
+LOG  : General      f:0> CannedFoodLootNew 0.6
+LOG  : General      f:0> WeaponLootNew 0.4
+LOG  : General      f:0> RangedWeaponLootNew 0.4
+LOG  : General      f:0> AmmoLootNew 0.4
+LOG  : General      f:0> MechanicsLootNew 0.6
+LOG  : General      f:0> OtherLootNew 1.0
+LOG  : General      f:0> ClothingLootNew 0.6
+LOG  : General      f:0> ContainerLootNew 0.6
+LOG  : General      f:0> KeyLootNew 0.6
+LOG  : General      f:0> MediaLootNew 2.0
+LOG  : General      f:0> MementoLootNew 0.6
+LOG  : General      f:0> CookwareLootNew 2.0
+LOG  : General      f:0> MaterialLootNew 3.0
+LOG  : General      f:0> FarmingLootNew 2.0
+LOG  : General      f:0> ToolLootNew 2.0
+LOG  : General      f:0> RollsMultiplier 1.0
+LOG  : General      f:0> LootItemRemovalList
+LOG  : General      f:0> RemoveStoryLoot false
+LOG  : General      f:0> RemoveZombieLoot false
+LOG  : General      f:0> ZombiePopLootEffect 0
+LOG  : General      f:0> InsaneLootFactor 0.05
+LOG  : General      f:0> ExtremeLootFactor 0.2
+LOG  : General      f:0> RareLootFactor 0.6
+LOG  : General      f:0> NormalLootFactor 1.0
+LOG  : General      f:0> CommonLootFactor 2.0
+LOG  : General      f:0> AbundantLootFactor 3.0
+LOG  : General      f:0> Temperature 3
+LOG  : General      f:0> Rain 3
+LOG  : General      f:0> ErosionSpeed 4
+LOG  : General      f:0> ErosionDays 0
+LOG  : General      f:0> Farming 3
+LOG  : General      f:0> CompostTime 2
+LOG  : General      f:0> StatsDecrease 3
+LOG  : General      f:0> NatureAbundance 3
+LOG  : General      f:0> Alarm 2
+LOG  : General      f:0> LockedHouses 5
+LOG  : General      f:0> StarterKit true
+LOG  : General      f:0> Nutrition true
+LOG  : General      f:0> FoodRotSpeed 3
+LOG  : General      f:0> FridgeFactor 3
+LOG  : General      f:0> SeenHoursPreventLootRespawn 0
+LOG  : General      f:0> HoursForLootRespawn 0
+LOG  : General      f:0> MaxItemsForLootRespawn 5
+LOG  : General      f:0> ConstructionPreventsLootRespawn true
+LOG  : General      f:0> WorldItemRemovalList Base.Hat, Base.Glasses, Base.Maggots, Base.Slug, Base.Slug2, Base.Snail, Base.Worm, Base.Dung_Mouse, Base.Dung_Rat
+LOG  : General      f:0> HoursForWorldItemRemoval 24.0
+LOG  : General      f:0> ItemRemovalListBlacklistToggle false
+LOG  : General      f:0> TimeSinceApo 1
+LOG  : General      f:0> PlantResilience 3
+LOG  : General      f:0> PlantAbundance 3
+LOG  : General      f:0> EndRegen 3
+LOG  : General      f:0> Helicopter 1
+LOG  : General      f:0> MetaEvent 2
+LOG  : General      f:0> SleepingEvent 1
+LOG  : General      f:0> GeneratorFuelConsumption 0.1
+LOG  : General      f:0> GeneratorSpawning 4
+LOG  : General      f:0> AnnotatedMapChance 4
+LOG  : General      f:0> CharacterFreePoints 0
+LOG  : General      f:0> ConstructionBonusPoints 4
+LOG  : General      f:0> NightDarkness 3
+LOG  : General      f:0> NightLength 3
+LOG  : General      f:0> BoneFracture false
+LOG  : General      f:0> InjurySeverity 1
+LOG  : General      f:0> HoursForCorpseRemoval 216.0
+LOG  : General      f:0> DecayingCorpseHealthImpact 3
+LOG  : General      f:0> ZombieHealthImpact false
+LOG  : General      f:0> BloodLevel 3
+LOG  : General      f:0> ClothingDegradation 3
+LOG  : General      f:0> FireSpread true
+LOG  : General      f:0> DaysForRottenFoodRemoval -1
+LOG  : General      f:0> AllowExteriorGenerator true
+LOG  : General      f:0> MaxFogIntensity 1
+LOG  : General      f:0> MaxRainFxIntensity 1
+LOG  : General      f:0> EnableSnowOnGround true
+LOG  : General      f:0> AttackBlockMovements true
+LOG  : General      f:0> SurvivorHouseChance 3
+LOG  : General      f:0> VehicleStoryChance 3
+LOG  : General      f:0> ZoneStoryChance 3
+LOG  : General      f:0> AllClothesUnlocked false
+LOG  : General      f:0> EnableTaintedWaterText true
+LOG  : General      f:0> EnableVehicles true
+LOG  : General      f:0> CarSpawnRate 4
+LOG  : General      f:0> ZombieAttractionMultiplier 1.0
+LOG  : General      f:0> VehicleEasyUse false
+LOG  : General      f:0> InitialGas 3
+LOG  : General      f:0> FuelStationGasInfinite false
+LOG  : General      f:0> FuelStationGasMin 0.7
+LOG  : General      f:0> FuelStationGasMax 1.0
+LOG  : General      f:0> FuelStationGasEmptyChance 10
+LOG  : General      f:0> LockedCar 3
+LOG  : General      f:0> CarGasConsumption 0.6
+LOG  : General      f:0> CarGeneralCondition 3
+LOG  : General      f:0> CarDamageOnImpact 3
+LOG  : General      f:0> DamageToPlayerFromHitByACar 1
+LOG  : General      f:0> TrafficJam true
+LOG  : General      f:0> CarAlarm 3
+LOG  : General      f:0> PlayerDamageFromCrash true
+LOG  : General      f:0> SirenShutoffHours 0.0
+LOG  : General      f:0> ChanceHasGas 2
+LOG  : General      f:0> RecentlySurvivorVehicles 3
+LOG  : General      f:0> MultiHitZombies true
+LOG  : General      f:0> RearVulnerability 2
+LOG  : General      f:0> SirenEffectsZombies true
+LOG  : General      f:0> AnimalStatsModifier 4
+LOG  : General      f:0> AnimalMetaStatsModifier 4
+LOG  : General      f:0> AnimalPregnancyTime 3
+LOG  : General      f:0> AnimalAgeModifier 4
+LOG  : General      f:0> AnimalMilkIncModifier 4
+LOG  : General      f:0> AnimalWoolIncModifier 4
+LOG  : General      f:0> AnimalRanchChance 6
+LOG  : General      f:0> AnimalGrassRegrowTime 240
+LOG  : General      f:0> AnimalMetaPredator false
+LOG  : General      f:0> AnimalMatingSeason true
+LOG  : General      f:0> AnimalEggHatch 4
+LOG  : General      f:0> AnimalSoundAttractZombies false
+LOG  : General      f:0> AnimalTrackChance 4
+LOG  : General      f:0> AnimalPathChance 4
+LOG  : General      f:0> MaximumRatIndex 25
+LOG  : General      f:0> DaysUntilMaximumRatIndex 90
+LOG  : General      f:0> MetaKnowledge 3
+LOG  : General      f:0> SeeNotLearntRecipe true
+LOG  : General      f:0> MaximumLootedBuildingRooms 50
+LOG  : General      f:0> EnablePoisoning 1
+LOG  : General      f:0> MaggotSpawn 1
+LOG  : General      f:0> LightBulbLifespan 3.0
+LOG  : General      f:0> FishAbundance 3
+LOG  : General      f:0> LevelForMediaXPCutoff 3
+LOG  : General      f:0> LevelForDismantleXPCutoff 0
+LOG  : General      f:0> BloodSplatLifespanDays 0
+LOG  : General      f:0> LiteratureCooldown 90
+LOG  : General      f:0> NegativeTraitsPenalty 1
+LOG  : General      f:0> MinutesPerPage 2.0
+LOG  : General      f:0> KillInsideCrops true
+LOG  : General      f:0> PlantGrowingSeasons true
+LOG  : General      f:0> PlaceDirtAboveground false
+LOG  : General      f:0> FarmingSpeedNew 1.0
+LOG  : General      f:0> FarmingAmountNew 1.0
+LOG  : General      f:0> MaximumLooted 0
+LOG  : General      f:0> DaysUntilMaximumLooted 90
+LOG  : General      f:0> RuralLooted 0.5
+LOG  : General      f:0> MaximumDiminishedLoot 20
+LOG  : General      f:0> DaysUntilMaximumDiminishedLoot 3650
+LOG  : General      f:0> MuscleStrainFactor 0.7
+LOG  : General      f:0> DiscomfortFactor 0.8
+LOG  : General      f:0> WoundInfectionFactor 1.0
+LOG  : General      f:0> NoBlackClothes true
+LOG  : General      f:0> EasyClimbing true
+LOG  : General      f:0> MaximumFireFuelHours 8
+LOG  : General      f:0> FirearmUseDamageChance 2
+LOG  : General      f:0> FirearmNoiseMultiplier 1.0
+LOG  : General      f:0> FirearmJamMultiplier 1.0
+LOG  : General      f:0> FirearmMoodleMultiplier 1.0
+LOG  : General      f:0> FirearmWeatherMultiplier 1.0
+LOG  : General      f:0> FirearmHeadGearEffect true
+LOG  : General      f:0> ClayLakeChance 0.05
+LOG  : General      f:0> ClayRiverChance 0.05
+LOG  : General      f:0> GeneratorTileRange 20
+LOG  : General      f:0> GeneratorVerticalPowerRange 3
+LOG  : General      f:0> SpawnFrequency 4
+LOG  : General      f:0> AllowMiniMap true
+LOG  : General      f:0> AllowWorldMap true
+LOG  : General      f:0> MapAllKnown false
+LOG  : General      f:0> MapNeedsLight true
+LOG  : General      f:0> Speed 3
+LOG  : General      f:0> SprinterPercentage 0
+LOG  : General      f:0> Strength 3
+LOG  : General      f:0> Toughness 3
+LOG  : General      f:0> Transmission 1
+LOG  : General      f:0> Mortality 5
+LOG  : General      f:0> Reanimate 3
+LOG  : General      f:0> Cognition 3
+LOG  : General      f:0> DoorOpeningPercentage 0
+LOG  : General      f:0> CrawlUnderVehicle 5
+LOG  : General      f:0> Memory 3
+LOG  : General      f:0> Sight 2
+LOG  : General      f:0> Hearing 3
+LOG  : General      f:0> SpottedLogic true
+LOG  : General      f:0> ThumpNoChasing false
+LOG  : General      f:0> ThumpOnConstruction true
+LOG  : General      f:0> ActiveOnly 1
+LOG  : General      f:0> TriggerHouseAlarm false
+LOG  : General      f:0> ZombiesDragDown false
+LOG  : General      f:0> ZombiesCrawlersDragDown false
+LOG  : General      f:0> ZombiesFenceLunge false
+LOG  : General      f:0> ZombiesArmorFactor 1.0
+LOG  : General      f:0> ZombiesMaxDefense 60
+LOG  : General      f:0> ChanceOfAttachedWeapon 6
+LOG  : General      f:0> ZombiesFallDamage 1.0
+LOG  : General      f:0> DisableFakeDead 3
+LOG  : General      f:0> PlayerSpawnZombieRemoval 1
+LOG  : General      f:0> FenceThumpersRequired 25
+LOG  : General      f:0> FenceDamageMultiplier 1.0
+LOG  : General      f:0> PopulationMultiplier 0.15
+LOG  : General      f:0> PopulationStartMultiplier 1.0
+LOG  : General      f:0> PopulationPeakMultiplier 1.0
+LOG  : General      f:0> PopulationPeakDay 28
+LOG  : General      f:0> RespawnHours 72.0
+LOG  : General      f:0> RespawnUnseenHours 16.0
+LOG  : General      f:0> RespawnMultiplier 0.1
+LOG  : General      f:0> RedistributeHours 18.0
+LOG  : General      f:0> FollowSoundDistance 100
+LOG  : General      f:0> RallyGroupSize 20
+LOG  : General      f:0> RallyGroupSizeVariance 50
+LOG  : General      f:0> RallyTravelDistance 30
+LOG  : General      f:0> RallyGroupSeparation 15
+LOG  : General      f:0> RallyGroupRadius 4
+LOG  : General      f:0> ZombiesCountBeforeDelete 300
+LOG  : General      f:0> Global 1.0
+LOG  : General      f:0> GlobalToggle true
+LOG  : General      f:0> Fitness 1.0
+LOG  : General      f:0> Strength 1.0
+LOG  : General      f:0> Sprinting 1.0
+LOG  : General      f:0> Lightfoot 1.0
+LOG  : General      f:0> Nimble 1.0
+LOG  : General      f:0> Sneak 1.0
+LOG  : General      f:0> Axe 1.0
+LOG  : General      f:0> Blunt 1.0
+LOG  : General      f:0> SmallBlunt 1.0
+LOG  : General      f:0> LongBlade 1.0
+LOG  : General      f:0> SmallBlade 1.0
+LOG  : General      f:0> Spear 1.0
+LOG  : General      f:0> Maintenance 1.0
+LOG  : General      f:0> Woodwork 1.0
+LOG  : General      f:0> Cooking 1.0
+LOG  : General      f:0> Farming 1.0
+LOG  : General      f:0> Doctor 1.0
+LOG  : General      f:0> Electricity 1.0
+LOG  : General      f:0> MetalWelding 1.0
+LOG  : General      f:0> Mechanics 1.0
+LOG  : General      f:0> Tailoring 1.0
+LOG  : General      f:0> Aiming 1.0
+LOG  : General      f:0> Reloading 1.0
+LOG  : General      f:0> Fishing 1.0
+LOG  : General      f:0> Trapping 1.0
+LOG  : General      f:0> PlantScavenging 1.0
+LOG  : General      f:0> FlintKnapping 1.0
+LOG  : General      f:0> Masonry 1.0
+LOG  : General      f:0> Pottery 1.0
+LOG  : General      f:0> Carving 1.0
+LOG  : General      f:0> Husbandry 1.0
+LOG  : General      f:0> Tracking 1.0
+LOG  : General      f:0> Blacksmith 1.0
+LOG  : General      f:0> Butchering 1.0
+LOG  : General      f:0> Glassmaking 1.0
+LOG  : General      f:0> EncountersEnabled true
+LOG  : General      f:0> EncounterFrequency 3
+LOG  : General      f:0> MaxCompanions 16
+LOG  : General      f:0> CompanionNeedsRate 0.3333333333333333
+LOG  : General      f:0> HouseholdSpawnsEnabled true
+LOG  : General      f:0> HouseholdDailyChance 8
+LOG  : General      f:0> MaxHouseholds 3
+LOG  : General      f:0> OddballsEnabled true
+LOG  : General      f:0> OddballEncounterDays 3
+LOG  : General      f:0> BanditCampsEnabled true
+LOG  : General      f:0> BanditCampDailyChance 4
+LOG  : General      f:0> MaxBanditCamps 1
+LOG  : General      f:0> UIOpacity 0.66
+LOG  : General      f:0> ShowCompanionNames true
+LOG  : General      f:0> IntrusiveThoughtsEnabled true
+LOG  : General      f:0> NicknamesEnabled true
+LOG  : General      f:0> FamousNamesakes false
+LOG  : General      f:0> ProfanityEnabled true
+LOG  : General      f:0> DiariesEnabled true
+LOG  : General      f:0> DiaristChance 35
+LOG  : General      f:0> ExpeditionDestinationScope 1
+LOG  : General      f:0> binkId: 3
+LOG  : Lua          f:0> [SurvivorCompanion][runtime:global] started: release=0.26.71 protocol=42.21-isocompanion-24 game=42.21.0 save=SC_WorldV1/schema-3 actors=enabled
+LOG  : Lua          f:0> SC_REAL_SANDBOX|ENTRY_UI|tag=on_game_start|count=0|closed=|novel=|seen=SpeedControls,Clock,ObjectTooltip,MoodlesUI,MoodlesUI,MoodlesUI,UIDebugConsole,ActionProgressBar,ActionProgressBar,ActionProgressBar,ActionProgressBar,MoodlesUI
+LOG  : Lua          f:0> SC_REAL_SANDBOX|PASS|gameplay_clock_running|game_speed=1
+LOG  : Lua          f:0> SC_REAL_SANDBOX|PASS|companion_bootstrap_loaded|table 0x779042826{ install=closure 0x889238121, remove=closure 0x1561482415, isInstalled=closure 0x1242146732, cleanupPending=closure 0x506642935 }
+LOG  : Lua          f:0> SC_REAL_SANDBOX|PASS|single_player_client|server=false client=false
+LOG  : Lua          f:0> SC_REAL_SANDBOX|PASS|native_bridge_ready|native IsoCompanion provider ready
+LOG  : Lua          f:0> SC_REAL_SANDBOX|PASS|local_player_slot_zero|getPlayer equals getSpecificPlayer(0)
+LOG  : Lua          f:0> SC_REAL_SANDBOX|PASS|local_observer_initially_alive|observer must be alive in the cloned save; no resurrection or damage immunity
+LOG  : Lua          f:0> SC_REAL_SANDBOX|OBSERVER_BOUNDARY|initial before={phase=idle dead=false health=100 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0}
+LOG  : Lua          f:0> SC_REAL_SANDBOX|PASS|observer_alive_initial|restored=true health=100 alive=true clean_body=true infection=false/0 fake=false mortality=-1 infection_time=-1 wounds=0/0/0
+LOG  : Lua          f:0> SC_REAL_SANDBOX|ENTRY_UI|tag=observe_wait|count=0|closed=|novel=|seen=SpeedControls,Clock,ObjectTooltip,MoodlesUI,MoodlesUI,MoodlesUI,UIDebugConsole,ActionProgressBar,ActionProgressBar,ActionProgressBar,ActionProgressBar,MoodlesUI
+LOG  : Lua          f:1> SC_REAL_SANDBOX|ENTRY_UI|tag=scan|count=0|closed=ISCharacterInfoWindow,SurvivalGuide|novel=ISInventoryPage,ISInventoryPage,ISButtonPrompt,table 0x968526806{  }.ISContextMenu,ISCharacterInfoWindow,ISMoveablesIconPopup,ISMapPopup,ISEquippedItem,ISHotbar,ISDesignationZonePanel,ISMiniMapOuter,WaterMarkUI,MainScreen,SurvivalGuide,ISBackButtonWheel,SCUIRoot|seen=ActionProgressBar,ActionProgressBar,ActionProgressBar,ActionProgressBar,SpeedControls,Clock,MoodlesUI,MoodlesUI,MoodlesUI,UIDebugConsole,MoodlesUI,ISInventoryPage,ISInventoryPage,ISButtonPrompt,table 0x968526806{  }.ISContextMenu,ISCharacterInfoWindow,ISMoveablesIconPopup,ISMapPopup,ISEquippedItem,ISHotbar,ISDesignationZonePanel,ISMiniMapOuter,WaterMarkUI,MainScreen,SurvivalGuide,ObjectTooltip,ISBackButtonWheel,SCUIRoot
+LOG  : Lua          f:3> [SurvivorCompanion/taxi] visit none:none:0
+LOG  : Lua          f:6> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.3382893204689026 phase=observe_wait dead=false health=100 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:41> [SurvivorCompanion][base-job:job:213] blocked sort: haul_destinations_full worker=sc-1.792185247907E9-1-189736
+LOG  : Lua          f:91> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.1319931298494339 phase=observe_wait dead=false health=98.53002166748047 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:165> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.1320018321275711 phase=observe_wait dead=false health=97.84492492675781 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:225> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13199234008789062 phase=observe_wait dead=false health=97.21282958984375 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:241> SC_REAL_SANDBOX|PASS|observe_started|records=4 observe_ms=300000
+LOG  : Lua          f:241> SC_SOAK|start|at=1793104670957|release=0.26.71|speech=accepted_native_enqueue|metadata=not_additional_speech
+LOG  : Lua          f:242> SC_SOAK|activity_change|at=1793104671124|actor=sc-1.792185247907E9-1-189736|worldHours=124.57917785644531|kind=nil|phase=nil|asleep=false|fatigue=7.700943970121443E-4|durationHours=nil
+LOG  : Lua          f:242> SC_SOAK|actor|at=1793104671124|actor=sc-1.792185247907E9-1-189736|order=base_duty|serial=0|duty=true|role=farmer|fatigue=7.700943970121443E-4|hunger=0.5268818736076355|thirst=0.06399029493331909|pain=0|panic=0|asleep=false|kind=nil|approaching=nil|start=nil|sleepStarted=nil|sleepStartHour=nil|durationMs=nil|durationHours=nil|supervisor=nil:nil|phase=nil|actionAge=nil|phaseAge=nil
+LOG  : Lua          f:242> SC_SOAK|activity_change|at=1793104671124|actor=sc-1.792187371089E9-1-235535|worldHours=124.57917785644531|kind=nil|phase=nil|asleep=false|fatigue=7.70006503444165E-4|durationHours=nil
+LOG  : Lua          f:242> SC_SOAK|actor|at=1793104671124|actor=sc-1.792187371089E9-1-235535|order=base_duty|serial=0|duty=true|role=corpsekeeper|fatigue=7.70006503444165E-4|hunger=0.4971078336238861|thirst=0.052521076053380966|pain=1.7205448150634766|panic=0|asleep=false|kind=nil|approaching=nil|start=nil|sleepStarted=nil|sleepStartHour=nil|durationMs=nil|durationHours=nil|supervisor=nil:nil|phase=nil|actionAge=nil|phaseAge=nil
+LOG  : Lua          f:242> SC_SOAK|activity_change|at=1793104671124|actor=sc-1.792509015635E9-1-314954|worldHours=124.57917785644531|kind=nil|phase=nil|asleep=false|fatigue=4.3805144377984107E-4|durationHours=nil
+LOG  : Lua          f:242> SC_SOAK|actor|at=1793104671124|actor=sc-1.792509015635E9-1-314954|order=base_duty|serial=0|duty=true|role=woodcutter|fatigue=4.3805144377984107E-4|hunger=0.4650214910507202|thirst=0.03333726152777672|pain=1.5308656692504883|panic=0|asleep=false|kind=nil|approaching=nil|start=nil|sleepStarted=nil|sleepStartHour=nil|durationMs=nil|durationHours=nil|supervisor=nil:nil|phase=nil|actionAge=nil|phaseAge=nil
+LOG  : Lua          f:242> SC_SOAK|activity_change|at=1793104671124|actor=sc-1.792881659967E9-1-843943|worldHours=124.57917785644531|kind=nil|phase=nil|asleep=false|fatigue=4.380294412840158E-4|durationHours=nil
+LOG  : Lua          f:242> SC_SOAK|actor|at=1793104671124|actor=sc-1.792881659967E9-1-843943|order=base_duty|serial=0|duty=true|role=quartermaster|fatigue=4.380294412840158E-4|hunger=0.10305165499448776|thirst=0.09446021914482117|pain=0|panic=0|asleep=false|kind=nil|approaching=nil|start=nil|sleepStarted=nil|sleepStartHour=nil|durationMs=nil|durationHours=nil|supervisor=nil:nil|phase=nil|actionAge=nil|phaseAge=nil
+LOG  : Lua          f:242> SC_SOAK|clock|at=1793104671124|elapsed=167|worldHours=124.57917785644531|timeOfDay=11.579176902770996|speech=0|dialogueMetadata=0
+LOG  : Lua          f:242> SC_SOAK|perf|at=1793104671124|frames=242|load=2|p50=3.0083000659942627|p95=12.34249997138977|max=20.70650005340576|over=96|deferred=82|tick95=12.41979992389679|tickMax=46.61930000782013|pre95=0.10300004482269287
+LOG  : Lua          f:242> SC_OBSERVE|search_transition|sc-1.792509015635E9-1-314954|kind=started|pos=12026.50,6746.50|oldAge=nil|oldNodes=nil|newKey=12026:6746:0>12027:6746:0:false:false:false|planMs=nil|firstMotionMs=nil
+LOG  : Lua          f:242> SC_OBSERVE|conversation_search|sc-1.792509015635E9-1-314954|action=camp|expiresIn=28393|posed=false
+LOG  : Lua          f:242> SC_OBSERVE|search_transition|sc-1.792881659967E9-1-843943|kind=started|pos=12029.48,6746.88|oldAge=nil|oldNodes=nil|newKey=12029:6746:0>12028:6746:0:false:false:false|planMs=nil|firstMotionMs=216
+LOG  : Lua          f:242> SC_OBSERVE|conversation_search|sc-1.792881659967E9-1-843943|action=camp|expiresIn=28393|posed=false
+LOG  : Lua          f:242> SC_OBSERVE|t=0s|companions=4|stacked_now=0|stacked_samples=0/1|unstack_moves=0|longest_stack_ms=0
+LOG  : Lua          f:242> SC_OBSERVE|actor|sc-1.792185247907E9-1-189736|Tess Nolan|pos=12029.46,6745.64,0.000|moving=true|decision=base_work/holding_personal_space|nav_terminal=nil
+LOG  : Lua          f:242> SC_OBSERVE|path|sc-1.792185247907E9-1-189736|phase=moving|action=base_guard_patrol|goal=12030:6749:0|reason=nil|searchAge=nil|idleAge=nil|nodes=30|progress=nil|slice=3:load_pressure
+LOG  : Lua          f:242> SC_OBSERVE|actor|sc-1.792187371089E9-1-235535|Jill Kelvin|pos=12034.50,6743.50,0.000|moving=false|decision=base_work/floor_pickup_animation|nav_terminal=nil
+LOG  : Lua          f:242> SC_OBSERVE|actor|sc-1.792509015635E9-1-314954|Sanghwa Kim|pos=12026.50,6746.50,0.000|moving=false|decision=conversation/path_searching|nav_terminal=nil
+LOG  : Lua          f:242> SC_OBSERVE|path|sc-1.792509015635E9-1-314954|phase=planning|action=conversation_approach|goal=12027:6746:0|reason=searching|searchAge=571|idleAge=258|nodes=4|progress=3|slice=3:load_pressure
+LOG  : Lua          f:242> SC_OBSERVE|actor|sc-1.792881659967E9-1-843943|Xian Burton|pos=12029.48,6746.88,0.000|moving=true|decision=conversation/path_searching|nav_terminal=nil
+LOG  : Lua          f:242> SC_OBSERVE|path|sc-1.792881659967E9-1-843943|phase=planning|action=conversation_approach|goal=12028:6746:0|reason=searching|searchAge=545|idleAge=327|nodes=3|progress=2|slice=3:load_pressure
+LOG  : Lua          f:242> SC_OBSERVE|base|jobs=1:1:3|buried=15|collected=15
+LOG  : Lua          f:242> SC_OBSERVE|resident|sc-1.792185247907E9-1-189736|name=Tess Nolan|role=farmer|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:242> SC_OBSERVE|resident|sc-1.792185651862E9-2-990140|name=sc-1.792185651862E9-2-990140|role=generalist|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:242> SC_OBSERVE|resident|sc-1.792187371089E9-1-235535|name=Jill Kelvin|role=corpsekeeper|duty=true|job=sort_floor|restriction=nil
+LOG  : Lua          f:242> SC_OBSERVE|resident|sc-1.792266923895E9-1-683891|name=sc-1.792266923895E9-1-683891|role=chef|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:242> SC_OBSERVE|resident|sc-1.792509015635E9-1-314954|name=Sanghwa Kim|role=woodcutter|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:242> SC_OBSERVE|resident|sc-1.792881659967E9-1-843943|name=Xian Burton|role=quartermaster|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:242> SC_OBSERVE|job|job:115|type=sort_floor|state=active|blocker=nil|assigned=nil|phase=nil|reserved=sc-1.792187371089E9-1-235535|attempts=6|retryAt=1793016986567|floorCargo=nil
+LOG  : Lua          f:242> SC_OBSERVE|job|job:136|type=gather_materials|state=blocked|blocker=action_owned:logistics:logistics_deposit:approaching|assigned=sc-1.792509015635E9-1-314954|phase=nil|reserved=nil|attempts=3|retryAt=1793016143773|floorCargo=nil
+LOG  : Lua          f:242> SC_OBSERVE|job|job:178|type=gather_materials|state=blocked|blocker=action_owned:logistics:logistics_deposit:recovering|assigned=sc-1.792509015635E9-1-314954|phase=nil|reserved=nil|attempts=3|retryAt=1793016144518|floorCargo=nil
+LOG  : Lua          f:242> SC_OBSERVE|job|job:195|type=clean|state=pending|blocker=expedition_wood_preparation|assigned=nil|phase=nil|reserved=nil|attempts=1|retryAt=1793016150335|floorCargo=nil
+LOG  : Lua          f:242> SC_OBSERVE|job|job:213|type=sort|state=blocked|blocker=haul_destinations_full|assigned=nil|phase=nil|reserved=nil|attempts=0|retryAt=1793104697591|floorCargo=nil
+LOG  : Lua          f:242> SC_OBSERVE|completed|job:190|type=clean|actor=sc-1.792185247907E9-1-189736|at=1792882500960|result=cleaned
+LOG  : Lua          f:242> SC_OBSERVE|completed|job:189|type=sort|actor=sc-1.792881659967E9-1-843943|at=1792882518059|result=hauled
+LOG  : Lua          f:242> SC_OBSERVE|completed|job:191|type=clean|actor=sc-1.792185247907E9-1-189736|at=1792882827612|result=cleaned
+LOG  : Lua          f:242> SC_OBSERVE|completed|job:192|type=sort|actor=sc-1.792185651862E9-2-990140|at=1792882850030|result=hauled
+LOG  : Lua          f:242> SC_OBSERVE|completed|job:193|type=clean|actor=sc-1.792187371089E9-1-235535|at=1792882872036|result=already_clean
+LOG  : Lua          f:242> SC_OBSERVE|completed|job:194|type=sort|actor=sc-1.792509015635E9-1-314954|at=1792882902473|result=hauled
+LOG  : Lua          f:242> SC_OBSERVE|completed|job:196|type=sort|actor=sc-1.792187371089E9-1-235535|at=1792883009590|result=hauled
+LOG  : Lua          f:242> SC_OBSERVE|completed|job:197|type=sort|actor=sc-1.792185651862E9-2-990140|at=1792883054748|result=hauled
+LOG  : Lua          f:242> SC_OBSERVE|completed|job:198|type=sort|actor=sc-1.792185651862E9-2-990140|at=1792883134096|result=hauled
+LOG  : Lua          f:242> SC_OBSERVE|completed|job:199|type=sort|actor=sc-1.792185247907E9-1-189736|at=1792883193761|result=hauled
+LOG  : Lua          f:242> SC_OBSERVE|completed|job:200|type=sort|actor=sc-1.792185247907E9-1-189736|at=1792883263381|result=hauled
+LOG  : Lua          f:242> SC_OBSERVE|completed|job:201|type=sort|actor=sc-1.792185247907E9-1-189736|at=1792883356762|result=hauled
+LOG  : Lua          f:242> SC_OBSERVE|completed|job:202|type=sort|actor=sc-1.792185247907E9-1-189736|at=1792883432179|result=hauled
+LOG  : Lua          f:242> SC_OBSERVE|completed|job:203|type=sort|actor=sc-1.792881659967E9-1-843943|at=1793015956856|result=hauled
+LOG  : Lua          f:242> SC_OBSERVE|completed|job:206|type=sort|actor=sc-1.792881659967E9-1-843943|at=1793016085643|result=hauled
+LOG  : Lua          f:242> SC_OBSERVE|completed|job:207|type=sort|actor=sc-1.792509015635E9-1-314954|at=1793016157256|result=hauled
+LOG  : Lua          f:242> SC_OBSERVE|completed|job:208|type=sort|actor=sc-1.792881659967E9-1-843943|at=1793016200405|result=hauled
+LOG  : Lua          f:242> SC_OBSERVE|completed|job:205|type=clean|actor=sc-1.792881659967E9-1-843943|at=1793016372476|result=cleaned
+LOG  : Lua          f:242> SC_OBSERVE|completed|job:204|type=farm|actor=sc-1.792185247907E9-1-189736|at=1793016515766|result=farm_water
+LOG  : Lua          f:242> SC_OBSERVE|completed|job:209|type=sort|actor=sc-1.792881659967E9-1-843943|at=1793016548838|result=hauled
+LOG  : Lua          f:242> SC_OBSERVE|completed|job:210|type=sort|actor=sc-1.792881659967E9-1-843943|at=1793016635422|result=hauled
+LOG  : Lua          f:242> SC_OBSERVE|completed|job:211|type=sort|actor=sc-1.792185247907E9-1-189736|at=1793016692192|result=hauled
+LOG  : Lua          f:242> SC_OBSERVE|completed|job:212|type=sort|actor=sc-1.792185247907E9-1-189736|at=1793016751008|result=hauled
+LOG  : Lua          f:242> SC_OBSERVE|completed|job:214|type=farm|actor=sc-1.792187371089E9-1-235535|at=1793016983453|result=farm_water
+LOG  : Lua          f:242> SC_OBSERVE|burial|production-order:12|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:242> SC_OBSERVE|burial|production-order:13|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:242> SC_OBSERVE|burial|production-order:14|state=completed|completed=1/1|blocker=nil|worker=sc-1.792509015635E9-1-314954|phase=completed
+LOG  : Lua          f:242> SC_OBSERVE|burial|production-order:15|state=completed|completed=1/1|blocker=nil|worker=sc-1.792509015635E9-1-314954|phase=completed
+LOG  : Lua          f:242> SC_OBSERVE|burial|production-order:17|state=completed|completed=1/1|blocker=nil|worker=sc-1.792509015635E9-1-314954|phase=completed
+LOG  : Lua          f:242> SC_OBSERVE|burial|production-order:18|state=completed|completed=1/1|blocker=nil|worker=sc-1.792509015635E9-1-314954|phase=completed
+LOG  : Lua          f:242> SC_OBSERVE|burial|production-order:21|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:242> SC_OBSERVE|burial|production-order:22|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:242> SC_OBSERVE|burial|production-order:24|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:242> SC_OBSERVE|burial|production-order:25|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:242> SC_OBSERVE|burial|production-order:26|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:242> SC_OBSERVE|corpses|loaded_squares=838|in_work_zones=0
+LOG  : Lua          f:242> SC_OBSERVE|deliveries|count=1
+LOG  : Lua          f:242> SC_OBSERVE|delivery|trip=1793016226798:399585009|requested=12|collected=1|returned=0|stored=0|pending=1
+LOG  : Lua          f:242> SC_OBSERVE|delivery_item|trip=1793016226798:399585009|id=lf-item:1793016598435:1:807070978|type=Base.Log|carrier=nil|returned=false|stored=false|storage=nil|reason=cargo_pending
+LOG  : Lua          f:242> SC_OBSERVE|delivery_debrief|trip=1793016226798:399585009|stored=0|pending=1
+LOG  : Lua          f:242> SC_OBSERVE|delivery_debrief_item|id=lf-item:1793016598435:1:807070978|stored=false|storage=nil|reason=cargo_pending
+LOG  : Lua          f:258> [SurvivorCompanion/navigation-blocker] actor=sc-1.792185247907E9-1-189736 type=companion_crowd object=Player square=12029:6746:0 state=none evidence=unknown confidence=low recovery=stop_and_replan pos=12029.461,6745.636,0.00 fsm=IdleState action=idle nextAction= anim=Bob_IdleBat|Bob_Idle_HeavyBreathing_Bat|Bob_IdleTurn90L path=none:false/false pathNext=false:nil,nil collided=false/door:false/polygon:false objectOpen=nil portal=-0.364/0.039 route=none lease=none attempt=12029:6745:0>12029:6746:0:open:nil aiming=false goal=12030:6749:0 reason=moving
+LOG  : Lua          f:277> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13200896978378296 phase=observe_run dead=false health=96.97581481933594 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:301> SC_OBSERVE|search_transition|sc-1.792185247907E9-1-189736|kind=started|pos=12029.46,6745.64|oldAge=nil|oldNodes=nil|newKey=12029:6745:0>12030:6749:0:false:false:false|planMs=1515|firstMotionMs=1515
+LOG  : Lua          f:346> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.1320050060749054 phase=observe_run dead=false health=96.37405395507812 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:360> SC_OBSERVE|search_transition|sc-1.792185247907E9-1-189736|kind=replaced|pos=12030.35,6744.37|oldAge=1602|oldNodes=0|newKey=12029:6745:0>12034:6738:0:false:true:false|planMs=nil|firstMotionMs=nil
+LOG  : Lua          f:364> SC_REAL_SANDBOX|ENTRY_UI|tag=scan|count=0|closed=ISCharacterInfoWindow,SurvivalGuide|novel=ISInventoryPage,ISInventoryPage,ISButtonPrompt,table 0x968526806{  }.ISContextMenu,ISCharacterInfoWindow,ISMoveablesIconPopup,ISMapPopup,ISEquippedItem,ISHotbar,ISDesignationZonePanel,ISMiniMapOuter,WaterMarkUI,MainScreen,SurvivalGuide,ISBackButtonWheel,SCUIRoot,SCTerminalWindow|seen=ActionProgressBar,ActionProgressBar,ActionProgressBar,ActionProgressBar,SpeedControls,Clock,MoodlesUI,MoodlesUI,MoodlesUI,UIDebugConsole,MoodlesUI,ISInventoryPage,ISInventoryPage,ISButtonPrompt,table 0x968526806{  }.ISContextMenu,ISCharacterInfoWindow,ISMoveablesIconPopup,ISMapPopup,ISEquippedItem,ISHotbar,ISDesignationZonePanel,ISMiniMapOuter,WaterMarkUI,MainScreen,SurvivalGuide,ObjectTooltip,ISBackButtonWheel,SCUIRoot,SCTerminalWindow
+LOG  : Lua          f:369> SC_SOAK|speech|n=1|at=1793104673280|actor=sc-1.792881659967E9-1-843943|line=I can sit a minute. It's good to hear your voice.
+LOG  : Lua          f:369> SC_SOAK|dialogue_meta|at=1793104673281|actor=sc-1.792881659967E9-1-843943|topic=banter.camp.reply|channel=overhead|spokenAt=1793104673281|displayUntil=1793104681711|line=I can sit a minute. It's good to hear your voice.
+LOG  : Lua          f:372> EMMA_TRIP|PLACES count=32 total=53 reason=nil actor=12030.5576171875,6744.07275390625
+LOG  : Lua          f:382> SC_SOAK|speech|n=2|at=1793104673516|actor=sc-1.792509015635E9-1-314954|line=I keep thinking there was something else I could have done for Scarlet Stewart.
+WARN : General      f:396 at AnimationVariableReference.setVariable> Variable name is blank. Cannot set.
+LOG  : Lua          f:428> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13198521733283997 phase=observe_run dead=false health=95.35648345947266 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:431> SC_SOAK|speech|n=3|at=1793104674596|actor=sc-1.792185247907E9-1-189736|line=Gather up, people. We're heading out.
+LOG  : Lua          f:431> SC_SOAK|dialogue_meta|at=1793104674598|actor=sc-1.792185247907E9-1-189736|topic=expedition.departure|channel=overhead|spokenAt=1793104674598|displayUntil=1793104682598|line=Gather up, people. We're heading out.
+LOG  : Lua          f:431> [SurvivorCompanion/expedition] actor=sc-1.792185247907E9-1-189736 action=depart kind=scout travel=road target=12057,6744 members=1
+LOG  : Lua          f:431> EMMA_TRIP|PASS station launched normal scout tripwalk destination=House
+LOG  : Lua          f:435> 2 players found
+LOG  : Lua          f:435> player 0 is mouse
+LOG  : Lua          f:436> SC_REAL_SANDBOX|ENTRY_UI|tag=scan|count=0|closed=SurvivalGuide,ISCharacterInfoWindow,ISCharacterInfoWindow|novel=table 0x968526806{  }.ISContextMenu,ISDesignationZonePanel,WaterMarkUI,MainScreen,SurvivalGuide,ISInventoryPage,ISInventoryPage,ISButtonPrompt,table 0x135616157{  }.ISContextMenu,ISCharacterInfoWindow,ISMoveablesIconPopup,ISMapPopup,ISEquippedItem,ISHotbar,ISDesignationZonePanel,ISMiniMapOuter,ISInventoryPage,ISInventoryPage,ISButtonPrompt,table 0x1035521641{  }.ISContextMenu,ISCharacterInfoWindow,ISEquippedItem,ISHotbar,ISDesignationZonePanel,ISMiniMapOuter,SCUIRoot,SCTerminalWindow,ISBackButtonWheel,ISBackButtonWheel|seen=ActionProgressBar,ActionProgressBar,ActionProgressBar,ActionProgressBar,SpeedControls,Clock,MoodlesUI,MoodlesUI,MoodlesUI,UIDebugConsole,MoodlesUI,table 0x968526806{  }.ISContextMenu,ISDesignationZonePanel,WaterMarkUI,MainScreen,SurvivalGuide,ISInventoryPage,ISInventoryPage,ISButtonPrompt,table 0x135616157{  }.ISContextMenu,ISCharacterInfoWindow,ISMoveablesIconPopup,ISMapPopup,ISEquippedItem,ISHotbar,ISDesignationZonePanel,ISMiniMapOuter,ISInventoryPage,ISInventoryPage,ISButtonPrompt,table 0x1035521641{  }.ISContextMenu,ISCharacterInfoWindow,ISEquippedItem,ISHotbar,ISDesignationZonePanel,ISMiniMapOuter,ObjectTooltip,SCUIRoot,SCTerminalWindow,ISBackButtonWheel,ISBackButtonWheel
+LOG  : Lua          f:437> SC_REAL_SANDBOX|ENTRY_UI|tag=scan|count=0|closed=SurvivalGuide,ISCharacterInfoWindow,ISCharacterInfoWindow|novel=table 0x968526806{  }.ISContextMenu,ISDesignationZonePanel,WaterMarkUI,MainScreen,SurvivalGuide,ISInventoryPage,ISInventoryPage,ISButtonPrompt,table 0x135616157{  }.ISContextMenu,ISCharacterInfoWindow,ISMoveablesIconPopup,ISMapPopup,ISEquippedItem,ISHotbar,ISDesignationZonePanel,ISMiniMapOuter,ISInventoryPage,ISInventoryPage,ISButtonPrompt,table 0x1035521641{  }.ISContextMenu,ISCharacterInfoWindow,ISEquippedItem,ISDesignationZonePanel,ISMiniMapOuter,SCUIRoot,SCTerminalWindow,ISBackButtonWheel,ISBackButtonWheel|seen=ActionProgressBar,ActionProgressBar,ActionProgressBar,ActionProgressBar,SpeedControls,Clock,MoodlesUI,MoodlesUI,MoodlesUI,UIDebugConsole,MoodlesUI,table 0x968526806{  }.ISContextMenu,ISDesignationZonePanel,WaterMarkUI,MainScreen,SurvivalGuide,ISInventoryPage,ISInventoryPage,ISButtonPrompt,table 0x135616157{  }.ISContextMenu,ISCharacterInfoWindow,ISMoveablesIconPopup,ISMapPopup,ISEquippedItem,ISHotbar,ISDesignationZonePanel,ISMiniMapOuter,ISInventoryPage,ISInventoryPage,ISButtonPrompt,table 0x1035521641{  }.ISContextMenu,ISCharacterInfoWindow,ISEquippedItem,ISDesignationZonePanel,ISMiniMapOuter,ObjectTooltip,SCUIRoot,SCTerminalWindow,ISBackButtonWheel,ISBackButtonWheel
+LOG  : Lua          f:450> SC_OBSERVE|search_transition|sc-1.792187371089E9-1-235535|kind=started|pos=12034.50,6743.50|oldAge=nil|oldNodes=nil|newKey=12034:6743:0>12023:6741:0:false:false:false|planMs=nil|firstMotionMs=nil
+LOG  : Lua          f:461> EMMA_TRIP|PASS native two-way station report: Radio report: Scouting; outbound. Last heard at 124.59686279296875 game hours.
+LOG  : Lua          f:461> EMMA_TRIP|PASS native station recall
+LOG  : Lua          f:461> EMMA_TRIP|CONTEXT terminal remains open; production view handoff owns suspension
+LOG  : Lua          f:462> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.6599999666213989 phase=observe_run dead=false health=94.58126831054688 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:536> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13199788331985474 phase=observe_run dead=false health=92.87862396240234 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:558> SC_OBSERVE|search_transition|sc-1.792185247907E9-1-189736|kind=replaced|pos=12030.52,6744.28|oldAge=4681|oldNodes=0|newKey=12030:6744:0>12029:6749:0:false:false:false|planMs=nil|firstMotionMs=nil
+LOG  : Lua          f:598> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13200026750564575 phase=observe_run dead=false health=91.98343658447266 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:668> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13198362290859222 phase=observe_run dead=false health=90.82789611816406 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:680> SC_OBSERVE|search_transition|sc-1.792187371089E9-1-235535|kind=cleared|pos=12034.50,6743.50|oldAge=4127|oldNodes=55|newKey=nil|planMs=4044|firstMotionMs=nil
+LOG  : Lua          f:732> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13200579583644867 phase=observe_run dead=false health=90.06555938720703 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:802> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13200421631336212 phase=observe_run dead=false health=89.41688537597656 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:876> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13199788331985474 phase=observe_run dead=false health=88.51707458496094 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:921> SC_OBSERVE|search_transition|sc-1.792185247907E9-1-189736|kind=cleared|pos=12030.49,6746.11|oldAge=6587|oldNodes=55|newKey=nil|planMs=5892|firstMotionMs=5892
+LOG  : Lua          f:939> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.131998673081398 phase=observe_run dead=false health=87.55342864990234 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:1029> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13200342655181885 phase=observe_run dead=false health=86.67115020751953 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:1042> SC_OBSERVE|search_transition|sc-1.792185247907E9-1-189736|kind=started|pos=12030.49,6746.11|oldAge=nil|oldNodes=nil|newKey=12030:6746:0>12029:6749:0:false:false:false|planMs=5892|firstMotionMs=5892
+LOG  : Lua          f:1102> SC_SOAK|actor|at=1793104686254|actor=sc-1.792185247907E9-1-189736|order=follow|serial=1|duty=false|role=farmer|fatigue=0.00321763101965189|hunger=0.5275644063949585|thirst=0.06465138494968414|pain=0|panic=0|asleep=false|kind=nil|approaching=nil|start=nil|sleepStarted=nil|sleepStartHour=nil|durationMs=nil|durationHours=nil|supervisor=nil:nil|phase=nil|actionAge=nil|phaseAge=nil
+LOG  : Lua          f:1102> SC_SOAK|actor|at=1793104686254|actor=sc-1.792187371089E9-1-235535|order=base_duty|serial=0|duty=true|role=corpsekeeper|fatigue=0.0032128370366990566|hunger=0.49757644534111023|thirst=0.05290771648287773|pain=4.179221153259277|panic=0|asleep=false|kind=nil|approaching=nil|start=nil|sleepStarted=nil|sleepStartHour=nil|durationMs=nil|durationHours=nil|supervisor=nil:nil|phase=nil|actionAge=nil|phaseAge=nil
+LOG  : Lua          f:1102> SC_SOAK|actor|at=1793104686254|actor=sc-1.792509015635E9-1-314954|order=base_duty|serial=0|duty=true|role=woodcutter|fatigue=0.002211238956078887|hunger=0.46549880504608154|thirst=0.03386548161506653|pain=7.657594203948975|panic=0|asleep=false|kind=nil|approaching=nil|start=nil|sleepStarted=nil|sleepStartHour=nil|durationMs=nil|durationHours=nil|supervisor=nil:nil|phase=nil|actionAge=nil|phaseAge=nil
+LOG  : Lua          f:1102> SC_SOAK|actor|at=1793104686254|actor=sc-1.792881659967E9-1-843943|order=base_duty|serial=0|duty=true|role=quartermaster|fatigue=0.0028780729044228792|hunger=0.10357547551393509|thirst=0.09489545226097107|pain=0|panic=0|asleep=false|kind=nil|approaching=nil|start=nil|sleepStarted=nil|sleepStartHour=nil|durationMs=nil|durationHours=nil|supervisor=nil:nil|phase=nil|actionAge=nil|phaseAge=nil
+LOG  : Lua          f:1102> SC_SOAK|clock|at=1793104686254|elapsed=15297|worldHours=124.64488983154297|timeOfDay=11.64488697052002|speech=3|dialogueMetadata=2
+LOG  : Lua          f:1102> SC_SOAK|perf|at=1793104686254|frames=1102|load=3|p50=2.136299967765808|p95=8.15720009803772|max=11.80050003528595|over=454|deferred=377|tick95=8.239300012588501|tickMax=46.61930000782013|pre95=0.06540000438690186
+LOG  : Lua          f:1102> SC_OBSERVE|t=15s|companions=4|stacked_now=0|stacked_samples=0/16|unstack_moves=0|longest_stack_ms=0
+LOG  : Lua          f:1102> SC_OBSERVE|actor|sc-1.792185247907E9-1-189736|Tess Nolan|pos=12030.49,6746.11,0.000|moving=false|decision=tactical/path_searching|nav_terminal=nil
+LOG  : Lua          f:1102> SC_OBSERVE|path|sc-1.792185247907E9-1-189736|phase=planning|action=ordered_move|goal=12029:6749:0|reason=searching|searchAge=1891|idleAge=7|nodes=20|progress=12|slice=3:load_pressure
+LOG  : Lua          f:1102> SC_OBSERVE|nav|sc-1.792185247907E9-1-189736|goal=12029:6749:0|action=ordered_move|path=searching|lease=nil|leaseAge=nil|nativeRetry=nil|motionAge=3058
+LOG  : Lua          f:1102> SC_OBSERVE|actor|sc-1.792187371089E9-1-235535|Jill Kelvin|pos=12027.70,6742.60,0.000|moving=false|decision=base_work/native_path_owned|nav_terminal=nil
+LOG  : Lua          f:1102> SC_OBSERVE|path|sc-1.792187371089E9-1-235535|phase=native_path|action=move_to_floor_item|goal=12023:6741:0|reason=nil|searchAge=nil|idleAge=nil|nodes=55|progress=nil|slice=3:load_pressure
+LOG  : Lua          f:1102> SC_OBSERVE|actor|sc-1.792509015635E9-1-314954|Sanghwa Kim|pos=12026.50,6746.50,0.000|moving=false|decision=mental_episode/mourning_quietly|nav_terminal=nil
+LOG  : Lua          f:1102> SC_OBSERVE|path|sc-1.792509015635E9-1-314954|phase=planning|action=conversation_approach|goal=12027:6746:0|reason=searching|searchAge=15701|idleAge=12986|nodes=28|progress=16|slice=3:load_pressure
+LOG  : Lua          f:1102> SC_OBSERVE|actor|sc-1.792881659967E9-1-843943|Xian Burton|pos=12029.48,6746.88,0.000|moving=false|decision=scavenge/searching_for_supplies|nav_terminal=nil
+LOG  : Lua          f:1102> SC_OBSERVE|path|sc-1.792881659967E9-1-843943|phase=planning|action=conversation_approach|goal=12028:6746:0|reason=searching|searchAge=15675|idleAge=13038|nodes=26|progress=15|slice=3:load_pressure
+LOG  : Lua          f:1102> SC_OBSERVE|base|jobs=1:1:3|buried=15|collected=15
+LOG  : Lua          f:1102> SC_OBSERVE|resident|sc-1.792185247907E9-1-189736|name=Tess Nolan|role=farmer|duty=false|job=nil|restriction=nil
+LOG  : Lua          f:1102> SC_OBSERVE|resident|sc-1.792185651862E9-2-990140|name=sc-1.792185651862E9-2-990140|role=generalist|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:1102> SC_OBSERVE|resident|sc-1.792187371089E9-1-235535|name=Jill Kelvin|role=corpsekeeper|duty=true|job=sort_floor|restriction=nil
+LOG  : Lua          f:1102> SC_OBSERVE|resident|sc-1.792266923895E9-1-683891|name=sc-1.792266923895E9-1-683891|role=chef|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:1102> SC_OBSERVE|resident|sc-1.792509015635E9-1-314954|name=Sanghwa Kim|role=woodcutter|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:1102> SC_OBSERVE|resident|sc-1.792881659967E9-1-843943|name=Xian Burton|role=quartermaster|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:1102> SC_OBSERVE|job|job:115|type=sort_floor|state=active|blocker=nil|assigned=nil|phase=nil|reserved=sc-1.792187371089E9-1-235535|attempts=6|retryAt=1793016986567|floorCargo=nil
+LOG  : Lua          f:1102> SC_OBSERVE|job|job:136|type=gather_materials|state=blocked|blocker=action_owned:logistics:logistics_deposit:approaching|assigned=sc-1.792509015635E9-1-314954|phase=nil|reserved=nil|attempts=3|retryAt=1793016143773|floorCargo=nil
+LOG  : Lua          f:1102> SC_OBSERVE|job|job:178|type=gather_materials|state=blocked|blocker=action_owned:logistics:logistics_deposit:recovering|assigned=sc-1.792509015635E9-1-314954|phase=nil|reserved=nil|attempts=3|retryAt=1793016144518|floorCargo=nil
+LOG  : Lua          f:1102> SC_OBSERVE|job|job:195|type=clean|state=pending|blocker=expedition_wood_preparation|assigned=nil|phase=nil|reserved=nil|attempts=1|retryAt=1793016150335|floorCargo=nil
+LOG  : Lua          f:1102> SC_OBSERVE|job|job:213|type=sort|state=blocked|blocker=haul_destinations_full|assigned=nil|phase=nil|reserved=nil|attempts=0|retryAt=1793104697591|floorCargo=nil
+LOG  : Lua          f:1102> SC_OBSERVE|burial|production-order:12|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:1102> SC_OBSERVE|burial|production-order:13|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:1102> SC_OBSERVE|burial|production-order:14|state=completed|completed=1/1|blocker=nil|worker=sc-1.792509015635E9-1-314954|phase=completed
+LOG  : Lua          f:1102> SC_OBSERVE|burial|production-order:15|state=completed|completed=1/1|blocker=nil|worker=sc-1.792509015635E9-1-314954|phase=completed
+LOG  : Lua          f:1102> SC_OBSERVE|burial|production-order:17|state=completed|completed=1/1|blocker=nil|worker=sc-1.792509015635E9-1-314954|phase=completed
+LOG  : Lua          f:1102> SC_OBSERVE|burial|production-order:18|state=completed|completed=1/1|blocker=nil|worker=sc-1.792509015635E9-1-314954|phase=completed
+LOG  : Lua          f:1102> SC_OBSERVE|burial|production-order:21|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:1102> SC_OBSERVE|burial|production-order:22|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:1102> SC_OBSERVE|burial|production-order:24|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:1102> SC_OBSERVE|burial|production-order:25|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:1102> SC_OBSERVE|burial|production-order:26|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:1102> SC_OBSERVE|corpses|loaded_squares=838|in_work_zones=0
+LOG  : Lua          f:1102> SC_OBSERVE|expedition|phase=inbound|returnIndex=0|waypoint=12029:6749:0|stair=nil|stairApproach=none|stairCrossing=none|tailExit=none|tailClear=none|cohesion=nil|issue=nil|planFailure=nil|replans=0
+LOG  : Lua          f:1102> SC_OBSERVE|deliveries|count=1
+LOG  : Lua          f:1102> SC_OBSERVE|delivery|trip=1793016226798:399585009|requested=12|collected=1|returned=0|stored=0|pending=1
+LOG  : Lua          f:1102> SC_OBSERVE|delivery_item|trip=1793016226798:399585009|id=lf-item:1793016598435:1:807070978|type=Base.Log|carrier=nil|returned=false|stored=false|storage=nil|reason=cargo_pending
+LOG  : Lua          f:1102> SC_OBSERVE|delivery_debrief|trip=1793016226798:399585009|stored=0|pending=1
+LOG  : Lua          f:1102> SC_OBSERVE|delivery_debrief_item|id=lf-item:1793016598435:1:807070978|stored=false|storage=nil|reason=cargo_pending
+LOG  : Lua          f:1142> [SurvivorCompanion][base-job:job:115] blocked sort_floor: floor_pickup_animation_replaced worker=sc-1.792187371089E9-1-235535
+LOG  : Lua          f:1179> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13199788331985474 phase=observe_run dead=false health=85.81697845458984 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:1247> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13200263679027557 phase=observe_run dead=false health=84.66028594970703 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:1323> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13199551403522491 phase=observe_run dead=false health=83.771484375 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:1384> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13200104236602783 phase=observe_run dead=false health=83.27169036865234 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:1404> SC_SOAK|activity_change|at=1793104691304|actor=sc-1.792881659967E9-1-843943|worldHours=124.66741943359375|kind=nil|phase=approaching|asleep=false|fatigue=0.003714940045028925|durationHours=nil
+LOG  : Lua          f:1404> SC_OBSERVE|search_transition|sc-1.792881659967E9-1-843943|kind=replaced|pos=12029.48,6746.88|oldAge=20725|oldNodes=0|newKey=12029:6746:0>12031:6746:0:false:false:false|planMs=nil|firstMotionMs=216
+LOG  : Lua          f:1458> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13198837637901306 phase=observe_run dead=false health=82.51396179199219 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:1465> SC_OBSERVE|search_transition|sc-1.792881659967E9-1-843943|kind=cleared|pos=12029.48,6746.88|oldAge=1664|oldNodes=24|newKey=nil|planMs=1581|firstMotionMs=216
+LOG  : Lua          f:1498> [SurvivorCompanion/navigation-blocker] actor=sc-1.792185247907E9-1-189736 type=companion_crowd object=Player square=12029:6746:0 state=none evidence=unknown confidence=low recovery=stop_and_replan pos=12030.493,6745.891,0.00 fsm=PlayerMovementState action=movement nextAction= anim=Bob_Idle|Bob_Walk|Bob_WalkSlow path=none:false/false pathNext=false:nil,nil collided=false/door:false/polygon:false objectOpen=nil portal=-0.426/0.272 route=none lease=none attempt=12030:6745:0>12029:6746:0:diagonal:nil aiming=false goal=12029:6749:0 reason=direct_route_no_net_motion
+LOG  : Lua          f:1526> SC_OBSERVE|search_transition|sc-1.792185247907E9-1-189736|kind=replaced|pos=12030.49,6745.89|oldAge=8969|oldNodes=86|newKey=12030:6745:0>12029:6749:0:false:false:false|planMs=8400|firstMotionMs=5892
+LOG  : Lua          f:1540> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13199076056480408 phase=observe_run dead=false health=81.75992584228516 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:1586> SC_SOAK|activity_change|at=1793104694334|actor=sc-1.792881659967E9-1-843943|worldHours=124.68096160888672|kind=nil|phase=nil|asleep=false|fatigue=0.0042179240845143795|durationHours=nil
+LOG  : Lua          f:1593> SC_SOAK|speech|n=4|at=1793104694446|actor=sc-1.792509015635E9-1-314954|line=Did I ever tell you about that thing at the middle of town?
+LOG  : Lua          f:1593> SC_SOAK|dialogue_meta|at=1793104694447|actor=sc-1.792509015635E9-1-314954|topic=tales.open|channel=overhead|spokenAt=1793104694447|displayUntil=1793104703577|line=Did I ever tell you about that thing at the middle of town?
+LOG  : Lua          f:1611> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.053267545998096466 phase=observe_run dead=false health=81.00111389160156 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:1646> SC_SOAK|activity_change|at=1793104695335|actor=sc-1.792881659967E9-1-843943|worldHours=124.6854248046875|kind=wash_equipment|phase=animating|asleep=false|fatigue=0.004383807070553303|durationHours=nil
+LOG  : Lua          f:1646> SC_OBSERVE|search_transition|sc-1.792185247907E9-1-189736|kind=cleared|pos=12030.09,6746.41|oldAge=2269|oldNodes=18|newKey=nil|planMs=1963|firstMotionMs=5892
+LOG  : Lua          f:1677> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13199234008789062 phase=observe_run dead=false health=79.92208862304688 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:1743> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.1320018321275711 phase=observe_run dead=false health=78.76388549804688 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:1804> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13200263679027557 phase=observe_run dead=false health=78.13214111328125 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:1875> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13200104236602783 phase=observe_run dead=false health=76.97698211669922 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:1888> SC_OBSERVE|search_transition|sc-1.792185247907E9-1-189736|kind=started|pos=12029.42,6749.97|oldAge=nil|oldNodes=nil|newKey=12029:6749:0>12030:6756:0:false:false:false|planMs=nil|firstMotionMs=5892
+LOG  : Lua          f:1939> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13199470937252045 phase=observe_run dead=false health=75.68656921386719 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:1949> SC_OBSERVE|search_transition|sc-1.792185247907E9-1-189736|kind=cleared|pos=12029.50,6752.17|oldAge=1441|oldNodes=8|newKey=nil|planMs=457|firstMotionMs=457
+LOG  : Lua          f:1958> SC_SOAK|speech|n=5|at=1793104700529|actor=sc-1.792509015635E9-1-314954|line=5 of 'em, every one with my name on its teeth.
+LOG  : Lua          f:1958> SC_SOAK|dialogue_meta|at=1793104700530|actor=sc-1.792509015635E9-1-314954|topic=tales.body|channel=overhead|spokenAt=1793104700530|displayUntil=1793104708750|line=5 of 'em, every one with my name on its teeth.
+LOG  : Lua          f:2010> SC_SOAK|actor|at=1793104701401|actor=sc-1.792185247907E9-1-189736|order=follow|serial=1|duty=false|role=farmer|fatigue=0.005749732255935669|hunger=0.5283493995666504|thirst=0.06532593816518784|pain=0|panic=0|asleep=false|kind=nil|approaching=nil|start=nil|sleepStarted=nil|sleepStartHour=nil|durationMs=nil|durationHours=nil|supervisor=nil:nil|phase=nil|actionAge=nil|phaseAge=nil
+LOG  : Lua          f:2010> SC_SOAK|actor|at=1793104701401|actor=sc-1.792187371089E9-1-235535|order=base_duty|serial=0|duty=true|role=corpsekeeper|fatigue=0.005727717187255621|hunger=0.4981248676776886|thirst=0.05336378887295723|pain=4.134850025177002|panic=0|asleep=false|kind=nil|approaching=nil|start=nil|sleepStarted=nil|sleepStartHour=nil|durationMs=nil|durationHours=nil|supervisor=nil:nil|phase=nil|actionAge=nil|phaseAge=nil
+LOG  : Lua          f:2010> SC_SOAK|actor|at=1793104701401|actor=sc-1.792509015635E9-1-314954|order=base_duty|serial=0|duty=true|role=woodcutter|fatigue=0.003886466147378087|hunger=0.4661491811275482|thirst=0.034363891929388046|pain=8.74996280670166|panic=0|asleep=false|kind=nil|approaching=nil|start=nil|sleepStarted=nil|sleepStartHour=nil|durationMs=nil|durationHours=nil|supervisor=nil:nil|phase=nil|actionAge=nil|phaseAge=nil
+LOG  : Lua          f:2010> SC_SOAK|actor|at=1793104701401|actor=sc-1.792881659967E9-1-843943|order=base_duty|serial=0|duty=true|role=quartermaster|fatigue=0.005390977952629328|hunger=0.1040123775601387|thirst=0.09530293941497803|pain=0|panic=0|asleep=false|kind=wash_equipment|approaching=nil|start=1793104694709|sleepStarted=nil|sleepStartHour=nil|durationMs=nil|durationHours=nil|supervisor=downtime:wash_equipment|phase=animating|actionAge=6679|phaseAge=6678
+LOG  : Lua          f:2010> SC_SOAK|clock|at=1793104701401|elapsed=30444|worldHours=124.71249389648438|timeOfDay=11.712493896484375|speech=5|dialogueMetadata=4
+LOG  : Lua          f:2010> SC_SOAK|perf|at=1793104701401|frames=2010|load=3|p50=1.5852000713348389|p95=6.281099915504456|max=10.291000008583069|over=699|deferred=551|tick95=6.432799935340881|tickMax=46.61930000782013|pre95=0.091499924659729
+LOG  : Lua          f:2010> SC_OBSERVE|t=30s|companions=4|stacked_now=0|stacked_samples=0/31|unstack_moves=0|longest_stack_ms=0
+LOG  : Lua          f:2010> SC_OBSERVE|actor|sc-1.792185247907E9-1-189736|Tess Nolan|pos=12029.50,6754.37,0.000|moving=true|decision=tactical/moving|nav_terminal=nil
+LOG  : Lua          f:2010> SC_OBSERVE|path|sc-1.792185247907E9-1-189736|phase=moving|action=ordered_move|goal=12030:6756:0|reason=nil|searchAge=nil|idleAge=nil|nodes=8|progress=nil|slice=3:load_pressure
+LOG  : Lua          f:2010> SC_OBSERVE|nav|sc-1.792185247907E9-1-189736|goal=12030:6756:0|action=ordered_move|path=nil|lease=nil|leaseAge=nil|nativeRetry=nil|motionAge=171
+LOG  : Lua          f:2010> SC_OBSERVE|actor|sc-1.792187371089E9-1-235535|Jill Kelvin|pos=12026.52,6742.50,0.000|moving=false|decision=scavenge/searching_for_supplies|nav_terminal=nil
+LOG  : Lua          f:2010> SC_OBSERVE|path|sc-1.792187371089E9-1-235535|phase=moving|action=move_to_floor_item|goal=12023:6741:0|reason=nil|searchAge=nil|idleAge=nil|nodes=55|progress=nil|slice=3:load_pressure
+LOG  : Lua          f:2010> SC_OBSERVE|actor|sc-1.792509015635E9-1-314954|Sanghwa Kim|pos=12026.50,6746.50,0.000|moving=false|decision=mental_episode/mourning_quietly|nav_terminal=nil
+LOG  : Lua          f:2010> SC_OBSERVE|path|sc-1.792509015635E9-1-314954|phase=planning|action=conversation_approach|goal=12027:6746:0|reason=searching|searchAge=30848|idleAge=28133|nodes=28|progress=16|slice=3:load_pressure
+LOG  : Lua          f:2010> SC_OBSERVE|actor|sc-1.792881659967E9-1-843943|Xian Burton|pos=12031.11,6746.54,0.000|moving=false|decision=downtime/wash_equipment|nav_terminal=nil
+LOG  : Lua          f:2010> SC_OBSERVE|base|jobs=1:0:4|buried=15|collected=15
+LOG  : Lua          f:2010> SC_OBSERVE|resident|sc-1.792185247907E9-1-189736|name=Tess Nolan|role=farmer|duty=false|job=nil|restriction=nil
+LOG  : Lua          f:2010> SC_OBSERVE|resident|sc-1.792185651862E9-2-990140|name=sc-1.792185651862E9-2-990140|role=generalist|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:2010> SC_OBSERVE|resident|sc-1.792187371089E9-1-235535|name=Jill Kelvin|role=corpsekeeper|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:2010> SC_OBSERVE|resident|sc-1.792266923895E9-1-683891|name=sc-1.792266923895E9-1-683891|role=chef|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:2010> SC_OBSERVE|resident|sc-1.792509015635E9-1-314954|name=Sanghwa Kim|role=woodcutter|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:2010> SC_OBSERVE|resident|sc-1.792881659967E9-1-843943|name=Xian Burton|role=quartermaster|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:2010> SC_OBSERVE|job|job:115|type=sort_floor|state=blocked|blocker=floor_pickup_animation_replaced|assigned=nil|phase=nil|reserved=nil|attempts=7|retryAt=1793105286932|floorCargo=nil
+LOG  : Lua          f:2010> SC_OBSERVE|job|job:136|type=gather_materials|state=blocked|blocker=action_owned:logistics:logistics_deposit:approaching|assigned=sc-1.792509015635E9-1-314954|phase=nil|reserved=nil|attempts=3|retryAt=1793016143773|floorCargo=nil
+LOG  : Lua          f:2010> SC_OBSERVE|job|job:178|type=gather_materials|state=blocked|blocker=action_owned:logistics:logistics_deposit:recovering|assigned=sc-1.792509015635E9-1-314954|phase=nil|reserved=nil|attempts=3|retryAt=1793016144518|floorCargo=nil
+LOG  : Lua          f:2010> SC_OBSERVE|job|job:195|type=clean|state=pending|blocker=expedition_wood_preparation|assigned=nil|phase=nil|reserved=nil|attempts=1|retryAt=1793016150335|floorCargo=nil
+LOG  : Lua          f:2010> SC_OBSERVE|job|job:213|type=sort|state=blocked|blocker=haul_destinations_full|assigned=nil|phase=nil|reserved=nil|attempts=0|retryAt=1793104697591|floorCargo=nil
+LOG  : Lua          f:2010> SC_OBSERVE|burial|production-order:12|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:2010> SC_OBSERVE|burial|production-order:13|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:2010> SC_OBSERVE|burial|production-order:14|state=completed|completed=1/1|blocker=nil|worker=sc-1.792509015635E9-1-314954|phase=completed
+LOG  : Lua          f:2010> SC_OBSERVE|burial|production-order:15|state=completed|completed=1/1|blocker=nil|worker=sc-1.792509015635E9-1-314954|phase=completed
+LOG  : Lua          f:2010> SC_OBSERVE|burial|production-order:17|state=completed|completed=1/1|blocker=nil|worker=sc-1.792509015635E9-1-314954|phase=completed
+LOG  : Lua          f:2010> SC_OBSERVE|burial|production-order:18|state=completed|completed=1/1|blocker=nil|worker=sc-1.792509015635E9-1-314954|phase=completed
+LOG  : Lua          f:2010> SC_OBSERVE|burial|production-order:21|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:2010> SC_OBSERVE|burial|production-order:22|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:2010> SC_OBSERVE|burial|production-order:24|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:2010> SC_OBSERVE|burial|production-order:25|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:2010> SC_OBSERVE|burial|production-order:26|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:2010> SC_OBSERVE|corpses|loaded_squares=838|in_work_zones=0
+LOG  : Lua          f:2010> SC_OBSERVE|expedition|phase=inbound|returnIndex=0|waypoint=12030:6756:0|stair=nil|stairApproach=none|stairCrossing=none|tailExit=none|tailClear=none|cohesion=nil|issue=nil|planFailure=nil|replans=0
+LOG  : Lua          f:2010> SC_OBSERVE|deliveries|count=1
+LOG  : Lua          f:2010> SC_OBSERVE|delivery|trip=1793016226798:399585009|requested=12|collected=1|returned=0|stored=0|pending=1
+LOG  : Lua          f:2010> SC_OBSERVE|delivery_item|trip=1793016226798:399585009|id=lf-item:1793016598435:1:807070978|type=Base.Log|carrier=nil|returned=false|stored=false|storage=nil|reason=cargo_pending
+LOG  : Lua          f:2010> SC_OBSERVE|delivery_debrief|trip=1793016226798:399585009|stored=0|pending=1
+LOG  : Lua          f:2010> SC_OBSERVE|delivery_debrief_item|id=lf-item:1793016598435:1:807070978|stored=false|storage=nil|reason=cargo_pending
+LOG  : Lua          f:2055> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13201214373111725 phase=observe_run dead=false health=75.00556945800781 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:2070> SC_SOAK|activity_change|at=1793104702417|actor=sc-1.792881659967E9-1-843943|worldHours=124.71702575683594|kind=nil|phase=nil|asleep=false|fatigue=0.00555991567671299|durationHours=nil
+LOG  : Lua          f:2170> SC_SOAK|speech|n=6|at=1793104704087|actor=sc-1.792881659967E9-1-843943|line=One shelf at a time. Like counting rosary beads.
+LOG  : Lua          f:2170> SC_SOAK|dialogue_meta|at=1793104704088|actor=sc-1.792881659967E9-1-843943|topic=voice.job.start.store|channel=overhead|spokenAt=1793104704088|displayUntil=1793104712448|line=One shelf at a time. Like counting rosary beads.
+LOG  : Lua          f:2170> [SurvivorCompanion][base-job:job:213] blocked sort: haul_destinations_full worker=sc-1.792881659967E9-1-843943
+LOG  : Lua          f:2249> SC_SOAK|activity_change|at=1793104705471|actor=sc-1.792187371089E9-1-235535|worldHours=124.73063659667969|kind=nil|phase=approaching|asleep=false|fatigue=0.006402966100722551|durationHours=nil
+LOG  : Lua          f:2310> SC_OBSERVE|search_transition|sc-1.792185247907E9-1-189736|kind=started|pos=12030.54,6763.36|oldAge=nil|oldNodes=nil|newKey=12030:6763:0>12031:6770:0:false:false:false|planMs=nil|firstMotionMs=408
+LOG  : Lua          f:2316> SC_SOAK|speech|n=7|at=1793104706582|actor=sc-1.792509015635E9-1-314954|line=And that's why I stay away from the middle of town now.
+LOG  : Lua          f:2316> SC_SOAK|dialogue_meta|at=1793104706583|actor=sc-1.792509015635E9-1-314954|topic=tales.close|channel=overhead|spokenAt=1793104706583|displayUntil=1793104715433|line=And that's why I stay away from the middle of town now.
+LOG  : Lua          f:2335> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13200026750564575 phase=observe_run dead=false health=75.00505065917969 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:2370> SC_SOAK|activity_change|at=1793104707490|actor=sc-1.792187371089E9-1-235535|worldHours=124.73963928222656|kind=nil|phase=nil|asleep=false|fatigue=0.006737826392054558|durationHours=nil
+LOG  : Lua          f:2370> SC_OBSERVE|search_transition|sc-1.792185247907E9-1-189736|kind=cleared|pos=12030.50,6765.51|oldAge=1393|oldNodes=9|newKey=nil|planMs=650|firstMotionMs=650
+LOG  : Lua          f:2551> SC_OBSERVE|search_transition|sc-1.792185247907E9-1-189736|kind=started|pos=12031.58,6769.62|oldAge=nil|oldNodes=nil|newKey=12031:6770:0>12032:6763:0:false:false:false|planMs=nil|firstMotionMs=650
+LOG  : Lua          f:2610> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13200421631336212 phase=observe_run dead=false health=75.00035095214844 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:2612> SC_OBSERVE|search_transition|sc-1.792185247907E9-1-189736|kind=cleared|pos=12032.30,6768.17|oldAge=1515|oldNodes=7|newKey=nil|planMs=656|firstMotionMs=656
+LOG  : Lua          f:2665> SC_SOAK|speech|n=8|at=1793104712405|actor=sc-1.792187371089E9-1-235535|line=A rag! That's one less thing to worry about.
+LOG  : Lua          f:2665> SC_SOAK|dialogue_meta|at=1793104712407|actor=sc-1.792187371089E9-1-235535|topic=scavenge.loot.excited|channel=overhead|spokenAt=1793104712407|displayUntil=1793104720487|line=A rag! That's one less thing to worry about.
+LOG  : Lua          f:2912> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13200421631336212 phase=observe_run dead=false health=75.00865936279297 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:2912> SC_SOAK|actor|at=1793104716523|actor=sc-1.792185247907E9-1-189736|order=follow|serial=1|duty=false|role=farmer|fatigue=0.008307650685310364|hunger=0.5289292931556702|thirst=0.06582910567522049|pain=0|panic=0|asleep=false|kind=nil|approaching=nil|start=nil|sleepStarted=nil|sleepStartHour=nil|durationMs=nil|durationHours=nil|supervisor=nil:nil|phase=nil|actionAge=nil|phaseAge=nil
+LOG  : Lua          f:2912> SC_SOAK|activity_change|at=1793104716523|actor=sc-1.792187371089E9-1-235535|worldHours=124.77993774414062|kind=sit|phase=approaching|asleep=false|fatigue=0.008237726055085659|durationHours=0.8166666666666667
+LOG  : Lua          f:2912> SC_SOAK|actor|at=1793104716523|actor=sc-1.792187371089E9-1-235535|order=base_duty|serial=0|duty=true|role=corpsekeeper|fatigue=0.008237726055085659|hunger=0.49856603145599365|thirst=0.05377569794654846|pain=3.7052416801452637|panic=0|asleep=false|kind=sit|approaching=true|start=nil|sleepStarted=nil|sleepStartHour=nil|durationMs=120000|durationHours=0.8166666666666667|supervisor=downtime:sit|phase=approaching|actionAge=98|phaseAge=90
+LOG  : Lua          f:2912> SC_SOAK|actor|at=1793104716523|actor=sc-1.792509015635E9-1-314954|order=base_duty|serial=0|duty=true|role=woodcutter|fatigue=0.005557892378419638|hunger=0.4666413366794586|thirst=0.034774262458086014|pain=8.902109146118164|panic=0|asleep=false|kind=nil|approaching=nil|start=nil|sleepStarted=nil|sleepStartHour=nil|durationMs=nil|durationHours=nil|supervisor=nil:nil|phase=nil|actionAge=nil|phaseAge=nil
+LOG  : Lua          f:2912> SC_SOAK|actor|at=1793104716523|actor=sc-1.792881659967E9-1-843943|order=base_duty|serial=0|duty=true|role=quartermaster|fatigue=0.007905444130301476|hunger=0.10445182770490646|thirst=0.09580838680267334|pain=0|panic=0|asleep=false|kind=nil|approaching=nil|start=nil|sleepStarted=nil|sleepStartHour=nil|durationMs=nil|durationHours=nil|supervisor=nil:nil|phase=nil|actionAge=nil|phaseAge=nil
+LOG  : Lua          f:2912> SC_SOAK|clock|at=1793104716523|elapsed=45566|worldHours=124.77993774414062|timeOfDay=11.779937744140625|speech=8|dialogueMetadata=7
+LOG  : Lua          f:2912> SC_SOAK|perf|at=1793104716523|frames=2912|load=3|p50=3.3907999992370605|p95=11.547299981117249|max=21.422600030899048|over=1002|deferred=779|tick95=11.675000071525574|tickMax=46.61930000782013|pre95=0.09509992599487305
+LOG  : Lua          f:2912> SC_OBSERVE|search_transition|sc-1.792187371089E9-1-235535|kind=started|pos=12031.50,6740.50|oldAge=nil|oldNodes=nil|newKey=12031:6740:0>12029:6740:0:false:false:false|planMs=nil|firstMotionMs=nil
+LOG  : Lua          f:2912> SC_OBSERVE|t=45s|companions=4|stacked_now=0|stacked_samples=0/46|unstack_moves=0|longest_stack_ms=0
+LOG  : Lua          f:2912> SC_OBSERVE|actor|sc-1.792185247907E9-1-189736|Tess Nolan|pos=12036.33,6759.60,0.000|moving=true|decision=tactical/moving|nav_terminal=nil
+LOG  : Lua          f:2912> SC_OBSERVE|path|sc-1.792185247907E9-1-189736|phase=moving|action=ordered_move|goal=12036:6757:0|reason=nil|searchAge=nil|idleAge=nil|nodes=7|progress=nil|slice=3:load_pressure
+LOG  : Lua          f:2912> SC_OBSERVE|nav|sc-1.792185247907E9-1-189736|goal=12036:6757:0|action=ordered_move|path=nil|lease=nil|leaseAge=nil|nativeRetry=nil|motionAge=49
+LOG  : Lua          f:2912> SC_OBSERVE|actor|sc-1.792187371089E9-1-235535|Jill Kelvin|pos=12031.50,6740.50,0.000|moving=false|decision=downtime/approaching_seat|nav_terminal=nil
+LOG  : Lua          f:2912> SC_OBSERVE|path|sc-1.792187371089E9-1-235535|phase=planning|action=move_to_seat|goal=12029:6740:0|reason=searching|searchAge=96|idleAge=7|nodes=2|progress=2|slice=3:load_pressure
+LOG  : Lua          f:2912> SC_OBSERVE|actor|sc-1.792509015635E9-1-314954|Sanghwa Kim|pos=12026.50,6746.50,0.000|moving=false|decision=mental_episode/mourning_quietly|nav_terminal=nil
+LOG  : Lua          f:2912> SC_OBSERVE|path|sc-1.792509015635E9-1-314954|phase=planning|action=conversation_approach|goal=12027:6746:0|reason=searching|searchAge=45970|idleAge=43255|nodes=28|progress=16|slice=3:load_pressure
+LOG  : Lua          f:2912> SC_OBSERVE|actor|sc-1.792881659967E9-1-843943|Xian Burton|pos=12031.11,6746.54,0.000|moving=false|decision=scavenge/searching_for_supplies|nav_terminal=nil
+LOG  : Lua          f:2912> SC_OBSERVE|path|sc-1.792881659967E9-1-843943|phase=moving|action=nil|goal=nil:nil:nil|reason=nil|searchAge=nil|idleAge=nil|nodes=nil|progress=nil|slice=nil:nil
+LOG  : Lua          f:2912> SC_OBSERVE|base|jobs=1:0:4|buried=15|collected=15
+LOG  : Lua          f:2912> SC_OBSERVE|resident|sc-1.792185247907E9-1-189736|name=Tess Nolan|role=farmer|duty=false|job=nil|restriction=nil
+LOG  : Lua          f:2912> SC_OBSERVE|resident|sc-1.792185651862E9-2-990140|name=sc-1.792185651862E9-2-990140|role=generalist|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:2912> SC_OBSERVE|resident|sc-1.792187371089E9-1-235535|name=Jill Kelvin|role=corpsekeeper|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:2912> SC_OBSERVE|resident|sc-1.792266923895E9-1-683891|name=sc-1.792266923895E9-1-683891|role=chef|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:2912> SC_OBSERVE|resident|sc-1.792509015635E9-1-314954|name=Sanghwa Kim|role=woodcutter|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:2912> SC_OBSERVE|resident|sc-1.792881659967E9-1-843943|name=Xian Burton|role=quartermaster|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:2912> SC_OBSERVE|job|job:115|type=sort_floor|state=blocked|blocker=floor_pickup_animation_replaced|assigned=nil|phase=nil|reserved=nil|attempts=7|retryAt=1793105286932|floorCargo=nil
+LOG  : Lua          f:2912> SC_OBSERVE|job|job:136|type=gather_materials|state=blocked|blocker=action_owned:logistics:logistics_deposit:approaching|assigned=sc-1.792509015635E9-1-314954|phase=nil|reserved=nil|attempts=3|retryAt=1793016143773|floorCargo=nil
+LOG  : Lua          f:2912> SC_OBSERVE|job|job:178|type=gather_materials|state=blocked|blocker=action_owned:logistics:logistics_deposit:recovering|assigned=sc-1.792509015635E9-1-314954|phase=nil|reserved=nil|attempts=3|retryAt=1793016144518|floorCargo=nil
+LOG  : Lua          f:2912> SC_OBSERVE|job|job:195|type=clean|state=pending|blocker=expedition_wood_preparation|assigned=nil|phase=nil|reserved=nil|attempts=1|retryAt=1793016150335|floorCargo=nil
+LOG  : Lua          f:2912> SC_OBSERVE|job|job:213|type=sort|state=blocked|blocker=haul_destinations_full|assigned=nil|phase=nil|reserved=nil|attempts=0|retryAt=1793104734114|floorCargo=nil
+LOG  : Lua          f:2912> SC_OBSERVE|burial|production-order:12|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:2912> SC_OBSERVE|burial|production-order:13|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:2912> SC_OBSERVE|burial|production-order:14|state=completed|completed=1/1|blocker=nil|worker=sc-1.792509015635E9-1-314954|phase=completed
+LOG  : Lua          f:2912> SC_OBSERVE|burial|production-order:15|state=completed|completed=1/1|blocker=nil|worker=sc-1.792509015635E9-1-314954|phase=completed
+LOG  : Lua          f:2912> SC_OBSERVE|burial|production-order:17|state=completed|completed=1/1|blocker=nil|worker=sc-1.792509015635E9-1-314954|phase=completed
+LOG  : Lua          f:2912> SC_OBSERVE|burial|production-order:18|state=completed|completed=1/1|blocker=nil|worker=sc-1.792509015635E9-1-314954|phase=completed
+LOG  : Lua          f:2912> SC_OBSERVE|burial|production-order:21|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:2912> SC_OBSERVE|burial|production-order:22|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:2912> SC_OBSERVE|burial|production-order:24|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:2912> SC_OBSERVE|burial|production-order:25|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:2912> SC_OBSERVE|burial|production-order:26|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:2912> SC_OBSERVE|corpses|loaded_squares=838|in_work_zones=0
+LOG  : Lua          f:2912> SC_OBSERVE|expedition|phase=inbound|returnIndex=0|waypoint=12036:6757:0|stair=nil|stairApproach=none|stairCrossing=none|tailExit=none|tailClear=none|cohesion=nil|issue=nil|planFailure=nil|replans=0
+LOG  : Lua          f:2912> SC_OBSERVE|deliveries|count=1
+LOG  : Lua          f:2912> SC_OBSERVE|delivery|trip=1793016226798:399585009|requested=12|collected=1|returned=0|stored=0|pending=1
+LOG  : Lua          f:2912> SC_OBSERVE|delivery_item|trip=1793016226798:399585009|id=lf-item:1793016598435:1:807070978|type=Base.Log|carrier=nil|returned=false|stored=false|storage=nil|reason=cargo_pending
+LOG  : Lua          f:2912> SC_OBSERVE|delivery_debrief|trip=1793016226798:399585009|stored=0|pending=1
+LOG  : Lua          f:2912> SC_OBSERVE|delivery_debrief_item|id=lf-item:1793016598435:1:807070978|stored=false|storage=nil|reason=cargo_pending
+LOG  : Lua          f:2971> SC_OBSERVE|search_transition|sc-1.792187371089E9-1-235535|kind=cleared|pos=12031.50,6740.79|oldAge=1108|oldNodes=10|newKey=nil|planMs=854|firstMotionMs=854
+LOG  : Lua          f:3191> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.1319875866174698 phase=observe_run dead=false health=75.0068359375 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:3333> SC_SOAK|activity_change|at=1793104723590|actor=sc-1.792187371089E9-1-235535|worldHours=124.81146240234375|kind=sit|phase=waiting|asleep=false|fatigue=0.00932333804666996|durationHours=0.8166666666666667
+LOG  : Lua          f:3333> SC_SOAK|activity_change|at=1793104723590|actor=sc-1.792881659967E9-1-843943|worldHours=124.81146240234375|kind=wash_equipment|phase=animating|asleep=false|fatigue=0.009083036333322525|durationHours=nil
+LOG  : Lua          f:3466> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13198916614055634 phase=observe_run dead=false health=75.00277709960938 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:3581> SC_SOAK|speech|n=9|at=1793104727715|actor=sc-1.792187371089E9-1-235535|line=Good news, no commute. Bad news, the reason why.
+LOG  : Lua          f:3581> SC_SOAK|dialogue_meta|at=1793104727716|actor=sc-1.792187371089E9-1-235535|topic=banter.routine|channel=overhead|spokenAt=1793104727716|displayUntil=1793104736076|line=Good news, no commute. Bad news, the reason why.
+LOG  : Lua          f:3759> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13200026750564575 phase=observe_run dead=false health=75.00633239746094 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:3817> SC_SOAK|actor|at=1793104731654|actor=sc-1.792185247907E9-1-189736|order=follow|serial=1|duty=false|role=farmer|fatigue=0.010900454595685005|hunger=0.5294148325920105|thirst=0.06632597744464874|pain=0|panic=0|asleep=false|kind=nil|approaching=nil|start=nil|sleepStarted=nil|sleepStartHour=nil|durationMs=nil|durationHours=nil|supervisor=nil:nil|phase=nil|actionAge=nil|phaseAge=nil
+LOG  : Lua          f:3817> SC_SOAK|actor|at=1793104731654|actor=sc-1.792187371089E9-1-235535|order=base_duty|serial=0|duty=true|role=corpsekeeper|fatigue=0.010216007940471172|hunger=0.4991614818572998|thirst=0.05418255180120468|pain=3.275153875350952|panic=0|asleep=false|kind=sit|approaching=nil|start=1793104723033|sleepStarted=nil|sleepStartHour=124.80901336669922|durationMs=120000|durationHours=0.8166666666666667|supervisor=downtime:sit|phase=waiting|actionAge=15229|phaseAge=8621
+LOG  : Lua          f:3817> SC_SOAK|actor|at=1793104731654|actor=sc-1.792509015635E9-1-314954|order=base_duty|serial=0|duty=true|role=woodcutter|fatigue=0.007230538409203291|hunger=0.4671323597431183|thirst=0.035319916903972626|pain=8.85835075378418|panic=0|asleep=false|kind=nil|approaching=nil|start=nil|sleepStarted=nil|sleepStartHour=nil|durationMs=nil|durationHours=nil|supervisor=nil:nil|phase=nil|actionAge=nil|phaseAge=nil
+LOG  : Lua          f:3817> SC_SOAK|activity_change|at=1793104731654|actor=sc-1.792881659967E9-1-843943|worldHours=124.84746551513672|kind=nil|phase=nil|asleep=false|fatigue=0.010429177433252335|durationHours=nil
+LOG  : Lua          f:3817> SC_SOAK|actor|at=1793104731654|actor=sc-1.792881659967E9-1-843943|order=base_duty|serial=0|duty=true|role=quartermaster|fatigue=0.010429177433252335|hunger=0.10494515299797058|thirst=0.09622472524642944|pain=0|panic=0|asleep=false|kind=nil|approaching=nil|start=nil|sleepStarted=nil|sleepStartHour=nil|durationMs=nil|durationHours=nil|supervisor=nil:nil|phase=nil|actionAge=nil|phaseAge=nil
+LOG  : Lua          f:3817> SC_SOAK|clock|at=1793104731654|elapsed=60697|worldHours=124.84746551513672|timeOfDay=11.847464561462402|speech=9|dialogueMetadata=8
+LOG  : Lua          f:3817> SC_SOAK|perf|at=1793104731654|frames=3817|load=3|p50=1.284500002861023|p95=6.283800005912781|max=10.704599976539612|over=1287|deferred=993|tick95=6.3490999937057495|tickMax=46.61930000782013|pre95=0.053799986839294434
+LOG  : Lua          f:3817> SC_OBSERVE|t=60s|companions=4|stacked_now=0|stacked_samples=0/61|unstack_moves=0|longest_stack_ms=0
+LOG  : Lua          f:3817> SC_OBSERVE|actor|sc-1.792185247907E9-1-189736|Tess Nolan|pos=12043.50,6739.92,0.000|moving=true|decision=tactical/moving|nav_terminal=nil
+LOG  : Lua          f:3817> SC_OBSERVE|path|sc-1.792185247907E9-1-189736|phase=moving|action=ordered_move|goal=12042:6737:0|reason=nil|searchAge=nil|idleAge=nil|nodes=7|progress=nil|slice=3:load_pressure
+LOG  : Lua          f:3817> SC_OBSERVE|nav|sc-1.792185247907E9-1-189736|goal=12042:6737:0|action=ordered_move|path=nil|lease=nil|leaseAge=nil|nativeRetry=nil|motionAge=68
+LOG  : Lua          f:3817> SC_OBSERVE|actor|sc-1.792187371089E9-1-235535|Jill Kelvin|pos=12029.51,6739.73,0.000|moving=false|decision=downtime/sitting_on_furniture|nav_terminal=nil
+LOG  : Lua          f:3817> SC_OBSERVE|actor|sc-1.792509015635E9-1-314954|Sanghwa Kim|pos=12026.50,6746.50,0.000|moving=false|decision=mental_episode/mourning_quietly|nav_terminal=nil
+LOG  : Lua          f:3817> SC_OBSERVE|path|sc-1.792509015635E9-1-314954|phase=planning|action=conversation_approach|goal=12027:6746:0|reason=searching|searchAge=61101|idleAge=58386|nodes=28|progress=16|slice=3:load_pressure
+LOG  : Lua          f:3817> SC_OBSERVE|actor|sc-1.792881659967E9-1-843943|Xian Burton|pos=12033.47,6746.50,0.000|moving=false|decision=pacing/thinking|nav_terminal=nil
+LOG  : Lua          f:3817> SC_OBSERVE|path|sc-1.792881659967E9-1-843943|phase=native_path|action=approach_interaction|goal=12033:6746:0|reason=nil|searchAge=nil|idleAge=nil|nodes=nil|progress=nil|slice=nil:nil
+LOG  : Lua          f:3817> SC_OBSERVE|base|jobs=1:0:4|buried=15|collected=15
+LOG  : Lua          f:3817> SC_OBSERVE|resident|sc-1.792185247907E9-1-189736|name=Tess Nolan|role=farmer|duty=false|job=nil|restriction=nil
+LOG  : Lua          f:3817> SC_OBSERVE|resident|sc-1.792185651862E9-2-990140|name=sc-1.792185651862E9-2-990140|role=generalist|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:3817> SC_OBSERVE|resident|sc-1.792187371089E9-1-235535|name=Jill Kelvin|role=corpsekeeper|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:3817> SC_OBSERVE|resident|sc-1.792266923895E9-1-683891|name=sc-1.792266923895E9-1-683891|role=chef|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:3817> SC_OBSERVE|resident|sc-1.792509015635E9-1-314954|name=Sanghwa Kim|role=woodcutter|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:3817> SC_OBSERVE|resident|sc-1.792881659967E9-1-843943|name=Xian Burton|role=quartermaster|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:3817> SC_OBSERVE|job|job:115|type=sort_floor|state=blocked|blocker=floor_pickup_animation_replaced|assigned=nil|phase=nil|reserved=nil|attempts=7|retryAt=1793105286932|floorCargo=nil
+LOG  : Lua          f:3817> SC_OBSERVE|job|job:136|type=gather_materials|state=blocked|blocker=action_owned:logistics:logistics_deposit:approaching|assigned=sc-1.792509015635E9-1-314954|phase=nil|reserved=nil|attempts=3|retryAt=1793016143773|floorCargo=nil
+LOG  : Lua          f:3817> SC_OBSERVE|job|job:178|type=gather_materials|state=blocked|blocker=action_owned:logistics:logistics_deposit:recovering|assigned=sc-1.792509015635E9-1-314954|phase=nil|reserved=nil|attempts=3|retryAt=1793016144518|floorCargo=nil
+LOG  : Lua          f:3817> SC_OBSERVE|job|job:195|type=clean|state=pending|blocker=expedition_wood_preparation|assigned=nil|phase=nil|reserved=nil|attempts=1|retryAt=1793016150335|floorCargo=nil
+LOG  : Lua          f:3817> SC_OBSERVE|job|job:213|type=sort|state=blocked|blocker=haul_destinations_full|assigned=nil|phase=nil|reserved=nil|attempts=0|retryAt=1793104734114|floorCargo=nil
+LOG  : Lua          f:3817> SC_OBSERVE|burial|production-order:12|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:3817> SC_OBSERVE|burial|production-order:13|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:3817> SC_OBSERVE|burial|production-order:14|state=completed|completed=1/1|blocker=nil|worker=sc-1.792509015635E9-1-314954|phase=completed
+LOG  : Lua          f:3817> SC_OBSERVE|burial|production-order:15|state=completed|completed=1/1|blocker=nil|worker=sc-1.792509015635E9-1-314954|phase=completed
+LOG  : Lua          f:3817> SC_OBSERVE|burial|production-order:17|state=completed|completed=1/1|blocker=nil|worker=sc-1.792509015635E9-1-314954|phase=completed
+LOG  : Lua          f:3817> SC_OBSERVE|burial|production-order:18|state=completed|completed=1/1|blocker=nil|worker=sc-1.792509015635E9-1-314954|phase=completed
+LOG  : Lua          f:3817> SC_OBSERVE|burial|production-order:21|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:3817> SC_OBSERVE|burial|production-order:22|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:3817> SC_OBSERVE|burial|production-order:24|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:3817> SC_OBSERVE|burial|production-order:25|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:3817> SC_OBSERVE|burial|production-order:26|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:3817> SC_OBSERVE|corpses|loaded_squares=838|in_work_zones=0
+LOG  : Lua          f:3817> SC_OBSERVE|expedition|phase=inbound|returnIndex=0|waypoint=12042:6737:0|stair=nil|stairApproach=none|stairCrossing=none|tailExit=none|tailClear=none|cohesion=nil|issue=nil|planFailure=nil|replans=0
+LOG  : Lua          f:3817> SC_OBSERVE|deliveries|count=1
+LOG  : Lua          f:3817> SC_OBSERVE|delivery|trip=1793016226798:399585009|requested=12|collected=1|returned=0|stored=0|pending=1
+LOG  : Lua          f:3817> SC_OBSERVE|delivery_item|trip=1793016226798:399585009|id=lf-item:1793016598435:1:807070978|type=Base.Log|carrier=nil|returned=false|stored=false|storage=nil|reason=cargo_pending
+LOG  : Lua          f:3817> SC_OBSERVE|delivery_debrief|trip=1793016226798:399585009|stored=0|pending=1
+LOG  : Lua          f:3817> SC_OBSERVE|delivery_debrief_item|id=lf-item:1793016598435:1:807070978|stored=false|storage=nil|reason=cargo_pending
+LOG  : Lua          f:3937> SC_SOAK|activity_change|at=1793104733684|actor=sc-1.792881659967E9-1-843943|worldHours=124.85653686523438|kind=gear_check|phase=animating|asleep=false|fatigue=0.010768384672701359|durationHours=nil
+LOG  : Lua          f:3991> [SurvivorCompanion][base-job:job:213] blocked sort: haul_destinations_full worker=sc-1.792187371089E9-1-235535
+LOG  : Lua          f:3997> SC_SOAK|activity_change|at=1793104734715|actor=sc-1.792187371089E9-1-235535|worldHours=124.86107635498047|kind=nil|phase=nil|asleep=false|fatigue=0.010553468018770218|durationHours=nil
+LOG  : Lua          f:4030> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.131998673081398 phase=observe_run dead=false health=75.0012435913086 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:4119> SC_SOAK|activity_change|at=1793104736735|actor=sc-1.792881659967E9-1-843943|worldHours=124.87014770507812|kind=nil|phase=nil|asleep=false|fatigue=0.01127659622579813|durationHours=nil
+LOG  : Lua          f:4316> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.1319400668144226 phase=observe_run dead=false health=75.00151062011719 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:4617> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13199709355831146 phase=observe_run dead=false health=75.00882720947266 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:4725> SC_SOAK|actor|at=1793104746836|actor=sc-1.792185247907E9-1-189736|order=follow|serial=1|duty=false|role=farmer|fatigue=0.013519573956727982|hunger=0.5298988819122314|thirst=0.06677164137363434|pain=0|panic=0|asleep=false|kind=nil|approaching=nil|start=nil|sleepStarted=nil|sleepStartHour=nil|durationMs=nil|durationHours=nil|supervisor=nil:nil|phase=nil|actionAge=nil|phaseAge=nil
+LOG  : Lua          f:4725> SC_SOAK|actor|at=1793104746836|actor=sc-1.792187371089E9-1-235535|order=base_duty|serial=0|duty=true|role=corpsekeeper|fatigue=0.012517320923507214|hunger=0.49970734119415283|thirst=0.05463738366961479|pain=2.8436434268951416|panic=0|asleep=false|kind=nil|approaching=nil|start=nil|sleepStarted=nil|sleepStartHour=nil|durationMs=nil|durationHours=nil|supervisor=nil:nil|phase=nil|actionAge=nil|phaseAge=nil
+LOG  : Lua          f:4725> SC_SOAK|actor|at=1793104746836|actor=sc-1.792509015635E9-1-314954|order=base_duty|serial=0|duty=true|role=woodcutter|fatigue=0.008908077143132687|hunger=0.4676130712032318|thirst=0.03568333759903908|pain=8.809337615966797|panic=0|asleep=false|kind=nil|approaching=nil|start=nil|sleepStarted=nil|sleepStartHour=nil|durationMs=nil|durationHours=nil|supervisor=nil:nil|phase=nil|actionAge=nil|phaseAge=nil
+LOG  : Lua          f:4725> SC_SOAK|actor|at=1793104746836|actor=sc-1.792881659967E9-1-843943|order=base_duty|serial=0|duty=true|role=quartermaster|fatigue=0.012956595979630947|hunger=0.10543444007635117|thirst=0.09667617082595825|pain=0|panic=0|asleep=false|kind=nil|approaching=nil|start=nil|sleepStarted=nil|sleepStartHour=nil|durationMs=nil|durationHours=nil|supervisor=nil:nil|phase=nil|actionAge=nil|phaseAge=nil
+LOG  : Lua          f:4725> SC_SOAK|clock|at=1793104746836|elapsed=75879|worldHours=124.91522216796875|timeOfDay=11.915224075317383|speech=9|dialogueMetadata=8
+LOG  : Lua          f:4725> SC_SOAK|perf|at=1793104746836|frames=4725|load=3|p50=4.339399933815002|p95=8.623600006103516|max=12.27779996395111|over=2003|deferred=1618|tick95=8.69130003452301|tickMax=46.61930000782013|pre95=0.05669999122619629
+LOG  : Lua          f:4725> SC_OBSERVE|t=75s|companions=4|stacked_now=0|stacked_samples=0/76|unstack_moves=0|longest_stack_ms=0
+LOG  : Lua          f:4725> SC_OBSERVE|actor|sc-1.792185247907E9-1-189736|Tess Nolan|pos=12042.74,6737.76,0.000|moving=false|decision=idle/stable_idle|nav_terminal=nil
+LOG  : Lua          f:4725> SC_OBSERVE|path|sc-1.792185247907E9-1-189736|phase=moving|action=ordered_move|goal=12042:6737:0|reason=nil|searchAge=nil|idleAge=nil|nodes=7|progress=nil|slice=3:load_pressure
+LOG  : Lua          f:4725> SC_OBSERVE|nav|sc-1.792185247907E9-1-189736|goal=12042:6737:0|action=ordered_move|path=nil|lease=nil|leaseAge=nil|nativeRetry=nil|motionAge=13756
+LOG  : Lua          f:4725> SC_OBSERVE|actor|sc-1.792187371089E9-1-235535|Jill Kelvin|pos=12029.51,6740.19,0.000|moving=false|decision=scavenge/searching_for_supplies|nav_terminal=nil
+LOG  : Lua          f:4725> SC_OBSERVE|path|sc-1.792187371089E9-1-235535|phase=moving|action=nil|goal=nil:nil:nil|reason=nil|searchAge=nil|idleAge=nil|nodes=nil|progress=nil|slice=nil:nil
+LOG  : Lua          f:4725> SC_OBSERVE|actor|sc-1.792509015635E9-1-314954|Sanghwa Kim|pos=12026.50,6746.50,0.000|moving=false|decision=mental_episode/mourning_quietly|nav_terminal=nil
+LOG  : Lua          f:4725> SC_OBSERVE|path|sc-1.792509015635E9-1-314954|phase=planning|action=conversation_approach|goal=12027:6746:0|reason=searching|searchAge=76283|idleAge=73568|nodes=28|progress=16|slice=3:load_pressure
+LOG  : Lua          f:4725> SC_OBSERVE|actor|sc-1.792881659967E9-1-843943|Xian Burton|pos=12033.47,6746.50,0.000|moving=false|decision=scavenge/searching_for_supplies|nav_terminal=nil
+LOG  : Lua          f:4725> SC_OBSERVE|path|sc-1.792881659967E9-1-843943|phase=native_path|action=approach_interaction|goal=12033:6746:0|reason=nil|searchAge=nil|idleAge=nil|nodes=nil|progress=nil|slice=nil:nil
+LOG  : Lua          f:4725> SC_OBSERVE|base|jobs=1:0:4|buried=15|collected=15
+LOG  : Lua          f:4725> SC_OBSERVE|resident|sc-1.792185247907E9-1-189736|name=Tess Nolan|role=farmer|duty=false|job=nil|restriction=nil
+LOG  : Lua          f:4725> SC_OBSERVE|resident|sc-1.792185651862E9-2-990140|name=sc-1.792185651862E9-2-990140|role=generalist|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:4725> SC_OBSERVE|resident|sc-1.792187371089E9-1-235535|name=Jill Kelvin|role=corpsekeeper|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:4725> SC_OBSERVE|resident|sc-1.792266923895E9-1-683891|name=sc-1.792266923895E9-1-683891|role=chef|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:4725> SC_OBSERVE|resident|sc-1.792509015635E9-1-314954|name=Sanghwa Kim|role=woodcutter|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:4725> SC_OBSERVE|resident|sc-1.792881659967E9-1-843943|name=Xian Burton|role=quartermaster|duty=true|job=nil|restriction=nil
+LOG  : Lua          f:4725> SC_OBSERVE|job|job:115|type=sort_floor|state=blocked|blocker=floor_pickup_animation_replaced|assigned=nil|phase=nil|reserved=nil|attempts=7|retryAt=1793105286932|floorCargo=nil
+LOG  : Lua          f:4725> SC_OBSERVE|job|job:136|type=gather_materials|state=blocked|blocker=action_owned:logistics:logistics_deposit:approaching|assigned=sc-1.792509015635E9-1-314954|phase=nil|reserved=nil|attempts=3|retryAt=1793016143773|floorCargo=nil
+LOG  : Lua          f:4725> SC_OBSERVE|job|job:178|type=gather_materials|state=blocked|blocker=action_owned:logistics:logistics_deposit:recovering|assigned=sc-1.792509015635E9-1-314954|phase=nil|reserved=nil|attempts=3|retryAt=1793016144518|floorCargo=nil
+LOG  : Lua          f:4725> SC_OBSERVE|job|job:195|type=clean|state=pending|blocker=expedition_wood_preparation|assigned=nil|phase=nil|reserved=nil|attempts=1|retryAt=1793016150335|floorCargo=nil
+LOG  : Lua          f:4725> SC_OBSERVE|job|job:213|type=sort|state=blocked|blocker=haul_destinations_full|assigned=nil|phase=nil|reserved=nil|attempts=0|retryAt=1793104764610|floorCargo=nil
+LOG  : Lua          f:4725> SC_OBSERVE|burial|production-order:12|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:4725> SC_OBSERVE|burial|production-order:13|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:4725> SC_OBSERVE|burial|production-order:14|state=completed|completed=1/1|blocker=nil|worker=sc-1.792509015635E9-1-314954|phase=completed
+LOG  : Lua          f:4725> SC_OBSERVE|burial|production-order:15|state=completed|completed=1/1|blocker=nil|worker=sc-1.792509015635E9-1-314954|phase=completed
+LOG  : Lua          f:4725> SC_OBSERVE|burial|production-order:17|state=completed|completed=1/1|blocker=nil|worker=sc-1.792509015635E9-1-314954|phase=completed
+LOG  : Lua          f:4725> SC_OBSERVE|burial|production-order:18|state=completed|completed=1/1|blocker=nil|worker=sc-1.792509015635E9-1-314954|phase=completed
+LOG  : Lua          f:4725> SC_OBSERVE|burial|production-order:21|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:4725> SC_OBSERVE|burial|production-order:22|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:4725> SC_OBSERVE|burial|production-order:24|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:4725> SC_OBSERVE|burial|production-order:25|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:4725> SC_OBSERVE|burial|production-order:26|state=completed|completed=1/1|blocker=nil|worker=sc-1.792187371089E9-1-235535|phase=completed
+LOG  : Lua          f:4725> SC_OBSERVE|corpses|loaded_squares=838|in_work_zones=0
+LOG  : Lua          f:4725> SC_OBSERVE|expedition|phase=inbound|returnIndex=0|waypoint=none|stair=nil|stairApproach=none|stairCrossing=none|tailExit=none|tailClear=none|cohesion=nil|issue=nil|planFailure=nil|replans=0
+LOG  : Lua          f:4725> SC_OBSERVE|deliveries|count=1
+LOG  : Lua          f:4725> SC_OBSERVE|delivery|trip=1793016226798:399585009|requested=12|collected=1|returned=0|stored=0|pending=1
+LOG  : Lua          f:4725> SC_OBSERVE|delivery_item|trip=1793016226798:399585009|id=lf-item:1793016598435:1:807070978|type=Base.Log|carrier=nil|returned=false|stored=false|storage=nil|reason=cargo_pending
+LOG  : Lua          f:4725> SC_OBSERVE|delivery_debrief|trip=1793016226798:399585009|stored=0|pending=1
+LOG  : Lua          f:4725> SC_OBSERVE|delivery_debrief_item|id=lf-item:1793016598435:1:807070978|stored=false|storage=nil|reason=cargo_pending
+LOG  : Lua          f:4845> SC_OBSERVE|search_transition|sc-1.792185247907E9-1-189736|kind=started|pos=12041.68,6737.15|oldAge=nil|oldNodes=nil|newKey=12042:6737:0>12035:6733:0:false:false:false|planMs=nil|firstMotionMs=531
+LOG  : Lua          f:4906> SC_OBSERVE|search_transition|sc-1.792185247907E9-1-189736|kind=cleared|pos=12041.25,6736.34|oldAge=1863|oldNodes=10|newKey=nil|planMs=1208|firstMotionMs=1208
+LOG  : Lua          f:4912> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13200818002223969 phase=observe_run dead=false health=75.0137939453125 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:4967> SC_SOAK|activity_change|at=1793104750883|actor=sc-1.792187371089E9-1-235535|worldHours=124.93328857421875|kind=nil|phase=approaching|asleep=false|fatigue=0.013189390301704407|durationHours=nil
+LOG  : Lua          f:4967> SC_OBSERVE|search_transition|sc-1.792187371089E9-1-235535|kind=started|pos=12029.56,6740.29|oldAge=nil|oldNodes=nil|newKey=12029:6740:0>12032:6746:0:false:false:false|planMs=nil|firstMotionMs=nil
+LOG  : Lua          f:5089> SC_OBSERVE|search_transition|sc-1.792187371089E9-1-235535|kind=cleared|pos=12028.67,6741.37|oldAge=2204|oldNodes=14|newKey=nil|planMs=1415|firstMotionMs=1415
+LOG  : Lua          f:5149> SC_OBSERVE|search_transition|sc-1.792185247907E9-1-189736|kind=started|pos=12035.40,6734.04|oldAge=nil|oldNodes=nil|newKey=12035:6733:0>12031:6738:0:false:false:false|planMs=nil|firstMotionMs=1208
+LOG  : Lua          f:5173> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.13197728991508484 phase=observe_run dead=false health=75.00328063964844 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : Lua          f:5271> SC_SOAK|activity_change|at=1793104755949|actor=sc-1.792881659967E9-1-843943|worldHours=124.95587921142578|kind=nil|phase=approaching|asleep=false|fatigue=0.014471622183918953|durationHours=nil
+LOG  : Lua          f:5331> SC_SOAK|activity_change|at=1793104756952|actor=sc-1.792187371089E9-1-235535|worldHours=124.96034240722656|kind=nil|phase=nil|asleep=false|fatigue=0.014195997267961502|durationHours=nil
+LOG  : Lua          f:5331> SC_SOAK|activity_change|at=1793104756952|actor=sc-1.792881659967E9-1-843943|worldHours=124.96034240722656|kind=nil|phase=nil|asleep=false|fatigue=0.014637802727520466|durationHours=nil
+LOG  : Lua          f:5331> SC_OBSERVE|search_transition|sc-1.792185247907E9-1-189736|kind=cleared|pos=12034.26,6734.45|oldAge=3573|oldNodes=19|newKey=nil|planMs=2936|firstMotionMs=2936
+LOG  : Lua          f:5383> SC_SOAK|activity_change|at=1793104757966|actor=sc-1.792187371089E9-1-235535|worldHours=124.9648666381836|kind=wash_equipment|phase=animating|asleep=false|fatigue=0.01436468306928873|durationHours=nil
+LOG  : Lua          f:5436> SC_REAL_SANDBOX|OBSERVER_DAMAGE|kind=HEAVYLOAD amount=0.09422820061445236 phase=observe_run dead=false health=75.00282287597656 infected=false apparent_infection=0 infection_time=-1 mortality=-1 wounds=0/0/0 dragdown=false attacker=nil cold=0 pills=0
+LOG  : General      f:5501> [SurvivorCompanionBridge] primary view restore armed generation=2 mode=B
+LOG  : Lua          f:5501> SC_SOAK|speech|n=10|at=1793104760144|actor=sc-1.792185247907E9-1-189736|line=We're back. Give us a minute, then you get the full report.
+LOG  : Lua          f:5501> SC_SOAK|dialogue_meta|at=1793104760145|actor=sc-1.792185247907E9-1-189736|topic=expedition.homecoming|channel=overhead|spokenAt=1793104760145|displayUntil=1793104769275|line=We're back. Give us a minute, then you get the full report.
+#
+# A fatal error has been detected by the Java Runtime Environment:
+#
+#  EXCEPTION_ACCESS_VIOLATION (0xc0000005) at pc=0x00007ffb7dab23fd, pid=39112, tid=30640
+#
+# JRE version: OpenJDK Runtime Environment Zulu25.30+17-CA (25.0.1+8) (build 25.0.1+8-LTS)
+# Java VM: OpenJDK 64-Bit Server VM Zulu25.30+17-CA (25.0.1+8-LTS, mixed mode, sharing, tiered, compressed class ptrs, z gc, windows-amd64)
+# Problematic frame:
+# C  [Lighting64.dll+0x23fd]
+#
+# CreateCoredumpOnCrash turned off, no core file dumped
+#
+# An error report file with more information is saved as:
+# C:\Users\thore\AppData\Local\Packages\sandbox.{81b62391-2cc7-4199-9691-3618f2e99970}\AC\Temp\\hs_err_pid39112.log
+LOG  : General      f:5502> [SurvivorCompanionBridge] primary view restore applied generation=2 mode=B lightingChunks=169 frames=2
+LOG  : Lua          f:5502> [SurvivorCompanion/view-restore] status=applied owner=nil detail=leader=nil numPlayers=1 slot0=IsoPlayer{  Name:null,  ID:41 } slot1=null instanceIsPrimary=true map=present mapIgnore=true mapPlayerId=1 chunksReleased=true cameraIsPrimary=true frameIndex=0 frameIsPrimary=true frameSquare=12034:6739:0 frameRoom=a00868b restoreStatus=applied restoreMode=B restoreReason=complete restoreGeneration=2 restoreFrames=2 lightingChunks=169 secondaryLighting=retired stockObserver=nil stockTeardown=idle stockIssue=idle
+[147.081s][warning][os] Loading hsdis library failed
+#
+# If you would like to submit a bug report, please visit:
+#   http://www.azul.com/support/
+# The crash happened outside the Java Virtual Machine in native code.
+# See problematic frame for where to report the bug.
+#

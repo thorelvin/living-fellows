@@ -196,7 +196,9 @@ Skipping boot, closing the terminal or losing power stops it immediately.
 - Type a question and press **Enter**. EMMA thinks for a moment, then types.
 - **Enter** while she is still typing skips to the end of her reply.
 - In chat, **Up** and **Down** recall earlier lines. **Page Up**, **Page Down** and the
-  mouse wheel scroll back.
+  mouse wheel scroll through the text. Long replies open at their question and
+  first answer. Scrolling back keeps your place while EMMA types, and resizing
+  preserves the text you are reading. The footer shows which rows are visible.
 - Type `clear` to wipe the screen. **Esc** returns from a file submenu to
   EMMA; at the main menu it logs off. Typing `exit` also logs off.
 
@@ -230,6 +232,10 @@ in the correct positions. Hidden bracket groups can remove an incorrect
 candidate or restore attempts. Both clicking and typing work. Higher
 Electrical skill provides fewer candidates and more attempts. A successful
 hack gives five base Electrical XP once for that computer.
+
+Attempts, the latest feedback and any lockout timer stay above the scrolling
+word board. It opens at the first candidates; **Page Up**, **Page Down** and
+the wheel reach the remaining words, brackets and previous guesses.
 
 Running out of attempts locks recovery for one game hour. Afterward, the same
 words return with fresh attempts. Old feedback, removed candidates and used
@@ -289,6 +295,97 @@ The camp emblem follows the computer's green, golden sand, aquamarine or
 purple phosphor. Company marks use matching or complementary screen colours;
 their shapes stay recognisable on all four backgrounds.
 
+## Local building controls
+
+Choose **Local services** from EMMA's numbered menu. A powered desktop can be
+connected to its building with Electrical 2, a screwdriver, one electric wire
+and two electronics scrap. An outdoor desktop can connect to a loaded building
+within six tiles. Equipment discovery reads loaded squares in bounded slices;
+use **Equipment** again while a large building is still being surveyed.
+
+Building security has its own password, shared by that building's computers.
+Unlocking the computer or moving an unlocked one into a bank does not authorize
+the building. Recover the building password, or use its matching physical key.
+No new locks are added to map doors. Another mod's coded or padlocked doors are
+left to that mod.
+
+- **Doors and shutters:** unlock/lock existing key locks. Remotely opening an
+  ordinary door needs a fitted motor; camp shutters need one too. Native grouped
+  garage doors move together. People, bodies, vehicles, barricades and lost
+  actuator power block movement. The computer's backup battery cannot power a
+  door motor.
+- **Lights:** switch native lights, or a constructed floodlight with its own
+  usable fuel/battery. Ordinary camp lights need a fitted relay. On an equipment
+  page, type `name Kitchen lights` to rename a device, or `group Perimeter` to
+  assign a light to a named group. Switching an unchanged state does no redraw.
+- **Generators:** start, stop, repair or queue the existing camp refuel job. An
+  available companion walks to the generator and uses the stock action. Missing
+  scrap, blocked access and interrupted work use the existing camp retry
+  policy. Outside camp, start/stop/repair use an idle nearby recruited companion
+  who is following, staying or guarding. Local requests retry after three game
+  minutes. A new order cancels that local request.
+  A fitted remote starter uses a real removable car battery; each start attempt
+  consumes one percent of its charge. Fuel, connection, condition and native
+  startup failures still apply.
+- **Security:** arm/disarm the existing building alarm, silence this building's
+  active alarm, or fit a speaker for a siren and evacuation announcement. Both
+  speaker modes make real noise that attracts infected. Silence does not stop
+  alarms in other buildings. Contacts, motion detections and supply changes are
+  recorded in a history limited to 256 entries.
+
+Relay/contact installation needs Electrical 3, a screwdriver, one wire and two
+scrap. A motor needs Electrical 4, one wire and four scrap. Motion sensing adds
+one actual motion sensor and needs Electrical 4. A siren/PA needs Electrical 3,
+an amplifier, one wire and two scrap. A remote starter needs Electrical 4,
+two wires, four scrap and a real car battery. Installation is a cancellable
+physical action beside the selected device; components are checked at completion.
+
+**Automatic routines are opt-in.** Night lighting switches the selected lights
+at 20:00 and 06:00. Lockdown closes and locks the authorized openings, leaving
+obstructed steps pending. Select a real loading shutter as the return garage
+before enabling its return routine. It opens for an approaching expedition and
+closes only after the crew is home, the returned car is stopped inside with its
+engine off, and the doorway is clear. Roadside parking leaves closure pending.
+Moving/disconnecting the authorizing computer suspends its routines.
+
+## Upgrade to an expedition station
+
+Mount a real two-way walkie-talkie with Electrical 2, a screwdriver, one wire
+and two scrap. The computer gains an antenna on its frame. Its native radio
+keeps its identity, tuning and original battery; the PC powers the mounted
+receiver without charging that original battery. Type `channel 88100` to tune
+it, or use **Radio channel / status**. Expedition radios must be equipped,
+working, tuned to the same channel and within their native transmission ranges.
+A progress report requires an actual return transmission; unreachable crew do
+not reveal fresh remote information.
+
+From a camp station you can review and launch walking or driving wood, search,
+scouting and fishing expeditions, select the crew/leader, request progress,
+recall them and answer route-block decisions. Wood supports **Full load**, with
+the existing 256-log ceiling. Reviewed crew and mission details are rechecked
+before launch. The station can also book, inspect or cancel Marcus's taxi
+through the same booking service as a handheld radio.
+
+An optional UPS needs Electrical 4, a screwdriver, one wire, four scrap and a
+charged car battery. A full healthy battery supplies six game hours of active
+PC/radio use; poor condition shortens that time. It supplies this computer only
+and never changes the building's electricity. Remove it to recharge normally.
+Radios, UPS batteries, locks, files and memory move with the native furniture
+item. Their added weight counts. A native pickup break drops the exact mounted
+parts; an uncertain native transfer is recorded for inspection and never replayed.
+You can remove upgrades beside an unpowered PC through its context menu.
+
+Connected services and radio receivers use the existing one-second scheduler.
+Nearby computer discovery reads at most 256 loaded squares per slice; sensors
+share a separate 256-check budget and never load distant map cells.
+
+**LF circuits need no other mod.** Named lighting circuits operate the fitted
+native relays; the generator-supply circuit queues the normal start/stop services.
+Grid supply stays independent. Individual fridge/freezer isolation requires a
+further native extension: this version does not simulate it by changing food
+or inventory containers. Stopping the actual generator still removes its real
+refrigeration supply normally.
+
 ## Companions at the computer
 
 With safe routines enabled, a companion may use a powered, unlocked computer
@@ -324,8 +421,8 @@ hacking XP, change inventories or read and rewrite the player's private notes.
 
 With a marked camp, a generator and a desktop computer:
 
-1. Right-click the computer with the generator off. **Use computer** should
-   be absent. Turn the generator on, stand nearby and use it. The character
+1. Right-click a computer without a UPS with the generator off. **Use computer**
+   should be absent. Turn the generator on, stand nearby and use it. The character
    faces the screen and the boot screen types out.
 2. Ask `how many nails`, then `and screws?`, then `how many of them`. Compare
    the counts with the shelves.

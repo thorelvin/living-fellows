@@ -1,0 +1,36 @@
+PASS native item serialization radioId=1121344693 batteryId=959924339
+PASS native timed radio installation
+BACKUP_INSTALL result=true reason=Battery backup installed. condition=100 charge=0.7999999523162842
+RECEIVER on=true volume=0.30000001192092896 iso=true channel=88100 power=1 nearby=true
+PASS mounted receiver and original battery isolation
+SHOT station
+RX device=null:appliances_com_01_72:appliances_com_01_72:zombie.iso.objects.IsoRadio@6a57c30e expected=null:appliances_com_01_72:appliances_com_01_72:zombie.iso.objects.IsoRadio@6a57c30e text=Expedition station receiver check.
+PASS native world radio reception
+SHOT services
+EQUIPMENT count=19 profile=Camp
+DEVICE door Door - Garage (12036, 6744, floor 0) Open
+DEVICE door Door - Garage (12037, 6739, floor 0) Open
+DEVICE door Door - Kidsbedroom (12030, 6742, floor 0) Open
+DEVICE door Door - Living room (12027, 6742, floor 0) Open
+DEVICE door Door - Living room (12028, 6742, floor 0) Open
+DEVICE door Door - Living room (12034, 6743, floor 0) Open
+DEVICE light Lighting - Bathroom (12028, 6739, floor 0) On
+DEVICE light Lighting - Bathroom (12029, 6741, floor 0) Off
+DEVICE light Lighting - Bedroom (12024, 6739, floor 0) Off
+DEVICE light Lighting - Bedroom (12026, 6742, floor 0) Off
+DEVICE light Lighting - Exterior (12023, 6738, floor 0) On
+DEVICE light Lighting - Exterior (12036, 6738, floor 0) On
+DEVICE light Lighting - Garage (12036, 6743, floor 0) On
+DEVICE light Lighting - Garage (12037, 6739, floor 0) On
+DEVICE light Lighting - Kidsbedroom (12030, 6741, floor 0) Off
+DEVICE light Lighting - Kidsbedroom (12031, 6739, floor 0) Off
+DEVICE light Lighting - Kitchen (12031, 6745, floor 0) On
+DEVICE light Lighting - Living room (12022, 6745, floor 0) On
+DEVICE light Lighting - Office (12035, 6742, floor 0) On
+CLEARANCE Door - Garage (12036, 6744, floor 0) blocked=false reason=clear
+PASS native door obstruction, lock and movement
+PASS native exact backup payload
+PASS native complete assembly pickup and placement
+PASS native removal exact-once
+PASS native pickup break recovers exact component
+PASS native terminal controls acceptance complete

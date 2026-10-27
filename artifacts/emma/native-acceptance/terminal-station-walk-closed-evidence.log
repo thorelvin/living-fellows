@@ -1,0 +1,7 @@
+PLACES count=32 total=53 reason=nil actor=12029.55078125,6743.43798828125
+PASS station launched normal scout tripwalk destination=House
+PASS native two-way station report: Radio report: Scouting; outbound. Last heard at 124.59672546386719 game hours.
+PASS native station recall
+CONTEXT terminal closed before native view return
+PASS solo return, living crew and stopped car
+PASS native terminal controls tripwalk acceptance complete

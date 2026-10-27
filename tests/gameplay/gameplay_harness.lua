@@ -20934,6 +20934,16 @@ do
                 blocker = "path_blocked:blocked_static", attempts = 6 }),
             "order-owned " .. kind .. " keeps its existing retry and pause controller")
     end
+    for _, reason in ipairs({ "floor_pickup_animation_replaced", "floor_pickup_animation_failed",
+        "floor_pickup_animation_rejected" }) do
+        local accepted, pickup = BaseLife.enqueueJob({ type = "sort_floor", priority = 5,
+            assignedId = fellow.id, target = { x = 2, y = 2, z = 0, zoneId = "retry-fixture" } })
+        check(accepted, "floor pickup retry fixture is accepted")
+        for _ = 1, 6 do BaseLife.blockJob(pickup.id, nil, reason) end
+        check(BaseLife.jobAutoRetry(pickup) and pickup.retryAt - clock == 180000,
+            "interrupted pickup before transfer pauses and retries without a manual reset: " .. reason)
+        BaseLife.cancelJob(pickup.id)
+    end
     for _, reason in ipairs({ "chef_supply_missing", "chef_supply_changed",
         "chef_food_storage_unavailable", "chef_carry_capacity_low", "chef_craft_surface_missing" }) do
         check(BaseLife.jobAutoRetry({ type = "cook", state = "blocked",
@@ -20946,6 +20956,10 @@ do
                 blocker = reason, attempts = 6 }),
             "fuel recovery retains its conservative native check: " .. reason)
     end
+    check(BaseLife.jobAutoRetry({ type="generator_service",state="blocked",blocker="missing_supply:Base.ElectronicsScrap",attempts=6 }),
+        "generator repair preparation retries when actual scrap becomes available")
+    check(not BaseLife.jobAutoRetry({ type="generator_service",state="blocked",blocker="native_receipt_uncertain",attempts=6 }),
+        "generator service does not replay an uncertain native outcome")
     for _, state in ipairs({ "pending", "manual", "cancelled", "completed", "paused" }) do
         check(not BaseLife.jobAutoRetry({ type = "sort", state = state,
                 blocker = "path_blocked:blocked_static", attempts = 6 }),

@@ -1,0 +1,24 @@
+EXISTING_DESKTOP 12035:6739:0 sprite=appliances_com_01_72 room=office powered=true camp=true
+SHOT 1 desk
+OPEN_NATIVE computer=1 identity=pc:1793087282861:72920913:1 brand=_camp theme=aqua locked=false
+PASS native long reply starts at question scroll=4
+SHOT 1 screen
+SHOT 1 paged
+PASS native chat Page Down
+EXISTING_DESKTOP 11941:6798:0 sprite=appliances_com_01_75 room=pharmacy powered=true camp=false
+SHOT 2 desk
+OPEN_NATIVE computer=2 identity=pc:1793089311354:687835792:1 brand=_medical theme=aqua locked=false
+EXISTING_DESKTOP 11954:6860:0 sprite=appliances_com_01_74 room=office powered=true camp=false
+SHOT 2 desk
+OPEN_NATIVE computer=2 identity=pc:1793089322889:209878397:2 brand=_office theme=aqua locked=false
+EXISTING_DESKTOP 11978:6883:0 sprite=appliances_com_01_74 room=office powered=true camp=false
+SHOT 2 desk
+OPEN_NATIVE computer=2 identity=pc:1793089334438:1986292498:3 brand=_office theme=aqua locked=false
+EXISTING_DESKTOP 12028:6849:1 sprite=appliances_com_01_73 room=office powered=true camp=false
+SHOT 2 desk
+OPEN_NATIVE computer=2 identity=pc:1793089345954:1133033507:4 brand=GigaMart theme=purple locked=true
+SHOT 2 screen
+SHOT 2 paged
+PASS native recovery wrong guess=MARGIN tries=3
+SHOT 2 feedback
+PASS native terminal reading acceptance complete

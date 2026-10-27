@@ -1,0 +1,9 @@
+PASS native remote starter start/stop and exact battery drain
+PASS companion native start
+PASS companion native stop
+PASS companion native repair consumes bagged scrap
+PASS native blackout keeps only PC powered by UPS
+PA source=pc:1793105374484:1035184256:1 connected=true
+PA owner=building:12022:6739:12043:6748 panel=true identity=pc:1793105374484:1035184256:1
+PASS native PA, alarm arm/disarm and targeted silence
+PASS native terminal controls power acceptance complete

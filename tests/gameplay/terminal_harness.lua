@@ -419,7 +419,32 @@ do
     check(has(reply, "There are 9 of them near this building."), "then a crowd outside")
     reply = advise({ people = function() return calm end,
         zombies = function() return { count = 0, radius = 40 } end })
-    check(has(reply, "Fix the stuck work order: Build wall. Missing materials."), "then blocked work")
+    check(has(reply, "Build wall needs attention. Missing materials."), "then blocked work")
+    local workRows = {
+        { state = "blocked", job = "Sort floor", reason = "Item pickup was interrupted",
+            autoRetry = true, retryRemainingMs = 180000 },
+    }
+    local pausedWorld = fixtureWorld({ people = function() return calm end,
+        zombies = function() return { count = 0 } end,
+        jobs = function() return { blocked = #workRows, rows = workRows } end })
+    reply = Brain.respond(session(), "advice", pausedWorld)
+    check(has(reply, "Sort floor is paused. Item pickup was interrupted.")
+        and has(reply, "Automatic retry in about 3 minutes.") and not has(reply, "animation")
+        and not has(reply, "Fix the stuck"), "paused sorting advice explains the interruption and actual retry")
+    workRows[1].retryRemainingMs = 0
+    reply = Brain.respond(session(), "why is work blocked", pausedWorld)
+    check(has(reply, "Ready to retry when a worker is available.") and not has(reply, "1 minute"),
+        "a due automatic retry does not invent a fresh countdown")
+    workRows[1].autoRetry = false
+    workRows[1].reason = "An item's location could not be confirmed"
+    reply = Brain.respond(session(), "advice", pausedWorld)
+    check(has(reply, "Sort floor needs attention.") and not has(reply, "Automatic retry")
+        and not has(reply, "Ready to retry"), "unconfirmed cargo never promises an automatic retry")
+    workRows[1].autoRetry, workRows[1].retryRemainingMs = true, 180000
+    workRows[2] = { state = "blocked", job = "Build wall", reason = "Required materials are missing." }
+    reply = Brain.respond(session(), "advice", pausedWorld)
+    check(has(reply, "Build wall needs attention. Required materials are missing.")
+        and not has(reply, "missing.."), "advice prioritizes actionable work and avoids duplicate punctuation")
     reply = advise({ people = function() return calm end,
         zombies = function() return { count = 0, radius = 40 } end,
         jobs = function() return { active = 0, pending = 0, blocked = 0, rows = {} } end })
@@ -732,7 +757,10 @@ do
             return string.upper(string.sub(text, 1, 1)) .. string.sub(text, 2)
         end,
         stateText = function(value) return "State " .. tostring(value) end,
-        baseFailureReason = function(reason) return "Reason " .. tostring(reason) end,
+        baseFailureReason = function(reason, knownOnly)
+            if reason == "missing_planks" then return "Reason " .. reason end
+            if not knownOnly then return "Reason " .. tostring(reason) end
+        end,
         displayName = function(entry, fallback)
             if entry.id == "sc-1" then return "Kate Miller" end
             if entry.id == "sc-9" then return "Doc Holm" end
@@ -840,8 +868,22 @@ do
     check(jobs.active == 1 and jobs.blocked == 1 and jobs.rows[1].who == "Kate Miller"
         and jobs.rows[1].job == "Chop wood" and jobs.rows[2].job == "Wall frame"
         and jobs.rows[2].reason == "Reason missing_planks", "jobs carry names and blocker reasons")
-    check(jobs.rows[2].id == "job-4" and jobs.rows[2].retryRemainingMs == 180000,
+    check(jobs.rows[2].id == "job-4" and jobs.rows[2].autoRetry and jobs.rows[2].retryRemainingMs == 180000,
         "job reports retain stable retry identity and the real retry countdown")
+    local summary = SC.BaseLife.summary
+    SC.BaseLife.summary = function() return { jobs = { blocked = 1 }, rows = {
+        { id = "job-internal", type = "sort_floor", state = "blocked", autoRetry = false,
+            blocker = "future_native_callback_failed", retryRemainingMs = 180000 },
+    } } end
+    local internal = world.jobs().rows[1]
+    check(internal.reason == Lines.T.job_reason_unknown and not internal.autoRetry
+        and internal.retryRemainingMs == nil,
+        "unknown internal blockers become safe wording and manual work drops stale retry timers")
+    local formatter = SC.UI.baseFailureReason
+    SC.UI.baseFailureReason = nil
+    check(world.jobs().rows[1].reason == Lines.T.job_reason_unknown,
+        "a missing UI formatter cannot expose raw reason codes")
+    SC.UI.baseFailureReason, SC.BaseLife.summary = formatter, summary
     check(byId["sc-1"].wounds[1] == "Left forearm: deep wound, bleeding; unbandaged"
         and byId["sc-1"].hunger == .45 and byId["sc-1"].skills[1].level == 4,
         "plain medical, need and native skill readings are carried to the brain")

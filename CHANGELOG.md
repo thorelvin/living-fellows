@@ -2,6 +2,31 @@
 
 # Changelog
 
+## 0.26.72 - EMMA building controls and expedition stations
+
+- Connect computers to local building controls with separate security,
+  fitted door and garage motors, lighting groups, sensors, alarms, PA speakers
+  and opt-in routines. LF's lighting and generator circuits need no other mod.
+- Mount a real walkie-talkie to make an expedition station: review and launch
+  missions, request radio reports, recall the crew and book Marcus. The larger
+  radio attachment bolts to the monitor's right bezel.
+- Fit removable car batteries for PC backup power and remote generator starting.
+  Companions can start, stop and repair generators through native actions.
+  Installed parts keep their original identities through furniture moves,
+  pickup breakage, removal and a full save/reload.
+- Computer password recovery keeps attempts, feedback and lockout time visible.
+  Long EMMA replies open at their beginning and retain your reading position
+  while text arrives, the window resizes or you page through the conversation.
+- EMMA explains blocked work in plain language and distinguishes automatic
+  retries from work needing attention. Interrupted floor pickups retry after
+  a pause; unconfirmed item transfers stay protected from duplicate effects.
+- Ship Lua and the rebuilt native bridge together using protocol
+  `42.21-isocompanion-24`, for Project Zomboid 42.21.0 single-player.
+- Automated checks and native hardware, power and save/reload scenarios pass.
+  Expedition solo-view lighting crashes and driving parking/reunion failures
+  remain unresolved. Individual fridge isolation is not included. See the
+  [validation record](docs/validation-computer-controls.md).
+
 ## 0.26.71 - EMMA computers, A-Life compatibility and combat recovery
 
 - Companions can spend a short break reading local files at an accessible,

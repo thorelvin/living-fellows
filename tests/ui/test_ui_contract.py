@@ -1418,7 +1418,7 @@ class UIStaticContractTests(unittest.TestCase):
     def test_camp_refusals_never_show_internal_reason_codes(self) -> None:
         # A camp refusal is a sentence. A code without one is humanized, and
         # every reason an abandonment can return has its own sentence.
-        reason = lua_function(self.ui, "function UI.baseFailureReason(reason)")
+        reason = lua_function(self.ui, "function UI.baseFailureReason(reason, knownOnly)")
         self.assertIn("UI.humanize(reason)", reason)
         self.assertNotIn("or reason" + chr(10), reason)
         translations = json.loads(read(TRANSLATE / "EN" / "UI.json"))

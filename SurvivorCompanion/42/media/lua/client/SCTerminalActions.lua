@@ -31,7 +31,7 @@ local function reasonText(reason)
     end
     return tostring(reason or "request unavailable"):gsub("_", " ")
 end
-local function context(window, expectedBase)
+local function context(window, expectedBase, localServices)
     local terminal = SC.Terminal
     if not window or window.closed or terminal.window ~= window or not window.system
         or window.system.locked ~= false or not terminal.present(window.object)
@@ -47,6 +47,7 @@ local function context(window, expectedBase)
         or data.movableData[SC.TerminalSystem.MEMORY_KEY] ~= window.system then
         return nil, "The computer's access record changed. Please reopen it."
     end
+    if localServices then return true end
     local life = SC.BaseLife
     local base = life and type(life.active) == "function" and life.active() or nil
     if not base or expectedBase and expectedBase ~= base
@@ -153,8 +154,16 @@ local function prepareTarget(window, proposal, base)
 end
 function Actions.prepare(window, proposal)
     if type(proposal) ~= "table" then return nil, "Request unavailable." end
-    local base, reason = context(window)
+    local localServices = proposal.kind == "control"
+    local base, reason = context(window, nil, localServices)
     if not base then return nil, reason end
+    if localServices then
+        local prepared, prompt = SC.TerminalServices.prepare(window, proposal)
+        if not prepared then return nil, prompt end
+        local ticket = {}
+        tickets[ticket] = {window=window,localServices=true,target=prepared,at=U().nowMs()}
+        return ticket, prompt
+    end
     local target
     target, reason = prepareTarget(window, proposal, base)
     if not target then return nil, reason end
@@ -171,10 +180,15 @@ function Actions.execute(window, ticket)
     -- replay a request, even if a checked queue partially succeeds then throws.
     Actions.cancel(ticket)
     if not request or request.window ~= window then return false, "That confirmation is no longer pending." end
-    local base, reason = context(window, request.base)
+    local base, reason = context(window, request.base, request.localServices)
     if not base then return false, reason end
     local age = U().nowMs() - request.at
     if age < 0 or age > Actions.TTL_MS then return false, "That request expired. Please ask again." end
+    if request.localServices then
+        local okay, detail = SC.TerminalServices.execute(window, request.target)
+        if type(detail) == "table" then detail = "Service queued. Ask about jobs to check progress." end
+        return okay, reasonText(detail or (okay and "Request accepted." or "Request unavailable."))
+    end
     local target = request.target
     local okay, detail
     if target.kind == "refuel_generator" then

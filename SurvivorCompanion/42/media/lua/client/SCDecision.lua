@@ -3382,6 +3382,16 @@ function Decision.update(actor, player, runtime, roundTimestamp)
         state.fishingPreparationHandoff = preparation
     end
 
+    if SC.GeneratorServices and SC.GeneratorServices.fieldPending(actor) then
+        local serviceUrgent = survivalNeedsImmediateControl(snapshot, assessment, needs, commands, actor, player)
+            or factionNeedsImmediateControl(actor, player, snapshot, commands)
+        local serviceHandled, serviceReason = SC.GeneratorServices.updateField(actor, commands, serviceUrgent)
+        if serviceHandled ~= nil then
+            state.current, state.currentKey = "generator_service", "generator_service"
+            state.intent, state.lastHandledAt = serviceReason or "generator_service", current
+            return serviceHandled == true, state.intent
+        end
+    end
     local held, heldReason = holdOwnedActivityOrPacing(
         actor, player, snapshot, assessment, needs, commands, state, current, rootRuntime)
     if held then

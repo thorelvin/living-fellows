@@ -499,10 +499,10 @@ local function validProgressReport(value)
         and value.collected >= 0 and value.collected <= (value.kind == "wood" and 256 or 16)
         and value.collected == math.floor(value.collected)
         and type(value.requested) == "number"
-        and value.requested >= 1 and value.requested <= (value.kind == "wood" and 256 or 8)
+        and value.requested >= (value.kind == "scout" and 0 or 1) and value.requested <= (value.kind == "wood" and 256 or 8)
         and value.requested == math.floor(value.requested)
         and type(value.phase) == "string" and #value.phase <= 32
-        and (value.kind == nil or value.kind == "wood")
+        and (value.kind == nil or value.kind == "wood" or value.kind == "scout")
         and (value.mode == nil or value.mode == "count" or value.mode == "full")
         and (value.carried == nil or type(value.carried) == "number" and value.carried >= 0
             and value.carried <= 256 and value.carried == math.floor(value.carried))
@@ -683,6 +683,22 @@ local function operationalRadio(actor, transmitting)
     return radio, data
 end
 
+local function stationAcknowledgement(player,endpoint,text,codes)
+    if endpoint==nil then return true end
+    local valid=SC.RadioEndpoints and SC.RadioEndpoints.validate(player,endpoint)
+    local leader=mission and mission.leader and mission.leader.actor
+    local source,data=operationalRadio(leader,true)
+    if not valid or not source or data:getChannel()~=endpoint.data:getChannel() then return false end
+    local pending={leader=leader,receiver=endpoint.receiver,guid="LF-EXP-"..mission.radioSession,codes=codes,text=text}
+    mission.pendingReport=pending
+    local sent=pcall(SCSplitScreenProbe.sendTestRadioWithLeaderText,
+        math.floor(leader:getX()),math.floor(leader:getY()),data:getChannel(),text,pending.guid,codes,
+        0.95,0.7,0.35,data:getTransmitRange(),false)
+    mission.pendingReport=nil
+    return sent and pending.received==true and mission.leader.actor==leader
+        and SC.RadioEndpoints.validate(player,endpoint)==true
+end
+
 local function transmitBlockRequest(shelterUpdate)
     local pause = mission and mission.scout and mission.scout.pause
     local leader = mission and mission.leader and mission.leader.actor
@@ -699,6 +715,10 @@ local function transmitBlockRequest(shelterUpdate)
     end
     local source, sourceData = operationalRadio(leader, true)
     local receiver, receiverData = operationalRadio(player, false)
+    if SC.RadioEndpoints then
+        local station, stationData = SC.RadioEndpoints.activeReceiver(player)
+        if station then receiver, receiverData = station, stationData end
+    end
     if source == nil or receiver == nil
         or sourceData:getChannel() ~= receiverData:getChannel() then
         return false
@@ -2628,7 +2648,7 @@ end
 
 -- Private vertical slice: send one real native radio message, accept only its
 -- exact receiver-side text event, then use the existing Commands owner.
-function Expedition.sendRadioOrder(player, command, payload)
+function Expedition.sendRadioOrder(player, command, payload, endpoint)
     if mission == nil or mission.terminal then return false, "no_active_expedition" end
     if player == nil or getSpecificPlayer(0) ~= player then
         return false, "invalid_local_operator"
@@ -2653,13 +2673,18 @@ function Expedition.sendRadioOrder(player, command, payload)
         return false, "expedition_already_returning"
     end
     if not mission.radioTextHooked then return false, "radio_receive_hook_unavailable" end
-    if mission.pendingRadio ~= nil then return false, "radio_busy" end
+    if mission.pendingRadio ~= nil or mission.pendingReport ~= nil then return false, "radio_busy" end
     if not alive(mission.leader) or getSpecificPlayer(1) ~= mission.leader.actor then
         return false, "leader_unavailable"
     end
-    local sender = currentEquippedRadio(player)
+    local sender
+    if endpoint ~= nil then
+        local okay, why = SC.RadioEndpoints and SC.RadioEndpoints.validate(player, endpoint)
+        if not okay then return false, why or "station_radio_unavailable" end
+        sender = endpoint.item
+    else sender = currentEquippedRadio(player) end
     if sender == nil then return false, "local_radio_not_equipped" end
-    local data = sender:getDeviceData()
+    local data = endpoint and endpoint.data or sender:getDeviceData()
     if data == nil or not data:getIsTwoWay() or not data:getIsTurnedOn()
         or not data:getHasBattery() or data:getPower() <= 0
         or data:getMicIsMuted() or data:isNoTransmit()
@@ -2680,8 +2705,10 @@ function Expedition.sendRadioOrder(player, command, payload)
         guid = guid, codes = codes, text = text,
     }
     mission.pendingRadio = pending
+    local sourceX, sourceY = player:getX(), player:getY()
+    if endpoint then sourceX, sourceY = SC.RadioEndpoints.origin(endpoint) end
     local sent, failure = pcall(SCSplitScreenProbe.sendTestRadioWithLeaderText,
-        math.floor(player:getX()), math.floor(player:getY()),
+        math.floor(sourceX), math.floor(sourceY),
         data:getChannel(), text, guid, codes,
         0.8, 0.9, 1.0, data:getTransmitRange(), false)
     mission.pendingRadio = nil
@@ -2692,20 +2719,28 @@ function Expedition.sendRadioOrder(player, command, payload)
     end
     if progressRequest then
         local search = mission.scout and (mission.scout.search or mission.scout.wood)
-        if not search then return false, "no_supply_request" end
+        local scouting=not search and mission.scout and mission.scout.kind=="scout"
+        if not search and not scouting then return false, "no_supply_request" end
         local counts = mission.scout.wood and SC.ExpeditionWood.cargoCounts(search,
             mission.roster, nil, mission.scout.vehicle and mission.scout.vehicle.sqlId) or nil
-        mission.lastProgressReport = {
+        local report = {
             at = scoutWorldHour() or 0,
-            collected = #search.acquisitions,
-            requested = search.request.quantity or 256,
+            collected = search and #search.acquisitions or 0,
+            requested = search and (search.request.quantity or 256) or 0,
             phase = mission.scout.phase,
-            kind = mission.scout.wood and "wood" or nil,
+            kind = mission.scout.wood and "wood" or scouting and "scout" or nil,
             mode = mission.scout.wood and search.request.mode or nil,
             carried = counts and ((counts.carried or 0) + (counts.loaded or 0)),
             stored = counts and 0,
         }
+        local message=tostring(mission.leader.name or "Squad leader")..": "..report.collected.." of "..report.requested
+            .." collected; "..tostring(report.phase)..(report.carried and "; cargo "..report.carried or "").."."
+        if not stationAcknowledgement(player,endpoint,message,"REPORT-"..sequence) then return false,"radio_no_return_ack" end
+        mission.lastProgressReport=report
         return true, "progress_acknowledged"
+    end
+    if not stationAcknowledgement(player,endpoint,"Order received: "..command.." "..payload,"ACK-"..sequence) then
+        return false,"radio_no_return_ack"
     end
     if returnNow then
         local leader = mission.leader.actor

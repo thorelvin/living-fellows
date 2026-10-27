@@ -368,10 +368,55 @@ function UI.text(key, ...)
     return key
 end
 
--- Camp refusals are shown as sentences. A code without its own sentence is
--- humanized rather than printed raw, so no internal reason reaches the player.
-function UI.baseFailureReason(reason)
-    if type(reason) ~= "string" then return UI.humanize(tostring(reason)) end
+-- Terminal advice requests known sentences only. General menu feedback keeps
+-- its existing fallback; internal reason codes remain available in logs.
+function UI.baseFailureReason(reason, knownOnly)
+    if type(reason) ~= "string" then return not knownOnly and UI.humanize(tostring(reason)) or nil end
+    local workReasons = {
+        floor_pickup_animation_replaced = "work_pickup_interrupted",
+        floor_pickup_animation_failed = "work_pickup_interrupted",
+        floor_pickup_animation_rejected = "work_pickup_interrupted",
+        loot_animation_replaced = "work_pickup_interrupted",
+        floor_pickup_cancel_pending = "work_stopping",
+        floor_pickup_unverified = "work_item_unconfirmed",
+        floor_deposit_unverified = "work_item_unconfirmed",
+        floor_return_unverified = "work_item_unconfirmed",
+        floor_trash_drop_unverified = "work_item_unconfirmed",
+        floor_cargo_owner_unknown = "work_item_unconfirmed",
+        floor_cargo_unaccounted = "work_item_unconfirmed",
+        floor_marker_clear_failed = "work_item_unconfirmed",
+        floor_storage_full = "work_storage_full",
+        destination_full = "work_storage_full",
+        haul_destinations_full = "work_storage_full",
+        floor_storage_missing = "work_storage_missing",
+        floor_storage_unavailable = "work_storage_unavailable",
+        base_storage_unloaded = "work_storage_unavailable",
+        base_storage_changed = "work_storage_unavailable",
+        base_storage_withdrawals_disabled = "work_supplies_unavailable",
+        floor_trash_pile_missing = "work_trash_missing",
+        floor_trash_pile_unavailable = "work_trash_unavailable",
+        floor_worker_full = "work_carry_full",
+        floor_item_too_heavy = "work_item_heavy",
+        floor_zone_missing = "work_sorting_area_missing",
+        floor_source_unloaded = "work_source_unloaded",
+        floor_source_changed = "work_item_moved",
+        floor_cargo_absent = "work_item_moved",
+        floor_cargo_other_worker = "work_item_claimed",
+        floor_item_claim_failed = "work_item_claimed",
+        floor_worker_unavailable = "work_worker_unavailable",
+        floor_worker_missing = "work_worker_unavailable",
+        floor_worker_gone = "work_worker_unavailable",
+        floor_approach_failed = "work_path_blocked",
+        path_blocked = "work_path_blocked",
+        movement_rejected = "work_path_blocked",
+        missing_tool = "work_tool_missing",
+        missing_supply = "work_supplies_missing",
+        missing_build_supply = "work_supplies_missing",
+        missing_planks = "work_supplies_missing",
+        unsafe_area = "work_unsafe",
+    }
+    local workKey = workReasons[reason:match("^([^:]+)")]
+    if workKey then return UI.text("UI_SC_Base_Reason_" .. workKey) end
     if reason == "sort_cargo_uses_storage" or reason == "work_order_uses_storage"
         or reason == "work_receipt_uses_storage" or reason == "farm_receipt_uses_storage"
         or reason == "production_order_uses_storage" then
@@ -432,8 +477,8 @@ function UI.baseFailureReason(reason)
         follow_car_out_of_reach = true,
         no_safe_exit = true,
     }
-    return known[reason] and UI.text("UI_SC_Base_Reason_" .. reason)
-        or UI.humanize(reason)
+    if known[reason] then return UI.text("UI_SC_Base_Reason_" .. reason) end
+    return not knownOnly and UI.humanize(reason) or nil
 end
 
 function UI.fontHeight(font, override)

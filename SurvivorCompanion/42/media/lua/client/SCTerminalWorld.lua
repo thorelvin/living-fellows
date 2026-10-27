@@ -326,14 +326,24 @@ function World.new(player, object)
         for index, row in ipairs(summary.rows or {}) do
             if index > World.JOB_ROWS then break end
             local job = humanize(row.kind or row.type or "work")
+            local reason
+            if row.blocker then
+                reason = SC.UI and type(SC.UI.baseFailureReason) == "function"
+                    and SC.UI.baseFailureReason(row.blocker, true) or nil
+                if not reason or reason:find("^UI_SC_") then
+                    reason = SC.TerminalLines.T.job_reason_unknown
+                end
+            end
+            local autoRetry = row.autoRetry == true
+                or row.autoRetry == nil and row.retryRemainingMs ~= nil
             result.rows[#result.rows + 1] = {
                 id = row.id,
                 state = row.state,
                 job = job,
                 who = row.reservedBy and personName(row.reservedBy, nil) or nil,
-                reason = row.blocker and SC.UI and type(SC.UI.baseFailureReason) == "function"
-                    and SC.UI.baseFailureReason(row.blocker) or (row.blocker and humanize(row.blocker)),
-                retryRemainingMs = tonumber(row.retryRemainingMs),
+                reason = reason,
+                autoRetry = autoRetry,
+                retryRemainingMs = autoRetry and tonumber(row.retryRemainingMs) or nil,
             }
         end
         return result

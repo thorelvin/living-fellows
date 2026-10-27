@@ -910,6 +910,22 @@ local heardReport, heardReason = expedition.sendRadioOrder(player,
 check(heardReport == true and heardReason == "progress_acknowledged"
         and newMission.lastProgressReport.collected == 0,
     "the acknowledged report snapshots the actual searched-item count")
+do
+    local oldEndpoints,oldSend=SC.RadioEndpoints,SCSplitScreenProbe.sendTestRadioWithLeaderText
+    local stationReceiver={} local endpoint={item=sender,data=senderData,receiver=stationReceiver}
+    SC.RadioEndpoints={validate=function(_,value) return value==endpoint end,origin=function() return 5,6,0 end}
+    local oldReport=newMission.lastProgressReport
+    local heard,why=expedition.sendRadioOrder(player,"progress_report","status",endpoint)
+    check(not heard and why=="radio_no_return_ack" and newMission.lastProgressReport==oldReport,
+        "a station hears no new progress when the return transmission reaches another receiver")
+    SCSplitScreenProbe.sendTestRadioWithLeaderText=function(x,y,channel,message,guid,codes)
+        radioHook(guid,codes,0,0,0,message,codes:sub(1,7)=="REPORT-" and stationReceiver or receiver)
+    end
+    heard,why=expedition.sendRadioOrder(player,"progress_report","status",endpoint)
+    check(heard and why=="progress_acknowledged" and newMission.lastProgressReport~=oldReport,
+        "station progress requires the exact native return receiver event")
+    SC.RadioEndpoints,SCSplitScreenProbe.sendTestRadioWithLeaderText=oldEndpoints,oldSend
+end
 local originalSearch, originalKind, originalVehicle, originalWood, originalReport =
     newMission.scout.search, newMission.scout.kind, newMission.scout.vehicle,
     SC.ExpeditionWood, newMission.lastProgressReport

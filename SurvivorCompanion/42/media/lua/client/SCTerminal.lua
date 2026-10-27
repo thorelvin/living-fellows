@@ -106,7 +106,9 @@ function Terminal.present(object)
 end
 
 function Terminal.powered(object)
-    return Terminal.present(object) and World().powered(call(object, "getSquare")) == true
+    if not Terminal.present(object) then return false end
+    if SC.TerminalHardware then return SC.TerminalHardware.powered(object) end
+    return World().powered(call(object, "getSquare")) == true
 end
 
 -- A read-only eligibility check for ambient NPC use. A portable lock is never
@@ -211,9 +213,15 @@ function Terminal.installMoveHook()
     if Terminal._moveHook and Terminal._moveHook.target == props then return true end
     local previous = props.pickUpMoveableInternal
     local wrapper = function(self, character, square, object, ...)
+        local controlPanel = SC.BuildingControls and Terminal.isComputer(object)
+            and SC.BuildingControls.panel(object, false)
         -- No world scan and no furniture changes. Initialize before vanilla
         -- copies movableData, including pickup of an unpowered/unopened PC.
         if SurvivorCompanion == SC and SC.Terminal == Terminal and Terminal.isComputer(object) then
+            if SC.TerminalHardware and not SC.TerminalHardware.beforePickup(object) then
+                diagnostic("computer pickup stopped", "hardware snapshot unavailable")
+                return nil
+            end
             local portable = portableData(object, false)
             if not portable or portable[System().MEMORY_KEY] == nil then
                 local okay, state, reason = pcall(Terminal.computerState, character, object)
@@ -222,7 +230,20 @@ function Terminal.installMoveHook()
                 end
             end
         end
-        return previous(self, character, square, object, ...)
+        local function finish(item, ...)
+            if controlPanel and not Terminal.present(object) then SC.BuildingControls.disconnect(object, controlPanel) end
+            if item and Terminal.isComputer(object) and SC.TerminalHardware then
+                local weight = SC.TerminalHardware.weight(object)
+                local baseWeight = tonumber(call(item, "getActualWeight") or nil)
+                local data=call(item,"getModData")
+                if baseWeight and weight > 0 and data and data.movableData and data.movableData[SC.TerminalHardware.KEY] then
+                    call(item, "setActualWeight", baseWeight + weight)
+                end
+                SC.TerminalHardware.afterPickup(object,item,square)
+            end
+            return item, ...
+        end
+        return finish(previous(self, character, square, object, ...))
     end
     props.pickUpMoveableInternal = wrapper
     Terminal._moveHook = { target = props, previous = previous, wrapper = wrapper }
@@ -382,6 +403,7 @@ function Terminal.preloadSkin()
     -- Native texture uploads are asynchronous; POST must not outrun the casing.
     skinTexture("frame")
     skinTexture("glass")
+    skinTexture("radio-antenna-v2")
 end
 
 -- Hard wrap for a fixed-width font: words where possible, long words split.
@@ -487,6 +509,10 @@ end
 function SCTerminalWindow:menuOptions()
     if not self.system then return {} end
     if self.system.locked then return { { label = "Log off", systemCommand = "close" } } end
+    if SC.TerminalServices then
+        local serviceMenu = SC.TerminalServices.menu(self)
+        if serviceMenu then return serviceMenu end
+    end
     local profile = SC.TerminalFiles.get(self.system.archive)
     if self.menuPage == "files" then
         local result = {}
@@ -511,15 +537,20 @@ function SCTerminalWindow:menuOptions()
         result[#result+1]={label="Back to EMMA",systemCommand="back"}
         return result
     end
-    return {
+    local options = {
         { label = "Camp report", systemCommand = "report" },
         { label = "Personal files (" .. #profile.entries .. "): " .. profile.owner, systemCommand = "files" },
         { label = "County files and EMMA", systemCommand = "lore" },
         { label = "Log off", systemCommand = "close" },
     }
+    if SC.TerminalServices then
+        options[#options+1] = {label="Local services",serviceAction="page",serviceValue="home_services"}
+    end
+    return options
 end
 
 function SCTerminalWindow:sidebarWidth()
+    if SC.TerminalServices and self.menuPage and self.focusMode=="menu" and self.width<1400 then return 0 end
     return self.system and self.system.locked and 0 or self.layout.side
 end
 
@@ -667,12 +698,24 @@ function SCTerminalWindow:otherKey(key)
 end
 
 function SCTerminalWindow:scrollBy(rows)
+    if self.system and self.system.locked then
+        local visible = math.max(1, self:visibleRows() - #self:securityHeaderRows())
+        local maximum = math.max(0, #self:securityRows() - visible)
+        self.securityScroll = math.max(0, math.min(maximum, (self.securityScroll or 0) - rows))
+        self.securityHits = {}
+        return
+    end
     if self:sidebarWidth() == 0 and self.focusMode == "menu" and self:menuVisible() then
         return self:navigate(rows > 0 and -1 or 1)
     end
-    local count = self.system and self.system.locked and #self:securityRows() or #self:transcriptRows()
-    local maximum = math.max(0, count - self:visibleRows())
-    self.scroll = math.max(0, math.min(maximum, self.scroll + rows))
+    local frame = self:readingRange(self:readingFrame(nowMs()))
+    local scroll = math.max(0, math.min(frame.maximum, self.scroll + rows))
+    if scroll ~= self.scroll then self.replyAutoScroll = nil end
+    self.scroll = scroll
+    local first = math.max(1, frame.total - scroll - frame.visible + 1)
+    local row = frame.rows[first] or frame.extra[first - #frame.rows]
+    self.readingAnchor = scroll > 0 and row and row.source
+        and { source = row.source, part = row.part } or nil
 end
 
 function SCTerminalWindow:onMouseWheel(delta)
@@ -703,15 +746,24 @@ function SCTerminalWindow:onMouseDown(x, y)
     return true
 end
 
-function SCTerminalWindow:pushRow(value, kind)
-    self.rows[#self.rows + 1] = { text = value, kind = kind or "emma" }
+function SCTerminalWindow:pushRow(value, kind, source)
+    local row = source or { text = value, kind = kind or "emma" }
+    self.rows[#self.rows + 1] = row
     while #self.rows > Terminal.SCROLLBACK_ROWS do table.remove(self.rows, 1) end
-    self.scroll = 0
     self.renderRows = nil
+    if self.replyAutoScroll and not self.replyAnchor then
+        self.replyAnchor = { source = row, part = 1 }
+    end
+    return row
 end
 
 function SCTerminalWindow:print(value, kind)
-    for _, row in ipairs(Terminal.wrap(value, self:columns())) do self:pushRow(row, kind) end
+    local first
+    for _, row in ipairs(Terminal.wrap(value, self:columns())) do
+        local added = self:pushRow(row, kind)
+        first = first or added
+    end
+    return first
 end
 
 -- Queue text for the typewriter.
@@ -726,6 +778,9 @@ end
 
 function SCTerminalWindow:startReply(reply)
     self.pendingCommand = reply.command
+    self.replyAutoScroll = true
+    self.replyAnchor = self.pendingPrompt and { source = self.pendingPrompt, part = 1 } or nil
+    self.pendingPrompt = nil
     local lines = {}
     for _, line in ipairs(reply.lines or {}) do lines[#lines + 1] = line end
     if #lines > 0 then lines[#lines + 1] = "" end
@@ -823,27 +878,35 @@ function SCTerminalWindow:finishBoot()
     end
 end
 
-function SCTerminalWindow:securityRows()
-    local result = {}
-    local function line(text, kind)
-        for _, value in ipairs(Terminal.wrap(text, self:columns())) do
-            result[#result + 1] = { text = value, kind = kind }
+function SCTerminalWindow:securityHeaderRows()
+    local p = self.system.puzzle
+    local status = System().status(self.system, self.gameHours)
+    if self.securityStatus == "lockout" and status ~= "lockout" then self.securityMessage = nil end
+    self.securityStatus = status
+    local message
+    if status == "lockout" then
+        local minutes = self.gameHours and math.max(0, math.ceil((p.lockoutUntil - self.gameHours) * 60))
+        message = minutes and ("Retry: " .. minutes .. " game min") or "Game clock unavailable."
+    else
+        message = "Attempts: " .. p.tries .. "/" .. p.maximum
+    end
+    local result, columns = {}, self:columns()
+    local maximum = math.max(1, math.min(3, self:visibleRows() - 1))
+    for _, value in ipairs({ message, self.securityMessage or "Match letters in the same position." }) do
+        for _, line in ipairs(Terminal.wrap(value, columns)) do
+            if #result >= maximum then
+                local last = result[#result]
+                last.text = last.text:sub(1, math.max(1, columns - 3)) .. "..."
+                return result
+            end
+            result[#result + 1] = { text = line, kind = #result == 0 and "alert" or "system" }
         end
     end
-    line(System().COMPANY, "system")
-    line("LOCAL ACCESS LOCKED", "alert")
-    local p = self.system.puzzle
-    if System().status(self.system, self.gameHours) == "lockout" then
-        local minutes = self.gameHours and math.max(0, math.ceil((p.lockoutUntil - self.gameHours) * 60))
-        line(minutes and ("Try again in " .. minutes .. " game minutes.")
-            or "Recovery clock unavailable.", "alert")
-    else
-        line("Attempts: " .. p.tries .. "/" .. p.maximum
-            .. "  |  Match letters in the same position.", "system")
-    end
-    for _, line in ipairs(Terminal.wrap("Click or type a word. Bracket groups may help.", self:columns())) do
-        result[#result + 1] = { text = line, kind = "system" }
-    end
+    return result
+end
+
+function SCTerminalWindow:securityRows()
+    local result, p = {}, self.system.puzzle
     local columns = self:columns()
     if not self.securityBoard or self.securityColumns ~= columns then
         self.securityBoard = System().board(self.system, columns)
@@ -853,15 +916,18 @@ function SCTerminalWindow:securityRows()
         row.kind = "system"
         result[#result + 1] = row
     end
-    if self.securityMessage then
-        for _, line in ipairs(Terminal.wrap(self.securityMessage, self:columns())) do
-            result[#result + 1] = { text = line, kind = "alert" }
-        end
-    end
+    local historyStarted
     for _, word in ipairs(p.words) do
         if p.guessed[word] ~= nil then
-            result[#result + 1] = { text = word .. "  " .. p.guessed[word] .. "/6 positions match.",
-                kind = "input" }
+            if not historyStarted then
+                for _, line in ipairs(Terminal.wrap("Previous guesses", columns)) do
+                    result[#result + 1] = { text = line, kind = "system" }
+                end
+                historyStarted = true
+            end
+            for _, line in ipairs(Terminal.wrap(word .. "  " .. p.guessed[word] .. "/6 positions match.", columns)) do
+                result[#result + 1] = { text = line, kind = "input" }
+            end
         end
     end
     return result
@@ -869,6 +935,7 @@ end
 
 function SCTerminalWindow:askEmma(raw)
     if not self.system or self.system.locked or not self.session then return false end
+    self.readingAnchor, self.scroll = nil, 0
     self:setFocusMode("chat")
     local ok, reply = pcall(Brain().respond, self.session, raw, self.world)
     if not ok then
@@ -901,15 +968,14 @@ end
 function SCTerminalWindow:displayLocalFile(entry, reference)
     self:flush()
     local header=entry.date.." - "..entry.title
-    self:print(header,"system")
+    local first = self:print(header,"system")
     self:print(entry.text,"system")
     local notice=reference and "Archived local file; not a current-world observation." or ""
     self:print(notice,"system")
-    local added=#Terminal.wrap(header,self:columns())+#Terminal.wrap(entry.text,self:columns())
-        +#Terminal.wrap(notice,self:columns())
     -- Open long records at the beginning. Paging remains available even after
     -- the transcript has reached its bounded scrollback limit.
-    self.scroll=math.max(0,added-self:visibleRows())
+    self.readingAnchor = { source = first, part = 1 }
+    self:readingRange(self:readingFrame(nowMs()))
     if self:sidebarWidth()==0 then self:setFocusMode("chat") end
 end
 
@@ -940,10 +1006,11 @@ function SCTerminalWindow:systemInput(raw)
         self:close()
         return true
     end
+    if SC.TerminalServices and SC.TerminalServices.input(self, trimmed, option) then return true end
     if self.system.locked then
         self.gameHours = worldHours()
         local code, likeness = System().act(self.system, trimmed, self.gameHours)
-        self.securityBoard = nil
+        self.securityBoard, self.securityHits = nil, {}
         local messages = {
             invalid = "Choose a word or bracket group shown on this screen.",
             used = "That recovery group has already been used.",
@@ -1011,10 +1078,10 @@ end
 function SCTerminalWindow:flush()
     if self.state == "booting" then self:stopBootSound() self:finishBoot() end
     if self.typing then
-        self:pushRow(self.typing.text, self.typing.kind)
+        self:pushRow(self.typing.text, self.typing.kind, self.typing)
         self.typing = nil
     end
-    for _, row in ipairs(self.queue) do self:pushRow(row.text, row.kind) end
+    for _, row in ipairs(self.queue) do self:pushRow(row.text, row.kind, row) end
     self.queue = {}
     self.state = "idle"
     self:finishCommand()
@@ -1026,6 +1093,11 @@ function SCTerminalWindow:finishCommand()
     if command == "close" then
         self.closeAt = nowMs() + 900
     end
+    if self.replyAutoScroll and self.replyAnchor then
+        self.readingAnchor = self.replyAnchor
+        self:readingRange(self:readingFrame(nowMs()))
+    end
+    self.replyAutoScroll, self.replyAnchor = nil, nil
 end
 
 function SCTerminalWindow:submit()
@@ -1054,8 +1126,10 @@ function SCTerminalWindow:submit()
     end
     self.historyIndex = nil
     if self.focusMode == "chat" then self.chatDraft = "" end
-    self:print("> " .. raw, "input")
+    self.readingAnchor, self.scroll = nil, 0
+    self.pendingPrompt = self:print("> " .. raw, "input")
     if not self:systemInput(raw) then self:askEmma(raw) end
+    self.pendingPrompt = nil
 end
 
 function SCTerminalWindow:recall(direction)
@@ -1101,6 +1175,7 @@ function SCTerminalWindow:watch(now)
         self:cancelRequest()
         self:stopBootSound()
         if self.state == "booting" then self.queue, self.typing = {}, nil else self:flush() end
+        self.readingAnchor, self.scroll = nil, 0
         self:print(Lines().T.power_failure, "alert")
         self.state = "closing"
         self.closeAt = now + 1500
@@ -1127,7 +1202,7 @@ function SCTerminalWindow:advance(now)
     local row = self.typing
     row.shown = row.shown + row.speed * elapsed / 1000
     if row.shown >= #row.text then
-        self:pushRow(row.text, row.kind)
+        self:pushRow(row.text, row.kind, row)
         self.typing = nil
     end
 end
@@ -1162,12 +1237,85 @@ function SCTerminalWindow:transcriptRows()
     if self.renderRows then return self.renderRows end
     local rows = {}
     for _, original in ipairs(self.rows) do
-        for _, line in ipairs(Terminal.wrap(original.text, self:columns())) do
-            rows[#rows + 1] = { text = line, kind = original.kind }
+        for part, line in ipairs(Terminal.wrap(original.text, self:columns())) do
+            rows[#rows + 1] = { text = line, kind = original.kind, source = original, part = part }
         end
     end
     self.renderRows = rows
     return rows
+end
+
+-- A stable row/part anchor preserves the text being read while output grows
+-- or a resize changes wrapping. It retains only bounded transcript rows.
+function SCTerminalWindow:readingRange(frame)
+    frame.maximum = math.max(0, frame.total - frame.visible)
+    self.scroll = math.max(0, math.min(frame.maximum, self.scroll or 0))
+    if self.readingAnchor then
+        local found
+        for index = 1, frame.total do
+            local row = frame.rows[index] or frame.extra[index - #frame.rows]
+            if row.source == self.readingAnchor.source then
+                found = index
+                if row.part >= self.readingAnchor.part then break end
+            elseif found then break end
+        end
+        if found then self.scroll = math.max(0, frame.total - found - frame.visible + 1)
+        else
+            self.readingAnchor = nil
+            self.scroll = frame.maximum
+        end
+    end
+    frame.last = frame.total - self.scroll
+    frame.first = math.max(1, frame.last - frame.visible + 1)
+    return frame
+end
+
+function SCTerminalWindow:readingFrame(now)
+    local rows, extra = self:transcriptRows(), {}
+    local animationTime = math.max(0, now - (self.postStarted or now))
+    if self.typing then
+        local shown = math.floor(self.typing.shown or 0)
+        local cursor = math.floor(animationTime / 400) % 2 == 0 and "_" or " "
+        for part, line in ipairs(Terminal.wrap(string.sub(self.typing.text, 1, shown) .. cursor, self:columns())) do
+            extra[#extra + 1] = { text = line, kind = self.typing.kind, source = self.typing, part = part }
+        end
+    elseif self.state == "thinking" then
+        local steps = self.thinkSteps or {}
+        local span = math.max(1, (self.thinkEnd or now) - (self.thinkStart or now))
+        local step = steps[math.min(#steps, math.floor((now - (self.thinkStart or now)) / span * #steps) + 1)]
+        local elapsed = math.max(0, now - (self.thinkStart or now))
+        extra[1] = { text = SPINNER[math.floor(elapsed / 120) % 4 + 1] .. " "
+            .. tostring(step or "Thinking") .. string.rep(".", math.floor(elapsed / 300) % 4), kind = "system" }
+    elseif self.state == "idle" and #self.rows == 0 then
+        extra[1] = { text = math.floor(animationTime / 500) % 2 == 0 and "_" or " ", kind = "emma" }
+    end
+    return { rows = rows, extra = extra, total = #rows + #extra, visible = self:visibleRows() }
+end
+
+function SCTerminalWindow:drawSecurity()
+    local headers, rows = self:securityHeaderRows(), self:securityRows()
+    local visible = math.max(1, self:visibleRows() - #headers)
+    self.securityScroll = math.max(0, math.min(math.max(0, #rows - visible), self.securityScroll or 0))
+    local first = self.securityScroll + 1
+    local last = math.min(#rows, first + visible - 1)
+    local y, colors = self:viewTop(), self.colors or Presentation().colors("green")
+    for _, row in ipairs(headers) do self:drawRow(row.text, y, row.kind) y = y + self.rowHeight end
+    self.securityHits = {}
+    for index = first, last do
+        local row = rows[index]
+        self:drawRow(row.text, y, row.kind)
+        for _, span in ipairs(row.spans or {}) do
+            if not span.disabled and self.securityStatus ~= "lockout" then
+                local x = self.layout.left + (span.start - 1) * self.charWidth
+                local ink = span.tried and colors.input or colors.emma
+                self:drawText(span.value, x, y, ink[2], ink[3], ink[4], 1, self.font)
+                self.securityHits[#self.securityHits + 1] = {
+                    x = x, y = y, width = span.length * self.charWidth, value = span.value }
+            end
+        end
+        y = y + self.rowHeight
+    end
+    self:drawHints({ first = first, last = last, total = #rows, visible = visible })
 end
 
 function SCTerminalWindow:drawHeaderLogo()
@@ -1228,13 +1376,25 @@ function SCTerminalWindow:drawHeaderLogo()
     end
 end
 
-function SCTerminalWindow:drawHints()
+function SCTerminalWindow:drawHints(range)
     local colors = self.colors or Presentation().colors("green")
     local hint
-    if self.state == "booting" then hint = "Enter: skip boot   Esc: log off"
+    if self.serviceSecurity and self.menuPage=="building_security" then
+        local status=System().status(self.serviceSecurity,self.gameHours)
+        local puzzle=self.serviceSecurity.puzzle
+        hint=status=="lockout" and "Building recovery locked. Retry after one game hour."
+            or "Security "..tostring(puzzle and puzzle.tries or 0).."/"..tostring(puzzle and puzzle.maximum or 0).." | Tab: words/chat | PgUp/PgDn"
+    elseif self.state == "booting" then hint = "Enter: skip boot   Esc: log off"
     elseif self.system.locked then hint = "Choose a word or bracket group.  Esc: log off"
     elseif self.focusMode == "menu" then hint = "1-" .. #self:menuOptions() .. ": select   Tab: chat   Esc: back"
     else hint = "Enter: send   Tab: menu   Up/Down: history" end
+    if range and range.total > range.visible then
+        local position = range.first .. "-" .. range.last .. "/" .. range.total
+        local columns = math.floor((self.layout.right - self.layout.left) / self.charWidth)
+        if columns < 42 then hint = "PgUp/Dn " .. position
+        elseif self.system.locked then hint = "Match positions | PgUp/PgDn " .. position
+        else hint = "Enter: send  Tab: menu  PgUp/PgDn " .. position end
+    end
     local line = Terminal.wrap(hint, math.max(8, math.floor((self.layout.right - self.layout.left) / self.charWidth)))[1]
     self:drawText(line, self.layout.left, self.layout.hintY,
         colors.system[2], colors.system[3], colors.system[4], 0.85, self.font)
@@ -1256,12 +1416,18 @@ function SCTerminalWindow:prerender()
     local captionRight = self.layout.brandHeight > 0 and self.layout.logo.x - pad
         or self.layout.right - self.rowHeight - pad
     local caption = (captionRight - self.layout.left) / self.charWidth >= 25 and (System().TITLE .. " // EMMA") or "LARCH/OS"
+    if self.system and self.system.locked then
+        caption = (captionRight - self.layout.left) / self.charWidth >= 25 and "LARCH/OS // ACCESS LOCKED" or "LOCKED"
+    end
     if self.state == "booting" then caption = "SYSTEM / POWER-ON TEST" end
     self:drawText(caption, self.layout.left, self.layout.titleY,
         title[2], title[3], title[4], title[1], self.font)
     self:drawHeaderLogo()
     if self.layout.brandHeight > 0 then
         local label = self.layout.logo.x - self.layout.left - pad >= self.charWidth * 23 and "EMMA  /  LOCAL TERMINAL" or "EMMA"
+        if self.system and self.system.locked then
+            label = self.layout.logo.x - self.layout.left - pad >= self.charWidth * 23 and "LOCAL PASSWORD RECOVERY" or "RECOVERY"
+        end
         if self.state == "booting" then label = "PERSONAL SYSTEM / 486" end
         self:drawText(label, self.layout.left, self.layout.titleHeight,
             title[2], title[3], title[4], 0.95, self.font)
@@ -1269,8 +1435,8 @@ function SCTerminalWindow:prerender()
     self:drawRect(self.layout.left, self.layout.top - pad / 2, self.layout.right - self.layout.left, 1, 0.5, title[2], title[3], title[4])
     local top, bottom = self:viewTop(), self:viewBottom()
     local side = self:sidebarWidth()
-    self:drawHints()
     if self.state == "booting" then
+        self:drawHints()
         local y = top
         local bootRows = Presentation().bootFrame(nowMs() - self.postStarted, self.system.seed)
         for _, text in ipairs(bootRows) do
@@ -1279,6 +1445,10 @@ function SCTerminalWindow:prerender()
                 y = y + self.rowHeight
             end
         end
+        return
+    end
+    if self.system and self.system.locked and self.state ~= "closing" then
+        self:drawSecurity()
         return
     end
     if side > 0 then self:drawRect(self.layout.right - side, top, 1, math.max(0, bottom - top), 0.5, title[2], title[3], title[4]) end
@@ -1292,57 +1462,17 @@ function SCTerminalWindow:prerender()
                 title[2], title[3], title[4], 1, self.font)
         end
     end
-    if side == 0 and self.focusMode == "menu" and self:menuVisible() then return end
-    local now = nowMs()
-    -- Kahlua's large-number remainder is unsafe for epoch-based animation
-    -- indices. Cycle on time elapsed since opening instead.
-    local animationTime = math.max(0, now - (self.postStarted or now))
-    local extra = {}
-    local locked = self.system and self.system.locked and self.state ~= "closing"
-    local rows = locked and self:securityRows() or self:transcriptRows()
+    if side == 0 and self.focusMode == "menu" and self:menuVisible() then self:drawHints() return end
+    local frame = self:readingRange(self:readingFrame(nowMs()))
+    self:drawHints(frame)
     self.securityHits = {}
-    if not locked and self.typing then
-        local shown = math.floor(self.typing.shown or 0)
-        local cursor = math.floor(animationTime / 400) % 2 == 0 and "_" or " "
-        for _, line in ipairs(Terminal.wrap(string.sub(self.typing.text, 1, shown) .. cursor, self:columns())) do
-            extra[#extra + 1] = { text = line, kind = self.typing.kind }
-        end
-    elseif not locked and self.state == "thinking" then
-        local steps = self.thinkSteps or {}
-        local span = math.max(1, (self.thinkEnd or now) - (self.thinkStart or now))
-        local step = steps[math.min(#steps, math.floor((now - (self.thinkStart or now)) / span * #steps) + 1)]
-        local thinkingTime = math.max(0, now - (self.thinkStart or now))
-        local dots = string.rep(".", math.floor(thinkingTime / 300) % 4)
-        extra[#extra + 1] = { text = SPINNER[math.floor(thinkingTime / 120) % 4 + 1] .. " " .. tostring(step or "Thinking") .. dots,
-            kind = "system" }
-    elseif not locked and self.state == "idle" and #self.rows == 0 then
-        extra[#extra + 1] = { text = math.floor(animationTime / 500) % 2 == 0 and "_" or " ", kind = "emma" }
-    end
-    local visible = self:visibleRows()
-    local total = #rows + #extra
-    self.scroll = math.min(self.scroll, math.max(0, total - visible))
-    local last = total - self.scroll
-    local first = math.max(1, last - visible + 1)
     local y = top
-    for index = first, last do
-        local row = index <= #rows and rows[index] or extra[index - #rows]
+    for index = frame.first, frame.last do
+        local row = frame.rows[index] or frame.extra[index - #frame.rows]
         if row and y + self.rowHeight <= bottom + 2 then
             self:drawRow(row.text, y, row.kind)
-            for _, span in ipairs(row.spans or {}) do
-                if not span.disabled then
-                    local x = self.layout.left + (span.start - 1) * self.charWidth
-                    local ink = span.tried and colors.input or colors.emma
-                    self:drawText(span.value, x, y, ink[2], ink[3], ink[4], 1, self.font)
-                    self.securityHits[#self.securityHits + 1] = {
-                        x = x, y = y, width = span.length * self.charWidth, value = span.value }
-                end
-            end
         end
         y = y + self.rowHeight
-    end
-    if self.scroll > 0 then
-        self:drawText("-- more below --", self.layout.left + self:contentWidth() - 16 * self.charWidth, bottom - self.rowHeight + 2,
-            title[2], title[3], title[4], 0.9, self.font)
     end
 end
 
@@ -1358,6 +1488,24 @@ function SCTerminalWindow:render()
             self:drawTextureScaled(self.skinFrame, part.x - part.sourceX * sx,
                 part.y - part.sourceY * sy, source.width * sx, source.height * sy, 1, 1, 1, 1)
             self:clearStencilRect()
+        end
+        local hardware = SC.TerminalHardware and SC.TerminalHardware.state(self.object, false)
+        if hardware and hardware.radio then
+            local antenna = skinTexture("radio-antenna-v2")
+            if antenna then
+                local aspect = antenna:getWidth() / antenna:getHeight()
+                -- Reserve the approved 60%-wide attachment footprint within
+                -- its transparent canvas. Anchor the body to the bezel, with a
+                -- text-safe gutter on narrow or split-screen viewports.
+                local margin = math.max(6, self.height * 0.012)
+                local room = math.max(1, self.width - self.layout.right - margin * 2)
+                local height = math.min(self.height * 0.82, room / (aspect * 0.60))
+                local width = height * aspect
+                local glass = self.layout.skin.glass
+                local bottom = glass.y + glass.height + margin * 0.5
+                self:drawTextureScaled(antenna, self.width - margin - width * 0.80, bottom - height * 0.98,
+                    width, height, 1, 1, 1, 1)
+            end
         end
     end)
     if not okay then
@@ -1454,7 +1602,9 @@ end
 function Terminal.fillWorldObjectContextMenu(playerIndex, context, worldObjects, player)
     if context == nil or player == nil or playerIndex ~= 0 then return false end
     local computer = Terminal.findComputer(worldObjects)
-    if not computer or not Terminal.powered(computer) or not Terminal.near(player, computer) then return false end
+    if not computer or not Terminal.near(player, computer) then return false end
+    if SC.TerminalServices then SC.TerminalServices.context(context, player, computer) end
+    if not Terminal.powered(computer) then return false end
     context:addOption(text("UI_SC_Terminal_Use", "Use computer"), player,
         Terminal.onUseOption, computer)
     return true

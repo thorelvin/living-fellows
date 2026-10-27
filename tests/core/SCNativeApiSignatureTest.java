@@ -43,6 +43,12 @@ public final class SCNativeApiSignatureTest {
         Class<?> attackType = Class.forName("zombie.AttackType");
         Class<?> inventoryItem = Class.forName("zombie.inventory.InventoryItem");
         Class<?> drainableItem = Class.forName("zombie.inventory.types.DrainableComboItem");
+        require(method(drainableItem, "getCurrentUsesFloat").getReturnType() == float.class
+                && method(drainableItem, "setCurrentUsesFloat", float.class).getReturnType() == void.class,
+                "terminal backup battery charge accessors changed");
+        require(method(inventoryItem, "saveWithSize", java.nio.ByteBuffer.class, boolean.class).getReturnType() == void.class
+                && method(inventoryItem, "loadItem", java.nio.ByteBuffer.class, int.class).getReturnType() == inventoryItem,
+                "terminal native item serialization accessors changed");
         Class<?> handWeapon = Class.forName("zombie.inventory.types.HandWeapon");
         Class<?> keyItem = Class.forName("zombie.inventory.types.Key");
         Class<?> foodItem = Class.forName("zombie.inventory.types.Food");
