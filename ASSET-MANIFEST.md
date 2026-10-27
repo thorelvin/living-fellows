@@ -57,3 +57,19 @@ The poster and preview derivatives were resized from the selected source with ne
 ## UI symbols
 
 All UI symbols are original deterministic pixel bitmaps declared in `SurvivorCompanion/42/media/lua/client/SCUIPixels.lua` and rendered at runtime with ISUI rectangles. No generated or imported icon asset is used.
+
+## EMMA terminal artwork
+
+The terminal uses original generated CRT glass, a transparent 1993 Larchfield
+casing, sector emblems, a camp emblem and selected transparent adaptations of
+fictional in-game firms. Stock company textures remain supplied by Project
+Zomboid. A UI shader applies the shared phosphor treatment at draw time;
+generation and image analysis never run in the game.
+
+Source prompts, references and selected outputs are recorded in
+`docs/terminal-art-manifest.json`, `docs/terminal-expanded-art-manifest.json`,
+`docs/terminal-skin-art.json` and `docs/terminal-camp-logo-colours.json`.
+Selected outputs in the expanded manifest supersede baseline entries for the
+same destination file, including the transparent Knox Bank replacement.
+Native captures and the distinction between checks and remaining live
+scenarios are in `docs/validation-camp-computer-system.md`.

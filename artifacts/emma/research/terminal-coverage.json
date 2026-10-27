@@ -1,0 +1,40 @@
+{
+  "runtime": "42.21.0",
+  "desktop_objects": 3536,
+  "curated_advert_keys": 40,
+  "native_rectangles": 41,
+  "exact_room_candidates": {
+    "GigaMart": 1,
+    "JackieJaye": 3,
+    "Spiffos": 1,
+    "TheKentuckyHerald": 24
+  },
+  "unambiguous_rectangle_candidates": {
+    "AmericanTire": 1,
+    "ElveeArena": 17,
+    "HitVids": 1,
+    "KnoxBank": 12,
+    "KnoxPackKitchens": 9,
+    "Lectromax": 4,
+    "LouisvilleBruiser": 8,
+    "LouisvilleStateUniversity": 53,
+    "NailsandNuts": 5,
+    "OnyxDriveInTheater": 1,
+    "ScarletOakDistillery": 10,
+    "SleepEazzzeInn": 72,
+    "SunstarMotel": 1,
+    "WestMapleCountryClub": 1
+  },
+  "private_room_rectangle_matches_excluded": 2,
+  "conflicting_rectangle_candidates": 0,
+  "limits": [
+    "Counts are evidence candidates, not a running-save assignment census.",
+    "Same-room sign and unique-building checks are exercised separately.",
+    "Generic offices and mixed tenants can retain sector emblems."
+  ],
+  "sha256": {
+    "C:\\ZOMBOID\\work\\rv67\\SurvivorCompanion\\42\\media\\lua\\client\\SCTerminalBusinessData.lua": "176152a26a95ac4b103da89a9d8881c1f78a29cf9bbb08a6b6ce323741cf8a2b",
+    "C:\\Program Files (x86)\\Steam\\steamapps\\common\\ProjectZomboid\\media\\lua\\shared\\PrintMedia\\PrintMediaDefinitions.lua": "09e000db0f52a99a2cbd5d113526bfbd756c907efdb52a38a178bf181b84123b",
+    "C:\\ZOMBOID\\work\\rv67\\artifacts\\emma\\research\\computer-census.csv": "fcfb4b1001215ffe733b8142b58bf52c399817d6c17f54c576cd6346a44e7550"
+  }
+}

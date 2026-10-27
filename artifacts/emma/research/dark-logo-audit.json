@@ -1,0 +1,97 @@
+[
+  {
+    "id": "brochureLogoTest2",
+    "mean": 0.012,
+    "p90": 0.063
+  },
+  {
+    "id": "Chuggs",
+    "mean": 0.156,
+    "p90": 0.156
+  },
+  {
+    "id": "kentucky_herald_logo",
+    "mean": 0.066,
+    "p90": 0.29
+  },
+  {
+    "id": "kk",
+    "mean": 0.169,
+    "p90": 0.169
+  },
+  {
+    "id": "knoxknews",
+    "mean": 0.013,
+    "p90": 0.0
+  },
+  {
+    "id": "LiveMusic",
+    "mean": 0.145,
+    "p90": 0.319
+  },
+  {
+    "id": "MaisonDuBouef",
+    "mean": 0.0,
+    "p90": 0.0
+  },
+  {
+    "id": "NewspaperNationalLogo",
+    "mean": 0.012,
+    "p90": 0.051
+  },
+  {
+    "id": "NewspaperNewEraLogo",
+    "mean": 0.013,
+    "p90": 0.118
+  },
+  {
+    "id": "PoshBox",
+    "mean": 0.334,
+    "p90": 0.334
+  },
+  {
+    "id": "ScarletOakDistillery",
+    "mean": 0.076,
+    "p90": 0.154
+  },
+  {
+    "id": "TheBlackSaddle",
+    "mean": 0.0,
+    "p90": 0.0
+  },
+  {
+    "id": "TheExquisitePearl",
+    "mean": 0.212,
+    "p90": 0.156
+  },
+  {
+    "id": "TheKentuckyHerald",
+    "mean": 0.0,
+    "p90": 0.0
+  },
+  {
+    "id": "TheSlugger",
+    "mean": 0.185,
+    "p90": 0.185
+  },
+  {
+    "id": "TheVelvetTassel",
+    "mean": 0.247,
+    "p90": 0.247
+  },
+  {
+    "id": "TopcrownPlaza",
+    "mean": 0.243,
+    "p90": 0.243
+  },
+  {
+    "id": "WestMapleCountryClub",
+    "mean": 0.204,
+    "p90": 0.204
+  },
+  {
+    "id": "YuriDesign",
+    "mean": 0.117,
+    "p90": 1.0
+  }
+]

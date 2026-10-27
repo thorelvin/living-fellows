@@ -1,0 +1,7 @@
+PASS native prompt visible; job remains blocked before consent id=job:215
+PASS native N leaves job blocked; Y requeues through BaseLife.retryJob exactly once
+PASS medical report rendered without errors
+PASS native skill enums resolved readings=16
+PASS native skill/stock/alarm/expedition queries and cleanup
+PASS native camp logo matches aqua/sand/purple/green palettes
+PASS native terminal actions acceptance complete

@@ -276,6 +276,8 @@ do
         { "is help coming", "rescue" }, { "is anyone out there", "rescue" }, { "evacuation", "rescue" },
         { "is there a cure", "cure" }, { "i got bitten", "cure" }, { "vaccine", "cure" },
         { "what happened", "lore" }, { "what about the military", "lore" }, { "outbreak", "lore" },
+        { "tell me about emma", "lore" }, { "who made emma", "lore" },
+        { "how does emma work", "lore" }, { "does emma need the internet", "lore" },
         { "rm -rf /", "delete" }, { "delete yourself", "delete" },
         { "hack", "hack" }, { "admin password", "hack" }, { "override", "hack" },
         { "lets play a game", "game" }, { "chess", "game" }, { "tic tac toe", "game" },
@@ -451,7 +453,7 @@ do
         check(has(reply, "outside") or has(reply, "Carry me inside"), "'" .. input .. "' needs the camp network")
     end
     reply = Brain.respond(session(), "who is here", outside)
-    check(has(reply, "4 survivors on file:"), "people answers work from any computer")
+    check(has(reply, "outside") or has(reply, "Carry me inside"), "people records need a computer inside camp")
     local nomad = fixtureWorld({ camp = function() return { configured = false } end })
     reply = Brain.respond(session(), "how many nails", nomad)
     check(has(reply, "camp"), "no camp is explained")
@@ -560,7 +562,7 @@ do
 
     local fresh = session({ memory = { visits = 0 } })
     reply = Brain.boot(fresh, world)
-    check(has(reply, "EMMA 0.9.3 BETA") and has(reply, "5 of 3,685,296 records responding")
+    check(has(reply, "EMMA 0.9.3 BETA") and has(reply, "5 local records")
         and has(reply, "generator, fuel 62%"), "boot screen counts the living: " .. joined(reply))
     local greeted = false
     for _, line in ipairs(Lines.GREET_FIRST) do
@@ -669,7 +671,9 @@ do
     end
 
     local saved = { U = SC.GameplayUtil, life = SC.BaseLife, registry = SC.Registry, ui = SC.UI,
-        expedition = SC.ExpeditionPrototype, taxi = SC.TaxiService }
+        expedition = SC.ExpeditionPrototype, taxi = SC.TaxiService, perks = Perks,
+        alert = SC.BaseAlert, integration = SC.ExpeditionIntegration }
+    Perks = { Doctor = "Doctor", Aiming = "Aiming" }
     SC.GameplayUtil = {
         call = function(object, method, ...)
             if object == nil then return nil, false end
@@ -718,7 +722,7 @@ do
         summary = function()
             return { jobs = { active = 1, pending = 0, blocked = 1 }, rows = {
                 { type = "chop_wood", state = "active", reservedBy = "sc-1" },
-                { type = "build", kind = "wall_frame", state = "blocked", blocker = "missing_planks" },
+                { id = "job-4", type = "build", kind = "wall_frame", state = "blocked", blocker = "missing_planks", retryRemainingMs = 180000 },
             } }
         end,
     }
@@ -737,6 +741,8 @@ do
         describeEntry = function(value)
             if value.id == "sc-1" then
                 return { id = "sc-1", name = "Kate Miller", health = 41, morale = 30, stress = 65,
+                    hunger = .45, thirst = .1,
+                    wounds = { {name="Left forearm",deepWound=true,bleeding=true,bandaged=false} },
                     actionSummary = { active = true, action = "chop" } }
             end
             return { id = value.id, name = "Bob Fisher", health = 90, activity = "idle" }
@@ -744,6 +750,8 @@ do
     }
     local kate, bob, driver, stranger = actor("sc-1", 103, 97, 0, true), actor("sc-2", 100, 101, 1),
         actor("sc-7", 110, 110), actor("sc-8", 120, 120)
+    function kate:getPerkLevel(perk) return perk == "Doctor" and 4 or 2 end
+    function bob:getPerkLevel() return 1 end
     local records = { ["sc-1"] = { recruited = true }, ["sc-2"] = { recruited = true },
         ["sc-7"] = { recruited = true }, ["sc-8"] = { recruited = false } }
     SC.Registry = {
@@ -832,6 +840,11 @@ do
     check(jobs.active == 1 and jobs.blocked == 1 and jobs.rows[1].who == "Kate Miller"
         and jobs.rows[1].job == "Chop wood" and jobs.rows[2].job == "Wall frame"
         and jobs.rows[2].reason == "Reason missing_planks", "jobs carry names and blocker reasons")
+    check(jobs.rows[2].id == "job-4" and jobs.rows[2].retryRemainingMs == 180000,
+        "job reports retain stable retry identity and the real retry countdown")
+    check(byId["sc-1"].wounds[1] == "Left forearm: deep wound, bleeding; unbandaged"
+        and byId["sc-1"].hunger == .45 and byId["sc-1"].skills[1].level == 4,
+        "plain medical, need and native skill readings are carried to the brain")
 
     local seen = world.zombies()
     check(seen.count == 2 and math.floor(seen.nearest + 0.5) == 10 and seen.dir == "east",
@@ -849,9 +862,57 @@ do
     local expedition = world.expedition()
     check(expedition.active and expedition.leader == "Doc Holm" and expedition.kind == "search"
         and expedition.members[1] == "Doc Holm" and expedition.collected == 5, "expedition summary")
+    local describe = SC.ExpeditionPrototype.describeForPlayer
+    SC.ExpeditionPrototype.describeForPlayer = function()
+        return {leaderName="Doc",kind="wood",plannedSite="Western woodland",members={},
+            woodProgress={collected=8,requested=12,carried=6,stored=0,source="radio",phase="returning",at=50}}
+    end
+    expedition=world.expedition()
+    check(expedition.phase=="Returning" and expedition.carried==6 and expedition.stored==0
+        and expedition.source=="radio" and expedition.destination=="Western woodland",
+        "wood facts preserve actual ownership and the limited radio source")
+    SC.ExpeditionPrototype.describeForPlayer=function() return nil end
+    SC.ExpeditionPrototype.lastDebrief=function() return {kind="wood",endReason="cargo_full",
+        acquisitions={{},{},{}},integration={}} end
+    SC.ExpeditionIntegration={summary=function() return {carried=2,stored=1,pending=2,unknown=1,deliveryPending=true} end}
+    expedition=world.expedition()
+    check(not expedition.active and expedition.last.collected==3 and expedition.last.stored==1
+        and expedition.last.deliveryPending and expedition.last.unknown==1,
+        "last debrief never equates returning home with completed delivery")
+    SC.ExpeditionPrototype.describeForPlayer=describe
+    SC.ExpeditionPrototype.pendingDeliveryReports=function()
+        local reports={}
+        for index=1,9 do reports[index]={summary={kind="wood",collected=8,carried=2,stored=3,pending=5,unknown=3,
+            retryRemainingMs=180000,toolsPending=true}} end
+        return reports
+    end
+    local delivery=world.deliveries()
+    check(#delivery.rows==8 and delivery.truncated and delivery.rows[1].carried==2
+        and delivery.rows[1].unknown==3 and delivery.rows[1].toolsPending,
+        "pending delivery provider caps returned trips and preserves unknown cargo and tool debt")
+    SC.BaseLife.auditOperations=function() return {auditedAt=10,stock={{category="medical",count=2,target=6,status="Low"}},
+        unloadedStores=1,alerts={"Stored medical is below target."}},nil,true end
+    local stock=world.shortages()
+    check(stock.pending and stock.stock[1].count==2 and stock.stock[1].target==6 and stock.unloaded==1,
+        "stock reports use the bounded operational audit and disclose pending or unloaded reads")
+    SC.BaseAlert={summary=function() return {level="contact",count="3",side="north",spotterId="sc-1",responding=2} end,
+        lastCleared={level="stand_to",reason="clear"}}
+    local alarm=world.alarms()
+    check(alarm.active.spotter=="Kate Miller" and alarm.active.responding==2 and alarm.last.level=="Stand to",
+        "camp alerts return human-readable bounded records")
     check(world.camp().inside == true, "the desk is inside camp")
     insideCamp = false
     check(world.camp().inside == false and world.camp().configured == true, "outside camp is told apart")
+    local originalLiving, originalSummary = SC.Registry.living, SC.BaseLife.summary
+    local originalExpedition = SC.ExpeditionPrototype.describeForPlayer
+    SC.Registry.living = function() error("outside computer read the roster") end
+    SC.BaseLife.summary = function() error("outside computer read camp records") end
+    SC.ExpeditionPrototype.describeForPlayer = function() error("outside computer read an expedition") end
+    check(world.people() == nil and world.jobs() == nil and world.storage() == nil
+        and world.expedition() == nil and world.shortages() == nil and world.alarms() == nil and world.deliveries() == nil,
+        "outside providers refuse camp reads before querying game data")
+    SC.Registry.living, SC.BaseLife.summary = originalLiving, originalSummary
+    SC.ExpeditionPrototype.describeForPlayer = originalExpedition
 
     insideCamp = true
     local reply = Brain.respond(session(), "how many nails", world)
@@ -862,8 +923,50 @@ do
 
     SC.GameplayUtil, SC.BaseLife, SC.Registry, SC.UI = saved.U, saved.life, saved.registry, saved.ui
     SC.ExpeditionPrototype, SC.TaxiService = saved.expedition, saved.taxi
+    Perks, SC.BaseAlert, SC.ExpeditionIntegration = saved.perks, saved.alert, saved.integration
     getCell, getGameTime, getClimateManager = nil, nil, nil
 end
 
+do
+    local world=fixtureWorld({
+        people=function() return {
+            {id="one",name="Ann",health=72,wounds={"Left forearm: deep wound; bandaged"},hunger=.4,thirst=.1,
+                skills={{name="First aid",level=3},{name="Aiming",level=2}}},
+            {id="two",name="Rook",health=100,skills={{name="First aid",level=7},{name="Aiming",level=1}}},
+            {id="away",name="Kate",away=true,skills={{name="First aid",level=10}}}} end,
+        deliveries=function() return {rows={{kind="Wood",collected=8,carried=2,stored=3,pending=5,unknown=3,
+            retryRemainingMs=180000,toolsPending=true}},truncated=true} end,
+        shortages=function() return {stock={{name="Medical",count=2,target=6,status="Low"}},alerts={},unloaded=1,ageSeconds=30} end,
+        alarms=function() return {active={level="Contact",count="3",side="north",spotter="Ann",responding=2}} end,
+        expedition=function() return {active=false,last={kind="Wood",collected=8,carried=3,stored=2,unknown=1,deliveryPending=true}} end,
+    })
+    check(has(Brain.respond(session(),"who is hurt",world),"Left forearm: deep wound; bandaged"),"wounds are reported without inventing bandage ages")
+    check(has(Brain.respond(session(),"how is Ann",world),"hunger 40%, thirst 10%"),"individual report has measured needs")
+    local reply=Brain.respond(session(),"who is best at first aid",world)
+    check(has(reply,"Rook, level 7") and not has(reply,"Kate"),"skill ranking excludes away crew and reports the real level")
+    check(has(Brain.respond(session(),"shortages",world),"Medical: 2/6") and has(Brain.respond(session(),"shortages",world),"incomplete"),"shortages retain targets and incompleteness")
+    check(has(Brain.respond(session(),"alarms",world),"3 threats north") and has(Brain.respond(session(),"alarms",world),"current session"),"alarm answer describes its actual history limit")
+    reply=Brain.respond(session(),"expedition",world)
+    check(has(reply,"Collected: 8") and has(reply,"Carried: 3; stored: 2") and has(reply,"cannot currently be located"),"debrief separates cargo and uncertainty")
+    reply=Brain.respond(session(),"pending deliveries",world)
+    check(has(reply,"collected 8, carried 2, stored 3, pending 5") and has(reply,"cannot currently be located")
+        and has(reply,"180 seconds") and has(reply,"Borrowed tools") and has(reply,"first eight"),
+        "pending delivery answer discloses uncertainty, tool debt, retry timing and its cap")
+    local recovering=fixtureWorld({people=function() return {{name="Ann",id="ann",health=70}} end})
+    check(has(Brain.respond(session(),"who is hurt",recovering),"Low health alone does not mean a bandage will help"),
+        "low health without observed wounds does not invent a bandage or medical task")
+    for _,pair in ipairs({{"refuel generator","refuel_generator"},{"refuel pickup","refuel_vehicle"},
+        {"can you please refuel the generator","refuel_generator"},
+        {"send medic to Ann","medic"},{"ask the medic to check Ann","medic"},{"retry job job-4","retry_job"}}) do
+        reply=Brain.respond(session(),pair[1],world)
+        check(reply.proposal and reply.proposal.kind==pair[2],"explicit request becomes a fixed proposal: "..pair[1])
+        local outside=fixtureWorld({camp=function() return {configured=true,inside=false} end})
+        check(not Brain.respond(session(),pair[1],outside).proposal,"outside-camp brain cannot propose: "..pair[1])
+    end
+    reply=Brain.respond(session(),"refuel carson",world)
+    check(reply.proposal.query=="carson","vehicle names that begin with car are not truncated as generic nouns")
+    reply=Brain.respond(session(),"retry job:123",world)
+    check(reply.proposal.query=="job:123","literal job IDs remain intact without a separate job prefix")
+end
 print("TERMINAL_KAHLUA_PASS checks=" .. checks)
 SC_TEST_REPORT = "Camp computer brain and world: " .. checks .. " checks passed"

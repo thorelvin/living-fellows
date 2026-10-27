@@ -1,5 +1,31 @@
 module Base
 {
+    sound LFTaxiRadioCall
+    {
+        category = UI,
+        loop = false,
+        maxInstancesPerEmitter = 1,
+        clip
+        {
+            file = media/sound/LFTerminalBoot.ogg,
+            is3D = false,
+            volume = 0.85,
+        }
+    }
+
+    sound LFTerminalBoot
+    {
+        category = UI,
+        loop = false,
+        maxInstancesPerEmitter = 1,
+        clip
+        {
+            file = media/sound/LFTerminalBoot.ogg,
+            is3D = false,
+            volume = 0.85,
+        }
+    }
+
     sound LFUrinate
     {
         category = Player,

@@ -1,4 +1,4 @@
-Living Fellows 0.26.69 - release
+Living Fellows 0.26.71 - release
 
 FIELD GUIDE
 https://thorelvin.github.io/living-fellows/
@@ -19,6 +19,9 @@ TAKE THE OTHERS WITH YOU
   memories and private diaries. Death is permanent.
 - Living bases: assign jobs, sort loot, farm, cook, build and collect wood.
   Blocked jobs retry automatically, with manual Retry still available.
+- EMMA computers: ask about camp supplies, people, jobs and expeditions,
+  request help with confirmation, and read the previous owners' files.
+  Everything runs offline, with readable text on a full-screen 1993 terminal.
 - Households and Strange Folk: trade, requests, recruitment and people with
   their own stories. Random eligible encounters can begin on the second day.
 

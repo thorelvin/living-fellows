@@ -1,0 +1,10 @@
+# Keep current acceptance and compact evidence; older presentation captures
+# remain available locally without duplicating every design iteration in Git.
+/art-history/
+/native-acceptance/*.png
+!/native-acceptance/emma-lore-*.png
+!/native-acceptance/camp-logo-*.png
+!/native-acceptance/confirmation-prompt.png
+!/native-acceptance/medical-report.png
+!/native-acceptance/skill-report.png
+!/native-acceptance/*.log

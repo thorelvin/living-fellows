@@ -2092,6 +2092,29 @@ local function answerDistressFromRadio(_target, player, groupId)
     return okay and accepted == true, reason
 end
 
+local function stopTaxiCallAudio()
+    local sound = Context._taxiCallAudio
+    Context._taxiCallAudio = nil
+    if not sound then return end
+    pcall(function()
+        if sound.manager:isPlayingUISound(sound.handle) then
+            sound.manager:stopUISound(sound.handle)
+        end
+    end)
+end
+
+local function playTaxiCallAudio()
+    stopTaxiCallAudio()
+    if type(getSoundManager) ~= "function" then return end
+    pcall(function()
+        local manager = getSoundManager()
+        local handle = manager and manager:playUISound("LFTaxiRadioCall")
+        if type(handle) == "number" and handle > 0 then
+            Context._taxiCallAudio = { manager = manager, handle = handle }
+        end
+    end)
+end
+
 local function taxiRadioAction(_target, player, radio, action, payload)
     local booking, service = SC.TaxiBooking, SC.TaxiService
     if not booking or booking.dispatchReady ~= true or not service
@@ -2101,6 +2124,14 @@ local function taxiRadioAction(_target, player, radio, action, payload)
     if player ~= primary then return false end
     local okay, accepted, reason, state = pcall(service[action],
         player, radio, payload)
+    if okay and accepted == true then
+        if action == "request" and radio ~= nil
+            and (reason == "booking_received" or reason == "taxi_dispatched") then
+            playTaxiCallAudio()
+        elseif action == "cancel" then
+            stopTaxiCallAudio()
+        end
+    end
     local feedbackKeys = {
         booking_received = "UI_SC_Taxi_booking_received",
         already_booked = "UI_SC_Taxi_already_booked",
@@ -2323,6 +2354,7 @@ function Context.install()
 end
 
 function Context.remove()
+    stopTaxiCallAudio()
     if not Context._installed
         and not (ISInventoryPaneContextMenu
             and ISInventoryPaneContextMenu.readItem

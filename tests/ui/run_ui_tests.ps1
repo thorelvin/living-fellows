@@ -80,9 +80,24 @@ try {
             (Join-Path $TestRoot 'SCTerminalFixture.lua'),
             (Join-Path $Client 'SCTerminalLines.lua'),
             (Join-Path $Client 'SCTerminalBrain.lua'),
+            (Join-Path $Client 'SCTerminalLore.lua'),
+            (Join-Path $Client 'SCTerminalFiles.lua'),
+            (Join-Path $Client 'SCTerminalPresentation.lua'),
+            (Join-Path $Client 'SCTerminalBusinessData.lua'),
+            (Join-Path $Client 'SCTerminalBrands.lua'),
+            (Join-Path $Client 'SCTerminalArtBounds.lua'),
+            # Auto-discovery can revisit a module already required by bootstrap.
+            (Join-Path $Client 'SCTerminalBrands.lua'),
+            (Join-Path $Client 'SCTerminalSystem.lua'),
             (Join-Path $Client 'SCTerminalWorld.lua'),
+            (Join-Path $Client 'SCTerminalActions.lua'),
             (Join-Path $Client 'SCTerminal.lua'),
-            (Join-Path $TestRoot 'SCTerminalTests.lua')
+            (Join-Path $TestRoot 'SCTerminalTests.lua'),
+            (Join-Path $TestRoot 'SCTerminalSystemTests.lua'),
+            (Join-Path $TestRoot 'SCTerminalPresentationTests.lua'),
+            (Join-Path $TestRoot 'SCTerminalAudioTests.lua'),
+            (Join-Path $TestRoot 'SCTerminalActionTests.lua'),
+            (Join-Path $TestRoot 'SCTerminalLoreTests.lua')
         )
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @terminalFiles
         if ($LASTEXITCODE -ne 0) { throw 'Camp computer terminal UI tests failed.' }

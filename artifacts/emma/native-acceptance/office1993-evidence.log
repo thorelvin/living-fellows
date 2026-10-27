@@ -1,0 +1,24 @@
+START disposable native terminal fixture
+SHOT post-1280 screen=1280x720 window=1280x720 font=CodeLarge row=36 zoom=1.3333333333333333 input=Large columns=54 sidebar=328 glass=1043x512
+SHOT aqua-fossoil-1280 screen=1280x720 window=1280x720 font=CodeLarge row=36 zoom=1.3333333333333333 input=Large columns=54 sidebar=328 glass=1043x512
+SHOT sand-fossoil-1280 screen=1280x720 window=1280x720 font=CodeLarge row=36 zoom=1.3333333333333333 input=Large columns=54 sidebar=328 glass=1043x512
+SHOT sand-finnegan-1280 screen=1280x720 window=1280x720 font=CodeLarge row=36 zoom=1.3333333333333333 input=Large columns=54 sidebar=328 glass=1043x512
+SHOT green-valutech-1280 screen=1280x720 window=1280x720 font=CodeLarge row=36 zoom=1.3333333333333333 input=Large columns=54 sidebar=328 glass=1043x512
+SHOT purple-1920 screen=1920x1080 window=1920x1080 font=CodeLarge row=50 zoom=1.8333333333333333 input=Massive columns=62 sidebar=451 glass=1564x768
+SHOT chat-1920 screen=1920x1080 window=1920x1080 font=CodeLarge row=50 zoom=1.8333333333333333 input=Massive columns=62 sidebar=451 glass=1564x768
+START_NATIVE_KEYBOARD_CALLBACKS
+PASS native instant number selection
+SHOT native-files-1920 screen=1920x1080 window=1920x1080 font=CodeLarge row=50 zoom=1.8333333333333333 input=Massive columns=62 sidebar=451 glass=1564x768
+PASS native Tab, numeric chat, draft preservation and Enter
+PASS native Escape and keyboard release
+FONT Code height=16 M10=81
+FONT CodeSmall height=15 M10=60
+FONT CodeMedium height=21 M10=80
+FONT CodeLarge height=24 M10=90
+FONT Large height=26 M10=158
+FONT Massive height=45 M10=340
+PASS artwork catalog objects=198
+SHOT camp-purple-4k screen=2564x1421 window=2564x1421 font=CodeLarge row=65 zoom=2.4166666666666665 input=Massive columns=63 sidebar=595 glass=2095x1010
+SHOT narrow-native-fonts screen=2564x1421 window=641x1421 font=CodeLarge row=65 zoom=2.4166666666666665 input=Massive columns=18 sidebar=0 glass=508x1305
+SHOT green-camp-1920 screen=1920x1080 window=1920x1080 font=CodeLarge row=50 zoom=1.8333333333333333 input=Massive columns=62 sidebar=451 glass=1564x768
+PASS native acceptance complete screenshots=11

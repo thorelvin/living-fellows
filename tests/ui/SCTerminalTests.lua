@@ -47,6 +47,8 @@ local function settle(window)
     end
 end
 local function enter(window, value)
+    if window.state == "booting" then window:flush() end
+    if value ~= "" then window:setFocusMode("chat") end
     window.entry:setText(value)
     window:submit()
 end
@@ -79,9 +81,10 @@ check(Terminal.fillWorldObjectContextMenu(0, { options = {}, addOption = menu.ad
 desk.generatorPower = false
 local dark = { options = {}, addOption = menu.addOption }
 Terminal.fillWorldObjectContextMenu(0, dark, { computer }, player)
-check(dark.options[1].notAvailable == true and dark.options[1].toolTip
-    and string.find(dark.options[1].toolTip.description, "no power", 1, true) ~= nil,
-    "an unpowered computer is shown but disabled, with the reason")
+check(#dark.options == 0, "an unpowered computer has no Use computer entry")
+local distantMenu = { options = {}, addOption = menu.addOption }
+check(not Terminal.fillWorldObjectContextMenu(0, distantMenu, { computer }, T.player(110, 100, 0))
+    and #distantMenu.options == 0, "Use computer requires standing near the desktop")
 desk.gridPower = true
 check(not Terminal.powered(computer), "grid power outside a room does not run it")
 desk.room = {}
@@ -116,11 +119,12 @@ check(window ~= nil and T.performed == 1 and window.inUI and window.entry.focuse
     "finishing the action opens the terminal with the keyboard on the prompt")
 check(window.entry.maxLength == Brain.MAX_INPUT and window.entry.placeholder ~= nil,
     "the prompt is bounded and explains itself")
-check(window.state == "typing" and #window.rows == 0, "the boot screen types out, not all at once")
+check(window.state == "booting" and #window.rows == 0, "hardware POST starts before EMMA")
 run(window, 300)
-check(#window.rows > 0 and #window.rows < 12, "after a moment part of the boot screen is visible")
+check(window.state == "booting" and window.session == nil,
+    "the animated memory check does not start an EMMA session early")
 settle(window)
-check(shows(window, "EMMA 0.9.3 BETA") and shows(window, "2 of 3,685,296 records responding")
+check(shows(window, "EMMA 0.9.3 BETA") and shows(window, "2 local records")
     and shows(window, "generator, fuel 80%"), "the boot screen reports the population and power")
 check(window.rows[1].kind == "system" and window.rows[#window.rows].kind == "emma",
     "boot lines are system text and the greeting is EMMA")
@@ -238,6 +242,7 @@ settle(window)
 check(shows(window, "1. gate code 4512"), "old notes are read back")
 window:close()
 computer.data.LF_Emma = { operator = { "bad" }, notes = "broken", visits = "many", lastSeen = -5 }
+computer.data.movableData.LF_Emma = computer.data.LF_Emma
 Terminal.resetSessions()
 Terminal.open(player, computer)
 window = Terminal.window

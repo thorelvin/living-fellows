@@ -282,6 +282,14 @@ Brain.INTENTS = {
             instructions = 3, guide = 2 },
         phrases = { ["what can you do"] = 5, ["how does this work"] = 4, ["how do i use"] = 4,
             ["what do you do"] = 3 } },
+    { id = "skills", label = "skills", exact = { "skills", "who has the best skills" },
+        words = { skills = 6, skill = 5 }, phrases = { ["best at"] = 6 } },
+    { id = "shortages", label = "shortages", exact = { "shortages", "what are we short of", "stock targets" },
+        words = { shortages = 6, shortage = 6 }, phrases = { ["short of"] = 6, ["running out of"] = 5 } },
+    { id = "alarms", label = "camp alarms", exact = { "alarms", "alarm history", "camp alarm" },
+        words = { alarm = 5, alarms = 5 }, phrases = { ["who raised the alarm"] = 7 } },
+    { id = "deliveries", label = "pending deliveries", exact = { "deliveries", "pending deliveries", "cargo pending" },
+        words = { deliveries = 6, delivery = 5 }, phrases = { ["cargo pending"] = 6 } },
     { id = "clear", exact = { "clear", "cls", "clear screen" } },
     { id = "exit",
         exact = { "exit", "quit", "logout", "log out", "logoff", "log off", "bye", "goodbye",
@@ -433,6 +441,9 @@ Brain.INTENTS = {
             scratched = 4, infection = 5, immune = 5, immunity = 5 },
         phrases = { ["am i infected"] = 8, ["is there a cure"] = 8 } },
     { id = "lore",
+        exact={"emma backstory","emma history","who created emma","who made emma",
+            "tell me about emma","what is emma","how does emma work",
+            "knox event files","what is the knox event","does emma need the internet"},
         words = { outbreak = 6, knox = 6, happened = 4, government = 5, military = 5, army = 5,
             quarantine = 6, exclusion = 5, fence = 3, virus = 5, plague = 5, pandemic = 5,
             kentucky = 4, louisville = 5 },
@@ -659,6 +670,7 @@ local function campAccess(turn, world)
 end
 
 local function peopleList(turn, world)
+    if not campAccess(turn, world) then return {} end
     local people = ask(turn, world, "people")
     return type(people) == "table" and people or {}
 end
@@ -899,7 +911,18 @@ H.sorry = simplePool("sorry")
 H.compliment = simplePool("compliment")
 H.love = simplePool("love")
 H.meaning = simplePool("meaning")
-H.lore = simplePool("lore")
+function H.lore(session,reply,turn)
+    local archive=SC.TerminalLore
+    if not archive then return addPool(session,reply,"lore") end
+    local query=string.lower(turn.slots.query or "")
+    local id="county_rumour"
+    if query:find("emma",1,true) or query:find("created",1,true) or query:find("backstory",1,true) then id="emma_origin" end
+    if query:find("offline",1,true) or query:find("network",1,true) or query:find("internet",1,true) then id="emma_offline" end
+    local entry=archive.reference(id)
+    add(reply,"Local archive: "..entry.date.." - "..entry.title)
+    add(reply,entry.text)
+    add(reply,"This is an archived local file, not a live report. Choose County files and EMMA for the full collection.")
+end
 H.rescue = simplePool("rescue")
 H.cure = simplePool("cure")
 H.sudo = simplePool("sudo")
@@ -952,6 +975,94 @@ end
 
 function H.no(session, reply)
     addPool(session, reply, "no_free")
+end
+
+function H.request(_, reply, turn)
+    reply.category = "jobs"
+    reply.proposal = { kind = turn.slots.kind, query = turn.slots.query }
+end
+
+function H.skills(_, reply, turn, world)
+    reply.category = "people"
+    local query = string.lower(turn.slots.query or "")
+    local aliases = { medic = "first aid", medical = "first aid", doctor = "first aid",
+        wood = "axe handling", woodcutting = "axe handling", logging = "axe handling", shooting = "aiming",
+        guns = "aiming", electricity = "electrical" }
+    query = aliases[query] or query
+    local best = {}
+    for _, person in ipairs(peopleList(turn, world)) do
+        if not person.away and person.atCamp ~= false then
+            for _, skill in ipairs(person.skills or {}) do
+                local name = tostring(skill.name)
+                if query == "" or string.find(string.lower(name), query, 1, true) then
+                    local current = best[name]
+                    if not current or skill.level > current.level then
+                        best[name] = { who = person.name, level = skill.level }
+                    end
+                end
+            end
+        end
+    end
+    local names = {}
+    for name in pairs(best) do names[#names + 1] = name end
+    table.sort(names)
+    if #names == 0 then return add(reply, "I have no current skill readings for that job.") end
+    add(reply, "Highest recorded skill among people currently at camp:")
+    for _, name in ipairs(names) do
+        add(reply, "  - " .. name .. ": " .. best[name].who .. ", level " .. best[name].level .. ".")
+    end
+    add(reply, "Availability, tools and safety still determine who can do the work.")
+end
+
+function H.shortages(session, reply, turn, world)
+    reply.category = "storage"
+    local facts = ask(turn, world, "shortages")
+    if type(facts) ~= "table" then return addPool(session, reply, "unavailable") end
+    if facts.pending then add(reply, "The camp stock audit is still updating. Ask again shortly.") end
+    if facts.ageSeconds then add(reply, "Last completed stock audit: " .. facts.ageSeconds .. " seconds ago.") end
+    local shown = 0
+    for _, row in ipairs(facts.stock or {}) do
+        if row.status ~= "Ready" then
+            shown = shown + 1
+            add(reply, "  - " .. tostring(row.name) .. ": " .. tostring(row.count or 0) .. "/"
+                .. tostring(row.target or 0) .. " target (" .. tostring(row.status or "unknown") .. ").")
+        end
+    end
+    if shown == 0 and not facts.pending then add(reply, "The recorded stock targets are covered.") end
+    for _, alert in ipairs(facts.alerts or {}) do add(reply, "  - " .. alert) end
+    if (facts.unloaded or 0) > 0 then add(reply, "Some stores are unloaded. These totals may be incomplete.") end
+end
+
+function H.alarms(session, reply, turn, world)
+    reply.category = "jobs"
+    local facts = ask(turn, world, "alarms")
+    if type(facts) ~= "table" then return addPool(session, reply, "unavailable") end
+    if facts.active then
+        local alarm = facts.active
+        add(reply, "Camp alarm: " .. tostring(alarm.level) .. "; " .. tostring(alarm.count)
+            .. " threats " .. tostring(alarm.side) .. ".")
+        add(reply, "Reported by " .. tostring(alarm.spotter) .. "; " .. tostring(alarm.responding or 0) .. " responding.")
+    else add(reply, "No active camp alarm is recorded.") end
+    if facts.last then add(reply, "Last cleared alarm this session: " .. facts.last.level .. " (" .. facts.last.reason .. ").")
+    else add(reply, "No cleared alarm is recorded for this session.") end
+    add(reply, "Alarm history is limited to the current session.")
+end
+
+function H.deliveries(session, reply, turn, world)
+    reply.category = "expedition"
+    local facts = ask(turn, world, "deliveries")
+    if type(facts) ~= "table" then return addPool(session, reply, "unavailable") end
+    if #(facts.rows or {}) == 0 then return add(reply, "No returned expedition has a pending delivery on record.") end
+    for index, row in ipairs(facts.rows) do
+        add(reply, "  - Returned " .. tostring(row.kind) .. " trip " .. index .. ": collected "
+            .. tostring(row.collected or 0) .. ", carried " .. tostring(row.carried or 0)
+            .. ", stored " .. tostring(row.stored or 0) .. ", pending " .. tostring(row.pending or 0) .. ".")
+        if (row.unknown or 0) > 0 then add(reply, "    " .. row.unknown .. " items cannot currently be located; their ownership remains unresolved.") end
+        if row.toolsPending then add(reply, "    Borrowed tools still need to be returned.") end
+        if row.retryRemainingMs then add(reply, "    Next automatic delivery check in about "
+            .. math.max(1, math.ceil(row.retryRemainingMs / 1000)) .. " seconds.") end
+    end
+    if facts.truncated then add(reply, "More delivery records exist; only the first eight are shown.") end
 end
 
 function H.whoami(session, reply, turn, world)
@@ -1050,11 +1161,17 @@ function H.people_hurt(session, reply, turn, world)
     local rows = hurtRows(people)
     if #rows == 0 then return addPool(session, reply, "hurt_none") end
     addTemplate(reply, "hurt_head", { n = #rows })
+    local treatableReport
     for _, person in ipairs(rows) do
         addTemplate(reply, "hurt_row", { who = person.name,
             health = math.floor((tonumber(person.health) or 0) + 0.5), extra = healthExtra(person) })
+        for index = 1, math.min(4, #(person.wounds or {})) do add(reply, "    " .. person.wounds[index]) end
+        if not treatableReport and (person.bleeding or #(person.wounds or {}) > 0) then treatableReport = person end
     end
-    addPool(session, reply, "hurt_some")
+    if treatableReport then
+        addPool(session, reply, "hurt_some")
+        if treatableReport.id then add(reply, "You can ask me to send a medic to " .. treatableReport.name .. ".") end
+    else add(reply, "No open wound is visible in these readings. Low health alone does not mean a bandage will help.") end
 end
 
 function H.people_mood(session, reply, turn, world)
@@ -1091,6 +1208,11 @@ function H.person(session, reply, turn, world)
     if person.where and person.where ~= "" then
         addTemplate(reply, "person_where", { who = person.name, where = person.where })
     end
+    for index = 1, math.min(8, #(person.wounds or {})) do add(reply, "  - " .. person.wounds[index]) end
+    local needs = {}
+    if tonumber(person.hunger) then needs[#needs + 1] = "hunger " .. math.floor(person.hunger * 100 + .5) .. "%" end
+    if tonumber(person.thirst) then needs[#needs + 1] = "thirst " .. math.floor(person.thirst * 100 + .5) .. "%" end
+    if #needs > 0 then add(reply, "Current needs: " .. table.concat(needs, ", ") .. ".") end
 end
 
 function H.jobs(session, reply, turn, world)
@@ -1126,6 +1248,10 @@ function H.blocked(session, reply, turn, world)
     for index = 1, math.min(6, #rows) do
         addTemplate(reply, "blocked_row", { job = rows[index].job or "Work",
             reason = rows[index].reason or "reason unknown" })
+        local row = rows[index]
+        if row.retryRemainingMs then add(reply, "    Automatic retry in about "
+            .. math.max(1, math.ceil(row.retryRemainingMs / 1000)) .. " seconds.") end
+        if row.id then add(reply, "    To retry now: retry job " .. tostring(row.id)) end
     end
 end
 
@@ -1219,7 +1345,18 @@ function H.expedition(session, reply, turn, world)
     reply.category = "expedition"
     local expedition = ask(turn, world, "expedition")
     if type(expedition) ~= "table" or expedition.active ~= true then
-        return addPool(session, reply, "expedition_none")
+        addPool(session, reply, "expedition_none")
+        local last = type(expedition) == "table" and expedition.last
+        if not last then return end
+        add(reply, "Last trip: " .. tostring(last.kind or "expedition") .. ".")
+        if last.reason then add(reply, "Ended: " .. last.reason .. ".") end
+        if last.collected ~= nil then add(reply, "Collected: " .. last.collected .. ".") end
+        if last.carried ~= nil then add(reply, "Carried: " .. last.carried .. "; stored: " .. tostring(last.stored or 0) .. ".") end
+        if last.deliveryPending then
+            add(reply, "Delivery remains pending. Returning home has not completed storage.")
+            if (last.unknown or 0) > 0 then add(reply, last.unknown .. " cargo items cannot currently be located; I cannot count them as carried or stored.") end
+        end
+        return
     end
     addTemplate(reply, "expedition", { leader = expedition.leader or "Someone",
         kind = expedition.kind or "supply" })
@@ -1230,6 +1367,12 @@ function H.expedition(session, reply, turn, world)
         addTemplate(reply, "expedition_progress", { collected = expedition.collected,
             requested = expedition.requested })
     end
+    if expedition.phase then add(reply, "Last observed phase: " .. expedition.phase .. ".") end
+    if expedition.destination then add(reply, "Planned destination: " .. expedition.destination .. ".") end
+    if expedition.source == "radio" then add(reply, "Progress is from the last radio report; it may have changed.")
+    elseif expedition.partial then add(reply, "Only part of the crew's cargo is currently observable.") end
+    if expedition.carried ~= nil then add(reply, "Carried: " .. expedition.carried .. "; stored: " .. tostring(expedition.stored or 0) .. ".") end
+    if expedition.deliveryPending then add(reply, "Delivery pending: " .. tostring(expedition.pending or 0) .. " items awaiting storage.") end
     addPool(session, reply, "expedition_some")
 end
 
@@ -1334,9 +1477,9 @@ function H.status(session, reply, turn, world)
     local people = peopleList(turn, world)
     local away = 0
     for _, person in ipairs(people) do if person.away == true then away = away + 1 end end
-    addTemplate(reply, "status_people", { people = #people, hurt = #hurtRows(people), away = away })
     local access, reason = campAccess(turn, world)
     if access then
+        addTemplate(reply, "status_people", { people = #people, hurt = #hurtRows(people), away = away })
         local jobs = jobFacts(turn, world)
         if jobs then
             addTemplate(reply, "status_jobs", { active = jobs.active or 0, pending = jobs.pending or 0,
@@ -1512,7 +1655,38 @@ function Brain.parse(session, raw, world, turn)
     local exact = EXACT[joined]
     if pending and (exact == "yes" or exact == "ack") then return pending.intent, pending.slots or {} end
     if pending and exact == "no" then return "did_you_mean_no", {} end
-    if exact then return exact, {} end
+    if exact then return exact, exact=="lore" and {query=text} or {} end
+    local bestSkill = string.lower(text):match("who is best at%s+(.+)")
+        or string.lower(text):match("who is the best at%s+(.+)")
+    if bestSkill then return "skills", { query = bestSkill:gsub("[?!%.]+$", "") } end
+    -- Only explicit requests reach the confirmation layer. Ordinary questions
+    -- about fuel, health or blocked work remain read-only.
+    local request = string.lower(text):gsub("[?!%.]+$", ""):gsub("^please%s+", "")
+        :gsub("^can you%s+", ""):gsub("^could you%s+", ""):gsub("^please%s+", "")
+    local fuel = request:match("^refuel%s+(.+)$") or request:match("^fuel up%s+(.+)$")
+        or request:match("^queue refuel%s+(.+)$")
+    if fuel then
+        if fuel == "generator" or fuel == "the generator" then
+            return "request", { kind = "refuel_generator" }
+        end
+        fuel = fuel:gsub("^the%s+", "")
+        if fuel == "car" or fuel == "vehicle" then fuel = ""
+        else fuel = fuel:gsub("^car%s+", ""):gsub("^vehicle%s+", "") end
+        return "request", { kind = "refuel_vehicle", query = fuel }
+    end
+    local retry = request:match("^retry%s+(.+)$")
+    if retry then
+        retry = retry:gsub("^the%s+", "")
+        if retry == "blocked jobs" or retry == "blocked job" or retry == "jobs" or retry == "job" then retry = ""
+        else retry = retry:gsub("^blocked%s+", ""):gsub("^jobs?%s+", "") end
+        return "request", { kind = "retry_job", query = retry }
+    end
+    local patient = request:match("^ask%s+the%s+medic%s+to%s+check%s+(.+)$")
+        or request:match("^ask%s+a%s+medic%s+to%s+check%s+(.+)$")
+        or request:match("^send%s+a?%s*medic%s+to%s+(.+)$")
+        or request:match("^send%s+the%s+medic%s+to%s+(.+)$")
+        or request:match("^treat%s+(.+)$")
+    if patient then return "request", { kind = "medic", query = patient:gsub("^on%s+", "") } end
     if looksLikeMash(text) then return "mash", {} end
 
     local people = peopleList(turn, world)
@@ -1550,7 +1724,7 @@ function Brain.parse(session, raw, world, turn)
         end
         return "storage", { item = words, itemText = #shown > 0 and shown or nil }
     end
-    if intent then return intent, {} end
+    if intent then return intent, intent=="lore" and {query=text} or {} end
 
     -- Nothing scored. Try the context, then the shelves, then a suggestion.
     local words, shown = itemWords(rest), shownWords(rest)
@@ -1609,11 +1783,17 @@ local function thinking(session, reply)
     for offset = 0, count - 1 do
         reply.think[#reply.think + 1] = steps[(start + offset - 1) % #steps + 1]
     end
-    local base = DATA_CATEGORIES[reply.category] and 650 or 250
+    local base = DATA_CATEGORIES[reply.category] and 1200 or 500
     reply.thinkMs = base + (#reply.think - 1) * 350 + (roll(session, 9) - 1) * 50
 end
 
 -- One line of operator text in, one reply out.
+local CAMP_INTENTS = {
+    people_list = true, people_hurt = true, people_mood = true, person = true,
+    storage = true, food = true, jobs = true, blocked = true, expedition = true,
+    odds = true, request = true, skills = true, shortages = true, alarms = true, deliveries = true,
+}
+
 function Brain.respond(session, raw, world)
     session.turns = session.turns + 1
     local turn = { cache = {} }
@@ -1621,6 +1801,10 @@ function Brain.respond(session, raw, world)
     turn.slots = slots or {}
     local reply = newReply(intent)
     local handler = H[intent] or H.fallback
+    if CAMP_INTENTS[intent] then
+        local access, reason = campAccess(turn, world)
+        if not access then handler = function(s, r) return addPool(s, r, reason) end end
+    end
     local ok, failure = pcall(handler, session, reply, turn, world)
     if not ok then
         reply.lines, reply.category = {}, "chat"
@@ -1650,7 +1834,9 @@ function Brain.boot(session, world)
     local turn = { cache = {} }
     local reply = newReply("boot", "generic")
     local people = peopleList(turn, world)
-    add(reply, L().BOOT, { alive = commas(#people + 1), power = powerText(ask(turn, world, "power")) })
+    add(reply, L().BOOT, { alive = campAccess(turn, world)
+        and (commas(#people + 1) .. " local records") or "not connected",
+        power = powerText(ask(turn, world, "power")) })
     local clock = ask(turn, world, "clock")
     local now = type(clock) == "table" and tonumber(clock.worldHours) or nil
     local fields = { name = operatorName(session) }

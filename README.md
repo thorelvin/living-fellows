@@ -10,7 +10,7 @@
   <img src="assets/banner.png" width="100%" alt="Living Fellows: survivors walking a dusk street together">
 </p>
 
-[![Release](https://img.shields.io/badge/release-0.26.69-blue.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-0.26.71-blue.svg)](CHANGELOG.md)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.21.0-red.svg)](#requirements)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -26,7 +26,7 @@ Living Fellows adds companions, survivor households and working bases to Project
 - **Call Markus's taxi.** Stranded on the road? Call for pickup from a working walkie-talkie, climb into Markus Sloane's cab and choose a road destination on the map. Bring jewelry for the fare.
 - **Build a crew worth knowing.** Up to 16 companions with professions, personalities, relationships and memories. They fight in formation, look after their needs, treat wounds and retreat when they're outmatched. Some keep private diaries. Death is permanent, and the book stays behind.
 - **Make a home that works.** Mark storage and work areas, assign jobs, grow food, build, fell trees, saw planks and bury the dead. Wood goes into neat four-log stacks. Blocked jobs pause and retry automatically; manual Retry stays available.
-- **Ask EMMA.** Right-click a powered desktop computer to talk to EMMA, the state's unfinished emergency assistant. Ask in plain English who is hurt, how many nails are left, what the generator has in it or what to do next. She answers from your save, remembers your notes, and has opinions. [More](docs/camp-computer.md).
+- **Ask EMMA.** Use a powered desktop computer to ask who is hurt, how many nails are left or what needs doing. She reads your camp records, remembers notes and requests help with your confirmation. Recover locked machines and browse 340 entries left by their previous owners, plus county files. Everything runs offline on a full-screen 1993 terminal. [More](docs/camp-computer.md).
 - **Meet the people still out there.** Households trade, offer work and remember how you treat them. Sixty-five Strange Folk bring their own stories, requests and bad habits. Encounters can begin on the second day, with a random eligible character each time.
 
 The [Field Guide](https://thorelvin.github.io/living-fellows/) covers orders, camp jobs, equipment, travel and the people you'll meet.
@@ -38,7 +38,7 @@ The [Field Guide](https://thorelvin.github.io/living-fellows/) covers orders, ca
 Choose one installation method. Workshop and standalone copies share the same mod ID and should not be enabled together.
 
 Using Bandits2 too? See the [optional adapter's scope and test results](docs/compatibility-bandits2.md).
-The unreleased source also includes [Project A-Life compatibility](docs/compatibility-project-alife.md). Use one external NPC mod at a time.
+There is also optional [Project A-Life compatibility](docs/compatibility-project-alife.md). Use one external NPC mod at a time.
 
 ### Steam Workshop
 

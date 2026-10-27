@@ -80,6 +80,14 @@ public final class SCBridge {
         return SCViewpointCompatibility.active();
     }
 
+    /** One scoped terminal-header draw, never a world or camera render pass. */
+    public static boolean drawTerminalLogo(zombie.ui.UIElement host, zombie.core.textures.Texture texture,
+            double x, double y, double width, double height, double alpha, double red, double green, double blue,
+            double keyRed, double keyGreen, double keyBlue, boolean keyed, boolean monochrome, boolean darkInk) {
+        return SCTerminalLogoRenderer.draw(host, texture, x, y, width, height, alpha,
+                red, green, blue, keyRed, keyGreen, keyBlue, keyed, monochrome, darkInk);
+    }
+
     public static final int ITEM_FACT_FOOD = 1;
     public static final int ITEM_FACT_DRAINABLE = 1 << 1;
     public static final int ITEM_FACT_HAND_WEAPON = 1 << 2;

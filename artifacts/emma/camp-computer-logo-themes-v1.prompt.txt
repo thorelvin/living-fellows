@@ -1,0 +1,15 @@
+Generator: built-in image_gen
+Transparent background: true
+
+Use case: logo-brand.
+Asset type: original raster logo artwork for the header of an in-game 1993 camp computer in the Project Zomboid mod Living Fellows.
+Create ONE clean transparent PNG containing THREE matched horizontal logo lockups, arranged vertically with generous transparent space between them. These are color variants of the exact same original EMMA camp-computer emblem. The art must be usable as a small terminal header thumbnail. This is an isolated game UI asset, not a screenshot, not a comparison poster, and not a picture of a physical computer.
+
+Brand: EMMA, Emergency Management Assistant. Kentucky civil-defence beta repurposed by survivors to manage their camp. Thoughtful visual idea: a simple sturdy house/roof shelter combined with a modest radio mast and two short signal arcs, framed by an understated round civil-defence-style badge. The icon should communicate a home that is still transmitting. Original composition; no existing government seal, no franchise symbols, no skulls, no weapons, no copied Fallout or Portal art.
+To the right of the badge, bold condensed monospaced lettering reading exactly "EMMA". Below it, smaller but readable lettering exactly "CAMP SYSTEM". A tiny second line may read "KENTUCKY • 1993" only if it remains clean and readable.
+Make the badge and wordmark feel like a fictional county contractor's 1993 monochrome computer boot emblem: crisp geometric linework, simple strong silhouette, deliberate pixel-grid character, restrained 16-bit terminal aesthetic, lightly imperfect screen-print edges. Practical and slightly austere. No cute mascot, modern app gradients, bevels, 3D, chrome or elaborate ornamental detail.
+
+First row: soft PHOSPHOR GREEN ink, main color #A7E58B, brighter lettering #C6F2AE.
+Second row: warm GOLDEN SAND ink, main color #DDBB74, pale cream lettering #E6D2A2. Absolutely no teal in this row.
+Third row: AQUAMARINE ink, main color #66DDCF, pale aqua lettering #B5F2EA.
+Each row must have identical icon geometry, text layout, proportions and scale. Each lockup is wide and compact, roughly 3.5:1. Align all three left edges and right edges. The visible marks should fill most of each row, with tidy margins. Transparent background everywhere outside the marks, including spaces inside and around the emblem. No panel backgrounds, no color-name captions, no checkerboard baked into the art, no mockup frames, no watermarks. Minimal glow only directly around strokes, with mostly sharp opaque lettering so the logo stays legible when reduced to around 180 by 55 pixels.

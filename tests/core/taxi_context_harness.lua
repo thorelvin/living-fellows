@@ -43,6 +43,20 @@ function fareItem:getDisplayName() return "Gold Ring" end
 
 local departCount, offerCount = 0, 0
 local phase = "ready_to_depart"
+local hasBooking, requestAccepted, requestReason = true, true, "booking_received"
+local audio = { plays = {}, stops = {}, active = { [777] = true }, next = 1000 }
+function audio:playUISound(name)
+    self.next = self.next + 1
+    self.plays[#self.plays+1] = name
+    self.active[self.next] = true
+    return self.next
+end
+function audio:isPlayingUISound(handle) return self.active[handle] == true end
+function audio:stopUISound(handle)
+    self.stops[#self.stops+1] = handle
+    self.active[handle] = nil
+end
+getSoundManager = function() return audio end
 SurvivorCompanion = {
     GameplayUtil = {
         isZombie = function() return false end,
@@ -57,7 +71,13 @@ SurvivorCompanion = {
         end,
     },
     TaxiService = {
-        current = function() return { phase = phase } end,
+        current = function() return hasBooking and { phase = phase } or nil end,
+        request = function(actor, candidate)
+            check(actor == player and candidate == radio, "booking caller and radio")
+            return requestAccepted, requestReason
+        end,
+        status = function() return true, "searching" end,
+        cancel = function() return true, "booking_cancelled" end,
         isBookedPassenger = function(actor, vehicle)
             return actor == player and vehicle == car
         end,
@@ -133,5 +153,44 @@ SurvivorCompanion.UIContext.fillWorldObjectContextMenu(0, walkingMenu,
 check(not option(walkingMenu, "UI_SC_Taxi_Menu"),
     "in-car menu unavailable outside cab")
 
-print("taxi context harness passed")
+hasBooking = false
+local bookingMenu = menu()
+SurvivorCompanion.UIContext.fillRadioContextMenu(0, bookingMenu, {radio})
+local bookingRoot = option(bookingMenu,"UI_SC_Taxi_Menu")
+local book = bookingRoot and option(bookingRoot.subMenu,"UI_SC_Taxi_Call")
+check(book ~= nil and #audio.plays == 0, "building the radio menu plays no audio")
+local accepted = book.callback(book.target,unpack(book.args))
+check(accepted == true and #audio.plays == 1 and audio.plays[1] == "LFTaxiRadioCall",
+    "clicking a new accepted booking plays the supplied clip once")
+local handle = SurvivorCompanion.UIContext._taxiCallAudio.handle
+requestReason = "already_booked"
+book.callback(book.target,unpack(book.args))
+check(#audio.plays == 1 and SurvivorCompanion.UIContext._taxiCallAudio.handle == handle,
+    "stale duplicate booking clicks do not replay or replace the active clip")
+hasBooking, phase = true, "searching"
+local statusMenu = menu()
+SurvivorCompanion.UIContext.fillRadioContextMenu(0,statusMenu,{radio})
+local statusRoot = option(statusMenu,"UI_SC_Taxi_Menu")
+local status = option(statusRoot.subMenu,"UI_SC_Taxi_Status")
+status.callback(status.target,unpack(status.args))
+check(#audio.plays == 1, "status checks do not replay the booking sound")
+local cancel = option(statusRoot.subMenu,"UI_SC_Taxi_Cancel")
+cancel.callback(cancel.target,unpack(cancel.args))
+check(#audio.stops == 1 and audio.stops[1] == handle and audio.active[777],
+    "booking cancellation stops only its own call audio")
+
+hasBooking, requestAccepted, requestReason = false, false, "radio_off"
+book.callback(book.target,unpack(book.args))
+check(#audio.plays == 1, "rejected or switched-off radios make no transmission sound")
+requestAccepted, requestReason = true, "booking_received"
+book.callback(book.target,unpack(book.args))
+local nextHandle = SurvivorCompanion.UIContext._taxiCallAudio.handle
+SurvivorCompanion.UIContext.remove()
+check(not audio.active[nextHandle] and audio.active[777], "world UI removal releases only the taxi clip")
+
+getSoundManager = function() error("test unavailable audio device") end
+accepted = book.callback(book.target,unpack(book.args))
+check(accepted == true, "audio device failure cannot reject an accepted taxi booking")
+
+print("taxi context harness passed; booking audio, duplicate/status silence and owned cleanup verified")
 end

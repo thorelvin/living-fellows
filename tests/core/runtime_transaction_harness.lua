@@ -296,5 +296,16 @@ do
     SC.Driving = savedDriving
 end
 
+do
+    local previous, terminalResets = SC.Terminal, 0
+    SC.Terminal = { reset = function()
+        terminalResets = terminalResets + 1
+        return true
+    end }
+    check(SC.Runtime.reset(true), "world teardown accepts computer terminal cleanup")
+    check(terminalResets == 1, "world teardown closes the terminal and releases conversation caches once")
+    SC.Terminal = previous
+end
+
 SC_TEST_REPORT = "RUNTIME_TRANSACTION_KAHLUA_PASS checks=" .. tostring(checks)
 print(SC_TEST_REPORT)

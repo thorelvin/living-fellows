@@ -1,0 +1,16 @@
+{
+  "source": "User-provided System Initialization (1).mp3",
+  "original_file": "artifacts/emma/audio-source/System-Initialization.mp3",
+  "source_sha256": "a036cecabc360ef1a36130114f2fe8cf7a1c1beb4176a4d67a7f132b00075409",
+  "game_file": "SurvivorCompanion/42/media/sound/LFTerminalBoot.ogg",
+  "game_sha256": "ee42b91bec48b9d691c24109b1f140be638810caf53585ebaa594583fc673e68",
+  "sample_rate": 48000,
+  "channels": 2,
+  "frames": 363528,
+  "duration_seconds": 7.5735,
+  "conversion": "Local libsndfile decode to float32 and Ogg Vorbis encode; no trimming, normalization or resampling.",
+  "registered_sounds": [
+    "LFTerminalBoot",
+    "LFTaxiRadioCall"
+  ]
+}

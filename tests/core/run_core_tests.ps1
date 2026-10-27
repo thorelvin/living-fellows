@@ -98,6 +98,7 @@ try {
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCNativeCleanupTransactionTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCNativeBridgeExposureTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCViewpointCompatibilityTest.java') `
+        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCTerminalLogoRendererTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCStreetLookupTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCFishingMapTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCRoadRouterTest.java') `
@@ -748,6 +749,7 @@ try {
     Add-ScJvmStep 'sc-companion-driving' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCCompanionDrivingTest') @() 'Companion cruise control and lane scan gate failed.'
     Add-ScJvmStep 'sc-road-follower' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCRoadFollowerTest') @() 'Route following, wreck avoidance and turning round gate failed.'
     Add-ScJvmStep 'sc-viewpoint-compatibility' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCViewpointCompatibilityTest') @() 'Optional Viewpoint mode compatibility failed.'
+    Add-ScJvmStep 'sc-terminal-logo-renderer' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCTerminalLogoRendererTest') @() 'Terminal logo renderer state isolation failed.'
 
     $clothingCatalog = Join-Path $GameRoot 'media\clothing\clothing.xml'
     [xml]$clothing = Get-Content -LiteralPath $clothingCatalog -Raw -Encoding utf8

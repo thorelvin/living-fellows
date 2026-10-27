@@ -21,6 +21,10 @@ World.ITEMS_PER_CONTAINER = 600
 World.ITEMS_TOTAL = 4000
 World.PEOPLE_LIMIT = 24
 World.JOB_ROWS = 40
+World.SKILLS = { { "Doctor", "First aid" }, { "Woodwork", "Carpentry" },
+    { "Axe", "Axe handling" }, { "Farming", "Farming" },
+    { "Mechanics", "Mechanics" }, { "Electricity", "Electrical" },
+    { "Cooking", "Cooking" }, { "Aiming", "Aiming" } }
 
 local function U() return SC.GameplayUtil end
 
@@ -104,6 +108,12 @@ local function nearestGenerator(origin)
     return fallback
 end
 
+function World.nearestGenerator(square)
+    local x, y, z = call(square, "getX"), call(square, "getY"), call(square, "getZ")
+    if x == nil or y == nil or z == nil then return nil end
+    return nearestGenerator({ x = x, y = y, z = z })
+end
+
 local function percent(current, maximum)
     current, maximum = tonumber(current), tonumber(maximum)
     if not current then return nil end
@@ -134,6 +144,32 @@ local function personName(id, fallback)
         if ok and type(name) == "string" and name ~= "" then return name end
     end
     return fallback
+end
+
+function World.computerKind(object, brand)
+    local square = call(object, "getSquare")
+    local room = call(square, "getRoom")
+    local function kindOf(candidate)
+        local def = call(candidate, "getRoomDef") or candidate
+        return SC.TerminalFiles.classify(call(def, "getName") or call(candidate, "getName"))
+    end
+    local kind = kindOf(room)
+    if kind ~= "general" and kind ~= "office" then return kind end
+    local businessKind=brand and SC.TerminalBrands and SC.TerminalBrands.kind(brand)
+    if businessKind then return businessKind end
+    local building = call(room, "getBuilding") or call(square, "getBuilding")
+    local rooms = call(call(building, "getDef") or building, "getRooms")
+    local size = math.min(32, tonumber(call(rooms, "size")) or 0)
+    local found = {}
+    for index = 0, size - 1 do found[kindOf(call(rooms, "get", index))] = true end
+    local unique
+    for candidate in pairs(found) do
+        if candidate~="office" and candidate~="general" then
+            if unique and unique~=candidate then return kind end
+            unique=candidate
+        end
+    end
+    return unique or kind
 end
 
 function World.new(player, object)
@@ -198,6 +234,7 @@ function World.new(player, object)
     end
 
     function provider.people()
+        if provider.camp().inside ~= true then return nil end
         local result, seen = {}, {}
         local registry = SC.Registry
         if not registry or type(registry.living) ~= "function" then return result end
@@ -218,6 +255,28 @@ function World.new(player, object)
                     person.health = tonumber(row.health)
                     person.morale, person.stress = tonumber(row.morale), tonumber(row.stress)
                     person.mood = type(row.mood) == "string" and row.mood or nil
+                    person.hunger, person.thirst = tonumber(row.hunger), tonumber(row.thirst)
+                    person.wounds, person.skills = {}, {}
+                    for index, wound in ipairs(row.wounds or {}) do
+                        if index > 8 then break end
+                        local signs = {}
+                        for _, condition in ipairs({ { "bitten", "bite" }, { "deepWound", "deep wound" },
+                            { "fractured", "fracture" }, { "burned", "burn" }, { "cut", "cut" },
+                            { "scratched", "scratch" }, { "bleeding", "bleeding" },
+                            { "dirtyBandage", "dirty bandage" }, { "infected", "infected" } }) do
+                            if wound[condition[1]] == true then signs[#signs + 1] = condition[2] end
+                        end
+                        if #signs > 0 then
+                            person.wounds[#person.wounds + 1] = tostring(wound.name or "Unknown body part")
+                                .. ": " .. table.concat(signs, ", ")
+                                .. (wound.bandaged == true and "; bandaged" or "; unbandaged")
+                        end
+                    end
+                    for _, skill in ipairs(World.SKILLS) do
+                        local perk = Perks and Perks[skill[1]]
+                        local level = perk and tonumber(call(actor, "getPerkLevel", perk))
+                        if level then person.skills[#person.skills + 1] = { name = skill[2], level = level } end
+                    end
                     local body = call(actor, "getBodyDamage")
                     person.bleeding = (tonumber(call(body, "getNumPartsBleeding")) or 0) > 0
                     local summary = row.actionSummary
@@ -229,8 +288,9 @@ function World.new(player, object)
                     local x, y, z = U().position(actor)
                     local where = World.whereText(origin, x, y, z)
                     local life = SC.BaseLife
-                    if where and life and type(life.isInside) == "function"
-                        and life.isInside(actor) == true then
+                    person.atCamp = life and type(life.isInside) == "function"
+                        and life.isInside(actor) == true or false
+                    if where and person.atCamp then
                         where = "at camp, " .. where
                     end
                     person.where = where
@@ -253,6 +313,7 @@ function World.new(player, object)
     end
 
     function provider.jobs()
+        if provider.camp().inside ~= true then return nil end
         local life = SC.BaseLife
         if not life or type(life.summary) ~= "function" then return nil end
         local summary = life.summary()
@@ -266,17 +327,20 @@ function World.new(player, object)
             if index > World.JOB_ROWS then break end
             local job = humanize(row.kind or row.type or "work")
             result.rows[#result.rows + 1] = {
+                id = row.id,
                 state = row.state,
                 job = job,
                 who = row.reservedBy and personName(row.reservedBy, nil) or nil,
                 reason = row.blocker and SC.UI and type(SC.UI.baseFailureReason) == "function"
                     and SC.UI.baseFailureReason(row.blocker) or (row.blocker and humanize(row.blocker)),
+                retryRemainingMs = tonumber(row.retryRemainingMs),
             }
         end
         return result
     end
 
     function provider.storage()
+        if provider.camp().inside ~= true then return nil end
         local life = SC.BaseLife
         if not life or type(life.storageRows) ~= "function" then return nil end
         local groups, byKey = {}, {}
@@ -319,6 +383,40 @@ function World.new(player, object)
         return { containers = containers, items = items, truncated = truncated, groups = groups }
     end
 
+    function provider.shortages()
+        if provider.camp().inside ~= true then return nil end
+        local life = SC.BaseLife
+        if not life or type(life.auditOperations) ~= "function" then return nil end
+        local operations, _, pending = life.auditOperations(false)
+        if type(operations) ~= "table" then return { pending = true } end
+        local result = { pending = pending == true, stock = {}, alerts = {},
+            unloaded = tonumber(operations.unloadedStores) or 0,
+            ageSeconds = operations.auditedAt and U() and type(U().nowMs) == "function"
+                and math.max(0, math.floor((U().nowMs() - operations.auditedAt) / 1000)) or nil }
+        for index, row in ipairs(operations.stock or {}) do
+            if index > 5 then break end
+            result.stock[#result.stock + 1] = { name = humanize(row.category),
+                count = tonumber(row.count), target = tonumber(row.target), status = row.status }
+        end
+        for index, alert in ipairs(operations.alerts or {}) do
+            if index > 12 then break end
+            if type(alert) == "string" then result.alerts[#result.alerts + 1] = alert end
+        end
+        return result
+    end
+
+    function provider.alarms()
+        if provider.camp().inside ~= true then return nil end
+        local service = SC.BaseAlert
+        if not service or type(service.summary) ~= "function" then return nil end
+        local current = service.summary()
+        local cleared = service.lastCleared
+        return { active = current and { level = humanize(current.level), count = current.count,
+            side = current.side, spotter = personName(current.spotterId, "a resident"),
+            responding = tonumber(current.responding) } or nil,
+            last = cleared and { level = humanize(cleared.level), reason = humanize(cleared.reason) } or nil }
+    end
+
     function provider.zombies()
         local utility = U()
         if not origin or not utility or type(getCell) ~= "function" then return nil end
@@ -348,12 +446,29 @@ function World.new(player, object)
     end
 
     function provider.expedition()
+        if provider.camp().inside ~= true then return nil end
         local expedition = SC.ExpeditionPrototype
         if not expedition or type(expedition.describeForPlayer) ~= "function" then
             return { active = false }
         end
         local described = expedition.describeForPlayer(player)
-        if type(described) ~= "table" then return { active = false } end
+        if type(described) ~= "table" then
+            local debrief = type(expedition.lastDebrief) == "function" and expedition.lastDebrief() or nil
+            if not debrief then return { active = false } end
+            local integration = debrief.integration and SC.ExpeditionIntegration
+                and SC.ExpeditionIntegration.summary(debrief.integration) or nil
+            return { active = false, last = {
+                kind = debrief.kind and humanize(debrief.kind),
+                reason = debrief.endReason and humanize(debrief.endReason),
+                collected = (debrief.kind == "wood" or debrief.kind == "search") and #(debrief.acquisitions or {}) or nil,
+                carried = integration and integration.carried,
+                stored = integration and integration.stored,
+                pending = integration and integration.pending,
+                unknown = integration and integration.unknown,
+                deliveryPending = integration and integration.deliveryPending,
+                retryRemainingMs = integration and integration.retryRemainingMs,
+            } }
+        end
         local members = {}
         for _, member in ipairs(described.members or {}) do
             members[#members + 1] = personName(member.id, member.name or member.id)
@@ -367,7 +482,37 @@ function World.new(player, object)
             members = members,
             collected = type(progress) == "table" and tonumber(progress.collected) or nil,
             requested = type(progress) == "table" and tonumber(progress.requested) or nil,
+            carried = type(progress) == "table" and tonumber(progress.carried) or nil,
+            stored = type(progress) == "table" and tonumber(progress.stored) or nil,
+            phase = described.observedPhase and humanize(described.observedPhase)
+                or type(progress) == "table" and progress.phase and humanize(progress.phase) or nil,
+            source = type(progress) == "table" and progress.source or nil,
+            reportAt = type(progress) == "table" and tonumber(progress.at) or nil,
+            partial = type(progress) == "table" and progress.partial == true or nil,
+            destination = described.plannedSite,
+            deliveryPending = described.delivery and described.delivery.deliveryPending,
+            pending = described.delivery and tonumber(described.delivery.pending),
+            retryRemainingMs = described.delivery and tonumber(described.delivery.retryRemainingMs),
         }
+    end
+
+    function provider.deliveries()
+        if provider.camp().inside ~= true then return nil end
+        local expedition = SC.ExpeditionPrototype
+        if not expedition or type(expedition.pendingDeliveryReports) ~= "function" then return nil end
+        local result = { rows = {} }
+        for index, report in ipairs(expedition.pendingDeliveryReports() or {}) do
+            if index > 8 then result.truncated = true break end
+            local summary = report.summary
+            if summary then
+                result.rows[#result.rows + 1] = { kind = humanize(summary.kind or "expedition"),
+                    collected = tonumber(summary.collected), carried = tonumber(summary.carried),
+                    stored = tonumber(summary.stored), pending = tonumber(summary.pending),
+                    unknown = tonumber(summary.unknown), toolsPending = summary.toolsPending == true,
+                    retryRemainingMs = tonumber(summary.retryRemainingMs) }
+            end
+        end
+        return result
     end
 
     return provider

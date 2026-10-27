@@ -14,7 +14,7 @@ end
 -- Every pick takes the first open line, so greetings are exact.
 function ZombRand() return 0 end
 UIFont = { Code = "Code", Small = "Small" }
-Keyboard = { KEY_ESCAPE = 1, KEY_PRIOR = 201, KEY_NEXT = 209 }
+Keyboard = { KEY_ESCAPE = 1, KEY_TAB = 15, KEY_PRIOR = 201, KEY_NEXT = 209 }
 function getCore()
     return { getScreenWidth = function() return 1920 end, getScreenHeight = function() return 1080 end }
 end
@@ -30,6 +30,11 @@ local function element(object)
     object.children = {}
     function object:getWidth() return self.width end
     function object:getHeight() return self.height end
+    function object:setWidth(value) self.width = value end
+    function object:setHeight(value) self.height = value end
+    function object:setX(value) self.x = value end
+    function object:setY(value) self.y = value end
+    function object:setFont(value) self.font = value end
     function object:initialise() end
     function object:instantiate() end
     function object:addChild(child) self.children[#self.children + 1] = child end
@@ -68,6 +73,16 @@ function ISPanel:drawText(value)
     T.draws = T.draws + 1
     T.lastDrawn = value
 end
+function ISPanel:drawTextZoomed(value,x,y,zoom)
+    T.lastTextZoom = zoom
+    ISPanel.drawText(self,value,x,y)
+end
+function ISPanel:drawTextureScaled(texture,x,y,width,height,a,r,g,b)
+    T.draws = T.draws + 1
+    T.lastTextureDraw = {texture=texture,x=x,y=y,width=width,height=height,a=a,r=r,g=g,b=b,clip=T.stencil}
+end
+function ISPanel:setStencilRect(x,y,width,height) T.stencil={x=x,y=y,width=width,height=height} end
+function ISPanel:clearStencilRect() T.stencil=nil end
 
 ISButton = {}
 function ISButton:new(x, y, width, height, title, target, onClick)

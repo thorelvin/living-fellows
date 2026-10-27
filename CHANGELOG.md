@@ -2,8 +2,15 @@
 
 # Changelog
 
-## Unreleased - A-Life compatibility and human combat recovery
+## 0.26.71 - EMMA computers, A-Life compatibility and combat recovery
 
+- EMMA terminals fill the player view with centred content, an opaque background and much larger text that scales with resolution. Menu/chat focus, immediate number shortcuts, a skippable 1993-style POST sequence and persistent green, sand, aqua or rare purple phosphor complete the display. Business logos retain their original colours; the catalog references stock artwork and adds custom camp and fallback emblems.
+- Terminal text colours pair with each company's artwork, with aquamarine for Fossoil and rare purple kept as an exception. Logos share subdued CRT brightness, scanlines and consistent spacing; Fossoil uses a transparent boot logo instead of its station sign. Existing computers calibrate once without changing locks, files or notes.
+- EMMA uses generated scanline glass behind its live text and an original 1993-style beige Larchfield CRT casing with a transparent screen opening. Its side vents, left power switch and right brightness/contrast wheels keep their shape as the frame scales, while controls remain inside the glass. Skin textures preload before first use, and text stays clear across all four phosphor colours.
+- Computers play startup audio once per boot through the game's UI sound manager. It follows sound volume and stops when boot is skipped, the window closes or power fails.
+- Calling Markus from a walkie-talkie plays the same recording once for a new accepted booking. Status checks and duplicate bookings stay silent; cancellation and world exit stop the call audio.
+
+- Added LARCH/OS around EMMA: clickable numbered menus, 340 original entries across 85 previous owners, 16 county and EMMA files, and offline password recovery on 40% of new outside-camp computers. Locks and files travel with the computer; Electrical skill helps, a successful hack awards XP once, and failure pauses recovery for one game hour without rerolling the puzzle. Camp people and expedition records now require a computer inside camp.
 - Fixed flashing base-area and storage tints when the menu refreshes. Marking previews and construction guides now follow the game's UI redraw cycle, and ordinary companion health, hunger and activity changes no longer rebuild Base tab.
 - Added an optional Project A-Life 1.4.6 adapter for 42.21.0 single-player, with two-way combat discovery, protected firing lanes and native wound handling. Companions share your faction reputation; independent LF people keep their own relations.
 - A-Life sees distinct LF identities while its player-state callbacks leave the main player's lifecycle and UI alone. Options can disable combat integration, and Support reports readiness or changed interfaces. See the [scope](docs/compatibility-project-alife.md) and [validation](docs/validation-project-alife.md); live scenarios are recorded separately from automated checks.
@@ -16,7 +23,10 @@
 - Cornered companions defend against close or actively attacking humans when no escape is available. Stealth still avoids distant passive contacts, and Hold Fire, firing lanes and territory limits still apply.
 - Zombie classification skips native adapter ownership probes when Bandits and A-Life are absent. Native aiming also reuses cached class, method and field metadata instead of looking it up each frame.
 - Added gameplay regressions for these cases, including bagged ammunition and moving threats. See the [validation record](docs/validation-human-combat-fixes.md) for verification and limits.
-- Added EMMA, the camp computer. Right-click a powered desktop computer and choose Use computer to ask, in plain English, about your people, storage counts, food, jobs, power, weather, time, nearby zombies and expeditions. She tolerates typos, follows up on the last question, gives advice from what she can see and keeps notes on each computer. Everything runs offline from the save; storage and work questions need the computer inside camp. See [the camp computer](docs/camp-computer.md).
+- Added EMMA, the camp computer. Right-click a powered desktop computer and choose Use computer to ask, in plain English, about people, wounds, skills, storage, stock shortages, jobs, alarms, power, weather, nearby zombies and expeditions. She can request medical care, queue refuelling or retry a blocked job after your Y/N confirmation. Cargo reports separate collection, carrying and final storage. She tolerates typos, follows up on questions and keeps notes. Everything runs offline from the save; camp records and requests need a computer inside camp. See [the camp computer](docs/camp-computer.md).
+- The EMMA camp emblem now matches the screen's green, golden sand, aquamarine or purple phosphor.
+- Completed the terminal logo catalogue with 195 distinct company, camp and sector identities. Transparent adaptations, readable dark ink and paired screen colours make the marks part of the CRT display; purple screens use matching monochrome artwork. Business assignment uses verified room, sign or advert data, with sector emblems for uncertain locations.
+- Includes the Lua payload and native bridge protocol `42.21-isocompanion-24` for Project Zomboid 42.21.0. Install both from the same build.
 
 ## 0.26.69 - Bandits compatibility, companion shooting and storage controls
 

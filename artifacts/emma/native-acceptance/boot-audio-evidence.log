@@ -1,0 +1,6 @@
+START handle=131858437 volume=0.4000000059604645
+PASS native playback active, repeated start preserves handle
+PASS clip continues over welcome after POST
+PASS native clip finished naturally without looping
+PASS native close stops owned playback
+PASS native boot audio acceptance complete

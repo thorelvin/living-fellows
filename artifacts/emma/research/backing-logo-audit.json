@@ -1,0 +1,270 @@
+[
+  {
+    "id": "AARonHuntingSupply",
+    "opaque": 0.986
+  },
+  {
+    "id": "AmericanEats",
+    "opaque": 0.826
+  },
+  {
+    "id": "BBBQ",
+    "opaque": 0.895
+  },
+  {
+    "id": "BetterFurnishings",
+    "opaque": 0.98
+  },
+  {
+    "id": "BloominCoffee",
+    "opaque": 0.983
+  },
+  {
+    "id": "BowWowWowDogNutrition",
+    "opaque": 0.837
+  },
+  {
+    "id": "BoxpopBrewery",
+    "opaque": 0.831
+  },
+  {
+    "id": "BrightedWhites",
+    "opaque": 0.997
+  },
+  {
+    "id": "CafedEris",
+    "opaque": 0.729
+  },
+  {
+    "id": "CandytownUSA",
+    "opaque": 0.98
+  },
+  {
+    "id": "DeepFriedHeaven",
+    "opaque": 0.759
+  },
+  {
+    "id": "DiMarcoCoffee",
+    "opaque": 0.733
+  },
+  {
+    "id": "DiscountAccount",
+    "opaque": 0.98
+  },
+  {
+    "id": "EconoRoom",
+    "opaque": 0.732
+  },
+  {
+    "id": "ElveeArena",
+    "opaque": 0.849
+  },
+  {
+    "id": "ENewsNowNetwork",
+    "opaque": 0.763
+  },
+  {
+    "id": "FryerTooksFishNChips",
+    "opaque": 0.975
+  },
+  {
+    "id": "FunXtreme",
+    "opaque": 0.782
+  },
+  {
+    "id": "GenteelyUsed",
+    "opaque": 0.997
+  },
+  {
+    "id": "GustoDItalia",
+    "opaque": 0.975
+  },
+  {
+    "id": "HappyRestaurant",
+    "opaque": 0.989
+  },
+  {
+    "id": "homewardDown",
+    "opaque": 1.0
+  },
+  {
+    "id": "homewardHouse",
+    "opaque": 1.0
+  },
+  {
+    "id": "homewardMap",
+    "opaque": 0.924
+  },
+  {
+    "id": "HomewardRealEstate",
+    "opaque": 0.824
+  },
+  {
+    "id": "homewardTop",
+    "opaque": 1.0
+  },
+  {
+    "id": "JennysTable",
+    "opaque": 0.776
+  },
+  {
+    "id": "KeepAfloatDebtConsolidation",
+    "opaque": 0.953
+  },
+  {
+    "id": "Kegsplosion",
+    "opaque": 0.75
+  },
+  {
+    "id": "KnoxDistillery",
+    "opaque": 0.997
+  },
+  {
+    "id": "LaVieEnGastronomie",
+    "opaque": 0.986
+  },
+  {
+    "id": "LBMWNetwork",
+    "opaque": 0.966
+  },
+  {
+    "id": "MapsUnlimited",
+    "opaque": 0.912
+  },
+  {
+    "id": "MassGenfacCo",
+    "opaque": 0.974
+  },
+  {
+    "id": "MedicalCentre",
+    "opaque": 0.747
+  },
+  {
+    "id": "MilkNMore",
+    "opaque": 0.997
+  },
+  {
+    "id": "MindPeaceInsurance",
+    "opaque": 0.983
+  },
+  {
+    "id": "NailsandNuts",
+    "opaque": 0.987
+  },
+  {
+    "id": "NolanCar1",
+    "opaque": 1.0
+  },
+  {
+    "id": "NolanCar2",
+    "opaque": 1.0
+  },
+  {
+    "id": "NolanCar3",
+    "opaque": 1.0
+  },
+  {
+    "id": "NolanDude",
+    "opaque": 1.0
+  },
+  {
+    "id": "PawnShop",
+    "opaque": 0.977
+  },
+  {
+    "id": "PetHealthPawmise",
+    "opaque": 0.721
+  },
+  {
+    "id": "PurpleBlack",
+    "opaque": 0.997
+  },
+  {
+    "id": "ReadyPrep",
+    "opaque": 0.986
+  },
+  {
+    "id": "reporterImage",
+    "opaque": 1.0
+  },
+  {
+    "id": "RiverwoodBoatClub",
+    "opaque": 0.78
+  },
+  {
+    "id": "RustyRifleImage",
+    "opaque": 1.0
+  },
+  {
+    "id": "SkyBlueBanking",
+    "opaque": 0.733
+  },
+  {
+    "id": "SleepEazzzeInn",
+    "opaque": 0.781
+  },
+  {
+    "id": "Slimtax",
+    "opaque": 0.987
+  },
+  {
+    "id": "SmokeysSaloonRestaurant",
+    "opaque": 0.978
+  },
+  {
+    "id": "SpeedyLegal",
+    "opaque": 0.977
+  },
+  {
+    "id": "SpitfireFashion",
+    "opaque": 0.987
+  },
+  {
+    "id": "SweetEats",
+    "opaque": 0.813
+  },
+  {
+    "id": "TacoDelPancho",
+    "opaque": 0.985
+  },
+  {
+    "id": "TheCosyCrockpot",
+    "opaque": 0.984
+  },
+  {
+    "id": "TheKentuckyHerald - Copy",
+    "opaque": 0.851
+  },
+  {
+    "id": "TheRealSweat",
+    "opaque": 0.808
+  },
+  {
+    "id": "TheTopHanger",
+    "opaque": 0.994
+  },
+  {
+    "id": "TurboTV",
+    "opaque": 0.764
+  },
+  {
+    "id": "UnitedShippingLogistics",
+    "opaque": 0.978
+  },
+  {
+    "id": "Windows",
+    "opaque": 0.987
+  },
+  {
+    "id": "WormOfBooks",
+    "opaque": 0.753
+  },
+  {
+    "id": "YourCloset",
+    "opaque": 0.984
+  },
+  {
+    "id": "ZacsHardware",
+    "opaque": 0.997
+  }
+]

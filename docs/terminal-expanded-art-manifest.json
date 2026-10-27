@@ -1,0 +1,208 @@
+{
+  "generator": "built-in image_gen",
+  "entries": [
+    {
+      "id": "SunstarMotel",
+      "prompt": "Create ONE transparent raster computer-header logo for the 1993 Project Zomboid terminal. Use the attached original game artwork ONLY as the identity reference, not as a full flyer. Retain the Sunstar italic wordmark, simple sun disc and paired horizontal speed rules, and smaller MOTEL. Exact wording SUNSTAR / MOTEL. Use warm ivory monochrome strokes, with transparency in all empty space; this neutral phosphor master will be tinted to the screen colour by the game. Make a wide compact horizontal lockup, about 4:1. Crisp readable lightly pixel-stepped 1993 bitmap lettering and flat fills. Visible ink only on genuine transparent alpha, including inside letters and around strokes. It must sit directly on almost-black CRT glass with live text, never look like a sticker. No white page, black panel, physical sign, border box, paper texture, screenshot, frame, people, scenery, prices, slogans, copied advertising text, heavy glow or 3D. Tight transparent margins, complete logo inside the canvas, legible at 210 by 55 pixels. One logo only.",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/Sunstar.png",
+      "file": null,
+      "source_filename": "exec-b2fa0599-77fe-4e38-bf22-d4fb0d89849b.png",
+      "selected": false,
+      "sha256": "fda982c0efb49aeb5a8e42cd60f0fb521e6e4978ca03e8a864c0963d8103e06a",
+      "transparent_background": true,
+      "pixel_processing": "None; native renderer selects source bounds."
+    },
+    {
+      "id": "UStoreIt",
+      "prompt": "Create ONE transparent raster computer-header logo for the 1993 Project Zomboid terminal. Use the attached original game artwork ONLY as the identity reference, not as a full flyer. Retain the distinctive U-STORE IT name, stout slab-serif letters and small star. Exact wording U-STORE IT. Keep recognisable muted blue, red and ivory brand colours, using pale ivory as the dominant ink and restrained red/blue accents; no cyan rectangular backing. Pairing is an aquamarine CRT. Make a wide compact horizontal lockup, about 4:1. Crisp readable lightly pixel-stepped 1993 bitmap lettering and flat fills. Visible ink only on genuine transparent alpha, including inside letters and around strokes. It must sit directly on almost-black CRT glass with live text, never look like a sticker. No white page, black panel, physical sign, border box, paper texture, screenshot, frame, people, scenery, prices, slogans, copied advertising text, heavy glow or 3D. Tight transparent margins, complete logo inside the canvas, legible at 210 by 55 pixels. One logo only.",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/UStoreIt1.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/UStoreIt.png",
+      "source_filename": "exec-c355123e-e468-41c4-8d97-af93b665a0c2.png",
+      "selected": true,
+      "sha256": "fa5253b1ed408934f947bf6e027b4017d363304ebeca417e2988808abea51134",
+      "transparent_background": true,
+      "pixel_processing": "None; native renderer selects source bounds."
+    },
+    {
+      "id": "Lectromax",
+      "prompt": "Create ONE transparent raster computer-header logo for the 1993 Project Zomboid terminal. Use the attached original game artwork ONLY as the identity reference, not as a full flyer. Retain the plain industrial uppercase slanted LECTROMAX / MANUFACTURING wordmark from the advert. This business makes saw blades, not computers. Exact wording LECTROMAX / MANUFACTURING. Use ivory monochrome strokes so the native renderer can tint the mark to its CRT phosphor. Make a wide compact horizontal lockup, about 4:1. Crisp readable lightly pixel-stepped 1993 bitmap lettering and flat fills. Visible ink only on genuine transparent alpha, including inside letters and around strokes. It must sit directly on almost-black CRT glass with live text, never look like a sticker. No white page, black panel, physical sign, border box, paper texture, screenshot, frame, people, scenery, prices, slogans, copied advertising text, heavy glow or 3D. Tight transparent margins, complete logo inside the canvas, legible at 210 by 55 pixels. One logo only.",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/Lectromax.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/Lectromax.png",
+      "source_filename": "exec-307602cd-73e0-4ec0-a652-7d2fcb7769c4.png",
+      "selected": true,
+      "sha256": "ca42ab89e0f6470bc2e30975b091b296bbb70d1edf6945a197831623abed253c",
+      "transparent_background": true,
+      "pixel_processing": "None; native renderer selects source bounds."
+    },
+    {
+      "id": "PizzaWhirled",
+      "prompt": "Create ONE transparent raster computer-header logo for the 1993 Project Zomboid terminal. Use the attached original game artwork ONLY as the identity reference, not as a full flyer. Adapt the actual Pizza Whirled name and small globe from the lower part of the flyer into a compact readable boot wordmark. Exact wording PIZZA WHIRLED. Retain restrained red lettering accents and green globe, with warm ivory main strokes for legibility. Pairing is golden-sand phosphor. Make a wide compact horizontal lockup, about 4:1. Crisp readable lightly pixel-stepped 1993 bitmap lettering and flat fills. Visible ink only on genuine transparent alpha, including inside letters and around strokes. It must sit directly on almost-black CRT glass with live text, never look like a sticker. No white page, black panel, physical sign, border box, paper texture, screenshot, frame, people, scenery, prices, slogans, copied advertising text, heavy glow or 3D. Tight transparent margins, complete logo inside the canvas, legible at 210 by 55 pixels. One logo only.",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/PizzaWhirledRosewood.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/PizzaWhirled.png",
+      "source_filename": "exec-18cdef2b-c161-473f-9905-382e3a4c68f7.png",
+      "selected": true,
+      "sha256": "47b10a342612f1be209fbb75f41e8f59500d3f84f9eeccd3890d17a08fe32171",
+      "transparent_background": true,
+      "pixel_processing": "None; native renderer selects source bounds."
+    },
+    {
+      "id": "Greenes",
+      "prompt": "Create ONE transparent raster computer-header logo for the 1993 Project Zomboid terminal. Use the attached original game artwork ONLY as the identity reference, not as a full flyer. Retain the broad bold GREENE'S wordmark and small leaf/apostrophe from the advert. Exact wording GREENE'S. Ivory monochrome strokes with no enclosing filled rectangle; this neutral master is tinted by the game to its phosphor colour. Make a wide compact horizontal lockup, about 4:1. Crisp readable lightly pixel-stepped 1993 bitmap lettering and flat fills. Visible ink only on genuine transparent alpha, including inside letters and around strokes. It must sit directly on almost-black CRT glass with live text, never look like a sticker. No white page, black panel, physical sign, border box, paper texture, screenshot, frame, people, scenery, prices, slogans, copied advertising text, heavy glow or 3D. Tight transparent margins, complete logo inside the canvas, legible at 210 by 55 pixels. One logo only.",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/GreenesEkron.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/Greenes.png",
+      "source_filename": "exec-af42a69b-6986-42cb-b47d-720a35d15510.png",
+      "selected": true,
+      "sha256": "875a4a6aea4f8530394a7d04eb9900a5f87ca7bc33e30241e545e337b9b9cb3f",
+      "transparent_background": true,
+      "pixel_processing": "None; native renderer selects source bounds."
+    },
+    {
+      "id": "RustyRifle",
+      "prompt": "Create ONE transparent raster computer-header logo for the 1993 Project Zomboid terminal. Use the attached original game artwork ONLY as the identity reference, not as a full flyer. Create a restrained boot emblem for THE RUSTY RIFLE, the small wooden roadside bar shown in the reference. Use a simple period pub wordmark and one tiny horizontal antique rifle silhouette. Exact wording THE RUSTY RIFLE. Ivory monochrome strokes suitable for tinting by the game's phosphor colour. No photograph, house drawing or background panel. Make a wide compact horizontal lockup, about 4:1. Crisp readable lightly pixel-stepped 1993 bitmap lettering and flat fills. Visible ink only on genuine transparent alpha, including inside letters and around strokes. It must sit directly on almost-black CRT glass with live text, never look like a sticker. No white page, black panel, physical sign, border box, paper texture, screenshot, frame, people, scenery, prices, slogans, copied advertising text, heavy glow or 3D. Tight transparent margins, complete logo inside the canvas, legible at 210 by 55 pixels. One logo only.",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/logos/RustyRifleImage.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/RustyRifle.png",
+      "source_filename": "exec-b092c50b-889c-4c2c-8fd4-38d853d9258a.png",
+      "selected": true,
+      "sha256": "0fa6d8db4e1170de71d841240187bb97e21e17599ebbdf550de5b36f6d36d796",
+      "transparent_background": true,
+      "pixel_processing": "None; native renderer selects source bounds."
+    },
+    {
+      "id": "SunstarMotel",
+      "prompt": "ONE clean neutral-white raster wordmark for a 1993 computer header. The Sunstar Motel identity: italic Sunstar wordmark, smaller MOTEL, two horizontal rules and a simple OUTLINE sun circle. Do not use a filled disc behind the letters. Exact wording Sunstar / MOTEL. Pure WHITE (#FFFFFF) ink only, flat uniform sharp strokes; transparent blackless empty spaces and holes. No yellow or other ink colours. Absolutely NO glow, halo, bloom, shadow, bevel, gradient, texture, distressing or background backing. The GAME adds the phosphor colour and CRT feel later. Wide compact 4:1 horizontal lockup with tight transparent margins. Readable at 210x55 pixels. Light pixel stepping on strong letter shapes; original period computer-boot aesthetic. No flyer, slogan, prices, scenery, people, physical sign, frame or extra text. Genuine transparent alpha everywhere outside the strokes, including holes in letters. One logo only.",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/Sunstar.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/SunstarMotel.png",
+      "source_filename": "exec-81a2ff48-5f4f-4cae-88bb-b72d4b88a95f.png",
+      "selected": true,
+      "sha256": "e7db2e1f63e99aa802b81fec5434b26f403fec38d40bcd1d84decef530227e9b",
+      "transparent_background": true,
+      "pixel_processing": "None; native renderer selects source bounds."
+    },
+    {
+      "id": "GigaMart",
+      "prompt": "ONE clean neutral-white raster wordmark for a 1993 computer header. A fictional 1993 Project Zomboid GigaMart supermarket computer identity. Exact wording GIGAMART, with one small simple shopping-basket emblem. Strong chunky retail wordmark. This is original supporting computer artwork, not a claim to reproduce a canonical sign. Pure WHITE (#FFFFFF) ink only, flat uniform sharp strokes; transparent blackless empty spaces and holes. No yellow or other ink colours. Absolutely NO glow, halo, bloom, shadow, bevel, gradient, texture, distressing or background backing. The GAME adds the phosphor colour and CRT feel later. Wide compact 4:1 horizontal lockup with tight transparent margins. Readable at 210x55 pixels. Light pixel stepping on strong letter shapes; original period computer-boot aesthetic. No flyer, slogan, prices, scenery, people, physical sign, frame or extra text. Genuine transparent alpha everywhere outside the strokes, including holes in letters. One logo only.",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/GigaMart.png",
+      "source_filename": "exec-8f27c1e1-c989-4996-93d0-03af855cc2c1.png",
+      "selected": true,
+      "sha256": "ca2a6eddb58931a93ec88b684032bce95ed2ffed85902972e1288f0a3e4560ea",
+      "transparent_background": true,
+      "pixel_processing": "None; native renderer selects source bounds."
+    },
+    {
+      "id": "JackieJaye",
+      "prompt": "Create ONE minimal flat white computer boot logo on a transparent background. JACKIE JAYE in strong simple block capitals, with a small television antenna emblem. A fictional 1993 television studio computer identity. Use clean uniform WHITE ink only (#FFFFFF), a simple horizontal icon-and-wordmark lockup. Wide compact 4:1 proportion, strong legible lettering at 210x55 pixels. Crisp plain 1993 bitmap forms, tidy transparent margins. No texture or distress. No glow, halo, bevel, gradient, shadow, frame, coloured ink, backing panel, black rectangle, price, slogan, scenery or extra text. True transparent alpha in all empty spaces and holes. The in-game renderer will tint the neutral white artwork to green, sand, aqua or purple. ONE logo only.",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/JackieJaye.png",
+      "source_filename": "exec-53f7f31d-ea0e-4aaf-9d27-76eae5aef310.png",
+      "selected": true,
+      "sha256": "35a95378350dfc94318ad9498758e85c82e759db787fc3cd4a15a6527197acbe",
+      "transparent_background": true,
+      "pixel_processing": "None; native renderer selects source bounds."
+    },
+    {
+      "id": "food",
+      "prompt": "Create ONE minimal flat white computer boot logo on a transparent background. FOOD SERVICE in strong simple block capitals, with one simple serving-tray emblem. A generic unbranded 1993 restaurant terminal. Use clean uniform WHITE ink only (#FFFFFF), a simple horizontal icon-and-wordmark lockup. Wide compact 4:1 proportion, strong legible lettering at 210x55 pixels. Crisp plain 1993 bitmap forms, tidy transparent margins. No texture or distress. No glow, halo, bevel, gradient, shadow, frame, coloured ink, backing panel, black rectangle, price, slogan, scenery or extra text. True transparent alpha in all empty spaces and holes. The in-game renderer will tint the neutral white artwork to green, sand, aqua or purple. ONE logo only.",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/food.png",
+      "source_filename": "exec-1a60b231-1803-4fe9-9d11-d4f59eb0492d.png",
+      "selected": true,
+      "sha256": "94b6aeafb7f390f07a6a0b35de996cd28857fe49dcfb7f8952b7486137360a32",
+      "transparent_background": true,
+      "pixel_processing": "None; native renderer selects source bounds."
+    },
+    {
+      "id": "retail",
+      "prompt": "Create ONE minimal flat white computer boot logo on a transparent background. LOCAL SHOP in strong simple block capitals, with one simple shopping-bag emblem. A generic unbranded 1993 shop terminal. Use clean uniform WHITE ink only (#FFFFFF), a simple horizontal icon-and-wordmark lockup. Wide compact 4:1 proportion, strong legible lettering at 210x55 pixels. Crisp plain 1993 bitmap forms, tidy transparent margins. No texture or distress. No glow, halo, bevel, gradient, shadow, frame, coloured ink, backing panel, black rectangle, price, slogan, scenery or extra text. True transparent alpha in all empty spaces and holes. The in-game renderer will tint the neutral white artwork to green, sand, aqua or purple. ONE logo only.",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/retail.png",
+      "source_filename": "exec-43806e9d-292c-475c-8b4b-21f4dd53770c.png",
+      "selected": true,
+      "sha256": "0fff5acdbaf0ff4b6c49cf0f4fad60c17431e4021687c9c82e2d672d8f251765",
+      "transparent_background": true,
+      "pixel_processing": "None; native renderer selects source bounds."
+    },
+    {
+      "id": "hotel",
+      "prompt": "Create ONE minimal flat white computer boot logo on a transparent background. GUEST SERVICES in strong simple block capitals, with one simple reception-bell emblem. A generic unbranded 1993 hotel terminal. Use clean uniform WHITE ink only (#FFFFFF), a simple horizontal icon-and-wordmark lockup. Wide compact 4:1 proportion, strong legible lettering at 210x55 pixels. Crisp plain 1993 bitmap forms, tidy transparent margins. No texture or distress. No glow, halo, bevel, gradient, shadow, frame, coloured ink, backing panel, black rectangle, price, slogan, scenery or extra text. True transparent alpha in all empty spaces and holes. The in-game renderer will tint the neutral white artwork to green, sand, aqua or purple. ONE logo only.",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/hotel.png",
+      "source_filename": "exec-f53e06e5-115c-4d98-92a6-dc583989c501.png",
+      "selected": true,
+      "sha256": "878c4cd5447d71ffa5f90144ee518d1659e9019e3a8955e87b8a2a1a71f5eda1",
+      "transparent_background": true,
+      "pixel_processing": "None; native renderer selects source bounds."
+    },
+    {
+      "id": "electronics",
+      "prompt": "Create ONE minimal flat white computer boot logo on a transparent background. ELECTRONICS in strong simple block capitals, with one simple microchip emblem. A generic unbranded 1993 electronics terminal. Use clean uniform WHITE ink only (#FFFFFF), a simple horizontal icon-and-wordmark lockup. Wide compact 4:1 proportion, strong legible lettering at 210x55 pixels. Crisp plain 1993 bitmap forms, tidy transparent margins. No texture or distress. No glow, halo, bevel, gradient, shadow, frame, coloured ink, backing panel, black rectangle, price, slogan, scenery or extra text. True transparent alpha in all empty spaces and holes. The in-game renderer will tint the neutral white artwork to green, sand, aqua or purple. ONE logo only.",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/electronics.png",
+      "source_filename": "exec-7b606807-cf24-4306-b4df-a89e0239d8c6.png",
+      "selected": true,
+      "sha256": "96a7ed00345ff9fb15cbac7aa80b131bfa73e55cc5b517bbbab346534b05ff7f",
+      "transparent_background": true,
+      "pixel_processing": "None; native renderer selects source bounds."
+    },
+    {
+      "id": "ChiefSteakhouseBar",
+      "prompt": "Adapt the attached original Project Zomboid business mark into ONE isolated 1993 computer-header logo. Exact lettering CHIEF / STEAKHOUSE & BAR. Keep the stout Chief wordmark and clean narrow lower line. All lettering warm ivory, one tiny subdued bronze accent. Both lines must be separate visible ink on alpha, no inverse white rectangle. The result must integrate directly with near-black CRT glass, with no signboard, white paper, opaque panel, filled silhouette behind the lettering, border box, drop shadow or heavy glow. Retain the firm's recognizable typography and motif, simplified to readable clean lightly pixel-stepped boot artwork. Wide compact 4:1 horizontal lockup; exact complete text, tidy tight transparent margins. Genuine transparent alpha in all gaps and outside strokes. Legible at 210x55 pixels. One logo only, no screen or mockup.",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/logos/ChiefSteakhouseBar.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/ChiefSteakhouseBar.png",
+      "source_filename": "exec-5e997ca7-d2ad-4b18-b7d0-3360af745f06.png",
+      "selected": true,
+      "sha256": "77a4cf10df161c560802c702b3f06e33473d295ed33062c5754e639d537b12a8",
+      "transparent_background": true,
+      "pixel_processing": "None; native renderer selects source bounds."
+    },
+    {
+      "id": "LouisvilleMusicFestival1993",
+      "prompt": "Adapt the attached original Project Zomboid business mark into ONE isolated 1993 computer-header logo. Exact lettering LOUISVILLE / MUSIC FESTIVAL / 1993. Keep the bold condensed festival letters and one small musical note, using pale blue main strokes and restrained darker blue accents. Remove the entire blue festival-banner rectangle, grommets and backing pattern. The result must integrate directly with near-black CRT glass, with no signboard, white paper, opaque panel, filled silhouette behind the lettering, border box, drop shadow or heavy glow. Retain the firm's recognizable typography and motif, simplified to readable clean lightly pixel-stepped boot artwork. Wide compact 4:1 horizontal lockup; exact complete text, tidy tight transparent margins. Genuine transparent alpha in all gaps and outside strokes. Legible at 210x55 pixels. One logo only, no screen or mockup.",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/logos/LouisvilleMusicFestival1993.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/LouisvilleMusicFestival1993.png",
+      "source_filename": "exec-d905a4f1-4dee-4ae5-b756-f4f9f0055fbe.png",
+      "selected": true,
+      "sha256": "4ce73a84a727dc4a5d21991238bc959316884d393ed510d0216d0bc6c25906c4",
+      "transparent_background": true,
+      "pixel_processing": "None; native renderer selects source bounds."
+    },
+    {
+      "id": "LesTartesdeMademoiselleCeline",
+      "prompt": "Adapt the attached original Project Zomboid business mark into ONE isolated 1993 computer-header logo. Exact lettering Les Tartes de / Mademoiselle Celine. Preserve the elegant script and small flower motif. Pale warm ivory main script, restrained pink-burgundy flower and antique-gold accents. Remove the entire arched plaque and beige backing. The result must integrate directly with near-black CRT glass, with no signboard, white paper, opaque panel, filled silhouette behind the lettering, border box, drop shadow or heavy glow. Retain the firm's recognizable typography and motif, simplified to readable clean lightly pixel-stepped boot artwork. Wide compact 4:1 horizontal lockup; exact complete text, tidy tight transparent margins. Genuine transparent alpha in all gaps and outside strokes. Legible at 210x55 pixels. One logo only, no screen or mockup.",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/logos/LesTartesdeMademoiselleCeline.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/LesTartesdeMademoiselleCeline.png",
+      "source_filename": "exec-34bbe237-747d-4a35-88c6-d27f308a531e.png",
+      "selected": true,
+      "sha256": "ccb3f65ab7455f1a86790d4ae41e1b5fa19f971eeae926b76bf0625b62da1f91",
+      "transparent_background": true,
+      "pixel_processing": "None; native renderer selects source bounds."
+    },
+    {
+      "id": "RiverwoodBoatClub",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/logos/RiverwoodBoatClub.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/RiverwoodBoatClub.png",
+      "prompt": "Edit the attached fictional Project Zomboid logo into ONE clean transparent raster header mark for a 1993 in-game CRT. Preserve the elegant Riverwood script, smaller BOAT CLUB, and small sailboat above. Replace the TWO solid gold/beige plaque fills with genuine transparent alpha. Use a single warm ivory ink master (the game tints it to golden-sand or purple phosphor). Keep the sailboat as simple positive ivory linework, not a black silhouette. No plaque, no arch outline, no big rectangular panel. It should feel drawn directly on the same dark phosphor glass as the terminal text, never a pasted sign or sticker. Flat readable positive strokes, no heavy glow, no shadow, no fake dark backing. Wide compact lockup, lightly pixel-stepped edges, complete logo within generous transparent margins; do not clip any letter at the image edges. Legible at 260x70 pixels. No screenshot, monitor, scenery, people, prices, paper or extra wording. Preserve recognisable identity.",
+      "source_filename": "exec-3a48a800-186c-4086-9c15-56e250e17d8c.png",
+      "selected": true,
+      "sha256": "d0fc838e8b3033fe85367229bf5d38ed9f02c75d31abff06599f5428c0fb0ffd",
+      "transparent_background": true,
+      "pixel_processing": "None; native renderer selects source bounds."
+    },
+    {
+      "id": "DiMarcoCoffee",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/logos/DiMarcoCoffee.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/DiMarcoCoffee.png",
+      "prompt": "Edit the attached fictional Project Zomboid logo into ONE clean transparent raster header mark for a 1993 in-game CRT. Preserve the distinctive Di Marco serif wordmark and the smaller subtitle COFFEE - BAKERY - SANDWICHES. Both the main name and subtitle must be pale warm ivory, readable on dark glass. Use the original magenta only as a small thin accent line or small corner detail. Remove the entire magenta rectangular background panel and outer cream sign plate; all empty space is transparent. It should feel drawn directly on the same dark phosphor glass as the terminal text, never a pasted sign or sticker. Flat readable positive strokes, no heavy glow, no shadow, no fake dark backing. Wide compact lockup, lightly pixel-stepped edges, complete logo within generous transparent margins; do not clip any letter at the image edges. Legible at 260x70 pixels. No screenshot, monitor, scenery, people, prices, paper or extra wording. Preserve recognisable identity.",
+      "source_filename": "exec-ea01c65c-af2f-48bd-86a4-b01ae0806496.png",
+      "selected": true,
+      "sha256": "8767f06e7c0abeab4991590b6eb36b55fe989ef8159f1ec3e71b9d20fee76bfd",
+      "transparent_background": true,
+      "pixel_processing": "None; native renderer selects source bounds."
+    },
+    {
+      "id": "KnoxBank",
+      "reference": "C:/ZOMBOID/work/rv67/SurvivorCompanion/42/media/textures/Terminal/KnoxBank.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/KnoxBank.png",
+      "prompt": "Edit the attached fictional Project Zomboid logo into ONE clean transparent raster header mark for a 1993 in-game CRT. Preserve the formal classical serif KNOX BANK typography, wide letter spacing and understated 1993 identity. Completely remove the beige/cream rectangular nameplate and its border. The serif letters themselves must be pale ivory, with fully transparent space around and inside letters. A pure single-ink master that can tint to screen phosphor. Only the text KNOX BANK, no bank icon. It should feel drawn directly on the same dark phosphor glass as the terminal text, never a pasted sign or sticker. Flat readable positive strokes, no heavy glow, no shadow, no fake dark backing. Wide compact lockup, lightly pixel-stepped edges, complete logo within generous transparent margins; do not clip any letter at the image edges. Legible at 260x70 pixels. No screenshot, monitor, scenery, people, prices, paper or extra wording. Preserve recognisable identity.",
+      "source_filename": "exec-1ab40e69-c34c-4487-8569-7192bca78695.png",
+      "selected": true,
+      "sha256": "ae0ac73c477cbd0386a7a26d4da703f95923b28bc2b60f2c81b2527447836031",
+      "transparent_background": true,
+      "pixel_processing": "None; native renderer selects source bounds."
+    }
+  ]
+}
