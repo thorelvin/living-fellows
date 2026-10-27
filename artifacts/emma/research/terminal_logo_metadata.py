@@ -21,6 +21,15 @@ def main():
             continue  # A phosphor variant, not another business identity.
         key = p.stem if p.stem[0].isupper() else "_" + p.stem
         sources[key] = p
+    # Authored transparent headers have no backing to key out. Broad pale
+    # lettering can otherwise look like an opaque page to the stock heuristic.
+    transparent_headers = set()
+    manifest_path = args.project_root / "docs/terminal-community-art-manifest.json"
+    if manifest_path.exists():
+        for entry in json.loads(manifest_path.read_text(encoding="utf-8"))["entries"]:
+            path = args.project_root / entry["file"]
+            if entry.get("transparent_background") is True and sources.get(entry["id"]) == path:
+                transparent_headers.add(entry["id"])
     bounds, palettes, backings, dark_ink = {}, {}, {}, {}
     for name, path in sorted(sources.items()):
         with Image.open(path) as image:
@@ -44,7 +53,7 @@ def main():
             samples = [region.getpixel((px, py)) for py in range(0, height, step_bg)
                        for px in range(0, width, step_bg)]
             opaque = [p for p in samples if p[3] > 192]
-            if len(opaque) > len(samples) * .72:
+            if name not in transparent_headers and len(opaque) > len(samples) * .72:
                 from collections import Counter
                 buckets = Counter(tuple(c//8 for c in p[:3]) for p in opaque)
                 common, count = buckets.most_common(1)[0]

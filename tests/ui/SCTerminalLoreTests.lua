@@ -29,7 +29,7 @@ for _,category in ipairs(SC.TerminalKnowledge.CATEGORIES) do
     end
     check(w.referenceCategory==category.id,"category can be opened by keyboard")
     categories[category.id]=true
-    for page=0,30 do
+    for page=0,#Lore.REFERENCE do
         check(w.referencePage==page and #w:menuOptions()<=9,"reference page accessible with a single key")
         check(#w:menuLayout()==#w:menuOptions(),"every numbered choice fits above the input and hints")
         local nextPage
@@ -50,14 +50,14 @@ for _,category in ipairs(SC.TerminalKnowledge.CATEGORIES) do
     check(choose("referenceCategory","__categories") and not w.referenceCategory,"Back returns to categories")
 end
 local count=0 for _ in pairs(found) do count=count+1 end
-check(count==104,"all reference files are reachable through category menus")
+check(count==120,"all reference files are reachable through category menus")
 local originalCore=getCore
 for _,size in ipairs({{1280,720},{1920,1080},{2560,1440},{640,720},{960,540}}) do
     getCore=function() return {getScreenWidth=function() return size[1] end,getScreenHeight=function() return size[2] end} end
     w:refreshLayout()
     for _,category in ipairs(SC.TerminalKnowledge.CATEGORIES) do
         w.referenceCategory,w.referencePage,w.menuSelection=category.id,0,1
-        for _=1,30 do
+        for _=1,#Lore.REFERENCE do
             local options=w:menuOptions()
             check(#w:menuLayout()==#options,"wrapped archive choices fit at "..size[1].."x"..size[2])
             local nextPage

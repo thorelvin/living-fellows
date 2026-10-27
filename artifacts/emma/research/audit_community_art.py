@@ -33,7 +33,10 @@ print(f"PASS {len(manifest['entries'])} transparent headers; source bytes unchan
 game = Path("C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid")
 definition_path = game / "media/lua/shared/PrintMedia/PrintMediaDefinitions.lua"
 definitions = definition_path.read_text(encoding="utf-8-sig")
-site_keys = ["twiggys", "wpdiy", "thewizardskeep", "muldraughpd", "rosewoodfd"]
+site_keys = ["twiggys", "wpdiy", "thewizardskeep", "muldraughpd", "rosewoodfd",
+             "riversidepd", "wptownhall", "hobbsandperkinshardware", "ovofarms",
+             "lennyscarrepair", "ekroncollege", "alsautoshop", "stuartandlogscrapyard",
+             "darkwallowguesthouse", "a1hay", "gunsunlimitedechocreek", "goldensunset"]
 for key in site_keys:
     assert f"    {key} = {{ location1 =" in definitions, key
 assert "--entire mall" in next(line for line in definitions.splitlines() if "tacodelpancho =" in line)
@@ -52,4 +55,4 @@ sources = {
 }
 (project / "artifacts/emma/research/community-sources.json").write_text(
     json.dumps(sources, indent=2) + "\n", encoding="utf-8")
-print("PASS five specific native advert rectangles; whole-mall advert excluded")
+print(f"PASS {len(site_keys)} specific native advert rectangles; whole-mall advert excluded")

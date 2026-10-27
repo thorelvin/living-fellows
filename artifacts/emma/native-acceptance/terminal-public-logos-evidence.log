@@ -1,0 +1,33 @@
+PASS native all five home shortcuts visible font=32 viewport=1280x720
+SHOT conversation
+PASS native dated catalog available=101 categories=8
+SHOT categories
+SHOT town
+PASS native conversation, archive keyboard navigation, date refusal, related follow-up and live inventory intent
+SHOT outbreak
+PASS native dated outbreak category, numbered note access, reading anchor and typed alias
+SHOT logo-Twiggys
+PASS native logo Twiggys theme=sand owner=twiggys_jo
+SHOT logo-WestPointDIY
+PASS native logo WestPointDIY theme=aqua owner=diy_gloria
+SHOT logo-WizardsKeep
+PASS native logo WizardsKeep theme=sand owner=wizard_kit
+SHOT logo-TacoDelPancho
+PASS native logo TacoDelPancho theme=sand owner=pancho_ines
+SHOT logo-MuldraughPolice
+PASS native logo MuldraughPolice theme=sand owner=outbreak_detective_ellen
+SHOT logo-RosewoodFire
+PASS native logo RosewoodFire theme=aqua owner=rosewoodfd_erin
+SHOT logo-MeadeCountyPolice
+PASS native logo MeadeCountyPolice theme=sand owner=dispatch_bell
+SHOT logo-WestPointTownHall
+PASS native logo WestPointTownHall theme=aqua owner=archive_arthur
+SHOT logo-HobbsPerkinsHardware
+PASS native logo HobbsPerkinsHardware theme=green owner=hardware_wes
+SHOT logo-OvoFarms
+PASS native logo OvoFarms theme=sand owner=farm_eli
+SHOT logo-LennysCarRepair
+PASS native logo LennysCarRepair theme=aqua owner=tires_ben
+SHOT logo-EkronCommunityCollege
+PASS native logo EkronCommunityCollege theme=aqua owner=library_owen
+PASS native terminal knowledge acceptance complete

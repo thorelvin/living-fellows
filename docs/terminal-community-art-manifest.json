@@ -144,6 +144,338 @@
         589
       ],
       "transparent_fraction": 0.6755
+    },
+    {
+      "id": "MeadeCountyPolice",
+      "batch": "public-local-2026-10-27",
+      "generator": "built-in image_gen",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/RiversidePD.png",
+      "reference_usage": "Identity reference supplied to generation.",
+      "prompt": "Exact text MEADE COUNTY / POLICE. The Riverside stock flyer identifies the MEADE COUNTY POLICE DEPARTMENT; do not rename it Riverside Police. Adapt its sturdy navy serif lettering and paired gold horizontal rules, with the small abstract gold geographic silhouette from the upper right beside the name. Pale golden ivory main lettering, restrained navy edging and warm gold accents for a golden-sand screen. No rifle, slogan, badge seal or invented eagle. Produce ONE transparent PNG logo for a 1993 CRT terminal header. The attached stock game flyer is an identity reference, NOT an edit target or poster to reproduce. Use only the named identity, no advertising copy. Wide compact lockup roughly 4:1, legible at 210x55 pixels. Clean flat bitmap-style design, thick solid continuous strokes and small deliberate pixel steps on silhouettes. NO surface grain, distressed edges, holes, grunge, gradients, bevels, glow, drop shadows, paper, rectangular backing, border box, sticker panel, 3D, people, photographs or scenery. True transparent alpha around every stroke and through letter counters. Complete mark centred with modest transparent margins on every side. Bright main lettering must remain readable on almost-black CRT glass.",
+      "refinement_prompt": null,
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-ca8523b8-e1ba-46fe-ac80-1a861d83abdb.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/MeadeCountyPolice.png",
+      "theme": "sand",
+      "kind": "police",
+      "transparent_background": true,
+      "pixel_processing": "None. Source copied unchanged; native renderer uses alpha bounds and phosphor pairing.",
+      "sha256": "cecff0a00aa2c85d2b2e9ab063349bd86fd9d16e49a260fc05f5dffb107a4291",
+      "reference_sha256": "a681a9e5998ef8b4702af3c7c8de37e2ce82d60e1e5159f2c9c80ede12f555cb",
+      "size": [
+        2079,
+        756
+      ],
+      "alpha_bounds": [
+        74,
+        127,
+        2028,
+        625
+      ],
+      "transparent_fraction": 0.5869
+    },
+    {
+      "id": "WestPointTownHall",
+      "batch": "public-local-2026-10-27",
+      "generator": "built-in image_gen",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/WPTownHall.png",
+      "reference_usage": "Identity reference supplied to generation.",
+      "prompt": "Exact text WEST POINT / TOWN HALL. Original terminal adaptation of the verified stock municipal name, using the flyer's strong serif wordmark and a small simple outline of its gabled entrance with two columns. Pale ivory lettering, restrained original navy-blue edges and one small red accent. Pair with aquamarine CRT. No mayor portrait, official seal, flag or copied slogan. Produce ONE transparent PNG logo for a 1993 CRT terminal header. The attached stock game flyer is an identity reference, NOT an edit target or poster to reproduce. Use only the named identity, no advertising copy. Wide compact lockup roughly 4:1, legible at 210x55 pixels. Clean flat bitmap-style design, thick solid continuous strokes and small deliberate pixel steps on silhouettes. NO surface grain, distressed edges, holes, grunge, gradients, bevels, glow, drop shadows, paper, rectangular backing, border box, sticker panel, 3D, people, photographs or scenery. True transparent alpha around every stroke and through letter counters. Complete mark centred with modest transparent margins on every side. Bright main lettering must remain readable on almost-black CRT glass.",
+      "refinement_prompt": "Refine this transparent CRT header logo into a MORE COMPACT TWO-LINE lockup. Exact words WEST POINT on the TOP line and TOWN HALL on the BOTTOM line. Put the small simple gabled town-hall outline to the LEFT of both lines, never between words. Remove the very long horizontal cyan rule; use only tiny restrained aqua accents. Preserve original navy, pale ivory and small red accent. No official crest, no backing rectangle. Clean solid flat strokes with small bitmap silhouette steps, true transparent alpha around and inside letters. No grain, wear, texture, glow, shadows or bevel. Entire mark well inside canvas. Aim for a cropped visible-ink ratio about 4:1, readable at 210x55. One logo only.",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-96e6a17f-8712-4220-bf56-fb2089598362.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/WestPointTownHall.png",
+      "theme": "aqua",
+      "kind": "government",
+      "transparent_background": true,
+      "pixel_processing": "None. Source copied unchanged; native renderer uses alpha bounds and phosphor pairing.",
+      "sha256": "99c47c07b963bdff996e156d585bf76919c0e7a7a76d23910355838eb34ed90c",
+      "reference_sha256": "8747f3762a289b6d5fb88a3c520320ac71475e1a6ed5153d62168ab7bba04901",
+      "size": [
+        2172,
+        724
+      ],
+      "alpha_bounds": [
+        391,
+        188,
+        1800,
+        551
+      ],
+      "transparent_fraction": 0.7241
+    },
+    {
+      "id": "HobbsPerkinsHardware",
+      "batch": "public-local-2026-10-27",
+      "generator": "built-in image_gen",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/HobbsPerkins.png",
+      "reference_usage": "Identity reference supplied to generation.",
+      "prompt": "Exact text HOBBS & PERKINS / HARDWARE. Retain the flyer's broad bold rounded block wordmark, white keyline and compact H&P monogram if it fits at the left. Bright pale ivory/pale green main strokes with restrained forest-green edging and a tiny warm yellow ampersand accent, matching a green CRT. Do not use dark green as the main letter fill. No tools photo or advertising slogan. Produce ONE transparent PNG logo for a 1993 CRT terminal header. The attached stock game flyer is an identity reference, NOT an edit target or poster to reproduce. Use only the named identity, no advertising copy. Wide compact lockup roughly 4:1, legible at 210x55 pixels. Clean flat bitmap-style design, thick solid continuous strokes and small deliberate pixel steps on silhouettes. NO surface grain, distressed edges, holes, grunge, gradients, bevels, glow, drop shadows, paper, rectangular backing, border box, sticker panel, 3D, people, photographs or scenery. True transparent alpha around every stroke and through letter counters. Complete mark centred with modest transparent margins on every side. Bright main lettering must remain readable on almost-black CRT glass.",
+      "refinement_prompt": null,
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-7aec6eb2-0aab-4f05-af84-4bec057bf45f.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/HobbsPerkinsHardware.png",
+      "theme": "green",
+      "kind": "hardware",
+      "transparent_background": true,
+      "pixel_processing": "None. Source copied unchanged; native renderer uses alpha bounds and phosphor pairing.",
+      "sha256": "95f3f8a171ae665d6d70a75fbcfc393891e11ab6353b14c64b650be5846fed0f",
+      "reference_sha256": "81d795030e16a12b79f8d7f573ba1538497d81bd09386de759394691f249c521",
+      "size": [
+        1983,
+        793
+      ],
+      "alpha_bounds": [
+        48,
+        241,
+        1942,
+        561
+      ],
+      "transparent_fraction": 0.6628
+    },
+    {
+      "id": "OvoFarms",
+      "batch": "public-local-2026-10-27",
+      "generator": "built-in image_gen",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/OvoFarms.png",
+      "reference_usage": "Identity reference supplied to generation.",
+      "prompt": "Exact text OVO FARMS. Original compact terminal wordmark based on the flyer name and egg-farm identity. Strong friendly rounded white/ivory sans lettering beside a very simple warm-gold hen-and-egg line emblem. Restrained original egg-yellow/warm brown accents for a golden-sand CRT. Keep the emblem simple and readable. No wooden background, food photo, slogan or extra words. Produce ONE transparent PNG logo for a 1993 CRT terminal header. The attached stock game flyer is an identity reference, NOT an edit target or poster to reproduce. Use only the named identity, no advertising copy. Wide compact lockup roughly 4:1, legible at 210x55 pixels. Clean flat bitmap-style design, thick solid continuous strokes and small deliberate pixel steps on silhouettes. NO surface grain, distressed edges, holes, grunge, gradients, bevels, glow, drop shadows, paper, rectangular backing, border box, sticker panel, 3D, people, photographs or scenery. True transparent alpha around every stroke and through letter counters. Complete mark centred with modest transparent margins on every side. Bright main lettering must remain readable on almost-black CRT glass.",
+      "refinement_prompt": null,
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-f393b124-7a37-4bb4-aa41-fff1abaf9c5d.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/OvoFarms.png",
+      "theme": "sand",
+      "kind": "agriculture",
+      "transparent_background": true,
+      "pixel_processing": "None. Source copied unchanged; native renderer uses alpha bounds and phosphor pairing.",
+      "sha256": "2419d4b57953106e9550be107001a17636d7ac62cf3fac138de3523332df1b9d",
+      "reference_sha256": "400e3113f5ddc7d033933d61f1ed418ba7997f59fa4c4c06286bdd6eebfac615",
+      "size": [
+        1983,
+        793
+      ],
+      "alpha_bounds": [
+        45,
+        187,
+        1959,
+        602
+      ],
+      "transparent_fraction": 0.7112
+    },
+    {
+      "id": "LennysCarRepair",
+      "batch": "public-local-2026-10-27",
+      "generator": "built-in image_gen",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/Lennys.png",
+      "reference_usage": "Inspected stock artwork; text specification used for fresh generation.",
+      "prompt": "Create a brand-new transparent raster logo. Exact wording: LENNY'S on the top line, CAR REPAIR on the lower line. A clean professional 1993 independent garage wordmark for a Project Zomboid CRT terminal. Small soft slab-serif LENNY'S above larger sturdy italic sans CAR REPAIR. One compact pair of crossed red open-ended spanners at the LEFT, fully contained inside the canvas with generous empty transparent margin. Bright warm ivory letters, narrow medium-blue outlines, red spanner silhouettes. Restrained flat colours; mechanically clean crisp solid fills. All strokes unbroken. No dots, flecks, distress, wear, surface texture, grain, photocopy noise, shadow, bevel or glow anywhere. Do NOT copy a weathered poster surface. No rectangular backing, filled sign, sticker panel, border or paper. Genuine transparent alpha including all empty space between letters and inside counters. Visible ink ratio about 4:1. Leave 8 percent blank transparent margin on ALL FOUR edges so no letter or spanner can be cropped. Legible at 210x55 pixels against near-black aquamarine CRT. ONE complete logo only.",
+      "refinement_prompt": null,
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-dea486c3-a7ff-472d-a034-3a949588911f.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/LennysCarRepair.png",
+      "theme": "aqua",
+      "kind": "mechanic",
+      "transparent_background": true,
+      "pixel_processing": "None. Source copied unchanged; native renderer uses alpha bounds and phosphor pairing.",
+      "sha256": "125f196dc4f7b6cfcd158c42b5ed32c6c2c3352e6f78e7f6fdf7f9c142aeec1a",
+      "reference_sha256": "06286df6f99bbcc217db5a565cf86b3c423fa68ceceb6a1d4c726a90f328ab14",
+      "size": [
+        1983,
+        793
+      ],
+      "alpha_bounds": [
+        83,
+        184,
+        1893,
+        596
+      ],
+      "transparent_fraction": 0.6866
+    },
+    {
+      "id": "EkronCommunityCollege",
+      "batch": "public-local-2026-10-27",
+      "generator": "built-in image_gen",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/EkronCC.png",
+      "reference_usage": "Identity reference supplied to generation.",
+      "prompt": "Exact text EKRON / COMMUNITY COLLEGE. Adapt the stock flyer's sturdy navy sans-serif type and small ECC monogram with an orange directional-arrow silhouette as a compact left-hand emblem. Main lettering pale ivory, restrained navy/blue edges and original warm orange accent. Pair with aquamarine CRT. This is an original terminal adaptation of the verified college name, not an invented official crest. No portraits, phone numbers, map or slogan. Produce ONE transparent PNG logo for a 1993 CRT terminal header. The attached stock game flyer is an identity reference, NOT an edit target or poster to reproduce. Use only the named identity, no advertising copy. Wide compact lockup roughly 4:1, legible at 210x55 pixels. Clean flat bitmap-style design, thick solid continuous strokes and small deliberate pixel steps on silhouettes. NO surface grain, distressed edges, holes, grunge, gradients, bevels, glow, drop shadows, paper, rectangular backing, border box, sticker panel, 3D, people, photographs or scenery. True transparent alpha around every stroke and through letter counters. Complete mark centred with modest transparent margins on every side. Bright main lettering must remain readable on almost-black CRT glass.",
+      "refinement_prompt": null,
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-a2b80c93-c213-4f71-8bde-8c54126b3404.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/EkronCommunityCollege.png",
+      "theme": "aqua",
+      "kind": "education",
+      "transparent_background": true,
+      "pixel_processing": "None. Source copied unchanged; native renderer uses alpha bounds and phosphor pairing.",
+      "sha256": "fa85f6b1c8627c77ab01b3fe2267b674c9734df2197a304750950e1eb987ae10",
+      "reference_sha256": "8f2d8541653b28ad90b4ba11239a2d3d4376620282bea559a89605bea635aa60",
+      "size": [
+        1983,
+        793
+      ],
+      "alpha_bounds": [
+        71,
+        153,
+        1915,
+        612
+      ],
+      "transparent_fraction": 0.5761
+    },
+    {
+      "id": "AlsAutoShop",
+      "batch": "rural-business-and-care",
+      "generator": "built-in image_gen",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/AlsAutoShop.png",
+      "reference_usage": "Stock flyer is an identity reference; no photo or advertisement surface is packaged.",
+      "prompt": "Exact text AL'S / AUTO SHOP. Adapt the stock flyer's bold slanted blue sans-serif wordmark and the two simple stars flanking AL'S. Main letters pale ivory, restrained medium-blue keylines and small blue stars, pairing with aquamarine CRT. No car illustration or advertisement discount. Create ONE transparent PNG header logo for a 1993 CRT in Project Zomboid. Attached flyer is an IDENTITY REFERENCE only; DO NOT copy its weathered surface or photograph. Compact lockup about 4:1, readable at 210x55. Clean flat lettering with thick solid continuous strokes and restrained deliberate bitmap silhouette steps. Bright main ink on almost-black glass. Genuine transparent alpha around all ink and through counters. No filled backing, sticker panel, poster, photograph, people, slogans, prices, numbers other than the name, border box, grain, noise, wear, distressed holes, gradients, bevels, shadows or glow. Keep complete artwork inside canvas with generous transparent margins on all four sides.",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-1ab2b63d-5a0d-41b2-9a27-4115ec91d693.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/AlsAutoShop.png",
+      "theme": "aqua",
+      "kind": "mechanic",
+      "transparent_background": true,
+      "pixel_processing": "None. Selected generated PNG copied byte-for-byte; read-only alpha bounds and palette metadata.",
+      "sha256": "952dacc36c4d3d2af6d27772c0861487ab36bdf240db49f01d87080fdbc5ae64",
+      "reference_sha256": "d8ce2bda241e3095de00186b0b1b9a2bf11a5dcb37e5cbe74b1385821a24c2ad",
+      "size": [
+        1983,
+        793
+      ],
+      "alpha_bounds": [
+        164,
+        178,
+        1827,
+        662
+      ],
+      "transparent_fraction": 0.6837
+    },
+    {
+      "id": "StuartAndLog",
+      "batch": "rural-business-and-care",
+      "generator": "built-in image_gen",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/StuartandLog.png",
+      "reference_usage": "Stock flyer is an identity reference; no photo or advertisement surface is packaged.",
+      "prompt": "Exact text STUART & LOG / SCRAP & REPAIR. Retain the stock flyer's heavy rounded rectangular industrial capital wordmark. Small clean S&L monogram to the left, pale ivory main lettering with restrained navy and blue accent lines from the van and header. Pair with aquamarine CRT. No van photograph, raffle, slogans or promotional text. Create ONE transparent PNG header logo for a 1993 CRT in Project Zomboid. Attached flyer is an IDENTITY REFERENCE only; DO NOT copy its weathered surface or photograph. Compact lockup about 4:1, readable at 210x55. Clean flat lettering with thick solid continuous strokes and restrained deliberate bitmap silhouette steps. Bright main ink on almost-black glass. Genuine transparent alpha around all ink and through counters. No filled backing, sticker panel, poster, photograph, people, slogans, prices, numbers other than the name, border box, grain, noise, wear, distressed holes, gradients, bevels, shadows or glow. Keep complete artwork inside canvas with generous transparent margins on all four sides.",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-11da84fa-dc70-4f35-919f-707a246c3a6b.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/StuartAndLog.png",
+      "theme": "aqua",
+      "kind": "mechanic",
+      "transparent_background": true,
+      "pixel_processing": "None. Selected generated PNG copied byte-for-byte; read-only alpha bounds and palette metadata.",
+      "sha256": "05f6d54469aded867c4213cc2bea075950794a5725bec68857e5bf4aea101dba",
+      "reference_sha256": "272135819c09a6b40ccddfd52cecb1a5f9ac8bb96fdf4b2517b9b5c82b6900d8",
+      "size": [
+        1983,
+        793
+      ],
+      "alpha_bounds": [
+        77,
+        252,
+        1923,
+        527
+      ],
+      "transparent_fraction": 0.6907
+    },
+    {
+      "id": "DarkwallowGuestHouse",
+      "batch": "rural-business-and-care",
+      "generator": "built-in image_gen",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/Darkwallow.png",
+      "reference_usage": "Stock flyer is an identity reference; no photo or advertisement surface is packaged.",
+      "prompt": "Exact text DARKWALLOW LAKE / GUEST HOUSE. Adapt the original flowing readable script name and the small row of six steep-roofed guest-house facades. Keep the name compact and readable, not elaborate hairline calligraphy. Pale ivory main ink with restrained slate-blue accents, matching aquamarine CRT. No lake photo, sunset, tagline, address or frame. Create ONE transparent PNG header logo for a 1993 CRT in Project Zomboid. Attached flyer is an IDENTITY REFERENCE only; DO NOT copy its weathered surface or photograph. Compact lockup about 4:1, readable at 210x55. Clean flat lettering with thick solid continuous strokes and restrained deliberate bitmap silhouette steps. Bright main ink on almost-black glass. Genuine transparent alpha around all ink and through counters. No filled backing, sticker panel, poster, photograph, people, slogans, prices, numbers other than the name, border box, grain, noise, wear, distressed holes, gradients, bevels, shadows or glow. Keep complete artwork inside canvas with generous transparent margins on all four sides.",
+      "refinement_prompt": "Refine this transparent CRT header. Keep the exact name DARKWALLOW LAKE and subline GUEST HOUSE, script identity and six guest-house roof silhouettes. Make EVERY word bright ivory and cleanly legible at 210 pixels wide. Slate-blue accents can remain on the building outlines. Remove all ragged alpha, noise specks, artificial wear and distress. Each letter should have continuous solid bright strokes, no black/dark subline. More compact with slightly thicker script, buildings a small accent. No backing rectangle, shadows, glow or extra words. Maintain generous transparent margins and genuine transparent alpha around all ink and inside counters.",
+      "generated_source": "C:/Users/thore/.codex/generated_images/01a16dd1-0e06-79d1-8ed2-7f5743a89a28/exec-30ba39e7-b3e0-4f93-8426-49e995903716.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/DarkwallowGuestHouse.png",
+      "theme": "aqua",
+      "kind": "hotel",
+      "transparent_background": true,
+      "pixel_processing": "None. Selected generated PNG copied byte-for-byte; read-only alpha bounds and palette metadata.",
+      "sha256": "6c0dbf28600ad4f618c659afaeb8fe4792bdca7cd810ac9b7fce942aaae90341",
+      "reference_sha256": "0b9a11c715afc2c985a6d0c7c4f0604fb5b08db31b8a4cd91c69de662b24346c",
+      "size": [
+        1983,
+        793
+      ],
+      "alpha_bounds": [
+        61,
+        134,
+        1925,
+        670
+      ],
+      "transparent_fraction": 0.656
+    },
+    {
+      "id": "A1Hay",
+      "batch": "rural-business-and-care",
+      "generator": "built-in image_gen",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/A1Hay.png",
+      "reference_usage": "Stock flyer is an identity reference; no photo or advertisement surface is packaged.",
+      "prompt": "Exact text A-1 HAY. Retain the original broad rounded Western slab-serif wordmark. Small simple line-art bound hay bale beside the name. Pale golden ivory main letters with restrained warm brown edging and a small muted rust-red tie-line accent, matching golden-sand CRT. No cows, advert slogans, photos, ribbon panel or extra text. Create ONE transparent PNG header logo for a 1993 CRT in Project Zomboid. Attached flyer is an IDENTITY REFERENCE only; DO NOT copy its weathered surface or photograph. Compact lockup about 4:1, readable at 210x55. Clean flat lettering with thick solid continuous strokes and restrained deliberate bitmap silhouette steps. Bright main ink on almost-black glass. Genuine transparent alpha around all ink and through counters. No filled backing, sticker panel, poster, photograph, people, slogans, prices, numbers other than the name, border box, grain, noise, wear, distressed holes, gradients, bevels, shadows or glow. Keep complete artwork inside canvas with generous transparent margins on all four sides.",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-08fb2ea2-08ce-4587-9713-c308984c1386.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/A1Hay.png",
+      "theme": "sand",
+      "kind": "agriculture",
+      "transparent_background": true,
+      "pixel_processing": "None. Selected generated PNG copied byte-for-byte; read-only alpha bounds and palette metadata.",
+      "sha256": "c3187f789c9427430cc26ff9ff0c43325550bcce6e3a20958ad6021d5a9fa471",
+      "reference_sha256": "36ca503b780d10bcff258f957b0f91857f827bebcdcf42aba7d428fd3598f4c2",
+      "size": [
+        1983,
+        793
+      ],
+      "alpha_bounds": [
+        80,
+        228,
+        1904,
+        580
+      ],
+      "transparent_fraction": 0.7426
+    },
+    {
+      "id": "GunsUnlimited",
+      "batch": "rural-business-and-care",
+      "generator": "built-in image_gen",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/GunsUnlimited.png",
+      "reference_usage": "Stock flyer is an identity reference; no photo or advertisement surface is packaged.",
+      "prompt": "Exact text GUNS / UNLIMITED. Retain the stock flyer's broad rounded rectangular sans-serif wordmark with its simple horizontal silver stripe through the lettering. Pale ivory/silver letters with restrained dark-green edging to pair with green CRT. Optional tiny open target-ring emblem at left. No actual gun illustration, person, flag, political slogan or extra words. Create ONE transparent PNG header logo for a 1993 CRT in Project Zomboid. Attached flyer is an IDENTITY REFERENCE only; DO NOT copy its weathered surface or photograph. Compact lockup about 4:1, readable at 210x55. Clean flat lettering with thick solid continuous strokes and restrained deliberate bitmap silhouette steps. Bright main ink on almost-black glass. Genuine transparent alpha around all ink and through counters. No filled backing, sticker panel, poster, photograph, people, slogans, prices, numbers other than the name, border box, grain, noise, wear, distressed holes, gradients, bevels, shadows or glow. Keep complete artwork inside canvas with generous transparent margins on all four sides.",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-62ad8599-deef-482a-8a94-b1cf489b9e16.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/GunsUnlimited.png",
+      "theme": "green",
+      "kind": "retail",
+      "transparent_background": true,
+      "pixel_processing": "None. Selected generated PNG copied byte-for-byte; read-only alpha bounds and palette metadata.",
+      "sha256": "69a538a5b2a688f046703f792c809e32c2676676de7da695b7faf320736f4d12",
+      "reference_sha256": "988f3b4dcfdd44d35cc357d9a808ba83201292924b4dbc92d4b18219bc3568ff",
+      "size": [
+        1983,
+        793
+      ],
+      "alpha_bounds": [
+        35,
+        281,
+        1948,
+        477
+      ],
+      "transparent_fraction": 0.7973
+    },
+    {
+      "id": "GoldenSunset",
+      "batch": "rural-business-and-care",
+      "generator": "built-in image_gen",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/GoldenSunset.png",
+      "reference_usage": "Stock flyer is an identity reference; no photo or advertisement surface is packaged.",
+      "prompt": "Exact text GOLDEN SUNSET / NURSING HOME. Retain the original friendly italic serif name, strong readable small serif subline and simple warm-gold half-sun arc behind/above the name. Pale ivory lettering, subdued warm gold and tiny muted sage accent, matching golden-sand CRT. Keep the half-sun an open outline without any filled backdrop. No people, stock crest, slogans, photos, border or extra text. Create ONE transparent PNG header logo for a 1993 CRT in Project Zomboid. Attached flyer is an IDENTITY REFERENCE only; DO NOT copy its weathered surface or photograph. Compact lockup about 4:1, readable at 210x55. Clean flat lettering with thick solid continuous strokes and restrained deliberate bitmap silhouette steps. Bright main ink on almost-black glass. Genuine transparent alpha around all ink and through counters. No filled backing, sticker panel, poster, photograph, people, slogans, prices, numbers other than the name, border box, grain, noise, wear, distressed holes, gradients, bevels, shadows or glow. Keep complete artwork inside canvas with generous transparent margins on all four sides.",
+      "refinement_prompt": "Refine this transparent header. Retain GOLDEN SUNSET / NURSING HOME, warm gold half-sun and ivory serif lettering. Remove ALL red fringe, speckling, noise, distress, gradient and stray marks. This must be a clean flat two-colour logo with solid continuous strokes and a restrained gold edge. No opaque backing or border panel. Genuine transparent alpha around all ink, between letters and through counters; transparent margins on every side. Readable at 210 pixels wide on a dark golden-sand CRT.",
+      "generated_source": "C:/Users/thore/.codex/generated_images/01a16dd1-0e06-79d1-8ed2-7f5743a89a28/exec-29d23866-3929-44dd-91f8-edce48510d93.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/GoldenSunset.png",
+      "theme": "sand",
+      "kind": "clinic",
+      "transparent_background": true,
+      "pixel_processing": "None. Selected generated PNG copied byte-for-byte; read-only alpha bounds and palette metadata.",
+      "sha256": "1b7d807596eff883ecbe700b3a02c4bdfa97f16ab3c50b56d5d5c8b65207b477",
+      "reference_sha256": "1a49b3fbc3d83620ed496681158a5a22649cca25d51d3aa236529f19689a6266",
+      "size": [
+        2089,
+        753
+      ],
+      "alpha_bounds": [
+        99,
+        37,
+        2010,
+        726
+      ],
+      "transparent_fraction": 0.5581
     }
   ]
 }

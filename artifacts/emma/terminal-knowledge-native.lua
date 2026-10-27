@@ -27,13 +27,18 @@ local function choose(field,value)
     end
     return false
 end
-local logoIds={"Twiggys","WestPointDIY","WizardsKeep","TacoDelPancho","MuldraughPolice","RosewoodFire"}
+local logoIds={"Twiggys","WestPointDIY","WizardsKeep","TacoDelPancho","MuldraughPolice","RosewoodFire",
+    "MeadeCountyPolice","WestPointTownHall","HobbsPerkinsHardware","OvoFarms","LennysCarRepair","EkronCommunityCollege",
+    "AlsAutoShop","StuartAndLog","DarkwallowGuestHouse","A1Hay","GunsUnlimited","GoldenSunset"}
 local function showLogo(index)
     local SC=SurvivorCompanion local id=logoIds[index]
     -- Header presentation fixture on the clone's actual powered computer.
     -- Production assignment and saved identities are checked headlessly.
-    local profile=SC.TerminalFiles.choose(SC.TerminalBrands.kind(id),1,id)
-    assert(profile.brand==id,"logo preview has the wrong owner archive")
+    local kind=SC.TerminalBrands.kind(id)
+    if index>6 then assert(not SC.TerminalBrands.BACKINGS[id],"transparent header acquired a foreground-removal key") end
+    local profile=SC.TerminalFiles.choose(kind,1,id)
+    assert(profile.kind==kind,"logo preview has the wrong archive context")
+    assert(profile.brand==id,"named archive replaced in logo preview")
     SC.Terminal.window:close()
     local system=SC.Terminal.computerState(getSpecificPlayer(0),run.pc)
     system.archive,system.theme=profile.id,SC.TerminalPresentation.themeFor(1,id)
@@ -66,7 +71,7 @@ local function tick()
             SC.TerminalSystem.ensurePuzzle(w.system,player:getPerkLevel(Perks.Electricity))
             w.entry:setText(w.system.puzzle.answer) w:submit() w:flush()
         end
-        assert(#SC.TerminalLore.REFERENCE==104,"new reference module did not load")
+        assert(#SC.TerminalLore.REFERENCE==120,"new reference module did not load")
         input("Emma I am scared")
         assert(w.session.context.intent=="chat_scared","expanded natural-language reply not selected")
         local choices,boxes=w:menuOptions(),w:menuLayout()
@@ -125,6 +130,21 @@ local function tick()
         input("back") input("tell me about the empty bus")
         assert(w.session.context.referenceId=="fragment_bus","typed dark-note alias lost its archived source")
         log("PASS native dated outbreak category, numbered note access, reading anchor and typed alias")
+        for _,row in ipairs({{"Meade County Police","local_meadepolice"},{"West Point Town Hall","local_wptownhall"},
+            {"Hobbs and Perkins","local_hobbs"},{"Ovo Farms","local_ovo"},{"Lenny's Car Repair","local_lennys"},
+            {"Ekron Community College","local_ekroncollege"},{"Al's Auto Shop","local_als"},{"Stuart and Log","local_stuart"},
+            {"Darkwallow Lake Guest House","local_darkwallow"},{"A-1 Hay","local_a1hay"},
+            {"Guns Unlimited","local_gunsunlimited"},{"Golden Sunset Nursing Home","local_goldensunset"},
+            {"the second guest register","fragment_register"},{"the erased delivery address","fragment_delivery"},
+            {"the blue van's return weight","fragment_weighbridge"},{"meals after discharge","fragment_meals"}}) do
+            input("tell me about "..row[1])
+            assert(w.session.context.intent=="lore" and w.session.context.referenceId==row[2],"native business or fragment alias: "..row[1])
+        end
+        assert(w.system.archive==run.originalArchive and getSpecificPlayer(1)==nil,"new files changed owner or player slots")
+        log("PASS native twelve business references and four new outbreak fragments; original owner retained")
+        run.step,run.next=8,now+1500
+    elseif run.step==8 then
+        shot("rural-files")
         run.logoIndex=1 showLogo(run.logoIndex)
         run.step,run.next=6,now+1500
     elseif run.step==6 then

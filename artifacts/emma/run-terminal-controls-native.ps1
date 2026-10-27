@@ -65,9 +65,13 @@ try {
     if (-not (Test-Path -LiteralPath $evidence) -or (Get-Content -LiteralPath $evidence -Raw) -notmatch $passText) {
         throw 'Native terminal controls acceptance did not complete'
     }
-    foreach ($name in $(if ($Scenario -eq 'radiodevices') { @() } elseif ($Scenario -eq 'knowledge') { @('emma-knowledge-conversation','emma-knowledge-categories','emma-knowledge-town','emma-knowledge-outbreak',
+    foreach ($name in $(if ($Scenario -eq 'radiodevices') { @() } elseif ($Scenario -eq 'knowledge') { @('emma-knowledge-conversation','emma-knowledge-categories','emma-knowledge-town','emma-knowledge-outbreak','emma-knowledge-rural-files',
         'emma-knowledge-logo-Twiggys','emma-knowledge-logo-WestPointDIY','emma-knowledge-logo-WizardsKeep',
-        'emma-knowledge-logo-TacoDelPancho','emma-knowledge-logo-MuldraughPolice','emma-knowledge-logo-RosewoodFire') } elseif ($Scenario.StartsWith('trip')) { @('emma-controls-' + $Scenario) } elseif ($Scenario.StartsWith('save')) { @() } elseif ($Scenario -eq 'power') { @('emma-controls-power','emma-controls-security') } else { @('emma-controls-station','emma-controls-services') })) {
+        'emma-knowledge-logo-TacoDelPancho','emma-knowledge-logo-MuldraughPolice','emma-knowledge-logo-RosewoodFire',
+        'emma-knowledge-logo-MeadeCountyPolice','emma-knowledge-logo-WestPointTownHall','emma-knowledge-logo-HobbsPerkinsHardware',
+        'emma-knowledge-logo-OvoFarms','emma-knowledge-logo-LennysCarRepair','emma-knowledge-logo-EkronCommunityCollege',
+        'emma-knowledge-logo-AlsAutoShop','emma-knowledge-logo-StuartAndLog','emma-knowledge-logo-DarkwallowGuestHouse',
+        'emma-knowledge-logo-A1Hay','emma-knowledge-logo-GunsUnlimited','emma-knowledge-logo-GoldenSunset') } elseif ($Scenario.StartsWith('trip')) { @('emma-controls-' + $Scenario) } elseif ($Scenario.StartsWith('save')) { @() } elseif ($Scenario -eq 'power') { @('emma-controls-power','emma-controls-security') } else { @('emma-controls-station','emma-controls-services') })) {
         Copy-Item -LiteralPath (Join-Path $manifest.cacheRoot ('Screenshots\' + $name)) -Destination (Join-Path $captureRoot ($name + '.png')) -Force
     }
     Copy-Item -LiteralPath $evidence -Destination (Join-Path $captureRoot 'terminal-controls-evidence.log') -Force

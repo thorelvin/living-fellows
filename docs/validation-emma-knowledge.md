@@ -133,3 +133,6 @@ retain their existing precedence.
 
 This run does not revalidate the separate expedition return/lighting and
 parking issues. Local installation is separate from this source-validation pass.
+
+Further logos and staff stories are recorded in the
+[rural-business expansion](validation-terminal-rural-expansion.md).

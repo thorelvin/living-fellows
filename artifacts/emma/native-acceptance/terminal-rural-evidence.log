@@ -1,0 +1,47 @@
+PASS native all five home shortcuts visible font=32 viewport=1280x720
+SHOT conversation
+PASS native dated catalog available=117 categories=8
+SHOT categories
+SHOT town
+PASS native conversation, archive keyboard navigation, date refusal, related follow-up and live inventory intent
+SHOT outbreak
+PASS native dated outbreak category, numbered note access, reading anchor and typed alias
+PASS native twelve business references and four new outbreak fragments; original owner retained
+SHOT rural-files
+SHOT logo-Twiggys
+PASS native logo Twiggys theme=sand owner=twiggys_jo
+SHOT logo-WestPointDIY
+PASS native logo WestPointDIY theme=aqua owner=diy_gloria
+SHOT logo-WizardsKeep
+PASS native logo WizardsKeep theme=sand owner=wizard_kit
+SHOT logo-TacoDelPancho
+PASS native logo TacoDelPancho theme=sand owner=pancho_ines
+SHOT logo-MuldraughPolice
+PASS native logo MuldraughPolice theme=sand owner=outbreak_detective_ellen
+SHOT logo-RosewoodFire
+PASS native logo RosewoodFire theme=aqua owner=rosewoodfd_erin
+SHOT logo-MeadeCountyPolice
+PASS native logo MeadeCountyPolice theme=sand owner=meade_mara
+SHOT logo-WestPointTownHall
+PASS native logo WestPointTownHall theme=aqua owner=townhall_vivian
+SHOT logo-HobbsPerkinsHardware
+PASS native logo HobbsPerkinsHardware theme=green owner=hobbs_cliff
+SHOT logo-OvoFarms
+PASS native logo OvoFarms theme=sand owner=ovo_agnes
+SHOT logo-LennysCarRepair
+PASS native logo LennysCarRepair theme=aqua owner=lenny_faye
+SHOT logo-EkronCommunityCollege
+PASS native logo EkronCommunityCollege theme=aqua owner=ekron_owen
+SHOT logo-AlsAutoShop
+PASS native logo AlsAutoShop theme=aqua owner=als_dennis
+SHOT logo-StuartAndLog
+PASS native logo StuartAndLog theme=aqua owner=stuart_ruth
+SHOT logo-DarkwallowGuestHouse
+PASS native logo DarkwallowGuestHouse theme=aqua owner=darkwallow_elin
+SHOT logo-A1Hay
+PASS native logo A1Hay theme=sand owner=hay_calvin
+SHOT logo-GunsUnlimited
+PASS native logo GunsUnlimited theme=green owner=guns_mabel
+SHOT logo-GoldenSunset
+PASS native logo GoldenSunset theme=sand owner=sunset_beatrice
+PASS native terminal knowledge acceptance complete

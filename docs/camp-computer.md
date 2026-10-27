@@ -67,7 +67,7 @@ The implementation stages are:
    explicit Y/N confirmation and fresh validation when accepted. Expand wounds,
    skills, job suitability, shortages, alarms, radio reports, debriefs and
    pending-delivery answers. Never execute arbitrary text as code or commands.
-3. **Lore and downtime:** 468 original entries across 117 owners, plus 104
+3. **Lore and downtime:** 516 original entries across 129 owners, plus 120
    archived county and EMMA files. Companions can take a short break reading
    local files at an accessible camp computer.
 
@@ -86,7 +86,8 @@ still needs its separate native acceptance pass.
 ## More to ask EMMA
 
 The reference archive is grouped into EMMA, county records, the Knox Event,
-towns and landmarks, radio and television, local life and station help. Use
+towns and landmarks, radio and television, local life, station help and
+Outbreak fragments. Use
 the numbered choices and More files; short views use First files to cycle
 back. Late incident reports appear only when the save's calendar reaches
 their date. Moving a computer keeps its previous owner's files and identity.
@@ -110,13 +111,20 @@ Ekron, Echo Creek and more local businesses.
 Inventory questions still use camp records: `Spiffo burger?` or `How many
 Spiffo burgers do we have?` asks for actual supplies, not mascot history.
 
-**Outbreak fragments** collects twelve darker accounts: contradictory records,
+**Outbreak fragments** collects sixteen darker accounts: contradictory records,
 abandoned meetings, a basement telephone and an empty bus. Try `Tell me about
 the blue carbon copy` or `Tell me about the empty bus`, then `tell me more`.
 They are unverified local notes, unlocked by their July dates. Another sixteen
 previous owners have darker four-entry stories on individual computers:
 small crimes, institutional evasions and things their writers cannot quite
 explain. These are original fictional accounts, with ambiguity left intact.
+
+Twelve more staff stories connect the local businesses and services to their
+own files: a care-home transfer list, a guest house's second register, a repair
+shop's borrowed car and missing farm deliveries. Try `Tell me about Golden
+Sunset`, `What about A-1 Hay?` or `Tell me about the second guest register`.
+Complete business names remain distinct from a companion with the same first
+name. Existing computers keep the owner already saved on them.
 
 ## Branding coverage research
 
@@ -153,7 +161,7 @@ duplicate names and replaces photos with their firm's emblem. Examples:
 | Car sales | `nolanLogo.png`, `ScenicMileCarDealership.png` |
 | Hotels and motels | `HavishamHotelSuites.png`, `EconoRoom.png`, `SleepEazzzeInn.png` |
 
-The expanded catalogue provides 200 distinct terminal identities: 184 named
+The expanded catalogue provides 212 distinct terminal identities: 196 named
 marks and 16 camp or sector emblems. New artwork includes Sunstar, U-Store It,
 Lectromax, Pizza Whirled, Greene's, the Rusty Rifle, GigaMart and Jackie Jaye.
 Food service, retail, hotels and electronics now have their own fallbacks.
@@ -168,6 +176,19 @@ flyers guide the identities; transparent, brighter lettering fits the CRT
 glass. Purple stays a rare screen colour even on the purple-and-gold
 Wizard's Keep mark. Prompts, source hashes and alpha bounds are recorded in
 `docs/terminal-community-art-manifest.json`.
+The next six headers cover Meade County Police, West Point Town Hall,
+Hobbs & Perkins Hardware, Ovo Farms, Lenny's Car Repair and Ekron Community
+College. The Riverside police flyer names Meade County Police, so that name
+is retained. The college and town-hall marks are original terminal adaptations
+of the verified names and printed identities.
+Six further headers add Al's Auto Shop, Stuart & Log, Darkwallow Lake Guest
+House, A-1 Hay, Guns Unlimited and Golden Sunset Nursing Home. All twelve now
+have matching original staff stories. Golden Sunset uses care-home files;
+Darkwallow uses guest-house files. Aqua pairs with the blue repair and guest
+house marks, sand with hay and the nursing home, and green with Guns Unlimited.
+The rare-purple draw still takes priority. Every header has transparent
+margins so the CRT glass shows through; the manifest records the selected
+generated PNG without pixel processing.
 
 Brand selection follows these rules:
 

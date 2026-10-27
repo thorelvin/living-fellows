@@ -667,6 +667,84 @@ local outbreakOwners = {
 }
 for _,profile in ipairs(outbreakOwners) do Lore.ARCHIVES[#Lore.ARCHIVES+1]=profile end
 
+-- Original staff stories for the local adverts. Appending keeps every
+-- published archive identity valid when a computer is moved or reloaded.
+local localOwners = {
+    owner("meade_mara", "police", "Mara Hensley", "MeadeCountyPolice", {
+        {2,"Property room","A handbag came back from evidence with the purse missing. The return form says contents checked. I asked which contents. Sergeant said not to make a career out of a cheap handbag. It belonged to a woman who has not come to collect it."},
+        {6,"Duplicate statement","The woman's husband has supplied a second statement. The first has been marked superseded, although the only changed detail is the hour he came home. I kept both. Apparently this is why the filing cabinets are full."},
+        {8,"Front desk","People are asking whether we can find their relatives. I take names and last known addresses. I no longer say somebody will call. The sergeant left with the property-room key. He did not take his coat."},
+        {9,"Two envelopes","The statements are in separate envelopes inside the complaints folder. No secret code, no hidden compartment. Just the one drawer nobody here has opened voluntarily. If she comes back, please do not give her another form."},
+    }),
+    owner("townhall_vivian", "government", "Vivian Bellamy", "WestPointTownHall", {
+        {2,"Emergency stationery","The approved evacuation notice is waiting for the approved paper. We have ordinary white paper. Procurement says an exception needs two signatures. I have drafted a request to evacuate the stationery cupboard."},
+        {6,"Attendance","The meeting agreed that public concern was manageable. Three members left early to collect their families. I have put the departure times in the minutes. The chairman asked whether minutes really needed that much time in them."},
+        {8,"Revision four","The shelter notice now says WAS OPEN AT THE TIME OF THIS NOTICE. I was asked to make the time smaller. I have made it larger. The chairman will discover this when he returns to a building he has advised everyone else to remain in."},
+        {9,"The spare room","Six people slept in the records room. No authorisation, no booking fee. I have left them the clean blankets from the ceremonial cupboard. They were apparently waiting for a distinguished visitor. This will have to count."},
+    }),
+    owner("hobbs_cliff", "hardware", "Cliff Arden", "HobbsPerkinsHardware", {
+        {2,"Key cutting","A man ordered eleven copies of the same key on county credit. His card had a title and no photograph. I asked for the purchase order. He said the county would remember who helped. I have written that in the purchase-order box."},
+        {6,"Closing stock","Sold the last useful torch. Still have an entire display of novelty key rings that whistle when clapped at. The manager wants a front-window promotion. I suggested EMERGENCY STOCK: WHISTLING WILL NOT HELP."},
+        {8,"The twelfth key","A woman brought in the original from Monday's order and asked whether we had made copies. She looked at the eleven marks on the receipt and sat down. I did not ask what the door protected. I wish I had asked the man."},
+        {9,"Lock change","I showed her the manual tools and a lock that takes a different key. No county account. No waiting for approval. The receipt says paid, which is close enough to the truth for the person who normally checks."},
+    }),
+    owner("ovo_agnes", "agriculture", "Agnes Duvall", "OvoFarms", {
+        {2,"Tray counts","Thirty eggs to a tray. Thirty trays to the order. A manager has proposed removing the cracked ones from the count without removing them from the delivery. I proposed removing him from the meeting. Neither proposal reached a vote."},
+        {6,"Unmarked collection","An unmarked van collected the clinic order. The driver knew the loading time but not the clinic's name. He said the regular man was sick. I wrote his registration on the back of the invoice before handing it over."},
+        {8,"Telephone","The clinic called about its missing delivery. I read out the registration. The woman went quiet and asked me to repeat it. There are ways a person can recognise a number that do not sound like good news."},
+        {9,"Separate copy","I put the invoice copy in the metal cash box. Eggs do not explain what is happening. A stolen delivery does explain why somebody went hungry, and that is one small question we might still answer."},
+    }),
+    owner("lenny_faye", "mechanic", "Faye Mercer", "LennysCarRepair", {
+        {2,"Test drive","Customer says the brakes make a noise only when his wife is driving. I took the car round the block. The brakes make the same noise when a woman is being paid to hear them. Quote prepared without comment."},
+        {6,"Company vehicle","The owner's nephew took the loan car. He signed it out under a customer's name. Lenny says family is complicated. So is recovering a car from somebody who believes a surname is insurance."},
+        {8,"Back at the gate","The loan car is back, engine cold, keys on the seat. There is a child's shoe under the rear bench. The nephew says he never had passengers. I have heard engines make more convincing explanations with two cylinders missing."},
+        {9,"Work completed","I put fuel in the loan car and left the key with June from next door. She has her mother to move. The job sheet says no charge. Somebody can argue with my handwriting when there is a working telephone to argue over."},
+    }),
+    owner("ekron_owen", "education", "Owen Shaw", "EkronCommunityCollege", {
+        {2,"Summer admissions","An applicant apologised for being forty-seven. I told her the desk does not check birthdays before accepting an essay. She has put the word eventually beside every plan on her application. I hope she runs out of reasons to use it."},
+        {6,"Open day","We are still expected to hold the open day. Facilities asked whether the emergency notice should come before or after WELCOME TO YOUR FUTURE. I have put the emergency notice over it."},
+        {8,"Hallway chairs","Families are sitting outside the lecture rooms. The admissions system wants a course code before I can enter a name. I used a paper register. A pencil has accepted every applicant without complaint."},
+        {9,"Deferred places","I marked the unfinished applications deferred instead of withdrawn. It changes nothing about the roads. It means that, on one small record, leaving to stay alive does not count as giving up."},
+    }),
+    owner("als_dennis", "mechanic", "Dennis Pike", "AlsAutoShop", {
+        {2,"Five stars","The sign has two stars. Al wants five because people trust five stars. I asked which three new services we would offer. He said I had misunderstood the proposal. I have worked here long enough to doubt that."},
+        {6,"Roadside call","Towed a car from the junction. Driver gone, hazard lights on, a shopping list clipped to the wheel. Milk, batteries, birthday candles. I put the list in the glove box. Nobody abandons birthday candles because the shopping is finished."},
+        {8,"Collection","A man came for the car with the right keys and the wrong description of the driver. He paid cash for the tow. I said I needed the registered owner's signature. He said we would both be happier if I did not."},
+        {9,"Invoice carbon","He took the car. I kept the invoice carbon with his plate number pressed through it. I should have done more. Writing that is easier than deciding what more would have been, which is why I am leaving both lines."},
+    }),
+    owner("stuart_ruth", "mechanic", "Ruth Keene", "StuartAndLog", {
+        {2,"Useful scrap","A good gearbox arrived attached to a car that ought to have been repaired. The customer wanted cash, no receipt. Log called that an efficient transaction. I called it a description somebody may ask us to repeat later."},
+        {6,"Weighbridge","The blue van weighs more coming out than going in. Driver says the scale sticks. I weighed a known load. Stuart says the scale only needs to be right when we are buying. I have written the two readings in my own book."},
+        {8,"Under the bench","Found sealed grocery cartons behind the scrap bins. Same registration on the delivery slip as the blue van. It is not difficult to find out where food goes when everybody assumes a woman keeping accounts cannot lift a tarpaulin."},
+        {9,"Public collection","I opened the cartons and put them beside the gate. The book records what was there and what people took. There is no profit column. For once the accounts describe something I am prepared to sign."},
+    }),
+    owner("darkwallow_elin", "hotel", "Elin Ward", "DarkwallowGuestHouse", {
+        {2,"Lake rooms","A caller booked three rooms under one name and asked which windows could be seen from the road. I said the lake view costs extra. He did not laugh. I have become rather good at knowing when a joke has failed."},
+        {6,"Late arrival","The caller arrived alone. He paid for all three rooms and asked me not to clean them. A woman telephoned twice for somebody with a different surname. He was already waiting beside the desk when I answered the second call."},
+        {8,"Second register","Three breakfast plates upstairs, one name in the register. I started a second list with what I actually saw. At dusk the guest asked whether the lake path had another exit. I told him I did not know. I know it very well."},
+        {9,"No forwarding address","Two women left by the lake path before dawn. I gave them dry shoes from lost property. The guest has not asked for his breakfast. I have locked the office and left the honest register where it can be found."},
+    }),
+    owner("hay_calvin", "agriculture", "Calvin Rusk", "A1Hay", {
+        {2,"Dry storage","The buyer wants a discount because the bales are too dry. Last month another wanted one because they were damp. I may begin selling the space between them as a premium product with no moisture concerns."},
+        {6,"North delivery","The driver returned without the signed invoice. Said a man at the gate took the load and told him not to come back. The farm account has been closed for a year. I would have remembered opening it again."},
+        {8,"Pencil address","Found the driver's copy under the seat. A second address in pencil, a weight crossed out, a woman's name. He says the emergency has confused everybody. It has made him very precise about which questions he will answer."},
+        {9,"For the next driver","I cancelled the account and pinned both addresses beside the phone. No new delivery is promised. If anybody follows the paperwork, they should know the difference between where a load was ordered and where it disappeared."},
+    }),
+    owner("guns_mabel", "retail", "Mabel Greer", "GunsUnlimited", {
+        {2,"Stock check","The owner wants the missing stock called a display adjustment. I have adjusted the display by removing the empty price cards. The stock is still missing. Accounting has proved disappointingly resistant to interior design."},
+        {6,"Badge at the counter","A man with a badge asked for the remaining ammunition without a receipt. He would not give a department or a name. I asked for both. A badge can be held at a very angry angle when it has run out of answers."},
+        {8,"Back door","Somebody tried the back door after closing. I moved the stock book out of the office and kept the door shut. There is no heroic entry to make. Just a door, a long night and decisions other people hoped I would stop recording."},
+        {9,"The record","I have left a list of the missing stock and the owner's signed instructions. It will not keep anybody safe by itself. It may keep the next person from being blamed for what was already gone."},
+    }),
+    owner("sunset_beatrice", "clinic", "Beatrice Lane", "GoldenSunset", {
+        {2,"Visiting hours","Mr Bell's daughter arrives twelve minutes late every Tuesday. Management wants a warning letter. She takes two buses after a shift at the laundry. I have moved the clock beside the register back twelve minutes. Accuracy is a professional responsibility."},
+        {6,"Transport list","The transfer list has bed numbers and no passenger names. I wrote the names beside them. The manager says beds are easier to reconcile. People are harder to lose by accident when somebody has written who they are."},
+        {8,"Meals served","The office continues billing for meals after a resident has left. I asked where Mrs Rowe had gone. There is a signature for the tray and none for transport. The manager asked why I was checking old dates during an emergency."},
+        {9,"Walking together","We left with names, medicines and the people who could help the others walk. I cannot account for Mrs Rowe. Her daughter's number and the meal sheets are in this file. Please do not let an empty bed become the whole explanation."},
+    }),
+}
+for _,profile in ipairs(localOwners) do Lore.ARCHIVES[#Lore.ARCHIVES+1]=profile end
+
 Lore.REFERENCE = {
     {id="emma_origin",date="1993-07-01",title="EMMA: programme brief",text="EMERGENCY MANAGEMENT ASSISTANT, county deployment beta 0.9. EMMA organises local records and produces short replies from approved procedures and the information stored on each machine. The demonstration describes this as conversational assistance. The procurement form describes it as one licence per workstation. Both descriptions have been approved."},
     {id="emma_limits",date="1993-07-02",title="What this machine can know",text="A local record is evidence of what somebody entered, not evidence that the world still agrees. EMMA must identify missing records, old observations and estimates. Do not allow a confident sentence to conceal an unknown. The computer has been instructed to say this politely. Operators are asked to extend the same courtesy to each other."},

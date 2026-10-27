@@ -18,6 +18,18 @@ D.NEW = {
     WizardsKeep={label="The Wizard's Keep",kind="retail",theme="sand"},
     MuldraughPolice={label="Muldraugh Police",kind="police",mono=true},
     RosewoodFire={label="Rosewood Fire Department",kind="emergency",theme="aqua"},
+    MeadeCountyPolice={label="Meade County Police",kind="police",theme="sand"},
+    WestPointTownHall={label="West Point Town Hall",kind="government",theme="aqua"},
+    HobbsPerkinsHardware={label="Hobbs & Perkins Hardware",kind="hardware",theme="green"},
+    OvoFarms={label="Ovo Farms",kind="agriculture",theme="sand"},
+    LennysCarRepair={label="Lenny's Car Repair",kind="mechanic",theme="aqua"},
+    EkronCommunityCollege={label="Ekron Community College",kind="education",theme="aqua"},
+    AlsAutoShop={label="Al's Auto Shop",kind="mechanic",theme="aqua"},
+    StuartAndLog={label="Stuart & Log",kind="mechanic",theme="aqua"},
+    DarkwallowGuestHouse={label="Darkwallow Lake Guest House",kind="hotel",theme="aqua"},
+    A1Hay={label="A-1 Hay",kind="agriculture",theme="sand"},
+    GunsUnlimited={label="Guns Unlimited",kind="retail",theme="green"},
+    GoldenSunset={label="Golden Sunset Nursing Home",kind="clinic",theme="sand"},
 }
 D.ART_OVERRIDES={ChiefSteakhouseBar=true,LouisvilleMusicFestival1993=true,LesTartesdeMademoiselleCeline=true,
     RiverwoodBoatClub=true,DiMarcoCoffee=true,TacoDelPancho=true}
@@ -85,6 +97,12 @@ D.ROOM_BRANDS = {office_herald="TheKentuckyHerald",newspaperprint_herald="TheKen
 -- Only explicit firm names. Ordinary labels such as 'Insurance' or 'Mall'
 -- deliberately convey no brand.
 D.SIGN_BRANDS = {["spiffos"]="Spiffos",["spiffos logo"]="Spiffos",["fossoil"]="Fossoil",
+    ["meade county police department"]="MeadeCountyPolice",["west point town hall"]="WestPointTownHall",
+    ["hobbs & perkins"]="HobbsPerkinsHardware",["ovo farms"]="OvoFarms",
+    ["lenny's car repair"]="LennysCarRepair",["ekron community college"]="EkronCommunityCollege",
+    ["al's auto shop"]="AlsAutoShop",["stuart & log"]="StuartAndLog",
+    ["darkwallow lake guest house"]="DarkwallowGuestHouse",["a-1 hay"]="A1Hay",
+    ["guns unlimited"]="GunsUnlimited",["golden sunset nursing home"]="GoldenSunset",
     ["twiggy's"]="Twiggys",["west point diy"]="WestPointDIY",["the wizard's keep"]="WizardsKeep",
     ["muldraugh police"]="MuldraughPolice",["rosewood fire department"]="RosewoodFire",["taco del pancho"]="TacoDelPancho",
     ["sunstar motel"]="SunstarMotel",["greene's"]="Greenes",["optima eyes"]="OptimaEyes"}
@@ -93,6 +111,10 @@ D.SIGN_BRANDS = {["spiffos"]="Spiffos",["spiffos logo"]="Spiffos",["fossoil"]="F
 D.POI_BRANDS = {mccoyloggingcorp="McCoyLogging",nolansusedcars="nolanLogo",westmaplecountryclub="WestMapleCountryClub",
     twiggys="Twiggys",wpdiy="WestPointDIY",thewizardskeep="WizardsKeep",
     muldraughpd="MuldraughPolice",rosewoodfd="RosewoodFire",
+    riversidepd="MeadeCountyPolice",wptownhall="WestPointTownHall",hobbsandperkinshardware="HobbsPerkinsHardware",
+    ovofarms="OvoFarms",lennyscarrepair="LennysCarRepair",ekroncollege="EkronCommunityCollege",
+    alsautoshop="AlsAutoShop",stuartandlogscrapyard="StuartAndLog",darkwallowguesthouse="DarkwallowGuestHouse",
+    a1hay="A1Hay",gunsunlimitedechocreek="GunsUnlimited",goldensunset="GoldenSunset",
     ustoreitriverside="UStoreIt",ustoreitlouisville="UStoreIt",ustoreitmuldraugh="UStoreIt",
     fossoil1="Fossoil",fossoil2="Fossoil",fossoil3="Fossoil",fossoil4="Fossoil",fossoil5="Fossoil",
     fossoil6="Fossoil",fossoil7="Fossoil",fossoil8="Fossoil",fossoilfield="FossoilField",

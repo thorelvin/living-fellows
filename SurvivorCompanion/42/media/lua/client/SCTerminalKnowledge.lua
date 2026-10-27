@@ -177,6 +177,33 @@ entry("local_computing","local","Personal computers and floppy disks",{"floppy d
 entry("local_shipping","county","Freight, deliveries and dispatch desks",{"freight","shipping companies","dispatch desks"},
     "Transport adverts promise to move goods between places. The dispatch desk supplies the unglamorous details: which load, which driver and whether the delivery actually arrived. Those distinctions survive the collapse of the timetable. A vehicle returning is a journey completed; its cargo reaching the intended shelf is a separate event.",nil,{"county_road","local_ustore","local_nolan"})
 
+-- Business identities follow the stock local adverts. Staff stories are
+-- original fiction in personal files, not additions to the stock timeline.
+entry("local_meadepolice","county","Meade County Police",{"meade county police","meade county police department"},
+    "The local police flyer carries the name Meade County Police Department. A department is more than the shield on its notice: a front desk, reports, property receipts and people trying to put an event into the right box. Those ordinary records can outlast the authority that produced them. An old heading is worth reading, even when it can no longer promise an answer.",nil,{"place_riverside","local_muldraughpolice","fragment_keys"})
+entry("local_wptownhall","county","West Point Town Hall",{"west point town hall","westpoint town hall"},
+    "West Point Town Hall appears in the local printed directory. Council business leaves a particular kind of archaeology: agenda papers, meeting times and decisions made by people certain there would be another meeting. A public building could become a place to ask for help without anyone having planned for the number of people asking. A notice needs its date as much as its official heading.",nil,{"place_westpoint","fragment_notice","county_notices"})
+entry("local_hobbs","local","Hobbs & Perkins Hardware",{"hobbs and perkins","hobbs & perkins","hobbs perkins hardware"},
+    "Hobbs & Perkins is a hardware business in the county's advertising. The counter was where a broken thing became a list of parts and, with luck, a repair. Keys, fittings and hand tools make modest purchases until a door or water pipe becomes the most important object in a household. Its old advert is a record of that trade, not a stock count.",nil,{"local_diy","local_a1hay","local_computing"})
+entry("local_ovo","local","Ovo Farms",{"ovo farms","ovofarms"},
+    "Ovo Farms' egg advertising belongs to the less glamorous side of keeping a county fed: trays, collection times and loads that must reach the right kitchen. Food has a journey before it appears on a shelf. A delivery sheet records an intention; a signed receipt records something more useful. Even that needs the right person's name.",nil,{"local_shipping","fragment_delivery","local_a1hay"})
+entry("local_lennys","local","Lenny's Car Repair",{"lenny s car repair","lennys car repair"},
+    "Lenny's Car Repair appears in the local service advertising. Repair shops depended on work orders, spare parts and the awkward conversation between what a car needed and what its owner could afford. A loan car might matter more than a repair once a family needed to leave. Keys and paperwork preserve different parts of that story.",nil,{"local_als","local_nolan","county_road"})
+entry("local_ekroncollege","local","Ekron Community College",{"ekron community college","ekron college"},
+    "Ekron Community College's advert offered a future close enough to travel to. Community education meant evening study, practical courses and people fitting a different life around the work they already had. An admissions form can preserve a plan interrupted long before its first lesson. A deferred place is a small piece of paper with an unusually large amount of hope attached.",nil,{"local_lsu","place_echo","county_shelter"})
+entry("local_als","local","Al's Auto Shop",{"al s auto shop","als auto shop"},
+    "Al's Auto Shop's blue wordmark and paired stars are a familiar kind of roadside promise: a place that may make an uncooperative car work again. The important parts happened behind the sign, among tow calls, quotes and jobs waiting for one more part. A car at a workshop is not necessarily abandoned. Sometimes somebody was simply expecting a call to say it was ready.",nil,{"local_lennys","local_stuart","county_road"})
+entry("local_stuart","local","Stuart & Log",{"stuart and log","stuart & log","stuart log scrap"},
+    "Stuart & Log advertises scrap and repair work. A yard sits at the boundary between an object somebody has finished with and a part somebody still needs. Weights, registrations and receipts make that boundary less convenient to blur. A ledger can be more revealing than the scrap outside, especially when a transaction was supposed to leave no record.",nil,{"local_als","fragment_weighbridge","local_shipping"})
+entry("local_darkwallow","local","Darkwallow Lake Guest House",{"darkwallow","darkwallow lake","darkwallow guest house","darkwallow lake guest house"},
+    "Darkwallow Lake Guest House's flyer offers waterside accommodation beneath a row of steep roofs. A guest house keeps two kinds of history: the register people sign and the things a receptionist notices. A room paid for is not proof of who slept there. EMMA keeps its directory separate from the original, unreliable accounts left on individual computers.",nil,{"fragment_register","local_sunstar","county_family"})
+entry("local_a1hay","local","A-1 Hay",{"a 1 hay","a1 hay","a1hay"},
+    "A-1 Hay's broad lettering and farm imagery advertise a plain rural necessity. Hay connects fields, livestock, weather and the person who has to get a loaded vehicle through a gate. A delivery address can tell a small story about who was still expecting to work the next morning. A crossed-out address may tell a different one.",nil,{"local_ovo","fragment_delivery","local_shipping"})
+entry("local_gunsunlimited","local","Guns Unlimited",{"guns unlimited"},
+    "Guns Unlimited's rounded wordmark appears in the local firearms advertising. The bright name sits above a business with ordinary obligations: receiving stock, recording sales and deciding whether a person at the counter is entitled to what they request. An emergency does not make a missing record less important. This file describes the shop; it supplies no promise of remaining stock.",nil,{"place_echo","local_meadepolice","county_handover"})
+entry("local_goldensunset","local","Golden Sunset Nursing Home",{"golden sunset","golden sunset nursing home"},
+    "Golden Sunset is a nursing home, identified by a warm half-sun and its care-home name. Behind the gentle branding were shifts, visits, meal sheets and residents whose routines depended on somebody arriving for work. A bed number is useful to a building. A person's name is useful to the people trying to find them. Those are records worth keeping together.",nil,{"fragment_meals","county_family","county_handover"})
+
 -- Original, unreliable outbreak accounts. They establish no supernatural
 -- explanation, infection cause, current occupants or actionable destination.
 local function fragment(id,title,aliases,text,date,related)
@@ -206,6 +233,15 @@ fragment("fragment_secondshift","Second-shift minutes",{"second shift minutes","
     "The meeting minutes list six staff present, four absent and one still to be informed. The building had closed the previous afternoon. A caretaker found the chairs drawn together, a wet coat over the radiator and a fresh pot of coffee. He wrote that he was afraid to count the cups. The minutes end with an agreement to meet again when everyone could attend.","1993-07-09",{"fragment_phone","fragment_voices","county_handover"})
 fragment("fragment_ledger","The borrowed name",{"the borrowed name","borrowed name account"},
     "A dispatch ledger records a man boarding under his brother's name. The brother had been turned away an hour earlier. The clerk recognised them both and let the entry stand. She wrote: If I correct the book, it will show one man missing and one man safe. If I leave it, it shows the same thing. I no longer know which name to call when the telephone rings.","1993-07-08",{"fragment_carbon","fragment_keys","county_family"})
+
+fragment("fragment_register","The second guest register",{"the second guest register","second guest register"},
+    "A receptionist's saved note describes three rooms booked under one name. Her second list records three breakfast plates, two borrowed pairs of shoes and an early departure by the lake path. The official register contains one guest and a complaint about service. A pencilled line below the complaint reads: He is quite right. I was helping somebody else. The account was never independently checked.","1993-07-09",{"local_darkwallow","fragment_carbon","county_family"})
+fragment("fragment_delivery","The erased delivery address",{"the erased delivery address","erased delivery address"},
+    "A delivery invoice has an address rubbed out so firmly that the paper has split. On the driver's copy it remains legible, with a second address and a woman's name beneath it. The account had been closed before the order was placed. An unsigned office note asks which address should receive the overdue-payment letter. In another hand: Try asking which one received the food.","1993-07-09",{"local_a1hay","local_ovo","fragment_carbon"})
+fragment("fragment_weighbridge","The blue van's return weight",{"the blue van s return weight","blue van return weight"},
+    "Two weighbridge slips record a blue van leaving heavier than it arrived. A handwritten calculation names grocery cartons that were not part of the declared load. The yard owner's instruction says to correct the scale. The bookkeeper has written: I checked it. Then, on the next line: That was not what he meant. No verified account of the van's later journeys is attached.","1993-07-08",{"local_stuart","fragment_delivery","local_shipping"})
+fragment("fragment_meals","Meals after discharge",{"meals after discharge","the meal sheets"},
+    "A care-home meal sheet continues charging for a resident after her bed is marked vacant. There is no matching transport signature. A carer's note asks whether the clerk saw her leave. The clerk's reply says the screen required a discharge date before it would let him finish. Both names remain on the page. Neither person wrote where she went. This archived account supplies no answer.","1993-07-09",{"local_goldensunset","fragment_occupancy","county_family"})
 
 K.CHAT = {
     {id="chat_scared",exact={"i am scared","i am afraid","im frightened","i am frightened","i feel scared"},lines={
@@ -400,6 +436,6 @@ function K.find(query,distance)
             if value>score then best,score=record,value end
         end
     end
-    return best
+    return best,score
 end
 return K

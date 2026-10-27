@@ -12,7 +12,7 @@ local world={camp=function() return {configured=true,inside=true} end,clock=func
     storage=function() calls.storage=calls.storage+1 return {groups={{name="Spiffo Burger",count=3,type="Base.Burger",food=true,
         category="Food",kcal=500}},items=3,containers=1} end,
     zombies=function() calls.zombies=calls.zombies+1 return {count=42,radius=40,nearest=10,dir="north"} end}
-check(#K.ENTRIES==88 and #Lore.REFERENCE==104 and #K.CHAT==24,"expanded reference and conversation counts")
+check(#K.ENTRIES==104 and #Lore.REFERENCE==120 and #K.CHAT==24,"expanded reference and conversation counts")
 local ids={}
 for _,entry in ipairs(K.ENTRIES) do
     check(not ids[entry.id] and Lore.reference(entry.id)==entry,"stable unique ID "..entry.id) ids[entry.id]=true
@@ -86,7 +86,7 @@ for _,entry in ipairs(K.ENTRIES) do
         check(Lore.available(entry,{year=1993,month=6,day=9}),"early-outbreak fragment missing after its date")
     end
 end
-check(fragmentCount==12,"twelve original outbreak fragments are catalogued")
+check(fragmentCount==16,"sixteen original outbreak fragments are catalogued")
 local before=calls.zombies
 reply=Brain.respond(session(),"is Louisville safe",world)
 check(reply.intent=="lore" and text(reply):find("cannot confirm",1,true) and calls.zombies==before,
@@ -100,6 +100,16 @@ reply=Brain.respond(s,"and Spiffo",world)
 check(reply.intent=="storage","an item follow-up stays in storage")
 reply=Brain.respond(session(),"where is Rose",world)
 check(reply.intent=="person","person names are not prefixes of place names")
+local namedWorld={camp=world.camp,clock=world.clock,storage=world.storage,
+    people=function() return {{id="al",name="Al",health=100},{id="lenny",name="Lenny",health=100}} end}
+for _,question in ipairs({"Al's Auto Shop","tell me about Al's Auto Shop","Lenny's Car Repair"}) do
+    reply=Brain.respond(session(),question,namedWorld)
+    check(reply.intent=="lore" and not reply.error,"complete business name is not a shortened companion name: "..question)
+end
+for _,question in ipairs({"where is Al","how is Lenny"}) do
+    reply=Brain.respond(session(),question,namedWorld)
+    check(reply.intent=="person","short personal query remains about its companion: "..question)
+end
 local outside={camp=function() return {configured=true,inside=false} end,clock=world.clock,
     people=function() error("outside lore read camp people") end,storage=function() error("outside lore read camp storage") end}
 reply=Brain.respond(session(),"tell me about Riverside",outside)

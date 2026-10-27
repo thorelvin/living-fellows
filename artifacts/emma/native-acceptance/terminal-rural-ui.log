@@ -1,0 +1,23 @@
+SCUserOptions persistence and live Apply PASS
+Kahlua PASS: SCUserOptionsFixture.lua, ModOptions.lua, SCUserOptions.lua, SCUserOptionsTests.lua
+Base policy native checkbox, deep layout (8 cases), section order, zone labels and job retry interactions PASS; Base refresh PASS: ordinary live values retain controls; identity, duty, roles, policies, markings, retry text and crisis changes refresh
+Kahlua PASS: SCUIBasePolicyFixture.lua, ISBaseObject.lua, ISUIElement.lua, ISTickBox.lua, SCUIFormat.lua, SCUI.lua, SCUIBasePolicyTests.lua, SCUIBaseRefreshTests.lua
+Medical context native-patient rebinding: 26 checks passed
+Kahlua PASS: SCMedicalContextFixture.lua, ISContextMenu.lua, SCMedicalUI.lua, SCUIContext.lua, SCMedicalContextTests.lua
+Storage world-menu removal: 18 checks passed
+Kahlua PASS: SCMedicalContextFixture.lua, ISContextMenu.lua, SCMedicalUI.lua, SCUIContext.lua, SCStorageContextTests.lua
+Camp computer menu hook: 5 checks passed
+Kahlua PASS: SCMedicalContextFixture.lua, ISContextMenu.lua, SCMedicalUI.lua, SCUIContext.lua, SCTerminalContextTests.lua
+Camp computer terminal: 59 checks passed; LARCH/OS terminal: 112 security, menu, movement, XP, offline-data and geometry checks passed; Responsive/POST/themes: 358 checks passed; Terminal boot audio: 15 checks passed; Confirmed camp requests: 49 checks passed; Expanded reference UI: 860 checks passed; Companion terminal access: 10 checks passed; Recovery and reading: 533 checks passed
+Kahlua PASS: SCTerminalFixture.lua, SCTerminalLines.lua, SCTerminalKnowledge.lua, SCTerminalBrain.lua, SCTerminalLore.lua, SCTerminalFiles.lua, SCTerminalPresentation.lua, SCTerminalBusinessData.lua, SCTerminalBrands.lua, SCTerminalArtBounds.lua, SCTerminalBrands.lua, SCTerminalSystem.lua, SCTerminalWorld.lua, SCTerminalActions.lua, SCTerminal.lua, SCTerminalTests.lua, SCTerminalSystemTests.lua, SCTerminalPresentationTests.lua, SCTerminalAudioTests.lua, SCTerminalActionTests.lua, SCTerminalLoreTests.lua, SCTerminalCompanionTests.lua, SCTerminalReadingTests.lua
+Kahlua PASS: SCTerminalFixture.lua, SCTerminalLines.lua, SCTerminalKnowledge.lua, SCTerminalBrain.lua, SCTerminalLore.lua, SCTerminalFiles.lua, SCTerminalPresentation.lua, SCTerminalBusinessData.lua, SCTerminalBrands.lua, SCTerminalArtBounds.lua, SCTerminalBrands.lua, SCTerminalSystem.lua, SCTerminalWorld.lua, SCTerminalActions.lua, SCTerminal.lua, SCControlUtil.lua, SCBuildingControls.lua, SCTerminalHardware.lua, SCRadioEndpoints.lua, SCGeneratorServices.lua, SCBuildingSecurity.lua, SCBuildingCircuits.lua, SCTerminalServices.lua, SCBuildingServicesTests.lua
+Kahlua PASS: SCUIFormat.lua, SCUIFormatTests.lua, SCUIBridge.lua, SCUIBridgeTests.lua, SCMedicalUI.lua, SCMedicalUITests.lua, SCBaseVisualsFixture.lua, SCBaseVisuals.lua, SCBaseVisualsTests.lua, SCConstructionPlanner.lua, SCConstructionPlannerTests.lua, SCBuildRecipeFixture.lua, SCBaseWork.lua, SCBuildRecipeTests.lua, SCCompanionMapFixture.lua, SCCompanionMap.lua, SCCompanionMapTests.lua, SCInteractionFixture.lua, SCInteraction.lua, SCInteractionTests.lua
+Base overlay UI-clock retention PASS: 9 world/UI redraw ratios, refresh, focus, removal, floors, previews, room flashes and split blueprints
+Kahlua PASS: SCBaseVisualsFixture.lua, SCBaseVisuals.lua, SCBaseVisualsRedrawTests.lua
+Kahlua PASS: SCUIExpeditionZoomFixture.lua, SCUIFormat.lua, SCUIExpeditions.lua, SCUIExpeditionZoomTests.lua
+Kahlua PASS: SCNames.lua, SCUIBridge.lua, SCBanter.lua, nickname_display_harness.lua
+.............................................................................................
+----------------------------------------------------------------------
+Ran 93 tests in 0.756s
+
+OK

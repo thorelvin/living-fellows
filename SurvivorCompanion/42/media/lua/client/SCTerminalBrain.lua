@@ -1762,28 +1762,34 @@ function Brain.parse(session, raw, world, turn)
         or request:match("^treat%s+(.+)$")
     if patient then return "request", { kind = "medic", query = patient:gsub("^on%s+", "") } end
     -- Keep literal business names before chat shorthand expands U to "you".
-    local knownReference=SC.TerminalKnowledge and (SC.TerminalKnowledge.find(text,Brain.distance)
-        or SC.TerminalKnowledge.find(joined,Brain.distance))
+    local knownReference,referenceScore
+    if SC.TerminalKnowledge then
+        knownReference,referenceScore=SC.TerminalKnowledge.find(text,Brain.distance)
+        if not knownReference then knownReference,referenceScore=SC.TerminalKnowledge.find(joined,Brain.distance) end
+    end
     if looksLikeMash(text) and not knownReference then return "mash", {} end
 
     local people = peopleList(turn, world)
     local names = nameIndex(people)
     local rest, followUp = stripFollowUp(tokens)
     local fixed = {}
-    for index, word in ipairs(rest) do fixed[index] = corrected(word, names) end
+    -- A matched directory title is already understood. In particular, do not
+    -- turn County into count and route a police-department name to storage.
+    for index, word in ipairs(rest) do fixed[index] = knownReference and word or corrected(word, names) end
 
     local best, bestScore, runner, runnerScore = scored(fixed)
     local intent = best and bestScore >= Brain.THRESHOLD and best.id or nil
-
-    if intent == nil or PERSON_COMPATIBLE[intent] then
-        local person = findPerson(fixed, names, false) or findPerson(rest, names, true)
-        if person then return "person", { person = person } end
-    end
 
     local knowledge=SC.TerminalKnowledge
     local framed=joined:find("^tell me about ") or joined:find("^what is ") or joined:find("^who is ")
     local itemFollowUp=not framed and (context.intent=="storage" or context.intent=="food")
     local record=knowledge and not itemFollowUp and intent~="storage" and knownReference
+    -- An exact complete directory title beats a shorter name inside it.
+    -- Incidental place mentions still let an explicitly named person win.
+    if not (record and referenceScore>=20) and (intent == nil or PERSON_COMPATIBLE[intent]) then
+        local person = findPerson(fixed, names, false) or findPerson(rest, names, true)
+        if person then return "person", { person = person } end
+    end
     if record then
         return "lore",{query=text,referenceId=record.id,placeStatus=record.category=="places"
             and (joined:find("safe",1,true)~=nil or joined:find("occupied",1,true)~=nil

@@ -8,7 +8,19 @@
     "wpdiy",
     "thewizardskeep",
     "muldraughpd",
-    "rosewoodfd"
+    "rosewoodfd",
+    "riversidepd",
+    "wptownhall",
+    "hobbsandperkinshardware",
+    "ovofarms",
+    "lennyscarrepair",
+    "ekroncollege",
+    "alsautoshop",
+    "stuartandlogscrapyard",
+    "darkwallowguesthouse",
+    "a1hay",
+    "gunsunlimitedechocreek",
+    "goldensunset"
   ],
   "excluded_whole_mall_key": "tacodelpancho",
   "flyer_references": [
@@ -35,6 +47,54 @@
     {
       "file": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/RosewoodFD.png",
       "sha256": "38fe1b782974e7319559615de539c0da8d9684ef72d4f3dd73f8343d7d1b1b4f"
+    },
+    {
+      "file": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/RiversidePD.png",
+      "sha256": "a681a9e5998ef8b4702af3c7c8de37e2ce82d60e1e5159f2c9c80ede12f555cb"
+    },
+    {
+      "file": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/WPTownHall.png",
+      "sha256": "8747f3762a289b6d5fb88a3c520320ac71475e1a6ed5153d62168ab7bba04901"
+    },
+    {
+      "file": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/HobbsPerkins.png",
+      "sha256": "81d795030e16a12b79f8d7f573ba1538497d81bd09386de759394691f249c521"
+    },
+    {
+      "file": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/OvoFarms.png",
+      "sha256": "400e3113f5ddc7d033933d61f1ed418ba7997f59fa4c4c06286bdd6eebfac615"
+    },
+    {
+      "file": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/Lennys.png",
+      "sha256": "06286df6f99bbcc217db5a565cf86b3c423fa68ceceb6a1d4c726a90f328ab14"
+    },
+    {
+      "file": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/EkronCC.png",
+      "sha256": "8f2d8541653b28ad90b4ba11239a2d3d4376620282bea559a89605bea635aa60"
+    },
+    {
+      "file": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/AlsAutoShop.png",
+      "sha256": "d8ce2bda241e3095de00186b0b1b9a2bf11a5dcb37e5cbe74b1385821a24c2ad"
+    },
+    {
+      "file": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/StuartandLog.png",
+      "sha256": "272135819c09a6b40ccddfd52cecb1a5f9ac8bb96fdf4b2517b9b5c82b6900d8"
+    },
+    {
+      "file": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/Darkwallow.png",
+      "sha256": "0b9a11c715afc2c985a6d0c7c4f0604fb5b08db31b8a4cd91c69de662b24346c"
+    },
+    {
+      "file": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/A1Hay.png",
+      "sha256": "36ca503b780d10bcff258f957b0f91857f827bebcdcf42aba7d428fd3598f4c2"
+    },
+    {
+      "file": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/GunsUnlimited.png",
+      "sha256": "988f3b4dcfdd44d35cc357d9a808ba83201292924b4dbc92d4b18219bc3568ff"
+    },
+    {
+      "file": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/GoldenSunset.png",
+      "sha256": "1a49b3fbc3d83620ed496681158a5a22649cca25d51d3aa236529f19689a6266"
     }
   ],
   "official_context": "https://projectzomboid.com/blog/features-overview-build-42-20/",

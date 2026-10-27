@@ -31,7 +31,7 @@ for _, profile in ipairs(Files.all()) do
         previous, count = entry.date, count + 1
     end
 end
-check(count == 468 and #Files.all()==117, "117 previous owners provide 468 original entries")
+check(count == 516 and #Files.all()==129, "129 previous owners provide 516 original entries")
 for name, kind in pairs({ policestorage = "police", medicaloffice = "clinic",
     hospitalroom = "clinic", insuranceoffice = "office", bedroom = "home", unknown = "general" }) do
     check(Files.classify(name) == kind, "room classification: " .. name)
