@@ -68,6 +68,7 @@ $LuaFiles += @(
     'SCNeeds.lua',
     'SCHygieneEffects.lua',
     'SCTVWatching.lua',
+    'SCComputerUse.lua',
     'SCRadioListening.lua',
     'SCDowntime.lua',
     'SCPersonality.lua',
@@ -114,6 +115,7 @@ $BaseLuaFiles = @($LuaFiles)
 $LuaFiles += Join-Path $TestRoot 'human_combat_regressions.lua'
 $LuaFiles += Join-Path $TestRoot 'gameplay_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'tv_watching_harness.lua'
+$LuaFiles += Join-Path $TestRoot 'computer_use_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'radio_listening_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'fishing_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'chef_harness.lua'

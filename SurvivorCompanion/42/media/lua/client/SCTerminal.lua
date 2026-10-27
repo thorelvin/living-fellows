@@ -109,6 +109,21 @@ function Terminal.powered(object)
     return Terminal.present(object) and World().powered(call(object, "getSquare")) == true
 end
 
+-- A read-only eligibility check for ambient NPC use. A portable lock is never
+-- bypassed, and the player's active window always takes precedence.
+function Terminal.companionAvailable(object)
+    if not Terminal.isComputer(object) or not Terminal.powered(object)
+        or Terminal.window and Terminal.window.object == object then return false end
+    local data = call(object, "getModData")
+    local portable = type(data) == "table" and data.movableData
+    if type(data) ~= "table" or portable ~= nil and type(portable) ~= "table" then return false end
+    local stored
+    if type(portable) == "table" then stored = portable[System().MEMORY_KEY] end
+    if stored == nil then return true end
+    local state = System().normalize(stored)
+    return state ~= nil and state.locked ~= true
+end
+
 function Terminal.near(player, object)
     local square = call(object, "getSquare")
     if not player or not square then return false end
@@ -1360,6 +1375,9 @@ function Terminal.open(player, object)
     if not Terminal.powered(object) then return false, "no_power" end
     if not Terminal.near(player, object) or call(player, "isDead") == true then
         return false, "operator_unavailable"
+    end
+    if SC.ComputerUse and SC.ComputerUse.yieldToPlayer(object) ~= true then
+        return false, "computer_occupied"
     end
     if Terminal.window then Terminal.window:close() end
     local window = SCTerminalWindow:new(player, object)

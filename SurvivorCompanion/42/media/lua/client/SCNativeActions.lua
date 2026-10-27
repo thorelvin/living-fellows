@@ -75,6 +75,8 @@ end
 local activeVisual = setmetatable({}, { __mode = "k" })
 local activeFurnitureActions = setmetatable({}, { __mode = "k" })
 local activeBedActions = setmetatable({}, { __mode = "k" })
+local BedExit = { pending = setmetatable({}, { __mode = "k" }),
+    probes = setmetatable({}, { __mode = "k" }) }
 local leavingFurniture = setmetatable({}, { __mode = "k" })
 local activeGroundActions = setmetatable({}, { __mode = "k" })
 local pacingStates = setmetatable({}, { __mode = "k" })
@@ -179,6 +181,10 @@ local visualActionSpecs = {
     -- line after this verified pose and never changes the channel here.
     radio_check = { animation = "Craft", animationEnum = true,
         primaryItem = true, ticks = 150 },
+    -- A short desk interaction uses the existing native hand-work pose. No
+    -- fabricated book, tool, learned recipe or reward is attached to it.
+    computer_use = { animation = "Craft", animationEnum = true,
+        ticks = 1080, maxTicks = 3600 },
     -- The visible shelf routine does not duplicate the base sorting job's
     -- inventory transfers.
     tidy_camp = { animation = "Loot", event = "EventLootItem",
@@ -585,6 +591,147 @@ local function requestGroundSeat(actor, seated)
     return requested, requested and "ground_stand_requested" or reason
 end
 
+-- PlayerGetUpState.exit needs the original furniture object: it ejects the
+-- body from a solid bed before clearing that reference. Clearing onbed or
+-- the object early skips both the bed animation and that native ejection.
+function BedExit.overlap(actor)
+    local okay, square = invoke(actor, "getCurrentSquare")
+    local utility = SC.GameplayUtil
+    local x, y, z = position(actor)
+    if x ~= nil and utility and type(utility.gridSquare) == "function" then
+        -- Get-up root motion can update coordinates before the cached current
+        -- square. Recover only the physical tile, never the previous mattress.
+        square = utility.gridSquare(math.floor(x), math.floor(y), math.floor(z or 0))
+    end
+    if square == nil then return nil end
+    local previous = BedExit.probes[actor]
+    if previous and previous.square == square and nowMs() - previous.at < 1000 then
+        if not previous.object then return nil end
+        local present, current = invoke(previous.object, "getSquare")
+        if present and current == square then return previous.object, square end
+    end
+    local probe = { square = square, at = nowMs() }
+    BedExit.probes[actor] = probe
+    local solidOk, solid = invoke(square, "isSolid")
+    local transOk, trans = invoke(square, "isSolidTrans")
+    if not (solidOk and solid == true or transOk and trans == true) then return nil end
+    local listOk, objects = invoke(square, "getObjects")
+    local sizeOk, size = invoke(objects, "size")
+    if not listOk or not sizeOk then return nil end
+    for index = 0, math.min(16, tonumber(size) or 0) - 1 do
+        local _, object = invoke(objects, "get", index)
+        local _, sprite = invoke(object, "getSprite")
+        local _, grid = invoke(sprite, "getSpriteGrid")
+        local _, name = invoke(sprite, "getName")
+        local _, props = invoke(sprite, "getProperties")
+        local _, custom = invoke(props, "get", "CustomName")
+        name, custom = string.lower(tostring(name or "")),
+            string.lower(tostring(custom or "")):gsub("[%s_%-]", "")
+        if grid and (name:find("furniture_bedding", 1, true)
+            or custom:match("bed$") or custom == "cot") then
+            probe.object = object
+            return object, square
+        end
+    end
+    return nil
+end
+
+function BedExit.clearFootprint(actor, state)
+    local object, square = BedExit.overlap(actor)
+    if not object then return true end
+    local utility = SC.GameplayUtil
+    if not utility or not SC.Actor or type(SC.Actor.recover) ~= "function"
+        or type(utility.isClearActorSpawnSquare) ~= "function" then
+        return false, "standing_from_bed_exit_blocked"
+    end
+    if nowMs() < (state.retryAt or 0) then return false, "standing_from_bed_exit_blocked" end
+    state.retryAt = nowMs() + 1000
+    local x, y, z = utility.position(square)
+    local _, room = invoke(square, "getRoom")
+    if x == nil or y == nil then return false, "standing_from_bed_exit_blocked" end
+    local choices = {}
+    for _, offset in ipairs({ {-1,0}, {1,0}, {0,-1}, {0,1} }) do
+        local target = utility.gridSquare(x + offset[1], y + offset[2], z or 0)
+        local _, targetRoom = invoke(target, "getRoom")
+        local edgeOk, blocked = invoke(square, "testCollideAdjacent", actor, offset[1], offset[2], 0)
+        if target and targetRoom == room and edgeOk and blocked == false
+            and utility.isClearActorSpawnSquare(target) == true then
+            choices[#choices + 1] = target
+        end
+    end
+    table.sort(choices, function(a, b) return utility.distance(actor, a) < utility.distance(actor, b) end)
+    local target = choices[1]
+    if target then
+        -- Exactly one adjacent clear tile, on the same floor and in the same
+        -- room. The stock get-up uses this same collision-edge guard. This
+        -- also repairs a saved actor whose old bed flags were already lost.
+        if SC.Actor.recover(actor, target) == true then
+            BedExit.probes[actor] = nil
+            if utility.sameSquare(actor, target) == true then return true, "stepped_clear_of_bed" end
+            return false, "standing_from_bed_exit_unverified"
+        end
+    end
+    return false, "standing_from_bed_exit_blocked"
+end
+
+function BedExit.leave(actor, record)
+    local _, dead = invoke(actor, "isDead")
+    if dead == true then
+        BedExit.pending[actor], BedExit.probes[actor] = nil, nil
+        return true
+    end
+    local state = BedExit.pending[actor]
+    local _, onBed = invoke(actor, "isOnBed")
+    local _, context = invoke(actor, "getCurrentActionContextStateName")
+    context = string.lower(tostring(context or ""))
+    if not state then
+        local object = record and record.pose == "bed" and record.fallbackGround ~= true and record.object
+        if not object then
+            local _, current = invoke(actor, "getSitOnFurnitureObject")
+            if onBed == true or context == "onbed" then object = current end
+        end
+        local overlap
+        if onBed ~= true and context ~= "onbed" then overlap = BedExit.overlap(actor) end
+        if not object and onBed ~= true and context ~= "onbed" and not overlap then return true end
+        state = { object = object or overlap, requestedAt = nowMs(),
+            sawGetup = context == "getup", orphan = overlap ~= nil and not object }
+        BedExit.pending[actor] = state
+        if not state.orphan then
+            actions.stopDirect(actor, { preservePosture = true })
+            invoke(actor, "setVariable", "forceGetUp", true)
+            return false, "standing_from_bed"
+        end
+    end
+    if context == "getup" then state.sawGetup = true end
+    local _, owner = invoke(actor, "getCompanionMovementOwner")
+    if owner == "grapple" or owner == "traversal" or owner == "attack" or owner == "corpse_drag"
+        or (owner == "reaction" and context ~= "getup") then return false, "standing_from_bed" end
+    local elapsed = nowMs() - state.requestedAt
+    local holding = onBed == true or context == "onbed" or context == "getup"
+        or not state.orphan and not state.sawGetup and elapsed < 1250
+    if holding and elapsed < (state.sawGetup and 8000 or 4000) then return false, "standing_from_bed" end
+    -- Only the watchdog clears a stalled pose. Normal exits keep the bed
+    -- object and onbed flag until PlayerGetUpState has finished with them.
+    if holding then
+        invoke(actor, "setVariable", "OnBedStarted", false)
+        invoke(actor, "setOnBed", false)
+        invoke(actor, "setbOnBed", false)
+    end
+    if method(actor, "setCollidable") then
+        local restored = invoke(actor, "setCollidable", true)
+        local readable, collidable = invoke(actor, "isCollidable")
+        if not restored or readable and collidable ~= true then return false, "standing_from_bed" end
+    end
+    invoke(actor, "setIgnoreMovement", false)
+    invoke(actor, "setBlockMovement", false)
+    local cleared, reason = BedExit.clearFootprint(actor, state)
+    if not cleared then return false, reason end
+    if state.object then invoke(state.object, "setSatChair", false) end
+    invoke(actor, "setSitOnFurnitureObject", nil)
+    BedExit.pending[actor] = nil
+    return true, reason or "stood_from_bed"
+end
+
 local function leaveSeating(actor)
     local bedRecord = activeBedActions[actor]
     if bedRecord and cancelSeatingRecord then cancelSeatingRecord(actor, bedRecord, true) end
@@ -594,19 +741,9 @@ local function leaveSeating(actor)
     -- the floor before the stand-up clip plays.
     local restObject = bedRecord and bedRecord.pose == "furniture"
         and bedRecord.object or nil
-    local onBedOk, onBed = invoke(actor, "isOnBed")
-    if (bedRecord ~= nil and bedRecord.fallbackGround ~= true
-            and restObject == nil) or (onBedOk and onBed == true) then
-        -- Clear both the animation request and the native posture. The stock bed
-        -- action is unbounded (-1) while it waits for OnBedStarted, so leaving
-        -- only the Lua queue entry behind strands the actor in PlayerOnBedState.
-        invoke(actor, "setVariable", "forceGetUp", true)
-        invoke(actor, "setVariable", "OnBedStarted", false)
-        invoke(actor, "setOnBed", false)
-        invoke(actor, "setbOnBed", false)
-        invoke(actor, "setSitOnFurnitureObject", nil)
-        local verifyOk, stillOnBed = invoke(actor, "isOnBed")
-        if verifyOk and stillOnBed == true then return false, "standing_from_bed" end
+    if restObject == nil then
+        local standing, reason = BedExit.leave(actor, bedRecord)
+        if not standing then return false, reason end
     end
     local standing, reason = leaveFurniture(actor, restObject)
     if not standing then return false, reason end
@@ -4508,6 +4645,7 @@ function actions.releaseActor(actor)
     activeFurnitureActions[actor] = nil
     leavingFurniture[actor] = nil
     activeBedActions[actor] = nil
+    BedExit.pending[actor], BedExit.probes[actor] = nil, nil
     activeGroundActions[actor] = nil
     pacingStates[actor] = nil
     resultHistory[actor] = nil
@@ -4900,6 +5038,7 @@ end
 
 function actions.seatingStatus(actor)
     if actor == nil then return "standing" end
+    if BedExit.pending[actor] then return "bed" end
     if leavingFurniture[actor] then return "furniture" end
     local onBedOk, onBed = invoke(actor, "isOnBed")
     if onBedOk and onBed == true then return "bed" end
@@ -4915,6 +5054,7 @@ function actions.seatingStatus(actor)
         and (activeFurnitureActions[actor] or activeBedActions[actor])) then
         return "furniture"
     end
+    if BedExit.overlap(actor) then return "bed" end
     return "standing"
 end
 

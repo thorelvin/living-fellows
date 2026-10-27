@@ -1,0 +1,8 @@
+START native computer downtime release=0.26.71
+TARGET isComputer=true available=true custom=Computer room=livingroom camp=true
+SETUP companion=sc-1.792185247907E9-1-189736 distance=1.5811388300841898
+PASS native approach, direct access, ownership and active hand-work pose
+PASS verified native completion reference=county_road operator-memory=unchanged
+PASS native power-loss cancellation and retry pause
+PASS native player-priority cancellation
+PASS native terminal downtime acceptance complete

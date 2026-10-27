@@ -3273,14 +3273,20 @@ check(SC.NativeActions.bedStatus(actor) == "entered",
     "the stock bed end event settles the bed rest pose")
 actor.actionContextName = "onbed"
 local bedLeave, bedLeaveReason = SC.NativeActions.leaveSeating(actor)
-check(bedLeave == true and actor.onBed == false
-        and actor.seatObject == nil and bed.occupied == false,
-    "leaving the bed clears the native bed pose and its owner: "
+check(bedLeave == false and bedLeaveReason == "standing_from_bed" and actor.onBed == true
+        and actor.seatObject == bed and actor.lastVariable == "forceGetUp",
+    "leaving the bed retains the native pose and object for its get-up and ejection: "
         .. tostring(bedLeaveReason))
+actor.actionContextName = "getup"
+check(SC.NativeActions.leaveSeating(actor) == false and actor.onBed == true
+        and actor.seatObject == bed and SC.NativeActions.seatingStatus(actor) == "bed",
+    "movement stays gated throughout the native bed get-up clip")
+-- Model the stock PlayerGetUpState.exit, including its physical ejection.
+actor.onBed, actor.seatObject = false, nil
 actor.actionContextName = "idle"
 check(SC.NativeActions.leaveSeating(actor) == true
         and actor.seatObject == nil and bed.occupied == false,
-    "bed exit permits subsequent movement")
+    "bed exit permits movement only after the native get-up finishes")
 
 -- A blocked bed path uses the stock Rest fallback and releases its native
 -- queue action before the companion starts another activity.
@@ -3308,6 +3314,91 @@ if not movedAfterBedFailure and actor.turning == true then
 end
 check(movedAfterBedFailure == true,
     "ordinary movement resumes after a blocked bed rest path")
+
+-- A restarted save may already have lost every bed flag while its physical
+-- coordinates remain inside the solid mattress. Repair only that footprint,
+-- using a clear cardinal exit with the same wall guard as native get-up.
+do
+    local oldUtility, oldRecover = SC.GameplayUtil, SC.Actor.recover
+    local room, otherRoom, cargo = {}, {}, {}
+    local origin = { x=10,y=10,z=1,solid=true }
+    local west = { x=9,y=10,z=1,clear=true,room=room }
+    local east = { x=11,y=10,z=1,clear=true,room=otherRoom }
+    local north = { x=10,y=9,z=1,clear=false,room=room }
+    local south = { x=10,y=11,z=1,clear=false,room=room }
+    local piece = { present=true }
+    function piece:getSquare() return self.present and origin or nil end
+    function piece:getSprite() return {
+        getSpriteGrid=function() return {} end,
+        getName=function() return "furniture_bedding_01_1" end,
+        getProperties=function() return {get=function() return "Hospital Bed" end} end,
+    } end
+    function piece:setSatChair() end
+    function origin:isSolid() return self.solid end
+    function origin:isSolidTrans() return false end
+    function origin:getRoom() return room end
+    function origin:getObjects() return {
+        size=function() return piece.present and 1 or 0 end,
+        get=function() return piece end,
+    } end
+    function origin:testCollideAdjacent(_,dx) return dx == -1 end
+    for _,square in ipairs({west,east,north,south}) do
+        function square:getRoom() return self.room end
+    end
+    local trapped={square=origin,collidable=false,inventory=cargo,context="idle"}
+    function trapped:getCurrentSquare() return self.square end
+    function trapped:getX() return self.px or self.square.x+0.5 end
+    function trapped:getY() return self.py or self.square.y+0.5 end
+    function trapped:getZ() return self.square.z end
+    function trapped:isOnBed() return false end
+    function trapped:isDead() return false end
+    function trapped:isSittingOnFurniture() return false end
+    function trapped:isSitOnGround() return false end
+    function trapped:getCurrentActionContextStateName() return self.context end
+    function trapped:getCompanionMovementOwner() return self.owner or "none" end
+    function trapped:setSitOnFurnitureObject() end
+    function trapped:setCollidable(value) self.collidable=value end
+    function trapped:isCollidable() return self.collidable end
+    local points={ ["10:10"]=origin,["9:10"]=west,["11:10"]=east,["10:9"]=north,["10:11"]=south }
+    SC.GameplayUtil={
+        position=function(v) return v.x,v.y,v.z end,
+        gridSquare=function(x,y,z) return z==1 and points[x..":"..y] or nil end,
+        isClearActorSpawnSquare=function(v) return v.clear==true end,
+        distance=function(_,v) return math.abs(v.x-10)+math.abs(v.y-10) end,
+        sameSquare=function(a,v) return a.square==v end,
+    }
+    local recovered=0
+    SC.Actor.recover=function(a,target) recovered=recovered+1 a.square=target return true end
+    check(SC.NativeActions.seatingStatus(trapped)=="bed",
+        "a restarted standing actor overlapping a bed is detected before navigation")
+    local blocked, blockedReason=SC.NativeActions.leaveSeating(trapped)
+    check(not blocked and blockedReason=="standing_from_bed_exit_blocked" and recovered==0
+            and trapped.collidable and trapped.inventory==cargo,
+        "bed recovery refuses walls, a different room, blocked floor and occupied floor")
+    SC_TEST_CLOCK=SC_TEST_CLOCK+1001
+    east.room=room
+    check(SC.NativeActions.leaveSeating(trapped)==true and trapped.square==east and recovered==1
+            and trapped.inventory==cargo and SC.NativeActions.seatingStatus(trapped)=="standing",
+        "the same actor and cargo recover to one clear adjacent tile on the original floor")
+    trapped.square=origin trapped.px=east.x+0.5 trapped.py=east.y+0.5
+    check(SC.NativeActions.seatingStatus(trapped)=="standing"
+            and SC.NativeActions.leaveSeating(trapped)==true and recovered==1,
+        "a stale current-square pointer cannot move an actor already clear of the bed")
+    trapped.px,trapped.py=nil,nil
+    trapped.square=origin trapped.collidable=false
+    SC_TEST_CLOCK=SC_TEST_CLOCK+1001
+    for _,owner in ipairs({"grapple","traversal","attack","corpse_drag"}) do
+        trapped.owner=owner
+        check(SC.NativeActions.leaveSeating(trapped)==false and recovered==1 and not trapped.collidable,
+            "bed cleanup cannot relocate an actor owned by native "..owner)
+    end
+    trapped.owner=nil piece.present=false origin.solid=false
+    SC_TEST_CLOCK=SC_TEST_CLOCK+1001
+    check(SC.NativeActions.leaveSeating(trapped)==true and recovered==1,
+        "removing the bed releases the pending exit without inventing a displacement")
+    SC.NativeActions.releaseActor(trapped)
+    SC.GameplayUtil,SC.Actor.recover=oldUtility,oldRecover
+end
 
 local groundSitOk, groundSitReason = SC.Actor.setMovement(actor, "walk", {
     action = "sit_ground", reason = "bounded_shutdown_test",

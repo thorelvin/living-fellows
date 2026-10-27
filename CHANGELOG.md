@@ -4,6 +4,16 @@
 
 ## 0.26.71 - EMMA computers, A-Life compatibility and combat recovery
 
+- Companions can spend a short break reading local files at an accessible,
+  powered, unlocked camp computer. They share one user per machine, give way
+  when the player opens it, and stop for danger, orders or power loss. Camp
+  routine policy and literacy still apply; player notes, sessions, inventories
+  and password locks remain intact.
+- Companions finish the native get-up animation before releasing a bed and
+  restore normal collision afterward. Already-stranded companions, including
+  saved standing positions inside a mattress, can step to a clear adjacent tile
+  on the same floor without crossing walls or changing rooms.
+
 - EMMA terminals fill the player view with centred content, an opaque background and much larger text that scales with resolution. Menu/chat focus, immediate number shortcuts, a skippable 1993-style POST sequence and persistent green, sand, aqua or rare purple phosphor complete the display. Business logos retain their original colours; the catalog references stock artwork and adds custom camp and fallback emblems.
 - Terminal text colours pair with each company's artwork, with aquamarine for Fossoil and rare purple kept as an exception. Logos share subdued CRT brightness, scanlines and consistent spacing; Fossoil uses a transparent boot logo instead of its station sign. Existing computers calibrate once without changing locks, files or notes.
 - EMMA uses generated scanline glass behind its live text and an original 1993-style beige Larchfield CRT casing with a transparent screen opening. Its side vents, left power switch and right brightness/contrast wheels keep their shape as the frame scales, while controls remain inside the glass. Skin textures preload before first use, and text stays clear across all four phosphor colours.

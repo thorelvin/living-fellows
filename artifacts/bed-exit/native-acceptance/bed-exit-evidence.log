@@ -1,0 +1,16 @@
+START native bed exit actor=sc-1.792185247907E9-1-189736
+CASE facing=N group=Hospital sprite=furniture_bedding_01_67 at=12028:6749:0 positions=2
+ENTER getting_on_bed
+PASS native get-up facing=N reason=already_standing
+PASS saved-standing recovery facing=N collision=true actor-and-items=unchanged
+CASE facing=S group=Blue sprite=furniture_bedding_01_8 at=12030:6750:0 positions=3
+ENTER getting_on_bed
+PASS native get-up facing=S reason=already_standing
+PASS saved-standing recovery facing=S collision=true actor-and-items=unchanged
+CASE facing=E group=Twin sprite=furniture_bedding_01_36 at=12031:6752:0 positions=0
+PASS saved-standing recovery facing=E collision=true actor-and-items=unchanged
+CASE facing=W group=Hospital sprite=furniture_bedding_01_65 at=12029:6754:0 positions=2
+ENTER getting_on_bed
+PASS native get-up facing=W reason=already_standing
+PASS saved-standing recovery facing=W collision=true actor-and-items=unchanged
+PASS native bed exit acceptance complete

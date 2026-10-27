@@ -15,6 +15,7 @@ local visualActivities = {
     study_corpse = true, pay_respects = true,
     workout = true, write_diary = true, gear_check = true,
     radio_check = true, tidy_camp = true, weather_recovery = true,
+    computer_use = true,
 }
 local lastSquadRadioCheckAt = -math.huge
 local LEADER_CHECK_IN_COOLDOWN_MS = 720000
@@ -265,6 +266,9 @@ end
 
 local function releaseActivity(actor, activity)
     if not activity then return end
+    if activity.kind == "computer_use" and SC.ComputerUse then
+        SC.ComputerUse.release(actor, activity)
+    end
     if activity.kind == "rest_bed" then
         if activity.sleepStarted == true then
             local state = stateFor(actor)
@@ -3377,7 +3381,7 @@ local function ambientCooling(state, kind, current)
         leader_check_in = LEADER_CHECK_IN_COOLDOWN_MS,
         tv_watch = 240000,
         radio_listen = 360000, radio_setup = 120000,
-        weather_recovery = 120000, clean_base = 45000 }
+        weather_recovery = 120000, clean_base = 45000, computer_use = 600000 }
     return lastAt ~= nil and current - lastAt < (intervals[kind] or 180000)
 end
 
@@ -3532,6 +3536,15 @@ local function candidates(actor, commands, state, current, desiredKind, requeste
     if activity then filtered[#filtered + 1] = activity end
     activity = craftActivity(actor, items)
     if activity then filtered[#filtered + 1] = activity end
+    if (desiredKind == nil or desiredKind == "computer_use")
+        and not ambientCooling(state, "computer_use", current)
+        and SC.ComputerUse and (desiredKind ~= nil
+            or utility.isDue(actor, "downtime_computer_probe", 15000, current)) then
+        activity = SC.ComputerUse.candidate(actor, state, current, {
+            seatingStatus=seatingStatus, reserved=reservationHeldByOther,
+        })
+        if activity then filtered[#filtered + 1] = activity end
+    end
     if (desiredKind == nil or desiredKind == "gear_check")
         and not ambientCooling(state, "gear_check", current) then
         activity = gearCheckActivity(actor)
@@ -3788,6 +3801,9 @@ local function failActivity(actor, state, reason, detail)
     if activity.kind == "leader_check_in" then
         state.leaderCheckInRetryAt = U().nowMs() + 120000
     end
+    if activity.kind == "computer_use" then
+        state.computerRetryAt = U().nowMs() + 120000
+    end
     if activity.kind == "clean_base" and activity.square then
         state.cleanRetryAt = state.cleanRetryAt
             or setmetatable({}, { __mode = "k" })
@@ -3844,6 +3860,7 @@ local function beginSupervisedActivity(actor, state, activity)
             move_to_light_switch = true, face_alert = true,
             move_to_clean_stain = true, move_to_tv = true,
             move_to_radio = true,
+            move_to_computer = true,
             move_to_base_check_in = true,
             sit_ground = true, stand_ground = true,
             -- A seated companion may yawn or stretch without getting up.
@@ -4358,6 +4375,19 @@ local function beginActivity(actor, state, activity, commands, now)
         local started, reason = SC.RadioListening.start(actor, activity, now)
         if not started then return failActivity(actor, state, reason) end
         transitionActivity(activity, "waiting", { action = "radio_listen" })
+    elseif activity.kind == "computer_use" then
+        state.active = activity
+        local claimed, reason = SC.ComputerUse.claim(actor, activity)
+        if not claimed then return failActivity(actor, state, reason) end
+        local accepted, status = SC.ComputerUse.approach(actor, activity)
+        if not accepted then return failActivity(actor, state, status) end
+        if status == "arrived" then
+            local started, why = SC.ComputerUse.start(actor, activity, now)
+            if not started then return failActivity(actor, state, why) end
+        else
+            activity.approaching = true
+            transitionActivity(activity, "approaching", {status=status})
+        end
     elseif activity.kind == "window_watch" then
         state.active = activity
         local accepted, status = approachWatchWindow(actor, activity)
@@ -4748,6 +4778,8 @@ local function finishActivity(actor, state, now)
         success = completeCraft(actor, activity)
     elseif activity.kind == "read" then
         success = activity.actionAccepted == true and finishReadingPages(actor, activity)
+    elseif activity.kind == "computer_use" then
+        success = SC.ComputerUse and SC.ComputerUse.finish(actor, activity) == true
     elseif activity.kind == "sit" then
         success = activity.actionAccepted == true
     elseif activity.kind == "rest_bed" then
@@ -4817,6 +4849,7 @@ local function finishActivity(actor, state, now)
         repair = "repair_commit_failed",
         craft_supply = "craft_commit_failed",
         read = "read_verification_failed",
+        computer_use = "computer_verification_failed",
         sit = "sit_verification_failed",
         rest_bed = "bed_rest_verification_failed",
         rest_floor = "floor_rest_verification_failed",
@@ -4926,6 +4959,10 @@ local function finishActivity(actor, state, now)
             or activity.kind == "leader_check_in" then
             state.ambientLastAt = state.ambientLastAt or {}
             state.ambientLastAt[activity.kind] = now
+        end
+        if activity.kind == "computer_use" then
+            state.ambientLastAt = state.ambientLastAt or {}
+            state.ambientLastAt.computer_use = now
         end
         if SC.Commands and type(SC.Commands.noteDowntime) == "function" then
             pcall(SC.Commands.noteDowntime, actor, fact)
@@ -5098,6 +5135,20 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
             if not visit.replied then return failActivity(actor, state,
                 "check_in_reply_rejected") end
             return finishActivity(actor, state, current)
+        end
+        if state.active.kind == "computer_use" then
+            local computer = state.active
+            if not SC.ComputerUse or not SC.ComputerUse.valid(actor, computer,
+                computer.approaching ~= true) then
+                return failActivity(actor, state, "computer_unavailable")
+            end
+            if computer.approaching then
+                local accepted, status = SC.ComputerUse.approach(actor, computer)
+                if not accepted then return failActivity(actor, state, status) end
+                if status ~= "arrived" then return true, "approaching_computer" end
+                local started, reason = SC.ComputerUse.start(actor, computer, current)
+                if not started then return failActivity(actor, state, reason) end
+            end
         end
         if state.active.kind == "tv_watch" then
             local watching = state.active
@@ -5535,6 +5586,9 @@ function Downtime.reset(actor)
         lastSquadRadioCheckAt = -math.huge
         if SC.TVWatching and type(SC.TVWatching.reset) == "function" then
             SC.TVWatching.reset()
+        end
+        if SC.ComputerUse and type(SC.ComputerUse.reset) == "function" then
+            SC.ComputerUse.reset()
         end
     end
 end

@@ -214,9 +214,10 @@ furniture payload and XP calls; the presentation run does not replace those
 security and persistence scenarios. Physical keyboard interaction also
 remains a separate user check.
 
-Companion computer downtime remains planned in
-[the computer guide](camp-computer.md#what-is-implemented). Expanded authored
-lore is implemented and verified below.
+Companion computer downtime was added in the working continuation after the
+0.26.71 checkpoint; see its separate
+[validation record](validation-computer-downtime.md). Expanded authored lore
+is implemented and verified below.
 
 ## Confirmed requests and live records
 
@@ -346,7 +347,8 @@ Presentation fixtures select brands and supply power only to their temporary
 desk. They invoke native keyboard callbacks, not physical key injection.
 These checks do not replace the remaining furniture, real XP or physical
 medical/refuelling scenarios described above. The source save and installed
-game are unchanged. Companion computer downtime remains unimplemented.
+game are unchanged. Companion computer downtime is covered by the separate
+working-continuation validation linked above.
 
 The complete project gate passes all 29 stages; current output is
 `build/larchos-validation/expanded-lore-project-gate.log`.

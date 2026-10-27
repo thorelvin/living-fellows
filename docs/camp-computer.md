@@ -66,9 +66,9 @@ The implementation stages are:
    explicit Y/N confirmation and fresh validation when accepted. Expand wounds,
    skills, job suitability, shortages, alarms, radio reports, debriefs and
    pending-delivery answers. Never execute arbitrary text as code or commands.
-3. **Lore:** 340 original entries across 85 owners, plus 16 archived county
-   and EMMA files. Companion computer use during permitted downtime remains
-   separate future work.
+3. **Lore and downtime:** 340 original entries across 85 owners, plus 16
+   archived county and EMMA files. Companions can take a short break reading
+   local files at an accessible camp computer.
 
 World-data reads stay bounded and occur on a question or explicit command,
 not every frame. UI animation runs through the existing window update; cheap
@@ -77,7 +77,7 @@ in-game scenarios are recorded separately.
 
 The core, confirmed requests and expanded lore are implemented. The current alarm record covers the active
 alarm and the last cleared alarm in this session; it is not a permanent log.
-Companion computer use during downtime remains planned.
+Companion computer use during downtime is included in 0.26.71.
 Furniture movement, reload and hacking XP still need their
 separate native acceptance pass.
 
@@ -288,6 +288,21 @@ game rules. An unlocatable cargo item is never counted as stored.
 The camp emblem follows the computer's green, golden sand, aquamarine or
 purple phosphor. Company marks use matching or complementary screen colours;
 their shapes stay recognisable on all four backgrounds.
+
+## Companions at the computer
+
+With safe routines enabled, a companion may use a powered, unlocked computer
+in the same camp room during a quiet break. One person uses a machine at a
+time. They walk to a genuine access position and spend about 18 seconds
+reading local county or EMMA files. Illiterate companions choose another
+activity. A successful visit records which file they read and has a ten-minute
+cooldown; blocked access pauses attempts for two minutes.
+
+Opening the computer takes priority over a companion's visit. Danger, a new
+order, loss of power, removal of the machine or disabling routines also stops
+it. Companions use the existing native hand-work pose rather than opening a
+second terminal window. They do not unlock machines, submit requests, earn
+hacking XP, change inventories or read and rewrite the player's private notes.
 
 ## Rules
 
