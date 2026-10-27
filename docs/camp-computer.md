@@ -27,8 +27,9 @@ lines. The operating system and the assistant are distinct.
   Answers use live save facts, concise lists and useful next steps. Unknown
   records get a clear explanation and suggestions for supported questions.
 - **Presentation.** A centred, full-screen display uses large code text and an
-  opaque background. Text scales with the viewport: 32-pixel font height at
-  720p, 44 at 1080p and 88 at 4K, without changing the game's font settings.
+  opaque background. Text scales with the viewport: 28-pixel font height at
+  720p, 40 at 1080p and 80 at 4K, without changing the game's font settings.
+  Menu spacing tightens when needed to keep all five home shortcuts visible.
   Narrow views switch between menu and chat rather than squeezing both in.
   Question-dependent thinking steps take roughly 0.5 to
   2.5 seconds, followed by streamed text. Power, returning-operator greetings,
@@ -66,7 +67,7 @@ The implementation stages are:
    explicit Y/N confirmation and fresh validation when accepted. Expand wounds,
    skills, job suitability, shortages, alarms, radio reports, debriefs and
    pending-delivery answers. Never execute arbitrary text as code or commands.
-3. **Lore and downtime:** 340 original entries across 85 owners, plus 16
+3. **Lore and downtime:** 468 original entries across 117 owners, plus 104
    archived county and EMMA files. Companions can take a short break reading
    local files at an accessible camp computer.
 
@@ -78,8 +79,44 @@ in-game scenarios are recorded separately.
 The core, confirmed requests and expanded lore are implemented. The current alarm record covers the active
 alarm and the last cleared alarm in this session; it is not a permanent log.
 Companion computer use during downtime is included in 0.26.71.
-Furniture movement, reload and hacking XP still need their
-separate native acceptance pass.
+Native hardware movement and full save/reload are recorded in the
+[computer-controls validation](validation-computer-controls.md). Hacking XP
+still needs its separate native acceptance pass.
+
+## More to ask EMMA
+
+The reference archive is grouped into EMMA, county records, the Knox Event,
+towns and landmarks, radio and television, local life and station help. Use
+the numbered choices and More files; short views use First files to cycle
+back. Late incident reports appear only when the save's calendar reaches
+their date. Moving a computer keeps its previous owner's files and identity.
+
+Try `Tell me about West Point`, `What is KnoxTalk?`, `What caused the outbreak?`,
+`What is Dog Goblin?` or `How do I mount a radio?`. Follow with `tell me more`
+for a related available file. These are stored reference summaries, not new
+radio receptions. Asking whether a distant town is safe does not turn a count
+of nearby zombies into a survey of that town. The infection's origin remains
+unknown; theories are identified as theories.
+
+EMMA also has more replies about fear, grief, boredom, friendship, trust,
+privacy, food, confirmation and life before the emergency. Try `Keep me
+company`, `Can I trust you?`, `You misunderstood`, `Do you drink coffee?` or
+`Tell me something hopeful`. She has extra jokes, poems and short stories.
+Further topics include dreams, music, screen colours, hobbies, birthdays,
+sarcasm, apologies and being remembered. Try `Do you dream?`, `Was that
+sarcasm?` or `Give me some good news`. Requests to sing still use her original
+song replies. The reference directory also covers Irvington, Brandenburg,
+Ekron, Echo Creek and more local businesses.
+Inventory questions still use camp records: `Spiffo burger?` or `How many
+Spiffo burgers do we have?` asks for actual supplies, not mascot history.
+
+**Outbreak fragments** collects twelve darker accounts: contradictory records,
+abandoned meetings, a basement telephone and an empty bus. Try `Tell me about
+the blue carbon copy` or `Tell me about the empty bus`, then `tell me more`.
+They are unverified local notes, unlocked by their July dates. Another sixteen
+previous owners have darker four-entry stories on individual computers:
+small crimes, institutional evasions and things their writers cannot quite
+explain. These are original fictional accounts, with ambiguity left intact.
 
 ## Branding coverage research
 
@@ -116,7 +153,7 @@ duplicate names and replaces photos with their firm's emblem. Examples:
 | Car sales | `nolanLogo.png`, `ScenicMileCarDealership.png` |
 | Hotels and motels | `HavishamHotelSuites.png`, `EconoRoom.png`, `SleepEazzzeInn.png` |
 
-The expanded catalogue provides 195 distinct terminal identities: 179 named
+The expanded catalogue provides 200 distinct terminal identities: 184 named
 marks and 16 camp or sector emblems. New artwork includes Sunstar, U-Store It,
 Lectromax, Pizza Whirled, Greene's, the Rusty Rifle, GigaMart and Jackie Jaye.
 Food service, retail, hotels and electronics now have their own fallbacks.
@@ -125,6 +162,12 @@ terminal adaptations. GigaMart and Jackie Jaye are original terminal artwork
 for verified room identities; they are not claimed as reproductions of stock
 shop signs. Prompts and references are recorded in
 `docs/terminal-art-manifest.json` and `docs/terminal-expanded-art-manifest.json`.
+Six further terminal adaptations cover Twiggy's, West Point DIY, The Wizard's
+Keep, Taco del Pancho, Muldraugh Police and Rosewood Fire. Their original
+flyers guide the identities; transparent, brighter lettering fits the CRT
+glass. Purple stays a rare screen colour even on the purple-and-gold
+Wizard's Keep mark. Prompts, source hashes and alpha bounds are recorded in
+`docs/terminal-community-art-manifest.json`.
 
 Brand selection follows these rules:
 

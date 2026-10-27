@@ -16,6 +16,7 @@ local SC = SurvivorCompanion
 
 SC.TerminalBrain = SC.TerminalBrain or {}
 local Brain = SC.TerminalBrain
+if not SC.TerminalKnowledge and type(require)=="function" then pcall(require,"SCTerminalKnowledge") end
 
 Brain.MAX_INPUT = 160
 Brain.MAX_NOTES = 8
@@ -441,7 +442,7 @@ Brain.INTENTS = {
             scratched = 4, infection = 5, immune = 5, immunity = 5 },
         phrases = { ["am i infected"] = 8, ["is there a cure"] = 8 } },
     { id = "lore",
-        exact={"emma backstory","emma history","who created emma","who made emma",
+        exact={"lore","local history","knox history","emma backstory","emma history","who created emma","who made emma",
             "tell me about emma","what is emma","how does emma work",
             "knox event files","what is the knox event","does emma need the internet"},
         words = { outbreak = 6, knox = 6, happened = 4, government = 5, military = 5, army = 5,
@@ -475,6 +476,20 @@ Brain.INTENTS = {
         "noted", "ok thanks" } },
 }
 
+if SC.TerminalKnowledge then
+    for _, spec in ipairs(SC.TerminalKnowledge.CHAT) do
+        spec.phrases={}
+        for _,phrase in ipairs(spec.exact) do spec.phrases[table.concat(Brain.tokens(phrase)," ")]=5 end
+        Brain.INTENTS[#Brain.INTENTS+1]=spec
+        L().POOLS[spec.id]=spec.lines
+    end
+    if not L().knowledgeExpanded then
+        for name, extra in pairs(SC.TerminalKnowledge.EXTRA_POOLS) do
+            for _,line in ipairs(extra) do L().POOLS[name][#L().POOLS[name]+1]=line end
+        end
+        L().knowledgeExpanded=true
+    end
+end
 local INTENT_BY_ID, EXACT, VOCABULARY = {}, {}, {}
 for _, intent in ipairs(Brain.INTENTS) do
     INTENT_BY_ID[intent.id] = intent
@@ -483,6 +498,11 @@ for _, intent in ipairs(Brain.INTENTS) do
     end
     for word in pairs(intent.words or {}) do
         if #word >= 4 then VOCABULARY[#VOCABULARY + 1] = word end
+    end
+    if intent.lines then
+        for phrase in pairs(intent.phrases) do
+            for word in phrase:gmatch("%S+") do if #word>=4 then VOCABULARY[#VOCABULARY+1]=word end end
+        end
     end
 end
 table.sort(VOCABULARY)
@@ -911,17 +931,47 @@ H.sorry = simplePool("sorry")
 H.compliment = simplePool("compliment")
 H.love = simplePool("love")
 H.meaning = simplePool("meaning")
-function H.lore(session,reply,turn)
+if SC.TerminalKnowledge then
+    for _,spec in ipairs(SC.TerminalKnowledge.CHAT) do H[spec.id]=simplePool(spec.id) end
+end
+function H.lore(session,reply,turn,world)
     local archive=SC.TerminalLore
     if not archive then return addPool(session,reply,"lore") end
+    reply.category="lore"
     local query=string.lower(turn.slots.query or "")
-    local id="county_rumour"
-    if query:find("emma",1,true) or query:find("created",1,true) or query:find("backstory",1,true) then id="emma_origin" end
-    if query:find("offline",1,true) or query:find("network",1,true) or query:find("internet",1,true) then id="emma_offline" end
-    local entry=archive.reference(id)
-    add(reply,"Local archive: "..entry.date.." - "..entry.title)
-    add(reply,entry.text)
-    add(reply,"This is an archived local file, not a live report. Choose County files and EMMA for the full collection.")
+    if not turn.slots.more then session.context.referencesSeen={} end
+    local clock=ask(turn,world,"clock")
+    local knowledge=SC.TerminalKnowledge
+    local record=turn.slots.referenceId and archive.reference(turn.slots.referenceId)
+        or knowledge and knowledge.find(query,Brain.distance)
+    if turn.slots.more then
+        local previous=archive.reference(session.context.referenceId)
+        for _,id in ipairs(previous and previous.related or {}) do
+            local candidate=archive.reference(id)
+            if candidate and archive.available(candidate,clock)
+                and not (session.context.referencesSeen or {})[id] then record=candidate break end
+        end
+        if not record then return add(reply,"That is the end of this thread in the available local files. Ask about another town, broadcaster or part of the Knox Event.") end
+    end
+    if not record then
+        local id="knox_overview"
+        if query:find("emma",1,true) or query:find("created",1,true) or query:find("backstory",1,true) then id="emma_origin" end
+        if query:find("offline",1,true) or query:find("network",1,true) or query:find("internet",1,true) then id="emma_offline" end
+        record=archive.reference(id) or archive.reference("county_rumour")
+    end
+    if not record or not archive.available(record,clock) then
+        session.context.referenceId=nil
+        return add(reply,"I have no dated local file on that subject available for the current clock. I cannot use a later report as if it had already arrived.")
+    end
+    if turn.slots.placeStatus then
+        add(reply,"I cannot confirm that place's current safety, supplies or occupants from this terminal. This is background, not a live survey.")
+    end
+    add(reply,(record.source or "Local archive")..": "..record.date.." - "..record.title)
+    add(reply,record.text)
+    add(reply,"Archived reference, not a live transmission. Ask 'tell me more' for a related file, or choose County files and EMMA.")
+    session.context.referenceId=record.id
+    session.context.referencesSeen=session.context.referencesSeen or {}
+    session.context.referencesSeen[record.id]=true
 end
 H.rescue = simplePool("rescue")
 H.cure = simplePool("cure")
@@ -1675,6 +1725,10 @@ function Brain.parse(session, raw, world, turn)
     local exact = EXACT[joined]
     if pending and (exact == "yes" or exact == "ack") then return pending.intent, pending.slots or {} end
     if pending and exact == "no" then return "did_you_mean_no", {} end
+    if SC.TerminalKnowledge and context.referenceId and (context.intent=="lore"
+        or context.intent=="thanks" or context.intent=="ack") and SC.TerminalKnowledge.more(joined) then
+        return "lore",{more=true}
+    end
     if exact then return exact, exact=="lore" and {query=text} or {} end
     local bestSkill = string.lower(text):match("who is best at%s+(.+)")
         or string.lower(text):match("who is the best at%s+(.+)")
@@ -1707,7 +1761,10 @@ function Brain.parse(session, raw, world, turn)
         or request:match("^send%s+the%s+medic%s+to%s+(.+)$")
         or request:match("^treat%s+(.+)$")
     if patient then return "request", { kind = "medic", query = patient:gsub("^on%s+", "") } end
-    if looksLikeMash(text) then return "mash", {} end
+    -- Keep literal business names before chat shorthand expands U to "you".
+    local knownReference=SC.TerminalKnowledge and (SC.TerminalKnowledge.find(text,Brain.distance)
+        or SC.TerminalKnowledge.find(joined,Brain.distance))
+    if looksLikeMash(text) and not knownReference then return "mash", {} end
 
     local people = peopleList(turn, world)
     local names = nameIndex(people)
@@ -1721,6 +1778,18 @@ function Brain.parse(session, raw, world, turn)
     if intent == nil or PERSON_COMPATIBLE[intent] then
         local person = findPerson(fixed, names, false) or findPerson(rest, names, true)
         if person then return "person", { person = person } end
+    end
+
+    local knowledge=SC.TerminalKnowledge
+    local framed=joined:find("^tell me about ") or joined:find("^what is ") or joined:find("^who is ")
+    local itemFollowUp=not framed and (context.intent=="storage" or context.intent=="food")
+    local record=knowledge and not itemFollowUp and intent~="storage" and knownReference
+    if record then
+        return "lore",{query=text,referenceId=record.id,placeStatus=record.category=="places"
+            and (joined:find("safe",1,true)~=nil or joined:find("occupied",1,true)~=nil
+                or joined:find("supplies",1,true)~=nil or joined:find("open",1,true)~=nil
+                or joined:find("zombies",1,true)~=nil or joined:find("clear",1,true)~=nil
+                or joined:find("looted",1,true)~=nil)}
     end
 
     local pronoun, groupPronoun, thing = false, false, false

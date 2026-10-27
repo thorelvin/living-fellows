@@ -259,7 +259,7 @@ do
         { "who are you", "identity" }, { "what are you", "identity" }, { "your name?", "identity" },
         { "introduce yourself", "identity" }, { "are you a robot", "identity" },
         { "are you alive", "alive" }, { "are you real", "alive" }, { "are you sentient", "alive" },
-        { "do you dream", "alive" },
+        { "do you dream", "chat_dreams" },
         { "how are you", "feelings" }, { "how are you doing", "feelings" }, { "are you ok", "feelings" },
         { "are you lonely", "feelings" },
         { "tell me a joke", "joke" }, { "joke", "joke" }, { "make me laugh", "joke" },

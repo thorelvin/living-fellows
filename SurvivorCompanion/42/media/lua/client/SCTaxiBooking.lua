@@ -50,6 +50,8 @@ function Booking.checkRadio(actor, item)
     end
     if not owned(actor, item) then return false, "radio_not_owned" end
     local data = call(item, "getDeviceData")
+    -- Native TV inventory items share the Radio class.
+    if call(data, "getIsTelevision") == true then return false, "not_a_radio" end
     if not data or call(data, "getIsPortable") ~= true then
         return false, "radio_not_portable"
     end

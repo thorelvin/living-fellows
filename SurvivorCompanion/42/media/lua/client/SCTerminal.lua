@@ -506,6 +506,31 @@ function SCTerminalWindow:columns()
     return math.max(8, math.floor(self:contentWidth() / self.charWidth))
 end
 
+function SCTerminalWindow:referenceClock()
+    local okay,value=pcall(self.world and self.world.clock or function() end)
+    return okay and value or nil
+end
+
+function SCTerminalWindow:refreshReferences()
+    self.referenceCatalog=SC.TerminalLore.references(self:referenceClock())
+    self.referenceCategories={}
+    for _,category in ipairs(SC.TerminalKnowledge.CATEGORIES) do
+        local count=0
+        for _,entry in ipairs(self.referenceCatalog) do
+            if SC.TerminalKnowledge.category(entry)==category.id then count=count+1 end
+        end
+        if count>0 then self.referenceCategories[#self.referenceCategories+1]={id=category.id,label=category.label} end
+    end
+end
+
+function SCTerminalWindow:menuGap()
+    local gap=math.floor(self.layout.pad/2)
+    if self.menuPage=="lore" then
+        gap=math.min(gap,math.floor((self:viewBottom()-self:viewTop()-self.rowHeight*3)/3))
+    end
+    return math.max(4,gap)
+end
+
 function SCTerminalWindow:menuOptions()
     if not self.system then return {} end
     if self.system.locked then return { { label = "Log off", systemCommand = "close" } } end
@@ -524,17 +549,42 @@ function SCTerminalWindow:menuOptions()
     end
     if self.menuPage=="lore" then
         local result={}
-        local entries=SC.TerminalLore.REFERENCE
-        local page=math.max(0,math.min(math.floor((#entries-1)/3),self.referencePage or 0))
-        local labels={"EMMA origin","Limits","Offline mode","Voice review","Contacts","Notices","Water","Shelters",
-            "Road reports","Family names","Incidents","Power loss","Requests","Handover","Service desk","Review note"}
-        for index=page*3+1,math.min(#entries,page*3+3) do
-            local entry=entries[index]
-            result[#result+1]={label=labels[index] or entry.title,referenceId=entry.id}
+        if not self.referenceCatalog then self:refreshReferences() end
+        local entries={}
+        if self.referenceCategory then
+            for _,entry in ipairs(self.referenceCatalog) do
+                if SC.TerminalKnowledge.category(entry)==self.referenceCategory then entries[#entries+1]=entry end
+            end
+        else entries=self.referenceCategories end
+        local side,pad=self:sidebarWidth(),self.layout.pad
+        local width=side>0 and side-pad*1.5 or self.layout.right-self.layout.left
+        local columns=math.max(4,math.floor(width/self.charWidth))
+        local gap=self:menuGap()
+        local function height(label)
+            return math.min(2,#Terminal.wrap("[1] "..label,columns))*self.rowHeight+gap
         end
-        if page>0 then result[#result+1]={label="Previous files",referencePage=page-1} end
-        if page*3+3<#entries then result[#result+1]={label="More files",referencePage=page+1} end
-        result[#result+1]={label="Back to EMMA",systemCommand="back"}
+        local backLabel=self.referenceCategory and "Back to categories" or "Back to EMMA"
+        local compact=self:viewBottom()-self:viewTop()<4*(self.rowHeight+gap)
+        local limit=math.max(self.rowHeight,self:viewBottom()-self:viewTop()
+            -(compact and 0 or height("Previous files"))-height("More files")-height(backLabel))
+        local groups,group,used={},{},0
+        for _,entry in ipairs(entries) do
+            local size=height(self.referenceCategory and entry.title or entry.label)
+            if #group>0 and (#group>=3 or used+size>limit) then groups[#groups+1]=group group,used={},0 end
+            group[#group+1]=entry used=used+size
+        end
+        if #group>0 or #groups==0 then groups[#groups+1]=group end
+        local page=math.max(0,math.min(#groups-1,self.referencePage or 0))
+        self.referencePage=page
+        for _,entry in ipairs(groups[page+1]) do
+            result[#result+1]=self.referenceCategory and {label=entry.title,referenceId=entry.id}
+                or {label=entry.label,referenceCategory=entry.id}
+        end
+        if page>0 and not compact then result[#result+1]={label="Previous files",referencePage=page-1} end
+        if page+1<#groups then result[#result+1]={label="More files",referencePage=page+1} end
+        if compact and page+1==#groups and #groups>1 then result[#result+1]={label="First files",referencePage=0} end
+        result[#result+1]=self.referenceCategory and {label="Back to categories",referenceCategory="__categories"}
+            or {label="Back to EMMA",systemCommand="back"}
         return result
     end
     local options = {
@@ -573,8 +623,17 @@ function SCTerminalWindow:menuLayout()
         local height = #lines * self.rowHeight
         result[#result + 1] = { x = x, y = y, width = width, height = height,
             lines = lines, index = index }
-        y = y + height + math.max(4, math.floor(pad / 2))
+        y = y + height
     end
+    -- Wrapped labels must not push the last shortcut below the input area.
+    -- Reduce whitespace before scrolling any choices out of view.
+    local gap = self:menuGap()
+    if #result > 1 then
+        gap = math.max(0, math.min(gap,
+            math.floor((self:viewBottom() - y) / (#result - 1))))
+    end
+    for index, box in ipairs(result) do box.y = box.y + (index - 1) * gap end
+    y = y + math.max(0, #result - 1) * gap
     local selected = result[self.menuSelection or 1]
     local offset = selected and math.max(0, selected.y + selected.height - self:viewBottom()) or 0
     local visible = {}
@@ -967,11 +1026,17 @@ end
 
 function SCTerminalWindow:displayLocalFile(entry, reference)
     self:flush()
+    if reference and not SC.TerminalLore.available(entry,self:referenceClock()) then
+        self:print("This dated record is not available for the current clock.","system")
+        return false
+    end
     local header=entry.date.." - "..entry.title
-    local first = self:print(header,"system")
-    self:print(entry.text,"system")
+    -- Keep bounded archive paragraphs intact so a focus/width change can
+    -- reflow them naturally instead of preserving old short line fragments.
+    local first = self:pushRow(header,"system")
+    self:pushRow(entry.text,"system")
     local notice=reference and "Archived local file; not a current-world observation." or ""
-    self:print(notice,"system")
+    self:pushRow(notice,"system")
     -- Open long records at the beginning. Paging remains available even after
     -- the transcript has reached its bounded scrollback limit.
     self.readingAnchor = { source = first, part = 1 }
@@ -1044,8 +1109,17 @@ function SCTerminalWindow:systemInput(raw)
     end
     if lower=="county files" or lower=="emma files" or option and option.systemCommand=="lore" then
         self.menuPage,self.referencePage,self.menuSelection="lore",0,1
+        self.referenceCategory=nil
+        self:refreshReferences()
         self:setFocusMode("menu")
         self:print("Local reference archive. These dated files are not live reports.","system")
+        if #self.referenceCatalog==0 then self:print("No local files are available for the current clock.","system") end
+        return true
+    end
+    if option and option.referenceCategory then
+        self.referenceCategory=option.referenceCategory~="__categories" and option.referenceCategory or nil
+        self.referencePage,self.menuSelection=0,1
+        if not self.referenceCategory then self:refreshReferences() end
         return true
     end
     if option and option.referencePage~=nil then
@@ -1234,14 +1308,15 @@ function SCTerminalWindow:drawText(value, x, y, r, g, b, a, font)
 end
 
 function SCTerminalWindow:transcriptRows()
-    if self.renderRows then return self.renderRows end
+    local columns=self:columns()
+    if self.renderRows and self.renderColumns==columns then return self.renderRows end
     local rows = {}
     for _, original in ipairs(self.rows) do
-        for part, line in ipairs(Terminal.wrap(original.text, self:columns())) do
+        for part, line in ipairs(Terminal.wrap(original.text, columns)) do
             rows[#rows + 1] = { text = line, kind = original.kind, source = original, part = part }
         end
     end
-    self.renderRows = rows
+    self.renderRows,self.renderColumns = rows,columns
     return rows
 end
 

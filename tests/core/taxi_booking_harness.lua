@@ -36,9 +36,10 @@ end
 local root = container(nil)
 local actor = { x = 100.4, y = 200.8, z = 1,
     getInventory = function() return root end }
-local data = { on = true, battery = true, power = 1, twoWay = true,
+local data = { on = true, battery = true, power = 1, twoWay = true, television = false,
     range = 100, muted = false, noTransmit = false,
     getIsPortable = function() return true end,
+    getIsTelevision = function(self) return self.television end,
     getIsTwoWay = function(self) return self.twoWay end,
     getTransmitRange = function(self) return self.range end,
     getIsTurnedOn = function(self) return self.on end,
@@ -62,6 +63,13 @@ local first = Booking.current()
 check(first and first.generation == 1 and first.requestedAt.z == 1
     and first.requestedAt.x == 100 and first.requestedAt.y == 200,
     "saved initial caller position")
+data.television = true
+check(select(2, Booking.checkRadio(actor, radio)) == "not_a_radio",
+    "TV flag overrides Radio inheritance and even two-way-looking capabilities")
+check(Booking.request(actor, radio) == false and Booking.updatePickup(actor, radio) == false
+    and Booking.cancel(actor, radio) == false and Booking.current().generation == first.generation,
+    "stale callbacks cannot use a television or change the existing booking")
+data.television = false
 local accepted, reason = Booking.request(actor, radio)
 check(accepted and reason == "already_booked"
     and Booking.current().generation == 1, "duplicate call is idempotent")

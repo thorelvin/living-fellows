@@ -335,6 +335,7 @@ try {
         $terminalFiles = @(
             (Join-Path $SharedRoot 'SCNamespace.lua'),
             (Join-Path $ClientRoot 'SCTerminalLines.lua'),
+            (Join-Path $ClientRoot 'SCTerminalKnowledge.lua'),
             (Join-Path $ClientRoot 'SCTerminalBrain.lua'),
             (Join-Path $ClientRoot 'SCTerminalLore.lua'),
             (Join-Path $ClientRoot 'SCTerminalFiles.lua'),
@@ -346,7 +347,8 @@ try {
             (Join-Path $ClientRoot 'SCTerminalWorld.lua'),
             (Join-Path $TestRoot 'terminal_harness.lua'),
             (Join-Path $TestRoot 'terminal_system_harness.lua'),
-            (Join-Path $TestRoot 'terminal_lore_harness.lua')
+            (Join-Path $TestRoot 'terminal_lore_harness.lua'),
+            (Join-Path $TestRoot 'terminal_knowledge_harness.lua')
         )
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @terminalFiles
         if ($LASTEXITCODE -ne 0) { throw 'Camp computer terminal harness failed.' }

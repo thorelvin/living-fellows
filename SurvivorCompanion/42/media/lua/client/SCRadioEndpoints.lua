@@ -21,7 +21,7 @@ function R.validate(player,source)
         or not SC.TerminalHardware.powered(source.computer) then return false,"station_changed_or_unpowered" end
     local receiver,data,item=SC.TerminalHardware.receiver(source.computer)
     if receiver~=source.receiver or data~=source.data or item~=source.item then return false,"station_receiver_changed" end
-    if SC.ControlUtil.call(data,"getIsTwoWay")~=true or SC.ControlUtil.call(data,"getIsTurnedOn")~=true
+    if SC.ControlUtil.call(data,"getIsTelevision")==true or SC.ControlUtil.call(data,"getIsTwoWay")~=true or SC.ControlUtil.call(data,"getIsTurnedOn")~=true
         or SC.ControlUtil.call(data,"getMicIsMuted")==true or SC.ControlUtil.call(data,"isNoTransmit")==true
         or (SC.ControlUtil.call(data,"getTransmitRange") or 0)<=0 then return false,"station_radio_unavailable" end
     return true,"radio_ready"

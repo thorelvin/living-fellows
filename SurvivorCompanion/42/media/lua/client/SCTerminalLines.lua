@@ -116,6 +116,7 @@ Lines.THINK = {
     zombies = { "Listening", "Counting movement", "Counting the dead, the moving ones" },
     expedition = { "Listening to the radio", "Waiting for static to say something" },
     advice = { "Running decision model", "Weighing your options", "There are not many" },
+    lore = { "Opening local reference files", "Checking the date", "Comparing archived accounts" },
     memory = { "Writing to disk", "Searching memory" },
     odds = { "Running survival model", "Rounding" },
 }

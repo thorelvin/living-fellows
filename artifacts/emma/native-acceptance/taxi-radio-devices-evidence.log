@@ -1,0 +1,5 @@
+PASS Base.TvAntique native Radio class; TV rejected; no taxi menu
+PASS Base.TvBlack native Radio class; TV rejected; no taxi menu
+PASS Base.TvWideScreen native Radio class; TV rejected; no taxi menu
+PASS native receive-only/off rejection, valid walkie, mixed selection and stale TV callback
+PASS native taxi radio devices acceptance complete

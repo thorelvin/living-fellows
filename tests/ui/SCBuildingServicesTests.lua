@@ -138,6 +138,7 @@ local function radioData()
     function d:getIsTwoWay() return true end function d:getIsPortable() return true end
     function d:getTransmitRange() return self.range end function d:getIsTurnedOn() return self.on end
     function d:getMicIsMuted() return false end function d:isNoTransmit() return false end
+    function d:getIsTelevision() return self.television==true end
     function d:getIsBatteryPowered() return self.battery end function d:setIsBatteryPowered(v) self.battery=v end
     function d:getHasBattery() return self.has end function d:setHasBattery(v) self.has=v end
     function d:getPower() return self.power end function d:setPower(v) self.power=v end
@@ -164,6 +165,9 @@ local radio=item("Base.WalkieTalkie2") radio.kind="Radio" radio.device=radioData
 function radio:getDeviceData() return self.device end
 inventory:AddItem(radio)
 local originalId=radio.id
+radio.device.television=true
+check(not H.install(player,pc,"radio",radio) and U.owns(player,radio),"a TV cannot be mounted even if its other flags resemble a transmitter")
+radio.device.television=false
 check(H.install(player,pc,"radio",radio)==true and not U.owns(player,radio),"mount transfers the exact handset out of inventory")
 local hardware=H.state(pc,false)
 check(hardware.radio.id==originalId,"mounted payload retains native identity")
@@ -174,6 +178,10 @@ local savedRadio=H.restorePart(hardware.radio)
 check(savedRadio.device.power==0.37 and savedRadio.id==originalId,"station supply does not charge or replace the original handset battery")
 local endpoint=SC.RadioEndpoints.station(player,pc)
 check(endpoint and SC.RadioEndpoints.validate(player,endpoint)==true,"station endpoint validates real hardware")
+data.television=true
+check(not SC.RadioEndpoints.validate(player,endpoint),"station cannot transmit through a receiver changed to television")
+data.television=false
+check(SC.RadioEndpoints.validate(player,endpoint),"unchanged real handset retains station authority")
 local sourceX,sourceY,sourceZ=SC.RadioEndpoints.origin(endpoint)
 check(sourceX==100 and sourceY==100 and sourceZ==0,"station origin preserves all three native coordinates")
 check(SC.RadioEndpoints.validate(player,{kind="station",owner=player})==false,"caller tables cannot forge radio endpoints")

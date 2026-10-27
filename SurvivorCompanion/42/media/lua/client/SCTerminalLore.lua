@@ -465,6 +465,208 @@ Lore.ARCHIVES = {
     }),
 }
 
+-- Additive identities: existing computers retain their saved archive IDs.
+local extraOwners = {
+    owner("twiggys_jo", "entertainment", "Jo Crawford", "Twiggys", {
+        {2,"Friday list","The singer wants the little lamp moved away from the microphone. He says it makes him look haunted. I told him that was the cheapest lighting effect we had."},
+        {5,"Lost property","One denim jacket, a house key on a fish and a ring nobody has admitted losing. I have put them in separate envelopes. That seems kinder than making a story out of them."},
+        {7,"The usual","Three regulars came in for the usual and stayed because none of them wanted to hear the radio alone. I left the television off. We can manage one voice at a time."},
+        {9,"Closing note","I put the fish key in the till drawer. Its owner checks every pocket when he is nervous. If he comes back, save him the performance. Tell him Jo kept it safe."},
+    }),
+    owner("wizard_kit", "retail", "Kit Mercer", "WizardsKeep", {
+        {2,"Campaign night","The party has spent two evenings arguing over a locked chest. The chest contains table linens. I am beginning to understand why people become villains."},
+        {5,"Back order","A boy paid for a miniature with carefully counted coins. It has not arrived. I wrote his name on the order twice so nobody could mistake it for ordinary stock."},
+        {7,"No game tonight","Two players called to cancel. A third came anyway. We painted figures for an hour and did not discuss the news until he asked whether his mother would be home soon."},
+        {9,"For a later session","The little knight is on the shelf behind the counter, in an envelope marked PAID. If the boy returns, it is his. The campaign can wait as long as it needs to."},
+    }),
+    owner("diy_gloria", "hardware", "Gloria Finch", "WestPointDIY", {
+        {2,"Useful display","Put the washers beside the screws people actually buy. The office plan has them separated by colour. Whoever drew it has never repaired anything while holding a door up."},
+        {5,"Account book","Mr. Velez paid the balance in full. He still insists I add a receipt to his account envelope. He likes knowing when a worry is finished."},
+        {7,"Orders changing","No one asks which colour the paint is anymore. They ask how many boards will fit in a car and whether the hammer in the display is for sale."},
+        {9,"Front counter","The spare door hinge belongs to the woman from the corner house. She could not carry everything in one trip. I have written her name on the packet. There should still be things a person can collect later."},
+    }),
+    owner("pancho_ines", "restaurant", "Ines Navarro", "TacoDelPancho", {
+        {2,"Coupon argument","A customer wanted the discount twice because he brought two copies of the flyer. I admired the preparation. I did not admire it enough to change the bill."},
+        {5,"Closing crew","Omar cleaned the mascot's hat on the counter display. He says a respectable cat would never work in a greasy hat. The rest of us will try to meet this standard."},
+        {7,"Lunch count","We cooked less and gave more away. A woman apologised for asking. I told her we had already made it. I wish every difficult thing could be answered that simply."},
+        {9,"Last page","I took the staff phone list and left a copy by the till. Do not throw it out with the coupons. Most of what mattered in this place was on that one sheet."},
+    }),
+    owner("muldraughpd_nell", "police", "Nell Foster", "MuldraughPolice", {
+        {2,"Meeting chairs","Returned the chairs from the public meeting. Two wobble and one says PROPERTY OF SCHOOL. We will be a community-minded department and return that one first."},
+        {5,"Property receipt","The man collecting his stolen bicycle brought a photograph to prove it was his. His daughter is in the photograph, holding the handlebars. I filed the receipt and gave the picture back."},
+        {7,"Call slips","People keep asking whether the station has heard from someone. Record the name exactly. A spelling mistake is a small thing until it is the last reason two messages fail to meet."},
+        {9,"Desk copy","Uncollected messages are clipped in the blue folder. No assumptions added. If someone takes this desk, read the notes before telling a caller there is nothing here for them."},
+    }),
+    owner("rosewoodfd_erin", "emergency", "Erin Bell", "RosewoodFire", {
+        {2,"School visit","One child asked whether the helmet was fireproof. Another asked whether we slept in it. These are both reasonable questions after seeing the dormitory."},
+        {5,"Kitchen label","Someone labelled the new kettle NOT EQUIPMENT. This has not stopped it appearing on the equipment checklist. We are a thorough service."},
+        {7,"Between calls","Washed the cups because it was a job with an end. Refilled the water bottles because somebody would need them. Small things first, then the next small thing."},
+        {9,"Quiet room","The spare blankets are folded in the side room. One has a child's name stitched into the corner. Please leave that one where its owner can see it if they come looking."},
+    }),
+    owner("kitchens_dana", "industry", "Dana Ellis", "KnoxPackKitchens", {
+        {2,"Measurements","A customer sent a kitchen plan with no door. It is not my place to judge a person's retreat from society, but I need to know how they intend to receive the cabinets."},
+        {5,"Blue sample","Put the blue sample aside for Mrs. Hale. She has looked at it four times. A decision this carefully approached deserves to find the same colour when it returns."},
+        {7,"Delivery board","Leave missed deliveries on the board with the date. Erasing the line does not mean the customer received anything. We have had this discussion in easier circumstances."},
+        {9,"Unfitted kitchen","There is a finished cabinet by bay two with a child's drawing taped inside. It came with the measurements. I could not bring myself to put the drawing in the invoice folder."},
+    }),
+    owner("hunting_amos", "retail", "Amos Greene", "AARonHuntingSupply", {
+        {2,"Counter lesson","A customer asked which kit made somebody an outdoorsman. I sold him socks and a map. He looked disappointed. The woods will be less concerned with the packaging."},
+        {5,"Old compass","Fixed the clasp on a customer's compass case for nothing. He said it had been his father's. Some repairs are too small to price and too important to refuse."},
+        {7,"Questions","People ask what they need for three days away. Then they ask what they need if it becomes longer. I have stopped putting the map away between customers."},
+        {9,"Note by the door","Tell somebody where you mean to go. Write it down if there is nobody to tell. Leave your name with the route. A good knife cannot supply that information later."},
+    }),
+    owner("shanty_mara", "restaurant", "Mara Lane", "TheSeaShanty", {
+        {2,"Window table","A couple booked the window table for their anniversary. He called twice to make sure. She called once to ask us not to let him make a speech."},
+        {5,"Paper boats","The dishwasher made a paper boat for a child waiting on dinner. Now we have six beside the till. We are either very welcoming or beginning a small navy."},
+        {7,"Cancelled bookings","Crossed out the anniversary booking in pencil. It seems a foolish courtesy, but I did not want to make it impossible for them to change their minds."},
+        {9,"After closing","The paper boats are in the top drawer. I left the booking book open. There are names in it I would like somebody to read without starting from the cancellations."},
+    }),
+    owner("water_tobin", "utilities", "Tobin Walsh", "H2Quavia", {
+        {2,"Numbers","An invoice entered twice is not twice as much work completed. I have attached this sentence to the returned invoice in the hope that it will survive the journey."},
+        {5,"Retirement card","We passed a card around for June. Nobody could remember whether the dinner was Thursday or Friday. June corrected us. We will miss having competent supervision."},
+        {7,"Telephone notes","Write down which address a caller means before giving an answer. Three people have described three different problems as the big building by the road."},
+        {9,"Handover ledger","The left-hand dates are observations. The right-hand dates are calls. Please do not combine them to make a tidier sheet. Whoever follows needs the untidy truth."},
+    }),
+    owner("childcare_sadie", "education", "Sadie Marsh", "Fun23Childcare", {
+        {2,"Paint day","The children made a cow blue. One explained that it was cold. I have displayed this important agricultural finding beside the coats."},
+        {5,"Pickup password","We need the updated collection list before Monday. A familiar face is not the same thing as permission, however offended the familiar face becomes."},
+        {7,"Waiting games","We counted red blocks while waiting for parents. Then windows, then buttons. Children notice when you run out of things to count, so I started again with the blocks."},
+        {9,"Blue cow","The blue cow painting is in the folder with the collection list. I wrote the artist's name on the back. If someone takes the records, take the paintings too. They are records of a kind."},
+    }),
+    owner("records_miles", "retail", "Miles Avery", "CantoRecords", {
+        {2,"Listening station","Someone returned headphones because the left side was silent. It was the demonstration tape. I replaced the tape and accepted an entirely undeserved compliment."},
+        {5,"Special order","Holding a record for a customer who knows every release date and never remembers which pocket has his receipt. We understand each other well enough."},
+        {7,"Requests","A girl asked for something that sounded like summer. We tried three tapes. She chose the one her brother used to play too loudly. I did not charge for the case."},
+        {9,"Turntable","I unplugged the turntable and covered it. Habit, I suppose. If somebody uncovers it, I would like the first sound to be a choice rather than a fault."},
+    }),
+    owner("boatclub_viv", "transport", "Vivian Cross", "RiverwoodBoatClub", {
+        {2,"Berth chart","A member moved his pin because the neighbouring boat was too loud. The chart is paper. I admire the faith placed in it."},
+        {5,"Spare life jacket","Found the small life jacket left after Saturday. The name is written inside the collar. Keeping it in the office was easier than hoping the right person looked through lost property."},
+        {7,"Departure book","Record who actually left and when. Reservations are not departures. A tick in the wrong column sends people looking for someone who may still be nearby."},
+        {9,"Desk cleared","The little life jacket is on the chair, where it can be seen from the doorway. The owner's name is still inside. Please do not tidy it somewhere less useful."},
+    }),
+    owner("cafe_paul", "cafe", "Paul Velez", "NatsCafe", {
+        {2,"Regular order","Mr. Bell says he does not need his usual table. He arrives early enough to claim it every morning. We all make small arrangements with ourselves."},
+        {5,"Sugar bowl","The new sugar bowl has a lid nobody can lift one-handed. Beautiful equipment. I have put the old bowl back where the customers can use it."},
+        {7,"Coffee cooling","Kept the pot on after the last customer left. A warm room should offer something warm. That is all the business reasoning I have left for today."},
+        {9,"Table by the window","I moved a chair back to the usual table before leaving. A pointless action, perhaps. It took a second and made the room easier to close."},
+    }),
+    owner("home_caroline", "home", "Caroline Webb", nil, {
+        {2,"Grocery list","Bought everything except the thing written at the top of the list. I have underlined it for next time. This is how systems improve."},
+        {5,"Spare room","Made up the spare bed for my sister. She says not to fuss. She always notices the clean pillowcase before she puts her bag down."},
+        {7,"Answering machine","Played her message again to check which road she meant. Then again because she laughed halfway through it. I know which road she meant."},
+        {9,"If she arrives first","The spare bed is ready. There is a clean towel on it. I have gone to look at the road, not given up waiting. Please leave this note beside the telephone."},
+    }),
+    owner("farm_eli", "agriculture", "Eli Porter", nil, {
+        {2,"Gate repair","Fixed the latch properly. For three weeks I have been lifting the gate and calling that a temporary repair. The gate and I have now reached a better agreement."},
+        {5,"Borrowed bucket","Martha returned the bucket with tomatoes in it. I had intended to complain that it took a fortnight. I have revised my position."},
+        {7,"Routine","Fed everything before listening to the news. The animals cannot make sense of the radio and do not owe it their breakfast. There is some comfort in an ordinary obligation."},
+        {9,"Back field","The latch lifts upwards before it turns. I wrote that down because it is obvious to me, and obvious things are the ones nobody leaves instructions for."},
+    }),
+}
+for _,profile in ipairs(extraOwners) do Lore.ARCHIVES[#Lore.ARCHIVES+1]=profile end
+
+-- Bleak original accounts, added without replacing any published owner.
+local outbreakOwners = {
+    owner("outbreak_payroll_rae", "government", "Rae Whitcomb", nil, {
+        {2,"Continuity allowance","The emergency continuity allowance is payable only to staff present at their desks. Staff ordered away from their desks must obtain a signature from the supervisor ordering them away. The supervisor has been away since Monday."},
+        {6,"Seventeen","We have sixteen people in this office and seventeen continuity claims. Accounts says the extra person has been paid for eleven years. The name belongs to the man whose retirement photograph hangs over the copier."},
+        {8,"Presence confirmed","The claim arrived in the internal envelope again. Same signature. The man in the photograph died in April. I asked Accounts to look at it. They asked whether I wanted sixteen people to lose their allowance over a clerical matter."},
+        {9,"My signature","I approved all seventeen. One of the living staff needed the money for a ride out. I have filed this note under my own name, which is the only part of the transaction I am sure belongs to me."},
+    }),
+    owner("outbreak_detective_ellen", "police", "Ellen Rusk", "MuldraughPolice", {
+        {2,"Closed file","The missing man's boots were clean. The field where they said he vanished was mud to the ankle. I put that in the report. The copy returned to me did not contain the sentence."},
+        {6,"Partner's drawer","The brass key from the drain opens a drawer in Len's desk. Inside: a wedding ring, a property receipt and the missing man's photograph, folded so his wife is on the inside. Len says he does not remember the drawer sticking."},
+        {8,"The wife's call","She did not ask whether I had found her husband. She asked whether Len was still coming to work. I watched his empty chair while she waited. Eventually I said no. It was the first useful thing I had told her."},
+        {9,"Unsent statement","The station is almost empty. I could leave the file closed and walk out with everyone else. I have put the photograph on top instead. I do not know whether that is evidence, or simply the cheapest way to feel less guilty."},
+    }),
+    owner("outbreak_motel_ward", "hotel", "Ward Bishop", "SunstarMotel", {
+        {2,"Room twelve","Room twelve has a faulty extension. A guest reported somebody breathing on the line. I removed the telephone. No refund was requested. Management considers this a successful resolution."},
+        {6,"Four fifteen","The switchboard lamp for twelve lit at 4:15. The room was empty. I checked because the new clerk was frightened, not because I expected anything. The telephone was back on the bedside table. I could have put it there myself."},
+        {8,"Complaint","A man asked to be moved away from twelve. He said the person next door kept repeating his name. The rooms on either side were empty. I gave him the master key by mistake and did not notice until morning."},
+        {9,"Do not charge","The switchboard lamp is on again. Someone has written DO NOT CHARGE on the room card in my handwriting. I have taken the master key off the hook. It is still warm, although I cannot remember picking it up before now."},
+    }),
+    owner("outbreak_clinic_julian", "clinic", "Julian Vane", "MedicalCentre", {
+        {2,"Bed count","Administration counts an occupied bed until the linen is removed. An empty bed with a dead patient's sheets is therefore occupied. I asked what a living patient in a corridor counts as. The answer was outside capacity."},
+        {6,"Transfer list","Three names were marked transferred. No vehicle came. I watched the entrance all afternoon because my own car was blocking it. The nurse who signed the form said she had been told the vehicle was on its way."},
+        {8,"Blankets","I found the three blankets in the laundry cart, folded into neat squares. The names had been cut off the wrist labels. I know which room they came from. I have stopped asking people to say it aloud."},
+        {9,"Correction","Changed transferred to whereabouts not recorded. The programme keeps asking for a destination. I entered UNKNOWN. It accepted that as a town. There is probably room for everyone there."},
+    }),
+    owner("outbreak_factory_stella", "industry", "Stella Crewe", "Lectromax", {
+        {2,"Clocking in","The night foreman says somebody is punching cards for absent staff. Their overtime is better than mine. I suggested promoting whoever is operating the clock, since they are clearly more reliable than the people it records."},
+        {6,"The blue coat","A blue coat was moving between the racks after the shift ended. I called out. It stopped. I went around by the loading bay and found the coat hanging on a peg. The peg was above my head."},
+        {8,"Duplicate cards","The cards are not duplicates. They are the old ones we stopped using after the accident. Someone has cut new dates into the top edges. The foreman says to shred them before the auditors arrive. No auditor is coming."},
+        {9,"Night book","He asked me to sign that the floor was clear. I signed that I had left it. He said these were the same thing. He can put on the blue coat and check for himself."},
+    }),
+    owner("outbreak_storage_dennis", "transport", "Dennis Holt", "UStoreIt", {
+        {2,"Unit forty","The tenant of forty pays in cash and asks for receipts without a name. Perfectly ordinary, according to the owner. I have been asked to stop using perfectly ordinary as the description on his account."},
+        {6,"Second lock","There is a second padlock on forty. It is on the inside. The roller door has not been raised; the dust line is unbroken. I asked the owner who installed it. He asked whether the account was paid."},
+        {8,"Knocking","Three knocks, then two. I remember that pattern from when my brother and I shared a room. I have not told anyone that. The owner gave me an envelope containing my wages and enough extra to stop being curious."},
+        {9,"Receipt","I took the money. There should be an honest sentence somewhere in this building. If anybody opens forty, do not let my signature on the inspection sheet persuade you that I did."},
+    }),
+    owner("outbreak_church_miriam", "community", "Miriam Vale", nil, {
+        {2,"Collection","Found an envelope in the collection box with no money, only a small photograph of the church seen from the back pew. It appears in three older photographs too. I cannot find a photograph of the man who used to sit there."},
+        {6,"Confession book","Someone has left a list of names in the prayer book. All written in the same hand. The last name is mine. I have removed it twice. There is a fresh page each morning, or I have begun losing count."},
+        {8,"The vestry","The vestry door was locked from the outside. I could hear a chair being dragged against it. I said the minister's name. Whoever was inside asked me not to use that name again. I knew the voice and wished I did not."},
+        {9,"For the next keeper","I put the prayer book back. You can call that faith or cowardice. I have run out of energy for choosing a kinder word. The key is in my coat. I have not opened the vestry."},
+    }),
+    owner("outbreak_bank_hollis", "bank", "Hollis Gray", "KnoxBank", {
+        {2,"Repossession","A man brought his house keys to the counter in a saucer. He said he could not find an envelope big enough for twenty-eight years. The account manager asked me to give the saucer back."},
+        {6,"Storage room","The repossessed effects are in the basement. There is a raincoat hanging from the pipe above them. My father had one with that repaired cuff. I phoned him before remembering why I could not."},
+        {8,"Write-off","Management says no unsecured advances during the emergency. The manager left with the branch car, two full fuel cans and a signed advance. The signature approving it is mine. I signed before he told me what the form was."},
+        {9,"The saucer","I put the keys back in the saucer. I know that does not give him the house. It does mean the next person will have to look at what we took, instead of an account number."},
+    }),
+    owner("outbreak_radio_beth", "media", "Beth Danner", "KnoxTalkRadio", {
+        {2,"Test voice","The new announcement tape sounds like me after a long shift. The producer says it was recorded before I worked here. I asked to see the box. He said I had just put it away."},
+        {6,"Dead air","Six seconds of silence after the recorded warning. There is breathing in it if the level is raised. There is breathing in any room with a microphone. I wrote this down so I could read it back to myself."},
+        {8,"The list","The tape is longer now. It reads names. I know two of them from the missing-person messages on the corkboard. The producer took the board down. He left the tape running."},
+        {9,"Monitor off","I switched off the monitor speaker. I can still hear the pauses between names, which is a different thing from hearing the names. Please let it be a different thing. I have left the headphones on the desk."},
+    }),
+    owner("outbreak_home_alice", "home", "Alice Calder", nil, {
+        {2,"The spare key","Martin says I lose things because I do not pay attention. I found the spare key in his work jacket. I put it back. It is easier to know where one thing is than to win an argument about it."},
+        {6,"Packed bag","He says nobody is leaving until we know which roads are open. His bag is in the car. Mine is in the cupboard with the broken handle, where he says he has not seen it."},
+        {8,"Rain at the window","The car came back without him. I watched it roll the last yard and stop against the kerb. The driver's seat was soaked. It had not rained since morning. I left the curtains closed when someone tried the spare key."},
+        {9,"My own note","I am leaving. The bag came out of the cupboard very easily once I stopped trying not to make a noise. If Martin reads this first, he will say I was not paying attention. I was. I have been paying attention for years."},
+    }),
+    owner("outbreak_sanitation_rick", "industry", "Rick Sloane", nil, {
+        {2,"Special collection","New contract: no questions about contents, no stops between collection and disposal, full load paid in cash. The driver asked what happened if a bag split. The supervisor said to buy better bags."},
+        {6,"The extra weight","The weighbridge receipt is heavier on the return. Same truck, empty body. I checked the scale with a known load. It is right. There is a tool locker under the bed that I cannot bring myself to open."},
+        {8,"Voluntary statement","We have been asked to sign a voluntary statement saying nothing unusual was carried. The supervisor counted the pens before he counted us. I watched him wipe one pen after another man used it."},
+        {9,"On the scales","I parked the truck on the weighbridge and walked away. There will be a number on the dial when somebody finds it. A number is less easy to persuade than a tired man who wants to be paid."},
+    }),
+    owner("outbreak_school_hal", "education", "Hal Mercer", nil, {
+        {2,"Out of term","The cleaner reported footsteps in the upstairs corridor. School is closed for summer. It will be a loose window, a pipe or somebody who forgot a key. Buildings can make a great deal of noise before anyone admits they need repairing."},
+        {6,"Staff room","All the mugs were on the table, handles turned towards the same empty chair. There could be a perfectly reasonable explanation. I have begun noticing how often that sentence arrives before I have one."},
+        {8,"Register","The old staff register was open at the year June left. Her name was ticked in pencil. I was the person who found her after the fall. I would recognise my own tick. This is not mine, unless my hand has changed."},
+        {9,"Lights","I left the upstairs lights on. The electricity will go soon enough without my helping. I did not look back at the staff-room window. I am recording that because later I may tell someone I did."},
+    }),
+    owner("outbreak_lab_teresa", "research", "Teresa Noll", "FinneganResearchGroup", {
+        {2,"Room temperature","We test building materials, not miracles. The visitor asked whether the cold chamber could preserve something indefinitely. I said no. He asked how much it would cost to write a less definite answer."},
+        {6,"Control sample","An empty sample case has been entered as a control. It weighs nineteen pounds. The project manager says the contents are not our department. I have written EMPTY in the description box exactly as instructed."},
+        {8,"Observation window","There is a handprint on the inside of the chamber window. Our cases are not large enough for a person. There are practical ways to make a handprint. I have listed them on paper, and stopped before the list became useful to anyone."},
+        {9,"Scope of work","This is not a report on the cause of the emergency. We did not have the knowledge or the equipment for that. We had invoices, a locked room and people very good at deciding what was not their department."},
+    }),
+    owner("outbreak_library_ivy", "education", "Ivy Keene", nil, {
+        {2,"Returned book","A road atlas came through the slot with a library card inside. The name is mine. The issue date is next Thursday. We have made stranger mistakes with the date stamp, though usually not in my handwriting."},
+        {6,"Annotations","There are crosses at four houses on the map. I recognise the first as my mother's old house. The second belonged to the man she married before my father. Nobody here should know about the third."},
+        {8,"Fourth cross","I went to the fourth address. The house number had been painted over. A man opened the door before I knocked and asked whether I had brought the book. I said no. He looked very tired, which was worse than looking surprised."},
+        {9,"Renewal","The atlas is back on the shelf. I have renewed it under my own name. It is a small, ridiculous act of ownership. For seven days, at least, the person who wants it is supposed to ask me."},
+    }),
+    owner("outbreak_transit_otis", "transport", "Otis Bell", "KYTransit", {
+        {2,"Last route","The late bus returns with one unused ticket on the driver's seat. No driver claims it. We have a box for found tickets, which is an admirably small answer to the question."},
+        {6,"Borrowed name","Two brothers at the desk. One pass, one place left. The second man wore the first man's coat and knew his date of birth. I knew them both. I asked him to spell the name, so I could pretend there was a check."},
+        {8,"Depot cleaner","The cleaner refuses to board the late bus. He says every seat cushion is warm. I offered him the earlier shift. This is how we have been solving things all week: move the person, leave the problem."},
+        {9,"No passengers","I changed the destination board to NO PASSENGERS. It is still a vehicle somebody could use. I am not leaving a route number that makes a stranger think the timetable is a promise."},
+    }),
+    owner("outbreak_farm_nora", "agriculture", "Nora Voss", nil, {
+        {2,"The ditch","The rain brought a wedding ring out of the ditch beside the north field. It is not mine. I know whose it is, which has made putting it in a kitchen drawer feel considerably worse than finding it."},
+        {6,"Visitors","Two men came asking about a missing car. They looked at the ditch while they spoke, not at me. I told them the ground had been dry for a week. One of them thanked me. The other did not."},
+        {8,"Gate chain","Someone chained the north gate from the road side. I have worked this farm alone for six years. There has never been a reason to keep me in. The ring is not in the kitchen drawer anymore."},
+        {9,"Before the weather","I wrote the car's colour and the two men's names in the feed ledger. If I make it out, I will tell someone. If I do not, there should be one thing left here that rain cannot wash into the ditch."},
+    }),
+}
+for _,profile in ipairs(outbreakOwners) do Lore.ARCHIVES[#Lore.ARCHIVES+1]=profile end
+
 Lore.REFERENCE = {
     {id="emma_origin",date="1993-07-01",title="EMMA: programme brief",text="EMERGENCY MANAGEMENT ASSISTANT, county deployment beta 0.9. EMMA organises local records and produces short replies from approved procedures and the information stored on each machine. The demonstration describes this as conversational assistance. The procurement form describes it as one licence per workstation. Both descriptions have been approved."},
     {id="emma_limits",date="1993-07-02",title="What this machine can know",text="A local record is evidence of what somebody entered, not evidence that the world still agrees. EMMA must identify missing records, old observations and estimates. Do not allow a confident sentence to conceal an unknown. The computer has been instructed to say this politely. Operators are asked to extend the same courtesy to each other."},
@@ -483,7 +685,21 @@ Lore.REFERENCE = {
     {id="emma_service",date="1993-07-09",title="Service desk memorandum",text="The central service number has not answered repeated calls. Continue using local records where reliable. Do not display a connection indicator merely because the normal screen contains one. EMMA will remain available while the workstation has power. This is the extent of the service assurance we can currently make."},
     {id="emma_unsent",date="1993-07-09",title="Unsent review note",text="The beta performs best when somebody keeps the records honestly. It cannot make a missing person answer or put food on a shelf. It can remember what was counted, keep a name attached to an unfinished task and avoid calling a return home a completed delivery. I had intended to write a more impressive closing paragraph. This one will have to be useful."},
 }
+if not SC.TerminalKnowledge and type(require)=="function" then pcall(require,"SCTerminalKnowledge") end
+if SC.TerminalKnowledge then
+    for _,entry in ipairs(SC.TerminalKnowledge.ENTRIES) do Lore.REFERENCE[#Lore.REFERENCE+1]=entry end
+end
 local referenceById={}
 for _,entry in ipairs(Lore.REFERENCE) do referenceById[entry.id]=entry end
 function Lore.reference(id) return referenceById[id] end
+function Lore.available(entry,clock)
+    return SC.TerminalKnowledge and SC.TerminalKnowledge.available(entry,clock) or false
+end
+function Lore.references(clock,category)
+    local rows={}
+    for _,entry in ipairs(Lore.REFERENCE) do
+        if Lore.available(entry,clock) and (not category or SC.TerminalKnowledge.category(entry)==category) then rows[#rows+1]=entry end
+    end
+    return rows
+end
 return Lore

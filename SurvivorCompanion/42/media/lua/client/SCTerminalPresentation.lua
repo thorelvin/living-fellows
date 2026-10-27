@@ -36,7 +36,7 @@ end
 function P.colors(theme) return P.THEMES[theme] or P.THEMES.green end
 
 function P.textHeight(viewportHeight, nativeHeight)
-    return math.max(nativeHeight or 16, rounded(clamp(viewportHeight * 44 / 1080, 32, 96)))
+    return math.max(nativeHeight or 16, rounded(clamp(viewportHeight * 40 / 1080, 28, 88)))
 end
 
 function P.layout(viewport, fontHeight, charWidth, inputHeight)

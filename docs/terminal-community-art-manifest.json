@@ -1,0 +1,149 @@
+{
+  "date": "2026-10-27",
+  "entries": [
+    {
+      "id": "Twiggys",
+      "generator": "built-in image_gen",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/Twiggys.png",
+      "prompt": "Exact text TWIGGY'S. Retain the stock flyer's distinctive angular slab-serif wordmark, long thin underline and a small simplified amber beer-mug outline to its left. Pale golden-sand lettering with restrained warm amber accents, no dark brown solid shapes. Pair with a golden-sand CRT. Do not include any slogan or promotion. Create ONE transparent PNG header logo for a 1993 computer terminal in Project Zomboid. The attached stock flyer is an identity REFERENCE only. Compact horizontal lockup roughly 4:1, readable at 210 by 55 pixels. Lightly pixel-stepped early-1990s bitmap-style lettering, sturdy strokes, restrained flat brand colours and pale main ink readable on almost-black CRT glass. Genuine transparent alpha around and inside letters. No background panel, white page, filled sticker, poster, screenshot, physical sign, frame, heavy glow, tiny advertising copy, scenic image or people. Keep the entire mark inside the canvas with tight transparent margins. Exact wording only as specified.",
+      "refinement_prompt": null,
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-8454054c-4c76-4334-83fd-60e71df67426.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/Twiggys.png",
+      "transparent_background": true,
+      "pixel_processing": "None. Source copied unchanged; native renderer uses alpha bounds and phosphor pairing.",
+      "sha256": "0cd3248c80d51e5258d723f6875c0e21db67b51f1f5348a22ce68b11a941f599",
+      "reference_sha256": "39d57537f94b04c8cf286a7d3ca5c5e5e4bc5155bdf6d074101eee887e7bb627",
+      "size": [
+        2171,
+        724
+      ],
+      "alpha_bounds": [
+        106,
+        177,
+        2074,
+        523
+      ],
+      "transparent_fraction": 0.6799
+    },
+    {
+      "id": "WestPointDIY",
+      "generator": "built-in image_gen",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/WPDIY.png",
+      "prompt": "Exact text WEST POINT / DIY. Adapt the stock flyer's broad serif two-line wordmark with the two horizontal rules flanking DIY. Dominant pale ivory strokes, restrained original deep-blue edging and small warm yellow accents. Pair with aquamarine phosphor. No tools or cartoon worker, no advert panel. Create ONE transparent PNG header logo for a 1993 computer terminal in Project Zomboid. The attached stock flyer is an identity REFERENCE only. Compact horizontal lockup roughly 4:1, readable at 210 by 55 pixels. Lightly pixel-stepped early-1990s bitmap-style lettering, sturdy strokes, restrained flat brand colours and pale main ink readable on almost-black CRT glass. Genuine transparent alpha around and inside letters. No background panel, white page, filled sticker, poster, screenshot, physical sign, frame, heavy glow, tiny advertising copy, scenic image or people. Keep the entire mark inside the canvas with tight transparent margins. Exact wording only as specified.",
+      "refinement_prompt": null,
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-fe3951a6-8338-42eb-9220-b65595ea510e.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/WestPointDIY.png",
+      "transparent_background": true,
+      "pixel_processing": "None. Source copied unchanged; native renderer uses alpha bounds and phosphor pairing.",
+      "sha256": "a630d272ae18eacd83e8c5533de47f01dd8d3c7e20b845ed0f4a4070da6c2714",
+      "reference_sha256": "fb5d920959c87ce112c066c928cb5780465b42d3d6740c838c1df7c9c53fd544",
+      "size": [
+        1983,
+        793
+      ],
+      "alpha_bounds": [
+        46,
+        186,
+        1945,
+        650
+      ],
+      "transparent_fraction": 0.661
+    },
+    {
+      "id": "WizardsKeep",
+      "generator": "built-in image_gen",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/WizardsKeep.png",
+      "prompt": "Exact text THE WIZARD'S KEEP. Retain the distinctive fantasy wordmark, warm gold outline and small flag bearing a star above KEEP. Dominant pale golden-sand strokes with subdued purple inner accents so the logo is readable on black glass. Pair with golden-sand phosphor; purple screen colour stays reserved for rare computers. No wizard character or parchment. Create ONE transparent PNG header logo for a 1993 computer terminal in Project Zomboid. The attached stock flyer is an identity REFERENCE only. Compact horizontal lockup roughly 4:1, readable at 210 by 55 pixels. Lightly pixel-stepped early-1990s bitmap-style lettering, sturdy strokes, restrained flat brand colours and pale main ink readable on almost-black CRT glass. Genuine transparent alpha around and inside letters. No background panel, white page, filled sticker, poster, screenshot, physical sign, frame, heavy glow, tiny advertising copy, scenic image or people. Keep the entire mark inside the canvas with tight transparent margins. Exact wording only as specified.",
+      "refinement_prompt": "Refine this transparent computer-header logo. Preserve exact wording THE WIZARD'S KEEP, distinctive typeface and star flag and all composition. Change the broad PURPLE letter fills to PALE WARM GOLD/IVORY; purple becomes only a thin secondary outline/accent. This must be readable on almost-black CRT glass at 210x55. Use clean solid unbroken flat letter strokes. No distress, erosion, grit, shine, dimensional bevel or glow. Keep true transparent alpha everywhere outside letters and flag; no backing rectangle. Small pixel steps only on the silhouettes. One logo only, fully inside canvas.",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-a860b8da-7bd5-40b1-8a25-b0fcf5f58e69.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/WizardsKeep.png",
+      "transparent_background": true,
+      "pixel_processing": "None. Source copied unchanged; native renderer uses alpha bounds and phosphor pairing.",
+      "sha256": "f735065a91925aaff61950ad2c4eeca38bfd6c9da4b4a09b7004c45be4993e10",
+      "reference_sha256": "db731e85020ce99099e1234eca4741d5212e2b88f3229a0243800ef5042e7759",
+      "size": [
+        1983,
+        793
+      ],
+      "alpha_bounds": [
+        13,
+        110,
+        1972,
+        716
+      ],
+      "transparent_fraction": 0.5846
+    },
+    {
+      "id": "TacoDelPancho",
+      "generator": "built-in image_gen",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/TacoDelPancho.png",
+      "prompt": "Exact text TACO del PANCHO. Retain the jaunty irregular capital lettering of the stock banner with small restrained red and green decorative insets. Main lettering pale warm gold/ivory for a golden-sand CRT. A tiny simple sombrero outline may sit above the first word. No mascot character, food photo, banner rectangle, slogan or prices. Create ONE transparent PNG header logo for a 1993 computer terminal in Project Zomboid. The attached stock flyer is an identity REFERENCE only. Compact horizontal lockup roughly 4:1, readable at 210 by 55 pixels. Lightly pixel-stepped early-1990s bitmap-style lettering, sturdy strokes, restrained flat brand colours and pale main ink readable on almost-black CRT glass. Genuine transparent alpha around and inside letters. No background panel, white page, filled sticker, poster, screenshot, physical sign, frame, heavy glow, tiny advertising copy, scenic image or people. Keep the entire mark inside the canvas with tight transparent margins. Exact wording only as specified.",
+      "refinement_prompt": null,
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-c66bd58e-cf87-42c6-a5ea-25757fb04b08.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/TacoDelPancho.png",
+      "transparent_background": true,
+      "pixel_processing": "None. Source copied unchanged; native renderer uses alpha bounds and phosphor pairing.",
+      "sha256": "b12398447978d5a6349ac5e1d7a7f102396d45b8b249275e3f062f1dd8c77f1a",
+      "reference_sha256": "e0ad38835f467a81aacb5f24f1985a6488f83f0a3606cee00b4a973e117188a5",
+      "size": [
+        2032,
+        774
+      ],
+      "alpha_bounds": [
+        60,
+        201,
+        1960,
+        521
+      ],
+      "transparent_fraction": 0.7582
+    },
+    {
+      "id": "MuldraughPolice",
+      "generator": "built-in image_gen",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/MuldraughPD.png",
+      "prompt": "Exact text MULDRAUGH / POLICE. Use the stock leaflet's simple outlined shield containing a five-point star and horizontal stripes, beside a strong readable two-line sans-serif wordmark. Neutral warm ivory monochrome strokes only, no filled shield backing. This master will be tinted by the native game renderer to green, sand, aquamarine or rare purple. No slogan or US flag, no invented official seal. Create ONE transparent PNG header logo for a 1993 computer terminal in Project Zomboid. The attached stock flyer is an identity REFERENCE only. Compact horizontal lockup roughly 4:1, readable at 210 by 55 pixels. Lightly pixel-stepped early-1990s bitmap-style lettering, sturdy strokes, restrained flat brand colours and pale main ink readable on almost-black CRT glass. Genuine transparent alpha around and inside letters. No background panel, white page, filled sticker, poster, screenshot, physical sign, frame, heavy glow, tiny advertising copy, scenic image or people. Keep the entire mark inside the canvas with tight transparent margins. Exact wording only as specified.",
+      "refinement_prompt": "Clean up this transparent 1993 computer-header logo. Preserve exact text MULDRAUGH / POLICE, layout and shield/star/stripe identity. Rebuild the pale ivory lettering and shield as PERFECTLY SOLID, CLEAN, UNBROKEN FLAT STROKES with no scratches, erosion, distress, noise, grunge or blotches. Use crisp bitmap-like silhouettes, not rough textured ink. A thin outline shield containing a simple solid five-point star and open horizontal stripes. No filled backing panel or glow. Keep genuine transparent background and natural letter counters, complete logo inside canvas. Legible at 210x55 on black glass. One logo only.",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-d383a761-adcf-4b27-9064-22a42cec495c.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/MuldraughPolice.png",
+      "transparent_background": true,
+      "pixel_processing": "None. Source copied unchanged; native renderer uses alpha bounds and phosphor pairing.",
+      "sha256": "168ac1e0a2ce17bab5da06492ff63c0f342a2ae459f90273c5ab122f2228318f",
+      "reference_sha256": "67403223bbd6592d3ca832189fabba7fac4c63b0960888c7057d14312056bb92",
+      "size": [
+        2132,
+        738
+      ],
+      "alpha_bounds": [
+        102,
+        95,
+        2041,
+        668
+      ],
+      "transparent_fraction": 0.6423
+    },
+    {
+      "id": "RosewoodFire",
+      "generator": "built-in image_gen",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/RosewoodFD.png",
+      "prompt": "Exact text ROSEWOOD / FIRE DEPARTMENT. Adapt the stock leaflet's simple flame symbol into an open line-art emblem beside a readable bold sans-serif two-line wordmark. Dominant pale ivory, small muted blue and green accents from the original leaflet. Pair with aquamarine CRT. No emergency telephone number, slogans, filled colour bars, badge seal or extra text. Create ONE transparent PNG header logo for a 1993 computer terminal in Project Zomboid. The attached stock flyer is an identity REFERENCE only. Compact horizontal lockup roughly 4:1, readable at 210 by 55 pixels. Lightly pixel-stepped early-1990s bitmap-style lettering, sturdy strokes, restrained flat brand colours and pale main ink readable on almost-black CRT glass. Genuine transparent alpha around and inside letters. No background panel, white page, filled sticker, poster, screenshot, physical sign, frame, heavy glow, tiny advertising copy, scenic image or people. Keep the entire mark inside the canvas with tight transparent margins. Exact wording only as specified.",
+      "refinement_prompt": "Clean up this transparent 1993 computer-header logo. Preserve exact text ROSEWOOD / FIRE DEPARTMENT, two-line layout, flame emblem and blue/green accents. Rebuild all pale ivory letter strokes and flame as PERFECTLY SOLID, CLEAN, UNBROKEN FLAT SHAPES with no scratches, erosion, distress, noise, grunge or blotches. Crisp bitmap-like silhouettes. Keep blue ring and small green rule restrained; main lettering pale ivory. No filled panel, texture, shadow or glow. Keep genuine transparent alpha including natural letter counters, complete mark inside canvas. Legible at 210x55 on almost-black aquamarine CRT. One logo only.",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-68e77dfd-8e88-4ec6-80dc-bb19ab73d1d4.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/RosewoodFire.png",
+      "transparent_background": true,
+      "pixel_processing": "None. Source copied unchanged; native renderer uses alpha bounds and phosphor pairing.",
+      "sha256": "6db0b735ad6a03cf9f5328931278f478c7e6983df839fd214d223c3ee0646384",
+      "reference_sha256": "38fe1b782974e7319559615de539c0da8d9684ef72d4f3dd73f8343d7d1b1b4f",
+      "size": [
+        1983,
+        793
+      ],
+      "alpha_bounds": [
+        88,
+        198,
+        1886,
+        589
+      ],
+      "transparent_fraction": 0.6755
+    }
+  ]
+}

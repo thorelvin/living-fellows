@@ -100,7 +100,8 @@ function H.install(player,object,kind,item)
     if U().skill(player)<level or not U().hasTool(player,"Base.Screwdriver") then return false,"Electrical "..level.." and a screwdriver are required." end
     if not U().owns(player,item) then return false,"The selected component changed owner." end
     local data=U().call(item,"getDeviceData")
-    if kind=="radio" and (not U().kind(item,"Radio") or U().call(data,"getIsTwoWay")~=true or (tonumber(U().call(data,"getTransmitRange")) or 0)<=0) then
+    if kind=="radio" and (not U().kind(item,"Radio") or U().call(data,"getIsTelevision")==true
+        or U().call(data,"getIsTwoWay")~=true or (tonumber(U().call(data,"getTransmitRange")) or 0)<=0) then
         return false,"Choose a working two-way walkie-talkie."
     end
     if kind=="ups" and (not tostring(U().call(item,"getFullType")):match("^Base%.CarBattery")

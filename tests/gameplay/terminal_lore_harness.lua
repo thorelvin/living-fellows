@@ -18,7 +18,9 @@ for _,profile in ipairs(Files.all()) do
     end
 end
 local kindCount=0 for _ in pairs(kinds) do kindCount=kindCount+1 end
-check(#Files.all()==85 and kindCount>=24,"expanded contextual archive coverage incomplete")
+check(#Files.all()==117 and kindCount>=24,"expanded contextual archive coverage incomplete")
+local entryCount=0 for _ in pairs(entries) do entryCount=entryCount+1 end
+check(entryCount==468,"each of the 117 owners has four distinct files")
 check(Files.choose("media",3,"LouisvillePostLogo").id=="news_len",
     "newspaper inherited a television or radio operator archive")
 -- Published IDs remain accepted independently of any changed selection pools.
@@ -27,12 +29,16 @@ local state=System.create(19,"police",false,false,"saved-computer")
 state.archive=stable.id
 local restored=System.normalize(state)
 check(restored.archive==stable.id and Files.get(restored.archive)==stable,"old archive identity rerolled on normalize")
+for index=1,101 do
+    state.archive=Files.all()[index].id
+    check(System.normalize(state).archive==state.archive,"published owner archive changed after expansion")
+end
 local refIds={}
 for _,entry in ipairs(Lore.REFERENCE) do
     check(not refIds[entry.id] and Lore.reference(entry.id)==entry,"reference identity invalid") refIds[entry.id]=true
     check(#entry.text<1024 and entry.text:find("[^\032-\126]")==nil,"reference file exceeds text contract")
 end
-check(#Lore.REFERENCE==16 and Lore.reference("not-a-file")==nil,"local reference catalog incomplete")
+check(#Lore.REFERENCE==104 and Lore.reference("not-a-file")==nil,"local reference catalog incomplete")
 for room,kind in pairs({office_herald="media",jackiejayeoffice="media",gigamart="grocery",medclinic="clinic",
     schoollab="education",universitylibrary="education",laboratory="research",radiofactory="industry",
     pharmacy="pharmacy",motelreception="hotel",pawnshopoffice="retail",kidsbedroom="home",
@@ -85,12 +91,28 @@ squares["1001:1000:0"].getRoom=function() return room("shop next door") end
 check(Brands.identify(object)=="_office","sign across tenant wall assigned wrong firm")
 PrintMediaDefinitions={MiscDetails={fossoil1={location1="broken-mod-data"}}}
 check(Brands.identify(object)=="_office","malformed optional location metadata crashed identification")
+for key,id in pairs({twiggys="Twiggys",wpdiy="WestPointDIY",thewizardskeep="WizardsKeep",
+    muldraughpd="MuldraughPolice",rosewoodfd="RosewoodFire"}) do
+    PrintMediaDefinitions={MiscDetails={[key]={location1={{x1=10,y1=20,x2=15,y2=25}}}}}
+    object=computer("office",12,22,0)
+    check(Brands.identify(object)==id,"new verified single-business rectangle missed "..id)
+    object=computer("office",9,22,0)
+    check(Brands.identify(object)=="_office","new logo leaked outside its verified premises "..id)
+    object=computer("bedroom",12,22,1)
+    check(Brands.identify(object)=="_home","private upstairs room inherited new business logo "..id)
+    local known=System.create(31,Brands.kind(id),false,false,"new-firm-"..id,id)
+    check(Files.get(known.archive).brand==id,"new firm did not receive its matching owner story "..id)
+end
 SC.GameplayUtil,PrintMediaDefinitions=savedU,savedDefinitions
-for _,id in ipairs(SC.TerminalBusinessData.POI_BRANDS and {"UStoreIt","PizzaWhirled","SunstarMotel","JackieJaye"} or {}) do
+for _,id in ipairs({"UStoreIt","PizzaWhirled","SunstarMotel","JackieJaye","Twiggys","WestPointDIY",
+    "WizardsKeep","MuldraughPolice","RosewoodFire","TacoDelPancho"}) do
     check(Brands.BY_ID[id]~=nil and Brands.crop(id,"aqua")~=nil,"new company logo has no source crop")
 end
 check(SC.TerminalPresentation.themeFor(1,"UStoreIt")=="aqua","curated U-Store It palette ignored")
+for id,theme in pairs({Twiggys="sand",WestPointDIY="aqua",WizardsKeep="sand",RosewoodFire="aqua",TacoDelPancho="sand"}) do
+    check(SC.TerminalPresentation.themeFor(1,id)==theme,"new firm has incompatible phosphor pairing "..id)
+end
 check(Brands.BACKINGS.MassGenfacCo~=nil and Brands.DARK_INK.TheKentuckyHerald,
     "dark ink and flat-backed native marks lack rendering metadata")
-print("TERMINAL_LORE_PASS checks="..checks.." owners=85 entries=340 references=16")
+print("TERMINAL_LORE_PASS checks="..checks.." owners="..#Files.all().." entries="..entryCount.." references="..#Lore.REFERENCE)
 SC_TEST_REPORT=SC_TEST_REPORT.."; Expanded terminal lore and branding: "..checks.." checks passed"

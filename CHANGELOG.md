@@ -4,6 +4,29 @@
 
 ## 0.26.72 - EMMA building controls and expedition stations
 
+- Fixed the taxi menu appearing on televisions, which share Zomboid's Radio
+  item class. Pickup options require a usable two-way handset; televisions
+  cannot supply a terminal's mounted radio either.
+- Reduced computer text one step and tightened menu spacing when needed so
+  the fifth home shortcut stays visible above the input area.
+- Expanded EMMA with 88 additional local reference files, bringing the county
+  and EMMA collection to 104. New topics cover towns, broadcasters, businesses,
+  the Knox Event and station help. Categories, related-file follow-ups and
+  calendar checks keep the archive useful without revealing later reports.
+- Added 24 conversation subjects and more jokes, poems and stories.
+  Lore questions keep live item counts and companion names distinct, recognise
+  broadcaster acronyms and conservative typos, and never claim a current
+  survey of a distant town. Fixed file text overlapping the sidebar after a
+  focus change, and kept archive choices visible in shorter views.
+- Added six transparent terminal logos for local firms and services, matched
+  to the screen palette. Another 32 owners contribute 128 personal entries,
+  bringing the collection to 468 files across 117 saved identities. Literal
+  business names such as U-Store It survive chat shorthand without taking
+  over live inventory questions.
+- Added an Outbreak fragments section with twelve dated, unverified accounts.
+  Darker personal files explore missing people, compromised officials and
+  unexplained details during the outbreak, with original wording and no
+  definitive new explanation for the infection.
 - Connect computers to local building controls with separate security,
   fitted door and garage motors, lighting groups, sensors, alarms, PA speakers
   and opt-in routines. LF's lighting and generator circuits need no other mod.

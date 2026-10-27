@@ -129,11 +129,28 @@ check(shown[1]==firstReading,"finishing an answer respects a manual reading posi
 w:scrollBy(-10000) shown=paint(w)
 check(w.scroll==0 and contains(shown,"Incoming report row 24"),"returning to the latest output remains available")
 
-w:displayLocalFile({date="1993-07-09",title="A long local record",text=string.rep("Original archive text. ",30)},true)
+w:displayLocalFile({date="1993-07-01",title="A long local record",text=string.rep("Original archive text. ",30)},true)
 shown=paint(w)
-check(shown[1]:find("1993-07-09",1,true)==1,"long archive records still start at their dated heading")
+check(shown[1]:find("1993-07-01",1,true)==1,"long archive records still start at their dated heading")
+-- Native font metrics can leave a sidebar where the coarse fixture font does
+-- not. Reproduce the full-menu -> chat width change without resizing the UI.
+local oldServices,oldSide=SC.TerminalServices,w.layout.side
+SC.TerminalServices={menu=function() end}
+w.layout.side=240 w.menuPage="lore" w:setFocusMode("menu")
+local wide=w:columns() w:transcriptRows()
+w:setFocusMode("chat")
+check(w:columns()<wide,"native sidebar fixture narrows text without a viewport resize")
+local archiveRows={}
+for _,row in ipairs(w:transcriptRows()) do
+    check(#row.text<=w:columns(),"cached archive text reflows before the sidebar can cover it")
+    if row.source.text:find("Original archive text.",1,true) then archiveRows[#archiveRows+1]=row.text end
+end
+for index=1,#archiveRows-1 do
+    check(#archiveRows[index]>=w:columns()-9,"paragraph reflow does not leave old short-line fragments")
+end
+SC.TerminalServices,w.layout.side=oldServices,oldSide w.menuPage=nil
 width,height=480,540 w:refreshLayout() shown=paint(w)
-check(shown[1]:find("1993-07-09",1,true)==1,"resizing preserves the original heading while rewrapping it")
+check(shown[1]:find("1993-07-01",1,true)==1,"resizing preserves the original heading while rewrapping it")
 for index=1,Terminal.SCROLLBACK_ROWS+50 do w:print("Retained "..index) end
 shown=paint(w)
 check(#w.rows==Terminal.SCROLLBACK_ROWS and shown[1]==w.rows[1].text,

@@ -34,8 +34,8 @@ end
 local normal = P.layout({width=1920,height=1080},16,8)
 check(normal.width == 1920 and normal.height == 1080 and normal.x == 0 and normal.y == 0,
     "the terminal fills the entire player viewport")
-check(P.textHeight(1080,24) == 44 and P.textHeight(2160,24) == 88 and P.textHeight(720,24) == 32,
-    "terminal text grows from 32px at 720p to 44px at 1080p and 88px at 4K")
+check(P.textHeight(1080,24) == 40 and P.textHeight(2160,24) == 80 and P.textHeight(720,24) == 28,
+    "terminal text steps down to 28px at 720p, 40px at 1080p and 80px at 4K")
 local fit = P.fitImage(710,100,{x=10,y=20,width=210,height=52})
 check(fit.width <= 210 and fit.height <= 52 and math.abs(fit.width / fit.height - 7.1) < 0.001,
     "wide wordmarks retain their original proportions")
@@ -204,11 +204,30 @@ window:prerender()
 for _, box in ipairs(window:menuLayout()) do
     check(box.y >= window:viewTop() and box.y + box.height <= window:viewBottom(), "compact menu choices fit the content pane")
 end
+local oldServices = SC.TerminalServices
+SC.TerminalServices = {menu=function() end}
+window.menuPage, window.menuSelection = nil, 1
+for _, size in ipairs({{1280,720},{1920,1080},{2560,1440},{3840,2160},{640,720},{960,540}}) do
+    width,height = size[1],size[2]
+    window:refreshLayout()
+    for _, focus in ipairs({"menu","chat"}) do
+        window:setFocusMode(focus)
+        local choices, boxes = window:menuOptions(), window:menuLayout()
+        check(#choices==5 and #boxes==5 and boxes[5].index==5,
+            "all five home shortcuts stay visible without scrolling at "..width.."x"..height.." in "..focus)
+        for index, box in ipairs(boxes) do
+            check(box.y>=window:viewTop() and box.y+box.height<=window:viewBottom()
+                and (index==1 or box.y>=boxes[index-1].y+boxes[index-1].height),
+                "home shortcuts fit above input without overlap")
+        end
+    end
+end
+SC.TerminalServices = oldServices
 width,height = 3840,2160
 T.now=T.now+600
 window:update()
 check(window.font == "CodeLarge" and window.rowHeight >= 26, "4K chooses the larger native code font")
-check(window.rowHeight >= 88 and window:getWidth()==3840 and window:getHeight()==2160,
+check(window.rowHeight >= 80 and window:getWidth()==3840 and window:getHeight()==2160,
     "4K fills the viewport with proportionally larger text and controls")
 local beforeArt = artCalls
 local skin, draft, beforePaintReads = window.layout.skin, window.entry:getText(), reads

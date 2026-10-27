@@ -36,8 +36,9 @@ function player:getVehicle() return self.car end
 function player:getInventory() return inventory end
 function player:setHaloNote(note) self.note = note end
 getSpecificPlayer = function(index) return index == 0 and player or nil end
-local radio = { container = inventory }
+local radio = { container = inventory, radioClass = true, taxiReady = true }
 function radio:getContainer() return self.container end
+function player:getPrimaryHandItem() return self.primary end
 local fareItem = {}
 function fareItem:getDisplayName() return "Gold Ring" end
 
@@ -61,13 +62,13 @@ SurvivorCompanion = {
     GameplayUtil = {
         isZombie = function() return false end,
         instanceOf = function(item, class)
-            return item == radio and class == "Radio"
+            return item and item.radioClass == true and class == "Radio"
         end,
     },
     TaxiBooking = {
         dispatchReady = true,
         checkRadio = function(_, candidate)
-            return candidate == radio
+            return candidate == radio and radio.taxiReady
         end,
     },
     TaxiService = {
@@ -154,6 +155,32 @@ check(not option(walkingMenu, "UI_SC_Taxi_Menu"),
     "in-car menu unavailable outside cab")
 
 hasBooking = false
+local oldExpedition = SurvivorCompanion.ExpeditionPrototype
+SurvivorCompanion.ExpeditionPrototype = {current=function() return {scout={search=true}} end}
+for _,tvType in ipairs({"Base.TvAntique","Base.TvBlack","Base.TvWideScreen"}) do
+    local tv={radioClass=true,container=inventory,fullType=tvType}
+    function tv:getContainer() return self.container end
+    function tv:getDeviceData() return {getIsTelevision=function() return true end} end
+    player.primary=tv
+    local televisionMenu=menu()
+    SurvivorCompanion.UIContext.fillRadioContextMenu(0,televisionMenu,{tv})
+    check(#televisionMenu.options==0,"equipped "..tvType.." has no taxi or expedition transmit menu")
+end
+SurvivorCompanion.ExpeditionPrototype=oldExpedition player.primary=nil
+local receiveOnly={radioClass=true}
+local receiverMenu=menu()
+SurvivorCompanion.UIContext.fillRadioContextMenu(0,receiverMenu,{receiveOnly})
+check(not option(receiverMenu,"UI_SC_Taxi_Menu"),"receive-only Radio-class item has no taxi menu")
+radio.taxiReady=false
+local unpoweredMenu=menu()
+SurvivorCompanion.UIContext.fillRadioContextMenu(0,unpoweredMenu,{radio})
+check(not option(unpoweredMenu,"UI_SC_Taxi_Menu"),"off or otherwise unusable handset has no taxi menu")
+radio.taxiReady=true
+local mixedMenu=menu()
+SurvivorCompanion.UIContext.fillRadioContextMenu(0,mixedMenu,{{items={receiveOnly,radio}}})
+local mixedRoot=option(mixedMenu,"UI_SC_Taxi_Menu")
+local mixedCall=mixedRoot and option(mixedRoot.subMenu,"UI_SC_Taxi_Call")
+check(mixedCall and mixedCall.args[2]==radio,"stacked mixed selection binds the working handset")
 local bookingMenu = menu()
 SurvivorCompanion.UIContext.fillRadioContextMenu(0, bookingMenu, {radio})
 local bookingRoot = option(bookingMenu,"UI_SC_Taxi_Menu")

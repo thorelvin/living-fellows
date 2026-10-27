@@ -2310,7 +2310,8 @@ function Context.fillRadioContextMenu(playerIndex, context, items)
     local function consider(item)
         if not item or not SC.GameplayUtil
             or not SC.GameplayUtil.instanceOf(item, "Radio") then return end
-        if not selectedRadio then selectedRadio = item end
+        -- TVs are Radio items too; never offer transmit commands on them.
+        if safeMethod(safeMethod(item, "getDeviceData"), "getIsTelevision") == true then return end
         if SC.TaxiBooking and type(SC.TaxiBooking.checkRadio) == "function"
             and select(1, SC.TaxiBooking.checkRadio(player, item)) == true then
             selectedRadio = item

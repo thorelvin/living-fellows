@@ -66,7 +66,8 @@ send(window,"y")
 check(calls == 1 and not window.requestTicket, "one yes submits one request")
 check(Actions.execute(window,consumed) == false and calls == 1, "consumed ticket cannot replay")
 send(window,"refuel generator") available=false send(window,"yes") available=true
-check(calls == 2 and text(window):find("base gasoline missing",1,true), "queue revalidates changed fuel supplies and reports failure")
+check(calls == 2 and text(window):gsub("%s+"," "):find("base gasoline missing",1,true),
+    "queue revalidates changed fuel supplies and reports failure across wrapped lines")
 send(window,"refuel generator")
 T.now=T.now+Actions.TTL_MS+1 send(window,"yes")
 check(calls == 2 and text(window):find("expired",1,true), "old confirmations expire without dispatch")

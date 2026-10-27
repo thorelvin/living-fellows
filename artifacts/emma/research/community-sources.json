@@ -1,0 +1,44 @@
+{
+  "date": "2026-10-27",
+  "runtime": "42.21.0",
+  "definition_file": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\ProjectZomboid\\media\\lua\\shared\\PrintMedia\\PrintMediaDefinitions.lua",
+  "definition_sha256": "09e000db0f52a99a2cbd5d113526bfbd756c907efdb52a38a178bf181b84123b",
+  "new_single_business_advert_keys": [
+    "twiggys",
+    "wpdiy",
+    "thewizardskeep",
+    "muldraughpd",
+    "rosewoodfd"
+  ],
+  "excluded_whole_mall_key": "tacodelpancho",
+  "flyer_references": [
+    {
+      "file": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/Twiggys.png",
+      "sha256": "39d57537f94b04c8cf286a7d3ca5c5e5e4bc5155bdf6d074101eee887e7bb627"
+    },
+    {
+      "file": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/WPDIY.png",
+      "sha256": "fb5d920959c87ce112c066c928cb5780465b42d3d6740c838c1df7c9c53fd544"
+    },
+    {
+      "file": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/WizardsKeep.png",
+      "sha256": "db731e85020ce99099e1234eca4741d5212e2b88f3229a0243800ef5042e7759"
+    },
+    {
+      "file": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/TacoDelPancho.png",
+      "sha256": "e0ad38835f467a81aacb5f24f1985a6488f83f0a3606cee00b4a973e117188a5"
+    },
+    {
+      "file": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/MuldraughPD.png",
+      "sha256": "67403223bbd6592d3ca832189fabba7fac4c63b0960888c7057d14312056bb92"
+    },
+    {
+      "file": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/RosewoodFD.png",
+      "sha256": "38fe1b782974e7319559615de539c0da8d9684ef72d4f3dd73f8343d7d1b1b4f"
+    }
+  ],
+  "official_context": "https://projectzomboid.com/blog/features-overview-build-42-20/",
+  "context_scope": "Western towns, readable local adverts and environmental storytelling; no live world-state claims.",
+  "story_status": "All added owners, dated personal entries and EMMA wording are original mod fiction. Staff names are not claimed as stock canon.",
+  "retained_state": "Published owner IDs, portable locks, notes and visits; no save-schema or network change."
+}

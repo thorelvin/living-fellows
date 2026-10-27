@@ -79,6 +79,7 @@ try {
         $terminalFiles = @(
             (Join-Path $TestRoot 'SCTerminalFixture.lua'),
             (Join-Path $Client 'SCTerminalLines.lua'),
+            (Join-Path $Client 'SCTerminalKnowledge.lua'),
             (Join-Path $Client 'SCTerminalBrain.lua'),
             (Join-Path $Client 'SCTerminalLore.lua'),
             (Join-Path $Client 'SCTerminalFiles.lua'),

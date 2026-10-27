@@ -48,6 +48,8 @@ local function tick()
         player:setGhostMode(true)
         run.radio=player:getInventory():AddItem("Base.WalkieTalkie2")
         assert(run.radio,"native handset unavailable")
+        local data=run.radio:getDeviceData()
+        data:setHasBattery(true) data:setPower(1) data:setIsTurnedOn(true)
         local service=SC.TaxiService
         run.original={request=service.request,current=service.current,cancel=service.cancel}
         service.current=function() return nil end

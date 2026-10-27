@@ -13,9 +13,14 @@ D.NEW = {
     RustyRifle={label="The Rusty Rifle",kind="entertainment",mono=true},
     GigaMart={label="GigaMart",kind="grocery",mono=true},
     JackieJaye={label="Jackie Jaye",kind="media",mono=true},
+    Twiggys={label="Twiggy's",kind="entertainment",theme="sand"},
+    WestPointDIY={label="West Point DIY",kind="hardware",theme="aqua"},
+    WizardsKeep={label="The Wizard's Keep",kind="retail",theme="sand"},
+    MuldraughPolice={label="Muldraugh Police",kind="police",mono=true},
+    RosewoodFire={label="Rosewood Fire Department",kind="emergency",theme="aqua"},
 }
 D.ART_OVERRIDES={ChiefSteakhouseBar=true,LouisvilleMusicFestival1993=true,LesTartesdeMademoiselleCeline=true,
-    RiverwoodBoatClub=true,DiMarcoCoffee=true}
+    RiverwoodBoatClub=true,DiMarcoCoffee=true,TacoDelPancho=true}
 D.PHOSPHOR_INK={OptimaEyes=true,PalettePop=true,TheExquisitePearl=true,TheSlugger=true,
     RiverwoodBoatClub=true,KnoxBank=true}
 -- A newspaper's files should describe print reporting, not a television
@@ -80,10 +85,14 @@ D.ROOM_BRANDS = {office_herald="TheKentuckyHerald",newspaperprint_herald="TheKen
 -- Only explicit firm names. Ordinary labels such as 'Insurance' or 'Mall'
 -- deliberately convey no brand.
 D.SIGN_BRANDS = {["spiffos"]="Spiffos",["spiffos logo"]="Spiffos",["fossoil"]="Fossoil",
+    ["twiggy's"]="Twiggys",["west point diy"]="WestPointDIY",["the wizard's keep"]="WizardsKeep",
+    ["muldraugh police"]="MuldraughPolice",["rosewood fire department"]="RosewoodFire",["taco del pancho"]="TacoDelPancho",
     ["sunstar motel"]="SunstarMotel",["greene's"]="Greenes",["optima eyes"]="OptimaEyes"}
 -- Keys in the installed stock PrintMediaDefinitions.MiscDetails. Wide mall,
 -- event, house-for-sale and shopping-plaza rectangles are excluded.
 D.POI_BRANDS = {mccoyloggingcorp="McCoyLogging",nolansusedcars="nolanLogo",westmaplecountryclub="WestMapleCountryClub",
+    twiggys="Twiggys",wpdiy="WestPointDIY",thewizardskeep="WizardsKeep",
+    muldraughpd="MuldraughPolice",rosewoodfd="RosewoodFire",
     ustoreitriverside="UStoreIt",ustoreitlouisville="UStoreIt",ustoreitmuldraugh="UStoreIt",
     fossoil1="Fossoil",fossoil2="Fossoil",fossoil3="Fossoil",fossoil4="Fossoil",fossoil5="Fossoil",
     fossoil6="Fossoil",fossoil7="Fossoil",fossoil8="Fossoil",fossoilfield="FossoilField",
