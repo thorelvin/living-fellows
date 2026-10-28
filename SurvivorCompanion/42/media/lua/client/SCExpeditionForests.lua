@@ -71,7 +71,7 @@ function Forests.validSite(site)
         and site.anchor.y >= site.bounds.y1 and site.anchor.y <= site.bounds.y2
         and site.bounds.x2 - site.bounds.x1 <= PATCH_RADIUS * 2
         and site.bounds.y2 - site.bounds.y1 <= PATCH_RADIUS * 2
-        and site.bounds.z == 0 and integer(site.distance, 0, 1000)
+        and site.bounds.z == 0 and integer(site.distance, 0, 5100)
 end
 
 function Forests.copySite(site)

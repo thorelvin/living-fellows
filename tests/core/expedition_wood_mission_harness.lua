@@ -374,4 +374,22 @@ do
     check(E.prepareReset() and E.reset(), "handoff preparation tears down cleanly")
     leader.dead, F.preview = nil, metadataPreview
 end
+do
+    local savedPreview=F.preview
+    F.preview=function() return {candidates={site}} end
+    local started,trip=E.startWoodCollection(roster,{travelMode="straight"})
+    check(started,"manual wood persistence fixture starts")
+    local anchor=trip.scout.wood.sites[1].anchor
+    trip.scout.mapTarget={version=1,kind="wood",id="wood:"..anchor.x..":"..anchor.y,
+        label="Chosen woodland",anchor={x=anchor.x,y=anchor.y,z=0},
+        workBounds={x1=anchor.x-32,y1=anchor.y-32,x2=anchor.x+32,y2=anchor.y+32,z=0}}
+    local saved=E.export()
+    check(saved.schema==8 and saved.baseSchema==7,"manual wood saves exact selected bounds under schema 8")
+    check(E.prepareReset() and E.reset() and E.restore(saved),"schema 8 delegates wood receipts and tool loans to the existing validator")
+    local restored=E.export()
+    check(restored.scout.mapTarget.workBounds.x1==saved.scout.mapTarget.workBounds.x1
+        and #restored.scout.wood.sites==#saved.scout.wood.sites,"wood reload preserves selected area and alternatives")
+    check(E.prepareReset() and E.reset(),"manual wood persistence releases its view")
+    F.preview=savedPreview
+end
 print("EXPEDITION_WOOD_MISSION_KAHLUA_PASS checks=" .. checks)

@@ -1,5 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Small game-UI stand-ins for the active-expedition zoom control.
+function require() return true end
 SurvivorCompanion = {
     UI = {
         text = function(key, value)

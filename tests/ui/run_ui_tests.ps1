@@ -55,7 +55,10 @@ try {
             (Join-Path $Client 'SCUIFormat.lua'),
             (Join-Path $Client 'SCUI.lua'),
             (Join-Path $TestRoot 'SCUIBasePolicyTests.lua'),
-            (Join-Path $TestRoot 'SCUIBaseRefreshTests.lua')
+            (Join-Path $TestRoot 'SCUIBaseRefreshTests.lua'),
+            (Join-Path $Client 'SCExpeditionTargets.lua'),
+            (Join-Path $Client 'SCExpeditionMap.lua'),
+            (Join-Path $TestRoot 'SCExpeditionMapLayoutTests.lua')
         )
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @basePolicyFiles
         if ($LASTEXITCODE -ne 0) { throw 'Base policy checkbox UI tests failed.' }
@@ -106,10 +109,11 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Camp computer terminal UI tests failed.' }
         $buildingFiles = @($terminalFiles | Where-Object { $_ -notmatch 'Tests\.lua$' })
         foreach ($module in @('SCControlUtil','SCBuildingControls','SCTerminalHardware','SCRadioEndpoints',
-            'SCGeneratorServices','SCBuildingSecurity','SCBuildingCircuits','SCTerminalServices')) {
+            'SCGeneratorServices','SCBuildingSecurity','SCBuildingCircuits','SCExpeditionTargets','SCTerminalServices')) {
             $buildingFiles += Join-Path $Client ($module + '.lua')
         }
         $buildingFiles += Join-Path $TestRoot 'SCBuildingServicesTests.lua'
+        $buildingFiles += Join-Path $TestRoot 'SCTerminalMapTests.lua'
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @buildingFiles
         if ($LASTEXITCODE -ne 0) { throw 'Building services and station ownership tests failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @files

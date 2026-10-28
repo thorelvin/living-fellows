@@ -289,6 +289,7 @@ try {
             (Join-Path $Client 'SCExpeditionRoute.lua'),
             (Join-Path $Client 'SCStairTransition.lua'),
             (Join-Path $Client 'SCExpeditionCar.lua'),
+            (Join-Path $Client 'SCExpeditionTargets.lua'),
             (Join-Path $Client 'SCExpeditionPrototype.lua'),
             (Join-Path $TestRoot 'expedition_restart_harness.lua')
         )
@@ -331,6 +332,17 @@ try {
             (Join-Path $TestRoot 'expedition_places_harness.lua')
         )
         Add-ScJvmStep 'expedition-places' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $expeditionPlacesFiles 'Expedition place lookup harness failed.'
+
+        $expeditionMapFiles = @(
+            (Join-Path $TestRoot 'expedition_map_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'), (Join-Path $Shared 'SCCall.lua'),
+            (Join-Path $Shared 'SCNativeList.lua'), (Join-Path $Shared 'SCConfig.lua'),
+            (Join-Path $TestRoot 'expedition_places_fixture.lua'),
+            (Join-Path $Client 'SCExpeditionPlaces.lua'), (Join-Path $Client 'SCExpeditionTargets.lua'),
+            (Join-Path $Client 'SCFishing.lua'), (Join-Path $Client 'SCExpeditionMap.lua'),
+            (Join-Path $TestRoot 'expedition_map_targets_harness.lua')
+        )
+        Add-ScJvmStep 'expedition-map' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $expeditionMapFiles 'Expedition map selection regression failed.'
 
         $expeditionRouteFiles = @(
             (Join-Path $Client 'SCExpeditionRoute.lua'),
@@ -505,6 +517,7 @@ try {
             (Join-Path $Client 'SCExpeditionRoute.lua'),
             (Join-Path $Client 'SCExpeditionForests.lua'),
             (Join-Path $Client 'SCExpeditionWood.lua'),
+            (Join-Path $Client 'SCExpeditionTargets.lua'),
             (Join-Path $Client 'SCExpeditionPrototype.lua'),
             (Join-Path $TestRoot 'expedition_wood_mission_harness.lua')
         )

@@ -1,6 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Terminal presentation delegates effects to checked building/hardware/radio
 -- services. Menu entries never hold permission to toggle arbitrary objects.
+require "SCExpeditionMap"
 SurvivorCompanion=SurvivorCompanion or {}
 local SC=SurvivorCompanion
 SC.TerminalServices=SC.TerminalServices or {}
@@ -151,9 +152,12 @@ function S.menu(window)
     elseif p=="expedition_plan" then
         local draft=window.stationDraft or {kind="wood",travelMode="road",quantity=12,category="food",hours=4,crew={}}
         window.stationDraft=draft
-        return {option("Mission: "..draft.kind,"cycle","kind"),option("Travel: "..(draft.travelMode=="drive" and "Drive" or "Walk"),"cycle","travelMode"),
+        return {option("Mission: "..draft.kind,"cycle","kind"),
+            option("Choose destination on map","map_pick"),
+            option(draft.mapTarget and ("Destination: "..draft.mapTarget.label) or "Destination","places"),
+            option("Travel: "..(draft.travelMode=="drive" and "Drive" or "Walk"),"cycle","travelMode"),
             option("Crew and leader","page","station_crew"),option("Requested: "..tostring(draft.quantity),"cycle","quantity"),
-            option("Supplies: "..draft.category,"cycle","category"),option("Destination","places"),
+            option("Supplies: "..draft.category,"cycle","category"),
             option("Return after "..draft.hours.." game hours","cycle","hours"),option("Review mission","review"),option("Back","page","station")}
     elseif p=="station_crew" then
         return paged(window,crew(window),function(record)
@@ -180,7 +184,7 @@ local function rowsForDraft(window)
     return result
 end
 local function tripOptions(draft)
-    return {turnHomeAfterHours=draft.hours,doctrine="close_defense",travelMode=draft.travelMode,restockBaseDuty=true,
+    return {mapTarget=draft.mapTarget,turnHomeAfterHours=draft.hours,doctrine="close_defense",travelMode=draft.travelMode,restockBaseDuty=true,
         request=draft.kind=="wood" and (draft.quantity=="full" and {mode="full"} or {mode="count",quantity=draft.quantity})
             or (draft.kind=="search" or draft.kind=="fish") and {category=draft.kind=="fish" and "fish" or draft.category,quantity=draft.quantity} or nil}
 end
@@ -194,7 +198,13 @@ function S.review(window)
     local draft=window.stationDraft local expedition=SC.ExpeditionPrototype
     if not expedition or expedition.current() then return false,"Finish the current expedition first." end
     local preview
-    if draft.kind=="wood" then preview,reason=expedition.previewWoodCollection(records,tripOptions(draft))
+    if draft.mapTarget then
+        local target
+        target,reason=SC.ExpeditionTargets.validate(draft.mapTarget,
+            SC.ExpeditionTargets.context(records[1].actor,draft.travelMode))
+        if not target or target.kind~=draft.kind then return false,SC.ExpeditionMap.reason(reason or "map_target_changed") end
+        preview,reason=expedition.previewMapTarget(records,target,tripOptions(draft))
+    elseif draft.kind=="wood" then preview,reason=expedition.previewWoodCollection(records,tripOptions(draft))
     else
         if not draft.placeId then return false,"Choose a destination first." end
         local x,y=SC.GameplayUtil.position(records[1].actor)
@@ -209,9 +219,11 @@ function S.review(window)
     end
     if not preview then return false,U().error(reason) end
     window.stationReviewed={kind=draft.kind,travelMode=draft.travelMode,quantity=draft.quantity,category=draft.category,hours=draft.hours,placeId=draft.placeId,crew=table.concat(draft.crew,"|")}
+    window.stationReviewed.mapFingerprint=SC.ExpeditionTargets and SC.ExpeditionTargets.fingerprint(draft.mapTarget) or "none"
     window.stationReviewed.carSqlId=preview.carSqlId
     local lines={"Mission: "..draft.kind.."; "..(draft.travelMode=="drive" and "driving" or "walking").."; target "..tostring(draft.quantity)..".",
         "Crew: "..#records..". Leader: "..tostring(records[1].name or SC.GameplayUtil.nameOf(records[1].actor)),"Return limit: "..draft.hours.." game hours. Close-defence combat policy; restock and resume camp duty."}
+    if draft.mapTarget then lines[#lines+1]="Destination: "..draft.mapTarget.label..". Travel counts toward the turn-home time; equipment preparation pauses departure." end
     if draft.kind=="wood" then lines[#lines+1]="Raw logs only. One trip; full load is limited to 256 verified log receipts. Storage delivery remains required." end
     if preview.carSqlId then lines[#lines+1]="Car: "..tostring(preview.carName)..". Fuel "..tostring(preview.fuel).."; planned reserve "..tostring(preview.fuelRequired).."." end
     return true,lines
@@ -387,6 +399,8 @@ function S.execute(window,request)
         if not sourceOkay then return false,sourceReason end
         local old=window.stationReviewed local draft=window.stationDraft
         if not old or not draft or old.crew~=table.concat(draft.crew,"|") then return false,"Review the selected crew first." end
+        local targetFingerprint=SC.ExpeditionTargets and SC.ExpeditionTargets.fingerprint(draft.mapTarget) or "none"
+        if targetFingerprint~=(old.mapFingerprint or "none") then return false,"Destination changed. Review this mission again." end
         for _,key in ipairs({"kind","travelMode","quantity","category","hours","placeId"}) do if old[key]~=draft[key] then return false,"Mission changed. Review it again." end end
         local okay,reason=S.review(window)
         if not okay then return false,reason end
@@ -516,15 +530,47 @@ function S.input(window,raw,chosen)
         if not found then if #window.stationDraft.crew>=4 then show(window,"Choose at most four companions.") else window.stationDraft.crew[#window.stationDraft.crew+1]=value end end
         window.stationReviewed=nil
     elseif action=="cycle" then
-        local sets={kind={"wood","search","scout","fish"},travelMode={"road","drive"},quantity={1,2,4,8,12,24,"full"},category={"useful","food","water","medicine","tools","construction","ammunition","clothing"},hours={2,4,8,12}}
+        local sets={kind={"wood","search","scout","fish"},travelMode={"road","drive"},quantity={1,2,4,8,12,24,"full"},category={"useful","food","water","medicine","tools","construction","ammunition","clothing"},hours={1,2,4,8,12,24}}
         local list=sets[value] local draft=window.stationDraft local index=1
         if value=="quantity" and draft.kind~="wood" then list={1,2,4,8} end
         for i,row in ipairs(list) do if row==draft[value] then index=i%#list+1 break end end
         draft[value]=list[index] window.stationReviewed=nil
-        if value=="kind" then draft.placeId=nil if draft.kind~="wood" and (draft.quantity=="full" or draft.quantity>8) then draft.quantity=4 end end
+        if value=="kind" then
+            draft.placeId=nil
+            if draft.mapTarget and (draft.mapTarget.kind=="scout" or draft.mapTarget.kind=="search")
+                and (draft.kind=="scout" or draft.kind=="search") then
+                draft.mapTarget.kind=draft.kind
+                draft.placeId=draft.mapTarget.id
+            end
+            if draft.kind~="wood" and (draft.quantity=="full" or draft.quantity>8) then draft.quantity=4 end
+        end
+    elseif action=="map_pick" then
+        local draft=window.stationDraft
+        local function context()
+            local records=rowsForDraft(window)
+            return SC.ExpeditionTargets.context(records and records[1] and records[1].actor,draft.travelMode)
+        end
+        local opened,why=SC.ExpeditionMap.begin(window,draft,context,function(target)
+            draft.mapTarget=SC.ExpeditionTargets.copy(target)
+            draft.placeId=target.id
+            window.stationReviewed=nil
+            local okay,lines=S.review(window)
+            page(window,okay and "station_review" or "expedition_plan")
+            show(window,okay and lines or SC.ExpeditionMap.reason(lines))
+        end,function() window:setFocusMode("menu") end,function()
+            local terminal=SC.Terminal
+            local good=not window.closed and window.stationDraft==draft and terminal
+                and terminal.window==window and terminal.present(window.object)
+                and terminal.near(window.player,window.object) and terminal.powered(window.object)
+            if not good and not window.closed then window:close() end
+            return good
+        end)
+        if not opened then show(window,SC.ExpeditionMap.reason(why)) end
     elseif action=="places" or action=="places_more" then
         window.stationPlacePage=action=="places" and 1 or math.max(1,(window.stationPlacePage or 1)+(tonumber(value) or 1))
-        if window.stationDraft.kind=="wood" then show(window,"Woodland is selected automatically during review.")
+        if window.stationDraft.kind=="wood" then
+            window.stationDraft.mapTarget=nil window.stationDraft.placeId=nil window.stationReviewed=nil
+            show(window,"Automatic woodland discovery selected. Woodland is selected during review.")
         else
             local records,reason=rowsForDraft(window)
             if not records then show(window,reason) else
@@ -534,7 +580,9 @@ function S.input(window,raw,chosen)
                 if rows then page(window,"station_places") else show(window,U().error(why)) end
             end
         end
-    elseif action=="place" then window.stationDraft.placeId=value window.stationReviewed=nil page(window,"expedition_plan")
+    elseif action=="place" then
+        window.stationDraft.mapTarget=nil
+        window.stationDraft.placeId=value window.stationReviewed=nil page(window,"expedition_plan")
     elseif action=="review" then
         local okay,lines=S.review(window) show(window,lines)
         if okay then page(window,"station_review") window:setFocusMode("chat") end

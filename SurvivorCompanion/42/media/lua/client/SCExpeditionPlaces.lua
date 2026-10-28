@@ -115,6 +115,19 @@ function Places.describeBuilding(building, deferStreet)
     return deferStreet and place or addStreet(place)
 end
 
+-- Direct lookup for a selected footprint; never scan the departure radius.
+function Places.atPoint(at)
+    if type(at) ~= "table" or not coordinate(at.x) or not coordinate(at.y)
+        or at.z ~= 0 then return nil end
+    local world = type(getWorld) == "function" and getWorld() or nil
+    local grid = call(world, "getMetaGrid")
+    local building = call(grid, "getBuildingAt", at.x, at.y, 0)
+    local place = building and Places.describeBuilding(building)
+    if not place or not place.groundFloor then return nil end
+    place.knowledge = "map_metadata_unconfirmed"
+    return place
+end
+
 -- Only a bounded area is indexed. This result is internal map metadata; a
 -- player-facing picker should use targetableNearby for the selected policy.
 function Places.nearby(x, y, radius, limit, deferStreets)
@@ -707,6 +720,11 @@ function Places.knownNearby(x, y, radius, limit, offset)
         local known, loaded, seenNames
         if withinRange then
             known, loaded, seenNames = seenInterior(place, grid, cell)
+            if SC.ExpeditionTargets and WorldMapVisited then
+                known = SC.ExpeditionTargets.known(place.anchor)
+                loaded = true
+                if known then seenNames = place.rooms end
+            end
             anyLoaded = anyLoaded or loaded
         end
         if known then
@@ -798,6 +816,10 @@ function Places.targetableById(x, y, radius, id)
                     return nil, "knowledge_world_unavailable"
                 end
                 local known, _, names = seenInterior(place, grid, cell)
+                if SC.ExpeditionTargets and WorldMapVisited then
+                    known = SC.ExpeditionTargets.known(place.anchor)
+                    names = place.rooms
+                end
                 if not known then return nil, "place_no_longer_selectable" end
                 place.kind, place.label = classify(names)
                 knowledge = "player_seen_interior"

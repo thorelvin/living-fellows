@@ -2077,6 +2077,10 @@ local driverGap = driverDoor and reloaded:getEnterSeatDistance(0,
     driverDoor:getX() + 0.5, driverDoor:getY() + 0.5) or nil
 reloaded.getEnterSeatDistance = nil
 local missing, missingReason = SC.Vehicle.reloadedCarSquare({ sqlId = 7, seat = 1 })
+reloaded.speed = 6
+local movingDoor = SC.Vehicle.reloadedCarSquare(anchor)
+check(movingDoor == nil, "an unloaded passenger cannot recover beside a car still moving")
+reloaded.speed = 0
 local priorArrayList = ArrayList
 local nativeSet = { size = function() return #carList.items end }
 local setCopies = 0

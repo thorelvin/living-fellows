@@ -1,0 +1,10 @@
+FIXTURE leader=Tess Nolan fatigue=3.0169752426445484E-4 endurance=1 load=6.239999771118164
+PASS native saved map knowledge and direct building lookup House near Oak St
+PASS native context selection, cancellation and primary ownership
+PASS native route review remains read-only distance=27
+PASS native chosen woodland resolves bounded alternatives distance=97
+PASS native fishing bank resolves using retained full-map data distance=115
+PASS native distant map target mode=road distance=894 route=1014.576171875 lookupAndRouteMs=12
+PASS native distant map target mode=drive distance=4811 route=6335.106454696872 lookupAndRouteMs=7
+PASS native EMMA cancellation and selection restore the original session and reviewed destination
+PASS native expedition map acceptance complete

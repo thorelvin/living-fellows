@@ -1,0 +1,41 @@
+#
+# A fatal error has been detected by the Java Runtime Environment:
+#
+#  EXCEPTION_ACCESS_VIOLATION (0xc0000005) at pc=0x00007ffb81f223fd, pid=7660, tid=13708
+#
+# JRE version: OpenJDK Runtime Environment Zulu25.30+17-CA (25.0.1+8) (build 25.0.1+8-LTS)
+# Java VM: OpenJDK 64-Bit Server VM Zulu25.30+17-CA (25.0.1+8-LTS, mixed mode, sharing, tiered, compressed class ptrs, z gc, windows-amd64)
+# Problematic frame:
+# C  [Lighting64.dll+0x23fd]
+#
+# CreateCoredumpOnCrash turned off, no core file dumped
+#
+# If you would like to submit a bug report, please visit:
+#   http://www.azul.com/support/
+# The crash happened outside the Java Virtual Machine in native code.
+# See problematic frame for where to report the bug.
+#
+
+---------------  S U M M A R Y ------------
+
+Command Line: -XX:ActiveProcessorCount=4 -Djava.awt.headless=true --enable-native-access=ALL-UNNAMED --add-exports=java.base/jdk.internal.misc=ALL-UNNAMED -Xmx3072m -Dzomboid.steam=1 -Dzomboid.znetlog=1 -Djava.library.path=win64/;. -XX:-CreateCoredumpOnCrash -XX:-OmitStackTraceInFastThrow -XX:+UseZGC -XX:ErrorFile=C:\ZOMBOID\work\rv67\build\computer-controls\native\mapui\hs_err_pid%p.log -javaagent:C:\ZOMBOID\work\rv67\build\live-sandbox-runs\SC-Harness-20261026-185641-59f036f8\terminal-loading-agent.jar=C:\ZOMBOID\work\rv67\build\computer-controls\native\mapui\terminal-controls-20261028073750-marker.txt survivorcompanion.bridge.SCLauncher -cachedir=C:\ZOMBOID\work\rv67\build\live-sandbox-runs\SC-Harness-20261026-185641-59f036f8\cache -nosteam -novoip -nosound
+
+Host: 13th Gen Intel(R) Core(TM) i7-13700F, 24 cores, 31G,  Windows 11 , 64 bit Build 26100 (10.0.26100.9711)
+Time: Wed Oct 28 07:42:48 2026 Vest-Europa (normaltid) elapsed time: 298.557489 seconds (0d 0h 4m 58s)
+
+---------------  T H R E A D  ---------------
+
+Current thread (0x0000012df2a99350):  JavaThread "Lighting Thread" daemon [_thread_in_native, id=13708, stack(0x0000000b3a200000,0x0000000b3a300000) (1024K)]
+
+Stack: [0x0000000b3a200000,0x0000000b3a300000],  sp=0x0000000b3a2ff0c8,  free space=1020k
+Native frames: (J=compiled Java code, j=interpreted, Vv=VM code, C=native code)
+C  [Lighting64.dll+0x23fd]  (no source info available)
+
+Java frames: (J=compiled Java code, j=interpreted, Vv=VM code)
+J 21292  zombie.iso.LightingJNI.DoLightingUpdateNew(JZ)V (0 bytes) @ 0x0000012d647e634c [0x0000012d647e6300+0x000000000000004c]
+J 24577 c1 zombie.iso.LightingThread.runInner()V (89 bytes) @ 0x0000012d5e440e74 [0x0000012d5e440d00+0x0000000000000174]
+j  zombie.iso.LightingThread.threadLoop()V+18
+j  zombie.iso.LightingThread$$Lambda+0x0000000033723ad8.run()V+4
+j  java.lang.Thread.runWith(Ljava/lang/Object;Ljava/lang/Runnable;)V+5 java.base@25.0.1
+j  java.lang.Thread.run()V+19 java.base@25.0.1
+v  ~StubRoutines::call_stub 0x0000012d633f12df

@@ -520,6 +520,7 @@ function Needs.narrate(actor, runtime, current, supplied)
             speech.levels[kind] = level
         end
     end
+    if select(1, U().call(actor, "isAsleep")) == true then return false, "needs_speech_asleep" end
     if unsafeForSpeech(runtime) then return false, "needs_speech_unsafe" end
     if not SC.Dialogue or type(SC.Dialogue.say) ~= "function" then
         return false, "needs_speech_dialogue_unavailable"

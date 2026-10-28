@@ -327,6 +327,7 @@ fixture.setPendingReports({ { tripId = "legacy-names", summary = {
     members = { { id = id, name = id, shortages = { food = 1 } } },
 } } })
 local deliveryNames = newDetail()
+deliveryNames.expeditionDraft={kind="scout",group="alpha",placesLoaded=true,places={},showReports=true}
 Planner.build(deliveryNames, newPanel(300))
 local deliveryText = table.concat(deliveryNames.lines, "\n")
 assert(string.find(deliveryText, "Tess Nolan", 1, true)
@@ -417,7 +418,7 @@ expedition.retryDelivery = function(tripId)
 end
 local delivery = newDetail()
 delivery.root, delivery.rebuild = gearDetail.root, function() end
-delivery.expeditionDraft = { kind = "scout", group = "alpha", placesLoaded = true, places = {} }
+delivery.expeditionDraft = { kind = "scout", group = "alpha", placesLoaded = true, places = {}, showReports = true }
 local deliveryPanel = newPanel(400)
 Planner.build(delivery, deliveryPanel)
 assert(string.find(table.concat(delivery.lines, "\n"),

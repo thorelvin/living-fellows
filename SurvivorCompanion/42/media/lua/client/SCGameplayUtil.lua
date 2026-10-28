@@ -2159,6 +2159,7 @@ end
 function U.say(actor, textValue)
     if actor == nil or textValue == nil then return false end
     if not U.isCompanion(actor) then return false end
+    if select(1, U.call(actor, "isAsleep")) == true then return false end
     local line = tostring(textValue)
     local duration = U.speechDisplayMillis(line)
     -- Owned native companions extend the newest actor-local line using a

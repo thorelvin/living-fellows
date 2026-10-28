@@ -211,6 +211,14 @@ function Convoy.step(actor, player, snapshot)
     if lead == nil and session.requested ~= true then return nil end
     local car = SC.Vehicle.loadedBySqlId(id)
     if not car then
+        local record = SC.Registry.byId(SC.Registry.idOf(actor))
+        local anchor = record and record.runtime and record.runtime.unloadedCar
+        if type(anchor) == "table" and tonumber(anchor.sqlId) == id then
+            -- This driver was actually in the car when its area unloaded.
+            -- Retain the assignment while placement waits at that car's origin.
+            session.unreachableSince = nil
+            return true, "follow_car_unloaded"
+        end
         -- A car outside the loaded area cannot be boarded. Keep following on
         -- foot, and release it once the player has driven off in another car.
         if lead and value(actor, "getVehicle") == nil then

@@ -76,6 +76,9 @@ end
 -- loaded. The bridge reads its water polygons for possible remote shores;
 -- the arrival scan still has to find a real, free bank before anyone casts.
 local function mapWorld()
+    if SC.ExpeditionTargets and SC.ExpeditionTargets.mapData then
+        return SC.ExpeditionTargets.mapData
+    end
     local mini = type(getPlayerMiniMap) == "function"
         and getPlayerMiniMap(0) or nil
     local javaMap = mini and mini.inner and mini.inner.javaObject
@@ -117,7 +120,7 @@ local function addMapBanks(world, ox, oy, radius, groups)
     return true
 end
 
-function Angling.bankById(actor, id, radius)
+function Angling.bankById(actor, id, radius, selectedMap)
     local sx, sy
     if type(id) == "string" then
         sx, sy = id:match("^bank:(%d+):(%d+)$")
@@ -127,7 +130,7 @@ function Angling.bankById(actor, id, radius)
     if actor then ox, oy = U().position(actor) end
     radius = tonumber(radius)
     if not x or not y or not ox or not oy or not radius
-        or radius < 1 or radius > MAX_BANK_RADIUS or x > 30000 or y > 30000
+        or radius < 1 or radius > (selectedMap and 5000 or MAX_BANK_RADIUS) or x > 30000 or y > 30000
         or (x - ox)^2 + (y - oy)^2 > radius * radius then
         return nil, "fishing_bank_out_of_range"
     end
@@ -138,12 +141,46 @@ function Angling.bankById(actor, id, radius)
         return bankRow(site, ox, oy)
     end
     local ok, plausible = pcall(function()
-        local world = mapWorld()
+        local world = selectedMap or mapWorld()
         return world and SCBridge.mappedFishingBankPlausible
             and SCBridge.mappedFishingBankPlausible(world, x, y)
     end)
     if ok and plausible then return mapBankRow(x, y, ox, oy) end
     return nil, "fishing_bank_unavailable"
+end
+
+-- A distant trip uses a small query around the click, not a larger global scan.
+function Angling.bankNearPoint(actor, at, range, selectedMap)
+    local world = selectedMap or mapWorld()
+    local candidates, seen = {}, {}
+    local function add(x, y)
+        if x < 0 or y < 0 or x > 30000 or y > 30000 then return end
+        local id = "bank:" .. x .. ":" .. y
+        if not seen[id] and #candidates < 512 then
+            seen[id] = true
+            local gap = (x-at.x)^2 + (y-at.y)^2
+            if gap <= 32^2 then candidates[#candidates+1] = {id=id,gap=gap} end
+        end
+    end
+    add(at.x, at.y)
+    if world and SCBridge and SCBridge.mappedFishingBanks then
+        local encoded = SCBridge.mappedFishingBanks(world, at.x, at.y, 32)
+        if type(encoded) == "string" then
+            for x,y in encoded:gmatch("(%d+):(%d+)") do add(tonumber(x),tonumber(y)) end
+        end
+    end
+    for radius=1,32 do
+        for _,direction in ipairs({{1,0},{-1,0},{0,1},{0,-1},{1,1},{1,-1},{-1,1},{-1,-1}}) do
+            local x,y=at.x+direction[1]*radius,at.y+direction[2]*radius
+            if U().loadedSquare({x=x,y=y,z=0}) then add(x,y) end
+        end
+    end
+    table.sort(candidates,function(a,b) if a.gap~=b.gap then return a.gap<b.gap end return a.id<b.id end)
+    for _,candidate in ipairs(candidates) do
+        local bank = Angling.bankById(actor,candidate.id,range,world)
+        if bank then return bank end
+    end
+    return nil,"fishing_bank_unavailable"
 end
 
 function Angling.bankCandidates(actor, radius, limit, offset, refresh)

@@ -2,6 +2,23 @@
 
 # Changelog
 
+## 0.26.74 - Map-selected expeditions
+
+- Fixed follow-car occupants catching up by teleport when the player exits
+  another car after leaving their area. Recovery stays at their own car, waits
+  for a safe stopped exit, and preserves the driver's car assignment.
+- Sleeping companions no longer speak needs comments or other dialogue.
+  Still-current needs can be voiced after waking.
+- Choose expedition destinations on the world map, from the companion planner
+  or an EMMA station. Walking reaches known targets within 1,000 tiles; driving
+  reaches 5,000. Visited terrain and areas revealed by maps count as known.
+- Select buildings, fishing banks or a woodland work area. Manual logging
+  stays in the chosen area; automatic discovery retains its existing limits.
+- Keep destination pins when editing the crew or travel mode, and review
+  again before departure. Add 12- and 24-hour turn-home choices.
+- Uses native bridge protocol `42.21-isocompanion-24` for Project Zomboid
+  42.21.0. Manual-target missions use expedition save schema 8; older saves remain readable.
+
 ## 0.26.73 - Follower rest and companion needs
 
 - The companion Status tab shows live Stamina and Tiredness percentages directly

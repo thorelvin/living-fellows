@@ -12,7 +12,7 @@ body:
     id: mod-version
     attributes:
       label: Living Fellows version
-      placeholder: 0.26.73
+      placeholder: 0.26.74
     validations:
       required: true
   - type: input

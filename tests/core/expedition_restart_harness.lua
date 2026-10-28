@@ -3116,4 +3116,45 @@ end)()
     reserve.getCurrentSquare, getWorld = oldSquare, oldWorld
 end)()
 
+-- Schema 8 adds manual selection without replaying discovery on resume.
+;(function()
+    reserve.x,reserve.y=23,20
+    local site={id="100:10:110:30",label="Store",knowledge="map_metadata_unconfirmed"}
+    local began,active=expedition.start({{id="delta",actor=reserve}},
+        {kind="search",destination={x=103,y=20,z=0},site=site,
+            request={category="food",quantity=1},travelMode="straight"})
+    check(began,"manual-schema fixture starts through the ordinary mission controller")
+    active.scout.mapTarget={version=1,kind="search",id=site.id,label="Store",anchor={x=103,y=20,z=0}}
+    local saved=expedition.export()
+    check(saved.schema==8 and saved.baseSchema==4 and saved.scout.mapTarget.id==site.id,
+        "manual missions retain the legacy payload shape under schema 8")
+    check(expedition.prepareReset() and expedition.reset(),"schema fixture releases the owned view")
+    for _,bad in ipairs({true,12,"bad"}) do
+        local okay,accepted=pcall(expedition.restore,{schema=8,baseSchema=4,scout=bad})
+        check(okay and not accepted,"malformed schema-8 itineraries fail without throwing")
+    end
+    local forged={}
+    for k,v in pairs(saved) do forged[k]=v end
+    forged.scout={}
+    for k,v in pairs(saved.scout) do forged.scout[k]=v end
+    forged.scout.mapTarget={version=1,kind="search",id="102:10:109:30",label="Other",anchor={x=103,y=20,z=0}}
+    check(not expedition.restore(forged),"saved target identity must match the persisted work site")
+    for _,phase in ipairs({"outbound","entering_site","searching","inbound"}) do
+        saved.scout.phase=phase
+        if saved.scout.travelBudget then saved.scout.travelBudget.phase=phase=="inbound" and "inbound" or "outbound" end
+        if phase=="searching" or phase=="inbound" then
+            saved.scout.search.startedHour=431.25
+            saved.scout.search.deadlineHour=432.25
+        end
+        saved.scout.search.endReason=phase=="inbound" and "quantity_met" or nil
+        reserve.x,reserve.y=9000,9000
+        check(expedition.restore(saved) and expedition.pulse(),"schema 8 resumes "..phase.." without rechecking current departure range")
+        local restored=expedition.export()
+        check(restored.schema==8 and restored.scout.mapTarget.id==site.id,
+            "schema 8 retains exact target in "..phase)
+        check(expedition.prepareReset() and expedition.reset(),"resumed schema fixture tears down")
+    end
+    reserve.x,reserve.y=23,20
+end)()
+
 print("EXPEDITION_RESTART_KAHLUA_PASS checks=" .. tostring(checks))

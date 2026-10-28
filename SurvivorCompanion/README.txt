@@ -1,4 +1,4 @@
-Living Fellows 0.26.73 - release
+Living Fellows 0.26.74 - release
 
 FIELD GUIDE
 https://thorelvin.github.io/living-fellows/

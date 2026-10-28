@@ -430,6 +430,12 @@ the existing 256-log ceiling. Reviewed crew and mission details are rechecked
 before launch. The station can also book, inspect or cancel Marcus's taxi
 through the same booking service as a handheld radio.
 
+**Choose destination on map** opens the normal world map and preserves the
+terminal session. Right-click a target, select it and return to mission review.
+Known map targets allow 1,000 tiles walking or 5,000 driving; equipment and route
+checks still apply. Turn-home choices include 12 and 24 game hours. See
+[map-selected expeditions](map-expeditions.md) for knowledge and woodland rules.
+
 An optional UPS needs Electrical 4, a screwdriver, one wire, four scrap and a
 charged car battery. A full healthy battery supplies six game hours of active
 PC/radio use; poor condition shortens that time. It supplies this computer only

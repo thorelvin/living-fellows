@@ -10,7 +10,7 @@
   <img src="assets/banner.png" width="100%" alt="Living Fellows: survivors walking a dusk street together">
 </p>
 
-[![Release](https://img.shields.io/badge/release-0.26.73-blue.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-0.26.74-blue.svg)](CHANGELOG.md)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.21.0-red.svg)](#requirements)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -21,7 +21,7 @@ Living Fellows adds companions, survivor households and working bases to Project
 
 ## More than someone following you
 
-- **Send a squad on an expedition.** Scout a building, search for supplies, fish or collect wood while you get on with your own plans. Send one to four companions on foot or by car, choose a leader and return time, and watch their trip in a second view. They bring back what they actually find and carry it into camp storage.
+- **Send a squad on an expedition.** Scout a building, search for supplies, fish or collect wood while you get on with your own plans. Send one to four companions on foot or by car, choose a target on your map, a leader and return time, and watch their trip in a second view. They bring back what they actually find and carry it into camp storage.
 - **Keep the camp working with Base Watch.** Leave an indoor resident on watch and the camp stays loaded while you travel. The others keep sorting, farming, cooking, repairing and guarding. Check in by radio while you're away. Base Watch and expeditions share one companion view, so run one at a time.
 - **Call Markus's taxi.** Stranded on the road? Call for pickup from a working walkie-talkie, climb into Markus Sloane's cab and choose a road destination on the map. Bring jewelry for the fare.
 - **Build a crew worth knowing.** Up to 16 companions with professions, personalities, relationships and memories. They fight in formation, look after their needs, treat wounds and retreat when they're outmatched. Some keep private diaries. Death is permanent, and the book stays behind.

@@ -7,7 +7,13 @@ Request 1, 2, 4, 8, 12 or 24 raw logs; the default is 12. **Full load** fills
 safe available cargo space with a ceiling of 256 verified log receipts. Each
 expedition makes one round trip. It does not saw planks or bundle logs.
 
-The planner searches Forest and DeepForest metadata outside camp within
+Choose **Choose on map** to mark a woodland work area, or **Find woodland
+automatically** to retain automatic discovery. Manual targets can be up to
+1,000 tiles away on foot or 5,000 by car; beyond 200 tiles they require visited
+or map-revealed terrain. Manual crews stay inside the highlighted area and
+return partial cargo when its patches are exhausted. See [map targeting](map-expeditions.md).
+
+The automatic planner searches Forest and DeepForest metadata outside camp within
 1,000 tiles in bounded slices. Readable forest names describe direction and
 nearby streets when available. Metadata is provisional: the crew verifies
 loaded mature trees on arrival and can try up to three sites.
@@ -52,7 +58,8 @@ when its borrower no longer carries it or its source storage is unmarked.
 While a companion is still loading in or the car is out of reach, the cargo
 stays pending. Logs and axes from a finished delivery are ordinary items again.
 
-Mission schema 7 saves work progress, native cargo identities, tool loans and
+Manual map missions use schema 8 to retain the chosen work area; automatic
+missions retain schema 7. Both save work progress, native cargo identities, tool loans and
 delivery retries. Wood integration version 2 supports at most 256 logs. Older
 missions and version 1 search/fishing deliveries retain their existing limits.
 Reload never creates replacement cargo when ownership is ambiguous.

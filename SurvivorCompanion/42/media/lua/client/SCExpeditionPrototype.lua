@@ -1,6 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Single-player expedition travel, physical work, delivery and persistence.
 require "SCViewSession"
+require "SCExpeditionTargets"
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
 SC.ExpeditionPrototype = SC.ExpeditionPrototype or {}
@@ -831,6 +832,7 @@ end
 
 function Expedition.start(records, plan)
     if mission ~= nil then return false, "expedition_already_active" end
+    if plan ~= nil and type(plan) ~= "table" then return false, "invalid_scout_plan" end
     pruneCompletedDeliveries()
     if SC.BaseWatch and SC.BaseWatch.current and SC.BaseWatch.current() then
         return false, "base_watch_uses_companion_view"
@@ -921,7 +923,26 @@ function Expedition.start(records, plan)
         end
         local fishingPlan = searchPlan and type(plan.request) == "table"
             and plan.request.category == "fish"
-        local destinationRadius = woodPlan and 1000 or SC.Config and SC.Config.get(fishingPlan
+        local mapTarget
+        if plan.mapTarget ~= nil then
+            if not SC.ExpeditionTargets then return false, "map_target_invalid" end
+            local reason
+            mapTarget, reason = SC.ExpeditionTargets.validate(plan.mapTarget,
+                SC.ExpeditionTargets.context(roster[1].actor, travelMode))
+            local kind = woodPlan and "wood" or fishingPlan and "fish" or plan.kind
+            if not mapTarget or mapTarget.kind ~= kind then return false, reason or "map_target_invalid" end
+            if woodPlan then
+                if not SC.ExpeditionTargets.matchesMission(mapTarget, {kind="wood",wood=plan.wood}) then
+                    return false, "map_target_changed"
+                end
+            elseif fishingPlan then
+                if plan.destination.x ~= mapTarget.anchor.x or plan.destination.y ~= mapTarget.anchor.y then
+                    return false, "map_target_changed"
+                end
+            elseif not plan.site or plan.site.id ~= mapTarget.id then return false, "map_target_changed" end
+        end
+        local destinationRadius = mapTarget and SC.ExpeditionTargets.limit(travelMode)
+            or woodPlan and 1000 or SC.Config and SC.Config.get(fishingPlan
             and "expeditionFishingRadius" or "expeditionDestinationRadius")
             or (fishingPlan and 1000 or 200)
         if type(plan) ~= "table"
@@ -935,11 +956,11 @@ function Expedition.start(records, plan)
                 + (carPlan.departure.y - plan.destination.y)^2)
                 or distanceToPoint(roster[1].actor, plan.destination))
                 < ((searchPlan or woodPlan) and 8 or 20)
-            or (travelMode == "drive" and math.sqrt(
+            or (not mapTarget and (travelMode == "drive" and math.sqrt(
                 (carPlan.departure.x - plan.destination.x)^2
                 + (carPlan.departure.y - plan.destination.y)^2)
                 or distanceToPoint(roster[1].actor, plan.destination))
-                > destinationRadius
+                > destinationRadius)
             or (plan.site ~= nil and not validSite(plan.site))
             or (searchPlan and (not validRequest(plan.request)
                 or (plan.radius ~= nil and (type(plan.radius) ~= "number"
@@ -969,6 +990,7 @@ function Expedition.start(records, plan)
             travelMode = travelMode, extended = extended,
             destination = copyPoint(plan.destination),
             site = copySite(plan.site),
+            mapTarget = mapTarget and SC.ExpeditionTargets.copy(mapTarget) or nil,
             returnPoint = returnPoint, legs = 0,
             turnHomeAtHour = returnHours and departureHour + returnHours or nil,
             arriveByHour = arriveByHour,
@@ -1116,10 +1138,19 @@ function Expedition.startAtFishingBank(records, bankId, options)
     if not SC.Fishing or type(SC.Fishing.bankById) ~= "function" then
         return false, "fishing_bank_lookup_unavailable"
     end
-    local selected, reason = SC.Fishing.bankById(records[1].actor, bankId,
-        SC.Config and SC.Config.get("expeditionFishingRadius") or 1000)
-    if not selected then return false, reason end
     options = type(options) == "table" and options or {}
+    local selected, reason
+    if options.mapTarget then
+        local target
+        target, reason = SC.ExpeditionTargets.validate(options.mapTarget,
+            SC.ExpeditionTargets.context(records[1].actor, options.travelMode or "road"))
+        if not target or target.kind ~= "fish" or target.id ~= bankId then return false, reason or "map_target_changed" end
+        selected = target.place
+    else
+        selected, reason = SC.Fishing.bankById(records[1].actor, bankId,
+            SC.Config and SC.Config.get("expeditionFishingRadius") or 1000)
+    end
+    if not selected then return false, reason end
     if not validRequest(options.request)
         or options.request.category ~= "fish" then
         return false, "invalid_search_plan"
@@ -1138,6 +1169,7 @@ function Expedition.startAtFishingBank(records, bankId, options)
         parkingZoneId = options.parkingZoneId,
         vehicleSqlId = options.vehicleSqlId,
         restockBaseDuty = options.restockBaseDuty == true,
+        mapTarget = options.mapTarget,
     })
 end
 
@@ -1168,8 +1200,17 @@ local function selectWoodSite(records, options)
     local mode = options.travelMode or "road"
     if mode == "drive" and not SC.ExpeditionCar then return nil, "driving_unavailable" end
     local cacheKey = mode == "drive" and woodDiscoveryKey(records, options) or nil
-    local found, reason = SC.ExpeditionForests.preview(records[1].actor, mode,
-        { radius = 1000, cacheKey = cacheKey })
+    local found, reason
+    if options.mapTarget then
+        local target
+        target, reason = SC.ExpeditionTargets.validate(options.mapTarget,
+            SC.ExpeditionTargets.context(records[1].actor, mode))
+        if not target or target.kind ~= "wood" then return nil, reason or "map_target_changed" end
+        found = { candidates = target.sites }
+    else
+        found, reason = SC.ExpeditionForests.preview(records[1].actor, mode,
+            { radius = 1000, cacheKey = cacheKey })
+    end
     if not found then return nil, reason end
     local failure, rejected
     for index, site in ipairs(found.candidates) do
@@ -1193,8 +1234,13 @@ local function selectWoodSite(records, options)
             local nearby = {}
             if stop and (site.anchor.x - stop.x)^2 + (site.anchor.y - stop.y)^2 <= 64^2 then
                 nearby[1] = site
-                local localBank, localReason = SC.ExpeditionForests.nearCar(records[1].actor,
-                    stop, site, cacheKey .. "@" .. site.id)
+                local localBank, localReason
+                if options.mapTarget then
+                    localBank = { candidates = found.candidates }
+                else
+                    localBank, localReason = SC.ExpeditionForests.nearCar(records[1].actor,
+                        stop, site, cacheKey .. "@" .. site.id)
+                end
                 if not localBank and localReason == "forest_scan_pending" then return nil, localReason end
                 if not localBank and localReason ~= "no_suitable_forest" then return nil, localReason end
                 for _, alternative in ipairs(localBank and localBank.candidates or {}) do
@@ -1215,9 +1261,11 @@ local function selectWoodSite(records, options)
             if failure ~= "wood_forest_too_far_from_road" and not failure:match("^[A-Z_]+$") then
                 return nil, failure
             end
-            local continued = SC.ExpeditionForests.reject(records[1].actor, mode, site.id, cacheKey)
-            if not continued then return nil, "no_reachable_forest" end
-            rejected = true
+            if not options.mapTarget then
+                local continued = SC.ExpeditionForests.reject(records[1].actor, mode, site.id, cacheKey)
+                if not continued then return nil, "no_reachable_forest" end
+                rejected = true
+            end
         end
     end
     if rejected then return nil, "forest_scan_pending" end
@@ -1259,6 +1307,7 @@ function Expedition.startWoodCollection(records, options)
         doctrine = options.doctrine, travelMode = options.travelMode or "road",
         parkingZoneId = options.parkingZoneId, vehicleSqlId = options.vehicleSqlId,
         restockBaseDuty = options.restockBaseDuty == true,
+        mapTarget = options.mapTarget,
     })
     if started and mission and mission.scout and mission.scout.wood then
         mission.scout.wood.tripId = mission.radioSession
@@ -1424,8 +1473,18 @@ function Expedition.startAtPlace(records, placeId, kind, options)
     end
     local x, y = SC.GameplayUtil.position(records[1].actor)
     if x == nil or y == nil then return false, "leader_unavailable" end
-    local selected, reason = lookup.targetableById(math.floor(x), math.floor(y),
-        SC.Config and SC.Config.get("expeditionDestinationRadius") or 200, placeId)
+    options = type(options) == "table" and options or {}
+    local selected, reason
+    if options.mapTarget then
+        local target
+        target, reason = SC.ExpeditionTargets.validate(options.mapTarget,
+            SC.ExpeditionTargets.context(records[1].actor, options.travelMode or "road"))
+        if not target or target.kind ~= kind or target.id ~= placeId then return false, reason or "map_target_changed" end
+        selected = target.place
+    else
+        selected, reason = lookup.targetableById(math.floor(x), math.floor(y),
+            SC.Config and SC.Config.get("expeditionDestinationRadius") or 200, placeId)
+    end
     if selected == nil then return false, reason or "place_no_longer_selectable" end
     if type(lookup.plannedApproach) ~= "function"
         or type(lookup.loadedSiteApproach) ~= "function" then
@@ -1449,6 +1508,7 @@ function Expedition.startAtPlace(records, placeId, kind, options)
         parkingZoneId = options.parkingZoneId,
         vehicleSqlId = options.vehicleSqlId,
         restockBaseDuty = options.restockBaseDuty == true,
+        mapTarget = options.mapTarget,
     })
 end
 
@@ -1485,6 +1545,28 @@ local function previewToPoint(leader, approach, travelMode)
         offRoadEnd = tiles(exit.x, exit.y, approach) }
 end
 
+function Expedition.previewMapTarget(records, target, options)
+    options = options or {}
+    local fresh, reason = SC.ExpeditionTargets.validate(target,
+        SC.ExpeditionTargets.context(records and records[1] and records[1].actor, options.travelMode or "road"))
+    if not fresh then return nil, reason end
+    if fresh.kind == "wood" then
+        local copy = {}
+        for k,v in pairs(options) do copy[k]=v end
+        copy.mapTarget = fresh
+        return Expedition.previewWoodCollection(records, copy)
+    end
+    if options.travelMode == "drive" then
+        return Expedition.previewDrive(records, fresh.place, fresh.kind == "fish",
+            options.parkingZoneId, options.vehicleSqlId, fresh)
+    end
+    local approach, why
+    if fresh.kind == "fish" then approach = fresh.anchor
+    else approach, why = SC.ExpeditionPlaces.plannedApproach(fresh.place, records[1].actor) end
+    if not approach then return nil, why or "place_approach_unavailable" end
+    return previewToPoint(records[1], approach, options.travelMode or "road")
+end
+
 function Expedition.previewAtPlace(leader, place, travelMode)
     if leader == nil or leader.actor == nil or type(place) ~= "table" then
         return nil, "leader_unavailable"
@@ -1505,7 +1587,7 @@ function Expedition.previewAtFishingBank(leader, bank, travelMode)
     return previewToPoint(leader, selected.anchor, travelMode)
 end
 
-function Expedition.previewDrive(records, place, fishing, parkingZoneId, vehicleSqlId)
+function Expedition.previewDrive(records, place, fishing, parkingZoneId, vehicleSqlId, mapTarget)
     if type(records) ~= "table" or not records[1]
         or not records[1].actor or type(place) ~= "table" then
         return nil, "leader_unavailable"
@@ -1513,8 +1595,15 @@ function Expedition.previewDrive(records, place, fishing, parkingZoneId, vehicle
     local approach, reason
     if fishing then
         local selected
-        selected, reason = SC.Fishing.bankById(records[1].actor,
-            place.id, SC.Config and SC.Config.get("expeditionFishingRadius") or 1000)
+        if mapTarget then
+            local target
+            target, reason = SC.ExpeditionTargets.validate(mapTarget,
+                SC.ExpeditionTargets.context(records[1].actor, "drive"))
+            selected = target and target.place
+        else
+            selected, reason = SC.Fishing.bankById(records[1].actor,
+                place.id, SC.Config and SC.Config.get("expeditionFishingRadius") or 1000)
+        end
         approach = selected and selected.anchor or nil
     else
         approach, reason = SC.ExpeditionPlaces.plannedApproach(
@@ -1630,7 +1719,7 @@ function Expedition.export()
             scoutTrail[index] = copyPoint(point)
         end
     end
-    return {
+    local saved = {
         schema = mission.scout and (mission.scout.wood and 7 or mission.scout.vehicle and 6
             or ((mission.scout.extended
                 or mission.scout.road ~= nil) and 5
@@ -1690,10 +1779,35 @@ function Expedition.export()
                     mission.roster, mission.roster[1].id) or nil,
         } or nil,
     }
+    if mission.scout and mission.scout.mapTarget then
+        saved.baseSchema, saved.schema = saved.schema, 8
+        saved.scout.mapTarget = SC.ExpeditionTargets.copy(mission.scout.mapTarget)
+    end
+    return saved
 end
 
 function Expedition.restore(saved)
     if mission ~= nil then return false, "expedition is already active" end
+    if type(saved) == "table" and saved.schema == 8 then
+        if type(saved.scout) ~= "table" then return false, "saved map itinerary is invalid" end
+        local target = saved.scout and saved.scout.mapTarget
+        if not SC.ExpeditionTargets or not SC.ExpeditionTargets.matchesMission(target, saved.scout)
+            or (saved.baseSchema ~= 3 and saved.baseSchema ~= 4 and saved.baseSchema ~= 5
+                and saved.baseSchema ~= 6 and saved.baseSchema ~= 7) then
+            return false, "saved map target is invalid"
+        end
+        local legacy = {}
+        for k,v in pairs(saved) do legacy[k]=v end
+        legacy.schema, legacy.baseSchema = saved.baseSchema, nil
+        legacy.scout = {}
+        for k,v in pairs(saved.scout) do legacy.scout[k]=v end
+        legacy.scout.mapTarget = nil
+        local restored, reason = Expedition.restore(legacy)
+        if restored and mission and mission.scout then
+            mission.scout.mapTarget = SC.ExpeditionTargets.copy(target)
+        end
+        return restored, reason
+    end
     if type(saved) == "table" and saved.schema == 7 and saved.state == "idle" then
         local shared = {}
         for key, value in pairs(saved) do shared[key] = value end
@@ -2457,7 +2571,7 @@ function Expedition.describeForPlayer(viewer)
         preparationMemberId = leaderVisible and itinerary
             and itinerary.fishingPreparation and leader.id or nil,
         kind = itinerary and itinerary.kind or nil,
-        plannedSite = itinerary and (itinerary.site
+        plannedSite = itinerary and (itinerary.mapTarget and itinerary.mapTarget.label or itinerary.site
             and itinerary.site.label or itinerary.search
             and itinerary.search.request.category == "fish"
             and ("Fishing bank " .. itinerary.destination.x .. ", "

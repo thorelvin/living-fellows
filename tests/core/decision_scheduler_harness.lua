@@ -558,17 +558,18 @@ do
     local released, carLoaded, areaLoaded, recoveredTo = false, false, false, nil
     local doorSquare, bareSquare = { door = true }, { bare = true }
     SC.ExpeditionPrototype = nil
-    SC.Commands = { peek = function() return { recruited = true, order = "stay" } end }
+    local order, seat = "stay", 1
+    SC.Commands = { peek = function() return { recruited = true, order = order } end }
     SC.GameplayUtil = { position = function() return 7600, 6040, 0 end }
     SC.Vehicle = {
         releaseUnloadedSeat = function(actor)
             check(actor == rider.actor, "seat release looked at another actor")
             if released then return false, "not_seated" end
             released = true
-            return true, { sqlId = 8, seat = 1, x = 7346.6, y = 6045.2, z = 0 }
+            return true, { sqlId = 8, seat = seat, x = 7346.6, y = 6045.2, z = 0 }
         end,
         reloadedCarSquare = function(anchor)
-            check((anchor.sqlId == 8 and anchor.seat == 1)
+            check((anchor.sqlId == 8 and (anchor.seat == 0 or anchor.seat == 1))
                     or (anchor.sqlId == 9 and anchor.seat == 0),
                 "car anchor lost its identity")
             if carLoaded then return doorSquare, "car_door" end
@@ -619,6 +620,39 @@ do
     check(seam(waiting, 50000) == nil and waiting.runtime.unloadedCar.loadedSince == 50000
             and seam(waiting, 59000) == nil and seam(waiting, 60000) == bareSquare,
         "a car that never loads again gives way to the bare position after ten seconds")
+
+    -- Reproduce the report: drive away from the crew's other car, then leave
+    -- the player's car. Neither the driver nor passengers may catch up by warp.
+    local primary = getPlayer()
+    local oldVehicle = primary.getVehicle
+    local driving = true
+    local leadCar, playerSquare = {}, { playerDestination = true }
+    primary.getVehicle = function() return driving and leadCar or nil end
+    SC.GameplayUtil.gridSquare = function() return playerSquare end
+    SC.GameplayUtil.isSquareFree = function() return true end
+    for _, case in ipairs({ {"follow", 0}, {"follow", 1}, {"regroup", 1} }) do
+        SC.Scheduler.reset(true)
+        order, seat = case[1], case[2]
+        rider.runtime = {}
+        released, carLoaded, areaLoaded, recoveredTo, driving = false, false, false, nil, true
+        pulses(4)
+        check(recoveredTo == nil and rider.runtime.unloadedCar ~= nil,
+            "an unloaded follow-car member is retained while the player drives")
+        driving = false
+        pulses(4)
+        check(recoveredTo == nil and rider.runtime.unloadedCar ~= nil,
+            "exiting the lead car cannot teleport a follow-car member to the player")
+        carLoaded, areaLoaded = true, true
+        pulses(3)
+        check(recoveredTo == doorSquare and rider.runtime.unloadedCar == nil,
+            "a follow-car driver/passenger recovers at its own car's door")
+    end
+    primary.getVehicle = oldVehicle
+
+    SC.Vehicle.reloadedCarSquare = function() return nil, "no safe loaded passenger-door square" end
+    local blocked = { runtime = { unloadedCar = { sqlId = 8, seat = 1 } } }
+    check(seam(blocked, 70000) == nil and seam(blocked, 130000) == nil,
+        "a loaded car with blocked exits cannot fall back to a bare tile under its body")
 
     records = {}
     SC.Actor.validateNative, SC.Actor.recover = saved.validate, saved.recover

@@ -2407,6 +2407,12 @@ do
             and fellow.lastSpeech == "companion actor" and fellow.speechMethod == "actor_chat"
             and fellow.speechDisplayMillis >= 8000 and fellow.speechDisplayMillis <= 15000,
         "speech executor anchors chat to the companion and requests a readable display duration")
+    local oldAsleep, oldSpeech, oldCalls = fellow.asleep, fellow.lastSpeech, fellow.speechCalls
+    fellow.asleep = true
+    check(not SurvivorCompanion.GameplayUtil.say(fellow, "sleeping actor")
+            and fellow.lastSpeech == oldSpeech and fellow.speechCalls == oldCalls,
+        "the native speech executor suppresses lines while the companion is asleep")
+    fellow.asleep = oldAsleep
     local strictSquare = cell:getGridSquare(4, 4, 0)
     check(SurvivorCompanion.GameplayUtil.isSafeSpawnSquare(strictSquare),
         "native spawn-square helper accepts a fully loaded unobstructed square")
@@ -7964,6 +7970,19 @@ function runResolvedSpeechRegression()
     local utility = SurvivorCompanion.GameplayUtil
     local originalSay = utility.say
     local before = dialogue.lastSpokenAt(fellow)
+    local oldAsleep = fellow.asleep
+    local _, beforeChoice = dialogue.choose(fellow, "conversation.sleep_regression", {"First", "Second"})
+    fellow.asleep = true
+    local sleeping, sleepReason = dialogue.say(fellow, "conversation.sleep_regression", {"First", "Second"})
+    local transcriptSleeping = dialogue.emitResolved(fellow, "conversation.sleep_regression", "Still asleep.",
+        {transcriptAccepted=true})
+    check(not sleeping and sleepReason == "speaker_asleep" and not transcriptSleeping
+            and dialogue.lastSpokenAt(fellow) == before,
+        "sleep suppresses selected and resolved replies without issuing a speech receipt")
+    fellow.asleep = oldAsleep
+    local _, afterChoice = dialogue.choose(fellow, "conversation.sleep_regression", {"First", "Second"})
+    check(afterChoice.sequence == beforeChoice.sequence + 1,
+        "suppressed sleep speech does not consume dialogue variation history")
     utility.say = function() return false end
     local refused = dialogue.emitResolved(fellow, "conversation.refused", "No receipt.")
     check(not refused and dialogue.lastSpokenAt(fellow) == before,
@@ -17700,6 +17719,22 @@ do
             and resumed and resumedTopic == "need.hunger.urgent",
         "a dangerous moment defers rather than loses a needs transition")
 
+    local sleeper = actor("sc-needs-speech-asleep", 32, 22, {})
+    SurvivorCompanion.Needs.narrate(sleeper, quiet, clock,
+        { hunger = 0.20, thirst = 0.20, fatigue = 0.20 })
+    sleeper.asleep = true
+    clock = clock + 1
+    local asleep, asleepReason = SurvivorCompanion.Needs.narrate(sleeper, quiet, clock,
+        { hunger = 0.84, thirst = 0.20, fatigue = 0.20 })
+    check(not asleep and asleepReason == "needs_speech_asleep" and sleeper.lastSpeech == nil,
+        "a needs transition during sleep cannot produce a bark")
+    sleeper.asleep = false
+    clock = clock + 1
+    local awake, awakeTopic = SurvivorCompanion.Needs.narrate(sleeper, quiet, clock,
+        { hunger = 0.84, thirst = 0.20, fatigue = 0.20 })
+    check(awake and awakeTopic == "need.hunger.urgent",
+        "a still-current need can be voiced after waking")
+
     clock = clock + 1
     local asked = SurvivorCompanion.Dialogue.say(hungry, "status.food", nil, nil,
         { recentLimit = 4, salt = "asked-status" })
@@ -17711,6 +17746,7 @@ do
     SurvivorCompanion.Needs.reset(thirsty)
     SurvivorCompanion.Needs.reset(tired)
     SurvivorCompanion.Needs.reset(deferred)
+    SurvivorCompanion.Needs.reset(sleeper)
 end
 
 local meal = item("Base.TestMeal", "Food", { hungerChange = -0.35 })

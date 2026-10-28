@@ -591,8 +591,14 @@ local function postedRecoverySquare(record, current)
         or type(SC.Vehicle.reloadedCarSquare) ~= "function" then
         return SC.Persistence.loadedRecoverySquare(record)
     end
-    local square = SC.Vehicle.reloadedCarSquare(anchor)
+    local square, reason = SC.Vehicle.reloadedCarSquare(anchor)
     if square ~= nil then return square end
+    -- A loaded car without a safe stopped exit must keep its passenger waiting.
+    -- The timed position fallback only covers a car that has not loaded again.
+    if reason ~= "car_not_loaded" then
+        anchor.loadedSince = nil
+        return nil
+    end
     local fallback = SC.Persistence.loadedRecoverySquare(record)
     if fallback == nil then
         anchor.loadedSince = nil
@@ -606,6 +612,12 @@ end
 runtime._postedRecoverySquareForTests = postedRecoverySquare
 
 local function followerRecoverySquare(record, currentPlayer, current)
+    if type(record.runtime) == "table" and type(record.runtime.unloadedCar) == "table" then
+        -- Follow/regroup does not grant a free ride from a different car. Keep
+        -- the exact actor at that car's origin until its area is loaded again.
+        local square = postedRecoverySquare(record, current)
+        return square, square and "unloaded_car" or "deferred_unloaded_car"
+    end
     local px, py = SC.GameplayUtil.position(currentPlayer)
     if postedRecoveryNearby(record, px, py) then
         -- A follower resting in the next room can briefly lose native square
@@ -859,7 +871,8 @@ local function vitalsTask(current)
             record.runtime.postedRecoveryDeferred = nil
             if not healthy then
                 local playerVehicleOk, playerVehicle = invoke(currentPlayer, "getVehicle")
-                if playerVehicleOk and playerVehicle ~= nil then
+                if playerVehicleOk and playerVehicle ~= nil
+                    and type(record.runtime.unloadedCar) ~= "table" then
                     -- A follower that missed boarding may unload while the player
                     -- drives away. Keep its registry record intact and recover it
                     -- only after the player exits instead of teleporting it into a
@@ -875,6 +888,7 @@ local function vitalsTask(current)
                     if healthy then
                         record.runtime.nativeSquareMissingAt = nil
                         record.runtime.vehicleRecoveryDeferred = nil
+                        record.runtime.unloadedCar = nil
                         print("[SurvivorCompanion][recovery] recruited companion rejoined actor="
                             .. tostring(record.id) .. " placement=" .. tostring(recoveryKind))
                     end
@@ -2059,6 +2073,8 @@ function runtime.reset(detach)
     resetModule("life events", SC.LifeEvents, "reset")
     resetModule("expedition", SC.ExpeditionPrototype, "reset")
     resetModule("expedition forests", SC.ExpeditionForests, "reset")
+    resetModule("expedition map", SC.ExpeditionMap, "reset")
+    resetModule("expedition targets", SC.ExpeditionTargets, "reset")
     resetModule("work voice", SC.WorkVoice, "reset")
     resetModule("logging claims", SC.LoggingWork, "reset")
     resetModule("taxi booking", SC.TaxiBooking, "reset")

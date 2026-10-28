@@ -3873,9 +3873,16 @@ end
 -- Resolved direct replies must use the same speech history as selected barks.
 -- A transcript receipt is valid only after Interaction.finish has accepted it;
 -- an overhead failure on its own never claims that a line was spoken.
+local function speakerAsleep(actor)
+    local utility = U()
+    return utility and type(utility.call) == "function"
+        and select(1, utility.call(actor, "isAsleep")) == true
+end
+
 function Dialogue.emitResolved(actor, topic, line, options)
     if type(topic) ~= "string" or topic == "" or type(line) ~= "string"
         or line == "" then return false, "invalid_resolved_speech" end
+    if speakerAsleep(actor) then return false, "speaker_asleep" end
     options = type(options) == "table" and options or {}
     local utility = U()
     local overhead = utility and type(utility.say) == "function"
@@ -3897,6 +3904,7 @@ function Dialogue.emitResolved(actor, topic, line, options)
 end
 
 function Dialogue.say(actor, topic, specification, arguments, options)
+    if speakerAsleep(actor) then return false, "speaker_asleep" end
     local line, detail = Dialogue.choose(actor, topic, specification, arguments, options)
     if not line then return false, detail end
     local spoken, result, receipt = Dialogue.emitResolved(actor, topic, line)

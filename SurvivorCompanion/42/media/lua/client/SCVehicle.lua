@@ -1617,6 +1617,7 @@ function vehicleService.reloadedCarSquare(anchor)
     if type(anchor) ~= "table" then return nil, "no_car_anchor" end
     local vehicle = loadedVehicleBySqlId(tonumber(anchor.sqlId))
     if vehicle == nil then return nil, "car_not_loaded" end
+    if stationary(vehicle) ~= true then return nil, "car_is_moving" end
     local seat = tonumber(anchor.seat)
     local square, reason = nil, "no safe loaded passenger-door square"
     if seat ~= nil then square, reason = exitSquare(vehicle, nil, seat) end

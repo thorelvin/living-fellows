@@ -867,6 +867,21 @@ do
     check(SC.Commands.peek(actor).followCarSqlId == nil,
         "an out-of-reach follow car is released while the player drives off")
 
+    -- A driver released from a car that really unloaded is a different case:
+    -- it must retain its car while the runtime waits at that car's origin.
+    assign()
+    local record = T.records[actor.id]
+    record.runtime = { unloadedCar = { sqlId = 611, seat = 0, x = car.x, y = car.y, z = 0 } }
+    handled, reason = Convoy.step(actor, localPlayer, {})
+    check(handled == true and reason == "follow_car_unloaded",
+        "an unloaded driver does not fall through into ordinary foot following")
+    SC_TEST_CLOCK = SC_TEST_CLOCK + 10000
+    Convoy.step(actor, localPlayer, {})
+    SC_TEST_CLOCK = savedClock
+    check(SC.Commands.peek(actor).followCarSqlId == 611,
+        "streaming out an occupied follow car does not discard its assignment")
+    record.runtime.unloadedCar = nil
+
     -- The player drives the follow car; the companion should ride with them.
     assign()
     loaded, car.driver, localPlayer.vehicle = true, localPlayer, car

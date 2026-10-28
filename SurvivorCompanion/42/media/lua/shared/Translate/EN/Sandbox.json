@@ -41,7 +41,7 @@
     "Sandbox_LivingFellows_DiaristChance": "Diary keeper chance",
     "Sandbox_LivingFellows_DiaristChance_tooltip": "Chance, decided once per recruited companion and saved, that the companion keeps a diary. Changing it never re-decides companions that already had their chance.",
     "Sandbox_LivingFellows_ExpeditionDestinationScope": "Expedition destination choices",
-    "Sandbox_LivingFellows_ExpeditionDestinationScope_tooltip": "All nearby includes buildings inferred from map data, even if you have not visited them. Known only lists buildings whose interiors your character has seen. Destinations still need a reachable route before departure.",
+    "Sandbox_LivingFellows_ExpeditionDestinationScope_tooltip": "All nearby includes buildings inferred from map data, even if you have not visited them. Known only lists locations visited or revealed by reading maps. Manual targets beyond 200 tiles always require this map knowledge. Destinations still need a reachable route before departure.",
     "Sandbox_LivingFellows_ExpeditionDestinationScope_option1": "All nearby (default)",
     "Sandbox_LivingFellows_ExpeditionDestinationScope_option2": "Known places only",
     "Sandbox_LivingFellows_NicknamesEnabled": "Companion nicknames",

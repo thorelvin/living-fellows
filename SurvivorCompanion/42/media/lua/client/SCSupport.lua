@@ -190,6 +190,9 @@ local function expeditionEvidence()
     local trip = scout and scout.vehicle
     return {
         active = true,
+        targetSource = scout and scout.mapTarget and "manual map" or "automatic/nearby",
+        targetName = scout and scout.mapTarget and scout.mapTarget.label or nil,
+        targetKind = scout and scout.mapTarget and scout.mapTarget.kind or nil,
         vehicleState = trip and trip.state or nil,
         vehicleLeg = trip and trip.leg or nil,
         vehicleBlocker = trip and trip.blocker or active.vehicleRestoreIssue,
@@ -319,6 +322,10 @@ function support.summary(force)
     }
     if expedition.active then
         lines[#lines + 1] = "Expedition: active"
+        if expedition.targetName then
+            lines[#lines + 1] = "Expedition target: " .. tostring(expedition.targetName)
+                .. " (" .. tostring(expedition.targetKind) .. ", " .. tostring(expedition.targetSource) .. ")"
+        end
         if expedition.vehicleState then
             lines[#lines + 1] = "Expedition car: "
                 .. tostring(expedition.vehicleState) .. "/"

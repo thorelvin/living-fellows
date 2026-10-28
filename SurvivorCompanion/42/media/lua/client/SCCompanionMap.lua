@@ -2,6 +2,7 @@
 
 require "ISUI/Maps/ISMiniMap"
 require "ISUI/Maps/ISWorldMap"
+require "SCExpeditionMap"
 
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
@@ -13,6 +14,7 @@ local originalMiniMapRender = nil
 local miniMapRenderWrapper = nil
 local originalWorldMapRender = nil
 local worldMapRenderWrapper = nil
+local originalWorldMapClose, worldMapCloseWrapper
 local originalWorldMapRightMouseUp = nil
 local worldMapRightMouseUpWrapper = nil
 local factionHouseTexture = nil
@@ -236,51 +238,69 @@ function CompanionMap.install()
         local ok, rendered, reason = pcall(CompanionMap.renderFactions, self)
         reportOverlayFailure("faction-worldmap", "faction world-map overlay",
             ok, rendered, reason, "worldmap_api_unavailable")
+        if SC.ExpeditionMap then
+            local success, failure = pcall(SC.ExpeditionMap.render, self)
+            if not success and SC.Diagnostics then
+                SC.Diagnostics.report("expedition-map", nil, "map overlay failed", tostring(failure))
+            end
+        end
     end
     originalWorldMapRightMouseUp = ISWorldMap.onRightMouseUp
     worldMapRightMouseUpWrapper = function(self, x, y)
+        local symbolTool = self.symbolsUI and self.symbolsUI.currentTool
         local consumed = type(originalWorldMapRightMouseUp) == "function"
             and originalWorldMapRightMouseUp(self, x, y) or false
-        -- Vanilla uses the same event for map symbols. Leave their menu alone.
-        if consumed then return consumed end
-        local service = SC.TaxiService
-        local player = type(getSpecificPlayer) == "function"
-            and getSpecificPlayer(0) or nil
-        if not SC.TaxiBooking or SC.TaxiBooking.dispatchReady ~= true
-            or not service or not player or (self.playerNum or 0) ~= 0
-            or type(service.previewPoint) ~= "function"
-            or not self.mapAPI or not ISContextMenu then return consumed end
-        local worldX = self.mapAPI:uiToWorldX(x, y)
-        local worldY = self.mapAPI:uiToWorldY(x, y)
-        if type(worldX) ~= "number" or type(worldY) ~= "number" then
-            return consumed
-        end
-        local target = { x = worldX, y = worldY, z = 0 }
-        local selected = service.previewPoint(player, target)
-        if not selected then return consumed end
-        local context = ISContextMenu.get(0,
-            x + self:getAbsoluteX(), y + self:getAbsoluteY())
+        if symbolTool then return consumed end
+        local player = type(getSpecificPlayer) == "function" and getSpecificPlayer(0) or nil
+        if not player or (self.playerNum or 0) ~= 0 or not self.mapAPI or not ISContextMenu then return consumed end
+        local worldX,worldY = self.mapAPI:uiToWorldX(x,y),self.mapAPI:uiToWorldY(x,y)
+        if type(worldX)~="number" or type(worldY)~="number" then return consumed end
+        local target={x=worldX,y=worldY,z=0}
+        local absoluteX,absoluteY=x+self:getAbsoluteX(),y+self:getAbsoluteY()
+        local context=type(getPlayerContextMenu)=="function" and getPlayerContextMenu(0) or nil
+        local existing=context and context.requestX==absoluteX and context.requestY==absoluteY
+            and type(context.isVisible)=="function" and context:isVisible()
+        if consumed and not existing then return consumed end
+        if not existing then context=ISContextMenu.get(0,absoluteX,absoluteY) end
         if not context then return consumed end
-        context:addOption(taxiText("UI_SC_Taxi_MapDrive",
-            tostring(selected.required)),
-            nil, function()
-                local okay, reason, detail = service.departToPoint(player,
-                    nil, target)
-                local message
-                if okay then
-                    message = taxiText("UI_SC_Taxi_departed")
-                elseif reason == "fare_waiting" and type(detail) == "table" then
-                    message = taxiText("UI_SC_Taxi_fare_waiting",
-                        tostring(detail.required), tostring(detail.offered or 0))
-                else
-                    message = taxiText("UI_SC_Taxi_MapFailure")
-                end
-                if type(player.setHaloNote) == "function" then
-                    player:setHaloNote(message)
-                end
-            end)
-        return true
+        local added=SC.ExpeditionMap and SC.ExpeditionMap.fillContext(self,context,target) or false
+        local service=SC.TaxiService
+        if SC.TaxiBooking and SC.TaxiBooking.dispatchReady==true and service
+            and type(service.previewPoint)=="function" then
+            local selected=service.previewPoint(player,target)
+            if selected then
+                local option=context:addOption(taxiText("UI_SC_Taxi_MapDrive",
+                    tostring(selected.required)),
+                    nil, function()
+                        local okay, reason, detail = service.departToPoint(player,
+                            nil, target)
+                        local message
+                        if okay then
+                            message = taxiText("UI_SC_Taxi_departed")
+                        elseif reason == "fare_waiting" and type(detail) == "table" then
+                            message = taxiText("UI_SC_Taxi_fare_waiting",
+                                tostring(detail.required), tostring(detail.offered or 0))
+                        else
+                            message = taxiText("UI_SC_Taxi_MapFailure")
+                        end
+                        if type(player.setHaloNote) == "function" then
+                            player:setHaloNote(message)
+                        end
+                    end)
+                option.scTaxiMapAction=true
+                added=true
+            end
+        end
+        if not added and (not existing or #(context.options or {})==0)
+            and type(context.hideAndChildren)=="function" then context:hideAndChildren() end
+        return added or consumed
     end
+    originalWorldMapClose=ISWorldMap.close
+    worldMapCloseWrapper=function(self,...)
+        if originalWorldMapClose then originalWorldMapClose(self,...) end
+        if SC.ExpeditionMap then SC.ExpeditionMap.closed(self) end
+    end
+    ISWorldMap.close=worldMapCloseWrapper
     ISMiniMapInner.render = miniMapRenderWrapper
     ISWorldMap.render = worldMapRenderWrapper
     ISWorldMap.onRightMouseUp = worldMapRightMouseUpWrapper
@@ -292,7 +312,8 @@ function CompanionMap.remove()
     if not installed then return true, "not_installed" end
     if type(ISMiniMapInner) ~= "table" or ISMiniMapInner.render ~= miniMapRenderWrapper
         or type(ISWorldMap) ~= "table" or ISWorldMap.render ~= worldMapRenderWrapper
-        or ISWorldMap.onRightMouseUp ~= worldMapRightMouseUpWrapper then
+        or ISWorldMap.onRightMouseUp ~= worldMapRightMouseUpWrapper
+        or ISWorldMap.close ~= worldMapCloseWrapper then
         if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
             SC.Diagnostics.report("companion-map", nil,
                 "map hooks removal deferred", "another wrapper owns a render chain")
@@ -302,6 +323,8 @@ function CompanionMap.remove()
     ISMiniMapInner.render = originalMiniMapRender
     ISWorldMap.render = originalWorldMapRender
     ISWorldMap.onRightMouseUp = originalWorldMapRightMouseUp
+    ISWorldMap.close = originalWorldMapClose
+    originalWorldMapClose, worldMapCloseWrapper = nil, nil
     originalMiniMapRender, miniMapRenderWrapper = nil, nil
     originalWorldMapRender, worldMapRenderWrapper = nil, nil
     originalWorldMapRightMouseUp, worldMapRightMouseUpWrapper = nil, nil
