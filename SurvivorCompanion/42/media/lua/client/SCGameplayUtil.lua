@@ -2156,10 +2156,25 @@ function U.speechDisplayMillis(textValue)
         math.min(maximum, base + #line * perCharacter)))
 end
 
+function U.isSleeping(actor)
+    if actor == nil then return false end
+    if select(1, U.call(actor, "isAsleep")) == true then return true end
+    if select(1, U.call(actor, "isOnBed")) == true
+        and select(1, U.call(actor, "getVariableString", "OnBedAnim")) == "Asleep" then
+        return true
+    end
+    -- Native wake-up and our game-clock rest can settle on different ticks.
+    -- Reading on a bed and the approach/get-up phases remain able to speak.
+    local state = SC.Downtime and type(SC.Downtime.peek) == "function"
+        and SC.Downtime.peek(actor) or nil
+    local active = state and state.active
+    return active ~= nil and active.kind == "rest_bed" and active.sleepStarted == true
+end
+
 function U.say(actor, textValue)
     if actor == nil or textValue == nil then return false end
     if not U.isCompanion(actor) then return false end
-    if select(1, U.call(actor, "isAsleep")) == true then return false end
+    if U.isSleeping(actor) then return false end
     local line = tostring(textValue)
     local duration = U.speechDisplayMillis(line)
     -- Owned native companions extend the newest actor-local line using a

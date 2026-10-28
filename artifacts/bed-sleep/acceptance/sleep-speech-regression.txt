@@ -1,0 +1,9 @@
+Native sleeping-speech regression (28 October 2026)
+
+Before the fix:
+Exception in thread "main" java.lang.AssertionError: falling asleep retained an awake speech bubble or refresh lease
+	at survivorcompanion.bridge.SCNativeCleanupTransactionTest.require(SCNativeCleanupTransactionTest.java:24)
+	at survivorcompanion.bridge.SCNativeCleanupTransactionTest.main(SCNativeCleanupTransactionTest.java:395)
+
+After the fix:
+NATIVE_CLEANUP_TRANSACTION_PASS cleanup-steps=8 spawn-rollback=true request-race=true construction-race=true remove-all-partial=true recovery-rollback=true membership-repair=true ownership=true retry=true

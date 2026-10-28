@@ -1,4 +1,5 @@
 -- SPDX-License-Identifier: MIT
+require "SCBedGeometry"
 
 require "SCNamespace"
 require "SCCall"
@@ -1868,7 +1869,8 @@ local boundSeatingTurn
 
 local function furniturePathComplete(actor, pathAction, record)
     if type(record) ~= "table" or record.cancelled == true then return end
-    local object = pathAction and pathAction.goalFurnitureObject or record.object
+    local object = record.bedEntry and record.object
+        or pathAction and pathAction.goalFurnitureObject or record.object
     if SC.Config and SC.Config.get("debugSpawnEnabled") == true then
         print("[SurvivorCompanion][furniture] path_complete action="
             .. tostring(record.actionName)
@@ -1941,8 +1943,29 @@ local function startFurnitureRest(actor, object, registry, actionName)
     end
     local queue, queueReason = emptyTimedActionQueue(actor)
     if not queue then return false, queueReason end
-    local created, pathAction = pcall(ISPathFindAction.pathToSitOnFurniture,
-        ISPathFindAction, actor, object, true)
+    local bedEntry
+    if useBedPose then
+        if SC.BedGeometry and type(SC.BedGeometry.entry) == "function" then
+            local normalized, entry, why = SC.BedGeometry.entry(object, actor)
+            if not normalized or not entry then return false, why or "bed_entry_blocked" end
+            object, bedEntry = normalized, entry
+            if type(ISPathFindAction.pathToLocationF) ~= "function" then
+                return false, "native bed entry path is unavailable"
+            end
+        end
+        -- Stock OnBed only renders its settled body for Awake/Asleep. Start
+        -- awake; Downtime switches to the lying pose once real sleep begins.
+        local animationSet = invoke(actor, "setVariable", "OnBedAnim", "Awake")
+        if not animationSet then return false, "native bed animation is unavailable" end
+    end
+    local created, pathAction
+    if bedEntry then
+        created, pathAction = pcall(ISPathFindAction.pathToLocationF,
+            ISPathFindAction, actor, bedEntry.x, bedEntry.y, bedEntry.z)
+    else
+        created, pathAction = pcall(ISPathFindAction.pathToSitOnFurniture,
+            ISPathFindAction, actor, object, true)
+    end
     if not created or pathAction == nil then
         return false, created and "furniture path action was not created" or tostring(pathAction)
     end
@@ -1955,6 +1978,24 @@ local function startFurnitureRest(actor, object, registry, actionName)
             or tostring(restAction)
     end
     boundSeatingTurn(restAction)
+    if bedEntry then
+        local stockStart = restAction.start
+        restAction.start = function(self)
+            -- LocationF leaves a walking flag at its handoff. OnBed treats
+            -- that flag as a request to get straight back up.
+            actions.stopDirect(actor, { preservePosture = true })
+            if type(stockStart) == "function" then return stockStart(self) end
+        end
+        local stockWait = restAction.waitToStart
+        restAction.waitToStart = function(self)
+            local xOk, x = invoke(actor, "getX")
+            local yOk, y = invoke(actor, "getY")
+            local zOk, z = invoke(actor, "getZ")
+            if not xOk or not yOk or not zOk or math.floor(z) ~= math.floor(bedEntry.z)
+                or math.abs(x-bedEntry.x) > 0.45 or math.abs(y-bedEntry.y) > 0.45 then return true end
+            return type(stockWait) == "function" and stockWait(self) or false
+        end
+    end
     local record = {
         timedAction = pathAction,
         actions = { pathAction, restAction },
@@ -1962,6 +2003,7 @@ local function startFurnitureRest(actor, object, registry, actionName)
         object = object,
         actionName = actionName,
         pose = useBedPose and "bed" or "furniture",
+        bedEntry = bedEntry,
         startedAt = nowMs(),
     }
     if type(pathAction.setOnComplete) ~= "function"
@@ -4969,14 +5011,40 @@ local function seatingPoseSettled(actor, record, startedVariable)
         and current - (tonumber(record.poseStillAt) or current) >= 1500
 end
 
+function actions._bedRestForTests(actor) return activeBedActions[actor] end
+
 function actions.bedStatus(actor)
     if actor == nil then return "none" end
     local record = activeBedActions[actor]
     local onBedOk, onBed = invoke(actor, "isOnBed")
     if onBedOk and onBed == true then
         if record and record.failed == true then return "failed", record.startedAt end
-        return seatingPoseSettled(actor, record, "OnBedStarted")
-            and "entered" or "entering", record and record.poseStartedAt
+        local settled = seatingPoseSettled(actor, record, "OnBedStarted")
+        local pillow = record and record.bedEntry and record.bedEntry.pillow
+        if settled and pillow and not record.pillowAligned then
+            local startedOk, started = invoke(actor, "getVariableBoolean", "OnBedStarted")
+            if not startedOk or started ~= true then return "entering", record.poseStartedAt end
+            local _, x = invoke(actor, "getX")
+            local _, y = invoke(actor, "getY")
+            local shifted = type(x) == "number" and type(y) == "number"
+                and math.floor(x) == pillow.x and math.floor(y) == pillow.y
+            if not shifted and SCBridge and type(SCBridge.shiftOnBedPoseTowardPillow) == "function" then
+                local called, result = pcall(SCBridge.shiftOnBedPoseTowardPillow,
+                    actor, pillow.x, pillow.y, pillow.z)
+                shifted = called and result == true
+            end
+            local called, lifted = pcall(function() return shifted and SCBridge
+                and SCBridge.setOnBedRenderLift(actor, 180) end)
+            if not shifted or not called or lifted ~= true then
+                record.alignmentStartedAt = record.alignmentStartedAt or nowMs()
+                record.alignmentFailure = SCBridge and SCBridge.getLastFailure and SCBridge.getLastFailure() or "bridge unavailable"
+                if nowMs()-record.alignmentStartedAt < 1500 then return "entering",record.poseStartedAt end
+                record.failed, record.failure = true, "bed_mattress_alignment_failed"
+                return "failed", record.poseStartedAt
+            end
+            record.pillowAligned = true
+        end
+        return settled and "entered" or "entering", record and record.poseStartedAt
     end
     local sittingOk, sitting = invoke(actor, "isSittingOnFurniture")
     if record and record.pose == "furniture" and sittingOk and sitting == true then

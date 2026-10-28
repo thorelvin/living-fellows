@@ -624,9 +624,9 @@ public final class SCBridge {
                 return failBoolean("foot and pillow do not share a complete south-facing two-by-two bed grid");
             }
 
-            float newX = before.x + 0.5f;
+            float newX = bedPillowShiftX(before.x, targetX);
             float newY = before.y - 0.5f;
-            if ((int) Math.floor(newX) != targetX
+            if (!Float.isFinite(newX) || (int) Math.floor(newX) != targetX
                     || (int) Math.floor(newY) != targetY) {
                 return failBoolean("shifted coordinates do not fall inside pillow square");
             }
@@ -655,6 +655,17 @@ public final class SCBridge {
                     ? failBedPoseShiftWithRollback(actor, before, target, reason)
                     : failBoolean(reason);
         }
+    }
+
+    // Root motion approaches a pillow lane from either side. Mirror the
+    // half-tile correction rather than crossing into the next mattress lane.
+    static float bedPillowShiftX(float sourceX, int targetX) {
+        if (!Float.isFinite(sourceX) || (int) Math.floor(sourceX) != targetX) {
+            return Float.NaN;
+        }
+        float shifted = sourceX + 0.5f;
+        if ((int) Math.floor(shifted) != targetX) shifted = sourceX - 0.5f;
+        return (int) Math.floor(shifted) == targetX ? shifted : Float.NaN;
     }
 
     private static final class BedPoseBefore {

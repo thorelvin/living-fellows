@@ -169,6 +169,15 @@ public final class SCNativeBridgeExposureTest {
                         && Boolean.TRUE.equals(rawget.invoke(environment,
                                 "SC_TEST_BED_POSE_REJECTS_NIL")),
                 "production bridge did not expose a guarded settled bed pose shift");
+        float leftBedX = SCBridge.bedPillowShiftX(11.1875f, 11);
+        float rightBedX = SCBridge.bedPillowShiftX(12023.84765625f, 12023);
+        require(leftBedX == 11.6875f && rightBedX == 12023.34765625f
+                        && (int) Math.floor(leftBedX) == 11
+                        && (int) Math.floor(rightBedX) == 12023,
+                "bed pillow correction must retain its lane from either entry side");
+        require(Float.isNaN(SCBridge.bedPillowShiftX(Float.NaN, 11))
+                        && Float.isNaN(SCBridge.bedPillowShiftX(12.2f, 11)),
+                "bed pillow correction must reject an unrelated source column");
         require(SCBridge.class.getMethod("shiftOnBedPoseTowardPillow",
                         SCNativeCompanion.class, int.class, int.class, int.class)
                         .getReturnType() == boolean.class,

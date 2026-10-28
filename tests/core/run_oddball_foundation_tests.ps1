@@ -43,6 +43,7 @@ try {
                 $(if ($harness -eq 'oddball_schedule_harness.lua') { Join-Path $Shared 'SCConfig.lua' }) `
                 (Join-Path $Client 'SCFactions.lua') `
                 (Join-Path $Client 'SCFactionRecruitment.lua') `
+                (Join-Path $Client 'SCBedGeometry.lua') `
                 (Join-Path $Client 'SCOddballs.lua') `
                 (Join-Path $TestRoot $harness)
             if ($LASTEXITCODE -ne 0) { throw 'Oddball foundation regression failed.' }

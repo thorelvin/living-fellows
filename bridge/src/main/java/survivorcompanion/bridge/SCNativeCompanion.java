@@ -28,6 +28,7 @@ import zombie.characters.CharacterTimedActions.BaseAction;
 import zombie.characters.component.AIComponent;
 import zombie.characters.action.ActionState;
 import zombie.chat.ChatElement;
+import zombie.chat.ChatElementOwner;
 import zombie.iso.IsoCamera;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoDirections;
@@ -49,6 +50,8 @@ import zombie.core.skinnedmodel.animation.AnimationTrack;
 import zombie.core.skinnedmodel.model.SkeletonBone;
 import zombie.core.opengl.Shader;
 import zombie.core.textures.ColorInfo;
+import zombie.ui.TextManager;
+import zombie.ui.UIFont;
 
 /** A non-local human actor backed by Build 42's complete player character runtime. */
 public final class SCNativeCompanion extends IsoPlayer {
@@ -290,6 +293,10 @@ public final class SCNativeCompanion extends IsoPlayer {
 
     public SCNativeCompanion(SurvivorDesc descriptor, IsoCell cell, int x, int y, int z) {
         super(cell, descriptor, x, y, z, false);
+        // Construction precedes any dialogue. Keep the stock chat settings and
+        // behavior, changing only this companion's final screen-space anchor.
+        chatElement = new CompanionChatElement(this,
+                chatElement.getMaxChatLines(), chatElement.getTalkerType());
         bridgeCell = cell;
         bridgeComfort.applyDefaults(getBodyDamage());
         playerIndex = RESERVED_NON_LOCAL_PLAYER_INDEX;
@@ -2350,33 +2357,47 @@ public final class SCNativeCompanion extends IsoPlayer {
      * mod call from creating a permanent bubble.
      */
     public boolean setCompanionSpeechDisplayMillis(int milliseconds) {
+        if (isAsleep()) return false;
         bridgeNextSpeechDisplayMillis = Math.max(MIN_SPEECH_DISPLAY_MILLIS,
                 Math.min(MAX_SPEECH_DISPLAY_MILLIS, milliseconds));
         return true;
     }
 
-    /**
-     * Blank lines placed above a spoken line so the overhead bubble clears the
-     * companion's own nameplate. Build 42 draws the name where the bubble
-     * starts, so a speaking companion hid the very label that says who is
-     * talking. The bubble grows upward from its anchor and the engine exposes
-     * no handle on that anchor, so the lift is part of the line itself.
-     */
-    private static final int SPEECH_LIFT_LINES = 1;
+    /** Lift the complete native bubble without adding an empty backdrop row. */
+    static final class CompanionChatElement extends ChatElement {
+        CompanionChatElement(ChatElementOwner owner, int lines, String talkerType) {
+            super(owner, lines, talkerType);
+        }
 
-    private static String liftAboveNameplate(String line) {
-        if (line == null || line.isBlank() || SPEECH_LIFT_LINES <= 0) return line;
-        StringBuilder lifted = new StringBuilder(line.length() + SPEECH_LIFT_LINES);
-        for (int index = 0; index < SPEECH_LIFT_LINES; index++) lifted.append((char) 10);
-        return lifted.append(line).toString();
+        @Override
+        public void renderBatched(int playerIndex, int x, int y, boolean ignoreRadioLines) {
+            int nameHeight = TextManager.instance.getFontHeight(UIFont.Small);
+            // Include the native backdrop's padding, so the widest views still
+            // leave a visible gap before the separate companion name label.
+            int clearance = Math.max(14, nameHeight) + 8;
+            // Pixels, like the UI font: applying camera zoom again would move
+            // the bubble by different text heights in different viewports.
+            super.renderBatched(playerIndex, x, y - clearance, ignoreRadioLines);
+        }
+    }
+
+    @Override
+    public void setAsleep(boolean asleep) {
+        super.setAsleep(asleep);
+        // Retire both the visible text and its real-time refresh lease at the
+        // transition. A line spoken just before bed must not follow us to sleep.
+        if (asleep) clearCompanionSpeech();
     }
 
     @Override
     public void addLineChatElement(String line) {
-        // Only the rendered bubble is lifted. Every retained value below stays
-        // the words themselves, so speech bookkeeping, teardown checks and the
-        // Lua side never see the padding.
-        super.addLineChatElement(liftAboveNameplate(line));
+        if (isAsleep()) {
+            clearCompanionSpeech();
+            return;
+        }
+        // The renderer owns nameplate clearance. Keep the text identical for
+        // the native row, retained speech and real-time refresh below.
+        super.addLineChatElement(line);
         if (line == null || line.isBlank()) {
             bridgeSpeechLine = null;
             bridgeSpeechRefreshUntilNanos = 0L;
@@ -2394,6 +2415,12 @@ public final class SCNativeCompanion extends IsoPlayer {
     }
 
     private void refreshCompanionSpeech() {
+        // Also covers engine/third-party chat that bypasses Lua's speech gate.
+        // Check before the retained-line fast path: unmanaged text has no lease.
+        if (isAsleep()) {
+            if (hasCompanionSpeech()) clearCompanionSpeech();
+            return;
+        }
         String line = bridgeSpeechLine;
         if (line == null) return;
         long current = System.nanoTime();

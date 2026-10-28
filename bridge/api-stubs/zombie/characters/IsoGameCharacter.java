@@ -19,9 +19,10 @@ import zombie.ai.State;
 import zombie.vehicles.BaseVehicle;
 import zombie.chat.ChatElement;
 
-public class IsoGameCharacter extends IsoMovingObject {
+public class IsoGameCharacter extends IsoMovingObject implements zombie.chat.ChatElementOwner {
     public void updateBallistics() {}
     private String sayLine;
+    protected ChatElement chatElement = new ChatElement(this, 5, "character");
     private final java.util.Stack<BaseAction> characterActions = new java.util.Stack<>();
     private boolean aiming;
     private boolean aimAtFloor;
@@ -44,7 +45,7 @@ public class IsoGameCharacter extends IsoMovingObject {
     public void setLastSpokenLine(String line) {}
     public void setSpeaking(boolean speaking) {}
     public void setSpeakTime(int milliseconds) {}
-    public ChatElement getChatElement() { return null; }
+    public ChatElement getChatElement() { return chatElement; }
     public void SayDebug(int channel, String line) { sayLine = line; }
     public void addToWorld() {}
     public boolean canStandAt(float x, float y, float z) { return false; }

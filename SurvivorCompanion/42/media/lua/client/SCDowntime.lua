@@ -141,6 +141,10 @@ end
 
 local function wakeFromBed(actor, activity)
     if activity and activity.sleepStarted == true then
+        if activity.sleepBedPose == true then
+            U().call(actor, "setVariable", "OnBedAnim", "Awake")
+            activity.sleepBedPose = nil
+        end
         U().call(actor, "setAsleep", false)
         activity.sleepStarted = false
     end
@@ -1607,6 +1611,24 @@ local function freeFurnitureAccess(actor, object)
     local utility = U()
     if utility.movingBlocker(utility.squareOf(object), actor) then
         return false, {}, "seat_spot_busy"
+    end
+    if furnitureKind(object) == "rest_bed" and SC.BedGeometry then
+        local sprite = select(1, utility.call(object, "getSprite"))
+        local grid = select(1, utility.call(sprite, "getSpriteGrid"))
+        if grid then
+            if select(1, utility.call(actor, "isOnBed")) == true
+                and select(1, utility.call(actor, "getSitOnFurnitureObject")) == object then
+                return true, {}, "arrived"
+            end
+            -- Choose and approach the same safe mattress entry that the native
+            -- bed action will use. Generic chair access can select a different
+            -- bed half or leave a blocked bed winning every candidate scan.
+            local normalized, entry = SC.BedGeometry.entry(object, actor)
+            if not normalized or not entry then return false, {}, "no_interaction_targets" end
+            local square = utility.gridSquare(math.floor(entry.x),math.floor(entry.y),entry.z)
+            if not square then return false, {}, "no_interaction_targets" end
+            return utility.sameSquare(actor,square), {square}, "bed_entry"
+        end
     end
     local arrived, targets, reason = utility.directInteractionAccess(actor, object)
     local free = {}
@@ -4296,6 +4318,12 @@ local function startBedSleep(actor, activity)
     utility.call(actor, "setAsleepTime", 0)
     local _, set = utility.call(actor, "setAsleep", true)
     activity.sleepStarted = set == true
+    if activity.sleepStarted and select(1, utility.call(actor, "isOnBed")) == true then
+        -- Use the game's AwakeToAsleep transition and Bob_Asleep loop. Cots
+        -- using furniture seating retain that supported pose instead.
+        local _, selected = utility.call(actor, "setVariable", "OnBedAnim", "Asleep")
+        activity.sleepBedPose = selected == true
+    end
     activity.startedGameHour = gameHours()
     return true
 end

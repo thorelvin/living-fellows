@@ -1,0 +1,41 @@
+GEOMETRY furniture_bedding_01_8 bed_entry_blocked entry=nil,nil
+GEOMETRY furniture_bedding_01_9 bed_other_half_unavailable entry=nil,nil
+GEOMETRY furniture_bedding_01_26 entry entry=12024.3,6740.5
+FIXTURE existing bed=furniture_bedding_01_26 actor=Tess Nolan
+PASS single-line speech retains exact text through native refresh
+PASS multiline speech retains only its authored line break through native refresh
+TRACE false:settling onBed=false asleep=false anim= clips=Bob_IdleBat|Bob_EmoteYawn2H
+ENTRY true:getting_on_bed object=furniture_bedding_01_27
+TRACE true:rest_bed onBed=false asleep=false anim=Awake clips=Bob_IdleBat
+PASS sleep clears awake bubble and rejects Lua, resolved and direct native speech
+PASS native lying sleep clip=Bob_Asleep health=100 pos=12023.3515625,6739.84228515625 direction=HeadLeft
+PASS ordinary wake restores Awake and clears native sleep
+WAKE_SPEECH current=
+PASS waking restores fresh speech without replaying suppressed lines
+PASS native get-up completed at 12024.0498046875,6740.02685546875 health=100
+WALK requested target=12025,6742
+WALK progress distance=0.6541802601302952 clips=Bob_WalkBat|Bob_WalkSlow_Bat
+PASS walked clear of bed distance=2.3762111587199475 recoveries=0 health=100
+PASS zoom=50 case=short native-text-exact=true
+PASS zoom=50 case=multiline native-text-exact=true
+PASS zoom=50 case=wrapped native-text-exact=true
+PASS zoom=75 case=short native-text-exact=true
+PASS zoom=75 case=multiline native-text-exact=true
+PASS zoom=75 case=wrapped native-text-exact=true
+PASS zoom=100 case=short native-text-exact=true
+PASS zoom=100 case=multiline native-text-exact=true
+PASS zoom=100 case=wrapped native-text-exact=true
+PASS zoom=125 case=short native-text-exact=true
+PASS zoom=125 case=multiline native-text-exact=true
+PASS zoom=125 case=wrapped native-text-exact=true
+PASS zoom=150 case=short native-text-exact=true
+PASS zoom=150 case=multiline native-text-exact=true
+PASS zoom=150 case=wrapped native-text-exact=true
+PASS zoom=175 case=short native-text-exact=true
+PASS zoom=175 case=multiline native-text-exact=true
+PASS zoom=175 case=wrapped native-text-exact=true
+PASS zoom=200 case=short native-text-exact=true
+PASS zoom=200 case=multiline native-text-exact=true
+PASS zoom=200 case=wrapped native-text-exact=true
+PASS zoom speech capture complete levels=7 samples=21
+PASS native bed sleep acceptance complete

@@ -2,15 +2,15 @@
 package survivorcompanion.bridge;
 
 import java.lang.reflect.Method;
+import java.lang.reflect.Field;
+
+import zombie.chat.ChatElement;
+import zombie.ui.TextManager;
 
 /**
- * Build 42 draws a character's name where the overhead chat bubble starts, so a
- * speaking companion hid the very label that says who is talking. The bubble
- * grows upward from its anchor and the engine exposes no handle on that anchor,
- * so the lift is part of the line handed to the chat element.
- *
- * Only the rendered bubble is padded. Everything the bridge retains about what
- * was said, and everything Lua sees, stays the words themselves.
+ * The native bubble clears names without changing text or adding a backdrop
+ * row. Run against repository stubs to observe the arguments sent to rendering;
+ * the real-JAR cleanup and live screenshot checks exercise the actual engine.
  */
 public final class SCSpeechNameplateLiftTest {
     private SCSpeechNameplateLiftTest() {}
@@ -20,29 +20,43 @@ public final class SCSpeechNameplateLiftTest {
     }
 
     public static void main(String[] args) throws Exception {
-        Method lift = SCNativeCompanion.class
-                .getDeclaredMethod("liftAboveNameplate", String.class);
-        lift.setAccessible(true);
+        ChatElement chat = new SCNativeCompanion.CompanionChatElement(null, 5, "character");
+        TextManager.instance.fontHeightForTests = 14;
+        chat.renderBatched(0, 320, 240);
+        require(chat.renderedPlayerForTests == 0 && chat.renderedXForTests == 320
+                        && chat.renderedYForTests == 218 && !chat.ignoredRadioForTests,
+                "the three-argument render path must lift the bubble once and retain its viewport");
+        chat.renderBatched(1, 960, 480, true);
+        require(chat.renderedPlayerForTests == 1 && chat.renderedXForTests == 960
+                        && chat.renderedYForTests == 458 && chat.ignoredRadioForTests,
+                "secondary-view anchor and radio filtering must pass through unchanged");
+        TextManager.instance.fontHeightForTests = 24;
+        chat.renderBatched(0, 320, 240);
+        require(chat.renderedYForTests == 208,
+                "large UI fonts require their own screen-space clearance");
+        TextManager.instance.fontHeightForTests = 0;
+        chat.renderBatched(0, 320, 240);
+        require(chat.renderedYForTests == 218, "missing font metrics need bounded default clearance");
+        TextManager.instance.fontHeightForTests = 14;
+        ChatElement ordinary = new ChatElement(null, 5, "character");
+        ordinary.renderBatched(1, 960, 480, true);
+        require(ordinary.renderedYForTests == 480,
+                "the companion renderer must not change player or other-mod chat anchors");
 
-        String spoken = (String) lift.invoke(null, "I still watch the door.");
-        require(spoken != null, "a spoken line survives the lift");
-        require(spoken.charAt(0) == (char) 10,
-                "a spoken line is lifted clear of the nameplate: " + spoken);
-        require(spoken.endsWith("I still watch the door."),
-                "the words themselves are unchanged: " + spoken);
-        require(spoken.length() == "I still watch the door.".length() + 1,
-                "exactly one line of lift is added: " + spoken.length());
-
-        // Nothing to lift, and nothing to damage.
-        require(lift.invoke(null, (Object) null) == null, "a null line stays null");
-        require("".equals(lift.invoke(null, "")), "an empty line is left alone");
-        require("   ".equals(lift.invoke(null, "   ")), "a blank line is left alone");
-
-        // The lift is a prefix, so a multi-line quote keeps its own shape.
-        String multi = (String) lift.invoke(null, "One." + (char) 10 + "Two.");
-        require(multi.equals((char) 10 + "One." + (char) 10 + "Two."),
-                "an already multi-line quote keeps its own breaks: " + multi);
-
-        System.out.println("SC_SPEECH_NAMEPLATE_LIFT_PASS");
+        Class<?> unsafeClass = Class.forName("sun.misc.Unsafe");
+        Field singleton = unsafeClass.getDeclaredField("theUnsafe");
+        singleton.setAccessible(true);
+        SCNativeCompanion actor = (SCNativeCompanion) unsafeClass
+                .getMethod("allocateInstance", Class.class)
+                .invoke(singleton.get(null), SCNativeCompanion.class);
+        Method refresh = SCNativeCompanion.class.getDeclaredMethod("refreshCompanionSpeech");
+        refresh.setAccessible(true);
+        for (String words : new String[] { "I still watch the door.", "One.\nTwo.", "Nails: 12 (enough)." }) {
+            actor.addLineChatElement(words);
+            require(words.equals(actor.getSayLine()), "speech acquired padding before display");
+            refresh.invoke(actor);
+            require(words.equals(actor.getSayLine()), "refresh changed the displayed text");
+        }
+        System.out.println("SC_SPEECH_NAMEPLATE_LIFT_PASS render-offset=true text-unchanged=true viewport-isolation=true");
     }
 }

@@ -71,6 +71,10 @@ try {
         )
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @medicalContextFiles
         if ($LASTEXITCODE -ne 0) { throw 'Medical context native-patient rebinding tests failed.' }
+        $nicknameContextFiles = @($medicalContextFiles | Select-Object -SkipLast 1)
+        $nicknameContextFiles += Join-Path $TestRoot 'SCNicknameContextTests.lua'
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @nicknameContextFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Nickname context speech isolation tests failed.' }
         $storageContextFiles = @($medicalContextFiles | Select-Object -SkipLast 1)
         $storageContextFiles += Join-Path $TestRoot 'SCStorageContextTests.lua'
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @storageContextFiles

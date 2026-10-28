@@ -4,11 +4,17 @@
 
 ## 0.26.74 - Map-selected expeditions
 
+- Removed the extra empty black row above companion dialogue. Speech bubbles
+  move above name tags without inserting blank text or changing their font.
 - Fixed follow-car occupants catching up by teleport when the player exits
   another car after leaving their area. Recovery stays at their own car, waits
   for a safe stopped exit, and preserves the driver's car assignment.
 - Sleeping companions no longer speak needs comments or other dialogue.
-  Still-current needs can be voiced after waking.
+  Entering sleep clears existing speech bubbles and blocks native chat and
+  nickname replies too. Still-current needs can be voiced after waking.
+- Companions use the game's lying-down sleep animation on supported beds,
+  returning to the awake pose before getting up. Furniture-pose cots keep their
+  supported rest animation.
 - Choose expedition destinations on the world map, from the companion planner
   or an EMMA station. Walking reaches known targets within 1,000 tiles; driving
   reaches 5,000. Visited terrain and areas revealed by maps count as known.

@@ -387,10 +387,38 @@ public final class SCNativeCleanupTransactionTest {
             require(actor.ensureScheduled() && actor.isScheduled(),
                     "cleanup fixture could not establish cell-scheduler membership at " + step);
             if ("speech".equals(step)) {
+                require(actor.getChatElement() instanceof SCNativeCompanion.CompanionChatElement,
+                        "native construction did not install the companion-only speech renderer");
                 actor.setCompanionSpeechDisplayMillis(30_000);
                 actor.addLineChatElement("cleanup speech fixture");
                 require(actor.hasCompanionSpeech(),
                         "cleanup fixture could not establish visible speech state");
+                actor.setAsleep(true);
+                require(actor.isAsleep() && !actor.hasCompanionSpeech(),
+                        "falling asleep retained an awake speech bubble or refresh lease");
+                require(!actor.setCompanionSpeechDisplayMillis(30_000),
+                        "sleep accepted a new speech refresh lease");
+                actor.addLineChatElement("must not speak during sleep");
+                require(!actor.hasCompanionSpeech(),
+                        "direct native chat bypassed the sleep guard");
+                Field retainedLine = SCNativeCompanion.class.getDeclaredField("bridgeSpeechLine");
+                retainedLine.setAccessible(true);
+                retainedLine.set(actor, "stale sleep speech lease");
+                require(actor.hasCompanionSpeech(),
+                        "sleep refresh fixture did not establish a stale retained line");
+                Method refresh = SCNativeCompanion.class.getDeclaredMethod("refreshCompanionSpeech");
+                refresh.setAccessible(true);
+                invoke(refresh, actor);
+                require(!actor.hasCompanionSpeech(),
+                        "native refresh retained a stale speech line during sleep");
+                actor.setAsleep(false);
+                invoke(refresh, actor);
+                require(!actor.hasCompanionSpeech(),
+                        "waking replayed a line discarded during sleep");
+                actor.setCompanionSpeechDisplayMillis(30_000);
+                actor.addLineChatElement("cleanup speech after wake");
+                require(actor.hasCompanionSpeech(),
+                        "waking did not restore ordinary companion speech");
             }
             addOwned(actor);
             SCBridge.failNextCleanupStepForTests(step);

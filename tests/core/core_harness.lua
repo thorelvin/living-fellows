@@ -3266,6 +3266,8 @@ check(bedOk and bedReason == "getting_on_bed"
         and lastFurniturePath.anySpriteGridObject == true
         and actor.onBed ~= true and actor.sitting ~= true,
     "two-tile bed rest uses the player's native Rest furniture path")
+check(actor.lastVariable == "OnBedAnim" and actor.lastVariableValue == "Awake",
+    "bed entry selects the stock awake pose before its get-on-bed animation")
 lastFurniturePath:completePath()
 check(actor.onBed == true and actor.sitting ~= true
         and actor.seatObject == bed and bed.occupied == false
@@ -3291,6 +3293,63 @@ actor.actionContextName = "idle"
 check(SC.NativeActions.leaveSeating(actor) == true
         and actor.seatObject == nil and bed.occupied == false,
     "bed exit permits movement only after the native get-up finishes")
+
+do
+    local priorGeometry, priorPath = SC.BedGeometry, ISPathFindAction.pathToLocationF
+    local priorBridge = SCBridge
+    SCBridge = SCBridge or {}
+    local priorShift, priorLift = SCBridge.shiftOnBedPoseTowardPillow, SCBridge.setOnBedRenderLift
+    local priorX, priorY = actor.px, actor.py
+    local entry = { x=20.2, y=22.5, z=0, pillow={x=20,y=20,z=0} }
+    SC.BedGeometry = { entry=function(object, candidate)
+        check(object==bed and candidate==actor, "bed geometry resolves the selected actor and mattress")
+        return bed, entry
+    end }
+    ISPathFindAction.pathToLocationF = function(_, candidate, x, y, z)
+        check(candidate==actor and x==entry.x and y==entry.y and z==entry.z,
+            "aligned bed entry uses the resolved fractional approach")
+        lastFurniturePath = testPathAction(candidate, nil)
+        return lastFurniturePath
+    end
+    local shifts, lifts = 0, 0
+    SCBridge.shiftOnBedPoseTowardPillow = function(candidate, x, y, z)
+        check(candidate==actor and x==20 and y==20 and z==0,
+            "bed alignment retains the same mattress pillow")
+        shifts=shifts+1 actor.px,actor.py=20.5,20.5 return true
+    end
+    SCBridge.setOnBedRenderLift = function(candidate, amount)
+        check(candidate==actor and amount==180, "bed alignment selects only the verified model lift")
+        lifts=lifts+1 return true
+    end
+    check(SC.Actor.setMovement(actor,"walk",{action="rest_bed",object=bed})==true,
+        "a shared mattress entry starts the native action")
+    local pendingBed = ISTimedActionQueue.getTimedActionQueue(actor).queue[2]
+    check(pendingBed:waitToStart()==true, "bed entry cannot start from a different floor position")
+    actor.px,actor.py=entry.x,entry.y
+    check(pendingBed:waitToStart()==false, "the exact entry permits the stock bed turn and animation")
+    actor.moving=true
+    lastFurniturePath:completePath()
+    check(actor.moving==false, "bed entry clears the previous path's movement input")
+    actor.px,actor.py,actor.bedPoseStarted=20.2,21.3,true
+    check(SC.NativeActions.bedStatus(actor)=="entered"
+            and SC.NativeActions.bedStatus(actor)=="entered" and shifts==1 and lifts==1,
+        "settled bed alignment and model lift commit once before sleep")
+    actor.actionContextName="onbed"
+    SC.NativeActions.leaveSeating(actor)
+    actor.actionContextName="getup"
+    SC.NativeActions.leaveSeating(actor)
+    actor.onBed,actor.seatObject,actor.actionContextName=false,nil,"idle"
+    check(SC.NativeActions.leaveSeating(actor)==true,
+        "an aligned mattress pose retains the native get-up exit")
+    SC.BedGeometry.entry = function() return nil,nil,"bed_entry_blocked" end
+    local blocked,why=SC.Actor.setMovement(actor,"walk",{action="rest_bed",object=bed})
+    check(blocked==false and why=="bed_entry_blocked",
+        "blocked mattress geometry does not queue an unrelated furniture pose")
+    actor.px,actor.py=priorX,priorY
+    SC.BedGeometry,ISPathFindAction.pathToLocationF=priorGeometry,priorPath
+    SCBridge.shiftOnBedPoseTowardPillow,SCBridge.setOnBedRenderLift=priorShift,priorLift
+    SCBridge = priorBridge
+end
 
 -- A blocked bed path uses the stock Rest fallback and releases its native
 -- queue action before the companion starts another activity.

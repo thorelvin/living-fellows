@@ -14,6 +14,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Bedridden test runner compilation failed.' }
     $Files = @(
         (Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\shared\SCNamespace.lua'),
+        (Join-Path $Client 'SCBedGeometry.lua'),
         (Join-Path $Client 'SCOddballs.lua'),
         (Join-Path $Client 'SCOddballBedridden.lua'),
         (Join-Path $PSScriptRoot 'oddball_bedridden_harness.lua')

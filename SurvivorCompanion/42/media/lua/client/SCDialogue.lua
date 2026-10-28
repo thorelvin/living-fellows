@@ -3875,6 +3875,9 @@ end
 -- an overhead failure on its own never claims that a line was spoken.
 local function speakerAsleep(actor)
     local utility = U()
+    if utility and type(utility.isSleeping) == "function" then
+        return utility.isSleeping(actor)
+    end
     return utility and type(utility.call) == "function"
         and select(1, utility.call(actor, "isAsleep")) == true
 end

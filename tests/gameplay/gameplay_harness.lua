@@ -8000,6 +8000,45 @@ function runResolvedSpeechRegression()
 end
 runResolvedSpeechRegression()
 runResolvedSpeechRegression = nil
+
+function runSleepingSpeechStateRegression()
+    local SC = SurvivorCompanion
+    local utility, dialogue = SC.GameplayUtil, SC.Dialogue
+    local oldDowntime, oldAsleep = SC.Downtime, fellow.asleep
+    local oldOnBed, oldVariable = fellow.isOnBed, fellow.getVariableString
+    local active = { kind = "rest_bed", sleepStarted = true }
+    SC.Downtime = { peek = function(value)
+        return value == fellow and { active = active } or nil
+    end }
+    fellow.asleep = false
+    local before, calls = dialogue.lastSpokenAt(fellow), fellow.speechCalls
+    local spoken, reason = dialogue.say(fellow, "sleep.transition", { "Not awake yet." })
+    check(utility.isSleeping(fellow) and not utility.say(fellow, "Must remain silent.")
+            and not spoken and reason == "speaker_asleep"
+            and not dialogue.emitResolved(fellow, "sleep.transition", "No transcript.",
+                { transcriptAccepted = true })
+            and fellow.speechCalls == calls and dialogue.lastSpokenAt(fellow) == before,
+        "active bed sleep blocks speech and receipts even when the native asleep flag clears early")
+    active = nil
+    fellow.isOnBed = function() return true end
+    fellow.getVariableString = function() return "Asleep" end
+    check(utility.isSleeping(fellow) and not utility.say(fellow, "Sleeping pose.")
+            and not dialogue.say(fellow, "sleep.transition", { "Sleeping pose." }),
+        "the settled sleeping bed pose remains silent without a native sleep flag")
+    fellow.getVariableString = function() return "Awake" end
+    active = { kind = "rest_bed", sleepStarted = false }
+    check(not utility.isSleeping(fellow) and utility.say(fellow, "Awake on the bed."),
+        "awake bed reading, entry and get-up do not lose speech")
+    active = nil
+    fellow.isOnBed = function() return false end
+    fellow.getVariableString = function() return "Asleep" end
+    check(not utility.isSleeping(fellow),
+        "a stale bed animation variable does not silence an actor who has left bed")
+    SC.Downtime, fellow.asleep = oldDowntime, oldAsleep
+    fellow.isOnBed, fellow.getVariableString = oldOnBed, oldVariable
+end
+runSleepingSpeechStateRegression()
+runSleepingSpeechStateRegression = nil
 do
     local doingToken = assert(SurvivorCompanion.ActionSupervisor.begin(fellow, {
         owner = "scavenge", action = "scavenge", targetKey = "shelf:test",
@@ -10144,6 +10183,26 @@ do
     local _, seatProbe = SurvivorCompanion.Downtime._furnitureForTests()
     check(seatProbe(bedProbeActor, {}, clock).object == bed,
         "a tired companion selects a reachable bed beyond a closer chair")
+    do
+        local priorGeometry, priorSprite = SurvivorCompanion.BedGeometry, bed.getSprite
+        local priorRequest = SurvivorCompanion.Navigation.requestAny
+        local _, _, approachBed = SurvivorCompanion.Downtime._furnitureForTests()
+        local nativeEntry = cell:getGridSquare(7,5,0)
+        local requested
+        bed.getSprite = function() return {getSpriteGrid=function()return{}end} end
+        SurvivorCompanion.BedGeometry = {entry=function()return bed,{x=7.3,y=5.5,z=0}end}
+        SurvivorCompanion.Navigation.requestAny = function(_,targets)requested=targets return true,"moving"end
+        local testActivity={kind="rest_bed",object=bed,square=bedSquare,lightChecked=true}
+        check(approachBed(bedProbeActor,testActivity)==true and requested[1]==nativeEntry,
+            "bed approach uses the resolved mattress entry instead of a generic chair target")
+        SurvivorCompanion.BedGeometry.entry=function()return nil,nil,"bed_entry_blocked"end
+        requested=nil
+        local admitted,why=approachBed(bedProbeActor,testActivity)
+        check(not admitted and why=="no_interaction_targets" and requested==nil,
+            "a blocked native mattress entry is not admitted as ordinary furniture")
+        SurvivorCompanion.BedGeometry,bed.getSprite=priorGeometry,priorSprite
+        SurvivorCompanion.Navigation.requestAny=priorRequest
+    end
     local upperBedSquare = cell:getGridSquare(9, 5, 1)
     upperBedSquare.room, upperBedSquare.moving = chairSquare.room, {}
     bedSquare.objects[#bedSquare.objects] = nil
@@ -10316,6 +10375,11 @@ do
     function sleeper:getSleepingTabletEffect() return self.sleepingPills or 0 end
     function sleeper:setAsleep(value) self.asleep = value == true end
     function sleeper:isAsleep() return self.asleep == true end
+    function sleeper:isOnBed() return seatingStates[self] == "bed" end
+    sleeper.bedAnimVariables = {}
+    function sleeper:setVariable(name, value) self.bedAnimVariables[name] = value end
+    function sleeper:getVariableString(name) return self.bedAnimVariables[name] or "" end
+    function sleeper:clearVariable(name) self.bedAnimVariables[name] = nil end
     function sleeper:setAsleepTime(value) self.asleepTime = value end
     function sleeper:setForceWakeUpTime(value) self.wakeTime = value end
     function sleeper:setBed(value) self.bed = value end
@@ -10426,6 +10490,8 @@ do
             .. "/" .. tostring(sleeper.asleep)
             .. "/" .. tostring(bedKind(bed))
             .. "/" .. tostring(sleepCandidate and sleepCandidate.kind))
+    check(sleeper:getVariableString("OnBedAnim") == "Asleep" and sleeping.sleepBedPose == true,
+        "native bed sleep selects the lying-down animation after bed entry")
     bedSquare.objects[#bedSquare.objects] = nil
     restClockOffset = restClockOffset + sleeping.gameDurationHours / 2
     clock = clock + 1
@@ -10441,6 +10507,8 @@ do
             and sleepFinished.lastFact.sleepHours >= 3.5
             and sleeper.asleep == false and sleeper.fatigue <= 0.10,
         "bed sleep ends after hours, wakes the companion, and restores fatigue")
+    check(sleeper:getVariableString("OnBedAnim") == "Awake",
+        "completed sleep returns to the awake bed pose before standing or reading")
     sleeper.fatigue = 0.9
     clock = clock + SurvivorCompanion.Config.get("downtimeIntervalMs") + 1
     check(sleepEligible(sleeper, SurvivorCompanion.Downtime.peek(sleeper)) == false,
@@ -10455,6 +10523,19 @@ do
     check(sleeper.asleep == false
             and SurvivorCompanion.Downtime.peek(sleeper).active == nil,
         "danger wakes a sleeping companion and releases the bed")
+    check(sleeper:getVariableString("OnBedAnim") == "Awake",
+        "interrupted sleep resets the lying pose through the ordinary wake path")
+    restClockOffset = restClockOffset + 1.01
+    sleeper.fatigue = 0.9
+    local nativeBedFlag = sleeper.isOnBed
+    sleeper.isOnBed = function() return false end
+    sleeper:clearVariable("OnBedAnim")
+    SurvivorCompanion.Downtime.update(sleeper, player, calm, "rest_bed")
+    SurvivorCompanion.Downtime.update(sleeper, player, calm, "rest_bed")
+    check(sleeper.asleep == true and sleeper:getVariableString("OnBedAnim") == "",
+        "a furniture-pose cot can sleep without selecting a native mattress animation")
+    SurvivorCompanion.Downtime.cancel(sleeper, "cot_sleep_test_finished")
+    sleeper.isOnBed = nativeBedFlag
     local originalCanRest = SurvivorCompanion.Downtime.canPerform
     local originalRestUpdate = SurvivorCompanion.Downtime.update
     local requestedRest

@@ -273,8 +273,10 @@ local function acknowledgeNickname(record, nickname)
             { salt = tostring(record.id) .. ":" .. tostring(nickname) })
         if ok and spoken == true then return end
     end
-    safeMethod(actor, "Say", likes and (nickname .. "? Alright. I'll answer to it.")
-        or ("I'm not answering to " .. nickname .. ". Try again."))
+    if SC.GameplayUtil and type(SC.GameplayUtil.say) == "function" then
+        SC.GameplayUtil.say(actor, likes and (nickname .. "? Alright. I'll answer to it.")
+            or ("I'm not answering to " .. nickname .. ". Try again."))
+    end
 end
 
 function Context.onNicknameTextBox(_target, button, row, player)

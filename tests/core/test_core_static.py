@@ -497,11 +497,11 @@ for source in ("SCNativeCompanion.java", "SCBridge.java", "SCBootstrap.java", "S
     require((native_sources / source).is_file(), f"native bridge source missing: {source}")
 native_companion = (native_sources / "SCNativeCompanion.java").read_text(encoding="utf-8")
 
-# Build 42 draws a character's name where the overhead bubble starts, so a
-# speaking companion hid its own nameplate. SCSpeechNameplateLiftTest proves the
-# padding is correct; this proves it is actually applied to the rendered line.
-require("super.addLineChatElement(liftAboveNameplate(line));" in native_companion,
-        "the chat element is not given the nameplate-lifted line")
+# Name clearance belongs to screen-space rendering, not an empty text row.
+require("super.addLineChatElement(line);" in native_companion
+        and "chatElement = new CompanionChatElement(this," in native_companion
+        and "liftAboveNameplate" not in native_companion,
+        "companion speech must use its offset renderer without blank-line padding")
 native_bridge = (native_sources / "SCBridge.java").read_text(encoding="utf-8")
 require("extends IsoPlayer" in native_companion
         and "RESERVED_NON_LOCAL_PLAYER_INDEX = 3" in native_companion
