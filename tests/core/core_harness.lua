@@ -568,6 +568,9 @@ ritualState.flavor = { version = 1, placesSeen = { police = true }, storiesTold 
 ritualState.followCarSqlId = 501
 check(SC.Commands.persist(actor), "personal ritual state commits through Commands")
 local commandSnapshot, commandSnapshotReason = SC.Persistence.captureRecord(record)
+check(SC.SpeechColors.valid(record.speechColorKey)
+    and commandSnapshot.speechColorKey == record.speechColorKey,
+    "speech colour survives the production registry/capture path")
 check(commandSnapshot ~= nil and commandSnapshotReason == nil
     and commandSnapshot.order.current == "guard"
     and commandSnapshot.order.followDistance == 8

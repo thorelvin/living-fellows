@@ -1,0 +1,125 @@
+{
+  "date": "2026-10-28",
+  "runtime": "42.21.0",
+  "native_definitions": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\ProjectZomboid\\media\\lua\\shared\\PrintMedia\\PrintMediaDefinitions.lua",
+  "native_sha256": "09e000db0f52a99a2cbd5d113526bfbd756c907efdb52a38a178bf181b84123b",
+  "entries": [
+    {
+      "id": "ArtGalleryLouisville",
+      "advert_key": "artgalleryoflouisville",
+      "rectangles": [
+        [
+          12510,
+          1360,
+          12579,
+          1429
+        ]
+      ],
+      "desktop_candidates": 4,
+      "rooms": [
+        "lab"
+      ],
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/Gallery.png",
+      "reference_sha256": "2e144e3b1bf761da854617122ea42b4271d9ae92a6896ed70909606b0926fb8f",
+      "asset_sha256": "9c560730d47e26b5bf9abb00f317d1e2c6c0b82e6f5fb0d4e9e2fb801360230d",
+      "generated_bytes_unchanged": true
+    },
+    {
+      "id": "HomeSweetGnome",
+      "advert_key": "gnomesweetgnome",
+      "rectangles": [
+        [
+          600,
+          9820,
+          639,
+          9879
+        ]
+      ],
+      "desktop_candidates": 2,
+      "rooms": [
+        "metalshop",
+        "office"
+      ],
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/Gnome.png",
+      "reference_sha256": "21f819ee49c9a27953862f0df8e9d9e423d936a078e702c7cbb1fc54540a9bfd",
+      "asset_sha256": "79a9450fc0183b1f79b5228f4509eddf05cc4dbbfb3fef918e378472021bb42b",
+      "generated_bytes_unchanged": true
+    },
+    {
+      "id": "CircuitalHealing",
+      "advert_key": null,
+      "rectangles": [],
+      "desktop_candidates": 0,
+      "rooms": [],
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/CircuitalHealing.png",
+      "reference_sha256": "adf8c3f2ba460bceb64f8a87ca09e9e08dd730ba6652f90a1328aa6d7010d650",
+      "asset_sha256": "9d161644da27bc1e4f14e483ce1a96fd9ea7af913647491baaadc64c96161fee",
+      "generated_bytes_unchanged": true
+    },
+    {
+      "id": "IrvingtonSpeedway",
+      "advert_key": "irvingtonspeedway",
+      "rectangles": [
+        [
+          850,
+          12770,
+          1279,
+          13399
+        ]
+      ],
+      "desktop_candidates": 33,
+      "rooms": [
+        "hall",
+        "office",
+        "security"
+      ],
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/Speedway.png",
+      "reference_sha256": "717598110e7ac9252ef3a23d30a14a2400c8c6d4b9f7162f849ee59dc110edf1",
+      "asset_sha256": "dc35b5c23bae1171a32ec4385fe2d76105d0dd0d7d1f00f0cf5f41d11cbbf862",
+      "generated_bytes_unchanged": true
+    },
+    {
+      "id": "SunsetPines",
+      "advert_key": "sunsetpinesfuneralhome",
+      "rectangles": [
+        [
+          13130,
+          1500,
+          13189,
+          1549
+        ]
+      ],
+      "desktop_candidates": 0,
+      "rooms": [],
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/SunsetPines.png",
+      "reference_sha256": "fd6cb88ec5d752a759b6f36a5d6040c3844801dd5c7e8076ecb51093565e9333",
+      "asset_sha256": "f18d1772352bd7019b2ed03ab70d415f8a55a1682f969561e511f02e173c1bf1",
+      "generated_bytes_unchanged": true
+    },
+    {
+      "id": "RoxysRollerRink",
+      "advert_key": "roxysrollerrink",
+      "rectangles": [
+        [
+          12950,
+          1410,
+          12999,
+          1469
+        ]
+      ],
+      "desktop_candidates": 0,
+      "rooms": [],
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/Roxy.png",
+      "reference_sha256": "901418e0e3fa009d4852cc25b27907f4eceedabd8c61786f15f1f93fed2dc37d",
+      "asset_sha256": "42dcb84e958e9ebd9947f7001841bda6b151739bbce98b8dfa845b4783ba03fe",
+      "generated_bytes_unchanged": true
+    }
+  ],
+  "excluded_rectangles": {
+    "circuitalhealing": "Contains medical, library and private-home premises; own-room sign or explicit metadata only.",
+    "pondview": "Multi-tenant shopping centre.",
+    "leafhillheights": "Office space for unrelated tenants."
+  },
+  "story_status": "All staff names and stories are original mod fiction. Stock adverts identify the businesses, not these people.",
+  "counts": "Desktop census candidates, not live site acceptance or guaranteed spawn counts."
+}

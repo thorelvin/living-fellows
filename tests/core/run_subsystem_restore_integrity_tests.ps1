@@ -20,6 +20,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Kahlua test runner compilation failed.' }
 $Files = @(
     (Join-Path $TestRoot 'core_fixture.lua'),
     (Join-Path $Payload 'shared\SCNamespace.lua'),
+    (Join-Path $Payload 'shared\SCSpeechColors.lua'),
     (Join-Path $Payload 'shared\SCStableValue.lua'),
     (Join-Path $Payload 'shared\SCNativeList.lua'),
     (Join-Path $TestRoot 'subsystem_restore_integrity_fixture.lua'),

@@ -1,0 +1,75 @@
+{
+  "date": "2026-10-28",
+  "entries": [
+    {
+      "id": "ArtGalleryLouisville",
+      "ref": "Gallery",
+      "theme": "sand",
+      "spec": "Exact text on two lines: \"ART GALLERY\" / \"OF LOUISVILLE\". Retain the advert’s restrained condensed typography and burgundy/ivory identity, adapted to pale warm ivory lettering with a small muted light wine-red accent. A tiny geometric empty picture-frame outline to the left. No painting reproduction. The result should harmonise with golden-sand terminal text.",
+      "prompt": "Use case: logo-brand. Create ONE transparent PNG header emblem for a fictional 1993 Project Zomboid computer. The attached stock advert is an identity reference only. Compact horizontal composition, about 4:1, generous transparent margins. Clean flat strong screen-print shapes; readable at 210x55 pixels. Ink goes directly on nearly-black CRT glass. All empty areas and letter counters must have real transparent alpha. No background panel, paper, sticker, monitor, border frame, photographs, prices, addresses, slogans, shadows, glow, bloom, gradients, bevels or distressed texture. Use pale luminous-looking solid ink but NO baked lighting. Exact text on two lines: \"ART GALLERY\" / \"OF LOUISVILLE\". Retain the advert’s restrained condensed typography and burgundy/ivory identity, adapted to pale warm ivory lettering with a small muted light wine-red accent. A tiny geometric empty picture-frame outline to the left. No painting reproduction. The result should harmonise with golden-sand terminal text.",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/Gallery.png",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-8a7670b4-fc4d-42d5-91a9-b939937ff4ca.png",
+      "generator_input_images": [
+        "Gallery.png"
+      ]
+    },
+    {
+      "id": "HomeSweetGnome",
+      "ref": "Gnome",
+      "theme": "aqua",
+      "spec": "Exact text: \"HOME SWEET GNOME\", with HOME and GNOME large, SWEET smaller. Preserve the playful sturdy rounded lettering from the advert. One tiny friendly gnome-head outline at left with a pale terracotta triangular hat. Pale blue-periwinkle and warm white lettering. No filled badge or stars. Harmonise with aquamarine CRT text; no green backing.",
+      "prompt": "Edit this transparent logo. Preserve the exact text HOME SWEET GNOME, every letter shape, gnome face, red hat, layout, scale, and real transparent background. ONLY lighten the dark saturated blue lettering and blue face to pale soft icy periwinkle blue (#BDDBF0), so it reads clearly against near-black aquamarine CRT glass. Keep SWEET and beard warm ivory. Lighten the red hat very slightly to muted pale terracotta (#D99880). Flat solid ink, no gradients or shine. No new outlines, panels, background, shadows, glow, texture or extra text. Preserve alpha transparency and transparent letter counters. The target blue must be pastel and near the brightness of the ivory lettering, not royal blue.",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/Gnome.png",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-0587dcea-558b-4884-b7bf-c738f8c537bd.png",
+      "generator_input_images": [
+        "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-f86f29bc-d98a-4b16-a2c3-c221a5a23698.png"
+      ]
+    },
+    {
+      "id": "CircuitalHealing",
+      "ref": "CircuitalHealing",
+      "theme": "aqua",
+      "spec": "Exact text on two lines: \"CIRCUITAL HEALING\" / \"COMPUTER REPAIR\". Use the advert’s segmented geometric letters but keep each word strongly readable at small size. Small simple circuit-trace cross icon at left. ONLY neutral solid white strokes and lettering; everything else transparent. No black fills or decorative specks. The renderer will tint the white ink aquamarine or rare purple.",
+      "prompt": "Use case: logo-brand. Create ONE transparent PNG header emblem for a fictional 1993 Project Zomboid computer. The attached stock advert is an identity reference only. Compact horizontal composition, about 4:1, generous transparent margins. Clean flat strong screen-print shapes; readable at 210x55 pixels. Ink goes directly on nearly-black CRT glass. All empty areas and letter counters must have real transparent alpha. No background panel, paper, sticker, monitor, border frame, photographs, prices, addresses, slogans, shadows, glow, bloom, gradients, bevels or distressed texture. Use pale luminous-looking solid ink but NO baked lighting. Exact text on two lines: \"CIRCUITAL HEALING\" / \"COMPUTER REPAIR\". Use the advert’s segmented geometric letters but keep each word strongly readable at small size. Small simple circuit-trace cross icon at left. ONLY neutral solid white strokes and lettering; everything else transparent. No black fills or decorative specks. The renderer will tint the white ink aquamarine or rare purple.",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/CircuitalHealing.png",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-42aad0e9-e550-4f6f-91d9-832685e42660.png",
+      "generator_input_images": [
+        "CircuitalHealing.png"
+      ]
+    },
+    {
+      "id": "IrvingtonSpeedway",
+      "ref": "Speedway",
+      "theme": "sand",
+      "spec": "Exact wording: small \"IRVINGTON\" above large slanted \"SPEEDWAY\". Retain the advert’s bold forward-slant white motorsport wordmark, two short speed lines and a tiny checkered-flag motif at left. Pale ivory ink with a modest light warm-red accent, empty checker cells transparent. No car drawing or black drop shadow. Harmonise with golden-sand CRT text.",
+      "prompt": "Use case: logo-brand. Create ONE transparent PNG header emblem for a fictional 1993 Project Zomboid computer. The attached stock advert is an identity reference only. Compact horizontal composition, about 4:1, generous transparent margins. Clean flat strong screen-print shapes; readable at 210x55 pixels. Ink goes directly on nearly-black CRT glass. All empty areas and letter counters must have real transparent alpha. No background panel, paper, sticker, monitor, border frame, photographs, prices, addresses, slogans, shadows, glow, bloom, gradients, bevels or distressed texture. Use pale luminous-looking solid ink but NO baked lighting. Exact wording: small \"IRVINGTON\" above large slanted \"SPEEDWAY\". Retain the advert’s bold forward-slant white motorsport wordmark, two short speed lines and a tiny checkered-flag motif at left. Pale ivory ink with a modest light warm-red accent, empty checker cells transparent. No car drawing or black drop shadow. Harmonise with golden-sand CRT text.",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/Speedway.png",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-e11d5832-59bc-4faf-9b1f-c83fcaf62d6a.png",
+      "generator_input_images": [
+        "Speedway.png"
+      ]
+    },
+    {
+      "id": "SunsetPines",
+      "ref": "SunsetPines",
+      "theme": "sand",
+      "spec": "Exact text on two lines: \"SUNSET PINES\" / \"FUNERAL HOME\". Preserve the advert’s dignified serif typography and yellow-gold/ivory identity. A small spare line emblem of two pines and a setting sun at left. Pale golden-sand and warm ivory ink, no filled medallion. Avoid crosses, caskets or photographs. Harmonise with golden-sand CRT text.",
+      "prompt": "Use case: logo-brand. ONE clean transparent PNG computer-header logo. Flat 1993 office-computer emblem, wide 4:1 layout. Exact text on two lines: \"SUNSET PINES\" and \"FUNERAL HOME\". Large sturdy simple serif lettering at right, two small evergreen outline silhouettes and one half-circle sun outline at left. ONLY two solid pale flat inks: warm ivory (#F4E5BE) and muted golden sand (#DFC486). Uniform strong strokes, clean smooth glyph silhouettes. EVERYTHING else transparent alpha, including letter counters and tree interiors. No shadows, bevels, embossing, extrusion, gradients, texture, distressed specks, halos, glows, scenery, borders, filled rectangles, paper or screen. Absolutely flat ink. Readable at 210 pixels wide, with transparent margins. No additional text.",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/SunsetPines.png",
+      "generator_input_images": [],
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-09c8be91-24d5-4648-95dc-09b9403769fe.png"
+    },
+    {
+      "id": "RoxysRollerRink",
+      "ref": "Roxy",
+      "theme": "aqua",
+      "spec": "Exact text on two lines: \"ROXY’S\" / \"ROLLER RINK\". Preserve the advert’s playful broad slanted wordmark, pale aqua upper letters and pale mauve secondary lettering. One very simple outline quad roller-skate at left. No neon sign box or baked glow, no wheels made from extra words. Harmonise with aquamarine CRT text.",
+      "prompt": "Use case: logo-brand. Create ONE transparent PNG header emblem for a fictional 1993 Project Zomboid computer. The attached stock advert is an identity reference only. Compact horizontal composition, about 4:1, generous transparent margins. Clean flat strong screen-print shapes; readable at 210x55 pixels. Ink goes directly on nearly-black CRT glass. All empty areas and letter counters must have real transparent alpha. No background panel, paper, sticker, monitor, border frame, photographs, prices, addresses, slogans, shadows, glow, bloom, gradients, bevels or distressed texture. Use pale luminous-looking solid ink but NO baked lighting. Exact text on two lines: \"ROXY’S\" / \"ROLLER RINK\". Preserve the advert’s playful broad slanted wordmark, pale aqua upper letters and pale mauve secondary lettering. One very simple outline quad roller-skate at left. No neon sign box or baked glow, no wheels made from extra words. Harmonise with aquamarine CRT text.",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/Roxy.png",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-8ae33ecd-91d4-4d0e-b47a-380d7356c051.png",
+      "generator_input_images": [
+        "Roxy.png"
+      ]
+    }
+  ]
+}

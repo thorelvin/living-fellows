@@ -1,0 +1,27 @@
+PASS native all five home shortcuts visible font=32 viewport=1280x720
+SHOT conversation
+PASS native dated catalog available=133 categories=8
+SHOT categories
+SHOT town
+PASS native conversation, archive keyboard navigation, date refusal, related follow-up and live inventory intent
+SHOT outbreak
+PASS native dated outbreak category, numbered note access, reading anchor and typed alias
+PASS native six business references and ten new outbreak fragments; original owner retained
+SHOT civic-files
+SHOT logo-BrooksLibrary
+PASS native logo BrooksLibrary theme=sand owner=brooks_irma
+SHOT logo-LouisvillePolice
+PASS native logo LouisvillePolice theme=aqua owner=louisville_ada
+SHOT logo-UpscaleMobility
+PASS native logo UpscaleMobility theme=sand owner=upscale_lionel
+SHOT logo-EPTools
+PASS native logo EPTools theme=aqua owner=eptools_liv
+SHOT logo-BrottCattleFarm
+PASS native logo BrottCattleFarm theme=green owner=brott_etta
+SHOT logo-BeefChunk
+PASS native logo BeefChunk theme=sand owner=beefchunk_rosa
+SHOT logo-BrooksLibrary-purple
+PASS native logo BrooksLibrary theme=purple owner=brooks_irma
+SHOT logo-LouisvillePolice-purple
+PASS native logo LouisvillePolice theme=purple owner=louisville_ada
+PASS native terminal civic acceptance complete

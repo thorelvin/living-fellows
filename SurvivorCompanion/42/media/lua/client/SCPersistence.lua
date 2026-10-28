@@ -1311,6 +1311,7 @@ function persistence.captureRecord(record, vehicleState)
             and SC.Names.normalizeRecord(record.nickname) or nil,
         nicknameMeta = SC.Names and type(SC.Names.normalizeMeta) == "function"
             and SC.Names.normalizeMeta(record.nicknameMeta) or nil,
+        speechColorKey = SC.SpeechColors.assign(record),
         position = position,
         order = {
             current = text(order.current, SC.Config.get("defaultOrder"), 32),
@@ -2598,7 +2599,8 @@ local function validateRecord(id, source)
     end
     local sourceWithoutInventory = {}
     for key, value in pairs(source) do
-        if key ~= "inventory" and key ~= "nickname" and key ~= "nicknameMeta" then
+        if key ~= "inventory" and key ~= "nickname" and key ~= "nicknameMeta"
+            and key ~= "speechColorKey" then
             sourceWithoutInventory[key] = value
         end
     end
@@ -2625,6 +2627,7 @@ local function validateRecord(id, source)
     local clean, copyReason = stableCopy(sourceWithoutInventory, 12, 65536,
         "$.records[" .. tostring(id) .. "]")
     if copyReason ~= nil then return nil, copyReason end
+    clean.speechColorKey = SC.SpeechColors.normalize(source.speechColorKey)
     local inventory, inventoryReason = normalizeInventorySnapshot(source.inventory)
     if inventory == nil then return nil, inventoryReason end
     clean.id = id
@@ -3634,6 +3637,7 @@ function persistence.restoreAt(saved, square)
         identity = saved.identity,
         nickname = saved.nickname,
         nicknameMeta = saved.nicknameMeta,
+        speechColorKey = saved.speechColorKey,
         state = {
             order = saved.order,
             group = saved.group,
@@ -4040,6 +4044,13 @@ function persistence.restore(player)
                 "$.factionActors[" .. tostring(id) .. "]")
         end
     end
+
+    -- Prepare cosmetic identities before subsystem restore or asynchronous
+    -- spawning. Household snapshots and recruited records share one allocation.
+    local speechPeople = {}
+    for _, entry in pairs(candidatePending) do speechPeople[#speechPeople + 1] = entry.record end
+    for _, entry in ipairs(factionCandidates) do speechPeople[#speechPeople + 1] = entry.record end
+    SC.SpeechColors.prepareFactions(candidateDocument.factions, speechPeople)
 
     -- Replacing pending work is a checked cancellation boundary. A failed or
     -- throwing cancellation keeps its ticket/record reachable, and no

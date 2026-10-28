@@ -1,0 +1,55 @@
+{
+  "date": "2026-10-28",
+  "entries": [
+    {
+      "id": "BrooksLibrary",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/Library.png",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-92578d3d-9ce9-45f5-9cac-3b6704157fc4.png",
+      "prompt": "Create ONE simple clean logo PNG with a fully transparent background. Exact text: \"BROOKS LIBRARY\". A small open-book outline on the left, large sturdy readable serif words on the right, all on one line. Wide horizontal 4:1 layout. ONLY solid pure white strokes and lettering; all other pixels transparent, including letter holes and book interior. Plain flat 1993 computer boot emblem. Smooth clean glyph silhouettes, no pixel texture, no distress, no glow, no outlines around text, no shadows, no gradients, no filled box, no paper, no border, no image of a screen. Strong legibility at a 210-pixel-wide header. No additional text or objects.",
+      "generator_input_images": []
+    },
+    {
+      "id": "LouisvillePolice",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/LVPD.png",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-f6dd2dae-6aa9-40c7-bc14-e3ff9dbd7f9e.png",
+      "prompt": "Create ONE simple clean logo PNG with a fully transparent background. Exact text: \"LOUISVILLE POLICE\". A small plain outlined five-point star on the left and large sturdy readable condensed sans-serif words on the right, all on one line. Wide horizontal 4:1 layout. ONLY solid pure white strokes and lettering; all other pixels transparent, including letter holes and the star interior. Plain flat 1993 computer boot emblem. Original fictional supporting logo, no real government seal. Smooth clean glyph silhouettes, no pixel texture, no distress, no glow, no outlines around text, no shadows, no gradients, no filled box, no paper, no border, no image of a screen. Strong legibility at a 210-pixel-wide header. No additional text or objects.",
+      "generator_input_images": []
+    },
+    {
+      "id": "UpscaleMobility",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/Upscale.png",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-669b93c3-a955-4579-a287-d8905f07b32b.png",
+      "prompt": "Use case: logo-brand. ONE small transparent computer-header logo for a 1993 Project Zomboid terminal. Attached game advert is an identity reference only. Compact horizontal icon-and-wordmark composition, roughly 4:1, tidy transparent margins, readable at 210x55 pixels. Clean flat screen-print ink with very slight bitmap stepping, uniform strong strokes. The image is placed directly on nearly-black CRT glass; empty space MUST be transparent alpha, including gaps inside letters and icons. Strictly NO glow, halo, bloom, shadow, bevel, extrusion, distressed specks, gradients, background panel, white paper, sticker, monitor, physical sign, photograph, border frame, slogan, prices, addresses or extra text. Pale flat ink readable on dark glass. Exact words \"UPSCALE MOBILITY\", with a smaller second line \"AUTO DEALERSHIP\". Retain the reference geometric luxury sans-serif capitals. One minimal ivory car-profile line at left. Main lettering pale golden sand with an ivory secondary line; no dark outlines. Match golden-sand terminal text and glass. No large filled car or backing.",
+      "generator_input_images": [
+        "Upscale.png"
+      ]
+    },
+    {
+      "id": "EPTools",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/EPTools.png",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-643fbb3b-f36a-4d43-ba1d-9ff52895dbe0.png",
+      "prompt": "Use case: logo-brand. ONE small transparent computer-header logo for a 1993 Project Zomboid terminal. Attached game advert is an identity reference only. Compact horizontal icon-and-wordmark composition, roughly 4:1, tidy transparent margins, readable at 210x55 pixels. Clean flat screen-print ink with very slight bitmap stepping, uniform strong strokes. The image is placed directly on nearly-black CRT glass; empty space MUST be transparent alpha, including gaps inside letters and icons. Strictly NO glow, halo, bloom, shadow, bevel, extrusion, distressed specks, gradients, background panel, white paper, sticker, monitor, physical sign, photograph, border frame, slogan, prices, addresses or extra text. Pale flat ink readable on dark glass. Exact wording \"E.P. TOOLS\" in sturdy serif capitals like the reference, with a small simple open-ended wrench line emblem at left. Pale silver-ivory main lettering with a subtle pale aquamarine accent; no wood panel or handle backdrop. Match aquamarine terminal text and glass. Keep the periods after E and P.",
+      "generator_input_images": [
+        "EPTools.png"
+      ]
+    },
+    {
+      "id": "BrottCattleFarm",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/Brott.png",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-8155fae5-802b-4dfb-80ee-c2f01280c7b4.png",
+      "prompt": "Use case: logo-brand. ONE small transparent computer-header logo for a 1993 Project Zomboid terminal. Attached game advert is an identity reference only. Compact horizontal icon-and-wordmark composition, roughly 4:1, tidy transparent margins, readable at 210x55 pixels. Clean flat screen-print ink with very slight bitmap stepping, uniform strong strokes. The image is placed directly on nearly-black CRT glass; empty space MUST be transparent alpha, including gaps inside letters and icons. Strictly NO glow, halo, bloom, shadow, bevel, extrusion, distressed specks, gradients, background panel, white paper, sticker, monitor, physical sign, photograph, border frame, slogan, prices, addresses or extra text. Pale flat ink readable on dark glass. Exact words \"BROTT CATTLE FARM\", with the smaller word \"AUCTION\" below. Retain a sturdy stencil-like upper wordmark inspired by the reference. One small simple cattle-head line emblem at left with transparent interior. Pale warm-ivory lettering and soft mint-green secondary lettering, a restrained pale golden-sand accent. Match green phosphor text and glass. No cow photograph or filled badge.",
+      "generator_input_images": [
+        "Brott.png"
+      ]
+    },
+    {
+      "id": "BeefChunk",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/BeefChunk.png",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-27ff2d80-61cc-4e7c-be01-aaed94e0b5c5.png",
+      "prompt": "Use case: logo-brand. ONE small transparent computer-header logo for a 1993 Project Zomboid terminal. Attached game advert is an identity reference only. Compact horizontal icon-and-wordmark composition, roughly 4:1, tidy transparent margins, readable at 210x55 pixels. Clean flat screen-print ink with very slight bitmap stepping, uniform strong strokes. The image is placed directly on nearly-black CRT glass; empty space MUST be transparent alpha, including gaps inside letters and icons. Strictly NO glow, halo, bloom, shadow, bevel, extrusion, distressed specks, gradients, background panel, white paper, sticker, monitor, physical sign, photograph, border frame, slogan, prices, addresses or extra text. Pale flat ink readable on dark glass. Exact wording on two lines \"BEEFCHUNK\" / \"JERKY CO.\". Retain the reference chunky condensed block wordmark and contrast between BEEF and CHUNK. BEEF pale ivory, CHUNK muted light copper with pale ivory edging, lower line ivory. A tiny simple geometric drying-rack line emblem at left. Match golden-sand terminal text and glass. No food photos, mascot, red backing slab or black letter fills.",
+      "generator_input_images": [
+        "BeefChunk.png"
+      ]
+    }
+  ]
+}

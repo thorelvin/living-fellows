@@ -36,6 +36,7 @@ try {
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner `
                 (Join-Path $TestRoot 'core_fixture.lua') `
                 (Join-Path $Shared 'SCNamespace.lua') `
+                (Join-Path $Shared 'SCSpeechColors.lua') `
                 (Join-Path $Shared 'SCCall.lua') `
                 (Join-Path $Shared 'SCStableValue.lua') `
                 (Join-Path $Shared 'SCNativeList.lua') `

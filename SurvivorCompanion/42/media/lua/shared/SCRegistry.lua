@@ -4,6 +4,7 @@ require "SCNamespace"
 require "SCConfig"
 require "SCStableValue"
 require "SCTransaction"
+require "SCSpeechColors"
 
 local SC = SurvivorCompanion
 SC.Registry = SC.Registry or {}
@@ -465,6 +466,7 @@ function registry.register(actor, record)
         identity = identity,
         nickname = nickname,
         nicknameMeta = nicknameMeta,
+        speechColorKey = SC.SpeechColors.normalize(record.speechColorKey),
         state = state,
         -- Flat mirrors are the gameplay command adapter's stable compatibility
         -- surface. Commands replace `state` whenever these values change, and
@@ -544,6 +546,7 @@ function registry.register(actor, record)
         end
         return nil, reason
     end
+    SC.SpeechColors.assign(committed)
     return committed
 end
 
@@ -667,6 +670,7 @@ function registry.isValidId(id)
 end
 
 function registry.reset()
+    SC.SpeechColors.reset()
     for _, record in pairs(recordsById) do
         record.actor = nil
         record.runtime = {}

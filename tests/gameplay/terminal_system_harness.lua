@@ -31,7 +31,7 @@ for _, profile in ipairs(Files.all()) do
         previous, count = entry.date, count + 1
     end
 end
-check(count == 516 and #Files.all()==129, "129 previous owners provide 516 original entries")
+check(count == 568 and #Files.all()==142, "142 previous owners provide 568 original entries")
 for name, kind in pairs({ policestorage = "police", medicaloffice = "clinic",
     hospitalroom = "clinic", insuranceoffice = "office", bedroom = "home", unknown = "general" }) do
     check(Files.classify(name) == kind, "room classification: " .. name)
@@ -109,5 +109,23 @@ malformed = copy(state)
 malformed.puzzle.guessed.unrelated = { recursive = malformed }
 local clean = System.normalize(malformed)
 check(clean and clean.puzzle.guessed.unrelated == nil, "normalization reads only bounded known fields")
+do
+    state.theme, state.xpAwarded, state.brand = "purple", true, "Fossil"
+    local factory = System.factoryReset(state)
+    check(factory ~= state and state.archive == archive and state.brand == "Fossil", "reset creates a new record without mutating its source")
+    check(factory.archive == "_factory" and factory.brand == "_camp" and #Files.get(factory.archive).entries == 0,
+        "factory setup has EMMA branding and an empty personal directory")
+    check(factory.seed == state.seed and factory.identity == state.identity and factory.theme == "purple"
+        and factory.xpAwarded and factory.locked == state.locked, "factory reset retains identity, rare colour, access and XP ledger")
+    check(factory.puzzle ~= state.puzzle and factory.puzzle.answer == state.puzzle.answer
+        and factory.puzzle.guessed[answer] == 6 and factory.puzzle.used[4], "reset preserves recovery history without shared mutable tables")
+    local restored = System.normalize(copy(factory))
+    check(restored and restored.archive == "_factory" and restored.brand == "_camp" and restored.theme == "purple"
+        and restored.xpAwarded, "clean setup survives save normalization")
+    factory.locked = true
+    check(System.factoryReset(factory) == nil, "locked access cannot be bypassed with a factory reset")
+    check(System.factoryReset({schema=999}) == nil, "invalid access records cannot be replaced with fresh unlocked records")
+    check(not owners._factory and #Files.all() == 142, "blank factory profile is excluded from discovered story pools")
+end
 SC_TEST_REPORT = (SC_TEST_REPORT and (SC_TEST_REPORT .. "; ") or "")
     .. "LARCH/OS security and archive harness: " .. checks .. " checks passed"

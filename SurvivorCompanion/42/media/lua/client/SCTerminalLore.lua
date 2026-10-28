@@ -745,6 +745,96 @@ local localOwners = {
 }
 for _,profile in ipairs(localOwners) do Lore.ARCHIVES[#Lore.ARCHIVES+1]=profile end
 
+-- Staff fiction for verified civic and commercial sites. Append, never replace
+-- the earlier pools: a saved computer keeps the person who wrote its files.
+local civicOwners = {
+    owner("brooks_irma", "education", "Irma Vale, circulation desk", "BrooksLibrary", {
+        {1,"Summer reading","Ordered six more road atlases. The distributor offered a discount on inspirational business biographies instead. I declined. Our readers have enough trouble finding the interstate without being told to discover themselves."},
+        {5,"The folded page","A man returned a repair manual with a child's drawing between pages 84 and 85. Two houses, one joined to the other by a very long red line. He came back for it before I could put it in lost property. He was shaking so badly I carried it to his car."},
+        {7,"Reference desk","People want maps of roads outside the county. I have put the relevant books on one trolley. Someone removed every page showing the bridges. We have replacement copies downstairs. I have asked Martin to fetch them while there are still two of us here."},
+        {9,"Names in pencil","A woman has left her children's names and a number under the desk blotter. She says their father will know to ask here. I asked where she was going. She wrote another number, crossed it out and sat down beside the returns slot. She is still here. I am leaving this open."},
+    }),
+    owner("louisville_ada", "police", "Ada Keene, records clerk", "LouisvillePolice", {
+        {2,"Seminar supplies","The seminar needs three tables, a microphone and an extension lead. Nobody who signed the requisition knows where the extension leads are kept. They are in the cupboard marked EXTENSION LEADS. I have added a larger label."},
+        {5,"After the chairs","Cleared the hall after the talk. A visitor left a written complaint beneath her chair instead of handing it in. It names an officer and gives two dates. I entered it under today's date. The officer has already asked why I was working late."},
+        {7,"Outside our area","Calls are coming in from families who cannot reach people farther south. I have a sheet for the last verified address and a separate column for what the caller thinks happened. The second column keeps being copied into the first. Please stop doing that."},
+        {9,"Desk copy","The original complaint has gone missing from the folder. The carbon is here, under the seminar requisition. I will take it to the duty officer when she returns. Until then I am keeping the drawer unlocked and sitting where I can see it."},
+    }),
+    owner("upscale_lionel", "mechanic", "Lionel Shaw, accounts", "UpscaleMobility", {
+        {1,"Customer impressions","Sales would like the finance application called a personal mobility consultation. The form still asks whether the applicant owes anybody money. I cannot fit personal mobility consultation on the rubber stamp."},
+        {5,"Trade-in","A customer brought back the car he collected on Friday. Nothing wrong with it. He wanted his old wagon because the rear seats fold flat. The difference in value was substantial. He signed without asking what it was."},
+        {7,"Spare set","Mrs. Voss came for her husband's spare key. He had collected the first set at opening and said he was driving to collect her. She waited in the showroom until six. I let her use the office phone. She made one call and would not tell me who answered."},
+        {9,"Authorisation","Issued the service wagon to the two cleaners and their families. Entered it as a courtesy vehicle, return date blank. Mr. Ames has left three messages about unauthorised use. I have written his number on the windscreen paperwork. He can ask them himself."},
+    }),
+    owner("eptools_liv", "hardware", "Liv Jensen, service counter", "EPTools", {
+        {2,"Returned drill","The returned drill works. It does not work while the customer holds the trigger halfway and argues with it. Replaced the plug anyway. He has enough problems at home without another thing telling him he is holding it wrong."},
+        {6,"Cash drawer","Sold out of long screws. A woman paid for two boxes with money folded inside a photograph. She took the boxes and left the picture. I put it behind the counter. There are four people in it, all looking at somebody outside the frame."},
+        {8,"Order amendment","Contractor wants the rear door reinforced from the outside. I asked who would be inside. He said that was not my concern. Cancelled the labour booking and rang the address on the invoice. A child answered. I told her to find another way out before giving the phone to anyone."},
+        {9,"Counter closed","The photograph is in the top drawer, beneath the warranty cards. I have waited until noon. There is a woman walking up and down across the road, but she will not turn when I call. I cannot tell from here whether it is her. I have locked the till and left the side door open."},
+    }),
+    owner("brott_etta", "agriculture", "Etta Rusk, weighing desk", "BrottCattleFarm", {
+        {1,"Auction voice","The new auctioneer can be understood from the far end of the barn. This has not improved the quality of the complaints, but at least I no longer have to ask the buyers to repeat them."},
+        {5,"Haulier's account","Mr. Cole asked whether Thursday's cheque could be made out to his daughter. He has never asked before. I told him she would need to sign for it. He brought her in from the truck. She stood on tiptoe to reach the counter."},
+        {7,"Passenger weights","Three trucks came in without cattle. The drivers wanted to leave their families here while they went back for people. I used the empty delivery book to record names. Do not transfer that page into the livestock ledger. The numbers are telephone numbers."},
+        {9,"Cheques held","Four payments remain uncollected. They are in named envelopes beside the adding machine. Mr. Cole's daughter has hers. She asked if she should wait for him in the truck. I said she could wait here, then moved my chair so she could see the gate."},
+    }),
+    owner("beefchunk_rosa", "industry", "Rosa Neff, quality control", "BeefChunk", {
+        {2,"Label trial","Marketing's new packet says FOR YOUR NEXT ADVENTURE. Asked whether a Tuesday shift followed by a trip to the laundromat qualifies. They have stopped sending me the proofs."},
+        {5,"Night record","The drying-room clock lost forty minutes. Temperatures stayed within the recorded range; the clock did not. Replaced the battery and marked the affected sheet. Please do not copy the corrected times over the originals. Both sheets belong in the file."},
+        {7,"Dispatch change","The relief driver has not arrived. Packed the finished stock into the cool loading area and stopped the line. Someone in sales has marked the order DELIVERED because their form will not accept WAITING. I have crossed it out in red."},
+        {9,"Gate receipt","A van collected food for a church kitchen. Counted eleven cases into it. No signature, because the driver was holding a little boy whose shoes were wet through. His name was Peter. I have written that down where the signature should be. It is all I got."},
+    }),
+}
+for _,profile in ipairs(civicOwners) do Lore.ARCHIVES[#Lore.ARCHIVES+1]=profile end
+
+-- Original accounts for stock-advertised premises. Keep all published owner
+-- IDs before these additions. Speedway offices and security have distinct jobs.
+local placesOwners = {
+    owner("gallery_ellen", "research", "Ellen Venn, conservation desk", "ArtGalleryLouisville", {
+        {2,"Condition report","The donor wants us to describe the crack as evidence of the work's journey. It arrived in the back of his truck without a blanket. I have described the crack as a crack and requested a blanket."},
+        {5,"Under the varnish","Found a second name under the signature. Not unusual. The unusual part is that the catalogue records both painters attending the same funeral, on different sides of the family. I have asked for the original paperwork before anybody writes a wall label."},
+        {7,"Courier collection","The lender wants the large landscape returned immediately. The driver arrived with a van full of people. We agreed the painting could wait. He took the packing blankets. Please record these as loaned, rather than lost; he asked me to."},
+        {9,"The small portrait","I have put the unfinished portrait in the conservation cupboard, face to the wall. Its owner came for it yesterday and could not make herself take it. She asked whether unfinished things were worth keeping. I said yes before checking whose authority I was speaking on."},
+    }),
+    owner("gnome_vern", "industry", "Vern Soder, workshop ledger", "HomeSweetGnome", {
+        {1,"Stock correction","The last order contains forty fishermen and no fishing rods. Until the missing box arrives they are contemplative gnomes. Sales has increased the price of contemplation by two dollars."},
+        {5,"Returned ornament","A customer brought back the one with the blue hat. Nothing wrong with it; her husband had bought the same one before he died. We exchanged it without a receipt. Put the returned one in the office rather than sending it straight back out."},
+        {7,"Delivery instruction","The driver has taken the light truck home. Asked him not to worry about the delivery round. He kept explaining that he had never missed one. Twenty-three years here and that was what he thought he needed permission for."},
+        {9,"End of shift","I covered the moulds and shut off the bench tools. There is a row of finished faces looking through the loading door. Turned them towards the shelves. I have worked with the things for half my life and today I cannot bear the audience."},
+    }),
+    owner("circuital_sigrid", "electronics", "Sigrid Halden, repair bench", "CircuitalHealing", {
+        {2,"No fault found","The customer's computer works perfectly. His invoice says it stops responding whenever his brother uses it. I have repaired the loose keyboard plug and declined to guarantee the brother."},
+        {5,"Dictation cassette","A woman wants a broken recorder repaired before her father forgets the stories he was putting on it. Replaced the belt. There is no charge for the belt. There will be no charge for the two hours I spent listening, either."},
+        {7,"County machines","Calls about emergency software all morning. These computers read what is stored on their own disks. There is no secret connection I can restore by opening the case. Wrote that on the counter notice. People are asking me to try anyway."},
+        {9,"Collection shelf","Stopped taking deposits. The repaired sets are labelled by surname, not ticket number. If people come back, give them their things. The recorder is in the drawer under my coat; its owner said she would collect it after visiting the hospital."},
+    }),
+    owner("speedway_lena", "entertainment", "Lena Colter, race office", "IrvingtonSpeedway", {
+        {2,"Guest arrangements","Three people have booked the same parking space for the guest's car. Settled it by reserving a fourth space nobody wanted. The first three are now available to the public, who will appreciate being excluded less ceremoniously."},
+        {6,"Tomorrow's programme","The programmes are printed. We are still waiting for a decision about tomorrow. A printed date is a stubborn thing; people keep holding it up as though the paper has already settled the matter."},
+        {7,"Attendance figure","The gate count is not an evacuation count. Some people entered twice. Some children were carried through. I have refused to sign a form saying everyone has left on the strength of a ticket machine."},
+        {9,"Receipt roll","The last roll has family messages written on its back. Numbers, names, one drawing of a red truck. Do not put it through the shredder when clearing accounts. I have marked the box RECEIPTS because that is the only filing category management has never thrown away."},
+    }),
+    owner("speedway_ronny", "security", "Ronny Vale, gate security", "IrvingtonSpeedway", {
+        {1,"Night inspection","South gate chain replaced. The old one was not cut; someone had removed the hinges. Maintenance says the new chain is stronger. I have requested stronger hinges in words of one syllable."},
+        {5,"Complaint book","A father says his son was searched twice and another boy not at all. The officer's account does not agree. Kept the original complaint rather than the summary. Lena has offered to keep a second copy in the race office."},
+        {7,"Coach list","A coach driver asked for a list of children waiting without adults. We have no way to check who sent him. Asked him to wait while we called. He drove away before we found a working number. Recorded the registration on the back of this sheet."},
+        {9,"Keys handed over","Left the pedestrian gate key with the woman organising the remaining families. Her name is Ruth. Told her which doors stick. Wrote the time down. There is a difference between leaving a post and handing it to somebody; I would like that difference kept in the record."},
+    }),
+    owner("sunset_edith", "community", "Edith Rudd, arrangements desk", "SunsetPines", {
+        {2,"Display order","Mr. Bell wants the expensive handles on the least expensive casket. The catalogue does not permit it. The carpenter does. I have asked the carpenter, who has the advantage of being a person."},
+        {6,"Payment reminder","The reminder went to a woman whose husband had not yet been brought home. She paid in exact change. I returned it and asked accounts to speak to me before sending another letter. They have asked which account code covers this."},
+        {8,"Identification","Two families gave the same name. Neither was wrong. Kept the personal descriptions separate from the printed forms and asked everyone to slow down. We are frightened enough without making people disappear through bad handwriting."},
+        {9,"Office light","I am leaving the arrangements room light on while there is power. The front sign is turned to CLOSED. Those are not contradictory instructions. If anyone arrives with a name, sit with them before asking them to complete anything."},
+    }),
+    owner("roxy_allison", "entertainment", "Allison Pike, rink counter", "RoxysRollerRink", {
+        {1,"Shoe arithmetic","Forty-eight people rented skates. We have forty-seven pairs of shoes and one pair of slippers. Either somebody left wearing the skates or our evening has been more eventful than the incident book suggests."},
+        {5,"Birthday deposit","Mrs. Lake cancelled Saturday's party. Asked me not to tell her daughter yet. Refunded the deposit and left the booking on the board until closing. It seemed a small enough thing to leave standing for one more afternoon."},
+        {7,"Music level","Turned the music down so people can hear the telephone. Every time it rings the whole room stops. Nobody wants to dance and nobody wants me to turn it off. I have left the same slow record on the turntable."},
+        {9,"Counter envelope","Two sisters left in different cars. The older one put their house key in an envelope for the younger and made me repeat her name. It is under the till tray. I cannot remember whether I told her mine. I hope she remembers the building."},
+    }),
+}
+for _,profile in ipairs(placesOwners) do Lore.ARCHIVES[#Lore.ARCHIVES+1]=profile end
+
 Lore.REFERENCE = {
     {id="emma_origin",date="1993-07-01",title="EMMA: programme brief",text="EMERGENCY MANAGEMENT ASSISTANT, county deployment beta 0.9. EMMA organises local records and produces short replies from approved procedures and the information stored on each machine. The demonstration describes this as conversational assistance. The procurement form describes it as one licence per workstation. Both descriptions have been approved."},
     {id="emma_limits",date="1993-07-02",title="What this machine can know",text="A local record is evidence of what somebody entered, not evidence that the world still agrees. EMMA must identify missing records, old observations and estimates. Do not allow a confident sentence to conceal an unknown. The computer has been instructed to say this politely. Operators are asked to extend the same courtesy to each other."},

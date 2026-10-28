@@ -205,6 +205,7 @@ public final class SCNativeCompanion extends IsoPlayer {
     private volatile float bridgeStrafeY;
     private volatile int bridgeNextSpeechDisplayMillis;
     private volatile String bridgeSpeechLine;
+    private SCCompanionSpeechRows bridgeSpeechRows;
     private volatile long bridgeSpeechRefreshUntilNanos;
     // ClimbOverWallState computes its normal player success/struggle/fail roll
     // only for a local IsoPlayer. This flag is true solely inside the synchronous
@@ -2365,8 +2366,21 @@ public final class SCNativeCompanion extends IsoPlayer {
 
     /** Lift the complete native bubble without adding an empty backdrop row. */
     static final class CompanionChatElement extends ChatElement {
+        long emissionGeneration;
+
         CompanionChatElement(ChatElementOwner owner, int lines, String talkerType) {
             super(owner, lines, talkerType);
+        }
+
+        @Override
+        public void addChatLine(String line, float r, float g, float b, UIFont font,
+                float range, String tag, boolean images, boolean icons, boolean colors,
+                boolean fonts, boolean bbcode, boolean equalizeHeights) {
+            // A direct engine/mod insertion can recycle a previous TextDrawObject
+            // with identical words. Its row identity alone is not a speech lease.
+            emissionGeneration++;
+            super.addChatLine(line, r, g, b, font, range, tag,
+                    images, icons, colors, fonts, bbcode, equalizeHeights);
         }
 
         @Override
@@ -2391,53 +2405,69 @@ public final class SCNativeCompanion extends IsoPlayer {
 
     @Override
     public void addLineChatElement(String line) {
+        // Stock overload dispatch reaches the guarded full overload once.
+        super.addLineChatElement(line);
+    }
+
+    @Override
+    public void addLineChatElement(String line, float r, float g, float b, UIFont font,
+            float range, String tag, boolean images, boolean chatIcons, boolean colors,
+            boolean fonts, boolean bbcode, boolean equalizeHeights) {
+        int duration = bridgeNextSpeechDisplayMillis > 0 ? bridgeNextSpeechDisplayMillis : 9_000;
+        bridgeNextSpeechDisplayMillis = 0;
+        emitSpeech(line, r, g, b, font, range, tag, images, chatIcons, colors,
+                fonts, bbcode, equalizeHeights, duration);
+    }
+
+    /** One atomic actor-local emission, including admission and real-time lease. */
+    public boolean emitCompanionSpeech(String line, float r, float g, float b, int durationMillis) {
+        bridgeNextSpeechDisplayMillis = 0;
+        return emitSpeech(line, r, g, b, UIFont.Dialogue, 30f, "default",
+                false, false, false, false, false, true, durationMillis);
+    }
+
+    private boolean emitSpeech(String line, float r, float g, float b, UIFont font,
+            float range, String tag, boolean images, boolean chatIcons, boolean colors,
+            boolean fonts, boolean bbcode, boolean equalizeHeights, int durationMillis) {
         if (isAsleep()) {
             clearCompanionSpeech();
-            return;
+            return false;
         }
-        // The renderer owns nameplate clearance. Keep the text identical for
-        // the native row, retained speech and real-time refresh below.
-        super.addLineChatElement(line);
-        if (line == null || line.isBlank()) {
-            bridgeSpeechLine = null;
-            bridgeSpeechRefreshUntilNanos = 0L;
-            bridgeNextSpeechDisplayMillis = 0;
-            return;
-        }
-        int requested = bridgeNextSpeechDisplayMillis > 0
-                ? bridgeNextSpeechDisplayMillis : 9_000;
-        bridgeNextSpeechDisplayMillis = 0;
+        if (line == null || line.isBlank() || !Float.isFinite(r)
+                || !Float.isFinite(g) || !Float.isFinite(b)) return false;
+        // Expire the previous lease before a potentially throwing engine call.
+        bridgeSpeechLine = null;
+        bridgeSpeechRows = null;
+        bridgeSpeechRefreshUntilNanos = 0L;
+        Object[] previous = SCCompanionSpeechRows.newest(getChatElement());
+        super.addLineChatElement(line, Math.max(0f, Math.min(1f, r)),
+                Math.max(0f, Math.min(1f, g)), Math.max(0f, Math.min(1f, b)),
+                font, range, tag, images, chatIcons, colors, fonts, bbcode, equalizeHeights);
+        bridgeSpeechRows = SCCompanionSpeechRows.capture(getChatElement(), previous);
         bridgeSpeechLine = line;
-        // Keep the line fully readable for the requested real-time interval.
-        // The stock fade begins only after this deadline, so a high game-time
-        // multiplier cannot shorten the configured reading window.
-        bridgeSpeechRefreshUntilNanos = System.nanoTime() + requested * 1_000_000L;
+        int duration = Math.max(MIN_SPEECH_DISPLAY_MILLIS,
+                Math.min(MAX_SPEECH_DISPLAY_MILLIS, durationMillis));
+        bridgeSpeechRefreshUntilNanos = System.nanoTime() + duration * 1_000_000L;
+        return true;
     }
 
     private void refreshCompanionSpeech() {
-        // Also covers engine/third-party chat that bypasses Lua's speech gate.
-        // Check before the retained-line fast path: unmanaged text has no lease.
         if (isAsleep()) {
             if (hasCompanionSpeech()) clearCompanionSpeech();
             return;
         }
-        String line = bridgeSpeechLine;
-        if (line == null) return;
-        long current = System.nanoTime();
-        if (current >= bridgeSpeechRefreshUntilNanos) {
+        if (bridgeSpeechLine == null) return;
+        if (System.nanoTime() >= bridgeSpeechRefreshUntilNanos) {
             bridgeSpeechLine = null;
+            bridgeSpeechRows = null;
             bridgeSpeechRefreshUntilNanos = 0L;
             return;
         }
-        String active = getSayLine();
-        if (active != null && !active.equals(line)) {
-            bridgeSpeechLine = null;
-            bridgeSpeechRefreshUntilNanos = 0L;
-            return;
+        // Touch only the clocks of this emission's still-newest existing rows.
+        // SayDebug can create/reparse rows with white text and a different font.
+        if (bridgeSpeechRows != null && !bridgeSpeechRows.refresh(getChatElement())) {
+            bridgeSpeechRows = null;
         }
-        // SayDebug detects the identical newest line and only refreshes its
-        // internal clock; it neither adds duplicate rows nor changes its font.
-        super.SayDebug(0, line);
     }
 
     /**
@@ -2446,6 +2476,7 @@ public final class SCNativeCompanion extends IsoPlayer {
      * bubble alive even after registry ownership has moved to a replacement.
      */
     public boolean clearCompanionSpeech() {
+        bridgeSpeechRows = null;
         bridgeSpeechLine = null;
         bridgeSpeechRefreshUntilNanos = 0L;
         bridgeNextSpeechDisplayMillis = 0;

@@ -4,7 +4,7 @@ local user = SurvivorCompanion.UserOptions
 local api = PZAPI.ModOptions
 local group = api:getOptions("SurvivorCompanion")
 
-assert(group ~= nil and #group.data == 6, "six built-in options registered")
+assert(group ~= nil and #group.data == 7, "seven built-in options registered")
 assert(user.get("banditsCompatibility") == true, "Bandits compatibility defaults on")
 assert(user.get("alifeCompatibility") == true, "A-Life compatibility defaults on")
 assert(user.get("chatter") == "normal", "chatter default before load")
@@ -49,8 +49,13 @@ assert(liveComfort.mode == "off" and liveComfort.ordinaryColds == true,
 assert(SurvivorCompanion.Gestures.nativeOptionApplies == 2,
     "Apply updates existing companions immediately")
 
+assert(user.get("speechColors") == "speaker")
+group:getOption("speechColors"):setValue(2)
+group:apply()
+assert(user.get("speechColors") == "white", "white option applies live")
 api:save()
 local disk = SC_TEST_MOD_OPTIONS_DISK()
+assert(disk[7] == "combobox|SurvivorCompanion|speechColors|2")
 assert(disk[1] == "combobox|SurvivorCompanion|chatter|2")
 assert(disk[2] == "combobox|SurvivorCompanion|coughSneezes|3")
 assert(disk[3] == "tickbox|SurvivorCompanion|ordinaryColds|true")
@@ -78,4 +83,8 @@ assert(user.load() == true)
 assert(user.get("chatter") == "normal", "invalid chatter index uses default")
 assert(user.get("coughSneezes") == "normal", "invalid cough index uses default")
 
+assert(user.get("speechColors") == "white", "white option survives reload")
+group:getOption("speechColors"):setValue(99)
+group:apply()
+assert(user.get("speechColors") == "speaker", "malformed colour option uses default")
 SC_TEST_REPORT = "SCUserOptions persistence and live Apply PASS"

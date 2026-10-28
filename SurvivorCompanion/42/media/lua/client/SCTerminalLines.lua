@@ -81,6 +81,7 @@ Lines.HELP = {
     "  deliveries           returned cargo awaiting storage",
     "  advice               what I would do, if I had hands",
     "  remember <note>      I will remember it. I remember everything.",
+    "  factory reset        erase this computer's old files, branding and memory; confirmation required",
     "  clear / exit",
     "Or just talk to me. I am told it helps. I am told a lot of things.",
 }

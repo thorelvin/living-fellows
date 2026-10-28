@@ -18,9 +18,9 @@ for _,profile in ipairs(Files.all()) do
     end
 end
 local kindCount=0 for _ in pairs(kinds) do kindCount=kindCount+1 end
-check(#Files.all()==129 and kindCount>=24,"expanded contextual archive coverage incomplete")
+check(#Files.all()==142 and kindCount>=24,"expanded contextual archive coverage incomplete")
 local entryCount=0 for _ in pairs(entries) do entryCount=entryCount+1 end
-check(entryCount==516,"each of the 129 owners has four distinct files")
+check(entryCount==568,"each of the 142 owners has four distinct files")
 check(Files.choose("media",3,"LouisvillePostLogo").id=="news_len",
     "newspaper inherited a television or radio operator archive")
 -- Published IDs remain accepted independently of any changed selection pools.
@@ -29,7 +29,7 @@ local state=System.create(19,"police",false,false,"saved-computer")
 state.archive=stable.id
 local restored=System.normalize(state)
 check(restored.archive==stable.id and Files.get(restored.archive)==stable,"old archive identity rerolled on normalize")
-for index=1,117 do
+for index=1,135 do
     state.archive=Files.all()[index].id
     check(System.normalize(state).archive==state.archive,"published owner archive changed after expansion")
 end
@@ -38,7 +38,7 @@ for _,entry in ipairs(Lore.REFERENCE) do
     check(not refIds[entry.id] and Lore.reference(entry.id)==entry,"reference identity invalid") refIds[entry.id]=true
     check(#entry.text<1024 and entry.text:find("[^\032-\126]")==nil,"reference file exceeds text contract")
 end
-check(#Lore.REFERENCE==120 and Lore.reference("not-a-file")==nil,"local reference catalog incomplete")
+check(#Lore.REFERENCE==150 and Lore.reference("not-a-file")==nil,"local reference catalog incomplete")
 for room,kind in pairs({office_herald="media",jackiejayeoffice="media",gigamart="grocery",medclinic="clinic",
     schoollab="education",universitylibrary="education",laboratory="research",radiofactory="industry",
     pharmacy="pharmacy",motelreception="hotel",pawnshopoffice="retail",kidsbedroom="home",
@@ -110,7 +110,13 @@ local publicBrandCases={riversidepd={"MeadeCountyPolice","police","sand"},
     ekroncollege={"EkronCommunityCollege","education","aqua"},
     alsautoshop={"AlsAutoShop","mechanic","aqua"},stuartandlogscrapyard={"StuartAndLog","mechanic","aqua"},
     darkwallowguesthouse={"DarkwallowGuestHouse","hotel","aqua"},a1hay={"A1Hay","agriculture","sand"},
-    gunsunlimitedechocreek={"GunsUnlimited","retail","green"},goldensunset={"GoldenSunset","clinic","sand"}}
+    gunsunlimitedechocreek={"GunsUnlimited","retail","green"},goldensunset={"GoldenSunset","clinic","sand"},
+    brookslibrary={"BrooksLibrary","education","sand"},lvpdhq={"LouisvillePolice","police","aqua"},
+    upscalemobility={"UpscaleMobility","mechanic","sand"},eptoolslv={"EPTools","hardware","aqua"},
+    brottauction={"BrottCattleFarm","agriculture","green"},beefchunk={"BeefChunk","industry","sand"},
+    artgalleryoflouisville={"ArtGalleryLouisville","research","sand"},gnomesweetgnome={"HomeSweetGnome","industry","aqua"},
+    irvingtonspeedway={"IrvingtonSpeedway","entertainment","sand"},sunsetpinesfuneralhome={"SunsetPines","community","sand"},
+    roxysrollerrink={"RoxysRollerRink","entertainment","aqua"}}
 local rareSeed
 for seed=1,1000 do
     if SC.TerminalPresentation.themeFor(seed)=="purple" then rareSeed=seed break end
@@ -132,6 +138,25 @@ for key,row in pairs(publicBrandCases) do
     check(not Brands.BACKINGS[id],"transparent header lettering was misclassified as a backing: "..id)
     check(SC.TerminalPresentation.themeFor(rareSeed,id)=="purple","brand disabled rare-purple computers: "..id)
 end
+PrintMediaDefinitions={MiscDetails={circuitalhealing={location1={{x1=10,y1=20,x2=15,y2=25}}}}}
+object=computer("medical",12,22,0)
+check(Brands.identify(object)=="_medical","mixed Circuital Healing advert claimed the neighbouring medical tenant")
+for id,group in pairs({CircuitalHealing="Circuital Healing",ArtGalleryLouisville="Art Gallery of Louisville",
+    HomeSweetGnome="Home Sweet Gnome",IrvingtonSpeedway="Irvington Speedway",
+    SunsetPines="Sunset Pines Funeral Home",RoxysRollerRink="Roxy's Roller Rink"}) do
+    local current,homeRoom
+    object,current,homeRoom=computer("office",1000,1000,0)
+    local firmSign={getProperties=function() return {get=function(_,key) return key=="CustomName" and "Sign" or group end} end}
+    squares["1001:1000:0"]={getRoom=function() return homeRoom end,getObjects=function() return list({firmSign}) end}
+    check(Brands.identify(object)==id,"new original logo not recognised from its own room sign: "..id)
+    squares["1001:1000:0"].getRoom=function() return room("neighbour") end
+    check(Brands.identify(object)=="_office","new sign branding crossed a tenant wall: "..id)
+    local kind=Brands.kind(id)
+    check(Files.choose(kind,31,id).brand==id,"new business has no matching staff archive: "..id)
+end
+local gateProfile=Files.choose("security",31,"IrvingtonSpeedway")
+check(gateProfile.brand=="IrvingtonSpeedway" and gateProfile.kind=="security",
+    "speedway security computers inherited unrelated prison or military stories")
 SC.GameplayUtil,PrintMediaDefinitions=savedU,savedDefinitions
 for _,id in ipairs({"UStoreIt","PizzaWhirled","SunstarMotel","JackieJaye","Twiggys","WestPointDIY",
     "WizardsKeep","MuldraughPolice","RosewoodFire","TacoDelPancho"}) do

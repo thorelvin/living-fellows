@@ -1,0 +1,92 @@
+[
+  {
+    "id": "ArtGalleryLouisville",
+    "sha256": "9c560730d47e26b5bf9abb00f317d1e2c6c0b82e6f5fb0d4e9e2fb801360230d",
+    "size": [
+      1983,
+      793
+    ],
+    "alpha_bounds": [
+      128,
+      175,
+      1870,
+      615
+    ],
+    "transparent_fraction": 0.7616
+  },
+  {
+    "id": "HomeSweetGnome",
+    "sha256": "79a9450fc0183b1f79b5228f4509eddf05cc4dbbfb3fef918e378472021bb42b",
+    "size": [
+      1983,
+      793
+    ],
+    "alpha_bounds": [
+      43,
+      246,
+      1947,
+      561
+    ],
+    "transparent_fraction": 0.8191
+  },
+  {
+    "id": "CircuitalHealing",
+    "sha256": "9d161644da27bc1e4f14e483ce1a96fd9ea7af913647491baaadc64c96161fee",
+    "size": [
+      2172,
+      724
+    ],
+    "alpha_bounds": [
+      90,
+      218,
+      2100,
+      520
+    ],
+    "transparent_fraction": 0.7296
+  },
+  {
+    "id": "IrvingtonSpeedway",
+    "sha256": "dc35b5c23bae1171a32ec4385fe2d76105d0dd0d7d1f00f0cf5f41d11cbbf862",
+    "size": [
+      1983,
+      793
+    ],
+    "alpha_bounds": [
+      52,
+      215,
+      1945,
+      580
+    ],
+    "transparent_fraction": 0.6806
+  },
+  {
+    "id": "SunsetPines",
+    "sha256": "f18d1772352bd7019b2ed03ab70d415f8a55a1682f969561e511f02e173c1bf1",
+    "size": [
+      2089,
+      753
+    ],
+    "alpha_bounds": [
+      65,
+      137,
+      2034,
+      560
+    ],
+    "transparent_fraction": 0.7895
+  },
+  {
+    "id": "RoxysRollerRink",
+    "sha256": "42dcb84e958e9ebd9947f7001841bda6b151739bbce98b8dfa845b4783ba03fe",
+    "size": [
+      2116,
+      743
+    ],
+    "alpha_bounds": [
+      77,
+      160,
+      2034,
+      647
+    ],
+    "transparent_fraction": 0.6306
+  }
+]

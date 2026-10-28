@@ -50,7 +50,7 @@ for _,category in ipairs(SC.TerminalKnowledge.CATEGORIES) do
     check(choose("referenceCategory","__categories") and not w.referenceCategory,"Back returns to categories")
 end
 local count=0 for _ in pairs(found) do count=count+1 end
-check(count==120,"all reference files are reachable through category menus")
+check(count==150,"all reference files are reachable through category menus")
 local originalCore=getCore
 for _,size in ipairs({{1280,720},{1920,1080},{2560,1440},{640,720},{960,540}}) do
     getCore=function() return {getScreenWidth=function() return size[1] end,getScreenHeight=function() return size[2] end} end

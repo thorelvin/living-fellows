@@ -55,6 +55,13 @@ lines. The operating system and the assistant are distinct.
 - **System menu.** A numbered menu sits beside chat: camp report, the named
   owner's personal files, county and EMMA files, and log off. Both clicking and typing work. Ordinary
   text continues to EMMA, with history and context preserved.
+- **A fresh start.** Ask `factory reset` or `reset this computer to factory
+  settings`. EMMA asks for Y/N confirmation before erasing that computer's
+  previous owner's files, firm branding, notes and conversation memory. It
+  restarts with EMMA branding and an empty personal directory. Mounted radio
+  and battery parts, screen colour, access protections and connected equipment
+  settings stay intact. Unlock a protected computer before asking. Other
+  computers keep their data; county and EMMA reference files stay installed.
 
 The implementation stages are:
 
@@ -67,7 +74,7 @@ The implementation stages are:
    explicit Y/N confirmation and fresh validation when accepted. Expand wounds,
    skills, job suitability, shortages, alarms, radio reports, debriefs and
    pending-delivery answers. Never execute arbitrary text as code or commands.
-3. **Lore and downtime:** 516 original entries across 129 owners, plus 120
+3. **Lore and downtime:** 568 original entries across 142 owners, plus 150
    archived county and EMMA files. Companions can take a short break reading
    local files at an accessible camp computer.
 
@@ -111,7 +118,7 @@ Ekron, Echo Creek and more local businesses.
 Inventory questions still use camp records: `Spiffo burger?` or `How many
 Spiffo burgers do we have?` asks for actual supplies, not mascot history.
 
-**Outbreak fragments** collects sixteen darker accounts: contradictory records,
+**Outbreak fragments** collects thirty-four darker accounts: contradictory records,
 abandoned meetings, a basement telephone and an empty bus. Try `Tell me about
 the blue carbon copy` or `Tell me about the empty bus`, then `tell me more`.
 They are unverified local notes, unlocked by their July dates. Another sixteen
@@ -125,6 +132,11 @@ shop's borrowed car and missing farm deliveries. Try `Tell me about Golden
 Sunset`, `What about A-1 Hay?` or `Tell me about the second guest register`.
 Complete business names remain distinct from a companion with the same first
 name. Existing computers keep the owner already saved on them.
+
+Further files cover the Art Gallery of Louisville, Home Sweet Gnome, Circuital
+Healing, Irvington Speedway, Sunset Pines and Roxy's Roller Rink. The Speedway
+has separate race-office and gate-security accounts. Try `Tell me about July
+mittens`, `The fourth switch` or `Parking bay six` for more outbreak fragments.
 
 ## Branding coverage research
 

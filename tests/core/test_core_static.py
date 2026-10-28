@@ -499,6 +499,7 @@ native_companion = (native_sources / "SCNativeCompanion.java").read_text(encodin
 
 # Name clearance belongs to screen-space rendering, not an empty text row.
 require("super.addLineChatElement(line);" in native_companion
+        and "public boolean emitCompanionSpeech(" in native_companion
         and "chatElement = new CompanionChatElement(this," in native_companion
         and "liftAboveNameplate" not in native_companion,
         "companion speech must use its offset renderer without blank-line padding")

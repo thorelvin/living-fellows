@@ -15,6 +15,7 @@ local UserOptions = SC.UserOptions
 local MOD_ID = "SurvivorCompanion"
 local CHATTER = { "normal", "less", "rare" }
 local COUGH_SNEEZES = { "normal", "rare", "off" }
+local SPEECH_COLORS = { "speaker", "white" }
 local values = {
     chatter = "normal",
     coughSneezes = "normal",
@@ -22,6 +23,7 @@ local values = {
     protectRecruitedCompanions = false,
     banditsCompatibility = true,
     alifeCompatibility = true,
+    speechColors = "speaker",
 }
 
 local api = PZAPI.ModOptions
@@ -62,6 +64,10 @@ local banditsOption = tickBox("banditsCompatibility", "UI_SC_ModOptions_BanditsC
     true, "UI_SC_ModOptions_BanditsCompatibility_Tooltip")
 local alifeOption = tickBox("alifeCompatibility", "UI_SC_ModOptions_ALifeCompatibility",
     true, "UI_SC_ModOptions_ALifeCompatibility_Tooltip")
+local speechColorsOption = combo("speechColors", "UI_SC_ModOptions_SpeechColors",
+    "UI_SC_ModOptions_SpeechColors_Tooltip", SPEECH_COLORS, {
+        "UI_SC_ModOptions_SpeakerColors", "UI_SC_ModOptions_WhiteText",
+    })
 
 local function selectedChoice(option, choices)
     local index = tonumber(option.selected)
@@ -98,6 +104,7 @@ function UserOptions.apply()
     values.protectRecruitedCompanions = protectionOption:getValue() == true
     values.banditsCompatibility = banditsOption:getValue() == true
     values.alifeCompatibility = alifeOption:getValue() == true
+    values.speechColors = selectedChoice(speechColorsOption, SPEECH_COLORS)
     if SC.State and SC.State.active and SC.BanditsAdapter then SC.BanditsAdapter.initialize() end
     if SC.State and SC.State.active and SC.ALifeAdapter then SC.ALifeAdapter.initialize() end
     UserOptions.syncNative()

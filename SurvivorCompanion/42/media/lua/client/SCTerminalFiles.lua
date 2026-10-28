@@ -120,7 +120,9 @@ for _, profile in ipairs(profiles) do
     end
 end
 
-function Files.get(id) return byId[id] end
+-- Factory setup is not an old owner's archive and must never enter discovery.
+local factory = { id = "_factory", owner = "New operator", entries = {} }
+function Files.get(id) return id == factory.id and factory or byId[id] end
 function Files.choose(kind, seed, brand)
     local related=SC.TerminalBusinessData and SC.TerminalBusinessData.ARCHIVE_BRANDS
     local branded = byBrand[brand] or byBrand[related and related[brand]]

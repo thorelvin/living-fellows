@@ -306,6 +306,30 @@ function Terminal.resetSessions()
     sessions, sessionOrder = {}, {}
 end
 
+-- Only called after a fresh local confirmation. Never clear movableData: it
+-- owns actual mounted items and may also contain other mods' records.
+function Terminal.factoryReset(window)
+    if Terminal.window ~= window or window.closed or not window.system then
+        return false, "This computer session is no longer available."
+    end
+    local portable = portableData(window.object, false)
+    local data = call(window.object, "getModData")
+    if not portable or portable[System().MEMORY_KEY] ~= window.system then
+        return false, "The computer's access record changed. Please reopen it."
+    end
+    local state = System().factoryReset(window.system)
+    if not state then return false, "This computer must be unlocked before it can be reset." end
+    portable[System().MEMORY_KEY] = state
+    -- Both slots must go; legacy fallback and close() must not resurrect notes.
+    portable[Terminal.MEMORY_KEY], data[Terminal.MEMORY_KEY] = nil, nil
+    sessions[state.identity] = nil
+    for index = #sessionOrder, 1, -1 do
+        if sessionOrder[index] == state.identity then table.remove(sessionOrder, index) end
+    end
+    window.session = nil
+    return true, "Factory settings restored. Restarting EMMA."
+end
+
 function Terminal.reset()
     Terminal.nativeLogoUnavailable=nil
     if SC.TerminalActions then SC.TerminalActions.reset() end
@@ -1051,11 +1075,16 @@ function SCTerminalWindow:systemInput(raw)
         local ticket = self.requestTicket
         self.requestTicket = nil
         if lower == "yes" or lower == "y" then
-            local called, okay, message = pcall(SC.TerminalActions.execute, self, ticket)
+            local called, okay, message, command = pcall(SC.TerminalActions.execute, self, ticket)
             if not called then
                 SC.TerminalActions.cancel(ticket)
                 diagnostic("terminal request failed", okay)
                 message = "The request could not be completed. Ask about jobs before trying again."
+            end
+            if called and okay and command == "reboot" then
+                self:close()
+                Terminal.open(self.player, self.object)
+                return true
             end
             self:startReply({ lines = { message }, thinkMs = 0 })
             return true
@@ -1105,6 +1134,7 @@ function SCTerminalWindow:systemInput(raw)
         self.menuSelection=1
         self:setFocusMode("menu")
         self:print("Personal files: " .. SC.TerminalFiles.get(self.system.archive).owner, "system")
+        if self.system.archive == "_factory" then self:print("No personal files. Factory setup is clean.", "system") end
         return true
     end
     if lower=="county files" or lower=="emma files" or option and option.systemCommand=="lore" then
@@ -1502,6 +1532,8 @@ function SCTerminalWindow:prerender()
         local label = self.layout.logo.x - self.layout.left - pad >= self.charWidth * 23 and "EMMA  /  LOCAL TERMINAL" or "EMMA"
         if self.system and self.system.locked then
             label = self.layout.logo.x - self.layout.left - pad >= self.charWidth * 23 and "LOCAL PASSWORD RECOVERY" or "RECOVERY"
+        elseif self.menuPage == "files" and self.system and self.system.archive == "_factory" then
+            label = self.layout.logo.x - self.layout.left - pad >= self.charWidth * 23 and "PERSONAL FILES / EMPTY" or "FILES / EMPTY"
         end
         if self.state == "booting" then label = "PERSONAL SYSTEM / 486" end
         self:drawText(label, self.layout.left, self.layout.titleHeight,

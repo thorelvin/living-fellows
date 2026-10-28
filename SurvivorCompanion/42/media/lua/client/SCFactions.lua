@@ -1,6 +1,7 @@
 -- SPDX-License-Identifier: MIT
 
 local SC = SurvivorCompanion
+if not SC.SpeechColors then require "SCSpeechColors" end
 if not SC.Performance and type(require) == "function" then pcall(require, "SCPerformance") end
 if not SC.StableValue and type(require) == "function" then pcall(require, "SCStableValue") end
 if not SC.NativeList and type(require) == "function" then pcall(require, "SCNativeList") end
@@ -1253,6 +1254,7 @@ local function profileFor(group, member, snapshot)
         identity = stableCopy(identity, 3),
         nickname = snapshot and snapshot.nickname or member.nickname,
         nicknameMeta = snapshot and snapshot.nicknameMeta or member.nicknameMeta,
+        speechColorKey = snapshot and snapshot.speechColorKey or member.speechColorKey,
         state = snapshot or {
             order = {
                 current = "faction_duty", scavenge = false,
@@ -1985,6 +1987,8 @@ local function pollSpawn()
     local actorId = U().idOf(actor)
     if member then
         member.actorId = actorId
+        local record = SC.Registry.byId(actorId)
+        member.speechColorKey = record and record.speechColorKey or member.speechColorKey
         member.hibernated = false
         member.waking = false
         member.spawnQueued = false
@@ -3262,6 +3266,7 @@ local function hibernateMember(group, member, player, allowDetachedRecovery)
     member.snapshot = snapshot
     member.nickname = snapshot.nickname
     member.nicknameMeta = snapshot.nicknameMeta
+    member.speechColorKey = snapshot.speechColorKey
     member.hibernated = true
     if wakePosition then group.oddball.site.wake = wakePosition end
     memberToGroup[member.actorId] = nil
@@ -4565,6 +4570,7 @@ function Factions.restore(document)
                 "unordered group is absent from order")
         end
     end
+    SC.SpeechColors.prepareFactions({ groups = candidateGroups })
     local previous = captureRestoreState()
     local world = SC.FactionWorld
     if world and type(world.reconcile) == "function"

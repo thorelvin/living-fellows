@@ -1,0 +1,171 @@
+{
+  "colour-zoom-050-short.png": {
+    "native_mint_pixels": 371,
+    "crop_size": [
+      181,
+      100
+    ]
+  },
+  "colour-zoom-075-short.png": {
+    "native_mint_pixels": 371,
+    "crop_size": [
+      181,
+      100
+    ]
+  },
+  "colour-zoom-100-short.png": {
+    "native_mint_pixels": 371,
+    "crop_size": [
+      181,
+      100
+    ]
+  },
+  "colour-zoom-125-short.png": {
+    "native_mint_pixels": 371,
+    "crop_size": [
+      181,
+      100
+    ]
+  },
+  "colour-zoom-150-short.png": {
+    "native_mint_pixels": 371,
+    "crop_size": [
+      181,
+      100
+    ]
+  },
+  "colour-zoom-175-short.png": {
+    "native_mint_pixels": 348,
+    "crop_size": [
+      181,
+      100
+    ]
+  },
+  "colour-zoom-200-short.png": {
+    "native_mint_pixels": 332,
+    "crop_size": [
+      181,
+      100
+    ]
+  },
+  "colour-zoom-050-multiline.png": {
+    "native_mint_pixels": 565,
+    "crop_size": [
+      146,
+      124
+    ]
+  },
+  "colour-zoom-075-multiline.png": {
+    "native_mint_pixels": 565,
+    "crop_size": [
+      146,
+      124
+    ]
+  },
+  "colour-zoom-100-multiline.png": {
+    "native_mint_pixels": 560,
+    "crop_size": [
+      146,
+      123
+    ]
+  },
+  "colour-zoom-125-multiline.png": {
+    "native_mint_pixels": 520,
+    "crop_size": [
+      146,
+      124
+    ]
+  },
+  "colour-zoom-150-multiline.png": {
+    "native_mint_pixels": 564,
+    "crop_size": [
+      146,
+      124
+    ]
+  },
+  "colour-zoom-175-multiline.png": {
+    "native_mint_pixels": 547,
+    "crop_size": [
+      146,
+      124
+    ]
+  },
+  "colour-zoom-200-multiline.png": {
+    "native_mint_pixels": 525,
+    "crop_size": [
+      146,
+      124
+    ]
+  },
+  "colour-zoom-050-wrapped.png": {
+    "native_mint_pixels": 2492,
+    "crop_size": [
+      595,
+      124
+    ]
+  },
+  "colour-zoom-075-wrapped.png": {
+    "native_mint_pixels": 2480,
+    "crop_size": [
+      595,
+      124
+    ]
+  },
+  "colour-zoom-100-wrapped.png": {
+    "native_mint_pixels": 2441,
+    "crop_size": [
+      595,
+      124
+    ]
+  },
+  "colour-zoom-125-wrapped.png": {
+    "native_mint_pixels": 2424,
+    "crop_size": [
+      595,
+      124
+    ]
+  },
+  "colour-zoom-150-wrapped.png": {
+    "native_mint_pixels": 2487,
+    "crop_size": [
+      595,
+      124
+    ]
+  },
+  "colour-zoom-175-wrapped.png": {
+    "native_mint_pixels": 2407,
+    "crop_size": [
+      595,
+      124
+    ]
+  },
+  "colour-zoom-200-wrapped.png": {
+    "native_mint_pixels": 2395,
+    "crop_size": [
+      595,
+      124
+    ]
+  },
+  "early": {
+    "native_mint_pixels": 1496
+  },
+  "late": {
+    "native_mint_pixels": 1496
+  },
+  "colour-night": {
+    "native_mint_pixels": 589,
+    "review": "complete original; native attenuation retained"
+  },
+  "colour-bright-floor": {
+    "native_mint_pixels": 719,
+    "review": "complete original; native attenuation retained"
+  },
+  "four_speakers": {
+    "mint": 432,
+    "pink": 432,
+    "sand": 432,
+    "periwinkle": 432
+  },
+  "minimum_contrast_against_black": 12.323783340705942,
+  "limits": "CVD simulations aid review, not clinical/user validation. Hues can converge; names/position and White text remain available."
+}

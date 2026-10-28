@@ -1,0 +1,9 @@
+PASS native proposal retains old files and user notes until explicit confirmation
+SHOT confirmation
+PASS native no cancels; yes consumes confirmation and opens clean POST
+SHOT boot
+PASS native clean operator, empty directory, stable physical identity and unrelated payload; no secondary slot
+SHOT empty-files
+PASS native reopen preserves clean setup and installed reference library
+SHOT clean-emma
+PASS native terminal reset acceptance complete

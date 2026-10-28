@@ -1,8 +1,8 @@
 {
   "runtime": "42.21.0",
   "desktop_objects": 3536,
-  "curated_advert_keys": 40,
-  "native_rectangles": 41,
+  "curated_advert_keys": 68,
+  "native_rectangles": 67,
   "exact_room_candidates": {
     "GigaMart": 1,
     "JackieJaye": 3,
@@ -11,21 +11,40 @@
   },
   "unambiguous_rectangle_candidates": {
     "AmericanTire": 1,
+    "ArtGalleryLouisville": 4,
+    "BeefChunk": 9,
+    "BrooksLibrary": 7,
+    "BrottCattleFarm": 1,
+    "DarkwallowGuestHouse": 8,
+    "EPTools": 2,
     "ElveeArena": 17,
+    "GunsUnlimited": 2,
     "HitVids": 1,
+    "HobbsPerkinsHardware": 1,
+    "HomeSweetGnome": 2,
+    "IrvingtonSpeedway": 33,
     "KnoxBank": 12,
     "KnoxPackKitchens": 9,
     "Lectromax": 4,
     "LouisvilleBruiser": 8,
+    "LouisvillePolice": 57,
     "LouisvilleStateUniversity": 53,
+    "MeadeCountyPolice": 3,
+    "MuldraughPolice": 7,
     "NailsandNuts": 5,
     "OnyxDriveInTheater": 1,
+    "RosewoodFire": 2,
     "ScarletOakDistillery": 10,
     "SleepEazzzeInn": 72,
     "SunstarMotel": 1,
-    "WestMapleCountryClub": 1
+    "Twiggys": 1,
+    "UpscaleMobility": 5,
+    "WestMapleCountryClub": 1,
+    "WestPointDIY": 1,
+    "WestPointTownHall": 3,
+    "WizardsKeep": 3
   },
-  "private_room_rectangle_matches_excluded": 2,
+  "private_room_rectangle_matches_excluded": 3,
   "conflicting_rectangle_candidates": 0,
   "limits": [
     "Counts are evidence candidates, not a running-save assignment census.",
@@ -33,7 +52,7 @@
     "Generic offices and mixed tenants can retain sector emblems."
   ],
   "sha256": {
-    "C:\\ZOMBOID\\work\\rv67\\SurvivorCompanion\\42\\media\\lua\\client\\SCTerminalBusinessData.lua": "176152a26a95ac4b103da89a9d8881c1f78a29cf9bbb08a6b6ce323741cf8a2b",
+    "C:\\ZOMBOID\\work\\rv67\\SurvivorCompanion\\42\\media\\lua\\client\\SCTerminalBusinessData.lua": "3d80c4cef458914e01ac81d207e36d6e2371467925fa563d50529d5cd76f1edf",
     "C:\\Program Files (x86)\\Steam\\steamapps\\common\\ProjectZomboid\\media\\lua\\shared\\PrintMedia\\PrintMediaDefinitions.lua": "09e000db0f52a99a2cbd5d113526bfbd756c907efdb52a38a178bf181b84123b",
     "C:\\ZOMBOID\\work\\rv67\\artifacts\\emma\\research\\computer-census.csv": "fcfb4b1001215ffe733b8142b58bf52c399817d6c17f54c576cd6346a44e7550"
   }

@@ -4,6 +4,21 @@
 
 ## 0.26.74 - Map-selected expeditions
 
+- Six more computer logos cover the Art Gallery of Louisville, Home Sweet
+  Gnome, Circuital Healing, Irvington Speedway, Sunset Pines and Roxy's Roller
+  Rink. Seven staff archives add 28 entries, including Speedway gate security;
+  six business cards and eight outbreak fragments expand EMMA's library.
+- Ask EMMA to `factory reset` the current computer. After Y/N confirmation it
+  reboots with clean EMMA branding and an empty personal directory, clearing
+  the old owner's files, your notes and conversation memory. Mounted hardware,
+  screen colour and access protections stay intact.
+- Six more computer identities cover Brooks Public Library, Louisville Police,
+  Upscale Mobility, E.P. Tools, Brott Cattle Farm and BeefChunk Jerky Co., with
+  matching CRT colours and 24 original staff entries. Six business references
+  and ten uneasy outbreak fragments expand EMMA's local files.
+- Every Living Fellows person has a consistent, soft speech colour that stays
+  with them through recruitment and reloads. Choose **White text** under
+  Options > Mods > Living Fellows if you prefer. Name tags keep their colours.
 - Removed the extra empty black row above companion dialogue. Speech bubbles
   move above name tags without inserting blank text or changing their font.
 - Fixed follow-car occupants catching up by teleport when the player exits

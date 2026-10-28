@@ -1,0 +1,19 @@
+PASS native fourteen new read-only topic aliases, date-gated directory and retained old owner; available=147
+SHOT outbreak
+SHOT logo-ArtGalleryLouisville
+PASS native header ArtGalleryLouisville theme=sand owner=gallery_ellen font=32
+SHOT logo-HomeSweetGnome
+PASS native header HomeSweetGnome theme=aqua owner=gnome_vern font=32
+SHOT logo-CircuitalHealing
+PASS native header CircuitalHealing theme=aqua owner=circuital_sigrid font=32
+SHOT logo-IrvingtonSpeedway
+PASS native header IrvingtonSpeedway theme=sand owner=speedway_lena font=32
+SHOT logo-SunsetPines
+PASS native header SunsetPines theme=sand owner=sunset_edith font=32
+SHOT logo-RoxysRollerRink
+PASS native header RoxysRollerRink theme=aqua owner=roxy_allison font=32
+SHOT logo-CircuitalHealing-purple
+PASS native header CircuitalHealing theme=purple owner=circuital_sigrid font=32
+SHOT logo-RoxysRollerRink-purple
+PASS native header RoxysRollerRink theme=purple owner=roxy_allison font=32
+PASS native terminal places acceptance complete

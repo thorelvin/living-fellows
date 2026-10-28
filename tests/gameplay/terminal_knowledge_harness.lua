@@ -12,7 +12,7 @@ local world={camp=function() return {configured=true,inside=true} end,clock=func
     storage=function() calls.storage=calls.storage+1 return {groups={{name="Spiffo Burger",count=3,type="Base.Burger",food=true,
         category="Food",kcal=500}},items=3,containers=1} end,
     zombies=function() calls.zombies=calls.zombies+1 return {count=42,radius=40,nearest=10,dir="north"} end}
-check(#K.ENTRIES==104 and #Lore.REFERENCE==120 and #K.CHAT==24,"expanded reference and conversation counts")
+check(#K.ENTRIES==134 and #Lore.REFERENCE==150 and #K.CHAT==24,"expanded reference and conversation counts")
 local ids={}
 for _,entry in ipairs(K.ENTRIES) do
     check(not ids[entry.id] and Lore.reference(entry.id)==entry,"stable unique ID "..entry.id) ids[entry.id]=true
@@ -86,7 +86,7 @@ for _,entry in ipairs(K.ENTRIES) do
         check(Lore.available(entry,{year=1993,month=6,day=9}),"early-outbreak fragment missing after its date")
     end
 end
-check(fragmentCount==16,"sixteen original outbreak fragments are catalogued")
+check(fragmentCount==34,"thirty-four original outbreak fragments are catalogued")
 local before=calls.zombies
 reply=Brain.respond(session(),"is Louisville safe",world)
 check(reply.intent=="lore" and text(reply):find("cannot confirm",1,true) and calls.zombies==before,

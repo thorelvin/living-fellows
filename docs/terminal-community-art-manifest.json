@@ -1,5 +1,5 @@
 {
-  "date": "2026-10-27",
+  "date": "2026-10-28",
   "entries": [
     {
       "id": "Twiggys",
@@ -476,6 +476,319 @@
         726
       ],
       "transparent_fraction": 0.5581
+    },
+    {
+      "id": "BrooksLibrary",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/Library.png",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-92578d3d-9ce9-45f5-9cac-3b6704157fc4.png",
+      "prompt": "Create ONE simple clean logo PNG with a fully transparent background. Exact text: \"BROOKS LIBRARY\". A small open-book outline on the left, large sturdy readable serif words on the right, all on one line. Wide horizontal 4:1 layout. ONLY solid pure white strokes and lettering; all other pixels transparent, including letter holes and book interior. Plain flat 1993 computer boot emblem. Smooth clean glyph silhouettes, no pixel texture, no distress, no glow, no outlines around text, no shadows, no gradients, no filled box, no paper, no border, no image of a screen. Strong legibility at a 210-pixel-wide header. No additional text or objects.",
+      "generator_input_images": [],
+      "generator": "built-in image_gen",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/BrooksLibrary.png",
+      "transparent_background": true,
+      "pixel_processing": "None. Source copied unchanged; native renderer uses alpha bounds and phosphor pairing.",
+      "sha256": "7b5d98f95bc210249103c4e3984ae489d5b01f035d9c752efbec6bedb9e3cb59",
+      "reference_sha256": "ef1692f834b1f3525769522b1b5e35ed4bfba59834dc6ca28574f5c0802c53dc",
+      "size": [
+        2172,
+        724
+      ],
+      "alpha_bounds": [
+        31,
+        244,
+        2154,
+        479
+      ],
+      "transparent_fraction": 0.8085
+    },
+    {
+      "id": "LouisvillePolice",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/LVPD.png",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-f6dd2dae-6aa9-40c7-bc14-e3ff9dbd7f9e.png",
+      "prompt": "Create ONE simple clean logo PNG with a fully transparent background. Exact text: \"LOUISVILLE POLICE\". A small plain outlined five-point star on the left and large sturdy readable condensed sans-serif words on the right, all on one line. Wide horizontal 4:1 layout. ONLY solid pure white strokes and lettering; all other pixels transparent, including letter holes and the star interior. Plain flat 1993 computer boot emblem. Original fictional supporting logo, no real government seal. Smooth clean glyph silhouettes, no pixel texture, no distress, no glow, no outlines around text, no shadows, no gradients, no filled box, no paper, no border, no image of a screen. Strong legibility at a 210-pixel-wide header. No additional text or objects.",
+      "generator_input_images": [],
+      "generator": "built-in image_gen",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/LouisvillePolice.png",
+      "transparent_background": true,
+      "pixel_processing": "None. Source copied unchanged; native renderer uses alpha bounds and phosphor pairing.",
+      "sha256": "b66b2d179a6afb6fe1f4efd4ae4fbaedf02596f4c2767473fc2629a2dad61740",
+      "reference_sha256": "d3670e172417316c6064677aa0e34c531451a6a691c61e0bc57de5d21393d217",
+      "size": [
+        2075,
+        758
+      ],
+      "alpha_bounds": [
+        28,
+        209,
+        2049,
+        514
+      ],
+      "transparent_fraction": 0.7314
+    },
+    {
+      "id": "UpscaleMobility",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/Upscale.png",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-669b93c3-a955-4579-a287-d8905f07b32b.png",
+      "prompt": "Use case: logo-brand. ONE small transparent computer-header logo for a 1993 Project Zomboid terminal. Attached game advert is an identity reference only. Compact horizontal icon-and-wordmark composition, roughly 4:1, tidy transparent margins, readable at 210x55 pixels. Clean flat screen-print ink with very slight bitmap stepping, uniform strong strokes. The image is placed directly on nearly-black CRT glass; empty space MUST be transparent alpha, including gaps inside letters and icons. Strictly NO glow, halo, bloom, shadow, bevel, extrusion, distressed specks, gradients, background panel, white paper, sticker, monitor, physical sign, photograph, border frame, slogan, prices, addresses or extra text. Pale flat ink readable on dark glass. Exact words \"UPSCALE MOBILITY\", with a smaller second line \"AUTO DEALERSHIP\". Retain the reference geometric luxury sans-serif capitals. One minimal ivory car-profile line at left. Main lettering pale golden sand with an ivory secondary line; no dark outlines. Match golden-sand terminal text and glass. No large filled car or backing.",
+      "generator_input_images": [
+        "Upscale.png"
+      ],
+      "generator": "built-in image_gen",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/UpscaleMobility.png",
+      "transparent_background": true,
+      "pixel_processing": "None. Source copied unchanged; native renderer uses alpha bounds and phosphor pairing.",
+      "sha256": "efd231d23d67e1e46bcabe4575d0ffc503850c51a6af6cd63c6f3c2cad4e5321",
+      "reference_sha256": "894167303c66d54e68970752286870dd79155bb815f05fbf7d6064707c794c50",
+      "size": [
+        2079,
+        756
+      ],
+      "alpha_bounds": [
+        87,
+        302,
+        1992,
+        502
+      ],
+      "transparent_fraction": 0.8571
+    },
+    {
+      "id": "EPTools",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/EPTools.png",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-643fbb3b-f36a-4d43-ba1d-9ff52895dbe0.png",
+      "prompt": "Use case: logo-brand. ONE small transparent computer-header logo for a 1993 Project Zomboid terminal. Attached game advert is an identity reference only. Compact horizontal icon-and-wordmark composition, roughly 4:1, tidy transparent margins, readable at 210x55 pixels. Clean flat screen-print ink with very slight bitmap stepping, uniform strong strokes. The image is placed directly on nearly-black CRT glass; empty space MUST be transparent alpha, including gaps inside letters and icons. Strictly NO glow, halo, bloom, shadow, bevel, extrusion, distressed specks, gradients, background panel, white paper, sticker, monitor, physical sign, photograph, border frame, slogan, prices, addresses or extra text. Pale flat ink readable on dark glass. Exact wording \"E.P. TOOLS\" in sturdy serif capitals like the reference, with a small simple open-ended wrench line emblem at left. Pale silver-ivory main lettering with a subtle pale aquamarine accent; no wood panel or handle backdrop. Match aquamarine terminal text and glass. Keep the periods after E and P.",
+      "generator_input_images": [
+        "EPTools.png"
+      ],
+      "generator": "built-in image_gen",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/EPTools.png",
+      "transparent_background": true,
+      "pixel_processing": "None. Source copied unchanged; native renderer uses alpha bounds and phosphor pairing.",
+      "sha256": "cc69fad1316c904c3eee4d4138e1dce0e75c64b335bbde09170b3df8db0c1346",
+      "reference_sha256": "5d187ba33ad7c45ad71ea281e28960643101d2f31513ff71958fad6efc29c30f",
+      "size": [
+        1983,
+        793
+      ],
+      "alpha_bounds": [
+        66,
+        234,
+        1926,
+        558
+      ],
+      "transparent_fraction": 0.7894
+    },
+    {
+      "id": "BrottCattleFarm",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/Brott.png",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-8155fae5-802b-4dfb-80ee-c2f01280c7b4.png",
+      "prompt": "Use case: logo-brand. ONE small transparent computer-header logo for a 1993 Project Zomboid terminal. Attached game advert is an identity reference only. Compact horizontal icon-and-wordmark composition, roughly 4:1, tidy transparent margins, readable at 210x55 pixels. Clean flat screen-print ink with very slight bitmap stepping, uniform strong strokes. The image is placed directly on nearly-black CRT glass; empty space MUST be transparent alpha, including gaps inside letters and icons. Strictly NO glow, halo, bloom, shadow, bevel, extrusion, distressed specks, gradients, background panel, white paper, sticker, monitor, physical sign, photograph, border frame, slogan, prices, addresses or extra text. Pale flat ink readable on dark glass. Exact words \"BROTT CATTLE FARM\", with the smaller word \"AUCTION\" below. Retain a sturdy stencil-like upper wordmark inspired by the reference. One small simple cattle-head line emblem at left with transparent interior. Pale warm-ivory lettering and soft mint-green secondary lettering, a restrained pale golden-sand accent. Match green phosphor text and glass. No cow photograph or filled badge.",
+      "generator_input_images": [
+        "Brott.png"
+      ],
+      "generator": "built-in image_gen",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/BrottCattleFarm.png",
+      "transparent_background": true,
+      "pixel_processing": "None. Source copied unchanged; native renderer uses alpha bounds and phosphor pairing.",
+      "sha256": "9b53ff96cd90bbefb92f44af723c7991afd9384e21668c6b1416e8d30d5bcd82",
+      "reference_sha256": "cdf92da7604defe3309bfa377296e827e3de1a09721d614e7b2b7755d307eaba",
+      "size": [
+        2056,
+        765
+      ],
+      "alpha_bounds": [
+        21,
+        210,
+        2030,
+        554
+      ],
+      "transparent_fraction": 0.7509
+    },
+    {
+      "id": "BeefChunk",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/BeefChunk.png",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-27ff2d80-61cc-4e7c-be01-aaed94e0b5c5.png",
+      "prompt": "Use case: logo-brand. ONE small transparent computer-header logo for a 1993 Project Zomboid terminal. Attached game advert is an identity reference only. Compact horizontal icon-and-wordmark composition, roughly 4:1, tidy transparent margins, readable at 210x55 pixels. Clean flat screen-print ink with very slight bitmap stepping, uniform strong strokes. The image is placed directly on nearly-black CRT glass; empty space MUST be transparent alpha, including gaps inside letters and icons. Strictly NO glow, halo, bloom, shadow, bevel, extrusion, distressed specks, gradients, background panel, white paper, sticker, monitor, physical sign, photograph, border frame, slogan, prices, addresses or extra text. Pale flat ink readable on dark glass. Exact wording on two lines \"BEEFCHUNK\" / \"JERKY CO.\". Retain the reference chunky condensed block wordmark and contrast between BEEF and CHUNK. BEEF pale ivory, CHUNK muted light copper with pale ivory edging, lower line ivory. A tiny simple geometric drying-rack line emblem at left. Match golden-sand terminal text and glass. No food photos, mascot, red backing slab or black letter fills.",
+      "generator_input_images": [
+        "BeefChunk.png"
+      ],
+      "generator": "built-in image_gen",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/BeefChunk.png",
+      "transparent_background": true,
+      "pixel_processing": "None. Source copied unchanged; native renderer uses alpha bounds and phosphor pairing.",
+      "sha256": "828fd35c835251fed02ee448200d6cf099046c2d976683d7bb2b6de634212b54",
+      "reference_sha256": "5320a732393fd7e3fcbe4cf3a5dd6a3ceedd8af7d357e484301d5211d331c00d",
+      "size": [
+        2079,
+        756
+      ],
+      "alpha_bounds": [
+        27,
+        168,
+        2020,
+        618
+      ],
+      "transparent_fraction": 0.6138
+    },
+    {
+      "id": "ArtGalleryLouisville",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/Gallery.png",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-8a7670b4-fc4d-42d5-91a9-b939937ff4ca.png",
+      "prompt": "Use case: logo-brand. Create ONE transparent PNG header emblem for a fictional 1993 Project Zomboid computer. The attached stock advert is an identity reference only. Compact horizontal composition, about 4:1, generous transparent margins. Clean flat strong screen-print shapes; readable at 210x55 pixels. Ink goes directly on nearly-black CRT glass. All empty areas and letter counters must have real transparent alpha. No background panel, paper, sticker, monitor, border frame, photographs, prices, addresses, slogans, shadows, glow, bloom, gradients, bevels or distressed texture. Use pale luminous-looking solid ink but NO baked lighting. Exact text on two lines: \"ART GALLERY\" / \"OF LOUISVILLE\". Retain the advert\u00e2\u20ac\u2122s restrained condensed typography and burgundy/ivory identity, adapted to pale warm ivory lettering with a small muted light wine-red accent. A tiny geometric empty picture-frame outline to the left. No painting reproduction. The result should harmonise with golden-sand terminal text.",
+      "generator_input_images": [
+        "Gallery.png"
+      ],
+      "generator": "built-in image_gen",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/ArtGalleryLouisville.png",
+      "transparent_background": true,
+      "pixel_processing": "None. Source copied unchanged; native renderer uses alpha bounds and phosphor pairing.",
+      "sha256": "9c560730d47e26b5bf9abb00f317d1e2c6c0b82e6f5fb0d4e9e2fb801360230d",
+      "reference_sha256": "2e144e3b1bf761da854617122ea42b4271d9ae92a6896ed70909606b0926fb8f",
+      "size": [
+        1983,
+        793
+      ],
+      "alpha_bounds": [
+        128,
+        175,
+        1870,
+        615
+      ],
+      "transparent_fraction": 0.7616
+    },
+    {
+      "id": "HomeSweetGnome",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/Gnome.png",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-0587dcea-558b-4884-b7bf-c738f8c537bd.png",
+      "prompt": "Edit this transparent logo. Preserve the exact text HOME SWEET GNOME, every letter shape, gnome face, red hat, layout, scale, and real transparent background. ONLY lighten the dark saturated blue lettering and blue face to pale soft icy periwinkle blue (#BDDBF0), so it reads clearly against near-black aquamarine CRT glass. Keep SWEET and beard warm ivory. Lighten the red hat very slightly to muted pale terracotta (#D99880). Flat solid ink, no gradients or shine. No new outlines, panels, background, shadows, glow, texture or extra text. Preserve alpha transparency and transparent letter counters. The target blue must be pastel and near the brightness of the ivory lettering, not royal blue.",
+      "generator_input_images": [
+        "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-f86f29bc-d98a-4b16-a2c3-c221a5a23698.png"
+      ],
+      "generator": "built-in image_gen",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/HomeSweetGnome.png",
+      "transparent_background": true,
+      "pixel_processing": "None. Source copied unchanged; native renderer uses alpha bounds and phosphor pairing.",
+      "sha256": "79a9450fc0183b1f79b5228f4509eddf05cc4dbbfb3fef918e378472021bb42b",
+      "reference_sha256": "21f819ee49c9a27953862f0df8e9d9e423d936a078e702c7cbb1fc54540a9bfd",
+      "size": [
+        1983,
+        793
+      ],
+      "alpha_bounds": [
+        43,
+        246,
+        1947,
+        561
+      ],
+      "transparent_fraction": 0.8191,
+      "generation_history": [
+        {
+          "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-f86f29bc-d98a-4b16-a2c3-c221a5a23698.png",
+          "prompt": "Use case: logo-brand. Create ONE transparent PNG header emblem for a fictional 1993 Project Zomboid computer. The attached stock advert is an identity reference only. Compact horizontal composition, about 4:1, generous transparent margins. Clean flat strong screen-print shapes; readable at 210x55 pixels. Ink goes directly on nearly-black CRT glass. All empty areas and letter counters must have real transparent alpha. No background panel, paper, sticker, monitor, border frame, photographs, prices, addresses, slogans, shadows, glow, bloom, gradients, bevels or distressed texture. Use pale luminous-looking solid ink but NO baked lighting. Exact text: \"HOME SWEET GNOME\", with HOME and GNOME large, SWEET smaller. Preserve the playful sturdy rounded lettering from the advert. One tiny friendly gnome-head outline at left with a pale terracotta triangular hat. Pale blue-periwinkle and warm white lettering. No filled badge or stars. Harmonise with aquamarine CRT text; no green backing.",
+          "status": "Rejected after native review: blue too dark against aqua glass."
+        }
+      ]
+    },
+    {
+      "id": "CircuitalHealing",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/CircuitalHealing.png",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-42aad0e9-e550-4f6f-91d9-832685e42660.png",
+      "prompt": "Use case: logo-brand. Create ONE transparent PNG header emblem for a fictional 1993 Project Zomboid computer. The attached stock advert is an identity reference only. Compact horizontal composition, about 4:1, generous transparent margins. Clean flat strong screen-print shapes; readable at 210x55 pixels. Ink goes directly on nearly-black CRT glass. All empty areas and letter counters must have real transparent alpha. No background panel, paper, sticker, monitor, border frame, photographs, prices, addresses, slogans, shadows, glow, bloom, gradients, bevels or distressed texture. Use pale luminous-looking solid ink but NO baked lighting. Exact text on two lines: \"CIRCUITAL HEALING\" / \"COMPUTER REPAIR\". Use the advert\u00e2\u20ac\u2122s segmented geometric letters but keep each word strongly readable at small size. Small simple circuit-trace cross icon at left. ONLY neutral solid white strokes and lettering; everything else transparent. No black fills or decorative specks. The renderer will tint the white ink aquamarine or rare purple.",
+      "generator_input_images": [
+        "CircuitalHealing.png"
+      ],
+      "generator": "built-in image_gen",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/CircuitalHealing.png",
+      "transparent_background": true,
+      "pixel_processing": "None. Source copied unchanged; native renderer uses alpha bounds and phosphor pairing.",
+      "sha256": "9d161644da27bc1e4f14e483ce1a96fd9ea7af913647491baaadc64c96161fee",
+      "reference_sha256": "adf8c3f2ba460bceb64f8a87ca09e9e08dd730ba6652f90a1328aa6d7010d650",
+      "size": [
+        2172,
+        724
+      ],
+      "alpha_bounds": [
+        90,
+        218,
+        2100,
+        520
+      ],
+      "transparent_fraction": 0.7296
+    },
+    {
+      "id": "IrvingtonSpeedway",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/Speedway.png",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-e11d5832-59bc-4faf-9b1f-c83fcaf62d6a.png",
+      "prompt": "Use case: logo-brand. Create ONE transparent PNG header emblem for a fictional 1993 Project Zomboid computer. The attached stock advert is an identity reference only. Compact horizontal composition, about 4:1, generous transparent margins. Clean flat strong screen-print shapes; readable at 210x55 pixels. Ink goes directly on nearly-black CRT glass. All empty areas and letter counters must have real transparent alpha. No background panel, paper, sticker, monitor, border frame, photographs, prices, addresses, slogans, shadows, glow, bloom, gradients, bevels or distressed texture. Use pale luminous-looking solid ink but NO baked lighting. Exact wording: small \"IRVINGTON\" above large slanted \"SPEEDWAY\". Retain the advert\u00e2\u20ac\u2122s bold forward-slant white motorsport wordmark, two short speed lines and a tiny checkered-flag motif at left. Pale ivory ink with a modest light warm-red accent, empty checker cells transparent. No car drawing or black drop shadow. Harmonise with golden-sand CRT text.",
+      "generator_input_images": [
+        "Speedway.png"
+      ],
+      "generator": "built-in image_gen",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/IrvingtonSpeedway.png",
+      "transparent_background": true,
+      "pixel_processing": "None. Source copied unchanged; native renderer uses alpha bounds and phosphor pairing.",
+      "sha256": "dc35b5c23bae1171a32ec4385fe2d76105d0dd0d7d1f00f0cf5f41d11cbbf862",
+      "reference_sha256": "717598110e7ac9252ef3a23d30a14a2400c8c6d4b9f7162f849ee59dc110edf1",
+      "size": [
+        1983,
+        793
+      ],
+      "alpha_bounds": [
+        52,
+        215,
+        1945,
+        580
+      ],
+      "transparent_fraction": 0.6806
+    },
+    {
+      "id": "SunsetPines",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/SunsetPines.png",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-09c8be91-24d5-4648-95dc-09b9403769fe.png",
+      "prompt": "Use case: logo-brand. ONE clean transparent PNG computer-header logo. Flat 1993 office-computer emblem, wide 4:1 layout. Exact text on two lines: \"SUNSET PINES\" and \"FUNERAL HOME\". Large sturdy simple serif lettering at right, two small evergreen outline silhouettes and one half-circle sun outline at left. ONLY two solid pale flat inks: warm ivory (#F4E5BE) and muted golden sand (#DFC486). Uniform strong strokes, clean smooth glyph silhouettes. EVERYTHING else transparent alpha, including letter counters and tree interiors. No shadows, bevels, embossing, extrusion, gradients, texture, distressed specks, halos, glows, scenery, borders, filled rectangles, paper or screen. Absolutely flat ink. Readable at 210 pixels wide, with transparent margins. No additional text.",
+      "generator_input_images": [],
+      "generator": "built-in image_gen",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/SunsetPines.png",
+      "transparent_background": true,
+      "pixel_processing": "None. Source copied unchanged; native renderer uses alpha bounds and phosphor pairing.",
+      "sha256": "f18d1772352bd7019b2ed03ab70d415f8a55a1682f969561e511f02e173c1bf1",
+      "reference_sha256": "fd6cb88ec5d752a759b6f36a5d6040c3844801dd5c7e8076ecb51093565e9333",
+      "size": [
+        2089,
+        753
+      ],
+      "alpha_bounds": [
+        65,
+        137,
+        2034,
+        560
+      ],
+      "transparent_fraction": 0.7895
+    },
+    {
+      "id": "RoxysRollerRink",
+      "reference": "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/textures/printMedia/FlyerPics/Roxy.png",
+      "generated_source": "C:\\Users\\thore\\.codex\\generated_images\\01a16dd1-0e06-79d1-8ed2-7f5743a89a28\\exec-8ae33ecd-91d4-4d0e-b47a-380d7356c051.png",
+      "prompt": "Use case: logo-brand. Create ONE transparent PNG header emblem for a fictional 1993 Project Zomboid computer. The attached stock advert is an identity reference only. Compact horizontal composition, about 4:1, generous transparent margins. Clean flat strong screen-print shapes; readable at 210x55 pixels. Ink goes directly on nearly-black CRT glass. All empty areas and letter counters must have real transparent alpha. No background panel, paper, sticker, monitor, border frame, photographs, prices, addresses, slogans, shadows, glow, bloom, gradients, bevels or distressed texture. Use pale luminous-looking solid ink but NO baked lighting. Exact text on two lines: \"ROXY\u00e2\u20ac\u2122S\" / \"ROLLER RINK\". Preserve the advert\u00e2\u20ac\u2122s playful broad slanted wordmark, pale aqua upper letters and pale mauve secondary lettering. One very simple outline quad roller-skate at left. No neon sign box or baked glow, no wheels made from extra words. Harmonise with aquamarine CRT text.",
+      "generator_input_images": [
+        "Roxy.png"
+      ],
+      "generator": "built-in image_gen",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/RoxysRollerRink.png",
+      "transparent_background": true,
+      "pixel_processing": "None. Source copied unchanged; native renderer uses alpha bounds and phosphor pairing.",
+      "sha256": "42dcb84e958e9ebd9947f7001841bda6b151739bbce98b8dfa845b4783ba03fe",
+      "reference_sha256": "901418e0e3fa009d4852cc25b27907f4eceedabd8c61786f15f1f93fed2dc37d",
+      "size": [
+        2116,
+        743
+      ],
+      "alpha_bounds": [
+        77,
+        160,
+        2034,
+        647
+      ],
+      "transparent_fraction": 0.6306
     }
   ]
 }

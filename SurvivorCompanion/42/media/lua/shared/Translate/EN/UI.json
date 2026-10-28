@@ -1767,5 +1767,9 @@
     "UI_SC_Map_Reason_fishing_bank_unavailable": "No usable fishing bank was found within 32 tiles. Click closer to a shoreline.",
     "UI_SC_Map_Reason_forest_map_unavailable": "Woodland map data is not ready. Try again shortly.",
     "UI_SC_Map_History": "Last trip and deliveries",
-    "UI_SC_Map_HistoryPending": "Last trip and deliveries - cargo pending"
+    "UI_SC_Map_HistoryPending": "Last trip and deliveries - cargo pending",
+    "UI_SC_ModOptions_SpeechColors": "Speech colours",
+    "UI_SC_ModOptions_SpeechColors_Tooltip": "Give each Living Fellows person a consistent soft speech colour, or use white text. Name tags keep their existing colours. Applies to new lines.",
+    "UI_SC_ModOptions_SpeakerColors": "Speaker colours",
+    "UI_SC_ModOptions_WhiteText": "White text"
 }

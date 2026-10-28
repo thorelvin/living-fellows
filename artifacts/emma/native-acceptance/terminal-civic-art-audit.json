@@ -1,0 +1,98 @@
+[
+  {
+    "id": "BrooksLibrary",
+    "source_matches": true,
+    "transparent_corners": true,
+    "sha256": "7b5d98f95bc210249103c4e3984ae489d5b01f035d9c752efbec6bedb9e3cb59",
+    "size": [
+      2172,
+      724
+    ],
+    "alpha_bounds": [
+      31,
+      244,
+      2154,
+      479
+    ]
+  },
+  {
+    "id": "LouisvillePolice",
+    "source_matches": true,
+    "transparent_corners": true,
+    "sha256": "b66b2d179a6afb6fe1f4efd4ae4fbaedf02596f4c2767473fc2629a2dad61740",
+    "size": [
+      2075,
+      758
+    ],
+    "alpha_bounds": [
+      28,
+      209,
+      2049,
+      514
+    ]
+  },
+  {
+    "id": "UpscaleMobility",
+    "source_matches": true,
+    "transparent_corners": true,
+    "sha256": "efd231d23d67e1e46bcabe4575d0ffc503850c51a6af6cd63c6f3c2cad4e5321",
+    "size": [
+      2079,
+      756
+    ],
+    "alpha_bounds": [
+      86,
+      302,
+      1992,
+      503
+    ]
+  },
+  {
+    "id": "EPTools",
+    "source_matches": true,
+    "transparent_corners": true,
+    "sha256": "cc69fad1316c904c3eee4d4138e1dce0e75c64b335bbde09170b3df8db0c1346",
+    "size": [
+      1983,
+      793
+    ],
+    "alpha_bounds": [
+      66,
+      233,
+      1926,
+      558
+    ]
+  },
+  {
+    "id": "BrottCattleFarm",
+    "source_matches": true,
+    "transparent_corners": true,
+    "sha256": "9b53ff96cd90bbefb92f44af723c7991afd9384e21668c6b1416e8d30d5bcd82",
+    "size": [
+      2056,
+      765
+    ],
+    "alpha_bounds": [
+      21,
+      210,
+      2030,
+      554
+    ]
+  },
+  {
+    "id": "BeefChunk",
+    "source_matches": true,
+    "transparent_corners": true,
+    "sha256": "828fd35c835251fed02ee448200d6cf099046c2d976683d7bb2b6de634212b54",
+    "size": [
+      2079,
+      756
+    ],
+    "alpha_bounds": [
+      27,
+      168,
+      2020,
+      619
+    ]
+  }
+]

@@ -23,6 +23,7 @@ if (-not (Test-Path -LiteralPath $Jar) -or -not (Test-Path -LiteralPath $GameJav
 
 $LuaFiles = @(
     (Join-Path $SharedRoot 'SCNamespace.lua'),
+    (Join-Path $SharedRoot 'SCSpeechColors.lua'),
     (Join-Path $SharedRoot 'SCCall.lua'),
     (Join-Path $SharedRoot 'SCStableValue.lua'),
     (Join-Path $SharedRoot 'SCTransaction.lua'),
@@ -149,6 +150,7 @@ try {
             # helper, so load them into a fresh Kahlua environment.
             $floorSortFiles = @(
                 (Join-Path $SharedRoot 'SCNamespace.lua'),
+                (Join-Path $SharedRoot 'SCSpeechColors.lua'),
                 (Join-Path $SharedRoot 'SCCall.lua'),
                 (Join-Path $SharedRoot 'SCNativeList.lua'),
                 (Join-Path $ClientRoot 'SCGameplayUtil.lua'),
@@ -163,6 +165,7 @@ try {
             $guardPatrolFiles = @(
                 (Join-Path $ProjectRoot 'tests\core\core_fixture.lua'),
                 (Join-Path $SharedRoot 'SCNamespace.lua'),
+                (Join-Path $SharedRoot 'SCSpeechColors.lua'),
                 (Join-Path $SharedRoot 'SCCall.lua'),
                 (Join-Path $SharedRoot 'SCNativeList.lua'),
                 (Join-Path $TestRoot 'base_guard_patrol_fixture.lua'),
@@ -174,6 +177,7 @@ try {
             $followHandoffFiles = @(
                 (Join-Path $ProjectRoot 'tests\core\core_fixture.lua'),
                 (Join-Path $SharedRoot 'SCNamespace.lua'),
+                (Join-Path $SharedRoot 'SCSpeechColors.lua'),
                 (Join-Path $SharedRoot 'SCCall.lua'),
                 (Join-Path $SharedRoot 'SCStableValue.lua'),
                 (Join-Path $SharedRoot 'SCNativeList.lua'),
@@ -186,6 +190,7 @@ try {
             if ($LASTEXITCODE -ne 0) { throw 'Follow order handoff harness failed.' }
             $encounterHandoffFiles = @(
                 (Join-Path $SharedRoot 'SCNamespace.lua'),
+                (Join-Path $SharedRoot 'SCSpeechColors.lua'),
                 (Join-Path $ClientRoot 'SCEncounter.lua'),
                 (Join-Path $TestRoot 'encounter_handoff_harness.lua')
             )
@@ -193,6 +198,7 @@ try {
             if ($LASTEXITCODE -ne 0) { throw 'Encounter work handoff regression harness failed.' }
             $expeditionContainerFiles = @(
                 (Join-Path $SharedRoot 'SCNamespace.lua'),
+                (Join-Path $SharedRoot 'SCSpeechColors.lua'),
                 (Join-Path $ClientRoot 'SCEncounter.lua'),
                 (Join-Path $TestRoot 'expedition_container_search_harness.lua')
             )
@@ -201,6 +207,7 @@ try {
             $expeditionDeadlineFiles = @(
                 (Join-Path $ProjectRoot 'tests/core/core_fixture.lua'),
                 (Join-Path $SharedRoot 'SCNamespace.lua'),
+                (Join-Path $SharedRoot 'SCSpeechColors.lua'),
                 (Join-Path $ClientRoot 'SCEncounter.lua'),
                 (Join-Path $ClientRoot 'SCExpeditionPrototype.lua'),
                 (Join-Path $TestRoot 'expedition_search_deadline_harness.lua')
@@ -209,6 +216,7 @@ try {
             if ($LASTEXITCODE -ne 0) { throw 'Expedition bounded discovery and real return clock regression harness failed.' }
             $decisionArbitrationFiles = @(
                 (Join-Path $SharedRoot 'SCNamespace.lua'),
+                (Join-Path $SharedRoot 'SCSpeechColors.lua'),
                 (Join-Path $SharedRoot 'SCCall.lua'),
                 (Join-Path $ClientRoot 'SCActionSupervisor.lua'),
                 (Join-Path $ClientRoot 'SCDecision.lua'),
@@ -218,6 +226,7 @@ try {
             if ($LASTEXITCODE -ne 0) { throw 'Decision arbitration regression harness failed.' }
             $supplyPolicyFiles = @(
                 (Join-Path $SharedRoot 'SCNamespace.lua'),
+                (Join-Path $SharedRoot 'SCSpeechColors.lua'),
                 (Join-Path $ClientRoot 'SCLogistics.lua'),
                 (Join-Path $TestRoot 'supply_policy_harness.lua')
             )
@@ -225,6 +234,7 @@ try {
             if ($LASTEXITCODE -ne 0) { throw 'Expedition supply policy regression harness failed.' }
             $readingSessionFiles = @(
                 (Join-Path $SharedRoot 'SCNamespace.lua'),
+                (Join-Path $SharedRoot 'SCSpeechColors.lua'),
                 (Join-Path $SharedRoot 'SCCall.lua'),
                 (Join-Path $SharedRoot 'SCConfig.lua'),
                 (Join-Path $TestRoot 'reading_session_fixture.lua'),
@@ -241,6 +251,7 @@ try {
             if ($LASTEXITCODE -ne 0) { throw 'Downtime seat route handoff harness failed.' }
             $autonomyGroundFiles = @(
                 (Join-Path $SharedRoot 'SCNamespace.lua'),
+                (Join-Path $SharedRoot 'SCSpeechColors.lua'),
                 (Join-Path $ClientRoot 'SCAutonomy.lua'),
                 (Join-Path $TestRoot 'autonomy_ground_harness.lua')
             )
@@ -269,6 +280,7 @@ try {
         $diaryFiles = @(
             (Join-Path $TestRoot 'diary_fixture.lua'),
             (Join-Path $SharedRoot 'SCNamespace.lua'),
+            (Join-Path $SharedRoot 'SCSpeechColors.lua'),
             (Join-Path $SharedRoot 'SCCall.lua'),
             (Join-Path $SharedRoot 'SCStableValue.lua'),
             (Join-Path $SharedRoot 'SCNativeList.lua'),
@@ -289,6 +301,7 @@ try {
         $memorialFiles = @(
             (Join-Path $TestRoot 'nickname_memorial_fixture.lua'),
             (Join-Path $SharedRoot 'SCNamespace.lua'),
+            (Join-Path $SharedRoot 'SCSpeechColors.lua'),
             (Join-Path $SharedRoot 'SCStableValue.lua'),
             (Join-Path $ClientRoot 'SCNames.lua'),
             (Join-Path $ClientRoot 'SCCommunity.lua'),
@@ -308,6 +321,7 @@ try {
         if ($NicknamesOnly) { return }
         $transferFiles = @(
             (Join-Path $SharedRoot 'SCNamespace.lua'),
+            (Join-Path $SharedRoot 'SCSpeechColors.lua'),
             (Join-Path $ClientRoot 'SCUIBridge.lua'),
             (Join-Path $TestRoot 'companion_inventory_transfer_harness.lua')
         )
@@ -321,6 +335,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Companion gift offer harness failed.' }
         $workVoiceFiles = @(
             (Join-Path $SharedRoot 'SCNamespace.lua'),
+            (Join-Path $SharedRoot 'SCSpeechColors.lua'),
             (Join-Path $SharedRoot 'SCCall.lua'),
             (Join-Path $SharedRoot 'SCStableValue.lua'),
             (Join-Path $SharedRoot 'SCNativeList.lua'),
@@ -335,6 +350,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Expedition and work voice harness failed.' }
         $terminalFiles = @(
             (Join-Path $SharedRoot 'SCNamespace.lua'),
+            (Join-Path $SharedRoot 'SCSpeechColors.lua'),
             (Join-Path $ClientRoot 'SCTerminalLines.lua'),
             (Join-Path $ClientRoot 'SCTerminalKnowledge.lua'),
             (Join-Path $ClientRoot 'SCTerminalBrain.lua'),

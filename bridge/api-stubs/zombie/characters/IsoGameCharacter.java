@@ -36,7 +36,21 @@ public class IsoGameCharacter extends IsoMovingObject implements zombie.chat.Cha
     }
 
     public void MoveForward(float dist, float x, float y, float soundDelta) {}
-    public void addLineChatElement(String line) { sayLine = line; }
+    public void addLineChatElement(String line) { addLineChatElement(line, 1f, 1f, 1f); }
+    public void addLineChatElement(String line, float r, float g, float b) {
+        addLineChatElement(line, r, g, b, zombie.ui.UIFont.Dialogue, 30f, "default");
+    }
+    public void addLineChatElement(String line, float r, float g, float b,
+            zombie.ui.UIFont font, float range, String tag) {
+        addLineChatElement(line, r, g, b, font, range, tag, false, false, false, false, false, true);
+    }
+    public void addLineChatElement(String line, float r, float g, float b,
+            zombie.ui.UIFont font, float range, String tag, boolean images, boolean icons,
+            boolean colors, boolean fonts, boolean bbcode, boolean equalize) {
+        sayLine = line;
+        if (chatElement != null) chatElement.addChatLine(line, r, g, b, font, range,
+                tag, images, icons, colors, fonts, bbcode, equalize);
+    }
     public String getSayLine() { return sayLine; }
     public void setSayLine(String line) {
         if (line == null) throw new NullPointerException("speech line");
@@ -130,9 +144,10 @@ public class IsoGameCharacter extends IsoMovingObject implements zombie.chat.Cha
     public boolean isOnDeathDone() { return false; }
     public void addOnDiedListener(CharacterDiedListener listener, boolean autoRemove) {}
     public void OnDeath() {}
-    public boolean isAsleep() { return false; }
+    private boolean asleepForTests;
+    public boolean isAsleep() { return asleepForTests; }
     public boolean isOnBed() { return false; }
-    public void setAsleep(boolean asleep) {}
+    public void setAsleep(boolean asleep) { asleepForTests = asleep; }
     public void dropHandItems() {}
     public boolean shouldBecomeZombieAfterDeath() { return false; }
     public void forceAwake() {}

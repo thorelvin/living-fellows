@@ -1103,6 +1103,7 @@ local function finalizeSpawn(actor, profile, provider)
         identity = identity,
         nickname = profile.nickname,
         nicknameMeta = profile.nicknameMeta,
+        speechColorKey = profile.speechColorKey,
         state = profile.state,
         restored = profile.restored == true,
         debugSpawn = profile.debugSpawn == true,

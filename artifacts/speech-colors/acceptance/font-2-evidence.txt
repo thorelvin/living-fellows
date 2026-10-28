@@ -1,0 +1,47 @@
+FIXTURE font-option=2 small-height=19 existing=4
+PERSON sc-1.792185247907E9-1-189736 Tess Nolan mint
+PERSON sc-1.792187371089E9-1-235535 Jill Kelvin pink
+PERSON sc-1.792509015635E9-1-314954 Sanghwa Kim sand
+PERSON sc-1.792881659967E9-1-843943 Xian Burton periwinkle
+PERSON sc-speech-fixture-5 Speaker 5 sky
+PERSON sc-speech-fixture-6 Speaker 6 aqua
+PERSON sc-speech-fixture-7 Speaker 7 peach
+PERSON sc-speech-fixture-8 Speaker 8 lavender
+PERSON sc-speech-fixture-9 Speaker 9 sage
+PERSON sc-speech-fixture-10 Speaker 10 leaf
+PERSON sc-speech-fixture-11 Speaker 11 orchid
+PERSON sc-speech-fixture-12 Speaker 12 rose
+PERSON sc-speech-fixture-13 Speaker 13 sky
+PERSON sc-speech-fixture-14 Speaker 14 sand
+PERSON sc-speech-fixture-15 Speaker 15 lavender
+PERSON sc-speech-fixture-16 Speaker 16 mint
+PERF actors=1 mode=white lookups=2000 ms=3
+PERF actors=1 mode=speaker lookups=2000 ms=4
+PERF actors=4 mode=white lookups=8000 ms=13
+PERF actors=4 mode=speaker lookups=8000 ms=14
+PERF actors=16 mode=white lookups=32000 ms=51
+PERF actors=16 mode=speaker lookups=32000 ms=59
+PASS native colour reading interval >8 seconds text-exact=true
+PASS zoom=50 case=short
+PASS zoom=50 case=multiline
+PASS zoom=50 case=wrapped
+PASS zoom=75 case=short
+PASS zoom=75 case=multiline
+PASS zoom=75 case=wrapped
+PASS zoom=100 case=short
+PASS zoom=100 case=multiline
+PASS zoom=100 case=wrapped
+PASS zoom=125 case=short
+PASS zoom=125 case=multiline
+PASS zoom=125 case=wrapped
+PASS zoom=150 case=short
+PASS zoom=150 case=multiline
+PASS zoom=150 case=wrapped
+PASS zoom=175 case=short
+PASS zoom=175 case=multiline
+PASS zoom=175 case=wrapped
+PASS zoom=200 case=short
+PASS zoom=200 case=multiline
+PASS zoom=200 case=wrapped
+LIMIT secondary transition skipped; see separate Lighting64 crash evidence
+PASS native speech colour acceptance complete

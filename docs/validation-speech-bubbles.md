@@ -22,9 +22,11 @@ camera zoom is not applied a second time. Player and other-mod chat elements are
 unchanged.
 
 Displayed, retained and refreshed text are identical. Only authored line breaks
-remain. Consequently the identical-line `SayDebug` path extends the existing
-clock without changing its font or adding an empty background row. Sleep clears
-the replacement chat element through the existing guarded native cleanup.
+remain. The subsequent [speaker colour implementation](validation-speech-colors.md)
+replaces `SayDebug` with clock-only refresh of each emission's existing newest
+viewport rows. It preserves their RGB, font and formatting without creating a
+row in another viewport. Sleep clears the replacement chat element through the
+existing guarded native cleanup.
 
 `SCSpeechNameplateLiftTest` now observes the render arguments, normal and larger
 font metrics, missing metrics, both render overloads and a separate ordinary

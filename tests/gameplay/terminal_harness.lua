@@ -1010,5 +1010,23 @@ do
     reply=Brain.respond(session(),"retry job:123",world)
     check(reply.proposal.query=="job:123","literal job IDs remain intact without a separate job prefix")
 end
+do
+    local outside=fixtureWorld({camp=function() return {configured=false,inside=false} end})
+    for _,phrase in ipairs({"factory reset", "factory reset this pc", "reset the computer to factory settings",
+        "Emma, can you please reset this pc to factory settings?", "please factory reset the computer",
+        "restore this computer to factory settings", "reset pc to factory defaults", "reset my pc to factory settings"}) do
+        local reply=Brain.respond(session(),phrase,outside)
+        check(reply.intent=="factory_reset" and reply.proposal and reply.proposal.kind=="factory_reset",
+            "local factory reset works without camp access: "..phrase)
+    end
+    for _,phrase in ipairs({"reset job", "retry blocked jobs", "factory reset another computer",
+        "do not factory reset", "how do i factory reset", "remember factory reset", "clear notes"}) do
+        local reply=Brain.respond(session(),phrase,outside)
+        check(not reply.proposal or reply.proposal.kind~="factory_reset", "unrelated or informational text cannot request a wipe: "..phrase)
+    end
+    local reply=Brain.respond(session(),"what does factory reset do",outside)
+    check(reply.intent=="factory_reset_help" and not reply.proposal and has(reply,"Y/N confirmation"),
+        "questions explain reset without opening a destructive confirmation")
+end
 print("TERMINAL_KAHLUA_PASS checks=" .. checks)
 SC_TEST_REPORT = "Camp computer brain and world: " .. checks .. " checks passed"

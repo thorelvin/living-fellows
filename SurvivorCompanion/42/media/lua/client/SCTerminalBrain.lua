@@ -1032,6 +1032,17 @@ function H.request(_, reply, turn)
     reply.proposal = { kind = turn.slots.kind, query = turn.slots.query }
 end
 
+function H.factory_reset(_, reply)
+    reply.proposal = { kind = "factory_reset" }
+    reply.instant = true
+end
+
+function H.factory_reset_help(_, reply)
+    add(reply, "Type factory reset to start a clean EMMA setup on this computer. I will ask for Y/N confirmation.")
+    add(reply, "This erases the old owner's files, firm branding, your notes and conversation memory. "
+        .. "Mounted hardware, access protections, screen colour and connected equipment settings stay intact.")
+end
+
 function H.skills(_, reply, turn, world)
     reply.category = "people"
     local query = string.lower(turn.slots.query or "")
@@ -1735,8 +1746,24 @@ function Brain.parse(session, raw, world, turn)
     if bestSkill then return "skills", { query = bestSkill:gsub("[?!%.]+$", "") } end
     -- Only explicit requests reach the confirmation layer. Ordinary questions
     -- about fuel, health or blocked work remain read-only.
-    local request = string.lower(text):gsub("[?!%.]+$", ""):gsub("^please%s+", "")
+    local request = string.lower(text):gsub("^emma[,:%s]+", ""):gsub("[?!%.]+$", ""):gsub("^please%s+", "")
         :gsub("^can you%s+", ""):gsub("^could you%s+", ""):gsub("^please%s+", "")
+    if request == "what is a factory reset" or request == "what does factory reset do"
+        or request == "how do i factory reset" or request == "how do i reset this computer" then
+        return "factory_reset_help", {}
+    end
+    local resetTarget = request:match("^factory reset%s+(.+)$")
+        or request:match("^reset%s+(.+)%s+to factory settings$")
+        or request:match("^restore%s+(.+)%s+to factory settings$")
+        or request:match("^reset%s+(.+)%s+to factory defaults$")
+    if request == "factory reset" or request == "reset to factory settings"
+        or request == "restore factory settings" or request == "restore factory defaults"
+        or resetTarget == "this computer" or resetTarget == "this pc"
+        or resetTarget == "the computer" or resetTarget == "the pc"
+        or resetTarget == "my computer" or resetTarget == "my pc"
+        or resetTarget == "computer" or resetTarget == "pc" then
+        return "factory_reset", {}
+    end
     local fuel = request:match("^refuel%s+(.+)$") or request:match("^fuel up%s+(.+)$")
         or request:match("^queue refuel%s+(.+)$")
     if fuel then

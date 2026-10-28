@@ -39,6 +39,7 @@ local function record(id)
         id = id, recruited = true, factionId = "household-alpha",
         factionRole = "guard", factionLeader = true,
         identity = { forename = "Morgan", surname = "Reed", gender = "female", outfit = "" },
+        speechColorKey = "lavender",
         position = { x = 10, y = 20, z = 0 },
         inventory = emptyInventory(),
         skills = { { id = "Axe", level = 4, xp = 812.5 } },
@@ -418,7 +419,10 @@ local priorBeginSpawn = SC.Actor.beginSpawn
 local priorPollSpawn = SC.Actor.pollSpawn
 local priorCancelSpawn = SC.Actor.cancelSpawn
 local ticket = { identity = "retained-ticket" }
-SC.Actor.beginSpawn = function() return ticket, "spawn_pending" end
+SC.Actor.beginSpawn = function(_, profile)
+    check(profile.speechColorKey == "lavender", "restore propagates the saved speech colour to spawn")
+    return ticket, "spawn_pending"
+end
 SC.Actor.pollSpawn = function(value)
     check(value == ticket, "restore pulse polls the owned ticket")
     return nil, "spawn_pending"

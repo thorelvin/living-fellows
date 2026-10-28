@@ -105,6 +105,7 @@ try {
             (Join-Path $TestRoot 'SCTerminalPresentationTests.lua'),
             (Join-Path $TestRoot 'SCTerminalAudioTests.lua'),
             (Join-Path $TestRoot 'SCTerminalActionTests.lua'),
+            (Join-Path $TestRoot 'SCTerminalResetTests.lua'),
             (Join-Path $TestRoot 'SCTerminalLoreTests.lua'),
             (Join-Path $TestRoot 'SCTerminalCompanionTests.lua'),
             (Join-Path $TestRoot 'SCTerminalReadingTests.lua')

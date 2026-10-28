@@ -123,6 +123,7 @@ try {
     $coreFiles = @(
         (Join-Path $TestRoot 'core_fixture.lua'),
         (Join-Path $Shared 'SCNamespace.lua'),
+        (Join-Path $Shared 'SCSpeechColors.lua'),
         (Join-Path $Shared 'SCCall.lua'),
         (Join-Path $Shared 'SCStableValue.lua'),
         (Join-Path $Shared 'SCTransaction.lua'),
@@ -176,6 +177,7 @@ try {
         $capacityFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Shared 'SCCall.lua'),
             (Join-Path $Shared 'SCNativeList.lua'),
             (Join-Path $Shared 'SCConfig.lua'),
@@ -188,6 +190,7 @@ try {
         $viewControlFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Shared 'SCCall.lua'),
             (Join-Path $Shared 'SCConfig.lua'),
             (Join-Path $Client 'SCViewControl.lua'),
@@ -197,6 +200,7 @@ try {
 
         $viewRestoreFiles = @(
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Client 'SCViewSession.lua'),
             (Join-Path $TestRoot 'view_session_restore_harness.lua')
         )
@@ -205,6 +209,7 @@ try {
         $drivingFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Shared 'SCCall.lua'),
             (Join-Path $Shared 'SCStableValue.lua'),
             (Join-Path $Shared 'SCConfig.lua'),
@@ -237,6 +242,7 @@ try {
         $vehicleCargoFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Shared 'SCCall.lua'),
             (Join-Path $Client 'SCVehicle.lua'),
             (Join-Path $TestRoot 'vehicle_cargo_harness.lua')
@@ -316,6 +322,7 @@ try {
         $baseWatchFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Client 'SCViewSession.lua'),
             (Join-Path $Client 'SCBaseWatch.lua'),
             (Join-Path $TestRoot 'base_watch_harness.lua')
@@ -324,6 +331,7 @@ try {
 
         $expeditionPlacesFiles = @(
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Shared 'SCCall.lua'),
             (Join-Path $Shared 'SCNativeList.lua'),
             (Join-Path $Shared 'SCConfig.lua'),
@@ -336,6 +344,7 @@ try {
         $expeditionMapFiles = @(
             (Join-Path $TestRoot 'expedition_map_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'), (Join-Path $Shared 'SCCall.lua'),
+            (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Shared 'SCNativeList.lua'), (Join-Path $Shared 'SCConfig.lua'),
             (Join-Path $TestRoot 'expedition_places_fixture.lua'),
             (Join-Path $Client 'SCExpeditionPlaces.lua'), (Join-Path $Client 'SCExpeditionTargets.lua'),
@@ -353,6 +362,7 @@ try {
         $steeringFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Shared 'SCCall.lua'),
             (Join-Path $Shared 'SCConfig.lua'),
             (Join-Path $Shared 'SCDiagnostics.lua'),
@@ -396,6 +406,7 @@ try {
         $actorOwnershipFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Shared 'SCCall.lua'),
             (Join-Path $Shared 'SCStableValue.lua'),
             (Join-Path $Shared 'SCTransaction.lua'),
@@ -428,7 +439,7 @@ try {
         $performanceFiles += Join-Path $TestRoot 'performance_scalability_harness.lua'
         Add-ScJvmStep 'performance' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $performanceFiles 'AI performance scalability harness failed.'
 
-        $backgroundBudgetFiles = @('SCNamespace.lua', 'SCCall.lua', 'SCStableValue.lua',
+        $backgroundBudgetFiles = @('SCNamespace.lua', 'SCSpeechColors.lua', 'SCCall.lua', 'SCStableValue.lua',
             'SCNativeList.lua', 'SCConfig.lua') | ForEach-Object { Join-Path $Shared $_ }
         $backgroundBudgetFiles += @('SCGameplayUtil.lua', 'SCBaseLife.lua', 'SCFactions.lua',
             'SCFactionLife.lua', 'SCFactionWorld.lua') | ForEach-Object { Join-Path $Client $_ }
@@ -479,6 +490,7 @@ try {
         $fieldWorkFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Client 'SCLoggingWork.lua'),
             (Join-Path $Client 'SCFieldWork.lua'),
             (Join-Path $Client 'SCLogistics.lua'),
@@ -489,6 +501,7 @@ try {
         $expeditionWoodFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Client 'SCLoggingWork.lua'),
             (Join-Path $Client 'SCExpeditionWood.lua'),
             (Join-Path $TestRoot 'expedition_wood_harness.lua')
@@ -498,6 +511,7 @@ try {
         $woodDecisionFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Client 'SCDecision.lua'),
             (Join-Path $Client 'SCPersonalItems.lua'),
             (Join-Path $Client 'SCExpeditionWood.lua'),
@@ -526,6 +540,7 @@ try {
         $farmingFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Shared 'SCCall.lua'),
             (Join-Path $Shared 'SCNativeList.lua'),
             (Join-Path $Shared 'SCConfig.lua'),
@@ -538,6 +553,7 @@ try {
         $farmingLifecycleFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Shared 'SCCall.lua'),
             (Join-Path $Shared 'SCNativeList.lua'),
             (Join-Path $Shared 'SCConfig.lua'),
@@ -557,6 +573,7 @@ try {
         $runtimeHookFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Shared 'SCCall.lua'),
             (Join-Path $Shared 'SCConfig.lua'),
             (Join-Path $Shared 'SCDiagnostics.lua'),
@@ -573,6 +590,7 @@ try {
         $decisionSchedulerFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Shared 'SCCall.lua'),
             (Join-Path $Shared 'SCConfig.lua'),
             (Join-Path $Shared 'SCDiagnostics.lua'),
@@ -586,6 +604,7 @@ try {
         $aiResponseFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Shared 'SCCall.lua'),
             (Join-Path $Shared 'SCConfig.lua'),
             (Join-Path $Shared 'SCDiagnostics.lua'),
@@ -600,6 +619,7 @@ try {
         $registryTransactionFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Shared 'SCCall.lua'),
             (Join-Path $Shared 'SCStableValue.lua'),
             (Join-Path $Shared 'SCTransaction.lua'),
@@ -612,6 +632,7 @@ try {
         $configReloadFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Shared 'SCCall.lua'),
             (Join-Path $Shared 'SCConfig.lua'),
             (Join-Path $TestRoot 'config_reload_before.lua'),
@@ -623,6 +644,7 @@ try {
         $sharedPrimitiveFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Shared 'SCCall.lua'),
             (Join-Path $Shared 'SCTransaction.lua'),
             (Join-Path $Shared 'SCNativeList.lua'),
@@ -630,9 +652,20 @@ try {
         )
         Add-ScJvmStep 'shared-primitive' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $sharedPrimitiveFiles 'Shared safety primitive harness failed.'
 
+        $speechColorFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCCall.lua'),
+            (Join-Path $Shared 'SCSpeechColors.lua'),
+            (Join-Path $Client 'SCGameplayUtil.lua'),
+            (Join-Path $TestRoot 'speech_colors_harness.lua')
+        )
+        Add-ScJvmStep 'speech-colors' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $speechColorFiles 'Speech colour identity and emission harness failed.'
+
         $bootstrapLifecycleFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Shared 'SCCall.lua'),
             (Join-Path $TestRoot 'bootstrap_lifecycle_fixture.lua'),
             (Join-Path $Client 'SCBootstrap.lua'),
@@ -643,6 +676,7 @@ try {
         $factionLifecycleFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Shared 'SCCall.lua'),
             (Join-Path $Shared 'SCStableValue.lua'),
             (Join-Path $Shared 'SCNativeList.lua'),
@@ -658,6 +692,7 @@ try {
         $strictCopyFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Shared 'SCStableValue.lua'),
             (Join-Path $TestRoot 'strict_copy_boundary_fixture.lua'),
             (Join-Path $Client 'SCCommands.lua'),
@@ -670,6 +705,7 @@ try {
         $subsystemRestoreFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Shared 'SCStableValue.lua'),
             (Join-Path $Shared 'SCNativeList.lua'),
             (Join-Path $TestRoot 'subsystem_restore_integrity_fixture.lua'),
@@ -685,6 +721,7 @@ try {
         $productionSpawnFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Shared 'SCCall.lua'),
             (Join-Path $Shared 'SCStableValue.lua'),
             (Join-Path $Shared 'SCTransaction.lua'),
@@ -699,6 +736,7 @@ try {
         $namesGenerationFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Shared 'SCCall.lua'),
             (Join-Path $Shared 'SCStableValue.lua'),
             (Join-Path $Shared 'SCNativeList.lua'),
@@ -730,6 +768,7 @@ try {
         $privateFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $PrivateLua 'shared\SCNamespace.lua'),
+            (Join-Path $PrivateLua 'shared\SCSpeechColors.lua'),
             (Join-Path $PrivateLua 'shared\SCCall.lua'),
             (Join-Path $PrivateLua 'shared\SCStableValue.lua'),
             (Join-Path $PrivateLua 'shared\SCTransaction.lua'),

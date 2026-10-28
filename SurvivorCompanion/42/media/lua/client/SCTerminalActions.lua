@@ -154,9 +154,17 @@ local function prepareTarget(window, proposal, base)
 end
 function Actions.prepare(window, proposal)
     if type(proposal) ~= "table" then return nil, "Request unavailable." end
-    local localServices = proposal.kind == "control"
+    local localServices = proposal.kind == "control" or proposal.kind == "factory_reset"
     local base, reason = context(window, nil, localServices)
     if not base then return nil, reason end
+    if proposal.kind == "factory_reset" then
+        local ticket = {}
+        tickets[ticket] = {window=window,localServices=true,factoryReset=true,
+            object=window.object,system=window.system,at=U().nowMs()}
+        return ticket, "Factory reset THIS computer? Permanently erase the old owner's files and firm branding, "
+            .. "your notes and conversation memory, then restart EMMA. Mounted hardware, access protections "
+            .. "and screen colour stay intact. Connected equipment keeps its current settings. [Y/N]"
+    end
     if localServices then
         local prepared, prompt = SC.TerminalServices.prepare(window, proposal)
         if not prepared then return nil, prompt end
@@ -184,6 +192,13 @@ function Actions.execute(window, ticket)
     if not base then return false, reason end
     local age = U().nowMs() - request.at
     if age < 0 or age > Actions.TTL_MS then return false, "That request expired. Please ask again." end
+    if request.factoryReset then
+        if request.object ~= window.object or request.system ~= window.system then
+            return false, "The computer changed. Please ask again."
+        end
+        local okay, detail = SC.Terminal.factoryReset(window)
+        return okay, detail, okay and "reboot" or nil
+    end
     if request.localServices then
         local okay, detail = SC.TerminalServices.execute(window, request.target)
         if type(detail) == "table" then detail = "Service queued. Ask about jobs to check progress." end

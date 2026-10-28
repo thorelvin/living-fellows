@@ -4,6 +4,7 @@ if type(require) == "function" then
     pcall(require, "SCCall")
     pcall(require, "SCConfig")
     pcall(require, "SCNativeList")
+    pcall(require, "SCSpeechColors")
 end
 
 SurvivorCompanion = SurvivorCompanion or {}
@@ -2177,6 +2178,21 @@ function U.say(actor, textValue)
     if U.isSleeping(actor) then return false end
     local line = tostring(textValue)
     local duration = U.speechDisplayMillis(line)
+    if U.hasMethod(actor, "emitCompanionSpeech") then
+        local record = SC.Registry and SC.Registry.byId(SC.Registry.idOf(actor)) or nil
+        local r, g, b = 1, 1, 1
+        if SC.SpeechColors then r, g, b = SC.SpeechColors.forRecord(record) end
+        local accepted, ok = U.call(actor, "emitCompanionSpeech", line, r, g, b, duration)
+        -- Rejection/exception may follow a partial native emission: never replay.
+        return ok and accepted == true
+    end
+    if not U._speechColorsBridgeWarning then
+        U._speechColorsBridgeWarning = true
+        if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
+            SC.Diagnostics.report("speech", nil, "Speaker colours unavailable",
+                "This native bridge uses white speech. Install the matching Lua/native build.")
+        end
+    end
     -- Owned native companions extend the newest actor-local line using a
     -- real-time clock. Older/test providers simply ignore this optional hook.
     U.call(actor, "setCompanionSpeechDisplayMillis", duration)

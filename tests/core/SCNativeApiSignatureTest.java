@@ -368,6 +368,9 @@ public final class SCNativeApiSignatureTest {
                 "Build 42 per-player base-storage outline signatures changed");
         require(companion.getDeclaredMethod("addLineChatElement", String.class).getReturnType()
                         == void.class
+                        && companion.getDeclaredMethod("emitCompanionSpeech", String.class,
+                                float.class, float.class, float.class, int.class).getReturnType()
+                                == boolean.class
                         && companion.getDeclaredMethod("setCompanionSpeechDisplayMillis", int.class)
                                 .getReturnType() == boolean.class
                         && companion.getDeclaredMethod("clearCompanionSpeech").getReturnType()

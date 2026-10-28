@@ -131,6 +131,16 @@ function System.normalize(saved)
     return clean
 end
 
+function System.factoryReset(state)
+    local clean = System.normalize(state)
+    if not clean or clean.locked then return nil end
+    -- Keep the physical machine, access recovery and one-time XP ledger.
+    -- A blank archive prevents discovery from assigning another old owner.
+    clean.archive, clean.brand = "_factory", "_camp"
+    clean.paletteVersion = SC.TerminalPresentation.PALETTE_VERSION
+    return clean
+end
+
 function System.status(state, now)
     if not state.locked then return "open" end
     local p = state.puzzle
