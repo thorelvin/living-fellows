@@ -477,4 +477,15 @@ check(Supervisor.urgentStatus(actor).state == "dispatched" and state.current == 
     "fresh survival selection is released immediately after the commit")
 
 Supervisor.reset(actor)
+modules()
+local followResumePolls=0
+local pause=assert(Supervisor.begin(actor,{owner="downtime",action="sit",
+    priority=Supervisor.Priority.WORK,metadata={commandSerial=1},ignoreRetry=true,
+    onCancel=function() return true end}))
+SC.Downtime.resumeFollow=function(value)
+    followResumePolls=followResumePolls+1
+    return Supervisor.cancel(value,"leader_moving",nil,false)
+end
+check(hold(nil,nil,nil,order("follow"))==false and followResumePolls==1 and not Supervisor.isCurrent(pause),
+    "leader movement releases seated ownership before arbitration so follow can run in the same decision")
 SC_TEST_REPORT = "DECISION_ARBITRATION_PASS checks=" .. checks .. " kinds=" .. #rows

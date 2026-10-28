@@ -11,7 +11,8 @@ $Files = @(
     (Join-Path $Shared 'SCConfig.lua'),
     (Join-Path $PSScriptRoot 'reading_session_fixture.lua'),
     (Join-Path $Client 'SCActionSupervisor.lua'), (Join-Path $Client 'SCDowntime.lua'),
-    (Join-Path $PSScriptRoot 'downtime_seat_route_harness.lua')
+    (Join-Path $PSScriptRoot 'downtime_seat_route_harness.lua'),
+    (Join-Path $PSScriptRoot 'follower_sitting_harness.lua')
 )
 New-Item -ItemType Directory -Path $BuildRoot | Out-Null
 try {

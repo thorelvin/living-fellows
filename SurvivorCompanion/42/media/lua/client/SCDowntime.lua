@@ -630,6 +630,7 @@ orderAllowsIdle = function(commands, actor, player, snapshot)
     end
     if commands.order == "follow" and player then
         if travellingPassenger(actor, player) then return true end
+        if select(1, U().call(player, "isMoving")) == true then return false end
         local indoors = type(snapshot) == "table" and snapshot.indoors == true
         if not indoors then
             local square = U().squareOf(actor)
@@ -639,6 +640,59 @@ orderAllowsIdle = function(commands, actor, player, snapshot)
         if not indoors then return false end
         local distance = U().distance(actor, player)
         return distance <= math.max(3, (commands.followDistance or 3) + 1.5)
+    end
+    return false
+end
+
+local function followPauseReady(actor, player, commands, state, current)
+    if commands.order ~= "follow" or travellingPassenger(actor, player) then
+        state.followLeader, state.followStillSince, state.followMovingAt = nil, nil, nil
+        state.followPauseReason = nil
+        return true
+    end
+    if not player then state.followPauseReason = "leader_missing" return false end
+    local x, y, z = U().position(player)
+    if x == nil or y == nil then state.followPauseReason = "leader_position_missing" return false end
+    local changed = state.followLeader ~= player
+    local shifted = not changed and state.followLeaderX ~= nil
+        and ((x-state.followLeaderX)^2 + (y-state.followLeaderY)^2 > 0.04
+            or math.floor(z or 0) ~= math.floor(state.followLeaderZ or 0))
+    local moving = select(1, U().call(player, "isMoving")) == true or shifted
+    if changed or moving then
+        state.followLeader = player
+        state.followLeaderX, state.followLeaderY, state.followLeaderZ = x, y, z
+        state.followStillSince = current
+    end
+    if moving then state.followMovingAt = current end
+    if moving or state.followMovingAt == current then
+        state.followPauseReason = "leader_moving"
+        return false
+    end
+    state.followStillSince = state.followStillSince or current
+    if not state.active and current-state.followStillSince
+        < (tonumber(U().config("followSitDelayMs")) or 15000) then
+        state.followPauseReason = "leader_pause_too_short"
+        return false
+    end
+    state.followPauseReason = "leader_settled"
+    return true
+end
+
+-- Also polled by Decision when no downtime token remains: a completed Read
+-- can still be seated, and a formation hold need not request a new path.
+function Downtime.resumeFollow(actor, player, snapshot, current)
+    local state = actor and states[actor]
+    if not state then return false end
+    local commands = commandState(actor)
+    if commands.order ~= "follow" or travellingPassenger(actor, player) then return false end
+    local service = SC.ActionSupervisor
+    local token = service and type(service.current) == "function" and service.current(actor)
+    if token and token.owner ~= "downtime" then return false end
+    if state.exitingRest then return Downtime.cancel(actor, "standing_from_rest") end
+    local ready = followPauseReady(actor, player, commands, state, current or U().nowMs())
+    if not ready and state.followPauseReason == "leader_moving"
+        and (state.active or state.curtainTask or state.passiveFollowSeat) then
+        return Downtime.cancel(actor, "leader_moving")
     end
     return false
 end
@@ -1845,13 +1899,15 @@ local function seatActivity(actor, state, current, seatOnly)
     return linked
 end
 
-local function floorRestActivity(actor, furnitureAvailable)
+local function floorRestActivity(actor, furnitureAvailable, following)
     local utility = U()
     if furnitureAvailable or seatingStatus(actor) ~= "standing" then return nil end
     local fatigue = utility.clamp(tonumber(
         utility.characterStatValue(actor, "FATIGUE", 0)) or 0, 0, 1)
     local threshold = tonumber(utility.config("needsFatigueThreshold")) or 0.50
-    if fatigue < threshold then return nil end
+    if following then
+        if utility.characterStatValue(actor, "ENDURANCE", 1) >= 0.65 then return nil end
+    elseif fatigue < threshold then return nil end
     return {
         kind = "rest_floor",
         score = 36 + math.floor(fatigue * 12),
@@ -3678,7 +3734,7 @@ local function candidates(actor, commands, state, current, desiredKind, requeste
         end
         if rest then filtered[#filtered + 1] = rest end
         local floorRest = floorRestActivity(actor,
-            furniture ~= nil and desiredKind ~= "rest_floor")
+            furniture ~= nil and desiredKind ~= "rest_floor", commands.order == "follow")
         if floorRest then filtered[#filtered + 1] = floorRest end
     end
     if desiredKind ~= nil then
@@ -3703,6 +3759,15 @@ local function candidates(actor, commands, state, current, desiredKind, requeste
             and (lastFact.activity == "read" or lastFact.activity == "sit") then
             for index = #filtered, 1, -1 do
                 if filtered[index].kind == lastFact.activity then table.remove(filtered, index) end
+            end
+        end
+    end
+    if commands.order == "follow" and current < (state.followSitCooldownUntil or 0)
+        and utility.characterStatValue(actor, "ENDURANCE", 1) >= 0.65 then
+        for index = #filtered, 1, -1 do
+            local candidate = filtered[index]
+            if candidate.kind == "sit" and not (candidate.fact and candidate.fact.seatingFor) then
+                table.remove(filtered, index)
             end
         end
     end
@@ -4278,6 +4343,15 @@ local function beginActivity(actor, state, activity, commands, now)
             activity.gameDurationHours = restHours(actor, activity.kind, fatigue, now)
             activity.durationMs = activity.kind == "sit" and 120000 or 1200000
         end
+        if (activity.kind == "sit" or activity.kind == "rest_floor") and commands.order == "follow" then
+            activity.followPause = true
+            activity.recoveryRest = U().characterStatValue(actor, "ENDURANCE", 1) < 0.65
+            activity.gameDurationHours = nil
+            activity.durationMs = activity.fact and activity.fact.seatingFor and 1500
+                or activity.recoveryRest
+                    and (tonumber(U().config("followSitRecoveryMaximumMs")) or 60000)
+                or (tonumber(U().config("followSitDurationMs")) or 15000)
+        end
         activity.deadlines = activity.deadlines or {}
         activity.deadlines.animating = tonumber(
             U().config("bedEntryTimeoutMs")) or 12000
@@ -4285,7 +4359,7 @@ local function beginActivity(actor, state, activity, commands, now)
         -- own world-clock completion and the normal danger/order cancels own
         -- the wait instead.
         activity.deadlines.waiting = activity.gameDurationHours and 0 or math.max(
-            tonumber(activity.durationMs) or 0, 30000)
+            (tonumber(activity.durationMs) or 0) + (activity.followPause and 15000 or 0), 30000)
     elseif activity.kind == "read" then
         -- Pick once per chapter, for both carried and borrowed books. A
         -- decision poll must never reroll an active session's end time.
@@ -4554,6 +4628,10 @@ local function beginActivity(actor, state, activity, commands, now)
             and "animating" or "settling", { action = activity.kind })
     end
     state.active = activity
+    if activity.followPause and not activity.recoveryRest
+        and not (activity.fact and activity.fact.seatingFor) then
+        state.followSitCooldownUntil = now + (tonumber(U().config("followSitCooldownMs")) or 180000)
+    end
     state.idleStopped = false
     debugTrace(actor, "start", activity, activity.approaching and "approaching" or "action_started")
     return true, activity.kind
@@ -4766,6 +4844,27 @@ end
 local function finishActivity(actor, state, now)
     local activity = state.active
     if not activity then return false, "none" end
+    if activity.followPause and activity.furnitureEntered then
+        if activity.exitRestRequired == nil then
+            activity.exitRestRequired = not (activity.fact and activity.fact.seatingFor
+                or activity.kind == "rest_floor" and seatedTaskReady(actor, now))
+        end
+        if activity.exitRestRequired and SC.NativeActions
+            and type(SC.NativeActions.leaveSeating) == "function" then
+            if not activity.exitingSeating then
+                local service = supervisor()
+                if service and activity.supervisorToken and service.isCurrent(activity.supervisorToken) then
+                    local verified, why = service.markVisualVerified(activity.supervisorToken,
+                        {action=activity.kind, seatedRestFinished=true})
+                    if not verified then return failActivity(actor, state, why or "rest_pose_verification_failed") end
+                end
+            end
+            activity.exitingSeating = true
+            local okay, standing, reason = pcall(SC.NativeActions.leaveSeating, actor)
+            if not okay then return failActivity(actor, state, "rest_exit_failed", standing) end
+            if standing ~= true then return true, reason or "standing_from_rest" end
+        end
+    end
     local committing, commitReason = transitionActivity(activity, "committing", {
         action = activity.kind,
     })
@@ -4885,19 +4984,26 @@ local function finishActivity(actor, state, now)
     -- action has left the queue, so Read/Write may begin without getting up.
     -- Skip the ordinary post-action look-around pause here: that observation
     -- is a standing action and could undo the seat before the follow-up starts.
-    if activity.kind == "sit" and activity.furnitureEntered == true then
+    if activity.kind == "sit" and activity.furnitureEntered == true
+        and not activity.exitRestRequired
+        and (not activity.followPause or activity.fact and activity.fact.seatingFor) then
         activity.preserveSeating = true
         if activity.fact and activity.fact.seatingFor == "tv_watch" then
             state.tvSeatPendingUntil = now + 15000
         elseif activity.fact and activity.fact.seatingFor == "radio_listen" then
             state.radioSeatPendingUntil = now + 15000
         end
-    elseif (activity.kind == "rest_bed" or activity.kind == "rest_floor")
+    elseif (activity.kind == "rest_bed" or activity.kind == "rest_floor") and not activity.exitRestRequired
         and activity.furnitureEntered == true and seatedTaskReady(actor, now) then
         -- A rested companion with a book or its diary to hand reads or writes
         -- where it sits, on the bed, cot or floor. Otherwise it gets up as
         -- before, so a tired companion's rest cycle is unchanged.
         activity.preserveSeating = true
+    end
+    if activity.preserveSeating == true and commandState(actor).order == "follow" then
+        state.passiveFollowSeat = true
+    elseif restPostures[activity.kind] then
+        state.passiveFollowSeat = nil
     end
     if success then
         if activity.kind == "study_corpse" then Study.finish(actor, activity, now) end
@@ -4984,6 +5090,10 @@ local function finishActivity(actor, state, now)
     end
     releaseActivity(actor, activity)
     state.active = nil
+    if activity.followPause and not activity.recoveryRest
+        and not (activity.fact and activity.fact.seatingFor) then
+        state.followSitCooldownUntil = now + (tonumber(U().config("followSitCooldownMs")) or 180000)
+    end
     state.nextEvaluationAt = now + (U().config("downtimeIntervalMs") or 1500)
     local service = supervisor()
     if service and activity.supervisorToken and service.isCurrent(activity.supervisorToken) then
@@ -5016,12 +5126,14 @@ function Downtime.cancel(actor, reason)
         debugTrace(actor, "cancel", activity, reason)
         changed = true
     end
-    if seatingStatus(actor) ~= "standing" and SC.NativeActions
+    if (state.exitingRest or seatingStatus(actor) ~= "standing") and SC.NativeActions
         and type(SC.NativeActions.leaveSeating) == "function" then
         local ok, stood = pcall(SC.NativeActions.leaveSeating, actor)
+        state.exitingRest = not (ok and stood == true) or nil
         changed = changed or ok and stood == true
     end
     if not changed then return false end
+    state.passiveFollowSeat = state.exitingRest and true or nil
     state.safeSince = nil
     state.idleStopped = false
     U().stop(actor)
@@ -5070,13 +5182,19 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
         state.lastFact = utility.copyShallow(commands.lastDowntime)
     end
     local current = utility.nowMs()
+    if state.exitingRest then
+        local standing = Downtime.cancel(actor, "standing_from_rest")
+        if not standing then return true, "standing_from_rest" end
+    end
     local unsafe = dangerPresent(snapshot, actor, current)
         or not orderAllowsIdle(commands, actor, player, snapshot)
     local medicalState = SC.Medical and type(SC.Medical.peek) == "function"
         and SC.Medical.peek(actor) or nil
     if unsafe then
         state.safeSince = nil
-        if state.active or state.curtainTask then Downtime.cancel(actor, "danger_or_order") end
+        if state.active or state.curtainTask or state.passiveFollowSeat then
+            Downtime.cancel(actor, "danger_or_order")
+        end
         if medicalState and medicalState.dirtyOnly
             and type(SC.Medical.cancel) == "function" then
             SC.Medical.cancel(actor, "danger_or_order")
@@ -5089,6 +5207,18 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
     if medicalState and medicalState.dirtyOnly
         and type(SC.Medical.replaceDirtyBandage) == "function" then
         return SC.Medical.replaceDirtyBandage(actor)
+    end
+
+    local followReady = followPauseReady(actor, player, commands, state, current)
+    if not followReady then
+        state.safeSince = state.safeSince or current
+        if state.followPauseReason == "leader_moving" then
+            state.safeSince = nil
+            if state.active or state.curtainTask or state.passiveFollowSeat then
+                Downtime.cancel(actor, "leader_moving")
+            end
+        end
+        return false, state.followPauseReason
     end
 
     if not state.active and desiredKind == nil then
@@ -5506,14 +5636,21 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
             end
             return true, "sleeping_on_bed"
         elseif state.active.kind == "sit" and state.active.startedAt then
+            if state.active.recoveryRest
+                and utility.characterStatValue(actor, "ENDURANCE", 1) >= 0.90 then
+                return finishActivity(actor, state, current)
+            end
             local hour = gameHours()
-            local elapsed = hour and state.active.startedGameHour
+            local elapsed = state.active.gameDurationHours and hour and state.active.startedGameHour
                 and hour - state.active.startedGameHour or nil
             if (elapsed and elapsed >= (state.active.gameDurationHours or 0.5))
                 or (not elapsed and current - state.active.startedAt >= duration) then
                 return finishActivity(actor, state, current)
             end
             return true, "sitting_on_furniture"
+        elseif state.active.kind == "rest_floor" and state.active.recoveryRest and state.active.startedAt
+            and utility.characterStatValue(actor, "ENDURANCE", 1) >= 0.90 then
+            return finishActivity(actor, state, current)
         elseif state.active.startedAt and current - state.active.startedAt >= duration then
             return finishActivity(actor, state, current)
         end
@@ -5533,6 +5670,29 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
     end
     if not state.idleStopped then utility.stop(actor) state.idleStopped = true end
     return false, "stable_idle"
+end
+
+-- Read-only support data: never create command state or an idle controller.
+function Downtime.status(actor)
+    local state = actor and states[actor]
+    local active = state and state.active
+    local now = U().nowMs()
+    local started = active and (active.startedAt or active.entryStartedAt)
+    local hour = active and active.startedGameHour and gameHours()
+    return {
+        kind = active and active.kind or state and state.passiveFollowSeat and "passive_seat" or "none",
+        phase = (state and state.exitingRest or active and active.exitingSeating) and "getting_up"
+            or active and active.supervisorToken and active.supervisorToken.phase or "idle",
+        elapsedMs = started and math.max(0, now-started) or 0,
+        durationMs = active and active.durationMs,
+        elapsedGameHours = hour and math.max(0, hour-active.startedGameHour) or nil,
+        durationGameHours = active and active.gameDurationHours,
+        clock = active and (active.gameDurationHours and "game" or "real") or "none",
+        fatigue = U().characterStatValue(actor, "FATIGUE", nil),
+        endurance = U().characterStatValue(actor, "ENDURANCE", nil),
+        followPause = state and state.followPauseReason,
+        sitCooldownMs = state and math.max(0, (state.followSitCooldownUntil or 0)-now) or 0,
+    }
 end
 
 function Downtime.peek(actor)

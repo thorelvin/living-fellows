@@ -4700,6 +4700,11 @@ function runSupportReportChecks()
     local oldLiving, oldId = SC.Registry.living, SC.Registry.idOf
     local oldResident, oldDecision = SC.BaseLife.resident, SC.Decision
     local oldSeating, oldPeek = SC.NativeActions.seatingStatus, SC.Commands.peek
+    local oldSupportDowntime = SC.Downtime
+    SC.Downtime = {status=function()
+        return {kind="sit",phase="waiting",elapsedMs=3000,durationMs=15000,
+            fatigue=0.1,endurance=0.9,followPause="leader_settled",sitCooldownMs=177000}
+    end}
     local saved = { SC_Order = "follow", SC_CommandSerial = 17 }
     local guard = { getModData = function() return saved end,
         getDisplayName = function() return "Guard" end,
@@ -4739,6 +4744,12 @@ function runSupportReportChecks()
             and string.find(handoffReport,
                 "decision follow/standing_from_furniture, seating furniture, native context GetUp", 1, true),
         "support report distinguishes an accepted Follow from a remaining seated native handoff")
+    check(handoffSnapshot.companionActions[1].downtime.kind=="sit"
+        and string.find(handoffReport,"sit/waiting, elapsed 3s, planned 15s",1,true)
+        and string.find(handoffReport,"fatigue 0.1, endurance 0.9",1,true)
+        and string.find(handoffReport,"sit cooldown 177s",1,true) and commandReads==0,
+        "support identifies the rest timer, actual needs and repeat cooldown without mutating controls")
+    SC.Downtime = oldSupportDowntime
     SC.Registry.living, SC.Registry.idOf = oldLiving, oldId
     SC.BaseLife.resident, SC.Decision = oldResident, oldDecision
     SC.NativeActions.seatingStatus, SC.Commands.peek = oldSeating, oldPeek

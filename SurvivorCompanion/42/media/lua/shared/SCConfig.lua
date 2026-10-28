@@ -1066,6 +1066,12 @@ local valueData = {
     downtimeReservationMs = 30000,
     downtimeActivityMs = 6000,
     downtimeFloorRestMs = 12000,
+    -- Followers stay attentive during short indoor stops. Camp leisure and
+    -- passenger reading keep their own timing.
+    followSitDelayMs = 15000,
+    followSitDurationMs = 15000,
+    followSitCooldownMs = 180000,
+    followSitRecoveryMaximumMs = 60000,
     -- Vanilla seat/bed actions wait for turning without a deadline. Companion
     -- facing can legitimately remain in a deferred turn state, so begin the
     -- final furniture animation after this bounded alignment attempt.

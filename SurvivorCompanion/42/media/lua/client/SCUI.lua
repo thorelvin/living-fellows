@@ -863,6 +863,8 @@ local function copySummary(row, summary)
     row.health = summary.health or row.health
     if summary.hunger ~= nil then row.hunger = summary.hunger end
     if summary.thirst ~= nil then row.thirst = summary.thirst end
+    if summary.endurance ~= nil then row.endurance = summary.endurance end
+    if summary.fatigue ~= nil then row.fatigue = summary.fatigue end
     row.distance = summary.distance or row.distance
     row.order = summary.order or row.order
     row.activity = summary.activity or row.activity
@@ -1024,6 +1026,14 @@ end
 
 function UI.healthText(value)
     return UI.text("UI_SC_Value_Health", numericText(value, 0))
+end
+
+function UI.statPercentText(value)
+    value = tonumber(value)
+    if value == nil or value ~= value or value == math.huge or value == -math.huge then
+        return UI.text("UI_SC_Value_Unknown")
+    end
+    return numericText(math.max(0, math.min(1, value)) * 100, 0) .. "%"
 end
 
 function UI.distanceText(value)
@@ -3504,6 +3514,10 @@ function SCUIDetail:buildStatus(panel, row)
             selectedRowValue(self, function(value)
                 return numericText((tonumber(value.thirst) or 0) * 100, 0) .. "%"
             end))
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Stamina",
+            selectedRowValue(self, function(value) return UI.statPercentText(value.endurance) end))
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Tiredness",
+            selectedRowValue(self, function(value) return UI.statPercentText(value.fatigue) end))
         y = self:addInformationLine(panel, y, "UI_SC_Info_CurrentAction",
             selectedRowValue(self, function(value)
                 return UI.actionSummaryText(value.actionSummary)

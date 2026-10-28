@@ -139,6 +139,9 @@ local function companionActionEvidence()
                 end, "unavailable"),
             },
             summary = SC.ActionSupervisor.summary(actor),
+            downtime = safeCall(function()
+                return SC.Downtime and SC.Downtime.status and SC.Downtime.status(actor)
+            end, {}),
             position = safeCall(function()
                 local x, y, z = actor:getX(), actor:getY(), actor:getZ()
                 return string.format("%.2f:%.2f:%d", x, y, math.floor(z))
@@ -384,6 +387,7 @@ function support.summary(force)
         local current = actor.summary or {}
         local navigation = actor.navigation or {}
         local control = actor.control or {}
+        local rest = actor.downtime or {}
         lines[#lines + 1] = "Companion control " .. tostring(actor.id)
             .. ": order " .. tostring(control.order or "unavailable")
             .. ", serial " .. tostring(control.commandSerial or "unavailable")
@@ -393,6 +397,17 @@ function support.summary(force)
             .. "/" .. tostring(control.intent or "none")
             .. ", seating " .. tostring(control.seating or "unavailable")
             .. ", native context " .. tostring(control.context or "unavailable")
+        lines[#lines + 1] = "Companion rest " .. tostring(actor.id)
+            .. ": " .. tostring(rest.kind or "unavailable") .. "/" .. tostring(rest.phase or "idle")
+            .. ", elapsed " .. tostring(math.floor((tonumber(rest.elapsedMs) or 0)/1000)) .. "s"
+            .. ", planned " .. tostring(rest.durationMs and math.floor(rest.durationMs/1000) or "none") .. "s"
+            .. ", game hours " .. tostring(rest.elapsedGameHours or "none")
+            .. "/" .. tostring(rest.durationGameHours or "none")
+            .. ", clock " .. tostring(rest.clock or "unavailable")
+            .. ", fatigue " .. tostring(rest.fatigue or "unavailable")
+            .. ", endurance " .. tostring(rest.endurance or "unavailable")
+            .. ", follow pause " .. tostring(rest.followPause or "none")
+            .. ", sit cooldown " .. tostring(math.floor((tonumber(rest.sitCooldownMs) or 0)/1000)) .. "s"
         lines[#lines + 1] = "Companion action " .. tostring(actor.id) .. " ("
             .. tostring(actor.name) .. "): " .. tostring(current.owner or "none") .. "/"
             .. tostring(current.action or "idle") .. "/" .. tostring(current.phase or "idle")

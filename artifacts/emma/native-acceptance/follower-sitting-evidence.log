@@ -1,0 +1,12 @@
+SETUP actor=sc-1.792185247907E9-1-189736 chair=fixtures_bathroom_01_0
+PASS native short leader pause did not start sitting
+PASS native chair entered durationMs=15000
+SHOT short-pause
+COMPLETE preserve=nil exitRequired=true
+PASS native routine rest finished, stood up and retained repeat cooldown
+SHOT finished
+PASS native chair entered durationMs=15000
+PASS native nearby walking leader interrupted sit inside follow radius
+STATUS kind=none fatigue=0.10555323958396912 endurance=1
+SHOT follow-resumed
+PASS native follower sitting acceptance complete

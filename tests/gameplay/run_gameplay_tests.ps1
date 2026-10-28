@@ -236,6 +236,7 @@ try {
             if ($LASTEXITCODE -ne 0) { throw 'Reading session regression harness failed.' }
             $seatRouteFiles = @($readingSessionFiles | Select-Object -SkipLast 1)
             $seatRouteFiles += Join-Path $TestRoot 'downtime_seat_route_harness.lua'
+            $seatRouteFiles += Join-Path $TestRoot 'follower_sitting_harness.lua'
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @seatRouteFiles
             if ($LASTEXITCODE -ne 0) { throw 'Downtime seat route handoff harness failed.' }
             $autonomyGroundFiles = @(

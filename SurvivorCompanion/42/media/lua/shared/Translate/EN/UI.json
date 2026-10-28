@@ -608,6 +608,8 @@
     "UI_SC_Info_Health":  "Health: %1",
     "UI_SC_Info_Hunger":  "Hunger: %1",
     "UI_SC_Info_Thirst":  "Thirst: %1",
+    "UI_SC_Info_Stamina":  "Stamina: %1",
+    "UI_SC_Info_Tiredness":  "Tiredness: %1",
     "UI_SC_Info_Wounds":  "Wounds: %1",
     "UI_SC_Info_Supplies":  "Supplies: %1",
     "UI_SC_Info_Ammunition":  "Ammunition: %1",

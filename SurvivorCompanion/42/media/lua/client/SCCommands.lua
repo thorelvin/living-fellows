@@ -1980,6 +1980,8 @@ function Commands.describe(companionId, player)
         health = medical.health,
         hunger = U().characterStatValue(actor, "HUNGER", 0),
         thirst = U().characterStatValue(actor, "THIRST", 0),
+        endurance = U().characterStatValue(actor, "ENDURANCE", nil),
+        fatigue = U().characterStatValue(actor, "FATIGUE", nil),
         distance = player and U().distance(actor, player) or math.huge,
         order = state.order,
         activity = actionSummary and actionSummary.active == true

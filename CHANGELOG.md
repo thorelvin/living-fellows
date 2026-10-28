@@ -2,6 +2,18 @@
 
 # Changelog
 
+## 0.26.73 - Follower rest and companion needs
+
+- The companion Status tab shows live Stamina and Tiredness percentages directly
+  below Thirst.
+- Followers take shorter indoor sitting breaks after a sustained pause, with
+  a three-minute repeat cooldown, and stand when the leader starts walking.
+  While following, floor rests require low stamina rather than tiredness alone.
+  Stamina recovery stays available, and camp sleep and passenger reading retain
+  their timing. Support reports now include rest timers, fatigue and stamina.
+- Uses native bridge protocol `42.21-isocompanion-24` for Project Zomboid
+  42.21.0. No native bridge or save schema change.
+
 ## 0.26.72 - EMMA building controls and expedition stations
 
 - Fixed the taxi menu appearing on televisions, which share Zomboid's Radio

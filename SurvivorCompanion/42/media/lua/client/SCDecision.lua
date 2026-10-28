@@ -2764,6 +2764,10 @@ end
 local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
         needs, commands, state, current, rootRuntime)
     local native = SC.NativeActions
+    if SC.Downtime and type(SC.Downtime.resumeFollow) == "function" then
+        U().safeSubsystem("downtime", actor, SC.Downtime.resumeFollow,
+            actor, player, snapshot, current)
+    end
     -- A hostile household policy is an immediate combat order even before the
     -- ordinary candidate pass. Without this early check, an existing medical
     -- owner can indefinitely hide the hostile candidate behind the activity gate.

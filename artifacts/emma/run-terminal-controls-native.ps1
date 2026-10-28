@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: MIT
-param([ValidateSet('controls','power','tripwalk','tripdrive','savesetup','saveverify','knowledge','radiodevices')][string]$Scenario='controls')
+param([ValidateSet('controls','power','tripwalk','tripdrive','savesetup','saveverify','knowledge','radiodevices','followersitting')][string]$Scenario='controls')
 $ErrorActionPreference = 'Stop'
 $project = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
 $captureRoot = Join-Path $project ('build\computer-controls\native\' + $Scenario)
-$probeName = if ($Scenario -eq 'radiodevices') { 'taxi-radio-devices-native.lua' } elseif ($Scenario -eq 'knowledge') { 'terminal-knowledge-native.lua' } elseif ($Scenario.StartsWith('save')) { 'terminal-controls-save-native.lua' } elseif ($Scenario.StartsWith('trip')) { 'terminal-controls-trip-native.lua' } elseif ($Scenario -eq 'power') { 'terminal-controls-power-native.lua' } else { 'terminal-controls-native.lua' }
-$logName = if ($Scenario -eq 'radiodevices') { 'taxi-radio-devices' } elseif ($Scenario -eq 'knowledge') { 'terminal-knowledge' } elseif ($Scenario.StartsWith('trip') -or $Scenario.StartsWith('save')) { 'terminal-controls-' + $Scenario } elseif ($Scenario -eq 'power') { 'terminal-controls-power' } else { 'terminal-controls' }
+$probeName = if ($Scenario -eq 'followersitting') { 'follower-sitting-native.lua' } elseif ($Scenario -eq 'radiodevices') { 'taxi-radio-devices-native.lua' } elseif ($Scenario -eq 'knowledge') { 'terminal-knowledge-native.lua' } elseif ($Scenario.StartsWith('save')) { 'terminal-controls-save-native.lua' } elseif ($Scenario.StartsWith('trip')) { 'terminal-controls-trip-native.lua' } elseif ($Scenario -eq 'power') { 'terminal-controls-power-native.lua' } else { 'terminal-controls-native.lua' }
+$logName = if ($Scenario -eq 'followersitting') { 'follower-sitting' } elseif ($Scenario -eq 'radiodevices') { 'taxi-radio-devices' } elseif ($Scenario -eq 'knowledge') { 'terminal-knowledge' } elseif ($Scenario.StartsWith('trip') -or $Scenario.StartsWith('save')) { 'terminal-controls-' + $Scenario } elseif ($Scenario -eq 'power') { 'terminal-controls-power' } else { 'terminal-controls' }
 $passText = 'PASS native ' + $logName.Replace('-',' ') + ' acceptance complete'
 New-Item -ItemType Directory -Path $captureRoot -Force | Out-Null
 $runRoot = Join-Path $project 'build\live-sandbox-runs\SC-Harness-20261026-185641-59f036f8'
@@ -22,7 +22,7 @@ foreach ($checkedPath in @($targetSave,$previousSave)) {
         throw 'Save reset would leave the disposable harness directory'
     }
 }
-if ($Scenario -in @('saveverify','knowledge','radiodevices')) {
+if ($Scenario -in @('saveverify','knowledge','radiodevices','followersitting')) {
     if (-not (Test-Path -LiteralPath (Join-Path $targetSave 'global_mod_data.bin'))) { throw 'Run savesetup before saveverify.' }
 } else {
     if (Test-Path -LiteralPath $targetSave) { Move-Item -LiteralPath $targetSave -Destination $previousSave }
@@ -50,6 +50,7 @@ $marker = Join-Path $captureRoot ('terminal-controls-' + (Get-Date -Format 'yyyy
 $arguments = @($launcher.vmArgs) + @('-XX:+UseZGC', ('-XX:ErrorFile="' + (Join-Path $captureRoot 'hs_err_pid%p.log') + '"'), ('-javaagent:"' + (Join-Path $runRoot 'terminal-loading-agent.jar') + '"="' + $marker + '"'),
     '-cp', ('"' + $classpath + '"'), 'survivorcompanion.bridge.SCLauncher', ('-cachedir="' + $manifest.cacheRoot + '"'), '-nosteam', '-novoip')
 if ($Scenario -ne 'power') { $arguments += '-nosound' }
+if ($Scenario -eq 'followersitting') { $arguments = @('-XX:ActiveProcessorCount=4') + $arguments }
 $owned = Start-Process -FilePath (Join-Path $game 'jre64\bin\java.exe') -ArgumentList $arguments -WorkingDirectory $game -WindowStyle Hidden -PassThru `
     -RedirectStandardOutput (Join-Path $captureRoot 'terminal-controls.stdout.log') -RedirectStandardError (Join-Path $captureRoot 'terminal-controls.stderr.log')
 $timer = [Diagnostics.Stopwatch]::StartNew()
@@ -65,7 +66,7 @@ try {
     if (-not (Test-Path -LiteralPath $evidence) -or (Get-Content -LiteralPath $evidence -Raw) -notmatch $passText) {
         throw 'Native terminal controls acceptance did not complete'
     }
-    foreach ($name in $(if ($Scenario -eq 'radiodevices') { @() } elseif ($Scenario -eq 'knowledge') { @('emma-knowledge-conversation','emma-knowledge-categories','emma-knowledge-town','emma-knowledge-outbreak','emma-knowledge-rural-files',
+    foreach ($name in $(if ($Scenario -eq 'followersitting') { @('emma-follower-sitting-short-pause','emma-follower-sitting-finished','emma-follower-sitting-follow-resumed') } elseif ($Scenario -eq 'radiodevices') { @() } elseif ($Scenario -eq 'knowledge') { @('emma-knowledge-conversation','emma-knowledge-categories','emma-knowledge-town','emma-knowledge-outbreak','emma-knowledge-rural-files',
         'emma-knowledge-logo-Twiggys','emma-knowledge-logo-WestPointDIY','emma-knowledge-logo-WizardsKeep',
         'emma-knowledge-logo-TacoDelPancho','emma-knowledge-logo-MuldraughPolice','emma-knowledge-logo-RosewoodFire',
         'emma-knowledge-logo-MeadeCountyPolice','emma-knowledge-logo-WestPointTownHall','emma-knowledge-logo-HobbsPerkinsHardware',
