@@ -142,6 +142,13 @@ p { margin-bottom: 0.9rem; }
 /* ── Plates: pictures from the game ── */
 figure.plate { margin: 1.6rem 0; padding: 6px; background: var(--paper-3); border: 1px solid var(--khaki); border-radius: 3px; box-shadow: 0 2px 8px rgba(30, 30, 15, 0.18); }
 figure.plate img { display: block; width: 100%; height: auto; border-radius: 2px; }
+figure.terminal-shot { background: var(--night); }
+figure.plate.terminal-shot figcaption { color: var(--paper); }
+figure.terminal-shot .plate-no { color: var(--amber-2); }
+figure.terminal-shot .credit { color: var(--khaki-2); }
+.chapter[id], h3[id] { scroll-margin-top: 4.5rem; }
+.terminal-startup { margin: 1rem 0; }
+.terminal-startup summary { cursor: pointer; color: var(--olive-800); font-weight: bold; }
 figure.plate.narrow { max-width: 420px; margin-left: auto; margin-right: auto; }
 figure.plate figcaption { font-size: 0.8rem; font-style: italic; color: var(--olive-600); padding: 0.45rem 0.3rem 0.1rem; line-height: 1.5; }
 .plate-no { font-style: normal; font-weight: bold; letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.7rem; color: var(--amber); margin-right: 0.4rem; }
@@ -252,6 +259,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   th { background: #e8e4d8; color: #111; }
   code, .item, kbd { background: #f0f0f0; color: #111; }
   figure.plate { break-inside: avoid; }
+  figure.plate.terminal-shot figcaption, figure.terminal-shot .credit { color: #111; }
+  figure.terminal-shot .plate-no { color: #654516; }
   
   .card { background: #fafafa; font-size: 7.4pt; line-height: 1.32; padding: 0.18cm 0.28cm 0.2cm; }
   .card h4 { font-size: 7.4pt; margin-bottom: 0.08cm; }
@@ -266,7 +275,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </head>
 <body>
 <!-- CARD START -->
-<p class="appendix-label">Living Fellows · Release 0.26.67</p>
+<p class="appendix-label">Living Fellows · Release 0.26.75</p>
 <h2 class="chapter" id="appF">Quick Reference Card</h2>
 <p class="card-intro">The Field Manual on two printed pages. Each panel names the manual chapter with the detail.</p>
 
@@ -408,6 +417,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <ol>
   <li>Put 1–4 companions in a group on <span class="k">Squad</span>.</li>
   <li><span class="k">Expeditions</span>: choose a leader, Scout, Search, Fish or Collect wood, walking or car route, return time and combat style.</li>
+  <li><span class="k">Choose on map</span>: right-click a building, shore or woodland. Known map targets allow 1,000 tiles walking or 5,000 driving; nearby browsing stays available.</li>
   <li><span class="k">Review mission</span>, then <span class="k">Send squad</span>.</li>
 </ol>
 <p><span class="k">Recall</span>: powered walkie-talkies on you and the leader, same channel → right-click your radio → <em>Return immediately</em>.</p>
@@ -415,7 +425,15 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p class="tbl-note">Ch 17</p>
 </div>
 
-<div class="card card-wide">
+<div class="card">
+<h4><img src="https://pzwiki.net/w/images/3/31/Radio.png" alt="">EMMA camp computer</h4>
+<p>Stand beside a powered desktop → <span class="k">Use computer</span>. <kbd>Tab</kbd>: chat/menu. Numbers: menu choices. <kbd>Esc</kbd>: back/log off.</p>
+<p>Try <code>who is hurt?</code>, <code>how many nails?</code>, <code>any problems?</code> or <code>what should I do?</code>. Camp records need a PC at home; requests need <span class="k">Y/N</span> confirmation.</p>
+<p><span class="k">Local services → Computer upgrades</span>: mount a two-way radio with Electrical 2, screwdriver, 1 wire and 2 scrap. Ask <code>open radio</code> for scanning, the notebook and team services.</p>
+<p class="tbl-note">Ch 16b</p>
+</div>
+
+<div class="card">
 <h4><img src="https://pzwiki.net/w/images/4/46/Toolbox.png" alt="">When something's wrong</h4>
 <table>
   <tr><td class="k">Panel missing</td><td>Press <kbd>Home</kbd>, look for <strong>LF</strong>, check the mod is enabled for the save (and ZombieBuddy, on Workshop)</td></tr>

@@ -142,6 +142,13 @@ p { margin-bottom: 0.9rem; }
 /* ── Plates: pictures from the game ── */
 figure.plate { margin: 1.6rem 0; padding: 6px; background: var(--paper-3); border: 1px solid var(--khaki); border-radius: 3px; box-shadow: 0 2px 8px rgba(30, 30, 15, 0.18); }
 figure.plate img { display: block; width: 100%; height: auto; border-radius: 2px; }
+figure.terminal-shot { background: var(--night); }
+figure.plate.terminal-shot figcaption { color: var(--paper); }
+figure.terminal-shot .plate-no { color: var(--amber-2); }
+figure.terminal-shot .credit { color: var(--khaki-2); }
+.chapter[id], h3[id] { scroll-margin-top: 4.5rem; }
+.terminal-startup { margin: 1rem 0; }
+.terminal-startup summary { cursor: pointer; color: var(--olive-800); font-weight: bold; }
 figure.plate.narrow { max-width: 420px; margin-left: auto; margin-right: auto; }
 figure.plate figcaption { font-size: 0.8rem; font-style: italic; color: var(--olive-600); padding: 0.45rem 0.3rem 0.1rem; line-height: 1.5; }
 .plate-no { font-style: normal; font-weight: bold; letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.7rem; color: var(--amber); margin-right: 0.4rem; }
@@ -252,6 +259,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   th { background: #e8e4d8; color: #111; }
   code, .item, kbd { background: #f0f0f0; color: #111; }
   figure.plate { break-inside: avoid; }
+  figure.plate.terminal-shot figcaption, figure.terminal-shot .credit { color: #111; }
+  figure.terminal-shot .plate-no { color: #654516; }
   #appF { break-before: page; }
   .card { background: #fafafa; font-size: 7.4pt; line-height: 1.32; padding: 0.18cm 0.28cm 0.2cm; }
   .card h4 { font-size: 7.4pt; margin-bottom: 0.08cm; }
@@ -311,7 +320,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <p class="subtitle">A Complete Guide to Living with the Fellows of Knox County</p>
   <p class="divider">· · · ✚ · · ·</p>
   <p class="edition">Living Fellows — Project Zomboid Build 42.21.0 Edition</p>
-  <p class="version">Release 0.26.67 — First Edition, Nineteenth Printing — You won't die... alone.</p>
+  <p class="version">Release 0.26.75 — First Edition, Nineteenth Printing — You won't die... alone.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2rem;"><span class="callout-label">Note — </span>
@@ -320,8 +329,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li><a href="#ch17"><strong>Send an expedition.</strong></a> Scout, search, fish or collect wood. Choose a squad, walk or drive, and watch them bring the haul home.</li>
   <li><a href="#ch14c"><strong>Leave someone on Base Watch.</strong></a> Keep the camp working while you travel, and call in by radio to hear how things are going.</li>
   <li><a href="#ch5c_taxi"><strong>Call Markus's taxi.</strong></a> Find a road, call from a working walkie-talkie and let someone else do the driving.</li>
+  <li><a href="#emma"><strong>Ask EMMA.</strong></a> Check supplies, find out who needs care, read the old files or fit a radio and run expeditions from your camp computer.</li>
 </ul>
-<p style="margin:0.7rem 0 0;">This edition covers <strong>0.26.67</strong>, including <a href="#ch17_wood">wood collection and delivery</a>, <a href="#ch14b">automatic job retries</a> and <a href="#ch18c">Strange Folk from the second day</a>. Need the essentials? Open the <a href="#appF">quick reference card</a>.</p>
+<p style="margin:0.7rem 0 0;">Updated for <strong>0.26.75</strong>, with an illustrated <a href="#emma">EMMA computer guide</a>, <a href="#ch17_map">map-selected expedition targets</a> and <a href="#ch17_wood">wood collection and delivery</a>. Need the essentials? Open the <a href="#appF">quick reference card</a>.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2rem;"><span class="callout-label">Note — </span>
@@ -371,6 +381,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
         <li><a href="#ch15">Ch 15: Farming</a></li>
         <li><a href="#ch15b">Ch 15b: The Kitchen and the Water</a></li>
         <li><a href="#ch16">Ch 16: Laying the Dead to Rest</a></li>
+        <li><a href="#emma">Ch 16b: EMMA and Camp Computers</a></li>
       </ol>
     </li>
     <li><a href="#part4">Part IV — Beyond the Fence</a> <span class="toc-stage">Journeys &amp; Strangers</span>
@@ -545,7 +556,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h3>Status</h3>
 <table>
   <tr><th>Block</th><th>Lines</th></tr>
-  <tr><td><strong>Status</strong></td><td>Name, health, hunger and thirst; the <strong>current action</strong> and the <strong>last action problem</strong>, if something just failed; order, intent and distance from you</td></tr>
+  <tr><td><strong>Status</strong></td><td>Name, health, hunger, thirst, stamina and tiredness; the <strong>current action</strong> and the <strong>last action problem</strong>, if something just failed; order, intent and distance from you</td></tr>
   <tr><td><strong>At a glance</strong></td><td>Mood and relationship tier; their current need; a recent memory; grief, if they are mourning; any promise they're expecting you to keep; and any stress response they're going through right now</td></tr>
 </table>
 <div class="callout callout-tip"><span class="callout-label">Note — </span><strong>Last action problem</strong> is the line to read when a companion seems to ignore you. It names what stopped them, such as a blocked path or a missing tool.</div>
@@ -1546,6 +1557,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h3>Marking Storage</h3>
 <p>Right-click a container inside the camp, choose <span class="menu">Mark storage as...</span> and pick a category. Companions help themselves from marked storage and leave unmarked containers to you. Sorting empties General and Work output storage into the right categories, including clothing into Clothes, and fixes clear mistakes elsewhere: a pistol filed under Tools moves to Weapons. The car-unloading job also files clothing under Clothes. A shelf keeps anything that could belong on it, so hammers, axes and shovels may stay in Tools or Weapons, and shells, magazines and medicine stay where you put them. You can give each marked container a reserve, and companions leave that many items in it (<a href="#ch14b">Chapter 14b</a>).</p>
 <p>Camp jobs, car unloading and expedition deliveries try every container of the right category before they pause for lack of space. The Base panel names each full destination, and the worker says so once, then waits for room.</p>
+<p>To remove a marking, right-click the container and choose <span class="menu">Living Fellows → Base life → Unmark storage</span>. This removes the camp registration; the container and everything in it stay where they are. Storage management is at the bottom of the Base panel, below the daily job controls.</p>
 
 <table>
   <tr><th></th><th>Category</th><th>What goes in it</th></tr>
@@ -1933,6 +1945,127 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>A fallen companion found by the gravekeeper gets a grave of their own, always with a cross, and the grave keeps their name. Their grave closes with their name instead of a joke. The name includes their nickname, as in Sarah “Doc” Shaw; right-click a companion's cross to read it, and a keepsake put in Memorial storage carries it too (<a href="#ch9g">Ch 9g</a>). Fallen companions are never burned. A body whose identity is uncertain is treated as a stranger, and your own body is never touched.</p>
 
 <div class="lore-pull"><span class="lore-label">Overheard — </span>Here's to you. I'd pour one out, but Kentucky's rationing.<span class="who">— a bourbon blessing</span></div>
+<!-- CH 16b -->
+<h2 class="chapter" id="emma">Chapter 16b: EMMA and Camp Computers<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+
+<p>There is still someone willing to answer questions at the office. She lives on a desktop, calls herself the <strong>Emergency Management Assistant</strong>, and has rather more confidence in the county's emergency arrangements than the evidence warrants.</p>
+<p>EMMA reads camp records, finds supplies, explains blocked work and helps you ask for medical care or fuel. Add a walkie-talkie and the same computer becomes a radio desk and expedition station. Everything runs <strong>offline</strong>: no internet, account or external AI service is needed.</p>
+<p class="tbl-note">Jump to <a href="#emma-start">getting started</a> · <a href="#emma-questions">questions and requests</a> · <a href="#emma-radio">radio and expeditions</a> · <a href="#emma-buildings">building controls</a> · <a href="#emma-files">files and passwords</a> · <a href="#emma-reset">factory reset</a>.</p>
+<p class="tbl-note">The screens below were captured in-game. On the website, select a screen image to open it at full size.</p>
+
+<figure class="plate terminal-shot">
+  <a href="assets/lf_emma_home.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_emma_home.webp" width="1280" height="720" alt="The actual in-game EMMA terminal: aquamarine text inside a beige Larchfield monitor, with Camp report, Personal files, County files and EMMA, Log off and Local services in the numbered menu."></a>
+  <figcaption><span class="plate-no">Screen 1</span> EMMA after startup. Ask a question on the left, or use the numbered menu on the right. Names and readings depend on your save. <span class="credit">In-game capture: Living Fellows</span></figcaption>
+</figure>
+
+<h3 id="emma-start">Your First Session</h3>
+<ol class="steps">
+  <li><span class="step-n">1</span>Find a <strong>desktop computer</strong>, stand beside it and right-click <span class="menu">Use computer</span>. It needs working grid or generator power, or a fitted battery backup.</li>
+  <li><span class="step-n">2</span>Let the Larchfield BIOS and memory test finish, or press <kbd>Enter</kbd> to skip startup. If the machine is locked, recover its password first (<a href="#emma-files">below</a>).</li>
+  <li><span class="step-n">3</span>Choose <strong>Camp report</strong>, or press <kbd>Tab</kbd> and type <code>what should I do?</code>. Press <kbd>Enter</kbd> to send.</li>
+</ol>
+<p><strong>Camp records stay at home.</strong> A computer inside your camp can read its people, storage, jobs and expeditions. A computer elsewhere still has EMMA, local services and its old files, but cannot look into your camp from across town. You can carry a computer home; its files, locks and mounted parts travel with it.</p>
+<p>The terminal fills your player view and scales to the resolution. Each machine keeps its screen colour: green, golden sand or aquamarine, with purple on about one in a hundred computers. At home, the header uses the EMMA camp emblem; the old owner's files remain until you choose to erase them.</p>
+
+<details class="terminal-startup">
+  <summary>See the Larchfield startup screen</summary>
+  <figure class="plate terminal-shot">
+    <a href="assets/lf_emma_bios.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_emma_bios.webp" width="1280" height="720" alt="In-game golden-sand Larchfield Business Machines BIOS, with an initializing progress bar and a walkie-talkie bolted to the right side of the monitor."></a>
+    <figcaption><span class="plate-no">Screen 2</span> The animated BIOS appears before the memory and hardware checks. The radio on the bezel indicates fitted hardware. <span class="credit">In-game capture: Living Fellows</span></figcaption>
+  </figure>
+</details>
+
+<h4>Keys at the Computer</h4>
+<table>
+  <tr><th>Key</th><th>What it does</th></tr>
+  <tr><td><kbd>Tab</kbd> / <kbd>Shift</kbd> + <kbd>Tab</kbd></td><td>Switch between chat and the numbered menu; keep your unfinished question</td></tr>
+  <tr><td>A displayed number</td><td>Select that menu item while the menu has focus; numbers typed in chat stay part of your question</td></tr>
+  <tr><td><kbd>↑</kbd> / <kbd>↓</kbd>, then <kbd>Enter</kbd></td><td>Choose a menu item; in chat, recall earlier questions instead</td></tr>
+  <tr><td><kbd>Enter</kbd></td><td>Send a question; finish a reply that is still typing; skip startup</td></tr>
+  <tr><td><kbd>Page Up</kbd> / <kbd>Page Down</kbd> or mouse wheel</td><td>Read earlier conversation, long files and password-recovery candidates</td></tr>
+  <tr><td><kbd>Esc</kbd></td><td>Go back from a submenu; log off from the main menu</td></tr>
+</table>
+<p>Clicking also works. On a narrow view, the menu and chat take turns using the available space. The footer tells you which controls are active. Type <code>clear</code> to clear the conversation display or <code>exit</code> to log off. Walking away closes the terminal.</p>
+
+<h3 id="emma-questions">Ask in Your Own Words</h3>
+<p>You do not need exact commands. <code>How many nails?</code> and <code>Do we have nails?</code> ask the same thing. EMMA understands common misspellings and remembers the subject of a short follow-up: ask about nails, then <code>and screws?</code>. If she offers a correction, answer <code>yes</code> or <code>no</code>.</p>
+<table>
+  <tr><th>Try asking</th><th>What you get</th></tr>
+  <tr><td><code>status</code> · <code>what should I do?</code></td><td>A camp report, or the most urgent problem she can see</td></tr>
+  <tr><td><code>who is hurt?</code> · <code>how is Jill?</code></td><td>Health, visible wounds and bandages, needs and mood; people on expedition are reported as away</td></tr>
+  <tr><td><code>where is Tess?</code> · <code>who is best at first aid?</code></td><td>Recorded activity and location, or relevant skills among the people at camp</td></tr>
+  <tr><td><code>how many nails?</code> · <code>how much food?</code></td><td>Marked storage counts and where they are; food reports also estimate how long supplies will last</td></tr>
+  <tr><td><code>any problems?</code> · <code>what is everyone doing?</code></td><td>Waiting, active and blocked jobs, their reasons and available retry information</td></tr>
+  <tr><td><code>power</code> · <code>weather</code> · <code>time</code></td><td>Generator readings, conditions outside and the game date</td></tr>
+  <tr><td><code>expedition</code> · <code>deliveries</code></td><td>Known mission progress, the last debrief and cargo still awaiting storage</td></tr>
+  <tr><td><code>remember the key is in the van</code></td><td>A note on this computer. Ask <code>what did I tell you?</code> to read it back.</td></tr>
+</table>
+<p>She also does arithmetic and keeps company. Try <code>are you alive?</code>, <code>tell me a joke</code>, <code>write a poem</code>, <code>do you dream?</code> or <code>tell me something hopeful</code>. Asking about an item you actually own still checks the supplies; a conversation about Spiffo does not conjure a burger.</p>
+
+<h4>Requests Need Your Confirmation</h4>
+<p>Try <code>send medic to Jill</code>, <code>refuel generator</code>, <code>refuel &lt;vehicle name&gt;</code> or <code>retry job &lt;job ID&gt;</code>. EMMA names the proposed helper or target and asks <strong>[Y/N]</strong>. Type <code>yes</code> and press <kbd>Enter</kbd> to proceed, or <code>no</code> to cancel. A different question or menu choice also cancels the request.</p>
+<p>EMMA checks again when you confirm. An occupied medic, missing supplies or a blocked route can still prevent the job. She queues the same work as the normal menus; she does not repair, heal or move supplies by wishing.</p>
+
+<h3 id="emma-radio">Fit a Radio, Run an Expedition</h3>
+<p>Open <span class="menu">Local services → Computer upgrades</span> and mount a usable <strong>two-way walkie-talkie</strong>. You need <strong>Electrical 2, a screwdriver, one electric wire and two electronics scrap</strong>. Your character fits the actual handset to the PC, and its antenna appears on the frame.</p>
+<p>Choose <span class="menu">Local services → LARCH/WAVE radio desk</span> or ask <code>open radio</code>. The mounted handset keeps its tuning range and presets. Choose a preset, tune a frequency, change the speaker volume or mute the microphone. The bars, waveform and reception display animate when this receiver has activity.</p>
+
+<figure class="plate terminal-shot">
+  <a href="assets/lf_emma_radio.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_emma_radio.webp" width="1280" height="720" alt="The in-game LARCH/WAVE radio desk with aquamarine segmented activity bars, frequency, volume and microphone state, and numbered controls for presets, scanner, audio, notebook and team services."></a>
+  <figcaption><span class="plate-no">Screen 3</span> LARCH/WAVE on a fitted station. Open the scanner to look for reception, or the notebook to read received text. <span class="credit">In-game capture: Living Fellows</span></figcaption>
+</figure>
+
+<ul>
+  <li><strong>Scan presets</strong> listens through the handset's saved presets. <strong>Band sweep</strong> steps through its tuning range. A received signal holds the channel; choose <strong>Stay on this channel</strong> or <strong>Continue scanning</strong>.</li>
+  <li>Type <code>save this channel as Weather</code> to keep a frequency, or <code>what did we hear?</code> to open the notebook. It retains the last 48 received text snippets, with game time and frequency. <strong>Heard stations</strong> lists reception this PC has actually received.</li>
+  <li><strong>Stop / restore</strong> returns to the channel used before scanning. Leaving the radio desk or logging off also ends the scan. One handset can listen to only one channel at a time.</li>
+</ul>
+<p>From a <strong>camp station</strong>, review and launch Scout, Search, Fish or Collect wood missions, request reports, recall the crew and answer route decisions. <strong>Choose destination on map</strong> opens your map and brings the chosen target back to mission review (<a href="#ch17">Chapter 17</a>). <strong>Team / Marcus</strong> also offers taxi booking and status through the usual service.</p>
+<p>The team's radios must be working, equipped, on the same channel and within range. Fresh progress requires a return transmission. During an active mission, EMMA asks before scanning away from the team channel because you could miss a call.</p>
+
+<h4>Battery Backup and Moving Hardware</h4>
+<p>An optional UPS needs <strong>Electrical 4, a screwdriver, one wire, four scrap and a charged car battery</strong>. A full, healthy battery supplies about six game hours of active computer and radio use; poorer condition reduces that time. It powers this PC, not the building or door motors. Remove it to recharge normally.</p>
+<p>Mounted radios and batteries move with the computer and add to its weight. Their identities and settings remain intact. If the computer is unpowered, its context menu still lets you remove fitted hardware.</p>
+
+<h3 id="emma-buildings">Connect the Building</h3>
+<p>Open <span class="menu">Local services → Connect local controls</span>. The connection needs <strong>Electrical 2, a screwdriver, one wire and two electronics scrap</strong>. Use <strong>Equipment</strong> to find the building's loaded devices; a large building may take another visit to the list while discovery finishes.</p>
+<p>Building security has its <strong>own password</strong>. Recover it or use the matching physical key before issuing protected commands. Unlocking the computer, or carrying one into a bank, does not unlock the building.</p>
+
+<figure class="plate terminal-shot">
+  <a href="assets/lf_emma_controls.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_emma_controls.webp" width="1280" height="720" alt="EMMA's in-game Local services page, offering Connect local controls, Authorize building security and Equipment, with numbered keyboard choices."></a>
+  <figcaption><span class="plate-no">Screen 4</span> Start with a local connection, then authorize the building and inspect its equipment. Each physical upgrade has its own requirements. <span class="credit">In-game capture: Living Fellows</span></figcaption>
+</figure>
+
+<table>
+  <tr><th>Control</th><th>What to expect</th></tr>
+  <tr><td><strong>Doors and shutters</strong></td><td>Operate authorized locks and fitted motors. Garage-door sections move together; occupied or obstructed doorways wait.</td></tr>
+  <tr><td><strong>Lights and circuits</strong></td><td>Switch fitted lighting relays and usable constructed floodlights. Name devices and group lights, such as Kitchen or Perimeter.</td></tr>
+  <tr><td><strong>Generators</strong></td><td>Ask a suitable companion to start, stop, repair or refuel. A fitted remote starter uses a real car battery and consumes charge.</td></tr>
+  <tr><td><strong>Alarm, siren and PA</strong></td><td>Control this building's alarm and fitted speaker. Sirens and announcements make real noise that attracts infected.</td></tr>
+  <tr><td><strong>Routines</strong></td><td>Opt into night lighting, lockdown or a return garage. Garage closure waits for the returned car stopped inside, engine off, with the doorway clear.</td></tr>
+</table>
+<p>Relays and contacts need Electrical 3; motors and motion sensing need Electrical 4. The installation menu lists the tools and parts for the chosen device. Work happens beside it and needs a usable route. A moved or disconnected authorizing computer suspends its routines.</p>
+<p><strong>No extra power mod is needed.</strong> Lighting circuits and generator supply work through LF's own controls. Individual fridge/freezer switching is not available; stopping its actual generator removes generator power in the usual way.</p>
+
+<h3 id="emma-files">Passwords, Previous Owners and County Files</h3>
+<p>About <strong>40% of newly discovered computers outside camp</strong> are password-locked. The lock covers the whole computer and stays with it when moved. Recovery is a word puzzle: pick a candidate and the result counts letters in the correct positions. Hidden bracket groups remove a wrong candidate or restore attempts. Higher Electrical skill helps.</p>
+<p>Run out of attempts and recovery locks for <strong>one game hour</strong>. The same puzzle returns afterward with fresh attempts. Closing the window or reloading does not reroll it. A successful recovery awards a little Electrical XP once for that computer.</p>
+<p><strong>Personal files</strong> belong to the machine's former owner: dated July 1993 entries selected for the room or business. A police desk, a family bedroom and a funeral home tell different stories. There are hundreds of entries, from ordinary office complaints to the things nobody wanted written down.</p>
+
+<figure class="plate terminal-shot">
+  <a href="assets/lf_emma_files.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_emma_files.webp" width="1280" height="720" alt="A real in-game purple Brooks Library terminal, showing the dated Summer reading file and four selectable stories beside the transcript."></a>
+  <figcaption><span class="plate-no">Screen 5</span> A Brooks Library computer's old files. Firm branding and screen colour belong to the machine; its records stay with it when moved. <span class="credit">In-game capture: Living Fellows</span></figcaption>
+</figure>
+
+<p><strong>County files and EMMA</strong> holds reference material about the Knox Event, towns, businesses, broadcasts and the assistant herself. Try <code>tell me about West Point</code>, <code>what is KnoxTalk?</code>, <code>what caused the outbreak?</code> or <code>tell me about the empty bus</code>, then <code>tell me more</code>. Outbreak fragments are original, unverified local accounts. Later reports appear when your save reaches their date; theories are not presented as a known cause.</p>
+<p>With safe routines enabled, literate companions may read at an accessible, unlocked camp PC during a quiet break. They yield when you use it and do not alter your notes or issue commands.</p>
+
+<h3 id="emma-reset">Give a Computer a Fresh Start</h3>
+<p>Ask <code>factory reset</code> or <code>reset this computer to factory settings</code>. EMMA asks for confirmation before removing <strong>this computer's previous-owner files, firm branding, notes, conversation memory and radio notebook</strong>. It restarts with clean EMMA branding and an empty personal directory.</p>
+<p>Mounted hardware, its presets, screen colour, password protections and connected-equipment settings remain. County and EMMA reference files remain too. Other computers keep their records. Unlock a protected machine before asking; moving it home is not a shortcut.</p>
+
+<div class="callout callout-also"><span class="callout-label">See also — </span>For mission choices and delivery rules, see <a href="#ch17">Chapter 17</a>. For storage and the jobs EMMA reports on, see <a href="#ch11">Chapter 11</a> and <a href="#ch14b">Chapter 14b</a>.</div>
+
 
 <!-- ═══ PART IV ═══ -->
 <div class="part-header" id="part4">
@@ -1949,7 +2082,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <figure class="plate narrow">
   <img loading="lazy" decoding="async" src="https://pzwiki.net/w/images/a/aa/Pzmap_01_public_paper.png" alt="A creased paper tourist map of Muldraugh, KY, population 3566, with a numbered legend of stores, police, motel and school.">
-  <figcaption><span class="plate-no">Plate 8</span> A paper map of Muldraugh. The planner offers real places within 200 tiles; this is the kind of town it sends them into. <span class="credit">Image: PZwiki</span></figcaption>
+  <figcaption><span class="plate-no">Plate 8</span> A paper map of Muldraugh. Choose a destination on your map or browse nearby places; this is the kind of town it sends them into. <span class="credit">Image: PZwiki</span></figcaption>
 </figure>
 
 <h3>Planning a Trip</h3>
@@ -1957,7 +2090,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li><span class="step-n">1</span>On <span class="menu">Squad</span>, assign one to four companions to a squad.</li>
   <li><span class="step-n">2</span>Open <span class="menu">Expeditions</span> and choose the squad's <strong>leader</strong>.</li>
   <li><span class="step-n">3</span>Choose the mission: <strong>Scout</strong>, <strong>Search</strong>, <strong>Fish nearby water</strong> or <strong>Collect wood</strong>. Search also lets you request a supply type and quantity, including <strong>Everything useful</strong> for supplies across categories.</li>
-  <li><span class="step-n">4</span>Choose a building within 200 tiles (32 per page), a fishing bank up to 1,000 tiles away, or let Collect wood find nearby woodland.</li>
+  <li><span class="step-n">4</span>Choose <span class="menu">Choose on map</span>, right-click a building, shoreline or woodland, then select the highlighted destination. You can also browse nearby places or let Collect wood find woodland automatically.</li>
   <li><span class="step-n">5</span>Choose how to travel, how long before they turn home, and the combat style.</li>
   <li><span class="step-n">6</span>Review the plan and select <span class="menu">Send squad</span>.</li>
 </ol>
@@ -1971,15 +2104,18 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Team leader</strong></td><td>The member who gets the second view and leads the column</td></tr>
   <tr><td><strong>Task</strong></td><td>Scout the location, Search for supplies, Fish nearby water, or Collect wood</td></tr>
   <tr><td><strong>Supplies</strong> (Search)</td><td>Food, Water, Medicine, Ammunition, Tools, Clothing, or Everything useful, and how many items</td></tr>
-  <tr><td><strong>Target location</strong></td><td>A building within 200 tiles, a fishing bank up to 1,000 tiles away, or automatically chosen woodland within 1,000 tiles</td></tr>
+  <tr><td><strong>Target location</strong></td><td>Map-selected buildings, fishing banks or woodland: up to 1,000 tiles walking or 5,000 driving. Nearby browsing and automatic woodland discovery remain available.</td></tr>
   <tr><td><strong>Travel route</strong></td><td>Follow roads, Head straight for target, or Drive car</td></tr>
   <tr><td><strong>Parking area and vehicle</strong> (Drive car)</td><td>A marked ground-floor parking area and a usable car fully inside it</td></tr>
   <tr><td><strong>Restock and resume base duty</strong> (Search, Fish, Wood)</td><td>Yes or No: on return, refill from camp storage and go back to base jobs (<a href="#ch17_delivery">below</a>)</td></tr>
-  <tr><td><strong>Time before turning home</strong></td><td>1, 2, 4 or 8 game hours</td></tr>
+  <tr><td><strong>Time before turning home</strong></td><td>1, 2, 4, 8, 12 or 24 game hours</td></tr>
   <tr><td><strong>Combat style</strong></td><td>Stealth, Close Defense, or Aggressive (weapons free)</td></tr>
 </table>
-<p>A place marked <em>Map location; the building has not been confirmed from inside</em> comes from map data rather than a visit. The sandbox option <strong>Expedition destination choices</strong> can limit the list to buildings whose interiors you've seen (<a href="#appB">Appendix B</a>). The review shows the route length and which roads it takes, and warns about any long stretch off-road at the start or end. Street junctions stay provisional until the leader sees the ground.</p>
+<p>A place marked <em>Map location; the building has not been confirmed from inside</em> comes from map data rather than a visit. The sandbox option <strong>Expedition destination choices</strong> can limit the list to locations visited or revealed by reading maps (<a href="#appB">Appendix B</a>). The review shows the route length and which roads it takes, and warns about any long stretch off-road at the start or end. Street junctions stay provisional until the leader sees the ground.</p>
 
+<h3 id="ch17_map">Choosing on the Map</h3>
+<p>The normal map keeps its drag, zoom and annotation controls. The highlighted footprint or marker shows the actual destination. Beyond 200 tiles, manual targets need terrain you have visited or revealed by reading a map; hiding map fog does not grant knowledge. Range is measured from the selected leader, while the actual road route can be longer. The crew still checks entrances, water and trees on arrival.</p>
+<p>Back, Escape or closing the map leaves your previous destination unchanged. Editing the crew, vehicle or travel mode keeps the pin and asks for a fresh review when needed. The turn-home timer includes travel after departure; existing equipment waits pause departure. Allow time to work, especially on a long trip. The same picker is available at an EMMA expedition station.</p>
 <div class="two-col">
 <div>
 <h4><img class="ico-sm" src="https://pzwiki.net/w/images/4/4d/Flashlight.png" alt="">Scout</h4>
@@ -1995,7 +2131,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>Set how many fish to bring home, and the planner lists <strong>fishing banks</strong> instead of buildings: confirmed shores in the loaded world, and possible shores from the map's water up to 1,000 tiles away, which the leader checks on arrival. A remote shore is only a suggestion until the squad reaches it. Paging through the list reuses one scan; <span class="menu">Refresh</span> looks again. Before departure, the leader collects a usable rod and bait from permitted camp storage. Missing supplies pause preparation and retry automatically, without spending the trip's relative return timer. Other members with their own gear fish too, and the rest stand guard. Only fish caught near the chosen bank count. The squad heads home with the catch, after about two hours at the water, or at the turn-home time, and earlier if the bank has no usable water or the bait runs out.</p>
 
 <h4 id="ch17_wood"><img class="ico-sm" src="https://pzwiki.net/w/images/4/45/WoodAxe.png" alt="">Collect wood</h4>
-<p>Send the crew on foot or by car. Choose <strong>1, 2, 4, 8, 12 or 24 logs</strong> (12 by default), or <strong>Full load</strong>, limited by real carrying space and a ceiling of 256 logs per trip. The planner finds woodland within 1,000 tiles. The crew checks for mature trees on arrival and can try up to three nearby sites.</p>
+<p>Send the crew on foot or by car. Choose <strong>1, 2, 4, 8, 12 or 24 logs</strong> (12 by default), or <strong>Full load</strong>, limited by real carrying space and a ceiling of 256 logs per trip. Automatic discovery finds woodland within 1,000 tiles. Or choose a woodland work area on the map, up to 1,000 tiles walking or 5,000 driving on known terrain. A manually assigned crew tries up to three patches inside the highlighted area and returns partial cargo if it cannot continue, rather than switching forests. The crew checks mature trees on arrival.</p>
 <p>Preparation borrows a usable axe from permitted camp storage, waiting and retrying if none is available. One companion cuts while the others haul and protect them; a lone worker does both. Walkers need room for logs as well as tools and essentials. Driving crews shuttle logs to the trunk. A full load, the requested amount, danger, a broken last axe or the return timer sends them home with what they have. Unless <strong>Work outside at night</strong> is enabled, preparation waits until 06:00 and outdoor wood work ends at 21:00.</p>
 <p><strong>Collected, carried and stored are separate counts.</strong> Home delivery prefers permitted Log Yard, Construction, then General storage. Logs form four-log stacks in rows in a yard. Full or unreachable storage keeps the cargo pending and retries every three minutes; <strong>Retry</strong> is there if you have just made room. Borrowed axes go back too, even from a bag. Delivery is required whether or not <strong>Restock and resume base duty</strong> is enabled.</p>
 
@@ -2224,7 +2360,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 18c -->
 <h2 class="chapter" id="ch18c"><img class="ico" src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Chapter 18c: Strange Folk<span class="stage stage-end">Strangers</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<div class="callout callout-tip"><span class="callout-label">Note — </span>Release 0.26.67 uses native bridge protocol <code>42.21-isocompanion-24</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Release 0.26.75 uses native bridge protocol <code>42.21-isocompanion-24</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
 
 <p>Not every stranger is a household looking for supplies. Sixty-five hand-made characters live in Knox County: a butcher with a back room, a deputy still running her checkpoint, a grandmother guarding a child's bedroom with a broken bottle, a man who smeared himself in the dead so they'd leave him alone. Each one is a one-off with their own rules, voice and ending. They use the same standing, trade, combat, navigation and recruitment rules as other survivors, and their animals are real Build 42 animals with names that survive saves.</p>
 
@@ -2364,6 +2500,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td>Right-click the world</td><td><span class="menu">Living Fellows</span>: Move here, object actions, target actions, care, squad signals, base life, households</td><td class="tbl-note"></td></tr>
   <tr><td>Right-click the world → Living Fellows → Squad</td><td>Whistle, Hold, Fall back, Cease fire, Fire; harvest or chop near a ground tile</td><td class="tbl-note">Hand signs need line of sight; field work needs recruited followers (<a href="#ch5b">Ch 5b</a>, <a href="#ch4_field">Ch 4</a>)</td></tr>
   <tr><td>Right-click your radio</td><td>Return immediately (expeditions)</td><td class="tbl-note">Needs a received transmission</td></tr>
+  <tr><td>Right-click a powered desktop → Use computer</td><td>Open EMMA; <kbd>Tab</kbd> switches chat/menu, numbers choose menu entries, <kbd>Esc</kbd> goes back</td><td class="tbl-note"><a href="#emma">Ch 16b</a>; camp records require a computer inside camp</td></tr>
 </table>
 
 <p class="appendix-label">Appendix B</p>
@@ -2391,7 +2528,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td>Days between Strange Folk encounters</td><td>1–14</td><td>3</td><td>The wait before the next stranger may settle in; a lack of suitable places can stretch it</td></tr>
   <tr><td>Companion nicknames</td><td>on / off</td><td>on</td><td>Whether companions bring, earn and use nicknames. Saved nicknames stay when it's off (<a href="#ch9g">Ch 9g</a>).</td></tr>
   <tr><td>Rare famous namesakes</td><td>on / off</td><td>off</td><td>A very few new survivors may share an exact name with a fictional zombie-story character</td></tr>
-  <tr><td>Expedition destination choices</td><td>All nearby, Known places only</td><td>All nearby</td><td>All nearby includes buildings from map data you haven't visited; Known places only lists buildings whose interiors you've seen</td></tr>
+  <tr><td>Expedition destination choices</td><td>All nearby, Known places only</td><td>All nearby</td><td>All nearby includes buildings from map data you haven't visited; Known places only lists locations visited or revealed by reading maps</td></tr>
 </table>
 <p>Independent survivors normally appear 50 to 110 tiles away, outside your immediate view. The group-size slowdown affects new independent survivor attempts, not the separate Strange Folk schedule.</p>
 <div class="callout callout-tip"><span class="callout-label">Note — </span>Lowering a limit never deletes companions, households or camps already in the save. Turning diaries off never removes a book or its pages.</div>
@@ -2452,7 +2589,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p><span class="menu">More → Support</span> is the first place to look when something is wrong, and the report it copies is the most useful thing to attach to a bug report.</p>
 <table>
   <tr><th>Line</th><th>What a healthy game shows</th></tr>
-  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.67</td></tr>
+  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.75</td></tr>
   <tr><td>Game build / supported build</td><td>42.21.0 on both sides</td></tr>
   <tr><td>Runtime active</td><td>Yes. If not, <strong>Runtime disabled reason</strong> says why.</td></tr>
   <tr><td>Native bridge status, actor provider, bridge protocol</td><td>The bridge is ready, and its protocol matches the expected one. A mismatch means an old or mixed install.</td></tr>
@@ -2495,7 +2632,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <p class="appendix-label">Appendix E</p>
 <h2 class="chapter" id="appE">Picture Credits <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
-<p>Item and moodle icons and Plates 1, 2, 4–10 come from <strong>PZwiki</strong>, the Project Zomboid community wiki (pzwiki.net). The game art shown in them belongs to <strong>The Indie Stone</strong>. The cover banner and Plate 3 are Living Fellows project art.</p>
+<p>Item and moodle icons and Plates 1, 2, 4–10 come from <strong>PZwiki</strong>, the Project Zomboid community wiki (pzwiki.net). The game art shown in them belongs to <strong>The Indie Stone</strong>. The cover banner and Plate 3 are Living Fellows project art. EMMA Screens 1–5 are actual in-game captures of Living Fellows' computer interface, not concept images; any Project Zomboid business marks shown remain The Indie Stone's.</p>
 <table>
   <tr><th>Plate</th><th>Subject</th><th>Source file</th></tr>
   <tr><td>1</td><td>Muldraugh from above</td><td class="tbl-item">Muldraugh.png</td></tr>
@@ -2508,6 +2645,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td>8</td><td>Muldraugh paper map</td><td class="tbl-item">Pzmap_01_public_paper.png</td></tr>
   <tr><td>9</td><td>Zombies on the road</td><td class="tbl-item">DecomposingGroup.jpg</td></tr>
   <tr><td>10</td><td>Convenience store</td><td class="tbl-item">ConvenienceStore_Muldraugh.png</td></tr>
+  <tr><td>Screens 1–5</td><td>EMMA, Larchfield BIOS, LARCH/WAVE, local services and owner files</td><td>Living Fellows in-game framebuffer captures, Build 42.21.0</td></tr>
 </table>
 <p class="tbl-note">Living Fellows is an unofficial mod, not affiliated with or endorsed by The Indie Stone.</p>
 
@@ -2655,6 +2793,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <ol>
   <li>Put 1–4 companions in a group on <span class="k">Squad</span>.</li>
   <li><span class="k">Expeditions</span>: choose a leader, Scout, Search, Fish or Collect wood, walking or car route, return time and combat style.</li>
+  <li><span class="k">Choose on map</span>: right-click a building, shore or woodland. Known map targets allow 1,000 tiles walking or 5,000 driving; nearby browsing stays available.</li>
   <li><span class="k">Review mission</span>, then <span class="k">Send squad</span>.</li>
 </ol>
 <p><span class="k">Recall</span>: powered walkie-talkies on you and the leader, same channel → right-click your radio → <em>Return immediately</em>.</p>
@@ -2662,7 +2801,15 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p class="tbl-note">Ch 17</p>
 </div>
 
-<div class="card card-wide">
+<div class="card">
+<h4><img src="https://pzwiki.net/w/images/3/31/Radio.png" alt="">EMMA camp computer</h4>
+<p>Stand beside a powered desktop → <span class="k">Use computer</span>. <kbd>Tab</kbd>: chat/menu. Numbers: menu choices. <kbd>Esc</kbd>: back/log off.</p>
+<p>Try <code>who is hurt?</code>, <code>how many nails?</code>, <code>any problems?</code> or <code>what should I do?</code>. Camp records need a PC at home; requests need <span class="k">Y/N</span> confirmation.</p>
+<p><span class="k">Local services → Computer upgrades</span>: mount a two-way radio with Electrical 2, screwdriver, 1 wire and 2 scrap. Ask <code>open radio</code> for scanning, the notebook and team services.</p>
+<p class="tbl-note">Ch 16b</p>
+</div>
+
+<div class="card">
 <h4><img src="https://pzwiki.net/w/images/4/46/Toolbox.png" alt="">When something's wrong</h4>
 <table>
   <tr><td class="k">Panel missing</td><td>Press <kbd>Home</kbd>, look for <strong>LF</strong>, check the mod is enabled for the save (and ZombieBuddy, on Workshop)</td></tr>
@@ -2678,7 +2825,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CARD END -->
 
 <div class="page-footer">
-  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.67 &nbsp;·&nbsp; First Edition, Nineteenth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
+  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.75 &nbsp;·&nbsp; First Edition, Nineteenth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
 </div>
 <script>
 (function () {
