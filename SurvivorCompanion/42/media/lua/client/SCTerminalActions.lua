@@ -154,9 +154,16 @@ local function prepareTarget(window, proposal, base)
 end
 function Actions.prepare(window, proposal)
     if type(proposal) ~= "table" then return nil, "Request unavailable." end
-    local localServices = proposal.kind == "control" or proposal.kind == "factory_reset"
+    local localServices = proposal.kind == "control" or proposal.kind == "factory_reset" or proposal.kind == "radio_desk"
     local base, reason = context(window, nil, localServices)
     if not base then return nil, reason end
+    if proposal.kind == "radio_desk" then
+        local target,prompt=SC.TerminalRadio.prepare(window,proposal)
+        if not target then return nil,prompt end
+        local ticket={}
+        tickets[ticket]={window=window,localServices=true,radioDesk=true,target=target,at=U().nowMs()}
+        return ticket,prompt
+    end
     if proposal.kind == "factory_reset" then
         local ticket = {}
         tickets[ticket] = {window=window,localServices=true,factoryReset=true,
@@ -192,6 +199,7 @@ function Actions.execute(window, ticket)
     if not base then return false, reason end
     local age = U().nowMs() - request.at
     if age < 0 or age > Actions.TTL_MS then return false, "That request expired. Please ask again." end
+    if request.radioDesk then return SC.TerminalRadio.execute(window,request.target) end
     if request.factoryReset then
         if request.object ~= window.object or request.system ~= window.system then
             return false, "The computer changed. Please ask again."

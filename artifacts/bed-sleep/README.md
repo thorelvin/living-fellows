@@ -44,3 +44,11 @@ production paths. Auto-zoom and the prior camera target are restored afterward.
 
 Local captures are in `build/bed-sleep/native`; retained evidence and exact
 coverage are linked from [validation](../../docs/validation-bed-sleep.md).
+
+`run-exhaustion-native.ps1` runs `exhaustion-native.lua` in the same disposable
+clone. It exercises automatic chair-to-bed recovery at 100% fatigue in a marked
+Rest bedroom, then verifies native lying sleep, fatigue recovery and alarm wake.
+It also places the observer on the target pillow, waits for native tile
+membership to settle, and checks that alignment rejects the occupied tile
+without moving the sleeper. After the observer leaves, normal bed entry resumes.
+Captures and evidence go to `build/exhaustion-sleep/native`.

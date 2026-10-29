@@ -50,8 +50,13 @@ end
 function S.menu(window)
     local p=window.menuPage
     if p=="home_services" then
-        return {option("Building services","page","services"),option("Computer upgrades","page","hardware"),
+        local result={option("Building services","page","services"),option("Computer upgrades","page","hardware"),
             option("Expedition station","page","station"),option("Back to EMMA","page",nil)}
+        local hardware=SC.TerminalHardware.state(window.object,false)
+        if hardware and hardware.radio and SC.TerminalRadioUI then
+            table.insert(result,1,{label="LARCH/WAVE radio desk",radioAction="open"})
+        end
+        return result
     elseif p=="services" then
         return {option("Connect local controls (Electrical 2)","propose",{operation="connect"}),
             option("Authorize building security","security"),option("Equipment","page","equipment"),
@@ -372,9 +377,11 @@ function S.execute(window,request)
         local trip=SC.ExpeditionPrototype.current()
         if not trip or trip.radioSession~=request.missionId then return false,"The expedition changed. Ask again." end
         local okay,reason=SC.ExpeditionPrototype.sendRadioOrder(player,request.command,request.payload,request.endpoint)
+        if okay and SC.TerminalRadio then SC.TerminalRadio.transmitted(window.object) end
         if okay and request.command=="progress_report" then
             local report=trip.lastProgressReport
             if report then
+                if SC.TerminalRadio then SC.TerminalRadio.acknowledged(window.object,trip.radioSession,report) end
                 local counts=report.kind=="scout" and "Scouting" or tostring(report.collected).." collected of "..tostring(report.requested).." requested"
                 if report.carried then counts=counts.."; "..report.carried.." carried; "..tostring(report.stored or 0).." stored" end
                 return true,"Radio report: "..counts.."; "..tostring(report.phase or "working")..". Last heard at "..tostring(report.at or U().hours()).." game hours."

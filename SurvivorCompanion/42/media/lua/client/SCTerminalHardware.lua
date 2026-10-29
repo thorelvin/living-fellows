@@ -112,6 +112,12 @@ function H.install(player,object,kind,item)
     if state[kind] then return false,"Remove the existing upgrade first." end
     local part=pack(item)
     if not part then return false,"The native bridge cannot preserve this exact component." end
+    -- A hardware generation change retires the receiver's scan lease. Restore
+    -- its listening channel while the old mounted handset still owns it.
+    if SC.TerminalRadio then
+        local stopped,reason=SC.TerminalRadio.stop(object,true)
+        if not stopped then return false,reason end
+    end
     if data then
         part.batteryPowered=U().call(data,"getIsBatteryPowered")==true
         part.hasBattery=U().call(data,"getHasBattery")==true
@@ -136,6 +142,10 @@ function H.remove(player,object,kind)
     local state=H.state(object,false)
     local part=state and state[kind]
     if not part then return false,"That upgrade is not installed." end
+    if SC.TerminalRadio then
+        local stopped,reason=SC.TerminalRadio.stop(object,true)
+        if not stopped then return false,reason end
+    end
     if not H.flush(object) then return false,"The component cannot be safely transferred." end
     local item=unpackPart(part)
     if not item then return false,"The saved component is unreadable. It has been preserved." end
@@ -164,6 +174,7 @@ function H.receiver(object)
     local state=H.state(object,false)
     local item=cached(object,"radio")
     if not state or not item or not H.powered(object) then return nil end
+    if (tonumber(U().call(item,"getCondition")) or 0)<=0 then H.stop(object) return nil end
     local r=runtime[object]
     if not r.receiver then r.receiver=bridge("createTerminalReceiver",item,object) end
     local data=U().call(item,"getDeviceData")
@@ -174,6 +185,7 @@ function H.receiver(object)
         U().call(data,"setPower",1) U().call(data,"setIsTurnedOn",true)
         U().call(data,"setDeviceVolume",state.radio.monitorVolume or 0.3)
         U().call(r.receiver,"update")
+        if SC.TerminalRadio then SC.TerminalRadio.observe(object,r.receiver,data,item) end
         return r.receiver,data,item
     end
 end
@@ -186,6 +198,7 @@ function H.describe(object)
         ..". Backup: "..math.floor(charge*100).."%. Radio: "..(state.radio and "mounted" or "not installed").."."
 end
 function H.beforePickup(object)
+    if SC.TerminalRadio then SC.TerminalRadio.stop(object,true) end
     if not H.flush(object) then return false end
     H.stop(object)
     local state=H.state(object,false)
@@ -259,11 +272,13 @@ function H.pulse()
     end
 end
 function H.reset()
+    if SC.TerminalRadio then SC.TerminalRadio.reset() end
     for object in pairs(runtime) do H.flush(object) H.stop(object) end
     runtime=setmetatable({}, {__mode="k"}) lastPulse=0 survey=nil
 end
 function H.save()
     for object in pairs(runtime) do
+        if SC.TerminalRadio then SC.TerminalRadio.stop(object,true) end
         local okay,reason=H.flush(object)
         if not okay then return false,reason end
     end

@@ -3337,6 +3337,12 @@ do
     check(SC.NativeActions.bedStatus(actor)=="entered"
             and SC.NativeActions.bedStatus(actor)=="entered" and shifts==1 and lifts==1,
         "settled bed alignment and model lift commit once before sleep")
+    entry.otherPillow={x=21,y=20,z=0}
+    local bedRecord=SC.NativeActions._bedRestForTests(actor)
+    bedRecord.pillowAligned=nil actor.px,actor.py="21.5","20.5"
+    check(SC.NativeActions.bedStatus(actor)=="entered" and shifts==1 and lifts==2
+            and actor.px=="21.5" and actor.py=="20.5",
+        "the other verified pillow lane retains native position without an invalid north shift")
     actor.actionContextName="onbed"
     SC.NativeActions.leaveSeating(actor)
     actor.actionContextName="getup"

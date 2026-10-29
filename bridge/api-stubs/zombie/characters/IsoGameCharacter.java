@@ -147,6 +147,7 @@ public class IsoGameCharacter extends IsoMovingObject implements zombie.chat.Cha
     private boolean asleepForTests;
     public boolean isAsleep() { return asleepForTests; }
     public boolean isOnBed() { return false; }
+    public zombie.iso.IsoObject getSitOnFurnitureObject() { return null; }
     public void setAsleep(boolean asleep) { asleepForTests = asleep; }
     public void dropHandItems() {}
     public boolean shouldBecomeZombieAfterDeath() { return false; }

@@ -43,6 +43,7 @@ SC.GameplayUtil={
     move=function() moves=moves+1 return visual~="reject" end,
     idOf=function(v) return v.id end,stableHash=function() return 7 end,
     actorState=function(_,r) return r end,nowMs=function() return clock end,
+    characterStatValue=function(_,_,fallback) return fallback or 0 end,
     config=function() return nil end,stop=function() cancels=cancels+1 return true end,
     copyShallow=function(t) local c={} for k,v in pairs(t) do c[k]=v end return c end,
 }

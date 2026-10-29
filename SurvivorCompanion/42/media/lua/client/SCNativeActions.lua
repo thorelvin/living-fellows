@@ -5026,6 +5026,14 @@ function actions.bedStatus(actor)
             if not startedOk or started ~= true then return "entering", record.poseStartedAt end
             local _, x = invoke(actor, "getX")
             local _, y = invoke(actor, "getY")
+            x = tonumber(x) or tonumber(tostring(x))
+            y = tonumber(y) or tonumber(tostring(y))
+            -- Stock bed entry can settle in either pillow lane of this exact
+            -- two-by-two mattress. Keep that valid native choice; forcing the
+            -- approach lane caused alignment failure and abandoned sleep.
+            local other = record.bedEntry.otherPillow
+            if other and type(x) == "number" and math.floor(x) == other.x
+                and other.y == pillow.y and other.z == pillow.z then pillow = other end
             local shifted = type(x) == "number" and type(y) == "number"
                 and math.floor(x) == pillow.x and math.floor(y) == pillow.y
             if not shifted and SCBridge and type(SCBridge.shiftOnBedPoseTowardPillow) == "function" then

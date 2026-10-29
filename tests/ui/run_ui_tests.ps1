@@ -113,7 +113,7 @@ try {
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @terminalFiles
         if ($LASTEXITCODE -ne 0) { throw 'Camp computer terminal UI tests failed.' }
         $buildingFiles = @($terminalFiles | Where-Object { $_ -notmatch 'Tests\.lua$' })
-        foreach ($module in @('SCControlUtil','SCBuildingControls','SCTerminalHardware','SCRadioEndpoints',
+        foreach ($module in @('SCControlUtil','SCBuildingControls','SCTerminalHardware','SCTerminalRadio','SCRadioEndpoints',
             'SCGeneratorServices','SCBuildingSecurity','SCBuildingCircuits','SCExpeditionTargets','SCTerminalServices')) {
             $buildingFiles += Join-Path $Client ($module + '.lua')
         }
@@ -121,6 +121,13 @@ try {
         $buildingFiles += Join-Path $TestRoot 'SCTerminalMapTests.lua'
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @buildingFiles
         if ($LASTEXITCODE -ne 0) { throw 'Building services and station ownership tests failed.' }
+        $radioFiles=@($terminalFiles | Where-Object { $_ -notmatch 'Tests\.lua$' })
+        foreach ($module in @('SCControlUtil','SCTerminalHardware','SCTerminalRadio','SCTerminalRadioUI','SCTerminalServices')) {
+            $radioFiles+=Join-Path $Client ($module+'.lua')
+        }
+        $radioFiles+=Join-Path $TestRoot 'SCTerminalRadioTests.lua'
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @radioFiles
+        if ($LASTEXITCODE -ne 0) { throw 'LARCH/WAVE radio desk tests failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @files
         if ($LASTEXITCODE -ne 0) { throw 'UI Kahlua tests failed.' }
         $baseRedrawFiles = @(

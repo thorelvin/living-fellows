@@ -50,6 +50,7 @@ public class IsoGridSquare {
     public IsoObject getGarageDoor(boolean north) { return null; }
     public IsoObject getDoorOrWindow(boolean north) { return null; }
     public boolean isDoorTo(IsoGridSquare other) { return false; }
+    public boolean isWallTo(IsoGridSquare other) { return false; }
     public boolean isWindowTo(IsoGridSquare other) { return false; }
     public IsoObject getDoor(GridSquareEdge edge) { return null; }
     public IsoWindow getWindow(GridSquareEdge edge) { return null; }

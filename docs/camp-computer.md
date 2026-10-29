@@ -63,6 +63,45 @@ lines. The operating system and the assistant are distinct.
   settings stay intact. Unlock a protected computer before asking. Other
   computers keep their data; county and EMMA reference files stay installed.
 
+## LARCH/WAVE radio desk
+
+Mount a usable two-way walkie-talkie through **Local services > Computer
+upgrades**. This requires Electrical 2, a screwdriver, one wire and two
+electronics scrap. Then choose **Local services > LARCH/WAVE radio desk** or
+ask `open radio`.
+
+The radio uses the mounted handset's actual channel, tuning range and presets.
+Choose a preset, use Left/Right in menu mode, or ask `listen to Weather` if
+that preset exists. `Tune to 94.0 MHz` is a frequency example, not a promised
+broadcast. Speaker volume and microphone mute are separate controls. Bars,
+waveform and reception indicators follow real incoming activity and match the
+screen colour; they are an animated activity display rather than audio
+frequency measurements.
+
+Ask `scan for broadcasts` to scan saved presets or choose **Band sweep** for
+0.2 MHz steps within the handset's range. Each position gets a three-second
+listening window; band sweeps stop after at most 5,000 positions. Reception
+holds the channel. Choose **Continue scanning**, **Stay on this channel**, or
+type `save this channel as Weather`. Silence does not prove that a station
+never broadcasts. A single handset listens to one channel at a time.
+
+An active expedition selects the team channel when Radio Desk opens. Scanning
+while that mission is active requires Y/N confirmation because calls can be
+missed. Stop/restore, leaving Radio Desk, closing the terminal, saving and
+furniture pickup restore the pre-scan channel when the same handset still
+owns that tuning. An external retune is respected; a changed mission ends the
+scan. **Team / Marcus** provides report, recall and taxi shortcuts through
+the existing station confirmation and native radio checks.
+
+`What did we hear?` opens the notebook. It keeps the last 48 received text
+snippets, up to 360 characters each, with frequency and game time. Recordings
+are marked separately. **Heard stations** lists only frequencies actually
+received by this PC. Select an entry by number; use PgUp/PgDn or the mouse
+wheel to read long entries. Tab switches between commands and the numbered
+controls; Esc goes back. The last expedition report is saved here only after
+this station acknowledges it. Factory reset clears this radio notebook and
+report; the physical handset and its native presets remain intact.
+
 The implementation stages are:
 
 1. **Core and computer system:** persona, small talk, camp status, people,

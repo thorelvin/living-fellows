@@ -71,6 +71,19 @@ function Geometry.entry(bed, actor)
     local function clearForActor(tile)
         if not tile then return false end
         local clear, reason = U().isClearActorSpawnSquare(tile)
+        if not clear and reason == "unsafe_to_spawn"
+            and U().squareOccupyingObject(tile) == nil then
+            -- Native spawn safety requires more than seven connected tiles.
+            -- A companion walking beside a bed needs only this loaded, solid,
+            -- free floor: cramped bedrooms are valid entries, not spawn sites.
+            local moving = select(1, U().call(tile, "getMovingObjects"))
+            if moving and SC.NativeList then
+                clear = true
+                for index = 0, SC.NativeList.size(moving) - 1 do
+                    if SC.NativeList.get(moving,index) ~= actor then clear=false break end
+                end
+            end
+        end
         if not clear and actor and U().squareOf(actor) == tile
             and (reason == "occupied" or reason == "unsafe_to_spawn")
             and U().squareOccupyingObject(tile) == nil then
@@ -126,7 +139,9 @@ function Geometry.entry(bed, actor)
                     return side[1], { x = side[2], y = side[3],
                         z = z or 0, facing = "S", entryKind = side[5],
                         pillow = { x = side[4], y = originY,
-                            z = z or 0 } }, "entry"
+                            z = z or 0 },
+                        otherPillow = { x = side[4] == originX and originX+1 or originX,
+                            y = originY, z = z or 0 } }, "entry"
                 end
             end
             return nil, nil, "bed_entry_blocked"

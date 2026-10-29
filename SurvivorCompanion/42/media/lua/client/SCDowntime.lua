@@ -47,6 +47,8 @@ local CLEAN_DRESSING_TYPES = {
     ["base.leatherstripsdirty"] = "Base.LeatherStrips",
 }
 local restPostures = { sit = true, rest_bed = true, rest_floor = true }
+local sleepInterruptible = { sit=true,rest_floor=true,read=true,write_diary=true,
+    tv_watch=true,radio_listen=true,computer_use=true }
 
 local function U()
     return SC.GameplayUtil
@@ -1831,7 +1833,7 @@ end
 
 local function seatActivity(actor, state, current, seatOnly)
     local utility = U()
-    if seatingStatus(actor) ~= "standing" then return nil end
+    if seatingStatus(actor) ~= "standing" and seatOnly ~= "rest_bed" then return nil end
     if type(state) == "table" and (tonumber(current) or utility.nowMs())
         < (tonumber(state.furnitureBackoffUntil) or 0) then return nil end
     local x, y, z = utility.position(actor)
@@ -5249,6 +5251,30 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
         return false, state.followPauseReason
     end
 
+    -- Ordinary chair/reading leases can outlive the point of exhaustion, and
+    -- a completed sit deliberately keeps its passive posture. Find a real bed
+    -- before releasing either, then use the normal get-up/rollback path.
+    local fatigue=utility.characterStatValue(actor,"FATIGUE",0)
+    local active=state.active
+    local seekSleep=active and sleepInterruptible[active.kind]
+        and (desiredKind=="rest_bed" or fatigue >= (tonumber(utility.config("needsFatigueEmergency")) or 0.82))
+        or not active and seatingStatus(actor)~="standing"
+            and fatigue > (tonumber(utility.config("sleepFatigueThreshold")) or 0.30)
+    if seekSleep and select(1,utility.call(actor,"getVehicle"))==nil
+        and current >= (state.nextSleepEvaluationAt or 0) then
+        state.nextSleepEvaluationAt=current+5000
+        local eligible,reason=bedSleepEligible(actor,state,fatigue)
+        state.sleepReason=reason
+        if eligible then
+            local bed,status=seatActivity(actor,state,current,"rest_bed")
+            state.sleepReason=bed and "bed_available" or status or "no_available_bed"
+            if bed and Downtime.cancel(actor,"bed_sleep_needed") then
+                state.nextEvaluationAt=current
+                return true,"standing_for_sleep"
+            end
+        end
+    end
+
     if not state.active and desiredKind == nil then
         local curtainAttempted, curtainAccepted, curtainReason = Downtime.considerCurtain(
             actor, snapshot, current, player)
@@ -5717,6 +5743,7 @@ function Downtime.status(actor)
         durationGameHours = active and active.gameDurationHours,
         clock = active and (active.gameDurationHours and "game" or "real") or "none",
         fatigue = U().characterStatValue(actor, "FATIGUE", nil),
+        sleepReason = state and state.sleepReason,
         endurance = U().characterStatValue(actor, "ENDURANCE", nil),
         followPause = state and state.followPauseReason,
         sitCooldownMs = state and math.max(0, (state.followSitCooldownUntil or 0)-now) or 0,

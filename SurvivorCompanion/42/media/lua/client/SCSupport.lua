@@ -415,6 +415,7 @@ function support.summary(force)
             .. ", endurance " .. tostring(rest.endurance or "unavailable")
             .. ", follow pause " .. tostring(rest.followPause or "none")
             .. ", sit cooldown " .. tostring(math.floor((tonumber(rest.sitCooldownMs) or 0)/1000)) .. "s"
+            .. ", sleep check " .. tostring(rest.sleepReason or "not checked")
         lines[#lines + 1] = "Companion action " .. tostring(actor.id) .. " ("
             .. tostring(actor.name) .. "): " .. tostring(current.owner or "none") .. "/"
             .. tostring(current.action or "idle") .. "/" .. tostring(current.phase or "idle")

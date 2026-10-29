@@ -43,7 +43,7 @@ description=[*]Press Home to open the companion panel, or click LF. Meet a survi
 description=[*]Use Orders, Squad, Expeditions and More > Base, or right-click the world for Living Fellows commands.
 description=[/olist]
 description=
-description=[b]Release 0.26.74. Project Zomboid Build 42.21.0, single-player.[/b] Multiplayer and additional human split-screen players are not supported.
+description=[b]Release 0.26.75. Project Zomboid Build 42.21.0, single-player.[/b] Multiplayer and additional human split-screen players are not supported.
 description=
 description=The [url=https://github.com/thorelvin/living-fellows/releases/latest]Windows standalone edition[/url] includes its own bridge and needs no ZombieBuddy. Choose Workshop or standalone; use one copy at a time.
 description=

@@ -566,11 +566,11 @@ public final class SCBridge {
     }
 
     /**
-     * Adjusts a settled stock bed pose from the south foot tile onto the pillow
-     * tile of the same two-by-two bed. The stock timed action remains in charge
-     * of OnBed/OnBedStarted; the half-tile Y correction places the model at
-     * the midpoint between the observed foot and head poses. A half-tile X
-     * correction places it in the center of the same pillow lane.
+     * Adjusts a settled stock bed pose onto the pillow of the same south-facing
+     * two-by-two bed. The stock timed action remains in charge of OnBed and
+     * OnBedStarted. A foot entry shifts half a tile in Y and centers its lane;
+     * a side entry shifts only half a tile in X onto the selected mattress.
+     * Neither correction may enter an occupied or unrelated pillow square.
      * All of IsoMovingObject's square references and interpolation coordinates
      * are changed in the same game-thread turn, without a world detach.
      */
@@ -594,9 +594,10 @@ public final class SCBridge {
             int currentX = (int) Math.floor(before.x);
             int currentY = (int) Math.floor(before.y);
             int currentZ = (int) Math.floor(before.z);
-            if (targetX != currentX || targetY != currentY - 1
-                    || targetZ != currentZ) {
-                return failBoolean("bed pose shift must be exactly one tile north");
+            boolean fromFoot = targetX == currentX && targetY == currentY - 1;
+            boolean fromSide = targetY == currentY && Math.abs(targetX - currentX) == 1;
+            if ((!fromFoot && !fromSide) || targetZ != currentZ) {
+                return failBoolean("bed pose shift must lead to an adjacent pillow on the same floor");
             }
             if (actor.getCell() == null || before.current == null
                     || before.render != before.current
@@ -612,20 +613,29 @@ public final class SCBridge {
             target = actor.getCell().getGridSquare(targetX, targetY, targetZ);
             if (target == null || target.getChunk() == null
                     || target.getCell() != before.current.getCell()
-                    || countIdentity(target.getMovingObjects(), actor) != 0) {
-                return failBoolean("pillow square is unloaded or has inconsistent membership");
+                    || countIdentity(target.getMovingObjects(), actor) != 0
+                    || !target.getMovingObjects().isEmpty()) {
+                return failBoolean("pillow square is unloaded, occupied or has inconsistent membership");
             }
             IsoRoom room = before.current.getRoom();
             if (room == null || target.getRoom() != room) {
                 return failBoolean("bed foot and pillow are not in the same room");
             }
-            if (!completeSouthBedFootprint(actor.getCell(), before.current,
+            IsoGridSquare foot = fromFoot ? before.current
+                    : actor.getCell().getGridSquare(targetX, targetY + 1, targetZ);
+            if (foot == null || !completeSouthBedFootprint(actor.getCell(), foot,
                     target, room)) {
                 return failBoolean("foot and pillow do not share a complete south-facing two-by-two bed grid");
             }
+            if (fromSide && (!selectedSouthBedPillow(actor, target)
+                    || before.current.isWallTo(target) || before.current.isDoorTo(target)
+                    || before.current.isWindowTo(target))) {
+                return failBoolean("side pillow correction requires the selected mattress and an unobstructed edge");
+            }
 
-            float newX = bedPillowShiftX(before.x, targetX);
-            float newY = before.y - 0.5f;
+            float newX = fromFoot ? bedPillowShiftX(before.x, targetX)
+                    : bedSideShiftX(before.x, targetX);
+            float newY = fromFoot ? before.y - 0.5f : before.y;
             if (!Float.isFinite(newX) || (int) Math.floor(newX) != targetX
                     || (int) Math.floor(newY) != targetY) {
                 return failBoolean("shifted coordinates do not fall inside pillow square");
@@ -655,6 +665,33 @@ public final class SCBridge {
                     ? failBedPoseShiftWithRollback(actor, before, target, reason)
                     : failBoolean(reason);
         }
+    }
+
+    // A settled side-entry clip can retain its anchor half a tile outside the
+    // mattress. Bound the correction to half a tile into the adjacent lane.
+    static float bedSideShiftX(float sourceX, int targetX) {
+        if (!Float.isFinite(sourceX)) return Float.NaN;
+        int sourceTile = (int) Math.floor(sourceX);
+        if (Math.abs(targetX - sourceTile) != 1) return Float.NaN;
+        float shifted = sourceX + (targetX > sourceTile ? 0.5f : -0.5f);
+        return (int) Math.floor(shifted) == targetX ? shifted : Float.NaN;
+    }
+
+    private static boolean selectedSouthBedPillow(SCNativeCompanion actor, IsoGridSquare pillow) {
+        IsoObject selected = actor.getSitOnFurnitureObject();
+        IsoSprite sprite = selected == null ? null : selected.getSprite();
+        IsoSpriteGrid grid = sprite == null ? null : sprite.getSpriteGrid();
+        if (selected == null || selected.getSquare() == null || grid == null
+                || grid.getWidth() != 2 || grid.getHeight() != 2
+                || grid.getSpriteGridPosY(sprite) != 1
+                || selected.getProperties() == null
+                || !selected.getProperties().has(IsoFlagType.bed)
+                || !"S".equals(selected.getProperties().get("Facing"))) return false;
+        int originX = selected.getSquare().getX() - grid.getSpriteGridPosX(sprite);
+        int originY = selected.getSquare().getY() - 1;
+        return pillow.getZ() == selected.getSquare().getZ()
+                && pillow.getY() == originY && pillow.getX() >= originX
+                && pillow.getX() <= originX + 1;
     }
 
     // Root motion approaches a pillow lane from either side. Mirror the

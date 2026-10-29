@@ -92,3 +92,68 @@ Evidence:
 - [Fixture scope and runner](../artifacts/bed-sleep/README.md)
 
 Local installation is outside this validation run.
+
+## Exhaustion regression, 29 October
+
+A 0.26.74 support report showed a base resident at fatigue 1.0 in a long
+`sit/waiting` action, with endurance 1.0. Another resident repeatedly chose
+reading. The bedrooms were on the same floor and marked Rest; the tester
+reported that sleep worked in 0.26.72.
+
+Comparison with 0.26.72 found two regressions in the newer bed-entry path:
+
+- `BedGeometry.entry` used actor-spawn safety for bedside walking positions.
+  The installed 42.21.0 `IsoGridSquare.isSafeToSpawn()` requires more than
+  seven connected squares. A cramped but walkable bedroom can fail that test.
+  Bed entry now accepts that specific failure after loaded-floor/static
+  obstruction checks have passed, provided no furniture or other moving actor
+  occupies the entry. Strict construction/spawning checks are unchanged.
+- Double-bed alignment handled only the approach lane and a northward shift.
+  The real right-side entry left its settled anchor half a tile outside the
+  mattress, producing `bed_mattress_alignment_failed` followed by reading.
+  Geometry now supplies both pillow positions. The bridge also accepts a
+  bounded half-tile side correction after verifying the selected complete
+  south-facing mattress, native bed flags, loaded same-room membership, empty
+  target and an edge without walls, doors or windows. It preserves native
+  posture and atomically updates square/interpolation references. Unrelated
+  positions and corrections exceeding half a tile remain rejected.
+
+The report also exposed a pre-existing chair trap: the bed capability probe
+rejected all seated actors, while chair completion intentionally retained a
+passive posture. Bed-only discovery now works while seated. A tired passive
+sitter, or an exhausted resident doing a long sit/read/listen/computer action,
+first finds an eligible available bed, then cancels through the existing
+rollback and native get-up path. Discovery retries are bounded to five-second
+intervals. Panic, danger, orders, medical ownership, vehicle travel and bed
+occupancy retain their checks. Support reports include the last sleep check.
+
+Regression tests cover cramped entry, actor occupancy, missing/solid floor,
+both pillow lanes, bounded east/west corrections, active and passive chairs,
+panic and deferred native get-up.
+The native fixture `artifacts/bed-sleep/exhaustion-native.lua` uses an existing
+bedroom, marks it Rest through BaseLife, starts a real chair action, raises
+fatigue to 100%, and thereafter calls the ordinary automatic downtime path.
+It checks the lying sleep animation, falling fatigue and ordinary alarm wake.
+
+The final paired Lua/native payload passed the full project gate: 29/29 stages,
+243 Lua files compiled in normal and debug modes, 154 seconds overall. Native
+bridge protocol remains `42.21-isocompanion-24`; the rebuilt payload SHA-256 is
+`1ba2d37fda616995fec3cb45cbe71bdef2bf0292ed9350dafce3c28aa45b413c`.
+
+The final native run passed in the disposable clone. At fatigue 1.0 the
+companion left the occupied chair, used the marked bedroom's double bed and
+entered `Bob_Asleep`. An occupied pillow rejected the native correction
+without changing the sleeper's coordinates; clearing the tile allowed normal
+entry to resume. Fatigue fell to 0.995379 with health 100. The alarm cleared
+sleep normally, and no secondary view was created. The renderer capture shows
+the body lying on the mattress.
+
+- [Exhausted in the chair](../artifacts/bed-sleep/exhaustion-acceptance/exhaustion-chair.png)
+- [Automatic sleep on the mattress](../artifacts/bed-sleep/exhaustion-acceptance/exhaustion-sleeping.png)
+- [Native results](../artifacts/bed-sleep/exhaustion-acceptance/evidence.txt)
+- [Final full gate](../artifacts/bed-sleep/exhaustion-acceptance/project-gate.txt)
+
+This live pass covers one marked Rest bedroom and its right-side double-bed
+entry, a blocked pillow, early fatigue recovery and alarm wake. It does not
+claim every furniture facing or a full overnight sleep. The main game profile
+and the user's saves were not changed.

@@ -1,0 +1,25 @@
+PHASE milli_prepare
+PASS milli_definition_ready native resident encounter registered
+PASS milli_clone_scene_isolated no_existing_milli_tea_and_trouble
+PASS milli_search_area_loaded observer at 12035,6739
+PHASE milli_find_room
+PASS milli_observer_can_wait_outside kid room remains undisturbed for native pose
+PASS milli_observer_waiting_outside native resident spawns unseen
+PASS milli_native_group_created nil
+PHASE milli_native_spawn
+PASS milli_real_kids_room room=kidsbedroom site=kidsbedroom
+PASS milli_native_kit_and_skills weapon=Base.HobbyHorse skills=true
+PASS milli_two_named_native_babies rabbit=alive/Dumpling raccoon=alive/Bandit
+PASS milli_real_floor_toys actual=6 intended=6
+PHASE milli_floor_pose
+PASS milli_native_floor_sit EventSitOnGround reached native posture
+PASS milli_floor_sit_clear_of_furniture furniture=nil
+PASS milli_observer_enters_room player approaches her and two babies
+PHASE milli_startle
+SCENE actor=Milli Wilson xyz=12066,6741,0 pets=12067,6741;12065,6741
+PHASE photo
+PHASE photo_second
+SHOT milli-bedroom-01
+PHASE photo_done
+SHOT milli-bedroom-02
+PASS native Milli bedroom screenshot complete

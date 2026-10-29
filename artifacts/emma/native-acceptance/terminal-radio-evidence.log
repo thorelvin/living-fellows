@@ -1,0 +1,12 @@
+SHOT bars
+PASS native exact-device text, native frequency/volume, animated bars and six visible controls
+SHOT wave
+SHOT hold
+SHOT notebook
+SHOT entry
+SHOT team
+SHOT purple
+PASS native RF distribution rejects wrong channel and out-of-range traffic; accepts actual in-range tuned transmission
+PASS native scanner hold, saved preset, notebook keyboard reading, original handset identity and portable blob; no secondary slot
+PASS native scan-to-removal restores original channel; absent-radio commands are safe; remount preserves exact handset
+PASS native terminal radio acceptance complete

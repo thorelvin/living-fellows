@@ -186,7 +186,14 @@ local sourceX,sourceY,sourceZ=SC.RadioEndpoints.origin(endpoint)
 check(sourceX==100 and sourceY==100 and sourceZ==0,"station origin preserves all three native coordinates")
 check(SC.RadioEndpoints.validate(player,{kind="station",owner=player})==false,"caller tables cannot forge radio endpoints")
 local battery=item("Base.CarBattery1") inventory:AddItem(battery)
+check(SC.Terminal.open(player,pc),"native-mounted radio opens before adding backup power")
+local upgradeWindow=SC.Terminal.window upgradeWindow:flush()
+check(SC.TerminalRadio.scan(upgradeWindow,"band") and data.channel==200,
+    "scanner is active while the backup component is installed")
 check(H.install(player,pc,"ups",battery)==true,"charged real battery installs as backup")
+check(data.channel==88000 and not SC.TerminalRadio.snapshot(upgradeWindow).scan,
+    "adding backup power restores the radio channel before changing receiver generation")
+upgradeWindow:close()
 check(SC.RadioEndpoints.validate(player,endpoint)==false,"changing hardware invalidates old radio authority")
 squares["100:100"].generatorPower=false
 check(H.powered(pc)==true,"backup powers only this PC")
@@ -196,10 +203,17 @@ check(math.abs(hardware.ups.charge-0.5)<0.001,"three game hours consume half of 
 inventory.full=true
 check(H.remove(player,pc,"radio")==false and hardware.radio~=nil,"full inventory preserves mounted cargo")
 inventory.full=false
+check(SC.Terminal.open(player,pc),"mounted handset opens for a removal-during-scan regression")
+local scanWindow=SC.Terminal.window scanWindow:flush()
+check(SC.TerminalRadio.tune(scanWindow,99000),"fixture saves an explicit listening channel")
+check(SC.TerminalRadio.scan(scanWindow,"band") and data.channel==200,
+    "native-mounted handset moves onto its temporary scan channel")
 check(H.remove(player,pc,"radio")==true and hardware.radio==nil,"removal returns the original handset")
 local restored
 for _,candidate in ipairs(inventory.items) do if candidate.id==originalId then restored=candidate end end
 check(restored and restored.device.power==0.37,"unmounted battery charge remains exact")
+check(restored.device.channel==99000,"removing a scanning handset restores its original channel before transfer")
+scanWindow:close()
 local count=0 for _,candidate in ipairs(inventory.items) do if candidate.id==originalId then count=count+1 end end
 check(count==1,"no duplicate handset exists after transfer")
 check(H.remove(player,pc,"radio")==false,"repeated remove cannot replay transfer")

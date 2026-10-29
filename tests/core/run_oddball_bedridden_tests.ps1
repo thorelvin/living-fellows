@@ -17,7 +17,8 @@ try {
         (Join-Path $Client 'SCBedGeometry.lua'),
         (Join-Path $Client 'SCOddballs.lua'),
         (Join-Path $Client 'SCOddballBedridden.lua'),
-        (Join-Path $PSScriptRoot 'oddball_bedridden_harness.lua')
+        (Join-Path $PSScriptRoot 'oddball_bedridden_harness.lua'),
+        (Join-Path $PSScriptRoot 'bed_geometry_tight_harness.lua')
     )
     Push-Location -LiteralPath $GameRoot
     try {

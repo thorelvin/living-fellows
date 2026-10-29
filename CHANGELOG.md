@@ -2,6 +2,26 @@
 
 # Changelog
 
+## 0.26.75 - Radio desk and reliable bed sleep
+
+- Tired companions can leave passive chairs, and exhausted companions pause
+  sitting, reading or listening to seek an available bed. Bed entry accepts
+  clear bedside floor in cramped bedrooms without requiring a spawn-sized
+  open area. Native get-up, occupancy and danger checks remain in force.
+- Double-bed sleep accepts either native pillow lane on the same mattress,
+  preventing valid bed entry from being rejected and replaced by reading.
+- Mount a walkie-talkie to unlock LARCH/WAVE: a CRT radio desk with animated
+  reception bars, waveform and signal views, native presets, volume and mic
+  controls, a channel scanner and a local reception notebook. Team reports,
+  recall and Marcus booking use the existing checked station requests.
+- Radio commands handle power loss and removed hardware without errors.
+  Changing mounted hardware restores a scan's previous listening channel
+  before saving or transferring the handset.
+- An invalid tuning request leaves an active scan running on its current
+  frequency instead of cancelling it.
+- Includes the rebuilt native bridge at protocol `42.21-isocompanion-24`
+  for Project Zomboid 42.21.0. No save schema change.
+
 ## 0.26.74 - Map-selected expeditions
 
 - Six more computer logos cover the Art Gallery of Louisville, Home Sweet

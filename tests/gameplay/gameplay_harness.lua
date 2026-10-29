@@ -10470,6 +10470,62 @@ do
         check(bedtimeChoices[1] and bedtimeChoices[1].kind == "rest_bed",
             "a tired resident chooses sleep before preparing a diary chair")
         SurvivorCompanion.Diary.writeActivity = previousBedtimeDiary
+        local function verifyExhaustedChairSleep()
+        local previousBedOccupants=bedSquare.moving
+        bedSquare.moving={}
+        local exhausted = actor("sc-exhausted-chair-sleeper",8,5,{})
+        exhausted.modData.SC_Order="stay" exhausted.fatigue=0.2
+        registry[exhausted.id]=exhausted
+        SurvivorCompanion.Downtime.update(exhausted,player,calm,"sit")
+        SurvivorCompanion.Downtime.update(exhausted,player,calm,"sit")
+        check(seatingStates[exhausted]=="furniture", "exhaustion fixture begins in a real owned chair rest")
+        exhausted.fatigue=1
+        check(SurvivorCompanion.Downtime.canPerform(exhausted,"rest_bed"),
+            "a seated exhausted companion can discover an available bed")
+        exhausted.moodles={[MoodleType.PANIC]=1}
+        local priorChair=SurvivorCompanion.Downtime.peek(exhausted).active
+        SurvivorCompanion.Downtime.update(exhausted,player,calm)
+        check(SurvivorCompanion.Downtime.peek(exhausted).active==priorChair,
+            "exhaustion does not bypass native panic restrictions")
+        exhausted.moodles=nil clock=clock+5001
+        local normalLeave=SurvivorCompanion.NativeActions.leaveSeating
+        SurvivorCompanion.NativeActions.leaveSeating=function(candidate)
+            if candidate==exhausted then return false,"native_get_up_pending" end
+            return normalLeave(candidate)
+        end
+        local switching,why=SurvivorCompanion.Downtime.update(exhausted,player,calm)
+        check(switching and why=="standing_for_sleep" and not SurvivorCompanion.Downtime.peek(exhausted).active,
+            "exhaustion retires the chair rest instead of waiting through another sitting session")
+        local pending,pendingReason=SurvivorCompanion.Downtime.update(exhausted,player,calm)
+        check(pending and pendingReason=="standing_from_rest" and not SurvivorCompanion.Downtime.peek(exhausted).active,
+            "bed rest waits for the native chair get-up to finish")
+        SurvivorCompanion.NativeActions.leaveSeating=normalLeave
+        clock=clock+6000
+        SurvivorCompanion.Downtime.update(exhausted,player,calm,"rest_bed")
+        SurvivorCompanion.Downtime.update(exhausted,player,calm,"rest_bed")
+        local sleep=SurvivorCompanion.Downtime.peek(exhausted).active
+        check(sleep and sleep.kind=="rest_bed", "the released chair is followed by bed rest")
+        SurvivorCompanion.Downtime.cancel(exhausted,"exhaustion_fixture_done")
+        registry[exhausted.id]=nil
+        chairSquare.moving={}
+        local passive=actor("sc-passive-chair-sleeper",8,5,{})
+        passive.modData.SC_Order="stay" passive.fatigue=0.2
+        registry[passive.id]=passive
+        SurvivorCompanion.Downtime.update(passive,player,calm,"sit")
+        SurvivorCompanion.Downtime.update(passive,player,calm,"sit")
+        local pause=SurvivorCompanion.Downtime.peek(passive).active
+        restClockOffset=restClockOffset+pause.gameDurationHours+0.01
+        SurvivorCompanion.Downtime.update(passive,player,calm,"sit")
+        check(not SurvivorCompanion.Downtime.peek(passive).active and seatingStates[passive]=="furniture",
+            "completed chair rest retains its passive posture before becoming tired")
+        passive.fatigue=0.65
+        local moved,moveReason=SurvivorCompanion.Downtime.update(passive,player,calm)
+        check(moved and moveReason=="standing_for_sleep" and seatingStates[passive]==nil,
+            "a passively seated resident gets up for a real bed when tired")
+        SurvivorCompanion.Downtime.reset(passive) registry[passive.id]=nil
+        bedSquare.moving=previousBedOccupants
+        end
+        verifyExhaustedChairSleep()
         chairSquare.moving = bedtimeChairMoving
     end
     local bedKind, bedCandidate = SurvivorCompanion.Downtime._furnitureForTests()

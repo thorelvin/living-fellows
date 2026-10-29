@@ -319,6 +319,7 @@ function Terminal.factoryReset(window)
     end
     local state = System().factoryReset(window.system)
     if not state then return false, "This computer must be unlocked before it can be reset." end
+    if SC.TerminalRadio then SC.TerminalRadio.factoryReset(window.object) end
     portable[System().MEMORY_KEY] = state
     -- Both slots must go; legacy fallback and close() must not resurrect notes.
     portable[Terminal.MEMORY_KEY], data[Terminal.MEMORY_KEY] = nil, nil
@@ -558,6 +559,7 @@ end
 function SCTerminalWindow:menuOptions()
     if not self.system then return {} end
     if self.system.locked then return { { label = "Log off", systemCommand = "close" } } end
+    if SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then return SC.TerminalRadioUI.options(self) end
     if SC.TerminalServices then
         local serviceMenu = SC.TerminalServices.menu(self)
         if serviceMenu then return serviceMenu end
@@ -624,6 +626,7 @@ function SCTerminalWindow:menuOptions()
 end
 
 function SCTerminalWindow:sidebarWidth()
+    if SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then return 0 end
     if SC.TerminalServices and self.menuPage and self.focusMode=="menu" and self.width<1400 then return 0 end
     return self.system and self.system.locked and 0 or self.layout.side
 end
@@ -764,11 +767,17 @@ end
 
 function SCTerminalWindow:otherKey(key)
     if type(Keyboard) ~= "table" then return end
+    if SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then
+        if SC.TerminalRadioUI.key(self,key) then return end
+        if key==Keyboard.KEY_PRIOR and SC.TerminalRadioUI.scroll(self,-4) then return end
+        if key==Keyboard.KEY_NEXT and SC.TerminalRadioUI.scroll(self,4) then return end
+    end
     if key == Keyboard.KEY_TAB and self.state ~= "booting" then
         self:setFocusMode(self.focusMode == "menu" and "chat" or "menu")
         return
     end
     if key == Keyboard.KEY_ESCAPE then
+        if SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then SC.TerminalRadioUI.back(self) return end
         if self.menuPage then
             self.menuPage,self.menuSelection = nil,1
             self:setFocusMode("menu")
@@ -802,11 +811,17 @@ function SCTerminalWindow:scrollBy(rows)
 end
 
 function SCTerminalWindow:onMouseWheel(delta)
+    if SC.TerminalRadioUI and SC.TerminalRadioUI.scroll(self,-(tonumber(delta) or 0)*3) then return true end
     self:scrollBy(-(tonumber(delta) or 0) * 3)
     return true
 end
 
 function SCTerminalWindow:onMouseDown(x, y)
+    if self.state~="closing" and SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then
+        SC.TerminalRadioUI.click(self,x,y)
+        if self.entry then pcall(function() self.entry:focus() end) end
+        return true
+    end
     if self.state ~= "closing" then
         for _, box in ipairs(self:menuVisible() and self:menuLayout() or {}) do
             if x >= box.x and x < box.x + box.width and y >= box.y and y < box.y + box.height then
@@ -1086,11 +1101,15 @@ function SCTerminalWindow:systemInput(raw)
                 Terminal.open(self.player, self.object)
                 return true
             end
+            if SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then
+                SC.TerminalRadioUI.notice(self,message) self.state="idle" return true
+            end
             self:startReply({ lines = { message }, thinkMs = 0 })
             return true
         end
         SC.TerminalActions.cancel(ticket)
         self:print("Request cancelled.", "system")
+        if SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then SC.TerminalRadioUI.notice(self,"Request cancelled.") end
         if lower == "no" or lower == "n" then return true end
     end
     local number = self.focusMode == "menu" and trimmed:match("^%d+$") and tonumber(trimmed) or nil
@@ -1100,6 +1119,7 @@ function SCTerminalWindow:systemInput(raw)
         self:close()
         return true
     end
+    if not self.system.locked and SC.TerminalRadioUI and SC.TerminalRadioUI.input(self,trimmed,option) then return true end
     if SC.TerminalServices and SC.TerminalServices.input(self, trimmed, option) then return true end
     if self.system.locked then
         self.gameHours = worldHours()
@@ -1252,6 +1272,7 @@ end
 -- Leave the window. A power failure leaves the warning on screen briefly.
 function SCTerminalWindow:close()
     if self.closed then return end
+    if SC.TerminalRadio then SC.TerminalRadio.leave(self) end
     self.closed = true
     self:cancelRequest()
     self:stopBootSound()
@@ -1319,6 +1340,7 @@ function SCTerminalWindow:update()
     if self.closed then return end
     if self.closeAt and now >= self.closeAt then return self:close() end
     self:advance(now)
+    if SC.TerminalRadioUI then SC.TerminalRadioUI.update(self,now) end
 end
 
 local SPINNER = { "|", "/", "-", "\\" }
@@ -1489,6 +1511,8 @@ function SCTerminalWindow:drawHints(range)
         local puzzle=self.serviceSecurity.puzzle
         hint=status=="lockout" and "Building recovery locked. Retry after one game hour."
             or "Security "..tostring(puzzle and puzzle.tries or 0).."/"..tostring(puzzle and puzzle.maximum or 0).." | Tab: words/chat | PgUp/PgDn"
+    elseif SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then hint=self.radioPage=="reading"
+        and "PgUp/PgDn: read   1: back   Tab: command   Esc: back" or "1-"..#self:menuOptions()..": select   Tab: command   Esc: back"
     elseif self.state == "booting" then hint = "Enter: skip boot   Esc: log off"
     elseif self.system.locked then hint = "Choose a word or bracket group.  Esc: log off"
     elseif self.focusMode == "menu" then hint = "1-" .. #self:menuOptions() .. ": select   Tab: chat   Esc: back"
@@ -1525,6 +1549,7 @@ function SCTerminalWindow:prerender()
         caption = (captionRight - self.layout.left) / self.charWidth >= 25 and "LARCH/OS // ACCESS LOCKED" or "LOCKED"
     end
     if self.state == "booting" then caption = "SYSTEM / POWER-ON TEST" end
+    if self.state~="booting" and SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then caption="LARCH/WAVE // EMMA" end
     self:drawText(caption, self.layout.left, self.layout.titleY,
         title[2], title[3], title[4], title[1], self.font)
     self:drawHeaderLogo()
@@ -1536,6 +1561,7 @@ function SCTerminalWindow:prerender()
             label = self.layout.logo.x - self.layout.left - pad >= self.charWidth * 23 and "PERSONAL FILES / EMPTY" or "FILES / EMPTY"
         end
         if self.state == "booting" then label = "PERSONAL SYSTEM / 486" end
+        if self.state~="booting" and SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then label="RADIO DESK / SIGNAL ACTIVITY" end
         self:drawText(label, self.layout.left, self.layout.titleHeight,
             title[2], title[3], title[4], 0.95, self.font)
     end
@@ -1557,6 +1583,9 @@ function SCTerminalWindow:prerender()
     if self.system and self.system.locked and self.state ~= "closing" then
         self:drawSecurity()
         return
+    end
+    if SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) and self.state~="closing" then
+        SC.TerminalRadioUI.draw(self,nowMs()) self:drawHints() return
     end
     if side > 0 then self:drawRect(self.layout.right - side, top, 1, math.max(0, bottom - top), 0.5, title[2], title[3], title[4]) end
     for _, box in ipairs(self:menuVisible() and self:menuLayout() or {}) do

@@ -82,6 +82,8 @@ Lines.HELP = {
     "  advice               what I would do, if I had hands",
     "  remember <note>      I will remember it. I remember everything.",
     "  factory reset        erase this computer's old files, branding and memory; confirmation required",
+    "  open radio / scan for broadcasts   mounted walkie-talkie radio desk",
+    "  save this channel as <name> / what did we hear",
     "  clear / exit",
     "Or just talk to me. I am told it helps. I am told a lot of things.",
 }

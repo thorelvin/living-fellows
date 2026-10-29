@@ -178,6 +178,14 @@ public final class SCNativeBridgeExposureTest {
         require(Float.isNaN(SCBridge.bedPillowShiftX(Float.NaN, 11))
                         && Float.isNaN(SCBridge.bedPillowShiftX(12.2f, 11)),
                 "bed pillow correction must reject an unrelated source column");
+        require(SCBridge.bedSideShiftX(12024.375f, 12023) == 12023.875f
+                        && SCBridge.bedSideShiftX(21.75f, 22) == 22.25f,
+                "settled east/west entries must correct only half a tile into the adjacent pillow");
+        require(Float.isNaN(SCBridge.bedSideShiftX(Float.NaN, 11))
+                        && Float.isNaN(SCBridge.bedSideShiftX(12.8f, 11))
+                        && Float.isNaN(SCBridge.bedSideShiftX(12.2f, 10))
+                        && Float.isNaN(SCBridge.bedSideShiftX(12.2f, 12)),
+                "side correction must reject distant, same-column and over-half-tile placement");
         require(SCBridge.class.getMethod("shiftOnBedPoseTowardPillow",
                         SCNativeCompanion.class, int.class, int.class, int.class)
                         .getReturnType() == boolean.class,
