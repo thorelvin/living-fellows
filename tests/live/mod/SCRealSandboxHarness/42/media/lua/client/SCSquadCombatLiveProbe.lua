@@ -8,6 +8,25 @@ local FRONT_CASES = { { 3, 6, "front" }, { 5, 10, "front" },
     { 1, 2, "front" }, { 1, 3, "front" }, { 1, 1, "front" },
     { 1, 3, "staggered" } }
 
+function Probe.cases(config)
+    local companions=tonumber(config.squad_combat_custom_companions) or 0
+    local raw=tostring(config.squad_combat_custom_zombies or "")
+    if companions==0 and raw=="" then
+        return config.squad_combat_front_only=="true" and FRONT_CASES or RING_CASES
+    end
+    if companions<1 or companions>5 or companions~=math.floor(companions) then return nil,"invalid_companion_count" end
+    local cases={}
+    for token in raw:gmatch("[^,]+") do
+        local zombies=tonumber(token)
+        if not zombies or zombies<1 or zombies>16 or zombies~=math.floor(zombies) or #cases>=6 then
+            return nil,"invalid_zombie_counts"
+        end
+        cases[#cases+1]={companions,zombies,config.squad_combat_front_only=="true" and "front" or nil}
+    end
+    if #cases==0 then return nil,"missing_zombie_counts" end
+    return cases
+end
+
 local function caseName(case)
     return tostring(case[1]) .. "v" .. tostring(case[2])
         .. (case[3] and "_" .. case[3] or "")
@@ -457,14 +476,24 @@ local function finishTrial(H, current, check, result, setPhase)
         postSwingBackstep = H.squadCombatPostSwingBackstep or 0 }
     H.squadCombatResults[#H.squadCombatResults + 1] = row
     writeResults(H)
+    local incomingWounds=0
+    for _,actor in ipairs(H.squadCombatActors) do
+        local body=call(actor,"getBodyDamage")
+        incomingWounds=incomingWounds+number(call(body,"getNumPartsBitten"),0)
+            +number(call(body,"getNumPartsScratched"),0)+number(call(body,"getNumPartsBleeding"),0)
+    end
+    local passive=H.config.squad_combat_passive_control=="true"
+    local measured=passive and (incomingWounds>0 or tonumber(row.lowestCompanionHealth)<100)
+        or not passive and row.offensive>0 and row.actions>0
     check("squad_combat_trial_" .. row.scenario .. "_" .. tostring(row.trial),
-        row.offensive > 0 and row.actions > 0,
+        measured,
         "survivors=" .. survivors .. "/" .. team
             .. " lowest_health=" .. row.lowestCompanionHealth
             .. " kills=" .. kills
             .. "/" .. zombies .. " actions=" .. row.actions
             .. " offensive=" .. row.offensive .. " engaged=" .. engaged
             .. " damage=" .. row.damage .. " retreat=" .. row.retreat
+            .. " passive="..tostring(passive).." incoming_wounds="..incomingWounds
             .. " elapsed_ms=" .. elapsed)
     result("PASS", "squad_combat_late_bystanders_removed",
         "count=" .. tostring(H.squadCombatLateBystandersRemoved or 0))
@@ -518,6 +547,19 @@ function Probe.step(H, current, check, result, setPhase)
     local U = SC.GameplayUtil
     if H.phase == "squad_combat_setup" then
         if current - H.phaseStartedAt < 4000 then return end
+        if H.config.squad_combat_multihit ~= nil
+            and H.config.squad_combat_multihit ~= "inherit" then
+            local expected = H.config.squad_combat_multihit == "on"
+            local ok, actual = pcall(function()
+                local options = getSandboxOptions()
+                options:set("MultiHitZombies", expected)
+                return options:getOptionByName("MultiHitZombies"):getValue()
+            end)
+            if not check("squad_combat_multihit", ok and actual == expected,
+                "expected=" .. tostring(expected) .. " actual=" .. tostring(actual)) then
+                setPhase("finish", current) return
+            end
+        end
         if type(addZombiesInOutfit) ~= "function" then
             result("FAIL", "squad_combat_native_spawn", "addZombiesInOutfit unavailable")
             setPhase("finish", current) return
@@ -550,8 +592,10 @@ function Probe.step(H, current, check, result, setPhase)
         result("PASS", "squad_combat_clone_corpses_cleared",
             "removed=" .. tostring(clearCorpsesNear(H.squadCombatArena, 20)))
         H.squadCombatResults, H.squadCombatCaseIndex = {}, 1
-        local casePool = H.config.squad_combat_front_only == "true"
-            and FRONT_CASES or RING_CASES
+        local casePool,caseReason=Probe.cases(H.config)
+        if not check("squad_combat_cases",casePool~=nil,caseReason or "validated fixture cases") then
+            setPhase("finish",current) return
+        end
         local requestedCase = math.min(#casePool, math.max(1,
             math.floor(number(H.config.squad_combat_case_index, 1))))
         H.squadCombatCases = (H.config.squad_combat_photo == "true"
@@ -630,8 +674,23 @@ function Probe.step(H, current, check, result, setPhase)
             return
         end
         local weaponType = H.config.squad_combat_weapon_type or "Base.Crowbar"
+        local weapons = {}
+        for name in tostring(H.config.squad_combat_weapon_types or ""):gmatch("[^,]+") do
+            weapons[#weapons + 1] = name
+        end
+        if #weapons > 0 then
+            weaponType = weapons[(H.squadCombatSpawnIndex - 1) % #weapons + 1]
+        end
         local weapon = call(call(actor, "getInventory"), "AddItem", weaponType)
         if weapon then pcall(function() actor:setPrimaryHandItem(weapon) end) end
+        local fatigue = number(H.config.squad_combat_fatigue, 0)
+        local statOk = pcall(function() actor:getStats():set(CharacterStat.FATIGUE, fatigue) end)
+        local actualFatigue = U.characterStatValue(actor, "FATIGUE", -1)
+        if not check("squad_combat_fatigue", statOk and math.abs(actualFatigue - fatigue) < 0.001,
+            "actor=" .. tostring(H.squadCombatSpawnIndex) .. " fatigue=" .. tostring(actualFatigue)) then
+            H.squadCombatActors[#H.squadCombatActors + 1] = actor
+            cleanup(H); setPhase("finish", current) return
+        end
         H.squadCombatPrimaryWeapons[H.squadCombatSpawnIndex] = weapon
         if H.config.squad_combat_radio_lure == "true" then
             local inventory = call(actor, "getInventory")
@@ -674,6 +733,17 @@ function Probe.step(H, current, check, result, setPhase)
             cleanup(H); setPhase("finish", current) return
         end
         H.squadCombatActors[#H.squadCombatActors + 1] = actor
+        if H.config.squad_combat_passive_control=="true" then
+            local supervisor=SC.ActionSupervisor
+            supervisor.cancel(actor,"incoming_attack_control",nil,true)
+            local held,holdReason=supervisor.begin(actor,{owner="live_harness",action="incoming_attack_control",
+                priority=supervisor.Priority.EXTERNAL,phase="approaching",interruptible=false,ignoreRetry=true,
+                deadlines={approaching=H.squadCombatSeconds*1000+15000},allowedMovementPhases={approaching=true}})
+            if not check("incoming_attack_control",held~=nil,tostring(holdReason)) then
+                cleanup(H) setPhase("finish",current) return
+            end
+            pcall(SC.Actor.stop,actor)
+        end
         if H.squadCombatFrontDirection then
             local direction = H.squadCombatFrontDirection
             pcall(function() actor:faceLocationF(
@@ -703,10 +773,11 @@ function Probe.step(H, current, check, result, setPhase)
             H.squadCombatZombies[#H.squadCombatZombies + 1] = zombie
             local target = H.squadCombatActors[(index - 1)
                 % #H.squadCombatActors + 1]
-            targetZombie(H, zombie, target)
+            if H.config.squad_combat_natural_acquisition~="true" then targetZombie(H,zombie,target) end
         end
         H.squadCombatStartedAt = current
         H.squadCombatDistanceTimeline = {}
+        H.squadCombatNativeLogAt = setmetatable({}, {__mode="k"})
         H.squadCombatNextDistanceSampleAt = current + 5000
         H.squadCombatActions, H.squadCombatOffensive = 0, 0
         H.squadCombatLateBystandersRemoved = 0
@@ -749,14 +820,18 @@ function Probe.step(H, current, check, result, setPhase)
         end
         H.squadCombatActionAt = setmetatable({}, { __mode = "k" })
         if H.config.squad_combat_photo == "true"
-            or H.config.squad_combat_near_observer == "true" then
+            or H.config.squad_combat_near_observer == "true"
+            or H.config.squad_combat_order == "follow" then
             local px, py, pz = U.position(H.player)
             local centerX, centerY = math.floor(H.squadCombatArena.x),
                 math.floor(H.squadCombatArena.y)
             local direction = H.squadCombatFrontDirection or { 1, 0 }
             local preview
-            if H.config.squad_combat_near_observer == "true" then
-                for _, depth in ipairs({ 13, 15, 11, 17 }) do
+            if H.config.squad_combat_near_observer == "true"
+                or H.config.squad_combat_order == "follow" then
+                local depths = H.config.squad_combat_order == "follow" and { 3, 4, 5 }
+                    or { 13, 15, 11, 17 }
+                for _, depth in ipairs(depths) do
                     for _, lateral in ipairs({ 0, -2, 2, -4, 4 }) do
                         preview = openSquare(
                             centerX - direction[1] * depth
@@ -779,7 +854,8 @@ function Probe.step(H, current, check, result, setPhase)
                     x = px, y = py, z = pz,
                     ghost = call(H.player, "isGhostMode") == true,
                 }
-                if H.config.squad_combat_near_observer ~= "true" then
+                if H.config.squad_combat_near_observer ~= "true"
+                    and H.config.squad_combat_order ~= "follow" then
                     H.player:setGhostMode(true)
                 end
                 H.player:teleportTo(preview:getX() + 0.5,
@@ -795,11 +871,27 @@ function Probe.step(H, current, check, result, setPhase)
             if H.config.squad_combat_photo == "true" then
                 H.squadCombatScreenshotAt = current + 5000
             end
+            if H.config.squad_combat_order == "follow" then
+                for _, follower in ipairs(H.squadCombatActors) do
+                    local ordered, why = SC.Commands.issue(SC.Registry.idOf(follower), "follow", nil, H.player)
+                    if not check("squad_combat_follow_order", ordered == true, tostring(why)) then
+                        cleanup(H); setPhase("finish", current) return
+                    end
+                end
+            end
         end
         setPhase("squad_combat_observe", current)
         return
     end
     if H.phase == "squad_combat_observe" then
+        if H.config.squad_combat_passive_control=="true" then
+            for _,actor in ipairs(H.squadCombatActors) do
+                if alive(actor) then
+                    SC.ZombieTargeting.scan(actor,current,H.squadCombatZombies)
+                    SC.ZombieAttack.resolve(actor,current,H.squadCombatZombies)
+                end
+            end
+        end
         local backupType = H.config.squad_combat_backup_weapon_type
         if type(backupType) == "string" and backupType ~= "" then
             for index, actor in ipairs(H.squadCombatActors or {}) do
@@ -996,6 +1088,20 @@ function Probe.step(H, current, check, result, setPhase)
                     H.squadCombatTargetSeenTimeMax = math.max(
                         H.squadCombatTargetSeenTimeMax, seenTime)
                     local currentTarget = call(zombie, "getTarget")
+                    if current>=(H.squadCombatNativeLogAt[zombie] or 0) then
+                        H.squadCombatNativeLogAt[zombie]=current+5000
+                        print("SC_COMBAT_OBSERVE|case="..caseName(H.squadCombatCase)
+                            .." trial="..H.squadCombatRepeat.." zombie="..index
+                            .." dead="..tostring(call(zombie,"isDead"))
+                            .." inWorld="..tostring(call(call(getCell(),"getZombieList"),"contains",zombie))
+                            .." health="..tostring(call(zombie,"getHealth"))
+                            .." target="..tostring(currentTarget)
+                            .." distance="..tostring(currentTarget and U.distance(zombie,currentTarget))
+                            .." state="..tostring(call(zombie,"getCurrentState"))
+                            .." attack="..tostring(call(zombie,"getVariableBoolean","bAttack"))
+                            .." outcome="..tostring(call(zombie,"getVariableString","AttackOutcome"))
+                            .." didDamage="..tostring(call(zombie,"getVariableBoolean","AttackDidDamage")))
+                    end
                     local validTarget = false
                     for _, actor in ipairs(H.squadCombatActors) do
                         if currentTarget == actor and alive(actor) then
@@ -1025,7 +1131,7 @@ function Probe.step(H, current, check, result, setPhase)
                                 end
                             end
                         end
-                        if closest then
+                        if closest and H.config.squad_combat_natural_acquisition~="true" then
                             targetZombie(H, zombie, closest)
                             H.squadCombatRetargetAttempts =
                                 H.squadCombatRetargetAttempts + 1

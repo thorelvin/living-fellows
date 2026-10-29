@@ -10322,6 +10322,34 @@ do
     end
     bedSquare.objects[#bedSquare.objects] = nil
     local scanState, deepChoice, passes = {}, nil, 0
+    ;(function()
+        local pendingBed, pendingStatus = seatProbe(bedProbeActor, {}, clock, "rest_bed")
+        check(pendingBed == nil and pendingStatus == "searching",
+            "a sliced camp bed search remains pending instead of reporting no bed")
+        SurvivorCompanion.Downtime.reset(bedProbeActor)
+        local U = SurvivorCompanion.GameplayUtil
+        local previousItems, inventoryScans = U.inventoryItems, 0
+        U.inventoryItems = function(...)
+            inventoryScans = inventoryScans + 1
+            return previousItems(...)
+        end
+        local available, why = SurvivorCompanion.Downtime.canPerform(bedProbeActor, "rest_bed")
+        U.inventoryItems = previousItems
+        check(not available and why == "bed_searching",
+            "the scheduler can distinguish a pending sleep search from a missing bed")
+        check(inventoryScans == 0,
+            "a bed capability check does not audit unrelated carried-item chores")
+        local movingState, found = {}, nil
+        local originalX = bedProbeActor.worldX
+        for pass = 1, 6 do
+            bedProbeActor.worldX = 8.5 + pass % 2
+            found = seatProbe(bedProbeActor, movingState, clock, "rest_bed")
+            if found then break end
+        end
+        bedProbeActor.worldX = originalX
+        check(found and found.object == farBed,
+            "a moving worker resumes its pending bed survey without restarting each tile")
+    end)()
     repeat
         passes = passes + 1
         deepChoice = seatProbe(bedProbeActor, scanState, clock, "rest_bed")
@@ -10605,6 +10633,15 @@ do
     check(SurvivorCompanion.BaseWork._sleepBeforeNewJobForTests(
             sleeper, player, calm, nil) == true and requestedRest == "rest_bed",
         "a tired base worker sleeps before claiming the next job")
+    SurvivorCompanion.Downtime.canPerform = function() return false, "bed_searching" end
+    requestedRest = nil
+    ;(function()
+        local paused, pendingReason = SurvivorCompanion.BaseWork._sleepBeforeNewJobForTests(
+            sleeper, player, calm, nil)
+        check(paused == true and pendingReason == "bed_searching" and requestedRest == nil,
+            "a tired idle worker waits for the bed search before claiming a moving job")
+    end)()
+    SurvivorCompanion.Downtime.canPerform = function(_, kind) return kind == "rest_bed" end
     local originalPeek = SurvivorCompanion.Downtime.peek
     sleeper.fatigue = 0.2
     SurvivorCompanion.Downtime.peek = function()

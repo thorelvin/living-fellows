@@ -294,7 +294,7 @@ function Terminal.sessionFor(player, object)
     local session = sessions[key]
     if session then return session end
     session = Brain().newSession({ operator = operatorName(player),
-        memory = Terminal.readMemory(object) })
+        memory = Terminal.readMemory(object), nowMs = nowMs })
     sessions[key] = session
     sessionOrder[#sessionOrder + 1] = key
     while #sessionOrder > Terminal.SESSIONS do

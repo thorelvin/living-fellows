@@ -17,6 +17,8 @@ local SC = SurvivorCompanion
 SC.TerminalBrain = SC.TerminalBrain or {}
 local Brain = SC.TerminalBrain
 if not SC.TerminalKnowledge and type(require)=="function" then pcall(require,"SCTerminalKnowledge") end
+if not SC.TerminalConversation and type(require)=="function" then pcall(require,"SCTerminalConversation") end
+local Conversation = SC.TerminalConversation
 
 Brain.MAX_INPUT = 160
 Brain.MAX_NOTES = 8
@@ -490,6 +492,20 @@ if SC.TerminalKnowledge then
         L().knowledgeExpanded=true
     end
 end
+if Conversation then
+    for _, spec in ipairs(Conversation.CHAT) do
+        spec.phrases={}
+        for _,phrase in ipairs(spec.exact) do spec.phrases[table.concat(Brain.tokens(phrase)," ")]=5 end
+        Brain.INTENTS[#Brain.INTENTS+1]=spec
+        L().POOLS[spec.id]=spec.lines
+    end
+    if not L().conversationExpanded then
+        for name,extra in pairs(Conversation.EXTRA_POOLS) do
+            for _,line in ipairs(extra) do L().POOLS[name][#L().POOLS[name]+1]=line end
+        end
+        L().conversationExpanded=true
+    end
+end
 local INTENT_BY_ID, EXACT, VOCABULARY = {}, {}, {}
 for _, intent in ipairs(Brain.INTENTS) do
     INTENT_BY_ID[intent.id] = intent
@@ -586,6 +602,8 @@ function Brain.newSession(options)
     local memory = Brain.normalizeMemory(options.memory)
     return {
         random = type(options.random) == "function" and options.random or defaultRandom,
+        nowMs = type(options.nowMs)=="function" and options.nowMs
+            or type(getTimestampMs)=="function" and getTimestampMs or nil,
         operator = memory.operator or printable(options.operator, Brain.NAME_LENGTH),
         notes = memory.notes,
         namedOperator = memory.operator ~= nil,
@@ -934,6 +952,48 @@ H.meaning = simplePool("meaning")
 if SC.TerminalKnowledge then
     for _,spec in ipairs(SC.TerminalKnowledge.CHAT) do H[spec.id]=simplePool(spec.id) end
 end
+if Conversation then
+    for _,spec in ipairs(Conversation.CHAT) do H[spec.id]=simplePool(spec.id) end
+end
+function H.guide(_, reply, turn)
+    reply.category="chat"
+    local record=Conversation and Conversation.guide(turn.slots.guideId)
+    if not record then return add(reply,"I do not have that operating note. Ask help for supported subjects.") end
+    local page=math.max(1,tonumber(turn.slots.page) or 1)
+    if page>#record.pages then return add(reply,"That is the end of this operating note. Name another subject, or ask about the current camp readings.") end
+    add(reply,record.title..":")
+    add(reply,record.pages[page])
+    if page<#record.pages then add(reply,"Ask tell me more for the next part.") end
+end
+function H.conversation_history(session,reply)
+    reply.category="chat"
+    local history=Conversation.state(session).history
+    if #history==0 then return add(reply,"We have not discussed a subject in this session yet. What would you like to ask?") end
+    add(reply,"Your recent questions in this terminal session:")
+    for i=math.max(1,#history-5),#history do add(reply,"  - "..history[i].question) end
+    add(reply,"I can check a subject again using current readings. Saved notes are separate; ask my notes to read them.")
+end
+function H.conversation_forget(session,reply)
+    Conversation.forget(session)
+    reply.category="chat"
+    add(reply,"Recent conversation cleared. Your saved notes, files and hardware are unchanged. What shall we discuss?")
+end
+function H.conversation_missing(_,reply,turn)
+    reply.category="chat"
+    add(reply,"I cannot resolve "..printable(turn.slots.query or "that earlier subject",80).." from this session. Please name the person, item or topic.")
+end
+function H.clarify_person(session,reply,turn)
+    reply.category="chat"
+    local choices={}
+    if #(turn.slots.people or {})==0 then return add(reply,"I have no current person to attach that question to. Please give their name.") end
+    add(reply,"Which person do you mean? Type their full name or a number in chat:")
+    for i=1,math.min(8,#(turn.slots.people or {})) do
+        local person=turn.slots.people[i]
+        choices[i]={id=person.id,name=printable(person.name,80)}
+        add(reply,"  "..i..". "..choices[i].name)
+    end
+    session.context.personChoices={people=choices,aspect=turn.slots.aspect,turn=session.turns}
+end
 function H.lore(session,reply,turn,world)
     local archive=SC.TerminalLore
     if not archive then return addPool(session,reply,"lore") end
@@ -945,7 +1005,8 @@ function H.lore(session,reply,turn,world)
     local record=turn.slots.referenceId and archive.reference(turn.slots.referenceId)
         or knowledge and knowledge.find(query,Brain.distance)
     if turn.slots.more then
-        local previous=archive.reference(session.context.referenceId)
+        record=nil
+        local previous=archive.reference(turn.slots.referenceId or session.context.referenceId)
         for _,id in ipairs(previous and previous.related or {}) do
             local candidate=archive.reference(id)
             if candidate and archive.available(candidate,clock)
@@ -1207,6 +1268,8 @@ end
 function H.people_list(session, reply, turn, world)
     reply.category = "people"
     local people = peopleList(turn, world)
+    reply.subjects={}
+    for _,person in ipairs(people) do reply.subjects[#reply.subjects+1]={id=person.id,name=person.name} end
     if #people == 0 then return addPool(session, reply, "people_none") end
     if #people == 1 then addTemplate(reply, "people_head_one")
     else addTemplate(reply, "people_head", { n = #people }) end
@@ -1220,6 +1283,8 @@ function H.people_hurt(session, reply, turn, world)
     local people = peopleList(turn, world)
     if #people == 0 then return addPool(session, reply, "people_none") end
     local rows = hurtRows(people)
+    reply.subjects={}
+    for _,person in ipairs(rows) do reply.subjects[#reply.subjects+1]={id=person.id,name=person.name} end
     if #rows == 0 then return addPool(session, reply, "hurt_none") end
     addTemplate(reply, "hurt_head", { n = #rows })
     local treatableReport
@@ -1238,6 +1303,8 @@ end
 function H.people_mood(session, reply, turn, world)
     reply.category = "people"
     local people = peopleList(turn, world)
+    reply.subjects={}
+    for _,person in ipairs(people) do reply.subjects[#reply.subjects+1]={id=person.id,name=person.name} end
     if #people == 0 then return addPool(session, reply, "people_none") end
     for _, person in ipairs(people) do
         local state
@@ -1261,7 +1328,25 @@ function H.person(session, reply, turn, world)
         return addTemplate(reply, "person_unknown", { q = turn.slots.query or "" })
     end
     session.context.person = person.name
+    session.context.personId = person.id
     if person.away == true then return addTemplate(reply, "person_away", { who = person.name }) end
+    if turn.slots.aspect=="skills" then
+        add(reply,person.name.."'s recorded skills:")
+        local count=0
+        for _,skill in ipairs(person.skills or {}) do
+            if count>=12 then break end
+            add(reply,"  - "..tostring(skill.name)..": level "..tostring(skill.level)..".") count=count+1
+        end
+        if count==0 then add(reply,"No current skill readings are available for this person.") end
+        return
+    end
+    if turn.slots.aspect=="mood" then
+        local parts={}
+        if tonumber(person.morale) then parts[#parts+1]="morale "..math.floor(person.morale+.5) end
+        if tonumber(person.stress) then parts[#parts+1]="stress "..math.floor(person.stress+.5) end
+        if type(person.mood)=="string" and person.mood~="" then parts[#parts+1]=person.mood end
+        return add(reply,person.name..": "..(#parts>0 and table.concat(parts,", ") or "no current mood readings")..".")
+    end
     addTemplate(reply, "person", { who = person.name,
         health = math.floor((tonumber(person.health) or 0) + 0.5), extra = healthExtra(person),
         doing = capitalize(person.doing and person.doing ~= "" and string.lower(person.doing)
@@ -1273,7 +1358,10 @@ function H.person(session, reply, turn, world)
     local needs = {}
     if tonumber(person.hunger) then needs[#needs + 1] = "hunger " .. math.floor(person.hunger * 100 + .5) .. "%" end
     if tonumber(person.thirst) then needs[#needs + 1] = "thirst " .. math.floor(person.thirst * 100 + .5) .. "%" end
+    if tonumber(person.endurance) then needs[#needs+1]="stamina "..math.floor(person.endurance*100+.5).."%" end
+    if tonumber(person.fatigue) then needs[#needs+1]="tiredness "..math.floor(person.fatigue*100+.5).."%" end
     if #needs > 0 then add(reply, "Current needs: " .. table.concat(needs, ", ") .. ".") end
+    if turn.slots.aspect=="needs" and #needs==0 then add(reply,"I have no current needs readings for this person.") end
 end
 
 local function jobRetries(row)
@@ -1378,6 +1466,14 @@ function H.storage(session, reply, turn, world)
         if #places > 0 then addTemplate(reply, "storage_where", { where = listText(places) }) end
     end
     if index.truncated == true then addTemplate(reply, "storage_partial") end
+    if turn.slots.required then
+        local required=turn.slots.required
+        if total>=required then add(reply,"For "..commas(required)..", the recorded stock covers that amount.")
+        elseif index.truncated then add(reply,"The audit is incomplete; I cannot certify the shortfall against "..commas(required)..".")
+        else add(reply,"For "..commas(required)..", you need "..commas(required-total).." more.") end
+    elseif turn.slots.enough then
+        add(reply,"How many do you need? Give me a quantity, for example: enough for 100. I will check the stock again.")
+    end
 end
 
 function H.food(session, reply, turn, world)
@@ -1608,32 +1704,71 @@ local function nameIndex(people)
     local index = {}
     for _, person in ipairs(people) do
         for word in string.gmatch(string.lower(tostring(person.name or "")), "%a+") do
-            if #word >= 2 and index[word] == nil then index[word] = person end
+            if #word >= 2 then
+                index[word]=index[word] or {}
+                local seen=false
+                for _,candidate in ipairs(index[word]) do if candidate==person then seen=true end end
+                if not seen then index[word][#index[word]+1]=person end
+            end
         end
     end
     return index
 end
 
 local function findPerson(tokens, names, fuzzy)
+    local matches,counts={},{}
     for position, word in ipairs(tokens) do
-        local person = names[word]
-        if person and (not COMMON_WORD_NAMES[word] or #tokens == 1
+        local candidates = names[word]
+        if candidates and (not COMMON_WORD_NAMES[word] or #tokens == 1
             or (position > 1 and NAME_LEADERS[tokens[position - 1]])) then
-            return person, word
+            for _,person in ipairs(candidates) do
+                if not counts[person] then matches[#matches+1]=person counts[person]=0 end
+                counts[person]=counts[person]+1
+            end
         end
     end
-    if not fuzzy then return nil end
-    for _, word in ipairs(tokens) do
-        if #word >= 4 and not STOP[word] and not KNOWN[word] then
-            for name, person in pairs(names) do
-                if #name >= 4 and string.sub(name, 1, 1) == string.sub(word, 1, 1)
-                    and not COMMON_WORD_NAMES[name] and Brain.distance(word, name, 1) <= 1 then
-                    return person, word
+    if #matches==0 and fuzzy then
+        for _, word in ipairs(tokens) do
+            if #word >= 4 and not STOP[word] and not KNOWN[word] then
+                for name,candidates in pairs(names) do
+                    if #name >= 4 and string.sub(name,1,1)==string.sub(word,1,1)
+                        and not COMMON_WORD_NAMES[name] and Brain.distance(word,name,1)<=1 then
+                        for _,person in ipairs(candidates) do
+                            if not counts[person] then matches[#matches+1]=person counts[person]=1 end
+                        end
+                    end
                 end
             end
         end
     end
+    local best,choices=0,{}
+    for _,person in ipairs(matches) do
+        if counts[person]>best then best,choices=counts[person],{person}
+        elseif counts[person]==best then choices[#choices+1]=person end
+    end
+    if #choices==1 then return choices[1] end
+    if #choices>1 then
+        table.sort(choices,function(a,b)
+            if a.name~=b.name then return a.name<b.name end
+            return tostring(a.id)<tostring(b.id)
+        end)
+        return nil,nil,choices
+    end
     return nil
+end
+
+local function personReference(slots,people)
+    for _,person in ipairs(people) do
+        if slots.id and person.id==slots.id or not slots.id and person.name==slots.name then
+            return "person",{person=person,aspect=slots.aspect}
+        end
+    end
+    return "conversation_missing",{query=slots.name or "that person"}
+end
+
+local function topicReference(intent,slots,people)
+    if intent=="person_reference" then return personReference(slots,people) end
+    return intent,slots
 end
 
 local PRONOUNS = { he = true, she = true, him = true, her = true }
@@ -1672,7 +1807,8 @@ end
 local REMEMBER_PATTERNS = { "^%s*remember%s+", "^%s*remember$", "^%s*make a note%s*", "^%s*note:?%s+",
     "^%s*write down%s+", "^%s*save note%s+" }
 local CALLME_PATTERNS = { "^%s*call me%s+", "^%s*my name is%s+", "^%s*my names%s+" }
-local FOLLOW_PREFIXES = { { "and", "what", "about" }, { "what", "about" }, { "how", "about" },
+local FOLLOW_PREFIXES = { {"no","i","meant"},{"no","i","mean"},{"i","meant"},{"i","mean"},{"actually"},
+    { "and", "what", "about" }, { "what", "about" }, { "how", "about" },
     { "and" }, { "also" } }
 
 local function stripFollowUp(tokens)
@@ -1736,6 +1872,32 @@ function Brain.parse(session, raw, world, turn)
     local exact = EXACT[joined]
     if pending and (exact == "yes" or exact == "ack") then return pending.intent, pending.slots or {} end
     if pending and exact == "no" then return "did_you_mean_no", {} end
+    local selection=context.personChoices
+    context.personChoices=nil
+    if selection and session.turns-selection.turn<=2 then
+        local ordinal={first=1,second=2,third=3,fourth=4,fifth=5,sixth=6,seventh=7,eighth=8}
+        local number=tonumber(joined:match("^(%d)$"))
+            or ordinal[joined:match("^the (%a+) one$") or joined:match("^(%a+) one$") or joined]
+        if number and selection.people[number] then
+            local person=selection.people[number]
+            return personReference({id=person.id,name=person.name,aspect=selection.aspect},peopleList(turn,world))
+        end
+        if exact=="yes" or exact=="ack" then return "clarify_person",{people=selection.people,aspect=selection.aspect} end
+    end
+    if Conversation then
+        local meta,metaSlots=Conversation.meta(session,joined)
+        if meta then return topicReference(meta,metaSlots,peopleList(turn,world)) end
+        if Conversation.more(joined) or Conversation.refresh(joined) then
+            local topic=Conversation.latest(session)
+            if topic then
+                if topic.kind=="lore" then return "lore",{more=not Conversation.refresh(joined),referenceId=topic.id} end
+                local follow,followSlots=Conversation.topicTurn(topic)
+                if follow=="guide" and Conversation.more(joined) then followSlots.page=(followSlots.page or 1)+1 end
+                followSlots.explain=Conversation.more(joined)
+                return topicReference(follow,followSlots,peopleList(turn,world))
+            end
+        end
+    end
     if SC.TerminalKnowledge and context.referenceId and (context.intent=="lore"
         or context.intent=="thanks" or context.intent=="ack") and SC.TerminalKnowledge.more(joined) then
         return "lore",{more=true}
@@ -1787,7 +1949,20 @@ function Brain.parse(session, raw, world, turn)
         or request:match("^send%s+a?%s*medic%s+to%s+(.+)$")
         or request:match("^send%s+the%s+medic%s+to%s+(.+)$")
         or request:match("^treat%s+(.+)$")
-    if patient then return "request", { kind = "medic", query = patient:gsub("^on%s+", "") } end
+    if patient then
+        if Conversation and (patient=="her" or patient=="him" or patient=="them") then
+            local topic=Conversation.latest(session,{person=true,people=true})
+            if not topic or topic.kind~="person" then return "conversation_missing",{query="the intended patient"} end
+            local resolved,personSlots=personReference({id=topic.id,name=topic.label},peopleList(turn,world))
+            if resolved~="person" then return resolved,personSlots end
+            patient=personSlots.person.name
+        end
+        return "request", { kind = "medic", query = patient:gsub("^on%s+", "") }
+    end
+    if Conversation then
+        local guide=Conversation.findGuide(text,Brain.tokens,Brain.distance)
+        if guide then return "guide",{guideId=guide.id,page=1} end
+    end
     -- Keep literal business names before chat shorthand expands U to "you".
     local knownReference,referenceScore
     if SC.TerminalKnowledge then
@@ -1814,8 +1989,10 @@ function Brain.parse(session, raw, world, turn)
     -- An exact complete directory title beats a shorter name inside it.
     -- Incidental place mentions still let an explicitly named person win.
     if not (record and referenceScore>=20) and (intent == nil or PERSON_COMPATIBLE[intent]) then
-        local person = findPerson(fixed, names, false) or findPerson(rest, names, true)
-        if person then return "person", { person = person } end
+        local person,_,ambiguous = findPerson(fixed,names,false)
+        if not person and not ambiguous then person,_,ambiguous=findPerson(rest,names,true) end
+        if ambiguous then return "clarify_person",{people=ambiguous,aspect=Conversation and Conversation.aspect(joined)} end
+        if person then return "person", { person = person,aspect=Conversation and Conversation.aspect(joined) } end
     end
     if record then
         return "lore",{query=text,referenceId=record.id,placeStatus=record.category=="places"
@@ -1832,7 +2009,40 @@ function Brain.parse(session, raw, world, turn)
         if THING_PRONOUNS[word] then thing = true end
     end
 
-    if context.person and ((pronoun and (intent == nil or intent == "people_hurt"
+    if Conversation then
+        local current=Conversation.latest(session,{person=true,people=true,item=true,data=true,guide=true,lore=true})
+        if current and current.kind=="lore" and thing and (intent==nil or intent=="zombies"
+            or joined:find("looted",1,true) or joined:find("supplies",1,true) or joined:find("occupied",1,true)) then
+            return "lore",{referenceId=current.id,placeStatus=true}
+        end
+        if current and current.kind=="data" and current.intent=="power" and thing
+            and (intent==nil or intent=="power" or intent=="storage") then return "power",{} end
+        local entity=Conversation.latest(session,{person=true,people=true,item=true})
+        local namedPerson=Conversation.latest(session,{person=true,people=true})
+        if pronoun and namedPerson and (intent==nil or intent=="people_hurt" or intent=="jobs"
+            or intent=="people_mood" or intent=="skills" or intent=="storage" or intent=="sleep") then
+            if namedPerson.kind=="people" then return "clarify_person",{people=namedPerson.people,aspect=Conversation.aspect(joined)} end
+            return personReference({id=namedPerson.id,name=namedPerson.label,aspect=Conversation.aspect(joined)},people)
+        end
+        local countFollow=joined=="how many more" or joined=="how much more" or joined=="where are they"
+            or joined=="where is it" or joined=="where are those" or joined=="do we have any"
+            or joined=="how many do we have" or joined=="how much do we have" or joined=="is that enough"
+            or joined=="do we have enough" or joined:find("^enough for %d+") or joined:find("^and for %d+")
+            or joined:find("^is that enough for %d+") or joined:find("^is it enough for %d+")
+            or joined:find("^do we have enough for %d+")
+        if entity and entity.kind=="item" and (countFollow or thing and intent=="storage") then
+            local follow,followSlots=Conversation.topicTurn(entity)
+            followSlots.required=Conversation.quantity(text) or entity.required
+            followSlots.enough=joined:find("enough",1,true)~=nil or joined:find("more",1,true)~=nil
+            return follow,followSlots
+        end
+        if entity and entity.kind=="person" and groupPronoun and intent==nil then
+            return personReference({id=entity.id,name=entity.label,aspect=Conversation.aspect(joined)},people)
+        end
+        if entity and entity.kind=="people" and groupPronoun and intent==nil then return "people_list",{} end
+    end
+
+    if not Conversation and context.person and ((pronoun and (intent == nil or intent == "people_hurt"
         or intent == "jobs" or intent == "people_mood")) or (groupPronoun and intent == nil)) then
         for _, candidate in ipairs(people) do
             if candidate.name == context.person then return "person", { person = candidate } end
@@ -1841,17 +2051,26 @@ function Brain.parse(session, raw, world, turn)
 
     if intent == "storage" then
         local words, shown = itemWords(rest), shownWords(rest)
-        if #words == 0 and thing and context.item then
-            words, shown = context.item, context.itemText or context.item
+        local required=Conversation and Conversation.quantity(text)
+        if required then
+            local withoutNumbers={}
+            for _,word in ipairs(rest) do if not tonumber(word) then withoutNumbers[#withoutNumbers+1]=word end end
+            words,shown=itemWords(withoutNumbers),shownWords(withoutNumbers)
         end
-        return "storage", { item = words, itemText = #shown > 0 and shown or nil }
+        if #words==0 and Conversation and thing then
+            local item=Conversation.latest(session,{item=true})
+            if item then words,shown=item.item,item.itemText end
+        elseif #words==0 and thing and context.item then words,shown=context.item,context.itemText or context.item end
+        return "storage", { item = words, itemText = #shown > 0 and shown or nil,
+            required=required,enough=joined:find("enough",1,true)~=nil }
     end
     if intent then return intent, intent=="lore" and {query=text} or {} end
 
     -- Nothing scored. Try the context, then the shelves, then a suggestion.
     local words, shown = itemWords(rest), shownWords(rest)
     if #words > 0 and #words <= 3 then
-        local lastIntent = context.intent
+        local itemTopic=Conversation and Conversation.latest(session,{item=true})
+        local lastIntent = itemTopic and itemTopic.intent or context.intent
         if followUp or lastIntent == "storage" or lastIntent == "food"
             or (best and best.id == "storage") then
             return "storage", { item = words, itemText = shown }
@@ -1918,6 +2137,7 @@ local CAMP_INTENTS = {
 
 function Brain.respond(session, raw, world)
     session.turns = session.turns + 1
+    if Conversation then Conversation.state(session) end
     local turn = { cache = {} }
     local intent, slots = Brain.parse(session, raw, world, turn)
     turn.slots = slots or {}
@@ -1933,6 +2153,7 @@ function Brain.respond(session, raw, world)
         reply.error = tostring(failure)
         addPool(session, reply, "unavailable")
     end
+    if ok and turn.slots.explain and Conversation then add(reply,Conversation.EXPLAIN[intent]) end
     if looksLikeShout(printable(raw, Brain.MAX_INPUT)) and intent ~= "mash" then
         local shout = Brain.pick(session, "shout")
         if shout then table.insert(reply.lines, 1, shout) end
@@ -1942,12 +2163,14 @@ function Brain.respond(session, raw, world)
     end
     if not reply.instant then thinking(session, reply) else reply.thinkMs = 0 end
     if intent ~= "repeat" and intent ~= "empty" and intent ~= "did_you_mean"
-        and intent ~= "did_you_mean_no" and intent ~= "fallback" then
+        and intent ~= "did_you_mean_no" and intent ~= "fallback"
+        and not (Conversation and Conversation.neutral(intent)) then
         session.context.intent = intent
     end
     if intent ~= "repeat" and #reply.lines > 0 then
         session.context.last = { lines = reply.lines, category = reply.category }
     end
+    if Conversation then Conversation.record(session,raw,reply,turn.slots) end
     return reply
 end
 

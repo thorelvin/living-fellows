@@ -1,0 +1,26 @@
+{
+  "date": "2026-10-29",
+  "productionPayloadSha256": {
+    "SCCombat.lua": "33aa73274dfdf394ba988374c5983b2c623cf81f70bb38a05bf1298d65df616e",
+    "SCBaseWork.lua": "3dddd3342bb06b93392782362288a998182544fbd8d55bd70cb85d7357e2547e",
+    "SCDowntime.lua": "01b1bb3eae569dc70c2b013ffc97c8cb3dd2d14d81f5d57a03fc8ef059d6dbf4"
+  },
+  "existingCompanionControl": {
+    "passed": true,
+    "sourceRun": "SC-Harness-20261026-185641-59f036f8",
+    "evidence": "bed-control.log",
+    "screenshot": "bed-control-sleeping.png",
+    "payloadMatchesCurrent": true
+  },
+  "freshActor": {
+    "passed": false,
+    "runId": "SC-Harness-20261029-223103-b2054c3e",
+    "failure": "bed_mattress_alignment_failed",
+    "bridgeReason": "bed pose shift must lead to an adjacent pillow on the same floor",
+    "evidence": "fresh-bed-failed-events.log",
+    "geometry": "fresh-bed-failed-geometry.log",
+    "experimentalAnimationChangeKept": false
+  },
+  "installed": false,
+  "committed": false
+}

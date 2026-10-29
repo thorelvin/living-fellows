@@ -1,0 +1,38 @@
+LOG  : Lua          f:182> SC_REAL_SANDBOX|PASS|squad_combat_bystanders_removed|removed=4 remaining=0
+LOG  : Lua          f:182> SC_REAL_SANDBOX|PASS|squad_combat_arena|loaded outdoor combat arena away from observer score=679 paved=195 x=12034.5 y=6769.5
+LOG  : Lua          f:182> SC_REAL_SANDBOX|PASS|squad_combat_clone_corpses_cleared|removed=19
+LOG  : Lua          f:182> SC_REAL_SANDBOX|PASS|squad_combat_cases|validated fixture cases
+LOG  : Lua          f:183> SC_REAL_SANDBOX|PASS|squad_combat_approach_lane|dx=1 dy=0
+LOG  : Lua          f:183> SC_REAL_SANDBOX|PASS|squad_combat_fixture_1_1|survivor_tiles=9 zombie_tiles=20
+LOG  : Lua          f:185> SC_REAL_SANDBOX|PASS|squad_combat_actor_ready|index=1 order=stay weapon=Base.Crowbar reach=1.33 minimum=0.4600000143051147
+LOG  : Lua          f:185> SC_REAL_SANDBOX|PASS|incoming_attack_control|started
+LOG  : Lua          f:187> SC_REAL_SANDBOX|PASS|squad_combat_actor_ready|index=2 order=stay weapon=Base.Crowbar reach=1.33 minimum=0.4600000143051147
+LOG  : Lua          f:187> SC_REAL_SANDBOX|PASS|incoming_attack_control|started
+LOG  : Lua          f:189> SC_COMBAT_OBSERVE|case=2v3_front trial=1 zombie=1 dead=false target=nil distance=nil state=nil attack=false outcome= didDamage=false
+LOG  : Lua          f:189> SC_COMBAT_OBSERVE|case=2v3_front trial=1 zombie=2 dead=false target=nil distance=nil state=nil attack=false outcome= didDamage=false
+LOG  : Lua          f:189> SC_COMBAT_OBSERVE|case=2v3_front trial=1 zombie=3 dead=false target=nil distance=nil state=nil attack=false outcome= didDamage=false
+LOG  : Lua          f:196> [SurvivorCompanion/safety-hold] actor=sc-1.79330267353E9-1-703673 kind=tactical failure=action_owned:live_harness:incoming_attack_control:approaching outcome=held threats=3 immediate=0 nearest=4.9 leader=30.0 heldMs=0 order=stay
+LOG  : Lua          f:198> [SurvivorCompanion/safety-hold] actor=sc-1.793302673562E9-2-137246 kind=tactical failure=action_owned:live_harness:incoming_attack_control:approaching outcome=held threats=3 immediate=0 nearest=5.9 leader=30.0 heldMs=0 order=stay
+LOG  : Lua          f:207> [SurvivorCompanion/combat] actor=sc-1.79330267353E9-1-703673 action=approach reason=approach_rejected:locomotion_urgent_queued distance=4.99 weapon=Crowbar carried=1 usable=1 target=Zombie
+LOG  : Lua          f:210> [SurvivorCompanion/combat-engage] actor=sc-1.793302673562E9-2-137246 outcome=no_credible_target candidates=3 nearest=6.01 weapon=none doctrine=close_defense holdFire=false
+LOG  : Lua          f:218> [SurvivorCompanion/combat-engage] actor=sc-1.79330267353E9-1-703673 outcome=no_credible_target candidates=3 nearest=5.05 weapon=none doctrine=close_defense holdFire=false
+LOG  : Lua          f:242> [SurvivorCompanion/combat] actor=sc-1.793302673562E9-2-137246 action=approach reason=approach_rejected:locomotion_urgent_queued distance=5.98 weapon=Crowbar carried=1 usable=1 target=Zombie
+LOG  : Lua          f:493> SC_COMBAT_OBSERVE|case=2v3_front trial=1 zombie=1 dead=false target=SCNativeCompanion{  Name:null,  ID:82 } distance=2.12538233290746 state=zombie.ai.states.LungeState@448ff7b1 attack=false outcome= didDamage=false
+LOG  : Lua          f:493> SC_COMBAT_OBSERVE|case=2v3_front trial=1 zombie=2 dead=false target=SCNativeCompanion{  Name:null,  ID:82 } distance=3.4455713360844102 state=zombie.ai.states.LungeState@448ff7b1 attack=false outcome= didDamage=false
+LOG  : Lua          f:493> SC_COMBAT_OBSERVE|case=2v3_front trial=1 zombie=3 dead=false target=SCNativeCompanion{  Name:null,  ID:82 } distance=1.8435350713081284 state=zombie.ai.states.LungeState@448ff7b1 attack=false outcome= didDamage=false
+LOG  : Lua          f:796> SC_COMBAT_OBSERVE|case=2v3_front trial=1 zombie=1 dead=false target=nil distance=nil state=zombie.ai.states.ZombieEatBodyState@35ccf5ed attack=false outcome= didDamage=false
+LOG  : Lua          f:796> SC_COMBAT_OBSERVE|case=2v3_front trial=1 zombie=2 dead=false target=nil distance=nil state=zombie.ai.states.ZombieEatBodyState@35ccf5ed attack=false outcome= didDamage=false
+LOG  : Lua          f:796> SC_COMBAT_OBSERVE|case=2v3_front trial=1 zombie=3 dead=false target=nil distance=nil state=zombie.ai.states.ZombieEatBodyState@35ccf5ed attack=false outcome= didDamage=false
+LOG  : Lua          f:1098> SC_COMBAT_OBSERVE|case=2v3_front trial=1 zombie=1 dead=false target=SCNativeCompanion{  Name:null,  ID:82 } distance=0.03549371454177001 state=zombie.ai.states.AttackState@68cdbd7 attack=true outcome=success didDamage=true
+LOG  : Lua          f:1098> SC_COMBAT_OBSERVE|case=2v3_front trial=1 zombie=2 dead=false target=SCNativeCompanion{  Name:null,  ID:82 } distance=0.4405628349875482 state=zombie.ai.states.AttackState@68cdbd7 attack=true outcome=success didDamage=false
+LOG  : Lua          f:1098> SC_COMBAT_OBSERVE|case=2v3_front trial=1 zombie=3 dead=false target=SCNativeCompanion{  Name:null,  ID:82 } distance=1.1117605430698434 state=zombie.ai.states.LungeState@448ff7b1 attack=false outcome= didDamage=false
+LOG  : Lua          f:1401> SC_COMBAT_OBSERVE|case=2v3_front trial=1 zombie=1 dead=false target=SCNativeCompanion{  Name:null,  ID:83 } distance=0.5929214317932733 state=zombie.ai.states.ZombieIdleState@4fcb1ba attack=false outcome= didDamage=false
+LOG  : Lua          f:1401> SC_COMBAT_OBSERVE|case=2v3_front trial=1 zombie=2 dead=false target=SCNativeCompanion{  Name:null,  ID:83 } distance=0.41437792010306884 state=zombie.ai.states.WalkTowardState@78163895 attack=false outcome= didDamage=false
+LOG  : Lua          f:1401> SC_COMBAT_OBSERVE|case=2v3_front trial=1 zombie=3 dead=false target=SCNativeCompanion{  Name:null,  ID:83 } distance=0.5527257480554679 state=zombie.ai.states.WalkTowardState@78163895 attack=false outcome= didDamage=false
+LOG  : Lua          f:1703> SC_COMBAT_OBSERVE|case=2v3_front trial=1 zombie=1 dead=false target=SCNativeCompanion{  Name:null,  ID:82 } distance=0.38011244866856503 state=zombie.ai.states.AttackState@68cdbd7 attack=true outcome=fail didDamage=false
+LOG  : Lua          f:1703> SC_COMBAT_OBSERVE|case=2v3_front trial=1 zombie=2 dead=false target=SCNativeCompanion{  Name:null,  ID:82 } distance=0.5757993366604661 state=zombie.ai.states.ZombieTurnAlerted@4f3183d1 attack=true outcome= didDamage=false
+LOG  : Lua          f:1703> SC_COMBAT_OBSERVE|case=2v3_front trial=1 zombie=3 dead=false target=SCNativeCompanion{  Name:null,  ID:82 } distance=1.2602709326024393 state=zombie.ai.states.ZombieTurnAlerted@4f3183d1 attack=false outcome= didDamage=false
+LOG  : Lua          f:1989> SC_REAL_SANDBOX|PASS|squad_combat_trial_2v3_front_1|survivors=2/2 lowest_health=27.3 kills=0/3 actions=0 offensive=0 engaged=3 damage=0.00 retreat=0 passive=true incoming_wounds=19 elapsed_ms=30008
+LOG  : Lua          f:1989> SC_REAL_SANDBOX|PASS|squad_combat_late_bystanders_removed|count=0
+LOG  : Lua          f:1989> SC_REAL_SANDBOX|PASS|squad_combat_survival_2v3_front|survivors=2/2 rate=100.0% zombie_kills=0 trials=1
+LOG  : Lua          f:1989> SC_REAL_SANDBOX|PASS|squad_combat_results_written|SurvivorCompanionHarness/squad-combat-results.txt

@@ -14333,13 +14333,29 @@ function Harness.beginSleepProbe(current)
                 if square then
                     U.squareObjects(square, function(object)
                         if furnitureKind(object) ~= "rest_bed" then return end
+                        local normalized, entry = SC.BedGeometry.entry(object, nil)
+                        if not normalized or not entry then return end
+                        object = normalized
                         for _, step in ipairs({ { 1, 0 }, { -1, 0 },
                                 { 0, 1 }, { 0, -1 } }) do
                             local spawn = U.gridSquare(square:getX() + step[1],
                                 square:getY() + step[2], z)
+                            local free, freeOk = U.call(spawn, "isFree", true)
+                            local safe, safeOk = U.call(spawn, "isSafeToSpawn")
                             if spawn and spawn ~= player:getCurrentSquare()
-                                and U.isSquareFree(spawn) then
-                                local distance = dx * dx + dy * dy
+                                and U.isSquareFree(spawn)
+                                and (not freeOk or free == true)
+                                and (not safeOk or safe == true) then
+                                local priority = SC.BaseLife.isInside(square) and 1 or 2
+                                local base = SC.BaseLife.active()
+                                for _, zone in ipairs(base and base.zones or {}) do
+                                    if zone.kind == "rest" and zone.z == z
+                                        and square:getX() >= zone.x1 and square:getX() <= zone.x2
+                                        and square:getY() >= zone.y1 and square:getY() <= zone.y2 then
+                                        priority = 0 break
+                                    end
+                                end
+                                local distance = priority * 1000000 + dx * dx + dy * dy
                                 if bestDistance == nil or distance < bestDistance then
                                     best, bestSpawn, bestDistance = object, spawn,
                                         distance
@@ -14441,22 +14457,53 @@ function Harness.probeSleep(current)
         print("SC_REAL_SANDBOX|SLEEP_TRACE|movedCompanions=" .. tostring(moved)
             .. " spots=" .. tostring(#spots))
         local id = SC.Registry.idOf(actor)
+        SC.Downtime.cancel(actor, "sleep_probe_setup")
+        SC.Decision.cancelWork(actor, "sleep_probe_setup")
+        SC.Encounter.cancelScavenge(actor, "sleep_probe_setup")
+        SC.ActionSupervisor.cancel(actor, "sleep_probe_setup", nil, true)
         local issued, issueReason = SC.Commands.issue(id, "stay", nil,
             Harness.player)
-        if not check("sleep_stay_order", issued == true, issueReason) then
+        local released = SC.BaseLife.setDuty(id, false)
+        if not check("sleep_stay_order", issued == true
+            and released == true and not (SC.BaseLife.resident(id) or {}).duty,
+            "issued=" .. tostring(issueReason) .. " base duty released=" .. tostring(released)) then
             setPhase("finish", current) return
         end
         actor:getStats():set(CharacterStat.FATIGUE, 0.85)
         check("sleep_fatigue_seeded",
             SC.GameplayUtil.characterStatValue(actor, "FATIGUE", 0) > 0.8,
             "native fatigue above sleep threshold")
+        local available, bedReason = SC.Downtime.canPerform(actor, "rest_bed")
+        if not check("sleep_bed_capability", available == true,
+            "bed-only scheduler lookup=" .. tostring(bedReason)) then
+            setPhase("finish", current) return
+        end
         setPhase("sleep_probe_rest", current)
         return
     end
     local actor = Harness.sleepActor
+    if Harness.phase == "sleep_probe_wake" then
+        SC.Downtime.cancel(actor, "sleep_probe_complete")
+        local rest = SC.Downtime.peek(actor)
+        local standing = SC.NativeActions.seatingStatus(actor)
+        if not actor:isAsleep() and not actor:isOnBed() and standing == "standing"
+            and not (rest and rest.active) then
+            check("sleep_native_woke", true,
+                "awake, standing off bed, downtime ownership released")
+            setPhase("finish", current)
+        elseif current - Harness.phaseStartedAt > 20000 then
+            result("FAIL", "sleep_native_woke",
+                "asleep=" .. tostring(actor:isAsleep()) .. " bed=" .. tostring(actor:isOnBed())
+                    .. " seating=" .. tostring(standing))
+            setPhase("finish", current)
+        end
+        return
+    end
     Harness.clearSleepRoute(actor)
     local calm = { snapshot = { immediateCount = 0, threatCount = 0,
         player = { danger = 0 }, indoors = true } }
+    local nativeBed = SC.NativeActions._bedRestForTests(actor)
+    if nativeBed then Harness.sleepNativeRecord = nativeBed end
     local accepted, reason = SC.Downtime.update(actor, Harness.player,
         calm, "rest_bed")
     local state = SC.Downtime.peek(actor)
@@ -14503,7 +14550,19 @@ function Harness.probeSleep(current)
                 end
             end
         end
+        local native = Harness.sleepNativeRecord or {}
+        local entry = native.bedEntry or {}
         print("SC_REAL_SANDBOX|SLEEP_TRACE|nearby=" .. table.concat(nearby, ";")
+            .. " nativeFailure=" .. tostring(native.failure)
+            .. " alignment=" .. tostring(native.alignmentFailure)
+            .. " plannedEntry=" .. tostring(entry.x) .. ":" .. tostring(entry.y)
+            .. " plannedKind=" .. tostring(entry.entryKind)
+            .. " actualKind=" .. tostring(actor:getVariableString("OnBedDirection"))
+            .. " boundedTurn=" .. tostring(native.queuedRest and native.queuedRest.scSeatingTurnBounded)
+            .. " pillow=" .. tostring(entry.pillow and entry.pillow.x)
+                .. ":" .. tostring(entry.pillow and entry.pillow.y)
+            .. " onBed=" .. tostring(actor:isOnBed())
+            .. " bedStarted=" .. tostring(actor:getVariableBoolean("OnBedStarted"))
             .. " reason=" .. tostring(reason)
             .. " active=" .. tostring(activity and activity.kind)
             .. " native=" .. tostring(actor:isAsleep())
@@ -14540,7 +14599,7 @@ function Harness.probeSleep(current)
                 .. tostring(activity and activity.gameDurationHours)
                 .. " game hours")
         SC.Downtime.cancel(actor, "sleep_probe_complete")
-        setPhase("finish", current)
+        setPhase("sleep_probe_wake", current)
     elseif current - Harness.phaseStartedAt > 45000 then
         result("FAIL", "sleep_native_started",
             "bed sleep did not start: " .. tostring(reason)
@@ -17096,7 +17155,7 @@ local function tick()
     elseif Harness.phase == "sleep_probe_begin" then
         Harness.beginSleepProbe(current)
     elseif Harness.phase == "sleep_probe_spawn"
-        or Harness.phase == "sleep_probe_rest" then
+        or Harness.phase == "sleep_probe_rest" or Harness.phase == "sleep_probe_wake" then
         Harness.probeSleep(current)
     elseif Harness.phase == "vehicle_passenger_begin" then
         Harness.beginVehiclePassenger(current)

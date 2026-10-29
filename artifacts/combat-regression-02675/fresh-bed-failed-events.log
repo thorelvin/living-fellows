@@ -1,0 +1,6 @@
+PASS|sleep_bed_fixture|bed=nil sprite=furniture_bedding_01_26 square=12023,6740,0 seat_positions=2
+PASS|sleep_stay_order|issued=base_duty base duty released=true
+PASS|sleep_fatigue_seeded|native fatigue above sleep threshold
+PASS|sleep_bed_capability|bed-only scheduler lookup=rest_bed
+PASS|sleep_attempt_screenshot|SC-Harness-20261029-223103-b2054c3e-sleep-bed-attempt nil
+FAIL|sleep_native_started|bed sleep did not start: cooldown; active=nil

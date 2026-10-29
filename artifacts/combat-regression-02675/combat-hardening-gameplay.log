@@ -1,0 +1,137 @@
+needs rate regression: 12 checks
+Kahlua PASS: SCNeeds.lua, needs_rate_regression_harness.lua
+BASE_ALERT_PASS checks=77
+Kahlua PASS: SCNamespace.lua, SCSpeechColors.lua, SCCall.lua, SCStableValue.lua, SCTransaction.lua, SCNativeList.lua, SCConfig.lua, SCVitals.lua, SCGameplayUtil.lua, SCBanditsAdapter.lua, SCNames.lua, SCInventoryIndex.lua, SCVitalsTrace.lua, SCBaseObjectRef.lua, SCTopology.lua, SCPathSearch.lua, SCNavTraffic.lua, SCNavTraversal.lua, SCActionSupervisor.lua, SCVehicle.lua, SCLocomotion.lua, SCPerformance.lua, SCDialogue.lua, SCAllegiance.lua, SCLifeEvents.lua, SCCommunity.lua, SCBackground.lua, SCThreatSet.lua, SCCombatThreatModel.lua, SCCombatSquad.lua, SCPerceptionScan.lua, SCZombieFacts.lua, SCSenses.lua, SCWorkRoutes.lua, SCStairTransition.lua, SCNavigation.lua, SCPositioning.lua, SCCombat.lua, SCMedical.lua, SCEncounter.lua, SCLogistics.lua, SCLighting.lua, SCNeeds.lua, SCHygieneEffects.lua, SCTVWatching.lua, SCComputerUse.lua, SCRadioListening.lua, SCDowntime.lua, SCPersonality.lua, SCPersonalItems.lua, SCDiaryText.lua, SCDiaryCatalog.lua, SCDiaryItem.lua, SCDiary.lua, SCRelationship.lua, SCTales.lua, SCIntrusiveLines.lua, SCBanter.lua, SCWorkVoiceLines.lua, SCGestures.lua, SCObjectives.lua, SCJournal.lua, SCBaseLife.lua, SCFarmWork.lua, SCFishing.lua, SCChefWork.lua, SCQuirks.lua, SCFactions.lua, SCTrade.lua, SCFactionLife.lua, SCFactionContracts.lua, SCFactionWorld.lua, SCFactionBehavior.lua, SCZombieTargeting.lua, SCCombatTrace.lua, SCZombieAttack.lua, SCInfectionCrisis.lua, SCAutonomy.lua, SCCommands.lua, SCInteraction.lua, SCCompanionGifts.lua, SCFactionRecruitment.lua, SCBaseAlert.lua, SCDecision.lua, base_work_fixture.lua, SCFloorSort.lua, SCBaseWork.lua, human_combat_regressions.lua, gameplay_harness.lua, tv_watching_harness.lua, computer_use_harness.lua, radio_listening_harness.lua, fishing_harness.lua, chef_harness.lua, hygiene_effects_harness.lua, hygiene_audio_harness.lua, base_alert_harness.lua
+FLOOR_SORT_PASS pickup=verified reload=verified trash=physical blocked=reported cancel=returned alternate=verified carryback=walked interrupted=feet gone=released absent=released heavy=deferred log_bundle=settled cancel_selection=cleared crowded=root_and_bag_delivered nested=delivered visual_timeout=settled visual_replacement=preserved handoff=leased
+Kahlua PASS: SCNamespace.lua, SCSpeechColors.lua, SCCall.lua, SCNativeList.lua, SCGameplayUtil.lua, base_work_fixture.lua, SCWorkTransport.lua, SCFloorSort.lua, SCBaseWork.lua, floor_sort_harness.lua
+Kahlua PASS: core_fixture.lua, SCNamespace.lua, SCSpeechColors.lua, SCCall.lua, SCNativeList.lua, base_guard_patrol_fixture.lua, SCBaseWork.lua, base_guard_patrol_harness.lua
+FOLLOW_ORDER_HANDOFF_PASS checks=65
+Kahlua PASS: core_fixture.lua, SCNamespace.lua, SCSpeechColors.lua, SCCall.lua, SCStableValue.lua, SCNativeList.lua, base_guard_patrol_fixture.lua, SCBaseWork.lua, SCCommands.lua, follow_order_handoff_harness.lua
+ENCOUNTER_HANDOFF_PASS checks=9
+Kahlua PASS: SCNamespace.lua, SCSpeechColors.lua, SCEncounter.lua, encounter_handoff_harness.lua
+Kahlua PASS: SCNamespace.lua, SCSpeechColors.lua, SCEncounter.lua, expedition_container_search_harness.lua
+Kahlua PASS: core_fixture.lua, SCNamespace.lua, SCSpeechColors.lua, SCEncounter.lua, SCExpeditionPrototype.lua, expedition_search_deadline_harness.lua
+DECISION_ARBITRATION_PASS checks=119 kinds=27
+Kahlua PASS: SCNamespace.lua, SCSpeechColors.lua, SCCall.lua, SCActionSupervisor.lua, SCDecision.lua, decision_arbitration_harness.lua
+SUPPLY_POLICY_PASS checks=54
+Kahlua PASS: SCNamespace.lua, SCSpeechColors.lua, SCLogistics.lua, supply_policy_harness.lua
+READING_SESSION_PASS checks=36
+Kahlua PASS: SCNamespace.lua, SCSpeechColors.lua, SCCall.lua, SCConfig.lua, reading_session_fixture.lua, SCActionSupervisor.lua, SCDowntime.lua, reading_session_harness.lua
+FOLLOWER_SITTING_PASS checks=51
+Kahlua PASS: SCNamespace.lua, SCSpeechColors.lua, SCCall.lua, SCConfig.lua, reading_session_fixture.lua, SCActionSupervisor.lua, SCDowntime.lua, downtime_seat_route_harness.lua, follower_sitting_harness.lua
+AUTONOMY_GROUND_PASS checks=21
+Kahlua PASS: SCNamespace.lua, SCSpeechColors.lua, SCAutonomy.lua, autonomy_ground_harness.lua
+Kahlua PASS: user_comfort_fixture.lua, SCTales.lua, SCBanter.lua, SCGestures.lua, user_comfort_harness.lua
+MEDICAL_LIVENESS_REGRESSION_PASS checks=84
+Kahlua PASS: core_fixture.lua, SCNamespace.lua, SCSpeechColors.lua, SCCall.lua, SCStableValue.lua, SCTransaction.lua, SCNativeList.lua, SCConfig.lua, SCVitals.lua, SCGameplayUtil.lua, SCBanditsAdapter.lua, SCNames.lua, SCInventoryIndex.lua, SCVitalsTrace.lua, SCBaseObjectRef.lua, SCTopology.lua, SCPathSearch.lua, SCNavTraffic.lua, SCNavTraversal.lua, SCActionSupervisor.lua, SCVehicle.lua, SCLocomotion.lua, SCPerformance.lua, SCDialogue.lua, SCAllegiance.lua, SCLifeEvents.lua, SCCommunity.lua, SCBackground.lua, SCThreatSet.lua, SCCombatThreatModel.lua, SCCombatSquad.lua, SCPerceptionScan.lua, SCZombieFacts.lua, SCSenses.lua, SCWorkRoutes.lua, SCStairTransition.lua, SCNavigation.lua, SCPositioning.lua, SCCombat.lua, SCMedical.lua, SCEncounter.lua, SCLogistics.lua, SCLighting.lua, SCNeeds.lua, SCHygieneEffects.lua, SCTVWatching.lua, SCComputerUse.lua, SCRadioListening.lua, SCDowntime.lua, SCPersonality.lua, SCPersonalItems.lua, SCDiaryText.lua, SCDiaryCatalog.lua, SCDiaryItem.lua, SCDiary.lua, SCRelationship.lua, SCTales.lua, SCIntrusiveLines.lua, SCBanter.lua, SCWorkVoiceLines.lua, SCGestures.lua, SCObjectives.lua, SCJournal.lua, SCBaseLife.lua, SCFarmWork.lua, SCFishing.lua, SCChefWork.lua, SCQuirks.lua, SCFactions.lua, SCTrade.lua, SCFactionLife.lua, SCFactionContracts.lua, SCFactionWorld.lua, SCFactionBehavior.lua, SCZombieTargeting.lua, SCCombatTrace.lua, SCZombieAttack.lua, SCInfectionCrisis.lua, SCAutonomy.lua, SCCommands.lua, SCInteraction.lua, SCCompanionGifts.lua, SCFactionRecruitment.lua, SCBaseAlert.lua, SCDecision.lua, base_work_fixture.lua, SCFloorSort.lua, SCBaseWork.lua, medical_liveness_regression_harness.lua
+Kahlua PASS: core_fixture.lua, SCNamespace.lua, SCSpeechColors.lua, SCCall.lua, SCStableValue.lua, SCTransaction.lua, SCNativeList.lua, SCConfig.lua, SCVitals.lua, SCGameplayUtil.lua, SCBanditsAdapter.lua, SCNames.lua, SCInventoryIndex.lua, SCVitalsTrace.lua, SCBaseObjectRef.lua, SCTopology.lua, SCPathSearch.lua, SCNavTraffic.lua, SCNavTraversal.lua, SCActionSupervisor.lua, SCVehicle.lua, SCLocomotion.lua, SCPerformance.lua, SCDialogue.lua, SCAllegiance.lua, SCLifeEvents.lua, SCCommunity.lua, SCBackground.lua, SCThreatSet.lua, SCCombatThreatModel.lua, SCCombatSquad.lua, SCPerceptionScan.lua, SCZombieFacts.lua, SCSenses.lua, SCWorkRoutes.lua, SCStairTransition.lua, SCNavigation.lua, SCPositioning.lua, SCCombat.lua, SCMedical.lua, SCEncounter.lua, SCLogistics.lua, SCLighting.lua, SCNeeds.lua, SCHygieneEffects.lua, SCTVWatching.lua, SCComputerUse.lua, SCRadioListening.lua, SCDowntime.lua, SCPersonality.lua, SCPersonalItems.lua, SCDiaryText.lua, SCDiaryCatalog.lua, SCDiaryItem.lua, SCDiary.lua, SCRelationship.lua, SCTales.lua, SCIntrusiveLines.lua, SCBanter.lua, SCWorkVoiceLines.lua, SCGestures.lua, SCObjectives.lua, SCJournal.lua, SCBaseLife.lua, SCFarmWork.lua, SCFishing.lua, SCChefWork.lua, SCQuirks.lua, SCFactions.lua, SCTrade.lua, SCFactionLife.lua, SCFactionContracts.lua, SCFactionWorld.lua, SCFactionBehavior.lua, SCZombieTargeting.lua, SCCombatTrace.lua, SCZombieAttack.lua, SCInfectionCrisis.lua, SCAutonomy.lua, SCCommands.lua, SCInteraction.lua, SCCompanionGifts.lua, SCFactionRecruitment.lua, SCBaseAlert.lua, SCDecision.lua, base_work_fixture.lua, SCFloorSort.lua, SCBaseWork.lua, combat_coordination_regression_harness.lua
+Mara Ellis, guarded_practical voice (constructed harness arc)
+
+[joined]
+9 July 1993
+Joined Jonah. Still not sure about this.
+
+For now, this is better than being on my own.
+
+[scratch -> wound.scratch_shrug]
+11 July 1993
+Scratch on the left hand. Not worth the ink.
+
+Writing it down anyway, which probably says something.
+
+[player bandage -> care_player.guarded]
+13 July 1993
+Bandage from Jonah. On the left hand.
+
+Don't much like being the one who needs something.
+
+[escape -> escape.guarded]
+15 July 1993
+Close one. We both got clear.
+
+That's the part worth writing down.
+
+[trust callback -> trust.guarded]
+17 July 1993
+Earlier I wrote, 'For now, this is better than being on my own.'
+
+I meant it then. I want to stay now, and not just because the other options are worse.
+
+[loss -> loss.guarded]
+19 July 1993
+Ruth is dead.
+
+Don't know what to put after that.
+
+[bite -> bite.watchful]
+21 July 1993
+The bite is on my right hand.
+
+I keep checking it, like checking will change something. It's the one thing on my list that isn't going to get better.
+
+[quarantine -> crisis_self.quarantine]
+23 July 1993
+They want me kept apart for now. It's the sensible thing.
+
+I would have decided the same. I'd just rather not have been the one it was about.
+
+[late fever -> symptoms.late_bite_guarded]
+24 July 1993
+Hard to write.
+
+Jonah, if you read this: it wasn't your fault. It was a bite.
+
+--- one passage per new scene, per voice ---
+[witnessed_hurt / blunt_brave] Ruth got knocked about a bit. / I would like to say I didn't laugh at the noise Ruth made. I would like to say that.
+[witnessed_hurt / warm_candid] Ruth got hurt and I couldn't get there fast enough. / I hope it looked worse than it was.
+[conflict / blunt_brave] Had it out with Ruth. I said what I'd been holding in. / Feels better. Feels worse. Both.
+[conflict / warm_candid] Had it out with Ruth. I said what I'd been holding in. / Feels better. Feels worse. Both.
+[breakdown / blunt_brave] Shouted at the air for a while. / The air took it well. I didn't.
+[breakdown / warm_candid] Lost my temper at nothing in particular. / Nothing in particular had it coming.
+[joy / blunt_brave] Felt good today. Actually good. / For once I believed we'd be all right, and nobody had to talk me into it.
+[joy / warm_candid] Felt good today. Actually good. / For once I believed we'd be all right, and nobody had to talk me into it.
+[promise_broken / blunt_brave] The supply run we talked about never happened. / I know things come up. I also know what was said.
+[promise_broken / warm_candid] Supply run: still waiting. / I've started keeping score, and I don't like that I have.
+[talk / blunt_brave] Pep talk from Jonah. It worked, which is annoying.
+[talk / warm_candid] Jonah said the right thing at the right time. / Suspicious. Grateful. Mostly grateful.
+[study / blunt_brave] Found a dead Santa. Spent a while looking at him. / I'm not going to recover from that emotionally.
+[study / warm_candid] Studied a corpse, like a lunatic. Learned nothing. / Will probably do it again.
+[respects / blunt_brave] Paid my respects to a stranger. / I hope someone does that for me. Actually, I hope nobody has to.
+[respects / warm_candid] Stopped to give one of the dead a moment. It seemed like someone should.
+[workout / blunt_brave] Worked out. For a few minutes it felt like an ordinary life with extra zombies.
+[workout / warm_candid] Exercised. Cardio is a survival skill now. / I used to say that as a joke.
+[reading / blunt_brave] Read some of 'hunting knife'. / Nobody in it had to check the doors twice. I liked that.
+[reading / warm_candid] Did some reading. Better than thinking.
+[washed / blunt_brave] Washed the dirt off. / It felt like putting something down that I'd been carrying.
+[washed / warm_candid] Washed the dirt off. / It felt like putting something down that I'd been carrying.
+[repair / blunt_brave] Looked after the hunting knife. / Things that are looked after last longer. People too.
+[repair / warm_candid] Patched up the hunting knife. It'll hold. / Most things do, if you ask nicely.
+[fight_story / blunt_brave] 5 of them at the gas station. / If anyone asks, it was more.
+[fight_story / warm_candid] Did most of it with a baseball bat. / I've started thinking of it as a friend. That's probably a bad sign.
+[tale_told / blunt_brave] Told the old story again. It was 5, not 9. / It isn't really about the number anymore.
+[tale_told / warm_candid] Told the story again. It was 5. It's 9 now. / It'll be more by winter.
+[place / blunt_brave] Walked into a police station like we owned it. / I suppose we do now.
+[place / warm_candid] Walked into a police station like we owned it. / I suppose we do now.
+[work / blunt_brave] Sawing all day, or what felt like it. / We're building something. Nice to be building something.
+[work / warm_candid] Sawing all day, or what felt like it. / We're building something. Nice to be building something.
+[burial / blunt_brave] Grave work. / The dead don't complain. That's more than I can say for my back.
+[burial / warm_candid] Buried 6 strangers. / Somebody has to. Today it was me.
+[mercy / blunt_brave] I did it. Ruth won't come back. / That was the point. That's what I keep telling myself.
+[mercy / warm_candid] Ruth was bitten, and it was decided. I was the one who did it. / I don't want to write anything else.
+[milestone / blunt_brave] 8 days. Still breathing. Still here.
+[milestone / warm_candid] A week with Jonah, give or take. / Longer than I gave it.
+[quiet / blunt_brave] Nothing to report. That's the best kind of entry.
+[quiet / warm_candid] Nothing to report. That's the best kind of entry.
+[quiet page written by the controller] 26 July 1993 / Summer. It used to mean something else.
+Diary harness PASS: 871 checks
+Kahlua PASS: diary_fixture.lua, SCNamespace.lua, SCSpeechColors.lua, SCCall.lua, SCStableValue.lua, SCNativeList.lua, SCConfig.lua, SCDiagnostics.lua, SCGameplayUtil.lua, SCNames.lua, SCPersonalItems.lua, SCDiaryText.lua, SCDiaryCatalog.lua, SCDiaryItem.lua, SCDiary.lua, diary_harness.lua, nickname_diary_harness.lua
+Kahlua PASS: nickname_memorial_fixture.lua, SCNamespace.lua, SCSpeechColors.lua, SCStableValue.lua, SCNames.lua, SCCommunity.lua, SCProduction.lua, nickname_memorial_harness.lua
+Kahlua PASS: grave_marker_name_fixture.lua, SCBaseWork.lua, SCInfectionCrisis.lua, grave_marker_name_harness.lua
+Companion inventory transfer: equipped item removal, root/bag gifts, exact Equip/Wear and foreign wrapper chain
+Kahlua PASS: SCNamespace.lua, SCSpeechColors.lua, SCUIBridge.lua, companion_inventory_transfer_harness.lua
+Companion gifts: exact acceptance, donor ownership, bag transfer, decline and cooldown
+Kahlua PASS: SCCompanionGifts.lua, companion_gifts_harness.lua
+Kahlua PASS: SCNamespace.lua, SCSpeechColors.lua, SCCall.lua, SCStableValue.lua, SCNativeList.lua, SCConfig.lua, SCGameplayUtil.lua, SCDialogue.lua, SCWorkVoiceLines.lua, SCWorkVoice.lua, work_voice_harness.lua
+Camp computer brain and world: 14496 checks passed; LARCH/OS security and archive harness: 6253 checks passed; Expanded terminal lore and branding: 2167 checks passed; Local knowledge: 3753 checks passed; Conversation: 691 checks passed
+Kahlua PASS: SCNamespace.lua, SCSpeechColors.lua, SCTerminalLines.lua, SCTerminalKnowledge.lua, SCTerminalConversation.lua, SCTerminalBrain.lua, SCTerminalLore.lua, SCTerminalFiles.lua, SCTerminalPresentation.lua, SCTerminalBusinessData.lua, SCTerminalBrands.lua, SCTerminalArtBounds.lua, SCTerminalSystem.lua, SCTerminalWorld.lua, terminal_harness.lua, terminal_system_harness.lua, terminal_lore_harness.lua, terminal_knowledge_harness.lua, terminal_conversation_harness.lua
+Static gameplay contracts PASS: 922 assertions, 58 sources, 47 commands

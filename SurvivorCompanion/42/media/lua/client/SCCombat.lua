@@ -722,13 +722,11 @@ end
 -- -- and walking in anyway put two companions on the same tile, where they
 -- shoulder each other and neither can act, with the zombie free to bite either.
 -- The second attacker holds off instead and keeps its own line of retreat.
-function Combat.shouldYieldEngagement(actor, targetActor, spacing, now, snapshot)
+local function crowdedEngagementLane(actor, targetActor, spacing, now)
     local utility = U()
     if actor == nil or targetActor == nil then return false end
     local peers, role = engagementPeers(targetActor, actor, now, spacing)
     if #peers == 0 or role == "primary" then return false end
-    -- A separate position exists, so there is room for both.
-    if Combat.engagementAim(actor, targetActor, spacing, now, snapshot) ~= nil then return false end
     -- Already standing apart from every committed attacker: the reserve has a
     -- usable third lane and should close in instead of waiting for a bite.
     local ax, ay = utility.position(actor)
@@ -750,6 +748,11 @@ function Combat.shouldYieldEngagement(actor, targetActor, spacing, now, snapshot
         end
     end
     return false
+end
+
+function Combat.shouldYieldEngagement(actor, targetActor, spacing, now, snapshot)
+    local _, _, yield = Combat.engagementPlan(actor, targetActor, spacing, now, snapshot)
+    return yield
 end
 
 -- Two companions sent at the same zombie both walked at its centre tile, so
@@ -825,6 +828,14 @@ function Combat.engagementAim(actor, targetActor, spacing, now, snapshot)
         end
     end
     return bestX, bestY
+end
+
+-- Use one route-proof pass for both the yield decision and the movement.
+-- Repeating it can exhaust the shared frame budget after proving a flank,
+-- then send the fighter along its old centre vector into the lane holder.
+function Combat.engagementPlan(actor, targetActor, spacing, now, snapshot)
+    local x, y = Combat.engagementAim(actor, targetActor, spacing, now, snapshot)
+    return x, y, x == nil and crowdedEngagementLane(actor, targetActor, spacing, now)
 end
 
 local claimTarget
@@ -4471,14 +4482,12 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         local spacing = weapon and Combat.meleeSpacing(actor, weapon.item, target) or nil
         local desired = spacing and spacing.desired or nil
         local now = utility.nowMs()
-        if target.rescue ~= true
-            and Combat.shouldYieldEngagement(actor, targetActor, desired, now,
-                snapshot) then
+        local aimX, aimY, yield = Combat.engagementPlan(actor, targetActor,
+            desired, now, snapshot)
+        if target.rescue ~= true and yield then
             utility.diagnostic("combat-flank", actor, "action=yield reason=single_lane")
             return false, "approach_yielded:single_lane"
         end
-        local aimX, aimY = Combat.engagementAim(actor, targetActor, desired,
-            now, snapshot)
         if aimX ~= nil then
             -- A flank is a different destination, so the cached centre-target
             -- vector is wrong for it. openSegment has already proved this line
@@ -4607,6 +4616,8 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         or action.kind == "melee" and action.anticipatorySwing == true
             and "anticipatory_melee" or action.kind
 end
+
+Combat._executeForTests = execute
 
 local function vehicleCombat(actor, player, snapshot, target, weapon, inventory, commands)
     local utility = U()

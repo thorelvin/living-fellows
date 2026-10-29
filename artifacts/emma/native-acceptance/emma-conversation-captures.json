@@ -1,0 +1,28 @@
+[
+  {
+    "source": "build\\emma-conversation-native-visual\\emma-conversation-needs.png",
+    "sourceSize": [
+      2560,
+      1369
+    ],
+    "sourceSha256": "5c3b4462e22ba3d10957fbd1d1e381a5bf0531bc9a3e46083bea3024e6648ebc",
+    "export": "emma-conversation-needs.webp",
+    "exportSize": [
+      1600,
+      856
+    ]
+  },
+  {
+    "source": "build\\emma-conversation-native-visual\\emma-conversation-history.png",
+    "sourceSize": [
+      2560,
+      1369
+    ],
+    "sourceSha256": "e4889775154e72bac5af4f0f77cf2a1fe19bf40958963723cfb667b88ed20df6",
+    "export": "emma-conversation-history.webp",
+    "exportSize": [
+      1600,
+      856
+    ]
+  }
+]

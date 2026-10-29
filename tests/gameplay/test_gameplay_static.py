@@ -928,16 +928,20 @@ def main() -> int:
 
     # Coordination must run whether or not scoring precomputed a vector. It sat
     # inside `if moveX == nil`, so the ordinary successful-steering path skipped
-    # it and a second attacker walked into the first's place anyway. Pinned:
-    # isolating this needs scoring and execution driven together, which the
-    # harness does not do.
+    # it and a second attacker walked into the first's place anyway. The native
+    # budget regression also drives execution with an already-computed vector.
     approach_guard = sources["SCCombat.lua"]
     require("if moveX == nil and target.rescue ~= true" not in approach_guard,
             "approach coordination is gated on a missing movement vector again")
-    require("if target.rescue ~= true" in approach_guard
-            and "Combat.shouldYieldEngagement(actor, targetActor, desired, now,"
-            in approach_guard,
-            "approach coordination no longer runs before the movement vector")
+    approach_execution = approach_guard.split('elseif action.kind == "approach" then', 1)[1].split(
+        'elseif action.kind == "backstep" then', 1)[0]
+    require('if target.rescue ~= true and yield then' in approach_execution
+            and approach_execution.count('Combat.engagementPlan(') == 1
+            and 'Combat.engagementAim(' not in approach_execution
+            and 'Combat.shouldYieldEngagement(' not in approach_execution
+            and approach_execution.index('Combat.engagementPlan(')
+                < approach_execution.index('accepted, nativeReason = utility.move('),
+            "approach coordination must retain one proven plan before movement")
     # A climbable barrier keeps the approach alive so execution can route it.
     require("action.requiresRoute = true" in approach_guard
             and "action.barrierKind = string.sub(vectorReason, 9)" in approach_guard,

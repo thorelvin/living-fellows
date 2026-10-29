@@ -987,6 +987,31 @@ for index = 1, 10 do
     if squad.positionProbe(26000) then granted = granted + 1 end
 end
 check(granted == 8, "a frame grants at most eight costly position proofs")
+do
+    -- With one proof left, the old executor proved the flank in its yield
+    -- check, then tried to prove it again after exhausting the shared budget.
+    -- It consequently used the precomputed centre vector into its partner.
+    local target = character("budget-target", 300, 80, "IsoZombie")
+    local primary = character("budget-primary", 299, 80)
+    local support = character("budget-support", 298.9, 80.1)
+    local priorNow, priorMove, priorSpacing = U.nowMs, U.move, SC.Combat.meleeSpacing
+    U.nowMs = function() return 30000 end
+    SC.Combat.meleeSpacing = function() return { desired = 1.2 } end
+    local moved
+    U.move = function(_, _, intent) moved = intent return true end
+    SC.Navigation.openSegment = function() return true end
+    SC.Combat._claimTargetForTests(target, primary, 30000, "budget-cohort", "primary", "attack", 1)
+    SC.Combat._claimTargetForTests(target, support, 30000, "budget-cohort", "support", "tracking", 1.1)
+    squad.reset()
+    for _ = 1, 7 do check(squad.positionProbe(30000), "reserve a shared proof for another fighter") end
+    local acted = SC.Combat._executeForTests(support, nil, { threats = {}, allies = {} },
+        { actor = target }, { item = weaponItem, equipped = true },
+        { kind = "approach", moveX = 0.1, moveY = 0, microSteered = true }, {}, {})
+    check(acted and moved and moved.action == "combat_approach" and moved.dx > 2,
+        "an approach retains its proven flank when the final shared proof is consumed")
+    check(not squad.positionProbe(30000), "flank retention does not exceed the eight-proof frame budget")
+    U.nowMs, U.move, SC.Combat.meleeSpacing = priorNow, priorMove, priorSpacing
+end
 SC.Combat.primaryWeaponUsable = originalUsable
 SC.Navigation.openSegment = originalOpen
 squad.reset()

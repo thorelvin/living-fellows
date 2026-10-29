@@ -112,6 +112,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Live doorway landing regression harness failed.' }
 
         $combatFixtureFiles = @($doorRegressionFiles | Select-Object -SkipLast 1)
+        $combatFixtureFiles += $SquadCombatLua
         $combatFixtureFiles += Join-Path $TestRoot 'live_combat_fixture_regression_harness.lua'
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @combatFixtureFiles
         if ($LASTEXITCODE -ne 0) { throw 'Live combat fixture regression harness failed.' }

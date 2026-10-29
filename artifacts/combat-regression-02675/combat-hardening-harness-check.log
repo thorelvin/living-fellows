@@ -1,0 +1,54 @@
+OK C:\ZOMBOID\work\rv67\tests\live\mod\SCRealSandboxHarness\42\media\lua\client\SCRealSandboxHarness.lua
+OK C:\ZOMBOID\work\rv67\tests\live\mod\SCRealSandboxHarness\42\media\lua\client\SCDrivingProbe.lua
+OK C:\ZOMBOID\work\rv67\tests\live\mod\SCRealSandboxHarness\42\media\lua\client\SCFollowRoadProbe.lua
+OK C:\ZOMBOID\work\rv67\tests\live\mod\SCRealSandboxHarness\42\media\lua\client\SCFacingProbe.lua
+OK C:\ZOMBOID\work\rv67\tests\live\mod\SCRealSandboxHarness\42\media\lua\client\SCSixSeatProbe.lua
+OK C:\ZOMBOID\work\rv67\tests\live\mod\SCRealSandboxHarness\42\media\lua\client\SCSquadCombatLiveProbe.lua
+OK C:\ZOMBOID\work\rv67\tests\live\mod\SCRealSandboxHarness\42\media\lua\client\SCFarmCorridorProbe.lua
+OK C:\ZOMBOID\work\rv67\tests\live\mod\SCRealSandboxHarness\42\media\lua\client\SCWaterSourceProbe.lua
+OK C:\ZOMBOID\work\rv67\tests\live\mod\SCRealSandboxHarness\42\media\lua\client\SCUpstairsHaulProbe.lua
+OK C:\ZOMBOID\work\rv67\tests\live\mod\SCRealSandboxHarness\42\media\lua\client\SCFloorSortProbe.lua
+OK C:\ZOMBOID\work\rv67\tests\live\mod\SCRealSandboxHarness\42\media\lua\client\SCBaseAlertProbe.lua
+OK C:\ZOMBOID\work\rv67\tests\live\mod\SCRealSandboxHarness\42\media\lua\client\SCViewCutawayProbe.lua
+OK C:\ZOMBOID\work\rv67\tests\live\mod\SCRealSandboxHarness\42\media\lua\client\SCNormalExpeditionKitchenProbe.lua
+OK C:\ZOMBOID\work\rv67\tests\live\mod\SCRealSandboxHarness\42\media\lua\client\SCWoodExpeditionProbe.lua
+OK C:\ZOMBOID\work\rv67\tests\live\mod\SCRealSandboxHarness\42\media\lua\client\SCBanditsAdapterProbe.lua
+OK C:\ZOMBOID\work\rv67\tests\live\mod\SCRealSandboxHarness\42\media\lua\client\SCBanditsCombatAcceptance.lua
+OK C:\ZOMBOID\work\rv67\tests\live\mod\SCRealSandboxHarness\42\media\lua\client\SCBanditsCloseCombatAcceptance.lua
+OK C:\ZOMBOID\work\rv67\tests\live\mod\SCRealSandboxHarness\42\media\lua\client\SCBanditsLifecycleAcceptance.lua
+OK C:\ZOMBOID\work\rv67\tests\live\mod\SCRealSandboxHarness\42\media\lua\client\SCBanditsArmorEvidence.lua
+OK C:\ZOMBOID\work\rv67\tests\live\mod\SCRealSandboxHarness\42\media\lua\client\SCBanditsVehicleAcceptance.lua
+OK C:\ZOMBOID\work\rv67\tests\live\mod\SCRealSandboxHarness\42\media\lua\client\SCBanditsProtectedLaneAcceptance.lua
+OK C:\ZOMBOID\work\rv67\tests\live\mod\SCRealSandboxHarness\42\media\lua\client\SCBanditsVehicleFireEvidence.lua
+OK C:\ZOMBOID\work\rv67\tests\live\mod\SCRealSandboxHarness\42\media\lua\client\SCBanditsWallAcceptance.lua
+OK C:\ZOMBOID\work\rv67\tests\live\mod\SCRealSandboxHarness\42\media\lua\client\SCALifeAdapterProbe.lua
+Kahlua PASS: SCBanditsCombatAcceptance.lua, SCBanditsCloseCombatAcceptance.lua, bandits_close_observer_regression.lua
+Kahlua PASS: SCBanditsCombatAcceptance.lua, bandits_combat_evidence_regression.lua
+Kahlua PASS: SCBanditsCombatAcceptance.lua, bandits_firearm_observer_regression.lua
+Kahlua PASS: SCBanditsCombatAcceptance.lua, SCBanditsArmorEvidence.lua, bandits_armor_evidence_regression.lua
+BANDITS_VEHICLE_EVIDENCE_PASS checks=27
+Kahlua PASS: SCBanditsCombatAcceptance.lua, SCBanditsCloseCombatAcceptance.lua, SCBanditsVehicleAcceptance.lua, bandits_vehicle_evidence_regression.lua
+BANDITS_PROTECTED_LANE_PASS checks=34
+Kahlua PASS: SCBanditsCombatAcceptance.lua, SCBanditsProtectedLaneAcceptance.lua, bandits_protected_lane_regression.lua
+BANDITS_VEHICLE_FIRE_PASS checks=25
+Kahlua PASS: SCBanditsCombatAcceptance.lua, SCBanditsVehicleFireEvidence.lua, bandits_vehicle_fire_regression.lua
+BANDITS_WALL_SCENE_PASS checks=12
+Kahlua PASS: SCBanditsCombatAcceptance.lua, SCBanditsWallAcceptance.lua, bandits_wall_scene_regression.lua
+FACING_OBSERVER_PASS checks=11
+Kahlua PASS: SCBanditsCombatAcceptance.lua, SCFacingProbe.lua, facing_observer_regression.lua
+Kahlua PASS: SCViewCutawayProbe.lua, view_cutaway_probe_regression_harness.lua
+Kahlua PASS: SCNormalExpeditionKitchenProbe.lua, normal_expedition_kitchen_regression_harness.lua
+Wood expedition live probe: 1104 ownership/orchestration checks passed
+Kahlua PASS: SCViewCutawayProbe.lua, SCWoodExpeditionProbe.lua, wood_expedition_probe_regression_harness.lua
+OK C:\ZOMBOID\work\rv67\tests\live\mod\SCRealSandboxHarness\42\media\lua\client\SCOddballCoreyEarlProbe.lua
+OK C:\ZOMBOID\work\rv67\tests\live\mod\SCRealSandboxHarness\42\media\lua\client\SCOddballArthurPackProbe.lua
+OK C:\ZOMBOID\work\rv67\tests\live\mod\SCRealSandboxHarness\42\media\lua\client\SCOddballSmokerProbe.lua
+OK C:\ZOMBOID\work\rv67\tests\live\mod\SCRealSandboxHarness\42\media\lua\client\SCMilliLiveProbe.lua
+LIVE_DOOR_REGRESSION_PASS checks=14
+Kahlua PASS: core_fixture.lua, SCNamespace.lua, SCCall.lua, SCStableValue.lua, SCTransaction.lua, SCNativeList.lua, SCConfig.lua, SCGameplayUtil.lua, SCTopology.lua, SCRealSandboxHarness.lua, live_door_regression_harness.lua
+LIVE_COMBAT_FIXTURE_REGRESSION_PASS checks=40
+Kahlua PASS: core_fixture.lua, SCNamespace.lua, SCCall.lua, SCStableValue.lua, SCTransaction.lua, SCNativeList.lua, SCConfig.lua, SCGameplayUtil.lua, SCTopology.lua, SCRealSandboxHarness.lua, SCSquadCombatLiveProbe.lua, live_combat_fixture_regression_harness.lua
+Oddball live probe clone-isolation regression passed
+Kahlua PASS: SCOddballCoreyEarlProbe.lua, SCMilliLiveProbe.lua, oddball_corey_earl_probe_regression_harness.lua
+LIVE_HARNESS_STATIC_PASS assertions=150
+Steam launch static and process-ownership checks passed.

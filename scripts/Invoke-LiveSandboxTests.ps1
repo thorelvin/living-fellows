@@ -200,8 +200,17 @@ param(
     [switch]$SquadCombatFrontOnly,
     [switch]$SquadCombatSingleCase,
     [ValidateRange(1, 6)][int]$SquadCombatCaseIndex = 1,
-    [ValidateSet('Base.Crowbar', 'Base.Pen', 'Base.HuntingKnife', 'Base.Shovel', 'Base.GardenHoe')]
+    [ValidateRange(0, 5)][int]$SquadCombatCompanions = 0,
+    [ValidateRange(1, 16)][int[]]$SquadCombatZombieCounts = @(),
+    [switch]$SquadCombatNaturalAcquisition,
+    [switch]$SquadCombatPassiveControl,
+    [ValidateSet('Base.Crowbar', 'Base.Pen', 'Base.HuntingKnife', 'Base.Shovel', 'Base.GardenHoe', 'Base.WoodenMallet', 'Base.Wrench')]
     [string]$SquadCombatWeaponType = 'Base.Crowbar',
+    [ValidateSet('Base.Crowbar', 'Base.WoodenMallet', 'Base.Wrench')]
+    [string[]]$SquadCombatWeaponTypes = @(),
+    [ValidateRange(0.0, 1.0)][double]$SquadCombatFatigue = 0.0,
+    [ValidateSet('inherit', 'on', 'off')][string]$SquadCombatMultiHit = 'inherit',
+    [ValidateSet('stay', 'follow')][string]$SquadCombatOrder = 'stay',
     [string]$SquadCombatBackupWeaponType = '',
     [switch]$SquadCombatPhoto,
     [switch]$SquadCombatNearObserver,
@@ -911,6 +920,13 @@ if ($SquadCombatRadioLure -and -not $SquadCombatProbe) {
 }
 if ($SquadCombatSingleCase -and -not $SquadCombatProbe) {
     throw '-SquadCombatSingleCase requires -SquadCombatProbe.'
+}
+if ($SquadCombatCompanions -gt 0 -or $SquadCombatZombieCounts.Count -gt 0 -or $SquadCombatNaturalAcquisition -or $SquadCombatPassiveControl -or $SquadCombatWeaponTypes.Count -gt 0 -or $SquadCombatFatigue -gt 0 -or $SquadCombatMultiHit -ne 'inherit' -or $SquadCombatOrder -ne 'stay') {
+    if (-not $SquadCombatProbe) { throw 'Custom combat scenarios require -SquadCombatProbe.' }
+    if (($SquadCombatCompanions -gt 0) -ne ($SquadCombatZombieCounts.Count -gt 0)) {
+        throw 'Specify custom companion and zombie counts together.'
+    }
+    if ($SquadCombatZombieCounts.Count -gt 6) { throw 'At most six custom combat cases are supported per run.' }
 }
 if ($ExternalUiControl -and -not [string]::IsNullOrWhiteSpace($DrivingScreenshotDirectory)) {
     throw 'Use the external UI controller for screenshots with -ExternalUiControl.'
@@ -1887,7 +1903,15 @@ $config = @(
     ('squad_combat_front_only=' + $SquadCombatFrontOnly.IsPresent.ToString().ToLowerInvariant()),
     ('squad_combat_single_case=' + $SquadCombatSingleCase.IsPresent.ToString().ToLowerInvariant()),
     ('squad_combat_case_index=' + $SquadCombatCaseIndex),
+    ('squad_combat_custom_companions=' + $SquadCombatCompanions),
+    ('squad_combat_custom_zombies=' + ($SquadCombatZombieCounts -join ',')),
+    ('squad_combat_natural_acquisition=' + $SquadCombatNaturalAcquisition.IsPresent.ToString().ToLowerInvariant()),
+    ('squad_combat_passive_control=' + $SquadCombatPassiveControl.IsPresent.ToString().ToLowerInvariant()),
     ('squad_combat_weapon_type=' + $SquadCombatWeaponType),
+    ('squad_combat_weapon_types=' + ($SquadCombatWeaponTypes -join ',')),
+    ('squad_combat_fatigue=' + $SquadCombatFatigue.ToString([System.Globalization.CultureInfo]::InvariantCulture)),
+    ('squad_combat_multihit=' + $SquadCombatMultiHit),
+    ('squad_combat_order=' + $SquadCombatOrder),
     ('squad_combat_backup_weapon_type=' + $SquadCombatBackupWeaponType),
     ('squad_combat_photo=' + $SquadCombatPhoto.IsPresent.ToString().ToLowerInvariant()),
     ('squad_combat_near_observer=' + $SquadCombatNearObserver.IsPresent.ToString().ToLowerInvariant()),
@@ -1969,7 +1993,15 @@ $manifest = [ordered]@{
     squadCombatFrontOnly = $SquadCombatFrontOnly.IsPresent
     squadCombatSingleCase = $SquadCombatSingleCase.IsPresent
     squadCombatCaseIndex = $SquadCombatCaseIndex
+    squadCombatCompanions = $SquadCombatCompanions
+    squadCombatZombieCounts = @($SquadCombatZombieCounts)
+    squadCombatNaturalAcquisition = $SquadCombatNaturalAcquisition.IsPresent
+    squadCombatPassiveControl = $SquadCombatPassiveControl.IsPresent
     squadCombatWeaponType = $SquadCombatWeaponType
+    squadCombatWeaponTypes = $SquadCombatWeaponTypes
+    squadCombatFatigue = $SquadCombatFatigue
+    squadCombatMultiHit = $SquadCombatMultiHit
+    squadCombatOrder = $SquadCombatOrder
     squadCombatBackupWeaponType = $SquadCombatBackupWeaponType
     squadCombatPhoto = $SquadCombatPhoto.IsPresent
     squadCombatNearObserver = $SquadCombatNearObserver.IsPresent

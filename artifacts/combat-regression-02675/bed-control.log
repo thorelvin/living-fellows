@@ -1,0 +1,10 @@
+FIXTURE marked-rest=true
+PASS native chair occupied; fatigue raised to 100 percent
+PASS automatic chair rest cancelled for available bed
+TRACE standing_for_sleep seating=furniture asleep=false clips=Bob_Seated_SitDown_2Hand|Bob_LookLeft|Bob_LookRight|Bob_SatChair_2Hand
+TRACE settling seating=standing asleep=false clips=Bob_IdleBat|Bob_EmoteTiredStretch2H
+PASS occupied pillow rejects native correction without moving sleeper
+TRACE sleeping_on_bed seating=bed asleep=true clips=Bob_Awake
+PASS automatic native bed sleep clip=Bob_Asleep
+PASS fatigue recovering=0.995377779006958 health=100
+PASS native exhaustion sleep acceptance complete

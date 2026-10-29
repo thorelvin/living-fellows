@@ -2,6 +2,29 @@
 
 # Changelog
 
+## 0.26.76 - EMMA conversations and companion hardening
+
+- EMMA understands more follow-ups about people, supplies and recent topics.
+  Briefly closing and reopening the same computer keeps the conversation's
+  subject; saved notes remain separate from temporary conversation memory.
+- Added 38 operating-help topics and 18 conversation subjects, plus more jokes,
+  stories and poems. Ask for more detail, return to an earlier topic, or ask
+  about a companion's current stamina, tiredness, mood and skills.
+- Ambiguous names prompt a choice. Follow-ups recheck current records and
+  storage rather than repeating old counts or reusing action confirmations.
+- Combat approaches retain a flank already proved safe when the shared path
+  budget runs out, instead of falling back to a route into another fighter.
+- Bed searches keep their progress as workers move. Idle workers let an
+  unfinished search complete before taking another job, and bed-only checks
+  skip unrelated washing, repair and inventory surveys.
+- Expanded native combat checks cover two companions against three to five
+  zombies, tired crews, short weapons, multi-hit settings and incoming damage.
+  A fresh-companion mattress-alignment case remains unresolved; the existing
+  companion's native sleep control passes. These changes do not claim a
+  general increase in combat effectiveness.
+- Retains native bridge protocol `42.21-isocompanion-24` for Project Zomboid
+  42.21.0. The bridge binary and save schema are unchanged.
+
 ## 0.26.75 - Radio desk and reliable bed sleep
 
 - Long computer records and live replies wrap inside the transcript pane,

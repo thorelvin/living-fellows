@@ -1,0 +1,11 @@
+LOG  : Lua          f:168> SC_REAL_SANDBOX|PASS|squad_combat_bystanders_removed|removed=4 remaining=0
+LOG  : Lua          f:168> SC_REAL_SANDBOX|PASS|squad_combat_arena|loaded outdoor combat arena away from observer score=679 paved=195 x=12034.5 y=6769.5
+LOG  : Lua          f:168> SC_REAL_SANDBOX|PASS|squad_combat_clone_corpses_cleared|removed=19
+LOG  : Lua          f:169> SC_REAL_SANDBOX|PASS|squad_combat_approach_lane|dx=1 dy=0
+LOG  : Lua          f:169> SC_REAL_SANDBOX|PASS|squad_combat_fixture_1_1|survivor_tiles=9 zombie_tiles=20
+LOG  : Lua          f:171> SC_REAL_SANDBOX|PASS|squad_combat_actor_ready|index=1 order=stay weapon=Base.Crowbar reach=1.33 minimum=0.4600000143051147
+LOG  : Lua          f:466> [SurvivorCompanion/combat-engage] actor=sc-1.7933018332480001E9-1-801416 outcome=attacking candidates=1 nearest=none weapon=Base.Crowbar band=0.46-1.33 actions=1
+LOG  : Lua          f:830> SC_REAL_SANDBOX|PASS|squad_combat_trial_1v1_front_1|survivors=1/1 lowest_health=100.0 kills=1/1 actions=155 offensive=7 engaged=1 damage=1.00 retreat=0 elapsed_ms=10963
+LOG  : Lua          f:830> SC_REAL_SANDBOX|PASS|squad_combat_late_bystanders_removed|count=0
+LOG  : Lua          f:830> SC_REAL_SANDBOX|PASS|squad_combat_survival_1v1_front|survivors=1/1 rate=100.0% zombie_kills=1 trials=1
+LOG  : Lua          f:830> SC_REAL_SANDBOX|PASS|squad_combat_results_written|SurvivorCompanionHarness/squad-combat-results.txt

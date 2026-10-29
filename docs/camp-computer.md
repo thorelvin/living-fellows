@@ -2,6 +2,8 @@
 
 # The camp computer: EMMA
 
+For illustrated player instructions, see [EMMA and camp computers in the Field Guide](https://thorelvin.github.io/living-fellows/#emma).
+
 Every desktop computer in Knox Country still has EMMA on it: the Emergency
 Management Assistant, an unfinished civil defense program the state installed
 shortly before there was no state. She answers plain English at a full-screen
@@ -363,10 +365,10 @@ words return with fresh attempts. Old feedback, removed candidates and used
 bracket groups remain recorded. Closing, losing power or reloading does not
 reroll the puzzle.
 
-The file collection contains 340 original entries by 85 owners. Computers
+The file collection contains 568 original entries by 142 owners. Computers
 receive a fixed owner appropriate to their room, building or verified firm.
 These are dated July 1993 stories, separate from EMMA's current camp records.
-The **County files and EMMA** menu adds 16 archived files about the assistant,
+The **County files and EMMA** menu adds 150 archived files about the assistant,
 public notices, road reports, shelters and the county's last working days.
 It works outside camp after unlocking the computer. Files are grouped into
 small numbered pages; reading a long entry starts at its heading, and
@@ -391,10 +393,40 @@ their original owner and files.
 | `advice` | The most urgent thing she can see, in order: bleeding, low health, low generator fuel, a crowd outside, blocked work, low food, night |
 | `remember the key is in the van` | Saves a note. `what did i tell you` reads notes back; `forget everything` erases them |
 
-She tolerates typos, follows up on the last question (`and screws?`,
-`is she hurt?`, `and now?`), and asks "Did you mean ...?" when she is unsure;
-answer `yes` or `no`. She also does arithmetic, small talk, jokes and poems,
-and has opinions about being insulted.
+She tolerates typos and follows subjects through brief acknowledgements and
+changes of topic. Try `where are they?` after asking about nails, `is that
+enough for 250?`, then `how many more?`; each check reads the current stock.
+`No, I meant screws` changes the item. A quantity is an operator-supplied
+target, not an invented recipe requirement.
+
+After a person report, try `how tired is she?`, `what is she good at?` or
+`is she stressed?`. A single reported patient supplies a subject; groups and
+duplicate names ask for a full name or a numbered choice typed in chat.
+Actor references use LF identity, so another actor reusing a name cannot
+silently replace the original. Distant-place follow-ups retain the archive's
+uncertainty instead of substituting nearby zombie counts.
+
+`What were we talking about?` lists recent questions. `Back to nails` or
+`go back to the previous topic` restores a read-only subject. `Check again`
+refreshes it; `tell me more` expands an operating note, follows related lore
+or varies a conversational reply. Arithmetic supports `double it`, `minus 2`
+and `divide it by 3` after a calculation, without evaluating input as code.
+
+Temporary memory holds at most eight subjects and sixteen recent questions.
+Subjects expire after 24 intervening turns; ten real minutes of inactivity,
+a reversed clock or world teardown also clears the thread. Brief logoff and
+reopen at the same PC retain it. This state contains no native objects,
+cached camp measurements, executable requests or confirmation tickets, and
+is not written into the save. Explicit notes remain separate and persistent.
+`Forget that conversation` clears only the temporary thread.
+
+There are 38 practical operating-help topics and 42 conversational subjects,
+including home, silence, anger, guilt, hope, rest, art, books, honesty and
+promises. `How do I label containers?`, `how can we gather wood?` and `how to
+find broadcasts` accept ordinary instructional wording. Ambiguous or unknown
+questions still get a limitation or request for a clearer subject. EMMA also
+has more original jokes, short stories and poems. Nothing requires a real
+internet connection or hosted model.
 
 You can also ask EMMA to do a few practical things from a camp computer:
 

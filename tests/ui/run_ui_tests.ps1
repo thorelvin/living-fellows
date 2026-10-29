@@ -87,6 +87,7 @@ try {
             (Join-Path $TestRoot 'SCTerminalFixture.lua'),
             (Join-Path $Client 'SCTerminalLines.lua'),
             (Join-Path $Client 'SCTerminalKnowledge.lua'),
+            (Join-Path $Client 'SCTerminalConversation.lua'),
             (Join-Path $Client 'SCTerminalBrain.lua'),
             (Join-Path $Client 'SCTerminalLore.lua'),
             (Join-Path $Client 'SCTerminalFiles.lua'),
@@ -110,7 +111,8 @@ try {
             (Join-Path $TestRoot 'SCTerminalCompanionTests.lua'),
             (Join-Path $TestRoot 'SCTerminalReadingTests.lua')
             (Join-Path $TestRoot 'SCTerminalHardeningTests.lua')
-            (Join-Path $TestRoot 'SCTerminalWrappingTests.lua')
+            (Join-Path $TestRoot 'SCTerminalWrappingTests.lua'),
+            (Join-Path $TestRoot 'SCTerminalConversationTests.lua')
         )
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @terminalFiles
         if ($LASTEXITCODE -ne 0) { throw 'Camp computer terminal UI tests failed.' }

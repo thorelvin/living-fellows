@@ -1737,17 +1737,21 @@ local function campBedActivity(actor, state, current, zoneKind)
     if #zones == 0 then return nil end
     local scans = type(state) == "table" and state.campBedScans or nil
     local scan = scans and scans[zoneKind] or nil
-    if not scan or scan.base ~= active or scan.x ~= math.floor(ax)
-        or scan.y ~= math.floor(ay) or scan.z ~= math.floor(az)
+    if not scan or scan.base ~= active
+        or (not scan.pending and (scan.x ~= math.floor(ax) or scan.y ~= math.floor(ay)))
+        or scan.z ~= math.floor(az)
         or scan.zoneCount ~= #zones then
         scan = { base = active, x = math.floor(ax), y = math.floor(ay),
             z = math.floor(az), zoneCount = #zones, zoneIndex = 1,
-            ring = 0, offset = 0 }
+            ring = 0, offset = 0, zones = zones }
         if type(state) == "table" then
             state.campBedScans = state.campBedScans or {}
             state.campBedScans[zoneKind] = scan
         end
     end
+    -- A worker may still be finishing an owned job. Keep the survey's original
+    -- ring centres/order while it is pending, rather than restart on each step.
+    if scan.pending then zones = scan.zones end
     if current < (scan.retryAt or 0) then return nil end
     local checked = 0
     local function inspect(zone, x, y)
@@ -1815,11 +1819,13 @@ local function campBedActivity(actor, state, current, zoneKind)
                 end
                 local found = inspect(zone, x, y)
                 if found then
+                    scan.pending = nil
                     scan.zoneIndex, scan.ring, scan.offset, scan.retryAt =
                         index, ring, offset, nil
                     return found
                 end
                 if checked >= 320 then
+                    scan.pending = true
                     scan.zoneIndex, scan.ring, scan.offset = index, ring, offset + 1
                     return nil, "searching"
                 end
@@ -1828,6 +1834,7 @@ local function campBedActivity(actor, state, current, zoneKind)
     end
     scan.zoneIndex, scan.ring, scan.offset, scan.retryAt =
         1, 0, 0, current + 5000
+    scan.pending = nil
     return nil
 end
 
@@ -1847,7 +1854,7 @@ local function seatActivity(actor, state, current, seatOnly)
         local markedBed, markedStatus = campBedActivity(actor, state,
             current, "rest")
         if markedBed then return markedBed end
-        if markedStatus == "searching" then return nil end
+        if markedStatus == "searching" then return nil, "searching" end
     end
     local radius = math.max(1, math.min(12,
         math.floor(tonumber(utility.config("downtimeFurnitureRadius")) or 8)))
@@ -1903,9 +1910,10 @@ local function seatActivity(actor, state, current, seatOnly)
                             seatOnly, tired, radius, chairFallback)
                         if linked and linked.kind == "rest_bed" then return linked end
                         if tired and seatOnly ~= true then
-                            local campBed = campBedActivity(actor, state,
+                            local campBed, status = campBedActivity(actor, state,
                                 current, "area")
                             if campBed then return campBed end
+                            if status == "searching" then return linked, status end
                         end
                         return linked
                     end
@@ -1917,8 +1925,9 @@ local function seatActivity(actor, state, current, seatOnly)
         seatOnly, tired, radius, chairFallback)
     if linked and linked.kind == "rest_bed" then return linked end
     if tired and seatOnly ~= true then
-        local campBed = campBedActivity(actor, state, current, "area")
+        local campBed, status = campBedActivity(actor, state, current, "area")
         if campBed then return campBed end
+        if status == "searching" then return linked, status end
     end
     return linked
 end
@@ -3592,6 +3601,13 @@ end
 local function candidates(actor, commands, state, current, desiredKind, requestedSquare)
     local utility = U()
     commands = type(commands) == "table" and commands or {}
+    -- Base workers probe sleep before claiming another job. A bed-only query
+    -- must not survey washing, showers, repairs and inventory chores first,
+    -- then discard every one of those results in the kind filter below.
+    if desiredKind == "rest_bed" then
+        local bed, status = seatActivity(actor, state, current, "rest_bed")
+        return bed and { bed } or {}, status
+    end
     if desiredKind == "leader_check_in" then
         local visit = leaderCheckInActivity(actor, commands, state, current)
         return visit and { visit } or {}
@@ -3806,9 +3822,10 @@ function Downtime.canPerform(actor, desiredKind, requestedSquare)
     if not U().isValidActor(actor) or type(desiredKind) ~= "string" then
         return false, "invalid_downtime_probe"
     end
-    local rows = candidates(actor, commandState(actor), stateFor(actor),
+    local rows, status = candidates(actor, commandState(actor), stateFor(actor),
         U().nowMs(), desiredKind, requestedSquare)
-    return #rows > 0, rows[1] and rows[1].kind or "no_matching_activity"
+    return #rows > 0, rows[1] and rows[1].kind
+        or status == "searching" and "bed_searching" or "no_matching_activity"
 end
 
 local function reserveActivity(actor, activity, now)
@@ -5717,8 +5734,14 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
     end
     if current < state.nextEvaluationAt then return false, "cooldown" end
     state.nextEvaluationAt = current + (utility.config("downtimeIntervalMs") or 1500)
-    for _, activity in ipairs(candidates(actor, commands, state, current,
-        desiredKind, requestedSquare)) do
+    local choices, searchStatus = candidates(actor, commands, state, current,
+        desiredKind, requestedSquare)
+    if searchStatus == "searching" then
+        if not state.idleStopped then utility.stop(actor) state.idleStopped = true end
+        state.nextEvaluationAt = current
+        return true, "bed_searching"
+    end
+    for _, activity in ipairs(choices) do
         local ok, reason = beginActivity(actor, state, activity, commands, current)
         if ok then return true, reason end
     end

@@ -256,6 +256,7 @@ function World.new(player, object)
                     person.morale, person.stress = tonumber(row.morale), tonumber(row.stress)
                     person.mood = type(row.mood) == "string" and row.mood or nil
                     person.hunger, person.thirst = tonumber(row.hunger), tonumber(row.thirst)
+                    person.endurance, person.fatigue = tonumber(row.endurance), tonumber(row.fatigue)
                     person.wounds, person.skills = {}, {}
                     for index, wound in ipairs(row.wounds or {}) do
                         if index > 8 then break end

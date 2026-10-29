@@ -5,6 +5,12 @@ local function check(value, message)
     checks = checks + 1
     assert(value, "live combat fixture " .. checks .. ": " .. message)
 end
+local squad=SCRealSandboxHarnessProbes.SCSquadCombatLiveProbe
+local cases=squad.cases({squad_combat_custom_companions="2",squad_combat_custom_zombies="3,4,5",squad_combat_front_only="true"})
+check(#cases==3 and cases[1][1]==2 and cases[1][2]==3 and cases[3][2]==5 and cases[2][3]=="front",
+    "custom two-person combat cases preserve all requested zombie counts")
+check(squad.cases({squad_combat_custom_companions="2",squad_combat_custom_zombies="0"})==nil,
+    "invalid custom combat counts are refused")
 for _, names in ipairs({
     "Bob_AttackFloorStamp", "Bob_AttackFloorStamp_Bat", "Bob_AttackFloorStamp_Rifle",
     "Bob_AttackFloorStamp_Hgun", "Bob_AttackFloorStamp_2Hheavy",

@@ -2053,10 +2053,18 @@ local function sleepBeforeNewJob(actor, player, runtime, job)
     if job or not SC.Downtime or type(SC.Downtime.canPerform) ~= "function"
         or type(SC.Downtime.update) ~= "function"
         or U().characterStatValue(actor, "FATIGUE", 0)
-            <= (tonumber(U().config("sleepFatigueThreshold")) or 0.30)
-        or SC.Downtime.canPerform(actor, "rest_bed") ~= true then
+            <= (tonumber(U().config("sleepFatigueThreshold")) or 0.30) then
         return nil
     end
+    local available, status = SC.Downtime.canPerform(actor, "rest_bed")
+    if status == "bed_searching" then
+        -- Moving on to another chore resets the scan's origin each tile and
+        -- can keep a distant bed undiscovered forever. Let the bounded scan
+        -- finish before claiming work; confirmed missing beds still fall back.
+        U().stop(actor)
+        return true, status
+    end
+    if available ~= true then return nil end
     local handled, reason = SC.Downtime.update(actor, player, runtime, "rest_bed")
     if handled == true or reason == "settling" or reason == "cooldown" then
         return handled == true, reason or "bed_sleep"
@@ -2208,7 +2216,10 @@ function BaseWork.update(actor, player, runtime)
         end
     end
     local sleeping, sleepReason = sleepBeforeNewJob(actor, player, runtime, job)
-    if sleeping ~= nil then return sleeping, sleepReason end
+    if sleeping ~= nil then
+        clearGuardPatrol(actor, state, "guard_resting")
+        return sleeping, sleepReason
+    end
     local activeGuard
     if type(SC.BaseLife.guardStatus) == "function" then
         activeGuard = select(1, SC.BaseLife.guardStatus(id, now())) == true
