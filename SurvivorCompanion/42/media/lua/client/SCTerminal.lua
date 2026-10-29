@@ -30,6 +30,7 @@ Terminal.SCROLLBACK_ROWS = 400
 Terminal.HISTORY = 30
 Terminal.WATCH_MS = 500
 Terminal.BOOT_SOUND = "LFTerminalBoot"
+Terminal.BIOS_TEXTURE = "media/textures/Terminal/BIOS/Larchfield.png"
 Terminal.MEMORY_KEY = "LF_Emma"
 Terminal.SESSIONS = 16
 
@@ -319,7 +320,10 @@ function Terminal.factoryReset(window)
     end
     local state = System().factoryReset(window.system)
     if not state then return false, "This computer must be unlocked before it can be reset." end
-    if SC.TerminalRadio then SC.TerminalRadio.factoryReset(window.object) end
+    if SC.TerminalRadio then
+        local okay,reason=SC.TerminalRadio.factoryReset(window.object)
+        if okay==false then return false,reason end
+    end
     portable[System().MEMORY_KEY] = state
     -- Both slots must go; legacy fallback and close() must not resurrect notes.
     portable[Terminal.MEMORY_KEY], data[Terminal.MEMORY_KEY] = nil, nil
@@ -414,6 +418,16 @@ local function charWidth(font)
 end
 
 local skinTextures = {}
+local biosArt
+local function biosTexture()
+    if type(getTexture) ~= "function" then return nil end
+    if biosArt == nil then
+        local okay, texture = pcall(getTexture, Terminal.BIOS_TEXTURE)
+        biosArt = okay and texture or false
+        if not biosArt then diagnostic("terminal BIOS artwork unavailable", Terminal.BIOS_TEXTURE) end
+    end
+    return biosArt or nil
+end
 local function skinTexture(name)
     if type(getTexture) ~= "function" then return nil end
     if skinTextures[name] ~= nil then return skinTextures[name] or nil end
@@ -429,12 +443,28 @@ function Terminal.preloadSkin()
     skinTexture("frame")
     skinTexture("glass")
     skinTexture("radio-antenna-v2")
+    biosTexture()
 end
 
--- Hard wrap for a fixed-width font: words where possible, long words split.
-function Terminal.wrap(value, columns)
+-- Word wrap with an optional pixel-fit check; split oversized tokens safely.
+function Terminal.wrap(value, columns, fits)
     columns = math.max(8, math.floor(columns or 80))
     local rows = {}
+    local function fitsLine(value)
+        return #value <= columns and (not fits or fits(value))
+    end
+    local function prefixLength(value)
+        local low, high, best = 1, math.min(#value, columns), 1
+        while low <= high do
+            local middle = math.floor((low + high) / 2)
+            if fitsLine(value:sub(1, middle)) then best, low = middle, middle + 1
+            else high = middle - 1 end
+        end
+        -- Avoid splitting a UTF-8 sequence when a long token needs a new row.
+        while best > 1 and (value:byte(best + 1) or 0) >= 128
+            and (value:byte(best + 1) or 0) < 192 do best = best - 1 end
+        return best
+    end
     for paragraph in string.gmatch(tostring(value or "") .. "\n", "([^\n]*)\n") do
         if paragraph == "" then
             rows[#rows + 1] = ""
@@ -442,17 +472,18 @@ function Terminal.wrap(value, columns)
             local indent = string.match(paragraph, "^(%s*)") or ""
             local line = ""
             for word in string.gmatch(paragraph, "%S+") do
-                while #word > columns do
-                    if line ~= "" then rows[#rows + 1] = line line = "" end
-                    rows[#rows + 1] = string.sub(word, 1, columns)
-                    word = string.sub(word, columns + 1)
-                end
                 local candidate = line == "" and (indent .. word) or (line .. " " .. word)
-                if #candidate > columns and line ~= "" then
-                    rows[#rows + 1] = line
-                    line = indent .. word
-                else
+                if fitsLine(candidate) then
                     line = candidate
+                else
+                    if line ~= "" then rows[#rows + 1] = line end
+                    local remainder = indent .. word
+                    while not fitsLine(remainder) do
+                        local count = prefixLength(remainder)
+                        rows[#rows + 1] = remainder:sub(1, count)
+                        remainder = remainder:sub(count + 1)
+                    end
+                    line = remainder
                 end
             end
             if line ~= "" then rows[#rows + 1] = line end
@@ -633,6 +664,20 @@ end
 
 function SCTerminalWindow:contentWidth()
     return self.layout.right - self.layout.left - self:sidebarWidth()
+end
+
+function SCTerminalWindow:transcriptWidth()
+    local glow = self.layout.skin.glow or 0
+    return math.max(1, self:contentWidth() - math.max(self.layout.pad / 2, glow * 2 + 2))
+end
+
+function SCTerminalWindow:wrapTranscript(value)
+    local width, zoom = self:transcriptWidth(), self.textZoom or 1
+    local manager = type(getTextManager) == "function" and getTextManager() or nil
+    return Terminal.wrap(value, math.max(8, math.floor(width / self.charWidth)), function(line)
+        local okay, pixels = pcall(function() return manager:MeasureStringX(self.font, line) end)
+        return not okay or type(pixels) ~= "number" or pixels * zoom <= width
+    end)
 end
 
 function SCTerminalWindow:menuLayout()
@@ -917,6 +962,7 @@ function SCTerminalWindow:boot()
     self.system, failure = Terminal.computerState(self.player, self.object)
     if not self.system then error(failure) end
     self.colors = Presentation().colors(self.system.theme)
+    self.biosTexture = biosTexture()
     if SC.TerminalBrands then
         local okay, camp = pcall(self.world.camp)
         self.brand = okay and camp and camp.inside and "_camp" or self.system.brand
@@ -1228,7 +1274,7 @@ function SCTerminalWindow:submit()
     local raw = self.entry and self.entry:getText() or ""
     self:setEntryText("")
     if self.state == "closing" then return end
-    if not Terminal.present(self.object) or not Terminal.near(self.player, self.object)
+    if not self:hasCurrentAccess() or not Terminal.present(self.object) or not Terminal.near(self.player, self.object)
         or call(self.player, "isDead") == true then self:close() return end
     if not Terminal.powered(self.object) then
         self.lastWatch = nowMs() - Terminal.WATCH_MS
@@ -1270,15 +1316,27 @@ function SCTerminalWindow:recall(direction)
 end
 
 -- Leave the window. A power failure leaves the warning on screen briefly.
+function SCTerminalWindow:hasCurrentAccess()
+    local portable = portableData(self.object, false)
+    return Terminal.window == self and Terminal.isComputer(self.object)
+        and self.system ~= nil and portable ~= nil
+        and portable[System().MEMORY_KEY] == self.system
+        and (not self.session or self.system.locked == false)
+        and (type(getSpecificPlayer) ~= "function" or getSpecificPlayer(0) == self.player)
+end
+
 function SCTerminalWindow:close()
     if self.closed then return end
-    if SC.TerminalRadio then SC.TerminalRadio.leave(self) end
+    if SC.TerminalRadio then
+        local called, okay, detail = pcall(SC.TerminalRadio.leave, self)
+        if not called or okay==false then diagnostic("terminal radio cleanup failed", detail or okay) end
+    end
     self.closed = true
     self:cancelRequest()
     self:stopBootSound()
     -- Hand the keyboard back to the game before the prompt disappears.
     if self.entry then pcall(function() self.entry:unfocus() end) end
-    if self.session then
+    if self.session and self:hasCurrentAccess() then
         pcall(Terminal.writeMemory, self.object, self.session, worldHours())
     end
     self:setVisible(false)
@@ -1292,7 +1350,7 @@ function SCTerminalWindow:watch(now)
     self:refreshLayout()
     self.gameHours = worldHours()
     if self.state == "closing" then return end
-    if not Terminal.present(self.object) or not Terminal.near(self.player, self.object)
+    if not self:hasCurrentAccess() or not Terminal.present(self.object) or not Terminal.near(self.player, self.object)
         or call(self.player, "isDead") == true then
         return self:close()
     end
@@ -1360,15 +1418,17 @@ function SCTerminalWindow:drawText(value, x, y, r, g, b, a, font)
 end
 
 function SCTerminalWindow:transcriptRows()
-    local columns=self:columns()
-    if self.renderRows and self.renderColumns==columns then return self.renderRows end
+    local width, zoom = self:transcriptWidth(), self.textZoom or 1
+    if self.renderRows and self.renderWidth==width and self.renderFont==self.font
+        and self.renderZoom==zoom and self.renderCharWidth==self.charWidth then return self.renderRows end
     local rows = {}
     for _, original in ipairs(self.rows) do
-        for part, line in ipairs(Terminal.wrap(original.text, columns)) do
+        for part, line in ipairs(self:wrapTranscript(original.text)) do
             rows[#rows + 1] = { text = line, kind = original.kind, source = original, part = part }
         end
     end
-    self.renderRows,self.renderColumns = rows,columns
+    self.renderRows,self.renderWidth,self.renderFont,self.renderZoom,self.renderCharWidth =
+        rows,width,self.font,zoom,self.charWidth
     return rows
 end
 
@@ -1403,7 +1463,7 @@ function SCTerminalWindow:readingFrame(now)
     if self.typing then
         local shown = math.floor(self.typing.shown or 0)
         local cursor = math.floor(animationTime / 400) % 2 == 0 and "_" or " "
-        for part, line in ipairs(Terminal.wrap(string.sub(self.typing.text, 1, shown) .. cursor, self:columns())) do
+        for part, line in ipairs(self:wrapTranscript(string.sub(self.typing.text, 1, shown) .. cursor)) do
             extra[#extra + 1] = { text = line, kind = self.typing.kind, source = self.typing, part = part }
         end
     elseif self.state == "thinking" then
@@ -1411,8 +1471,9 @@ function SCTerminalWindow:readingFrame(now)
         local span = math.max(1, (self.thinkEnd or now) - (self.thinkStart or now))
         local step = steps[math.min(#steps, math.floor((now - (self.thinkStart or now)) / span * #steps) + 1)]
         local elapsed = math.max(0, now - (self.thinkStart or now))
-        extra[1] = { text = SPINNER[math.floor(elapsed / 120) % 4 + 1] .. " "
-            .. tostring(step or "Thinking") .. string.rep(".", math.floor(elapsed / 300) % 4), kind = "system" }
+        local text = SPINNER[math.floor(elapsed / 120) % 4 + 1] .. " "
+            .. tostring(step or "Thinking") .. string.rep(".", math.floor(elapsed / 300) % 4)
+        for _, line in ipairs(self:wrapTranscript(text)) do extra[#extra + 1] = {text=line,kind="system"} end
     elseif self.state == "idle" and #self.rows == 0 then
         extra[1] = { text = math.floor(animationTime / 500) % 2 == 0 and "_" or " ", kind = "emma" }
     end
@@ -1451,13 +1512,26 @@ function SCTerminalWindow:drawHeaderLogo()
     local width, height = self.logoTexture:getWidth(), self.logoTexture:getHeight()
     if width <= 0 or height <= 0 then return end
     local theme = self.system and self.system.theme or "green"
-    local style = Presentation().logoStyle(theme, self.layout.logo, self.layout.unit)
+    local style = Presentation().logoStyle(theme,
+        Presentation().headerLogoBox(self.layout, self.brand, self.charWidth), self.layout.unit)
     if SC.TerminalBrands.isMonochrome(self.brand) then
         style.r,style.g,style.b=style.ink[2],style.ink[3],style.ink[4]
     end
     local crop = SC.TerminalBrands and SC.TerminalBrands.crop(self.brand, theme)
     local fit = Presentation().fitImage(crop and crop[3] or width, crop and crop[4] or height, style.box)
     if not fit then return end
+    if self.brand == "_camp" and self.layout.side > 0 then
+        -- Anchor the logo's left corner marks to the transcript/menu divider.
+        -- Keep that header grid stable when menu focus temporarily hides it.
+        local gap = math.max(2, self.layout.unit)
+        local left = self.layout.right - self.layout.side + gap
+        local available = self.layout.logo.x + self.layout.logo.width - left - gap
+        if available > 0 then
+            local scale = math.min(1, available / fit.width)
+            fit.y = fit.y + fit.height * (1 - scale) / 2
+            fit.x, fit.width, fit.height = left, fit.width * scale, fit.height * scale
+        end
+    end
     local scale = fit.width / (crop and crop[3] or width)
     -- One display treatment for every brand, including neutral stock marks.
     -- Cropping and soft tube tint never change the source PNG. The generated
@@ -1503,6 +1577,58 @@ function SCTerminalWindow:drawHeaderLogo()
     end
 end
 
+function SCTerminalWindow:drawBios(elapsed)
+    self.lastBiosNativeDraw = false
+    local p, layout = Presentation(), self.layout
+    local frame, ink = p.biosFrame(elapsed), self.colors.title
+    local top, bottom = self:viewTop(), self:viewBottom()
+    local available = math.max(1, bottom - top - self.rowHeight * 2)
+    local box = { x = layout.left + layout.pad, y = top,
+        width = math.max(1, layout.right - layout.left - layout.pad * 2), height = available }
+    local texture, fit, drawn = self.biosTexture
+    if texture then fit = p.fitImage(texture:getWidth(), texture:getHeight(), box) end
+    if fit and frame.reveal > 0 then
+        self:setStencilRect(fit.x, fit.y, fit.width, fit.height * frame.reveal)
+        local okay, reason = pcall(function()
+            local native = SCBridge and SCBridge.drawTerminalLogo
+            if native and self.javaObject and not self.biosNativeUnavailable then
+                local called, accepted = pcall(native, self.javaObject, texture,
+                    fit.x, fit.y, fit.width, fit.height, 0.94,
+                    ink[2], ink[3], ink[4], 0, 0, 0, true, true, false)
+                if called and accepted then self.lastBiosNativeDraw = true drawn = true return end
+                if not called then self.biosNativeUnavailable = true end
+            end
+            self:drawTextureScaled(texture, fit.x, fit.y, fit.width, fit.height,
+                0.94, ink[2], ink[3], ink[4])
+            drawn = true
+        end)
+        self:clearStencilRect()
+        if not okay then self.biosTexture = nil diagnostic("terminal BIOS draw failed", reason) end
+        if drawn then
+            for index = 1, 16 do
+                local y = fit.y + fit.height * index / 17
+                if y < fit.y + fit.height * frame.reveal then
+                    self:drawRect(fit.x, y, fit.width, math.max(1, layout.unit), 0.18, 0, 0, 0)
+                end
+            end
+            if frame.reveal < 1 then
+                self:drawRect(fit.x, fit.y + fit.height * frame.reveal, fit.width,
+                    math.max(1, layout.unit), 0.55, ink[2], ink[3], ink[4])
+            end
+        end
+    end
+    if not drawn and frame.reveal > 0 then
+        self:drawRow("LARCHFIELD", top, "system")
+        if top + self.rowHeight * 2 <= bottom then self:drawRow("BUSINESS MACHINES", top + self.rowHeight, "system") end
+    end
+    local caption = self:columns() >= 36 and "BIOS 1.07 / 1993 - INITIALIZING" or "BIOS 1.07 / 1993"
+    self:drawRow(caption, math.max(top, bottom - self.rowHeight * 2), "system")
+    local width = math.max(1, layout.right - layout.left)
+    local y, height = bottom - self.rowHeight * 0.65, math.max(2, layout.unit * 4)
+    self:drawRectBorder(layout.left, y, width, height, 0.45, ink[2], ink[3], ink[4])
+    self:drawRect(layout.left, y, width * frame.progress, height, 0.65, ink[2], ink[3], ink[4])
+end
+
 function SCTerminalWindow:drawHints(range)
     local colors = self.colors or Presentation().colors("green")
     local hint
@@ -1542,23 +1668,24 @@ function SCTerminalWindow:prerender()
         self:drawRect(glass.x, glass.y, glass.width, glass.height, 1, background[2], background[3], background[4])
     end
     local pad = self.layout.pad
-    local captionRight = self.layout.brandHeight > 0 and self.layout.logo.x - pad
+    local headerLogo = Presentation().headerLogoBox(self.layout, self.brand, self.charWidth)
+    local captionRight = self.layout.brandHeight > 0 and headerLogo.x - pad
         or self.layout.right - self.rowHeight - pad
     local caption = (captionRight - self.layout.left) / self.charWidth >= 25 and (System().TITLE .. " // EMMA") or "LARCH/OS"
     if self.system and self.system.locked then
         caption = (captionRight - self.layout.left) / self.charWidth >= 25 and "LARCH/OS // ACCESS LOCKED" or "LOCKED"
     end
-    if self.state == "booting" then caption = "SYSTEM / POWER-ON TEST" end
+    if self.state == "booting" then caption = "LARCHFIELD / SYSTEM BIOS" end
     if self.state~="booting" and SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then caption="LARCH/WAVE // EMMA" end
     self:drawText(caption, self.layout.left, self.layout.titleY,
         title[2], title[3], title[4], title[1], self.font)
-    self:drawHeaderLogo()
+    if self.state ~= "booting" then self:drawHeaderLogo() end
     if self.layout.brandHeight > 0 then
-        local label = self.layout.logo.x - self.layout.left - pad >= self.charWidth * 23 and "EMMA  /  LOCAL TERMINAL" or "EMMA"
+        local label = headerLogo.x - self.layout.left - pad >= self.charWidth * 23 and "EMMA  /  LOCAL TERMINAL" or "EMMA"
         if self.system and self.system.locked then
-            label = self.layout.logo.x - self.layout.left - pad >= self.charWidth * 23 and "LOCAL PASSWORD RECOVERY" or "RECOVERY"
+            label = headerLogo.x - self.layout.left - pad >= self.charWidth * 23 and "LOCAL PASSWORD RECOVERY" or "RECOVERY"
         elseif self.menuPage == "files" and self.system and self.system.archive == "_factory" then
-            label = self.layout.logo.x - self.layout.left - pad >= self.charWidth * 23 and "PERSONAL FILES / EMPTY" or "FILES / EMPTY"
+            label = headerLogo.x - self.layout.left - pad >= self.charWidth * 23 and "PERSONAL FILES / EMPTY" or "FILES / EMPTY"
         end
         if self.state == "booting" then label = "PERSONAL SYSTEM / 486" end
         if self.state~="booting" and SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then label="RADIO DESK / SIGNAL ACTIVITY" end
@@ -1570,8 +1697,10 @@ function SCTerminalWindow:prerender()
     local side = self:sidebarWidth()
     if self.state == "booting" then
         self:drawHints()
+        local elapsed = nowMs() - self.postStarted
+        if Presentation().biosFrame(elapsed).active then self:drawBios(elapsed) return end
         local y = top
-        local bootRows = Presentation().bootFrame(nowMs() - self.postStarted, self.system.seed)
+        local bootRows = Presentation().bootFrame(elapsed, self.system.seed)
         for _, text in ipairs(bootRows) do
             for _, line in ipairs(Terminal.wrap(text, self:columns())) do
                 if y + self.rowHeight <= bottom then self:drawRow(line, y, "system") end
@@ -1602,14 +1731,19 @@ function SCTerminalWindow:prerender()
     local frame = self:readingRange(self:readingFrame(nowMs()))
     self:drawHints(frame)
     self.securityHits = {}
-    local y = top
-    for index = frame.first, frame.last do
-        local row = frame.rows[index] or frame.extra[index - #frame.rows]
-        if row and y + self.rowHeight <= bottom + 2 then
-            self:drawRow(row.text, y, row.kind)
+    local glow = self.layout.skin.glow or 0
+    self:setStencilRect(self.layout.left - glow, top,
+        self:transcriptWidth() + glow * 2, bottom - top + 2)
+    local okay, reason = pcall(function()
+        local y = top
+        for index = frame.first, frame.last do
+            local row = frame.rows[index] or frame.extra[index - #frame.rows]
+            if row and y + self.rowHeight <= bottom + 2 then self:drawRow(row.text, y, row.kind) end
+            y = y + self.rowHeight
         end
-        y = y + self.rowHeight
-    end
+    end)
+    self:clearStencilRect()
+    if not okay then diagnostic("terminal transcript draw failed", reason) end
 end
 
 function SCTerminalWindow:render()
@@ -1656,6 +1790,7 @@ end
 -- ---------------------------------------------------------------------------
 
 function Terminal.open(player, object)
+    if not Terminal.isComputer(object) then return false, "not_computer" end
     if not Terminal.powered(object) then return false, "no_power" end
     if not Terminal.near(player, object) or call(player, "isDead") == true then
         return false, "operator_unavailable"
@@ -1682,7 +1817,7 @@ end
 SCUseTerminalAction = ISBaseTimedAction:derive("SCUseTerminalAction")
 
 function SCUseTerminalAction:isValid()
-    return Terminal.powered(self.object) and Terminal.near(self.character, self.object)
+    return Terminal.isComputer(self.object) and Terminal.powered(self.object) and Terminal.near(self.character, self.object)
         and call(self.character, "isDead") ~= true
 end
 
@@ -1716,6 +1851,7 @@ function SCUseTerminalAction:new(character, object)
 end
 
 function Terminal.use(player, object)
+    if not Terminal.isComputer(object) then return false, "not_computer" end
     if not player or not Terminal.powered(object) then return false, "no_power" end
     if type(ISTimedActionQueue) ~= "table" or type(luautils) ~= "table" then
         return false, "timed_actions_unavailable"

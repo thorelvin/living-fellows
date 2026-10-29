@@ -299,11 +299,17 @@ scales in sections to preserve its corners and controls. The text stays large
 and the content remains inside the glass at different resolutions. The two
 skin assets are preloaded before first use.
 
+Startup begins with an animated **Larchfield Business Machines BIOS** image.
+It reveals across the glass in the computer's own phosphor colour, then runs
+the memory count and hardware checks before starting EMMA. The complete
+sequence takes about five seconds; **Enter** skips it. Missing artwork falls
+back to text, and startup does not query the camp's people or stock records.
+
 The computer plays its startup recording once when it boots, using the
 game's sound volume. The recording can finish over the welcome screen.
 Skipping boot, closing the terminal or losing power stops it immediately.
 
-- **Enter** skips the short animated memory and hardware checks during boot.
+- **Enter** skips the BIOS image, memory test and hardware checks during boot.
 - Press a displayed **number** to select an item while the menu is focused,
   or use **Up/Down** and **Enter**. Clicking also works.
 - **Tab** or **Shift+Tab** switches between menu and chat, keeping your draft.

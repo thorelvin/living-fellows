@@ -120,17 +120,23 @@ function R.stop(object,restore)
     local rt=tracked[object]
     local scan=rt and rt.scan
     if not scan then return true end
-    rt.scan=nil
     if restore and current(object,rt,true) and call(rt.data,"getChannel")==scan.expected then
+        scan.restoring=true
         local okay,reason=tune(object,rt,scan.original)
         if not okay then rt.notice=reason return false,reason end
-        flush(object)
+        scan.expected=scan.original
+        if flush(object)==false then
+            rt.notice="Previous channel restored, but saving failed. Retry Stop before moving the PC."
+            return false,rt.notice
+        end
     end
+    rt.scan=nil
     rt.notice=restore and "Scan stopped. Previous channel restored where unchanged." or "Staying on this frequency."
     return true
 end
 function R.leave(window)
-    if window then R.stop(window.object,true) end
+    if window then return R.stop(window.object,true) end
+    return true
 end
 local function readPresets(rt)
     local result={}
@@ -209,7 +215,8 @@ function R.poll(window,now)
     if rt.needQuiet then receiving=false end
     local scan=rt.scan
     if scan then
-        if mission()~=scan.mission then R.stop(window.object,true) rt.notice="Expedition changed. Scan stopped; check the team channel."
+        if scan.restoring then R.stop(window.object,true)
+        elseif mission()~=scan.mission then R.stop(window.object,true) rt.notice="Expedition changed. Scan stopped; check the team channel."
         elseif call(rt.data,"getChannel")~=scan.expected then R.stop(window.object,false) rt.notice="Tuning changed elsewhere. Scan cancelled."
         elseif call(rt.data,"isPlayingMedia")==true then R.stop(window.object,true) rt.notice="Recorded media is playing. Scanning stopped."
         else
@@ -255,7 +262,8 @@ local function start(window,rt,mode,allow)
     if call(rt.data,"isPlayingMedia")==true then return false,"Stop recorded media before scanning." end
     local trip=mission()
     if trip and not allow then return nil,"Scanning retunes this handset and can miss expedition calls.",{kind="radio_desk",mode=mode} end
-    R.stop(window.object,true)
+    local stopped,reason=R.stop(window.object,true)
+    if not stopped then return false,reason end
     rt.presets=readPresets(rt)
     local channels,low,high,count
     if mode=="presets" then
@@ -309,6 +317,7 @@ end
 function R.continue(window)
     local rt,reason=R.ready(window) if not rt then return false,reason end
     if not rt.scan then return false,"No scan is paused." end
+    if rt.scan.restoring then return false,"Previous-channel restoration is pending. Retry Stop first." end
     rt.scan.hold=false rt.scan.armed=false rt.scan.skipping=true rt.scan.nextAt=U().now()
     rt.notice="Continuing the scan after this listening window."
     rt.lastPoll=nil R.poll(window,U().now())
@@ -364,8 +373,11 @@ function R.acknowledged(object,id,report)
 end
 function R.lastReport(object) local m=memory(object) return m and m.lastReport end
 function R.factoryReset(object)
-    R.stop(object,true) tracked[object]=nil
+    local okay,reason=R.stop(object,true)
+    if not okay then return false,reason end
+    tracked[object]=nil
     local md=U().data(object) if md and type(md.movableData)=="table" then md.movableData[R.KEY]=nil end
+    return true
 end
 function R.install()
     if not R._deviceTextHook and Events and Events.OnDeviceText and type(Events.OnDeviceText.Add)=="function" then

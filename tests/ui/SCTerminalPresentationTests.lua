@@ -16,6 +16,11 @@ for _, size in ipairs(sizes) do
             and layout.hintY + display <= layout.entryY and layout.entryY + layout.entryHeight < layout.height,
             "header, transcript, hints and input do not overlap")
         check(layout.columns * display / 2 <= layout.contentWidth, "font metrics determine usable columns")
+        local campBox = P.headerLogoBox(layout,"_camp",display/2)
+        check(campBox.x>=layout.left and campBox.x+campBox.width<=layout.right
+            and (campBox.width==0 or campBox.x>=layout.left+layout.pad+display/2*25-0.001)
+            and P.headerLogoBox(layout,"Fossoil",display/2)==layout.logo,
+            "the larger camp logo reserves caption space without changing business headers")
         check(math.abs((layout.left + layout.right) / 2
             - (layout.screen.x + layout.screen.width / 2)) <= 1,
             "the content canvas stays centred inside the CRT opening")
@@ -65,8 +70,14 @@ check(System.normalize(state).theme == P.themeFor(state.seed), "older system rec
 check(#Brands.STOCK == 184 and Brands.BY_ID.FinneganResearchGroup ~= nil, "original business artwork is catalogued")
 local first, done = P.bootFrame(0,42)
 local later = P.bootFrame(1800,42)
-local last, finished = P.bootFrame(3200,42)
+local last, finished = P.bootFrame(P.BOOT_MS,42)
 check(not done and finished and #later > #first and #last > #later, "POST advances deterministically through native-era diagnostics")
+local hidden, revealing, settled = P.biosFrame(0), P.biosFrame(350), P.biosFrame(P.BIOS_MS)
+check(hidden.reveal==0 and revealing.reveal>0 and revealing.reveal<1
+    and settled.reveal==1 and not settled.active and P.BOOT_MS==P.BIOS_MS+3200,
+    "animated BIOS image reveals before the complete POST sequence")
+check(P.biosFrame(0/0).reveal==0 and P.biosFrame(math.huge).reveal==0,
+    "invalid BIOS animation clocks keep bounded drawing geometry")
 
 local oldCore, oldManager, oldWorld, oldTexture, oldFonts = getCore, getTextManager, SC.TerminalWorld.new, getTexture, UIFont
 local oldLeft, oldTop, oldWidth, oldHeight = getPlayerScreenLeft,getPlayerScreenTop,getPlayerScreenWidth,getPlayerScreenHeight
@@ -91,11 +102,8 @@ getTexture = function(path)
     if path:find("/Skin/",1,true) then
         return {getWidth=function() return 1586 end,getHeight=function() return 992 end}
     end
-    if path:find("camp-purple.png",1,true) then
+    if path:find("/Camp/emma-camp-v2.png",1,true) then
         return {getWidth=function() return 2172 end,getHeight=function() return 724 end}
-    end
-    if path:find("/camp.png",1,true) then
-        return {getWidth=function() return 1774 end,getHeight=function() return 887 end}
     end
     return {getWidth=function() return 710 end,getHeight=function() return 100 end}
 end
@@ -125,6 +133,23 @@ check(window.inputFont == "Massive" and window.layout.entryHeight > heights.Mass
     "the editable native input also uses a large readable font with room for its caret")
 check(window.state == "booting" and window.session == nil and reads == 0,
     "POST reads no camp records and counts no premature session")
+local biosTexture = window.biosTexture
+for _,theme in ipairs({"green","sand","aqua","purple"}) do
+    window.colors=P.colors(theme)
+    window:drawBios(350)
+    local draw=T.lastTextureDraw
+    check(draw.texture==biosTexture and draw.clip and draw.clip.height>0 and draw.clip.height<draw.height
+        and draw.r==window.colors.title[2] and draw.g==window.colors.title[3]
+        and draw.b==window.colors.title[4] and T.stencil==nil and reads==0,
+        "BIOS reveal uses the matching "..theme.." phosphor without camp queries or leaked clipping")
+end
+window.colors=P.colors(window.system.theme)
+local biosDraw=window.drawTextureScaled
+window.drawTextureScaled=function() error("fixture lost BIOS image") end
+window:drawBios(1000)
+check(T.stencil==nil and window.biosTexture==nil and window.state=="booting",
+    "lost BIOS art releases its stencil and leaves the normal text fallback usable")
+window.drawTextureScaled,window.biosTexture=biosDraw,biosTexture
 window:flush()
 check(window.focusMode == "menu" and window.system.brand == "Fossoil" and window.brand == "_camp",
     "camp branding does not rewrite original ownership")
@@ -133,11 +158,12 @@ local drawn, crop = T.lastTextureDraw, Brands.crop("_camp",window.system.theme)
 local scale = drawn.width / window.logoTexture:getWidth()
 check(drawn.clip ~= nil and math.abs(drawn.x + crop[1] * scale - drawn.clip.x) < 0.001
     and math.abs(drawn.y + crop[2] * scale - drawn.clip.y) < 0.001
-    and math.abs(drawn.clip.height - crop[4] * scale) < 0.001,
-    "native clipping selects the camp emblem matching the active phosphor")
+    and math.abs(drawn.clip.height - crop[4] * scale) < 0.001
+    and math.abs(drawn.clip.x-math.max(2,window.layout.unit)-(window.layout.right-window.layout.side))<0.001,
+    "native clipping selects the camp emblem and aligns its left corner marks with the menu divider")
 check(T.stencil == nil and drawn.a < 1 and drawn.a > 0.6
-    and math.min(drawn.r,drawn.g,drawn.b) > 0.84,
-    "all logos retain brand hues with restrained CRT brightness and release their stencil")
+    and drawn.r==window.colors.title[2] and drawn.g==window.colors.title[3] and drawn.b==window.colors.title[4],
+    "the neutral camp mark uses matching phosphor at restrained brightness and releases its stencil")
 local savedTheme=window.system.theme
 for _,theme in ipairs({"green","sand","aqua","purple"}) do
     window.system.theme=theme
@@ -148,8 +174,10 @@ for _,theme in ipairs({"green","sand","aqua","purple"}) do
     check(math.abs(draw.y+box[2]*factor-draw.clip.y)<.001
         and box[2]+box[4]<=window.logoTexture:getHeight(),"correct source row and texture for camp "..theme)
 end
-check(Brands.crop("_camp","aqua")[2]==599 and Brands.crop("_camp","sand")[2]==307,
-    "aqua and sand never reuse the green source row")
+check(Brands.crop("_camp","aqua")==Brands.crop("_camp","purple")
+    and Brands.texture("_camp","green")==Brands.texture("_camp","sand")
+    and Brands.isMonochrome("_camp") and Brands.BACKINGS._camp[1]<0.01,
+    "all four camp themes share one neutral crop and keyed backing without atlas row or tint mismatches")
 check(Brands.crop("Fossoil","purple")==Brands.CROPS.Fossoil,
     "camp palette correction preserves business logo colours")
 window.system.theme=savedTheme

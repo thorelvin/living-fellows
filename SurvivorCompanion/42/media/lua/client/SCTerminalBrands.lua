@@ -205,6 +205,8 @@ local fallbacks = { camp = "EMMA Camp System", home = "Personal Computer", count
 for key, label in pairs(fallbacks) do
     B.BY_ID["_" .. key] = { label = label, texture = "media/textures/Terminal/" .. key .. ".png" }
 end
+B.BY_ID._camp.texture = "media/textures/Terminal/Camp/emma-camp-v2.png"
+B.BY_ID._camp.mono = true
 
 local function call(object, method, ...)
     if not object or not SC.GameplayUtil then return nil end
@@ -365,23 +367,19 @@ for id,info in pairs(B.BY_ID) do
     end
 end
 for _,id in ipairs({"_retail","_food","_hotel","_electronics"}) do B.BY_ID[id].mono=true end
--- The original camp atlas already contains matching phosphor variants. The
--- rare purple mark has its own generated asset. Business marks retain theirs.
-B.CAMP_CROPS = { green = {443,14,862,275}, sand = {443,307,862,275},
-    aqua = {443,599,862,275}, purple = {288,108,1562,490} }
+-- One neutral camp mark uses the current phosphor in every theme. Its crop
+-- and keyed backing share the same metadata path as the business headers.
 function B.crop(id, theme)
     id=B.canonical(id)
-    if id == "_camp" then return B.CAMP_CROPS[theme] or B.CAMP_CROPS.green end
     return B.CROPS and B.CROPS[id]
 end
 function B.texture(id, theme)
     id=B.canonical(id)
     local info = type(id) == "string" and B.BY_ID[id]
     if not info or type(getTexture) ~= "function" then return nil end
-    local purple = id == "_camp" and theme == "purple"
-    local key = purple and "_camp:purple" or id
+    local key = id
     if textures[key] ~= nil then return textures[key] or nil end
-    local okay, texture = pcall(getTexture, purple and "media/textures/Terminal/camp-purple.png" or info.texture)
+    local okay, texture = pcall(getTexture, info.texture)
     if okay and texture then
         textures[key] = texture
         return texture

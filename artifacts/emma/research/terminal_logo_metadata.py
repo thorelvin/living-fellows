@@ -21,6 +21,8 @@ def main():
             continue  # A phosphor variant, not another business identity.
         key = p.stem if p.stem[0].isupper() else "_" + p.stem
         sources[key] = p
+    camp_art = json.loads((args.project_root / "docs/terminal-camp-logo-colours.json").read_text(encoding="utf-8"))
+    sources["_camp"] = args.project_root / camp_art["source_asset"]
     # Authored transparent headers have no backing to key out. Broad pale
     # lettering can otherwise look like an opaque page to the stock heuristic.
     transparent_headers = set()
@@ -35,8 +37,8 @@ def main():
         with Image.open(path) as image:
             image = image.convert("RGBA")
             if name == "_camp":
-                # Select the single green emblem, not the three-theme atlas.
-                x, y, width, height = 443, 14, 862, 275
+                # A single neutral source serves every camp phosphor theme.
+                x, y, width, height = camp_art["crop"]
             else:
                 alpha = image.getchannel("A")
                 box = alpha.point(lambda v: 255 if v > 16 else 0).getbbox()
@@ -83,6 +85,8 @@ def main():
                 palettes[name] = max(weights, key=weights.get)
     # Explicit visual pairing: blue/ivory/orange Fossoil suits aquamarine.
     palettes["Fossoil"] = palettes["FossoilField"] = "aqua"
+    # Preserve the existing default pairing; saved screen colours are separate.
+    palettes["_camp"] = "green"
     for name in ("OptimaEyes", "PalettePop", "TheExquisitePearl", "TheSlugger"):
         dark_ink[name] = True
     rows = ["-- SPDX-License-Identifier: MIT",

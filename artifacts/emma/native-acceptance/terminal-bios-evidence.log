@@ -1,0 +1,10 @@
+SHOT emma-bios-reveal-aqua
+PASS native animated BIOS reveal, aquamarine phosphor and no premature EMMA session
+SHOT emma-bios-aqua
+SHOT emma-bios-post
+PASS native POST completes before ordinary EMMA starts
+SHOT emma-bios-welcome
+SHOT emma-bios-sand
+SHOT emma-bios-purple
+PASS native sand and purple BIOS, Enter skip and ordinary close
+PASS native terminal BIOS acceptance complete

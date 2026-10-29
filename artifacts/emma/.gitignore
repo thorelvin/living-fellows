@@ -10,6 +10,9 @@
 !/native-acceptance/emma-reset-*.png
 !/native-acceptance/emma-places-*.png
 !/native-acceptance/emma-radio-*.png
+!/native-acceptance/emma-bios-*.png
+!/native-acceptance/emma-camp-v2-*.png
+!/native-acceptance/emma-wrap-*.png
 !/native-acceptance/emma-follower-sitting-*.png
 !/native-acceptance/camp-logo-*.png
 !/native-acceptance/confirmation-prompt.png

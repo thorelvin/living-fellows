@@ -80,6 +80,33 @@ R.tune(w,99000) poll()
 send("scan for broadcasts")
 check(R.snapshot(w).scan and pc.device.channel==90000,"preset scan tunes a real preset")
 local activeScan=R.snapshot(w).scan
+local originalSetter=pc.device.setChannel
+pc.device.setChannel=function(self,n) if n~=99000 then originalSetter(self,n) end end
+check(not R.stop(pc,true) and R.snapshot(w).scan==activeScan,
+    "failed original-channel restoration keeps a retryable scan lease")
+local previousDrawText=w.drawText local pendingLabel=false
+w.drawText=function(self,value,...) if tostring(value):find("RESTORE PENDING",1,true) then pendingLabel=true end return previousDrawText(self,value,...) end
+w:prerender() w.drawText=previousDrawText
+check(pendingLabel,"a failed restore is visibly pending rather than reported as active scanning")
+poll(R.DWELL+300)
+check(pc.device.channel==90000 and not R.scan(w,"band"),
+    "pending restoration cannot advance or be replaced by another scan")
+pc.device.setChannel=originalSetter
+check(R.stop(pc,true) and pc.device.channel==99000 and not R.snapshot(w).scan,
+    "retry restores the exact original channel before releasing the lease")
+send("scan for broadcasts")
+local previousFlush=SC.TerminalHardware.flush
+SC.TerminalHardware.flush=function() return false,"fixture storage unavailable" end
+check(not R.stop(pc,true) and pc.device.channel==99000 and R.snapshot(w).scan.restoring,
+    "restored tuning remains owned until the exact handset payload is saved")
+local originalMemory=pc.data.movableData[R.KEY] local originalSystem=w.system
+check(not SC.Terminal.factoryReset(w) and pc.data.movableData[R.KEY]==originalMemory
+    and pc.data.movableData[SC.TerminalSystem.MEMORY_KEY]==originalSystem,
+    "failed restore persistence cannot erase radio memory or factory-reset the computer")
+SC.TerminalHardware.flush=previousFlush
+check(R.stop(pc,true) and not R.snapshot(w).scan and pc.savedChannel==99000,
+    "serialization recovery saves the original channel before releasing the pending restore")
+send("scan for broadcasts") activeScan=R.snapshot(w).scan
 send("tune 400")
 check(R.snapshot(w).scan==activeScan and pc.device.channel==90000,
     "an invalid frequency cannot cancel scanning or strand the handset on a temporary channel")

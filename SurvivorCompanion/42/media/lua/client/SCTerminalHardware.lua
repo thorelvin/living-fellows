@@ -10,6 +10,9 @@ local runtime=setmetatable({}, {__mode="k"})
 local lastPulse=0
 local survey
 local function U() return SC.ControlUtil end
+local function finite(value)
+    return type(value)=="number" and value==value and math.abs(value)<math.huge
+end
 function H.state(object,create)
     local md=U().data(object)
     if type(md)~="table" then return nil end
@@ -19,14 +22,19 @@ function H.state(object,create)
     if not portable[H.KEY] and create then portable[H.KEY]={schema=1,generation=0,on=true} end
     local state=portable[H.KEY]
     if type(state)~="table" or state.schema~=1 then return nil end
-    if type(state.generation)~="number" or state.generation<0 or state.generation~=math.floor(state.generation)
+    if not finite(state.generation) or state.generation<0 or state.generation~=math.floor(state.generation)
         or state.on~=nil and type(state.on)~="boolean" then return nil end
     for _,kind in ipairs({"radio","ups"}) do
         local part=state[kind]
         if part~=nil and (type(part)~="table" or type(part.blob)~="string" or #part.blob>524288
-            or type(part.id)~="number" or part.id~=math.floor(part.id) or type(part.type)~="string"
-            or type(part.weight)~="number" or part.weight<0 or part.weight>1000
+            or not finite(part.id) or part.id~=math.floor(part.id) or type(part.type)~="string"
+            or not finite(part.weight) or part.weight<0 or part.weight>1000
             or part.charge~=nil and (type(part.charge)~="number" or part.charge<0 or part.charge>1 or part.charge~=part.charge)) then return nil end
+        if part then
+            for _,key in ipairs({"monitorVolume","lastMonitorVolume","originalVolume","batteryPower"}) do
+                if part[key]~=nil and (not finite(part[key]) or part[key]<0 or part[key]>1) then return nil end
+            end
+        end
     end
     runtime[object]=runtime[object] or {}
     return state
@@ -65,6 +73,9 @@ end
 function H.flush(object)
     local state=H.state(object,false)
     local r=runtime[object]
+    local md=U().data(object)
+    if not state and type(md)=="table" and type(md.movableData)=="table"
+        and md.movableData[H.KEY]~=nil then return false,"Hardware record is unreadable; mounted parts are preserved." end
     if not state or not r then return true end
     for _,kind in ipairs({"radio","ups"}) do
         local entry=r[kind]
@@ -173,7 +184,7 @@ end
 function H.receiver(object)
     local state=H.state(object,false)
     local item=cached(object,"radio")
-    if not state or not item or not H.powered(object) then return nil end
+    if not state or not item or not H.powered(object) then H.stop(object) return nil end
     if (tonumber(U().call(item,"getCondition")) or 0)<=0 then H.stop(object) return nil end
     local r=runtime[object]
     if not r.receiver then r.receiver=bridge("createTerminalReceiver",item,object) end
@@ -198,7 +209,10 @@ function H.describe(object)
         ..". Backup: "..math.floor(charge*100).."%. Radio: "..(state.radio and "mounted" or "not installed").."."
 end
 function H.beforePickup(object)
-    if SC.TerminalRadio then SC.TerminalRadio.stop(object,true) end
+    if SC.TerminalRadio then
+        local okay=SC.TerminalRadio.stop(object,true)
+        if okay==false then return false end
+    end
     if not H.flush(object) then return false end
     H.stop(object)
     local state=H.state(object,false)
@@ -267,6 +281,8 @@ function H.pulse()
                 state.lastHours=hours
                 if state.radio and H.powered(object) then H.receiver(object) else H.stop(object) end
                 if not r.lastFlush or now-r.lastFlush>=10000 then H.flush(object) r.lastFlush=now end
+            else
+                H.stop(object)
             end
         end
     end

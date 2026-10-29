@@ -1,0 +1,9 @@
+PASS green native keyed monochrome header; palette=0.78,0.96,0.65
+SHOT emma-camp-v2-green
+PASS sand native keyed monochrome header; palette=0.96,0.86,0.66
+SHOT emma-camp-v2-sand
+PASS aqua native keyed monochrome header; palette=0.71,0.96,0.92
+SHOT emma-camp-v2-aqua
+PASS purple native keyed monochrome header; palette=0.93,0.81,1
+SHOT emma-camp-v2-purple
+PASS native camp logo acceptance complete

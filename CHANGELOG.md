@@ -4,6 +4,18 @@
 
 ## 0.26.75 - Radio desk and reliable bed sleep
 
+- Long computer records and live replies wrap inside the transcript pane,
+  with a clear gap before the menu divider, after resizing or changing focus.
+- Reworked the EMMA Camp System logo with a clearer shelter/radio emblem and
+  larger, cleaner lettering. One neutral mark matches every screen colour,
+  including purple, with more header space at normal resolutions.
+- Computers start with an animated Larchfield BIOS logo, matched to their
+  screen colour, before the memory test and EMMA. Enter skips the sequence.
+- Replaced access records and operator changes close stale computer sessions
+  without overwriting newer notes. Radio cleanup errors release the keyboard.
+- Invalid saved hardware values preserve mounted parts and block unsafe
+  transfers. Failed channel restoration stays retryable and pauses computer
+  pickup, replacement scans and factory reset until it succeeds.
 - Tired companions can leave passive chairs, and exhausted companions pause
   sitting, reading or listening to seek an available bed. Bed entry accepts
   clear bedside floor in cramped bedrooms without requiring a spawn-sized

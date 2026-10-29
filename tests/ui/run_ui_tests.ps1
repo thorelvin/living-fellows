@@ -109,6 +109,8 @@ try {
             (Join-Path $TestRoot 'SCTerminalLoreTests.lua'),
             (Join-Path $TestRoot 'SCTerminalCompanionTests.lua'),
             (Join-Path $TestRoot 'SCTerminalReadingTests.lua')
+            (Join-Path $TestRoot 'SCTerminalHardeningTests.lua')
+            (Join-Path $TestRoot 'SCTerminalWrappingTests.lua')
         )
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @terminalFiles
         if ($LASTEXITCODE -ne 0) { throw 'Camp computer terminal UI tests failed.' }

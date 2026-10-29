@@ -37,7 +37,7 @@ local function tick()
         run.window:startBootSound()
         assert(run.window.bootSoundId==handle,"a repeated UI start replaced the owned sound")
         log("PASS native playback active, repeated start preserves handle")
-        run.step,run.next=2,run.started+4200
+        run.step,run.next=2,run.started+SC.TerminalPresentation.BOOT_MS+200
     elseif run.step==2 then
         assert(run.window.state~="booting","normal POST did not finish")
         assert(manager:isPlayingUISound(run.handle),"normal POST truncated the supplied sound")

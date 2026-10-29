@@ -39,8 +39,8 @@ for _,category in ipairs(SC.TerminalKnowledge.CATEGORIES) do
                 enter(tostring(index))
                 local entry=Lore.reference(option.referenceId)
                 check(w.rows[#w.rows-1].text~=nil and w.system.archive==owner,"reading reference retains original owner")
-                local added=#Terminal.wrap(entry.date.." - "..entry.title,w:columns())
-                    +#Terminal.wrap(entry.text,w:columns())+#Terminal.wrap("Archived local file; not a current-world observation.",w:columns())
+                local added=#w:wrapTranscript(entry.date.." - "..entry.title)
+                    +#w:wrapTranscript(entry.text)+#w:wrapTranscript("Archived local file; not a current-world observation.")
                 check(w.scroll==math.max(0,added-w:visibleRows()),"long files open at their beginning")
             elseif option.referencePage==page+1 then nextPage=option.referencePage end
         end

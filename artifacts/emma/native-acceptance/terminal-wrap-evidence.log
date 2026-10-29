@@ -1,0 +1,5 @@
+PASS native glyph width=672 budget=681.0989263803681 divider=842.7239263803681; exact archive text preserved
+SHOT emma-wrap-brooks
+PASS native glyph width=672 budget=681.0989263803681 divider=842.7239263803681; exact archive text preserved
+SHOT emma-wrap-focus-return
+PASS native terminal wrapping acceptance complete

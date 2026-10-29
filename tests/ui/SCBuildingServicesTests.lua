@@ -170,6 +170,21 @@ check(not H.install(player,pc,"radio",radio) and U.owns(player,radio),"a TV cann
 radio.device.television=false
 check(H.install(player,pc,"radio",radio)==true and not U.owns(player,radio),"mount transfers the exact handset out of inventory")
 local hardware=H.state(pc,false)
+do
+    for _,row in ipairs({{hardware,"generation",math.huge},{hardware.radio,"id",math.huge},
+        {hardware.radio,"weight",0/0},{hardware.radio,"monitorVolume",math.huge}}) do
+        local target,key,bad=row[1],row[2],row[3]
+        local previous=target[key] target[key]=bad
+        check(H.state(pc,false)==nil and not H.flush(pc),
+            "invalid saved hardware scalars cannot reach native transfers or serialization")
+        target[key]=previous
+    end
+    local radioModule=SC.TerminalRadio
+    SC.TerminalRadio={stop=function() return false,"fixture restoration failed" end}
+    check(not H.beforePickup(pc) and hardware.radio~=nil,
+        "failed radio restoration blocks furniture pickup without transferring parts")
+    SC.TerminalRadio=radioModule
+end
 check(hardware.radio.id==originalId,"mounted payload retains native identity")
 local receiver,data=H.receiver(pc)
 check(receiver and data.power==1,"native world receiver uses station power")

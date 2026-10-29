@@ -1,0 +1,11 @@
+{
+  "asset": "SurvivorCompanion/42/media/textures/Terminal/BIOS/Larchfield.png",
+  "sha256": "e3e9d7a2159ca42586f384fd4276745d5bfe676bed35de197bb21cf2f778f7e3",
+  "width": 2172,
+  "height": 724,
+  "mode": "RGB",
+  "tool": "Built-in image_gen",
+  "source_file": "exec-555685a9-cef1-44bf-a7d4-8b4979394ff2.png",
+  "treatment": "Original bitmap copied intact. The existing native terminal-logo shader keys its black backing and applies the current phosphor palette. Lua animates a bounded stencil reveal and progress bar; no per-frame asset loading or world queries.",
+  "prompt": "A clean DIGITAL 1993 COMPUTER BIOS LOGO graphic. Wide 3:1 composition on an absolutely uniform solid pure BLACK (#000000) background. Large sharp readable SOLID WHITE letters spelling exactly \"LARCHFIELD\". Beneath, smaller white letters spelling \"BUSINESS MACHINES\". To the left, an ORIGINAL simple white larch-tree made from five horizontal bars over a single trunk inside an open square. 1990s business workstation identity, sober geometric heavy sans-serif lettering, clean computer-rendered bitmap. Perfect smooth opaque WHITE shapes. Flat TWO COLOUR BLACK AND WHITE ONLY. Very clean regular geometry, NO texture, NO grunge, NO scratches, NO cracks, NO wear, NO outlines, NO noise, NO grain, NO distressed effects, NO gradients, NO transparency, NO shadow, NO photographs, NO monitor frame, NO extra symbols or text. Generous uniform black margins. This is an actual BIOS screen asset to be animated and tinted by a game, not a picture of a screen."
+}

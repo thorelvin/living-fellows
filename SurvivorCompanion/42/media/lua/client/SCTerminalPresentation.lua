@@ -127,6 +127,15 @@ function P.fitImage(sourceWidth, sourceHeight, box)
         y = rounded(box.y + (box.height - height) / 2), width = width, height = height }
 end
 
+function P.headerLogoBox(layout, brand, cw)
+    local original = layout.logo
+    if brand ~= "_camp" then return original end
+    local right = original.x + original.width
+    local available = math.max(0, right - layout.left - layout.pad - cw * 25)
+    local width = math.min(300 * layout.unit, layout.canvasWidth * 0.34, available)
+    return { x = right - width, y = original.y, width = width, height = original.height }
+end
+
 function P.logoStyle(theme, box, unit)
     local colors = P.colors(theme)
     local inset = rounded(6 * unit)
@@ -139,9 +148,18 @@ function P.logoStyle(theme, box, unit)
         ink = colors.title, corner = math.max(3, rounded(5 * unit)) }
 end
 
-P.BOOT_MS = 3200
-function P.bootFrame(elapsed, seed)
+P.BIOS_MS = 1400
+P.BOOT_MS = P.BIOS_MS + 3200
+function P.biosFrame(elapsed)
+    elapsed = tonumber(elapsed) or 0
+    if elapsed ~= elapsed or math.abs(elapsed) == math.huge then elapsed = 0 end
     elapsed = math.max(0, elapsed)
+    return { reveal = clamp(elapsed / 750, 0, 1),
+        progress = clamp(elapsed / P.BIOS_MS, 0, 1), active = elapsed < P.BIOS_MS }
+end
+function P.bootFrame(elapsed, seed)
+    local complete = elapsed >= P.BOOT_MS
+    elapsed = math.max(0, elapsed - P.BIOS_MS)
     local ram = ({ 2048, 4096, 8192 })[seed % 3 + 1]
     local lines = { "LARCHFIELD BUSINESS MACHINES", "Personal System / 486", "Firmware 1.07   06/14/93", "" }
     if elapsed >= 250 then
@@ -153,5 +171,5 @@ function P.bootFrame(elapsed, seed)
     if elapsed >= 2600 then lines[#lines + 1] = "Loading LARCH/OS 2.4..." end
     if elapsed >= 2900 then lines[#lines + 1] = "Starting local EMMA service..." end
     lines[#lines + 1] = math.floor(elapsed / 350) % 2 == 0 and "_" or " "
-    return lines, elapsed >= P.BOOT_MS
+    return lines, complete
 end

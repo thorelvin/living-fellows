@@ -279,7 +279,8 @@ function UI.draw(w,now)
         return
     end
     if w.radioReceipts~=snap.receipts then w.radioReceipts=snap.receipts w.radioNotice=nil end
-    local state=snap.tx and "TRANSMITTING" or snap.scan and (snap.scan.hold and "HOLDING SIGNAL" or "SCANNING")
+    local state=snap.tx and "TRANSMITTING" or snap.scan and (snap.scan.restoring and "RESTORE PENDING"
+        or snap.scan.hold and "HOLDING SIGNAL" or "SCANNING")
         or snap.receiving and "RECEIVING" or "LISTENING"
     text(R().format(w.radioPage=="reading" and w.radioReading.frequency or snap.frequency).." / "..state,left,top,title)
     local detail=string.format("Vol %d%% / Mic %s / %s",math.floor(snap.volume*100+.5),snap.mic and "open" or "muted",snap.name)
