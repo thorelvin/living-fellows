@@ -12,6 +12,10 @@
   animation that could carry a companion beyond the floor.
 - Sleeping models line up with their mattresses, and flat sleeping bags keep
   the body above the floor. The adjustment clears when the companion gets up.
+- Bed entry settles the actual rendered direction before the native bed state
+  locks turning, preventing companions from sleeping across the mattress.
+- Optional conversations wait while companions head to bed. Exhausted people
+  also keep sleep priority between searches and door interactions.
 - Backup choices reuse bounded discovery, refresh stale or occupied choices,
   and respect other couch occupants.
 - Ships Lua and the rebuilt native bridge together, retaining protocol

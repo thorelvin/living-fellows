@@ -1573,6 +1573,21 @@ local function awake(actor)
     return known and asleep == false
 end
 
+-- Optional company must not take the small gaps between a sleep survey, door
+-- interaction and bed entry. Native isAsleep becomes true only after arrival.
+local function sleepHasPriority(actor)
+    local downtime = SC.Downtime
+    local state = downtime and type(downtime.peek) == "function" and downtime.peek(actor)
+    if state and state.active and state.active.kind == "rest_bed" then return true end
+    local supervisor = SC.ActionSupervisor
+    local token = supervisor and type(supervisor.current) == "function" and supervisor.current(actor)
+    if token and token.owner == "downtime" and token.action == "rest_bed" then return true end
+    local utility = U()
+    local fatigue = type(utility.characterStatValue) == "function"
+        and utility.characterStatValue(actor, "FATIGUE", 0) or 0
+    return (tonumber(fatigue) or 0) >= config("needsFatigueEmergency", 0.82)
+end
+
 local function calm(snapshot)
     if type(snapshot) ~= "table" then return true end
     if (tonumber(snapshot.threatCount) or #(snapshot.threats or {})) > 0 then return false end
@@ -1604,7 +1619,7 @@ local function available(record, player, current, radius, speechOnly)
     local actor = type(record) == "table" and record.actor or nil
     local utility = U()
     if actor == nil or not utility.isValidActor(actor) or utility.isDead(actor)
-        or not awake(actor) then return nil end
+        or not awake(actor) or sleepHasPriority(actor) then return nil end
     local commands = commandState(actor)
     if commands.recruited ~= true then return nil end
     if not calm(recordSnapshot(record)) then return nil end
@@ -1662,7 +1677,7 @@ local function freeSurvivor(record, current)
     local actor = type(record) == "table" and record.actor or nil
     local utility = U()
     if not actor or not utility.isValidActor(actor) or utility.isDead(actor)
-        or not awake(actor)
+        or not awake(actor) or sleepHasPriority(actor)
         or not calm(recordSnapshot(record)) then return nil end
     if SC.ActionSupervisor and type(SC.ActionSupervisor.current) == "function"
         and SC.ActionSupervisor.current(actor) ~= nil then return nil end
@@ -1698,7 +1713,7 @@ end
 
 local tableServesPair
 local quietAction = {
-    sit = true, rest_bed = true, rest_floor = true,
+    sit = true, rest_floor = true,
     read = true, write_diary = true,
     window_watch = true, tv_watch = true, gear_check = true, radio_check = true,
     tidy_camp = true, weather_recovery = true, clean_base = true,
@@ -1753,7 +1768,8 @@ end
 local function exchangeParticipantReady(record, actor, other, exchange, recruited)
     local utility = U()
     if not record or not utility.isValidActor(actor) or utility.isDead(actor)
-        or not awake(actor) or not calm(recordSnapshot(record)) then return false end
+        or not awake(actor) or sleepHasPriority(actor)
+        or not calm(recordSnapshot(record)) then return false end
     if recruited ~= nil and (commandState(actor).recruited == true) ~= recruited then
         return false
     end

@@ -226,6 +226,7 @@ param(
     [switch]$FurniturePoseOnly,
     [switch]$SleepProbe,
     [switch]$FirestationRestProbe,
+    [switch]$FirestationRestGroup,
     [ValidateRange(1, 5)][int]$FirestationRestFirstTrial = 1,
     [switch]$VehiclePassengerOnly,
     [switch]$SixSeatProbe,
@@ -1290,6 +1291,9 @@ function Save-ClientScreenshot(
 if ($BarricadeHardening -and -not $BarricadeProbe) {
     throw '-BarricadeHardening requires -BarricadeProbe.'
 }
+if ($FirestationRestGroup -and -not $FirestationRestProbe) {
+    throw '-FirestationRestGroup requires -FirestationRestProbe.'
+}
 if ($BarricadeMatrixOnly -and -not $BarricadeHardening) {
     throw '-BarricadeMatrixOnly requires -BarricadeHardening.'
 }
@@ -1941,6 +1945,7 @@ $config = @(
     ('furniture_pose_only=' + $FurniturePoseOnly.IsPresent.ToString().ToLowerInvariant()),
     ('sleep_probe=' + $SleepProbe.IsPresent.ToString().ToLowerInvariant()),
     ('firestation_rest_probe=' + $FirestationRestProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('firestation_rest_group=' + $FirestationRestGroup.IsPresent.ToString().ToLowerInvariant()),
     ('firestation_rest_first_trial=' + $FirestationRestFirstTrial),
     ('vehicle_passenger_only=' + $VehiclePassengerOnly.IsPresent.ToString().ToLowerInvariant()),
     ('six_seat_probe=' + $SixSeatProbe.IsPresent.ToString().ToLowerInvariant()),

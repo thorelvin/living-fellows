@@ -115,14 +115,32 @@ do
         local character = { x=entry.x, y=entry.y, z=entry.z }
         function character:setVariable(name,value) self[name]=value end
         function character:faceLocationF(x,y) self.aimX,self.aimY=x,y end
-        local action = { character=character, bed=first }
+        function character:setTargetAndCurrentDirection(x,y)
+            self.renderX,self.renderY=x,y
+        end
+        local action = { character=character, bed=first, start=function(self)
+            self.startedFacingX,self.startedFacingY=self.character.renderX,self.character.renderY
+            self:setWhileSittingDirection()
+        end }
         SC.BedGeometry.configureEntryAction(action,entry)
         action:setBeforeSitDirection()
         check(character.OnBedDirection==entry.entryKind, "entry action uses the selected side")
         action:setWhileSittingDirection()
-        local dx,dy=character.aimX-character.x,character.aimY-character.y
+        local dx,dy=character.renderX,character.renderY
         check((facing=="N" and dy<0 or facing=="S" and dy>0
             or facing=="E" and dx>0 or facing=="W" and dx<0), "sleep pose follows the verified mattress")
+        character.renderX,character.renderY=-dy,dx
+        action:start()
+        check(action.startedFacingX==dx and action.startedFacingY==dy,
+            "the rendered body faces along the bed before OnBed locks turning")
+        local ordinary={character=character,bed=first,start=function(self)
+            self.startedFacingX,self.startedFacingY=self.character.renderX,self.character.renderY
+        end}
+        SC.BedGeometry.configureEntryAction(ordinary,{facing=facing,correctedFacing=false})
+        character.renderX,character.renderY=-dy,dx
+        ordinary:start()
+        check(ordinary.startedFacingX==dx and ordinary.startedFacingY==dy,
+            "ordinary bed metadata also settles the render angle before native entry")
         check(nativeFacing==(vertical and "W" or "N"), "native/global facing remains unchanged")
         local hx,hy=first.x,first.y
         if facing=="N" then hy=hy+1 elseif facing=="S" then hy=hy-1

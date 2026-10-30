@@ -87,7 +87,169 @@ local function prepareBackup(SC, f, kind)
     target.bed, target.surface = f.backupPieces[1], kind
     f.bedrooms[f.index] = target
 end
-local function beginTrial(H, SC, f, current, check, result, setPhase)
+local beginTrial
+local function beginGroup(H, SC, f, current, check, result, setPhase)
+    f.groupRoom = (f.groupRoom or 0) + 1
+    local target = f.bedrooms[f.groupRoom]
+    if not target then
+        -- Exercise the same entry-facing change on bags and an upstairs bunk,
+        -- plus the couch path which must remain native seated sleep.
+        f.index=2
+        beginTrial(H,SC,f,current,check,result,setPhase)
+        return
+    end
+    f.group, f.target = {}, target
+    local base, old = SC.BaseLife.active(), {}
+    for _, zone in ipairs(base.zones) do if zone.kind == "rest" then old[#old+1] = zone.id end end
+    for _, id in ipairs(old) do SC.BaseLife.removeZone(id) end
+    local okay, reason = addZone(SC, "rest", target.x1, target.y1, target.x2, target.y2, 1,
+        "Three-person bedroom " .. f.groupRoom)
+    if not check("firestation_group_zone_" .. f.groupRoom, okay == true, tostring(reason)) then
+        setPhase("finish", current) return
+    end
+    for _, door in ipairs(f.doors) do
+        call(door,"setLocked",false) call(door,"setLockedByKey",false)
+        if call(door,"IsOpen") == true then call(door,"ToggleDoorSilent") end
+    end
+    local starts = {}
+    for _, square in ipairs(f.ground) do if safe(SC,square) then starts[#starts+1]=square end end
+    table.sort(starts,function(a,b)
+        local ax,ay,bx,by=a:getX()-target.x1,a:getY()-target.y1,b:getX()-target.x1,b:getY()-target.y1
+        return ax*ax+ay*ay > bx*bx+by*by
+    end)
+    for index=1,3 do
+        local square=starts[index]
+        local ticket=square and select(1,SC.Actor.beginSpawn(square,{recruited=true,
+            identity={forename="Sleeper",surname="Group" .. f.groupRoom .. "_" .. index,
+                gender=index==2 and "man" or "woman",outfit="Generic01"}}))
+        if not check("firestation_group_ticket_" .. f.groupRoom .. "_" .. index,ticket~=nil,at(square)) then
+            setPhase("finish",current) return
+        end
+        f.group[index]={ticket=ticket}
+    end
+    f.groupStartedAt, f.groupTraceAt = current, current
+    setPhase("firestation_rest_group_spawn",current)
+end
+local function groupStep(H,SC,f,current,check,result,setPhase)
+    local U=SC.GameplayUtil
+    if H.phase=="firestation_rest_group_spawn" then
+        local ready=true
+        for index,row in ipairs(f.group) do
+            if not row.actor then
+                local actor,reason=SC.Actor.pollSpawn(row.ticket)
+                if actor then
+                    row.actor=actor
+                    row.health=actor:getBodyDamage():getOverallBodyHealth()
+                    SC.Commands.issue(SC.Registry.idOf(actor),"stay",nil,H.player)
+                    SC.BaseLife.setDuty(SC.Registry.idOf(actor),false)
+                    actor:getStats():set(CharacterStat.FATIGUE,1)
+                    actor:getStats():set(CharacterStat.HUNGER,0)
+                    actor:getStats():set(CharacterStat.THIRST,0)
+                elseif reason~="spawn_pending" or current-H.phaseStartedAt>20000 then
+                    result("FAIL","firestation_group_spawn_" .. index,tostring(reason))
+                    setPhase("finish",current) return
+                else ready=false end
+            end
+        end
+        if ready then setPhase("firestation_rest_group_walk",current) end
+        return
+    end
+    if H.phase=="firestation_rest_group_wake" then
+        local standing=true
+        for _,row in ipairs(f.group) do
+            SC.Downtime.cancel(row.actor,"group_trial_complete")
+            if row.actor:isOnBed() or row.actor:isAsleep()
+                or SC.NativeActions.seatingStatus(row.actor)~="standing" then standing=false end
+        end
+        if standing then
+            for index,row in ipairs(f.group) do
+                check("firestation_group_remove_" .. f.groupRoom .. "_" .. index,
+                    SC.Actor.remove(row.actor)==true,"awake and standing before removal")
+            end
+            beginGroup(H,SC,f,current,check,result,setPhase)
+        elseif current-H.phaseStartedAt>25000 then
+            result("FAIL","firestation_group_wake","group did not leave beds normally")
+            setPhase("finish",current)
+        end
+        return
+    end
+    local allAsleep, records, beds = true, {}, {}
+    for index,row in ipairs(f.group) do
+        local actor=row.actor
+        local okay,reason=SC.Downtime.update(actor,H.player,{snapshot={immediateCount=0,
+            threatCount=0,player={danger=0},indoors=true}},"rest_bed")
+        row.reason=reason
+        records[#records+1]={actor=actor,runtime={snapshot={threatCount=0,immediateCount=0}}}
+        local native=SC.NativeActions._bedRestForTests(actor) or {}
+        if actor:isAsleep() then
+            row.sleptAt=row.sleptAt or current
+            if native.object then beds[native.object]=true end
+        else allAsleep=false end
+        if current>=f.groupTraceAt then
+            print("SC_REAL_SANDBOX|FIRESTATION_GROUP|room=" .. f.groupRoom .. " actor=" .. index
+                .. " at=" .. at(actor) .. " state=" .. tostring(reason) .. " asleep=" .. tostring(actor:isAsleep())
+                .. " facing=" .. tostring(native.bedEntry and native.bedEntry.facing)
+                .. " entry=" .. tostring(actor:getVariableString("OnBedDirection"))
+                .. " forward=" .. tostring(call(actor,"getDirectionAngleRadians"))
+                .. " anim=" .. tostring(call(actor,"getAnimAngleRadians"))
+                .. " aligned=" .. tostring(native.modelAligned) .. " failure=" .. tostring(native.failure))
+        end
+    end
+    if current>=f.groupTraceAt then
+        f.groupTraceAt=current+3000
+        local _,campPulse=SC.Banter._socialForTests()
+        campPulse(H.player,records,current)
+    end
+    if allAsleep then
+        f.groupAllAsleepAt=f.groupAllAsleepAt or current
+        if not f.groupPhotoReady then
+            f.groupPhotoReady=true
+            for _,square in ipairs(f.rooms[f.target.room].tiles) do
+                if safe(SC,square) and U.squareOccupyingObject(square)==nil then
+                    H.player:teleportTo(square:getX()+0.5,square:getY()+0.5,1) break
+                end
+            end
+            -- Observation only: use the stock zoom control in this disposable
+            -- cache so all three mattress poses are readable in the evidence.
+            if (tonumber(call(getCore(),"getZoom",0)) or 1)>0.75 then
+                for _=1,4 do call(getCore(),"doZoomScroll",0,-1) end
+            end
+        end
+        if current-f.groupAllAsleepAt<15000 then return end
+        local count=0 for _ in pairs(beds) do count=count+1 end
+        check("firestation_group_distinct_beds_" .. f.groupRoom,count==3,"beds=" .. count)
+        for index,row in ipairs(f.group) do
+            local actor=row.actor
+            local native=SC.NativeActions._bedRestForTests(actor) or {}
+            local angle=call(actor,"getAnimAngleRadians")
+            local facing=native.bedEntry and native.bedEntry.facing
+            local vectors={N={0,-1},S={0,1},E={1,0},W={-1,0}}
+            local vector=vectors[facing]
+            local dot=angle and vector and math.cos(angle)*vector[1]+math.sin(angle)*vector[2]
+            check("firestation_group_sleep_" .. f.groupRoom .. "_" .. index,
+                actor:isOnBed() and actor:isAsleep() and actor:getZ()>=1
+                    and actor:getBodyDamage():getOverallBodyHealth()>=row.health-0.01,
+                "walk=" .. math.floor((row.sleptAt-f.groupStartedAt)/1000) .. "s at=" .. at(actor))
+            check("firestation_group_axis_" .. f.groupRoom .. "_" .. index,
+                dot and dot>0.98,"expected=" .. tostring(facing) .. " anim=" .. tostring(angle)
+                    .. " dot=" .. tostring(dot))
+            check("firestation_group_recovery_" .. f.groupRoom .. "_" .. index,
+                native.modelAligned==true and U.characterStatValue(actor,"FATIGUE",1)<0.999,
+                "modelAligned=" .. tostring(native.modelAligned)
+                    .. " fatigue=" .. tostring(U.characterStatValue(actor,"FATIGUE",1)))
+        end
+        screenshot(H,"three-sleepers-room-" .. f.groupRoom)
+        for _,row in ipairs(f.group) do SC.Downtime.cancel(row.actor,"group_sleep_verified") end
+        f.groupAllAsleepAt,f.groupPhotoReady=nil,nil
+        setPhase("firestation_rest_group_wake",current)
+    elseif current-f.groupStartedAt>210000 then
+        screenshot(H,"group-timeout-" .. f.groupRoom)
+        result("FAIL","firestation_group_sleep","group timeout")
+        setPhase("finish",current)
+    end
+    if not allAsleep then f.groupAllAsleepAt=nil end
+end
+beginTrial = function(H, SC, f, current, check, result, setPhase)
     f.index = f.index + 1
     if f.index == 3 then prepareBackup(SC, f, "bag") end
     if f.index == 4 then prepareBackup(SC, f, "couch") end
@@ -144,6 +306,7 @@ function Probe.step(H, current, check, result, setPhase)
     if H.phase == "firestation_rest_setup" then
         if current - H.phaseStartedAt < 3000 then return end
         SC.Scheduler.unregister("decision")
+        if H.config.firestation_rest_group=="true" and SC.UI then SC.UI.close() end
         H.firestationRest = { bedrooms = {}, roomBeds = {}, doors = {}, ground = {},
             seenDoors = {}, seenBeds = {}, bedPieces = {}, rooms = {}, upperTiles = 0, rawBeds = 0,
             firstTrial = tonumber(H.config.firestation_rest_first_trial) or 1,
@@ -301,9 +464,14 @@ function Probe.step(H, current, check, result, setPhase)
     end
     if H.phase == "firestation_rest_catalogue" then
         if catalogueStep(H, SC, f, result) then
-            beginTrial(H, SC, f, current, check, result, setPhase)
+            if H.config.firestation_rest_group=="true" then
+                beginGroup(H,SC,f,current,check,result,setPhase)
+            else beginTrial(H, SC, f, current, check, result, setPhase) end
         end
         return
+    end
+    if H.phase:find("firestation_rest_group_",1,true) then
+        groupStep(H,SC,f,current,check,result,setPhase) return
     end
     if H.phase == "firestation_rest_spawn" then
         local actor, reason = SC.Actor.pollSpawn(f.ticket)

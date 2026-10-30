@@ -353,31 +353,45 @@ function Geometry.entry(bed, actor)
         facing = facing, entryKind = best[3], correctedFacing = correctedFacing }, "entry"
 end
 
--- Override only this owned action when stock seating metadata disagrees with
--- a verified mattress axis. The native OnBed state/animations remain in charge;
--- no global SeatingManager functions or other actors are changed.
+-- Configure only this owned action. OnBed blocks turning as soon as it enters,
+-- so setting a future facing target can freeze the previous approach angle.
+-- Set both native animation and forward direction before requesting that state.
+-- Stock metadata remains untouched; the mattress and native clips still own
+-- entry position, root movement, sleep and getting up.
 function Geometry.configureEntryAction(action, entry)
-    if not action or not entry or entry.correctedFacing ~= true then return end
+    if not action or not entry then return end
     local vectors = { N = { 0, -1 }, S = { 0, 1 }, E = { 1, 0 }, W = { -1, 0 } }
     local direction = vectors[entry.facing]
     if not direction then return end
-    action.setBeforeSitDirection = function(self)
-        local x, y = U().position(self.character)
-        local bx, by = U().position(self.bed)
-        if x == nil or bx == nil then return end
-        U().call(self.character, "setVariable", "OnBedDirection", entry.entryKind)
-        local dx, dy = direction[1], direction[2]
-        if entry.entryKind ~= "Foot" then
-            if direction[1] == 0 then dx, dy = x < bx + 0.5 and 1 or -1, 0
-            else dx, dy = 0, y < by + 0.5 and 1 or -1 end
+    if entry.correctedFacing == true then
+        action.setBeforeSitDirection = function(self)
+            local x, y = U().position(self.character)
+            local bx, by = U().position(self.bed)
+            if x == nil or bx == nil then return end
+            U().call(self.character, "setVariable", "OnBedDirection", entry.entryKind)
+            local dx, dy = direction[1], direction[2]
+            if entry.entryKind ~= "Foot" then
+                if direction[1] == 0 then dx, dy = x < bx + 0.5 and 1 or -1, 0
+                else dx, dy = 0, y < by + 0.5 and 1 or -1 end
+            end
+            U().call(self.character, "faceLocationF", x + dx * 2, y + dy * 2)
         end
-        U().call(self.character, "faceLocationF", x + dx * 2, y + dy * 2)
     end
     action.setWhileSittingDirection = function(self)
-        local x, y = U().position(self.character)
-        if x ~= nil then
+        local _, set = U().call(self.character, "setTargetAndCurrentDirection",
+            direction[1], direction[2])
+        if not set then
+            local x, y = U().position(self.character)
+            if x == nil then return end
             U().call(self.character, "faceLocationF", x + direction[1] * 2,
                 y + direction[2] * 2)
+        end
+    end
+    local originalStart = action.start
+    if type(originalStart) == "function" then
+        action.start = function(self)
+            self:setWhileSittingDirection()
+            return originalStart(self)
         end
     end
 end

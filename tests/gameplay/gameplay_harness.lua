@@ -26676,6 +26676,32 @@ end)()
         check(not start(campAt + 1100000),
             "a sleeping listener does not enter ordinary camp conversation")
         camperB.asleep = false
+        local savedFatigue = camperA.fatigue
+        camperA.fatigue = 1
+        check(not start(campAt + 1150000)
+            and not SurvivorCompanion.Positioning.activeConversation(camperA),
+            "exhaustion reserves gaps between sleep searches for rest, not optional conversation")
+        camperA.fatigue = savedFatigue
+        local originalPeek = SurvivorCompanion.Downtime.peek
+        SurvivorCompanion.Downtime.peek = function(actor)
+            if actor == camperA then return { active = { kind = "rest_bed", approaching = true } } end
+            return originalPeek(actor)
+        end
+        check(not start(campAt + 1170000)
+            and not banter.availableSpeaker(campRecords[1], player, clock, 14),
+            "walking to bed blocks both posed conversations and optional speech")
+        SurvivorCompanion.Downtime.peek = originalPeek
+        local sleepExchange = start(campAt + 1190000)
+        SurvivorCompanion.Downtime.peek = function(actor)
+            if actor == camperB then return { active = { kind = "rest_bed", approaching = true } } end
+            return originalPeek(actor)
+        end
+        clock = campAt + 1193000
+        local sleepReply,sleepReplyReason = advanceExchange(campRecords, clock)
+        SurvivorCompanion.Downtime.peek = originalPeek
+        check(sleepExchange and not sleepReply and sleepReplyReason == "conversation_interrupted"
+            and not SurvivorCompanion.Positioning.activeConversation(camperB),
+            "seeking bed after an opener releases the pending optional conversation")
         local started = start(campAt + 1300000)
         camperB.asleep = true
         clock = campAt + 1303000
