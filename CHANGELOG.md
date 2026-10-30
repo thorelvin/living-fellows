@@ -2,6 +2,26 @@
 
 # Changelog
 
+## 0.26.78 - Computer polish and persistent companion needs
+
+- Companion tiredness and stamina survive saving and loading. Older saves
+  remain supported; values omitted by earlier versions cannot be recovered.
+- Computer upgrades find parts and tools in crowded inventories and nested
+  bags. Missing-material messages show readable names and the remaining amount.
+- Password recovery text and clickable words use measured glyph widths,
+  keeping them aligned at different resolutions. Hovered words and matching
+  bracket groups gain bold emphasis.
+- Added terminal click feedback and a login sound after a correct password.
+  The generic Local Business logo now preserves its lettering and matches the
+  computer's screen colour.
+- The Camp report menu appears only while the computer is inside camp.
+- Accepted car-wash orders no longer disappear as completed when their supply
+  search fails. They show the blocker and retry every three minutes, returning
+  borrowed containers before pausing. Tire-pump preparation uses the same safe
+  retry policy; uncertain native actions keep their existing recovery rules.
+- Retains native bridge protocol `42.21-isocompanion-24` for Project Zomboid
+  42.21.0. The bridge binary and save schema are unchanged.
+
 ## 0.26.76 - EMMA conversations and companion hardening
 
 - EMMA understands more follow-ups about people, supplies and recent topics.

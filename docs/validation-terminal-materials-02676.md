@@ -1,0 +1,13 @@
+# Computer upgrade materials — 0.26.76 follow-up
+
+Checked the user's console and DebugLog from the 2026-10-29 23:41 session, including the skills-test save loaded at 23:49. LF 0.26.76 and bridge protocol 24 are present. These logs do not capture the reported material-shortage message or an inventory snapshot, and show no terminal Lua exception. They do not establish the exact cause of this user's failed installation.
+
+Reproduced a material lookup defect: the shared computer inventory survey stops at 2,048 items, so a later bag containing four `Base.ElectronicsScrap` items cannot establish ownership or satisfy the backup upgrade. The regression fails on the previous implementation at its first ownership assertion. Material and tool selection now use the game's quantity-limited `getSomeTypeRecurse`; exact ownership follows verified containment links instead of that survey. Consumption and rollback retain the original item identities and containers.
+
+Missing-material messages now show the item name, amount still missing, carried amount and total required. Failed installation completion also records its reason in the console. Costs remain 2 scrap for local controls and 4 for battery backup, each with 1 wire; the radio costs 2 scrap and 1 wire separately.
+
+Verification: the new 11-assertion regression covers a crowded inventory, nested scrap, a late screwdriver, exact consumption/refund, failed-removal rollback, dropped bags, stale/duplicate candidates and containment cycles. Terminal/building/radio UI regressions pass. The native inventory contract checks the required game methods. Full project gate: **29/29 passed**, 175 seconds; 244 Lua files compile normally and with debug enabled. Native bridge source and payload are unchanged. Local logs: `build/control-inventory/ui-tests.txt` and `build/control-inventory/project-gate.txt`.
+
+The user's follow-up screenshot shows `Missing: Base.ElectronicsScrap x1`. The installed game's English `ItemName.json` maps that ID to **Scrap Electronics**, confirming the requested item is correct. The old message reports the remaining deficit, not the total recipe cost; it establishes that some scrap was found, but does not establish the total actually carried.
+
+After the user saved and closed the game on 2026-10-30, the native local installer completed successfully, preserving the private debug configuration at `0.26.76-private-native`. Independent SHA-256 checks confirm the installed `SCControlUtil.lua` and `SCTerminalServices.lua` exactly match the tested source. Installation output is in `build/control-inventory/install-local.txt`. No live acceptance of the user's exact inventory or the two upgrades has been completed.

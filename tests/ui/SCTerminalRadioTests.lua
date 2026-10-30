@@ -223,6 +223,20 @@ local condition=pc.radioItem.getCondition
 pc.radioItem.getCondition=function() return 0 end poll()
 check(R.snapshot(w)==nil,"a broken handset cannot continue reporting reception")
 pc.radioItem.getCondition=condition send("open radio") poll()
+do
+    local previousSound,clicks=getSoundManager,0
+    getSoundManager=function() return {playUISound=function(_,name)
+        check(name==SC.Terminal.CLICK_SOUND,"radio controls use the supplied local UI click")
+        clicks=clicks+1 return clicks
+    end} end
+    w.radioPage="home" w:setFocusMode("menu") w:prerender()
+    local hit=w.radioHits[1]
+    w:onMouseDown(hit.x+1,hit.y+1)
+    check(clicks==1 and w.radioPage=="presets","a radio mouse selection plays one click without duplicating menu feedback")
+    w.radioPage="home" w.entry:setText("2") w:submit()
+    check(clicks==2 and w.radioPage=="scan","radio keyboard menu selection plays one click")
+    getSoundManager=previousSound
+end
 send("scan presets") w:close()
 check(pc.device.channel==90000,"closing the terminal restores its original channel")
 R.reset()

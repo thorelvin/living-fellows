@@ -121,6 +121,7 @@ enter(window, answer)
 settle(window)
 check(not window.system.locked and window.session ~= nil and xp == 5,
     "successful recovery starts EMMA and awards XP once")
+check(window:menuOptions()[1].systemCommand == "report", "a computer brought home offers Camp report first")
 check(not Terminal.awardHackXP(player, placed, window.system) and xp == 5, "an award cannot repeat")
 enter(window, "remember spare key in the jar")
 settle(window)
@@ -161,6 +162,19 @@ check(not window.system.locked and window.system.xpAwarded and xp == 5
     and window.session.operator == "Sam" and #window.session.notes == 1,
     "unlocks, XP receipt, name and notes survive movement and a new session")
 reads = peopleReads + storageReads
+check(window:menuOptions()[1].systemCommand == "files", "moving a computer outside camp removes Camp report and renumbers personal files first")
+enter(window, "1")
+check(window.menuPage == "files", "the outside computer's first numbered shortcut opens personal files")
+window:otherKey(Keyboard.KEY_ESCAPE)
+camp = true
+T.now = T.now + Terminal.WATCH_MS + 1
+window:watch(T.now)
+check(window:menuOptions()[1].systemCommand == "report", "claiming the computer's location restores Camp report while the terminal is open")
+camp = false
+T.now = T.now + Terminal.WATCH_MS + 1
+window:watch(T.now)
+check(window:menuOptions()[1].systemCommand == "files" and peopleReads + storageReads == reads,
+    "losing camp access hides the report without scanning people or storage")
 enter(window, "who is here")
 settle(window)
 enter(window, "how many nails")

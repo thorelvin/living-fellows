@@ -58,6 +58,63 @@ Terminal.reset()
 check(window.closed and not manager.active[handle] and Terminal.window == nil,
     "world teardown releases an active startup clip")
 
+window = open() window:flush()
+check(window.closeButton.sounds.activate==Terminal.CLICK_SOUND,"the native close button uses the supplied click instead of a second default sound")
+local count=#manager.plays
+local menu=window:menuLayout()[2]
+window:onMouseDown(menu.x+1,menu.y+1)
+check(#manager.plays==count+1 and manager.plays[#manager.plays]==Terminal.CLICK_SOUND and window.menuPage=="files",
+    "a mouse menu press plays the supplied click exactly once")
+count=#manager.plays
+window:setFocusMode("menu") window.entry:setText("1") window:submit()
+check(#manager.plays==count+1 and manager.plays[#manager.plays]==Terminal.CLICK_SOUND,
+    "a keyboard menu selection plays that same click once")
+count=#manager.plays
+window.entry:setText("9") window:submit()
+for _=1,3 do window:prerender() end
+check(#manager.plays==count,"invalid menu numbers and repainting do not trigger click sounds")
+window.entry:onMouseDown(1,1)
+check(#manager.plays==count+1 and window.focusMode=="chat","clicking the input line gives local click feedback")
+window:close()
+
+local locked=T.computer(T.square(100,100,0,true))
+Terminal.computerState(player,locked).locked=true
+check(Terminal.open(player,locked),"feedback fixture opens a locked desktop")
+window=Terminal.window window:flush() window:drawSecurity()
+local wrong
+for _,hit in ipairs(window.securityHits) do
+    if hit.value:match("^[A-Z]+$") and hit.value~=window.system.puzzle.answer then wrong=hit break end
+end
+check(wrong~=nil,"feedback fixture has a visible wrong candidate")
+count=#manager.plays
+window:onMouseDown(wrong.x+1,wrong.y+1)
+check(#manager.plays==count+1 and manager.plays[#manager.plays]==Terminal.CLICK_SOUND,
+    "a wrong password gives one click without the login cue")
+window:drawSecurity()
+local correct
+for _,hit in ipairs(window.securityHits) do if hit.value==window.system.puzzle.answer then correct=hit break end end
+check(correct~=nil,"the actual password has a visible native hit target")
+count=#manager.plays
+window:onMouseDown(correct.x+1,correct.y+1)
+check(not window.system.locked and #manager.plays==count+2
+    and manager.plays[count+1]==Terminal.CLICK_SOUND and manager.plays[count+2]==Terminal.LOGIN_SOUND,
+    "clicking the correct password gives one click followed by one login cue")
+count=#manager.plays
+window:flush() window:prerender() window:close()
+Terminal.open(player,locked) window=Terminal.window window:flush()
+check(#manager.plays==count+1 and manager.plays[#manager.plays]==Terminal.BOOT_SOUND,
+    "redraw and reopening an unlocked computer do not replay the successful login")
+window:close()
+
+local typed=T.computer(T.square(100,100,0,true))
+Terminal.computerState(player,typed).locked=true
+Terminal.open(player,typed) window=Terminal.window window:flush()
+count=#manager.plays
+window:setFocusMode("chat") window.entry:setText(window.system.puzzle.answer) window:submit()
+check(not window.system.locked and #manager.plays==count+1 and manager.plays[#manager.plays]==Terminal.LOGIN_SOUND,
+    "typing a correct password gives the same single successful-login cue")
+window:close()
+
 getSoundManager = function() return {playUISound=function() return 0 end} end
 window = open()
 check(window.bootSoundId == nil and not window.closed, "muted or disabled audio needs no cleanup handle")
@@ -65,6 +122,8 @@ window:close()
 getSoundManager = function() return {playUISound=function() error("test unavailable audio device") end} end
 window = open()
 check(window.bootSoundId == nil and window.state == "booting", "audio errors leave the computer usable")
+window:flush() window:setFocusMode("menu") window.entry:setText("2")
+check(pcall(window.submit,window) and window.menuPage=="files","failed click audio does not block the selected menu action")
 window:close()
 getSoundManager = previousManager
 SC_TEST_REPORT = SC_TEST_REPORT .. "; Terminal boot audio: " .. (T.checks-before) .. " checks passed"

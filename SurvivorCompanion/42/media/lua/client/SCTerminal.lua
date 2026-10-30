@@ -30,6 +30,8 @@ Terminal.SCROLLBACK_ROWS = 400
 Terminal.HISTORY = 30
 Terminal.WATCH_MS = 500
 Terminal.BOOT_SOUND = "LFTerminalBoot"
+Terminal.CLICK_SOUND = "LFTerminalClick"
+Terminal.LOGIN_SOUND = "LFTerminalLogin"
 Terminal.BIOS_TEXTURE = "media/textures/Terminal/BIOS/Larchfield.png"
 Terminal.MEMORY_KEY = "LF_Emma"
 Terminal.SESSIONS = 16
@@ -68,6 +70,15 @@ local function diagnostic(message, detail)
     if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
         pcall(SC.Diagnostics.report, "terminal", nil, message, detail)
     end
+end
+
+function Terminal.playFeedbackSound(name)
+    if type(getSoundManager) ~= "function" then return false end
+    local okay, handle = pcall(function()
+        local manager = getSoundManager()
+        return manager and manager:playUISound(name)
+    end)
+    return okay and type(handle) == "number" and handle > 0
 end
 
 -- ---------------------------------------------------------------------------
@@ -645,11 +656,13 @@ function SCTerminalWindow:menuOptions()
         return result
     end
     local options = {
-        { label = "Camp report", systemCommand = "report" },
         { label = "Personal files (" .. #profile.entries .. "): " .. profile.owner, systemCommand = "files" },
         { label = "County files and EMMA", systemCommand = "lore" },
         { label = "Log off", systemCommand = "close" },
     }
+    if self.campReportAvailable then
+        table.insert(options, 1, { label = "Camp report", systemCommand = "report" })
+    end
     if SC.TerminalServices then
         options[#options+1] = {label="Local services",serviceAction="page",serviceValue="home_services"}
     end
@@ -737,6 +750,7 @@ function SCTerminalWindow:createChildren()
     local close = ISButton:new(self:getWidth() - 30, 6, 22, 20, "X", self, SCTerminalWindow.onClose)
     close:initialise()
     close:instantiate()
+    if type(close.setSound) == "function" then close:setSound("activate", Terminal.CLICK_SOUND) end
     close.borderColor = { r = 0.2, g = 0.75, b = 0.32, a = 0.8 }
     close.backgroundColor = { r = 0, g = 0.1, b = 0.04, a = 0.9 }
     close.textColor = { r = 0.45, g = 0.95, b = 0.55, a = 1 }
@@ -761,6 +775,7 @@ function SCTerminalWindow:createChildren()
     entry.onTextChange = function(box) box.terminal:entryChanged() end
     local previousMouseDown = entry.onMouseDown
     entry.onMouseDown = function(box, ...)
+        box.terminal:playClickSound()
         box.terminal:setFocusMode("chat")
         if previousMouseDown then return previousMouseDown(box, ...) end
         return true
@@ -810,6 +825,10 @@ function SCTerminalWindow:onClose()
     self:close()
 end
 
+function SCTerminalWindow:playClickSound()
+    return Terminal.playFeedbackSound(Terminal.CLICK_SOUND)
+end
+
 function SCTerminalWindow:otherKey(key)
     if type(Keyboard) ~= "table" then return end
     if SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then
@@ -822,6 +841,7 @@ function SCTerminalWindow:otherKey(key)
         return
     end
     if key == Keyboard.KEY_ESCAPE then
+        self:playClickSound()
         if SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then SC.TerminalRadioUI.back(self) return end
         if self.menuPage then
             self.menuPage,self.menuSelection = nil,1
@@ -878,6 +898,7 @@ function SCTerminalWindow:onMouseDown(x, y)
         end
         for _, box in ipairs(self.securityHits or {}) do
             if x >= box.x and x < box.x + box.width and y >= box.y and y < box.y + self.rowHeight then
+                self:playClickSound()
                 self:setEntryText(box.value)
                 self:submit()
                 return true
@@ -956,16 +977,21 @@ function SCTerminalWindow:startEmma()
     self:setFocusMode("menu")
 end
 
+function SCTerminalWindow:refreshCampAccess()
+    local okay, camp = pcall(self.world and self.world.camp or function() end)
+    self.campReportAvailable = okay and type(camp) == "table" and camp.inside == true
+end
+
 function SCTerminalWindow:boot()
     self.world = World().new(self.player, self.object)
+    self:refreshCampAccess()
     local failure
     self.system, failure = Terminal.computerState(self.player, self.object)
     if not self.system then error(failure) end
     self.colors = Presentation().colors(self.system.theme)
     self.biosTexture = biosTexture()
     if SC.TerminalBrands then
-        local okay, camp = pcall(self.world.camp)
-        self.brand = okay and camp and camp.inside and "_camp" or self.system.brand
+        self.brand = self.campReportAvailable and "_camp" or self.system.brand
         self.logoTexture = SC.TerminalBrands.texture(self.brand, self.system.theme)
     end
     local ink, title, glass = self.colors.input, self.colors.title, self.colors.background
@@ -1049,11 +1075,46 @@ function SCTerminalWindow:securityHeaderRows()
     return result
 end
 
+function SCTerminalWindow:securityRowRuns(row)
+    local zoom = self.textZoom or 1
+    if row.runs and row.runFont == self.font and row.runZoom == zoom then
+        return row.runs, row.runWidth
+    end
+    local runs, cursor, x = {}, 1, 0
+    local manager = getTextManager()
+    local function add(text, span)
+        if text == "" then return end
+        local okay, pixels = pcall(function() return manager:MeasureStringX(self.font, text) end)
+        local width = okay and type(pixels) == "number" and pixels >= 0 and pixels * zoom
+            or #text * self.charWidth
+        runs[#runs + 1] = { text = text, x = x, width = width, span = span }
+        x = x + width
+    end
+    for _, span in ipairs(row.spans or {}) do
+        add(row.text:sub(cursor, span.start - 1))
+        add(row.text:sub(span.start, span.start + span.length - 1), span)
+        cursor = span.start + span.length
+    end
+    add(row.text:sub(cursor))
+    row.runs, row.runWidth, row.runFont, row.runZoom = runs, x, self.font, zoom
+    return runs, x
+end
+
 function SCTerminalWindow:securityRows()
     local result, p = {}, self.system.puzzle
     local columns = self:columns()
     if not self.securityBoard or self.securityColumns ~= columns then
-        self.securityBoard = System().board(self.system, columns)
+        -- The native code font can have unequal glyph advances. Fit the board
+        -- once per layout, then reuse the measured runs for ink and hit boxes.
+        for count = math.max(12, math.min(64, columns)), 12, -1 do
+            local board, fits = System().board(self.system, count), true
+            for _, row in ipairs(board) do
+                local _, width = self:securityRowRuns(row)
+                if width > self:transcriptWidth() then fits = false break end
+            end
+            self.securityBoard = board
+            if fits then break end
+        end
         self.securityColumns = columns
     end
     for _, row in ipairs(self.securityBoard) do
@@ -1160,6 +1221,7 @@ function SCTerminalWindow:systemInput(raw)
     end
     local number = self.focusMode == "menu" and trimmed:match("^%d+$") and tonumber(trimmed) or nil
     local option = number and self:menuOptions()[number] or nil
+    if option then self:playClickSound() end
     if self.system.locked and lower == "exit" or lower == "log off" or lower == "logoff"
         or option and option.systemCommand == "close" then
         self:close()
@@ -1188,6 +1250,7 @@ function SCTerminalWindow:systemInput(raw)
         elseif code == "success" then
             self.securityHits = {}
             Terminal.awardHackXP(self.player, self.object, self.system)
+            Terminal.playFeedbackSound(Terminal.LOGIN_SOUND)
             self:print("6/6 positions match. Access restored. " .. System().TITLE .. " is ready.", "system")
             pcall(function() self.entry:setPlaceholderText("Type a menu number or ask EMMA.") end)
             self:startEmma()
@@ -1354,6 +1417,9 @@ function SCTerminalWindow:watch(now)
         or call(self.player, "isDead") == true then
         return self:close()
     end
+    local campBefore = self.campReportAvailable
+    self:refreshCampAccess()
+    if campBefore ~= self.campReportAvailable then self.menuSelection = 1 end
     if not Terminal.powered(self.object) then
         self:cancelRequest()
         self:stopBootSound()
@@ -1489,16 +1555,30 @@ function SCTerminalWindow:drawSecurity()
     local y, colors = self:viewTop(), self.colors or Presentation().colors("green")
     for _, row in ipairs(headers) do self:drawRow(row.text, y, row.kind) y = y + self.rowHeight end
     self.securityHits = {}
+    local mouseOver = call(self, "isMouseOver") == true
+    local mouseX, mouseY = call(self, "getMouseX"), call(self, "getMouseY")
     for index = first, last do
         local row = rows[index]
-        self:drawRow(row.text, y, row.kind)
-        for _, span in ipairs(row.spans or {}) do
-            if not span.disabled and self.securityStatus ~= "lockout" then
-                local x = self.layout.left + (span.start - 1) * self.charWidth
-                local ink = span.tried and colors.input or colors.emma
-                self:drawText(span.value, x, y, ink[2], ink[3], ink[4], 1, self.font)
+        for _, run in ipairs(self:securityRowRuns(row)) do
+            local span = run.span
+            local selectable = span and not span.disabled and self.securityStatus ~= "lockout"
+            local x = self.layout.left + run.x
+            local ink = selectable and (span.tried and colors.input or colors.emma)
+                or colors[row.kind] or colors.system
+            self:drawText(run.text, x, y, ink[2], ink[3], ink[4], selectable and 1 or ink[1], self.font)
+            local hovered = selectable and mouseOver and type(mouseX) == "number" and type(mouseY) == "number"
+                and mouseX >= x and mouseX < x + run.width and mouseY >= y and mouseY < y + self.rowHeight
+            if hovered then
+                -- A crisp extra stroke makes this same code face bold without
+                -- changing its measured width or touching the next glyph run.
+                self:setStencilRect(x, y, run.width, self.rowHeight)
+                pcall(self.drawTextZoomed, self, run.text, x + 1, y, self.textZoom or 1,
+                    ink[2], ink[3], ink[4], 1, self.font)
+                self:clearStencilRect()
+            end
+            if selectable then
                 self.securityHits[#self.securityHits + 1] = {
-                    x = x, y = y, width = span.length * self.charWidth, value = span.value }
+                    x = x, y = y, width = run.width, value = span.value }
             end
         end
         y = y + self.rowHeight

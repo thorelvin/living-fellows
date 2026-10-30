@@ -2477,13 +2477,15 @@ function BaseWork.update(actor, player, runtime)
             or string.find(tostring(reason or ""), "outcome_unknown", 1, true) ~= nil
             or string.find(tostring(reason or ""), "chef_native", 1, true) ~= nil
             or reason == "chef_heating_receipt_missing")
-        local uncertainRefuel = (job.type == "refuel_vehicle"
+        local supplyRetryMs = SC.BaseLife.upkeepSupplyRetryMs
+            and SC.BaseLife.upkeepSupplyRetryMs(job, reason)
+        local uncertainRefuel = not supplyRetryMs and (job.type == "refuel_vehicle"
                 or job.type == "refuel_generator"
                 or job.type == "inflate_tires" or job.type == "wash_vehicle")
             and (string.find(tostring(reason or ""), "uncertain", 1, true) ~= nil
                 or string.find(tostring(reason or ""), "unreadable", 1, true) ~= nil
                 or string.find(tostring(reason or ""), "missing", 1, true) ~= nil)
-        local retryMs = (uncertainChef or uncertainRefuel)
+        local retryMs = supplyRetryMs or (uncertainChef or uncertainRefuel)
             and 3600000 or (U().config("baseJobRetryMs") or 10000)
         SC.BaseLife.blockJob(job.id, id, reason, retryMs)
         if SC.Dialogue and type(SC.Dialogue.missingToolKind) == "function"

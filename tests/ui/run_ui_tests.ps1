@@ -112,6 +112,7 @@ try {
             (Join-Path $TestRoot 'SCTerminalReadingTests.lua')
             (Join-Path $TestRoot 'SCTerminalHardeningTests.lua')
             (Join-Path $TestRoot 'SCTerminalWrappingTests.lua'),
+            (Join-Path $TestRoot 'SCTerminalSecurityLayoutTests.lua'),
             (Join-Path $TestRoot 'SCTerminalConversationTests.lua')
         )
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @terminalFiles
@@ -125,6 +126,13 @@ try {
         $buildingFiles += Join-Path $TestRoot 'SCTerminalMapTests.lua'
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @buildingFiles
         if ($LASTEXITCODE -ne 0) { throw 'Building services and station ownership tests failed.' }
+        $inventoryFiles = @(
+            (Join-Path $TestRoot 'SCTerminalFixture.lua'),
+            (Join-Path $Client 'SCControlUtil.lua'),
+            (Join-Path $TestRoot 'SCControlInventoryTests.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @inventoryFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Computer installation inventory regressions failed.' }
         $radioFiles=@($terminalFiles | Where-Object { $_ -notmatch 'Tests\.lua$' })
         foreach ($module in @('SCControlUtil','SCTerminalHardware','SCTerminalRadio','SCTerminalRadioUI','SCTerminalServices')) {
             $radioFiles+=Join-Path $Client ($module+'.lua')

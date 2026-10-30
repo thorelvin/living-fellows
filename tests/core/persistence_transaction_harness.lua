@@ -135,6 +135,7 @@ end
 -- key path. Invalid numeric keys remain raw quarantine passthrough values.
 check(SC.Persistence.reset() == true, "persistence starts from a clean transaction")
 local mixedValid = record("sc-mixed-valid")
+mixedValid.vitals = { fatigue = 0.91, endurance = 0.23 }
 local mixedRaw = { marker = "numeric-key-must-survive" }
 local mixedDocument = {
     schema = SC.Identity.saveSchema,
@@ -162,6 +163,9 @@ local mixedSaved, mixedOutgoing = SC.Persistence.save(mixedPlayer)
 check(mixedSaved == true and mixedOutgoing.companions[7].marker == mixedRaw.marker
         and mixedData.document.companions[7].marker == mixedRaw.marker,
     "invalid numeric-key data is re-emitted without truncation")
+check(mixedOutgoing.companions[mixedValid.id].vitals.fatigue == 0.91
+        and mixedOutgoing.companions[mixedValid.id].vitals.endurance == 0.23,
+    "pending companion tiredness and stamina survive document import and re-save before their square loads")
 
 check(SC.Persistence.reset() == true, "saw receipt persistence starts cleanly")
 local sawRecord = record("sc-saw-recovery")

@@ -206,8 +206,8 @@ function UI.input(w,raw,chosen)
 end
 function UI.key(w,key)
     if UI.active(w) and w.focusMode=="menu" and not w.requestTicket then
-        if key==Keyboard.KEY_LEFT then UI.input(w,"previous preset") return true end
-        if key==Keyboard.KEY_RIGHT then UI.input(w,"next preset") return true end
+        if key==Keyboard.KEY_LEFT then w:playClickSound() UI.input(w,"previous preset") return true end
+        if key==Keyboard.KEY_RIGHT then w:playClickSound() UI.input(w,"next preset") return true end
     end
     return false
 end
@@ -243,6 +243,7 @@ function UI.click(w,x,y)
     if not UI.active(w) then return false end
     for _,box in ipairs(w.radioHits or {}) do
         if x>=box.x and x<box.x+box.width and y>=box.y and y<box.y+box.height then
+            w:playClickSound()
             w:setFocusMode("menu") w.menuSelection=box.index
             act(w,box.option.radioAction,box.option.radioValue) return true
         end

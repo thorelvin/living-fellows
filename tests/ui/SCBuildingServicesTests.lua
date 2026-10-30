@@ -237,7 +237,9 @@ check(SC.RadioEndpoints.validate(player,endpoint)==false,"removed radios never r
 SC.Terminal.window=nil squares["100:100"].generatorPower=true
 check(SC.Terminal.open(player,pc)==true,"native-shaped UI opens with the new modules")
 local window=SC.Terminal.window window:flush()
-check(#window:menuOptions()==5,"local services extend the existing menu without changing old shortcuts")
+check(#window:menuOptions()==4 and window:menuOptions()[1].systemCommand=="files"
+    and window:menuOptions()[4].serviceValue=="home_services",
+    "outside computers retain numbered local services while hiding Camp report")
 S.input(window,"building services")
 check(window.menuPage=="services" and #window:menuOptions()<=9,"building services have bounded numbered controls")
 window.menuPage="device" window.serviceDevice=doorRow.id

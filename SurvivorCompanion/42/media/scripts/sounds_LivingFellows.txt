@@ -52,6 +52,32 @@ module Base
         }
     }
 
+    sound LFTerminalClick
+    {
+        category = UI,
+        loop = false,
+        maxInstancesPerEmitter = 1,
+        clip
+        {
+            file = media/sound/LFTerminalClick.ogg,
+            is3D = false,
+            volume = 0.75,
+        }
+    }
+
+    sound LFTerminalLogin
+    {
+        category = UI,
+        loop = false,
+        maxInstancesPerEmitter = 1,
+        clip
+        {
+            file = media/sound/LFTerminalLogin.ogg,
+            is3D = false,
+            volume = 0.85,
+        }
+    }
+
     sound LFUrinate
     {
         category = Player,

@@ -27,6 +27,10 @@ public final class SCItemContainerContractTest {
         Method hasRoomFor = container.getMethod("hasRoomFor", character, item);
         require(hasRoomFor.getReturnType() == boolean.class,
                 "ItemContainer.hasRoomFor(IsoGameCharacter, InventoryItem) return contract changed");
+        require(java.util.List.class.isAssignableFrom(container.getMethod("getSomeTypeRecurse", String.class, int.class).getReturnType()),
+                "Quantity-limited recursive material selection is unavailable");
+        require(item.isAssignableFrom(container.getMethod("getContainingItem").getReturnType()),
+                "Bag ownership lookup is unavailable");
         System.out.println("ITEM_CONTAINER_CONTRACT_PASS create="
                 + create.getReturnType().getName()
                 + " add=" + add.getReturnType().getName()

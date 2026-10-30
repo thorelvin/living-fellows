@@ -366,7 +366,7 @@ for id,info in pairs(B.BY_ID) do
         info.kind=info.kind or "office"
     end
 end
-for _,id in ipairs({"_retail","_food","_hotel","_electronics"}) do B.BY_ID[id].mono=true end
+for _,id in ipairs({"_retail","_food","_hotel","_electronics","_office"}) do B.BY_ID[id].mono=true end
 -- One neutral camp mark uses the current phosphor in every theme. Its crop
 -- and keyed backing share the same metadata path as the business headers.
 function B.crop(id, theme)

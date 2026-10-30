@@ -1,0 +1,30 @@
+{
+  "entries": [
+    {
+      "source": "User-provided mouse_click.mp3 from Downloads",
+      "original_file": "artifacts/emma/audio-source/mouse_click.mp3",
+      "source_sha256": "075e17bdac5c13662a1c9530050e0046f81d4138e00eb3bf30427a7b4404103d",
+      "game_file": "SurvivorCompanion/42/media/sound/LFTerminalClick.ogg",
+      "game_sha256": "81dfad3973ed07613efead9e98d0a24a0dced6919a55758734693e92eba22fc6",
+      "sample_rate": 44100,
+      "channels": 2,
+      "frames": 16128,
+      "duration_seconds": 0.3657142857142857,
+      "conversion": "Local libsndfile float32 decode and Ogg Vorbis encode; no trimming, normalization or resampling.",
+      "registered_sound": "LFTerminalClick"
+    },
+    {
+      "source": "User-provided login.mp3 from Downloads",
+      "original_file": "artifacts/emma/audio-source/login.mp3",
+      "source_sha256": "efc6cf8379a5547e50626662ff720cf8e02e94b4438b5d2408c77709fa5c9e5f",
+      "game_file": "SurvivorCompanion/42/media/sound/LFTerminalLogin.ogg",
+      "game_sha256": "370a2de41634b495d4414152f6e3d6c2071c8282d7628356b12508ba08e57fd4",
+      "sample_rate": 22050,
+      "channels": 1,
+      "frames": 20160,
+      "duration_seconds": 0.9142857142857143,
+      "conversion": "Local libsndfile float32 decode and Ogg Vorbis encode; no trimming, normalization or resampling.",
+      "registered_sound": "LFTerminalLogin"
+    }
+  ]
+}

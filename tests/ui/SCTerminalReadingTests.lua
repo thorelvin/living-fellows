@@ -28,16 +28,23 @@ local function open()
     return window,computer
 end
 local function paint(window)
-    local painted,hint={},nil
+    local painted,hint,securityRows={},nil,{}
     local drawRow,drawText=window.drawRow,window.drawText
     window.drawRow=function(self,value,y,kind)
         check(y>=self:viewTop() and y+self.rowHeight<=self:viewBottom()+2,
             "every painted content row remains above the hints and input")
-        painted[#painted+1]=value
+        if not self.system.locked then painted[#painted+1]=value end
         return drawRow(self,value,y,kind)
     end
     window.drawText=function(self,value,x,y,...)
         if y==self.layout.hintY then hint=value end
+        if self.system.locked and y>=self:viewTop() and y+self.rowHeight<=self:viewBottom()+2 then
+            -- Password rows now paint measured colour runs rather than
+            -- repainting a second copy of each highlighted word.
+            if not securityRows[y] then securityRows[y]=#painted+1 painted[#painted+1]="" end
+            local index=securityRows[y]
+            painted[index]=painted[index]..value
+        end
         return drawText(self,value,x,y,...)
     end
     window:prerender()

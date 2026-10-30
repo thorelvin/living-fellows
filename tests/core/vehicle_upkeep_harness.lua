@@ -341,4 +341,73 @@ Upkeep.cancel(T.actor, slicedWash)
 SC.Navigation.selectInteraction = sliceChoice
 SC.GameplayUtil.gridSquare, SC.Navigation.selectInteraction, T.base.zones =
     oldGrid, oldChoice, oldZones
+
+-- Tess's accepted wash orders disappeared as "upkeep_supply_exhausted".
+-- Queue-time discovery does not prove this worker can reach the supplies.
+T.base.jobs, T.actor.inventory.items = {}, {}
+T.resetNative()
+SC_REFUEL_TEST.clock(SC_REFUEL_TEST.clock() + 30001)
+T.sink.amount, T.blood.Front, emptyBucket.fluid.amount = 10, 0.25, 0
+T.waterStorage.container.items = { emptyBucket }
+local accepted, waitingWash = Upkeep.queue("wash_vehicle", T.car.id, true)
+check(accepted, "wash is accepted before surveying the worker's routes")
+SC.Navigation.selectInteraction = function(_, _, key, choices)
+    if key == "vehicle_wash_sink" then return nil, "unreachable" end
+    return choices[1]
+end
+local workerState = {}
+local handled, blockedReason, blocked, completed = Upkeep.update(T.actor, workerState, waitingWash)
+check(not handled and blocked and not completed
+    and blockedReason == "base_wash_sink_unreachable"
+    and T.waterStorage.container.items[1] == emptyBucket
+    and not T.native() and not emptyBucket.data.LF_UpkeepJobId,
+    "an inaccessible sink pauses the accepted job without claiming success or moving its vessel")
+SC.Navigation.selectInteraction = function(_, _, _, choices) return choices[1] end
+SC_REFUEL_TEST.clock(SC_REFUEL_TEST.clock() + 180000)
+handled, blockedReason = Upkeep.update(T.actor, workerState, waitingWash)
+check(handled and blockedReason == "upkeep_supply_carried"
+    and waitingWash.target.sourceKind == "sink",
+    "the same wash resumes after the sink becomes reachable without expiring its preparation clock")
+check(Upkeep.cancel(T.actor, waitingWash), "recovered wash returns its exact borrowed bucket")
+
+T.base.jobs = {}
+local _, depletedWash = Upkeep.queue("wash_vehicle", T.car.id, true)
+T.waterStorage.container.items = {} -- taken after the order was accepted
+handled, blockedReason, blocked, completed = Upkeep.update(T.actor, {}, depletedWash)
+check(not handled and blocked and not completed and blockedReason == "base_wash_water_missing",
+    "supplies disappearing after acceptance pauses rather than completes the wash")
+T.waterStorage.container.items = { emptyBucket }
+handled, blockedReason = Upkeep.update(T.actor, {}, depletedWash)
+check(handled and blockedReason == "upkeep_supply_carried",
+    "restocking resumes the original wash without another order")
+check(Upkeep.cancel(T.actor, depletedWash), "restocked wash returns the vessel")
+
+T.base.jobs = {}
+local _, blockedStorage = Upkeep.queue("wash_vehicle", T.car.id, true)
+SC.Navigation.selectInteraction = function(_, _, key, choices)
+    if key == "vehicle_upkeep_empty_water" then return nil, "unreachable" end
+    return choices[1]
+end
+handled, blockedReason, blocked, completed = Upkeep.update(T.actor, {}, blockedStorage)
+check(not handled and blocked and not completed
+    and blockedReason == "upkeep_supply_route_unreachable"
+    and not emptyBucket.data.LF_UpkeepJobId,
+    "an inaccessible storage route retains its own reason and no item receipt")
+SC.Navigation.selectInteraction = function(_, _, _, choices) return choices[1] end
+Upkeep.cancel(T.actor, blockedStorage)
+
+T.base.jobs = {}
+local _, drySink = Upkeep.queue("wash_vehicle", T.car.id, true)
+Upkeep.update(T.actor, {}, drySink) -- borrow the empty bucket
+T.sink.amount = 0
+handled, blockedReason = Upkeep.update(T.actor, {}, drySink)
+check(handled and blockedReason == "upkeep_returning_supply", "a dry sink first returns its borrowed vessel")
+handled, blockedReason, blocked, completed = Upkeep.update(T.actor, {}, drySink)
+check(not handled and blocked and not completed and blockedReason == "base_wash_sink_missing"
+    and T.waterStorage.container.items[1] == emptyBucket
+    and emptyBucket.data.LF_UpkeepJobId == nil and drySink.target.itemId == nil,
+    "only after the exact vessel is home can a dry sink pause safely for a retry")
+Upkeep.cancel(T.actor, drySink)
+T.sink.amount = 10
+SC.Navigation.selectInteraction = oldChoice
 print("VEHICLE_UPKEEP_PASS checks=" .. tostring(checks))

@@ -253,8 +253,11 @@ local function supply(kind, actor, state)
             end
             return empty[1], empty[2], empty[3], "sink"
         end
+        return nil, nil, nil, reason == "wash_sink_unreachable"
+            and "base_wash_sink_unreachable" or "base_wash_sink_missing"
     end
-    return nil
+    return nil, nil, nil, kind == "inflate_tires" and "base_tire_pump_missing"
+        or "base_wash_water_missing"
 end
 local function itemFor(job, actor)
     local target = job.target
@@ -386,14 +389,19 @@ function Upkeep.queue(kind, vehicleId, manual)
         end
         return false, "upkeep_already_queued"
     end
-    if not supply(kind) then
-        return false, kind == "inflate_tires" and "base_tire_pump_missing"
-            or "base_wash_water_missing"
+    local storage, _, _, supplyReason = supply(kind)
+    if not storage then
+        return false, supplyReason
     end
-    return SC.BaseLife.enqueueJob({ type = kind,
+    local accepted, result = SC.BaseLife.enqueueJob({ type = kind,
         priority = manual == true and 5 or 2,
         target = { vehicleId = vehicleId, zoneId = info.zoneId,
             x = info.x, y = info.y, z = info.z, manual = manual == true } })
+    if accepted and SC.Diagnostics and SC.Diagnostics.report then
+        SC.Diagnostics.report("vehicle-upkeep", result.id, "queued " .. kind,
+            "vehicle=" .. tostring(vehicleId))
+    end
+    return accepted, result
 end
 function Upkeep.audit()
     if not SC.Vehicle or not SC.Vehicle.loadedVehicles then
@@ -580,7 +588,11 @@ function Upkeep.update(actor, baseState, job)
                     or sourceKind == "upkeep_supply_route_unknown" then
                     return true, sourceKind
                 end
-                return true, sourceKind or "upkeep_supply_exhausted", false, true
+                -- Acceptance only checked that supplies existed. A different
+                -- worker may take them, or this worker may find no safe route.
+                -- Neither means the car was serviced. Keep the job for retry.
+                target.stageStartedAt = nil
+                return false, sourceKind, true
             end
             if not mark(item, job.id) then return false, "upkeep_supply_reserved", true end
             target.sourceStorageId, target.itemId = storage.id, call(item, "getID")
@@ -836,8 +848,14 @@ function Upkeep.update(actor, baseState, job)
     local finishReason = target.finishReason
     target.finishReason = nil
     clearTarget(target)
-    if finishReason == "wash_water_exhausted" and supply(job.type, actor) then
-        return true, "upkeep_next_water_container"
+    if finishReason == "wash_water_exhausted" then
+        local nextStorage, _, _, reason = supply(job.type, actor)
+        if nextStorage then return true, "upkeep_next_water_container" end
+        return false, reason, true
+    end
+    if finishReason == "base_wash_sink_missing"
+        or finishReason == "base_wash_sink_unreachable" then
+        return false, finishReason, true
     end
     return true, finishReason or "upkeep_complete", false, true
 end

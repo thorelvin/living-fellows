@@ -325,6 +325,9 @@ function SCComputerInstallAction:complete()
     local called,okay,reason=pcall(self.effect)
     self.result=called and okay==true
     self.lastReason=called and reason or tostring(okay)
+    if not self.result then
+        print("[SurvivorCompanion][computer-install] failed: "..tostring(self.lastReason))
+    end
     U().call(self.character,"Say",called and U().error(reason or (okay and "Installation completed." or "Installation failed.")) or "Installation stopped; inspect the equipment.")
     return self.result
 end

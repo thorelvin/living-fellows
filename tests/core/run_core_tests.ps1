@@ -174,6 +174,16 @@ try {
     Push-Location -LiteralPath $GameRoot
     try {
         Add-ScJvmStep 'core' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $coreFiles 'Core Kahlua integration harness failed.'
+        $vitalsNeedsFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCCall.lua'),
+            (Join-Path $Shared 'SCStableValue.lua'),
+            (Join-Path $Shared 'SCNativeList.lua'),
+            (Join-Path $Shared 'SCVitals.lua'),
+            (Join-Path $TestRoot 'vitals_needs_persistence_harness.lua')
+        )
+        Add-ScJvmStep 'vitals-needs-persistence' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $vitalsNeedsFiles 'Companion tiredness and stamina reload regression failed.'
         $capacityFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),

@@ -209,6 +209,8 @@ function vitals.capture(actor)
         apparentInfection = finite(invoke(body, "getApparentInfectionLevel", 0), 0),
         hunger = captureStat(actor, "HUNGER"),
         thirst = captureStat(actor, "THIRST"),
+        fatigue = captureStat(actor, "FATIGUE"),
+        endurance = captureStat(actor, "ENDURANCE"),
         parts = {},
     }
 
@@ -344,14 +346,19 @@ function vitals.apply(actor, saved)
 
     local stats = invoke(actor, "getStats", nil)
     local restoredNeeds = {}
-    for _, entry in ipairs({ { "HUNGER", saved.hunger }, { "THIRST", saved.thirst } }) do
+    -- Companions are reconstructed on load. Optional fields retain older save
+    -- compatibility, while new saves preserve exhaustion instead of granting
+    -- a fresh actor's default sleep and stamina on every reload.
+    for _, entry in ipairs({ { "HUNGER", saved.hunger }, { "THIRST", saved.thirst },
+        { "FATIGUE", saved.fatigue }, { "ENDURANCE", saved.endurance } }) do
         local stat = characterStat(entry[1])
         local amount = finite(entry[2], nil)
         if stats and stat ~= nil and amount ~= nil then
             amount = math.max(0, math.min(1, amount))
             local ok, reason = setRequired(stats, "set", stat, amount)
             if not ok then return false, reason end
-            restoredNeeds[#restoredNeeds + 1] = { name = entry[1], amount = amount }
+            restoredNeeds[#restoredNeeds + 1] = { name = entry[1], amount = amount,
+                field = string.lower(entry[1]) }
         end
     end
 
@@ -373,7 +380,7 @@ function vitals.apply(actor, saved)
         return false, "native vitals did not retain restored health/infection state"
     end
     for _, entry in ipairs(restoredNeeds) do
-        local value = entry.name == "HUNGER" and verified.hunger or verified.thirst
+        local value = verified[entry.field]
         if type(value) ~= "number" or math.abs(value - entry.amount) > 0.001 then
             return false, "native vitals did not retain restored " .. string.lower(entry.name)
         end

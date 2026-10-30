@@ -165,8 +165,29 @@ local AUTO_RETRY_UNCERTAIN_MARKERS = {
     "owner_unknown", "marker", "ambiguous", "chef_native",
     "restart_needs_recovery", "fire_spread",
 }
+local UPKEEP_SUPPLY_BLOCKERS = {
+    base_tire_pump_missing = true, base_wash_water_missing = true,
+    base_wash_sink_missing = true, base_wash_sink_unreachable = true,
+    upkeep_supply_route_unreachable = true, upkeep_supply_route_no_candidates = true,
+}
+-- Only an empty preparation receipt can use this shorter retry. Missing native
+-- state while washing/inflating must retain conservative recovery instead.
+function BaseLife.upkeepSupplyRetryMs(job, reason)
+    if type(job) ~= "table" or (job.type ~= "wash_vehicle"
+        and job.type ~= "inflate_tires") or not UPKEEP_SUPPLY_BLOCKERS[reason] then
+        return nil
+    end
+    local target = job.target
+    if type(target) ~= "table" or (target.stage ~= nil and target.stage ~= "selecting")
+        or target.itemId ~= nil or target.sourceStorageId ~= nil
+        or target.before ~= nil or target.waterBefore ~= nil
+        or target.actionStartedAt ~= nil then return nil end
+    return 180000
+end
 local function transientJobDelay(job, reason)
     if type(job) ~= "table" then return nil end
+    local upkeepDelay = BaseLife.upkeepSupplyRetryMs(job, reason)
+    if upkeepDelay then return upkeepDelay end
     if reason == "destination_full" or reason == "haul_destinations_full"
         or reason == "car_unload_storage_full_or_missing" then return 30000 end
     if job.type == "farm" then return TRANSIENT_FARM_BLOCKERS[reason] end
@@ -4753,6 +4774,7 @@ function BaseLife.jobAutoRetry(job)
         return false
     end
     local reason = tostring(job.blocker or "")
+    if BaseLife.upkeepSupplyRetryMs(job, reason) then return true end
     -- Preserve conservative native-effect/receipt recovery. In particular,
     -- vehicle controllers deliberately request a longer check for any missing
     -- native state; the ordinary few-minute policy must never shorten it.

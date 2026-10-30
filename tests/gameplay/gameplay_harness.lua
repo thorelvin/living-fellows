@@ -21166,6 +21166,29 @@ do
                 blocker = reason, attempts = 6 }),
             "fuel recovery retains its conservative native check: " .. reason)
     end
+    for _, kind in ipairs({ "wash_vehicle", "inflate_tires" }) do
+        local reason = kind == "wash_vehicle" and "base_wash_sink_unreachable"
+            or "base_tire_pump_missing"
+        local queued, upkeep = BaseLife.enqueueJob({ type = kind, priority = 5,
+            assignedId = fellow.id, target = { x = 2, y = 2, z = 0, vehicleId = 41 } })
+        check(queued, "upkeep retry fixture queues")
+        for _ = 1, 8 do BaseLife.blockJob(upkeep.id, nil, reason) end
+        check(BaseLife.jobAutoRetry(upkeep) and upkeep.attempts == 0
+            and upkeep.retryAt - clock == 180000,
+            "safe upkeep preparation keeps retrying every three minutes: " .. kind)
+        local savedRetry = upkeep.retryAt
+        local snapshot = BaseLife.export()
+        check(BaseLife.restore(snapshot), "paused upkeep survives reload")
+        upkeep = BaseLife.job(upkeep.id)
+        check(upkeep and upkeep.retryAt == savedRetry and BaseLife.jobAutoRetry(upkeep),
+            "reload preserves the upkeep pause and automatic retry")
+        upkeep.target.stage, upkeep.target.itemId = "working", 456
+        check(not BaseLife.jobAutoRetry(upkeep)
+            and BaseLife.upkeepSupplyRetryMs(upkeep, reason) == nil,
+            "a live native receipt cannot use the preparation retry")
+        upkeep.target.stage, upkeep.target.itemId = nil, nil
+        BaseLife.cancelJob(upkeep.id)
+    end
     check(BaseLife.jobAutoRetry({ type="generator_service",state="blocked",blocker="missing_supply:Base.ElectronicsScrap",attempts=6 }),
         "generator repair preparation retries when actual scrap becomes available")
     check(not BaseLife.jobAutoRetry({ type="generator_service",state="blocked",blocker="native_receipt_uncertain",attempts=6 }),

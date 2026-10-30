@@ -86,24 +86,50 @@ function U.items(actor)
     return found
 end
 function U.owns(actor, item)
-    for _, candidate in ipairs(U.items(actor)) do if candidate == item then return true end end
+    local inventory=U.inventory(actor)
+    local container=U.call(item,"getContainer")
+    local seen={}
+    -- Ownership is a containment proof, not a capped inventory survey. Check
+    -- every bag link so a dropped bag or stale getContainer cannot grant it.
+    while inventory and container and not seen[container] do
+        seen[container]=true
+        if SC.GameplayUtil.containerContainsIdentity(container,item)~=true then return false end
+        if container==inventory then return true end
+        local owner=U.call(container,"getContainingItem")
+        if not owner or U.call(owner,"getInventory")~=container then return false end
+        item,container=owner,U.call(owner,"getContainer")
+    end
     return false
 end
+local function matchingParts(actor,kind,amount)
+    -- Native selection scans carried bags without the menu's 2,048-item cap,
+    -- and returns at most the quantity required by this one installation.
+    local found,okay=SC.GameplayUtil.call(U.inventory(actor),"getSomeTypeRecurse",kind,amount)
+    if okay and found then return U.list(found,amount) end
+    return U.items(actor)
+end
 function U.parts(actor, costs)
-    local selected, left = {}, {}
-    for kind, amount in pairs(costs or {}) do left[kind] = amount end
-    for _, item in ipairs(U.items(actor)) do
-        local kind = U.call(item, "getFullType")
-        if (left[kind] or 0) > 0 then selected[#selected + 1] = item left[kind] = left[kind] - 1 end
+    local selected, seen, missing = {}, {}, {}
+    for kind, amount in pairs(costs or {}) do
+        local left=amount
+        for _,item in ipairs(matchingParts(actor,kind,amount)) do
+            if left>0 and not seen[item] and U.call(item,"getFullType")==kind and U.owns(actor,item) then
+                selected[#selected+1]=item seen[item]=true left=left-1
+            end
+        end
+        if left>0 then
+            local name=type(getItemNameFromFullType)=="function" and getItemNameFromFullType(kind) or kind
+            missing[#missing+1]=name.." x"..left.." (carrying "..(amount-left).." of "..amount.." required)"
+        end
     end
-    local missing = {}
-    for kind, amount in pairs(left) do if amount > 0 then missing[#missing + 1] = kind .. " x" .. amount end end
     table.sort(missing)
     if #missing > 0 then return nil, "Missing: " .. table.concat(missing, ", ") end
     return selected
 end
 function U.hasTool(actor, kind)
-    for _, item in ipairs(U.items(actor)) do if U.call(item, "getFullType") == kind then return true end end
+    for _, item in ipairs(matchingParts(actor,kind,1)) do
+        if U.call(item,"getFullType")==kind and U.owns(actor,item) then return true end
+    end
     return false
 end
 -- On the game thread, either every exact component is removed or all are put

@@ -3,6 +3,7 @@
 import argparse
 import colorsys
 import json
+from collections import Counter
 from pathlib import Path
 
 from PIL import Image
@@ -56,12 +57,19 @@ def main():
                        for px in range(0, width, step_bg)]
             opaque = [p for p in samples if p[3] > 192]
             if name not in transparent_headers and len(opaque) > len(samples) * .72:
-                from collections import Counter
                 buckets = Counter(tuple(c//8 for c in p[:3]) for p in opaque)
                 common, count = buckets.most_common(1)[0]
                 if count > len(opaque) * .28:
                     pixels = [p for p in opaque if tuple(c//8 for c in p[:3]) == common]
                     backings[name] = [round(sum(p[c] for p in pixels)/len(pixels)/255, 6) for c in range(3)]
+            if name == "_office":
+                # This authored mark has cream lettering over a navy panel.
+                # The broad pale letters are ink, not the background: keying
+                # them erased the wordmark and left its blue silhouette.
+                navy = [p for p in opaque if p[2] > p[0] * 2 and p[2] > p[1] * 1.4]
+                common = Counter(tuple(c//8 for c in p[:3]) for p in navy).most_common(1)[0][0]
+                pixels = [p for p in navy if tuple(c//8 for c in p[:3]) == common]
+                backings[name] = [round(sum(p[c] for p in pixels)/len(pixels)/255, 6) for c in range(3)]
             key = backings.get(name)
             ink = [p for p in opaque if key is None or sum((p[c]/255-key[c])**2 for c in range(3)) > .01]
             if ink:

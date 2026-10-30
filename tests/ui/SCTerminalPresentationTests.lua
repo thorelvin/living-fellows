@@ -180,6 +180,25 @@ check(Brands.crop("_camp","aqua")==Brands.crop("_camp","purple")
     "all four camp themes share one neutral crop and keyed backing without atlas row or tint mismatches")
 check(Brands.crop("Fossoil","purple")==Brands.CROPS.Fossoil,
     "camp palette correction preserves business logo colours")
+do
+    local oldBridge,oldHost,oldBrand=SCBridge,window.javaObject,window.brand
+    SCBridge={drawTerminalLogo=function(_,_,_,_,_,_,_,r,g,b,kr,kg,kb,keyed,mono,darkInk)
+        local ink=P.colors(window.system.theme).title
+        check(r==ink[2] and g==ink[3] and b==ink[4] and keyed and mono and not darkInk
+            and kr<0.05 and kg<0.3 and kb>0.4,
+            "the office fallback preserves pale lettering, keys its navy backing, and matches "..window.system.theme.." phosphor")
+        return true
+    end}
+    window.javaObject,window.brand={},"_office"
+    for _,theme in ipairs({"green","sand","aqua","purple"}) do
+        window.system.theme=theme window.logoTexture=Brands.texture("_office",theme)
+        window:drawHeaderLogo()
+        check(window.lastNativeLogoDraw and T.stencil==nil,"the themed office logo uses the native shader without leaking its clip")
+    end
+    check(Brands.isMonochrome("_office") and not Brands.isMonochrome("Fossoil"),
+        "the generic office mark follows screen ink while a named business retains its brand colours")
+    SCBridge,window.javaObject,window.brand=oldBridge,oldHost,oldBrand
+end
 window.system.theme=savedTheme
 window.logoTexture=Brands.texture(window.brand,savedTheme)
 local previousDraw = window.drawTextureScaled

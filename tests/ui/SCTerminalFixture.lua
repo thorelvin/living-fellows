@@ -86,8 +86,10 @@ function ISPanel:clearStencilRect() T.stencil=nil end
 
 ISButton = {}
 function ISButton:new(x, y, width, height, title, target, onClick)
-    return element({ x = x, y = y, width = width, height = height, title = title, target = target,
-        onClick = onClick })
+    local button=element({ x = x, y = y, width = width, height = height, title = title, target = target,
+        onClick = onClick, sounds={} })
+    function button:setSound(which,name) self.sounds[which]=name end
+    return button
 end
 
 ISTextEntryBox = {}

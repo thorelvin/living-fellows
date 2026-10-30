@@ -504,7 +504,7 @@ B.BACKINGS = {
     ["_education"] = { 0.055167, 0.177623, 0.269558 },
     ["_home"] = { 0.989731, 0.946828, 0.830653 },
     ["_lab"] = { 0.988732, 0.922348, 0.793815 },
-    ["_office"] = { 0.990165, 0.945434, 0.834939 },
+    ["_office"] = { 0.003339, 0.20102, 0.478256 },
     ["_post"] = { 0.976929, 0.930603, 0.832456 },
     ["homewardMap"] = { 0.806572, 0.792621, 0.712001 },
 }
@@ -549,7 +549,6 @@ B.DARK_INK = {
     ["ZacsHardware"] = true,
     ["_home"] = true,
     ["_lab"] = true,
-    ["_office"] = true,
     ["_post"] = true,
     ["brochureLogoTest2"] = true,
     ["kentucky_herald_logo"] = true,
