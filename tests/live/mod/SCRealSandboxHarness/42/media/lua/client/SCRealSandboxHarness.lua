@@ -16911,6 +16911,14 @@ local function tick()
                 if not blockedCook and waited < 60000 then return end
                 Harness.restartChefForObservation()
             end
+            if Harness.config.observe_menus_closed == "true" then
+                SurvivorCompanion.UI.close()
+                local terminal = SurvivorCompanion.Terminal and SurvivorCompanion.Terminal.window
+                if terminal then terminal:close() end
+                check("observe_menus_closed", not SurvivorCompanion.UI.isOpen()
+                    and not (SurvivorCompanion.Terminal and SurvivorCompanion.Terminal.window),
+                    "companion panel and computer terminal closed before sampling")
+            end
             Harness.observe = {
                 startedAt = current, nextSampleAt = current, nextReportAt = current,
                 samples = 0, stackedSamples = 0, maxStacked = 0, unstackMoves = 0,
@@ -17007,6 +17015,11 @@ local function tick()
                 observe.maxStacked, observe.unstackMoves, observe.longestStackMs,
                 tostring(observe.longestStackPair)))
             local performance = SurvivorCompanion.Performance
+            if Harness.config.observe_menus_closed == "true" then
+                check("observe_menus_stayed_closed", not SurvivorCompanion.UI.isOpen()
+                    and not (SurvivorCompanion.Terminal and SurvivorCompanion.Terminal.window),
+                    "no companion panel or terminal reopened during observation")
+            end
             if performance and type(performance.summary) == "function" then
                 print("SC_OBSERVE|performance|" .. string.gsub(performance.summary(),
                     "\n", "\nSC_OBSERVE|performance|"))

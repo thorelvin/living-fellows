@@ -2,6 +2,21 @@
 
 # Changelog
 
+## 0.26.81 - Quiet idle computers and cached building controls
+
+- Closed computers stop nearby-floor surveys and idle battery polling. Mounted
+  radios keep listening and restore from load/place events, including upstairs.
+- House details and found devices are cached. Device discovery runs only while
+  the computer is open, in steps of at most 16 loaded squares that yield to the
+  frame budget. Commands still verify the selected physical device.
+- Closing the terminal pauses security sensors and scheduled computer routines
+  and silences its siren/PA. Reopening resumes monitoring.
+- Idle UPS batteries retain their charge when the computer is reopened.
+- Computer-service timing is included in support performance reports even when
+  it is below the twelve slowest systems.
+- Retains native bridge protocol `42.21-isocompanion-24` for Project Zomboid
+  42.21.0. The native bridge binary and save schemas are unchanged.
+
 ## 0.26.80 - Working barricades and review fixes
 
 - Open doors can be closed and boarded, and open windows follow the game's

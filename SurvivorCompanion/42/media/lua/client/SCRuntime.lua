@@ -1231,6 +1231,7 @@ end
 
 local function registerTasks()
     SC.Scheduler.reset(true)
+    local generatorPulseAt=-math.huge
     local definitions = {
         { "decision", 1, 100, decisionTask, "critical" },
         { "vitals", 25, 80, vitalsTask, "critical" },
@@ -1262,11 +1263,16 @@ local function registerTasks()
         -- slice promptly so a complete pass stays responsive at 16 members.
         { "ui-refresh", 50, 20, uiTask, "background", false, true, 1 },
         { "nearby-inventory", 250, 22, nearbyInventoryTask, "background" },
-        { "computer-services", 1000, 21, function()
+        { "computer-services", 1000, 21, function(current,remaining)
+            current=tonumber(current) or nowMs()
+            local budget=backgroundBudget(remaining)
             if SC.TerminalHardware then SC.TerminalHardware.pulse() end
-            if SC.GeneratorServices then SC.GeneratorServices.pulse() end
-            if SC.BuildingControls then SC.BuildingControls.pulse() end
-            return true
+            if current-generatorPulseAt>=1000 or current<generatorPulseAt then
+                generatorPulseAt=current
+                if SC.GeneratorServices then SC.GeneratorServices.pulse() end
+            end
+            local pending=SC.BuildingControls and SC.BuildingControls.pulse(budget)
+            return true,nil,pending==true
         end, "background" },
         { "bridge-generation", 1000, 21, bridgeGenerationTask, "background" },
         { "base-maintenance", SC.Config.get("baseAuditIntervalMs"), 19,
@@ -1294,7 +1300,8 @@ local function registerTasks()
                 fixedInterval = definition[7] == true,
                 maxDelayMs = definition[8],
                 continuations = definition[1] == "factions"
-                    or definition[1] == "base-maintenance",
+                    or definition[1] == "base-maintenance"
+                    or definition[1] == "computer-services",
             })
         if not called or ok ~= true then
             SC.Scheduler.reset(true)

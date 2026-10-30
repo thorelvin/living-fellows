@@ -226,7 +226,8 @@ function Terminal.installMoveHook()
     local previous = props.pickUpMoveableInternal
     local wrapper = function(self, character, square, object, ...)
         local controlPanel = SC.BuildingControls and Terminal.isComputer(object)
-            and SC.BuildingControls.panel(object, false)
+            and SC.BuildingControls.computers
+            and SC.BuildingControls.computers[object]
         -- No world scan and no furniture changes. Initialize before vanilla
         -- copies movableData, including pickup of an unpowered/unopened PC.
         if SurvivorCompanion == SC and SC.Terminal == Terminal and Terminal.isComputer(object) then
@@ -1390,6 +1391,8 @@ end
 
 function SCTerminalWindow:close()
     if self.closed then return end
+    if SC.BuildingControls and type(SC.BuildingControls.suspend)=="function" then SC.BuildingControls.suspend(self.object) end
+    if SC.TerminalHardware and type(SC.TerminalHardware.endUse)=="function" then SC.TerminalHardware.endUse(self.object) end
     if SC.TerminalRadio then
         local called, okay, detail = pcall(SC.TerminalRadio.leave, self)
         if not called or okay==false then diagnostic("terminal radio cleanup failed", detail or okay) end
@@ -1884,6 +1887,8 @@ function Terminal.open(player, object)
     window:addToUIManager()
     if type(window.setAlwaysOnTop) == "function" then window:setAlwaysOnTop(true) end
     Terminal.window = window
+    if SC.TerminalHardware and type(SC.TerminalHardware.beginUse)=="function" then SC.TerminalHardware.beginUse(object) end
+    if SC.BuildingControls and type(SC.BuildingControls.register)=="function" then SC.BuildingControls.register(object) end
     local ok, failure = pcall(function() window:boot() end)
     if not ok then
         diagnostic("terminal boot failed", failure)

@@ -15,6 +15,7 @@ param(
     # Load the save, leave every companion alone for this long and log what
     # they do. Zero runs the ordinary harness checks instead.
     [ValidateRange(0, 3600)][int]$ObserveSeconds = 0,
+    [switch]$ObserveMenusClosed,
     # Natural sleep-cycle control, without seeding companion fatigue.
     [ValidateSet(1, 2, 3)][int]$ObserveSpeed = 1,
     # Safely cancel a blocked recovered cook job in the cloned save before observation.
@@ -965,6 +966,9 @@ if ($IsolatedSourceBridge -and $SteamLaunch) {
 }
 if ($RestartChefBeforeObserve -and $ObserveSeconds -le 0) {
     throw '-RestartChefBeforeObserve requires -ObserveSeconds.'
+}
+if ($ObserveMenusClosed -and $ObserveSeconds -le 0) {
+    throw '-ObserveMenusClosed requires -ObserveSeconds.'
 }
 if ($BaseLayoutOnly -and ($PathingOnly -or $FactionMapOnly -or $captureFactionMap)) {
     throw '-BaseLayoutOnly cannot be combined with pathing or faction-map runs.'
@@ -1939,6 +1943,7 @@ $config = @(
     ('woodcutter_only=' + $WoodcutterOnly.IsPresent.ToString().ToLowerInvariant()),
     ('posted_stream_only=' + $PostedStreamOnly.IsPresent.ToString().ToLowerInvariant()),
     ('observe_only=' + ($ObserveSeconds -gt 0).ToString().ToLowerInvariant()),
+    ('observe_menus_closed=' + $ObserveMenusClosed.IsPresent.ToString().ToLowerInvariant()),
     ('observe_ms=' + ($ObserveSeconds * 1000)),
     ('observe_speed=' + $ObserveSpeed),
     ('restart_chef_before_observe=' + $RestartChefBeforeObserve.IsPresent.ToString().ToLowerInvariant()),

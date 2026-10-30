@@ -12,6 +12,19 @@ check(SC.Bootstrap.isInstalled() and Events.OnInitGlobalModData.count() == 1
         and Events.OnSave.count() == 1 and Events.OnMainMenuEnter.count() == 1,
     "bootstrap atomically owns one copy of each lifecycle hook: "
         .. tostring(SC.State.disabledReason))
+check(Events.LoadGridsquare.count()==1 and Events.OnObjectAdded.count()==1,
+    "mounted radio load/place hooks are owned by the bootstrap transaction")
+do
+    local previous=SC.TerminalHardware
+    local loaded,placed
+    SC.TerminalHardware={observeSquare=function(value) loaded=value end,
+        observeObject=function(value) placed=value end}
+    local square,object={},{}
+    Events.LoadGridsquare.fire(square)
+    Events.OnObjectAdded.fire(object)
+    check(loaded==square and placed==object,"world load/place events dispatch their exact native radio candidates")
+    SC.TerminalHardware=previous
+end
 check(SC.Factions.installs == 1 and SC.FactionContracts.installs == 1
         and SC.OddballRoomGuard.installs == 1
         and SC.OddballDistressRadio.installs == 1
@@ -45,6 +58,8 @@ check(removed and removeReason == "" and Events.OnInitGlobalModData.count() == 0
         and not SC.CompanionMap.installed and not SC.BaseVisuals.installed
         and not SC.DiaryUI.installed,
     "bootstrap removal releases every lifecycle and contract hook")
+check(Events.LoadGridsquare.count()==0 and Events.OnObjectAdded.count()==0,
+    "radio load/place callbacks are removed with the bootstrap")
 
 local optionLoad = SC.UserOptions.load
 SC.UserOptions.load = nil
@@ -96,6 +111,7 @@ local function allOwned()
         and Events.OnInitGlobalModData.count() == 1
         and Events.OnGameStart.count() == 1 and Events.OnSave.count() == 1
         and Events.OnMainMenuEnter.count() == 1
+        and Events.LoadGridsquare.count()==1 and Events.OnObjectAdded.count()==1
         and SC.Factions.installed and SC.FactionContracts.installed
         and SC.OddballRoomGuard.installed
         and SC.OddballDistressRadio.installed
@@ -119,6 +135,8 @@ for _, entry in ipairs({
     { name = "OnSave", event = Events.OnSave },
     { name = "OnGameStart", event = Events.OnGameStart },
     { name = "OnInitGlobalModData", event = Events.OnInitGlobalModData },
+    { name = "LoadGridsquare", event = Events.LoadGridsquare },
+    { name = "OnObjectAdded", event = Events.OnObjectAdded },
 }) do
     check(SC.Bootstrap.install(), entry.name .. " removal fixture installs")
     SC.Runtime.worldSentinel = { value = entry.name }

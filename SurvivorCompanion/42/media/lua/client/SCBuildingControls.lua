@@ -7,8 +7,10 @@ SC.BuildingControls = SC.BuildingControls or {}
 local B = SC.BuildingControls
 local function U() return SC.ControlUtil end
 local scans, live, tickets = {}, {}, setmetatable({}, {__mode="k"})
-local lastPulse, serial, scanCursor = 0, 0, 0
+local lastPulse, serial = 0, 0
 local siteCache=setmetatable({}, {__mode="k"})
+local houseCache=setmetatable({}, {__mode="k"})
+local deviceLists=setmetatable({}, {__mode="k"})
 B.computers=setmetatable({}, {__mode="k"})
 B.SCAN_BUDGET, B.MAX_DEVICES, B.HISTORY = 256, 64, 256
 local fallback = {schema=1, panels={}}
@@ -41,6 +43,10 @@ local function localDefinition(object)
     siteCache[object]={x=x,y=y,z=z}
 end
 local function site(object)
+    local square=U().square(object)
+    if not square then return nil end
+    local cached=houseCache[object]
+    if cached and cached.square==square then return cached.key,cached.bounds,cached.label,cached.def end
     local def = localDefinition(object)
     if def then
         local x, y = U().call(def,"getX"), U().call(def,"getY")
@@ -58,8 +64,10 @@ local function site(object)
                 or "Building"
             local base=SC.BaseLife and SC.BaseLife.active()
             if profile=="Building" and base and SC.BaseLife.isInside(object) then profile="Camp" end
-            return "building:"..x..":"..y..":"..x2..":"..y2,
-                {x=x,y=y,x2=x2,y2=y2,z=U().call(def,"getMinLevel") or 0,z2=U().call(def,"getMaxLevel") or 0}, profile, def
+            local key="building:"..x..":"..y..":"..x2..":"..y2
+            local bounds={x=x,y=y,x2=x2,y2=y2,z=U().call(def,"getMinLevel") or 0,z2=U().call(def,"getMaxLevel") or 0}
+            houseCache[object]={square=square,key=key,bounds=bounds,label=profile,def=def}
+            return key,bounds,profile,def
         end
     end
     local base = SC.BaseLife and SC.BaseLife.active()
@@ -191,10 +199,12 @@ local function observe(panel,object)
         row={id=id,kind=kind,x=x,y=y,z=z,label=(kind=="shutter" and "Loading shutter" or kind=="door" and "Door"
             or kind=="light" and "Lighting" or kind=="cabinet" and "Secure cabinet" or "Generator").." - "..location.." ("..x..", "..y..", floor "..z..")"}
         panel.devices[id]=row
+        deviceLists[panel]=nil
     end
     live[id]=target
 end
 function B.discover(object,restart)
+    if restart then houseCache[object]=nil siteCache[object]=nil end
     local panel,reason,bounds=B.panel(object,false)
     if not panel then return false,reason end
     if not B.connected(object,panel) then return false,"Connect this computer at its current location first." end
@@ -204,10 +214,10 @@ function B.discover(object,restart)
     end
     return true
 end
-function B.scanStep(scan,budget)
+function B.scanStep(scan,budget,remaining)
     local bounds=scan.bounds
     for _=1,budget or B.SCAN_BUDGET do
-        if scan.done then return end
+        if scan.done or remaining and remaining()<=0 then return end
         local square=SC.GameplayUtil.gridSquare(scan.x,scan.y,scan.z)
         if square then
             for _,object in ipairs(U().list(U().call(square,"getObjects"),64)) do observe(scan.panel,object) end
@@ -245,10 +255,13 @@ function B.list(object)
     local panel,reason=B.panel(object,false)
     if not panel then return {},reason end
     if not B.connected(object,panel) then return {},"Connect this computer at its current location first." end
-    B.discover(object,false)
-    local rows={}
-    for _,row in pairs(panel.devices) do rows[#rows+1]=row end
-    table.sort(rows,function(a,b) return a.label<b.label end)
+    local rows=deviceLists[panel]
+    if not rows then
+        rows={}
+        for _,row in pairs(panel.devices) do rows[#rows+1]=row end
+        table.sort(rows,function(a,b) return a.label<b.label end)
+        deviceLists[panel]=rows
+    end
     return rows,scans[panel.id] and not scans[panel.id].done and "Discovering loaded equipment..." or nil
 end
 function B.security(object,word,skill)
@@ -376,7 +389,7 @@ function B.rename(object,id,name)
     local row=panel.devices[id]
     name=tostring(name or ""):gsub("[%c]",""):sub(1,64)
     if not row or name=="" then return false,"Choose a device and a readable name." end
-    row.label=name return true,"Device renamed."
+    row.label=name deviceLists[panel]=nil return true,"Device renamed."
 end
 function B.disconnect(object,panel)
     panel=panel or B.panel(object,false)
@@ -408,23 +421,32 @@ function B.authorizeKey(object,player)
     end
     return false,"No matching building key is in your inventory."
 end
-function B.pulse()
+function B.suspend(object)
+    local panel=B.computers[object]
+    if not panel and U().present(object) then panel=B.panel(object,false) end
+    if panel and SC.BuildingSecurity then SC.BuildingSecurity.stop(panel) end
+end
+function B.pulse(remaining)
     if not SC.ControlUtil then return end
+    local window=SC.Terminal and SC.Terminal.window
+    if not window or window.closed then return false end
+    if not U().present(window.object) then B.suspend(window.object) return false end
+    local panel=B.panel(window.object,false)
+    if not panel or not B.connected(window.object,panel) then return false end
     local now=U().now()
-    if now-lastPulse<1000 and now>=lastPulse then return end
-    lastPulse=now
-    local pending={}
-    for id,scan in pairs(scans) do if not scan.done then pending[#pending+1]=id end end
-    table.sort(pending)
-    for _=1,math.min(4,#pending) do
-        scanCursor=scanCursor%#pending+1
-        B.scanStep(scans[pending[scanCursor]],math.floor(B.SCAN_BUDGET/4))
+    B.register(window.object)
+    local scan=scans[panel.id]
+    if scan and not scan.done then B.scanStep(scan,16,remaining) end
+    if now-lastPulse>=1000 or now<lastPulse then
+        lastPulse=now
+        if SC.BuildingSecurity then SC.BuildingSecurity.pulse(window.object) end
     end
-    if SC.BuildingSecurity then SC.BuildingSecurity.pulse(store()) end
+    return scan~=nil and not scan.done
 end
 function B.reset()
     scans,live,tickets,lastPulse={}, {},setmetatable({}, {__mode="k"}),0
     B.computers=setmetatable({}, {__mode="k"})
-    siteCache=setmetatable({}, {__mode="k"}) scanCursor=0
+    siteCache=setmetatable({}, {__mode="k"})
+    houseCache=setmetatable({}, {__mode="k"}) deviceLists=setmetatable({}, {__mode="k"})
 end
 return B

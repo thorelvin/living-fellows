@@ -447,6 +447,7 @@ bridge; preserve and restore the installed bridge as described above.
     -LivingFellowsOnly -ExternalUiControl -NoSteam -TimeoutSeconds 900
 ```
 
+
 The restart probe takes two runs. Stage saves a cloned world mid-drive and
 prints its retained save path. Resume clones that stage save, verifies the
 restored car and team, then checks automatic fresh boarding and the return to
@@ -461,3 +462,16 @@ also requires its stage proof file. Never use an active playtest save as seed.
     -TeamDriveRestartResume -SeedSave 'PATH PRINTED BY STAGE' `
     -LivingFellowsOnly -ExternalUiControl -NoSteam -TimeoutSeconds 900
 ```
+
+For an ordinary camp profile with both LF windows explicitly closed:
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -ObserveSeconds 120 -ObserveMenusClosed `
+    -LivingFellowsOnly -NoSteam -IsolatedSourceBridge -HiddenWindow
+```
+
+This observes the saved crew without assigning new orders. It verifies that the
+companion panel and terminal stay closed and prints the built-in performance
+report at completion. Computer-service timing is included even when it is below
+the top twelve systems. Compare equivalent cloned saves without running the
+project gate alongside a timing sample.

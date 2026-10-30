@@ -8,7 +8,6 @@ local H = SC.TerminalHardware
 H.KEY="LF_TerminalHardware"
 local runtime=setmetatable({}, {__mode="k"})
 local lastPulse=0
-local survey
 local function U() return SC.ControlUtil end
 local function finite(value)
     return type(value)=="number" and value==value and math.abs(value)<math.huge
@@ -37,7 +36,16 @@ function H.state(object,create)
         end
     end
     runtime[object]=runtime[object] or {}
+    runtime[object].state=state
     return state
+end
+function H.beginUse(object)
+    local state=H.state(object,false)
+    if state and not state.radio then state.lastHours=U().hours() end
+end
+function H.endUse(object)
+    local state=H.state(object,false)
+    if state and not state.radio then state.lastHours=U().hours() end
 end
 local function bridge(name,...)
     local fn=SCBridge and SCBridge[name]
@@ -262,35 +270,39 @@ function H.pulse()
     local now=U().now()
     if now-lastPulse<1000 and now>=lastPulse then return end
     lastPulse=now
-    H.survey(now)
     for object,r in pairs(runtime) do
-        if not U().present(object) then H.stop(object) runtime[object]=nil else
-            local state=H.state(object,false)
-            local hours=U().hours()
-            if state then
-                local active=state.on~=false and (state.radio~=nil or SC.Terminal.window and SC.Terminal.window.object==object)
-                if active and not U().nativePower(object) and hours and state.lastHours then
-                    local battery=cached(object,"ups")
-                    if battery then
-                        local fraction=math.max(0,(tonumber(U().call(battery,"getCondition")) or 0)/math.max(1,tonumber(U().call(battery,"getConditionMax")) or 100))
-                        local delta=math.max(0,hours-state.lastHours)/(6*math.max(0.01,fraction))
-                        U().setCharge(battery,math.max(0,(U().charge(battery) or 0)-delta))
-                        state.ups.charge=U().charge(battery)
+        local remembered=r.state
+        local inUse=SC.Terminal and SC.Terminal.window and SC.Terminal.window.object==object
+            and SC.Terminal.window.closed~=true
+        if remembered and remembered.on~=false and (remembered.radio or inUse) then
+            if not U().present(object) then H.stop(object) runtime[object]=nil else
+                local state=H.state(object,false)
+                local hours=U().hours()
+                if state then
+                    local active=state.on~=false and (state.radio~=nil or SC.Terminal.window and SC.Terminal.window.object==object)
+                    if active and not U().nativePower(object) and hours and state.lastHours then
+                        local battery=cached(object,"ups")
+                        if battery then
+                            local fraction=math.max(0,(tonumber(U().call(battery,"getCondition")) or 0)/math.max(1,tonumber(U().call(battery,"getConditionMax")) or 100))
+                            local delta=math.max(0,hours-state.lastHours)/(6*math.max(0.01,fraction))
+                            U().setCharge(battery,math.max(0,(U().charge(battery) or 0)-delta))
+                            state.ups.charge=U().charge(battery)
+                        end
                     end
+                    state.lastHours=hours
+                    if state.radio and H.powered(object) then H.receiver(object) else H.stop(object) end
+                    if not r.lastFlush or now-r.lastFlush>=10000 then H.flush(object) r.lastFlush=now end
+                else
+                    H.stop(object)
                 end
-                state.lastHours=hours
-                if state.radio and H.powered(object) then H.receiver(object) else H.stop(object) end
-                if not r.lastFlush or now-r.lastFlush>=10000 then H.flush(object) r.lastFlush=now end
-            else
-                H.stop(object)
             end
-        end
+        elseif r.receiver then H.stop(object) end
     end
 end
 function H.reset()
     if SC.TerminalRadio then SC.TerminalRadio.reset() end
     for object in pairs(runtime) do H.flush(object) H.stop(object) end
-    runtime=setmetatable({}, {__mode="k"}) lastPulse=0 survey=nil
+    runtime=setmetatable({}, {__mode="k"}) lastPulse=0
 end
 -- One computer's mounted parts must not cost another computer its flush. A radio
 -- that could not leave its temporary scan channel keeps its last good record, and
@@ -311,32 +323,22 @@ function H.save()
     return true
 end
 function H.observeSquare(square)
-    if not SC.ControlUtil or not SC.Terminal then return end
+    if not SC.ControlUtil then return end
     for _,object in ipairs(U().list(U().call(square,"getObjects"),64)) do
-        if SC.Terminal.isComputer(object) then
-            H.state(object,false)
-            if SC.BuildingControls then SC.BuildingControls.register(object) end
-        end
+        H.observeObject(object)
     end
 end
-function H.survey(now)
-    local player=type(getSpecificPlayer)=="function" and getSpecificPlayer(0)
-    local x,y,z=U().position(player)
-    if not x then return end
-    if not survey or math.abs(x-survey.cx)>8 or math.abs(y-survey.cy)>8 or z~=survey.cz
-        or survey.done and now-survey.at>30000 then
-        survey={cx=x,cy=y,cz=z,x=x-12,y=y-12,z=z,floors={z,z-1,z+1},plane=1,at=now}
-    end
-    for _=1,256 do
-        if survey.done then break end
-        local square=SC.GameplayUtil.gridSquare(survey.x,survey.y,survey.z)
-        if square then H.observeSquare(square) end
-        survey.x=survey.x+1
-        if survey.x>survey.cx+12 then survey.x=survey.cx-12 survey.y=survey.y+1 end
-        if survey.y>survey.cy+12 then
-            survey.y=survey.cy-12 survey.plane=survey.plane+1 survey.z=survey.floors[survey.plane]
-            if survey.z==nil then survey.done=true end
-        end
-    end
+-- Load/place notifications restore mounted receivers, including older saves.
+-- Ordinary objects need only the non-allocating metadata-presence check; there
+-- is no periodic search of nearby squares or other floors.
+function H.observeObject(object)
+    if not object or not SC.ControlUtil then return end
+    local hasData,checked=SC.GameplayUtil.call(object,"hasModData")
+    if checked and hasData~=true then return end
+    local data=U().data(object)
+    local portable=type(data)=="table" and data.movableData
+    if type(portable)~="table" then return end
+    local hardware=portable[H.KEY]
+    if type(hardware)=="table" and hardware.radio then H.state(object,false) end
 end
 return H

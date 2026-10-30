@@ -442,4 +442,75 @@ do
     G.cancel(helper,job)
     check(routeCancels==1,"stale service cleanup leaves unrelated movement intact")
 end
+do
+    H.reset()
+    local idle=T.computer(T.square(500,500,0,false))
+    local idleState=H.state(idle,true)
+    local idleBattery=item("Base.CarBattery1")
+    idleState.ups={blob=SCBridge.packTerminalItem(idleBattery),id=idleBattery.id,
+        type=idleBattery.fullType,weight=1,charge=1}
+    idleState.lastHours=T.hours
+    local oldGrid,oldPower=SC.GameplayUtil.gridSquare,U.nativePower
+    local gridReads,powerReads=0,0
+    SC.GameplayUtil.gridSquare=function(...) gridReads=gridReads+1 return oldGrid(...) end
+    U.nativePower=function(...) powerReads=powerReads+1 return oldPower(...) end
+    SC.Terminal.window=nil
+    for _=1,4 do T.now=T.now+1001 H.pulse() end
+    check(gridReads==0 and powerReads==0,
+        "closed non-radio computers perform no world surveys or power polling: grid="..gridReads.." power="..powerReads)
+    SC.GameplayUtil.gridSquare,U.nativePower=oldGrid,oldPower
+    local oldScan,oldSecurity=B.scanStep,SC.BuildingSecurity.pulse
+    local scans,sensors=0,0
+    B.scanStep=function() scans=scans+1 end
+    SC.BuildingSecurity.pulse=function() sensors=sensors+1 end
+    B.pulse()
+    check(scans==0 and sensors==0,"closed computers do not scan devices, run sensors or advance routines")
+    B.scanStep,SC.BuildingSecurity.pulse=oldScan,oldSecurity
+    local cachedRows=B.list(pc)
+    local repeatedRows=B.list(pc)
+    check(cachedRows==repeatedRows,"discovered devices are returned from the same cached array")
+    local reads=0
+    SC.GameplayUtil.gridSquare=function(...) reads=reads+1 return oldGrid(...) end
+    local empty={panel=panel,bounds={x=900,y=900,x2=904,y2=900,z=0,z2=1},x=900,y=900,z=0}
+    B.scanStep(empty,16,function() return reads<2 and 1 or 0 end)
+    check(reads==2 and not empty.done and empty.x==902,
+        "active discovery yields to its deadline and preserves the exact next square")
+    B.scanStep(empty,16,function() return 1 end)
+    check(reads==10 and empty.done,"a resumed bounded scan covers both floors without repeats")
+    SC.GameplayUtil.gridSquare=oldGrid
+
+    local dataReads,propertyReads=0,0
+    H.observeObject({hasModData=function() return false end,
+        getModData=function() dataReads=dataReads+1 return {} end,
+        getProperties=function() propertyReads=propertyReads+1 return {} end})
+    check(dataReads==0 and propertyReads==0,"load notifications neither allocate metadata nor inspect properties on ordinary objects")
+
+    local upper=T.square(100,100,1,true)
+    local mounted=T.computer(upper)
+    local handset=item("Base.WalkieTalkie2") handset.kind="Radio" handset.device=radioData()
+    function handset:getDeviceData() return self.device end
+    local state=H.state(mounted,true)
+    state.radio={blob=SCBridge.packTerminalItem(handset),id=handset.id,type=handset.fullType,
+        weight=1,batteryPowered=true,hasBattery=true,batteryPower=0.37}
+    H.reset()
+    H.observeSquare(upper)
+    T.now=T.now+1001 H.pulse()
+    local receiver,_,restoredHandset=H.receiver(mounted)
+    check(receiver~=nil and restoredHandset:getID()==handset.id,
+        "an upstairs load notification restores the original mounted radio without a world survey")
+    H.reset()
+    H.observeObject(mounted)
+    T.now=T.now+1001 H.pulse()
+    check(H.receiver(mounted)~=nil,"placing a moved computer also restores its mounted receiver")
+    H.reset()
+    H.state(idle,false)
+    local before=H.state(idle,false).ups.charge
+    T.hours=T.hours+3
+    H.beginUse(idle)
+    SC.Terminal.window={object=idle}
+    T.now=T.now+1001 H.pulse()
+    check(H.state(idle,false).ups.charge==before,"opening an idle UPS computer never charges it for idle hours")
+    H.endUse(idle)
+    SC.Terminal.window=nil
+end
 print("PASS building services checks="..T.checks)

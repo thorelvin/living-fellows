@@ -681,6 +681,7 @@ function Performance.summary()
         "decision.rescue", "medical.assess", "ui.describe-entry",
         "ui.inventory-summary", "ui.logistics-audit", "ui.relationship-summary",
         "ui.detail-rebuild", "ui.roster-refresh",
+        "scheduler.computer-services",
     }) do
         local source = systems[key]
         if source then

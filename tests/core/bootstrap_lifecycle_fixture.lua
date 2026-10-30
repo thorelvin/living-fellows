@@ -17,8 +17,8 @@ local function event()
         for _ in pairs(value.handlers) do count = count + 1 end
         return count
     end
-    function value.fire()
-        for callback in pairs(value.handlers) do callback() end
+    function value.fire(...)
+        for callback in pairs(value.handlers) do callback(...) end
     end
     return value
 end
@@ -26,6 +26,7 @@ end
 Events = {
     OnInitGlobalModData = event(), OnGameStart = event(), OnSave = event(),
     OnMainMenuEnter = event(),
+    LoadGridsquare = event(), OnObjectAdded = event(),
     OnWeaponHitCharacter = event(), OnZombieDead = event(),
     OnZombieUpdate = event(),
 }

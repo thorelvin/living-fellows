@@ -178,33 +178,35 @@ local function motion(row,object)
     end end
     return false
 end
-function S.pulse()
+function S.pulse(onlyComputer)
     local candidates={}
     for computer,panel in pairs(B().computers) do
-        if not U().present(computer) or not B().connected(computer,panel) then
-            if sounds[panel.id] and sounds[panel.id].computer==computer then S.stop(panel) end
-            B().computers[computer]=nil powerStates[computer]=nil
-        else
-            local powered=SC.Terminal.powered(computer)
-            local source=not powered and "off" or U().nativePower(computer) and "building power" or "battery backup"
-            if powerStates[computer] and powerStates[computer]~=source then B().log(panel,"Computer supply: "..source..".") end
-            powerStates[computer]=source
-            if powered and not panel.security.locked then
-                -- One sensor pass per panel even when two computers share it.
-                local old=candidates[panel.id]
-                local identity=B().computerId(computer)
-                if not old or identity<old.identity then candidates[panel.id]={panel=panel,computer=computer,identity=identity} end
-                for kind,routine in pairs(panel.routines or {}) do routineTick(panel,computer,kind,routine) end
-            end
-            local sound=sounds[panel.id]
-            if sound and sound.computer==computer then
-                local hours=U().hours()
-                if not powered or not U().nativePower(computer) or not panel.sounding or sound.untilMs and U().now()>=sound.untilMs
-                    or hours and panel.sounding.untilHour and hours>=panel.sounding.untilHour then S.stop(panel)
-                else
-                    U().call(sound.emitter,"tick")
-                    local x,y,z=U().position(computer)
-                    if type(addSound)=="function" then addSound(nil,x,y,z,sound.announcement and 60 or 200,100) end
+        if onlyComputer==nil or computer==onlyComputer then
+            if not U().present(computer) or not B().connected(computer,panel) then
+                if sounds[panel.id] and sounds[panel.id].computer==computer then S.stop(panel) end
+                B().computers[computer]=nil powerStates[computer]=nil
+            else
+                local powered=SC.Terminal.powered(computer)
+                local source=not powered and "off" or U().nativePower(computer) and "building power" or "battery backup"
+                if powerStates[computer] and powerStates[computer]~=source then B().log(panel,"Computer supply: "..source..".") end
+                powerStates[computer]=source
+                if powered and not panel.security.locked then
+                    -- One sensor pass per panel even when two computers share it.
+                    local old=candidates[panel.id]
+                    local identity=B().computerId(computer)
+                    if not old or identity<old.identity then candidates[panel.id]={panel=panel,computer=computer,identity=identity} end
+                    for kind,routine in pairs(panel.routines or {}) do routineTick(panel,computer,kind,routine) end
+                end
+                local sound=sounds[panel.id]
+                if sound and sound.computer==computer then
+                    local hours=U().hours()
+                    if not powered or not U().nativePower(computer) or not panel.sounding or sound.untilMs and U().now()>=sound.untilMs
+                        or hours and panel.sounding.untilHour and hours>=panel.sounding.untilHour then S.stop(panel)
+                    else
+                        U().call(sound.emitter,"tick")
+                        local x,y,z=U().position(computer)
+                        if type(addSound)=="function" then addSound(nil,x,y,z,sound.announcement and 60 or 200,100) end
+                    end
                 end
             end
         end

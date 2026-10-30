@@ -486,6 +486,18 @@ local function onMainMenuEnter()
     SC.Runtime.onMainMenuEnter()
 end
 
+local function onTerminalSquareLoaded(square)
+    if SC.TerminalHardware then
+        local ok,reason=pcall(SC.TerminalHardware.observeSquare,square)
+        if not ok then SC.Diagnostics.report("terminal-load",nil,"radio restore failed",reason) end
+    end
+end
+local function onTerminalObjectAdded(object)
+    if SC.TerminalHardware then
+        local ok,reason=pcall(SC.TerminalHardware.observeObject,object)
+        if not ok then SC.Diagnostics.report("terminal-place",nil,"radio restore failed",reason) end
+    end
+end
 local lifecycleDefinitions = {
     { event = function() return Events and Events.OnInitGlobalModData end,
         callback = onInitGlobalModData, name = "OnInitGlobalModData" },
@@ -495,6 +507,10 @@ local lifecycleDefinitions = {
         callback = onSave, name = "OnSave" },
     { event = function() return Events and Events.OnMainMenuEnter end,
         callback = onMainMenuEnter, name = "OnMainMenuEnter" },
+    { event = function() return Events and Events.LoadGridsquare end,
+        callback = onTerminalSquareLoaded, name = "LoadGridsquare" },
+    { event = function() return Events and Events.OnObjectAdded end,
+        callback = onTerminalObjectAdded, name = "OnObjectAdded" },
 }
 
 -- A failed install rollback is not an installed bootstrap. Keep the exact
@@ -536,18 +552,11 @@ function bootstrap.install()
     end
     local valid, reason = validateModules()
     if not valid then return false, reason end
-    if Events == nil or Events.OnInitGlobalModData == nil
-        or Events.OnGameStart == nil or Events.OnSave == nil
-        or Events.OnMainMenuEnter == nil
-        or type(Events.OnInitGlobalModData.Add) ~= "function"
-        or type(Events.OnInitGlobalModData.Remove) ~= "function"
-        or type(Events.OnGameStart.Add) ~= "function"
-        or type(Events.OnGameStart.Remove) ~= "function"
-        or type(Events.OnSave.Add) ~= "function"
-        or type(Events.OnSave.Remove) ~= "function"
-        or type(Events.OnMainMenuEnter.Add) ~= "function"
-        or type(Events.OnMainMenuEnter.Remove) ~= "function" then
-        return false, "required Project Zomboid lifecycle events are unavailable"
+    for _,entry in ipairs(lifecycleDefinitions) do
+        local event=entry.event()
+        if not event or type(event.Add)~="function" or type(event.Remove)~="function" then
+            return false, "required Project Zomboid lifecycle events are unavailable: "..entry.name
+        end
     end
     local contractsOk, contractsReason = installContracts()
     if not contractsOk then

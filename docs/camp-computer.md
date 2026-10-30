@@ -455,6 +455,8 @@ connected to its building with Electrical 2, a screwdriver, one electric wire
 and two electronics scrap. An outdoor desktop can connect to a loaded building
 within six tiles. Equipment discovery reads loaded squares in bounded slices;
 use **Equipment** again while a large building is still being surveyed.
+House details and discovered devices are cached. Discovery runs only while the
+computer window is open; commands still recheck the selected physical device.
 
 Building security has its own password, shared by that building's computers.
 Unlocking the computer or moving an unlocked one into a bank does not authorize
@@ -500,6 +502,9 @@ before enabling its return routine. It opens for an approaching expedition and
 closes only after the crew is home, the returned car is stopped inside with its
 engine off, and the doorway is clear. Roadside parking leaves closure pending.
 Moving/disconnecting the authorizing computer suspends its routines.
+Closing the computer pauses its sensors and scheduled routines and silences its
+siren/PA. Reopen the computer to resume monitoring. Mounted radios keep listening
+while the window is closed.
 
 ## Upgrade to an expedition station
 
@@ -534,9 +539,12 @@ item. Their added weight counts. A native pickup break drops the exact mounted
 parts; an uncertain native transfer is recorded for inspection and never replayed.
 You can remove upgrades beside an unpowered PC through its context menu.
 
-Connected services and radio receivers use the existing one-second scheduler.
-Nearby computer discovery reads at most 256 loaded squares per slice; sensors
-share a separate 256-check budget and never load distant map cells.
+Mounted radio receivers use the existing one-second scheduler. Closed computers
+do not search nearby squares or floors, or poll unused backup batteries. Native
+load/place notifications restore mounted radios when their furniture appears.
+While the computer is open, device discovery reads at most 16 loaded squares per
+step and yields to the remaining frame budget. Its cached array is reused between
+updates. Sensors share a separate 256-check budget and never load distant cells.
 
 **LF circuits need no other mod.** Named lighting circuits operate the fitted
 native relays; the generator-supply circuit queues the normal start/stop services.
