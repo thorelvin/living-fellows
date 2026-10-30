@@ -10193,7 +10193,8 @@ do
             getName = function() return "furniture_bedding_01_38" end,
             getSpriteGrid = function() return {} end,
             getProperties = function() return { Val = function(_, key)
-                return key == "CustomName" and "Bed" or nil
+                return key == "CustomName" and "Bed"
+                    or key == "BedType" and "goodBed" or nil
             end } end,
         } end
         SurvivorCompanion.BedGeometry = { entry = function()
@@ -10211,6 +10212,14 @@ do
             getProperties = function() return { Val = function() return "Bed" end } end,
         } end
         check(kind(bed) == nil, "decorative bed names without grid or furniture poses remain excluded")
+        bed.getSprite = function() return {
+            getName = function() return "location_entertainment_gallery_02_57" end,
+            getSpriteGrid = function() return {} end,
+            getProperties = function() return { Val = function(_, key)
+                return key == "CustomName" and "Bed" or key == "GroupName" and "Gallery" or nil
+            end } end,
+        } end
+        check(kind(bed) == nil, "the gallery's multi-tile art bed has a grid and a name but no BedType, so nobody sleeps on it")
         SeatingManager, SurvivorCompanion.BedGeometry, bed.getSprite = priorManager, priorGeometry, priorSprite
     end
     do
@@ -10404,6 +10413,24 @@ do
         check(floorChoice == nil,
             "a resumed bed survey still rejects a floor route that is no longer permitted")
         bedProbeActor.square, baseForBed.allowsFloorTransit = originalSquare, priorTransit
+        -- Four tiles, so one survey finishes in a pass and sets its backoff.
+        local emptyState, surveyed = {}, 0
+        local previousGridSquare = U.gridSquare
+        U.gridSquare = function(x, y, z)
+            if x >= 30 then surveyed = surveyed + 1 end
+            return previousGridSquare(x, y, z)
+        end
+        local emptyActive, emptyBase = baseForBed.active, { zones = { { kind = "area",
+            x1 = 30, x2 = 31, y1 = 30, y2 = 31, z = 0 } } }
+        baseForBed.active = function() return emptyBase end
+        for pass = 1, 3 do
+            bedProbeActor.worldX = 8.5 + pass % 2
+            seatProbe(bedProbeActor, emptyState, clock, "rest_bed")
+        end
+        U.gridSquare = previousGridSquare
+        baseForBed.active, bedProbeActor.worldX = emptyActive, originalX
+        check(surveyed > 0 and surveyed <= 4,
+            "a worker walking through a camp with no free bed keeps the survey backoff: " .. surveyed .. " tiles")
     end)()
     repeat
         passes = passes + 1
@@ -17158,6 +17185,115 @@ do
             .. tostring(detail) .. " intent=" .. tostring(openDoorWorker.lastIntent
                 and openDoorWorker.lastIntent.action)
             .. " decision=" .. tostring(SurvivorCompanion.Decision.peek(openDoorWorker).intent))
+    SurvivorCompanion.Decision.reset(openDoorWorker)
+    SurvivorCompanion.Commands.reset(openDoorWorker)
+    ;(function()
+    local priorPrepare, priorBlock = SurvivorCompanion.Logistics.prepareBuild,
+        SurvivorCompanion.BaseLife.blockJob
+    local blockedReason
+    SurvivorCompanion.Logistics.prepareBuild = function()
+        return false, false, "companion needs one plank"
+    end
+    SurvivorCompanion.BaseLife.blockJob = function(_, _, reason)
+        blockedReason = reason
+        return true
+    end
+    check(SurvivorCompanion.Commands.issue(openDoorWorker.id, "barricade", {
+            object = openDoor, baseJobId = "job:open-door-test", barricadeSide = "same",
+        }, guardTestPlayer), "camp barricade order is accepted before its supply check")
+    decisionAfterDue(openDoorWorker, guardTestPlayer, {
+        snapshot = { threats = {}, threatCount = 0, immediateCount = 0,
+            escapeSquares = {}, allies = {}, player = { danger = 0 } },
+    }, 201)
+    SurvivorCompanion.Logistics.prepareBuild, SurvivorCompanion.BaseLife.blockJob =
+        priorPrepare, priorBlock
+    check(blockedReason == "missing_build_supply:companion needs one plank",
+        "a camp barricade with no materials reports them missing: " .. tostring(blockedReason))
+    -- The fetch and the walk to the window must not take turns cancelling each other.
+    SurvivorCompanion.Decision.reset(openDoorWorker)
+    SurvivorCompanion.Commands.reset(openDoorWorker)
+    local priorRequest = SurvivorCompanion.Navigation.request
+    local approached, supplyReady, supplyChecks = nil, false, 0
+    local priorTouch, touched = SurvivorCompanion.BaseLife.touchJob, nil
+    SurvivorCompanion.BaseLife.touchJob = function(id) touched = id return true end
+    SurvivorCompanion.Navigation.request = function(_, _, _, intent)
+        approached = intent
+        return true, "moving"
+    end
+    SurvivorCompanion.Logistics.prepareBuild = function()
+        supplyChecks = supplyChecks + 1
+        if supplyReady then return true, false, "build_supplies_ready" end
+        return false, true, "path_searching"
+    end
+    local windowSquare, walkedOff = openDoorWorker.square, cell:getGridSquare(-3, -5, 0)
+    SurvivorCompanion.BaseLife.admitsWork = function(value, intent)
+        if value == windowSquare then return true end
+        return originalAdmitsBarricadeWork(value, intent)
+    end
+    check(SurvivorCompanion.Commands.issue(openDoorWorker.id, "barricade", {
+            object = openDoor, baseJobId = "job:open-door-test", barricadeSide = "same",
+        }, guardTestPlayer), "camp barricade order is accepted before fetching materials")
+    local awayX, homeX, homeY = -2.5, openDoorWorker.worldX, openDoorWorker.worldY
+    openDoorWorker.square, openDoorWorker.worldX, openDoorWorker.worldY = walkedOff, awayX, -4.5
+    for _ = 1, 4 do
+        decisionAfterDue(openDoorWorker, guardTestPlayer, {
+            snapshot = { threats = {}, threatCount = 0, immediateCount = 0,
+                escapeSquares = {}, allies = {}, player = { danger = 0 } },
+        }, 201)
+        if supplyChecks > 0 or approached then break end
+    end
+    check(supplyChecks > 0 and approached == nil,
+        "a worker off fetching materials is not called back to the window mid-route: checks="
+            .. tostring(supplyChecks))
+    SurvivorCompanion.BaseLife.touchJob = priorTouch
+    check(touched == "job:open-door-test",
+        "a worker off fetching materials keeps renewing the job's lease: " .. tostring(touched))
+    supplyReady = true
+    decisionAfterDue(openDoorWorker, guardTestPlayer, {
+        snapshot = { threats = {}, threatCount = 0, immediateCount = 0,
+            escapeSquares = {}, allies = {}, player = { danger = 0 } },
+    }, 201)
+    check(approached and approached.action == "approach_interaction",
+        "with materials in hand the worker walks to the window")
+    check(approached and approached.requireSameSquare == true and approached.arrivalDistance == 0.7,
+        "the worker walks onto the window's own tile, not just to its edge")
+    -- A fetch only extends the work so often, or items going missing could loop forever.
+    SurvivorCompanion.Decision.reset(openDoorWorker)
+    SurvivorCompanion.Commands.reset(openDoorWorker)
+    SurvivorCompanion.Logistics.prepareBuild = function()
+        supplyChecks = supplyChecks + 1
+        return false, true, "camp_supply_taken"
+    end
+    SurvivorCompanion.BaseLife.blockJob = function(_, _, reason)
+        blockedReason = reason
+        return true
+    end
+    check(SurvivorCompanion.Commands.issue(openDoorWorker.id, "barricade", {
+            object = openDoor, baseJobId = "job:open-door-test", barricadeSide = "same",
+        }, guardTestPlayer), "camp barricade order is accepted for the endless fetch")
+    blockedReason, supplyChecks = nil, 0
+    -- Called directly: any other subsystem preempting the work restarts its clock.
+    local doWork, workState, priorClock = SurvivorCompanion.Decision._doWorkForTests, {}, clock
+    local quiet = { threats = {}, threatCount = 0, immediateCount = 0,
+        escapeSquares = {}, allies = {}, player = { danger = 0 } }
+    for _ = 1, 60 do
+        clock = clock + 5000
+        doWork(openDoorWorker, guardTestPlayer, SurvivorCompanion.Commands.peek(openDoorWorker),
+            quiet, workState)
+        if blockedReason then break end
+    end
+    SurvivorCompanion.BaseLife.blockJob, clock = priorBlock, priorClock
+    check(supplyChecks > 6 and blockedReason == "work_timeout",
+        "items that keep going missing cannot extend a fetch forever: checks="
+            .. tostring(supplyChecks) .. " blocked=" .. tostring(blockedReason))
+    blockedReason = "missing_build_supply:companion needs one plank"
+    SurvivorCompanion.Navigation.request, SurvivorCompanion.Logistics.prepareBuild =
+        priorRequest, priorPrepare
+    openDoorWorker.square, openDoorWorker.worldX, openDoorWorker.worldY = windowSquare, homeX, homeY
+    check(SurvivorCompanion.BaseLife.jobAutoRetry({ state = "blocked", type = "barricade",
+            blocker = blockedReason }) == true,
+        "a camp barricade with no materials resumes on its own once they are stocked")
+    end)()
     SurvivorCompanion.BaseLife.admitsWork = originalAdmitsBarricadeWork
 end
 SurvivorCompanion.Decision.reset(openDoorWorker)
@@ -18387,6 +18523,19 @@ local buildReady = SurvivorCompanion.Logistics.prepareBuild(builder, builder.squ
     { immediateCount = 0, pressure = 0 }, "walk")
 check(buildReady and #builder.inventory.items == 4 and #workshopContainer.items == 0,
     "build order gathers one hammer, plank, and two nails from visited camp storage")
+do
+    -- An overloaded worker would otherwise hand the kit straight back to storage.
+    local kit = builder.inventory.items[1]
+    local overloaded = { items = { { item = kit, category = "tools", source = builder.inventory } },
+        counts = { tools = 5 }, gearCounts = { tools = 5 }, ratio = 1, gearRatio = 1, hardRatio = 0.5,
+        profile = { target = { tools = 0 }, keep = { tools = 0 } } }
+    check(SurvivorCompanion.Logistics.selectSurplus(builder, overloaded) ~= nil,
+        "an overloaded worker with no barricade order may shed the kit")
+    builder.modData.SC_Order, builder.modData.SC_WorkKind = "work", "barricade"
+    check(SurvivorCompanion.Logistics.selectSurplus(builder, overloaded) == nil,
+        "a worker on a barricade order keeps the kit it just fetched, however loaded")
+    builder.modData.SC_Order, builder.modData.SC_WorkKind = nil, nil
+end
 
 clock = clock + 4000
 local signalActor = actor("sc-silent-warning", 40, 20, {})

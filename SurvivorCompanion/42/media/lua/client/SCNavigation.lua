@@ -1118,7 +1118,7 @@ function Navigation.barricadeWorkSquare(actor, object, objectSquare, side, inten
     if side ~= "opposite" and same then candidates[#candidates + 1] = same end
     if side ~= "same" and opposite then candidates[#candidates + 1] = opposite end
     if #candidates == 0 then return nil, "work_side_unloaded" end
-    local best, bestDistance, busy
+    local best, bestDistance, busy, passable, passableDistance
     for _, square in ipairs(candidates) do
         local clear, reason = Navigation.standingSquareClear(actor, square)
         local admitted = type(intent) ~= "table" or intent.workCampOnly ~= true
@@ -1129,9 +1129,22 @@ function Navigation.barricadeWorkSquare(actor, object, objectSquare, side, inten
             if distance ~= nil and (bestDistance == nil or distance < bestDistance) then
                 best, bestDistance = square, distance
             end
+        elseif admitted and reason == "furniture" then
+            -- Furniture that does not block the tile, on one side of a window or
+            -- both, is no reason to give up. Vanilla only asks that a body can
+            -- stand there. A clear side still wins.
+            if utility.movingBlocker(square, actor) then
+                busy = true
+            elseif select(1, utility.call(square, "canStand")) ~= false then
+                local distance = utility.distance(actor, square)
+                if distance ~= nil and (passableDistance == nil or distance < passableDistance) then
+                    passable, passableDistance = square, distance
+                end
+            end
         end
     end
     if best ~= nil then return best end
+    if passable ~= nil then return passable end
     return nil, busy and "work_side_busy" or "work_side_blocked"
 end
 

@@ -387,6 +387,59 @@ local function releasePlayerSupply(actor, state)
     if state then state.supply = nil end
 end
 
+-- Inside camp the marked storage list is the whole answer and short enough to
+-- read in one pass, so a miss here proves the item is not there. Returns the
+-- nearest match, or nil and true when it may yet be found: another worker holds a
+-- container that has one, or a very full container has more left to read.
+local function findMarkedSupply(actor, predicate, oz, state)
+    local utility = U()
+    local baseLife = SC.BaseLife
+    local best, bestDistance, waiting
+    local sliceSize = 256
+    state.supplySlices = state.supplySlices or setmetatable({}, { __mode = "k" })
+    for _, storage in ipairs(baseLife.storageRows(nil, true)) do
+        local found, container = pcall(baseLife.resolveContainer, storage)
+        if found and container and math.floor(tonumber(storage.z) or 0) == math.floor(oz or 0) then
+            local reservation = pruneReservation(container, now())
+            local held = reservation ~= nil and reservation.actor ~= actor
+            local items = containerItems(container)
+            local offset = state.supplySlices[container] or 0
+            local match
+            utility.each(items, sliceSize, function(candidate)
+                local protected = SC.PersonalItems
+                    and SC.PersonalItems.isProtected(candidate, actor, "camp_supply")
+                if not protected then
+                    local ok, value = pcall(predicate, candidate)
+                    if ok and value == true and storageAllows(storage, candidate) then
+                        match = candidate
+                        return false
+                    end
+                end
+                return true
+            end, offset)
+            if match then
+                state.supplySlices[container] = nil
+                if held then
+                    waiting = true
+                else
+                    local owner = containerOwner(container)
+                    local distance = ownerDistance(actor, owner)
+                    if not bestDistance or distance < bestDistance then
+                        best = { container = container, item = match, owner = owner }
+                        bestDistance = distance
+                    end
+                end
+            elseif offset + sliceSize < utility.listSize(items) then
+                state.supplySlices[container] = offset + sliceSize
+                waiting = true
+            else
+                state.supplySlices[container] = nil
+            end
+        end
+    end
+    return best, waiting
+end
+
 -- Searches the base's marked storage inside the base and, away from it, the
 -- world containers the local player has opened. The rotating outer-band
 -- sample keeps a 24-tile camp useful without turning every companion
@@ -397,6 +450,12 @@ local function findPlayerSupply(actor, predicate, options, state)
     local origin = options.origin or actor
     local ox, oy, oz = utility.position(origin)
     if not ox then return nil end
+    if not options.radius and insideBase(origin) and SC.BaseLife
+        and type(SC.BaseLife.storageRows) == "function"
+        and type(SC.BaseLife.resolveContainer) == "function" then
+        local marked, waiting = findMarkedSupply(actor, predicate, oz, state)
+        if marked or waiting then return marked, waiting end
+    end
     local radius = math.max(1, math.min(32,
         math.floor(tonumber(options.radius) or utility.config("campStorageRadius") or 24)))
     local squareBudget = math.max(1,
@@ -500,8 +559,12 @@ function Encounter.takePlayerSupply(actor, supplyKey, predicate, options)
         supply = nil
     end
     if not supply then
-        supply = findPlayerSupply(actor, predicate, options, state)
-        if not supply then return "missing", "camp_supply_missing" end
+        local waiting
+        supply, waiting = findPlayerSupply(actor, predicate, options, state)
+        if not supply then
+            if waiting then return "in_progress", "camp_supply_reserved" end
+            return "missing", "camp_supply_missing"
+        end
         if not reserveContainer(supply.container, actor, current, lease) then
             return "in_progress", "camp_supply_reserved"
         end

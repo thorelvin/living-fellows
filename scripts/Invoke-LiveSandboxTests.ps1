@@ -69,6 +69,8 @@ param(
     [switch]$OfficeHaulSurveyOnly,
     [switch]$OfficeHaulBaseline,
     [switch]$BaseAlertProbe,
+    # Boards the seed save's "Maintain this barricade" target with a real worker.
+    [switch]$BarricadeProbe,
     # Exercise real rendered wall cutaways across companion-view releases.
     [switch]$ViewCutawayProbe,
     [switch]$ViewCutawayQuickWatch,
@@ -1707,6 +1709,7 @@ $config = @(
     ('office_haul_probe=' + $OfficeHaulProbe.IsPresent.ToString().ToLowerInvariant()),
     ('office_haul_survey_only=' + $OfficeHaulSurveyOnly.IsPresent.ToString().ToLowerInvariant()),
     ('base_alert_probe=' + $BaseAlertProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('barricade_probe=' + $BarricadeProbe.IsPresent.ToString().ToLowerInvariant()),
     ('view_cutaway_probe=' + $ViewCutawayProbe.IsPresent.ToString().ToLowerInvariant()),
     ('view_cutaway_quick_watch=' + $ViewCutawayQuickWatch.IsPresent.ToString().ToLowerInvariant()),
     ('view_cutaway_restore_mode=' + $ViewCutawayRestoreMode),

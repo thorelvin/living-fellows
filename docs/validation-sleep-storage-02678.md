@@ -66,14 +66,9 @@ transactions. All 244 payload Lua files compile normally and in debug mode.
 The final native-fixture-only adjustments do not change either production
 module. The bridge binary, protocol and save schemas are unchanged.
 
-Retained evidence:
-
-- [Full project gate](../artifacts/bed-storage-02678/project-gate.txt).
-- [Standard-bed results](../artifacts/bed-storage-02678/standard-bed-evidence.txt)
-  and [sleeping screenshot](../artifacts/bed-storage-02678/standard-bed-sleeping.png).
-- [Focused bunk-bed results](../artifacts/bed-storage-02678/bunk-bed-evidence.txt),
-  [sleeping](../artifacts/bed-storage-02678/bunk-bed-sleeping.png) and
-  [awake](../artifacts/bed-storage-02678/bunk-bed-awake.png).
+The raw gate log, bed results and screenshots were removed from the tree in
+0.26.80, because the repository does not keep playtest output. They remain in
+history under `artifacts/bed-storage-02678/` at commit `d08b5a4c`.
 
 Installed locally with the game closed, preserving the private native setup.
 Installed source hashes match the verified files:
@@ -105,9 +100,8 @@ reproduce the exhausted playtester case or establish automatic sleep at high
 tiredness. The separate native standard-bed and bunk-bed checks above exercise
 sleep entry and wake directly.
 
-Evidence: [summary](../artifacts/bed-storage-02678/natural-observation/summary.json),
-[sleep telemetry](../artifacts/bed-storage-02678/natural-observation/sleep-telemetry.txt)
-and [run events](../artifacts/bed-storage-02678/natural-observation/events.txt).
+Raw summary, telemetry and events are in history at `d08b5a4c`, under
+`artifacts/bed-storage-02678/natural-observation/`.
 The full disposable world and console remain under
 `build/live-sandbox-runs/SC-Harness-20261030-082613-bbd3364b`.
 
@@ -134,9 +128,7 @@ run confirms natural bed selection, entry and fatigue recovery for one saved
 companion. It does not exercise 100% exhaustion or a full natural sleep/wake
 cycle; Sanghwa was still asleep when the observation ended.
 
-Evidence: [summary](../artifacts/bed-storage-02678/natural-observation-35min/summary.json),
-[telemetry](../artifacts/bed-storage-02678/natural-observation-35min/sleep-telemetry.txt),
-[run events](../artifacts/bed-storage-02678/natural-observation-35min/events.txt)
-and [natural-sleep screenshot](../artifacts/bed-storage-02678/natural-observation-35min/natural-sleep.png).
+Raw summary, telemetry, events and screenshot are in history at `d08b5a4c`, under
+`artifacts/bed-storage-02678/natural-observation-35min/`.
 Full world and console:
 `build/live-sandbox-runs/SC-Harness-20261030-083849-dd531c84`.

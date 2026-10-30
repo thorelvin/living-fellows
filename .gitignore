@@ -38,3 +38,9 @@ logs.zip
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Playtest output stays out of the repository. Summarize it in docs/ instead.
+/artifacts/**/*.png
+/artifacts/**/events.txt
+/artifacts/**/project-gate.txt
+/artifacts/**/sleep-telemetry.txt

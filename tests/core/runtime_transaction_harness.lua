@@ -307,5 +307,18 @@ do
     SC.Terminal = previous
 end
 
+do
+    -- The vanilla world save carries on regardless, so a computer part that
+    -- cannot be recorded yet must not cost the companions their save.
+    ready, reason, operational = SC.Runtime.start()
+    check(operational == true, "runtime restarts before the computer-part save fixture")
+    local previous, saves = SC.TerminalHardware, SC.Persistence.saveCalls
+    SC.TerminalHardware = { save = function() return false, "radio channel pending" end }
+    SC.Runtime.save()
+    check(SC.Persistence.saveCalls == saves + 1,
+        "companions still save when a mounted computer part cannot be recorded yet")
+    SC.TerminalHardware = previous
+end
+
 SC_TEST_REPORT = "RUNTIME_TRANSACTION_KAHLUA_PASS checks=" .. tostring(checks)
 print(SC_TEST_REPORT)

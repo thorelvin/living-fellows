@@ -6,12 +6,80 @@ SC.BedGeometry = SC.BedGeometry or {}
 local Geometry = SC.BedGeometry
 local function U() return SC.GameplayUtil end
 
+local function gridNumber(value)
+    if type(value) == "number" then return value end
+    return value ~= nil and tonumber(tostring(value)) or nil
+end
+
+-- A sprite grid belongs to the furniture type, not to one placed bed, so two
+-- identical beds side by side share it. Position within the grid tells them apart.
+local function segmentAt(tile, grid, targetGX, targetGY)
+    local objects = tile and select(1, U().call(tile, "getObjects"))
+    if not objects or not SC.NativeList then return nil end
+    for index = 0, SC.NativeList.size(objects) - 1 do
+        local candidate = SC.NativeList.get(objects, index)
+        local candidateSprite = select(1,
+            U().call(candidate, "getSprite"))
+        if candidateSprite
+            and select(1, U().call(candidateSprite,
+                "getSpriteGrid")) == grid
+            and gridNumber(select(1, U().call(grid,
+                "getSpriteGridPosX", candidateSprite))) == targetGX
+            and gridNumber(select(1, U().call(grid,
+                "getSpriteGridPosY", candidateSprite))) == targetGY then
+            return candidate
+        end
+    end
+    return nil
+end
+
+-- Every tile of the one bed `bed` belongs to. Entry maps them all onto a single
+-- mattress, so a claim on any one tile has to count for the whole bed.
+function Geometry.segments(bed)
+    local sprite = bed and select(1, U().call(bed, "getSprite"))
+    local grid = sprite and select(1, U().call(sprite, "getSpriteGrid"))
+    local square = bed and U().squareOf(bed)
+    local result = {}
+    if grid and square then
+        local gx = gridNumber(select(1, U().call(grid, "getSpriteGridPosX", sprite)))
+        local gy = gridNumber(select(1, U().call(grid, "getSpriteGridPosY", sprite)))
+        local x, y, z = U().position(square)
+        if gx ~= nil and gy ~= nil and x ~= nil and y ~= nil then
+            local width = gridNumber(select(1, U().call(grid, "getWidth"))) or 2
+            local height = gridNumber(select(1, U().call(grid, "getHeight"))) or 2
+            for targetGY = 0, math.min(height, 4) - 1 do
+                for targetGX = 0, math.min(width, 4) - 1 do
+                    local segment = segmentAt(U().gridSquare(x - gx + targetGX,
+                        y - gy + targetGY, z or 0), grid, targetGX, targetGY)
+                    if segment then result[#result + 1] = segment end
+                end
+            end
+        end
+    end
+    if #result == 0 and bed then result[1] = bed end
+    return result
+end
+
+-- Someone other than `actor` lying on any tile of this bed. Native
+-- isFurnitureOccupied reads only its own tile and only counts an Idle sitting
+-- pose, so it cannot answer this for a body lying on the other half.
+function Geometry.occupant(bed, actor)
+    for _, segment in ipairs(Geometry.segments(bed)) do
+        local moving = select(1, U().call(U().squareOf(segment), "getMovingObjects"))
+        if moving and SC.NativeList then
+            for index = 0, SC.NativeList.size(moving) - 1 do
+                local body = SC.NativeList.get(moving, index)
+                if body ~= actor and select(1, U().call(body, "isOnBed")) == true then
+                    return body
+                end
+            end
+        end
+    end
+    return nil
+end
+
 function Geometry.entry(bed, actor)
     if not bed then return nil, nil, "bed_missing" end
-    local function gridNumber(value)
-        if type(value) == "number" then return value end
-        return value ~= nil and tonumber(tostring(value)) or nil
-    end
     local function cardinal(value)
         local text = value ~= nil and tostring(value) or nil
         return (text == "N" or text == "S" or text == "W"
@@ -50,23 +118,7 @@ function Geometry.entry(bed, actor)
         return nil, nil, "bed_square_unavailable"
     end
     local function matchingHalf(tile, targetGX, targetGY)
-        local objects = tile and select(1, U().call(tile, "getObjects"))
-        if not objects or not SC.NativeList then return nil end
-        for index = 0, SC.NativeList.size(objects) - 1 do
-            local candidate = SC.NativeList.get(objects, index)
-            local candidateSprite = select(1,
-                U().call(candidate, "getSprite"))
-            if candidateSprite
-                and select(1, U().call(candidateSprite,
-                    "getSpriteGrid")) == grid
-                and gridNumber(select(1, U().call(grid,
-                    "getSpriteGridPosX", candidateSprite))) == targetGX
-                and gridNumber(select(1, U().call(grid,
-                    "getSpriteGridPosY", candidateSprite))) == targetGY then
-                return candidate
-            end
-        end
-        return nil
+        return segmentAt(tile, grid, targetGX, targetGY)
     end
     local function clearForActor(tile)
         if not tile then return false end

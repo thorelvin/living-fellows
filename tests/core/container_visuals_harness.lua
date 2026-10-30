@@ -65,6 +65,7 @@ check(not moved and reason == "destination_add_failed_rolled_back", "failed add 
 check(shelf.overlay == "stocked" and sourceShelf.overlay == nil
     and destination:contains(exact) and not source:contains(exact),
     "rollback refresh observes exact restored ownership")
+check(#updates == 2, "a rollback repaints both shelves it touched")
 source.reject = nil
 
 updates = {}
@@ -83,4 +84,41 @@ check(#updates == 0 and bag.drawDirty, "nested bags do not repaint the containin
 ISInventoryPage = setmetatable({}, { __newindex = function() error("injected inventory UI failure") end })
 check(U.transferItemVerified(bag, carried, exact) and carried:contains(exact),
     "inventory UI failure cannot turn a verified transfer into a failed receipt")
+ISInventoryPage = {}
+local eaten = { getFullType = function() return "Base.Apple" end }
+local pantry = { __class = "IsoObject" }
+local pantryContainer = container(pantry)
+pantryContainer:AddItem(eaten)
+updates = {}
+ItemPicker.updateOverlaySprite = function(parent) updates[#updates + 1] = parent end
+check(U.consumeItem(pantryContainer, eaten) == true and updates[1] == pantry
+    and ISInventoryPage.renderDirty == true,
+    "removing the last thing from a shelf repaints that shelf")
+local lastPill = { getFullType = function() return "Base.Pills" end }
+function lastPill:Use()
+    pantryContainer:Remove(self)
+    return true
+end
+pantryContainer:AddItem(lastPill)
+updates = {}
+check(U.consumeItem(pantryContainer, lastPill) == true and updates[1] == pantry,
+    "using up the last item on a shelf repaints that shelf")
+
+-- Needs and build paths move items with raw Remove/AddItem, not the verified
+-- transfer, and they empty shelves all the same.
+local Actions = SurvivorCompanion.NativeActions
+local larder = { __class = "IsoObject" }
+local larderShelf, pack = container(larder), container({ __class = "IsoGameCharacter" })
+local snack = { getFullType = function() return "Base.Crisps" end }
+function snack:getContainer() return self.container end
+larderShelf:AddItem(snack)
+local packActor = { getInventory = function() return pack end }
+updates = {}
+local moved, origin = Actions._moveItemToRootForTests(packActor, snack)
+check(moved == true and origin == larderShelf and #updates == 1 and updates[1] == larder,
+    "taking a needs item off a shelf repaints the shelf")
+updates = {}
+check(Actions._restoreNeedsItemForTests(packActor, { item = snack, originalContainer = larderShelf }) == true
+    and snack.container == larderShelf and #updates == 1 and updates[1] == larder,
+    "putting an unused needs item back repaints the shelf")
 SC_TEST_REPORT = "CONTAINER_VISUALS_PASS checks=" .. checks

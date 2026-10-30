@@ -1567,7 +1567,10 @@ function U.consumeItem(inventory, item)
     if useOk then
         if used == false then return false end
         U.touchInventoryIndex(inventory)
-        if inventory and not U.inventoryContains(inventory, item) then return true end
+        if inventory and not U.inventoryContains(inventory, item) then
+            U.refreshContainerVisuals(inventory)
+            return true
+        end
         local usesAfter, afterOk = U.call(item, "getUses")
         if usesOk and afterOk and type(usesBefore) == "number" and type(usesAfter) == "number" then
             return usesAfter < usesBefore
@@ -1578,7 +1581,10 @@ function U.consumeItem(inventory, item)
         local removed, removeOk = U.call(inventory, "Remove", item)
         if removeOk then
             local absent = removed ~= false and not U.inventoryContains(inventory, item)
-            if absent then U.touchInventoryIndex(inventory) end
+            if absent then
+                U.touchInventoryIndex(inventory)
+                U.refreshContainerVisuals(inventory)
+            end
             return absent
         end
     end
@@ -1612,10 +1618,10 @@ function U.addItem(inventory, itemOrType)
     return nil, tostring(failure or "add_item_call_failed")
 end
 
--- Verified companion transfers bypass ISInventoryTransferAction.perform.
--- Refresh its visual side effects only after the ownership transaction settles;
--- neither a failed overlay nor a UI callback can change the cargo receipt.
-local function refreshTransferVisuals(source, destination)
+-- Companion transfers bypass ISInventoryTransferAction.perform. Refresh its visual
+-- side effects only after the ownership transaction settles; neither a failed
+-- overlay nor a UI callback can change the cargo receipt. `destination` is optional.
+function U.refreshContainerVisuals(source, destination)
     local refreshed = {}
     for _, container in ipairs({ source, destination }) do
         U.call(container, "setDrawDirty", true)
@@ -1645,7 +1651,7 @@ function U.transferItemVerified(source, destination, item)
     if source == destination then return false, "same_container" end
     if not U.inventoryContains(source, item) then
         if U.inventoryContains(destination, item) then
-            refreshTransferVisuals(source, destination)
+            U.refreshContainerVisuals(source, destination)
             return true, "already_transferred", {
                 item = item, itemType = U.itemType(item), itemName = U.itemName(item),
                 source = source, destination = destination, idempotent = true,
@@ -1673,7 +1679,7 @@ function U.transferItemVerified(source, destination, item)
 
     U.addItem(destination, item)
     if U.inventoryContains(destination, item) and not U.inventoryContains(source, item) then
-        refreshTransferVisuals(source, destination)
+        U.refreshContainerVisuals(source, destination)
         return true, "transferred", {
             item = item, itemType = U.itemType(item), itemName = U.itemName(item),
             source = source, destination = destination, idempotent = false,
@@ -1687,7 +1693,7 @@ function U.transferItemVerified(source, destination, item)
         U.touchInventoryIndex(destination)
     end
     U.addItem(source, item)
-    refreshTransferVisuals(source, destination)
+    U.refreshContainerVisuals(source, destination)
     if U.inventoryContains(source, item) and not U.inventoryContains(destination, item) then
         return false, "destination_add_failed_rolled_back"
     end

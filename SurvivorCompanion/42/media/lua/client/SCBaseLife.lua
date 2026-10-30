@@ -489,6 +489,26 @@ local function normalizeJob(source)
     }
 end
 
+-- The maintenance audit once queued barricades with coordinates and no object
+-- identity. Those can never resolve, and six failed tries park them for good, so
+-- a saved one takes the identity of the target it was queued for and starts over.
+-- With no such target left it can never run, and the caller drops it.
+local function adoptMaintenanceIdentity(job, targets)
+    local target = job.target
+    if job.type ~= "barricade" or type(target) ~= "table"
+        or target.objectId ~= nil or target.maintenanceId == nil then return true end
+    for _, row in ipairs(targets) do
+        if row.id == target.maintenanceId and row.objectId ~= nil then
+            target.objectId, target.objectSignature = row.objectId, row.objectSignature
+            target.x, target.y, target.z = row.x, row.y, row.z
+            target.objectIndex = row.objectIndex
+            job.state, job.blocker, job.attempts, job.retryAt = "pending", nil, 0, 0
+            return true
+        end
+    end
+    return false
+end
+
 local function normalizeWorkerIds(source)
     local result, seen = {}, {}
     for _, id in ipairs(type(source) == "table" and source or {}) do
@@ -933,7 +953,10 @@ local function normalizeBase(source)
     for _, row in ipairs(type(source.jobs) == "table" and source.jobs or {}) do
         local job = normalizeJob(row)
         if job and job.state ~= "completed" and job.state ~= "cancelled"
-            and #result.jobs < maximumJobs then result.jobs[#result.jobs + 1] = job end
+            and #result.jobs < maximumJobs
+            and adoptMaintenanceIdentity(job, result.maintenanceTargets) then
+            result.jobs[#result.jobs + 1] = job
+        end
     end
     for _, row in ipairs(type(source.completed) == "table" and source.completed or {}) do
         if type(row) == "table" and #result.completed < 24 then
@@ -4531,6 +4554,11 @@ function BaseLife.blockJob(id, actorId, reason, retryMs)
         pcall(SC.WorkVoice.jobEvent, "blocked", job, worker)
     end
     job.attempts = transientDelay and 0 or (job.attempts or 0) + 1
+    -- Nothing a worker does can bring the object back, so stop pulling them off
+    -- other work to look. The player can still retry or cancel it.
+    if job.blocker == "barricade_target_gone" then
+        job.attempts = tonumber(U().config("baseJobParkAfterFailures")) or 6
+    end
     if type(job.navigationRecovery) == "table" and job.navigationRecovery.rearmed
         and BaseLife.navigationFailure and BaseLife.navigationFailure(job.blocker) then
         job.attempts = tonumber(U().config("baseJobParkAfterFailures")) or 6

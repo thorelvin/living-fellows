@@ -23,7 +23,8 @@ in debug mode, gameplay, native API contracts, persistence, ownership,
 navigation, combat, UI, both NPC adapters, packaging and installer transactions.
 The container-visual regression has 17 assertions, covering exact transfer,
 withdrawal, rollback, duplicate receipts, bags and visual callback failures.
-[Release gate](../artifacts/releases/0.26.79/project-gate.txt).
+The raw gate log is in history at `d08b5a4c`, under
+`artifacts/releases/0.26.79/`.
 
 Live checks preceded the metadata-only version bump and used the unchanged
 production sleep/storage modules. The standard-bed test passes sleep, wake,
@@ -44,3 +45,8 @@ is claimed.
 The functional fixes were installed locally under the preceding 0.26.78
 identity. This Git release does not reinstall the new version label or publish
 to Steam Workshop.
+
+Commit `d08b5a4c` followed this checkpoint on the same version. The gate above
+predates it; the same 29 stages passed on it afterwards in a later review. See
+[Release 0.26.80](validation-release-0.26.80.md), which also fixes a regression
+that commit introduced in EMMA's follow-up phrasing.

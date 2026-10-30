@@ -191,9 +191,54 @@ try {
             (Join-Path $Shared 'SCNativeList.lua'),
             (Join-Path $Shared 'SCConfig.lua'),
             (Join-Path $Client 'SCGameplayUtil.lua'),
+            (Join-Path $Client 'SCNativeTraversalActions.lua'),
+            (Join-Path $Client 'SCNativeVisualActions.lua'),
+            (Join-Path $Client 'SCNativeCombatActions.lua'),
+            (Join-Path $Client 'SCNativeWorkActions.lua'),
+            (Join-Path $Client 'SCNativeMovementActions.lua'),
+            (Join-Path $Client 'SCNativeActions.lua'),
             (Join-Path $TestRoot 'container_visuals_harness.lua')
         )
         Add-ScJvmStep 'container-visuals' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $containerVisualFiles 'Verified container transfer visual regression failed.'
+        $bedSegmentFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCCall.lua'),
+            (Join-Path $Shared 'SCNativeList.lua'),
+            (Join-Path $Shared 'SCConfig.lua'),
+            (Join-Path $Client 'SCGameplayUtil.lua'),
+            (Join-Path $Client 'SCBedGeometry.lua'),
+            (Join-Path $Client 'SCDowntime.lua'),
+            (Join-Path $TestRoot 'bed_segments_harness.lua')
+        )
+        Add-ScJvmStep 'bed-segments' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $bedSegmentFiles 'One-claim-per-bed regression failed.'
+        $campSupplyFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCCall.lua'),
+            (Join-Path $Shared 'SCNativeList.lua'),
+            (Join-Path $Shared 'SCConfig.lua'),
+            (Join-Path $Client 'SCGameplayUtil.lua'),
+            (Join-Path $Client 'SCEncounter.lua'),
+            (Join-Path $TestRoot 'camp_supply_search_harness.lua')
+        )
+        Add-ScJvmStep 'camp-supply-search' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $campSupplyFiles 'Camp supply search regression failed.'
+        $barricadeActionFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCCall.lua'),
+            (Join-Path $Shared 'SCNativeList.lua'),
+            (Join-Path $Shared 'SCConfig.lua'),
+            (Join-Path $Client 'SCGameplayUtil.lua'),
+            (Join-Path $Client 'SCNativeTraversalActions.lua'),
+            (Join-Path $Client 'SCNativeVisualActions.lua'),
+            (Join-Path $Client 'SCNativeCombatActions.lua'),
+            (Join-Path $Client 'SCNativeWorkActions.lua'),
+            (Join-Path $Client 'SCNativeMovementActions.lua'),
+            (Join-Path $Client 'SCNativeActions.lua'),
+            (Join-Path $TestRoot 'barricade_action_harness.lua')
+        )
+        Add-ScJvmStep 'barricade-action' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $barricadeActionFiles 'Native barricade validity regression failed.'
         $capacityFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),

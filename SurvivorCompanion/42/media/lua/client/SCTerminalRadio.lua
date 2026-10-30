@@ -123,7 +123,14 @@ function R.stop(object,restore)
     if restore and current(object,rt,true) and call(rt.data,"getChannel")==scan.expected then
         scan.restoring=true
         local okay,reason=tune(object,rt,scan.original)
-        if not okay then rt.notice=reason return false,reason end
+        if not okay then
+            -- The handset held this exact channel before the scan. A band check
+            -- or refused setter must not strand the session, because this stop
+            -- also guards moving the PC and removing the radio.
+            call(rt.data,"setChannelRaw",scan.original)
+            if call(rt.data,"getChannel")~=scan.original then rt.notice=reason return false,reason end
+            rt.receiving=false rt.lastReception=nil rt.needQuiet=true rt.tunedAt=U().now()
+        end
         scan.expected=scan.original
         if flush(object)==false then
             rt.notice="Previous channel restored, but saving failed. Retry Stop before moving the PC."

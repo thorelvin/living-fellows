@@ -1885,9 +1885,10 @@ function Brain.parse(session, raw, world, turn)
         if exact=="yes" or exact=="ack" then return "clarify_person",{people=selection.people,aspect=selection.aspect} end
     end
     if Conversation then
-        -- Conversation.meta normalizes its own words. Keep the original
-        -- numeric punctuation for signed and decimal arithmetic follow-ups.
-        local meta,metaSlots=Conversation.meta(session,text)
+        -- Phrases match the normalized tokens, so contractions and punctuation
+        -- read as they do everywhere else. Only arithmetic follow-ups need the
+        -- original text, for signed and decimal numbers.
+        local meta,metaSlots=Conversation.meta(session,joined,text)
         if meta then return topicReference(meta,metaSlots,peopleList(turn,world)) end
         if Conversation.more(joined) or Conversation.refresh(joined) then
             local topic=Conversation.latest(session)

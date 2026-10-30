@@ -192,6 +192,7 @@ unachievable native seated break is a fixture failure, not a passing handoff.
 
 ```powershell
 .\scripts\Invoke-LiveSandboxTests.ps1 -GuardFollowProbe -LivingFellowsOnly -NoSteam -IsolatedSourceBridge -TimeoutSeconds 600
+.\scripts\Invoke-LiveSandboxTests.ps1 -BarricadeProbe -LivingFellowsOnly -NoSteam -IsolatedSourceBridge -TimeoutSeconds 600
 ```
 
 To verify the camp alarm, the probe puts one new resident to sleep in a real

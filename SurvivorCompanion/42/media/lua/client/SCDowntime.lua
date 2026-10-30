@@ -208,6 +208,9 @@ local function reservationHeldByOther(value, actor, now)
     for _, scrap in ipairs(activity.scraps or {}) do
         if scrap == value then return true end
     end
+    for _, segment in ipairs(activity.bedSegments or {}) do
+        if segment == value then return true end
+    end
     return false
 end
 
@@ -302,6 +305,7 @@ local function releaseActivity(actor, activity)
     if activity.scraps then
         for _, item in ipairs(activity.scraps) do release(item, actor) end
     end
+    for _, segment in ipairs(activity.bedSegments or {}) do release(segment, actor) end
 end
 
 -- Threats that combat has just judged out of reach (a zombie behind the base
@@ -1549,14 +1553,21 @@ local function furnitureKind(object)
             -- Build 42 also gives bed-like properties to chairs and couches.
             -- Use explicit object/tile semantics to identify a physical bed;
             -- otherwise SeatingManager is the authoritative seating catalogue.
+            local bedType = select(1, utility.call(properties, "get", "BedType"))
+            if bedType == nil then
+                bedType = select(1, utility.call(properties, "Val", "BedType"))
+            end
             if (isNamedBed(objectName) or isNamedBed(customNameOk and customName or nil)
                 or isNamedBed(groupNameOk and groupName or nil)
                 or string.find(loweredSprite, "furniture_bedding", 1, true))
                 -- Mattress entry uses ISGetOnBedAction and the sprite grid,
-                -- not chair positions. Some vanilla beds have zero seating
-                -- positions but a valid native bed entry. Geometry/access
-                -- validation below still rejects broken or blocked beds.
-                and (select(1, utility.call(sprite, "getSpriteGrid")) ~= nil
+                -- not chair positions. Bunk, twin, oak and light wood beds have
+                -- zero seating positions but a valid native bed entry. A name
+                -- and a grid alone also fit the gallery's brick art "Bed", so
+                -- a seatless bed must carry the BedType native sleep reads.
+                -- Geometry/access validation below rejects blocked beds.
+                and ((bedType ~= nil
+                        and select(1, utility.call(sprite, "getSpriteGrid")) ~= nil)
                     or seatingPositionCount(object) > 0) then
                 return "rest_bed"
             end
@@ -1626,6 +1637,10 @@ local function freeFurnitureAccess(actor, object)
             if select(1, utility.call(actor, "isOnBed")) == true
                 and select(1, utility.call(actor, "getSitOnFurnitureObject")) == object then
                 return true, {}, "arrived"
+            end
+            if type(SC.BedGeometry.occupant) == "function"
+                and SC.BedGeometry.occupant(object, actor) then
+                return false, {}, "seat_spot_busy"
             end
             -- Choose and approach the same safe mattress entry that the native
             -- bed action will use. Generic chair access can select a different
@@ -1746,9 +1761,13 @@ local function campBedActivity(actor, state, current, zoneKind)
         or (not scan.pending and (scan.x ~= math.floor(ax)
             or scan.y ~= math.floor(ay) or scan.z ~= math.floor(az)))
         or scan.zoneCount ~= #zones then
+        -- A finished survey's backoff outlives the tile it was run from, or a
+        -- worker walking through a camp with no free bed never stops surveying.
+        local retryAt = scan and scan.base == active
+            and scan.zoneCount == #zones and scan.retryAt or nil
         scan = { base = active, x = math.floor(ax), y = math.floor(ay),
             z = math.floor(az), zoneCount = #zones, zoneIndex = 1,
-            ring = 0, offset = 0, zones = zones }
+            ring = 0, offset = 0, zones = zones, retryAt = retryAt }
         if type(state) == "table" then
             state.campBedScans = state.campBedScans or {}
             state.campBedScans[zoneKind] = scan
@@ -3850,6 +3869,21 @@ local function reserveActivity(actor, activity, now)
         for _, value in ipairs(held) do release(value, actor) end
         return false
     end
+    -- Every tile of a bed leads to the same mattress, whichever one was found.
+    if activity.kind == "rest_bed" and SC.BedGeometry
+        and type(SC.BedGeometry.segments) == "function" then
+        activity.bedSegments = {}
+        for _, segment in ipairs(SC.BedGeometry.segments(activity.object)) do
+            if segment ~= activity.object then
+                if not take(segment) then
+                    for _, value in ipairs(held) do release(value, actor) end
+                    activity.bedSegments = nil
+                    return false
+                end
+                activity.bedSegments[#activity.bedSegments + 1] = segment
+            end
+        end
+    end
     if activity.scraps then
         for _, item in ipairs(activity.scraps) do
             if not take(item) then
@@ -5801,7 +5835,8 @@ end
 function Downtime._furnitureForTests()
     return furnitureKind, seatActivity, approachFurniture, beginActivity,
         coolFurniture, furnitureCooling, floorRestActivity, seatingStatus,
-        failActivity, reserve, release, stateFor, orderAllowsIdle
+        failActivity, reserve, release, stateFor, orderAllowsIdle,
+        reserveActivity, freeFurnitureAccess, releaseActivity
 end
 
 function Downtime._sleepForTests()

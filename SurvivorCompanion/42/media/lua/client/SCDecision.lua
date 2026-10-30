@@ -1441,6 +1441,7 @@ local function cancelWork(actor, state, reason)
     if cancelled ~= true then return false, "work_cancel_failed:" .. tostring(cancelReason) end
     state.workAction = nil
     state.workAssignedAt = nil
+    state.workFetches = nil
     state.workApproachSide = nil
     state.workSideKey = nil
     state.workSideBusyAt = nil
@@ -1460,6 +1461,7 @@ local function finishWork(actor, player, state, reason)
     end
     state.workAction = nil
     state.workAssignedAt = nil
+    state.workFetches = nil
     state.workApproachSide = nil
     state.workSideKey = nil
     state.workSideBusyAt = nil
@@ -1524,6 +1526,12 @@ local function doWork(actor, player, commands, snapshot, state)
         and current - state.workAssignedAt > (utility.config("workApproachTimeoutMs") or 60000) then
         return finishWork(actor, player, state, "work_timeout")
     end
+    -- BaseWork.update stops renewing a job's lease once it hands the job to this
+    -- order. Without this the job is released mid-task and a second worker claims it.
+    if commands.workTarget and commands.workTarget.baseJobId ~= nil and SC.BaseLife
+        and type(SC.BaseLife.touchJob) == "function" then
+        SC.BaseLife.touchJob(commands.workTarget.baseJobId, utility.idOf(actor))
+    end
     local object, targetSquare, targetReason = resolveWorkObject(commands)
     if not object then return finishWork(actor, player, state, targetReason) end
     local reserved, reservationReason = reserveWork(actor, commands, state, current)
@@ -1575,6 +1583,39 @@ local function doWork(actor, player, commands, snapshot, state)
         return finishWork(actor, player, state, sideReason or "work_side_unloaded")
     end
     state.workSideBusyAt = nil
+    -- Fetch materials before walking to the window. A worker sent to storage from
+    -- the window's own square would be called straight back by the approach below,
+    -- and the two routes would cancel each other until the work timed out.
+    if commands.workTarget.kind == "barricade" and not state.workAction
+        and SC.Logistics and type(SC.Logistics.prepareBuild) == "function" then
+        local boarded = selectedBarricade(object, actor, commands.workTarget)
+        local finished = boarded and select(1, utility.call(boarded, "canAddPlank")) == false
+        if commands.workTarget.baseJobId == nil then
+            finished = (selectedBarricadePlanks(object, actor, commands.workTarget) or 0)
+                > math.max(0, math.floor(tonumber(commands.workTarget.initialPlanks) or 0))
+        end
+        if not finished then
+            local ready, handled, supplyReason = SC.Logistics.prepareBuild(
+                actor, targetSquare, snapshot, commandMoveMode(commands, player))
+            if not ready then
+                if handled then
+                    -- An item in hand is real progress on a long fetch, but only
+                    -- so often, or items going missing again could loop forever.
+                    if supplyReason == "camp_supply_taken" and (state.workFetches or 0) < 6 then
+                        state.workFetches = (state.workFetches or 0) + 1
+                        state.workAssignedAt = current
+                    end
+                    return true, supplyReason or "gathering_build_supplies"
+                end
+                reportWorkFailure(actor, player, supplyReason, snapshot)
+                -- Camp work waits for materials, and resumes once they are stocked.
+                -- A one-shot order has nothing to come back to, so it just ends.
+                return finishWork(actor, player, state, commands.workTarget.baseJobId ~= nil
+                    and "missing_build_supply:" .. tostring(supplyReason or "materials")
+                    or "build_supplies_unavailable")
+            end
+        end
+    end
     local wrongRemovalSide = (commands.workTarget.kind == "remove_barricade"
         or commands.workTarget.kind == "barricade")
         and utility.squareKey(utility.squareOf(actor)) ~= utility.squareKey(interactionSquare)
@@ -1582,11 +1623,19 @@ local function doWork(actor, player, commands, snapshot, state)
         if not SC.Navigation or type(SC.Navigation.request) ~= "function" then
             return finishWork(actor, player, state, "work_navigation_unavailable")
         end
+        -- Boarding needs the exact tile. Without this the route calls half a tile
+        -- from its centre arrived: on the tile's edge, which is the next square,
+        -- so the side check above sends the worker here again until it times out.
+        -- Anywhere on the tile will do, since passable furniture can fill its centre.
+        local exactTile = commands.workTarget.kind == "remove_barricade"
+            or commands.workTarget.kind == "barricade"
         return SC.Navigation.request(actor, interactionSquare, commandMoveMode(commands, player), {
             action = "approach_interaction",
             targetSquare = interactionSquare,
             object = object,
             snapshot = snapshot,
+            arrivalDistance = exactTile and 0.7 or nil,
+            requireSameSquare = exactTile or nil,
             workCampOnly = commands.workTarget.baseJobId ~= nil,
             workReach = commands.workTarget.baseJobId ~= nil,
         })
@@ -1686,6 +1735,7 @@ local function doWork(actor, player, commands, snapshot, state)
                 local cleaned, cleanupReason = SC.NativeActions.finishWork(actor)
                 if cleaned ~= true then return false, cleanupReason end
                 state.workAction = nil
+                state.workFetches = nil
                 state.workAssignedAt = utility.nowMs()
                 return true, "barricade_continuing"
             end
@@ -1710,16 +1760,6 @@ local function doWork(actor, player, commands, snapshot, state)
         math.floor(tonumber(commands.workTarget.initialPlanks) or 0))
     if not baseBarricade and currentPlanks > initialPlanks then
         return finishWork(actor, player, state, "barricade_already_completed")
-    end
-
-    if SC.Logistics and type(SC.Logistics.prepareBuild) == "function" then
-        local ready, handled, supplyReason = SC.Logistics.prepareBuild(
-            actor, targetSquare, snapshot, commandMoveMode(commands, player))
-        if not ready then
-            if handled then return true, supplyReason or "gathering_build_supplies" end
-            reportWorkFailure(actor, player, supplyReason, snapshot)
-            return finishWork(actor, player, state, "build_supplies_unavailable")
-        end
     end
 
     local accepted, rejectionReason = utility.move(actor, "walk", {
@@ -3709,6 +3749,8 @@ function Decision.update(actor, player, runtime, roundTimestamp)
     state.intent = reason or "not_handled"
     return false, state.intent
 end
+
+Decision._doWorkForTests = doWork
 
 function Decision.peek(actor)
     return actor and states[actor] or nil

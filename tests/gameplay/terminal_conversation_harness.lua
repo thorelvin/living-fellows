@@ -182,6 +182,30 @@ for _,case in ipairs({
     check(r.intent=="math" and not r.error and topic and topic.value==case[2],
         "arithmetic follow-up preserves signs and decimals: "..case[1].." -> "..text(r))
 end
+for _,case in ipairs({
+    {"Double it.",20}, {"double it ?",20}, {"DOUBLE THAT!",20}, {"halve it.",5}, {"half of that.",5},
+    {"and, plus 2",12}, {"and plus 2.",12}, {"plus 2.",12}, {"times 3.",30},
+    {"multiply it by 2.",20}, {"minus -2.",12},
+}) do
+    s=session()
+    B.respond(s,"5 + 5",world)
+    r=B.respond(s,case[1],world)
+    local topic=C.latest(s)
+    check(r.intent=="math" and topic and topic.value==case[2],
+        "arithmetic follow-up tolerates ordinary punctuation: "..case[1].." -> "..r.intent)
+end
+for _,phrase in ipairs({"what did i ask you","what did i ask u","what did i ask ya","what did i ask you?",
+    "WHAT WERE WE TALKING ABOUT?","recap our conversation."}) do
+    s=session()
+    B.respond(s,"how is Kate",world)
+    r=B.respond(s,phrase,world)
+    check(r.intent=="conversation_history","history phrases read through contractions and punctuation: "..phrase.." -> "..r.intent)
+end
+s=session()
+B.respond(s,"how much medicine do we have",world)
+B.respond(s,"how is Kate",world)
+r=B.respond(s,"go back to meds",world)
+check(r.intent=="storage","go back to expands the same words its topic label was stored with -> "..r.intent)
 s=session()
 B.respond(s,"tell me about Louisville",world)
 r=B.respond(s,"is it safe",world)

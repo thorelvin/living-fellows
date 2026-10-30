@@ -332,6 +332,8 @@
     "UI_SC_Base_Reason_base_wash_sink_unreachable": "The worker cannot reach a clean-water sink inside camp.",
     "UI_SC_Base_Reason_upkeep_supply_route_unreachable": "The worker cannot reach the car-care supplies in marked storage.",
     "UI_SC_Base_Reason_upkeep_supply_route_no_candidates": "The marked car-care storage has no usable approach.",
+    "UI_SC_Base_Reason_barricade_target_unloaded": "That window or door is too far away to work on right now.",
+    "UI_SC_Base_Reason_barricade_target_gone": "That window or door is no longer there. Cancel this job or mark a new one.",
     "UI_SC_Base_Reason_generator_missing": "That generator is gone.",
     "UI_SC_Base_Reason_generator_outside_base": "The generator is outside the camp.",
     "UI_SC_Base_Reason_generator_identity_unavailable": "That generator cannot be tracked for camp work.",

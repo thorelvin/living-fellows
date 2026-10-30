@@ -562,7 +562,7 @@ function C.topicTurn(topic)
     if topic.kind=="lore" then return "lore",{referenceId=topic.id} end
     return topic.intent,{query=topic.query}
 end
-function C.meta(session, text)
+function C.meta(session, text, numericText)
     local value=words(text)
     if value=="what were we talking about" or value=="what did we talk about" or value=="what was my last question"
         or value=="what did i ask you" or value=="recap our conversation" then return "conversation_history",{} end
@@ -571,7 +571,7 @@ function C.meta(session, text)
     local topic=C.latest(session)
     if topic and topic.kind=="math" and type(topic.value)=="number" then
         local number,operation
-        local raw=C.clean(text):lower():gsub("^and%s+",""):gsub("[?!]+$","")
+        local raw=C.clean(numericText or text):lower():gsub("^and[%s%p]+",""):gsub("[%s%p]+$","")
         if raw=="double it" or raw=="double that" then number,operation=2,"*"
         elseif raw=="halve it" or raw=="half of that" then number,operation=2,"/"
         else

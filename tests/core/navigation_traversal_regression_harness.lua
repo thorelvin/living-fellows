@@ -206,12 +206,29 @@ do
     local window = {}
     function window:getNorth() return true end
     local chosen = N.barricadeWorkSquare(worker, window, windowSide)
-    local blocked, reason = N.barricadeWorkSquare(worker, window, windowSide, "same")
+    local passable = N.barricadeWorkSquare(worker, window, windowSide, "same")
     local explicit = N.barricadeWorkSquare(worker, window, windowSide, "opposite")
+    check(chosen == otherSide and explicit == otherSide,
+        "barricade prefers a clear side and respects an explicitly selected side")
+    check(passable == windowSide,
+        "furniture that does not block the tile does not stop a worker boarding from it")
+    local otherTable = { __class = "IsoObject" }
+    function otherTable:getSurfaceOffset() return 16 end
+    otherSide.objects[#otherSide.objects + 1] = otherTable
+    check(N.barricadeWorkSquare(worker, window, windowSide) ~= nil,
+        "passable furniture on both sides of a window still leaves a way to board it")
+    otherSide.objects[#otherSide.objects] = nil
+    function windowSide:canStand() return false end
+    local unstandable, unstandableReason = N.barricadeWorkSquare(worker, window, windowSide, "same")
+    windowSide.canStand = nil
+    check(unstandable == nil and unstandableReason == "work_side_blocked",
+        "a tile the engine says nobody can stand on is refused")
+    function windowSide:isSolid() return true end
+    local solid, solidReason = N.barricadeWorkSquare(worker, window, windowSide, "same")
+    windowSide.isSolid = nil
+    check(solid == nil and solidReason == "work_side_blocked",
+        "a solid tile is still refused")
     U.gridSquare, U.loadedSquare = oldGridSquare, oldLoadedSquare
-    check(chosen == otherSide and explicit == otherSide
-            and blocked == nil and reason == "work_side_blocked",
-        "barricade approaches only a clear side and respects an explicitly selected side")
 end
 local provider = { directNative = true }
 do

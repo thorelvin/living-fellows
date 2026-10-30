@@ -300,7 +300,24 @@ end
 -- and borrowed axes, a harvest kept for pickup, refuel/upkeep supplies and
 -- expedition receipts. keptHarvestDeposit admits one case: a harvest kept for
 -- pickup because no car was chosen may go into camp storage.
+local buildRequirements
+
+-- A hammer, plank or nail fetched for a barricade is not surplus while that
+-- barricade is still the worker's order, however loaded the worker is. Read the
+-- saved order, because Commands.peek creates state and hands out a keepsake.
+local function barricadeKit(actor, item)
+    local data = select(1, U().call(actor, "getModData"))
+    if type(data) ~= "table" or data.SC_Order ~= "work"
+        or data.SC_WorkKind ~= "barricade" then return false end
+    for _, requirement in ipairs(buildRequirements) do
+        local ok, matched = pcall(requirement.predicate, item)
+        if ok and matched == true then return true end
+    end
+    return false
+end
+
 local function workCargo(actor, item, keptHarvestDeposit)
+    if barricadeKit(actor, item) then return true end
     if SC.BaseWork and type(SC.BaseWork.cargoReserved) == "function"
         and SC.BaseWork.cargoReserved(actor, item) then return true end
     if SC.Fishing and type(SC.Fishing.gearReserved) == "function"
@@ -2095,7 +2112,7 @@ local function matchesType(item, shortType)
     return full == wanted or full == "base." .. wanted
 end
 
-local buildRequirements = {
+buildRequirements = {
     {
         key = "build_hammer",
         count = 1,

@@ -29,6 +29,7 @@ $WaterSourceLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\cli
 $UpstairsHaulLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCUpstairsHaulProbe.lua'
 $FloorSortLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCFloorSortProbe.lua'
 $BaseAlertLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCBaseAlertProbe.lua'
+$BarricadeLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCBarricadeProbe.lua'
 $ViewCutawayLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCViewCutawayProbe.lua'
 $NormalKitchenLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCNormalExpeditionKitchenProbe.lua'
 $WoodExpeditionLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCWoodExpeditionProbe.lua'
@@ -56,7 +57,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Live harness Lua compiler build failed.' }
     Push-Location -LiteralPath $GameRoot
     try {
-        & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $Lua $DrivingLua $FollowRoadLua $FacingLua $SixSeatLua $SquadCombatLua $FarmCorridorLua $WaterSourceLua $UpstairsHaulLua $FloorSortLua $BaseAlertLua $ViewCutawayLua $NormalKitchenLua $WoodExpeditionLua $BanditsAdapterLua $BanditsCombatLua
+        & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $Lua $DrivingLua $FollowRoadLua $FacingLua $SixSeatLua $SquadCombatLua $FarmCorridorLua $WaterSourceLua $UpstairsHaulLua $FloorSortLua $BaseAlertLua $BarricadeLua $ViewCutawayLua $NormalKitchenLua $WoodExpeditionLua $BanditsAdapterLua $BanditsCombatLua
         if ($LASTEXITCODE -ne 0) { throw 'Live harness Kahlua compilation failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $BanditsCloseLua $BanditsLifecycleLua $BanditsArmorLua $BanditsVehicleLua $BanditsLaneLua $BanditsVehicleFireLua $BanditsWallLua $ALifeAdapterLua
         if ($LASTEXITCODE -ne 0) { throw 'Bandits close-combat probe compilation failed.' }

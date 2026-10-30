@@ -2054,6 +2054,13 @@ local function startBedRest(actor, object)
     return startFurnitureRest(actor, object, activeBedActions, "rest_bed")
 end
 
+local function refreshShelfVisuals(container)
+    local utility = SC.GameplayUtil
+    if utility and type(utility.refreshContainerVisuals) == "function" then
+        utility.refreshContainerVisuals(container)
+    end
+end
+
 local function moveItemToRoot(actor, item)
     if item == nil then return true, nil end
     local inventoryOk, inventory = invoke(actor, "getInventory")
@@ -2070,6 +2077,7 @@ local function moveItemToRoot(actor, item)
         invoke(container, "AddItem", item)
         return false, "needs item could not enter the main inventory"
     end
+    refreshShelfVisuals(container)
     return true, container
 end
 
@@ -2091,6 +2099,7 @@ local function restoreNeedsItem(actor, record)
         invoke(inventory, "AddItem", record.item)
         return false, "needs item restoration rolled back"
     end
+    refreshShelfVisuals(record.originalContainer)
     return true, "needs_item_restored"
 end
 
@@ -2220,6 +2229,8 @@ local function restoreWorkInventory(actor, record)
                     invoke(transfer.container, "Remove", transfer.item)
                     invoke(inventory, "AddItem", transfer.item)
                     restoredAll = false
+                else
+                    refreshShelfVisuals(transfer.container)
                 end
             else
                 restoredAll = false
@@ -3191,6 +3202,35 @@ local function startBurnBody(actor, intent, provider)
     return queueTrackedWork(actor, timedAction, record, "burn_body")
 end
 
+-- Build 42.21's ISBarricadeAction:isValid tests hasEquippedTag(ItemType.HAMMER), but
+-- the hammer is ItemTag.HAMMER and ItemType has no such field, so it fails for
+-- everyone. Vanilla players now board through a build recipe, and only vanilla's own
+-- tests still reach this action. Its complete() is intact, so this keeps the same
+-- plank rules with the real tag.
+local function plankBarricadeValid(action, hammerTag)
+    local item, character = action.item, action.character
+    local indexOk, index = invoke(item, "getObjectIndex")
+    if not indexOk or index == -1 then return false end
+    local barricadeOk, barricade = invoke(item, "getBarricadeForCharacter", character)
+    if barricadeOk and barricade ~= nil then
+        local roomOk, room = invoke(barricade, "canAddPlank")
+        if not roomOk or room ~= true then return false end
+    end
+    local hammerOk, hammer = invoke(character, "hasEquippedTag", hammerTag)
+    if not hammerOk or hammer ~= true then return false end
+    local plankOk, plank = invoke(character, "hasEquipped", "Plank")
+    if not plankOk or plank ~= true then return false end
+    local inventoryOk, inventory = invoke(character, "getInventory")
+    if not inventoryOk or inventory == nil then return false end
+    local nailsOk, nails = invoke(inventory, "getItemCount", "Base.Nails", true)
+    if not nailsOk or (tonumber(nails) or 0) < 2 then return false end
+    if action.isStarted then
+        local openOk, open = invoke(item, "IsOpen")
+        if openOk and open == true then return false end
+    end
+    return true
+end
+
 local function startBarricade(actor, intent, provider)
     if intent.object == nil then return false, "barricade intent has no object" end
     local handled, reason = useProvider(provider, "barricade", actor, intent.object, intent)
@@ -3248,6 +3288,7 @@ local function startBarricade(actor, intent, provider)
             return false
         end
         moved[#moved + 1] = { item = item, container = container }
+        refreshShelfVisuals(container)
         return true
     end
     local function rollback()
@@ -3287,6 +3328,7 @@ local function startBarricade(actor, intent, provider)
         rollback()
         return false, created and "barricade action was not created" or tostring(timedAction)
     end
+    timedAction.isValid = function(action) return plankBarricadeValid(action, hammerTag) end
     local validOk, valid = pcall(timedAction.isValid, timedAction)
     if not validOk or valid ~= true then
         rollback()
@@ -5012,6 +5054,9 @@ local function seatingPoseSettled(actor, record, startedVariable)
 end
 
 function actions._bedRestForTests(actor) return activeBedActions[actor] end
+actions._startBarricadeForTests = startBarricade
+actions._moveItemToRootForTests = moveItemToRoot
+actions._restoreNeedsItemForTests = restoreNeedsItem
 
 function actions.bedStatus(actor)
     if actor == nil then return "none" end

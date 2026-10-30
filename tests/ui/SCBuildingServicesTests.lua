@@ -221,6 +221,15 @@ do
         "retrying save restores and persists the exact original radio channel")
     check(SC.TerminalRadio.scan(upgradeWindow,"band") and data.channel == 200,
         "a recovered save does not prevent a fresh scanner session")
+    local originalRaw = data.setChannelRaw
+    data.setChannel = function() end
+    data.setChannelRaw = function(self, channel) self.channel = channel end
+    check(H.save() == true and data.channel == 88000
+        and not SC.TerminalRadio.snapshot(upgradeWindow).scan,
+        "a handset that refuses its own earlier channel still gets it back, so a scan cannot strand stops")
+    data.setChannel, data.setChannelRaw = originalSetter, originalRaw
+    check(SC.TerminalRadio.scan(upgradeWindow,"band") and data.channel == 200,
+        "the scanner still starts after a raw channel restore")
 end
 check(H.install(player,pc,"ups",battery)==true,"charged real battery installs as backup")
 check(data.channel==88000 and not SC.TerminalRadio.snapshot(upgradeWindow).scan,

@@ -292,17 +292,22 @@ function H.reset()
     for object in pairs(runtime) do H.flush(object) H.stop(object) end
     runtime=setmetatable({}, {__mode="k"}) lastPulse=0 survey=nil
 end
+-- One computer's mounted parts must not cost another computer its flush. A radio
+-- that could not leave its temporary scan channel keeps its last good record, and
+-- the next save retries it. The caller decides what a partial result means.
 function H.save()
+    local failure
     for object in pairs(runtime) do
-        if SC.TerminalRadio then
-            local stopped,reason=SC.TerminalRadio.stop(object,true)
-            if not stopped then
-                return false,reason or "Radio channel restoration is pending. Retry saving."
-            end
+        local stopped,reason=true,nil
+        if SC.TerminalRadio then stopped,reason=SC.TerminalRadio.stop(object,true) end
+        if not stopped then
+            failure=failure or reason or "Radio channel restoration is pending. Retry saving."
+        else
+            local okay,flushReason=H.flush(object)
+            if not okay then failure=failure or flushReason end
         end
-        local okay,reason=H.flush(object)
-        if not okay then return false,reason end
     end
+    if failure then return false,failure end
     return true
 end
 function H.observeSquare(square)

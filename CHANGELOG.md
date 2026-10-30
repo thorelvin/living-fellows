@@ -2,6 +2,45 @@
 
 # Changelog
 
+## 0.26.80 - Working barricades and review fixes
+
+- Companions can barricade again. Project Zomboid 42.21's own barricade action
+  checks for a hammer with a name that no longer exists, so it refused every
+  worker. Companions now use the same check with the correct name.
+- "Maintain this barricade" now works. The job it queued recorded a position
+  but not which window or door to board, so every worker gave up with "target
+  unloaded". Saves holding one of those stuck jobs repair it on load, and the
+  workers start over.
+- Passable furniture, or a bush, on either side of a window no longer stops a
+  worker boarding it. A clear side is still preferred.
+- Workers now fetch a hammer, a plank and nails before walking to the window.
+  They used to walk there first, then get called straight back whenever they
+  set off for storage, until the job timed out.
+- A worker now keeps that kit until the barricade is done, however heavily loaded,
+  stands on the window's own tile to board it, and keeps the job instead of a
+  second worker being sent to the same window after 45 seconds. "Remove this
+  barricade" also stops at the right tile now.
+- A worker no longer reports materials missing because another worker was using
+  that shelf, or because the shelf was more than a few tiles from the window.
+  Camp barricades with truly no materials say so, and resume once you stock them.
+- A barricade job now tells a window or door that is too far away from one that
+  is gone. A gone one stops pulling workers off other jobs and can be cancelled.
+- EMMA understands "Double it.", "halve it.", "and, plus 2", "what did i ask u"
+  and "go back to meds" again. 0.26.79 had stopped reading their punctuation
+  and short forms.
+- Companions still save when a mounted computer part cannot be recorded. A radio
+  stuck on a scan channel now gets its old channel back even if the handset
+  refuses it, so it no longer blocks moving the computer or removing the radio.
+- One bed takes one companion, whichever of its tiles they found first, and
+  nobody climbs into a bed someone is already lying on. This includes double
+  beds for now.
+- The art gallery's decorative brick bed no longer counts as a bed. A worker
+  walking through a camp with no free bed also searches less often.
+- Shelf artwork also updates when a companion eats, drinks or borrows building
+  materials straight from a shelf.
+- Retains native bridge protocol `42.21-isocompanion-24` for Project Zomboid
+  42.21.0. The bridge binary is unchanged, and save data stays compatible.
+
 ## 0.26.79 - Bed sleep and shelf visuals
 
 - Companions recognize native mattress beds, including bunk beds, that have
@@ -13,6 +52,11 @@
 - Added focused native bed checks and longer natural observation runs. A
   35-minute run confirmed a saved companion choosing a bed and recovering
   tiredness without changed stats or orders; it did not test 100% exhaustion.
+- A tired companion crossing stairs keeps its bed search instead of restarting
+  it. EMMA follow-ups take signed and decimal numbers, "continue" respects an
+  expired thread, and the first question after a long silence keeps its answer.
+  Saving during a radio scan restores the listening channel, and a failed
+  restore is retried.
 - Retains native bridge protocol `42.21-isocompanion-24` for Project Zomboid
   42.21.0. The bridge binary and save schemas are unchanged.
 

@@ -15843,6 +15843,10 @@ Harness.probeBaseAlert = function(...)
     return externalProbe("SCBaseAlertProbe", ...)
 end
 
+Harness.probeBarricade = function(...)
+    return externalProbe("SCBarricadeProbe", ...)
+end
+
 Harness.probeViewCutaway = function(...)
     return externalProbe("SCViewCutawayProbe", ...)
 end
@@ -16440,6 +16444,8 @@ local function tick()
         Harness.probeOfficeHaul(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "base_alert_", 1, true) == 1 then
         Harness.probeBaseAlert(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "barricade_probe_", 1, true) == 1 then
+        Harness.probeBarricade(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "view_cutaway_", 1, true) == 1 then
         Harness.probeViewCutaway(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "normal_kitchen_", 1, true) == 1 then
@@ -17386,6 +17392,8 @@ local function onGameStart()
         setPhase("office_haul_setup", Harness.startedAt)
     elseif Harness.config.base_alert_probe == "true" then
         setPhase("base_alert_setup", Harness.startedAt)
+    elseif Harness.config.barricade_probe == "true" then
+        setPhase("barricade_probe_setup", Harness.startedAt)
     elseif Harness.config.hygiene_probe == "true" then
         setPhase("hygiene_setup", Harness.startedAt)
     elseif Harness.config.base_second_floor_probe == "true" then

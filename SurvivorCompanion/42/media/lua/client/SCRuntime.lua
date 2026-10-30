@@ -1876,8 +1876,12 @@ function runtime.save()
         end
     end
     if SC.TerminalHardware then
+        -- The vanilla world save carries on whatever this returns, so a computer
+        -- part that cannot be recorded yet must not cost the companions their save.
         local okay, reason = SC.TerminalHardware.save()
-        if not okay then return false, reason end
+        if not okay and SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
+            SC.Diagnostics.report("terminal_hardware", nil, "save incomplete", reason)
+        end
     end
     return SC.Persistence.save(player())
 end

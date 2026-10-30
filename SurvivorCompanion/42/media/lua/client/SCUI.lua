@@ -476,6 +476,8 @@ function UI.baseFailureReason(reason, knownOnly)
         route_rejected = true,
         follow_car_out_of_reach = true,
         no_safe_exit = true,
+        barricade_target_unloaded = true,
+        barricade_target_gone = true,
     }
     if known[reason] then return UI.text("UI_SC_Base_Reason_" .. reason) end
     return not knownOnly and UI.humanize(reason) or nil

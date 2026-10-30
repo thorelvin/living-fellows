@@ -1090,17 +1090,30 @@ function BaseWork.reconcileBuildJob(job, actorId)
     return false, "build_not_present"
 end
 
+-- Only an unloaded tile can come back by waiting. A loaded tile without the object
+-- means the window or door is gone or was replaced, and retrying cannot change that.
+local function barricadeTargetObject(job)
+    local object, reason = SC.BaseLife.resolveObject(job.target)
+    if object then return object end
+    return nil, reason == "object_square_unloaded"
+        and "barricade_target_unloaded" or "barricade_target_gone"
+end
+
 function BaseWork.reconcileBarricadeJob(job, actorId)
     if type(job) ~= "table" or job.type ~= "barricade"
         or type(job.target) ~= "table" then return false, "not_barricade_job" end
     if actorId == nil and job.reservedBy ~= nil then return false, "worker_owns_job" end
-    local object = SC.BaseLife.resolveObject(job.target)
-    if not object then return false, "barricade_target_unloaded" end
-    local method = job.target.barricadeSide == "opposite"
-        and "getBarricadeOnOppositeSquare" or "getBarricadeOnSameSquare"
-    local barricade = select(1, invoke(object, method))
-    if barricade and select(1, invoke(barricade, "canAddPlank")) == false then
-        return SC.BaseLife.completeJob(job.id, actorId, "barricaded")
+    local object, reason = barricadeTargetObject(job)
+    if not object then return false, reason end
+    -- A maintenance job names no side: the worker boards whichever it can reach.
+    local side = job.target.barricadeSide
+    for _, method in ipairs({ "getBarricadeOnSameSquare", "getBarricadeOnOppositeSquare" }) do
+        if side == nil or (side == "opposite") == (method == "getBarricadeOnOppositeSquare") then
+            local barricade = select(1, invoke(object, method))
+            if barricade and select(1, invoke(barricade, "canAddPlank")) == false then
+                return SC.BaseLife.completeJob(job.id, actorId, "barricaded")
+            end
+        end
     end
     return false, "barricade_not_full"
 end
@@ -1674,8 +1687,9 @@ end
 local function queueBarricade(actor, job)
     local alreadyFull = BaseWork.reconcileBarricadeJob(job, actorId(actor))
     if alreadyFull == true then return true, "barricade_already_full" end
-    local object = type(job.target) == "table" and SC.BaseLife.resolveObject(job.target) or nil
-    if not object then return false, "barricade_target_unloaded", true end
+    if type(job.target) ~= "table" then return false, "barricade_target_gone", true end
+    local object, targetReason = barricadeTargetObject(job)
+    if not object then return false, targetReason, true end
     if not SC.Commands or type(SC.Commands.issue) ~= "function" then
         return false, "commands_unavailable", true
     end
@@ -2779,9 +2793,13 @@ local function auditMaintenanceStep(player, remainingBudget, scan)
         if tonumber(planks) < 1 then
             return SC.BaseLife.enqueueJob({
                 type = "barricade", priority = 4, assignedId = maintainerId,
+                -- The job resolves its object by identity, as every other camp
+                -- record does. Coordinates and an index alone never resolve.
                 target = {
                     x = target.x, y = target.y, z = target.z,
                     objectIndex = target.objectIndex, maintenanceId = target.id,
+                    objectId = target.objectId, objectSignature = target.objectSignature,
+                    north = select(1, invoke(object, "getNorth")) == true,
                 },
             })
         end

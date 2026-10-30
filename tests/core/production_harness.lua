@@ -4325,6 +4325,85 @@ do
         "a stale automatic corpse order releases a worker who changed jobs")
 end
 
+do
+    -- "Maintain this barricade" must reach the same object the player marked.
+    -- The job once kept only coordinates, so it failed forever as "unloaded".
+    local ctx = setup()
+    local windowSquare = sq(3, -3)
+    local window = makeStorage(windowSquare)
+    function window:getBarricadeForCharacter() return self.fullBarricade end
+    function window:getBarricadeOnSameSquare() return nil end
+    function window:getBarricadeOnOppositeSquare() return self.fullBarricade end
+    function window:isBarricadeAllowed() return true end
+    function window:IsOpen() return false end
+    function window:getNorth() return true end
+    local registered, row = SC.BaseLife.registerMaintenanceTarget(window, "barricade")
+    check(registered == true and row.objectId ~= nil, "a window can be marked for barricade maintenance")
+    local queued
+    for _ = 1, 40 do
+        local accepted, job = SC.BaseWork.auditMaintenance()
+        if accepted and type(job) == "table" and job.type == "barricade" then queued = job break end
+    end
+    check(queued and queued.target.objectId == row.objectId and queued.target.maintenanceId == row.id,
+        "the maintenance audit queues a barricade job that knows its object")
+    check(SC.BaseLife.resolveObject(queued.target) == window,
+        "a maintenance barricade job resolves to the marked window")
+
+    local exported = SC.BaseLife.export()
+    local savedBase = exported.bases[exported.activeBaseId]
+    local savedJob
+    for _, job in ipairs(savedBase.jobs) do if job.id == queued.id then savedJob = job end end
+    savedJob.target.objectId, savedJob.target.objectSignature = nil, nil
+    savedJob.state, savedJob.blocker, savedJob.attempts = "blocked", "barricade_target_unloaded", 6
+    savedBase.jobs[#savedBase.jobs + 1] = { id = "job:9001", type = "barricade", state = "blocked",
+        priority = 4, blocker = "barricade_target_unloaded", attempts = 6,
+        target = { x = 3, y = -3, z = 0, objectIndex = 0, maintenanceId = "target:9999" } }
+    check(SC.BaseLife.restore(exported) == true, "a save holding the old job shape still restores")
+    local repaired = SC.BaseLife.job(queued.id)
+    check(repaired and repaired.target.objectId == row.objectId and repaired.state == "pending"
+            and repaired.blocker == nil and (repaired.attempts or 0) == 0
+            and SC.BaseLife.resolveObject(repaired.target) == window,
+        "a saved job parked by the old bug takes its target's identity and starts over")
+    check(SC.BaseLife.job("job:9001") == nil,
+        "a saved job whose maintenance target is gone is dropped, since it could never run")
+
+    local claimed = SC.BaseLife.claimJob(ctx.id)
+    check(claimed and claimed.id == queued.id, "a worker claims the repaired barricade job")
+    tick(ctx)
+    local work = SC.Commands.peek(ctx.actor).workTarget
+    check(work and work.kind == "barricade" and work.object == window and work.baseJobId == queued.id,
+        "the worker is ordered to barricade the marked window")
+    SC.BaseLife.blockJob(queued.id, ctx.id, "barricade_rejected")
+
+    window.fullBarricade = { canAddPlank = function() return false end }
+    check(SC.BaseWork.reconcileBarricadeJob(SC.BaseLife.job(queued.id), nil) == true
+            and SC.BaseLife.job(queued.id) == nil,
+        "a job that names no side completes when the far side is already full")
+
+    window.fullBarricade = nil
+    local _, again = SC.BaseWork.reconcileBarricadeJob({ type = "barricade", target = queued.target }, nil)
+    check(again == "barricade_not_full", "an unboarded window is still work to do")
+    local holder = windowSquare.objects
+    windowSquare.objects = {}
+    local _, gone = SC.BaseWork.reconcileBarricadeJob({ type = "barricade", target = queued.target }, nil)
+    check(gone == "barricade_target_gone", "a loaded tile without the window reports it gone, not unloaded")
+    windowSquare.objects = holder
+    squares[squareKey(3, -3, 0)] = nil
+    local _, unloaded = SC.BaseWork.reconcileBarricadeJob({ type = "barricade", target = queued.target }, nil)
+    check(unloaded == "barricade_target_unloaded", "only a tile that is really unloaded reports unloaded")
+    squares[squareKey(3, -3, 0)] = windowSquare
+
+    local accepted, plan = SC.BaseLife.enqueueBarricadePlan(window, "same")
+    check(accepted == true, "a barricade plan queues: " .. tostring(plan))
+    SC.BaseLife.blockJob(plan.id, nil, "barricade_target_gone")
+    local blockedPlan = SC.BaseLife.job(plan.id)
+    check(SC.BaseLife.jobParked(blockedPlan) and not SC.BaseLife.jobAutoRetry(blockedPlan),
+        "a window that is gone stops pulling workers off other jobs")
+    SC.BaseLife.blockJob(plan.id, nil, "barricade_target_unloaded")
+    check(SC.BaseLife.jobAutoRetry(SC.BaseLife.job(plan.id)),
+        "an unloaded window is retried once its tile can load again")
+end
+
 -- ---------------------------------------------------------------------------
 -- Moving the camp
 -- ---------------------------------------------------------------------------
