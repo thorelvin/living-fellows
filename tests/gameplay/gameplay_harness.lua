@@ -10379,6 +10379,31 @@ do
         bedProbeActor.worldX = originalX
         check(found and found.object == farBed,
             "a moving worker resumes its pending bed survey without restarting each tile")
+        local floorState, floorChoice = {}, nil
+        local originalSquare, priorTransit = bedProbeActor.square, baseForBed.allowsFloorTransit
+        local upperSquare = cell:getGridSquare(8, 5, 1)
+        local floorAllowed = true
+        baseForBed.allowsFloorTransit = function(source, destination)
+            return floorAllowed and source == bedProbeActor and destination == deepBedSquare
+        end
+        for pass = 1, 6 do
+            bedProbeActor.square = pass % 2 == 1 and originalSquare or upperSquare
+            floorChoice = seatProbe(bedProbeActor, floorState, clock, "rest_bed")
+            if floorChoice then break end
+        end
+        check(floorChoice and floorChoice.object == farBed and floorChoice.crossFloor == true,
+            "an exhausted worker crossing floors finishes its pending bed survey from its current floor")
+        floorAllowed, floorState, floorChoice = false, {}, nil
+        bedProbeActor.square = originalSquare
+        seatProbe(bedProbeActor, floorState, clock, "rest_bed")
+        bedProbeActor.square = upperSquare
+        for _ = 1, 6 do
+            floorChoice = seatProbe(bedProbeActor, floorState, clock, "rest_bed")
+            if floorChoice then break end
+        end
+        check(floorChoice == nil,
+            "a resumed bed survey still rejects a floor route that is no longer permitted")
+        bedProbeActor.square, baseForBed.allowsFloorTransit = originalSquare, priorTransit
     end)()
     repeat
         passes = passes + 1

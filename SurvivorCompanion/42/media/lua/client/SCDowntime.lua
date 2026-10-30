@@ -1743,8 +1743,8 @@ local function campBedActivity(actor, state, current, zoneKind)
     local scans = type(state) == "table" and state.campBedScans or nil
     local scan = scans and scans[zoneKind] or nil
     if not scan or scan.base ~= active
-        or (not scan.pending and (scan.x ~= math.floor(ax) or scan.y ~= math.floor(ay)))
-        or scan.z ~= math.floor(az)
+        or (not scan.pending and (scan.x ~= math.floor(ax)
+            or scan.y ~= math.floor(ay) or scan.z ~= math.floor(az)))
         or scan.zoneCount ~= #zones then
         scan = { base = active, x = math.floor(ax), y = math.floor(ay),
             z = math.floor(az), zoneCount = #zones, zoneIndex = 1,
@@ -1755,7 +1755,8 @@ local function campBedActivity(actor, state, current, zoneKind)
         end
     end
     -- A worker may still be finishing an owned job. Keep the survey's original
-    -- ring centres/order while it is pending, rather than restart on each step.
+    -- ring centres/order while it is pending, including across stairs. Each
+    -- candidate still checks floor access from the actor's current position.
     if scan.pending then zones = scan.zones end
     if current < (scan.retryAt or 0) then return nil end
     local checked = 0

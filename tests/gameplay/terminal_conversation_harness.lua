@@ -171,6 +171,17 @@ check(r.intent=="math" and has(r,"72"),"arithmetic can reuse its own last result
 r=B.respond(s,"minus 2",world)
 check(r.intent=="math" and has(r,"70"),"arithmetic follow-up chains are pure numeric operations")
 check(not B.respond(s,"divide it by 0",world).error,"zero division follow-up remains a finite-answer refusal")
+for _,case in ipairs({
+    {"plus -2",8}, {"minus -2",12}, {"times -2",-20},
+    {"multiply it by 0.5",5}, {"divide it by -0.5",-20}, {"and plus 0.25?",10.25},
+}) do
+    s=session()
+    B.respond(s,"5 + 5",world)
+    r=B.respond(s,case[1],world)
+    local topic=C.latest(s)
+    check(r.intent=="math" and not r.error and topic and topic.value==case[2],
+        "arithmetic follow-up preserves signs and decimals: "..case[1].." -> "..text(r))
+end
 s=session()
 B.respond(s,"tell me about Louisville",world)
 r=B.respond(s,"is it safe",world)
@@ -187,11 +198,35 @@ check(r.intent~="person" and s.context.person==nil,"idle expiry clears both new 
 now=1
 check(not B.respond(s,"what were we talking about",world).error,"a reversed clock cannot keep an old thread alive")
 
+now=1000
+s=B.newSession({operator="Thor",random=function() return 1 end,nowMs=function() return now end})
+B.respond(s,"how many nails",world)
+now=now+C.MAX_IDLE_MS+1
+r=B.respond(s,"how is Bob",world)
+check(r.intent=="clarify_person" and s.context.personChoices~=nil,
+    "the first question after idle expiry keeps its new clarification")
+r=B.respond(s,"2",world)
+check(r.intent=="person" and has(r,"Bob Miller"),"a fresh clarification still accepts the chosen person after expiry")
+now=now+C.MAX_IDLE_MS+1
+r=B.respond(s,"tell me about Louisville",world)
+local topic=C.latest(s)
+check(r.intent=="lore" and topic and topic.kind=="lore",
+    "the first lore question after expiry becomes the new follow-up subject")
+
 s=session()
 B.respond(s,"how is Kate",world)
 for _=1,C.MAX_AGE+1 do B.respond(s,"ok",world) end
 r=B.respond(s,"is she hurt",world)
 check(r.intent~="person","person pronouns expire rather than using immortal context")
+s=session()
+B.respond(s,"tell me about Louisville",world)
+r=B.respond(s,"continue",world)
+check(r.intent=="lore" and not r.error,"lore-specific continuation wording retains the current archive thread")
+for _=1,C.MAX_AGE+1 do B.respond(s,"ok",world) end
+check(C.latest(s)==nil,"the old archive subject expires after the bounded turn history")
+r=B.respond(s,"tell me more",world)
+check(r.intent~="lore","legacy reference fields cannot resurrect an expired archive thread")
+check(B.respond(s,"continue",world).intent~="lore","lore-specific wording also respects subject expiry")
 for _,g in ipairs(C.GUIDES) do B.respond(s,g.questions[1],world) end
 check(#C.state(s).topics<=C.MAX_TOPICS and #C.state(s).history<=C.MAX_HISTORY,"history and topic lists are bounded")
 inside=false

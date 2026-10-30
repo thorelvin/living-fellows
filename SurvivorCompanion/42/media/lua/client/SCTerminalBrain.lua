@@ -1885,7 +1885,9 @@ function Brain.parse(session, raw, world, turn)
         if exact=="yes" or exact=="ack" then return "clarify_person",{people=selection.people,aspect=selection.aspect} end
     end
     if Conversation then
-        local meta,metaSlots=Conversation.meta(session,joined)
+        -- Conversation.meta normalizes its own words. Keep the original
+        -- numeric punctuation for signed and decimal arithmetic follow-ups.
+        local meta,metaSlots=Conversation.meta(session,text)
         if meta then return topicReference(meta,metaSlots,peopleList(turn,world)) end
         if Conversation.more(joined) or Conversation.refresh(joined) then
             local topic=Conversation.latest(session)
@@ -1898,9 +1900,16 @@ function Brain.parse(session, raw, world, turn)
             end
         end
     end
-    if SC.TerminalKnowledge and context.referenceId and (context.intent=="lore"
-        or context.intent=="thanks" or context.intent=="ack") and SC.TerminalKnowledge.more(joined) then
-        return "lore",{more=true}
+    if SC.TerminalKnowledge and SC.TerminalKnowledge.more(joined) then
+        if Conversation then
+            -- Older continuation phrases use the same bounded subject as
+            -- other follow-ups, rather than reviving a stale legacy ID.
+            local topic=Conversation.latest(session)
+            if topic and topic.kind=="lore" then return "lore",{more=true,referenceId=topic.id} end
+        elseif context.referenceId and (context.intent=="lore"
+            or context.intent=="thanks" or context.intent=="ack") then
+            return "lore",{more=true}
+        end
     end
     if exact then return exact, exact=="lore" and {query=text} or {} end
     local bestSkill = string.lower(text):match("who is best at%s+(.+)")

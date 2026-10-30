@@ -294,7 +294,12 @@ function H.reset()
 end
 function H.save()
     for object in pairs(runtime) do
-        if SC.TerminalRadio then SC.TerminalRadio.stop(object,true) end
+        if SC.TerminalRadio then
+            local stopped,reason=SC.TerminalRadio.stop(object,true)
+            if not stopped then
+                return false,reason or "Radio channel restoration is pending. Retry saving."
+            end
+        end
         local okay,reason=H.flush(object)
         if not okay then return false,reason end
     end

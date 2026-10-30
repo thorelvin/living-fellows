@@ -205,6 +205,23 @@ check(SC.Terminal.open(player,pc),"native-mounted radio opens before adding back
 local upgradeWindow=SC.Terminal.window upgradeWindow:flush()
 check(SC.TerminalRadio.scan(upgradeWindow,"band") and data.channel==200,
     "scanner is active while the backup component is installed")
+do
+    local originalSetter, originalBlob = data.setChannel, hardware.radio.blob
+    data.setChannel = function(self, channel)
+        if channel ~= 88000 then originalSetter(self, channel) end
+    end
+    local saved, reason = H.save()
+    check(saved == false and type(reason) == "string" and hardware.radio.blob == originalBlob
+        and SC.TerminalRadio.snapshot(upgradeWindow).scan.restoring,
+        "saving reports a failed channel restore without serializing the temporary scan channel")
+    data.setChannel = originalSetter
+    check(H.save() and data.channel == 88000
+        and H.restorePart(hardware.radio).device.channel == 88000
+        and not SC.TerminalRadio.snapshot(upgradeWindow).scan,
+        "retrying save restores and persists the exact original radio channel")
+    check(SC.TerminalRadio.scan(upgradeWindow,"band") and data.channel == 200,
+        "a recovered save does not prevent a fresh scanner session")
+end
 check(H.install(player,pc,"ups",battery)==true,"charged real battery installs as backup")
 check(data.channel==88000 and not SC.TerminalRadio.snapshot(upgradeWindow).scan,
     "adding backup power restores the radio channel before changing receiver generation")

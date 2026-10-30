@@ -449,6 +449,10 @@ function C.state(session)
     local now=C.clock(session)
     if now and state.lastAt and (now-state.lastAt>C.MAX_IDLE_MS or now<state.lastAt) then
         state.topics,state.history={},{}
+        -- Consume expiry before parsing the next question. record() also
+        -- calls state(), and must not erase a freshly prepared clarification
+        -- or lore reference during that same response.
+        state.lastAt=nil
         for _,key in ipairs({"person","personId","item","itemText","referenceId","referencesSeen","pending","personChoices","intent"}) do
             session.context[key]=nil
         end
