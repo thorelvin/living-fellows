@@ -1104,6 +1104,9 @@ do
     -- The real house descriptor omits the bed's occupied square from its
     -- safe actor posts. Site discovery must still find that bed by its room.
     local bedroomPosts = { { x = 69, y = 70, z = 0 } }
+    -- A valid head-side clip has loaded room floor beyond the pillow as well.
+    -- This floor is not one of the authored standing/spawn posts.
+    tile(72, 70, bedroom)
     for _, coordinates in ipairs({ { 70, 71 }, { 71, 71 },
         { 72, 71 }, { 71, 72 } }) do
         tile(coordinates[1], coordinates[2], bedroom)
@@ -1242,6 +1245,8 @@ do
         end
         local head = segment(case.head)
         local footPart = segment(case.foot)
+        tile(case.head[1] + (case.facing == "W" and 1 or case.facing == "E" and -1 or 0),
+            case.head[2] + (case.facing == "N" and 1 or case.facing == "S" and -1 or 0), bedroom)
         tile(math.floor(case.entry[1]),
             math.floor(case.entry[2]), bedroom)
         local resolved, point, why =
@@ -1307,6 +1312,8 @@ do
                     or case.facing == "N" and -1 or 0)
                 local head = segment(hx, hy, hGX, hGY)
                 local foot = segment(fx, fy, fGX, fGY)
+                tile(hx + (case.facing == "W" and 1 or case.facing == "E" and -1 or 0),
+                    hy + (case.facing == "N" and 1 or case.facing == "S" and -1 or 0), bedroom)
                 local entryX = case.entries[lane + 1][1]
                 local entryY = case.entries[lane + 1][2]
                 tile(math.floor(entryX), math.floor(entryY), bedroom)

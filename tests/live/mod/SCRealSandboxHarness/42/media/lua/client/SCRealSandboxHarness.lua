@@ -15835,6 +15835,10 @@ Harness.probeUpstairsHaul = function(...)
     return externalProbe("SCUpstairsHaulProbe", ...)
 end
 
+Harness.probeFirestationRest = function(...)
+    return externalProbe("SCFirestationRestProbe", ...)
+end
+
 Harness.probeOfficeHaul = function(...)
     return externalProbe("SCOfficeHaulProbe", ...)
 end
@@ -16463,6 +16467,8 @@ local function tick()
         Harness.probeHygiene(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "base_second_floor_", 1, true) == 1 then
         Harness.probeBaseSecondFloor(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "firestation_rest_", 1, true) == 1 then
+        Harness.probeFirestationRest(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "water_source_", 1, true) == 1 then
         Harness.probeWaterSource(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "farm_corridor_", 1, true) == 1 then
@@ -17440,6 +17446,8 @@ local function onGameStart()
         setPhase("companion_inventory_begin", Harness.startedAt)
     elseif Harness.config.furniture_pose_only == "true" then
         setPhase("furniture_pose_begin", Harness.startedAt)
+    elseif Harness.config.firestation_rest_probe == "true" then
+        setPhase("firestation_rest_setup", Harness.startedAt)
     elseif Harness.config.sleep_probe == "true" then
         setPhase("sleep_probe_begin", Harness.startedAt)
     elseif Harness.config.vehicle_passenger_only == "true"

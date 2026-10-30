@@ -51,6 +51,26 @@ public final class SCNativeBridgeExposureTest {
         require(Float.compare(actor.getZ(), physicalZ) == 0
                         && actor.getBridgeOnBedRenderLift() == 0.0f,
                 "bed render lift did not clear without changing physical Z");
+        float x = actor.getX(), y = actor.getY();
+        actor.setSleepModelOffset(null, 0.25f, -0.25f, 0.10f);
+        try {
+            require(actor.getX() == x && actor.getY() == y && actor.getZ() == physicalZ,
+                    "sleep model correction changed physical coordinates");
+            renderThread.set(actor, Thread.currentThread());
+            require(Math.abs(actor.getX() - x - 0.25f) < 0.00001f
+                            && Math.abs(actor.getY() - y + 0.25f) < 0.00001f,
+                    "sleep correction was not isolated to model rendering");
+            AtomicReference<Float> concurrentX = new AtomicReference<>();
+            Thread observer = new Thread(() -> concurrentX.set(actor.getX()));
+            observer.start(); observer.join();
+            require(concurrentX.get() == x && other.getX() == 0.0f,
+                    "sleep correction leaked to physical reads or another actor");
+        } finally {
+            renderThread.set(actor, null);
+            actor.clearSleepModelOffset();
+        }
+        require(actor.getX() == x && actor.getY() == y && actor.getZ() == physicalZ,
+                "sleep model correction was not cleared");
     }
 
     public static void main(String[] args) throws Exception {
@@ -205,6 +225,10 @@ public final class SCNativeBridgeExposureTest {
                         && SCBridge.getLastFailure().contains("null"),
                 "bed render lift admitted a missing actor");
         testOnBedRenderLiftIsolation();
+        require(SCBridge.class.getMethod("alignSleepingBedModel", SCNativeCompanion.class,
+                        zombie.iso.IsoObject.class).getReturnType() == boolean.class
+                        && !SCBridge.alignSleepingBedModel(null, null),
+                "sleep model alignment must expose an owned-actor guard");
         require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_EXPEDITION_ZOOM_API"))
                         && Boolean.TRUE.equals(rawget.invoke(environment,
                                 "SC_TEST_EXPEDITION_ZOOM_REJECTS_UNJOINED")),

@@ -499,10 +499,81 @@ public final class SCBridge {
     }
 
     /**
-     * Temporarily raises only this companion's 3D model while the settled
-     * pillow-tile bed pose is rendered. The actor's physical Z and bed action
-     * stay under native engine control. Pass zero to clear the visual lift.
+     * Centers only the rendered sleeping model on a verified two-tile mattress.
+     * Samples the actual pelvis bone once after the sleep transition settles;
+     * world coordinates, square membership and native actions are unchanged.
      */
+    public static boolean alignSleepingBedModel(SCNativeCompanion actor, IsoObject bed) {
+        lastFailure = "";
+        if (!onGameThread()) return failBoolean("bed model alignment requires the game thread");
+        if (actor == null) return failBoolean("native companion is null");
+        if (!isOwned(actor)) return failBoolean("native companion is not owned by SCBridge");
+        try {
+            if (bed == null || bed.getObjectIndex() < 0 || actor.isDead()
+                    || !actor.isAsleep() || !actor.isOnBed()
+                    || !actor.getVariableBoolean("OnBedStarted")
+                    || actor.getSitOnFurnitureObject() != bed) {
+                return failBoolean("bed model alignment requires this actor's settled sleeping bed");
+            }
+            IsoGridSquare square = bed.getSquare();
+            IsoSprite sprite = bed.getSprite();
+            IsoSpriteGrid grid = sprite == null ? null : sprite.getSpriteGrid();
+            if (square == null || square.getChunk() == null || grid == null
+                    || grid.getWidth() * grid.getHeight() != 2
+                    || bed.getProperties().get("BedType") == null
+                    || actor.getCell() != square.getCell()
+                    || (int) Math.floor(actor.getZ()) != square.getZ()
+                    || actor.getCurrentSquare() == null
+                    || actor.getCurrentSquare().getRoom() != square.getRoom()) {
+                return failBoolean("bed model alignment requires a loaded two-tile mattress");
+            }
+            int originX = square.getX() - grid.getSpriteGridPosX(sprite);
+            int originY = square.getY() - grid.getSpriteGridPosY(sprite);
+            for (int gy = 0; gy < grid.getHeight(); gy++) {
+                for (int gx = 0; gx < grid.getWidth(); gx++) {
+                    IsoGridSquare pieceSquare = actor.getCell().getGridSquare(
+                            originX + gx, originY + gy, square.getZ());
+                    boolean found = false;
+                    if (pieceSquare == null || pieceSquare.getChunk() == null
+                            || pieceSquare.getRoom() != square.getRoom()) {
+                        return failBoolean("sleeping mattress has an unloaded or unrelated half");
+                    }
+                    for (int index = 0; index < pieceSquare.getObjects().size(); index++) {
+                        IsoObject piece = pieceSquare.getObjects().get(index);
+                        IsoSprite pieceSprite = piece.getSprite();
+                        if (pieceSprite != null && pieceSprite.getSpriteGrid() == grid
+                                && grid.getSpriteGridPosX(pieceSprite) == gx
+                                && grid.getSpriteGridPosY(pieceSprite) == gy) found = true;
+                    }
+                    if (!found) return failBoolean("sleeping mattress is missing a physical half");
+                }
+            }
+            float pelvisX = actor.getCompanionPelvisWorldX();
+            float pelvisY = actor.getCompanionPelvisWorldY();
+            float pelvisZ = actor.getCompanionPelvisWorldZ();
+            float targetX = originX + grid.getWidth() * 0.5f;
+            float targetY = originY + grid.getHeight() * 0.5f;
+            float surface = Math.max(0, Math.min(48, bed.getProperties().getSurface())) / 96.0f;
+            float dx = targetX - pelvisX, dy = targetY - pelvisY;
+            // Flat sleeping bags need enough torso clearance above the floor;
+            // otherwise the engine's floor depth test cuts through the model.
+            float dz = square.getZ() + Math.max(0.18f, surface + 0.07f) - pelvisZ;
+            if (!Float.isFinite(dx) || !Float.isFinite(dy) || !Float.isFinite(dz)
+                    || Math.abs(dx) > 1.75f || Math.abs(dy) > 1.75f || Math.abs(dz) > 0.8f
+                    || Math.abs(actor.getX() - targetX) > 3.5f
+                    || Math.abs(actor.getY() - targetY) > 3.5f) {
+                return failBoolean("sleeping model has no nearby finite pelvis sample");
+            }
+            actor.setSleepModelOffset(bed, dx, dy, dz);
+            return true;
+        } catch (RuntimeException | LinkageError failure) {
+            actor.clearSleepModelOffset();
+            return failBoolean("bed model alignment failed: " + failure.getClass().getSimpleName()
+                    + messageSuffix(failure.getMessage()));
+        }
+    }
+
+    /** Existing south-facing double-bed lift; zero clears the visual adjustment. */
     public static boolean setOnBedRenderLift(SCNativeCompanion actor,
             int milliTiles) {
         lastFailure = "";

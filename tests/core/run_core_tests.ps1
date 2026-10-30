@@ -209,7 +209,8 @@ try {
             (Join-Path $Client 'SCGameplayUtil.lua'),
             (Join-Path $Client 'SCBedGeometry.lua'),
             (Join-Path $Client 'SCDowntime.lua'),
-            (Join-Path $TestRoot 'bed_segments_harness.lua')
+            (Join-Path $TestRoot 'bed_segments_harness.lua'),
+            (Join-Path $TestRoot 'bed_geometry_tight_harness.lua')
         )
         Add-ScJvmStep 'bed-segments' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $bedSegmentFiles 'One-claim-per-bed regression failed.'
         $campSupplyFiles = @(

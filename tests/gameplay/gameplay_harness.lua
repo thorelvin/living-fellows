@@ -10476,6 +10476,64 @@ do
         corridorBedSquare.objects[#corridorBedSquare.objects] = nil
         farBed.square = farBedSquare
     end
+    ;(function()
+        local previousGeometry, previousManager = SurvivorCompanion.BedGeometry, SeatingManager
+        local previousChairName = chair.getName
+        local bagSquare = cell:getGridSquare(10,5,0)
+        bagSquare.room = chairSquare.room
+        local bag = { square=bagSquare }
+        function bag:getSquare() return self.square end
+        function bag:getName() return "Sleeping Bag" end
+        bagSquare.objects[#bagSquare.objects+1]=bag
+        chair.getName=function() return "Couch" end
+        SeatingManager={getInstance=function() return {getTilePositionCount=function(_,object)
+            return (object==bag or object==chair or object==bed) and 1 or 0 end} end}
+        SurvivorCompanion.BedGeometry={sleepPriority=function(object)
+            return object==bag and 2 or object==chair and chair:getName()=="Couch" and 3
+                or object==bed and 1 or nil end}
+        local backupBase={zones={
+            {kind="rest",x1=chairSquare.x,x2=chairSquare.x,y1=chairSquare.y,y2=chairSquare.y,z=0},
+            {kind="area",x1=8,x2=18,y1=4,y2=6,z=0},
+        }}
+        baseForBed.active=function() return backupBase end
+        baseForBed.isInside=function() return true end
+        local choice=seatProbe(bedProbeActor,{},clock,"rest_bed")
+        check(choice and choice.object==bed,"an ordinary bed beats a marked backup couch and sleeping bag")
+        bedSquare.objects[#bedSquare.objects]=nil
+        choice=seatProbe(bedProbeActor,{},clock,"rest_bed")
+        check(choice and choice.object==bag,"a deployed sleeping bag is selected before a backup couch")
+        function bag:isFurnitureOccupied() return true end
+        choice=seatProbe(bedProbeActor,{},clock,"rest_bed")
+        check(choice and choice.object==chair and choice.kind=="rest_bed",
+            "an exhausted companion can sleep on an available backup couch")
+        local bag2Square=cell:getGridSquare(18,5,0)
+        bag2Square.room=chairSquare.room
+        local bag2={square=bag2Square,getSquare=bag.getSquare,getName=bag.getName}
+        local oldRank=SurvivorCompanion.BedGeometry.sleepPriority
+        SurvivorCompanion.BedGeometry.sleepPriority=function(object)
+            return object==bag2 and 2 or oldRank(object) end
+        local oldSeatManager=SeatingManager.getInstance
+        SeatingManager.getInstance=function() return {getTilePositionCount=function(_,object)
+            return object==bag2 and 1 or oldSeatManager():getTilePositionCount(object) end} end
+        bag.isFurnitureOccupied=nil
+        local cachedState, savedClock={},clock
+        check(seatProbe(bedProbeActor,cachedState,clock,"rest_bed").object==bag,
+            "initial sleeping-bag receipt is cached")
+        function bag:isFurnitureOccupied() return true end
+        bag2Square.objects[#bag2Square.objects+1]=bag2
+        clock=clock+5001
+        local replacement=seatProbe(bedProbeActor,cachedState,clock,"rest_bed")
+        check(replacement and replacement.object==bag2,
+            "expired backup cache replaces an occupied bag with a newly available distant bag")
+        clock=savedClock
+        bag2Square.objects[#bag2Square.objects]=nil
+        chair.getName=previousChairName
+        choice=seatProbe(bedProbeActor,{},clock,"rest_bed")
+        check(choice==nil,"an ordinary chair is not promoted into a sleep fallback")
+        bagSquare.objects[#bagSquare.objects]=nil
+        bedSquare.objects[#bedSquare.objects+1]=bed
+        SurvivorCompanion.BedGeometry,SeatingManager=previousGeometry,previousManager
+    end)()
     baseForBed.active, baseForBed.isInside, baseForBed.allowsFloorTransit =
         oldBedActive, oldBedInside, oldBedTransit
     chairSquare.moving = oldChairMoving

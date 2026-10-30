@@ -7,4 +7,5 @@ import zombie.iso.SpriteDetails.IsoFlagType;
 public class PropertyContainer {
     public boolean has(IsoFlagType flag) { return false; }
     public String get(String name) { return null; }
+    public int getSurface() { return 0; }
 }

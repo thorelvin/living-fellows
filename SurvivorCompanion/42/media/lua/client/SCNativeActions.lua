@@ -1933,7 +1933,10 @@ local function startFurnitureRest(actor, object, registry, actionName)
     end
     -- Get On Bed uses a sprite grid to position the actor on a mattress.
     -- A single-tile cot still uses the stock furniture rest pose.
+    local sleepSeat = SC.BedGeometry and SC.BedGeometry.sleepPriority
+        and SC.BedGeometry.sleepPriority(object) == 3
     local useBedPose = actionName == "rest_bed" and gridOk and grid ~= nil
+        and not sleepSeat
     if type(ISPathFindAction) ~= "table"
         or type(ISPathFindAction.pathToSitOnFurniture) ~= "function"
         or type(ISRestAction) ~= "table" or type(ISRestAction.new) ~= "function"
@@ -1976,6 +1979,9 @@ local function startFurnitureRest(actor, object, registry, actionName)
     if not restCreated or restAction == nil then
         return false, restCreated and "furniture-rest action was not created"
             or tostring(restAction)
+    end
+    if bedEntry and SC.BedGeometry and SC.BedGeometry.configureEntryAction then
+        SC.BedGeometry.configureEntryAction(restAction, bedEntry)
     end
     boundSeatingTurn(restAction)
     if bedEntry then
@@ -5079,6 +5085,18 @@ local function seatingPoseSettled(actor, record, startedVariable)
 end
 
 function actions._bedRestForTests(actor) return activeBedActions[actor] end
+function actions.alignSleepingBedModel(actor)
+    local record = activeBedActions[actor]
+    if not record or record.pose ~= "bed" or record.modelAligned
+        or not record.bedEntry or record.bedEntry.pillow then return end
+    record.sleepModelStartedAt = record.sleepModelStartedAt or nowMs()
+    if nowMs() - record.sleepModelStartedAt < 4500 then return end
+    if SCBridge and type(SCBridge.alignSleepingBedModel) == "function" then
+        local called, aligned = pcall(SCBridge.alignSleepingBedModel, actor, record.object)
+        record.modelAligned = called and aligned == true
+        if not record.modelAligned then record.alignmentFailure = SCBridge.getLastFailure() end
+    end
+end
 actions._startBarricadeForTests = startBarricade
 actions._moveItemToRootForTests = moveItemToRoot
 actions._restoreNeedsItemForTests = restoreNeedsItem

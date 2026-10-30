@@ -2,6 +2,21 @@
 
 # Changelog
 
+## 0.26.82 - Reliable beds and backup sleep places
+
+- Hospital beds, including those in Rosewood's firestation, are no longer
+  rejected because their seating direction points to the wrong bed half.
+- Companions prefer an available bed, then a deployed sleeping bag, then a
+  sleep-capable couch. Ordinary chairs remain seats.
+- Beds against upstairs boundaries use a safe foot-side entry, avoiding an
+  animation that could carry a companion beyond the floor.
+- Sleeping models line up with their mattresses, and flat sleeping bags keep
+  the body above the floor. The adjustment clears when the companion gets up.
+- Backup choices reuse bounded discovery, refresh stale or occupied choices,
+  and respect other couch occupants.
+- Ships Lua and the rebuilt native bridge together, retaining protocol
+  `42.21-isocompanion-24` for Project Zomboid 42.21.0 and existing save schemas.
+
 ## 0.26.81 - Quiet idle computers and cached building controls
 
 - Closed computers stop nearby-floor surveys and idle battery polling. Mounted

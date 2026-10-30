@@ -27,6 +27,7 @@ $SquadCombatLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\cli
 $FarmCorridorLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCFarmCorridorProbe.lua'
 $WaterSourceLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCWaterSourceProbe.lua'
 $UpstairsHaulLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCUpstairsHaulProbe.lua'
+$FirestationRestLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCFirestationRestProbe.lua'
 $FloorSortLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCFloorSortProbe.lua'
 $BaseAlertLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCBaseAlertProbe.lua'
 $BarricadeLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCBarricadeProbe.lua'
@@ -57,7 +58,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Live harness Lua compiler build failed.' }
     Push-Location -LiteralPath $GameRoot
     try {
-        & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $Lua $DrivingLua $FollowRoadLua $FacingLua $SixSeatLua $SquadCombatLua $FarmCorridorLua $WaterSourceLua $UpstairsHaulLua $FloorSortLua $BaseAlertLua $BarricadeLua $ViewCutawayLua $NormalKitchenLua $WoodExpeditionLua $BanditsAdapterLua $BanditsCombatLua
+        & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $Lua $DrivingLua $FollowRoadLua $FacingLua $SixSeatLua $SquadCombatLua $FarmCorridorLua $WaterSourceLua $UpstairsHaulLua $FirestationRestLua $FloorSortLua $BaseAlertLua $BarricadeLua $ViewCutawayLua $NormalKitchenLua $WoodExpeditionLua $BanditsAdapterLua $BanditsCombatLua
         if ($LASTEXITCODE -ne 0) { throw 'Live harness Kahlua compilation failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $BanditsCloseLua $BanditsLifecycleLua $BanditsArmorLua $BanditsVehicleLua $BanditsLaneLua $BanditsVehicleFireLua $BanditsWallLua $ALifeAdapterLua
         if ($LASTEXITCODE -ne 0) { throw 'Bandits close-combat probe compilation failed.' }

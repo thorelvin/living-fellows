@@ -9,6 +9,7 @@ public class IsoObject {
     public IsoGridSquare square;
     public se.krka.kahlua.vm.KahluaTable getModData() { return null; }
     public IsoGridSquare getSquare() { return null; }
+    public int getObjectIndex() { return -1; }
     public IsoSprite getSprite() { return null; }
     public IsoSpriteGrid getSpriteGrid() { return null; }
     public PropertyContainer getProperties() { return null; }

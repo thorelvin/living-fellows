@@ -1516,7 +1516,9 @@ end
 local function isNamedBed(value)
     local text = restFurnitureText(value)
     return hasFurnitureWord(text, "bed") or hasFurnitureWord(text, "cot")
-        or hasFurnitureWord(text, "stretcher")
+        or hasFurnitureWord(text, "stretcher") or hasFurnitureWord(text, "bunk")
+        or hasFurnitureWord(text, "mattress")
+        or string.find(text, "sleeping bag", 1, true) ~= nil
 end
 
 local function isNamedSeat(value)
@@ -1585,6 +1587,14 @@ local function furnitureKind(object)
     return nil
 end
 
+function Downtime.sleepPriority(object)
+    if SC.BedGeometry and type(SC.BedGeometry.sleepPriority) == "function" then
+        local rank = SC.BedGeometry.sleepPriority(object)
+        if rank ~= nil then return rank end
+    end
+    return furnitureKind(object) == "rest_bed" and 1 or nil
+end
+
 local function sameFurnitureContext(actorSquare, candidateSquare)
     local actorRoom, actorRoomOk = U().call(actorSquare, "getRoom")
     local candidateRoom, candidateRoomOk = U().call(candidateSquare, "getRoom")
@@ -1630,6 +1640,10 @@ local function freeFurnitureAccess(actor, object)
     if utility.movingBlocker(utility.squareOf(object), actor) then
         return false, {}, "seat_spot_busy"
     end
+    if SC.BedGeometry and SC.BedGeometry.sleepPriority
+        and SC.BedGeometry.sleepPriority(object) == 3
+        and type(SC.BedGeometry.occupant) == "function"
+        and SC.BedGeometry.occupant(object, actor) then return false, {}, "seat_spot_busy" end
     if furnitureKind(object) == "rest_bed" and SC.BedGeometry then
         local sprite = select(1, utility.call(object, "getSprite"))
         local grid = select(1, utility.call(sprite, "getSpriteGrid"))
@@ -1668,8 +1682,23 @@ local function freeFurnitureAccess(actor, object)
     return false, free, reason
 end
 
+function Downtime._noteSleepBackup(actor, state, current, object, square, rank)
+    if not rank or rank < 2 or not state.sleepSelectionBackups
+        or state.sleepSelectionBackups[rank]
+        or reservationHeldByOther(object, actor, current)
+        or furnitureCooling(state, object, current)
+        or select(1, U().call(object, "isFurnitureOccupied", actor)) == true then return end
+    local reached, targets = freeFurnitureAccess(actor, object)
+    if not reached and #targets == 0 then return end
+    state.sleepSelectionBackups[rank] = {
+        kind = "rest_bed", score = 78, object = object, square = square,
+        originSquare = U().squareOf(actor), crossFloor = not U().sameFloor(actor, square),
+        fact = { activity = "rest_bed" },
+    }
+end
+
 local function linkedFloorFurniture(actor, state, current, seatOnly, tired,
-        radius, fallback)
+        radius, fallback, tier)
     local utility, base = U(), SC.BaseLife
     if not base or type(base.active) ~= "function"
         or type(base.isInside) ~= "function"
@@ -1692,9 +1721,16 @@ local function linkedFloorFurniture(actor, state, current, seatOnly, tired,
                             local selected, kind
                             utility.squareObjects(square, function(object)
                                 local value = furnitureKind(object)
+                                local rank = Downtime.sleepPriority(object)
+                                if tired and seatOnly ~= true and rank and rank > 1
+                                    and campFloorRoute(actor, square) then
+                                    Downtime._noteSleepBackup(actor, state, current, object, square, rank)
+                                end
+                                if tired and seatOnly ~= true and rank == 3 and tier == 3 then value = "rest_bed" end
                                 local occupied = select(1, utility.call(object,
                                     "isFurnitureOccupied", actor))
-                                if value and (seatOnly ~= true or value == "sit")
+                                if value and (value ~= "rest_bed" or (rank or 1) == tier)
+                                    and (seatOnly ~= true or value == "sit")
                                     and (seatOnly ~= "rest_bed"
                                         or value == "rest_bed")
                                     and (value ~= "rest_bed" or tired)
@@ -1735,7 +1771,7 @@ end
 -- A marked Rest room is the first place a tired resident looks for a bed.
 -- Scan its loaded floor tiles directly: the ordinary nearby search can miss
 -- a bedroom on the far side of camp even though it is in the active base.
-local function campBedActivity(actor, state, current, zoneKind)
+local function campBedActivity(actor, state, current, zoneKind, tier)
     local utility, base = U(), SC.BaseLife
     if not base or type(base.active) ~= "function"
         or type(base.isInside) ~= "function"
@@ -1757,6 +1793,25 @@ local function campBedActivity(actor, state, current, zoneKind)
     if #zones == 0 then return nil end
     local scans = type(state) == "table" and state.campBedScans or nil
     local scan = scans and scans[zoneKind] or nil
+    if tier > 1 then
+        local backup = scan and scan.base == active and scan.backups and scan.backups[tier]
+        if not backup or scan.pending then return nil end
+        local object, square = backup.object, utility.squareOf(backup.object)
+        if square ~= backup.square or base.isInside(square) ~= true
+            or select(1, utility.call(object, "getObjectIndex")) == -1
+            or (not utility.sameFloor(actor, square) and not campFloorRoute(actor, square))
+            or reservationHeldByOther(object, actor, current)
+            or furnitureCooling(state, object, current)
+            or select(1, utility.call(object, "isFurnitureOccupied", actor)) == true then return nil end
+        local reached, targets = freeFurnitureAccess(actor, object)
+        if not reached and #targets == 0 then return nil end
+        local chosen = utility.copyShallow(backup)
+        chosen.originSquare, chosen.crossFloor = utility.squareOf(actor), not utility.sameFloor(actor, square)
+        return chosen
+    end
+    if scan and not scan.pending and scan.retryAt and current >= scan.retryAt then
+        scan.backups = {}
+    end
     if not scan or scan.base ~= active
         or (not scan.pending and (scan.x ~= math.floor(ax)
             or scan.y ~= math.floor(ay) or scan.z ~= math.floor(az)))
@@ -1767,7 +1822,8 @@ local function campBedActivity(actor, state, current, zoneKind)
             and scan.zoneCount == #zones and scan.retryAt or nil
         scan = { base = active, x = math.floor(ax), y = math.floor(ay),
             z = math.floor(az), zoneCount = #zones, zoneIndex = 1,
-            ring = 0, offset = 0, zones = zones, retryAt = retryAt }
+            ring = 0, offset = 0, zones = zones, retryAt = retryAt,
+            backups = retryAt and current < retryAt and scan and scan.backups or {} }
         if type(state) == "table" then
             state.campBedScans = state.campBedScans or {}
             state.campBedScans[zoneKind] = scan
@@ -1792,14 +1848,23 @@ local function campBedActivity(actor, state, current, zoneKind)
         utility.squareObjects(square, function(object)
             local occupied = select(1, utility.call(object,
                 "isFurnitureOccupied", actor))
-            if furnitureKind(object) == "rest_bed"
+            local rank = Downtime.sleepPriority(object)
+            if (furnitureKind(object) == "rest_bed" or rank == 3)
                 and occupied ~= true
                 and not reservationHeldByOther(object, actor, current)
                 and not furnitureCooling(state, object, current) then
                 local reached, targets = freeFurnitureAccess(actor, object)
                 if reached or #targets > 0 then
-                    selected = object
-                    return false
+                    if (rank or 1) > 1 then
+                        scan.backups = scan.backups or {}
+                        scan.backups[rank] = scan.backups[rank] or {
+                            kind = "rest_bed", score = 78, object = object, square = square,
+                            fact = { activity = "rest_bed" },
+                        }
+                    else
+                        selected = object
+                        return false
+                    end
                 end
             end
         end, 32)
@@ -1863,7 +1928,7 @@ local function campBedActivity(actor, state, current, zoneKind)
     return nil
 end
 
-local function seatActivity(actor, state, current, seatOnly)
+local function seatActivityAtTier(actor, state, current, seatOnly, tier)
     local utility = U()
     if seatingStatus(actor) ~= "standing" and seatOnly ~= "rest_bed" then return nil end
     if type(state) == "table" and (tonumber(current) or utility.nowMs())
@@ -1875,9 +1940,19 @@ local function seatActivity(actor, state, current, seatOnly)
         utility.characterStatValue(actor, "FATIGUE", 0)) or 0, 0, 1)
     local tired = seatOnly ~= true
         and bedSleepEligible(actor, state, fatigue) == true
+    -- Primary discovery already recorded nearby and camp backup receipts.
+    -- Revalidate those choices; do not rescan the house for each sleep tier.
+    if tier > 1 then
+        if not tired then return nil end
+        local marked, status = campBedActivity(actor, state, current, "rest", tier)
+        if marked or status == "searching" then return marked, status end
+        local nearby = state.sleepSelectionBackups and state.sleepSelectionBackups[tier]
+        if nearby then return nearby end
+        return campBedActivity(actor, state, current, "area", tier)
+    end
     if tired and seatOnly ~= true then
         local markedBed, markedStatus = campBedActivity(actor, state,
-            current, "rest")
+            current, "rest", tier)
         if markedBed then return markedBed end
         if markedStatus == "searching" then return nil, "searching" end
     end
@@ -1897,9 +1972,15 @@ local function seatActivity(actor, state, current, seatOnly)
                     if sameFurnitureContext(actorSquare, square) then
                         utility.squareObjects(square, function(object)
                             local value = furnitureKind(object)
+                            local rank = Downtime.sleepPriority(object)
+                            if tired and seatOnly ~= true and rank and rank > 1 then
+                                Downtime._noteSleepBackup(actor, state, current, object, square, rank)
+                            end
+                            if tired and seatOnly ~= true and rank == 3 and tier == 3 then value = "rest_bed" end
                             local occupied, occupiedOk = utility.call(
                                 object, "isFurnitureOccupied", actor)
-                            if value and (seatOnly ~= true or value == "sit")
+                            if value and (value ~= "rest_bed" or (rank or 1) == tier)
+                                and (seatOnly ~= true or value == "sit")
                                 and (seatOnly ~= "rest_bed" or value == "rest_bed")
                                 and (value ~= "rest_bed" or tired)
                                 and not (occupiedOk and occupied == true)
@@ -1932,11 +2013,11 @@ local function seatActivity(actor, state, current, seatOnly)
                     end
                     if scanned >= budget then
                         local linked = linkedFloorFurniture(actor, state, current,
-                            seatOnly, tired, radius, chairFallback)
+                            seatOnly, tired, radius, chairFallback, tier)
                         if linked and linked.kind == "rest_bed" then return linked end
                         if tired and seatOnly ~= true then
                             local campBed, status = campBedActivity(actor, state,
-                                current, "area")
+                                current, "area", tier)
                             if campBed then return campBed end
                             if status == "searching" then return linked, status end
                         end
@@ -1947,14 +2028,29 @@ local function seatActivity(actor, state, current, seatOnly)
         end
     end
     local linked = linkedFloorFurniture(actor, state, current,
-        seatOnly, tired, radius, chairFallback)
+        seatOnly, tired, radius, chairFallback, tier)
     if linked and linked.kind == "rest_bed" then return linked end
     if tired and seatOnly ~= true then
-        local campBed, status = campBedActivity(actor, state, current, "area")
+        local campBed, status = campBedActivity(actor, state, current, "area", tier)
         if campBed then return campBed end
         if status == "searching" then return linked, status end
     end
     return linked
+end
+
+local function seatActivity(actor, state, current, seatOnly)
+    state.sleepSelectionBackups = {}
+    local candidate, status = seatActivityAtTier(actor, state, current, seatOnly, 1)
+    if status == "searching" or candidate and candidate.kind == "rest_bed"
+        or seatOnly == true then return candidate, status end
+    local fatigue = U().characterStatValue(actor, "FATIGUE", 0)
+    if not bedSleepEligible(actor, state, fatigue) then return candidate, status end
+    for tier = 2, 3 do
+        local backup, why = seatActivityAtTier(actor, state, current, seatOnly, tier)
+        if why == "searching" then return nil, why end
+        if backup and backup.kind == "rest_bed" then return backup end
+    end
+    return candidate, status
 end
 
 local function floorRestActivity(actor, furnitureAvailable, following)
@@ -4398,6 +4494,9 @@ local function sleepElapsedHours(activity, current)
 end
 
 local function recoverBedSleep(actor, activity, current)
+    if SC.NativeActions and SC.NativeActions.alignSleepingBedModel then
+        SC.NativeActions.alignSleepingBedModel(actor)
+    end
     local elapsed = sleepElapsedHours(activity, current)
     local duration = math.max(0.1, tonumber(activity.gameDurationHours) or 6)
     local fraction = math.min(1, elapsed / duration)

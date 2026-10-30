@@ -231,6 +231,8 @@ public final class SCNativeCompanion extends IsoPlayer {
     private transient volatile float bridgeOnBedRenderLift;
     private transient volatile IsoGridSquare bridgeOnBedRenderSquare;
     private transient volatile Thread bridgeOnBedRenderThread;
+    private transient volatile zombie.iso.IsoObject bridgeSleepModelBed;
+    private transient volatile float bridgeSleepModelX, bridgeSleepModelY, bridgeSleepModelZ;
     private volatile String bridgePostUpdateDiagnostic = "not_run";
     private final MovementProbe bridgeLastMovementProbe = new MovementProbe();
     private final MovementProbe bridgeLastCollisionProbe = new MovementProbe();
@@ -599,10 +601,34 @@ public final class SCNativeCompanion extends IsoPlayer {
     }
 
     @Override
+    public float getX() {
+        return super.getX() + (bridgeSleepModelX != 0.0f && bridgeOnBedRenderThread == Thread.currentThread()
+                ? bridgeSleepModelX : 0.0f);
+    }
+
+    @Override
+    public float getY() {
+        return super.getY() + (bridgeSleepModelY != 0.0f && bridgeOnBedRenderThread == Thread.currentThread()
+                ? bridgeSleepModelY : 0.0f);
+    }
+
+    void setSleepModelOffset(zombie.iso.IsoObject bed, float x, float y, float z) {
+        bridgeSleepModelX = x;
+        bridgeSleepModelY = y;
+        bridgeSleepModelZ = z;
+        bridgeSleepModelBed = bed;
+    }
+
+    void clearSleepModelOffset() {
+        bridgeSleepModelBed = null;
+        bridgeSleepModelX = bridgeSleepModelY = bridgeSleepModelZ = 0.0f;
+    }
+
+    @Override
     public float getZ() {
         float physicalZ = super.getZ();
         return bridgeOnBedRenderThread == Thread.currentThread()
-                ? physicalZ + bridgeOnBedRenderLift : physicalZ;
+                ? physicalZ + bridgeOnBedRenderLift + bridgeSleepModelZ : physicalZ;
     }
 
     @Override
@@ -615,13 +641,16 @@ public final class SCNativeCompanion extends IsoPlayer {
                 && (int) Math.floor(getX()) == pillow.getX()
                 && (int) Math.floor(getY()) == pillow.getY();
         Thread previousRenderThread = bridgeOnBedRenderThread;
-        if (liftModel) bridgeOnBedRenderThread = Thread.currentThread();
+        zombie.iso.IsoObject bed = bridgeSleepModelBed;
+        boolean alignModel = bed != null && bed.getObjectIndex() >= 0
+                && isOnBed() && getSitOnFurnitureObject() == bed;
+        if (liftModel || alignModel) bridgeOnBedRenderThread = Thread.currentThread();
         try {
             super.render(x, y, z, color, bDoChild, bWallLightingPass, shader);
         } finally {
             // The model camera captures virtual getZ() during super.render().
             // Other world and physics reads must always see the physical Z.
-            if (liftModel) bridgeOnBedRenderThread = previousRenderThread;
+            if (liftModel || alignModel) bridgeOnBedRenderThread = previousRenderThread;
         }
         try {
             int playerIndex = SCWorldPeeStreamRenderer.queue(this, bridgePeeStream);
@@ -2688,6 +2717,9 @@ public final class SCNativeCompanion extends IsoPlayer {
 
     @Override
     public void update() {
+        if (bridgeSleepModelBed != null && (!isOnBed()
+                || getSitOnFurnitureObject() != bridgeSleepModelBed
+                || bridgeSleepModelBed.getObjectIndex() < 0)) clearSleepModelOffset();
         if (bridgeOnBedRenderLift > 0.0f
                 && (!isOnBed() || getCurrentSquare() != bridgeOnBedRenderSquare)) {
             clearBridgeOnBedRenderLift();

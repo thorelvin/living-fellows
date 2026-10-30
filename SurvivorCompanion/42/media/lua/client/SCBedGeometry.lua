@@ -11,6 +11,32 @@ local function gridNumber(value)
     return value ~= nil and tonumber(tostring(value)) or nil
 end
 
+-- Sleep preference is independent of ordinary seating: a couch remains a
+-- reading seat until the sleep selector deliberately requests it as backup.
+function Geometry.sleepPriority(object)
+    local sprite = select(1, U().call(object, "getSprite"))
+    local props = select(1, U().call(object, "getProperties"))
+        or select(1, U().call(sprite, "getProperties"))
+    local bedType = select(1, U().call(props, "get", "BedType"))
+    if bedType == nil then return nil end
+    local text = string.lower(tostring(select(1, U().call(props, "get", "GroupName")) or "")
+        .. " " .. tostring(select(1, U().call(props, "get", "CustomName")) or "")
+        .. " " .. tostring(select(1, U().call(object, "getName")) or ""))
+    if text:find("sleeping bag", 1, true) then return 2 end
+    if text:find("couch", 1, true) or text:find("sofa", 1, true) then
+        local ok, manager = pcall(function() return SeatingManager.getInstance() end)
+        local count = ok and select(1, U().call(manager, "getTilePositionCount", object)) or nil
+        if (tonumber(count) or 0) > 0 then
+            return 3
+        end
+        return nil
+    end
+    if text:find("bed", 1, true) or text:find("bunk", 1, true)
+        or text:find("mattress", 1, true) or text:find("cot", 1, true)
+        or text:find("stretcher", 1, true) then return 1 end
+    return nil
+end
+
 -- A sprite grid belongs to the furniture type, not to one placed bed, so two
 -- identical beds side by side share it. Position within the grid tells them apart.
 local function segmentAt(tile, grid, targetGX, targetGY)
@@ -64,12 +90,14 @@ end
 -- isFurnitureOccupied reads only its own tile and only counts an Idle sitting
 -- pose, so it cannot answer this for a body lying on the other half.
 function Geometry.occupant(bed, actor)
+    local couch = Geometry.sleepPriority(bed) == 3
     for _, segment in ipairs(Geometry.segments(bed)) do
         local moving = select(1, U().call(U().squareOf(segment), "getMovingObjects"))
         if moving and SC.NativeList then
             for index = 0, SC.NativeList.size(moving) - 1 do
                 local body = SC.NativeList.get(moving, index)
-                if body ~= actor and select(1, U().call(body, "isOnBed")) == true then
+                if body ~= actor and (select(1, U().call(body, "isOnBed")) == true
+                    or couch and select(1, U().call(body, "isSittingOnFurniture")) == true) then
                     return body
                 end
             end
@@ -101,6 +129,37 @@ function Geometry.entry(bed, actor)
     local facing = cardinal(select(1,
         U().call(manager, "getFacingDirection", bed)))
     if not facing then return nil, nil, "bed_facing_unavailable" end
+    local function tileFacing(object)
+        local objectSprite = select(1, U().call(object, "getSprite"))
+        local properties = select(1, U().call(object, "getProperties"))
+            or select(1, U().call(objectSprite, "getProperties"))
+        return cardinal(select(1, U().call(properties, "get", "Facing")))
+    end
+    local function physicalFacing(object, nativeFacing)
+        local width = gridNumber(select(1, U().call(grid, "getWidth")))
+        local height = gridNumber(select(1, U().call(grid, "getHeight")))
+        local actual = tileFacing(object)
+        if Geometry.sleepPriority(object) == 2 then
+            -- Camping sprites carry chair-style facing for a flat bag. Its
+            -- two physical tiles establish the mattress axis instead.
+            if width == 2 and height == 1 and (nativeFacing == "N" or nativeFacing == "S") then
+                return nativeFacing == "N" and "E" or "W", true
+            end
+            if width == 1 and height == 2 and (nativeFacing == "W" or nativeFacing == "E") then
+                return nativeFacing == "W" and "S" or "N", true
+            end
+        end
+        -- Several stock hospital beds advertise chair-facing metadata across
+        -- their mattress. Trust the bed's own Facing only when its complete
+        -- two-tile grid proves that orientation. Never guess missing halves.
+        if width == 1 and height == 2 and (nativeFacing == "E" or nativeFacing == "W")
+            and (actual == "N" or actual == "S") then return actual, true end
+        if width == 2 and height == 1 and (nativeFacing == "N" or nativeFacing == "S")
+            and (actual == "E" or actual == "W") then return actual, true end
+        return nativeFacing, false
+    end
+    local correctedFacing
+    facing, correctedFacing = physicalFacing(bed, facing)
     local gx = gridNumber(select(1, U().call(grid,
         "getSpriteGridPosX", sprite)))
     local gy = gridNumber(select(1, U().call(grid,
@@ -145,12 +204,6 @@ function Geometry.entry(bed, actor)
                 and SC.NativeList.get(moving, 0) == actor
         end
         return clear == true
-    end
-    local function tileFacing(object)
-        local objectSprite = select(1, U().call(object, "getSprite"))
-        local properties = select(1, U().call(object, "getProperties"))
-            or select(1, U().call(objectSprite, "getProperties"))
-        return cardinal(select(1, U().call(properties, "get", "Facing")))
     end
     -- Four-sprite double beds can report W/E for their pillow-row Seating
     -- Manager segments even though the mattress is laid out north-south.
@@ -214,6 +267,7 @@ function Geometry.entry(bed, actor)
     facing = cardinal(select(1,
         U().call(manager, "getFacingDirection", bed)))
     if not facing then return nil, nil, "bed_facing_unavailable" end
+    facing, correctedFacing = physicalFacing(bed, facing)
     -- A missing half means the sprite grid is damaged or not a two-tile bed.
     -- The native action can otherwise report OnBed while placing the body in
     -- empty floor. This check uses the grid rather than tile Facing because
@@ -259,6 +313,21 @@ function Geometry.entry(bed, actor)
         }
     end
     local room = select(1, U().call(square, "getRoom"))
+    local headX, headY = x, y
+    if facing == "N" then headY = headY + 1
+    elseif facing == "S" then headY = headY - 1
+    elseif facing == "W" then headX = headX + 1
+    else headX = headX - 1 end
+    local beyondHead = U().gridSquare(headX, headY, z or 0)
+    local headFloor, headFloorChecked = U().call(beyondHead, "TreatAsSolidFloor")
+    -- Head-side OnBed clips can step back past the pillow. At an upstairs
+    -- exterior wall that step can leave the floor before sleep even starts.
+    -- Enter from a clear foot side when the head is against a hard boundary.
+    local preferFoot = beyondHead == nil
+        or select(1, U().call(beyondHead, "getRoom")) ~= room
+        or headFloorChecked and headFloor ~= true
+        or select(1, U().call(beyondHead, "isSolid")) == true
+        or select(1, U().call(beyondHead, "isSolidTrans")) == true
     local actorX, actorY
     if actor then actorX, actorY = U().position(actor) end
     local best, bestRank, bestDistance
@@ -266,11 +335,12 @@ function Geometry.entry(bed, actor)
         local tile = U().gridSquare(math.floor(point[1]),
             math.floor(point[2]), z or 0)
         if tile and select(1, U().call(tile, "getRoom")) == room then
-            if clearForActor(tile) then
+            if clearForActor(tile) and not (preferFoot and index <= 2) then
                 local distance = actorX and actorY
                     and (actorX - point[1]) ^ 2
                         + (actorY - point[2]) ^ 2 or 0
-                local rank = index <= 2 and 1 or index <= 4 and 2 or 3
+                local rank = index == 5 and 3
+                    or (preferFoot and index >= 3 or not preferFoot and index <= 2) and 1 or 2
                 if not bestRank or rank < bestRank
                     or (rank == bestRank and distance < bestDistance) then
                     best, bestRank, bestDistance = point, rank, distance
@@ -280,7 +350,36 @@ function Geometry.entry(bed, actor)
     end
     if not best then return nil, nil, "bed_entry_blocked" end
     return bed, { x = best[1], y = best[2], z = z or 0,
-        facing = facing, entryKind = best[3] }, "entry"
+        facing = facing, entryKind = best[3], correctedFacing = correctedFacing }, "entry"
+end
+
+-- Override only this owned action when stock seating metadata disagrees with
+-- a verified mattress axis. The native OnBed state/animations remain in charge;
+-- no global SeatingManager functions or other actors are changed.
+function Geometry.configureEntryAction(action, entry)
+    if not action or not entry or entry.correctedFacing ~= true then return end
+    local vectors = { N = { 0, -1 }, S = { 0, 1 }, E = { 1, 0 }, W = { -1, 0 } }
+    local direction = vectors[entry.facing]
+    if not direction then return end
+    action.setBeforeSitDirection = function(self)
+        local x, y = U().position(self.character)
+        local bx, by = U().position(self.bed)
+        if x == nil or bx == nil then return end
+        U().call(self.character, "setVariable", "OnBedDirection", entry.entryKind)
+        local dx, dy = direction[1], direction[2]
+        if entry.entryKind ~= "Foot" then
+            if direction[1] == 0 then dx, dy = x < bx + 0.5 and 1 or -1, 0
+            else dx, dy = 0, y < by + 0.5 and 1 or -1 end
+        end
+        U().call(self.character, "faceLocationF", x + dx * 2, y + dy * 2)
+    end
+    action.setWhileSittingDirection = function(self)
+        local x, y = U().position(self.character)
+        if x ~= nil then
+            U().call(self.character, "faceLocationF", x + direction[1] * 2,
+                y + direction[2] * 2)
+        end
+    end
 end
 
 return Geometry

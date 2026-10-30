@@ -25,6 +25,8 @@ bedTile.objects[1] = bed
 local inside = tile(12, 10, room)
 inside.objects[1], bed.square, bedFoot.square = bedFoot, bedTile, inside
 local northHeadEntry = tile(12, 9, room)
+-- Keep the stock head-side fixture away from an actual floor boundary.
+tile(13, 10, room)
 local pillowFootTile = tile(11, 11, room)
 pillowFoot.square = pillowFootTile
 local outside = tile(30, 10, hall)
