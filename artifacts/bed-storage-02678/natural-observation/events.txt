@@ -1,0 +1,10 @@
+SC_REAL_SANDBOX_EVENTS_V1
+run_id=SC-Harness-20261030-082613-bbd3364b
+PASS|gameplay_clock_running|game_speed=1
+PASS|companion_bootstrap_loaded|table 0x120692325{ install=closure 0x1685560464, remove=closure 0x214394222, isInstalled=closure 0x657062025, cleanupPending=closure 0x744523967 }
+PASS|single_player_client|server=false client=false
+PASS|native_bridge_ready|native IsoCompanion provider ready
+PASS|local_player_slot_zero|getPlayer equals getSpecificPlayer(0)
+PASS|local_observer_initially_alive|observer must be alive in the cloned save; no resurrection or damage immunity
+PASS|observe_started|records=4 observe_ms=300000
+PASS|observe_completed|companions=5 samples=298 stacked_samples=0 max_stacked=0 unstack_moves=0 longest_stack_ms=0 pair=nil

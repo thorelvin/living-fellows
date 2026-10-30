@@ -31,6 +31,14 @@ public final class SCItemContainerContractTest {
                 "Quantity-limited recursive material selection is unavailable");
         require(item.isAssignableFrom(container.getMethod("getContainingItem").getReturnType()),
                 "Bag ownership lookup is unavailable");
+        Class<?> object = Class.forName("zombie.iso.IsoObject");
+        require(object.isAssignableFrom(container.getMethod("getParent").getReturnType()),
+                "Container overlay owner lookup is unavailable");
+        require(container.getMethod("setDrawDirty", boolean.class).getReturnType() == void.class,
+                "Container visual invalidation contract changed");
+        require(Class.forName("zombie.inventory.ItemPickerJava")
+                .getMethod("updateOverlaySprite", object).getReturnType() == void.class,
+                "Native container overlay refresh is unavailable");
         System.out.println("ITEM_CONTAINER_CONTRACT_PASS create="
                 + create.getReturnType().getName()
                 + " add=" + add.getReturnType().getName()

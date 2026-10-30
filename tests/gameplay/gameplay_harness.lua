@@ -10184,6 +10184,36 @@ do
     check(seatProbe(bedProbeActor, {}, clock).object == bed,
         "a tired companion selects a reachable bed beyond a closer chair")
     do
+        local priorManager, priorGeometry = SeatingManager, SurvivorCompanion.BedGeometry
+        local priorSprite = bed.getSprite
+        SeatingManager = { getInstance = function()
+            return { getTilePositionCount = function() return 0 end }
+        end }
+        bed.getSprite = function() return {
+            getName = function() return "furniture_bedding_01_38" end,
+            getSpriteGrid = function() return {} end,
+            getProperties = function() return { Val = function(_, key)
+                return key == "CustomName" and "Bed" or nil
+            end } end,
+        } end
+        SurvivorCompanion.BedGeometry = { entry = function()
+            return bed, { x = 7.3, y = 5.5, z = 0 }, "entry"
+        end }
+        local kind = select(1, SurvivorCompanion.Downtime._furnitureForTests())
+        check(kind(bed) == "rest_bed", "sprite-grid beds do not require chair seating positions")
+        local selected = seatProbe(bedProbeActor, {}, clock, "rest_bed")
+        check(selected and selected.object == bed,
+            "a valid zero-chair-position native bed is available for sleep")
+        SurvivorCompanion.BedGeometry.entry = function() return nil, nil, "bed_other_half_unavailable" end
+        check(seatProbe(bedProbeActor, {}, clock, "rest_bed") == nil,
+            "a zero-chair-position bed still needs intact safe entry geometry")
+        bed.getSprite = function() return {
+            getProperties = function() return { Val = function() return "Bed" end } end,
+        } end
+        check(kind(bed) == nil, "decorative bed names without grid or furniture poses remain excluded")
+        SeatingManager, SurvivorCompanion.BedGeometry, bed.getSprite = priorManager, priorGeometry, priorSprite
+    end
+    do
         local priorGeometry, priorSprite = SurvivorCompanion.BedGeometry, bed.getSprite
         local priorRequest = SurvivorCompanion.Navigation.requestAny
         local _, _, approachBed = SurvivorCompanion.Downtime._furnitureForTests()

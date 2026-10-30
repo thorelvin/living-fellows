@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-param([int]$TimeoutSeconds=360)
+param([int]$TimeoutSeconds=360,[switch]$ZeroSeatingBeds)
 $ErrorActionPreference='Stop'
 $project=(Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
 $captureRoot=Join-Path $project 'build\bed-sleep\native'
@@ -15,7 +15,13 @@ New-Item -ItemType Directory -Path $captureRoot -Force | Out-Null
 $cloneMedia=Join-Path $manifest.cacheRoot 'mods\SurvivorCompanion\42\media'
 Copy-Item -Path (Join-Path $project 'SurvivorCompanion\42\media\*') -Destination $cloneMedia -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $project 'SurvivorCompanion\42\media\java\SurvivorCompanionBridge.jar') -Destination $manifest.sourceBridge -Force
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'native-probe.lua') -Destination (Join-Path $cloneMedia 'lua\client\ZZSCTerminalAcceptance.lua') -Force
+$probeDestination=Join-Path $cloneMedia 'lua\client\ZZSCTerminalAcceptance.lua'
+if($ZeroSeatingBeds){
+ $probeSource=Get-Content -LiteralPath (Join-Path $PSScriptRoot 'native-probe.lua') -Raw
+ [IO.File]::WriteAllText($probeDestination,"SC_TEST_ZERO_SEATING_BED=true`n"+$probeSource,[Text.UTF8Encoding]::new($false))
+}else{
+ Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'native-probe.lua') -Destination $probeDestination -Force
+}
 $evidence=Join-Path $manifest.cacheRoot 'Lua\SurvivorCompanionHarness\bed-sleep.log'
 if(Test-Path -LiteralPath $evidence){
  Move-Item -LiteralPath $evidence -Destination ($evidence+'.'+(Get-Date -Format 'yyyyMMddHHmmss')+'.previous')
@@ -48,13 +54,17 @@ try{
   throw 'Native bed acceptance did not complete'
  }
  Get-Content -LiteralPath $evidence
- foreach($name in @('bed-sleep-lying','bed-sleep-awake','bed-walking-away','speech-single-line','speech-multi-line')){
+ $captureNames=@('bed-sleep-lying','bed-sleep-awake','speech-single-line','speech-multi-line')
+ if(-not $ZeroSeatingBeds){$captureNames+='bed-walking-away'}
+ foreach($name in $captureNames){
   Copy-Item -LiteralPath (Join-Path $manifest.cacheRoot ('Screenshots\'+$name)) -Destination (Join-Path $captureRoot ($name+'.png')) -Force
  }
- $zoomCaptures=@(Get-ChildItem -LiteralPath (Join-Path $manifest.cacheRoot 'Screenshots') -File -Filter 'speech-zoom-*' | Where-Object LastWriteTime -ge $launchStarted)
- if($zoomCaptures.Count -lt 6 -or $zoomCaptures.Count -gt 48){throw 'Zoom capture set is missing or exceeds its bounded matrix'}
- foreach($capture in $zoomCaptures){
-  Copy-Item -LiteralPath $capture.FullName -Destination (Join-Path $captureRoot ($capture.Name+'.png')) -Force
+ if(-not $ZeroSeatingBeds){
+  $zoomCaptures=@(Get-ChildItem -LiteralPath (Join-Path $manifest.cacheRoot 'Screenshots') -File -Filter 'speech-zoom-*' | Where-Object LastWriteTime -ge $launchStarted)
+  if($zoomCaptures.Count -lt 6 -or $zoomCaptures.Count -gt 48){throw 'Zoom capture set is missing or exceeds its bounded matrix'}
+  foreach($capture in $zoomCaptures){
+   Copy-Item -LiteralPath $capture.FullName -Destination (Join-Path $captureRoot ($capture.Name+'.png')) -Force
+  }
  }
  Copy-Item -LiteralPath $evidence -Destination (Join-Path $captureRoot 'evidence.txt') -Force
 }finally{

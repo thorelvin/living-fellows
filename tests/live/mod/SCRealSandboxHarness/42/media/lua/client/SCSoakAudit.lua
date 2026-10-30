@@ -156,10 +156,13 @@ function Audit.sample(SC, actors, current, report)
             saved = type(saved) == "table" and saved or {}
             local resident = SC.BaseLife and type(SC.BaseLife.resident) == "function"
                 and SC.BaseLife.resident(id) or nil
+            local rest = SC.Downtime and type(SC.Downtime.status) == "function"
+                and SC.Downtime.status(actor) or {}
             local function stat(name)
                 return utility.characterStatValue(actor, name, nil)
             end
             emit("actor", "at=" .. current .. "|actor=" .. clean(id)
+                .. "|name=" .. clean(utility.nameOf(actor))
                 .. "|order=" .. clean(saved.SC_Order) .. "|serial=" .. clean(saved.SC_CommandSerial)
                 .. "|duty=" .. clean(resident and resident.duty)
                 .. "|role=" .. clean(resident and resident.role)
@@ -167,6 +170,9 @@ function Audit.sample(SC, actors, current, report)
                 .. "|hunger=" .. clean(stat("HUNGER")) .. "|thirst=" .. clean(stat("THIRST"))
                 .. "|pain=" .. clean(stat("PAIN"))
                 .. "|panic=" .. clean(stat("PANIC")) .. "|asleep=" .. clean(read(actor, "isAsleep"))
+                .. "|onBed=" .. clean(read(actor, "isOnBed"))
+                .. "|sleepCheck=" .. clean(rest.sleepReason)
+                .. "|health=" .. clean(read(read(actor, "getBodyDamage"), "getHealth"))
                 .. "|kind=" .. clean(activity and activity.kind)
                 .. "|approaching=" .. clean(activity and activity.approaching)
                 .. "|start=" .. clean(activity and activity.startedAt)

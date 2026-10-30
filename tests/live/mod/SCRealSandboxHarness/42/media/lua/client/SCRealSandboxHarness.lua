@@ -17310,7 +17310,10 @@ local function onGameStart()
     local dead, deadChecked = SC.GameplayUtil.call(Harness.player, "isDead")
     if not check("local_observer_initially_alive", deadChecked and dead == false,
         "observer must be alive in the cloned save; no resurrection or damage immunity")
-        or not Harness.restoreObserverBoundary("initial") then
+        -- Observation must preserve the saved player's health as well as the
+        -- companions' state. Controlled combat fixtures still restore theirs.
+        or (Harness.config.observe_only ~= "true"
+            and not Harness.restoreObserverBoundary("initial")) then
         finish()
         return
     end

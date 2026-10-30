@@ -1612,6 +1612,28 @@ function U.addItem(inventory, itemOrType)
     return nil, tostring(failure or "add_item_call_failed")
 end
 
+-- Verified companion transfers bypass ISInventoryTransferAction.perform.
+-- Refresh its visual side effects only after the ownership transaction settles;
+-- neither a failed overlay nor a UI callback can change the cargo receipt.
+local function refreshTransferVisuals(source, destination)
+    local refreshed = {}
+    for _, container in ipairs({ source, destination }) do
+        U.call(container, "setDrawDirty", true)
+        local parent = select(1, U.call(container, "getParent"))
+        local bag = select(1, U.call(container, "getContainingItem"))
+        if parent and not bag and not refreshed[parent]
+            and not U.instanceOf(parent, "IsoGameCharacter") then
+            refreshed[parent] = true
+            -- ItemPicker is a Java class alias in the native game, so do not
+            -- restrict it to a Lua table or change its installed binding.
+            pcall(function() ItemPicker.updateOverlaySprite(parent) end)
+        end
+    end
+    pcall(function()
+        if type(ISInventoryPage) == "table" then ISInventoryPage.renderDirty = true end
+    end)
+end
+
 -- Build 42 ItemContainer:Remove(InventoryItem) returns void.  The only safe
 -- transaction receipt is therefore the exact item's membership before and
 -- after each operation.  Keep this synchronous so no decision can observe the
@@ -1623,6 +1645,7 @@ function U.transferItemVerified(source, destination, item)
     if source == destination then return false, "same_container" end
     if not U.inventoryContains(source, item) then
         if U.inventoryContains(destination, item) then
+            refreshTransferVisuals(source, destination)
             return true, "already_transferred", {
                 item = item, itemType = U.itemType(item), itemName = U.itemName(item),
                 source = source, destination = destination, idempotent = true,
@@ -1650,6 +1673,7 @@ function U.transferItemVerified(source, destination, item)
 
     U.addItem(destination, item)
     if U.inventoryContains(destination, item) and not U.inventoryContains(source, item) then
+        refreshTransferVisuals(source, destination)
         return true, "transferred", {
             item = item, itemType = U.itemType(item), itemName = U.itemName(item),
             source = source, destination = destination, idempotent = false,
@@ -1663,6 +1687,7 @@ function U.transferItemVerified(source, destination, item)
         U.touchInventoryIndex(destination)
     end
     U.addItem(source, item)
+    refreshTransferVisuals(source, destination)
     if U.inventoryContains(source, item) and not U.inventoryContains(destination, item) then
         return false, "destination_add_failed_rolled_back"
     end

@@ -1,0 +1,77 @@
+{
+  "run": "SC-Harness-20261030-083849-dd531c84",
+  "elapsed_minutes": 35.0,
+  "game_time": 23.06,
+  "completed": true,
+  "actors": [
+    {
+      "name": "Tess",
+      "tired_pct": 35.2,
+      "max_tired_pct": 35.2,
+      "asleep": false,
+      "on_bed": false,
+      "kind": "nil",
+      "phase": "nil",
+      "sleep_check": "nil",
+      "first_sleep": null,
+      "health": "100"
+    },
+    {
+      "name": "Jill",
+      "tired_pct": 30.6,
+      "max_tired_pct": 30.6,
+      "asleep": false,
+      "on_bed": false,
+      "kind": "nil",
+      "phase": "nil",
+      "sleep_check": "nil",
+      "first_sleep": null,
+      "health": "96.9733657836914"
+    },
+    {
+      "name": "Sanghwa",
+      "tired_pct": 26.4,
+      "max_tired_pct": 30.6,
+      "asleep": true,
+      "on_bed": true,
+      "kind": "rest_bed",
+      "phase": "waiting",
+      "sleep_check": "nil",
+      "first_sleep": {
+        "at": 1793347953548,
+        "minutes": 32.53,
+        "world_hours": "159.40444946289062"
+      },
+      "health": "91.63196563720703"
+    },
+    {
+      "name": "Xian",
+      "tired_pct": 30.9,
+      "max_tired_pct": 30.9,
+      "asleep": false,
+      "on_bed": false,
+      "kind": "nil",
+      "phase": "nil",
+      "sleep_check": "nil",
+      "first_sleep": null,
+      "health": "75.5184326171875"
+    }
+  ],
+  "errors": [],
+  "requested_minutes": 35,
+  "speed": 1,
+  "source_save": "LF-Skills5-Test-2026-10-29",
+  "source_files_verified": 3430,
+  "source_unchanged": true,
+  "forced_fatigue": false,
+  "issued_orders": false,
+  "teleported_actors": false,
+  "observer_healed": false,
+  "observed_ms": 2100124,
+  "samples": 2080,
+  "game_hours_elapsed": 9.33,
+  "source_sha256": {
+    "SCDowntime.lua": "bbb8ec3117ad41b1138cf9224345361e3f5a0aa42da08db95f1cc1af73bb7dbb",
+    "SCGameplayUtil.lua": "46ffcc398c56f6f38c273bb93e34b4966275adf870c182915d74efdb3b2cfc1c"
+  }
+}

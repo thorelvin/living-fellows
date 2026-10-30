@@ -184,6 +184,16 @@ try {
             (Join-Path $TestRoot 'vitals_needs_persistence_harness.lua')
         )
         Add-ScJvmStep 'vitals-needs-persistence' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $vitalsNeedsFiles 'Companion tiredness and stamina reload regression failed.'
+        $containerVisualFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCCall.lua'),
+            (Join-Path $Shared 'SCNativeList.lua'),
+            (Join-Path $Shared 'SCConfig.lua'),
+            (Join-Path $Client 'SCGameplayUtil.lua'),
+            (Join-Path $TestRoot 'container_visuals_harness.lua')
+        )
+        Add-ScJvmStep 'container-visuals' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $containerVisualFiles 'Verified container transfer visual regression failed.'
         $capacityFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),

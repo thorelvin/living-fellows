@@ -2,6 +2,20 @@
 
 # Changelog
 
+## 0.26.79 - Bed sleep and shelf visuals
+
+- Companions recognize native mattress beds, including bunk beds, that have
+  no chair-seating positions. Blocked, occupied and damaged beds still need
+  valid access before a companion can use them.
+- Shelves and cabinets update their normal fill artwork when companions
+  deposit or withdraw items. Inventory displays refresh after verified
+  transfers and settled rollbacks, without repeating item transfers.
+- Added focused native bed checks and longer natural observation runs. A
+  35-minute run confirmed a saved companion choosing a bed and recovering
+  tiredness without changed stats or orders; it did not test 100% exhaustion.
+- Retains native bridge protocol `42.21-isocompanion-24` for Project Zomboid
+  42.21.0. The bridge binary and save schemas are unchanged.
+
 ## 0.26.78 - Computer polish and persistent companion needs
 
 - Companion tiredness and stamina survive saving and loading. Older saves

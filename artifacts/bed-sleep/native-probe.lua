@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Visual sleep/wake acceptance in the disposable camp clone. Setup places the
 -- fixture beside an existing bed; entry, sleep and exit use production paths.
-local run={step=0,next=0,beds={},scan=0}
+local run={step=0,next=0,beds={},scan=0,zeroSeatingOnly=SC_TEST_ZERO_SEATING_BED==true}
 local function log(value)
     print("BED_SLEEP|"..value)
     local writer=getFileWriter("SurvivorCompanionHarness/bed-sleep.log",true,true)
@@ -54,7 +54,9 @@ local function tick()
             end
             return observed(stockMove(candidate,mode,intent,...))
         end
-        run.ox,run.oy=math.floor(player:getX())-35,math.floor(player:getY())-35
+        local radius=run.zeroSeatingOnly and 48 or 35
+        run.span=radius*2+1
+        run.ox,run.oy=math.floor(player:getX())-radius,math.floor(player:getY())-radius
         run.kind=SC.Downtime._furnitureForTests()
         player:setGodMod(true) player:setGhostMode(true)
         getGameTime():setTimeOfDay(12)
@@ -66,21 +68,22 @@ local function tick()
         run.step=1
     elseif run.step==1 then
         for _=1,300 do
-            if run.scan>=71*71 then break end
-            local x,y=run.ox+run.scan%71,run.oy+math.floor(run.scan/71)
+            if run.scan>=run.span*run.span then break end
+            local x,y=run.ox+run.scan%run.span,run.oy+math.floor(run.scan/run.span)
             run.scan=run.scan+1
             local square=getCell():getGridSquare(x,y,0)
             if square then
                 for index=0,math.min(31,square:getObjects():size()-1) do
                     local object=square:getObjects():get(index)
                     local sprite=object:getSprite()
-                    if sprite and sprite:getSpriteGrid() and run.kind(object)=="rest_bed" then
+                    if sprite and sprite:getSpriteGrid() and run.kind(object)=="rest_bed"
+                        and (not run.zeroSeatingOnly or SeatingManager.getInstance():getTilePositionCount(object)==0) then
                         run.beds[#run.beds+1]=object
                     end
                 end
             end
         end
-        if run.scan<71*71 then run.next=now+100 return end
+        if run.scan<run.span*run.span then run.next=now+100 return end
         assert(#run.beds>0,"no existing sprite-grid bed in the loaded fixture")
         table.sort(run.beds,function(a,b)return U.distance(run.actor,a)<U.distance(run.actor,b)end)
         local entry,observer
@@ -113,9 +116,18 @@ local function tick()
         SC.BaseLife.setDuty(run.id,false)
         player:teleportTo(observer:getX()+0.5,observer:getY()+0.5,observer:getZ())
         assert(SC.Actor.recover(run.actor,entry),"fixture placement failed")
+        -- Recovery can reapply the camp order at its original home anchor.
+        -- The selected bed may be in another loaded house; establish the
+        -- fixture's Stay order after placement, against the current actor.
+        run.actor=SC.Registry.byId(run.id).actor
+        assert(run.actor and run.actor:getSquare(),"fixture recovery lost its actor")
+        SC.BaseLife.setDuty(run.id,false)
+        assert(SC.Commands.issue(run.id,"stay",nil,player))
+        log("FIXTURE order="..tostring(SC.Commands.peek(run.actor).order))
         run.actor:getStats():set(CharacterStat.FATIGUE,0.9)
         run.actor:getStats():set(CharacterStat.HUNGER,0.1)
         run.actor:getStats():set(CharacterStat.THIRST,0.1)
+        run.entryRecoveries,run.entryHealth=run.recoveries,run.actor:getBodyDamage():getHealth()
         run.initialDialogueSay=SC.Dialogue.say
         SC.Dialogue.say=function(actor,...)
             if actor==run.actor then return false,"speech_capture_fixture" end
@@ -125,6 +137,11 @@ local function tick()
         assert(U.say(run.actor,run.singleLine),"awake speech fixture was rejected")
         assert(run.actor:hasCompanionSpeech(),"awake speech fixture has no visible line")
         log("FIXTURE existing bed="..run.bed:getSprite():getName().." actor="..U.nameOf(run.actor))
+        if run.zeroSeatingOnly then
+            assert(SeatingManager.getInstance():getTilePositionCount(run.bed)==0,
+                "zero-seat native acceptance selected a chair-capable bed")
+            log("PASS native zero-chair-position bed selected")
+        end
         run.step,run.next,run.deadline=1.5,now+1000,now+120000
     elseif run.step==1.5 then
         assert(run.actor:getSayLine()==run.singleLine,"speech refresh changed the single-line text")
@@ -220,6 +237,18 @@ local function tick()
             log("PASS waking restores fresh speech without replaying suppressed lines")
             log("PASS native get-up completed at "..actor:getX()..","..actor:getY()
                 .." health="..actor:getBodyDamage():getHealth())
+            if run.zeroSeatingOnly then
+                -- This mode targets bed discovery and native sleep/wake in
+                -- cramped bunk rooms. Standard mode separately exercises the
+                -- longer walk-away and speech/zoom matrix in a larger room.
+                assert(run.recoveries==run.entryRecoveries,"sleep/wake used actor recovery")
+                assert(actor:isCollidable() and actor:getBodyDamage():getHealth()>=run.entryHealth-0.01,
+                    "zero-chair bed sleep/wake changed health or collision")
+                log("PASS focused zero-chair-position sleep/wake complete; health retained and no recovery")
+                log("PASS native bed sleep acceptance complete")
+                run.step=99
+                return
+            end
             local room=actor:getSquare():getRoom()
             local best
             for dx=-5,5 do for dy=-5,5 do

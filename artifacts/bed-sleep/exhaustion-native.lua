@@ -95,6 +95,15 @@ local function tick()
             if sq and sq:getRoom() then
                 for i=0,math.min(31,sq:getObjects():size()-1) do
                     local object=sq:getObjects():get(i) local kind=run.kind(object)
+                    local sprite=object:getSprite()
+                    local spriteName=sprite and sprite:getName() or ""
+                    if spriteName:find("furniture_bedding",1,true) and (run.loggedBeds or 0)<16 then
+                        run.loggedBeds=(run.loggedBeds or 0)+1
+                        local normalized,entry,why=SC.BedGeometry.entry(object,run.actor)
+                        log("DISCOVERY bed="..spriteName.." at="..x..","..y..",0 kind="..tostring(kind)
+                            .." positions="..tostring(SeatingManager.getInstance():getTilePositionCount(object))
+                            .." entry="..tostring(why).." normalized="..tostring(normalized~=nil))
+                    end
                     if kind=="rest_bed" then run.beds[#run.beds+1]=object
                     elseif kind=="sit" then run.chairs[#run.chairs+1]=object end
                 end
@@ -113,6 +122,11 @@ local function tick()
                     end
                 end
             end
+        end
+        if not best then
+            log("DISCOVERY player="..player:getX()..","..player:getY()..","..player:getZ()
+                .." actor="..run.actor:getX()..","..run.actor:getY()..","..run.actor:getZ()
+                .." beds="..#run.beds.." chairs="..#run.chairs.." seatingType="..type(SeatingManager))
         end
         assert(best,"no real bedroom with usable bed and chair in clone")
         run.bed,run.chair=best.bed,best.chair

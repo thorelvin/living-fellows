@@ -7,7 +7,7 @@ param(
     [string]$UserCache = (Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Zomboid'),
     [string]$SeedSave,
     [string]$GameMode,
-    [ValidateRange(45, 1800)]
+    [ValidateRange(45, 4500)]
     # Large mod lists can spend more than three minutes in script, map and
     # asset loading before Build 42 exposes its click-to-start gate. The
     # in-game harness retains its own bounded deadline once play begins.

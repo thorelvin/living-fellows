@@ -1,0 +1,84 @@
+{
+  "elapsed_seconds": 300.0,
+  "world_hours_elapsed": 1.33,
+  "actors": [
+    {
+      "name": "Tess Nolan",
+      "samples": 21,
+      "initial_tiredness_pct": 0.07,
+      "last_tiredness_pct": 5.09,
+      "ever_asleep": false,
+      "sleep_checks": [
+        "nil"
+      ],
+      "activities": [
+        "nil"
+      ]
+    },
+    {
+      "name": "Jill Kelvin",
+      "samples": 21,
+      "initial_tiredness_pct": 0.07,
+      "last_tiredness_pct": 4.75,
+      "ever_asleep": false,
+      "sleep_checks": [
+        "nil"
+      ],
+      "activities": [
+        "nil",
+        "sit"
+      ]
+    },
+    {
+      "name": "Sanghwa Kim",
+      "samples": 21,
+      "initial_tiredness_pct": 0.04,
+      "last_tiredness_pct": 4.13,
+      "ever_asleep": false,
+      "sleep_checks": [
+        "nil"
+      ],
+      "activities": [
+        "nil",
+        "sit"
+      ]
+    },
+    {
+      "name": "Xian Burton",
+      "samples": 21,
+      "initial_tiredness_pct": 0.04,
+      "last_tiredness_pct": 4.29,
+      "ever_asleep": false,
+      "sleep_checks": [
+        "nil"
+      ],
+      "activities": [
+        "nil",
+        "sit"
+      ]
+    },
+    {
+      "name": "Lev Overbeck",
+      "samples": 8,
+      "initial_tiredness_pct": 0.08,
+      "last_tiredness_pct": 1.78,
+      "ever_asleep": false,
+      "sleep_checks": [
+        "nil"
+      ],
+      "activities": [
+        "nil"
+      ]
+    }
+  ],
+  "run_id": "SC-Harness-20261030-082613-bbd3364b",
+  "source_save": "LF-Skills5-Test-2026-10-29",
+  "game_speed": 1,
+  "source_unchanged": true,
+  "source_files_verified": 3430,
+  "companions_manipulated": false,
+  "observer_healed": false,
+  "legacy_save_omits_fatigue": true,
+  "observed_ms": 300645,
+  "samples": 298
+}

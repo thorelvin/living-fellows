@@ -1552,7 +1552,12 @@ local function furnitureKind(object)
             if (isNamedBed(objectName) or isNamedBed(customNameOk and customName or nil)
                 or isNamedBed(groupNameOk and groupName or nil)
                 or string.find(loweredSprite, "furniture_bedding", 1, true))
-                and seatingPositionCount(object) > 0 then
+                -- Mattress entry uses ISGetOnBedAction and the sprite grid,
+                -- not chair positions. Some vanilla beds have zero seating
+                -- positions but a valid native bed entry. Geometry/access
+                -- validation below still rejects broken or blocked beds.
+                and (select(1, utility.call(sprite, "getSpriteGrid")) ~= nil
+                    or seatingPositionCount(object) > 0) then
                 return "rest_bed"
             end
             -- Build 42's pathToSitOnFurniture and ISRestAction both use
