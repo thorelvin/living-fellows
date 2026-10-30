@@ -496,9 +496,11 @@ end
 local function adoptMaintenanceIdentity(job, targets)
     local target = job.target
     if job.type ~= "barricade" or type(target) ~= "table"
-        or target.objectId ~= nil or target.maintenanceId == nil then return true end
+        or target.maintenanceId == nil then return true end
     for _, row in ipairs(targets) do
         if row.id == target.maintenanceId and row.objectId ~= nil then
+            if row.enabled ~= true or row.kind ~= "barricade" then return false end
+            if target.objectId ~= nil then return target.objectId == row.objectId end
             target.objectId, target.objectSignature = row.objectId, row.objectSignature
             target.x, target.y, target.z = row.x, row.y, row.z
             target.objectIndex = row.objectIndex
@@ -2320,10 +2322,28 @@ function BaseLife.registerMaintenanceTarget(object, kind)
     return true, row
 end
 
+local function cancelMaintenanceJobs(base, targetId)
+    local ids = {}
+    for _, job in ipairs(base.jobs or {}) do
+        if type(job.target) == "table" and job.target.maintenanceId == targetId then
+            ids[#ids + 1] = job.id
+        end
+    end
+    for _, id in ipairs(ids) do
+        local stopped, reason = BaseLife.cancelJob(id)
+        if stopped ~= true then return false, reason end
+    end
+    return true
+end
+
 function BaseLife.setMaintenanceTargetEnabled(id, enabled)
     local base = activeBase()
     local target = base and findById(base.maintenanceTargets, id) or nil
     if not target then return false, "unknown_maintenance_target" end
+    if enabled ~= true then
+        local stopped, reason = cancelMaintenanceJobs(base, id)
+        if stopped ~= true then return false, reason end
+    end
     target.enabled = enabled == true
     return true, target
 end
@@ -2333,6 +2353,8 @@ function BaseLife.removeMaintenanceTarget(id)
     local _, index
     if base then _, index = findById(base.maintenanceTargets, id) end
     if not index then return false, "unknown_maintenance_target" end
+    local stopped, reason = cancelMaintenanceJobs(base, id)
+    if stopped ~= true then return false, reason end
     table.remove(base.maintenanceTargets, index)
     return true
 end
@@ -4208,6 +4230,26 @@ function BaseLife.job(id)
     return base and findById(base.jobs, id) or nil
 end
 
+-- Rechecked both before fetching and by the queued native plank action. A
+-- stale command must not keep building after cancellation or a lease handoff.
+function BaseLife.barricadeJobCurrent(id, actorId, objectId)
+    local job, base = BaseLife.job(id), activeBase()
+    if not job or job.type ~= "barricade" or job.reservedBy ~= actorId
+        or (job.state ~= "reserved" and job.state ~= "active") then
+        return false, "barricade_job_not_owned"
+    end
+    local target = job.target
+    if type(target) ~= "table" or type(objectId) ~= "string" or target.objectId ~= objectId then
+        return false, "barricade_target_changed"
+    end
+    if target.maintenanceId ~= nil then
+        local mark = base and findById(base.maintenanceTargets, target.maintenanceId)
+        if not mark or mark.enabled ~= true or mark.kind ~= "barricade"
+            or mark.objectId ~= objectId then return false, "barricade_maintenance_ended" end
+    end
+    return true
+end
+
 local function releaseExpiredJob(job)
     if job.state == "reserved" then
         job.state, job.reservedBy, job.leaseUntil = "pending", nil, 0
@@ -4623,6 +4665,13 @@ function BaseLife.cancelJob(id)
     if base then job, index = findById(base.jobs, id) end
     if not job then return false, "unknown_job" end
     if job.state == "manual" then return false, "player_build_in_progress" end
+    if job.type == "barricade" then
+        if not SC.Commands or type(SC.Commands.cancelBaseJob) ~= "function" then
+            return false, "barricade_cancel_unavailable"
+        end
+        local stopped, reason = SC.Commands.cancelBaseJob(job.id, "base_job_cancelled")
+        if stopped ~= true then return false, reason or "barricade_cancel_pending" end
+    end
     if job.type == "farm" and SC.FarmWork and type(SC.FarmWork.cancelJob) == "function" then
         local okay, reason = SC.FarmWork.cancelJob(job.id, "farm_job_cancelled")
         if okay ~= true then return false, reason or "farm_recovery_pending" end

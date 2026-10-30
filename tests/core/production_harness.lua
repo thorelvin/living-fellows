@@ -4366,6 +4366,15 @@ do
         "a saved job parked by the old bug takes its target's identity and starts over")
     check(SC.BaseLife.job("job:9001") == nil,
         "a saved job whose maintenance target is gone is dropped, since it could never run")
+    ;(function()
+        local disabled = SC.BaseLife.export()
+        for _, mark in ipairs(disabled.bases[disabled.activeBaseId].maintenanceTargets) do
+            if mark.id == row.id then mark.enabled = false end
+        end
+        check(SC.BaseLife.restore(disabled) and SC.BaseLife.job(queued.id) == nil,
+            "a saved disabled mark cannot restore its old, fully identified job")
+        check(SC.BaseLife.restore(exported), "the enabled legacy fixture is restored for its worker")
+    end)()
 
     local claimed = SC.BaseLife.claimJob(ctx.id)
     check(claimed and claimed.id == queued.id, "a worker claims the repaired barricade job")
@@ -4403,6 +4412,74 @@ do
     check(SC.BaseLife.jobAutoRetry(SC.BaseLife.job(plan.id)),
         "an unloaded window is retried once its tile can load again")
 end
+
+-- ---------------------------------------------------------------------------
+-- Cancelling barricade work
+-- ---------------------------------------------------------------------------
+
+(function()
+    for _, operation in ipairs({ "cancel", "disable", "remove" }) do
+        local ctx = setup()
+        local window = makeStorage(sq(3, -3))
+        function window:getBarricadeForCharacter() return nil end
+        function window:getBarricadeOnSameSquare() return nil end
+        function window:getBarricadeOnOppositeSquare() return nil end
+        function window:isBarricadeAllowed() return true end
+        function window:IsOpen() return false end
+        function window:getNorth() return true end
+        local _, target = SC.BaseLife.registerMaintenanceTarget(window, "barricade")
+        local job
+        for _ = 1, 40 do
+            local accepted, candidate = SC.BaseWork.auditMaintenance()
+            if accepted and type(candidate) == "table" and candidate.type == "barricade" then job = candidate break end
+        end
+        check(job ~= nil, "cancellation fixture queues real maintenance")
+        check(SC.BaseLife.claimJob(ctx.id).id == job.id, "cancellation fixture claims maintenance")
+        local beforeOrder = SC.Commands.peek(ctx.actor).order
+        tick(ctx)
+        check(SC.Commands.peek(ctx.actor).workTarget.baseJobId == job.id,
+            "cancellation fixture hands maintenance to the worker's build order")
+        check(SC.BaseLife.barricadeJobCurrent(job.id, ctx.id, target.objectId),
+            "the exact active maintenance job authorizes its worker")
+        check(not SC.BaseLife.barricadeJobCurrent(job.id, "sc-another-worker", target.objectId)
+                and not SC.BaseLife.barricadeJobCurrent(job.id, ctx.id, "object:replacement"),
+            "neither another worker nor another object inherits that authority")
+        target.enabled = false
+        check(not SC.BaseLife.barricadeJobCurrent(job.id, ctx.id, target.objectId),
+            "a disabled target cannot authorize its queued action")
+        target.enabled = true
+        local _, separate = SC.BaseLife.enqueueBarricadePlan(window, "opposite")
+        check(type(separate) == "table" and separate.id ~= job.id,
+            "a separate player plan on the same window remains independent")
+        local exactHammer = makeItem("Base.Hammer")
+        ctx.actor:getInventory():AddItem(exactHammer)
+        local function act()
+            if operation == "cancel" then return SC.BaseLife.cancelJob(job.id) end
+            if operation == "disable" then return SC.BaseLife.setMaintenanceTargetEnabled(target.id, false) end
+            return SC.BaseLife.removeMaintenanceTarget(target.id)
+        end
+        local originalCancel, cancellations = SC.NativeActions.cancelWork, 0
+        SC.NativeActions.cancelWork = function(actor)
+            cancellations = cancellations + 1
+            return false, "injected_native_cancel_pending"
+        end
+        local accepted = act()
+        check(accepted == false and cancellations > 0 and SC.BaseLife.job(job.id) ~= nil
+                and SC.Commands.peek(ctx.actor).order == "work" and target.enabled == true,
+            operation .. " preserves the job, mark and order until native cancellation is proved")
+        SC.NativeActions.cancelWork = originalCancel
+        check(act() == true and SC.BaseLife.job(job.id) == nil,
+            operation .. " retires the exact maintenance job after cleanup")
+        local commands = SC.Commands.peek(ctx.actor)
+        check(commands.order == beforeOrder and commands.workTarget == nil
+                and ctx.actor:getModData().SC_WorkBaseJobId == nil,
+            operation .. " clears the saved build order and restores the worker's prior order")
+        check(SC.BaseLife.job(separate.id) == separate,
+            operation .. " does not cancel the separate player plan")
+        check(ctx.actor:getInventory():contains(exactHammer),
+            operation .. " keeps the worker's exact tool")
+    end
+end)()
 
 -- ---------------------------------------------------------------------------
 -- Moving the camp

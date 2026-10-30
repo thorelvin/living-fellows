@@ -17168,6 +17168,16 @@ openDoorWorker.square.objects[#openDoorWorker.square.objects + 1] = openDoor
 -- work square as an in-camp tile so the side check exercises the native action.
 do
     local originalAdmitsBarricadeWork = SurvivorCompanion.BaseLife.admitsWork
+    local originalBarricadeJob = SurvivorCompanion.BaseLife.job
+    SurvivorCompanion.BaseLife.job = function(id)
+        if id == "job:open-door-test" then
+            return { id = id, type = "barricade", state = "active", reservedBy = openDoorWorker.id,
+                leaseUntil = clock + 45000, target = {
+                    objectId = openDoorWorker:getModData().SC_WorkObjectId,
+                } }
+        end
+        return originalBarricadeJob(id)
+    end
     SurvivorCompanion.BaseLife.admitsWork = function(value, intent)
         if value == openDoorWorker.square then return true end
         return originalAdmitsBarricadeWork(value, intent)
@@ -17272,20 +17282,44 @@ do
             object = openDoor, baseJobId = "job:open-door-test", barricadeSide = "same",
         }, guardTestPlayer), "camp barricade order is accepted for the endless fetch")
     blockedReason, supplyChecks = nil, 0
-    -- Called directly: any other subsystem preempting the work restarts its clock.
+    -- Temporary interruptions must not replenish the same order's fetch budget.
     local doWork, workState, priorClock = SurvivorCompanion.Decision._doWorkForTests, {}, clock
     local quiet = { threats = {}, threatCount = 0, immediateCount = 0,
         escapeSquares = {}, allies = {}, player = { danger = 0 } }
     for _ = 1, 60 do
         clock = clock + 5000
+        SurvivorCompanion.Decision._cancelWorkForTests(openDoorWorker, workState, "work_preempted")
         doWork(openDoorWorker, guardTestPlayer, SurvivorCompanion.Commands.peek(openDoorWorker),
             quiet, workState)
         if blockedReason then break end
     end
     SurvivorCompanion.BaseLife.blockJob, clock = priorBlock, priorClock
     check(supplyChecks > 6 and blockedReason == "work_timeout",
-        "items that keep going missing cannot extend a fetch forever: checks="
+        "items and repeated preemption cannot extend the same fetch forever: checks="
             .. tostring(supplyChecks) .. " blocked=" .. tostring(blockedReason))
+    ;(function()
+        local jobLookup = SurvivorCompanion.BaseLife.job
+        for _, condition in ipairs({ "missing", "reassigned" }) do
+            SurvivorCompanion.BaseLife.job = function(id)
+                if id ~= "job:open-door-test" then return jobLookup(id) end
+                if condition == "missing" then return nil end
+                local job = jobLookup(id)
+                job.reservedBy = "sc-other-lease-holder"
+                return job
+            end
+            check(SurvivorCompanion.Commands.issue(openDoorWorker.id, "barricade", {
+                    object = openDoor, baseJobId = "job:open-door-test", barricadeSide = "same",
+                }, guardTestPlayer), "stale-order fixture is accepted before its ownership check")
+            supplyChecks = 0
+            local accepted, reason = doWork(openDoorWorker, guardTestPlayer,
+                SurvivorCompanion.Commands.peek(openDoorWorker), quiet, {})
+            local after = SurvivorCompanion.Commands.peek(openDoorWorker)
+            check(accepted and reason == "barricade_job_not_owned" and after.order ~= "work"
+                    and after.workTarget == nil and supplyChecks == 0,
+                "a " .. condition .. " job stops its stale worker before another supply fetch")
+        end
+        SurvivorCompanion.BaseLife.job = jobLookup
+    end)()
     blockedReason = "missing_build_supply:companion needs one plank"
     SurvivorCompanion.Navigation.request, SurvivorCompanion.Logistics.prepareBuild =
         priorRequest, priorPrepare
@@ -17295,6 +17329,7 @@ do
         "a camp barricade with no materials resumes on its own once they are stocked")
     end)()
     SurvivorCompanion.BaseLife.admitsWork = originalAdmitsBarricadeWork
+    SurvivorCompanion.BaseLife.job = originalBarricadeJob
 end
 SurvivorCompanion.Decision.reset(openDoorWorker)
 SurvivorCompanion.Commands.reset(openDoorWorker)

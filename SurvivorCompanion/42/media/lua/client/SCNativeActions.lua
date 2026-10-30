@@ -3209,6 +3209,14 @@ end
 -- plank rules with the real tag.
 local function plankBarricadeValid(action, hammerTag)
     local item, character = action.item, action.character
+    if action.scBaseJobId ~= nil then
+        local data = SC.GameplayUtil.modData(character) or {}
+        if data.SC_Order ~= "work" or data.SC_WorkBaseJobId ~= action.scBaseJobId
+            or data.SC_WorkObjectId ~= action.scObjectId or not SC.BaseLife
+            or type(SC.BaseLife.barricadeJobCurrent) ~= "function"
+            or SC.BaseLife.barricadeJobCurrent(action.scBaseJobId,
+                SC.GameplayUtil.idOf(character), action.scObjectId) ~= true then return false end
+    end
     local indexOk, index = invoke(item, "getObjectIndex")
     if not indexOk or index == -1 then return false end
     local barricadeOk, barricade = invoke(item, "getBarricadeForCharacter", character)
@@ -3224,9 +3232,19 @@ local function plankBarricadeValid(action, hammerTag)
     if not inventoryOk or inventory == nil then return false end
     local nailsOk, nails = invoke(inventory, "getItemCount", "Base.Nails", true)
     if not nailsOk or (tonumber(nails) or 0) < 2 then return false end
-    if action.isStarted then
-        local openOk, open = invoke(item, "IsOpen")
-        if openOk and open == true then return false end
+    -- The base class also has an isStarted method, so only the boolean set by
+    -- native start means the door has already been closed. Windows may stay
+    -- open under the native plank rules; only a reopened door invalidates work.
+    if action.isStarted == true then
+        local door = SC.GameplayUtil.instanceOf(item, "IsoDoor")
+        if not door and SC.GameplayUtil.instanceOf(item, "IsoThumpable") then
+            local doorOk, isDoor = invoke(item, "isDoor")
+            door = doorOk and isDoor == true
+        end
+        if door then
+            local openOk, open = invoke(item, "IsOpen")
+            if openOk and open == true then return false end
+        end
     end
     return true
 end
@@ -3328,6 +3346,7 @@ local function startBarricade(actor, intent, provider)
         rollback()
         return false, created and "barricade action was not created" or tostring(timedAction)
     end
+    timedAction.scBaseJobId, timedAction.scObjectId = intent.baseJobId, intent.objectId
     timedAction.isValid = function(action) return plankBarricadeValid(action, hammerTag) end
     local validOk, valid = pcall(timedAction.isValid, timedAction)
     if not validOk or valid ~= true then
@@ -3348,6 +3367,7 @@ local function startBarricade(actor, intent, provider)
         return false, "native barricade action did not enter the queue"
     end
     activeWork[actor] = {
+        kind = "barricade", baseJobId = intent.baseJobId,
         timedAction = timedAction,
         oldPrimaryOk = oldPrimaryOk,
         oldPrimary = oldPrimary,
@@ -4198,6 +4218,11 @@ end
 function actions.workKind(actor)
     local record = actor and activeWork[actor] or nil
     return record and record.kind or nil
+end
+
+function actions.workJobId(actor)
+    local record = actor and activeWork[actor] or nil
+    return record and record.baseJobId or nil
 end
 
 function actions.isDraggingCorpse(actor)

@@ -4,6 +4,16 @@
 
 ## 0.26.80 - Working barricades and review fixes
 
+- Open doors can be closed and boarded, and open windows follow the game's
+  normal boarding rules. They no longer send workers into repeated retries.
+- Disabling or removing barricade maintenance stops its worker and clears the
+  associated job. Separate player plans stay in place. Failed cleanup keeps
+  the job and mark available for another attempt.
+- Cancelled or reassigned jobs cannot keep placing planks through an old work
+  order. Temporary interruptions also retain that order's fetch deadline,
+  instead of allowing a stuck worker to restart it indefinitely.
+- Saves discard old barricade jobs linked to disabled or removed maintenance
+  marks. Existing saves and one-shot building orders remain supported.
 - Companions can barricade again. Project Zomboid 42.21's own barricade action
   checks for a hammer with a name that no longer exists, so it refused every
   worker. Companions now use the same check with the correct name.

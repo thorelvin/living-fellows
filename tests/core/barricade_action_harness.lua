@@ -24,6 +24,9 @@ end
 
 ISBarricadeAction = {}
 ISBarricadeAction.__index = ISBarricadeAction
+-- The real base class has this method. A truthiness check mistakes the
+-- inherited function for ISBarricadeAction:start()'s later boolean flag.
+function ISBarricadeAction:isStarted() return false end
 function ISBarricadeAction:new(character, item, isMetal, isMetalBar)
     return setmetatable({ character = character, item = item,
         isMetal = isMetal, isMetalBar = isMetalBar }, self)
@@ -99,7 +102,7 @@ local function kit()
 end
 
 local function window()
-    local value = { planks = 0, open = false, index = 3 }
+    local value = { __class = "IsoWindow", planks = 0, open = false, index = 3 }
     function value:getObjectIndex() return self.index end
     function value:IsOpen() return self.open end
     function value:getBarricadeForCharacter() return self.barricade end
@@ -130,14 +133,69 @@ worker:getInventory():AddItem(nail)
 target.barricade = { canAddPlank = function() return false end }
 check(action:isValid() == false, "a barricade with no room for another plank ends the action")
 target.barricade = nil
+target.__class = "IsoDoor"
 action.isStarted, target.open = true, true
 check(action:isValid() == false, "someone opening the door mid-action ends it")
-action.isStarted, target.open = nil, false
+action.isStarted, target.open, target.__class = nil, false, "IsoWindow"
 target.index = -1
 check(action:isValid() == false, "a window taken out of the world ends the action")
+
+do
+    local openWindow, windowWorker = window(), makeWorker(kit())
+    openWindow.open = true
+    local accepted, why = start(windowWorker, { object = openWindow }, provider)
+    check(accepted == true, "an open window follows native boarding rules: " .. tostring(why))
+    local windowAction = ISTimedActionQueue.getTimedActionQueue(windowWorker).current
+    windowAction.isStarted = true
+    check(windowAction:isValid(), "the open-door rule never applies to a window")
+
+    local openDoor, doorWorker = window(), makeWorker(kit())
+    openDoor.__class, openDoor.open = "IsoDoor", true
+    accepted, why = start(doorWorker, { object = openDoor }, provider)
+    check(accepted == true, "an open door may queue so native start can close it: " .. tostring(why))
+    local doorAction = ISTimedActionQueue.getTimedActionQueue(doorWorker).current
+    openDoor.open, doorAction.isStarted = false, true
+    check(doorAction:isValid(), "the closed door remains valid once native start runs")
+    openDoor.open = true
+    check(not doorAction:isValid(), "reopening a started door cancels boarding")
+    openDoor.__class = "IsoThumpable"
+    function openDoor:isDoor() return self.door == true end
+    openDoor.door = true
+    check(not doorAction:isValid(), "a reopened player-built door also cancels boarding")
+    openDoor.door = false
+    check(doorAction:isValid(), "other barricadable thumpables do not inherit the door check")
+end
 
 local empty = makeWorker({ makeItem("Plank"), makeItem("Nails"), makeItem("Nails") })
 local refused, why = start(empty, { object = window() }, provider)
 check(refused == false and why == "companion needs a hammer", "no hammer, no start: " .. tostring(why))
+
+do
+    local originalBase = SC.BaseLife
+    local allowed, owner, identity = true, "sc-barricade-owner", "object:guarded-window"
+    SC.BaseLife = { barricadeJobCurrent = function(jobId, actorId, objectId)
+        return allowed and jobId == "job:guarded" and actorId == owner and objectId == identity
+    end }
+    local guarded = makeWorker(kit())
+    local guardedData = { SC_Id = owner, SC_Order = "work",
+        SC_WorkBaseJobId = "job:guarded", SC_WorkObjectId = identity }
+    function guarded:getModData() return guardedData end
+    local guardedWindow = window()
+    check(start(guarded, { object = guardedWindow, baseJobId = "job:guarded", objectId = identity }, provider),
+        "a camp worker with the exact current job may queue the plank")
+    local guardedAction = ISTimedActionQueue.getTimedActionQueue(guarded).current
+    check(guardedAction:isValid(), "the accepted camp action retains its job authority")
+    check(Actions.workKind(guarded) == "barricade" and Actions.workJobId(guarded) == "job:guarded",
+        "native ownership retains the exact job even after a command changes")
+    guardedData.SC_Order = "follow"
+    check(not guardedAction:isValid(), "a new player order invalidates the old queued plank")
+    guardedData.SC_Order = "work"
+    allowed = false
+    check(not guardedAction:isValid(), "removing the job's authority invalidates an already queued plank")
+    allowed = true
+    identity = "object:replacement"
+    check(not guardedAction:isValid(), "replacement target identity cannot authorize the old action")
+    SC.BaseLife = originalBase
+end
 
 SC_TEST_REPORT = "BARRICADE_ACTION_PASS checks=" .. checks

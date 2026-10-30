@@ -2774,6 +2774,56 @@ function Commands.conversation(companionId, action, player)
     return Commands.issue(companionId, action, nil, player)
 end
 
+-- A camp barricade is handed to an ordinary work order. Deleting only the
+-- queue row leaves that order (and its native action) executable. Retire every
+-- loaded order bound to this exact job, including a former lease holder.
+function Commands.cancelBaseJob(jobId, reason)
+    if type(jobId) ~= "string" then return false, "invalid_base_job" end
+    for _, actor in ipairs(SC.Registry and SC.Registry.living() or {}) do
+        local state = states[actor]
+        local data = rawModData(actor)
+        if not state and type(data) == "table" and data.SC_WorkBaseJobId == jobId then
+            local _, entry = U().resolveActor(U().idOf(actor))
+            state = snapshotState(actor, entry)
+        end
+        local ownsOrder = state and state.order == "work"
+            and type(state.workTarget) == "table" and state.workTarget.baseJobId == jobId
+        local native = SC.NativeActions
+        local ownsAction = native and type(native.workJobId) == "function"
+            and native.workJobId(actor) == jobId
+        if ownsOrder or ownsAction then
+            local stopped, why
+            if ownsOrder and SC.Decision and type(SC.Decision.cancelWork) == "function" then
+                stopped, why = SC.Decision.cancelWork(actor, reason or "base_job_cancelled")
+            elseif native and type(native.cancelWork) == "function" then
+                stopped, why = native.cancelWork(actor, reason or "base_job_cancelled")
+            end
+            if stopped ~= true then return false, why or "barricade_cancel_pending" end
+            if ownsOrder then
+                if SC.Encounter and type(SC.Encounter.cancelPlayerSupply) == "function" then
+                    SC.Encounter.cancelPlayerSupply(actor)
+                end
+                if SC.Navigation and type(SC.Navigation.cancel) == "function" then
+                    SC.Navigation.cancel(actor, reason or "base_job_cancelled")
+                end
+                if U().stop(actor) ~= true then return false, "barricade_stop_pending" end
+                local nextOrder = state.returnOrder
+                if nextOrder ~= "follow" and nextOrder ~= "stay" and nextOrder ~= "guard"
+                    and nextOrder ~= "base_duty" then nextOrder = "stay" end
+                state.order = nextOrder
+                clearWorkState(state)
+                state.tacticalTarget, state.pendingInteraction = nil, nil
+                if nextOrder == "stay" and not state.anchor then state.anchor = positionTable(actor) end
+                if nextOrder == "follow" then state.anchor = nil end
+                local _, entry = U().resolveActor(U().idOf(actor))
+                states[actor] = state
+                markCommand(actor, entry, state)
+            end
+        end
+    end
+    return true, "base_work_cancelled"
+end
+
 function Commands.issueGroup(group, command, payload, player)
     return issueGroupAtomic(group, command, payload, player)
 end

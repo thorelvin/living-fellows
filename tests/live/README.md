@@ -193,7 +193,23 @@ unachievable native seated break is a fixture failure, not a passing handoff.
 ```powershell
 .\scripts\Invoke-LiveSandboxTests.ps1 -GuardFollowProbe -LivingFellowsOnly -NoSteam -IsolatedSourceBridge -TimeoutSeconds 600
 .\scripts\Invoke-LiveSandboxTests.ps1 -BarricadeProbe -LivingFellowsOnly -NoSteam -IsolatedSourceBridge -TimeoutSeconds 600
+.\scripts\Invoke-LiveSandboxTests.ps1 -BarricadeProbe -BarricadeHardening -LivingFellowsOnly -NoSteam -IsolatedSourceBridge -HiddenWindow -TimeoutSeconds 1800
+.\scripts\Invoke-LiveSandboxTests.ps1 -BarricadeProbe -BarricadeHardening -BarricadeMatrixOnly -LivingFellowsOnly -NoSteam -IsolatedSourceBridge -HiddenWindow -TimeoutSeconds 1200
 ```
+
+`-BarricadeHardening` also cancels an active native plank action, checks exact
+inventory retention and that no late plank appears, removes and recreates the
+maintenance mark, then resumes the normal four-plank job. It first discovers a
+loaded west-facing window and door with two usable sides, using the same camp
+reach rules as production. The door is closed for planning, then reopened before
+the worker arrives. It then tests same/opposite
+plans, a one-shot plank and removal. Missing fixtures fail the run. These extra
+cases start with real materials placed in the worker's inventory or existing
+bag; the main scenario tests shelf fetching. They never modify the source save.
+`-BarricadeMatrixOnly` reruns those side/action cases without repeating the main
+cancellation and supply-fetching scenario.
+The extended main scenario has a 12-minute budget for cancellation, rescheduling
+and automatic retries; the production worker timeout remains 90 seconds.
 
 To verify the camp alarm, the probe puts one new resident to sleep in a real
 camp bed beside an outside wall, stands a second in the yard just outside that

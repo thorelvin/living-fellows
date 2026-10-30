@@ -1440,8 +1440,8 @@ local function cancelWork(actor, state, reason)
     end
     if cancelled ~= true then return false, "work_cancel_failed:" .. tostring(cancelReason) end
     state.workAction = nil
-    state.workAssignedAt = nil
-    state.workFetches = nil
+    -- Temporary preemption stops the native action, not the lifetime of its
+    -- order. doWork resets these budgets when the command identity changes.
     state.workApproachSide = nil
     state.workSideKey = nil
     state.workSideBusyAt = nil
@@ -1462,6 +1462,7 @@ local function finishWork(actor, player, state, reason)
     state.workAction = nil
     state.workAssignedAt = nil
     state.workFetches = nil
+    state.workCommandSerial, state.workProgressKey = nil, nil
     state.workApproachSide = nil
     state.workSideKey = nil
     state.workSideBusyAt = nil
@@ -1520,6 +1521,13 @@ end
 local function doWork(actor, player, commands, snapshot, state)
     local utility = U()
     local current = utility.nowMs()
+    local target = commands.workTarget
+    local progressKey = tostring(workKey(commands)) .. ":" .. tostring(target and target.kind)
+        .. ":" .. tostring(target and target.baseJobId)
+    if state.workCommandSerial ~= commands.commandSerial or state.workProgressKey ~= progressKey then
+        state.workAssignedAt, state.workFetches = current, nil
+        state.workCommandSerial, state.workProgressKey = commands.commandSerial, progressKey
+    end
     state.workAssignedAt = state.workAssignedAt or current
     if not (type(commands.workTarget) == "table"
             and commands.workTarget.kind == "barricade" and state.workAction)
@@ -1530,7 +1538,18 @@ local function doWork(actor, player, commands, snapshot, state)
     -- order. Without this the job is released mid-task and a second worker claims it.
     if commands.workTarget and commands.workTarget.baseJobId ~= nil and SC.BaseLife
         and type(SC.BaseLife.touchJob) == "function" then
-        SC.BaseLife.touchJob(commands.workTarget.baseJobId, utility.idOf(actor))
+        local ownerId = utility.idOf(actor)
+        local valid, why = false, "barricade_authority_unavailable"
+        if type(SC.BaseLife.barricadeJobCurrent) == "function" then
+            valid, why = SC.BaseLife.barricadeJobCurrent(commands.workTarget.baseJobId,
+                ownerId, commands.workTarget.objectId)
+        end
+        local touched = valid and SC.BaseLife.touchJob(commands.workTarget.baseJobId, ownerId)
+        if touched ~= true then
+            local stopped, reason = cancelWork(actor, state, why or "barricade_job_not_owned")
+            if stopped ~= true then return false, reason end
+            return finishWork(actor, player, state, why or "barricade_job_not_owned")
+        end
     end
     local object, targetSquare, targetReason = resolveWorkObject(commands)
     if not object then return finishWork(actor, player, state, targetReason) end
@@ -1766,6 +1785,8 @@ local function doWork(actor, player, commands, snapshot, state)
         action = "barricade",
         object = object,
         targetSquare = targetSquare,
+        baseJobId = commands.workTarget.baseJobId,
+        objectId = commands.workTarget.objectId,
         transactional = true,
     })
     if not accepted then
@@ -3751,6 +3772,7 @@ function Decision.update(actor, player, runtime, roundTimestamp)
 end
 
 Decision._doWorkForTests = doWork
+Decision._cancelWorkForTests = cancelWork
 
 function Decision.peek(actor)
     return actor and states[actor] or nil

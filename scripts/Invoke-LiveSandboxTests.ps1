@@ -71,6 +71,8 @@ param(
     [switch]$BaseAlertProbe,
     # Boards the seed save's "Maintain this barricade" target with a real worker.
     [switch]$BarricadeProbe,
+    [switch]$BarricadeHardening,
+    [switch]$BarricadeMatrixOnly,
     # Exercise real rendered wall cutaways across companion-view releases.
     [switch]$ViewCutawayProbe,
     [switch]$ViewCutawayQuickWatch,
@@ -1279,6 +1281,12 @@ function Save-ClientScreenshot(
     return Test-Path -LiteralPath $Destination -PathType Leaf
 }
 
+if ($BarricadeHardening -and -not $BarricadeProbe) {
+    throw '-BarricadeHardening requires -BarricadeProbe.'
+}
+if ($BarricadeMatrixOnly -and -not $BarricadeHardening) {
+    throw '-BarricadeMatrixOnly requires -BarricadeHardening.'
+}
 if (Test-ProjectZomboidRunning) {
     throw 'Close Project Zomboid before preparing a real sandbox harness run.'
 }
@@ -1710,6 +1718,8 @@ $config = @(
     ('office_haul_survey_only=' + $OfficeHaulSurveyOnly.IsPresent.ToString().ToLowerInvariant()),
     ('base_alert_probe=' + $BaseAlertProbe.IsPresent.ToString().ToLowerInvariant()),
     ('barricade_probe=' + $BarricadeProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('barricade_hardening=' + $BarricadeHardening.IsPresent.ToString().ToLowerInvariant()),
+    ('barricade_matrix_only=' + $BarricadeMatrixOnly.IsPresent.ToString().ToLowerInvariant()),
     ('view_cutaway_probe=' + $ViewCutawayProbe.IsPresent.ToString().ToLowerInvariant()),
     ('view_cutaway_quick_watch=' + $ViewCutawayQuickWatch.IsPresent.ToString().ToLowerInvariant()),
     ('view_cutaway_restore_mode=' + $ViewCutawayRestoreMode),
@@ -1961,6 +1971,8 @@ $manifest = [ordered]@{
     sourceBridgeSha256 = $sourceBridgeHash
     installedBridgeMatches = $installedBridgeHash -eq $sourceBridgeHash
     livingFellowsOnly = $LivingFellowsOnly.IsPresent
+    barricadeHardening = $BarricadeHardening.IsPresent
+    barricadeMatrixOnly = $BarricadeMatrixOnly.IsPresent
     companionFirearmsProbe = $CompanionFirearmsProbe.IsPresent
     companionFacingProbe = $CompanionFacingProbe.IsPresent
     companionFacingMode = $CompanionFacingMode
