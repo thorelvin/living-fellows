@@ -270,6 +270,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   .card-grid { grid-template-columns: 1fr 1fr; gap: 0.22cm; margin: 0.2cm 0; }
   #appF { margin-top: 0; font-size: 13pt; }
   .card-intro { margin-bottom: 0.1cm; }
+  .page-footer { margin-top: 0.2cm; padding-top: 0.1cm; font-size: 7pt; }
 }
 </style>
 </head>
@@ -320,7 +321,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <p class="subtitle">A Complete Guide to Living with the Fellows of Knox County</p>
   <p class="divider">· · · ✚ · · ·</p>
   <p class="edition">Living Fellows — Project Zomboid Build 42.21.0 Edition</p>
-  <p class="version">Release 0.26.75 — First Edition, Nineteenth Printing — You won't die... alone.</p>
+  <p class="version">Release 0.26.84 — First Edition, Twentieth Printing — You won't die... alone.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2rem;"><span class="callout-label">Note — </span>
@@ -330,8 +331,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li><a href="#ch14c"><strong>Leave someone on Base Watch.</strong></a> Keep the camp working while you travel, and call in by radio to hear how things are going.</li>
   <li><a href="#ch5c_taxi"><strong>Call Markus's taxi.</strong></a> Find a road, call from a working walkie-talkie and let someone else do the driving.</li>
   <li><a href="#emma"><strong>Ask EMMA.</strong></a> Check supplies, find out who needs care, read the old files or fit a radio and run expeditions from your camp computer.</li>
+  <li><a href="#emma-grid"><strong>Restore the power.</strong></a> Connect a computer at a substation, crack its controller from camp and bring the real lights back, for a day or two at a time.</li>
 </ul>
-<p style="margin:0.7rem 0 0;">Updated for <strong>0.26.75</strong>, with an illustrated <a href="#emma">EMMA computer guide</a>, <a href="#ch17_map">map-selected expedition targets</a> and <a href="#ch17_wood">wood collection and delivery</a>. Need the essentials? Open the <a href="#appF">quick reference card</a>.</p>
+<p style="margin:0.7rem 0 0;">Updated for <strong>0.26.84</strong>, with <a href="#emma-grid">LARCH/GRID power control</a>, <a href="#ch6_weapons">smarter weapon choices</a>, working <a href="#ch13">barricades</a> and better <a href="#ch9e">beds</a>. Need the essentials? Open the <a href="#appF">quick reference card</a>.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2rem;"><span class="callout-label">Note — </span>
@@ -746,7 +748,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 5c -->
 <h2 class="chapter" id="ch5c"><img class="ico" src="https://pzwiki.net/w/images/7/7c/Wrench.png" alt="">Chapter 5c: Riding Together<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<p>With <strong>Ride with the player when a seat is available</strong> switched on (it is, for every new recruit), followers climb into your vehicle when you drive off and get out when you do. Seats are planned, not scrambled for: each rider is assigned a free passenger seat, and the plan is rebuilt if someone else takes a seat first.</p>
+<p>With <strong>Ride with the player when a seat is available</strong> switched on (it is, for every new recruit), followers climb into your vehicle when you drive off and get out when you do. Seats are planned, not scrambled for: each rider is assigned a free passenger seat, and the plan is rebuilt if someone else takes a seat first. A companion that can't get in after four tries waits beside the car. It tries again after three minutes, after a new Follow order, or once you park at least two tiles away.</p>
 
 <table>
   <tr><th>Vehicle status</th><th>Meaning</th></tr>
@@ -834,6 +836,10 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <div class="lore-pull"><span class="lore-label">Overheard — </span>Single walker, up ahead.<span class="who">— a companion on watch</span></div>
 
+<h3 id="ch6_weapons">Which Weapon They Reach For</h3>
+<p>A companion weighs what it carries against what is in front of it: each weapon's condition, its own skill with that kind of weapon, its stamina and how tired it is. It keeps what is in its hand unless something else is clearly better. A ready gun in range beats a stronger gun that needs reloading. At arm's length or with a crowd closing in, a ready melee weapon beats stopping to reload or clear a jam. Followers ready a better carried weapon before a fight; base workers keep a usable tool in hand.</p>
+<p>A gun only counts if it can fire. Revolvers and shotguns reload from loose rounds. A magazine-fed gun needs a loaded magazine, or a compatible magazine and rounds to fill it. On an ordinary scavenge a companion leaves behind guns it couldn't use, and it won't give up its last working weapon because broken or empty ones fill its quota. A weapon you equip for it stays in hand while it works, until you change Weapon priority.</p>
+
 <h3>Walls, Doors and Fences</h3>
 <p>A companion only swings, shoves or stomps where the blow could really land. A wall, a closed door, a barricade, a closed window or a tall fence between it and the zombie stops the attack before it starts, and the companion walks round to an opening instead of flailing at the obstacle. A low fence, an open or smashed window and an empty frame are no obstacle. Two exceptions: under <strong>Weapons Free</strong> a melee swing may go through a closed, unbarricaded window, and a weapon the game lets strike through a see-through fence, such as a spear, can still reach the zombie behind it. A shove with the same spear can't.</p>
 
@@ -896,7 +902,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 8 -->
 <h2 class="chapter" id="ch8"><img class="ico" src="https://pzwiki.net/w/images/0/0c/Bandage.png" alt="">Chapter 8: Needs, Medicine and Death<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<p>Companions get hungry, thirsty and tired on the game's own needs. By default hunger and thirst rise at <strong>one-third</strong> the player's rate; the sandbox page can set anything from off to twice the player's rate. They eat, drink, fetch from camp storage, and look after themselves, but they can only use what the world gives them.</p>
+<p>Companions get hungry, thirsty and tired on the game's own needs. By default hunger and thirst rise at <strong>one-third</strong> the player's rate; the sandbox page can set anything from off to twice the player's rate. Awake, they tire at half the rate the game would otherwise give them; sleep works as usual, and tiredness and stamina carry across saves. They eat, drink, fetch from camp storage, and look after themselves, but they can only use what the world gives them.</p>
 
 <h3>When They Speak Up</h3>
 <p>A companion says something once when a need crosses a threshold, and again only if it gets worse. It waits out danger and the usual speech cooldowns, and can raise the same need again only after it has improved and come back. Asking about their status in Talk still gets a direct answer.</p>
@@ -916,8 +922,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <div class="lore-pull"><span class="lore-label">Overheard — </span>My stomach is reminding me it exists.<span class="who">— a companion getting hungry</span></div>
 
 <h3>Water and Food</h3>
-<p>A companion drinks only <strong>clean</strong> water: a carried bottle, a safe source nearby such as a working sink, or water fetched from camp storage. Tainted or poisoned water is not drunk. At camp, a clean tap or well within six tiles on the same floor comes before their own bottles, which they save for the road, and a source on a connected camp floor will do; a source that fails is left alone for a short while. Thirst comes first, but no water never stops a companion eating. One that is thirsty and hungry with no clean water in reach eats its food and keeps looking for water.</p>
-<p>A companion on Follow, once you stop, or on base duty tops up its drinking containers of up to 3 litres when one falls below half. It uses a verified clean source within three tiles, a short detour, or any clean source in the camp areas. It never leaves a Stay or Guard post for it, and doesn't stop to refill in danger, while bleeding, or with a more urgent need.</p>
+<p>A companion drinks only <strong>clean</strong> water: a bottle or other small container it carries, a safe source nearby such as a working sink, or water fetched from camp storage. Tainted or poisoned water is not drunk. At camp, a clean tap or well within six tiles on the same floor comes before their own bottles, which they save for the road, and a source on a connected camp floor will do; a source that fails is left alone for a short while. Thirst comes first, but no water never stops a companion eating. One that is thirsty and hungry with no clean water in reach eats its food and keeps looking for water.</p>
+<p>A companion on Follow, once you stop, or on base duty tops up any container of up to 3 litres it carries when one falls below half. It uses a verified clean source within three tiles, a short detour, or any clean source in the camp areas. It never leaves a Stay or Guard post for it, and doesn't stop to refill in danger, while bleeding, or with a more urgent need.</p>
+<p>Bottles, canteens, drinking glasses and other vessels the game files as water containers count as water gear even when empty, modded ones included. An empty pot, mug, can, cleaning bottle or keepsake doesn't: it keeps its usual shelf and takes no water slot, though clean water in one is still water. A saucepan stays a weapon and a hydration pack stays a bag. A thirsty companion drinks from its lightest container first, and sheds empty vessels before safe water.</p>
 
 <div class="callout callout-tip"><span class="callout-label">Note — </span>Mark a <strong>Water</strong> container and a <strong>Regular food</strong> or <strong>Fresh food</strong> container at camp (<a href="#ch11">Chapter 11</a>). A companion who can't find either nearby will fetch from them.</div>
 
@@ -1321,7 +1328,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/0e/SheetRope.png" alt=""></td><td><strong>Making sheet rope</strong></td><td>For climbing out of windows</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/5/52/Bucket.png" alt=""></td><td><strong>Washing</strong></td><td>Themselves, their gear, and dirty dressings for reuse, at reachable clean water. Protected items are left alone, and a washed dressing keeps its custom name and favourite mark.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/a/a0/Sponge.png" alt=""></td><td><strong>Showering</strong></td><td>When grime builds up, at most once every 18 game hours: a working shower within 8 tiles. They undress, wash every trace of blood and dirt away with ten units of the shower's water, and dress again exactly as before. Some sing.</td></tr>
-  <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/2/2b/Moodle_Icon_Tired.png" alt=""></td><td><strong>Rest</strong></td><td>A bed or cot, a usable chair, or the floor when no seat or bed is free. A companion tired enough to sleep, by the game's own "not tired enough" mark, looks for a bed. At camp it tries a marked Rest area first, then anywhere in camp. On an ordinary bed it sleeps about six game hours: an hour less on a good bed, an hour more on a bad one, shorter with Insomniac or Needs Less Sleep and longer with Needs More Sleep. Before getting into bed it switches off the bedroom light, and leaves the light on if it can't reach the switch within 12 seconds. Zombies in sight keep it awake. Panic does too, and so does real pain until it is close to collapse, unless it has taken sleeping pills. It won't lie down again within an hour of waking. A chair rest lasts 25 to 85 game minutes. Danger and a new order end any rest. Asleep in a bed, though, it no longer wakes to zombies it could only see: being attacked wakes it, and so do a zombie right beside the bed, one thumping on a door or window nearby, and a shout from the camp alarm (<a href="#ch14_alarm">Ch 14</a>).</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/2/2b/Moodle_Icon_Tired.png" alt=""></td><td><strong>Rest</strong></td><td>A bed or cot, a usable chair, or the floor when no seat or bed is free. A companion tired enough to sleep, by the game's own "not tired enough" mark, looks for a bed, bunks and hospital beds included, then a laid-out sleeping bag, then a couch; ordinary chairs stay seats. One bed takes one companion, double beds too for now, and nobody climbs in beside a sleeper. Small talk waits while it heads to bed. At camp it tries a marked Rest area first, then anywhere in camp. On an ordinary bed it sleeps about six game hours: an hour less on a good bed, an hour more on a bad one, shorter with Insomniac or Needs Less Sleep and longer with Needs More Sleep. Before getting into bed it switches off the bedroom light, and leaves the light on if it can't reach the switch within 12 seconds. Zombies in sight keep it awake. Panic does too, and so does real pain until it is close to collapse, unless it has taken sleeping pills. It won't lie down again within an hour of waking. A chair rest lasts 25 to 85 game minutes. Danger and a new order end any rest. Asleep in a bed, though, it no longer wakes to zombies it could only see: being attacked wakes it, and so do a zombie right beside the bed, one thumping on a door or window nearby, and a shout from the camp alarm (<a href="#ch14_alarm">Ch 14</a>).</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/7/75/Television.png" alt=""></td><td><strong>Television</strong></td><td>A powered TV with the volume up: they take a seat that faces the screen, or stand in the same room where they can see it. At camp they may go one floor up or down to a TV that is on. Skill shows and VHS tapes give each viewer the game's usual XP and recipes, once per line, remembered across saves. They may comment, or note something worth learning.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/3/31/Radio.png" alt=""></td><td><strong>Radio</strong></td><td>A powered radio within reach, or one floor away at camp: they switch it on, tune it to a station (never the squad's own channel), turn the volume up if it is off, then sit nearby and listen, remarking on what they hear. It passes the time; it teaches nothing.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/b/bb/Moodle_Icon_Bored.png" alt=""></td><td><strong>Window watching</strong></td><td>Indoors, a short look out of a nearby window, opening a closed curtain first; they wait if someone else has the spot, and never stand on a chair, table or counter to look out</td></tr>
@@ -1633,7 +1640,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </table>
 <p>The Base view can show or hide the blueprints.</p>
 
-<p>A barricade worker stands on whichever side of the door or window it can reach. If someone is in the way it tries again shortly; if furniture blocks that side, the job reports the problem instead of trying forever.</p>
+<p>A barricade worker fetches a hammer, a plank and nails before it walks to the door or window, and keeps them until the job is done. It stands on the window's own tile and prefers a clear side; passable furniture or a bush on either side doesn't stop it. If someone is in the way it tries again shortly. With no materials anywhere in camp the job says so and resumes once you stock them. A window or door that is gone stops pulling workers off other jobs and can be cancelled.</p>
 
 <h3>What the Work Needs</h3>
 <p>Builders draw tools and materials from camp storage, so mark a <strong>Construction</strong> and a <strong>Tools</strong> container. A companion sent to build, barricade or take a barricade down without the right tool or material says exactly what is missing:</p>
@@ -1656,7 +1663,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td>Something is in the way there.</td><td>The tile is blocked</td></tr>
   <tr><td>Construction is already planned there.</td><td>A plan already covers that tile</td></tr>
   <tr><td>The camp job list is full.</td><td>Let the queue shrink first</td></tr>
-  <tr><td>Close it first.</td><td>A barricade needs a closed window or door</td></tr>
+  <tr><td>Close it first.</td><td>Close the window or door before planning. If someone opens a planned door later, the worker closes it before boarding; an open window follows the game's own boarding rules.</td></tr>
 </table>
 
 <!-- CH 14 -->
@@ -1797,7 +1804,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <h3>Parked Cars and Generators</h3>
 <p>Available base-duty residents can refuel a car parked in the marked Parking area and a generator within camp work reach when either falls below half a tank. They take fuel from marked camp storage. They can also inflate a parked car's tires with a stored pump and wash its bodywork with tainted water, or fill an empty vessel at a suitable camp sink. Stored clean drinking water is left for people. These are shared chores, independent of the resident's selected job.</p>
-<p>Right-click an eligible car or generator for a one-time order: <span class="menu">Refuel car from base</span>, <span class="menu">Inflate tires from base</span>, <span class="menu">Wash car from base</span>, or <span class="menu">Refuel generator from base</span>. A wash order cleans off any visible blood; routine upkeep waits until there is more of it. A full tank, inflated tires, missing supplies or a target outside camp reach gives a reason. If a tool, can, target or worker goes missing during a job, the camp records the problem rather than keeping the item reserved forever.</p>
+<p>Right-click an eligible car or generator for a one-time order: <span class="menu">Refuel car from base</span>, <span class="menu">Inflate tires from base</span>, <span class="menu">Wash car from base</span>, or <span class="menu">Refuel generator from base</span>. A wash order cleans off any visible blood; routine upkeep waits until there is more of it. A full tank, inflated tires, missing supplies or a target outside camp reach gives a reason. A wash or tire order that can't find its supplies shows what is missing, returns anything it borrowed and tries again every three minutes. If a tool, can, target or worker goes missing during a job, the camp records the problem rather than keeping the item reserved forever.</p>
 
 <h3 id="ch14b_clean">Cleaning a Stain</h3>
 <p>Right-click a stained tile inside the camp and choose <span class="menu">Ask companion to clean this stain</span>. A resident on base duty comes and scrubs it with the game's own cleaning action. It needs a dry towel, sponge, cleaning brush, broom or mop, plus bleach or cleaning liquid: its own, or borrowed from marked camp storage and put back afterwards. When the option is greyed out it says why: no supplies, nobody on duty, no route to the spot from where the cleaner is, or the spot is already clean.</p>
@@ -1806,7 +1813,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <ul>
   <li><strong>Zone management</strong> lists every zone with its corners and floor. Removing one asks first and never deletes anything in the world. The last camp boundary is protected; add another before removing it.</li>
   <li><strong>Storage management</strong> lets you change a container's category, set its <strong>reserve</strong> (0, 1, 2, 5 or 10 items that companions won't take), or unmark it. Its items stay where they are.</li>
-  <li><strong>Maintenance targets</strong> are the barricades you've marked for upkeep. Each can be enabled, disabled or removed.</li>
+  <li><strong>Maintenance targets</strong> are the barricades you've marked for upkeep. Each can be enabled, disabled or removed. Disabling or removing one stops its worker and clears the job.</li>
 </ul>
 
 <div class="callout callout-tip"><span class="callout-label">Note — </span>Older saves may still show <strong>Gather materials</strong> orders, for logs or planks from a work or lumber area. Residents finish the ones already there, and the view shows each worker's phase, from seeking material to depositing it.</div>
@@ -1950,7 +1957,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <p>There is still someone willing to answer questions at the office. She lives on a desktop, calls herself the <strong>Emergency Management Assistant</strong>, and has rather more confidence in the county's emergency arrangements than the evidence warrants.</p>
 <p>EMMA reads camp records, finds supplies, explains blocked work and helps you ask for medical care or fuel. Add a walkie-talkie and the same computer becomes a radio desk and expedition station. Everything runs <strong>offline</strong>: no internet, account or external AI service is needed.</p>
-<p class="tbl-note">Jump to <a href="#emma-start">getting started</a> · <a href="#emma-questions">questions and requests</a> · <a href="#emma-radio">radio and expeditions</a> · <a href="#emma-buildings">building controls</a> · <a href="#emma-files">files and passwords</a> · <a href="#emma-reset">factory reset</a>.</p>
+<p class="tbl-note">Jump to <a href="#emma-start">getting started</a> · <a href="#emma-questions">questions and requests</a> · <a href="#emma-radio">radio and expeditions</a> · <a href="#emma-grid">restoring the power</a> · <a href="#emma-buildings">building controls</a> · <a href="#emma-files">files and passwords</a> · <a href="#emma-reset">factory reset</a>.</p>
 <p class="tbl-note">The screens below were captured in-game. On the website, select a screen image to open it at full size.</p>
 
 <figure class="plate terminal-shot">
@@ -1964,7 +1971,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li><span class="step-n">2</span>Let the Larchfield BIOS and memory test finish, or press <kbd>Enter</kbd> to skip startup. If the machine is locked, recover its password first (<a href="#emma-files">below</a>).</li>
   <li><span class="step-n">3</span>Choose <strong>Camp report</strong>, or press <kbd>Tab</kbd> and type <code>what should I do?</code>. Press <kbd>Enter</kbd> to send.</li>
 </ol>
-<p><strong>Camp records stay at home.</strong> A computer inside your camp can read its people, storage, jobs and expeditions. A computer elsewhere still has EMMA, local services and its old files, but cannot look into your camp from across town. You can carry a computer home; its files, locks and mounted parts travel with it.</p>
+<p><strong>Camp records stay at home.</strong> A computer inside your camp can read its people, storage, jobs and expeditions. A computer elsewhere still has EMMA, local services and its old files, but cannot look into your camp from across town, and <strong>Camp report</strong> appears only inside camp. You can carry a computer home; its files, locks and mounted parts travel with it.</p>
 <p>The terminal fills your player view and scales to the resolution. Each machine keeps its screen colour: green, golden sand or aquamarine, with purple on about one in a hundred computers. At home, the header uses the EMMA camp emblem; the old owner's files remain until you choose to erase them.</p>
 
 <details class="terminal-startup">
@@ -1988,7 +1995,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>Clicking also works. On a narrow view, the menu and chat take turns using the available space. The footer tells you which controls are active. Type <code>clear</code> to clear the conversation display or <code>exit</code> to log off. Walking away closes the terminal.</p>
 
 <h3 id="emma-questions">Ask in Your Own Words</h3>
-<p>You do not need exact commands. <code>How many nails?</code> and <code>Do we have nails?</code> ask the same thing. EMMA understands common misspellings and remembers the subject of a short follow-up: ask about nails, then <code>and screws?</code>. If she offers a correction, answer <code>yes</code> or <code>no</code>.</p>
+<p>You do not need exact commands. <code>How many nails?</code> and <code>Do we have nails?</code> ask the same thing. EMMA understands common misspellings and remembers the subject of a short follow-up: ask about nails, then <code>and screws?</code>. If she offers a correction, answer <code>yes</code> or <code>no</code>. If a name fits two people she asks which, and briefly closing and reopening the same computer keeps the subject. Follow-ups read current records rather than repeating old counts.</p>
 <table>
   <tr><th>Try asking</th><th>What you get</th></tr>
   <tr><td><code>status</code> · <code>what should I do?</code></td><td>A camp report, or the most urgent problem she can see</td></tr>
@@ -1998,6 +2005,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><code>any problems?</code> · <code>what is everyone doing?</code></td><td>Waiting, active and blocked jobs, their reasons and available retry information</td></tr>
   <tr><td><code>power</code> · <code>weather</code> · <code>time</code></td><td>Generator readings, conditions outside and the game date</td></tr>
   <tr><td><code>expedition</code> · <code>deliveries</code></td><td>Known mission progress, the last debrief and cargo still awaiting storage</td></tr>
+  <tr><td><code>how do I mount a radio?</code> · <code>tell me more</code></td><td>Operating help for the computer's own services, with more detail on request. <code>go back to meds</code> returns to an earlier subject.</td></tr>
   <tr><td><code>remember the key is in the van</code></td><td>A note on this computer. Ask <code>what did I tell you?</code> to read it back.</td></tr>
 </table>
 <p>She also does arithmetic and keeps company. Try <code>are you alive?</code>, <code>tell me a joke</code>, <code>write a poem</code>, <code>do you dream?</code> or <code>tell me something hopeful</code>. Asking about an item you actually own still checks the supplies; a conversation about Spiffo does not conjure a burger.</p>
@@ -2022,10 +2030,97 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </ul>
 <p>From a <strong>camp station</strong>, review and launch Scout, Search, Fish or Collect wood missions, request reports, recall the crew and answer route decisions. <strong>Choose destination on map</strong> opens your map and brings the chosen target back to mission review (<a href="#ch17">Chapter 17</a>). <strong>Team / Marcus</strong> also offers taxi booking and status through the usual service.</p>
 <p>The team's radios must be working, equipped, on the same channel and within range. Fresh progress requires a return transmission. During an active mission, EMMA asks before scanning away from the team channel because you could miss a call.</p>
+<p>When radio and grid control are both available, <strong>More services</strong> holds Computer upgrades and Expedition station. Each page keeps its numbered choices visible.</p>
 
 <h4>Battery Backup and Moving Hardware</h4>
-<p>An optional UPS needs <strong>Electrical 4, a screwdriver, one wire, four scrap and a charged car battery</strong>. A full, healthy battery supplies about six game hours of active computer and radio use; poorer condition reduces that time. It powers this PC, not the building or door motors. Remove it to recharge normally.</p>
+<p>An optional UPS needs <strong>Electrical 4, a screwdriver, one wire, four scrap and a charged car battery</strong>. A full, healthy battery supplies about six game hours of active computer and radio use; poorer condition reduces that time. It powers this PC, not the building or door motors. Remove it to recharge normally. A computer with a mounted radio keeps listening with the window closed, so on battery alone it runs flat in those same six hours. Without a radio, an idle battery holds its charge until you come back.</p>
 <p>Mounted radios and batteries move with the computer and add to its weight. Their identities and settings remain intact. If the computer is unpowered, its context menu still lets you remove fitted hardware.</p>
+
+<h3 id="emma-grid">LARCH/GRID: Restore the Power</h3>
+<p>The lines are still up and the substations are still standing. Nobody turned the power off so much as stopped keeping it on. With a spare computer, a generator and some patience you can talk a controller back into service and put real power on the real grid, for a day or two at a time, before the breaker has had enough.</p>
+<p>Ask <code>substation</code>, <code>restore power</code>, <code>grid heat</code> or <code>shutoff date</code>, or open <span class="menu">Local services → LARCH/GRID power control</span>. <strong>Mark next substation</strong> puts the nearest unlinked site on your map. Worlds with electricity set never to shut off keep that setting and hide grid control.</p>
+
+<figure class="plate terminal-shot">
+  <a href="assets/lf_grid_yard.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_grid_yard.webp" width="1280" height="720" alt="A survivor stands inside the fenced Muldraugh substation yard among steel towers and orange equipment cabinets. A beige desktop computer sits on the concrete pad against an orange cabinet, with a red generator on the gravel close by."></a>
+  <figcaption><span class="plate-no">Screen 4</span> The Muldraugh yard at noon. The computer stands beside a cabinet, with the generator a few steps away. Both came here on someone's back. <span class="credit">In-game capture: Living Fellows</span></figcaption>
+</figure>
+
+<ol class="steps">
+  <li><span class="step-n">1</span><strong>Carry the kit out.</strong> You need a spare computer with a <strong>mounted two-way radio</strong>, a generator and fuel. The seven sites are Muldraugh, Louisville South, Louisville, south of Riverside, southwest of Rosewood, the Far West steel works and Irvington. You can link five of them.</li>
+  <li><span class="step-n">2</span><strong>Connect in the yard.</strong> Place the computer within <strong>40 tiles</strong> of the substation and start the generator. A battery alone can't make the first connection. Its screen changes to Knox Valley Power: choose <strong>Connect to grid</strong>, confirm, and keep the generator running for <strong>30 game minutes</strong>. The computer and its radio stay for good, and pickup is refused from the moment you confirm. Once connected, that one computer runs from the substation, so you can take the generator home.</li>
+  <li><span class="step-n">3</span><strong>Crack it from camp.</strong> On a powered, radio-equipped computer <strong>inside camp</strong>, open <strong>Substations and controller cracks</strong>, choose the linked site and confirm. Every site needs its own crack: <strong>five game days</strong> below Electrical 4, <strong>four</strong> at 4–7 and <strong>three</strong> at 8 or more. Your best living camp resident can supply the skill.</li>
+  <li><span class="step-n">4</span><strong>Keep that computer powered</strong> and look in on it. See the rule below.</li>
+  <li><span class="step-n">5</span><strong>Energize.</strong> Once a controller is online and the original shutoff has passed, confirm <strong>Energize grid</strong> on any powered, radio-equipped computer away from a substation.</li>
+</ol>
+
+<figure class="plate terminal-shot">
+  <a href="assets/lf_grid_screen_yard.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_grid_screen_yard.webp" width="1280" height="685" alt="The in-game terminal with a Knox Valley Power logo and a short menu: Connect to grid, Substation status, Log off."></a>
+  <figcaption><span class="plate-no">Screen 5</span> A computer in a substation yard. A computer inside your camp keeps its usual screen even this close; it offers <strong>Connect this computer</strong> on its LARCH/GRID page instead. <span class="credit">In-game capture: Living Fellows</span></figcaption>
+</figure>
+
+<h4>Keeping a Crack Alive</h4>
+<p>Cracking does no background work. EMMA settles it when you use a computer or query her, and <strong>the time since your last look only counts if the cracking computer still has power when you look again</strong>. A generator that ran dry costs you that whole stretch, including the hours it did run, so refuel it and check in. Finished progress is never lost.</p>
+<ul>
+  <li>Battery backup alone lasts about six game hours, so a crack needs a generator behind it.</li>
+  <li>A machine outside the loaded area earns nothing until you are back near it. If it still has power then, the whole absence counts.</li>
+  <li>Moving the cracking computer pauses it. Ordinary companions leave that machine alone, and a factory reset keeps the work.</li>
+  <li>To check from a distance, right-click an equipped, powered two-way walkie-talkie and choose <span class="menu">EMMA: Grid report</span>. An unlocked, powered base computer must answer on the same channel within two-way range. The report arrives by real radio.</li>
+</ul>
+
+<figure class="plate terminal-shot">
+  <a href="assets/lf_grid_screen_crack.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_grid_screen_crack.webp" width="1280" height="685" alt="The LARCH/GRID page: grid off, heat 0%, Muldraugh crack at 41.2% with 2 days 9 hours left and a progress bar, the line Time counts if still powered at next check, and numbered controls."></a>
+  <figcaption><span class="plate-no">Screen 6</span> A crack in progress on the cracking computer. <span class="credit">In-game capture: Living Fellows</span></figcaption>
+</figure>
+
+<table>
+  <tr><th>Site list</th><th>What it means</th></tr>
+  <tr><td><strong>Not linked</strong></td><td>Nobody has connected a computer there yet. Choosing it tells you what to bring.</td></tr>
+  <tr><td><strong>Locked</strong></td><td>The yard computer is answering. Choose the site to start its crack.</td></tr>
+  <tr><td><strong>Cracking</strong></td><td>A computer is working on it. A second one can't join in.</td></tr>
+  <tr><td><strong>Interrupted</strong></td><td>The cracking computer is gone. Put it back, or choose the site from another camp computer to resume with the same progress.</td></tr>
+  <tr><td><strong>Online</strong></td><td>Yours. It permits grid power and shortens cooling.</td></tr>
+</table>
+<p>If a computer is destroyed during its 30-minute setup, the site and its slot free up and a replacement starts over.</p>
+
+<figure class="plate terminal-shot">
+  <a href="assets/lf_grid_screen_sites.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_grid_screen_sites.webp" width="1280" height="685" alt="The substation list, with Muldraugh marked Cracking, Louisville South marked Interrupted, Louisville marked Not linked, and options for more substations and back."></a>
+  <figcaption><span class="plate-no">Screen 7</span> The site list. An interrupted crack can be picked up from here. <span class="credit">In-game capture: Living Fellows</span></figcaption>
+</figure>
+
+<h4>Running the Grid</h4>
+<p>Energizing puts real power on the game's own grid: lights, appliances and street lighting, everywhere in the county at once. Switches left on come back on. Its shutoff calculation also affects unloaded fridge ageing, so food found during a power window can be fresher. Water stays separate.</p>
+
+<figure class="plate terminal-shot">
+  <a href="assets/lf_grid_dark.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_grid_dark.webp" width="1280" height="720" alt="A brick ranch house at night with its roof cut away. The office and living room are black, and only faint moonlight reaches the rooms by the windows."></a>
+  <figcaption><span class="plate-no">Screen 8</span> Eleven at night, the lights switched on and nothing to run them. <span class="credit">In-game capture: Living Fellows</span></figcaption>
+</figure>
+<figure class="plate terminal-shot">
+  <a href="assets/lf_grid_lit.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_grid_lit.webp" width="1280" height="720" alt="The same house moments later with every room lit: green living room, white bathroom, a warm office with a computer on its desk, and two companions talking in the kitchen."></a>
+  <figcaption><span class="plate-no">Screen 9</span> The same house a few seconds after confirming Energize grid. <span class="credit">In-game capture: Living Fellows</span></figcaption>
+</figure>
+
+<table>
+  <tr><th>Heat</th><th>What happens</th></tr>
+  <tr><td><strong>Starting</strong></td><td>Adds 5%. A warm grid can restart until the breaker has tripped.</td></tr>
+  <tr><td><strong>Running</strong></td><td>From cold, <strong>24 game hours</strong> to the limit, or <strong>48 at Electrical 8</strong>. Switch off early to shorten the wait.</td></tr>
+  <tr><td><strong>75% and 90%</strong></td><td>EMMA warns you, wherever you are.</td></tr>
+  <tr><td><strong>100%</strong></td><td>The breaker trips and the power goes. It stays locked until completely cold.</td></tr>
+  <tr><td><strong>Cooling</strong></td><td>Seven game days from full with one site online. Each further online site takes a day off, down to <strong>three days at five sites</strong>.</td></tr>
+</table>
+<p>Anything you missed, EMMA reads out at the next computer you use, along with crack milestones and other grid news.</p>
+
+<figure class="plate terminal-shot">
+  <a href="assets/lf_grid_screen_on.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_grid_screen_on.webp" width="1280" height="685" alt="The LARCH/GRID page with the grid on: one day to trip, heat 5% with a gauge, one of five controllers online, and a Switch grid off option."></a>
+  <figcaption><span class="plate-no">Screen 10</span> The grid running. Watch the top line and the gauge. <span class="credit">In-game capture: Living Fellows</span></figcaption>
+</figure>
+<figure class="plate terminal-shot">
+  <a href="assets/lf_grid_warning.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_grid_warning.webp" width="1280" height="720" alt="A survivor at a desk in a lit office, with a real computer on the desk. Green text above the survivor reads EMMA: Grid heat 75%. Switch off early to shorten the cooling wait."></a>
+  <figcaption><span class="plate-no">Screen 11</span> A heat warning with no computer open. <span class="credit">In-game capture: Living Fellows</span></figcaption>
+</figure>
+<figure class="plate terminal-shot">
+  <a href="assets/lf_grid_screen_tripped.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_grid_screen_tripped.webp" width="1280" height="685" alt="The LARCH/GRID page after a trip: grid off, breaker locked, heat 99%, cooling seven days to cold, and the line The grid breaker tripped. It must cool completely before restart."></a>
+  <figcaption><span class="plate-no">Screen 12</span> After a trip, the only thing left to do is wait. <span class="credit">In-game capture: Living Fellows</span></figcaption>
+</figure>
 
 <h3 id="emma-buildings">Connect the Building</h3>
 <p>Open <span class="menu">Local services → Connect local controls</span>. The connection needs <strong>Electrical 2, a screwdriver, one wire and two electronics scrap</strong>. Use <strong>Equipment</strong> to find the building's loaded devices; a large building may take another visit to the list while discovery finishes.</p>
@@ -2033,7 +2128,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <figure class="plate terminal-shot">
   <a href="assets/lf_emma_controls.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_emma_controls.webp" width="1280" height="720" alt="EMMA's in-game Local services page, offering Connect local controls, Authorize building security and Equipment, with numbered keyboard choices."></a>
-  <figcaption><span class="plate-no">Screen 4</span> Start with a local connection, then authorize the building and inspect its equipment. Each physical upgrade has its own requirements. <span class="credit">In-game capture: Living Fellows</span></figcaption>
+  <figcaption><span class="plate-no">Screen 13</span> Start with a local connection, then authorize the building and inspect its equipment. Each physical upgrade has its own requirements. <span class="credit">In-game capture: Living Fellows</span></figcaption>
 </figure>
 
 <table>
@@ -2042,7 +2137,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Lights and circuits</strong></td><td>Switch fitted lighting relays and usable constructed floodlights. Name devices and group lights, such as Kitchen or Perimeter.</td></tr>
   <tr><td><strong>Generators</strong></td><td>Ask a suitable companion to start, stop, repair or refuel. A fitted remote starter uses a real car battery and consumes charge.</td></tr>
   <tr><td><strong>Alarm, siren and PA</strong></td><td>Control this building's alarm and fitted speaker. Sirens and announcements make real noise that attracts infected.</td></tr>
-  <tr><td><strong>Routines</strong></td><td>Opt into night lighting, lockdown or a return garage. Garage closure waits for the returned car stopped inside, engine off, with the doorway clear.</td></tr>
+  <tr><td><strong>Routines</strong></td><td>Opt into night lighting, lockdown or a return garage. Garage closure waits for the returned car stopped inside, engine off, with the doorway clear. Closing the terminal pauses security sensors and scheduled routines and silences its siren and PA; reopening resumes them.</td></tr>
 </table>
 <p>Relays and contacts need Electrical 3; motors and motion sensing need Electrical 4. The installation menu lists the tools and parts for the chosen device. Work happens beside it and needs a usable route. A moved or disconnected authorizing computer suspends its routines.</p>
 <p><strong>No extra power mod is needed.</strong> Lighting circuits and generator supply work through LF's own controls. Individual fridge/freezer switching is not available; stopping its actual generator removes generator power in the usual way.</p>
@@ -2054,7 +2149,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <figure class="plate terminal-shot">
   <a href="assets/lf_emma_files.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_emma_files.webp" width="1280" height="720" alt="A real in-game purple Brooks Library terminal, showing the dated Summer reading file and four selectable stories beside the transcript."></a>
-  <figcaption><span class="plate-no">Screen 5</span> A Brooks Library computer's old files. Firm branding and screen colour belong to the machine; its records stay with it when moved. <span class="credit">In-game capture: Living Fellows</span></figcaption>
+  <figcaption><span class="plate-no">Screen 14</span> A Brooks Library computer's old files. Firm branding and screen colour belong to the machine; its records stay with it when moved. <span class="credit">In-game capture: Living Fellows</span></figcaption>
 </figure>
 
 <p><strong>County files and EMMA</strong> holds reference material about the Knox Event, towns, businesses, broadcasts and the assistant herself. Try <code>tell me about West Point</code>, <code>what is KnoxTalk?</code>, <code>what caused the outbreak?</code> or <code>tell me about the empty bus</code>, then <code>tell me more</code>. Outbreak fragments are original, unverified local accounts. Later reports appear when your save reaches their date; theories are not presented as a known cause.</p>
@@ -2360,7 +2455,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 18c -->
 <h2 class="chapter" id="ch18c"><img class="ico" src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Chapter 18c: Strange Folk<span class="stage stage-end">Strangers</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<div class="callout callout-tip"><span class="callout-label">Note — </span>Release 0.26.75 uses native bridge protocol <code>42.21-isocompanion-24</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Release 0.26.84 uses native bridge protocol <code>42.21-isocompanion-25</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
 
 <p>Not every stranger is a household looking for supplies. Sixty-five hand-made characters live in Knox County: a butcher with a back room, a deputy still running her checkpoint, a grandmother guarding a child's bedroom with a broken bottle, a man who smeared himself in the dead so they'd leave him alone. Each one is a one-off with their own rules, voice and ending. They use the same standing, trade, combat, navigation and recruitment rules as other survivors, and their animals are real Build 42 animals with names that survive saves.</p>
 
@@ -2565,6 +2660,12 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h3>A companion is missing after a long trip</h3>
 <p>Companions left behind come back where they were as soon as their ground loads again, so head toward where you left them. One left in a parked car waits beside it. If someone is still missing, open <span class="menu">More → Support</span> and send its report; reloading the save brings them back.</p>
 
+<h3>A substation crack isn't moving</h3>
+<p>The time since your last look only counts if the cracking computer still has power when you look again. Open the computer itself: a <strong>PAUSED</strong> line names what is wrong, usually no power. Refuel its generator, then use it again; time counts from there, and finished progress is safe. On the site list, <strong>Interrupted</strong> means the computer is gone: resume from another camp computer (<a href="#emma-grid">Ch 16b</a>).</p>
+
+<h3>EMMA says another program is managing the grid</h3>
+<p>The shutoff date isn't the one she expects, so she stays out of it. A mod or a changed sandbox setting keeps her standing aside for as long as that holds. If an interrupted save left an old grid lease behind, she takes the controls back by herself once it has run out, within a few game days.</p>
+
 <h3>Workshop and standalone copies conflict</h3>
 <p>Remove one copy. Keep only one <code>SurvivorCompanion</code> mod folder, restart the game, and enable the remaining copy for the save.</p>
 
@@ -2589,7 +2690,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p><span class="menu">More → Support</span> is the first place to look when something is wrong, and the report it copies is the most useful thing to attach to a bug report.</p>
 <table>
   <tr><th>Line</th><th>What a healthy game shows</th></tr>
-  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.75</td></tr>
+  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.84</td></tr>
   <tr><td>Game build / supported build</td><td>42.21.0 on both sides</td></tr>
   <tr><td>Runtime active</td><td>Yes. If not, <strong>Runtime disabled reason</strong> says why.</td></tr>
   <tr><td>Native bridge status, actor provider, bridge protocol</td><td>The bridge is ready, and its protocol matches the expected one. A mismatch means an old or mixed install.</td></tr>
@@ -2645,7 +2746,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td>8</td><td>Muldraugh paper map</td><td class="tbl-item">Pzmap_01_public_paper.png</td></tr>
   <tr><td>9</td><td>Zombies on the road</td><td class="tbl-item">DecomposingGroup.jpg</td></tr>
   <tr><td>10</td><td>Convenience store</td><td class="tbl-item">ConvenienceStore_Muldraugh.png</td></tr>
-  <tr><td>Screens 1–5</td><td>EMMA, Larchfield BIOS, LARCH/WAVE, local services and owner files</td><td>Living Fellows in-game framebuffer captures, Build 42.21.0</td></tr>
+  <tr><td>Screens 1–14</td><td>EMMA, Larchfield BIOS, LARCH/WAVE, LARCH/GRID, local services and owner files. Screens 4, 8, 9 and 11 also show the game's world; that art belongs to The Indie Stone.</td><td>Living Fellows in-game framebuffer captures, Build 42.21.0</td></tr>
 </table>
 <p class="tbl-note">Living Fellows is an unofficial mod, not affiliated with or endorsed by The Indie Stone.</p>
 
@@ -2806,6 +2907,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>Stand beside a powered desktop → <span class="k">Use computer</span>. <kbd>Tab</kbd>: chat/menu. Numbers: menu choices. <kbd>Esc</kbd>: back/log off.</p>
 <p>Try <code>who is hurt?</code>, <code>how many nails?</code>, <code>any problems?</code> or <code>what should I do?</code>. Camp records need a PC at home; requests need <span class="k">Y/N</span> confirmation.</p>
 <p><span class="k">Local services → Computer upgrades</span>: mount a two-way radio with Electrical 2, screwdriver, 1 wire and 2 scrap. Ask <code>open radio</code> for scanning, the notebook and team services.</p>
+<p><span class="k">LARCH/GRID</span>: link a substation, crack it from a powered camp PC, energize.</p>
 <p class="tbl-note">Ch 16b</p>
 </div>
 
@@ -2825,7 +2927,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CARD END -->
 
 <div class="page-footer">
-  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.75 &nbsp;·&nbsp; First Edition, Nineteenth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
+  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.84 &nbsp;·&nbsp; First Edition, Twentieth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
 </div>
 <script>
 (function () {
