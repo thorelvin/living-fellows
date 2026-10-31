@@ -43,7 +43,9 @@ end
 getZomboidRadio=function() return {SendTransmission=function(_,x,y,channel,text,guid,code)
     calls[#calls+1]={x=x,y=y,channel=channel,text=text,guid=guid,code=code}
 end} end
-Events={OnDeviceText={Add=function(callback) hooks=hooks+1 T.callback=callback end}}
+check(R.isInstalled()==false,"loading the module installs nothing outside the bootstrap transaction")
+Events={OnDeviceText={Add=function(callback) hooks=hooks+1 T.callback=callback end,
+    Remove=function(callback) if callback==T.callback then T.callback=nil end end}}
 R.install() R.install() R.reset()
 check(hooks==1,"radio event is installed once across repeated initialization")
 local clocks=T.clocks
@@ -115,4 +117,8 @@ receive()
 check(R.lastReport(player)==nil,"failed native send leaves no pending acknowledgement")
 R.reset()
 check(hooks==1,"reset clears contacts without duplicate handlers")
+check(R.isInstalled() and T.callback~=nil,"the installed hook reports itself")
+R.remove()
+check(not R.isInstalled() and T.callback==nil,"removal releases the native event")
+check(R.install() and hooks==2 and R.isInstalled(),"a later world start can install it again")
 SC_TEST_REPORT="GRID_RADIO_PASS checks="..(T.checks-before)

@@ -33,6 +33,28 @@ function SC_WEAPON_SELECTION_REGRESSIONS(f)
         audit.profile = profile
     end
     do
+        -- Build 42's getAmmoType is an object whose tostring is base:bullets_38;
+        -- only its item key matches the rounds in a bag.
+        local revolver = f.item("Base.TestRevolver", "Weapon", {
+            ranged = true, damage = 3, range = 10, maxAmmo = 6, ammoType = "Base.TestRounds",
+        })
+        local value = fighter({ revolver })
+        check(tostring(revolver:getAmmoType()) ~= "Base.TestRounds", "the fixture's ammo type is not an item name")
+        check(not SC.Combat.weaponOperational(value, revolver), "an empty revolver with no rounds is unusable")
+        local round = f.item("Base.TestRounds", "Item")
+        value.inventory:AddItem(round)
+        refresh(value)
+        check(SC.Combat.weaponOperational(value, revolver), "an empty revolver reloads from loose rounds")
+        value.primary = revolver
+        local accepted, reason = SC.Combat.maintainFirearm(value, revolver)
+        check(accepted == true and reason ~= "no_usable_firearm", "the reload is actually requested")
+        value.inventory:Remove(round)
+        refresh(value)
+        check(not SC.Combat.weaponOperational(value, revolver), "using the last round makes it unusable again")
+        local rejected, why = SC.Combat.maintainFirearm(value, revolver)
+        check(rejected == false and why == "no_usable_firearm", "no rounds means no reload attempt")
+    end
+    do
         local rifle = f.item("Base.TestRifle", "Weapon", {
             ranged = true, damage = 5, range = 16, maxAmmo = 20,
             magazineType = "Base.TestClip", ammoType = "Base.TestRounds",

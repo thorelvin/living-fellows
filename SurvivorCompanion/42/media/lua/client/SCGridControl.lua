@@ -5,7 +5,7 @@ local SC = SurvivorCompanion
 SC.GridControl = SC.GridControl or {}
 local G = SC.GridControl
 G.KEY, G.CONNECT_KEY, G.CRACK_KEY = "LF_GridControl", "LF_GridConnect", "LF_GridCrack"
-G.AREA_RADIUS, G.MAX_LINKS = 40, 5
+G.AREA_RADIUS, G.MAX_LINKS, G.MAX_UNREAD = 40, 5, 12
 G.SITES = {
     {id="muldraugh",label="Muldraugh",x=10384,y=10096},
     {id="louisville_south",label="Louisville South",x=14776,y=4080},
@@ -17,7 +17,6 @@ G.SITES = {
 }
 local fallback, cached, lastReconcile = {}, nil, nil
 local known=setmetatable({}, {__mode="v"})
-local notices, serial = {}, 0
 local byId = {}
 for _,site in ipairs(G.SITES) do byId[site.id]=site end
 local function U() return SC.ControlUtil end
@@ -56,7 +55,8 @@ local function validate(s)
         or type(s.marked)~="table" or type(s.warned)~="table"
         or s.written~=nil and (not number(s.written,-1,2147483647) or s.written~=math.floor(s.written))
         or s.writeIntent~=nil and (not number(s.writeIntent,-1,2147483647) or s.writeIntent~=math.floor(s.writeIntent))
-        or s.standDown~=nil and type(s.standDown)~="string" then return false end
+        or s.standDown~=nil and type(s.standDown)~="string"
+        or s.unread~=nil and type(s.unread)~="table" then return false end
     local count=0
     for id,row in pairs(s.sites) do
         count=count+1
@@ -104,6 +104,13 @@ function G.siteFor(object)
         if (x-site.x)^2+(y-site.y)^2<=G.AREA_RADIUS^2 then return site end
     end
 end
+-- A camp computer near a substation stays a camp computer until it is connected.
+function G.yardFor(object)
+    local site=G.siteFor(object)
+    if not site then return nil end
+    if not G.pinned(object) and SC.BaseLife and SC.BaseLife.isInside(object)==true then return nil end
+    return site
+end
 local function portable(object)
     local md=U() and U().data(object)
     return type(md)=="table" and type(md.movableData)=="table" and md.movableData or nil
@@ -132,15 +139,26 @@ local function cooldown(s)
     local _,online=counts(s)
     return math.max(3,7-math.max(0,online-1))
 end
+-- Saved, so a warning raised while the player sleeps or walks off is still read
+-- out at the next computer. An open screen prints it; otherwise it also shows now.
 local function notice(text)
-    serial=serial+1
-    notices[#notices+1]={id=serial,text=text}
-    if #notices>16 then table.remove(notices,1) end
+    local s=cached
+    if type(s)~="table" then return end
+    s.unread=s.unread or {}
+    s.unread[#s.unread+1]=text
+    if #s.unread>G.MAX_UNREAD then table.remove(s.unread,1) end
+    local window=SC.Terminal and SC.Terminal.window
+    if window and not window.closed then return end
+    local player=type(getSpecificPlayer)=="function" and getSpecificPlayer(0)
+    if player then U().call(player,"setHaloNote","EMMA: "..text) end
 end
-function G.notices(after)
-    local result={}
-    for _,row in ipairs(notices) do if row.id>(after or 0) then result[#result+1]=row end end
-    return result,serial
+local NO_NOTICES={}
+function G.takeNotices()
+    -- Asked every frame while a computer is open, so an empty answer allocates nothing.
+    local rows=type(cached)=="table" and cached.unread or nil
+    if type(rows)~="table" or #rows==0 then return NO_NOTICES end
+    cached.unread=nil
+    return rows
 end
 local function write(s,value)
     local opt=options()
@@ -169,6 +187,16 @@ local function reconcile(s)
     if not s.on and s.writeIntent~=nil and value==s.writeIntent then
         -- A paired-save interruption, not an arbitrary nearby foreign value.
         if write(s,s.originalShut) then s.standDown=nil return true end
+    end
+    local days=age()
+    if finite(value) and value>s.originalShut and finite(days) and days>value+1 then
+        -- A lease that outlived its record: the two save files lost each other.
+        -- Once it has run out, both numbers mean "off", so taking it back is safe.
+        if write(s,s.originalShut) then
+            s.on=false s.written=nil s.standDown=nil
+            notice("An old grid lease has run out. Power is off and the controls are mine again.")
+            return true
+        end
     end
     s.standDown="Another program is managing the grid. I will stay out of it."
     return false
@@ -309,12 +337,25 @@ end
 local function remoteBlocker(object,cracking,passive)
     local reason=available(object,passive)
     if reason then return reason end
-    if G.siteFor(object) then return "Use a computer outside substation areas." end
+    if G.yardFor(object) then return "Use a computer outside substation areas." end
     if cracking and (not SC.BaseLife or SC.BaseLife.isInside(object)~=true) then
         return "Run the controller crack from a computer inside camp."
     end
     if not radio(hardware(object)) then return "Mount a working two-way walkie-talkie first." end
     if not SC.TerminalHardware.powered(object) then return "This computer needs power." end
+end
+-- Another computer's work on this site. Proven gone, it can be taken over.
+local function heldCrack(s,siteId,id)
+    local lost,busy,ids=nil,false,{}
+    for key,job in pairs(s.jobs) do
+        if job.site==siteId and job.controller~=id then
+            if job.lost then
+                ids[#ids+1]=key
+                if not lost or job.doneHours>lost.doneHours then lost=job end
+            else busy=true end
+        end
+    end
+    return lost,busy,ids
 end
 function G.startCrack(object,player,siteId)
     local reason=remoteBlocker(object,true)
@@ -327,15 +368,19 @@ function G.startCrack(object,player,siteId)
     local skill=G.bestSkill(player)
     local id=identity(object)
     if not id then return false,"This computer's identity is unreadable." end
+    local held,busy,lostIds=heldCrack(s,site.id,id)
+    if busy then return false,"Another computer is already cracking this substation." end
     local count=0
     for _ in pairs(s.jobs) do count=count+1 end
-    if count>=16 then return false,"Finish an existing controller task first." end
+    if count-#lostIds>=16 then return false,"Finish an existing controller task first." end
     local x,y,z=U().position(object)
-    local task={site=site.id,controller=id,requiredHours=skill>=8 and 72 or skill>=4 and 96 or 120,
-        doneHours=0,lastHours=clock(),powered=true,notified={},x=x,y=y,z=z}
+    -- The checkpoint lives in the record, so a replacement picks up where the lost machine stopped.
+    local task={site=site.id,controller=id,requiredHours=held and held.requiredHours or skill>=8 and 72 or skill>=4 and 96 or 120,
+        doneHours=held and held.doneHours or 0,lastHours=clock(),powered=true,notified=held and held.notified or {},x=x,y=y,z=z}
+    for _,key in ipairs(lostIds) do s.jobs[key]=nil end
     s.jobs[id]=task p[G.CRACK_KEY]={site=site.id,controller=id}
     known[id]=object
-    return true,"Cracking "..site.label..". Keep this base computer powered; progress survives outages."
+    return true,(held and "Resuming " or "Cracking ")..site.label..". Time only counts if this computer still has power when you next use it. Finished progress is never lost."
 end
 local function energizeBlocker(s)
     if s.on then return "The grid is already running." end
@@ -386,10 +431,16 @@ local function jobObject(task)
 end
 local function sampleConnection(s,task,hours)
     local object,source=jobObject(task)
+    if source=="missing" then
+        -- Pickup is refused during setup, so the machine was destroyed. Free the
+        -- site and its slot; a replacement starts over.
+        s.connections[task.site]=nil
+        notice("The computer connecting to "..byId[task.site].label.." is gone. The site is free again.")
+        return
+    end
     local p=object and portable(object)
     local delta=math.max(0,hours-task.lastHours)
     local wasPowered=task.powered
-    if source=="missing" then task.powered=false end
     if object then task.powered=G.siteFor(object)==byId[task.site] and G.connectBlocker(object,true)==nil end
     task.lastHours=math.max(task.lastHours,hours)
     if wasPowered and task.powered then task.doneHours=math.min(0.5,task.doneHours+delta) end
@@ -415,18 +466,22 @@ local function sampleJob(s,task,hours)
         if p then p[G.CRACK_KEY]=nil end
         return
     end
-    local delta=math.max(0,hours-task.lastHours)
-    if source=="missing" then task.powered=false end
-    -- The player selected last-known-supply catch-up. No service observes a
-    -- closed PC; this arithmetic runs only during a computer/radio interaction.
-    if task.powered then task.doneHours=math.min(task.requiredHours,task.doneHours+delta) end
-    task.lastHours=math.max(task.lastHours,hours)
-    if object then
-        local marker=p and p[G.CRACK_KEY]
-        local bound=type(marker)=="table" and marker.site==task.site and marker.controller==task.controller
-        task.powered=bound and remoteBlocker(object,true,true)==nil or false
-        task.x,task.y,task.z=U().position(object)
+    -- No service observes a closed PC; this runs only during a computer/radio
+    -- interaction. Elapsed time counts when the machine had power at the last look
+    -- and still has it now. An unloaded machine can't be seen, so its clock waits.
+    if source=="unloaded" then return end
+    if source=="missing" and not task.lost then
+        notice("The computer cracking "..byId[task.site].label.." is missing. Put it back, or choose the site from another camp computer to resume.")
     end
+    task.lost=source=="missing" or nil
+    local marker=p and p[G.CRACK_KEY]
+    local bound=type(marker)=="table" and marker.site==task.site and marker.controller==task.controller
+    local supplied=object~=nil and bound and remoteBlocker(object,true,true)==nil
+    local delta=math.max(0,hours-task.lastHours)
+    if task.powered and supplied then task.doneHours=math.min(task.requiredHours,task.doneHours+delta) end
+    task.lastHours=math.max(task.lastHours,hours)
+    task.powered=supplied
+    if object then task.x,task.y,task.z=U().position(object) end
     local percent=task.doneHours/task.requiredHours*100
     for _,milestone in ipairs({25,50,75,100}) do
         if percent>=milestone and not task.notified[milestone] then
@@ -452,11 +507,13 @@ function G.sample(object)
         G.restoreInstallation(object,state)
         local p=portable(object)
         local marker=p and p[G.CONNECT_KEY]
-        if type(marker)=="table" and s.sites[marker.site] and s.sites[marker.site].controller==id then p[G.CONNECT_KEY]=nil end
+        if type(marker)=="table" then
+            local held=s.connections[marker.site]
+            if not held or held.controller~=id then p[G.CONNECT_KEY]=nil end
+        end
         local crack=p and p[G.CRACK_KEY]
-        if type(crack)=="table" and crack.controller==id and not s.jobs[id]
-            and s.sites[crack.site] and s.sites[crack.site].online then
-            -- A different terminal can finish this task while its PC is unloaded.
+        if type(crack)=="table" and crack.controller==id and not s.jobs[id] then
+            -- Another terminal finished or took over this task while the PC was away.
             p[G.CRACK_KEY]=nil
         end
     end
@@ -513,11 +570,14 @@ function G.snapshot(object)
             linked=row~=nil,online=row and row.online==true or false,crack=progress}
     end
     local blocked=object and remoteBlocker(object,false)
+    local yard=object and G.yardFor(object) or nil
+    local nearby=object and not yard and G.siteFor(object) or nil
     return {visible=true,on=s.on,heat=s.heat,locked=s.lockedUntilCold,standDown=s.standDown,
         linked=linked,online=online,maxLinks=G.MAX_LINKS,cooldownDays=cooldown(s),sites=rows,
         originalShut=s.originalShut,daysLeft=days and math.max(0,s.originalShut-days),
         remainingHours=s.on and (100-s.heat)/(95/s.windowHours) or 0,
-        coolingHours=s.heat/(100/(cooldown(s)*24)),site=object and G.siteFor(object),
+        coolingHours=s.heat/(100/(cooldown(s)*24)),site=yard,
+        connectable=nearby and not s.sites[nearby.id] and nearby or nil,
         nearest=nearest,distance=distance and math.floor(math.sqrt(distance)),blocker=blocked,
         crack=validJob(task) and {site=task.site,label=byId[task.site].label,
             doneHours=task.doneHours,requiredHours=task.requiredHours,
@@ -526,7 +586,7 @@ function G.snapshot(object)
             percent=connection.doneHours/0.5*100,blocker=G.connectBlocker(object)} or nil}
 end
 function G.announce(object)
-    if not G.visible() or G.siteFor(object) then return {} end
+    if not G.visible() or G.yardFor(object) then return {} end
     local result,s={},store()
     for _,site in ipairs(G.SITES) do
         local row=s.sites[site.id]
@@ -566,9 +626,15 @@ function G.prepare(window,proposal)
         reason=energizeBlocker(s)
         if reason then return nil,reason end
     end
+    local resuming,busy
+    if op=="crack" then
+        resuming,busy=heldCrack(s,site.id,identity(window.object))
+        if busy then return nil,"Another computer is already cracking this substation." end
+    end
     local target={object=window.object,identity=identity(window.object),operation=op,site=proposal.site}
     local prompt=op=="connect" and "Permanently connect THIS computer and its mounted radio to the substation? They stay here for good. Keep a generator running for 30 game minutes. [Y/N]"
-        or op=="crack" and ("Start cracking "..site.label.." from this base computer? Power loss pauses progress; each substation needs its own crack. [Y/N]")
+        or op=="crack" and resuming and ("Resume the "..site.label.." crack from this computer? Its checkpoint carries over at "..string.format("%.1f",resuming.doneHours/resuming.requiredHours*100).."%. [Y/N]")
+        or op=="crack" and ("Start cracking "..site.label.." from this base computer? Time only counts if it still has power when you next use it. Each substation needs its own crack. [Y/N]")
         or op=="cut" and "Switch the restored grid off now and begin cooling? [Y/N]"
         or "Energize the grid? Starting adds 5% heat. The breaker will trip at 100%. [Y/N]"
     return target,prompt
@@ -585,6 +651,6 @@ end
 function G.reset()
     cached,lastReconcile=nil,nil
     known=setmetatable({}, {__mode="v"})
-    fallback,notices,serial={},{},0
+    fallback={}
 end
 return G

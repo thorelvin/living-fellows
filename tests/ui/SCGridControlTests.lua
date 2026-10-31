@@ -43,6 +43,7 @@ check(task.doneHours==0,"idle timer does no cracking work")
 G.snapshot(home)
 check(T.near(task.doneHours,24),"contacting EMMA settles elapsed game time")
 home.powered=false T.step(6) G.snapshot(home)
+check(T.near(task.doneHours,24),"a computer found without power earns nothing for the time since the last look")
 local preserved=task.doneHours
 T.step(12) G.snapshot(home)
 check(T.near(task.doneHours,preserved),"known power loss pauses without rollback")
@@ -140,16 +141,19 @@ check(T.near(saved.doneHours,12),"save/reload resumes the same canonical task")
 local beforeReads=T.powerReads
 station.present=false T.tiles["12000:6800:0"]=nil
 T.step(24) G.snapshot(nil)
-check(T.near(saved.doneHours,36) and T.powerReads==beforeReads,
-    "unloaded catch-up uses last known supply without a world power survey")
+check(T.near(saved.doneHours,12) and T.powerReads==beforeReads,
+    "an unloaded machine earns nothing yet and costs no world power survey")
+station.present=true T.tiles["12000:6800:0"]=station.square
+T.step(1) G.sample(station)
+check(T.near(saved.doneHours,37),"returning to a machine that still has power credits the whole absence")
 local square=station.square
-T.tiles["12000:6800:0"]=square square.objects={}
+station.present=false square.objects={}
 T.step(2) G.snapshot(nil)
-check(T.near(saved.doneHours,36) and saved.powered==false,
+check(T.near(saved.doneHours,37) and saved.powered==false,
     "a loaded empty location proves the old machine is missing and pauses its work")
 station.present=true square.objects={station}
 G.sample(station) T.step(1) G.sample(station)
-check(T.near(saved.doneHours,37),"the same physical machine can resume a paused task")
+check(T.near(saved.doneHours,38),"the same physical machine can resume a paused task")
 local earned=saved.doneHours
 T.step(-3) G.sample(station)
 check(T.near(saved.doneHours,earned),"clock rollback never deletes or repeats earned hours")
@@ -192,11 +196,11 @@ local terminal=T.pc(12000,6800,true)
 check(G.startCrack(terminal,{skill=8},first.id),"unloaded completion fixture starts")
 terminal.present=false T.tiles["12000:6800:0"]=nil
 T.step(72) G.snapshot(nil)
-check(T.bucket.sites[first.id].online and terminal.md.movableData[G.CRACK_KEY]~=nil,
-    "remote contact completes the canonical job without touching unloaded furniture")
+check(not T.bucket.sites[first.id].online,"remote contact cannot finish a crack nobody can see is powered")
 terminal.present=true T.tiles["12000:6800:0"]=terminal.square
 G.sample(terminal)
-check(terminal.md.movableData[G.CRACK_KEY]==nil,"returning to the original PC clears its completed portable task")
+check(T.bucket.sites[first.id].online and terminal.md.movableData[G.CRACK_KEY]==nil,
+    "returning to the powered PC finishes the crack and clears its portable task")
 T.reset()
 local assembling=T.pc(first.x,first.y,false)
 check(G.startConnect(assembling) and G.pinned(assembling) and not G.yardSupply(assembling,assembling.hardware),
@@ -209,4 +213,158 @@ check(not T.bucket.sites[first.id] and G.connectBlocker(assembling):find("origin
 assembling.hardware.radio.id=oldRadio
 G.sample(assembling) T.step(.5) G.sample(assembling)
 check(G.yardSupply(assembling,assembling.hardware),"restoring the exact radio resumes and completes setup safely")
+
+-- A generator that dies mid-crack costs the time since the last look, never finished work.
+T.reset()
+local _,outage=T.link()
+local camp=T.pc(12000,6800,true)
+check(G.startCrack(camp,{skill=0},outage.id),"outage fixture starts")
+local outageJob=T.bucket.jobs[camp.md.movableData.LF_LarchOS.identity]
+camp.powered=false T.step(120) G.sample(camp)
+check(T.near(outageJob.doneHours,0) and not T.bucket.sites[outage.id].online,
+    "a crack cannot finish on a computer that has no power at contact")
+camp.powered=true G.sample(camp) T.step(10) G.sample(camp)
+check(T.near(outageJob.doneHours,10),"restored power earns time from the moment it is seen again")
+camp.powered=false T.step(30) G.sample(camp)
+camp.powered=true G.sample(camp)
+check(T.near(outageJob.doneHours,10),"an outage keeps what was already banked")
+
+-- A computer destroyed during setup frees the site and its slot.
+T.reset()
+local gone=T.pc(first.x,first.y,false)
+check(G.startConnect(gone),"lost connection fixture starts")
+local goneMarker=gone.md.movableData[G.CONNECT_KEY]
+gone.present=false gone.square.objects={}
+local spare=T.pc(first.x+1,first.y,false)
+check(G.connectBlocker(spare):find("Another computer",1,true)~=nil,"a live setup still holds the site before contact")
+G.snapshot(nil)
+check(T.bucket.connections[first.id]==nil,"a machine proven gone releases its connection")
+check(G.connectBlocker(spare)==nil and G.startConnect(spare),"a replacement can connect after the loss")
+T.step(.5) G.sample(spare)
+check(T.bucket.sites[first.id]~=nil,"the replacement completes the link")
+gone.present=true gone.square.objects={gone}
+gone.md.movableData[G.CONNECT_KEY]=goneMarker
+G.sample(gone)
+check(gone.md.movableData[G.CONNECT_KEY]==nil,"a stale connection marker is cleared if the machine comes back")
+T.reset()
+local unseen=T.pc(first.x,first.y,false)
+check(G.startConnect(unseen),"unloaded connection fixture starts")
+T.tiles[first.x..":"..first.y..":0"]=nil
+unseen.present=false
+G.snapshot(nil)
+check(T.bucket.connections[first.id]~=nil,"an unloaded machine is not assumed destroyed")
+
+-- A lost cracking computer hands its checkpoint to a replacement.
+T.reset()
+local _,taken=T.link()
+local oldPc=T.pc(12000,6800,true)
+check(G.startCrack(oldPc,{skill=0},taken.id),"takeover fixture starts")
+local oldId=oldPc.md.movableData.LF_LarchOS.identity
+T.step(30) G.sample(oldPc)
+local newPc=T.pc(12001,6800,true)
+local who={object=newPc,player={skill=8}}
+local denied,busyWhy=G.prepare(who,{operation="crack",site=taken.id})
+check(denied==nil and busyWhy:find("already cracking",1,true)~=nil,"a working computer keeps its site")
+check(not G.startCrack(newPc,{skill=8},taken.id),"a direct start cannot duplicate live work")
+oldPc.present=false oldPc.square.objects={}
+T.step(50)
+local row
+for _,candidate in ipairs(G.snapshot(newPc).sites) do if candidate.id==taken.id then row=candidate end end
+check(row.crack and row.crack.lost==true and T.near(row.crack.doneHours,30),"the status page reports the lost machine")
+local prepared,prompt=G.prepare(who,{operation="crack",site=taken.id})
+check(prepared~=nil and prompt:find("25.0%",1,true)~=nil,"the replacement is offered the saved checkpoint")
+check(G.startCrack(newPc,{skill=8},taken.id),"the replacement takes over")
+local newId=newPc.md.movableData.LF_LarchOS.identity
+local adopted=T.bucket.jobs[newId]
+check(T.bucket.jobs[oldId]==nil and T.near(adopted.doneHours,30) and adopted.requiredHours==120,
+    "progress and duration carry over without the lost machine's record")
+T.step(90) G.sample(newPc)
+check(T.bucket.sites[taken.id].online,"the replacement finishes the job")
+oldPc.present=true oldPc.square.objects={oldPc}
+G.sample(oldPc)
+check(oldPc.md.movableData[G.CRACK_KEY]==nil,"the old machine is released if it ever returns")
+T.reset()
+local _,back=T.link()
+local carried=T.pc(12000,6800,true)
+check(G.startCrack(carried,{skill=0},back.id),"carried fixture starts")
+carried.present=false carried.square.objects={}
+G.snapshot(nil)
+carried.present=true carried.square.objects={carried}
+G.sample(carried)
+check(T.bucket.jobs[carried.md.movableData.LF_LarchOS.identity].lost==nil,"a machine that comes back stops counting as lost")
+
+-- Warnings reach the player away from the grid page, and survive a reload.
+local warned,warnedBy=T.ready(0)
+check(G.energize(warned,warnedBy),"warning fixture starts")
+G.takeNotices() T.halos={}
+T.step(23.9) G.pulse()
+check(T.bucket.warned[75] and T.bucket.warned[90] and #T.halos>=2,"heat warnings show with every computer closed")
+check(T.halos[1]:find("EMMA: Grid heat 75%",1,true)==1,"the warning is in EMMA's name")
+G.reset() G.restore()
+local unread=G.takeNotices()
+check(#unread>=2 and unread[1]:find("75%",1,true)~=nil,"unread warnings survive save and reload")
+check(#G.takeNotices()==0,"each warning is read once")
+T.halos={}
+T.step(0.2) G.pulse()
+check(T.bucket.lockedUntilCold and T.halos[#T.halos]:find("breaker tripped",1,true)~=nil,"the breaker trip reaches a player far from any computer")
+-- An open screen prints the notice itself, and an unread pile stays bounded.
+local cycled,cycledBy=T.ready(0)
+G.takeNotices() T.halos={}
+SurvivorCompanion.Terminal.window={closed=false}
+for _=1,8 do
+    check(G.energize(cycled,cycledBy),"notice cap fixture starts")
+    check(G.cut("Switched off."),"notice cap fixture stops")
+end
+check(#T.halos==0,"an open computer screen does not also show a halo")
+SurvivorCompanion.Terminal.window={closed=true}
+check(G.energize(cycled,cycledBy) and #T.halos==1,"a closed window no longer counts as an open screen")
+SurvivorCompanion.Terminal.window=nil
+local pile=G.takeNotices()
+check(#pile==G.MAX_UNREAD and pile[#pile]:find("Grid power restored",1,true)==1,"the unread pile keeps the newest notices")
+check(#G.takeNotices()==0,"an emptied pile reads as empty")
+
+-- A lease that outlived its record: map_sand.bin saved, global_mod_data.bin did not.
+local paired,pairedBy=T.ready(0)
+check(G.energize(paired,pairedBy),"paired-save fixture starts")
+local lease=T.shut
+T.bucket.on=false T.bucket.written=nil T.bucket.writeIntent=nil
+G.reset() G.restore()
+check(G.snapshot(paired).standDown~=nil and T.shut==lease,"a live unknown lease is left alone")
+T.step((lease-T.days+2)*24)
+local recovered=G.snapshot(paired)
+check(recovered.standDown==nil and T.shut==T.bucket.originalShut and T.bucket.on==false,
+    "once the lease has run out the controls recover by themselves")
+check(G.energize(paired,pairedBy),"the grid can be started again after recovery")
+T.reset(26) G.visible()
+T.shut=200
+T.step(24*30) G.snapshot(nil)
+check(T.bucket.standDown~=nil and T.shut==200,"a foreign future date is never overwritten, however long it waits")
+T.reset() G.visible()
+T.shut=8
+G.snapshot(nil)
+check(T.bucket.standDown~=nil and T.shut==8,"a value below the recorded original is not ours to take back")
+T.reset() G.visible()
+T.bucket.writeIntent=44 T.shut=44
+check(G.snapshot(nil).standDown==nil and T.shut==26 and T.bucket.writeIntent==nil,
+    "a journalled write that never finished is rolled back")
+T.reset() G.visible()
+T.bucket.writeIntent=44 T.shut=45
+check(G.snapshot(nil).standDown~=nil and T.shut==45,"the journal only proves its exact value")
+
+-- A camp computer near a substation keeps its ordinary role until it is connected.
+T.reset()
+local campPc=T.pc(first.x+5,first.y,true)
+check(G.siteFor(campPc)==first and G.yardFor(campPc)==nil,"a camp computer near a substation is not a yard computer")
+local yardPc=T.pc(first.x-5,first.y,false)
+check(G.yardFor(yardPc)==first,"a computer outside any camp is a yard computer")
+local campSnap=G.snapshot(campPc)
+check(campSnap.site==nil and campSnap.connectable==first and campSnap.blocker==nil,"the camp computer keeps grid control and may offer to connect")
+local camped=T.pc(first.x+6,first.y,true)
+check(G.startConnect(camped),"the camp computer can still be connected deliberately")
+check(G.yardFor(camped)==first,"accepting the connection makes it a yard computer")
+T.step(.5) G.sample(camped)
+check(camped.hardware.gridSite==first.id and G.yardFor(camped)==first and G.snapshot(camped).site==first,"a connected camp computer stays a yard computer")
+check(G.snapshot(campPc).connectable==nil,"a linked site no longer offers another connection")
+check(G.startCrack(campPc,{skill=0},first.id),"an unconnected camp computer beside the yard can run the crack")
+check(not G.startCrack(camped,{skill=0},first.id),"the connected machine still cannot crack itself")
 SC_TEST_REPORT="GRID_CONTROL_PASS checks="..T.checks

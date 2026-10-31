@@ -31,7 +31,8 @@ function UI.options(w)
         local offset=w.gridOffset or 0
         for index=offset+1,math.min(#(snap.sites or {}),offset+3) do
             local site=snap.sites[index]
-            local status=site.online and "Online" or site.crack and "Cracking" or site.linked and "Locked" or "Not linked"
+            local status=site.online and "Online" or site.crack and (site.crack.lost and "Interrupted" or "Cracking")
+                or site.linked and "Locked" or "Not linked"
             rows[#rows+1]=option(site.label.." / "..status,"site",site.id)
         end
         if offset+3<#(snap.sites or {}) then rows[#rows+1]=option("More substations","offset",offset+3)
@@ -39,15 +40,20 @@ function UI.options(w)
         rows[#rows+1]=option("Back","back")
         return rows
     end
-    return {option(snap.on and "Switch grid off" or "Energize grid",snap.on and "cut" or "energize"),
+    local rows={option(snap.on and "Switch grid off" or "Energize grid",snap.on and "cut" or "energize"),
         option("Substations and controller cracks","sites"),option("Mark next substation","mark"),
         option("Back to EMMA","back")}
+    -- The substation's own menu is for yard computers; a camp computer asks here.
+    if snap.connectable then table.insert(rows,1,option("Connect this computer to "..snap.connectable.label,"connect")) end
+    return rows
 end
 local function propose(w,operation,site)
     w:cancelRequest()
     local ticket,prompt=SC.TerminalActions.prepare(w,{kind="grid_control",operation=operation,site=site})
-    w.requestTicket=ticket UI.notice(w,prompt)
-    if ticket then w:setFocusMode("chat") end
+    w.requestTicket=ticket
+    -- Kept apart from gridNotice: a status line must never replace the question Y answers.
+    w.gridPrompt=ticket and {ticket=ticket,text=prompt} or nil
+    if ticket then w:setFocusMode("chat") else UI.notice(w,prompt) end
     if not UI.active(w) then w:startReply({lines={prompt},thinkMs=0}) end
 end
 local function act(w,action,value)
@@ -63,7 +69,7 @@ local function act(w,action,value)
         for _,site in ipairs(w.gridSnapshot and w.gridSnapshot.sites or {}) do if site.id==value then selected=site break end end
         if not selected then return false end
         if selected.online then UI.notice(w,selected.label.." is online. It reduces cooling time.")
-        elseif selected.crack then UI.notice(w,selected.label..": "..string.format("%.1f",selected.crack.doneHours/selected.crack.requiredHours*100).."% cracked. Use the cracking computer or contact EMMA to refresh its status.")
+        elseif selected.crack and not selected.crack.lost then UI.notice(w,selected.label..": "..string.format("%.1f",selected.crack.doneHours/selected.crack.requiredHours*100).."% cracked. Use the cracking computer or contact EMMA to refresh its status.")
         elseif not selected.linked then UI.notice(w,"Bring a spare computer with a mounted radio and a generator within 40 tiles of "..selected.label..". The computer and radio stay there.")
         else propose(w,"crack",value) end
     else propose(w,action) end
@@ -96,18 +102,21 @@ function UI.click(w,x,y)
 end
 function UI.update(w,now)
     if w.closed or not w.system or w.system.locked then return end
-    if not w.gridAnnounced and w.state=="idle" then
-        G().sample(w.object)
-        local lines=G().announce(w.object)
-        for _,line in ipairs(lines) do w:print(line,"emma") end
-        w.gridAnnounced=true
+    if w.state=="idle" then
+        if not w.gridAnnounced then
+            G().sample(w.object)
+            local lines=G().announce(w.object)
+            for _,line in ipairs(lines) do w:print(line,"emma") end
+            w.gridAnnounced=true
+        end
+        for _,line in ipairs(G().takeNotices()) do
+            w:print(line,"emma")
+            if UI.active(w) then UI.notice(w,line) end
+        end
     end
     if not UI.active(w) then return end
     if w.gridSampleAt and now>=w.gridSampleAt and now-w.gridSampleAt<1000 then return end
     w.gridSampleAt=now w.gridSnapshot=G().snapshot(w.object)
-    local notices,last=G().notices(w.gridNoticeSerial)
-    w.gridNoticeSerial=last
-    if #notices>0 then UI.notice(w,notices[#notices].text) end
 end
 local function duration(hours)
     hours=math.max(0,math.ceil(tonumber(hours) or 0))
@@ -127,7 +136,8 @@ function UI.draw(w,now)
     end
     if w.requestTicket then
         local columns=math.max(8,math.floor(width/w.charWidth))
-        for _,line in ipairs(SC.Terminal.wrap(w.gridNotice or "Confirm Y/N.",columns)) do
+        local prompt=w.gridPrompt and w.gridPrompt.ticket==w.requestTicket and w.gridPrompt.text or "Confirm Y/N."
+        for _,line in ipairs(SC.Terminal.wrap(prompt,columns)) do
             if y+row>w:viewBottom() then break end text(line,left,y,title) y=y+row end
         w.gridHits={} return
     end
@@ -160,7 +170,7 @@ function UI.draw(w,now)
         if crack then
             line(crack.label.." / CRACK "..string.format("%.1f",crack.percent).."% / "..duration(crack.requiredHours-crack.doneHours).." LEFT")
             bar(crack.percent)
-            line(crack.paused and ("PAUSED: "..crack.paused) or "LAST KNOWN SUPPLY / REFRESHED ON CONTACT")
+            line(crack.paused and ("PAUSED: "..crack.paused) or "TIME COUNTS IF STILL POWERED AT NEXT CHECK")
         elseif snap.connecting then
             line("CONNECTING "..string.format("%.1f",snap.connecting.percent).."% / KEEP THE GENERATOR ON")
             bar(snap.connecting.percent)

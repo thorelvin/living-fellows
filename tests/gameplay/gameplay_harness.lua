@@ -165,7 +165,13 @@ local function item(itemType, category, options)
     function value:getCurrentAmmoCount() return self.ammo or 0 end
     function value:getMaxAmmo() return self.maxAmmo or 0 end
     function value:getMagazineType() return self.magazineType end
-    function value:getAmmoType() return self.ammoType end
+    -- The engine returns an AmmoType object whose tostring is a registry id, never the item type.
+    function value:getAmmoType()
+        local key = self.ammoType
+        if key == nil then return nil end
+        return setmetatable({ getItemKey = function() return key end },
+            { __tostring = function() return "base:" .. string.lower(tostring(key)) end })
+    end
     function value:getNumberOfPages() return self.pages or 0 end
     function value:isAlcoholic() return self.alcoholic == true end
     function value:getBandagePower() return self.bandagePower or 10 end
@@ -10966,6 +10972,10 @@ do
     }
     local pausedZombie = zombie(49, 40, {})
     local D = SurvivorCompanion.Decision
+    -- The recognition roll hashes the fixture zombie's address, so an unrelated
+    -- change can turn this threat callout into an "I knew them" line.
+    local savedRecognition = SurvivorCompanion.Quirks.recognitionCandidate
+    SurvivorCompanion.Quirks.recognitionCandidate = function() return nil end
     local savedGroupAt, savedSitting = D._threatWarningMemoryForTests(nil, nil)
     local pausedDecision, pausedReason = D.update(pausedSpeaker, pacingLeader, {
         snapshot = {
@@ -11008,6 +11018,7 @@ do
         end
     end
     pacingRecords[quietSpeaker] = nil
+    SurvivorCompanion.Quirks.recognitionCandidate = savedRecognition
     D.reset(pausedSpeaker)
 end
 
@@ -18433,6 +18444,32 @@ do
         check(SC.Needs.isSafeWaterItem(heavy) and not SC.Needs.isSafeWaterItem(unsafe)
             and not SC.Needs.isDrinkingContainer(fuelOnly),
             "generic container support retains tainted-water and incompatible-fluid refusals")
+        -- Real engine categories: what the item is for wins over being hollow.
+        for _,row in ipairs({{"Base.Pot","Cooking"},{"Base.Kettle","Cooking"},{"Base.Mugl","Cooking"},
+            {"Base.Bowl","Cooking"},{"Base.TinCanEmpty","Junk"},{"Base.Bleach","Household"},
+            {"Base.Disinfectant","FirstAid"},{"Base.PopBottle","Food"},{"Base.Goblet","Memento"},
+            {"Base.ClayJar","Material"},{"Base.HairDyeCommon","Appearance"}}) do
+            local shell=item(row[1],"Item",{displayCategory=row[2],fluidContainer=fluid(0,true)})
+            check(not SC.Needs.isDrinkingContainer(shell),row[1].." is not water gear while empty")
+            check(SC.BaseWork.classifyItem(shell)~="water",row[1].." does not go to the water shelf while empty")
+        end
+        check(SC.Logistics.itemCategory(item("Base.TinCanEmpty","Item",{displayCategory="Junk",fluidContainer=fluid(0,true)}))~="water",
+            "an empty tin can does not take a water slot")
+        check(not SC.Needs.isDrinkingContainer(item("Base.WaterDish","Item",{displayCategory="Animal",fluidContainer=fluid(0,true)})),
+            "an animal's water dish is not personal water gear")
+        for _,row in ipairs({{"Base.WaterBottle","Water"},{"Base.Canteen","WaterContainer"},{"Base.BeerEmpty","WaterContainer"}}) do
+            local shell=item(row[1],"Item",{displayCategory=row[2],fluidContainer=fluid(0,true)})
+            check(SC.Needs.isDrinkingContainer(shell) and SC.Logistics.itemCategory(shell)=="water"
+                and SC.BaseWork.classifyItem(shell)=="water",row[1].." is water gear even when empty")
+        end
+        local potWater=item("Base.Pot","Item",{displayCategory="Cooking",fluidContainer=fluid(1,true)})
+        check(SC.Needs.isDrinkingContainer(potWater),"a pot of clean water is still drinking water")
+        local saucepan=item("Base.Saucepan","Weapon",{displayCategory="CookingWeapon",damage=.5,fluidContainer=fluid(0,true)})
+        local filledPan=item("Base.Saucepan","Weapon",{displayCategory="CookingWeapon",damage=.5,fluidContainer=fluid(.3,true)})
+        check(SC.Logistics.itemCategory(saucepan)=="weapon" and SC.Logistics.itemCategory(filledPan)=="weapon",
+            "a saucepan stays a weapon, full or empty")
+        local pack=item("Base.Bag_HydrationBackpack","Container",{displayCategory="Bag",fluidContainer=fluid(1,true)})
+        check(not SC.Needs.isDrinkingContainer(pack),"a hydration pack stays a bag")
         local big=fluid(1,true) function big:getCapacity() return 5 end
         check(not SC.Needs.isDrinkingContainer(item("Mod.Bucket","Item",{fluidContainer=big})),
             "bulk hauling vessels do not become personal drinking gear")

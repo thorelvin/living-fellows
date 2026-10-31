@@ -228,6 +228,10 @@ function SC.Senses.removeWorldNoiseHooks()
     return true
 end
 function SC.Senses.worldNoiseHooksInstalled() return SC.Senses.worldNoiseInstalled end
+SC.GridRadio = { installed = false }
+function SC.GridRadio.install() SC.GridRadio.installed = true return true end
+function SC.GridRadio.remove() SC.GridRadio.installed = false return true end
+function SC.GridRadio.isInstalled() return SC.GridRadio.installed end
 
 SC.Decision.resetAll = function() return true end
 SC.Encounter = {

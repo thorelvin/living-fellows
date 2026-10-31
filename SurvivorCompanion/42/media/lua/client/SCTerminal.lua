@@ -268,16 +268,11 @@ function Terminal.installMoveHook()
     if type(canPick)=="function" then
         canWrapper=function(self,character,square,object,...)
             if SC.GridControl then
+                -- Vanilla passes nil for wall items. Ask for what this sprite is,
+                -- so other things on a pinned computer's tile stay movable.
                 local candidate=object
-                if not candidate and square then
-                    candidate=Terminal.findComputer({square})
-                    if not candidate then
-                        local objects=call(square,"getObjects")
-                        for index=0,math.min(tonumber(call(objects,"size")) or 0,64)-1 do
-                            local found=call(objects,"get",index)
-                            if Terminal.isComputer(found) then candidate=found break end
-                        end
-                    end
+                if not candidate and square and type(self.findOnSquare)=="function" then
+                    candidate=self:findOnSquare(square,self.spriteName)
                 end
                 if candidate and Terminal.isComputer(candidate) and SC.GridControl.pinned(candidate) then return false end
             end
@@ -1033,7 +1028,7 @@ function SCTerminalWindow:boot()
     local failure
     self.system, failure = Terminal.computerState(self.player, self.object)
     if not self.system then error(failure) end
-    local gridSite=SC.GridControl and SC.GridControl.visible() and SC.GridControl.siteFor(self.object)
+    local gridSite=SC.GridControl and SC.GridControl.visible() and SC.GridControl.yardFor(self.object)
     self.gridSite=gridSite and gridSite.id or nil
     self.colors = Presentation().colors(self.system.theme)
     self.biosTexture = biosTexture()

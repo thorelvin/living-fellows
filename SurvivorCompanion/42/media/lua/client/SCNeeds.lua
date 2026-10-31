@@ -908,9 +908,20 @@ local function refillableContainer(item)
     return amount, capacity
 end
 
+-- Almost anything hollow can hold water. These engine categories name what the
+-- item is for instead, so an empty one is not water gear. Modded vessels with
+-- their own category still count.
+local NOT_WATER_GEAR={animal=true,appearance=true,cooking=true,firstaid=true,food=true,
+    household=true,junk=true,material=true,memento=true}
+
 function Needs.isDrinkingContainer(item)
     local amount,capacity=containerLevel(item)
-    return amount~=nil and capacity>=0.12
+    if amount==nil or capacity<0.12 then return false end
+    -- A saucepan is still a weapon and a hydration pack still a bag, full or not.
+    local category=string.lower(tostring((U().call(item,"getCategory"))))
+    local display=string.lower(tostring((U().call(item,"getDisplayCategory"))))
+    if category=="weapon" or category=="container" or display=="cookingweapon" or display=="bag" then return false end
+    return amount>0 or not NOT_WATER_GEAR[display]
 end
 
 function Needs.drinkingContainerWeight(item)

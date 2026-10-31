@@ -99,11 +99,19 @@ function R.request(player,handset)
     return true,receipt and receipt.player==player and receipt.guid==guid and receipt.text or "Grid report requested. Waiting for EMMA's radio reply."
 end
 function R.install()
-    if not R._deviceTextHook and Events and Events.OnDeviceText and type(Events.OnDeviceText.Add)=="function" then
-        R._deviceTextHook=function(...) if SC.GridRadio then SC.GridRadio.onDeviceText(...) end end
-        Events.OnDeviceText.Add(R._deviceTextHook)
-    end
+    if R._deviceTextHook then return true end
+    if not Events or not Events.OnDeviceText then return false,"radio_event_unavailable" end
+    R._deviceTextHook=function(...) if SC.GridRadio then SC.GridRadio.onDeviceText(...) end end
+    Events.OnDeviceText.Add(R._deviceTextHook)
+    return true
 end
+function R.remove()
+    if R._deviceTextHook and Events and Events.OnDeviceText then
+        Events.OnDeviceText.Remove(R._deviceTextHook)
+    end
+    R._deviceTextHook=nil
+    R.reset()
+end
+function R.isInstalled() return R._deviceTextHook~=nil end
 function R.reset() pending,receipt,serial=nil,nil,0 end
-R.install()
 return R

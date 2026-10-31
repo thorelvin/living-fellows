@@ -145,7 +145,11 @@ substation. Place the computer within 40 tiles, power it from the generator,
 then choose **Connect to grid**. The confirmation explains that this computer
 and its mounted hardware stay permanently. Setup takes 30 game minutes.
 The permanent placement starts when you confirm, so pickup and radio changes
-are refused during setup as well.
+are refused during setup as well. If that computer is destroyed before setup
+finishes, the site and its slot free up and a replacement starts over.
+A computer inside a camp keeps its usual screen and menu even within 40 tiles
+of a substation. To connect one, choose **Connect this computer** on its
+LARCH/GRID page; it then works like any other connected machine.
 Once connected, that particular computer runs from the substation controller
 even with the generator stopped. Other nearby equipment receives no free
 power. You can take the generator home.
@@ -160,12 +164,17 @@ the skill. Duration is fixed when that crack starts.
 use a computer or query her. With an equipped, powered two-way walkie-talkie,
 choose **EMMA: Grid report**. A powered, unlocked radio-equipped base computer
 must answer on the same channel within the native two-way range. The report
-refreshes work and returns through real radio reception. Unloaded machines
-use their last known power
-state for fast catch-up. A newly observed outage pauses further progress;
-completed work remains. Moving the cracking computer pauses it, and ordinary
-companions leave that machine alone. Factory reset keeps installed hardware
-and grid work intact.
+refreshes work and returns through real radio reception.
+
+The time since your last look only counts if the cracking computer still has
+power when you next look, so a generator that runs dry costs you that stretch.
+Completed work always remains. A machine outside the loaded area earns nothing
+until you are back near it; if it still has power then, the whole absence
+counts. Moving the cracking computer pauses it, and ordinary companions leave
+that machine alone. If the computer is gone, the site list shows
+**Interrupted**: choose the site from another camp computer and EMMA resumes
+from the saved checkpoint. Factory reset keeps installed hardware and grid work
+intact.
 
 An online controller permits temporary grid power. Starting adds 5% heat.
 From cold, the grid runs for 24 game hours, or 48 with Electrical 8. The page
@@ -173,6 +182,10 @@ shows remaining time and heat; you can switch off early and cool sooner.
 At 100% heat the breaker trips and stays locked until cold. A full cooling
 cycle takes seven game days with one online site. Each additional online
 site reduces that by one day, down to three days at five sites.
+
+EMMA warns at 75% and 90% heat and reports a breaker trip wherever you are.
+Anything you missed is read out at the next computer you use, along with
+crack milestones and other grid news.
 
 The native grid powers buildings, appliances and street lighting. Its native
 shutoff calculation also affects unloaded fridge ageing, so food found during

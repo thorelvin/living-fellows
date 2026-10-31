@@ -9,6 +9,10 @@ function T.near(a,b) return math.abs(a-b)<0.00001 end
 function T.empty(value) for _ in pairs(value) do return false end return true end
 function isClient() return T.client==true end
 function isServer() return false end
+-- Present before any module loads, so a load-time hook would be caught.
+Events={OnDeviceText={Add=function() end,Remove=function() end}}
+T.player={setHaloNote=function(_,text) T.halos[#T.halos+1]=text end}
+function getSpecificPlayer(index) return index==0 and T.player or nil end
 function getSandboxOptions()
     return {getElecShutModifier=function() T.reads=T.reads+1 return T.shut end,
         set=function(_,key,value) assert(key=="ElecShutModifier") T.shut=value T.writes=T.writes+1 end,
@@ -60,6 +64,7 @@ function T.reset(shut)
     T.hours,T.days,T.now,T.shut,T.ids=1000,40,1000,shut or 26,0
     T.bucket,T.tiles,T.crew,T.residents,T.client=nil,{},{},{},false
     T.clocks,T.powerReads,T.squareReads,T.writes,T.reads,T.marked=0,0,0,0,0,0
+    T.halos={}
     if SC.GridControl then SC.GridControl.reset() end
 end
 function T.step(hours) T.hours=T.hours+hours T.now=T.now+hours*3600000 end

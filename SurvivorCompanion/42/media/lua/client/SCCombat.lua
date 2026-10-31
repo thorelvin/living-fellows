@@ -1319,7 +1319,10 @@ local function hasReloadAmmo(inventory, weapon, indexEntry)
     -- failed reload decisions).
     local magType = select(1, utility.call(item, "getMagazineType"))
     magType = magType ~= nil and tostring(magType) or nil
-    local ammoType = select(1, utility.call(item, "getAmmoType"))
+    -- getAmmoType is an AmmoType object. Its tostring is a registry id
+    -- (base:bullets_38); only getItemKey names the item (Base.Bullets38).
+    local ammoObject = utility.call(item, "getAmmoType")
+    local ammoType = utility.call(ammoObject, "getItemKey")
     ammoType = ammoType ~= nil and tostring(ammoType) or nil
     if (magType == nil or magType == "") and (ammoType == nil or ammoType == "") then
         return false
@@ -1335,7 +1338,7 @@ local function hasReloadAmmo(inventory, weapon, indexEntry)
         elseif ammoType and ammoType ~= "" and ammoTypeMatches(candidateType, ammoType) then
             loose = true
         end
-        return false
+        return loose and hasMagazine
     end
     local index = SC.InventoryIndex
     local entry = indexEntry or (index and index.forInventory(inventory))
@@ -1346,6 +1349,8 @@ local function hasReloadAmmo(inventory, weapon, indexEntry)
                 seen[key] = true
                 for _, candidate in ipairs(entry.itemsByType[key] or {}) do
                     if inspect(candidate) then return true end
+                    -- Magazines were scanned first; further rounds change nothing.
+                    if loose then break end
                 end
             end
         end
@@ -1392,9 +1397,7 @@ function Combat.maintainFirearm(actor, item, target)
     end
     local action
     if weapon.jammed or weapon.needsRack then action = "unjam"
-    elseif weapon.ammo <= 0 then
-        if not hasReloadAmmo(U().inventory(actor), weapon) then return false, "no_ammunition" end
-        action = "reload"
+    elseif weapon.ammo <= 0 then action = "reload"
     else return nil, "firearm_ready" end
     local accepted, reason = U().move(actor, "walk", {
         action = action, weapon = item, target = target,

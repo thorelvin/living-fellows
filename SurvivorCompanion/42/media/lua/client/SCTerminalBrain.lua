@@ -1269,7 +1269,7 @@ function H.grid_control(session,reply,turn,world)
         add(reply,grid.crack.label.." is "..string.format("%.1f",grid.crack.percent).."% cracked. "
             ..math.ceil(grid.crack.requiredHours-grid.crack.doneHours).." game hours remain.")
         return add(reply,grid.crack.paused and ("Paused: "..grid.crack.paused)
-            or "Progress uses elapsed game time and the last known supply. No work is lost when power stops.")
+            or "Elapsed time only counts if this computer still has power when you check. Finished progress is never lost.")
     end
     if grid.on then return add(reply,math.ceil(grid.remainingHours or 0).." game hours to the heat limit. Switch off early to shorten cooling.") end
     if grid.locked then return add(reply,"The breaker tripped. Allow "..math.ceil(grid.coolingHours or 0).." game hours to cool completely.") end

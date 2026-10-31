@@ -36,6 +36,8 @@ check(SC.Factions.installs == 1 and SC.FactionContracts.installs == 1
 -- left the global event handler behind.
 check(SC.DiaryUI.isInstalled(),
     "the diary context menu is owned by the bootstrap transaction, not self-installed")
+check(SC.GridRadio.installs == 1,
+    "the grid radio report hook is owned by the bootstrap transaction, not self-installed")
 
 Events.OnGameStart.fire()
 Events.OnGameStart.fire()
@@ -56,7 +58,7 @@ check(removed and removeReason == "" and Events.OnInitGlobalModData.count() == 0
         and not SC.OddballRoomGuard.installed
         and not SC.OddballDistressRadio.installed
         and not SC.CompanionMap.installed and not SC.BaseVisuals.installed
-        and not SC.DiaryUI.installed,
+        and not SC.DiaryUI.installed and not SC.GridRadio.installed,
     "bootstrap removal releases every lifecycle and contract hook")
 check(Events.LoadGridsquare.count()==0 and Events.OnObjectAdded.count()==0,
     "radio load/place callbacks are removed with the bootstrap")

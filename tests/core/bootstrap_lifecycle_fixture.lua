@@ -75,7 +75,7 @@ local required = {
     "ActionSupervisor", "Actor",
     "Persistence", "Vehicle", "Spawn", "GameplayUtil", "Names", "Topology", "PathSearch", "NavTraffic", "NavTraversal",
     "Background", "Dialogue", "Allegiance", "Trade", "FactionLife",
-    "FactionWorld", "FactionBehavior", "OddballRoomGuard", "OddballDistressRadio", "TaxiBooking", "TaxiCab", "TaxiFares", "TaxiService", "Oddballs", "OddballRed", "OddballSpiffo", "OddballWendell", "OddballDeputy",
+    "FactionWorld", "FactionBehavior", "OddballRoomGuard", "OddballDistressRadio", "GridRadio", "TaxiBooking", "TaxiCab", "TaxiFares", "TaxiService", "Oddballs", "OddballRed", "OddballSpiffo", "OddballWendell", "OddballDeputy",
     "OddballSilas", "OddballRusty", "OddballLonnie", "OddballVirgil", "OddballClem", "OddballPurdy",
     "OddballGale", "OddballButch", "OddballCecil", "OddballAnimals", "OddballHollis", "OddballRoom12",
     "OddballJune", "OddballDefenseLeague", "OddballAshby", "OddballSins", "OddballKris", "OddballEbb",
@@ -161,6 +161,18 @@ end
 function SC.OddballDistressRadio.isInstalled()
     return SC.OddballDistressRadio.installed
 end
+SC.GridRadio = { installed = false, installs = 0, removes = 0 }
+function SC.GridRadio.install()
+    if not SC.GridRadio.installed then SC.GridRadio.installs = SC.GridRadio.installs + 1 end
+    SC.GridRadio.installed = true
+    return true
+end
+function SC.GridRadio.remove()
+    if SC.GridRadio.installed then SC.GridRadio.removes = SC.GridRadio.removes + 1 end
+    SC.GridRadio.installed = false
+    return true
+end
+function SC.GridRadio.isInstalled() return SC.GridRadio.installed end
 SC.CompanionMap = { installed = false, installs = 0, removes = 0,
     failRemove = false }
 function SC.CompanionMap.install()

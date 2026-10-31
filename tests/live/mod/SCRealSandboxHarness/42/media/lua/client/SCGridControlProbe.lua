@@ -276,7 +276,7 @@ function Probe.step(H,current,check,result,setPhase)
         for _=1,1000 do G.pulse() end
         check("grid_idle_no_cracking",f.job.doneHours==before,"idle calls do no controller work")
         G.snapshot(home)
-        check("grid_contact_catchup",f.job.doneHours>=f.job.requiredHours*0.4,"query settles last-known-power timestamps")
+        check("grid_contact_catchup",f.job.doneHours>=f.job.requiredHours*0.4,"query settles elapsed time on a computer that still has power")
         showGrid(H,SC,home)
         setPhase("grid_control_crack_photo",current) return
     end

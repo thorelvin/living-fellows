@@ -9,10 +9,22 @@
   mounted hardware stay at the site; the bound controller then powers that
   computer itself.
 - Crack each linked controller from a powered base computer. Every site needs
-  its own three-to-five-day crack. Progress uses timestamps and the last known
-  power state, settling when you use a computer or contact EMMA. Outages pause
-  progress without deleting completed work. There is no background cracking
-  service or idle computer survey.
+  its own three-to-five-day crack. Progress settles when you use a computer or
+  contact EMMA, and the time since your last look only counts if the cracking
+  computer still has power then, so keep the generator fuelled. Outages never
+  delete finished progress. There is no background cracking service or idle
+  computer survey.
+- Losing a computer mid-job no longer locks a substation. A site being connected
+  frees itself and its slot, and a lost crack can be resumed from another camp
+  computer with its progress intact.
+- EMMA reports heat warnings, breaker trips and crack milestones wherever you
+  are, and reads out anything you missed at the next computer you use. A notice
+  can no longer replace a Y/N question on the grid page.
+- A camp computer near a substation keeps its usual screen and menu, and offers
+  the connection from LARCH/GRID. Only yard computers and connected machines
+  switch to the Knox Valley Power screen.
+- If an interrupted save separates a grid lease from EMMA's records, she stands
+  aside only until that lease runs out, then takes the controls back herself.
 - LARCH/GRID appears under Local services on ordinary computers. Review site
   status, mark the next substation, and confirm grid starts and early stops.
   Heat permits 24 hours from cold, or 48 with Electrical 8. More online sites
@@ -28,6 +40,8 @@
 - Recognizes small clean-water and refillable containers beyond the usual
   bottle names. Drinking, restocking and surplus sorting prefer lighter
   containers, comparing their empty weight rather than their water load.
+  Empty pots, mugs, cans, cleaning bottles and keepsakes keep their usual
+  shelves and don't count as water gear; a saucepan stays a weapon.
 - Exhausted boarding retries recover after a three-minute pause, a new Follow
   order or a changed parking position. Waiting companions stay with the car;
   failure reports now include the actual boarding reason.
@@ -36,13 +50,16 @@
   companions use a ready melee backup instead of stopping to reload or unjam.
 - Firearms need real compatible ammunition and magazines. Empty or broken guns
   and stale inventory references no longer hide useful carried alternatives.
+  Companions reload revolvers, shotguns and empty magazines from loose rounds,
+  and expedition restocks recognize a gun's loose ammunition.
 - Followers ready better carried weapons before combat, while base workers
   keep their usable tools. Explicit equipment choices remain respected until
   the player changes weapon priority, including group orders.
 - Ordinary scavenging avoids unusable weapons, and surplus handling preserves
   a usable weapon even when broken or empty extras fill the loadout quota.
-- Uses native bridge protocol `42.21-isocompanion-24` on Project Zomboid 42.21.0.
-  Ship the rebuilt native bridge together with the Lua changes.
+- Uses native bridge protocol `42.21-isocompanion-25` on Project Zomboid 42.21.0.
+  The fatigue change lives in the bridge, so a stale copy is now refused instead
+  of silently keeping the old rate. Ship the rebuilt bridge with the Lua changes.
 
 ## 0.26.82 - Reliable beds and backup sleep places
 

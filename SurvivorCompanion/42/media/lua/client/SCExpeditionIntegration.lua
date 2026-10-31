@@ -1167,7 +1167,8 @@ local function safeSupply(item, category, actor)
         weapon = call(actor, "getSecondaryHandItem")
     end
     if not weapon or call(weapon, "isRanged") ~= true then return false end
-    local ammo = call(weapon, "getAmmoType")
+    -- getAmmoType is an AmmoType object; getItemKey names the item it loads.
+    local ammo = call(call(weapon, "getAmmoType"), "getItemKey")
     local magazine = call(weapon, "getMagazineType")
     local itemType = U().itemType(item)
     if magazine and magazine ~= "" and itemType == magazine then

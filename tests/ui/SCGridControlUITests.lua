@@ -116,4 +116,90 @@ check(table.concat(drawn," "):find("COOLING: 7d 0h",1,true)~=nil,
     "small viewport retains the tripped breaker's restart wait")
 w.viewTop,w.viewBottom,w.drawText=oldTop,oldBottom,oldDraw
 w:cancelRequest() w:close()
+
+-- A camp computer beside a substation keeps its screen; it connects from the grid page.
+player.x,player.y=14780.5,4080.5
+local beside=T.computer(T.square(14780,4080,0,true)) beside.home=true
+beside.hardware={on=true,generation=0,radio={id=7}}
+SC.Terminal.computerState(player,beside).locked=false
+check(SC.Terminal.open(player,beside),"open a camp computer beside a substation")
+w=SC.Terminal.window w:flush()
+check(w.gridSite==nil and w.brand~="KnoxValleyPower","a camp computer near a substation keeps its header")
+local yardOnly=false
+for _,row in ipairs(w:menuOptions()) do if row.gridAction=="connect" then yardOnly=true end end
+check(not yardOnly and w:menuOptions()[1].label~="Substation status","its home menu is the ordinary one")
+UI.open(w) UI.update(w,T.now+3000)
+local first=UI.options(w)[1]
+check(first.gridAction=="connect" and #UI.options(w)<=5,"the grid page offers the connection within five shortcuts")
+check(UI.input(w,"",first) and w.requestTicket~=nil,"choosing it asks for confirmation")
+
+-- A notice arriving during that question must not replace it.
+local function screen()
+    local rows={}
+    local oldTop,oldBottom,oldDraw=w.viewTop,w.viewBottom,w.drawText
+    w.viewTop=function() return 0 end w.viewBottom=function() return w.rowHeight*12 end
+    w.drawText=function(_,value) rows[#rows+1]=value end
+    UI.draw(w,T.now)
+    w.viewTop,w.viewBottom,w.drawText=oldTop,oldBottom,oldDraw
+    return table.concat(rows," ")
+end
+check(screen():find("Permanently connect",1,true)~=nil,"the question is on screen")
+bucket.unread={"Grid heat 75%. Switch off early to shorten the cooling wait."}
+UI.update(w,T.now+5000)
+check(screen():find("Permanently connect",1,true)~=nil and screen():find("Grid heat",1,true)==nil,
+    "a notice during a confirmation leaves the question on screen")
+check(w.gridNotice:find("Grid heat 75",1,true)==1,"that notice is kept for the status line")
+w.entry:setText("n") w:submit() w:flush()
+check(w.requestTicket==nil and beside.data.movableData[G.CONNECT_KEY]==nil,"declining still changes nothing")
+
+-- Notices reach any open page, not only LARCH/GRID.
+UI.back(w) w.menuPage=nil
+check(not UI.active(w),"back on the home menu")
+local before_rows=#w.rows
+bucket.unread={"The grid breaker tripped. It must cool completely before restart."}
+UI.update(w,T.now+6000)
+local printed=false
+for index=before_rows+1,#w.rows do
+    if tostring(w.rows[index].text):find("breaker tripped",1,true) then printed=true end
+end
+check(printed,"EMMA reads the warning out on the home screen")
+check(#G.takeNotices()==0,"it is read out once")
+
+-- The site list offers a lost machine's crack instead of refusing it.
+local realPrepare=SC.TerminalActions.prepare
+local proposed=0
+SC.TerminalActions.prepare=function() proposed=proposed+1 return nil,"stubbed" end
+local lostRow={id="muldraugh",label="Muldraugh",linked=true,crack={lost=true,doneHours=30,requiredHours=120}}
+w.gridSnapshot={visible=true,sites={lostRow}}
+w.gridPage="sites" w.gridOffset=0
+check(UI.options(w)[1].label=="Muldraugh / Interrupted","the site list names an interrupted crack")
+UI.input(w,"",{gridAction="site",gridValue="muldraugh"})
+check(proposed==1,"choosing it offers to resume")
+lostRow.crack.lost=nil
+check(UI.options(w)[1].label=="Muldraugh / Cracking","a working crack still reads as cracking")
+UI.input(w,"",{gridAction="site",gridValue="muldraugh"})
+check(proposed==1,"a working crack is left to its own computer")
+SC.TerminalActions.prepare=realPrepare
+w.gridPage=nil
+w:close()
+
+-- Pinning a computer must not freeze other things on its tile.
+local oldProps,oldHook=ISMoveableSpriteProps,SC.Terminal._moveHook
+ISMoveableSpriteProps={spriteName="lamp",pickUpMoveableInternal=function() end,
+    canPickUpMoveable=function() return true end,
+    findOnSquare=function(_,square,name)
+        for _,object in ipairs(square.objects) do if object.sprite==name then return object end end
+    end}
+SC.Terminal._moveHook=nil
+check(SC.Terminal.installMoveHook(),"the pickup check installs")
+local lamp={sprite="lamp"}
+pc.sprite="computer" pc.square.objects[#pc.square.objects+1]=lamp
+check(G.pinned(pc),"the fixture computer is pinned")
+local props=ISMoveableSpriteProps
+check(props:canPickUpMoveable(player,pc.square,nil)==true,"a wall item on a pinned computer's tile can still move")
+check(props:canPickUpMoveable(player,pc.square,lamp)==true,"so can furniture beside it")
+check(props:canPickUpMoveable(player,pc.square,pc)==false,"the pinned computer cannot")
+props.spriteName="computer"
+check(props:canPickUpMoveable(player,pc.square,nil)==false,"the pinned computer cannot, even with no object given")
+ISMoveableSpriteProps,SC.Terminal._moveHook=oldProps,oldHook
 SC_TEST_REPORT="GRID_UI_PASS checks="..(T.checks-before)

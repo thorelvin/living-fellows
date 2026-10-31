@@ -9,8 +9,10 @@ Project Zomboid 42.21.0 single-player. The acceptance runs below began during
 The original grid acceptance used bridge protocol `42.21-isocompanion-24`, SHA-256
 `2a325b578aa70d6899a9a3b52632311ab9c48a79d377ece6ab519abdcd702487`.
 The subsequent companion-care changes rebuild the bridge with half-rate awake
-fatigue; the current payload uses the same protocol and SHA-256
+fatigue; that payload used the same protocol and SHA-256
 `9733da8faa27d782cd8a679acb37df458e3fcc52b44b32f08e25e7f72be60efe`.
+The review corrections at the end of this record move the shipped bridge to
+protocol `42.21-isocompanion-25`.
 
 ## 0.26.84 release verification
 
@@ -105,11 +107,12 @@ run cover both corrections.
 
 ## Limits and retained behaviour
 
-The player selected **last-known-power catch-up**. An unloaded generator's exact
-fuel-exhaustion time is not reconstructed. A newly observed outage pauses
-further progress, completed progress stays saved, and moving/removing the source
-explicitly pauses it. The duration is fixed at crack start using the player or
-the best living resident of the active camp.
+The time since the last look counts only if the cracking computer still has
+power at the next look. This replaces the original last-known-power catch-up;
+see the review corrections below. An unloaded generator's exact fuel-exhaustion
+time is not reconstructed. Completed progress stays saved, and moving/removing
+the source explicitly pauses it. The duration is fixed at crack start using the
+player or the best living resident of the active camp.
 
 Native shutoff changes also influence unloaded fridge ageing, so food first
 loaded during a restored-power window can be fresher. This is the retained
@@ -221,3 +224,61 @@ character-depth persistence and both packages. Evidence is recorded in
 `build/weapon-hardening/project-gate-final.txt`. `git diff --check` and release
 synchronization also passed. The companion-care bridge payload remains
 `9733da8faa27d782cd8a679acb37df458e3fcc52b44b32f08e25e7f72be60efe`.
+
+## Review corrections, 31 October
+
+A review of `d107d2fb` found the problems below. They are corrected in this
+release, before any upload, so the version stays 0.26.84.
+
+| Finding | Correction |
+| --- | --- |
+| Empty revolvers and shotguns with loose rounds read as unusable, because `getAmmoType` is an object whose text is `base:bullets_38`, never `Base.Bullets38`. Fixtures hid it with plain strings. | Compare `getItemKey`, and make the fixtures return an object. Expedition restocks had the same comparison. |
+| Empty pots, mugs, cans, cleaning bottles and keepsakes counted as water gear. | Their engine display category keeps them out while empty. Clean water in one still counts. A saucepan stays a weapon and a hydration pack stays a bag, full or empty. |
+| A computer destroyed during setup kept its site and slot forever. | A machine proven gone releases both. An unloaded one is not assumed gone. |
+| A lost cracking computer blocked its site forever. | Another camp computer can resume from the saved checkpoint, keeping progress and duration. |
+| A crack could finish with no power at all. | Time counts only with power at both looks. An unloaded machine's clock waits until it can be seen. |
+| Heat warnings, breaker trips and milestones only reached an open grid page, and were lost on reload while their flags were saved. | They are saved, shown at once, and read out at the next computer. |
+| A notice could replace a Y/N question while Y still ran it. | The question is held apart from status notices. |
+| A lease in `map_sand.bin` with older ModData stood EMMA down forever. | Once such a lease has expired she takes the controls back. A live or future value is still left alone. |
+| A camp computer within 40 tiles lost its normal menu. | Only yard computers and connected machines change. A camp computer connects from its LARCH/GRID page. |
+| Any moveable on a pinned computer's tile could be refused when vanilla passed no object. | The check asks vanilla's own lookup what the sprite is. |
+| The grid radio installed its event at file load. | It belongs to the bootstrap transaction, with removal and rollback. |
+| `Test-GridNegativeControls.ps1` failed under Windows PowerShell 5.1 on a mutant's expected stderr. | Stderr is captured without a terminating error. Shipped code was not affected. |
+| A stale bridge silently kept the old fatigue rate. | Protocol `42.21-isocompanion-25`, so a stale copy is refused. |
+
+The current payload's SHA-256 is
+`ceebc3cbd6ffdf45a7befebaf2194d3ae4dffc04569e3f9af2710dc81e44acd1`.
+
+### Checks
+
+The full gate passes **29 of 29 stages** from `powershell`, the Windows
+PowerShell 5.1 command that failed before. Grid state now has **196 checks**,
+the radio **41** and the grid page **55**. The gate's negative controls grew from
+8 to **18**. Eleven more were run by hand, one per fix outside that script: ammo
+object, expedition ammo, empty vessels, weapons and bags, prompt, read-out,
+interrupted site, camp connection row, camp screen, pickup and radio load hook.
+All 29 went red on their intended assertion, and the files were restored by hash.
+
+One older gameplay check had passed by chance: its recognition roll hashes a
+fixture zombie's address, so unrelated changes could turn the threat callout into
+a recognition line. The roll is now pinned inside that check.
+
+### Live runs
+
+All used separate save copies, `-NoSteam`, `-LivingFellowsOnly` and an isolated
+source bridge at protocol 25.
+
+| Run | Result | Evidence |
+| --- | --- | --- |
+| `SC-Harness-20261031-104320-088e96aa` | 55 checks, 0 fail | Real guns and rounds: an empty revolver, shotgun and magazine read correctly with and without rounds, and `maintainFirearm` really reloaded a revolver (5 loaded, 12 loose rounds down to 7). Eleven real non-gear vessels and five real water vessels classified as intended. Real computers were destroyed mid-setup and mid-crack; replacements linked and resumed at the saved 30 hours. Power at contact, the heat halo, the read-out, the held question and lease recovery all behaved. |
+| `SC-Harness-20261031-104505-2c3d05ec` | 47 pass, 0 fail, 0 skip | The existing grid acceptance with the real ambient manager: all seven sites, physical setup, pinned pickup, native radio receipt, idle cost, restored power and breaker trip. Grid-only idle callback p95 was 0.002000 ms. |
+
+Screenshots were inspected for the heat halo, the read-out on the camp home
+screen, the held question and the five-row grid page.
+
+These runs do not cover a companion reloading in an actual fight; the reload was
+requested directly with decisions stopped. Time was advanced through task
+timestamps, so a generator running dry over real days has not been played. No
+real camp sits within 40 tiles of a substation in the test save, so that screen
+was checked by marking one computer as inside a camp, with an unmarked control
+on the same tile getting the substation screen.

@@ -330,7 +330,7 @@ SC.BaseWork.withdrawFromStorage = function(actor, state, storage,
 end
 a.getPrimaryHandItem = function() return {
     isRanged = function() return true end,
-    getAmmoType = function() return "Base.Bullets9mm" end,
+    getAmmoType = function() return { getItemKey = function() return "Base.Bullets9mm" end } end,
 } end
 T.minimums = { food = 0, water = 0, medicine = 0, ammunition = 1 }
 mission.radioSession = "trip:ammo"
