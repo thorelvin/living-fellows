@@ -789,6 +789,28 @@
         647
       ],
       "transparent_fraction": 0.6306
+    },
+    {
+      "id": "KnoxValleyPower",
+      "generator": "built-in image_gen",
+      "reference": null,
+      "prompt": "Create an original flat monochrome utility-company UI wordmark: KNOX VALLEY POWER. Use case logo-brand, fictional 1993 Kentucky utility, transparent PNG for a CRT header. Exact text KNOX VALLEY POWER. Composition: wide horizontal 4:1 overall lockup, simple compact electricity pylon with lightning bolt on left occupying 18% of width, clean geometric capital lettering on the right, KNOX VALLEY above POWER, entire mark with ample clear transparent margin on all four sides, especially right. EVERY letter entirely inside canvas. Pure solid ivory/white ink only; true transparent background and transparent counters. Crisp smooth clean edges, simple broad strokes readable at 210x55. Absolutely NO distressing, noise, grain, speckles, grunge, texture, thin black outlines, aged ink, glow, shadow, background panel, colour accents, realistic signage or photographs. Clean professional software logo, not distressed artwork.",
+      "generated_source": "exec-ec5b94cd-124f-4048-a48f-36f8455e300e.png",
+      "file": "SurvivorCompanion/42/media/textures/Terminal/KnoxValleyPower.png",
+      "transparent_background": true,
+      "pixel_processing": "None. Source copied unchanged; native renderer uses alpha bounds and phosphor tint.",
+      "sha256": "6531e703e92f98f02e2a09769ad939cbb988a66a5b3b63e6fc830d61092881c6",
+      "size": [
+        1983,
+        793
+      ],
+      "alpha_bounds": [
+        57,
+        9,
+        1892,
+        793
+      ],
+      "transparent_fraction": 0.5846
     }
   ]
 }

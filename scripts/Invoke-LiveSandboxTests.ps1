@@ -24,6 +24,7 @@ param(
     # permanent path-stall hold, then require it to descend and resume travel.
     [switch]$ObserveInboundReturnFault,
     [switch]$HiddenWindow,
+    [switch]$EngineSound,
     # Launch through the user's Steam client when a direct executable launch
     # cannot initialize SteamAPI. The direct path remains the default.
     [switch]$SteamLaunch,
@@ -226,6 +227,9 @@ param(
     [switch]$FurniturePoseOnly,
     [switch]$SleepProbe,
     [switch]$FirestationRestProbe,
+    [switch]$GridControlProbe,
+    [switch]$GridControlStage,
+    [switch]$GridControlResume,
     [switch]$FirestationRestGroup,
     [ValidateRange(1, 5)][int]$FirestationRestFirstTrial = 1,
     [switch]$VehiclePassengerOnly,
@@ -1294,6 +1298,12 @@ if ($BarricadeHardening -and -not $BarricadeProbe) {
 if ($FirestationRestGroup -and -not $FirestationRestProbe) {
     throw '-FirestationRestGroup requires -FirestationRestProbe.'
 }
+if (($GridControlStage -or $GridControlResume) -and -not $GridControlProbe) {
+    throw 'Grid stage/resume requires -GridControlProbe.'
+}
+if ($GridControlStage -and $GridControlResume) { throw 'Choose grid stage or resume, not both.' }
+if ($GridControlResume -and [string]::IsNullOrWhiteSpace($SeedSave)) { throw 'Grid resume requires the retained -SeedSave.' }
+if ($GridControlProbe -and -not $EngineSound) { throw 'Grid control acceptance requires -EngineSound for the real AmbientStreamManager.' }
 if ($BarricadeMatrixOnly -and -not $BarricadeHardening) {
     throw '-BarricadeMatrixOnly requires -BarricadeHardening.'
 }
@@ -1446,6 +1456,16 @@ foreach ($name in @('options.ini', 'options2.bin', 'debuglog.ini', 'keysB42.ini'
     if (Test-Path -LiteralPath $source -PathType Leaf) {
         Copy-Item -LiteralPath $source -Destination (Join-Path $CacheRoot $name)
     }
+}
+if ($EngineSound) {
+    # Exercise the real AmbientStreamManager while muting this clone only.
+    $copiedOptions = Join-Path $CacheRoot 'options.ini'
+    $optionsLines = if (Test-Path -LiteralPath $copiedOptions) { @(Get-Content -LiteralPath $copiedOptions) } else { @() }
+    foreach ($volumeKey in @('ambientVolume','musicVolume','soundVolume','vehicleEngineVolume','jumpScareVolume')) {
+        $optionsLines = @($optionsLines | Where-Object { $_ -notmatch ('^' + [regex]::Escape($volumeKey) + '=') })
+        $optionsLines += ($volumeKey + '=0')
+    }
+    Set-Content -LiteralPath $copiedOptions -Value $optionsLines -Encoding utf8
 }
 $bindings = Join-Path $UserCache 'InputBindings'
 if (Test-Path -LiteralPath $bindings -PathType Container) {
@@ -1945,6 +1965,9 @@ $config = @(
     ('furniture_pose_only=' + $FurniturePoseOnly.IsPresent.ToString().ToLowerInvariant()),
     ('sleep_probe=' + $SleepProbe.IsPresent.ToString().ToLowerInvariant()),
     ('firestation_rest_probe=' + $FirestationRestProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('grid_control_probe=' + $GridControlProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('grid_control_stage=' + $GridControlStage.IsPresent.ToString().ToLowerInvariant()),
+    ('grid_control_resume=' + $GridControlResume.IsPresent.ToString().ToLowerInvariant()),
     ('firestation_rest_group=' + $FirestationRestGroup.IsPresent.ToString().ToLowerInvariant()),
     ('firestation_rest_first_trial=' + $FirestationRestFirstTrial),
     ('vehicle_passenger_only=' + $VehiclePassengerOnly.IsPresent.ToString().ToLowerInvariant()),
@@ -2097,6 +2120,7 @@ if ($PrepareOnly) {
 }
 
 $argumentLine = '-cachedir="' + $CacheRoot + '" -nosound -novoip -debuglog=+General,+Lua'
+if ($EngineSound) { $argumentLine = $argumentLine.Replace(' -nosound','') }
 if ($ViewCutawayProbe -or $SplitScreenOnly -or
     ($WoodExpeditionProbe -and $WoodExpeditionCrewSize -eq 3)) { $argumentLine += ' -debug' }
 if ($NoSteam) { $argumentLine += ' -nosteam' }

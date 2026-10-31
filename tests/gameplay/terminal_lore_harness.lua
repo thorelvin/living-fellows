@@ -38,7 +38,7 @@ for _,entry in ipairs(Lore.REFERENCE) do
     check(not refIds[entry.id] and Lore.reference(entry.id)==entry,"reference identity invalid") refIds[entry.id]=true
     check(#entry.text<1024 and entry.text:find("[^\032-\126]")==nil,"reference file exceeds text contract")
 end
-check(#Lore.REFERENCE==150 and Lore.reference("not-a-file")==nil,"local reference catalog incomplete")
+check(#Lore.REFERENCE==151 and Lore.reference("ops_grid")~=nil and Lore.reference("not-a-file")==nil,"local reference catalog incomplete")
 for room,kind in pairs({office_herald="media",jackiejayeoffice="media",gigamart="grocery",medclinic="clinic",
     schoollab="education",universitylibrary="education",laboratory="research",radiofactory="industry",
     pharmacy="pharmacy",motelreception="hotel",pawnshopoffice="retail",kidsbedroom="home",

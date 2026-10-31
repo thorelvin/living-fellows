@@ -1267,6 +1267,7 @@ local function registerTasks()
             current=tonumber(current) or nowMs()
             local budget=backgroundBudget(remaining)
             if SC.TerminalHardware then SC.TerminalHardware.pulse() end
+            if SC.GridControl then SC.GridControl.pulse() end
             if current-generatorPulseAt>=1000 or current<generatorPulseAt then
                 generatorPulseAt=current
                 if SC.GeneratorServices then SC.GeneratorServices.pulse() end

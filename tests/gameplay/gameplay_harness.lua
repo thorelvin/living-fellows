@@ -1154,9 +1154,11 @@ do
         adapter.relationship = function(candidate) return candidate == banditNpc and "hostile" or "neutral" end
         doctrine = "weapons_free"
         local savedPrimary, savedRange = closeCompanion.getPrimaryHandItem, SC.Combat.meleeRange
+        local laneWeapons={}
         SC.Combat.meleeRange = function() return 0, 10 end
         for _, ranged in ipairs({ false, true }) do
             local weapon = item(ranged and "Base.Pistol" or "Base.Crowbar", "Weapon", { ranged = ranged, ammo = 15 })
+            closeCompanion.inventory:AddItem(weapon) laneWeapons[#laneWeapons+1]=weapon
             closeCompanion.getPrimaryHandItem = function() return weapon end
             local laneHandled, laneReason = SC.FactionBehavior.updateHumanCombat(closeCompanion, nil, {}, human, {
                 protectedActors = { { actor = bystander, relationship = "neutral" } },
@@ -1168,7 +1170,7 @@ do
         local held, heldReason = SC.FactionBehavior.updateHumanCombat(closeCompanion, nil, {}, human, {})
         check(not held and heldReason == "hold_fire",
             "Hold Fire blocks a loaded firearm against a hostile human even with Weapons Free doctrine")
-        closeCompanion.getPrimaryHandItem = function() return item("Base.Crowbar", "Weapon") end
+        closeCompanion.getPrimaryHandItem = function() return laneWeapons[1] end
         local meleeHeld, meleeReason = SC.FactionBehavior.updateHumanCombat(closeCompanion, nil, {}, human, {
             protectedActors = { { actor = bystander, relationship = "neutral" } },
         })
@@ -1179,12 +1181,13 @@ do
         SC.GameplayUtil.move = function(_, _, intent) defense = intent.action return true, intent.action end
         banditNpc.getX = function() return closeCompanion:getX() + 0.8 end
         banditNpc.getY = function() return closeCompanion:getY() end
-        closeCompanion.getPrimaryHandItem = function() return item("Base.Pistol", "Weapon", { ranged = true, ammo = 15 }) end
+        closeCompanion.getPrimaryHandItem = function() return laneWeapons[2] end
         local closeHeld = SC.FactionBehavior.updateHumanCombat(closeCompanion, nil, {}, human, {})
         check(closeHeld and defense == "shove",
             "a companion holding a loaded gun can still shove an immediate human attacker under Hold Fire")
         SC.GameplayUtil.move, banditNpc.getX, banditNpc.getY = oldMove, oldX, oldY
         closeCompanion.getPrimaryHandItem, SC.Combat.meleeRange = savedPrimary, savedRange
+        for _,weapon in ipairs(laneWeapons) do closeCompanion.inventory:Remove(weapon) end
         for index = #bystander.square.moving, 1, -1 do
             if bystander.square.moving[index] == bystander then table.remove(bystander.square.moving, index) end
         end
@@ -7923,6 +7926,9 @@ do
     index.release(fighter)
 end
 
+SC_WEAPON_SELECTION_REGRESSIONS({ check = check, actor = actor, item = item,
+    inventory = inventory, registry = registry, player = player, zombie = zombie })
+
 -- Command acceptance stages dialogue; a reply is spoken only after positioning
 -- reaches the same 1.2-2.8 tile ring used during ordinary decisions.
 function finishPendingConversation(subject, partner)
@@ -8316,6 +8322,8 @@ do
                 and intent.arrivalDistance == 0.15
                 and intent.supervisorToken ~= nil,
             "vehicle approach keeps ownership and offers alternate door tiles")
+        check(intent.supervisorToken.metadata.commandSerial==SurvivorCompanion.Commands.peek(carActor).commandSerial,
+            "automatic boarding carries the real Follow command serial into retry ownership")
         for _, target in ipairs(targets) do
             check(target ~= blockedDoorTile and target:isFree()
                     and car:getEnterSeatDistance(1,
@@ -8352,6 +8360,12 @@ do
     local commands = SurvivorCompanion.Commands.peek(carActor)
     local quiet = { threats = {}, threatCount = 0, immediateCount = 0,
         pressure = 0, escapeSquares = {}, allies = {}, player = { danger = 0 } }
+    local oldBeginBoarding=SurvivorCompanion.Vehicle.beginBoarding
+    SurvivorCompanion.Vehicle.beginBoarding=function() return nil,"retry_exhausted" end
+    local waiting,retryStatus=SurvivorCompanion.Decision._doFollowForTests(carActor,player,{},commands,quiet)
+    check(waiting and retryStatus=="waiting_to_retry_vehicle_boarding" and approachCalls==0
+        and carActor:getVehicle()==nil,"boarding cooldown waits beside the car instead of falling through to scavenging")
+    SurvivorCompanion.Vehicle.beginBoarding=oldBeginBoarding
     local approachedByFollow, approachStatus = SurvivorCompanion.Decision._doFollowForTests(
         carActor, player, {}, commands, quiet)
     local boardedByFollow, boardStatus = SurvivorCompanion.Decision._doFollowForTests(
@@ -12648,7 +12662,7 @@ registry[wrongReloader.id] = nil
     clock = swapClock
 
     local jammedRifle = item("Base.JammedRifle", "Weapon", {
-        ranged = true, damage = 2, range = 10, ammo = 0, maxAmmo = 5,
+        ranged = true, damage = 2, range = 10, ammo = 1, maxAmmo = 5,
         jammed = true, condition = 10, conditionMax = 10,
     })
     local jamAxe = item("Base.JamFallbackAxe", "Weapon", {
@@ -12659,11 +12673,11 @@ registry[wrongReloader.id] = nil
     })
     jamActor.primary = jammedRifle
     rangedDoctrine(jamActor)
-    local jamZed = zombie(9, -6, { attacking = true, target = jamActor })
+    local jamZed = zombie(13, -6, { attacking = true, target = jamActor })
     local jamHandled = SurvivorCompanion.Combat.update(
-        jamActor, player, { snapshot = combatSnapshot(jamZed) })
+        jamActor, player, { snapshot = combatSnapshot(jamZed,25) })
     check(jamHandled and jamActor.lastIntent.action == "unjam",
-        "a jammed firearm remains operational so combat can clear the jam; got "
+        "a loaded jammed firearm can be recovered at a safe distance; got "
             .. tostring(jamActor.lastIntent and jamActor.lastIntent.action))
 
     local loneDryRifle = item("Base.LoneDryRifle", "Weapon", {
@@ -18404,6 +18418,46 @@ do
     SurvivorCompanion.BaseLife.isInside = previousInside
     SurvivorCompanion.Needs.reset(carrier)
     registry[carrier.id] = nil
+    function SurvivorCompanion.__waterContainerPolicyTests()
+        local SC=SurvivorCompanion
+        local light=item("Mod.LightJug","Item",{weight=1.4,fluidContainer=fluid(1,true)})
+        local heavy=item("Mod.MetalThermos","Item",{weight=.4,fluidContainer=fluid(.2,true)})
+        local empty=item("Mod.TravelCup","Item",{weight=.2,fluidContainer=fluid(0,true)})
+        function light:getScriptItem() return {getWeightEmpty=function() return .1 end} end
+        function heavy:getScriptItem() return {getWeightEmpty=function() return .4 end} end
+        check(SC.Logistics.itemCategory(light)=="water" and SC.Logistics.itemCategory(heavy)=="water"
+            and SC.Logistics.itemCategory(empty)=="water",
+            "clean and empty refillable vessels count as water gear without plastic-bottle names or tags")
+        check(SC.BaseWork.classifyItem(empty)=="water" and SC.BaseWork.classifyItem(heavy)=="water",
+            "base sorting uses the same generic drinking-container classification as personal gear")
+        check(SC.Needs.isSafeWaterItem(heavy) and not SC.Needs.isSafeWaterItem(unsafe)
+            and not SC.Needs.isDrinkingContainer(fuelOnly),
+            "generic container support retains tainted-water and incompatible-fluid refusals")
+        local big=fluid(1,true) function big:getCapacity() return 5 end
+        check(not SC.Needs.isDrinkingContainer(item("Mod.Bucket","Item",{fluidContainer=big})),
+            "bulk hauling vessels do not become personal drinking gear")
+        local chooser=actor("sc-light-container-policy",43,23,{inventory=inventory({heavy,light,empty})})
+        registry[chooser.id]=chooser chooser.thirst=.8 chooser.hunger=0
+        local originalInside=SC.BaseLife.isInside SC.BaseLife.isInside=function() return false end
+        SC.Needs.assess(chooser,safe)
+        check(SC.Needs.update(chooser,player,safe) and chooser.lastIntent and chooser.lastIntent.item==light,
+            "drinking prefers the lighter shell even when the heavier vessel holds less water")
+        local audit=SC.Logistics.audit(chooser)
+        audit.profile={target={water=1},keep={water=1}}
+        local surplus=SC.Logistics.selectSurplus(chooser,audit,function(candidate) return candidate==empty end)
+        check(surplus and surplus.item==heavy,"water surplus shelves the heavier shell instead of the fuller light bottle")
+        surplus=SC.Logistics.selectSurplus(chooser,audit)
+        check(surplus and surplus.item==empty,"surplus sheds empty vessels before the remaining safe drinking water")
+        chooser.inventory=inventory()
+        check(SC.Logistics.itemNeedScore(chooser,light,{})>SC.Logistics.itemNeedScore(chooser,heavy,{}),
+            "equally safe water candidates prefer the lighter container when restocking")
+        check(SC.Logistics.itemNeedScore(chooser,light,{})>SC.Logistics.itemNeedScore(chooser,empty,{}),
+            "an empty light cup cannot outrank potable water for a thirsty companion")
+        SC.BaseLife.isInside=originalInside SC.Needs.reset(chooser) registry[chooser.id]=nil
+        for index,member in ipairs(chooser.square.moving) do if member==chooser then table.remove(chooser.square.moving,index) break end end
+    end
+    SurvivorCompanion.__waterContainerPolicyTests()
+    SurvivorCompanion.__waterContainerPolicyTests=nil
 end
 
 do
@@ -23227,6 +23281,7 @@ do
     local hostileCleaver = item("Base.MeatCleaver", "Weapon", {
         damage = 1.6, range = 1.0, minRange = 0.61, sharpness = 1,
     })
+    residentOne.inventory:AddItem(hostileCleaver)
     residentOne.primary = hostileCleaver
     residentOne.square = cell:getGridSquare(3, 1, 0)
     residentOne.worldX, residentOne.worldY, residentOne.lastIntent = nil, nil, nil
@@ -23252,6 +23307,7 @@ do
     residentOne.worldX, residentOne.worldY = nil, nil
     residentOne.square = cell:getGridSquare(2, 2, 0)
     residentOne.primary = nil
+    residentOne.inventory:Remove(hostileCleaver)
 end
 do
     local factionWalker = zombie(3, 2)
@@ -31602,4 +31658,5 @@ SurvivorCompanion.__testDelegateReleasesCorpseDrag = nil
             .. tostring(whileVoiced) .. "/" .. tostring(warned))
 end)()
 
-print("Gameplay harness PASS: " .. tostring(checks) .. " checks")
+print("Gameplay harness PASS: " .. tostring(checks) .. " checks; weapon selection: "
+    .. tostring(SC_WEAPON_SELECTION_CHECKS) .. " checks")

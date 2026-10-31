@@ -96,6 +96,7 @@ B.CROPS = {
     ["KnoxDistillery"] = { 0, 0, 710, 321 },
     ["KnoxPackKitchens"] = { 0, 0, 680, 269 },
     ["KnoxTalkRadio"] = { 0, 0, 709, 263 },
+    ["KnoxValleyPower"] = { 126, 155, 1763, 504 },
     ["LBMWNetwork"] = { 0, 0, 710, 257 },
     ["LST"] = { 142, 327, 1498, 201 },
     ["LaVieEnGastronomie"] = { 0, 0, 710, 171 },

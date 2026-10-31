@@ -28,6 +28,7 @@ $FarmCorridorLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\cl
 $WaterSourceLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCWaterSourceProbe.lua'
 $UpstairsHaulLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCUpstairsHaulProbe.lua'
 $FirestationRestLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCFirestationRestProbe.lua'
+$GridControlLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCGridControlProbe.lua'
 $FloorSortLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCFloorSortProbe.lua'
 $BaseAlertLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCBaseAlertProbe.lua'
 $BarricadeLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCBarricadeProbe.lua'
@@ -60,7 +61,7 @@ try {
     try {
         & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $Lua $DrivingLua $FollowRoadLua $FacingLua $SixSeatLua $SquadCombatLua $FarmCorridorLua $WaterSourceLua $UpstairsHaulLua $FirestationRestLua $FloorSortLua $BaseAlertLua $BarricadeLua $ViewCutawayLua $NormalKitchenLua $WoodExpeditionLua $BanditsAdapterLua $BanditsCombatLua
         if ($LASTEXITCODE -ne 0) { throw 'Live harness Kahlua compilation failed.' }
-        & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $BanditsCloseLua $BanditsLifecycleLua $BanditsArmorLua $BanditsVehicleLua $BanditsLaneLua $BanditsVehicleFireLua $BanditsWallLua $ALifeAdapterLua
+        & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $BanditsCloseLua $BanditsLifecycleLua $BanditsArmorLua $BanditsVehicleLua $BanditsLaneLua $BanditsVehicleFireLua $BanditsWallLua $ALifeAdapterLua $GridControlLua
         if ($LASTEXITCODE -ne 0) { throw 'Bandits close-combat probe compilation failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner $BanditsCombatLua $BanditsCloseLua (Join-Path $TestRoot 'bandits_close_observer_regression.lua')
         if ($LASTEXITCODE -ne 0) { throw 'Bandits close-combat observer regression failed.' }

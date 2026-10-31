@@ -1330,6 +1330,8 @@ function persistence.captureRecord(record, vehicleState)
                 SC.Config.get("defaultCombatDoctrine") or "close_defense", 32),
             holdFire = order.holdFire == true,
             weaponPriority = text(order.weaponPriority, SC.Config.get("defaultWeaponPriority"), 48),
+            manualWeaponSerial = math.max(0, math.floor(finite(anchorDataOk
+                and type(anchorData) == "table" and anchorData.SC_ManualWeaponSerial, 0))),
             workMode = text(order.workMode, "auto", 16),
             workTarget = workTarget,
             returnOrder = order.returnOrder ~= nil and text(order.returnOrder, "stay", 32) or nil,
@@ -3590,6 +3592,15 @@ local function initializeRestoredActor(actor, input, saved)
     local appearanceOk, appearanceReason = applyAppearance(actor,
         type(saved.identity) == "table" and saved.identity.appearance or nil)
     if not appearanceOk then return false, appearanceReason end
+    local manualWeaponSerial = math.max(0, math.floor(finite(type(saved.order) == "table"
+        and saved.order.manualWeaponSerial, 0)))
+    if manualWeaponSerial > 0 then
+        local dataOk, data = invoke(actor, "getModData")
+        if not dataOk or type(data) ~= "table" then
+            return false, "manual weapon choice could not be restored"
+        end
+        data.SC_ManualWeaponSerial = manualWeaponSerial
+    end
     if type(saved.productionAction) == "table" and saved.productionAction.kind == "saw_logs" then
         local dataOk, data = invoke(actor, "getModData")
         if not dataOk or type(data) ~= "table" then

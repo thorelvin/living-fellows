@@ -1063,8 +1063,12 @@ local function doFollow(actor, player, rootRuntime, commands, snapshot)
                 and "waiting_for_vehicle_to_stop" or "vehicle_speed_unavailable"
         end
         local transaction, transactionReason = SC.Vehicle.beginBoarding(
-            actor, playerVehicle, assignment.seat, { followPlayer = true })
+            actor, playerVehicle, assignment.seat, { followPlayer = true,commandSerial=commands.commandSerial })
         if transaction == nil then
+            if transactionReason=="retry_cooldown" or transactionReason=="retry_exhausted" then
+                if not utility.stop(actor) then return false,"vehicle_retry_wait_stop_rejected" end
+                return true,"waiting_to_retry_vehicle_boarding"
+            end
             return false, "vehicle_transaction_rejected:" .. tostring(transactionReason)
         end
         local prepared, prepareReason = SC.Vehicle.preflightBoard(

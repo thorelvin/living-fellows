@@ -15838,6 +15838,9 @@ end
 Harness.probeFirestationRest = function(...)
     return externalProbe("SCFirestationRestProbe", ...)
 end
+Harness.probeGridControl = function(...)
+    return externalProbe("SCGridControlProbe", ...)
+end
 
 Harness.probeOfficeHaul = function(...)
     return externalProbe("SCOfficeHaulProbe", ...)
@@ -16467,6 +16470,8 @@ local function tick()
         Harness.probeHygiene(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "base_second_floor_", 1, true) == 1 then
         Harness.probeBaseSecondFloor(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "grid_control_", 1, true) == 1 then
+        Harness.probeGridControl(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "firestation_rest_", 1, true) == 1 then
         Harness.probeFirestationRest(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "water_source_", 1, true) == 1 then
@@ -17446,6 +17451,8 @@ local function onGameStart()
         setPhase("companion_inventory_begin", Harness.startedAt)
     elseif Harness.config.furniture_pose_only == "true" then
         setPhase("furniture_pose_begin", Harness.startedAt)
+    elseif Harness.config.grid_control_probe == "true" then
+        setPhase("grid_control_setup", Harness.startedAt)
     elseif Harness.config.firestation_rest_probe == "true" then
         setPhase("firestation_rest_setup", Harness.startedAt)
     elseif Harness.config.sleep_probe == "true" then

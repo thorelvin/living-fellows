@@ -2,6 +2,48 @@
 
 # Changelog
 
+## 0.26.84 - EMMA grid control and companion care
+
+- Connect a spare radio-equipped computer to one of seven Knox Country
+  substations, using a generator for the initial setup. The computer and its
+  mounted hardware stay at the site; the bound controller then powers that
+  computer itself.
+- Crack each linked controller from a powered base computer. Every site needs
+  its own three-to-five-day crack. Progress uses timestamps and the last known
+  power state, settling when you use a computer or contact EMMA. Outages pause
+  progress without deleting completed work. There is no background cracking
+  service or idle computer survey.
+- LARCH/GRID appears under Local services on ordinary computers. Review site
+  status, mark the next substation, and confirm grid starts and early stops.
+  Heat permits 24 hours from cold, or 48 with Electrical 8. More online sites
+  shorten full cooling from seven days to three; a tripped breaker must cool
+  completely.
+- Grid restoration uses native power, including its effect on unloaded fridge
+  ageing. Other programs' power settings are respected, and temporary leases
+  remain bounded if Living Fellows is removed.
+- Adds an original Knox Valley Power terminal header, a grid reference file
+  and live EMMA answers about substations, controller cracks and grid heat.
+- Companions gain tiredness at half the previous rate. Sleep recovery, traits
+  and sandbox multipliers retain their effects.
+- Recognizes small clean-water and refillable containers beyond the usual
+  bottle names. Drinking, restocking and surplus sorting prefer lighter
+  containers, comparing their empty weight rather than their water load.
+- Exhausted boarding retries recover after a three-minute pause, a new Follow
+  order or a changed parking position. Waiting companions stay with the car;
+  failure reports now include the actual boarding reason.
+- Weapon choices account for condition, relevant skill and available stamina.
+  Ready firearms take priority over guns needing preparation; at close range,
+  companions use a ready melee backup instead of stopping to reload or unjam.
+- Firearms need real compatible ammunition and magazines. Empty or broken guns
+  and stale inventory references no longer hide useful carried alternatives.
+- Followers ready better carried weapons before combat, while base workers
+  keep their usable tools. Explicit equipment choices remain respected until
+  the player changes weapon priority, including group orders.
+- Ordinary scavenging avoids unusable weapons, and surplus handling preserves
+  a usable weapon even when broken or empty extras fill the loadout quota.
+- Uses native bridge protocol `42.21-isocompanion-24` on Project Zomboid 42.21.0.
+  Ship the rebuilt native bridge together with the Lua changes.
+
 ## 0.26.82 - Reliable beds and backup sleep places
 
 - Hospital beds, including those in Rosewood's firestation, are no longer

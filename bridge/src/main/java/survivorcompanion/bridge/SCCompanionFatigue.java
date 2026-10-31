@@ -16,13 +16,14 @@ import zombie.scripting.objects.CharacterTrait;
 
 /** The fatigue-only part of Build 42.21's local-player awake stats update. */
 final class SCCompanionFatigue {
+    private static final double AWAKE_GAIN_SCALE = 0.5;
     private SCCompanionFatigue() {}
 
     static float gain(double base, double sandbox, float endurance, float multiplier,
             float dayScale, boolean lessSleep, boolean moreSleep,
             double fatigueMultiplier, boolean resting) {
         double sleepTrait = moreSleep ? 1.3f : lessSleep ? 0.7f : 1.0f;
-        double amount = base * sandbox * Math.max(0.3f, 1.0f - endurance)
+        double amount = AWAKE_GAIN_SCALE * base * sandbox * Math.max(0.3f, 1.0f - endurance)
                 * multiplier * dayScale * sleepTrait * fatigueMultiplier
                 / (resting ? 1.5f : 1.0f);
         return Double.isFinite(amount) && amount > 0 && amount <= Float.MAX_VALUE

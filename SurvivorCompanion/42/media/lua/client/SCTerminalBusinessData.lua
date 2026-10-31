@@ -5,6 +5,7 @@ local SC = SurvivorCompanion
 SC.TerminalBusinessData = {}
 local D = SC.TerminalBusinessData
 D.NEW = {
+    KnoxValleyPower={label="Knox Valley Power",kind="utilities",mono=true},
     SunstarMotel={label="Sunstar Motel",kind="hotel",mono=true},
     UStoreIt={label="U-Store It",kind="transport",theme="aqua"},
     Lectromax={label="Lectromax Manufacturing",kind="industry",mono=true},

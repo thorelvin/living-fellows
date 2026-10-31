@@ -1314,6 +1314,8 @@ local function classifyItem(item)
         or (clothingKnown and isClothing == true) then
         return "clothing", true
     end
+    if SC.Needs and type(SC.Needs.isDrinkingContainer)=="function"
+        and SC.Needs.isDrinkingContainer(item) then return "water",true end
     local shelf = DISPLAY_CATEGORIES[display]
     if shelf == "food" or category == "food" then
         return SC.BaseLife.foodStorageCategory(item), true

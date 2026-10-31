@@ -2308,7 +2308,7 @@ function Context.fillRadioContextMenu(playerIndex, context, items)
             end
         end
     end
-    local selectedRadio, equipped = nil, false
+    local selectedRadio, equipped = nil, nil
     local function consider(item)
         if not item or not SC.GameplayUtil
             or not SC.GameplayUtil.instanceOf(item, "Radio") then return end
@@ -2318,7 +2318,7 @@ function Context.fillRadioContextMenu(playerIndex, context, items)
             and select(1, SC.TaxiBooking.checkRadio(player, item)) == true then
             selectedRadio = item
         end
-        if equippedRadio(item) then equipped = true end
+        if equippedRadio(item) then equipped = item end
     end
     for _, entry in ipairs(items) do
         consider(entry)
@@ -2327,7 +2327,15 @@ function Context.fillRadioContextMenu(playerIndex, context, items)
         end
     end
     if selectedRadio then addTaxiRadioOptions(context, player, selectedRadio) end
-    if equipped then addRadioOptions() end
+    if equipped then
+        addRadioOptions()
+        if playerIndex == 0 and SC.GridControl and SC.GridControl.visible() and SC.GridRadio then
+            context:addOptionOnTop("EMMA: Grid report",nil,function()
+                local okay,message=SC.GridRadio.request(player,equipped)
+                safeMethod(player,"setHaloNote",message)
+            end)
+        end
+    end
 end
 
 function Context.install()

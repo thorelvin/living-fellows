@@ -208,6 +208,9 @@ require "SCBuildingControls"
 require "SCTerminalHardware"
 require "SCTerminalRadio"
 require "SCTerminalRadioUI"
+require "SCGridControl"
+require "SCGridRadio"
+require "SCTerminalGridUI"
 require "SCRadioEndpoints"
 require "SCGeneratorServices"
 require "SCBuildingSecurity"
@@ -454,6 +457,7 @@ local function onGameStart()
         SC.Diagnostics.report("bootstrap", nil, "runtime contracts failed", contractsReason)
         return
     end
+    if SC.GridControl then SC.GridControl.restore() end
     local _, runtimeReason, operational = SC.Runtime.start()
     if operational == false then
         SC.State.active = false
@@ -475,6 +479,8 @@ local function onSave()
 end
 
 local function onInitGlobalModData(isNewGame)
+    if SC.GridControl then SC.GridControl.reset() end
+    if SC.GridRadio then SC.GridRadio.reset() end
     local ok, reason = SC.Persistence.bindWorldStore(isNewGame == true)
     if not ok then
         SC.Diagnostics.report("persistence", nil,
@@ -484,6 +490,8 @@ end
 
 local function onMainMenuEnter()
     SC.Runtime.onMainMenuEnter()
+    if SC.GridControl then SC.GridControl.reset() end
+    if SC.GridRadio then SC.GridRadio.reset() end
 end
 
 local function onTerminalSquareLoaded(square)

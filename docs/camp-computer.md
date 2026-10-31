@@ -131,6 +131,54 @@ Native hardware movement and full save/reload are recorded in the
 [computer-controls validation](validation-computer-controls.md). Hacking XP
 still needs its separate native acceptance pass.
 
+## LARCH/GRID: restore the power
+
+Ask EMMA about **substations**, **restore power**, **grid heat** or the
+**shutoff date**. Open **Local services → LARCH/GRID power control** for the
+status page. The menu is available on ordinary computers; remote operations
+need power and a mounted two-way radio.
+When both radio and grid programs are available, **More services** holds
+Computer upgrades and Expedition station so every shortcut stays visible.
+
+Bring a spare computer with its radio mounted, a generator and fuel to a
+substation. Place the computer within 40 tiles, power it from the generator,
+then choose **Connect to grid**. The confirmation explains that this computer
+and its mounted hardware stay permanently. Setup takes 30 game minutes.
+The permanent placement starts when you confirm, so pickup and radio changes
+are refused during setup as well.
+Once connected, that particular computer runs from the substation controller
+even with the generator stopped. Other nearby equipment receives no free
+power. You can take the generator home.
+
+From a powered radio-equipped **base computer**, choose the linked substation
+and start its controller crack. Every substation needs its own crack: five
+game days below Electrical 4, four days at Electrical 4–7, or three days at
+Electrical 8 and above. The best living resident of the active camp can supply
+the skill. Duration is fixed when that crack starts.
+
+**Cracking does no background work.** EMMA calculates elapsed time when you
+use a computer or query her. With an equipped, powered two-way walkie-talkie,
+choose **EMMA: Grid report**. A powered, unlocked radio-equipped base computer
+must answer on the same channel within the native two-way range. The report
+refreshes work and returns through real radio reception. Unloaded machines
+use their last known power
+state for fast catch-up. A newly observed outage pauses further progress;
+completed work remains. Moving the cracking computer pauses it, and ordinary
+companions leave that machine alone. Factory reset keeps installed hardware
+and grid work intact.
+
+An online controller permits temporary grid power. Starting adds 5% heat.
+From cold, the grid runs for 24 game hours, or 48 with Electrical 8. The page
+shows remaining time and heat; you can switch off early and cool sooner.
+At 100% heat the breaker trips and stays locked until cold. A full cooling
+cycle takes seven game days with one online site. Each additional online
+site reduces that by one day, down to three days at five sites.
+
+The native grid powers buildings, appliances and street lighting. Its native
+shutoff calculation also affects unloaded fridge ageing, so food found during
+a power window can be fresher. Water remains separate. Worlds configured so
+electricity never shuts off retain that setting and hide grid control.
+
 ## More to ask EMMA
 
 The reference archive is grouped into EMMA, county records, the Knox Event,
@@ -505,6 +553,11 @@ Moving/disconnecting the authorizing computer suspends its routines.
 Closing the computer pauses its sensors and scheduled routines and silences its
 siren/PA. Reopen the computer to resume monitoring. Mounted radios keep listening
 while the window is closed.
+
+Controller cracks use saved timestamps rather than a background service.
+Their progress is settled on contact with EMMA. Only an energized grid keeps
+a small global breaker timer; idle grid control does no computer or world
+surveying.
 
 ## Upgrade to an expedition station
 

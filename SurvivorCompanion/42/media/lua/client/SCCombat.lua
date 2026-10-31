@@ -23,6 +23,7 @@ local groundedLaneLoggedAt = setmetatable({}, { __mode = "k" })
 local targetHealthObservations = setmetatable({}, { __mode = "k" })
 local retreatPlans = {}
 local lastGroupCombatBarkAt = -math.huge
+local weaponSkill
 
 local function U()
     return SC.GameplayUtil
@@ -36,11 +37,35 @@ local function weaponKey(item)
     return "weapon:" .. tostring(U().itemType(item) or "unknown") .. ":" .. tostring(item)
 end
 
+local function inventoryOwns(inventory, item)
+    local utility = U()
+    if not inventory or not item then return false end
+    if utility.inventoryContains(inventory, item) then return true end
+    local child, source = item, select(1, utility.call(item, "getContainer"))
+    local seen = {}
+    for _ = 1, 8 do
+        if not source or seen[source]
+            or utility.containerContainsIdentity(source, child) ~= true then return false end
+        if source == inventory then return true end
+        seen[source] = true
+        local bag = select(1, utility.call(source, "getContainingItem"))
+        if not bag then
+            -- Older providers lack native bag-parent links. Keep their fallback bounded.
+            for _, candidate in ipairs(utility.inventoryItemsDeep(inventory,
+                utility.config("combatInventoryScanLimit") or 240)) do
+                if candidate == item then return true end
+            end
+            return false
+        end
+        child, source = bag, select(1, utility.call(bag, "getContainer"))
+    end
+    return false
+end
+
 local function equipWeapon(actor, item, options)
     options = type(options) == "table" and options or {}
     if item == nil then return false, "equip_weapon_missing" end
     local primary, primaryOk = U().call(actor, "getPrimaryHandItem")
-    if primaryOk and primary == item then return true, "weapon_already_equipped" end
     local root = U().inventory(actor)
     if not root then return false, "equip_inventory_missing" end
     if not U().inventoryContains(root, item) then
@@ -54,6 +79,7 @@ local function equipWeapon(actor, item, options)
         local moved, moveReason = U().transferItemVerified(source, root, item)
         if not moved then return false, moveReason or "equip_root_transfer_failed" end
     end
+    if primaryOk and primary == item then return true, "weapon_already_equipped" end
     local service = actionSupervisor()
     if service == nil or type(service.begin) ~= "function" then
         local accepted, reason = U().move(actor, "walk", {
@@ -955,7 +981,8 @@ end
 
 local function numberCall(value, methodName, fallback, ...)
     local result, ok = U().call(value, methodName, ...)
-    if ok and type(result) == "number" then return result end
+    if ok and type(result) == "number" and result == result
+        and math.abs(result) < math.huge then return result end
     return fallback or 0
 end
 
@@ -978,13 +1005,19 @@ local function weaponRecord(item)
     if not isWeapon then return nil end
     local ranged = boolCall(item, "isRanged")
     local jammed = ranged and boolCall(item, "isJammed") or false
-    local condition = numberCall(item, "getCondition", 100)
+    local condition = numberCall(item, "getCondition", 0)
     local conditionMax = math.max(1, numberCall(item, "getConditionMax", 100))
+    local conditionRatio = utility.clamp(condition / conditionMax, 0, 1)
     local ammo = numberCall(item, "getCurrentAmmoCount", -1)
     if ammo < 0 then ammo = numberCall(item, "getAmmoCount", ranged and 0 or 1) end
     local maxAmmo = numberCall(item, "getMaxAmmo", ranged and 1 or 1)
+    local chambered = ranged and boolCall(item, "isRoundChambered") or false
+    local needsRack = ranged and boolCall(item, "haveChamber") and not chambered and ammo > 0
+    -- Build 42 stores the chamber separately from the magazine/tube count.
+    ammo = math.max(ammo, chambered and 1 or 0)
     local damage = numberCall(item, "getMaxDamage", 1)
     local range = numberCall(item, "getMaxRange", ranged and 8 or 1.5)
+    if damage <= 0 or range <= 0 then return nil end
     local minRange = math.max(0, numberCall(item, "getMinRange", 0))
     local swing = math.max(0.2, numberCall(item, "getSwingTime", 1))
     local weight = math.max(0.1, numberCall(item, "getActualWeight",
@@ -1003,8 +1036,10 @@ local function weaponRecord(item)
         ranged = ranged,
         jammed = jammed,
         condition = condition,
-        conditionRatio = condition / conditionMax,
+        conditionRatio = conditionRatio,
         ammo = ammo,
+        chambered = chambered,
+        needsRack = needsRack,
         maxAmmo = maxAmmo,
         damage = damage,
         range = range,
@@ -1016,8 +1051,9 @@ local function weaponRecord(item)
         twoHanded = twoHanded,
         diggingTool = utility.itemHasTag(item, "DIG_GRAVE") == true,
         staminaCost = staminaCost,
-        score = damage * 12 + range * (ranged and 2 or 0.5) - swing * 2
-            + condition / conditionMax * 15 + (ranged and 0 or sharpness * 5)
+        score = damage * 12 * (0.35 + 0.65 * conditionRatio)
+            + range * (ranged and 2 or 0.5) - swing * 2
+            + conditionRatio * 15 + (ranged and 0 or sharpness * 5)
             - staminaCost * 1.5,
     }
 end
@@ -1234,17 +1270,17 @@ local function inventoryWeapons(actor, indexEntry)
     local result = {}
     local index = SC.InventoryIndex
     local entry = indexEntry or (index and index.get(actor))
+    local inventory = utility.inventory(actor)
     local primary, primaryOk = utility.call(actor, "getPrimaryHandItem")
-    if primaryOk and primary then
+    if primaryOk and primary and inventoryOwns(inventory, primary) then
         local record = weaponRecord(primary)
         if record then record.equipped = true result[#result + 1] = record end
     end
-    local inventory = utility.inventory(actor)
     local items = entry and entry.weapons
         or utility.inventoryItemsDeep(inventory,
             utility.config("combatInventoryScanLimit") or 240)
     for _, item in ipairs(items) do
-        if item ~= primary then
+        if item ~= primary and inventoryOwns(inventory, item) then
             local record = weaponRecord(item)
             if record then result[#result + 1] = record end
         end
@@ -1257,6 +1293,9 @@ end
 local function ammoTypeMatches(candidateType, wantedType)
     if candidateType == nil or wantedType == nil then return false end
     if candidateType == wantedType then return true end
+    -- A qualified type names one module. Matching only its short name could
+    -- turn another mod's incompatible ammunition into a false reload promise.
+    if tostring(wantedType):find(".", 1, true) then return false end
     local function short(value) return string.match(value, "%.([%w_]+)$") or value end
     return short(candidateType) == short(wantedType)
 end
@@ -1270,7 +1309,7 @@ end
 
 local function hasReloadAmmo(inventory, weapon, indexEntry)
     local utility = U()
-    if not inventory or not weapon or not weapon.ranged then return false end
+    if not inventory or not weapon or not weapon.ranged or weapon.maxAmmo <= 0 then return false end
     local item = weapon.item
     -- Build 42 firearms reload from a magazine of the weapon's magazine type that
     -- still holds rounds, or from loose rounds of the weapon's ammo type (revolvers,
@@ -1285,50 +1324,60 @@ local function hasReloadAmmo(inventory, weapon, indexEntry)
     if (magType == nil or magType == "") and (ammoType == nil or ammoType == "") then
         return false
     end
+    local hasMagazine = magType == nil or magType == "" or boolCall(item, "isContainsClip")
+    local loose = false
+    local function inspect(candidate)
+        if candidate == item or not inventoryOwns(inventory, candidate) then return false end
+        local candidateType = utility.itemType(candidate)
+        if magType and magType ~= "" and ammoTypeMatches(candidateType, magType) then
+            hasMagazine = true
+            if numberCall(candidate, "getCurrentAmmoCount", 0) > 0 then return true end
+        elseif ammoType and ammoType ~= "" and ammoTypeMatches(candidateType, ammoType) then
+            loose = true
+        end
+        return false
+    end
     local index = SC.InventoryIndex
     local entry = indexEntry or (index and index.forInventory(inventory))
     if entry and entry.inventory == inventory then
-        local magKey = ammoShortType(magType)
-        if magKey ~= nil then
-            for _, candidate in ipairs(entry.itemsByType[magKey] or {}) do
-                local countValue = select(1, utility.call(candidate,
-                    "getCurrentAmmoCount"))
-                if (tonumber(countValue) or 0) > 0 then return true end
+        local seen = {}
+        for _, key in ipairs({ ammoShortType(magType) or false, ammoShortType(ammoType) or false }) do
+            if key and not seen[key] then
+                seen[key] = true
+                for _, candidate in ipairs(entry.itemsByType[key] or {}) do
+                    if inspect(candidate) then return true end
+                end
             end
         end
-        local ammoKey = ammoShortType(ammoType)
-        return ammoKey ~= nil and ammoKey ~= magKey
-            and (entry.itemCountByType[ammoKey] or 0) > 0
-    end
-    for _, candidate in ipairs(utility.inventoryItemsDeep(inventory,
-        utility.config("combatInventoryScanLimit") or 240)) do
-        local candidateType = utility.itemType(candidate)
-        if magType and magType ~= "" and ammoTypeMatches(candidateType, magType) then
-            -- A magazine only enables a reload if it actually holds rounds.
-            local countValue = select(1, utility.call(candidate, "getCurrentAmmoCount"))
-            local count = tonumber(countValue)
-            if (count or 0) > 0 then return true end
-        elseif ammoType and ammoType ~= "" and ammoTypeMatches(candidateType, ammoType) then
-            return true
+    else
+        for _, candidate in ipairs(utility.inventoryItemsDeep(inventory,
+            utility.config("combatInventoryScanLimit") or 240)) do
+            if inspect(candidate) then return true end
         end
     end
-    return false
+    return loose and hasMagazine
 end
 
 -- A preferred weapon is only a real option when the next combat pulse can do
 -- something useful with it. Empty firearms without compatible ammunition used
 -- to suppress carried melee weapons; broken weapons could win for the same
--- reason. A jammed firearm remains operational because unjamming is an action.
+-- reason. A jammed firearm is recoverable only when it also has usable rounds
+-- or actual compatible reload supplies.
 local function weaponUsableNow(inventory, weapon, indexEntry)
     if not weapon or (tonumber(weapon.condition) or 0) <= 0 then return false end
     if not weapon.ranged then return true end
-    return weapon.jammed == true or (tonumber(weapon.ammo) or 0) > 0
+    return (tonumber(weapon.ammo) or 0) > 0
         or hasReloadAmmo(inventory, weapon, indexEntry)
 end
 
 function Combat.primaryWeaponUsable(actor)
     local primary = select(1, U().call(actor, "getPrimaryHandItem"))
-    return weaponUsableNow(U().inventory(actor), weaponRecord(primary))
+    local inventory = U().inventory(actor)
+    return inventoryOwns(inventory, primary) and weaponUsableNow(inventory, weaponRecord(primary))
+end
+
+function Combat.weaponOperational(actor, item)
+    return weaponUsableNow(U().inventory(actor), weaponRecord(item))
 end
 
 -- nil means the equipped firearm is ready; a boolean reports the native
@@ -1337,8 +1386,12 @@ end
 function Combat.maintainFirearm(actor, item, target)
     local weapon = weaponRecord(item)
     if not weapon or not weapon.ranged then return nil, "not_a_firearm" end
+    local inventory = U().inventory(actor)
+    if not inventoryOwns(inventory, item) or not weaponUsableNow(inventory, weapon) then
+        return false, "no_usable_firearm"
+    end
     local action
-    if weapon.jammed then action = "unjam"
+    if weapon.jammed or weapon.needsRack then action = "unjam"
     elseif weapon.ammo <= 0 then
         if not hasReloadAmmo(U().inventory(actor), weapon) then return false, "no_ammunition" end
         action = "reload"
@@ -1351,6 +1404,7 @@ end
 
 function Combat.equipExactWeapon(actor, item)
     if not U().isValidActor(actor) then return false, "invalid_actor" end
+    local previousPrimary = select(1, U().call(actor, "getPrimaryHandItem"))
     local weapon = weaponRecord(item)
     if not weapon or not weaponUsableNow(U().inventory(actor), weapon) then
         return false, "no_usable_weapon"
@@ -1360,26 +1414,45 @@ function Combat.equipExactWeapon(actor, item)
     })
     if equipped then
         local id = U().idOf(actor)
-        for _, candidate in ipairs(U().inventoryItemsDeep(U().inventory(actor),
-            U().config("combatInventoryScanLimit") or 240)) do
-            if candidate ~= item then
-                local hasData, hasDataOk = U().call(candidate, "hasModData")
-                local old = (not hasDataOk or hasData == true)
-                    and select(1, U().call(candidate, "getModData")) or nil
-                if type(old) == "table" and old.SC_ManualEquipFor == id then
-                    old.SC_ManualEquipFor = nil
-                end
-            end
-        end
+        Combat.clearManualWeapon(actor, previousPrimary)
         local data = select(1, U().call(item, "getModData"))
-        if type(data) == "table" then data.SC_ManualEquipFor = id end
+        local actorData = select(1, U().call(actor, "getModData"))
+        if type(data) == "table" then
+            data.SC_ManualEquipFor = id
+            data.SC_ManualEquipSerial = type(actorData) == "table"
+                and tonumber(actorData.SC_ManualWeaponSerial) or 0
+        end
+        if states[actor] then states[actor].weaponCache = nil end
         U().call(actor, "resetModelNextFrame")
     end
     return equipped, reason
 end
 
--- How many weapons the companion is carrying, and how many of those could be
--- swung or fired right now. The gap between the two is the difference between
+function Combat.clearManualWeapon(actor, previousPrimary)
+    local id = U().idOf(actor)
+    local inventory = U().inventory(actor)
+    -- Invalidate even an old pin outside the bounded scan, including after a
+    -- reload. Legacy pins and actors start at generation zero.
+    local actorData = select(1, U().call(actor, "getModData"))
+    if type(actorData) == "table" then
+        actorData.SC_ManualWeaponSerial = (tonumber(actorData.SC_ManualWeaponSerial) or 0) + 1
+    end
+    local items = U().inventoryItemsDeep(inventory, U().config("combatInventoryScanLimit") or 240)
+    items[#items + 1] = select(1, U().call(actor, "getPrimaryHandItem"))
+    if previousPrimary then items[#items + 1] = previousPrimary end
+    for _, item in ipairs(items) do
+        local has, known = U().call(item, "hasModData")
+        local data = (not known or has == true) and select(1, U().call(item, "getModData")) or nil
+        if type(data) == "table" and data.SC_ManualEquipFor == id
+            and inventoryOwns(inventory, item) then
+            data.SC_ManualEquipFor, data.SC_ManualEquipSerial = nil, nil
+        end
+    end
+    if states[actor] then states[actor].weaponCache = nil end
+end
+
+-- How many weapons the companion is carrying, and how many can be used or
+-- prepared with carried supplies. The gap between the two is the difference between
 -- "never picked one up" and "carrying a broken axe or an empty rifle".
 function Combat.weaponAvailability(actor)
     local ok, carried, usable = pcall(function()
@@ -1396,22 +1469,44 @@ end
 
 local function chooseWeapon(actor, preference, distance, pressure, indexEntry)
     local weapons, inventory, entry = inventoryWeapons(actor, indexEntry)
+    local close = distance < (U().config("combatFirearmMinDistance") or 2.2) or pressure >= 2
+    local meleeReady, firearmReady = false, false
+    for _, weapon in ipairs(weapons) do
+        weapon.usable = weaponUsableNow(inventory, weapon, entry)
+        weapon.ready = weapon.usable and (not weapon.ranged
+            or weapon.ammo > 0 and not weapon.jammed and not weapon.needsRack)
+        if weapon.ready then
+            if weapon.ranged then
+                if distance >= weapon.minRange and distance <= weapon.range then firearmReady = true end
+            else meleeReady = true end
+        end
+    end
     local manualId = U().idOf(actor)
+    local actorData = select(1, U().call(actor, "getModData"))
+    local manualSerial = type(actorData) == "table" and tonumber(actorData.SC_ManualWeaponSerial) or 0
     for _, weapon in ipairs(weapons) do
         local hasData, hasDataOk = U().call(weapon.item, "hasModData")
         local data = (not hasDataOk or hasData == true)
             and select(1, U().call(weapon.item, "getModData")) or nil
-        if type(data) == "table" and data.SC_ManualEquipFor == manualId
-            and weaponUsableNow(inventory, weapon, entry) then
+        if manualId ~= nil and type(data) == "table" and data.SC_ManualEquipFor == manualId
+            and (tonumber(data.SC_ManualEquipSerial) or 0) == (manualSerial or 0)
+            and weapon.usable then
             return weapon, inventory, entry
         end
+    end
+    -- Preparation must not displace a gun that can already fire in range, or a
+    -- ready melee weapon when contact/crowd pressure makes preparation unsafe.
+    -- Keep this a candidate rule so extreme modded damage cannot outweigh it.
+    for _, weapon in ipairs(weapons) do
+        weapon.selectable = weapon.usable and (not weapon.ranged or weapon.ready
+            or not (firearmReady or close and meleeReady))
     end
     local preferredAvailable = false
     if preference == "melee" or preference == "quiet" or preference == "firearm" then
         for _, weapon in ipairs(weapons) do
             local matches = (preference == "firearm" and weapon.ranged)
                 or ((preference == "melee" or preference == "quiet") and not weapon.ranged)
-            if matches and weaponUsableNow(inventory, weapon, entry) then
+            if matches and weapon.selectable then
                 preferredAvailable = true
                 break
             end
@@ -1421,14 +1516,23 @@ local function chooseWeapon(actor, preference, distance, pressure, indexEntry)
     local alternativeMelee = false
     for _, weapon in ipairs(weapons) do
         if not weapon.ranged and not weapon.diggingTool
-            and weaponUsableNow(inventory, weapon, entry) then
+            and weapon.selectable then
             alternativeMelee = true
             break
         end
     end
+    local endurance = U().clamp(U().characterStatValue(actor, "ENDURANCE", 1), 0, 1)
+    local fatigue = U().clamp(U().characterStatValue(actor, "FATIGUE", 0), 0, 1)
     for _, weapon in ipairs(weapons) do
-        if weaponUsableNow(inventory, weapon, entry) then
+        if weapon.selectable then
             local score = weapon.score
+            local skill = weaponSkill(actor, weapon)
+            score = score + U().clamp(skill, 0, 10) * 1.2
+            if not weapon.ranged then
+                score = score - weapon.staminaCost * ((1 - endurance) * 4 + fatigue * 2)
+            end
+            if weapon.equipped then score = score + 3 end
+            if weapon.ranged and not weapon.ready then score = score - 15 end
             -- A grave spade is valuable work equipment. Carry it into a fight
             -- only when no other usable melee weapon is available; an explicit
             -- player equip above still takes precedence.
@@ -1469,6 +1573,8 @@ local function responsiveWeapon(actor, state, preference, distance, pressure, sn
     local primary = select(1, U().call(actor, "getPrimaryHandItem"))
     local distanceBand = weaponDistanceBand(distance)
     local pressureBand = pressure >= 3 and 3 or (pressure >= 2 and 2 or 1)
+    local enduranceBand = math.floor(U().characterStatValue(actor, "ENDURANCE", 1) * 5)
+    local fatigueBand = math.floor(U().characterStatValue(actor, "FATIGUE", 0) * 5)
     local cache = state.weaponCache
     if type(cache) == "table" and now < (cache.expires or 0)
         and ((indexEntry ~= nil and cache.indexEntry == indexEntry)
@@ -1476,12 +1582,19 @@ local function responsiveWeapon(actor, state, preference, distance, pressure, sn
                 and cache.snapshotTime == snapshotTime))
         and cache.preference == preference
         and cache.distanceBand == distanceBand and cache.pressureBand == pressureBand
-        and cache.primary == primary then
+        and cache.primary == primary
+        and cache.enduranceBand == enduranceBand and cache.fatigueBand == fatigueBand then
+        -- Check live native state below; unchanged inventory is not proof that
+        -- a gun still holds rounds or that its condition has not changed.
+    else cache = nil end
+    if cache then
         state.weaponCacheHits = (state.weaponCacheHits or 0) + 1
         if cache.item == nil then return nil, cache.inventory end
         local current = weaponRecord(cache.item)
         if current and current.condition > 0 and current.ammo == cache.ammo
             and current.jammed == cache.jammed
+            and current.needsRack == cache.needsRack and current.conditionRatio == cache.conditionRatio
+            and inventoryOwns(cache.inventory, cache.item)
             and weaponUsableNow(cache.inventory, current, indexEntry) then
             current.equipped = primary == cache.item
             return current, cache.inventory
@@ -1499,11 +1612,20 @@ local function responsiveWeapon(actor, state, preference, distance, pressure, sn
         primary = primary,
         item = weapon and weapon.item or nil,
         ammo = weapon and weapon.ammo or nil,
-        jammed = weapon and weapon.jammed or nil,
+        jammed = weapon and weapon.jammed == true or false,
+        needsRack = weapon and weapon.needsRack or false,
+        conditionRatio = weapon and weapon.conditionRatio or nil,
+        enduranceBand = enduranceBand, fatigueBand = fatigueBand,
         inventory = inventory,
         expires = now + (U().config("combatTacticalIntervalMs") or 250),
     }
     return weapon, inventory
+end
+
+function Combat.preferredWeapon(actor, preference, distance, pressure)
+    if not U().isValidActor(actor) then return nil end
+    local weapon = chooseWeapon(actor, preference or "best", tonumber(distance) or 3, tonumber(pressure) or 0)
+    return weapon and weapon.item or nil
 end
 
 function Combat.equipPreferred(actor, preference, options)
@@ -1513,10 +1635,6 @@ function Combat.equipPreferred(actor, preference, options)
         return false, "no_usable_weapon"
     end
     local weaponName = U().itemName(weapon.item)
-    local primary, primaryOk = U().call(actor, "getPrimaryHandItem")
-    if primaryOk and primary == weapon.item then
-        return true, "weapon_already_equipped", { weaponName = weaponName }
-    end
     local accepted, reason = equipWeapon(actor, weapon.item, {
         preference = preference or "best",
         immediateCommand = type(options) ~= "table"
@@ -1525,7 +1643,7 @@ function Combat.equipPreferred(actor, preference, options)
     if not accepted then
         return false, reason or "equip_rejected", { weaponName = weaponName }
     end
-    return true, "weapon_equipped", { weaponName = weaponName }
+    return true, reason == "weapon_already_equipped" and reason or "weapon_equipped", { weaponName = weaponName }
 end
 
 local function threatBearing(actor, threat)
@@ -2203,7 +2321,7 @@ local meleePerks = {
     SmallBlade = true, SmallBlunt = true, Spear = true,
 }
 
-local function weaponSkill(actor, weapon)
+weaponSkill = function(actor, weapon)
     if not weapon then return 0, "Unarmed" end
     if weapon.ranged then return U().perkLevel(actor, "Aiming", 0), "Aiming" end
     local best, bestName = 0, "Melee"
@@ -3157,7 +3275,7 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
     if weapon and weapon.ranged and not grounded
         and utility.config("combatRangedTrace") == true then
         local refusal
-        if weapon.jammed then refusal = "jammed"
+        if weapon.jammed or weapon.needsRack then refusal = "needs_racking"
         elseif weapon.ammo <= 0 then
             refusal = hasReloadAmmo(inventory, weapon) and "empty_will_reload" or "no_ammunition"
         elseif commands.holdFire then refusal = "hold_fire"
@@ -3176,7 +3294,7 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
     end
     if weapon and not grounded then
         if weapon.ranged then
-            if weapon.jammed then
+            if weapon.jammed or weapon.needsRack then
                 -- A jammed firearm must be racked clear before it can fire or
                 -- reload; prioritise it above every other ranged action.
                 actions[#actions + 1] = { kind = "unjam", score = 112 }
@@ -4638,7 +4756,7 @@ local function vehicleCombat(actor, player, snapshot, target, weapon, inventory,
         local accepted = equipWeapon(actor, weapon.item, { nextAction = "shoot" })
         return accepted == true, accepted and "equip" or "equip_rejected"
     end
-    if weapon.jammed then
+    if weapon.jammed or weapon.needsRack then
         local accepted = utility.move(actor, "walk", {
             action = "unjam", weapon = weapon.item, target = target.actor,
         })

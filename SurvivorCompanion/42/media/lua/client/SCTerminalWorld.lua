@@ -221,6 +221,8 @@ function World.new(player, object)
     end
 
     function provider.power()
+        local hardware=SC.TerminalHardware and SC.TerminalHardware.state(object,false)
+        if SC.GridControl and SC.GridControl.yardSupply(object,hardware) then return {source="substation"} end
         local state = World.powerState(square)
         if state.grid then return { source = "grid" } end
         if not state.generator then return { source = "none" } end
@@ -231,6 +233,15 @@ function World.new(player, object)
             fuel = percent(call(generator, "getFuel"), call(generator, "getMaxFuel")),
             condition = percent(call(generator, "getCondition"), 100),
         }
+    end
+
+    function provider.grid()
+        if not SC.GridControl then return nil end
+        local snapshot=SC.GridControl.snapshot(object)
+        if snapshot.visible and (snapshot.daysLeft or 0)<=0 and snapshot.nearest then
+            SC.GridControl.markNearest(object,snapshot)
+        end
+        return snapshot
     end
 
     function provider.people()

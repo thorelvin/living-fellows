@@ -18,6 +18,8 @@ local reservations = {}
 local manifests = {}
 local lastVehicleShotAt = setmetatable({}, { __mode = "k" })
 local transactions = setmetatable({}, { __mode = "k" })
+local boardingAttempts = setmetatable({}, { __mode = "k" })
+vehicleService.BOARDING_RETRY_PAUSE_MS=180000
 local seatResources = {}
 local driverKeyRecoveries = {}
 local stationary
@@ -26,8 +28,9 @@ local function traceBoarding(actor, event, detail)
     if not SC.Diagnostics or type(SC.Diagnostics.report) ~= "function" then return end
     local id = SC.Registry and type(SC.Registry.idOf) == "function"
         and SC.Registry.idOf(actor) or nil
-    SC.Diagnostics.report("vehicle-boarding-" .. tostring(event), id,
-        tostring(event), detail)
+    local message=tostring(event)
+    if event=="failed" then message=message..": "..tostring(detail) end
+    SC.Diagnostics.report("vehicle-boarding-" .. tostring(event), id, message, detail)
 end
 
 local function method(object, name)
@@ -245,7 +248,17 @@ local function beginTransaction(actor, vehicle, seat, action, intent)
     local explicit = type(intent) == "table" and (intent.immediateCommand == true
         or intent.playerCommand == true)
     local targetKey = action .. ":" .. tostring(reservation)
-    local token, beginReason, retry = service.begin(actor, {
+    local commandSerial=type(intent)=="table" and finite(intent.commandSerial,nil) or nil
+    local prior=boardingAttempts[actor]
+    if action=="board_vehicle" and prior and type(service.resetRetry)=="function" then
+        local newOrder=commandSerial~=nil and prior.commandSerial~=nil and commandSerial~=prior.commandSerial
+        local moved=prior.targetKey==targetKey and ((identity.x-prior.x)^2+(identity.y-prior.y)^2>=4
+            or math.floor(identity.z)~=math.floor(prior.z))
+        if newOrder or moved then
+            service.resetRetry(actor,newOrder and "new_boarding_order" or "boarding_car_moved",action,targetKey)
+        end
+    end
+    local spec={
         owner = "vehicle",
         action = action,
         priority = explicit and service.Priority.PLAYER or service.Priority.TRAVEL,
@@ -263,9 +276,18 @@ local function beginTransaction(actor, vehicle, seat, action, intent)
             ready_weapon = true,
             lower_weapon = true,
         },
-        metadata = { seat = seat, vehicleKey = keyFor(identity) },
+        metadata = { seat = seat, vehicleKey = keyFor(identity),commandSerial=commandSerial },
         onCancel = cancelTransactionState,
-    })
+    }
+    local token, beginReason, retry = service.begin(actor,spec)
+    if action=="board_vehicle" and token==nil and beginReason=="retry_exhausted"
+        and type(retry)=="table" and type(service.resetRetry)=="function" then
+        local current=SC.GameplayUtil and SC.GameplayUtil.nowMs and SC.GameplayUtil.nowMs()
+        if explicit or current and current-(tonumber(retry.failedAt) or current)>=vehicleService.BOARDING_RETRY_PAUSE_MS then
+            service.resetRetry(actor,explicit and "explicit_boarding_retry" or "boarding_retry_pause_elapsed",action,targetKey)
+            token,beginReason,retry=service.begin(actor,spec)
+        end
+    end
     if token == nil then
         if service.containsDeferredStatus and service.containsDeferredStatus(beginReason) then
             -- Urgent survival work was dispatched for this actor during begin(); the
@@ -303,6 +325,7 @@ local function beginTransaction(actor, vehicle, seat, action, intent)
         supervisorToken = token,
     }
     transactions[actor] = transaction
+    if action=="board_vehicle" then boardingAttempts[actor]={targetKey=targetKey,x=identity.x,y=identity.y,z=identity.z,commandSerial=commandSerial} end
     return transaction, "started"
 end
 
@@ -2119,6 +2142,7 @@ function vehicleService.reset()
     reservations = {}
     manifests = {}
     transactions = setmetatable({}, { __mode = "k" })
+    boardingAttempts = setmetatable({}, { __mode = "k" })
     seatResources = {}
     lastVehicleShotAt = setmetatable({}, { __mode = "k" })
 end

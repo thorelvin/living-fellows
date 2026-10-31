@@ -10,7 +10,7 @@
   <img src="assets/banner.png" width="100%" alt="Living Fellows: survivors walking a dusk street together">
 </p>
 
-[![Release](https://img.shields.io/badge/release-0.26.82-blue.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-0.26.84-blue.svg)](CHANGELOG.md)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.21.0-red.svg)](#requirements)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -26,7 +26,7 @@ Living Fellows adds companions, survivor households and working bases to Project
 - **Call Markus's taxi.** Stranded on the road? Call for pickup from a working walkie-talkie, climb into Markus Sloane's cab and choose a road destination on the map. Bring jewelry for the fare.
 - **Build a crew worth knowing.** Up to 16 companions with professions, personalities, relationships and memories. They fight in formation, look after their needs, treat wounds and retreat when they're outmatched. Some keep private diaries. Death is permanent, and the book stays behind.
 - **Make a home that works.** Mark storage and work areas, assign jobs, grow food, build, fell trees, saw planks and bury the dead. Wood goes into neat four-log stacks. Blocked jobs pause and retry automatically; manual Retry stays available.
-- **Ask EMMA.** Use a powered desktop computer to ask who is hurt, how many nails are left or what needs doing. She reads your camp records, remembers notes and requests help with your confirmation. Recover locked machines and browse 568 entries left by their previous owners, plus 150 county and EMMA files. Everything runs offline on a full-screen 1993 terminal. [More](docs/camp-computer.md).
+- **Ask EMMA.** Check camp supplies, people and jobs, recover locked computers, or reconnect substations to restore grid power. EMMA remembers notes and confirms actions with you. Browse 568 entries left by previous owners and 151 county and EMMA files. Everything runs offline on a full-screen 1993 terminal. [More](docs/camp-computer.md).
 - **Meet the people still out there.** Households trade, offer work and remember how you treat them. Sixty-five Strange Folk bring their own stories, requests and bad habits. Encounters can begin on the second day, with a random eligible character each time.
 
 The [Field Guide](https://thorelvin.github.io/living-fellows/) covers orders, camp jobs, equipment, travel and the people you'll meet.

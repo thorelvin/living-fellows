@@ -114,6 +114,7 @@ $LuaFiles += Join-Path $ClientRoot 'SCFloorSort.lua'
 $LuaFiles += Join-Path $ClientRoot 'SCBaseWork.lua'
 $BaseLuaFiles = @($LuaFiles)
 $LuaFiles += Join-Path $TestRoot 'human_combat_regressions.lua'
+$LuaFiles += Join-Path $TestRoot 'weapon_selection_regressions.lua'
 $LuaFiles += Join-Path $TestRoot 'gameplay_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'tv_watching_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'computer_use_harness.lua'
@@ -368,6 +369,7 @@ try {
             (Join-Path $TestRoot 'terminal_lore_harness.lua'),
             (Join-Path $TestRoot 'terminal_knowledge_harness.lua'),
             (Join-Path $TestRoot 'terminal_conversation_harness.lua')
+            (Join-Path $TestRoot 'terminal_grid_harness.lua')
         )
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @terminalFiles
         if ($LASTEXITCODE -ne 0) { throw 'Camp computer terminal harness failed.' }

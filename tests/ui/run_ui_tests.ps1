@@ -83,6 +83,10 @@ try {
         $terminalContextFiles += Join-Path $TestRoot 'SCTerminalContextTests.lua'
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @terminalContextFiles
         if ($LASTEXITCODE -ne 0) { throw 'Camp computer menu hook tests failed.' }
+        $gridRadioContextFiles = @($medicalContextFiles | Select-Object -SkipLast 1)
+        $gridRadioContextFiles += Join-Path $TestRoot 'SCGridRadioContextTests.lua'
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @gridRadioContextFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Grid radio inventory context tests failed.' }
         $terminalFiles = @(
             (Join-Path $TestRoot 'SCTerminalFixture.lua'),
             (Join-Path $Client 'SCTerminalLines.lua'),
@@ -140,6 +144,28 @@ try {
         $radioFiles+=Join-Path $TestRoot 'SCTerminalRadioTests.lua'
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @radioFiles
         if ($LASTEXITCODE -ne 0) { throw 'LARCH/WAVE radio desk tests failed.' }
+        $gridFiles=@(
+            (Join-Path $TestRoot 'SCGridControlFixture.lua'),
+            (Join-Path $Client 'SCGridControl.lua'),
+            (Join-Path $TestRoot 'SCGridControlTests.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @gridFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Grid control state and idle-cost tests failed.' }
+        $gridRadioFiles=@(
+            (Join-Path $TestRoot 'SCGridControlFixture.lua'),
+            (Join-Path $Client 'SCGridRadio.lua'),
+            (Join-Path $TestRoot 'SCGridRadioTests.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @gridRadioFiles
+        if ($LASTEXITCODE -ne 0) { throw 'On-demand grid radio tests failed.' }
+        & (Join-Path $TestRoot 'Test-GridNegativeControls.ps1') -GameJava $GameJava -Classpath "$BuildRoot;$Jar" -GridFiles $gridFiles -BuildRoot $BuildRoot
+        $gridUiFiles=@($terminalFiles | Where-Object { $_ -notmatch 'Tests\.lua$' })
+        foreach ($module in @('SCControlUtil','SCTerminalHardware','SCTerminalServices','SCGridControl','SCTerminalGridUI')) {
+            $gridUiFiles+=Join-Path $Client ($module+'.lua')
+        }
+        $gridUiFiles+=Join-Path $TestRoot 'SCGridControlUITests.lua'
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @gridUiFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Grid control terminal integration tests failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @files
         if ($LASTEXITCODE -ne 0) { throw 'UI Kahlua tests failed.' }
         $baseRedrawFiles = @(

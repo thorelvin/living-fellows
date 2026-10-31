@@ -191,7 +191,9 @@ function Logistics.itemCategory(item)
     if typeContains(itemType, { "bandage", "rippedsheet", "disinfect", "painkiller",
         "antibiotic", "suture", "firstaid", "alcoholwipes", "pills" })
         or category == "medical" or display == "medical" then return "medicine" end
-    if typeContains(itemType, { "waterbottle", "waterbottle", "canteen", "flask" })
+    if SC.Needs and type(SC.Needs.isDrinkingContainer)=="function"
+        and SC.Needs.isDrinkingContainer(item) then return "water" end
+    if typeContains(itemType, { "waterbottle", "canteen", "flask" })
         or utility.itemHasTag(item, "WaterContainer") then return "water" end
     if category == "food" or utility.hasMethod(item, "getCalories") then return "food" end
     -- Runtime class identity must win over filename heuristics: vanilla armor
@@ -706,7 +708,14 @@ function Logistics.canTake(actor, item, category, audit, requestedCategory)
         end
     end
     local target = dynamicTarget(audit, category, actor)
-    if target <= 0 or (audit.counts[category] or 0) >= target then
+    local needsWeapon = false
+    if category == "weapon" and SC.Combat and SC.Combat.weaponOperational and SC.Combat.weaponAvailability
+        and not requestedSupplyMatches(requestedCategory, category) then
+        if not SC.Combat.weaponOperational(actor, item) then return false, "weapon_unusable" end
+        local _, usable = SC.Combat.weaponAvailability(actor)
+        needsWeapon = target > 0 and usable == 0
+    end
+    if not needsWeapon and (target <= 0 or (audit.counts[category] or 0) >= target) then
         -- A finite expedition request can exceed this survivor's personal
         -- loadout target. The request never overrides the real carry limit.
         if requestedSupplyMatches(requestedCategory, category) then
@@ -889,8 +898,18 @@ function Logistics.itemNeedScore(actor, item, commands, audit)
         local rotten, rottenOk = U().call(item, "isRotten")
         if rottenOk and rotten then return 0, category end
     elseif category == "water" then
-        local amount, amountOk = U().call(item, "getUsedDelta")
-        if amountOk and type(amount) == "number" then score = score * math.max(0.2, amount) end
+        local fluid=U().call(item,"getFluidContainer")
+        local amount=tonumber((U().call(fluid,"getAmount")))
+        local capacity=tonumber((U().call(fluid,"getCapacity")))
+        if amount and capacity and capacity>0 then
+            score=score*math.max(.2,math.min(1,amount/capacity))
+        else
+            local used,okay=U().call(item,"getUsedDelta")
+            if okay and type(used)=="number" then score=score*math.max(.2,used) end
+        end
+        local weight=SC.Needs and SC.Needs.drinkingContainerWeight
+            and SC.Needs.drinkingContainerWeight(item) or U().itemWeight(item)
+        score=score+12/(1+weight)
     end
     return score, category
 end
@@ -1144,6 +1163,8 @@ end
 function Logistics.selectSurplus(actor, audit, skip)
     audit = audit or Logistics.audit(actor)
     local best, bestScore
+    local usableWeapons = SC.Combat and SC.Combat.weaponOperational and SC.Combat.weaponAvailability
+        and select(2, SC.Combat.weaponAvailability(actor)) or nil
     for _, record in ipairs(audit.items) do
         local item = record.item
         if not isProtected(actor, item) and not (skip and skip(item)) then
@@ -1154,9 +1175,15 @@ function Logistics.selectSurplus(actor, audit, skip)
             local eligible = category == "general" or count > target
                 or ((audit.gearRatio or audit.ratio) > audit.hardRatio
                     and count > keep)
+            if category == "weapon" and usableWeapons ~= nil and usableWeapons >= 0 and usableWeapons <= keep
+                and SC.Combat.weaponOperational(actor, item) then eligible = false end
             if eligible then
+                local weight=category=="water" and SC.Needs and SC.Needs.drinkingContainerWeight
+                    and SC.Needs.drinkingContainerWeight(item) or U().itemWeight(item)
                 local score = (category == "general" and 100 or 35)
-                    + math.max(0, count - target) * 12 + U().itemWeight(item) * 4
+                    + math.max(0, count - target) * 12 + weight * 4
+                if category=="water" and SC.Needs and SC.Needs.isSafeWaterItem
+                    and not SC.Needs.isSafeWaterItem(item) then score=score+16 end
                 if bestScore == nil or score > bestScore then
                     best = { item = item, category = category, source = record.source }
                     bestScore = score
@@ -1274,7 +1301,10 @@ function Logistics.noteGift(actor, item)
     end
     gifts.items[item] = true
     local state = states[actor]
-    if state then state.auditAt = -math.huge end
+    if state then
+        state.auditAt = -math.huge
+        state.nextWeaponAt = 0
+    end
     if SC.InventoryIndex and type(SC.InventoryIndex.touch) == "function" then
         SC.InventoryIndex.touch(actor)
     end
@@ -1330,13 +1360,20 @@ function Logistics.status(actor)
         and data.SC_Recruited == true and data.SC_Order == "follow"
     local weaponDue = current >= (state and tonumber(state.nextWeaponAt) or 0)
     if weaponDue and SC.Combat and type(SC.Combat.weaponAvailability) == "function"
-        and type(SC.Combat.primaryWeaponUsable) == "function"
-        and SC.Combat.primaryWeaponUsable(actor) ~= true then
-        if following then
+        and type(SC.Combat.primaryWeaponUsable) == "function" then
+        local usable = SC.Combat.primaryWeaponUsable(actor) == true
+        if following and type(SC.Combat.preferredWeapon) == "function" then
+            local service = supervisor()
+            if not usable or not service or not service.current or service.current(actor) == nil then
+                local best = SC.Combat.preferredWeapon(actor, data.SC_WeaponPriority or "best")
+                audit.weaponReady = best ~= nil and best ~= select(1, U().call(actor, "getPrimaryHandItem"))
+            end
+        elseif following and not usable then
             local _, usable = SC.Combat.weaponAvailability(actor)
             audit.weaponReady = usable > 0
         end
-        if audit.giftWeapon == true then audit.weaponReady = true end
+        if not usable and audit.giftWeapon == true then audit.weaponReady = true end
+        if state then state.nextWeaponAt = current + 1500 end
     end
     audit.packMove = selectPackMove(actor, audit)
     -- A move that just failed cools down instead of being proposed again.

@@ -469,6 +469,7 @@ Lines.T = {
     weather = "Outside: {tempF} F, {tempC} C. {sky}.",
 
     power_grid = "Running on grid power.",
+    power_substation = "Running on this substation's controller supply. It powers this computer alone.",
     power_generator = "Running on generator power. Fuel {fuel} percent, condition {condition} percent.",
     power_generator_unseen = "Running on generator power. I cannot see the generator from here, so I cannot read the fuel.",
     power_unknown = "Something is feeding me power. I have chosen not to ask what.",

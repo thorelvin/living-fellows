@@ -113,6 +113,7 @@ function H.stop(object)
     if r and r.receiver then U().call(r.receiver,"removeFromWorld") r.receiver=nil end
 end
 function H.install(player,object,kind,item)
+    if SC.GridControl and SC.GridControl.pinned(object) then return false,"Substation hardware is permanently connected." end
     local level=kind=="radio" and 2 or 4
     if kind~="radio" and kind~="ups" then return false,"Unknown upgrade." end
     if not SC.Terminal.isComputer(object) or not U().present(object) or not U().near(player,object,3) then return false,"Stand beside the computer." end
@@ -157,6 +158,7 @@ function H.install(player,object,kind,item)
     return true,kind=="radio" and "Walkie-talkie mounted. Expedition station ready." or "Battery backup installed."
 end
 function H.remove(player,object,kind)
+    if SC.GridControl and SC.GridControl.pinned(object) then return false,"Substation hardware is permanently connected." end
     if not U().near(player,object,3) or not U().hasTool(player,"Base.Screwdriver") then return false,"Stand beside the PC with a screwdriver." end
     local state=H.state(object,false)
     local part=state and state[kind]
@@ -166,6 +168,10 @@ function H.remove(player,object,kind)
         if not stopped then return false,reason end
     end
     if not H.flush(object) then return false,"The component cannot be safely transferred." end
+    if SC.GridControl then
+        SC.GridControl.pauseComputer(object)
+        if SC.GridControl.pinned(object) then return false,"Substation hardware is permanently connected." end
+    end
     local item=unpackPart(part)
     if not item then return false,"The saved component is unreadable. It has been preserved." end
     for _,candidate in ipairs(U().items(player)) do
@@ -186,6 +192,7 @@ function H.powered(object)
     if not state then return U().nativePower(object) end
     if state.on==false then return false end
     if U().nativePower(object) then return true end
+    if SC.GridControl and SC.GridControl.yardSupply(object,state) then return true end
     local battery=cached(object,"ups")
     return battery~=nil and (U().charge(battery) or 0)>0 and (tonumber(U().call(battery,"getCondition")) or 0)>0
 end
@@ -213,15 +220,19 @@ function H.describe(object)
     if not state then return "Computer supply: "..(U().nativePower(object) and "building power" or "off") end
     local battery=cached(object,"ups")
     local charge=battery and U().charge(battery) or 0
-    return "Supply: "..(U().nativePower(object) and "building power" or H.powered(object) and "battery backup" or "off")
+    return "Supply: "..(SC.GridControl and SC.GridControl.yardSupply(object,state) and "substation"
+        or U().nativePower(object) and "building power" or H.powered(object) and "battery backup" or "off")
         ..". Backup: "..math.floor(charge*100).."%. Radio: "..(state.radio and "mounted" or "not installed").."."
 end
 function H.beforePickup(object)
+    if SC.GridControl and SC.GridControl.pinned(object) then return false end
     if SC.TerminalRadio then
         local okay=SC.TerminalRadio.stop(object,true)
         if okay==false then return false end
     end
     if not H.flush(object) then return false end
+    if SC.GridControl then SC.GridControl.pauseComputer(object) end
+    if SC.GridControl and SC.GridControl.pinned(object) then return false end
     H.stop(object)
     local state=H.state(object,false)
     if state then state.lastHours=nil end
@@ -280,7 +291,8 @@ function H.pulse()
                 local hours=U().hours()
                 if state then
                     local active=state.on~=false and (state.radio~=nil or SC.Terminal.window and SC.Terminal.window.object==object)
-                    if active and not U().nativePower(object) and hours and state.lastHours then
+                    local yard=SC.GridControl and SC.GridControl.yardSupply(object,state)
+                    if active and not yard and not U().nativePower(object) and hours and state.lastHours then
                         local battery=cached(object,"ups")
                         if battery then
                             local fraction=math.max(0,(tonumber(U().call(battery,"getCondition")) or 0)/math.max(1,tonumber(U().call(battery,"getConditionMax")) or 100))
@@ -303,6 +315,17 @@ function H.reset()
     if SC.TerminalRadio then SC.TerminalRadio.reset() end
     for object in pairs(runtime) do H.flush(object) H.stop(object) end
     runtime=setmetatable({}, {__mode="k"}) lastPulse=0
+end
+-- User-requested radio contacts inspect the existing receiver registry only.
+-- This creates no computer search, scheduled task or extra idle polling.
+function H.radioStations()
+    local result,checked={},0
+    for object,r in pairs(runtime) do
+        checked=checked+1
+        if checked>512 or #result>=128 then break end
+        if r.state and r.state.radio then result[#result+1]=object end
+    end
+    return result
 end
 -- One computer's mounted parts must not cost another computer its flush. A radio
 -- that could not leave its temporary scan channel keeps its last good record, and
@@ -339,6 +362,9 @@ function H.observeObject(object)
     local portable=type(data)=="table" and data.movableData
     if type(portable)~="table" then return end
     local hardware=portable[H.KEY]
-    if type(hardware)=="table" and hardware.radio then H.state(object,false) end
+    if type(hardware)=="table" and hardware.radio then
+        local state=H.state(object,false)
+        if SC.GridControl then SC.GridControl.restoreInstallation(object,state) end
+    end
 end
 return H

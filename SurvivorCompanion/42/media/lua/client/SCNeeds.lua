@@ -785,13 +785,13 @@ function Needs.isSafeWaterItem(item)
     return isSafeWaterItem(item)
 end
 
-local function firstInventoryItem(actor, predicate)
-    local best, bestScore
+local function firstInventoryItem(actor, predicate, preferLightWater)
+    local best, bestScore, bestAmount
     walkInventory(U().inventory(actor), { remaining = 256 }, function(item)
         local ok, accepted = pcall(predicate, item)
         if ok and accepted then
             local score = 1
-            if isSafeFood(item) then
+            if not preferLightWater and isSafeFood(item) then
                 local change, changeOk = U().call(item, "getHungerChange")
                 score = changeOk and math.abs(tonumber(change) or 0) or 0
             else
@@ -800,7 +800,11 @@ local function firstInventoryItem(actor, predicate)
                 if fluidOk and fluid then amount, amountOk = U().call(fluid, "getAmount") end
                 score = amountOk and tonumber(amount) or 0
             end
-            if not bestScore or score > bestScore then best, bestScore = item, score end
+            local amount=score
+            if preferLightWater then score=-Needs.drinkingContainerWeight(item) end
+            if not bestScore or score>bestScore or preferLightWater and score==bestScore and amount>bestAmount then
+                best,bestScore,bestAmount=item,score,amount
+            end
         end
         return true
     end)
@@ -902,6 +906,20 @@ local function refillableContainer(item)
     local amount, capacity = containerLevel(item)
     if not amount or capacity - amount < 0.12 then return nil end
     return amount, capacity
+end
+
+function Needs.isDrinkingContainer(item)
+    local amount,capacity=containerLevel(item)
+    return amount~=nil and capacity>=0.12
+end
+
+function Needs.drinkingContainerWeight(item)
+    -- Compare the shell, not how much water happens to remain in it.
+    local script=U().call(item,"getScriptItem")
+    local weight=tonumber((U().call(script,"getWeightEmpty")))
+    if not weight or weight<=0 then weight=tonumber((U().call(script,"getActualWeight"))) end
+    if not weight or weight~=weight or weight<0 or weight==math.huge then return U().itemWeight(item) end
+    return weight
 end
 
 local function carriedRefillContainers(actor)
@@ -1388,7 +1406,7 @@ function Needs.update(actor, player, runtime)
     local thirstReason
     if assessment.thirsty then
         local safeWater = consumable(isSafeWaterItem)
-        local water = firstInventoryItem(actor, safeWater)
+        local water = firstInventoryItem(actor, safeWater, true)
         -- At camp a nearby tap or well saves carried drinking water. A bottle
         -- remains the immediate choice when the source is farther away.
         local source = state.waterSource

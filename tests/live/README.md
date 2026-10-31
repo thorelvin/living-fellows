@@ -2,6 +2,16 @@
 
 # Real sandbox harness
 
+Grid control uses `-GridControlProbe -EngineSound -LivingFellowsOnly -NoSteam
+-IsolatedSourceBridge`. `-EngineSound` enables the real AmbientStreamManager
+while muting only the copied options. It surveys all seven sites, mounts actual
+radio/battery items, checks outdoor generator supply, permanent controller
+ownership, event-driven cracking and native power transitions. Add
+`-GridControlStage` to retain an energized save, then run with
+`-GridControlResume -SeedSave <retained clone>` to verify lease and heat recovery
+and the native blackout. Setup and work timestamps are shortened in the cloned
+fixture; production contains no acceptance-test seams.
+
 For wood driving diagnostics, the probe uses the saved crew, car, real trees
 and permitted storage. Its log records elapsed time, staged waypoints, squad
 holds, path-search age, recovery attempts and crew health. Action history is

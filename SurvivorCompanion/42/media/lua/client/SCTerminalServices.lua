@@ -53,10 +53,20 @@ function S.menu(window)
         local result={option("Building services","page","services"),option("Computer upgrades","page","hardware"),
             option("Expedition station","page","station"),option("Back to EMMA","page",nil)}
         local hardware=SC.TerminalHardware.state(window.object,false)
+        if SC.GridControl and SC.GridControl.visible() and SC.TerminalGridUI then
+            table.insert(result,1,{label="LARCH/GRID power control",gridAction="open"})
+        end
         if hardware and hardware.radio and SC.TerminalRadioUI then
             table.insert(result,1,{label="LARCH/WAVE radio desk",radioAction="open"})
         end
+        if #result>5 then
+            return {result[1],result[2],result[3],option("More services","page","home_services_more"),
+                option("Back to EMMA","page",nil)}
+        end
         return result
+    elseif p=="home_services_more" then
+        return {option("Computer upgrades","page","hardware"),option("Expedition station","page","station"),
+            option("Back to services","page","home_services")}
     elseif p=="services" then
         return {option("Connect local controls (Electrical 2)","propose",{operation="connect"}),
             option("Authorize building security","security"),option("Equipment","page","equipment"),
@@ -116,6 +126,9 @@ function S.menu(window)
         return {option("Turn group on","propose",{operation="light_group",group=window.serviceGroup,on=true}),
             option("Turn group off","propose",{operation="light_group",group=window.serviceGroup,on=false}),option("Back","page","light_groups")}
     elseif p=="hardware" then
+        if SC.GridControl and SC.GridControl.pinned(window.object) then
+            return {option("Supply and radio status","hardware_status"),option("Back to EMMA","page",nil)}
+        end
         return {option("Mount walkie-talkie (Electrical 2)","choose","radio"),option("Install battery backup (Electrical 4)","choose","ups"),
             option("Remove mounted radio","propose",{operation="remove",kind="radio"}),option("Remove backup battery","propose",{operation="remove",kind="ups"}),
             option("Supply and radio status","hardware_status"),option("Back to EMMA","page",nil)}
@@ -643,6 +656,7 @@ function S.menu(window)
     return result
 end
 function S.context(context,player,computer)
+    if SC.GridControl and SC.GridControl.pinned(computer) then return end
     if not U().near(player,computer,3) then return end
     if not U().hasTool(player,"Base.Screwdriver") then return end
     local offered=0

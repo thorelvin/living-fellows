@@ -248,6 +248,7 @@ function SC_HUMAN_COMBAT_REGRESSIONS(f)
     check(not stopped and stopFailure == "native_combat_stop_failed", "a rejected stationary recovery is still a real failure")
     SC.NativeActions, reject = oldNative, false
 
+    actor.inventory:AddItem(bat)
     actor.primary, commands.holdFire = bat, false
     local spacing = SC.Combat.meleeSpacing(actor, bat)
     local outerBand = spacing.maximum - 0.02

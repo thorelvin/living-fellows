@@ -55,15 +55,15 @@ public final class SCCompanionFatigueTest {
     }
     public static void main(String[] args) {
         close(SCCompanionFatigue.gain(.01, 1, 1, 1, 1, false, false, 1, false),
-                .003f, "rested endurance uses the native 0.3 floor");
+                .0015f, "half-rate companion gain retains the native 0.3 endurance floor");
         close(SCCompanionFatigue.gain(.01, 2, .2f, 3, .5f, false, false, 2, false),
-                .048f, "sandbox, speed, day length and fatigue modifier compose");
+                .024f, "half-rate composes with sandbox, speed, day length and fatigue modifier");
         close(SCCompanionFatigue.gain(.01, 1, 0, 1, 1, true, false, 1, false),
-                .007f, "less sleep trait matches native 0.7 rate");
+                .0035f, "less sleep trait retains its native relative 0.7 rate");
         close(SCCompanionFatigue.gain(.01, 1, 0, 1, 1, true, true, 1, false),
-                .013f, "more sleep matches native precedence and 1.3 rate");
+                .0065f, "more sleep retains native precedence and relative 1.3 rate");
         close(SCCompanionFatigue.gain(.01, 1, 0, 1, 1, false, false, 1, true),
-                .01f / 1.5f, "sitting or resting reduces gain");
+                .005f / 1.5f, "sitting or resting reduces the halved gain");
         check(SCCompanionFatigue.gain(Double.NaN, 1, 0, 1, 1, false, false, 1, false) == 0,
                 "an invalid native value cannot poison stats");
         check(SCCompanionFatigue.gain(.01, 1, 0, 0, 1, false, false, 1, false) == 0,
@@ -72,11 +72,11 @@ public final class SCCompanionFatigueTest {
         ZomboidGlobals.fatigueIncrease = .01;
         Actor actor = new Actor();
         SCCompanionFatigue.update(actor);
-        close(actor.values.fatigue, .203f, "awake non-local character grows naturally");
+        close(actor.values.fatigue, .2015f, "awake non-local character grows at half the native rate");
         check(actor.values.additions == 1, "one update produces one addition");
         actor.values.fatigue = .05f; // A native caffeine reduction remains effective.
         SCCompanionFatigue.update(actor);
-        close(actor.values.fatigue, .053f, "a native reduction is not overwritten");
+        close(actor.values.fatigue, .0515f, "a native reduction is not overwritten");
         int before = actor.values.additions;
         actor.asleep = true; SCCompanionFatigue.update(actor); actor.asleep = false;
         actor.dead = true; SCCompanionFatigue.update(actor); actor.dead = false;
@@ -88,7 +88,7 @@ public final class SCCompanionFatigueTest {
         check(actor.values.additions == before, "sleep, death, cheats, disabled stats and network paths add nothing");
         actor.sitting = true;
         SCCompanionFatigue.update(actor);
-        close(actor.values.fatigue, .055f, "a real resting flag selects the resting rate");
+        close(actor.values.fatigue, .0525f, "a real resting flag selects the halved resting rate");
         System.out.println("COMPANION_FATIGUE_PASS checks=" + checks);
     }
 }

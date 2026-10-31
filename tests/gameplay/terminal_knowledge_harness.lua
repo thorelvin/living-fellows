@@ -12,7 +12,7 @@ local world={camp=function() return {configured=true,inside=true} end,clock=func
     storage=function() calls.storage=calls.storage+1 return {groups={{name="Spiffo Burger",count=3,type="Base.Burger",food=true,
         category="Food",kcal=500}},items=3,containers=1} end,
     zombies=function() calls.zombies=calls.zombies+1 return {count=42,radius=40,nearest=10,dir="north"} end}
-check(#K.ENTRIES==134 and #Lore.REFERENCE==150 and #K.CHAT==24,"expanded reference and conversation counts")
+check(#K.ENTRIES==135 and #Lore.REFERENCE==151 and #K.CHAT==24,"expanded reference and conversation counts")
 local ids={}
 for _,entry in ipairs(K.ENTRIES) do
     check(not ids[entry.id] and Lore.reference(entry.id)==entry,"stable unique ID "..entry.id) ids[entry.id]=true
@@ -20,7 +20,8 @@ for _,entry in ipairs(K.ENTRIES) do
     for _,alias in ipairs(entry.aliases) do
         for _,question in ipairs({alias,"tell me about "..alias,"what about "..alias}) do
             local intent,slots=Brain.parse(session(),question,world)
-            check(intent=="lore","reference phrasing: "..question.." got "..tostring(intent))
+            local expected=entry.id=="ops_grid" and "grid_control" or "lore"
+            check(intent==expected,"reference phrasing: "..question.." got "..tostring(intent))
             local reply=Brain.respond(session(),question,world)
             check(not reply.error and not reply.proposal,"lore is read-only and does not crash: "..question)
             if entry.category=="fragments" then

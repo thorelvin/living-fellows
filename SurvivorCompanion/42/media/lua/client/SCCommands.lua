@@ -1251,6 +1251,9 @@ local function handleWeaponPriority(actor, entry, state, payload)
     state.weaponPriority = value
     markCommand(actor, entry, state)
     if groupStaging then return true, value end
+    if SC.Combat and type(SC.Combat.clearManualWeapon) == "function" then
+        SC.Combat.clearManualWeapon(actor)
+    end
     if SC.Combat and type(SC.Combat.equipPreferred) == "function" then
         local ok, equipped, equipReason, equipDetails = pcall(
             SC.Combat.equipPreferred, actor, value)
@@ -2623,6 +2626,18 @@ local function issueMemberSetAtomic(members, command, payload, player)
     if command == "set_ride_with_player" and SC.Vehicle
         and type(SC.Vehicle.invalidateManifests) == "function" then
         SC.Vehicle.invalidateManifests()
+    end
+    if command == "set_weapon_priority" and SC.Combat then
+        -- Equip only after every member has committed; a rejected group order
+        -- must not clear manual choices or partially change held weapons.
+        for _, plan in ipairs(plans) do
+            if type(SC.Combat.clearManualWeapon) == "function" then
+                pcall(SC.Combat.clearManualWeapon, plan.actor)
+            end
+            if type(SC.Combat.equipPreferred) == "function" then
+                pcall(SC.Combat.equipPreferred, plan.actor, plan.staged.weaponPriority)
+            end
+        end
     end
     return true, "issued", results
 end

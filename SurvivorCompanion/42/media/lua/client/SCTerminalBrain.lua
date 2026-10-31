@@ -370,6 +370,12 @@ Brain.INTENTS = {
         words = { expedition = 6, expeditions = 6, trip = 4, mission = 4, away = 3,
             scavengers = 4, scavenging = 3, radio = 3, raid = 3, convoy = 3, ["return"] = 2 },
         phrases = { ["away team"] = 5, ["when are they back"] = 6, ["when will they be back"] = 6 } },
+    { id="grid_control",label="grid control",
+        words={substation=8,substations=8,transformer=7,transformers=7},
+        phrases={["restore power"]=12,["turn the power back on"]=14,["power back on"]=12,
+            ["connect to grid"]=12,["connect to the grid"]=12,["grid control"]=12,
+            ["shutoff date"]=12,["when does the grid fail"]=14,["energize grid"]=12,
+            ["grid heat"]=12,["controller crack"]=12} },
     { id = "power", label = "power",
         words = { power = 4, electricity = 5, electric = 3, generator = 5, generators = 5,
             fuel = 3, gas = 2, gasoline = 2, grid = 3, lights = 2, battery = 2, voltage = 4,
@@ -868,6 +874,7 @@ end
 local function powerText(power)
     if type(power) ~= "table" then return "unknown" end
     if power.source == "grid" then return "grid" end
+    if power.source == "substation" then return "substation supply" end
     if power.source == "generator" then
         if tonumber(power.fuel) then return "generator, fuel " .. math.floor(power.fuel) .. "%" end
         return "generator"
@@ -1248,9 +1255,40 @@ function H.weather(session, reply, turn, world)
     end
 end
 
+function H.grid_control(session,reply,turn,world)
+    reply.category="grid_control"
+    local grid=ask(turn,world,"grid")
+    if type(grid)~="table" or grid.visible~=true then
+        return add(reply,type(grid)=="table" and grid.reason or "I have no grid-controller records here.")
+    end
+    if grid.standDown then return add(reply,grid.standDown) end
+    add(reply,(grid.online or 0).." of 5 substations online. Grid "..(grid.on and "on" or "off")
+        .."; heat "..math.floor(grid.heat or 0).."%.")
+    if grid.connecting then return add(reply,"Controller connection "..math.floor(grid.connecting.percent).."%. Keep the local generator running.") end
+    if grid.crack then
+        add(reply,grid.crack.label.." is "..string.format("%.1f",grid.crack.percent).."% cracked. "
+            ..math.ceil(grid.crack.requiredHours-grid.crack.doneHours).." game hours remain.")
+        return add(reply,grid.crack.paused and ("Paused: "..grid.crack.paused)
+            or "Progress uses elapsed game time and the last known supply. No work is lost when power stops.")
+    end
+    if grid.on then return add(reply,math.ceil(grid.remainingHours or 0).." game hours to the heat limit. Switch off early to shorten cooling.") end
+    if grid.locked then return add(reply,"The breaker tripped. Allow "..math.ceil(grid.coolingHours or 0).." game hours to cool completely.") end
+    if (grid.linked or 0)>(grid.online or 0) then
+        return add(reply,"A controller is answering. Start its crack from Local services, Grid control, on a powered base computer with a mounted radio.")
+    end
+    if (grid.online or 0)>0 then add(reply,"Ready to energize from Grid control. Each further online site shortens the full cooling cycle by one day, down to three.") end
+    if (grid.daysLeft or 0)>0 then add(reply,"The original grid has about "..math.ceil(grid.daysLeft).." days left.") end
+    if grid.nearest then
+        add(reply,"Next substation: "..grid.nearest.label..", about "..tostring(grid.distance or "unknown").." tiles away.")
+        add(reply,"Bring a spare computer, a mounted two-way radio and a generator within 40 tiles. That computer and its hardware stay there.")
+    end
+    add(reply,"Open Local services, then LARCH/GRID power control. Dead is not the same as gone.")
+end
+
 function H.power(session, reply, turn, world)
     reply.category = "power"
     local power = ask(turn, world, "power")
+    if type(power)=="table" and power.source=="substation" then return addTemplate(reply,"power_substation") end
     if type(power) ~= "table" or (power.source ~= "grid" and power.source ~= "generator") then
         return addTemplate(reply, "power_unknown")
     end
@@ -1995,7 +2033,8 @@ function Brain.parse(session, raw, world, turn)
     local knowledge=SC.TerminalKnowledge
     local framed=joined:find("^tell me about ") or joined:find("^what is ") or joined:find("^who is ")
     local itemFollowUp=not framed and (context.intent=="storage" or context.intent=="food")
-    local record=knowledge and not itemFollowUp and intent~="storage" and knownReference
+    -- Grid questions need the live controller, rather than its static guide card.
+    local record=knowledge and not itemFollowUp and intent~="storage" and intent~="grid_control" and knownReference
     -- An exact complete directory title beats a shorter name inside it.
     -- Incidental place mentions still let an explicitly named person win.
     if not (record and referenceScore>=20) and (intent == nil or PERSON_COMPATIBLE[intent]) then
@@ -2125,7 +2164,7 @@ end
 H["repeat"] = H.repeat_last
 
 local DATA_CATEGORIES = { storage = true, people = true, jobs = true, power = true, weather = true,
-    time = true, zombies = true, expedition = true, advice = true, odds = true }
+    time = true, zombies = true, expedition = true, advice = true, odds = true,grid_control=true }
 
 local function thinking(session, reply)
     local steps = L().THINK[reply.category] or L().THINK.generic

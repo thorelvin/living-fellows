@@ -514,9 +514,16 @@ original:setSecondaryHandItem(weapon)
 original:setWornItem("Back", bag)
 original:setWornItem("Jacket", jacket)
 original:setAttachedItem("Belt Left", knife)
+original.data.SC_ManualWeaponSerial = 7
+weapon:getModData().SC_ManualEquipFor = record.id
+weapon:getModData().SC_ManualEquipSerial = 7
+knife:getModData().SC_ManualEquipFor = record.id
+knife:getModData().SC_ManualEquipSerial = 6
 local captured, captureReason = SC.Persistence.captureRecord(record)
 check(captured ~= nil,
     "plain native items without getInventory still capture: " .. tostring(captureReason))
+check(captured.order.manualWeaponSerial == 7,
+    "weapon choice generation is captured explicitly alongside the weapon priority")
 
 do
     original.data.LF_ProductionSawReceipt = {
@@ -1199,6 +1206,11 @@ local restoredBottle = findType(restored.inventory, "Base.WaterBottleFull")
 local restoredWeapon = findType(restored.inventory, "Base.VarmintRifle")
 local restoredJacket = findType(restored.inventory, "Base.Jacket_Police")
 local restoredKnife = findType(restored.inventory, "Base.HuntingKnife")
+check(restored:getModData().SC_ManualWeaponSerial == 7
+    and restoredWeapon:getModData().SC_ManualEquipFor == record.id
+    and restoredWeapon:getModData().SC_ManualEquipSerial == 7
+    and restoredKnife:getModData().SC_ManualEquipSerial == 6,
+    "actor reconstruction retains the active weapon pin and keeps the older pin invalid")
 local restoredKey = findType(restored.inventory, "Base.Key1")
 local restoredExactUses = findType(restored.inventory, "Base.TestUses")
 local restoredMeal = findType(restored.inventory, "Base.TestMeal")

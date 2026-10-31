@@ -119,6 +119,9 @@ end
 
 function Terminal.powered(object)
     if not Terminal.present(object) then return false end
+    if SC.GridControl and SC.TerminalHardware then
+        SC.GridControl.restoreInstallation(object,SC.TerminalHardware.state(object,false))
+    end
     if SC.TerminalHardware then return SC.TerminalHardware.powered(object) end
     return World().powered(call(object, "getSquare")) == true
 end
@@ -131,6 +134,7 @@ function Terminal.companionAvailable(object)
     local data = call(object, "getModData")
     local portable = type(data) == "table" and data.movableData
     if type(data) ~= "table" or portable ~= nil and type(portable) ~= "table" then return false end
+    if type(portable)=="table" and portable.LF_GridCrack~=nil then return false end
     local stored
     if type(portable) == "table" then stored = portable[System().MEMORY_KEY] end
     if stored == nil then return true end
@@ -259,7 +263,30 @@ function Terminal.installMoveHook()
         return finish(previous(self, character, square, object, ...))
     end
     props.pickUpMoveableInternal = wrapper
-    Terminal._moveHook = { target = props, previous = previous, wrapper = wrapper }
+    local canPick=props.canPickUpMoveable
+    local canWrapper
+    if type(canPick)=="function" then
+        canWrapper=function(self,character,square,object,...)
+            if SC.GridControl then
+                local candidate=object
+                if not candidate and square then
+                    candidate=Terminal.findComputer({square})
+                    if not candidate then
+                        local objects=call(square,"getObjects")
+                        for index=0,math.min(tonumber(call(objects,"size")) or 0,64)-1 do
+                            local found=call(objects,"get",index)
+                            if Terminal.isComputer(found) then candidate=found break end
+                        end
+                    end
+                end
+                if candidate and Terminal.isComputer(candidate) and SC.GridControl.pinned(candidate) then return false end
+            end
+            return canPick(self,character,square,object,...)
+        end
+        props.canPickUpMoveable=canWrapper
+    end
+    Terminal._moveHook = { target = props, previous = previous, wrapper = wrapper,
+        canPrevious=canPick,canWrapper=canWrapper }
     return true
 end
 
@@ -602,10 +629,19 @@ end
 function SCTerminalWindow:menuOptions()
     if not self.system then return {} end
     if self.system.locked then return { { label = "Log off", systemCommand = "close" } } end
+    if SC.TerminalGridUI and SC.TerminalGridUI.active(self) then return SC.TerminalGridUI.options(self) end
     if SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then return SC.TerminalRadioUI.options(self) end
     if SC.TerminalServices then
         local serviceMenu = SC.TerminalServices.menu(self)
         if serviceMenu then return serviceMenu end
+    end
+    if self.gridSite and not self.menuPage then
+        local state=SC.TerminalHardware and SC.TerminalHardware.state(self.object,false)
+        if state and state.gridSite then
+            return {{label="Substation status",gridAction="open"},{label="Log off",systemCommand="close"}}
+        end
+        return {{label="Connect to grid",gridAction="connect"},{label="Substation status",gridAction="open"},
+            {label="Log off",systemCommand="close"}}
     end
     local profile = SC.TerminalFiles.get(self.system.archive)
     if self.menuPage == "files" then
@@ -671,6 +707,7 @@ function SCTerminalWindow:menuOptions()
 end
 
 function SCTerminalWindow:sidebarWidth()
+    if SC.TerminalGridUI and SC.TerminalGridUI.active(self) then return 0 end
     if SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then return 0 end
     if SC.TerminalServices and self.menuPage and self.focusMode=="menu" and self.width<1400 then return 0 end
     return self.system and self.system.locked and 0 or self.layout.side
@@ -843,6 +880,7 @@ function SCTerminalWindow:otherKey(key)
     end
     if key == Keyboard.KEY_ESCAPE then
         self:playClickSound()
+        if SC.TerminalGridUI and SC.TerminalGridUI.active(self) then SC.TerminalGridUI.back(self) return end
         if SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then SC.TerminalRadioUI.back(self) return end
         if self.menuPage then
             self.menuPage,self.menuSelection = nil,1
@@ -877,12 +915,18 @@ function SCTerminalWindow:scrollBy(rows)
 end
 
 function SCTerminalWindow:onMouseWheel(delta)
+    if SC.TerminalGridUI and SC.TerminalGridUI.scroll(self,-(tonumber(delta) or 0)*3) then return true end
     if SC.TerminalRadioUI and SC.TerminalRadioUI.scroll(self,-(tonumber(delta) or 0)*3) then return true end
     self:scrollBy(-(tonumber(delta) or 0) * 3)
     return true
 end
 
 function SCTerminalWindow:onMouseDown(x, y)
+    if self.state~="closing" and SC.TerminalGridUI and SC.TerminalGridUI.active(self) then
+        SC.TerminalGridUI.click(self,x,y)
+        if self.entry then pcall(function() self.entry:focus() end) end
+        return true
+    end
     if self.state~="closing" and SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then
         SC.TerminalRadioUI.click(self,x,y)
         if self.entry then pcall(function() self.entry:focus() end) end
@@ -989,10 +1033,12 @@ function SCTerminalWindow:boot()
     local failure
     self.system, failure = Terminal.computerState(self.player, self.object)
     if not self.system then error(failure) end
+    local gridSite=SC.GridControl and SC.GridControl.visible() and SC.GridControl.siteFor(self.object)
+    self.gridSite=gridSite and gridSite.id or nil
     self.colors = Presentation().colors(self.system.theme)
     self.biosTexture = biosTexture()
     if SC.TerminalBrands then
-        self.brand = self.campReportAvailable and "_camp" or self.system.brand
+        self.brand = self.gridSite and "KnoxValleyPower" or self.campReportAvailable and "_camp" or self.system.brand
         self.logoTexture = SC.TerminalBrands.texture(self.brand, self.system.theme)
     end
     local ink, title, glass = self.colors.input, self.colors.title, self.colors.background
@@ -1209,6 +1255,9 @@ function SCTerminalWindow:systemInput(raw)
                 Terminal.open(self.player, self.object)
                 return true
             end
+            if SC.TerminalGridUI and SC.TerminalGridUI.active(self) then
+                SC.TerminalGridUI.notice(self,message) self.state="idle" self.gridSampleAt=nil return true
+            end
             if SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then
                 SC.TerminalRadioUI.notice(self,message) self.state="idle" return true
             end
@@ -1217,6 +1266,7 @@ function SCTerminalWindow:systemInput(raw)
         end
         SC.TerminalActions.cancel(ticket)
         self:print("Request cancelled.", "system")
+        if SC.TerminalGridUI and SC.TerminalGridUI.active(self) then SC.TerminalGridUI.notice(self,"Request cancelled.") end
         if SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then SC.TerminalRadioUI.notice(self,"Request cancelled.") end
         if lower == "no" or lower == "n" then return true end
     end
@@ -1228,6 +1278,7 @@ function SCTerminalWindow:systemInput(raw)
         self:close()
         return true
     end
+    if not self.system.locked and SC.TerminalGridUI and SC.TerminalGridUI.input(self,trimmed,option) then return true end
     if not self.system.locked and SC.TerminalRadioUI and SC.TerminalRadioUI.input(self,trimmed,option) then return true end
     if SC.TerminalServices and SC.TerminalServices.input(self, trimmed, option) then return true end
     if self.system.locked then
@@ -1468,6 +1519,7 @@ function SCTerminalWindow:update()
     if self.closeAt and now >= self.closeAt then return self:close() end
     self:advance(now)
     if SC.TerminalRadioUI then SC.TerminalRadioUI.update(self,now) end
+    if SC.TerminalGridUI then SC.TerminalGridUI.update(self,now) end
 end
 
 local SPINNER = { "|", "/", "-", "\\" }
@@ -1720,6 +1772,8 @@ function SCTerminalWindow:drawHints(range)
         local puzzle=self.serviceSecurity.puzzle
         hint=status=="lockout" and "Building recovery locked. Retry after one game hour."
             or "Security "..tostring(puzzle and puzzle.tries or 0).."/"..tostring(puzzle and puzzle.maximum or 0).." | Tab: words/chat | PgUp/PgDn"
+    elseif SC.TerminalGridUI and SC.TerminalGridUI.active(self) then
+        hint=self.requestTicket and "Y/N: confirm   Esc: cancel" or "1-"..#self:menuOptions()..": select   Tab: chat   Esc: back"
     elseif SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then hint=self.radioPage=="reading"
         and "PgUp/PgDn: read   1: back   Tab: command   Esc: back" or "1-"..#self:menuOptions()..": select   Tab: command   Esc: back"
     elseif self.state == "booting" then hint = "Enter: skip boot   Esc: log off"
@@ -1760,6 +1814,7 @@ function SCTerminalWindow:prerender()
     end
     if self.state == "booting" then caption = "LARCHFIELD / SYSTEM BIOS" end
     if self.state~="booting" and SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then caption="LARCH/WAVE // EMMA" end
+    if self.state~="booting" and SC.TerminalGridUI and SC.TerminalGridUI.active(self) then caption="LARCH/GRID // EMMA" end
     self:drawText(caption, self.layout.left, self.layout.titleY,
         title[2], title[3], title[4], title[1], self.font)
     if self.state ~= "booting" then self:drawHeaderLogo() end
@@ -1772,6 +1827,7 @@ function SCTerminalWindow:prerender()
         end
         if self.state == "booting" then label = "PERSONAL SYSTEM / 486" end
         if self.state~="booting" and SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then label="RADIO DESK / SIGNAL ACTIVITY" end
+        if self.state~="booting" and SC.TerminalGridUI and SC.TerminalGridUI.active(self) then label="GRID CONTROL / SUBSTATIONS" end
         self:drawText(label, self.layout.left, self.layout.titleHeight,
             title[2], title[3], title[4], 0.95, self.font)
     end
@@ -1795,6 +1851,9 @@ function SCTerminalWindow:prerender()
     if self.system and self.system.locked and self.state ~= "closing" then
         self:drawSecurity()
         return
+    end
+    if SC.TerminalGridUI and SC.TerminalGridUI.active(self) and self.state~="closing" then
+        SC.TerminalGridUI.draw(self,nowMs()) self:drawHints() return
     end
     if SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) and self.state~="closing" then
         SC.TerminalRadioUI.draw(self,nowMs()) self:drawHints() return
@@ -1960,8 +2019,16 @@ function Terminal.fillWorldObjectContextMenu(playerIndex, context, worldObjects,
     if context == nil or player == nil or playerIndex ~= 0 then return false end
     local computer = Terminal.findComputer(worldObjects)
     if not computer or not Terminal.near(player, computer) then return false end
+    if SC.GridControl then SC.GridControl.sample(computer) end
     if SC.TerminalServices then SC.TerminalServices.context(context, player, computer) end
-    if not Terminal.powered(computer) then return false end
+    if not Terminal.powered(computer) then
+        if SC.GridControl and SC.GridControl.visible() and SC.GridControl.siteFor(computer) then
+            local why=SC.GridControl.connectBlocker(computer)
+            local entry=context:addOption("Connect to grid - "..tostring(why or "Power this computer with a generator first."),nil,nil)
+            if entry then entry.notAvailable=true end
+        end
+        return false
+    end
     context:addOption(text("UI_SC_Terminal_Use", "Use computer"), player,
         Terminal.onUseOption, computer)
     return true

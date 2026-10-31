@@ -1482,6 +1482,44 @@ function SC.__testVehicleTransaction()
 end
 SC.__testVehicleTransaction()
 SC.__testVehicleTransaction = nil
+function SC.__testBoardingRetryRecovery()
+    local savedClock=SC_TEST_CLOCK
+    local function exhaust(serial)
+        SC.ActionSupervisor.resetRetry(actor,"fixture_boarding_start","board_vehicle")
+        for attempt=1,4 do
+            assert(SC.Vehicle.beginBoarding(actor,vehicle,1,{followPlayer=true,commandSerial=serial}))
+            SC.Vehicle.failTransaction(actor,"fixture_blocked_door")
+            if attempt<4 then SC_TEST_CLOCK=SC_TEST_CLOCK+60000 end
+        end
+        local current,reason=SC.Vehicle.beginBoarding(actor,vehicle,1,{followPlayer=true,commandSerial=serial})
+        check(not current and reason=="retry_exhausted","boarding keeps its bounded failure budget within one attempt group")
+    end
+    exhaust(10)
+    SC_TEST_CLOCK=SC_TEST_CLOCK+SC.Vehicle.BOARDING_RETRY_PAUSE_MS-1
+    local blocked,reason=SC.Vehicle.beginBoarding(actor,vehicle,1,{followPlayer=true,commandSerial=10})
+    check(not blocked and reason=="retry_exhausted","exhausted boarding waits the full recovery pause")
+    SC_TEST_CLOCK=SC_TEST_CLOCK+1
+    check(SC.Vehicle.beginBoarding(actor,vehicle,1,{followPlayer=true,commandSerial=10})~=nil
+        and actor:getVehicle()==nil,"boarding automatically retries after three minutes without entering or teleporting")
+    SC.Vehicle.cancelTransaction(actor,"fixture_retry_done")
+    exhaust(10)
+    check(SC.Vehicle.beginBoarding(actor,vehicle,1,{followPlayer=true,commandSerial=11})~=nil,
+        "a new Follow order gives the player an immediate fresh boarding attempt")
+    SC.Vehicle.cancelTransaction(actor,"fixture_new_order_done")
+    exhaust(11)
+    local originalX=vehicle.getX
+    vehicle.getX=function(self) return originalX(self)+3 end
+    check(SC.Vehicle.beginBoarding(actor,vehicle,1,{followPlayer=true,commandSerial=11})~=nil,
+        "moving and parking the car clears stale boarding failures for its old location")
+    SC.Vehicle.cancelTransaction(actor,"fixture_car_moved_done")
+    vehicle.getX=originalX
+    SC.ActionSupervisor.resetRetry(actor,"fixture_retry_cleanup","board_vehicle")
+    SC_TEST_CLOCK=savedClock
+    check(SC.ActionSupervisor.reservationCount(actor)==0 and not SC.Vehicle.isSeatReserved(vehicle,1),
+        "retry recovery leaves no seat or actor reservations behind")
+end
+SC.__testBoardingRetryRecovery()
+SC.__testBoardingRetryRecovery=nil
 local originalVehicleTransition = SC.ActionSupervisor.transition
 SC.ActionSupervisor.transition = function(token, phase, detail)
     if phase == "committing" then return false, "commit_owner_refused" end
