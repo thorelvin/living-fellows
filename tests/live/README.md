@@ -485,3 +485,41 @@ companion panel and terminal stay closed and prints the built-in performance
 report at completion. Computer-service timing is included even when it is below
 the top twelve systems. Compare equivalent cloned saves without running the
 project gate alongside a timing sample.
+
+## Rosewood bed exits
+
+`-FirestationRestProbe` walks real companions through the station's doors and
+stairs, sleeps in both upstairs bedrooms, then tests a sleeping bag, bunk and
+couch. Every individual trial must get up, clear the mattress with the whole
+collision body, and walk to a different floor tile before removal.
+`-FirestationRestGroup` adds three simultaneous sleepers in each bedroom.
+`-FirestationRestFirstTrial 2` can start the grouped check in the smaller room.
+The `FIRESTATION_EXIT` lines record position, original bed, native pose, owner,
+available clear exits and the production exit result. A failed exit also saves
+an engine screenshot. These are geometry and movement checks, not performance
+samples; the full project gate may run alongside them.
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -FirestationRestProbe -FirestationRestGroup `
+    -LivingFellowsOnly -NoSteam -IsolatedSourceBridge -EngineSound `
+    -HiddenWindow -TimeoutSeconds 900
+```
+
+## Follow after vehicle exit
+
+`-FollowRoadProbe -FollowRoadIsolated -FollowRoadVehicle` first records a
+50-tile player jog with three normal followers. It then spawns one stationary
+four-seat car, lets the three companions board normally, queues the player's
+stock vehicle-exit action and walks the player away. Each real passenger must
+exit and translate at least 0.35 tiles within three seconds of getting out.
+The report separates exit latency from first movement; `SC_FOLLOW_CAR` records
+the decision and navigation state. Only fixture placement uses relocation.
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -FollowRoadProbe -FollowRoadIsolated `
+    -FollowRoadVehicle -LivingFellowsOnly -NoSteam -IsolatedSourceBridge `
+    -EngineSound -HiddenWindow -TimeoutSeconds 420
+```
+
+Run timing comparisons without a concurrent project gate. This fixture covers
+an outdoor parked car; indoor garage exits remain on normal verified routing.

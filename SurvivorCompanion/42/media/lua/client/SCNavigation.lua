@@ -4290,6 +4290,20 @@ function Navigation._followUsesEngine(intent, sourceSquare, goalSquare, followRo
         or intent.draggingBody == true or intent.stealthAvoidance then
         return false
     end
+    -- Immediately outside a verified passenger door the polygon pathfinder
+    -- understands the parked car better than the tile planner. Do not spend
+    -- its five-second search allowance standing beside that same car. Keep
+    -- indoor, cross-floor, stealth and work-area routes on their normal paths.
+    local car = intent.followExitVehicle
+    if car ~= nil and intent.preferVerifiedPath ~= true then
+        local sourceRoom, sourceKnown = U().call(sourceSquare, "getRoom")
+        local goalRoom, goalKnown = U().call(goalSquare, "getRoom")
+        if sourceKnown and goalKnown and sourceRoom == nil and goalRoom == nil
+            and U().sameFloor(sourceSquare, goalSquare)
+            and U().sameFloor(sourceSquare, car) and U().distance(sourceSquare, car) <= 6 then
+            return true
+        end
+    end
     local distance = U().distance(sourceSquare, goalSquare)
     return tonumber(distance) ~= nil
         and distance > (tonumber(U().config("navigationFollowEngineDistance")) or 24)
@@ -7488,9 +7502,9 @@ function Navigation.request(actor, target, movementMode, intent)
                 SC.Navigation._resetRouteProjection(state)
             end
         end
-        -- A leader far ahead is followed with the engine pathfinder straight
-        -- away. A long Lua search held the companion still while it ran and
-        -- often timed out, so a companion far behind could stand for minutes.
+        -- Distant Follow and verified outdoor car exits use the engine without
+        -- spending a stationary Lua search first. The native lease below still
+        -- owns live door, hazard, crowd and progress checks.
         local longRangeEngine = not knownLockedRoom
             and not state.path and state.pathSearch == nil
             and SC.Navigation._followUsesEngine(requestIntent, sourceSquare, goalSquare,

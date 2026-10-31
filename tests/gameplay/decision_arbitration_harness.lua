@@ -488,4 +488,29 @@ SC.Downtime.resumeFollow=function(value)
 end
 check(hold(nil,nil,nil,order("follow"))==false and followResumePolls==1 and not Supervisor.isCurrent(pause),
     "leader movement releases seated ownership before arbitration so follow can run in the same decision")
+modules()
+do
+    local commands = order("follow")
+    commands.scavenge = true
+    local oldMoving = player.isMoving
+    function player:isMoving() return true end
+    local candidates = D._evaluateForTests(actor, player, quiet(), commands,
+        healthy(), {}, {}, clock)
+    local scavenging = false
+    for _, candidate in ipairs(candidates) do
+        if candidate.kind == "scavenge" then scavenging = true end
+    end
+    check(not scavenging,
+        "a blocked Follow cannot fall back to a fresh loot search while the leader moves")
+    player.isMoving = oldMoving
+    clock = clock + 1
+    D._evaluateForTests(actor, player, quiet(), commands, healthy(), {}, {}, clock)
+    clock = clock + 1
+    candidates = D._evaluateForTests(actor, player, quiet(), commands, healthy(), {}, {}, clock)
+    scavenging = false
+    for _, candidate in ipairs(candidates) do
+        if candidate.kind == "scavenge" then scavenging = true end
+    end
+    check(scavenging, "opportunistic looting remains available beside a settled leader")
+end
 SC_TEST_REPORT = "DECISION_ARBITRATION_PASS checks=" .. checks .. " kinds=" .. #rows

@@ -1,6 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Disposable clone only. Native Rosewood station doors, stairs and beds.
--- Observer/fixture placement is setup; measured companions never teleport.
+-- Observer/fixture placement is setup; measured travel uses normal navigation.
+-- Local mattress clearance, if needed, belongs to production bed-exit recovery.
 local Probe = {}
 local function call(object, name, ...)
     if object == nil then return nil end
@@ -24,6 +25,42 @@ local function safe(SC, square)
         and call(square, "TreatAsSolidFloor") == true
         and call(square, "isSafeToSpawn") ~= false
         and not SC.Topology.squareHasStairs(square)
+end
+local function walkoutGoal(SC, actor)
+    local U, choices = SC.GameplayUtil, {}
+    local x, y, z = U.position(actor)
+    local current = U.gridSquare(math.floor(x), math.floor(y), math.floor(z or 0))
+    local room = call(current, "getRoom")
+    for dx = -3, 3 do for dy = -3, 3 do
+        local target = U.gridSquare(math.floor(x) + dx, math.floor(y) + dy, math.floor(z or 0))
+        if target and call(target, "getRoom") == room and safe(SC, target)
+            and U.isClearActorSpawnSquare(target) and U.distanceSq(actor, target) >= 2.25 then
+            choices[#choices + 1] = target
+        end
+    end end
+    table.sort(choices, function(a, b) return U.distanceSq(actor, a) < U.distanceSq(actor, b) end)
+    return choices[1]
+end
+local function traceExit(SC, actor, bed, label)
+    local targets, touching, why = {}, false, "no-bed"
+    if bed then targets, touching, why = SC.BedGeometry.exitTargets(bed, actor) end
+    local left, reason = SC.NativeActions.leaveSeating(actor)
+    print("SC_REAL_SANDBOX|FIRESTATION_EXIT|" .. label .. " at=" .. at(actor)
+        .. " bed=" .. at(call(bed, "getSquare")) .. " onbed=" .. tostring(actor:isOnBed())
+        .. " context=" .. tostring(call(actor, "getCurrentActionContextStateName"))
+        .. " owner=" .. tostring(call(actor, "getCompanionMovementOwner"))
+        .. " touching=" .. tostring(touching) .. " targets=" .. #targets
+        .. " geometry=" .. tostring(why) .. " left=" .. tostring(left) .. " reason=" .. tostring(reason))
+    local U = SC.GameplayUtil
+    local square = U.gridSquare(math.floor(actor:getX()), math.floor(actor:getY()), math.floor(actor:getZ()))
+    U.squareObjects(square, function(object)
+        local sprite = call(object, "getSprite")
+        local props = call(sprite, "getProperties")
+        print("SC_REAL_SANDBOX|FIRESTATION_EXIT_OBJECT|" .. label
+            .. " sprite=" .. tostring(call(sprite, "getName"))
+            .. " custom=" .. tostring(call(props, "get", "CustomName"))
+            .. " bedtype=" .. tostring(call(props, "get", "BedType")))
+    end, 12)
 end
 local function catalogueStep(H, SC, f, result)
     if not f.catalogue then
@@ -156,11 +193,20 @@ local function groupStep(H,SC,f,current,check,result,setPhase)
     end
     if H.phase=="firestation_rest_group_wake" then
         local standing=true
-        for _,row in ipairs(f.group) do
+        local trace = current >= (f.exitTraceAt or 0)
+        for index,row in ipairs(f.group) do
             SC.Downtime.cancel(row.actor,"group_trial_complete")
+            local touching = false
+            if row.bed then
+                local _, overlaps = SC.BedGeometry.exitTargets(row.bed, row.actor)
+                touching = overlaps
+            end
             if row.actor:isOnBed() or row.actor:isAsleep()
-                or SC.NativeActions.seatingStatus(row.actor)~="standing" then standing=false end
+                or SC.NativeActions.seatingStatus(row.actor)~="standing"
+                or touching == true then standing=false end
+            if trace then traceExit(SC, row.actor, row.bed, "room=" .. f.groupRoom .. " actor=" .. index) end
         end
+        if trace then f.exitTraceAt = current + 5000 end
         if standing then
             for index,row in ipairs(f.group) do
                 check("firestation_group_remove_" .. f.groupRoom .. "_" .. index,
@@ -168,6 +214,7 @@ local function groupStep(H,SC,f,current,check,result,setPhase)
             end
             beginGroup(H,SC,f,current,check,result,setPhase)
         elseif current-H.phaseStartedAt>25000 then
+            screenshot(H, "blocked-exit-room-" .. f.groupRoom)
             result("FAIL","firestation_group_wake","group did not leave beds normally")
             setPhase("finish",current)
         end
@@ -183,6 +230,7 @@ local function groupStep(H,SC,f,current,check,result,setPhase)
         local native=SC.NativeActions._bedRestForTests(actor) or {}
         if actor:isAsleep() then
             row.sleptAt=row.sleptAt or current
+            row.bed = native.pose == "bed" and native.object or nil
             if native.object then beds[native.object]=true end
         else allAsleep=false end
         if current>=f.groupTraceAt then
@@ -310,6 +358,7 @@ function Probe.step(H, current, check, result, setPhase)
         H.firestationRest = { bedrooms = {}, roomBeds = {}, doors = {}, ground = {},
             seenDoors = {}, seenBeds = {}, bedPieces = {}, rooms = {}, upperTiles = 0, rawBeds = 0,
             firstTrial = tonumber(H.config.firestation_rest_first_trial) or 1,
+            groupRoom = math.max(0, (tonumber(H.config.firestation_rest_first_trial) or 1) - 1),
             index = (tonumber(H.config.firestation_rest_first_trial) or 1) - 1 }
         H.player:teleportTo(8140, 11738, 0)
         setPhase("firestation_rest_load", current) return
@@ -512,23 +561,52 @@ function Probe.step(H, current, check, result, setPhase)
                 tostring(native.alignmentFailure or "render-only mattress alignment verified"))
         end
         screenshot(H, "sleep-" .. tostring(f.target.surface or "bedroom") .. "-" .. f.index)
+        f.wakeBed = native.pose == "bed" and native.object or nil
         SC.Downtime.cancel(actor, "firestation_sleep_verified")
         setPhase("firestation_rest_wake", current) return
     end
     if H.phase == "firestation_rest_wake" then
         SC.Downtime.cancel(actor, "firestation_trial_complete")
+        local touching = false
+        if f.wakeBed then
+            local _, overlaps = SC.BedGeometry.exitTargets(f.wakeBed, actor)
+            touching = overlaps
+        end
         if not actor:isAsleep() and not actor:isOnBed()
-            and SC.NativeActions.seatingStatus(actor) == "standing" then
+            and SC.NativeActions.seatingStatus(actor) == "standing" and touching ~= true then
             check("firestation_wake_" .. f.index, true, "awake and standing off the bed")
-            -- Fixture actor removal after the measured trial prevents bed contention.
+            f.walkout = walkoutGoal(SC, actor)
+            if not check("firestation_walkout_goal_" .. f.index, f.walkout ~= nil, at(f.walkout)) then
+                setPhase("finish", current) return
+            end
+            screenshot(H, "clear-exit-" .. f.index)
+            setPhase("firestation_rest_walkout", current)
+        elseif current - H.phaseStartedAt > 25000 then
+            traceExit(SC, actor, f.wakeBed, "trial=" .. f.index)
+            screenshot(H, "blocked-exit-trial-" .. f.index)
+            result("FAIL", "firestation_wake_" .. f.index, "did not finish leaving bed")
+            setPhase("finish", current)
+        end
+        return
+    end
+    if H.phase == "firestation_rest_walkout" then
+        local accepted, reason = SC.Navigation.request(actor, f.walkout, "walk", {
+            action = "firestation_bed_walkout", requireSameSquare = true,
+            snapshot = { threats = {}, threatCount = 0, immediateCount = 0,
+                player = { danger = 0 } },
+        })
+        if U.sameSquare(actor, f.walkout) then
+            check("firestation_walkout_" .. f.index, true, "normal walking resumed at=" .. at(actor))
+            screenshot(H, "walkout-" .. f.index)
             if not check("firestation_remove_" .. f.index, SC.Actor.remove(actor) == true,
-                "measured actor removed after waking") then
+                "measured actor removed after walking clear") then
                 setPhase("finish", current) return
             end
             f.actor = nil
             beginTrial(H, SC, f, current, check, result, setPhase)
         elseif current - H.phaseStartedAt > 25000 then
-            result("FAIL", "firestation_wake_" .. f.index, "did not finish leaving bed")
+            result("FAIL", "firestation_walkout_" .. f.index,
+                "could not walk clear after waking: " .. tostring(accepted) .. "/" .. tostring(reason))
             setPhase("finish", current)
         end
         return

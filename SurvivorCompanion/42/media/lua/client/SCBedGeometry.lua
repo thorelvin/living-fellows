@@ -42,7 +42,7 @@ end
 local function segmentAt(tile, grid, targetGX, targetGY)
     local objects = tile and select(1, U().call(tile, "getObjects"))
     if not objects or not SC.NativeList then return nil end
-    for index = 0, SC.NativeList.size(objects) - 1 do
+    for index = 0, math.min(64, SC.NativeList.size(objects)) - 1 do
         local candidate = SC.NativeList.get(objects, index)
         local candidateSprite = select(1,
             U().call(candidate, "getSprite"))
@@ -351,6 +351,144 @@ function Geometry.entry(bed, actor)
     if not best then return nil, nil, "bed_entry_blocked" end
     return bed, { x = best[1], y = best[2], z = z or 0,
         facing = facing, entryKind = best[3], correctedFacing = correctedFacing }, "entry"
+end
+
+-- Only the just-used mattress may be crossed during exit recovery. Furniture
+-- collision also blocks the seam between two solid bed segments; structural
+-- edge queries distinguish that seam from a real wall, door or window.
+function Geometry.exitTargets(bed, actor)
+    local utility = U()
+    -- Native get-up can move the actor after this decision batch cached its
+    -- position. Collision clearance must use the current physical coordinates.
+    local ax, xKnown = utility.call(actor, "getX")
+    local ay, yKnown = utility.call(actor, "getY")
+    local az, zKnown = utility.call(actor, "getZ")
+    if not xKnown or not yKnown or not zKnown then ax, ay, az = utility.position(actor) end
+    local origin = utility.squareOf(bed)
+    if not origin then return {}, false, "bed_missing" end
+    if ax == nil or ay == nil or az == nil then return {}, true, "bed_exit_position_unavailable" end
+    az = math.floor(az or 0)
+    local room, roomKnown = utility.call(origin, "getRoom")
+    if not roomKnown then return {}, true, "bed_exit_room_unavailable" end
+    local pieces, mattress = {}, {}
+    local radius = math.max(0.15, math.min(0.45,
+        gridNumber(select(1, utility.call(actor, "getWidth"))) or 0.3)) + 0.03
+    local touching = false
+    for index, piece in ipairs(Geometry.segments(bed)) do
+        if index > 16 then break end
+        local tile = utility.squareOf(piece)
+        local x, y, z = utility.position(tile)
+        if tile and x ~= nil and y ~= nil and math.floor(z or 0) == az
+            and select(1, utility.call(tile, "getRoom")) == room then
+            pieces[piece], mattress[tile] = true, true
+            if ax > x - radius and ax < x + 1 + radius
+                and ay > y - radius and ay < y + 1 + radius then touching = true end
+        end
+    end
+    if not touching then return {}, false, "clear_of_bed" end
+
+    local physical = utility.gridSquare(math.floor(ax), math.floor(ay), az)
+    local function floorReady(tile, allowCrowdedSource)
+        if not tile then return false end
+        local tileRoom, knownRoom = utility.call(tile, "getRoom")
+        if not knownRoom or tileRoom ~= room then return false end
+        local x, y, z = utility.position(tile)
+        if x == nil or y == nil or math.floor(z or 0) ~= az
+            or (x + 0.5 - ax)^2 + (y + 0.5 - ay)^2 > 3.25^2 then return false end
+        if select(1, utility.call(tile, "getCell")) == nil
+            or select(1, utility.call(tile, "getChunk")) == nil
+            or select(1, utility.call(tile, "TreatAsSolidFloor")) ~= true
+            or select(1, utility.call(tile, "getVehicleContainer")) ~= nil then return false end
+        if SC.Topology and SC.Topology.squareHasStairs(tile) then return false end
+        local bodies, bodiesKnown = utility.call(tile, "getMovingObjects")
+        if not bodiesKnown or not bodies or not SC.NativeList then return false end
+        local count = SC.NativeList.size(bodies)
+        if count > 32 then return false end
+        for index = 0, count - 1 do
+            local body = SC.NativeList.get(bodies, index)
+            if not allowCrowdedSource and body and body ~= actor
+                and select(1, utility.call(body, "isCollidable")) ~= false then return false end
+        end
+        return true
+    end
+    local function clearFloor(tile)
+        if not floorReady(tile) then return false end
+        local clear, reason = utility.isClearActorSpawnSquare(tile)
+        -- isFree can count the actor itself. Recentring its own clear tile is
+        -- allowed only after proving no other body or furniture occupies it.
+        -- Only recentering this physical tile has a native exception to spawn
+        -- safety. Reject narrow other-tile choices here so they cannot hide a
+        -- valid exit later in the list that the native provider would accept.
+        return clear == true or tile == physical
+            and (reason == "unsafe_to_spawn" or reason == "occupied")
+            and utility.squareOccupyingObject(tile) == nil
+    end
+    local function openEdge(from, to)
+        local blocked, known = utility.call(from, "isBlockedTo", to)
+        if not known or blocked ~= false then return false end
+        for _, method in ipairs({ "isWindowTo", "isDoorTo", "isHoppableTo" }) do
+            local barrier, checked = utility.call(from, method, to)
+            if not checked or barrier ~= false then return false end
+        end
+        return true
+    end
+    if not mattress[physical] then
+        -- Stock ejection can stop only 0.05 tiles past the bed edge. The
+        -- collision capsule is still in the bed; finish at this tile's centre.
+        if clearFloor(physical) then return { physical }, true, "bed_edge_clearance" end
+        -- Several sleepers can finish on one aisle tile. Never recenter onto
+        -- the other body or wait forever for that body to move: one checked
+        -- cardinal step may leave the crowded source for empty floor.
+        local targets = {}
+        if floorReady(physical, true) and utility.squareStaticBlocker(physical) == nil
+            and utility.squareOccupyingObject(physical) == nil then
+            local x, y = utility.position(physical)
+            for _, offset in ipairs({ {-1,0}, {1,0}, {0,-1}, {0,1} }) do
+                local target = utility.gridSquare(x + offset[1], y + offset[2], az)
+                if target and clearFloor(target) and openEdge(physical, target) then
+                    targets[#targets + 1] = target
+                end
+            end
+            table.sort(targets, function(a, b)
+                local x1, y1 = utility.position(a)
+                local x2, y2 = utility.position(b)
+                return (x1 + 0.5 - ax)^2 + (y1 + 0.5 - ay)^2
+                    < (x2 + 0.5 - ax)^2 + (y2 + 0.5 - ay)^2
+            end)
+        end
+        return targets, true, "bed_edge_clearance"
+    end
+    local queue, seen, choices = { { square = physical, steps = 0 } }, { [physical] = true }, {}
+    local cursor = 1
+    while cursor <= #queue and cursor <= 16 do
+        local node = queue[cursor]
+        cursor = cursor + 1
+        local tile, steps = node.square, node.steps
+        if floorReady(tile) and utility.squareOccupyingObject(tile, pieces) == nil and steps < 4 then
+            local x, y = utility.position(tile)
+            for _, offset in ipairs({ {-1,0}, {1,0}, {0,-1}, {0,1} }) do
+                local target = utility.gridSquare(x + offset[1], y + offset[2], az)
+                if target and not seen[target] and openEdge(tile, target) then
+                    if mattress[target] then
+                        seen[target] = true
+                        queue[#queue + 1] = { square = target, steps = steps + 1 }
+                    elseif clearFloor(target) then
+                        seen[target] = true
+                        local tx, ty = utility.position(target)
+                        choices[#choices + 1] = { square = target, steps = steps + 1,
+                            distanceSq = (tx + 0.5 - ax)^2 + (ty + 0.5 - ay)^2 }
+                    end
+                end
+            end
+        end
+    end
+    table.sort(choices, function(a, b)
+        if a.steps ~= b.steps then return a.steps < b.steps end
+        return a.distanceSq < b.distanceSq
+    end)
+    local targets = {}
+    for _, choice in ipairs(choices) do targets[#targets + 1] = choice.square end
+    return targets, true, "bed_exit_clearance"
 end
 
 -- Configure only this owned action. OnBed blocks turning as soon as it enters,

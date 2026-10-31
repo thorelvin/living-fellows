@@ -5940,6 +5940,27 @@ formationLeft.square = cell:getGridSquare(settledHeadingTarget.x + 2, settledHea
 check(not SurvivorCompanion.Positioning.shouldHold(formationLeft, settledHeadingTarget),
     "formation hold releases only after the wider hysteresis boundary")
 do
+    local follower = actor("sc-follow-barrier-hold", 24, -20, {})
+    local source = follower.square
+    local target = cell:getGridSquare(25, -20, 0)
+    follower.worldX, follower.worldY = 24.99, -19.5
+    source.blocked[target] = true
+    check(not SurvivorCompanion.Positioning.shouldHold(follower, target),
+        "a nearby formation slot across a wall is not a valid hold")
+    source.blocked[target] = nil
+    target.vehicleContainer = { __class = "BaseVehicle" }
+    check(not SurvivorCompanion.Positioning.shouldHold(follower, target),
+        "a nearby formation slot behind a car is not a valid hold")
+    target.vehicleContainer = nil
+    check(SurvivorCompanion.Positioning.shouldHold(follower, target),
+        "a clear nearby formation slot still permits a stable hold")
+    source.blocked[target] = true
+    check(not SurvivorCompanion.Positioning.shouldHold(follower, target),
+        "a barrier also releases an already active formation hold")
+    source.blocked[target] = nil
+    SurvivorCompanion.Positioning.reset(follower)
+end
+do
     formationLeft.square = settledHeadingTarget
     local movingTrail = { mode = "trail", movingLeader = true,
         leaderDistance = 10, desiredDistance = 3 }
@@ -5947,6 +5968,10 @@ do
         formationLeft, settledHeadingTarget, movingTrail),
         "a moving leader seven-plus tiles away releases a reached trail breadcrumb")
     movingTrail.leaderDistance = 4
+    check(not SurvivorCompanion.Positioning.shouldHold(
+        formationLeft, settledHeadingTarget, movingTrail),
+        "a moving leader releases a trail hold before a seven-tile gap opens")
+    movingTrail.leaderDistance = 3
     check(SurvivorCompanion.Positioning.shouldHold(
         formationLeft, settledHeadingTarget, movingTrail),
         "trail hold remains available when the follower is close to its leader")
@@ -8380,9 +8405,21 @@ do
         and car.passengerPosition == "inside"
         and car.transmittedPosition == "inside"
         and car.passengerAnimation == "idle"
+    SurvivorCompanion.Positioning.shouldHold(carActor, carActor.square)
+    check(SurvivorCompanion.Positioning.debug(carActor).holdingFormation,
+        "vehicle-exit fixture carries a previous on-foot formation hold")
     player.vehicle = nil
     local exitedByFollow, exitStatus = SurvivorCompanion.Decision._doFollowForTests(
         carActor, player, {}, commands, quiet)
+    check(SurvivorCompanion.Positioning.debug(carActor) == nil,
+        "verified vehicle exit releases the stale on-foot hold and slot")
+    check(SurvivorCompanion.Vehicle.recentExitFor(carActor) == car,
+        "only a verified native exit exposes the exact parked car for prompt rejoin")
+    local exitClock = clock
+    clock = clock + 8001
+    check(SurvivorCompanion.Vehicle.recentExitFor(carActor) == nil,
+        "the vehicle-exit rejoin hint expires without a background service")
+    clock = exitClock
     SurvivorCompanion.Actor.setMovement, SurvivorCompanion.Actor.recover = oldMove, oldRecover
     SurvivorCompanion.Registry.living = oldLiving
     SurvivorCompanion.Navigation.requestAny = oldRequestAny
@@ -13467,7 +13504,7 @@ do
     end
     local activeCandidates = SurvivorCompanion.Decision._evaluateForTests(
         decisionScavenger, player, safeSnapshot, commandView,
-        { alive = true, health = 100, wounds = {} }, {}, {}, clock)
+        { alive = true, health = 100, wounds = {} }, {}, {}, clock + 800 + settleMs * 5)
     SurvivorCompanion.Encounter.peek = originalEncounterPeek
     SurvivorCompanion.Autonomy = savedAutonomy
     check(activeCandidates[1] and activeCandidates[1].kind == "scavenge"
@@ -25400,6 +25437,28 @@ end)()
         and not navigation._followUsesEngine({ action = "follow_formation",
             stealthAvoidance = true }, origin, far, true),
         "a leader far away is followed with the engine pathfinder instead of a long Lua search")
+    local car = { getX = function() return 0 end, getY = function() return 0 end,
+        getZ = function() return 0 end }
+    local nearby = cell:getGridSquare(4, 0, 0)
+    local sourceRoom, nearbyRoom = origin.room, nearby.room
+    origin.room, nearby.room = nil, nil
+    local hint = { action = "follow_formation", followExitVehicle = car }
+    check(navigation._followUsesEngine(hint, origin, nearby, true),
+        "a verified outdoor passenger exit uses polygon pathing without a five-second tile search")
+    nearby.room = {}
+    check(not navigation._followUsesEngine(hint, origin, nearby, true),
+        "vehicle-exit routing does not bypass an indoor route")
+    nearby.room = nil
+    hint.stealthAvoidance = true
+    check(not navigation._followUsesEngine(hint, origin, nearby, true),
+        "vehicle-exit routing retains scored stealth paths")
+    hint.stealthAvoidance, hint.workCampOnly = nil, true
+    check(not navigation._followUsesEngine(hint, origin, nearby, true),
+        "vehicle-exit routing retains work-area restrictions")
+    hint.workCampOnly, hint.preferVerifiedPath = nil, true
+    check(not navigation._followUsesEngine(hint, origin, nearby, true),
+        "vehicle-exit routing retains required verified paths")
+    origin.room, nearby.room = sourceRoom, nearbyRoom
 end)()
 
 -- A companion walking the same way just ahead does not make the follower
@@ -25728,7 +25787,7 @@ end)()
     check(bleedingKinds["follow:seek_care"] == true and not bleedingKinds["medical:"]
             and not bleedingKinds["scavenge:"] and not bleedingKinds["downtime:"]
             and suppliedKinds["medical:"] == true
-            and healthyKinds["scavenge:"] == true and not healthyKinds["follow:seek_care"],
+            and healthyKinds["follow:"] == true and not healthyKinds["follow:seek_care"],
         "a bleeding companion without a dressing seeks care instead of retrying unavailable medicine")
     local summary = medical.deathSummary(patient)
     check(type(summary) == "string" and string.find(summary, "died health=", 1, true) == 1,

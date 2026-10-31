@@ -19,6 +19,7 @@ local manifests = {}
 local lastVehicleShotAt = setmetatable({}, { __mode = "k" })
 local transactions = setmetatable({}, { __mode = "k" })
 local boardingAttempts = setmetatable({}, { __mode = "k" })
+local recentExits = setmetatable({}, { __mode = "k" })
 vehicleService.BOARDING_RETRY_PAUSE_MS=180000
 local seatResources = {}
 local driverKeyRecoveries = {}
@@ -1926,9 +1927,36 @@ function vehicleService.exit(actor, vehicle, requestedSeat, intent)
     local record = SC.Registry.byId(SC.Registry.idOf(actor))
     if record ~= nil then record.runtime.vehicle = nil end
     vehicleService.invalidateManifests(vehicle)
+    -- A previous on-foot hold/slot does not describe this passenger door.
+    -- Release it only after native exit and exact placement were verified.
+    if SC.Positioning and type(SC.Positioning.reset) == "function" then
+        pcall(SC.Positioning.reset, actor)
+    end
+    local utility = SC.GameplayUtil
+    if utility and type(utility.nowMs) == "function" then
+        recentExits[actor] = { vehicle = vehicle, at = utility.nowMs() }
+    end
     return finishTransaction(transaction, true, "native_exit", {
         vehicleKey = keyFor(identity), seat = seat,
     })
+end
+
+-- An on-demand hint for the first few steps away from a verified passenger
+-- door. No polling service or saved state: stop using it as soon as the actor
+-- leaves the parked car, reboards, or eight seconds have passed.
+function vehicleService.recentExitFor(actor)
+    local exit, utility = recentExits[actor], SC.GameplayUtil
+    if not exit or not utility then return nil end
+    local age = utility.nowMs() - exit.at
+    local current, known = utility.call(actor, "getVehicle")
+    if age < 0 or age > 8000 or not known or current ~= nil
+        or utility.isDead(actor) or not utility.sameFloor(actor, exit.vehicle)
+        or utility.distance(actor, exit.vehicle) > 6
+        or vehicleService.isStationary(exit.vehicle) ~= true then
+        recentExits[actor] = nil
+        return nil
+    end
+    return exit.vehicle
 end
 
 -- Number of virtual passengers still stored for a vehicle key. The runtime uses
@@ -2102,6 +2130,7 @@ function vehicleService.releaseActor(actor)
         if not called or stopped ~= true then return false, "drive_release_failed" end
     end
     lastVehicleShotAt[actor] = nil
+    recentExits[actor] = nil
     local transaction = transactions[actor]
     if transaction == nil then return true end
     local service = supervisor()
@@ -2143,6 +2172,7 @@ function vehicleService.reset()
     manifests = {}
     transactions = setmetatable({}, { __mode = "k" })
     boardingAttempts = setmetatable({}, { __mode = "k" })
+    recentExits = setmetatable({}, { __mode = "k" })
     seatResources = {}
     lastVehicleShotAt = setmetatable({}, { __mode = "k" })
 end

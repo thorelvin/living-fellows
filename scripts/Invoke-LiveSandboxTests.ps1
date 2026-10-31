@@ -240,12 +240,15 @@ param(
     [switch]$PathingOnly,
     # Cloned-save 50-tile player road run with per-second Follow gap trace.
     [switch]$FollowRoadProbe,
+    # Continue the road trace through real passenger boarding, player exit and
+    # normal follow movement around the parked car.
+    [switch]$FollowRoadVehicle,
     # Compare the same road run with the team's open formation enabled.
     [switch]$FollowRoadFanOut,
     # Move unrelated recruits to a safe Stay point so their care needs cannot
     # pull the measured trio off the route in a movement-only comparison.
     [switch]$FollowRoadIsolated,
-    # Diagnostic A/B: use committed Follow/medical modules in the disposable
+    # Diagnostic A/B: use committed Follow/medical/vehicle modules in the disposable
     # sandbox while retaining the current live probe and runner.
     [switch]$FollowRoadBaseline,
     # Permit a diagnostic run with the same bridge bytecode when only the
@@ -1597,11 +1600,15 @@ if ($OfficeHaulBaseline) {
     }
     Write-Output 'Restored committed corpse-hauling and navigation modules in the disposable sandbox.'
 }
+if ($FollowRoadVehicle -and -not $FollowRoadProbe) {
+    throw 'FollowRoadVehicle requires FollowRoadProbe.'
+}
 if ($FollowRoadBaseline) {
     if (-not $FollowRoadProbe) { throw 'FollowRoadBaseline requires FollowRoadProbe.' }
     foreach ($relative in @(
         'SurvivorCompanion/42/media/lua/client/SCDecision.lua',
         'SurvivorCompanion/42/media/lua/client/SCMedical.lua',
+        'SurvivorCompanion/42/media/lua/client/SCVehicle.lua',
         'SurvivorCompanion/42/media/lua/client/SCPositioning.lua')) {
         $baselineText = & git -C $ProjectRoot show "HEAD:$relative"
         if ($LASTEXITCODE -ne 0) { throw "Could not load Follow baseline: $relative" }
@@ -1610,7 +1617,7 @@ if ($FollowRoadBaseline) {
             (($baselineText -join "`n") + "`n"),
             [System.Text.UTF8Encoding]::new($false))
     }
-    Write-Output 'Restored committed Follow and medical modules in the disposable sandbox.'
+    Write-Output 'Restored committed Follow, medical and vehicle modules in the disposable sandbox.'
 }
 if ($SquadCombatBaseline) {
     if (-not $SquadCombatProbe) { throw 'SquadCombatBaseline requires SquadCombatProbe.' }
@@ -1839,6 +1846,7 @@ $config = @(
     ('faction_map_only=' + $FactionMapOnly.IsPresent.ToString().ToLowerInvariant()),
     ('pathing_only=' + $PathingOnly.IsPresent.ToString().ToLowerInvariant()),
     ('follow_road_probe=' + $FollowRoadProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('follow_road_vehicle=' + $FollowRoadVehicle.IsPresent.ToString().ToLowerInvariant()),
     ('follow_road_fan_out=' + $FollowRoadFanOut.IsPresent.ToString().ToLowerInvariant()),
     ('follow_road_isolated=' + $FollowRoadIsolated.IsPresent.ToString().ToLowerInvariant()),
     ('place_metadata_only=' + $PlaceMetadataOnly.IsPresent.ToString().ToLowerInvariant()),

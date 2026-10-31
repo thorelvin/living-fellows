@@ -869,7 +869,17 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         -- view out of reach. Encounter still refuses under attack or pressure.
         local lootBesideUnreachable = ownTaskOrders[commands.order] == true
             and onlyUnreachableThreats(actor, snapshot, current)
-        if commands.scavenge and (threatCount == 0 or lootBesideUnreachable)
+        -- Follow may fail briefly while a car or wall is being routed around.
+        -- Do not turn that movement failure into a new scavenging excursion.
+        -- Existing transfers retain their supervised commit/rollback ownership
+        -- above; new opportunistic searches require a close, settled leader.
+        local followLootAllowed = commands.order ~= "follow" or player
+            and U().sameFloor(actor, player)
+            and U().distance(actor, player) <= math.max(3,
+                (tonumber(commands.followDistance) or 3) + 1.5)
+            and leaderSettled(actor, player, current)
+        if commands.scavenge and followLootAllowed
+            and (threatCount == 0 or lootBesideUnreachable)
             and not bleeding
             and commands.order ~= "regroup"
             and commands.order ~= "retreat" then
@@ -1194,6 +1204,8 @@ local function doFollow(actor, player, rootRuntime, commands, snapshot)
         player = player,
         snapshot = snapshot,
         followRecovery = true,
+        followExitVehicle = SC.Vehicle and type(SC.Vehicle.recentExitFor) == "function"
+            and SC.Vehicle.recentExitFor(actor) or nil,
         preferVerifiedPath = commands.expeditionCohesionHold == true,
         -- A team member separated by a locked door may need the same
         -- certified last-resort breach as the travelling leader. Navigation

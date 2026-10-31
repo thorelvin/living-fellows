@@ -2,6 +2,23 @@
 
 # Changelog
 
+## 0.26.85 - Reliable bed exits and closer Follow
+
+- Companions clear the whole mattress before resuming work or Follow. Bedside
+  tables, nearby beds and sleepers sharing an aisle are handled as obstacles.
+  Blocked exits retry automatically, with safe alternate exits when available.
+- Followers release a moving trail hold sooner and keep routing around walls
+  and parked cars instead of treating a nearby spot across them as arrival.
+- A blocked Follow route no longer starts opportunistic scavenging while the
+  player is moving. Looting beside a settled leader stays available.
+- Verified vehicle exits clear old formation holds. Outdoor followers use the
+  native pathfinder for their first steps around the car they just left,
+  avoiding a long stationary search beside the passenger door.
+- Ships the rebuilt native bridge with protocol `42.21-isocompanion-26` for
+  Project Zomboid 42.21.0. Install its matching Lua and bridge together.
+- See the [validation record](docs/validation-release-0.26.85.md) for real
+  firestation sleep/exit tests, three-passenger Follow tests and their limits.
+
 ## 0.26.84 - EMMA grid control and companion care
 
 - Connect a spare radio-equipped computer to one of seven Knox Country

@@ -246,7 +246,7 @@ release, before any upload, so the version stays 0.26.84.
 | `Test-GridNegativeControls.ps1` failed under Windows PowerShell 5.1 on a mutant's expected stderr. | Stderr is captured without a terminating error. Shipped code was not affected. |
 | A stale bridge silently kept the old fatigue rate. | Protocol `42.21-isocompanion-25`, so a stale copy is refused. |
 
-The current payload's SHA-256 is
+The protocol-25 review payload's SHA-256 was
 `ceebc3cbd6ffdf45a7befebaf2194d3ae4dffc04569e3f9af2710dc81e44acd1`.
 
 ### Checks
@@ -282,3 +282,5 @@ timestamps, so a generator running dry over real days has not been played. No
 real camp sits within 40 tiles of a substation in the test save, so that screen
 was checked by marking one computer as inside a camp, with an unmarked control
 on the same tile getting the substation screen.
+
+Subsequent bed-exit and Follow hardening ships in [0.26.85](validation-release-0.26.85.md).

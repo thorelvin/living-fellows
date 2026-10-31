@@ -9,9 +9,9 @@ local SC = SurvivorCompanion
 SC.Identity = SC.Identity or {
     displayName = "Living Fellows: Companion",
     modId = "SurvivorCompanion",
-    release = "0.26.84",
+    release = "0.26.85",
     gameVersion = "42.21.0",
-    bridgeProtocol = "42.21-isocompanion-25",
+    bridgeProtocol = "42.21-isocompanion-26",
     worldSaveKey = "SC_WorldV1",
     -- Schema 3 moves the complete world document out of character ModData.
     -- Inventory nodes retain their independent schema-2 representation.

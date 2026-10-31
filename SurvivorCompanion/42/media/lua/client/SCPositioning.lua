@@ -1114,7 +1114,7 @@ function Positioning.shouldHold(actor, target, formation)
     if type(formation) == "table" and formation.mode == "trail"
         and formation.movingLeader == true
         and (tonumber(formation.leaderDistance) or 0)
-            >= followCatchUpDistance(formation.desiredDistance) then
+            > (tonumber(formation.desiredDistance) or 3) + 0.5 then
         state.holdingFormation = false
         return false
     end
@@ -1133,6 +1133,24 @@ function Positioning.shouldHold(actor, target, formation)
     local withinLeave, distance = U().arrived(actor, point, {
         targetKind = moving and "world" or "square", distance = leave,
     })
+    if withinLeave and not U().sameSquare(actor, target) then
+        -- Proximity across a wall or a parked car is not arrival. This short
+        -- proof checks at most two tile edges; a blocked slot stays with the
+        -- route planner instead of cancelling its detour as a formation hold.
+        local navigation = SC.Navigation
+        local prove = navigation and navigation._fastOpenRouteForRequest
+        local okay, route
+        if type(prove) == "function" then
+            okay, route = pcall(prove, U().squareOf(actor), U().loadedSquare(target), {
+                actor = actor, maximumSteps = 2, ignoreLivingCrowds = true,
+                allowOccupiedFinal = true,
+            })
+        end
+        if not okay or route == nil then
+            state.holdingFormation = false
+            return false
+        end
+    end
     if state.holdingFormation then
         if withinLeave then
             clearCatchUp(state)

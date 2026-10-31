@@ -17,5 +17,7 @@ public class IsoObject {
     public float getTargetAlpha(int playerIndex) { return 1.0f; }
     public IsoCell getCell() { return null; }
     public boolean isMovedThumpable() { return false; }
+    public float getSurfaceOffset() { return 0; }
+    public zombie.inventory.ItemContainer getContainer() { return null; }
     public boolean isWindow() { return false; }
 }

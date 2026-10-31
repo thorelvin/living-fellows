@@ -146,9 +146,106 @@ local function sample(harness, current)
     return true
 end
 
+local function vehicleStep(H, current, check, result, setPhase)
+    local SC, run = SurvivorCompanion, H.followRoad
+    if H.phase == "follow_road_car_prepare" then
+        local square = getCell():getGridSquare(math.floor(START_X + DISTANCE - 5),
+            math.floor(ROAD_Y + 2), 0)
+        local okay, car = pcall(addVehicleDebug, "Base.CarNormal", IsoDirections.E, nil, square)
+        if not check("follow_car_spawn", okay and car and car:getSquare() ~= nil,
+            tostring(car)) then setPhase("finish", current) return end
+        run.car = car
+        car:setAlarmed(false)
+        for index = 0, car:getPartCount() - 1 do
+            local door = car:getPartByIndex(index):getDoor()
+            if door then door:setLocked(false) end
+        end
+        if not check("follow_car_player_seat", car:enter(0, H.player) == true,
+            "native driver seat for stationary fixture") then setPhase("finish", current) return end
+        for _, row in ipairs(run.followers) do
+            SC.Commands.issue(row.id, "set_ride_with_player", { enabled = true }, H.player)
+        end
+        setPhase("follow_road_car_board", current)
+        return
+    end
+    if H.phase == "follow_road_car_board" then
+        local ready = true
+        for _, row in ipairs(run.followers) do
+            if row.actor:getVehicle() ~= run.car then ready = false end
+        end
+        if ready then
+            local seats = {}
+            for _, row in ipairs(run.followers) do seats[run.car:getSeat(row.actor)] = true end
+            local count = 0 for _ in pairs(seats) do count = count + 1 end
+            if not check("follow_car_three_native_passengers", count == 3 and not seats[0],
+                "distinct real passenger seats=" .. count) then setPhase("finish", current) return end
+            require "Vehicles/TimedActions/ISExitVehicle"
+            ISTimedActionQueue.add(ISExitVehicle:new(H.player))
+            setPhase("follow_road_car_player_exit", current)
+        elseif current - H.phaseStartedAt > 60000 then
+            check("follow_car_three_native_passengers", false, "boarding timed out")
+            setPhase("finish", current)
+        end
+        return
+    end
+    if H.phase == "follow_road_car_player_exit" then
+        if H.player:getVehicle() == nil then
+            require "Vehicles/TimedActions/ISPathFindAction"
+            ISTimedActionQueue.add(ISPathFindAction:pathToLocationF(H.player,
+                START_X + DISTANCE + 10, ROAD_Y, 0))
+            H.player:setRunning(false)
+            run.playerExitedAt = current
+            setPhase("follow_road_car_resume", current)
+        elseif current - H.phaseStartedAt > 15000 then
+            check("follow_car_player_exit", false, "stock exit action timed out")
+            setPhase("finish", current)
+        end
+        return
+    end
+    local allResumed = true
+    for _, row in ipairs(run.followers) do
+        if row.actor:getVehicle() == nil and not row.exitedAt then
+            row.exitedAt, row.exitX, row.exitY = current, xy(row.actor)
+        end
+        local x, y = xy(row.actor)
+        if row.exitedAt and not row.resumedAt and x
+            and (x - row.exitX)^2 + (y - row.exitY)^2 >= 0.35^2 then
+            row.resumedAt = current
+        end
+        if not row.resumedAt then allResumed = false end
+    end
+    if current >= (run.nextCarTraceAt or 0) then
+        run.nextCarTraceAt = current + 1000
+        for _, row in ipairs(run.followers) do
+            local decision = SC.Decision.peek(row.actor) or {}
+            local nav = SC.Navigation.status(row.actor) or {}
+            print("SC_FOLLOW_CAR|" .. row.name .. "|in_car=" .. tostring(row.actor:getVehicle() ~= nil)
+                .. "|decision=" .. tostring(decision.current) .. "|intent=" .. tostring(decision.intent)
+                .. "|nav=" .. tostring(nav.pathReason) .. "|phase=" .. tostring(nav.phase)
+                .. "|search_ms=" .. tostring(nav.pathSearchAgeMs)
+                .. "|gap=" .. SC.GameplayUtil.distance(row.actor, H.player))
+        end
+    end
+    if allResumed and current - run.playerExitedAt >= 10000
+        or current - H.phaseStartedAt > 25000 then
+        for index, row in ipairs(run.followers) do
+            local delay = row.resumedAt and row.exitedAt and row.resumedAt - row.exitedAt
+            check("follow_car_resume_" .. index, delay ~= nil and delay <= 3000,
+                "exit_ms=" .. tostring(row.exitedAt and row.exitedAt - run.playerExitedAt)
+                    .. " first_motion_ms=" .. tostring(delay)
+                    .. " gap=" .. SC.GameplayUtil.distance(row.actor, H.player))
+        end
+        pcall(function() getCore():TakeFullScreenshot(H.config.run_id .. "-follow-car-resumed") end)
+        setPhase("finish", current)
+    end
+end
+
 function Probe.step(harness, current, check, result, setPhase)
     local phase = harness.phase
     local SC = SurvivorCompanion
+    if phase:find("follow_road_car_", 1, true) == 1 then
+        return vehicleStep(harness, current, check, result, setPhase)
+    end
     if phase == "follow_road_prepare" then
         if current - harness.phaseStartedAt < 5500 then return end
         local followers = {}
@@ -315,7 +412,8 @@ function Probe.step(harness, current, check, result, setPhase)
             end
             result("PASS", "follow_road_trace",
                 "cache/console.txt SC_FOLLOW_ROAD lines")
-            setPhase("finish", current)
+            setPhase(harness.config.follow_road_vehicle == "true"
+                and "follow_road_car_prepare" or "finish", current)
         end
     end
 end

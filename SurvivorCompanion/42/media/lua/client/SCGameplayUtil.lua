@@ -763,10 +763,11 @@ end
 -- downstream could learn or report anything. This names the culprit.
 --
 -- Navigation also uses this for actions that require a clear standing tile.
-function U.squareOccupyingObject(square)
+function U.squareOccupyingObject(square, ignoredObjects)
     if not square then return nil, nil end
     local found, label
     U.squareObjects(square, function(object)
+        if type(ignoredObjects) == "table" and ignoredObjects[object] then return end
         if U.instanceOf(object, "IsoWorldInventoryObject") then return end
         -- Something a person can put a mug on is something a person walks into.
         local offset, offsetOk = U.call(object, "getSurfaceOffset")

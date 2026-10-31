@@ -213,6 +213,24 @@ try {
             (Join-Path $TestRoot 'bed_geometry_tight_harness.lua')
         )
         Add-ScJvmStep 'bed-segments' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $bedSegmentFiles 'One-claim-per-bed regression failed.'
+        $bedExitFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCCall.lua'),
+            (Join-Path $Shared 'SCNativeList.lua'),
+            (Join-Path $Shared 'SCConfig.lua'),
+            (Join-Path $Client 'SCGameplayUtil.lua'),
+            (Join-Path $Client 'SCTopology.lua'),
+            (Join-Path $Client 'SCNativeTraversalActions.lua'),
+            (Join-Path $Client 'SCNativeVisualActions.lua'),
+            (Join-Path $Client 'SCNativeCombatActions.lua'),
+            (Join-Path $Client 'SCNativeWorkActions.lua'),
+            (Join-Path $Client 'SCNativeMovementActions.lua'),
+            (Join-Path $Client 'SCNativeActions.lua'),
+            (Join-Path $Client 'SCBedGeometry.lua'),
+            (Join-Path $TestRoot 'bed_exit_harness.lua')
+        )
+        Add-ScJvmStep 'bed-exit' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $bedExitFiles 'Bed exit clearance regression failed.'
         $campSupplyFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),

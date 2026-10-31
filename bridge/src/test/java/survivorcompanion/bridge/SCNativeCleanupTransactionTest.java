@@ -587,9 +587,65 @@ public final class SCNativeCleanupTransactionTest {
         }
         assertCleanBridge("recovery rollback");
 
+        IsoGridSquare tightSquare = newSafeGrid(cell, 60, 60)[1][1];
+        for (String direction : new String[] { "n", "s", "e", "w" }) {
+            tightSquare.getClass().getField(direction).set(tightSquare, null);
+        }
+        require(!(Boolean) invoke(validSquare, null, tightSquare),
+                "tight floor fixture unexpectedly permits spawning");
+        SCNativeCompanion recentred = newActor(cell, tightSquare, "Bed-Recentre");
+        addOwned(recentred);
+        require(recentred.ensureScheduled() && recentred.isExistInTheWorld(),
+                "same-tile recovery fixture must already exist in the world");
+        Method sameTile = SCBridge.class.getDeclaredMethod("validSameTileRecoverySquare",
+                SCNativeCompanion.class, IsoGridSquare.class);
+        sameTile.setAccessible(true);
+        require((Boolean) invoke(sameTile, null, recentred, tightSquare),
+                "an existing actor cannot recenter on its own loaded narrow floor: world="
+                        + recentred.isExistInTheWorld() + " owner=" + recentred.getCompanionMovementOwner()
+                        + " bed=" + recentred.isOnBed() + " vehicle=" + recentred.getVehicle()
+                        + " xyz=" + recentred.getX() + "," + recentred.getY() + "," + recentred.getZ()
+                        + " target=" + tightSquare.getX() + "," + tightSquare.getY() + "," + tightSquare.getZ()
+                        + " solid=" + tightSquare.isSolid() + "/" + tightSquare.isSolidTrans()
+                        + " floor=" + tightSquare.TreatAsSolidFloor() + " free=" + tightSquare.isFree(true)
+                        + " stairs=" + tightSquare.HasStairs() + " fire=" + tightSquare.haveFire()
+                        + " bodies=" + tightSquare.getMovingObjects().size());
+        recentred.getClass().getMethod("setOnBed", boolean.class).invoke(recentred, true);
+        require(!(Boolean) invoke(sameTile, null, recentred, tightSquare),
+                "same-tile exception interrupted native bed ownership");
+        recentred.getClass().getMethod("setOnBed", boolean.class).invoke(recentred, false);
+        tightSquare.getClass().getField("solidFloor").setBoolean(tightSquare, false);
+        require(!(Boolean) invoke(sameTile, null, recentred, tightSquare),
+                "same-tile exception accepted unsupported floor");
+        tightSquare.getClass().getField("solidFloor").setBoolean(tightSquare, true);
+        recentred.setX(tightSquare.getX() - 0.01f);
+        require(!(Boolean) invoke(sameTile, null, recentred, tightSquare),
+                "same-tile exception accepted an actor across a tile edge");
+        recentred.setX(tightSquare.getX() + 0.2f);
+        recentred.setZ(1);
+        require(!(Boolean) invoke(sameTile, null, recentred, tightSquare),
+                "same-tile exception accepted a different floor");
+        recentred.setZ(0);
+        SCNativeCompanion bystander = newActor(cell, tightSquare, "Bed-Bystander");
+        tightSquare.getMovingObjects().add(bystander);
+        require(!(Boolean) invoke(sameTile, null, recentred, tightSquare),
+                "same-tile recovery accepted another body on the destination");
+        tightSquare.getMovingObjects().remove(bystander);
+        Object savedChunk = tightSquare.getClass().getField("chunk").get(tightSquare);
+        tightSquare.getClass().getField("chunk").set(tightSquare, null);
+        require(!(Boolean) invoke(sameTile, null, recentred, tightSquare),
+                "same-tile recovery accepted an unloaded floor");
+        tightSquare.getClass().getField("chunk").set(tightSquare, savedChunk);
+        recentred.removeFromSquare();
+        require(!(Boolean) invoke(sameTile, null, recentred, tightSquare),
+                "same-tile exception accepted an actor missing world membership");
+        require(SCBridge.remove(recentred), "local recovery fixture cleanup failed");
+        assertCleanBridge("same-tile recovery safety");
+
         SCBridge.failNextBridgeStepsForTests();
         System.out.println("NATIVE_CLEANUP_TRANSACTION_PASS cleanup-steps=8"
                 + " spawn-rollback=true request-race=true construction-race=true remove-all-partial=true"
-                + " recovery-rollback=true membership-repair=true ownership=true retry=true");
+                + " recovery-rollback=true membership-repair=true ownership=true retry=true"
+                + " same-tile-recentering=true remote-spawn-guard=true");
     }
 }

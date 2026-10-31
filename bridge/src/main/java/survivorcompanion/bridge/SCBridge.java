@@ -73,7 +73,7 @@ import zombie.worldMap.WorldMap;
 
 /** Narrow Lua-facing authority for creating and owning native companions. */
 public final class SCBridge {
-    public static final String PROTOCOL = "42.21-isocompanion-25";
+    public static final String PROTOCOL = "42.21-isocompanion-26";
 
     /** True only while the optional Viewpoint renderer reports active 3D. */
     public static boolean isViewpoint3DActive() {
@@ -2364,7 +2364,9 @@ public final class SCBridge {
         if (actor == null) return failBoolean("native companion is null");
         if (!isOwned(actor)) return failBoolean("native companion is not owned by SCBridge");
         if (actor.isDead()) return failBoolean("dead native companion cannot be recovered");
-        if (!validSpawnSquare(square)) return failBoolean("recovery square is unsafe or unloaded");
+        if (!validSpawnSquare(square) && !validSameTileRecoverySquare(actor, square)) {
+            return failBoolean("recovery square is unsafe or unloaded");
+        }
         SCNativeCompanion.LocalPlayerState localState = SCNativeCompanion.LocalPlayerState.capture();
         if (localState == null || !localState.matches()) {
             return failBoolean("local-player state is unavailable for companion recovery");
@@ -2929,9 +2931,45 @@ public final class SCBridge {
     }
 
     private static boolean validSpawnSquare(IsoGridSquare square) {
+        return validStandingSquare(square) && square.isFree(true) && square.isSafeToSpawn();
+    }
+
+    private static boolean validStandingSquare(IsoGridSquare square) {
         return square != null && square.getCell() != null && square.getChunk() != null
                 && !square.isSolid() && !square.isSolidTrans() && square.TreatAsSolidFloor()
-                && square.isFree(true) && square.isSafeToSpawn();
+                && square.isFree(false);
+    }
+
+    // Get-up can leave an existing actor's capsule hugging furniture on a
+    // narrow aisle. Recentring its own physical tile creates no new actor and
+    // crosses no tile edge, so native spawning's eight-tile rule is irrelevant.
+    // Every actual relocation retains validSpawnSquare's original requirements.
+    private static boolean validSameTileRecoverySquare(SCNativeCompanion actor,
+            IsoGridSquare square) {
+        if (actor == null || !actor.isExistInTheWorld() || actor.isOnBed()
+                || actor.getVehicle() != null || !"none".equals(actor.getCompanionMovementOwner())
+                || !validStandingSquare(square)
+                || Math.floor(actor.getX()) != square.getX()
+                || Math.floor(actor.getY()) != square.getY()
+                || Math.floor(actor.getZ()) != square.getZ()
+                || square.HasStairs() || square.haveFire() || square.getVehicleContainer() != null) {
+            return false;
+        }
+        if (square.getMovingObjects() == null || square.getMovingObjects().size() > 32) return false;
+        for (int index = 0; index < square.getMovingObjects().size(); index++) {
+            if (square.getMovingObjects().get(index) != actor) return false;
+        }
+        PZArrayList<IsoObject> objects = square.getObjects();
+        if (objects == null || objects.size() > 64) return false;
+        for (int index = 0; index < objects.size(); index++) {
+            IsoObject object = objects.get(index);
+            if (object != null && (object.isMovedThumpable() || object.getSurfaceOffset() > 0
+                    || object.getContainer() != null
+                    || object.getProperties() != null && object.getProperties().getSurface() > 0)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static String cleanText(String value, int maximumLength, String fallback) {

@@ -626,10 +626,15 @@ function BedExit.overlap(actor)
         local _, name = invoke(sprite, "getName")
         local _, props = invoke(sprite, "getProperties")
         local _, custom = invoke(props, "get", "CustomName")
+        local _, bedType = invoke(props, "get", "BedType")
         name, custom = string.lower(tostring(name or "")),
             string.lower(tostring(custom or "")):gsub("[%s_%-]", "")
-        if grid and (name:find("furniture_bedding", 1, true)
-            or custom:match("bed$") or custom == "cot") then
+        -- Bedding sheets also contain bedside furniture. A texture prefix
+        -- alone must never turn a table into a bed-exit movement gate.
+        if grid and bedType ~= nil and (name:find("furniture_bedding", 1, true)
+            or custom:find("bed", 1, true) or custom == "cot"
+            or custom:find("mattress", 1, true) or custom == "stretcher"
+            or custom == "sleepingbag") then
             probe.object = object
             return object, square
         end
@@ -639,7 +644,10 @@ end
 
 function BedExit.clearFootprint(actor, state)
     local object, square = BedExit.overlap(actor)
-    if not object then return true end
+    -- Get-up may move over another segment or nearby furniture. The bed being
+    -- left owns this exit; do not switch its footprint halfway through it.
+    local bed = state.object or object
+    if not bed then return true end
     local utility = SC.GameplayUtil
     if not utility or not SC.Actor or type(SC.Actor.recover) ~= "function"
         or type(utility.isClearActorSpawnSquare) ~= "function" then
@@ -647,28 +655,47 @@ function BedExit.clearFootprint(actor, state)
     end
     if nowMs() < (state.retryAt or 0) then return false, "standing_from_bed_exit_blocked" end
     state.retryAt = nowMs() + 1000
-    local x, y, z = utility.position(square)
-    local _, room = invoke(square, "getRoom")
-    if x == nil or y == nil then return false, "standing_from_bed_exit_blocked" end
-    local choices = {}
-    for _, offset in ipairs({ {-1,0}, {1,0}, {0,-1}, {0,1} }) do
-        local target = utility.gridSquare(x + offset[1], y + offset[2], z or 0)
-        local _, targetRoom = invoke(target, "getRoom")
-        local edgeOk, blocked = invoke(square, "testCollideAdjacent", actor, offset[1], offset[2], 0)
-        if target and targetRoom == room and edgeOk and blocked == false
-            and utility.isClearActorSpawnSquare(target) == true then
-            choices[#choices + 1] = target
+    local geometry = SC.BedGeometry
+    local choices, geometric = {}, false
+    if geometry and type(geometry.exitTargets) == "function" then
+        local okay, targets, touching = pcall(geometry.exitTargets, bed, actor)
+        if okay and type(targets) == "table" then
+            if touching == false then return true end
+            choices, geometric = targets, true
         end
     end
-    table.sort(choices, function(a, b) return utility.distance(actor, a) < utility.distance(actor, b) end)
+    if not geometric and not object then return true end
+    -- Older providers without mattress geometry retain the conservative
+    -- one-tile native collision check; missing APIs never widen the search.
+    if not geometric then
+        local x, y, z = utility.position(square)
+        local _, room = invoke(square, "getRoom")
+        if x == nil or y == nil then return false, "standing_from_bed_exit_blocked" end
+        for _, offset in ipairs({ {-1,0}, {1,0}, {0,-1}, {0,1} }) do
+            local target = utility.gridSquare(x + offset[1], y + offset[2], z or 0)
+            local _, targetRoom = invoke(target, "getRoom")
+            local edgeOk, blocked = invoke(square, "testCollideAdjacent", actor, offset[1], offset[2], 0)
+            if target and targetRoom == room and edgeOk and blocked == false
+                and utility.isClearActorSpawnSquare(target) == true then
+                choices[#choices + 1] = target
+            end
+        end
+        table.sort(choices, function(a, b) return utility.distance(actor, a) < utility.distance(actor, b) end)
+    end
     local target = choices[1]
     if target then
-        -- Exactly one adjacent clear tile, on the same floor and in the same
-        -- room. The stock get-up uses this same collision-edge guard. This
-        -- also repairs a saved actor whose old bed flags were already lost.
+        -- One verified clear tile on the same floor and in the same room.
+        -- Geometry may cross the other half of this exact mattress, never
+        -- unrelated furniture. The original actor and inventory stay intact.
         if SC.Actor.recover(actor, target) == true then
             BedExit.probes[actor] = nil
-            if utility.sameSquare(actor, target) == true then return true, "stepped_clear_of_bed" end
+            if utility.sameSquare(actor, target) == true then
+                if geometric then
+                    local okay, _, touching = pcall(geometry.exitTargets, bed, actor)
+                    if not okay or touching ~= false then return false, "standing_from_bed_exit_unverified" end
+                end
+                return true, "stepped_clear_of_bed"
+            end
             return false, "standing_from_bed_exit_unverified"
         end
     end
