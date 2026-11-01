@@ -813,6 +813,29 @@ local function firstInventoryItem(actor, predicate, preferLightWater)
     return best
 end
 
+local function consumableFor(actor, predicate)
+    return function(item)
+        if SC.PersonalItems and SC.PersonalItems.isProtected(item, actor, "needs_consume") then return false end
+        return predicate(item)
+    end
+end
+
+function Needs.carriedSuppliesAvailable(actor, assessment)
+    assessment = type(assessment) == "table" and assessment or {}
+    local found = false
+    local eligible = consumableFor(actor, function(item)
+        return assessment.thirsty == true and isSafeWaterItem(item)
+            or assessment.hungry == true and isSafeFood(item)
+    end)
+    walkInventory(U().inventory(actor), { remaining = 256 }, function(item)
+        if found then return false end
+        local okay, accepted = pcall(eligible, item)
+        found = okay and accepted == true
+        return not found
+    end)
+    return found
+end
+
 local function nativeNeedsActive(actor, state)
     if not SC.NativeActions or type(SC.NativeActions.needsStatus) ~= "function" then return false end
     local active, kind = SC.NativeActions.needsStatus(actor)
@@ -1378,7 +1401,7 @@ local function fetchFromCamp(actor, key, predicate, snapshot)
     return status == "taken" or status == "in_progress", reason or status
 end
 
-function Needs.update(actor, player, runtime)
+function Needs.update(actor, player, runtime, options)
     if not U().isValidActor(actor) then return false, "invalid_actor" end
     local state = stateFor(actor, runtime)
     local hour = worldHour()
@@ -1405,12 +1428,9 @@ function Needs.update(actor, player, runtime)
         return false, "needs_unsafe"
     end
     local assessment = Needs.assess(actor, runtime)
+    local travelling = type(options) == "table" and options.expeditionTravel == true
     local function consumable(predicate)
-        return function(item)
-            if SC.PersonalItems and SC.PersonalItems.isProtected(
-                item, actor, "needs_consume") then return false end
-            return predicate(item)
-        end
+        return consumableFor(actor, predicate)
     end
 
     -- Thirst comes first, but no water must never stop a companion eating.
@@ -1420,6 +1440,9 @@ function Needs.update(actor, player, runtime)
     if assessment.thirsty then
         local safeWater = consumable(isSafeWaterItem)
         local water = firstInventoryItem(actor, safeWater, true)
+        -- A travelling crew uses its carried drink even while passing a camp
+        -- sink. Repeated home-supply routes used to replace its mission route.
+        if travelling and water then return drinkItem(actor, water, assessment.thirst) end
         -- At camp a nearby tap or well saves carried drinking water. A bottle
         -- remains the immediate choice when the source is farther away.
         local source = state.waterSource
@@ -1427,7 +1450,8 @@ function Needs.update(actor, player, runtime)
             source, state.waterSource, state.waterOriginSquare = nil, nil, nil
         end
         local current = U().nowMs()
-        if not source and current >= (state.nextWaterSearchAt or 0) then
+        if not source and current >= (state.nextWaterSearchAt or 0)
+            and (not travelling or assessment.emergency) then
             local sourceReason
             source, sourceReason = findWaterSource(actor, state)
             state.waterSource = source
@@ -1445,7 +1469,7 @@ function Needs.update(actor, player, runtime)
         if water and not nearbyCampSource then
             return drinkItem(actor, water, assessment.thirst)
         end
-        if source then
+        if source and (not travelling or assessment.emergency) then
             local accepted, reason = drinkWorldSource(actor, source, snapshot, state)
             if accepted == true then return true, reason end
             thirstReason = reason or "water_source_unreachable"
@@ -1457,26 +1481,30 @@ function Needs.update(actor, player, runtime)
             local fetched, fetchReason = fetchFromCamp(actor,
                 "needs_water", safeWater, snapshot)
             if fetched then return true, fetchReason end
-        else
+        elseif not travelling or assessment.emergency then
             local fetched, fetchReason = fetchFromCamp(actor, "needs_water", safeWater, snapshot)
             if fetched then return true, fetchReason end
             thirstReason = "clean_water_unavailable"
         end
     end
 
+    local foodReason
     if assessment.hungry then
         local safeFood = consumable(isSafeFood)
         local food = firstInventoryItem(actor, safeFood)
         if food then return eat(actor, food, assessment.hunger) end
-        local fetched, fetchReason = fetchFromCamp(actor, "needs_food", safeFood, snapshot)
-        if fetched then return true, fetchReason end
-        return false, thirstReason or "safe_food_unavailable"
+        if travelling and not assessment.emergency then foodReason = "trip_food_unavailable"
+        else
+            local fetched, fetchReason = fetchFromCamp(actor, "needs_food", safeFood, snapshot)
+            if fetched then return true, fetchReason end
+            foodReason = "safe_food_unavailable"
+        end
     end
     if hour and peeDueAt and hour >= peeDueAt
         and select(1, U().call(actor, "getVehicle")) == nil then
         return updatePee(actor, player, state, hour, peeDueAt)
     end
-    return false, thirstReason or "needs_satisfied"
+    return false, thirstReason or foodReason or "needs_satisfied"
 end
 
 function Needs.cancel(actor, reason)

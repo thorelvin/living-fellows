@@ -2,6 +2,19 @@
 
 # Changelog
 
+## 0.26.88 - Expedition returns and companion-view cleanup
+
+- Fix a native lighting crash when a companion view opens again after returning
+  to solo play. Lighting-state allocation and retirement now wait for the lighting
+  worker, without resetting the main player's world or lighting caches.
+- Keep active expeditions in control of their cargo and route. Camp unloading
+  and routine supply errands no longer interrupt travel; companions use carried
+  food and water first. Emergency needs and medical routes retain priority.
+- Remove animal-zone panels and SimpleStatus bars left behind by released LF
+  views. Retained SimpleStatus hotkeys cannot reopen an obsolete companion bar.
+- Built for Project Zomboid 42.21.0 with unchanged bridge protocol
+  `42.21-isocompanion-27`; ship the matching Lua and rebuilt native bridge.
+
 ## 0.26.87 - EMMA building discovery
 
 - Choose **Discover building** in Local services to survey the connected

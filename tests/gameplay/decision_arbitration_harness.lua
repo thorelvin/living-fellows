@@ -601,4 +601,54 @@ do
     end
     check(scavenging, "opportunistic looting remains available beside a settled leader")
 end
+-- Active missions own cargo; even overload or an old field-return cleanup
+-- cannot replace their route with a home-storage search.
+for _, mode in ipairs({"overload","cleanup","harvest","gift","weapon","shelving"}) do
+    modules()
+    SC.Logistics.status=function() return {shouldManage=true,overloaded=mode=="overload",
+        fieldReturnCleanup=mode=="cleanup",fieldReturnCargo=mode=="harvest",
+        giftPending=mode=="gift",weaponReady=mode=="weapon",surplus={shelveOnly=true}} end
+    local commands=order("move_to")
+    commands.expeditionMember,commands.expeditionMoving,commands.tacticalTarget=true,true,player
+    local candidates=D._evaluateForTests(actor,player,quiet(),commands,healthy(),{},{},clock)
+    for _,candidate in ipairs(candidates) do check(candidate.kind~="logistics","trip defers home logistics: "..mode) end
+end
+for _,case in ipairs({{},{carried=true},{active=true},{emergency=true},{peeDue=true}}) do
+    modules()
+    SC.Needs.carriedSuppliesAvailable=function() return case.carried==true end
+    local commands=order("move_to")
+    commands.expeditionMember,commands.expeditionMoving,commands.tacticalTarget=true,true,player
+    local needs={hungry=true,hunger=0.7,active=case.active,emergency=case.emergency,peeDue=case.peeDue}
+    local candidates=D._evaluateForTests(actor,player,quiet(),commands,healthy(),needs,{},clock)
+    local admitted=false
+    for _,candidate in ipairs(candidates) do if candidate.kind=="needs" then admitted=true end end
+    check(admitted==(case.carried==true or case.active==true or case.emergency==true or case.peeDue==true),
+        "trip permits carried consumption, active actions, emergencies and bathroom breaks")
+end
+modules()
+SC.Needs.update=function(_,_,_,options)
+    check(options.expeditionTravel==true,"needs receives the mission's travel context")
+    return true,"carried_consumption"
+end
+local tripOrder=order("move_to");tripOrder.expeditionMoving=true
+check(D._delegateForTests({kind="needs"},actor,player,{},tripOrder,quiet(),{}),"trip needs delegates normally")
+modules()
+local departing=person("departing-transfer",0)
+local departingOrder=order("move_to")
+departingOrder.expeditionMember,departingOrder.expeditionMoving,departingOrder.tacticalTarget=true,true,player
+SC.Commands={effective=function() return departingOrder end}
+SC.ExpeditionPrototype.isMember=function() return false end
+local transferPending,transferUpdates=true,0
+SC.Logistics.busy=function(value) return value==departing and transferPending end
+SC.Logistics.yieldToWork=function() return false,"logistics_transfer_in_progress" end
+SC.Logistics.update=function(value)
+    check(value==departing,"departure polls only its own in-flight transfer")
+    transferUpdates=transferUpdates+1;transferPending=false
+    return true,"transfer_committed"
+end
+clock=clock+1000
+local settled,settleReason=D.update(departing,player,{snapshot=quiet()},clock)
+check(settled and settleReason=="transfer_committed" and transferUpdates==1
+    and D.peek(departing).currentKey=="expedition_transfer_settling",
+    "walking departure finishes an inherited exact transfer instead of stranding its owner")
 SC_TEST_REPORT = "DECISION_ARBITRATION_PASS checks=" .. checks .. " kinds=" .. #rows

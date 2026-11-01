@@ -173,4 +173,27 @@ do
         "an immediate threat still prevents ordinary container search")
     assert(E.prepareReset() and E.reset() and not E.current(), "cancellation releases the mission during discovery")
 end
+do
+    local mission=begin(60,false,false)
+    mission.scout.phase="inbound"
+    assert(E.stageTestWaypoint(actor,112,100,0),"stage a real return waypoint")
+    local waypoint=mission.testWaypoint
+    mission.scout.lastProgressAt,mission.scout.waypointStagedAt=clock-12000,clock-12000
+    mission.scout.bestDistanceToWaypoint=distance(actor,waypoint)
+    local priorDecision,priorStatus,priorStairs,priorRoute=SC.Decision,SC.Navigation.status,SC.StairTransition,SC.ExpeditionRoute
+    local care={current="needs",lastHandledAt=clock}
+    SC.Decision={peek=function() return care end}
+    SC.StairTransition={target=function(_,_,target) return target end}
+    SC.ExpeditionRoute={allowInteriorAccess=function() return true end}
+    SC.Navigation.status=function() return {active=true,action="drink_source",phase="planning"} end
+    E.pulse()
+    assert(mission.testWaypoint==waypoint and mission.scout.lastProgressAt==clock,
+        "a fresh survival route keeps its frontier through expedition stall checks")
+    clock=clock+9000
+    E.pulse()
+    assert(mission.testWaypoint~=waypoint,
+        "a stale survival decision cannot indefinitely suppress ordinary route recovery")
+    SC.Decision,SC.Navigation.status,SC.StairTransition,SC.ExpeditionRoute=priorDecision,priorStatus,priorStairs,priorRoute
+    assert(E.prepareReset() and E.reset(),"return-route test releases exact mission ownership")
+end
 print("EXPEDITION_SEARCH_DEADLINE_PASS")

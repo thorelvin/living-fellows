@@ -610,7 +610,10 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
     end
     if type(needs) == "table" and (needs.active or needs.hungry or needs.thirsty
         or needs.peeDue)
-        and threatCount == 0 then
+        and threatCount == 0
+        and (not commands.expeditionMoving or needs.active or needs.emergency or needs.peeDue
+            or SC.Needs and type(SC.Needs.carriedSuppliesAvailable) == "function"
+                and SC.Needs.carriedSuppliesAvailable(actor, needs)) then
         add("needs", needsDecisionScore(needs), needs.emergency)
     end
     if commands.recruited and commands.temporaryStay ~= true
@@ -728,6 +731,7 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
     -- preempts the faction policy forever, repeatedly trying to pack/deposit the
     -- exact materials the resident needs for barricade jobs.
     if threatCount == 0 and factionIntent == nil and not bleeding
+        and commands.expeditionMember ~= true
         and SC.Logistics and type(SC.Logistics.status) == "function" then
         local ok, load = pcall(SC.Logistics.status, actor)
         -- Bag, clothing and packing chores wait for a following leader to
@@ -737,8 +741,9 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         -- starts for an expedition member, whose mission owns them, and never
         -- takes a worker off a work order, which scores below it (a barricade
         -- worker shelved logs and pasta for minutes with its job in hand).
-        local shelvingBarred = commands.expeditionMember == true
-            or commands.recruited
+        -- An expedition owns its cargo and route, including when overweight.
+        -- Home unloading/loan returns resume after the mission releases them.
+        local shelvingBarred = commands.recruited
                 and (commands.order == "stay" or commands.order == "guard"
                     or commands.order == "work")
         local routineShelving = ok and type(load) == "table"
@@ -2212,7 +2217,10 @@ local function delegate(candidate, actor, player, rootRuntime, commands, snapsho
         return callSubsystem("downtime", actor, function() return SC.Downtime.update(actor, player, rootRuntime) end)
     elseif candidate.kind == "needs" then
         if not SC.Needs or type(SC.Needs.update) ~= "function" then return false, "needs_unavailable" end
-        return callSubsystem("needs", actor, function() return SC.Needs.update(actor, player, rootRuntime) end)
+        return callSubsystem("needs", actor, function()
+            return SC.Needs.update(actor, player, rootRuntime,
+                { expeditionTravel = commands.expeditionMoving == true })
+        end)
     elseif candidate.kind == "water_refill" then
         if not SC.Needs or type(SC.Needs.refill) ~= "function" then
             return false, "water_refill_unavailable"
@@ -3404,6 +3412,24 @@ function Decision.update(actor, player, runtime, roundTimestamp)
         state.current, state.currentKey = "vehicle", "expedition_board"
         state.intent, state.lastHandledAt = boardReason or "boarding", current
         return boarded == true, state.intent
+    end
+
+    -- A walking departure can inherit one real inventory transfer started at
+    -- camp. Cancel its approach or finish that exact in-flight transaction;
+    -- never begin another home deposit while the mission owns this actor.
+    if commands.expeditionMember and not convoyEmergency
+        and (tonumber(snapshot.immediateCount) or 0) == 0
+        and SC.Logistics and type(SC.Logistics.busy) == "function"
+        and SC.Logistics.busy(actor) and type(SC.Logistics.yieldToWork) == "function" then
+        local released, releaseReason = SC.Logistics.yieldToWork(actor)
+        if released ~= true then
+            local safe, worked, why = utility.safeSubsystem("logistics", actor,
+                SC.Logistics.update, actor, player, rootRuntime)
+            state.current, state.currentKey = "logistics", "expedition_transfer_settling"
+            state.intent, state.lastHandledAt = safe and (why or releaseReason)
+                or "expedition_transfer_failed", current
+            return safe and worked == true, state.intent
+        end
     end
 
     if SC.Convoy and (tonumber(snapshot.immediateCount) or 0) == 0 then

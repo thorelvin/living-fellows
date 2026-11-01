@@ -225,6 +225,14 @@ try {
             )
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @decisionArbitrationFiles
             if ($LASTEXITCODE -ne 0) { throw 'Decision arbitration regression harness failed.' }
+            $needsTripFiles = @(
+                (Join-Path $SharedRoot 'SCNamespace.lua'),
+                (Join-Path $SharedRoot 'SCSpeechColors.lua'),
+                (Join-Path $ClientRoot 'SCNeeds.lua'),
+                (Join-Path $TestRoot 'needs_trip_harness.lua')
+            )
+            & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @needsTripFiles
+            if ($LASTEXITCODE -ne 0) { throw 'Expedition carried-supply needs regression failed.' }
             $supplyPolicyFiles = @(
                 (Join-Path $SharedRoot 'SCNamespace.lua'),
                 (Join-Path $SharedRoot 'SCSpeechColors.lua'),

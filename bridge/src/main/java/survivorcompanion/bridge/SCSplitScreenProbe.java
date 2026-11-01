@@ -297,8 +297,9 @@ public final class SCSplitScreenProbe {
             throw new IllegalStateException("leader or co-op world loader is unavailable");
         }
         int previousSqlId = actor.sqlId;
-        cancelPrimaryViewRestore("new_view");
         try {
+            SCLightingSlotRetirement.prepare(world.getCell());
+            cancelPrimaryViewRestore("new_view");
             if (savedSlotSqlId >= 2 && actor.sqlId == -1) {
                 actor.sqlId = savedSlotSqlId;
             }
@@ -1374,6 +1375,7 @@ public final class SCSplitScreenProbe {
         } catch (ReflectiveOperationException failure) {
             throw new IllegalStateException("stock observer SQL snapshot is unavailable", failure);
         }
+        SCLightingSlotRetirement.prepare(cell);
         cancelPrimaryViewRestore("new_view");
         SurvivorDesc descriptor = SurvivorFactory.CreateSurvivor();
         if (descriptor == null) throw new IllegalStateException("survivor factory returned null");
@@ -1421,6 +1423,7 @@ public final class SCSplitScreenProbe {
         if (cell.getGridSquare(x, y, z) != null) {
             throw new IllegalStateException("cold companion probe requires an unloaded square");
         }
+        SCLightingSlotRetirement.prepare(cell);
         cancelPrimaryViewRestore("new_view");
         SurvivorDesc descriptor = SurvivorFactory.CreateSurvivor();
         if (descriptor == null) throw new IllegalStateException("survivor factory returned null");

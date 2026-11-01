@@ -1,0 +1,105 @@
+SPDX-License-Identifier: MIT
+
+Living Fellows 0.26.88 — expedition/view hardening
+Validation date: 2026-11-01
+Runtime: Project Zomboid 42.21.0, native protocol 42.21-isocompanion-27
+
+Scope
+
+1. Prevent the Lighting64.dll+0x12b04 fault reproduced during repeated
+   companion-view openings in 0.26.84 and 0.26.87. Native secondary lighting
+   allocation and retirement quiesce the lighting worker before changing its
+   state. Primary lighting/world caches remain intact. Timeout, interruption
+   and failed native transaction paths refuse unsafe mutation and restore the
+   worker where appropriate.
+
+2. Keep active expedition routes out of routine camp logistics. Instrumented
+   native play showed the leader alternating between mission movement, home
+   storage surveys and supply errands. Overload/old field-return cleanup could
+   outrank travel; repeated mission stall recovery then erased the other route.
+   Mission cargo retains its dedicated controller. A pre-existing inventory
+   transfer is cancelled at approach or finished as the same exact transaction.
+   Carried food/water remain usable. Emergency needs and bathroom breaks retain
+   priority, and a fresh survival route keeps its frontier through mission stall
+   checks. A stale survival decision cannot hold the route indefinitely.
+
+3. Retire known UI panels bound to released LF actors: SimpleStatus SSBar and
+   vanilla ISDesignationZonePanel. Cleanup preserves the real player, an active
+   secondary player and unrelated mod windows. It detaches exact stale vanilla
+   aliases and guards retained status-bar hotkey callbacks. It runs only at view
+   lifecycle boundaries; third-party source files are untouched.
+
+Automated checks
+
+Focused Kahlua checks passed:
+- View restoration lifecycle plus released-panel ownership, dead actors,
+  compacting UI lists, stale aliases, hotkeys, idempotence and rebinding.
+- Decision arbitration: 160 checks, including all six deferred logistics modes,
+  carried/active/emergency/bathroom needs and inherited transfer completion.
+- Carried-supply discovery and real needs dispatch: safe nested food/water,
+  protected stock, cleaner mixtures, malformed mod containers, bounded scans,
+  normal camp fetching and emergency fetching.
+- Search/return clocks and survival-route retention, including the stale-owner
+  control which must resume ordinary stall recovery.
+- Lighting worker lifecycle, native transaction balance, timeout/interruption,
+  and the installed native protocol's repeat joins and sixteen sight positions.
+
+Full project gate: 29/29 passed, 123 seconds, six parallel jobs.
+Log retained at C:/ZOMBOID/outputs/expedition-compat-02688/project-gate.log.
+
+Native acceptance
+
+All runs used disposable clones of LF-Skills5-Test-2026-10-29. The primary stayed
+inside the saved house. NPCs were not teleported, routes were not mocked and no
+missing cargo was recreated. Small native collision nudges of the primary were
+permitted while requiring the same primary identity, floor and indoor fixture.
+
+Five additional mods were enabled only in the isolated cache:
+  simpleStatus (Workshop 2867431511)
+  SkullysZombieCollision (3778511497)
+  ZombiePenetration_B4215 (3683154388)
+  B42_PZLinux (3414468585)
+  JeevesPC (3693550188)
+
+Run SC-Harness-20261101-185306-d7a8c4d8:
+  Instrumented pre-fix walking search reproduced long delays. Decision logs
+  showed logistics:storage_route_pending and needs:path_searching owning goals
+  different from the expedition waypoint. The mission eventually returned after
+  roughly eight minutes. Stale UI panels remained visible.
+
+Run SC-Harness-20261101-190631-279b2ecc:
+  Patched real walking search returned naturally in roughly two minutes.
+  Retired UI count was zero after callbacks and solo lighting advanced 1835->2026.
+  Camp logistics resumed once the mission released its companion.
+
+Run SC-Harness-20261101-191123-5ad2ffd5:
+  Two consecutive real walking searches and natural returns passed. Exact LF
+  actor identity remained intact. Both returns had zero retired panels after
+  invoking retained SimpleStatus hotkey callbacks. Primary lighting advanced
+  1830->2019 and 3389->3603 during the respective solo observation periods.
+
+Run SC-Harness-20261101-191941-6ebd724a:
+  Six final view open/close cycles passed with all five mods. Every return had
+  zero retired status/zone panels after retained hotkeys and advancing primary
+  lighting. Last solo counter: 1564->1762. No native crash occurred.
+
+Detailed run manifests, console output and traces are retained locally under
+build/live-sandbox-runs/<run-id>/. Original crash reports and third-party source
+fingerprints are in C:/ZOMBOID/outputs/expedition-compat-02687/.
+
+Limits
+
+The walking probes deliberately used a short 0.25-game-hour turn-home deadline.
+They verify travel, task ownership, return and UI cleanup; they do not certify
+collecting a full eight-item quota. Emergency-care routing is covered by focused
+automated checks, not a separately staged live emergency. Runs used the private
+SCLauncher/nosteam harness; the tester's exact Rosewood save, all 88 enabled mods
+and public ZombieBuddy loader were not reproduced. The original tester's own
+fatal stack was not supplied, although the native fault was reproduced on their
+reported LF version in the earlier comparison.
+
+Release operations
+
+Lua and the rebuilt matching native bridge are shipped together. Existing save
+schemas and bridge protocol are retained. Local installation and publishing the
+Workshop/Field Guide are outside this commit-and-push request.

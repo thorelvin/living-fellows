@@ -4493,6 +4493,20 @@ local function pulseScout()
     end
     if mission.testWaypoint ~= nil then
         local leader = mission.leader.actor
+        -- A genuine survival errand can own a different navigation goal before
+        -- it reaches a timed action. Keep its retained search through mission
+        -- stall checks, rather than restarting a drinking/medical route.
+        local decision = SC.Decision and type(SC.Decision.peek) == "function"
+            and SC.Decision.peek(leader) or nil
+        local survivalRoute = decision and (decision.current == "needs"
+            or decision.current == "medical" or decision.current == "retreat")
+            and now - (decision.lastHandledAt or -math.huge) <= 2000
+        local navigation = survivalRoute and SC.Navigation
+            and type(SC.Navigation.status) == "function" and SC.Navigation.status(leader) or nil
+        if navigation and navigation.active and navigation.action ~= "ordered_move" then
+            scout.lastProgressAt, scout.waypointStagedAt = now, now
+            return
+        end
         local remaining = distanceToPoint(leader, mission.testWaypoint)
         if (scout.bestDistanceToWaypoint or math.huge) - remaining >= 0.75 then
             scout.bestDistanceToWaypoint = remaining

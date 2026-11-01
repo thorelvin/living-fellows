@@ -39,6 +39,8 @@ param(
     [switch]$IsolatedSourceBridge,
     # Optional exact bridge for old/new native comparisons in isolated clones.
     [string]$IsolatedBridgePath = '',
+    # Read-only archived LF payload for version comparisons; harness code stays current.
+    [string]$SourcePayloadProjectRoot = '',
     [string]$SteamExe = 'C:\Program Files (x86)\Steam\steam.exe',
     [switch]$LivingFellowsOnly,
     [switch]$CompanionFirearmsProbe,
@@ -96,6 +98,9 @@ param(
     # Use a saved crew/car and the ordinary expedition controller, then capture
     # the kitchen after the crew returns naturally.
     [switch]$NormalExpeditionKitchenProbe,
+    [switch]$ExpeditionCompatibilityProbe,
+    [ValidateSet('manual', 'search')][string]$ExpeditionCompatibilityScenario = 'search',
+    [ValidateRange(1, 6)][int]$ExpeditionCompatibilityCycles = 2,
     [ValidateSet(1, 2)][int]$NormalExpeditionKitchenCrewSize = 2,
     # Existing Scarlet/car46, real trees and axes, ordinary production task.
     # Run each mode in a fresh disposable clone: one walking or two driving logs.
@@ -205,6 +210,10 @@ param(
     [ValidateSet('before', 'after')][string]$ProjectALifeLoadOrder = 'after',
     [string]$ProjectALifeModPath = '',
     [string[]]$ExcludeModId = @(),
+    # Optional third-party payloads for disposable compatibility runs only.
+    # Supply matching source directories and exact mod IDs; real presets stay untouched.
+    [string[]]$CompatibilityModPath = @(),
+    [string[]]$CompatibilityModId = @(),
     [string]$FactionMapScreenshot = '',
     [switch]$FactionMapOnly,
     [string]$BaseLayoutScreenshot = '',
@@ -1514,8 +1523,15 @@ if (-not (Test-Path -LiteralPath $resetMarker -PathType Leaf)) {
 Copy-Item -LiteralPath $resetMarker -Destination (Join-Path $SandboxMods 'reset-mods-42_00.txt')
 
 $privatePayloadRoot = Join-Path $RunRoot 'private-playtest-payload'
+$payloadProjectRoot = $ProjectRoot
+if ($SourcePayloadProjectRoot) {
+    if (-not $LivingFellowsOnly -or -not $IsolatedSourceBridge) {
+        throw 'An archived source payload requires -LivingFellowsOnly -IsolatedSourceBridge.'
+    }
+    $payloadProjectRoot = [System.IO.Path]::GetFullPath($SourcePayloadProjectRoot)
+}
 & (Join-Path $ProjectRoot 'scripts\New-PrivatePlaytestPayload.ps1') `
-    -ProjectRoot $ProjectRoot -OutputRoot $privatePayloadRoot | Out-Null
+    -ProjectRoot $payloadProjectRoot -OutputRoot $privatePayloadRoot -AllowExternalOutput | Out-Null
 $sourceMod = Join-Path $privatePayloadRoot 'SurvivorCompanion'
 $harnessMod = Join-Path $ProjectRoot 'tests\live\mod\SCRealSandboxHarness'
 if (-not (Test-Path -LiteralPath $sourceMod -PathType Container) -or
@@ -1707,6 +1723,34 @@ if ($FieldCargoProbe) {
     }
 }
 
+$compatibilityMods = @()
+if ($CompatibilityModPath.Count -ne $CompatibilityModId.Count -or $CompatibilityModPath.Count -gt 16) {
+    throw 'Supply one CompatibilityModId for each CompatibilityModPath (maximum 16).'
+}
+for ($compatibilityIndex = 0; $compatibilityIndex -lt $CompatibilityModPath.Count; $compatibilityIndex++) {
+    $compatibilitySource = [System.IO.Path]::GetFullPath($CompatibilityModPath[$compatibilityIndex])
+    $compatibilityId = $CompatibilityModId[$compatibilityIndex]
+    if (-not (Test-Path -LiteralPath $compatibilitySource -PathType Container) -or
+        $compatibilityId -notmatch '^[A-Za-z0-9_. -]+$') {
+        throw "Invalid compatibility mod: $compatibilityId at $compatibilitySource"
+    }
+    $infoFiles = @(Get-ChildItem -LiteralPath $compatibilitySource -Filter mod.info -File -Recurse)
+    $matchingInfo = @($infoFiles | Where-Object {
+        @(Get-Content -LiteralPath $_.FullName | Where-Object { $_.Trim() -eq ('id=' + $compatibilityId) }).Count -gt 0
+    })
+    if ($matchingInfo.Count -eq 0) { throw "Compatibility payload does not declare mod ID $compatibilityId" }
+    $compatibilityDestination = Join-Path $SandboxMods ('SCCompatibility' + $compatibilityIndex)
+    if (Test-Path -LiteralPath $compatibilityDestination) { throw "Compatibility destination already exists: $compatibilityDestination" }
+    Copy-Item -LiteralPath $compatibilitySource -Destination $compatibilityDestination -Recurse
+    $compatibilityMods += [ordered]@{
+        id = $compatibilityId
+        source = $compatibilitySource
+        modInfo = @($matchingInfo | ForEach-Object {
+            @{ path = $_.FullName; sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
+        })
+    }
+}
+
 $modText = if ($LivingFellowsOnly) {
     "VERSION = 1,`r`n`r`nmods`r`n{`r`n}`r`n`r`nmaps`r`n{`r`n}`r`n"
 } else {
@@ -1732,6 +1776,9 @@ if ($ProjectALifeDamageProbe -or $ProjectALifeAdapterProbe -or $ProjectALifeEnab
     if ($ProjectALifeLoadOrder -eq 'before') { $modText = Add-ModEntry $modText 'ProjectALifeNPCs' }
     $modText = Add-ModEntry $modText 'SurvivorCompanion'
     if ($ProjectALifeLoadOrder -eq 'after') { $modText = Add-ModEntry $modText 'ProjectALifeNPCs' }
+}
+foreach ($compatibilityMod in $compatibilityMods) {
+    $modText = Add-ModEntry $modText $compatibilityMod.id
 }
 $modText = Add-ModEntry $modText 'SCRealSandboxHarness'
 [System.IO.File]::WriteAllText((Join-Path $SandboxMods 'default.txt'), $modText, $utf8NoBom)
@@ -1799,6 +1846,9 @@ $config = @(
     ('view_cutaway_restore_mode=' + $ViewCutawayRestoreMode),
     ('view_cutaway_cycles=' + $ViewCutawayCycles),
     ('normal_expedition_kitchen_probe=' + $NormalExpeditionKitchenProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('expedition_compatibility_probe=' + $ExpeditionCompatibilityProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('expedition_compatibility_scenario=' + $ExpeditionCompatibilityScenario),
+    ('expedition_compatibility_cycles=' + $ExpeditionCompatibilityCycles),
     ('normal_expedition_kitchen_crew_size=' + $NormalExpeditionKitchenCrewSize),
     ('wood_expedition_probe=' + $WoodExpeditionProbe.IsPresent.ToString().ToLowerInvariant()),
     ('wood_expedition_travel_mode=' + $WoodExpeditionTravelMode),
@@ -2051,10 +2101,15 @@ $manifest = [ordered]@{
     } else { $null }
     oddballSceneScreenshot = if ($captureOddballScene) { $OddballSceneScreenshot } else { $null }
     sourceBridge = $sourceBridge
+    sourcePayloadProjectRoot = $payloadProjectRoot
     isolatedBridgePath = $IsolatedBridgePath
     sourceBridgeSha256 = $sourceBridgeHash
     installedBridgeMatches = $installedBridgeHash -eq $sourceBridgeHash
     livingFellowsOnly = $LivingFellowsOnly.IsPresent
+    expeditionCompatibilityProbe = $ExpeditionCompatibilityProbe.IsPresent
+    expeditionCompatibilityScenario = $ExpeditionCompatibilityScenario
+    expeditionCompatibilityCycles = $ExpeditionCompatibilityCycles
+    compatibilityMods = $compatibilityMods
     cleaningMixturesProbe = $CleaningMixturesProbe.IsPresent
     buildingScanProbe = $BuildingScanProbe.IsPresent
     buildingScanSeedOnly = $BuildingScanSeedOnly.IsPresent
@@ -2181,7 +2236,7 @@ if ($PrepareOnly) {
 
 $argumentLine = '-cachedir="' + $CacheRoot + '" -nosound -novoip -debuglog=+General,+Lua'
 if ($EngineSound) { $argumentLine = $argumentLine.Replace(' -nosound','') }
-if ($ViewCutawayProbe -or $SplitScreenOnly -or
+if ($ViewCutawayProbe -or $ExpeditionCompatibilityProbe -or $SplitScreenOnly -or
     ($WoodExpeditionProbe -and $WoodExpeditionCrewSize -eq 3)) { $argumentLine += ' -debug' }
 if ($NoSteam) { $argumentLine += ' -nosteam' }
 $autoGateAgent = -not $SteamLaunch -and -not $ExternalUiControl
@@ -2294,7 +2349,11 @@ if ($SteamLaunch) {
         ArgumentList = $directArguments
         PassThru = $true
     }
-    if ($HiddenWindow) { $startOptions.WindowStyle = 'Hidden' }
+    if ($HiddenWindow) {
+        $startOptions.WindowStyle = 'Hidden'
+        $startOptions.RedirectStandardOutput = Join-Path $RunRoot 'launcher-stdout.log'
+        $startOptions.RedirectStandardError = Join-Path $RunRoot 'launcher-stderr.log'
+    }
     $priorConvoyHarness = $env:SC_LIVE_CONVOY_HARNESS
     try {
         if ($ConvoyProbe) { $env:SC_LIVE_CONVOY_HARNESS = '1' }

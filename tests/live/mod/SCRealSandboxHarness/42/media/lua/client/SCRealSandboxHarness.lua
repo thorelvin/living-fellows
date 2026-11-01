@@ -15881,6 +15881,9 @@ end
 Harness.probeNormalExpeditionKitchen = function(...)
     return externalProbe("SCNormalExpeditionKitchenProbe", ...)
 end
+Harness.probeExpeditionCompatibility = function(...)
+    return externalProbe("SCExpeditionCompatibilityProbe", ...)
+end
 Harness.probeWoodExpedition = function(...)
     return externalProbe("SCWoodExpeditionProbe", ...)
 end
@@ -16485,6 +16488,8 @@ local function tick()
         Harness.probeBarricade(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "view_cutaway_", 1, true) == 1 then
         Harness.probeViewCutaway(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "expedition_compatibility_", 1, true) == 1 then
+        Harness.probeExpeditionCompatibility(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "normal_kitchen_", 1, true) == 1 then
         Harness.probeNormalExpeditionKitchen(Harness, current, check, result, setPhase)
     elseif Harness.phase == "companion_facing_probe" then
@@ -17387,6 +17392,8 @@ local function onGameStart()
         setPhase("alife_adapter_setup", Harness.startedAt)
     elseif Harness.config.wood_expedition_probe == "true" then
         setPhase("wood_expedition_setup", Harness.startedAt)
+    elseif Harness.config.expedition_compatibility_probe == "true" then
+        setPhase("expedition_compatibility_setup", Harness.startedAt)
     elseif Harness.config.normal_expedition_kitchen_probe == "true" then
         setPhase("normal_kitchen_setup", Harness.startedAt)
     elseif Harness.config.view_cutaway_probe == "true" then

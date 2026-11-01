@@ -10,6 +10,13 @@ local reusableSlotSqlId
 local primaryRestore
 local primaryRestoreStatus, primaryRestoreReason = "idle", nil
 
+local function cleanupReleasedUi()
+    if SC.ViewUI and type(SC.ViewUI.cleanup) == "function" then
+        local okay, reason = pcall(SC.ViewUI.cleanup)
+        if not okay then print("Living Fellows: companion view UI cleanup failed: " .. tostring(reason)) end
+    end
+end
+
 local function restoreCapability()
     if SCSplitScreenProbe == nil
         or type(SCSplitScreenProbe.pollPrimaryViewRestore) ~= "function" then
@@ -34,6 +41,7 @@ local function finishPrimaryRestore(status, reason)
         end
     end
     primaryRestoreStatus = status
+    cleanupReleasedUi()
     primaryRestoreReason = reason and string.sub(tostring(reason), 1, 512) or nil
     local detail = primaryRestoreReason
     if SCSplitScreenProbe and type(SCSplitScreenProbe.releaseDiagnostics) == "function" then
@@ -155,11 +163,13 @@ function View.claim(mode, actor, legacySlotId)
     end
     if owner ~= nil then return false, "companion_view_in_use" end
     if SCSplitScreenProbe == nil then return false, "local_view_unavailable" end
+    cleanupReleasedUi()
     local slotId = reusableSlotSqlId or legacySlotId or -1
     local called, promoted = pcall(SCSplitScreenProbe.promote, actor, slotId)
     if not called or promoted ~= actor then return false, tostring(promoted) end
     cancelPrimaryRestore()
     owner = mode
+    if SC.ViewUI and type(SC.ViewUI.remember) == "function" then SC.ViewUI.remember(actor) end
     return true, actor
 end
 
@@ -179,6 +189,7 @@ function View.adopt(mode, actor, slotId)
     if validSlotId(slotId) then reusableSlotSqlId = slotId end
     cancelPrimaryRestore()
     owner = mode
+    if SC.ViewUI and type(SC.ViewUI.remember) == "function" then SC.ViewUI.remember(actor) end
     return true
 end
 
@@ -187,6 +198,7 @@ function View.released(mode, slotId, worldExit)
     if validSlotId(slotId) then reusableSlotSqlId = slotId end
     if mode == "expedition" then restoreExpeditionZoom() end
     owner = nil
+    cleanupReleasedUi()
     restorePrimaryHud()
     if worldExit == true then cancelPrimaryRestore()
     else queuePrimaryRestore() end
@@ -210,6 +222,7 @@ end
 
 function View.reset()
     cancelPrimaryRestore()
+    cleanupReleasedUi()
     if owner == "expedition" then restoreExpeditionZoom() end
     owner, reusableSlotSqlId = nil, nil
     return true

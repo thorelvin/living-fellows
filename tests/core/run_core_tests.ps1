@@ -285,8 +285,10 @@ try {
         $viewRestoreFiles = @(
             (Join-Path $Shared 'SCNamespace.lua'),
             (Join-Path $Shared 'SCSpeechColors.lua'),
+            (Join-Path $Client 'SCViewUI.lua'),
             (Join-Path $Client 'SCViewSession.lua'),
-            (Join-Path $TestRoot 'view_session_restore_harness.lua')
+            (Join-Path $TestRoot 'view_session_restore_harness.lua'),
+            (Join-Path $TestRoot 'view_ui_harness.lua')
         )
         Add-ScJvmStep 'view-session-restore' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $viewRestoreFiles 'Companion view post-render restoration harness failed.'
 
