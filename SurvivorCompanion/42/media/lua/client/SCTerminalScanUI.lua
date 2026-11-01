@@ -9,18 +9,21 @@ local function B() return SC.BuildingControls end
 local function nowMs() return SC.ControlUtil.now() end
 local function mod(v,n) return v-math.floor(v/n)*n end -- Kahlua signed remainder
 local function floorName(z) return z==nil and "--" or z<0 and "B"..(-z) or "F"..z end
+local function count(n,word) return n.." "..word..(n==1 and "" or "s") end
+local NOTICE_MS=8000
 local kinds={door="DOOR",shutter="SHUTTER",light="LIGHT",generator="GEN",cabinet="CABINET",
     fridge="FRIDGE",tv="TV",radio="RADIO",computer="PC",alarm="ALARM"}
 local function option(label,action,value,key)
     return {label=label,scanAction=action,scanValue=value,key=key or action}
 end
+local function fitsWidth(w,value,width)
+    local manager=type(getTextManager)=="function" and getTextManager() or nil
+    local pixels=SC.ControlUtil.call(manager,"MeasureStringX",w.font,value)
+    return (tonumber(pixels) and pixels*(w.textZoom or 1) or #value*w.charWidth)<=math.max(1,width-4)
+end
 local function clip(w,text,width)
     text=tostring(text or "")
-    local manager=type(getTextManager)=="function" and getTextManager() or nil
-    local function fits(value)
-        local pixels=SC.ControlUtil.call(manager,"MeasureStringX",w.font,value)
-        return (tonumber(pixels) and pixels*(w.textZoom or 1) or #value*w.charWidth)<=math.max(1,width-4)
-    end
+    local function fits(value) return fitsWidth(w,value,width) end
     if fits(text) then return text end
     local low,high=0,#text
     while low<high do
@@ -32,7 +35,11 @@ end
 function UI.active(w)
     return w and not w.closed and w.system and not w.system.locked and w.scanPage~=nil
 end
-function UI.notice(w,text) w.scanNotice=tostring(text or "") w.scanSampleAt=nil end
+-- Short results fade; only EMMA's report stays until something replaces it.
+function UI.notice(w,text,keep)
+    w.scanNotice=tostring(text or "") w.scanSampleAt=nil
+    w.scanNoticeUntil=not keep and nowMs()+NOTICE_MS or nil
+end
 function UI.layout(w)
     local left,right,top,bottom=w.layout.left,w.layout.right,w:viewTop(),w:viewBottom()
     local row,cw=w.rowHeight,w.charWidth
@@ -74,7 +81,8 @@ function UI.open(w,start)
     w.menuPage,w.gridPage,w.radioPage=nil,nil,nil
     w.scanOffset,w.scanSelectedKey,w.scanUserSelected=0,nil,false
     w.scanSampleAt,w.menuSelection,w.scanLastSelection=nil,1,1
-    w.scanNotice=nil w:setFocusMode("menu") UI.update(w,nowMs())
+    w.scanNotice,w.scanNoticeUntil,w.scanFloorManual=nil,nil,nil
+    w:setFocusMode("menu") UI.update(w,nowMs())
     return true
 end
 function UI.back(w)
@@ -85,9 +93,14 @@ end
 function UI.returnDevice(w)
     local saved=w.scanReturn
     if not saved then return false end
+    -- The radar can't show the device's question, so no live Y/N may come back with it.
+    local pending=w.requestTicket~=nil
+    if pending then w:cancelRequest() w:print("Request cancelled.","system") end
     w.scanReturn=nil w.scanPage=saved.page or "equipment" w.menuPage=nil
     w.scanOffset,w.scanSelectedKey,w.scanUserSelected=saved.offset,saved.key,true
-    w.scanSampleAt=nil w:setFocusMode("menu") UI.update(w,nowMs())
+    w.scanSampleAt=nil w:setFocusMode("menu")
+    if pending then UI.notice(w,"Request cancelled.") end
+    UI.update(w,nowMs())
     return true
 end
 function UI.options(w) return not w.requestTicket and w.scanSnapshot and w.scanSnapshot.buttons or {} end
@@ -111,11 +124,12 @@ local function report(w,result)
     if result.cappedControls or result.cappedFinds then key="limited"
     elseif result.outOfRange>0 then key="partial"
     elseif result.controls+result.finds==0 then key="empty" else key="complete" end
-    local pool=pools[key] or {"Survey finished: {controls} controls, {finds} read-only finds, {floors} floors."}
+    local pool=pools[key] or {"Survey finished: {controls}, {finds}, {floors}."}
     local line=pool[mod(result.generation-1,#pool)+1]
-    local fields={controls=result.controls,finds=result.finds,floors=#result.floors,outOfRange=result.outOfRange}
+    local fields={controls=count(result.controls,"control"),finds=count(result.finds,"read-only find"),
+        floors=count(#result.floors,"floor"),outOfRange=count(result.outOfRange,"tile")}
     line=line:gsub("{(%w+)}",function(name) return tostring(fields[name] or "?") end)
-    w:print(line,"emma") UI.notice(w,line)
+    w:print(line,"emma") UI.notice(w,line,true)
     SC.Terminal.playFeedbackSound("LFTerminalScanDone")
 end
 function UI.update(w,now)
@@ -128,6 +142,7 @@ function UI.update(w,now)
     w.scanHint=state and state.status=="running" and ("SCAN "..math.floor(state.percent).."%") or nil
     local completed=D().takeResult(w.object)
     if completed then report(w,completed) end
+    if w.scanNoticeUntil and now>=w.scanNoticeUntil then w.scanNotice,w.scanNoticeUntil=nil,nil end
     if state and state.status=="running" then
         if w.scanSoundGeneration~=state.generation then w.scanSoundGeneration=state.generation w.scanSoundCount=state.newCount end
         if state.newCount>(w.scanSoundCount or 0) and now-(w.scanBlipAt or -10000)>=250 then
@@ -164,6 +179,11 @@ function UI.update(w,now)
     local dataCount=#buttons
     if #rows>geometry.capacity then buttons[#buttons+1]=option(geometry.compact and ">" or "More","more") end
     local floors=state and state.floors or panel.lastScan and panel.lastScan.floors or {}
+    if w.scanFloorManual then
+        local known=false
+        for _,floor in ipairs(floors) do known=known or floor.z==w.scanFloor end
+        w.scanFloorManual=known or nil
+    end
     if #floors>1 and #buttons<7 then buttons[#buttons+1]=option(geometry.compact and "F" or "Floor","floor") end
     local running=state and state.status=="running"
     buttons[#buttons+1]=option(running and (geometry.compact and "X" or "Abort scan")
@@ -201,10 +221,13 @@ function UI.update(w,now)
     if state then controls,finds=state.controls,state.finds
     else for _,row in ipairs(rows) do if row.readonly then finds=finds+1 else controls=controls+1 end end end
     local header=geometry.compact and (label..(state and " "..math.floor(state.percent).."%" or "").." "..controls.."C/"..finds.."R")
-        or label..(state and " "..math.floor(state.percent).."%" or "").." / "..controls.." CONTROLS / "..finds.." READ-ONLY / "..#floors.." FLOORS"
-    local probe=state and state.lastProbe
-    local probeText=probe and string.format("%04X %s %d:%d PROBE",mod(state.processed,65536),floorName(probe.z),probe.x,probe.y) or "Choose Discover to survey loaded equipment."
-    if state and state.lastFind and now-state.lastFind.at<700 then
+        or label..(state and " "..math.floor(state.percent).."%" or "").." / "..string.upper(count(controls,"control")).." / "..finds.." READ-ONLY"
+            ..(#floors>0 and " / "..string.upper(count(#floors,"floor")) or "")
+    local unfinished=state and not state.done
+    local probe=unfinished and state.lastProbe
+    local probeText=probe and string.format("%04X %s %d:%d PROBE",mod(state.processed,65536),floorName(probe.z),probe.x,probe.y)
+        or not state and #rows>0 and "Choose Discover to survey loaded equipment." or nil
+    if unfinished and state.lastFind and now-state.lastFind.at<700 then
         local found=state.lastFind probeText="ACK "..(kinds[found.kind] or found.kind).." "..(found.room or "")
     end
     local blips={}
@@ -217,10 +240,22 @@ function UI.update(w,now)
             blips[#blips+1]={x=x,y=y,angle=math.atan2(y,x),readonly=row.readonly}
         end end
     end
+    local empty=#rows==0 and not state and clip(w,"No equipment recorded. Discover building to begin.",geometry.listWidth) or nil
+    local function noticeFits(value) return fitsWidth(w,value,geometry.listWidth) end
+    local noticeRows=w.scanNotice and w.scanNotice~="" and SC.Terminal.wrap(w.scanNotice,geometry.columns,noticeFits) or {}
+    local room=math.floor((geometry.contentBottom-geometry.contentTop)/geometry.row)-dataCount-(empty and 1 or 0)
+    local status={}
+    if probeText and #noticeRows<room then status[1]=clip(w,probeText,geometry.right-geometry.listX) end
+    for _,row in ipairs(noticeRows) do
+        if #status>=room then
+            if #status>0 then status[#status]=clip(w,status[#status].."...",geometry.listWidth) end
+            break
+        end
+        status[#status+1]=row
+    end
     w.scanSnapshot={geometry=geometry,buttons=buttons,texts=texts,hits=hits,dataCount=dataCount,
         state=state,floors=floors,floor=w.scanFloor,blips=blips,header=clip(w,header,geometry.right-geometry.left),
-        probe=clip(w,probeText,geometry.right-geometry.listX),notice=clip(w,w.scanNotice or "",geometry.listWidth),
-        empty=#rows==0 and "No equipment recorded. Discover building to begin." or nil}
+        status=status,empty=empty}
     if w.requestTicket then
         local prompt=w.scanPrompt and w.scanPrompt.ticket==w.requestTicket and w.scanPrompt.text or "Confirm Y/N."
         w.scanSnapshot.promptRows=SC.Terminal.wrap(prompt,geometry.columns)
@@ -230,7 +265,7 @@ local function act(w,action,value)
     if action=="back" then UI.back(w)
     elseif action=="start" then
         local okay,why=B().startScan(w.object,w.player)
-        UI.notice(w,why) if okay then w.scanPage="scan" w.scanUserSelected=false end
+        UI.notice(w,why) if okay then w.scanPage="scan" w.scanUserSelected=false w.scanFloorManual=nil end
     elseif action=="abort" then local _,why=B().abortScan(w.object) UI.notice(w,why)
     elseif action=="more" then
         local s=w.scanSnapshot local rows=D().rows(w.object,w.scanPage=="scan")
@@ -239,7 +274,9 @@ local function act(w,action,value)
         w.scanSelectedKey=nil w.scanUserSelected=true
     elseif action=="floor" then
         local floors=w.scanSnapshot.floors
-        for i,floor in ipairs(floors) do if floor.z==w.scanFloor then w.scanFloor=floors[mod(i,#floors)+1].z break end end
+        local index=0
+        for i,floor in ipairs(floors) do if floor.z==w.scanFloor then index=i break end end
+        w.scanFloor=floors[mod(index,#floors)+1].z
         w.scanFloorManual=true
     elseif action=="row" then
         w.scanSelectedKey="row:"..value.id w.scanUserSelected=true
@@ -270,7 +307,7 @@ function UI.scroll(w,delta)
     if w.requestTicket then return true end
     local s=w.scanSnapshot
     if not s then return true end
-    if delta>0 then act(w,"more") else
+    if delta>0 then act(w,"more") elseif delta<0 then
         w.scanOffset=math.max(0,(w.scanOffset or 0)-s.geometry.capacity)
         w.scanSelectedKey=nil w.scanUserSelected=true w.scanSampleAt=nil UI.update(w,nowMs())
     end
@@ -293,6 +330,7 @@ for i=0,36 do local angle=i/36*math.pi*2 circle[i+1]={math.cos(angle),math.sin(a
 function UI.draw(w,now)
     local s=w.scanSnapshot if not s then return end
     local g=s.geometry local ink,title=w.colors.emma,w.colors.title
+    local running=s.state and s.state.status=="running"
     local function text(value,x,y,color,alpha)
         color=color or ink w:drawText(value,x,y,color[2],color[3],color[4],alpha or 1,w.font)
     end
@@ -349,7 +387,6 @@ function UI.draw(w,now)
                 for i=2,#circle do line(cx+circle[i-1][1]*r,cy+circle[i-1][2]*r,cx+circle[i][1]*r,cy+circle[i][2]*r,ring==3 and .65 or .22) end
             end
             line(cx-radius,cy,cx+radius,cy,.18) line(cx,cy-radius,cx,cy+radius,.18)
-            local running=s.state and s.state.status=="running"
             local angle=(running and now or s.state and s.state.generation*1000 or 0)/3000*math.pi*2
             if running then for trail=0,21 do
                 local a=angle-trail*.045
@@ -362,15 +399,20 @@ function UI.draw(w,now)
         elseif floorTop>=g.contentTop+g.row then
             text(({"|","/","-","\\"})[mod(math.floor(now/200),4)+1],left,g.contentTop,title)
         end
-        local spare=g.contentTop+s.dataCount*g.row
-        if spare+g.row<=g.contentBottom then text(s.notice~="" and s.notice or s.probe,g.listX,spare,ink,.6) end
+        local y=g.contentTop+(s.dataCount+(s.empty and 1 or 0))*g.row
+        for _,value in ipairs(s.status) do
+            if y+g.row>g.contentBottom then break end
+            text(value,g.listX,y,ink,.6) y=y+g.row
+        end
         local glyphs="0123456789ABCDEF#/\\"
         local rows=math.floor((g.footer-g.contentTop)/g.row)
         local head=mod(math.floor(now/100),rows+6)
         for i=0,rows-1 do
             local distance=mod(head-i,rows+6)
             if distance<8 then local n=mod(i*7+math.floor(now/160),#glyphs)+1
-                text(glyphs:sub(n,n),g.left,g.contentTop+i*g.row,distance==0 and title or ink,(1-distance/8)*.5)
+                local fade=1-distance/8
+                text(glyphs:sub(n,n),g.left,g.contentTop+i*g.row,distance==0 and title or ink,
+                    running and (distance==0 and 1 or fade*.75) or fade*.3)
             end
         end
     end

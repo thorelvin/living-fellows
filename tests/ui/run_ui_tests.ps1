@@ -144,7 +144,15 @@ try {
         $scanUiFiles+=Join-Path $TestRoot 'SCTerminalScanTests.lua'
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @scanUiFiles
         if ($LASTEXITCODE -ne 0) { throw 'Building discovery terminal layout tests failed.' }
-        & (Join-Path $TestRoot 'Test-BuildingScanNegativeControls.ps1') -GameJava $GameJava -Classpath "$BuildRoot;$Jar" -ScanFiles $scanFiles -ScanUiFiles $scanUiFiles -BuildRoot $BuildRoot
+        $scanScreenFiles=@($terminalFiles | Where-Object { $_ -notmatch 'Tests\.lua$' })
+        foreach ($module in @('SCControlUtil','SCBuildingControls','SCBuildingScan','SCTerminalHardware','SCTerminalRadio','SCRadioEndpoints',
+            'SCGeneratorServices','SCBuildingSecurity','SCBuildingCircuits','SCExpeditionTargets','SCTerminalServices','SCTerminalScanUI')) {
+            $scanScreenFiles+=Join-Path $Client ($module+'.lua')
+        }
+        $scanScreenFiles+=Join-Path $TestRoot 'SCBuildingScanScreenTests.lua'
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @scanScreenFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Building discovery screen integration tests failed.' }
+        & (Join-Path $TestRoot 'Test-BuildingScanNegativeControls.ps1') -GameJava $GameJava -Classpath "$BuildRoot;$Jar" -ScanFiles $scanFiles -ScanUiFiles $scanUiFiles -ScanScreenFiles $scanScreenFiles -BuildRoot $BuildRoot
         $inventoryFiles = @(
             (Join-Path $TestRoot 'SCTerminalFixture.lua'),
             (Join-Path $Client 'SCControlUtil.lua'),

@@ -8,6 +8,7 @@ SC.BuildingScan=D
 local function U() return SC.ControlUtil end
 local function B() return SC.BuildingControls end
 local scans,active,serial={},nil,0
+local EXTRA_SLICE=128
 local rowCache=setmetatable({}, {__mode="k"})
 local function count(rows) local n=0 for _ in pairs(rows or {}) do n=n+1 end return n end
 local function pointKey(x,y,z) return x..":"..y..":"..z end
@@ -33,13 +34,14 @@ local function initialize(scan)
     scan.panel.finds=type(scan.panel.finds)=="table" and scan.panel.finds or {}
     scan.deviceCount,scan.findCount=count(scan.panel.devices),count(scan.panel.finds)
     scan.processed,scan.outOfRange,scan.foundControls,scan.foundFinds,scan.newCount=0,0,0,0,0
-    scan.revision,scan.carry=0,0
+    scan.revision,scan.carry,scan.baseTotal,scan.baseDone=0,0,0,0
     scan.cell=type(getCell)=="function" and getCell() or nil
     local size=(b.x2-b.x+1)*(b.y2-b.y+1)
     scan.total=size*(b.z2-b.z+1)
     for z=b.z,b.z2 do
         local floor={z=z,total=size,done=0,outOfRange=0,found=0,extra=scan.definedMax~=nil and z>scan.definedMax}
         scan.floors[#scan.floors+1],scan.floorIndex[z]=floor,floor
+        if not floor.extra then scan.baseTotal=scan.baseTotal+size end
     end
     for id in pairs(scan.panel.devices) do scan.previous[id]=true end
     for id,row in pairs(scan.panel.finds) do
@@ -66,6 +68,7 @@ local function readOnly(object)
     if U().call(object,"getContainerByType","fridge") or U().call(object,"getContainerByType","freezer") then return "fridge" end
 end
 local function observeFind(scan,object)
+    if object==scan.computer then return end
     local kind=readOnly(object)
     if not kind then return end
     local allowed,owned=B().sameBuilding(scan.panel,object,kind)
@@ -98,8 +101,22 @@ local function observeAlarm(scan)
     end
     record(scan,row,true)
 end
+-- Levels above a camp's plan stay out of the record until something answers on
+-- them: a roof is not a floor, and its unloaded tiles repeat the level below.
+local function tally(scan)
+    local floors,outOfRange,hidden={},0,0
+    for _,f in ipairs(scan.floors) do
+        if not f.extra or f.found>0 then
+            floors[#floors+1]={z=f.z,total=f.total,done=f.done,outOfRange=f.outOfRange,found=f.found}
+            outOfRange=outOfRange+f.outOfRange
+        else hidden=hidden+f.done end
+    end
+    return floors,outOfRange,hidden
+end
 local function finish(scan)
     scan.done=true
+    local floors
+    floors,scan.outOfRange=tally(scan)
     scan.status=(scan.cappedControls or scan.cappedFinds) and "limited"
         or scan.outOfRange>0 and "partial" or "complete"
     for id,row in pairs(scan.panel.finds) do
@@ -107,17 +124,11 @@ local function finish(scan)
             and scan.coveredFindTiles[pointKey(row.x,row.y,row.z)]
         if not scan.seen[id] and covered then scan.panel.finds[id]=nil end
     end
-    local floors={}
-    for _,floor in ipairs(scan.floors) do
-        if not floor.extra or floor.found>0 or floor.outOfRange>0 then
-            floors[#floors+1]={z=floor.z,total=floor.total,done=floor.done,outOfRange=floor.outOfRange,found=floor.found}
-        end
-    end
     scan.panel.lastScan={at=U().hours() or 0,total=scan.total,outOfRange=scan.outOfRange,
         devices=scan.foundControls,finds=scan.foundFinds,floors=floors,
         cappedControls=scan.cappedControls==true,cappedFinds=scan.cappedFinds==true,status=scan.status}
     -- Mark before an ambiguous native callback, exactly like password XP.
-    if scan.player and not scan.panel.scanXpAwarded and scan.processed>scan.outOfRange
+    if scan.player and not scan.panel.scanXpAwarded and scan.baseDone>scan.outOfRange
         and U().near(scan.player,scan.computer,3) and SC.Terminal.powered(scan.computer)
         and U().call(scan.player,"isDead")~=true and B().connected(scan.computer,scan.panel) then
         scan.panel.scanXpAwarded=true
@@ -139,7 +150,7 @@ function D.step(scan,budget,remaining)
         local chunk=U().call(scan.cell,"getChunkForGridSquare",scan.x,scan.y,scan.z)
         local inRange=chunk~=nil or square~=nil
         local key=pointKey(scan.x,scan.y,scan.z)
-        if not inRange then floor.outOfRange=floor.outOfRange+1 scan.outOfRange=scan.outOfRange+1
+        if not inRange then floor.outOfRange=floor.outOfRange+1
         elseif scan.oldFindTiles[key] then scan.coveredFindTiles[key]=true end
         if square then
             for _,object in ipairs(U().list(U().call(square,"getObjects"),64)) do
@@ -148,6 +159,7 @@ function D.step(scan,budget,remaining)
             end
         end
         used=used+1 scan.processed=scan.processed+1 floor.done=floor.done+1
+        if not floor.extra then scan.baseDone=scan.baseDone+1 end
         scan.lastProbe={x=scan.x,y=scan.y,z=scan.z}
         scan.x=scan.x+1
         if scan.x>b.x2 then scan.x=b.x scan.y=scan.y+1 end
@@ -234,6 +246,13 @@ function D.pulse(remaining)
     local panel,reason=usable(scan.computer,scan.player)
     if panel~=scan.panel or B().computerId(scan.computer)~=scan.computerId then D.pause(scan.computer,reason or "Connection changed.") return false end
     local elapsed=math.max(0,now-(scan.lastAt or now)) scan.lastAt=now
+    local level=scan.floorIndex[scan.z]
+    if level and level.extra then
+        -- The rate paces levels the player can see; these only answer to the frame budget.
+        scan.carry=0
+        D.step(scan,EXTRA_SLICE,remaining)
+        return active~=nil
+    end
     local allowance=scan.carry+elapsed*scan.rate/1000
     local whole=math.floor(allowance)
     scan.carry=allowance-whole -- no banked stall, closed-window or exhausted-budget backlog
@@ -246,19 +265,14 @@ function D.state(object)
     local scan=panel and scans[panel.id]
     if not scan then return nil end
     if scan.snapshot then return scan.snapshot end
-    local floors,hiddenEmptyTiles={},0
-    for _,f in ipairs(scan.floors) do
-        if not scan.done or not f.extra or f.found>0 or f.outOfRange>0 then
-            floors[#floors+1]={z=f.z,total=f.total,done=f.done,outOfRange=f.outOfRange,found=f.found}
-        else hiddenEmptyTiles=hiddenEmptyTiles+f.done
-        end
-    end
+    local floors,outOfRange,hiddenEmptyTiles=tally(scan)
     local feed={} for i,row in ipairs(scan.feed) do feed[i]=row end
     local b=scan.bounds
     scan.snapshot={generation=scan.generation,status=scan.status,done=scan.done==true,aborted=scan.aborted==true,
-        processed=scan.processed,total=scan.total,percent=scan.processed/math.max(1,scan.total)*100,
+        processed=scan.processed,total=scan.total,baseTotal=scan.baseTotal,
+        percent=(scan.done and not scan.aborted) and 100 or math.min(99.9,scan.baseDone/math.max(1,scan.baseTotal)*100),
         controls=scan.foundControls,finds=scan.foundFinds,newCount=scan.newCount,revision=scan.revision,
-        rate=scan.rate,outOfRange=scan.outOfRange,hiddenEmptyTiles=hiddenEmptyTiles,
+        rate=scan.rate,outOfRange=outOfRange,hiddenEmptyTiles=hiddenEmptyTiles,
         cappedControls=scan.cappedControls==true,cappedFinds=scan.cappedFinds==true,
         floors=floors,feed=feed,lastProbe=scan.lastProbe,lastFind=scan.lastFind,pauseReason=scan.pauseReason,
         bounds={x=b.x,y=b.y,x2=b.x2,y2=b.y2,z=b.z,z2=b.z2}}

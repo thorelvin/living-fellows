@@ -109,13 +109,14 @@ local fridge=add("Fridge",102,100,-1)
 local dataReads=0
 function fridge:getModData() dataReads=dataReads+1 return self.data end
 function fridge:getContainerByType(kind) return (kind=="fridge" or kind=="freezer") and {} end
-add("IsoTelevision",103,100,0) add("IsoRadio",104,100,0)
+add("IsoTelevision",103,100,0) add("IsoRadio",104,100,0) add("Computer",100,101,0)
 definition.alarmed=true
 B.startScan(pc,player) complete()
 local state=D.state(pc)
 check(state.processed==state.total and #state.floors==3,"all real floors, including a basement, are covered")
 check(state.outOfRange==0,"empty upper squares inside a loaded chunk are not out of range")
-check(state.controls==1 and state.finds==5,"native controls, fridge/freezer, TV, radio, terminal and one building alarm stay distinct")
+check(state.controls==1 and state.finds==5,"native controls, fridge/freezer, TV, radio, another computer and one building alarm stay distinct")
+check(panel.finds["computer:100:101:0"]~=nil and panel.finds["computer:100:100:0"]==nil,"the computer doing the scan does not list itself")
 check(dataReads==0 and fridge.data.LF_ControlId==nil,"read-only finds never touch object ModData")
 check(#B.list(pc)==1 and B.list(pc)[1].kind=="door","read-only equipment never enters controllable lists")
 check(xpCount==1 and panel.scanXpAwarded,"a completed pass awards Electrical XP once")
@@ -167,8 +168,22 @@ check(D.state(pc).status=="paused","moving a computer invalidates its original c
 setup(0)
 SC.BaseLife={active=function() return {id="base"} end,isInside=function() return true end}
 chunk.maxZ=2
-B.startScan(pc,player) complete()
-check(#D.state(pc).floors==1,"empty camp roof/chunk levels do not become reported inhabited floors")
+B.startScan(pc,player)
+check(#D.state(pc).floors==1,"empty levels above a camp's plan are never offered as floors, even while sweeping")
+check(D.state(pc).total==867 and D.state(pc).baseTotal==289,"camp progress counts the planned level only")
+local slices=0
+while D.state(pc).processed<289 do tick(100) slices=slices+1 end
+check(slices<=46,"the planned level keeps its real rate")
+check(D.state(pc).percent<100 and D.state(pc).percent>=99 and not D.state(pc).done,"progress holds under 100 until the sweep truly ends")
+local extraSlices=0
+while not D.state(pc).done do tick(100) extraSlices=extraSlices+1 end
+check(extraSlices<=6,"unseen levels are not paced by the display rate")
+check(#D.state(pc).floors==1 and D.state(pc).percent==100,"empty camp roof/chunk levels do not become reported inhabited floors")
+check(xpCount==1 and panel.lastScan and #panel.lastScan.floors==1,"the saved record agrees and the award still fires")
+chunk.unloaded=function(x) return x==94 end
+B.startScan(pc,player,true) complete()
+check(D.state(pc).outOfRange==17 and #D.state(pc).floors==1,"hidden levels do not multiply out-of-range tiles")
+chunk.unloaded=nil
 add("IsoDoor",101,100,1)
 B.startScan(pc,player,true) complete()
 check(#D.state(pc).floors==2,"a player-built upper level with real equipment is included")

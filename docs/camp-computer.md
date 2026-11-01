@@ -516,7 +516,9 @@ connected to its building with Electrical 2, a screwdriver, one electric wire
 and two electronics scrap. An outdoor desktop can connect to a loaded building
 within six tiles. Choose **Discover building** to survey its loaded floors.
 Discovery runs at 64 tiles per real second with Electrical 0, rising to 128
-with Electrical 10. Large buildings take longer. The radar shows equipment on
+with Electrical 10. Large buildings take longer. On a camp, levels above the
+building's plan are checked quickly and stay hidden unless something answers
+there. The radar shows equipment on
 the selected floor; floor bars and the growing list show the actual survey.
 Use numbers or click a row, PgUp/PgDn or the wheel to page, and **Floor** to
 change the radar level. At large font sizes the list takes priority over the
@@ -529,7 +531,7 @@ reopening. **Abort scan** ends the pass and retains found records; the next
 pass starts fresh. Saving retains discovered equipment, but a game reload
 starts a fresh pass rather than restoring a partial cursor.
 
-Fridges, televisions, radios, computers and the building alarm are read-only
+Fridges, televisions, radios, other computers and the building alarm are read-only
 finds, shown separately from controllable equipment. There is room for 256
 controls and another 256 read-only finds. Out-of-range tiles and record limits
 are reported explicitly; discovery never loads distant parts of the map.

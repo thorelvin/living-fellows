@@ -99,6 +99,56 @@ purple have matching glass, text and EMMA artwork, with no separator/footer
 overlap. Native captures use the full-size layout; reduced-height layouts and
 modal/keyboard edge cases are verified by the automated UI tests.
 
+## Review fixes
+
+Review of `a3f32838` found the survey engine sound and the screen unfinished.
+The sections above describe that first push; this one supersedes them where they
+differ. No Java changed, so the bridge SHA-256 above still stands.
+
+- Nothing overlaps in the list column. The "no equipment" message shows only when
+  no scan exists, so a running scan or a rescan no longer denies its saved rows.
+- EMMA's whole report wraps under the list and stays until something replaces it.
+  Short notices fade after eight seconds and sit below the probe line, which no
+  longer disappears for a whole scan. A finished scan shows no stale probe line.
+- Counts are singular or plural as they should be, in the header and the report.
+- A camp's levels above the building's plan no longer take the player's time.
+  They sweep on the frame budget alone, stay out of the bars, the floor count and
+  the out-of-range total unless something answers there, and progress counts the
+  planned levels. The one-storey camp at Electrical 5 went from 24.35 s to 10.65 s
+  against 7.79 s for its planned level.
+- The radar returns to the sweep when its chosen level leaves the list, and a new
+  scan always follows the sweep.
+- The wheel pages in the direction it turns, on this page and on the older grid
+  and radio reading pages.
+- Esc from a device prompt cancels the request and says so, rather than carrying
+  a live Y/N to a page that cannot show its question.
+- The computer doing the scan no longer lists itself, so read-only counts are one
+  lower than the table above and EMMA's "nothing answered" line can fire.
+- The rain is brighter while a scan runs and fainter when idle.
+
+`tests/ui/SCBuildingScanScreenTests.lua` drives the real terminal, engine, services
+and page together, which the stubbed page test could not. All 49 negative controls
+fail their intended assertions: the original 26 and 23 new ones for these fixes.
+`scripts/Test-Project.ps1 -Jobs 4` passes 29/29 stages.
+
+Run `SC-Harness-20261101-144938-5288a6d5` repeats the full native acceptance: 24
+pass, 0 fail, basement skipped, no Lua errors. Rosewood took 97.283 s against
+96.979 s with 111 controls on 5 levels. The large building took 355.782 s against
+353.906 s with 13,950 tiles out of range. Mean scan draw was 0.25 to 0.42 ms and
+frame p95 stayed between 19 and 27 ms.
+
+A throwaway probe, run `SC-Harness-20261101-145916-037fc015`, started the scan from
+the real Local services menu and captured the start of a scan, the empty Equipment
+page, the finished report, Esc from a live device prompt and a restart. All were
+inspected. The one-time XP award added 1.25 real points from the granted 5, and
+all three new sounds returned real handles. Power circuits with 70 lights costs
+about 1 ms more per frame than the services page, with no change in frame time.
+
+Not proven live: a real basement, as above. Wheel direction comes from the vanilla
+list box, where a negative delta scrolls up, and the terminal's own transcript;
+the harness cannot turn a physical wheel. Sound handles show a cue started, not
+how it sounds.
+
 ## Limits and documentation
 
 No suitable bounded basement candidate was found in native building metadata;

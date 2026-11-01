@@ -9,8 +9,10 @@
   share a responsive screen with keyboard and mouse controls.
 - Discovery runs only on request while the computer is open, at 64–128 tiles
   per real second depending on Electrical skill. Closing pauses it for Resume;
-  Abort ends the pass and keeps the equipment already found.
-- Fridges, televisions, radios, computers and building alarms appear as
+  Abort ends the pass and keeps the equipment already found. On a camp, levels
+  above the building's plan are checked quickly and stay hidden unless
+  something answers there.
+- Fridges, televisions, radios, other computers and building alarms appear as
   read-only finds. Controls and read-only finds each have a separate 256-row
   limit. Unloaded areas and limits are reported explicitly.
 - Device commands retain building authorization and confirmation. Discovery

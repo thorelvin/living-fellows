@@ -921,9 +921,11 @@ function SCTerminalWindow:scrollBy(rows)
 end
 
 function SCTerminalWindow:onMouseWheel(delta)
-    if SC.TerminalScanUI and SC.TerminalScanUI.scroll(self,-(tonumber(delta) or 0)) then return true end
-    if SC.TerminalGridUI and SC.TerminalGridUI.scroll(self,-(tonumber(delta) or 0)*3) then return true end
-    if SC.TerminalRadioUI and SC.TerminalRadioUI.scroll(self,-(tonumber(delta) or 0)*3) then return true end
+    -- A positive delta is the wheel turning down. These pages count their offset from
+    -- the top; scrollBy below counts from the bottom of the transcript.
+    if SC.TerminalScanUI and SC.TerminalScanUI.scroll(self,tonumber(delta) or 0) then return true end
+    if SC.TerminalGridUI and SC.TerminalGridUI.scroll(self,(tonumber(delta) or 0)*3) then return true end
+    if SC.TerminalRadioUI and SC.TerminalRadioUI.scroll(self,(tonumber(delta) or 0)*3) then return true end
     self:scrollBy(-(tonumber(delta) or 0) * 3)
     return true
 end
@@ -1795,7 +1797,7 @@ function SCTerminalWindow:drawHints(range)
         hint=status=="lockout" and "Building recovery locked. Retry after one game hour."
             or "Security "..tostring(puzzle and puzzle.tries or 0).."/"..tostring(puzzle and puzzle.maximum or 0).." | Tab: words/chat | PgUp/PgDn"
     elseif SC.TerminalScanUI and SC.TerminalScanUI.active(self) then
-        hint="1-"..#self:menuOptions()..": select   PgUp/Dn: page   Tab: chat   Esc: back"
+        hint=self.requestTicket and "Y/N: confirm   Esc: cancel" or "1-"..#self:menuOptions()..": select   PgUp/Dn: page   Tab: chat   Esc: back"
     elseif SC.TerminalGridUI and SC.TerminalGridUI.active(self) then
         hint=self.requestTicket and "Y/N: confirm   Esc: cancel" or "1-"..#self:menuOptions()..": select   Tab: chat   Esc: back"
     elseif SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then hint=self.radioPage=="reading"

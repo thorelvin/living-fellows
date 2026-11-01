@@ -156,6 +156,11 @@ function Probe.step(H,current,check,result,setPhase)
         if w.closed then result("FAIL","scan_native_window","native terminal closed unexpectedly") setPhase("finish",current) return end
         if #f.frames<10000 then f.frames[#f.frames+1]=current-f.lastFrame end f.lastFrame=current
         for _,floor in ipairs(state.floors) do if floor.found>0 then f.seenFloors[floor.z]=true end end
+        if not f.levelsChecked then
+            f.levelsChecked=true
+            local planned=f.definition:getMaxLevel()-f.definition:getMinLevel()+1
+            check("scan_levels_shown_"..f.site,#state.floors==planned,"shown="..#state.floors.." planned="..planned)
+        end
         if not f.earlyShot and current-f.started>7000 then
             screenshot(H,"site"..f.site.."-running") f.earlyShot=true
             log("early screenshot, progress="..state.percent.." total="..state.total.." rate="..state.rate)
@@ -174,9 +179,9 @@ function Probe.step(H,current,check,result,setPhase)
         end
         if state.done then
             f.seconds=(current-f.started)/1000
-            local expected=state.total/state.rate
+            local expected=state.baseTotal/state.rate
             check("scan_rate_"..f.site,f.seconds>=expected*.9 and f.seconds<expected*1.5+3,
-                "actual="..f.seconds.." expected="..expected.." tiles="..state.total.." rate="..state.rate)
+                "actual="..f.seconds.." expected="..expected.." tiles="..state.total.." planned="..state.baseTotal.." rate="..state.rate)
             local total,out=0,0
             for _,floor in ipairs(state.floors) do total=total+floor.done out=out+floor.outOfRange end
             check("scan_floor_accounting_"..f.site,total+(state.hiddenEmptyTiles or 0)==state.processed and out==state.outOfRange,
