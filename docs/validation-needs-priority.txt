@@ -1,0 +1,70 @@
+Companion food priority and travel pauses
+Branch: living_fellows/0.26.88
+Game: Project Zomboid 42.21.0
+
+Behaviour
+- Routine meals start at 75% hunger. Existing per-need emergency limits stay intact.
+- Followers must be on the leader's floor, close to formation, and observe a
+  15-second stop before routine eating, drinking or refilling. Entering a car,
+  movement or accumulating position changes reset the stop. Routine needs yield
+  when travel resumes, using the existing exact-action/item cancellation paths.
+- Autonomous expedition travel also defers routine consumption and home errands.
+  A stopped expedition crew uses carried supplies. Survival overrides remain.
+- Safe fresh perishables precede ordinary durable food, then emergency-only
+  insects, worms and condiments. Emergency food also requires hunger emergency;
+  dehydration alone never grants permission to eat it.
+- Ranking uses native Food metadata. Native isFresh also returns true for many
+  indefinitely shelf-stable foods, so DaysFresh/off-age is checked too. Opened
+  canned corn spoils after two days and counts as perishable. Sealed/unusable
+  food remains subject to the existing safe-food checks; this change adds no
+  can-opening recipe or food fabrication.
+- Camp searches respect marked storage, reserves, personal items and withdrawals.
+  Permitted floor transit allows workers to consider other camp floors. Travelling
+  followers use sources within six tiles of the leader on the same floor.
+- Item discovery retains independent bounded cursors per need/tier. Reserved
+  containers and unfinished slices are pending, not proof of missing food.
+  Unreachable sources receive a short retry delay so another source can be tried.
+- Needs reset and interruption bookkeeping use the actual supplied decision
+  runtime, avoiding stale needs values in a separate fallback runtime.
+
+Automated verification
+- needs_priority_harness.lua: 49 checks, production Needs and Encounter modules.
+  Covers tiers, native metadata contracts, safety, protected/reserved/withdrawal
+  rules, deep container slices, independent water/food cursors, failed sources,
+  spoilage during approach, opened/private world storage, cross-floor admission,
+  pause timing and accumulation, vehicles, emergencies, own-action cancellation,
+  foreign owners and reset of explicit decision runtimes.
+- decision_arbitration_harness.lua: 184 checks, including routine needs/refill
+  admission, expedition travel context and cancellation before activity gating.
+- Existing carried-supply, rate, ownership, cleaner-fluid and gameplay regressions
+  run through the normal project gate.
+
+Live verification
+- SC-Harness-20261101-231221-3d965a4e: PASS, 14 checks, no skipped checks.
+- Actual native metadata: Apple=1, Crackers=2, Maggots=3, Ketchup=3.
+- The worker withdrew and ate the real stored apple; hunger fell from 0.76 to
+  0.60028. Carried crackers and maggots remained untouched.
+- A confirmed Follow order did not start a meal during the first 14.5 seconds.
+  Native eating began at 19.05 seconds, after the 15-second admission gate and
+  normal decision/action scheduling.
+- Moving the native leader reset admission. The owned meal stopped, and the
+  next two seconds showed no further food consumption or hunger reduction.
+- Full project gate: PASS, 29/29 stages in 113.4 seconds, including all 49 needs
+  priority checks, 184 decision arbitration checks, and existing native combat,
+  ownership, persistence, cleaning, farming, UI and installer regressions.
+  Log: C:/ZOMBOID/outputs/needs-priority-02688/project-gate.log
+
+The test uses a disposable copy of LF-Skills5-Test-2026-10-29, LF alone, and the
+checkout's isolated native bridge. It places one test companion by real permitted
+storage, seeds real Apple/Crackers/Maggots/Ketchup items, then executes native loot
+and eat actions. Player placement is a fixture; companions are not forcibly fed
+or moved after initial spawning. Interrupted food is never scripted as consumed.
+
+Coverage limits
+Cross-floor selection and transit admission are automated checks. This native
+scenario exercises one floor; it does not certify every multi-storey camp route.
+Earlier native attempts corrected fixture assumptions: saved residents were on a
+different floor, opened corn was perishable, native placement was asynchronous,
+and direct test calls initially used a fallback rather than the decision runtime.
+The explicit-runtime reset issue discovered while fixing that fixture is covered
+by its own production regression.

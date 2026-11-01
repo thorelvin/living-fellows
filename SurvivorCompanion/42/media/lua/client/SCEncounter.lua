@@ -391,7 +391,7 @@ end
 -- read in one pass, so a miss here proves the item is not there. Returns the
 -- nearest match, or nil and true when it may yet be found: another worker holds a
 -- container that has one, or a very full container has more left to read.
-local function findMarkedSupply(actor, predicate, oz, state)
+local function findMarkedSupply(actor, predicate, oz, state, options)
     local utility = U()
     local baseLife = SC.BaseLife
     local best, bestDistance, waiting
@@ -399,7 +399,17 @@ local function findMarkedSupply(actor, predicate, oz, state)
     state.supplySlices = state.supplySlices or setmetatable({}, { __mode = "k" })
     for _, storage in ipairs(baseLife.storageRows(nil, true)) do
         local found, container = pcall(baseLife.resolveContainer, storage)
-        if found and container and math.floor(tonumber(storage.z) or 0) == math.floor(oz or 0) then
+        local owner=found and container and containerOwner(container) or nil
+        local nearby=not options.radius or ownerDistance(options.origin or actor,owner)<=options.radius
+        local rejected=state.supplyRejected and state.supplyRejected[container] or 0
+        local floorAllowed=math.floor(tonumber(storage.z) or 0)==math.floor(oz or 0)
+        if not floorAllowed and options.campFloors and owner
+            and type(baseLife.allowsFloorTransit)=="function" then
+            local okay,allowed=pcall(baseLife.allowsFloorTransit,actor,owner,{workCampOnly=true})
+            floorAllowed=okay and allowed==true
+        end
+        if found and container and nearby and now()>=rejected
+            and floorAllowed then
             local reservation = pruneReservation(container, now())
             local held = reservation ~= nil and reservation.actor ~= actor
             local items = containerItems(container)
@@ -450,10 +460,11 @@ local function findPlayerSupply(actor, predicate, options, state)
     local origin = options.origin or actor
     local ox, oy, oz = utility.position(origin)
     if not ox then return nil end
-    if not options.radius and insideBase(origin) and SC.BaseLife
+    if (not options.radius or options.markedOnly) and insideBase(origin) and SC.BaseLife
         and type(SC.BaseLife.storageRows) == "function"
         and type(SC.BaseLife.resolveContainer) == "function" then
-        local marked, waiting = findMarkedSupply(actor, predicate, oz, state)
+        local marked, waiting = findMarkedSupply(actor, predicate, oz, state,options)
+        if options.markedOnly then return marked,waiting end
         if marked or waiting then return marked, waiting end
     end
     local radius = math.max(1, math.min(32,
@@ -467,12 +478,12 @@ local function findPlayerSupply(actor, predicate, options, state)
     state.supplyScanPhase = ((state.supplyScanPhase or 0) + 1) % 8
     local phase = state.supplyScanPhase
     local scanned = 0
-    local best, bestDistance
+    local best, bestDistance, waiting
 
     for distance = 0, radius do
         for dx = -distance, distance do
             for dy = -distance, distance do
-                if scanned >= squareBudget then return best end
+                if scanned >= squareBudget then return best,waiting end
                 local edge = math.max(math.abs(dx), math.abs(dy)) == distance
                 local sampled = distance <= 6 or ((dx * 17 + dy * 31) % 8) == phase
                 if edge and sampled then
@@ -490,8 +501,11 @@ local function findPlayerSupply(actor, predicate, options, state)
                             if access == "shared" or (access == "outside"
                                 and Encounter.wasPlayerOpened(container)) then
                                 local reservation = pruneReservation(container, now())
-                                if not reservation or reservation.actor == actor then
+                                local rejected=state.supplyRejected and state.supplyRejected[container] or 0
+                                if now()>=rejected and (options.completeSearch or not reservation or reservation.actor == actor) then
                                     local examined = 0
+                                    local offset=options.completeSearch and state.supplySlices[container] or 0
+                                    offset=offset or 0
                                     utility.each(containerItems(container), itemBudget, function(candidate)
                                         examined = examined + 1
                                         local accepted = false
@@ -504,7 +518,15 @@ local function findPlayerSupply(actor, predicate, options, state)
                                         if accepted and storage then
                                             accepted = storageAllows(storage, candidate)
                                         end
+                                        if accepted and options.completeSearch and options.radius then
+                                            accepted=ownerDistance(origin,containerOwner(container))<=options.radius
+                                        end
                                         if accepted then
+                                            if options.completeSearch then state.supplySlices[container]=nil end
+                                            if reservation and reservation.actor~=actor then
+                                                waiting=true
+                                                return false
+                                            end
                                             local owner = containerOwner(container)
                                             local candidateDistance = ownerDistance(actor, owner)
                                             if not bestDistance or candidateDistance < bestDistance then
@@ -518,7 +540,12 @@ local function findPlayerSupply(actor, predicate, options, state)
                                             return false
                                         end
                                         return examined < itemBudget
-                                    end)
+                                    end,offset)
+                                    if options.completeSearch and examined==itemBudget
+                                        and offset+itemBudget<utility.listSize(containerItems(container)) then
+                                        state.supplySlices[container]=offset+itemBudget
+                                        waiting=true
+                                    elseif options.completeSearch then state.supplySlices[container]=nil end
                                 end
                             end
                         end, 40)
@@ -526,9 +553,9 @@ local function findPlayerSupply(actor, predicate, options, state)
                 end
             end
         end
-        if best then return best end
+        if best then return best,waiting end
     end
-    return best
+    return best,waiting
 end
 
 -- Transaction state is deliberately transient.  Return values are a small
@@ -540,6 +567,30 @@ function Encounter.takePlayerSupply(actor, supplyKey, predicate, options)
     options = type(options) == "table" and options or {}
     local utility = U()
     local state = stateFor(actor)
+    -- Food tiers keep independent bounded cursors: looking for water between
+    -- meal ticks must not restart a large fridge at its first item forever.
+    local discovery=state
+    if options.completeSearch then
+        state.supplySearches=state.supplySearches or {}
+        state.supplySearchKeys=state.supplySearchKeys or {}
+        discovery=state.supplySearches[supplyKey]
+        if not discovery then
+            if #state.supplySearchKeys>=8 then
+                state.supplySearches[table.remove(state.supplySearchKeys,1)]=nil
+            end
+            state.supplySearchKeys[#state.supplySearchKeys+1]=supplyKey
+            discovery={supplySlices=setmetatable({}, {__mode="k"}),
+                supplyRejected=setmetatable({}, {__mode="k"})}
+            state.supplySearches[supplyKey]=discovery
+        end
+    end
+    local function rejectSupply(reason)
+        if options.completeSearch and state.supply then
+            discovery.supplyRejected[state.supply.container]=now()+15000
+        end
+        releasePlayerSupply(actor,state)
+        return "error",reason
+    end
     local snapshot = options.snapshot
     if type(snapshot) == "table" and ((snapshot.immediateCount or 0) > 0
         or (snapshot.pressure or 0) >= 2.5) then
@@ -548,6 +599,10 @@ function Encounter.takePlayerSupply(actor, supplyKey, predicate, options)
     end
 
     local supply = state.supply
+    if supply and options.revalidatePredicate then
+        local okay,accepted=pcall(predicate,supply.item)
+        if not okay or accepted~=true then releasePlayerSupply(actor,state);supply=nil end
+    end
     if supply and (supply.key ~= supplyKey or not supplyStillPresent(supply)) then
         releasePlayerSupply(actor, state)
         supply = nil
@@ -560,7 +615,7 @@ function Encounter.takePlayerSupply(actor, supplyKey, predicate, options)
     end
     if not supply then
         local waiting
-        supply, waiting = findPlayerSupply(actor, predicate, options, state)
+        supply, waiting = findPlayerSupply(actor, predicate, options, discovery)
         if not supply then
             if waiting then return "in_progress", "camp_supply_reserved" end
             return "missing", "camp_supply_missing"
@@ -572,6 +627,14 @@ function Encounter.takePlayerSupply(actor, supplyKey, predicate, options)
         state.supply = supply
     end
 
+    if options.completeSearch then
+        local allowed,_,storage=Encounter.mayTakeFrom(supply.container)
+        if not allowed or storage and not storageAllows(storage,supply.item)
+            or options.radius and ownerDistance(options.origin or actor,supply.owner)>options.radius then
+            return rejectSupply("camp_supply_access_changed")
+        end
+    end
+
     -- A container's own tile is often occupied by the furniture holding it.
     -- Approach a usable side instead, and never transfer through a wall just
     -- because the actor is within the old distance threshold.
@@ -580,9 +643,8 @@ function Encounter.takePlayerSupply(actor, supplyKey, predicate, options)
     if atSupply ~= true then
         if accessReason == "no_interaction_targets" or not SC.Navigation
             or type(SC.Navigation.requestAny) ~= "function" then
-            releasePlayerSupply(actor, state)
-            return "error", accessReason == "no_interaction_targets"
-                and accessReason or "camp_supply_navigation_unavailable"
+            return rejectSupply(accessReason == "no_interaction_targets"
+                and accessReason or "camp_supply_navigation_unavailable")
         end
         local accepted, reason = SC.Navigation.requestAny(actor, targets,
             options.moveMode or "walk", {
@@ -594,16 +656,15 @@ function Encounter.takePlayerSupply(actor, supplyKey, predicate, options)
                 arrivalDistance = 0.35,
                 requireSameSquare = true,
                 continuousApproach = true,
+                workCampOnly = options.campFloors == true,
             })
         if accepted then return "in_progress", reason or "approaching_camp_storage" end
-        releasePlayerSupply(actor, state)
-        return "error", reason or "camp_supply_path_failed"
+        return rejectSupply(reason or "camp_supply_path_failed")
     end
 
     if SC.PersonalItems and SC.PersonalItems.isProtected(
         supply.item, actor, "camp_supply") then
-        releasePlayerSupply(actor, state)
-        return "error", "camp_supply_item_became_personal"
+        return rejectSupply("camp_supply_item_became_personal")
     end
 
     if stopScavengeMovement then stopScavengeMovement(actor) end
@@ -616,8 +677,7 @@ function Encounter.takePlayerSupply(actor, supplyKey, predicate, options)
             clearNativeVisual(actor)
             supply.phase = nil
         elseif visualState ~= nil then
-            releasePlayerSupply(actor, state)
-            return "error", "camp_supply_animation_" .. tostring(visualState)
+            return rejectSupply("camp_supply_animation_" .. tostring(visualState))
         else
             -- Test providers without the native timed-action adapter retain the
             -- original synchronous transfer contract.
@@ -642,8 +702,7 @@ function Encounter.takePlayerSupply(actor, supplyKey, predicate, options)
         elseif visualState == "completed" then
             clearNativeVisual(actor)
         elseif visualState ~= nil then
-            releasePlayerSupply(actor, state)
-            return "error", "camp_supply_animation_" .. tostring(visualState)
+            return rejectSupply("camp_supply_animation_" .. tostring(visualState))
         end
     end
 
@@ -659,8 +718,7 @@ function Encounter.takePlayerSupply(actor, supplyKey, predicate, options)
                 "verified container transfer failed: " .. tostring(transferReason),
                 utility.itemType(supply.item))
         end
-        releasePlayerSupply(actor, state)
-        return "error", "camp_supply_transfer_failed"
+        return rejectSupply("camp_supply_transfer_failed")
     end
     local item = supply.item
     local flags = containerFlags(supply.container)

@@ -44,6 +44,9 @@ local ownTaskOrders = {
 
 local function safetyTierFor(kind, emergency, detail)
     if emergency == true then return Decision.SafetyTier.SURVIVAL end
+    if kind == "follow" and type(detail) == "table" and detail.mode == "board_vehicle" then
+        return Decision.SafetyTier.TACTICAL
+    end
     -- Quiet-time wound care is a chore: if it cannot start, the companion
     -- simply carries on following or working.
     if kind == "medical" and type(detail) == "table" and detail.mode == "wound_care" then
@@ -492,6 +495,30 @@ local function needsDecisionScore(needs, active)
     return score
 end
 
+local function withdrawingToPlayerVehicle(actor, player, commands, snapshot, assessment, needs)
+    if not player or commands.recruited ~= true or commands.rideWithPlayer == false
+        or commands.expeditionMember or commands.temporaryStay or commands.followCarSqlId
+        or (commands.order ~= "follow" and commands.order ~= "regroup") then return false end
+    local vehicle, playerKnown = U().call(player,"getVehicle")
+    local ownVehicle, actorKnown = U().call(actor,"getVehicle")
+    if not playerKnown or not vehicle or not actorKnown or ownVehicle then return false end
+    if (tonumber(snapshot.immediateCount) or #(snapshot.immediateAttackers or {})) > 0
+        or snapshot.encircled == true or assessment.downed or assessment.critical
+        or (tonumber(assessment.bleedingCount) or 0) > 0
+        or needs and needs.emergency then return false end
+    -- A distant shooter or zombie behind glass must not turn departure into
+    -- another pursuit. Keep contact defence when a human is within striking range.
+    local human = snapshot.humanThreat
+    if human and human.visible ~= false then
+        local distanceSq=tonumber(human.distanceSq)
+        local distance = human.actor and U().distance(actor,human.actor)
+            or tonumber(human.distance)
+            or distanceSq and math.sqrt(math.max(0,distanceSq)) or math.huge
+        if distance <= 2.5 then return false end
+    end
+    return true
+end
+
 local function evaluate(actor, player, snapshot, commands, assessment, needs, state, current)
     local candidates = {}
     local downtimeAdded = false
@@ -574,6 +601,9 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
 
     local threatCount = snapshot.threatCount or #(snapshot.threats or {})
     local immediate = snapshot.immediateCount or #(snapshot.immediateAttackers or {})
+    local boarding = withdrawingToPlayerVehicle(actor,player,commands,snapshot,assessment,needs)
+    local routineNeeds=not SC.Needs or type(SC.Needs.routineAllowed)~="function"
+        or SC.Needs.routineAllowed(actor,player,commands,current)
     -- After a second player hit, give the companion room even if its current
     -- order is to work or stay. Immediate danger and urgent care still win.
     if commands.recruited and player and (tonumber(care.playerStrikes) or 0) >= 2
@@ -611,6 +641,7 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
     if type(needs) == "table" and (needs.active or needs.hungry or needs.thirsty
         or needs.peeDue)
         and threatCount == 0
+        and (routineNeeds or needs.active or needs.emergency or needs.peeDue)
         and (not commands.expeditionMoving or needs.active or needs.emergency or needs.peeDue
             or SC.Needs and type(SC.Needs.carriedSuppliesAvailable) == "function"
                 and SC.Needs.carriedSuppliesAvailable(actor, needs)) then
@@ -627,13 +658,13 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         local home = SC.BaseLife and SC.BaseLife.isInside(actor) == true
         local following = commands.order == "follow"
         if (not following or leaderSettled(actor, player, current))
-            and SC.Needs.refillDue(actor, current) then
+            and routineNeeds and SC.Needs.refillDue(actor, current) then
             add("water_refill", 59, false,
                 { mode = home and "home" or "nearby" })
         end
     end
     local humanThreat = type(snapshot) == "table" and snapshot.humanThreat or nil
-    if threatCount > 0 or humanThreat then
+    if (threatCount > 0 or humanThreat) and not boarding then
         local humanUrgent = humanThreat and humanThreat.visible == true
         if humanThreat and (humanThreat.external == "bandits2"
             or humanThreat.external == "project_alife" and SC.ALifeAdapter) then
@@ -802,7 +833,8 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         -- Retreat runs from something; with nothing in view the order
         -- regroups on the leader instead of freezing without a direction.
         local retreatFrom = threatCount > 0 or immediate > 0 or humanThreat ~= nil
-        if commands.order == "retreat" and retreatFrom then add("retreat", 122, true)
+        if boarding then add("follow", 110, false, {mode="board_vehicle"})
+        elseif commands.order == "retreat" and retreatFrom then add("retreat", 122, true)
         elseif commands.order == "retreat" or commands.order == "regroup" then
             add("follow", 82, false)
         elseif commands.order == "follow" then
@@ -1009,7 +1041,7 @@ local function enforceVehicleExitPolicy(actor, player, commands)
     return true, "exiting_vehicle"
 end
 
-local function doFollow(actor, player, rootRuntime, commands, snapshot)
+local function doFollow(actor, player, rootRuntime, commands, snapshot, boardingWithdrawal)
     local utility = U()
     if not player or not utility.isValidActor(player) then return false, "player_unavailable" end
     local playerVehicle, playerVehicleOk = utility.call(player, "getVehicle")
@@ -1142,7 +1174,7 @@ local function doFollow(actor, player, rootRuntime, commands, snapshot)
         end
         local distance = utility.distance(actor, targets[1])
         local accepted, reason = SC.Navigation.requestAny(actor, targets,
-            distance > 8 and "run" or "walk", {
+            (boardingWithdrawal or distance > 8) and "run" or "walk", {
             action = "approach_vehicle",
             vehicle = playerVehicle,
             seat = seat,
@@ -2219,7 +2251,8 @@ local function delegate(candidate, actor, player, rootRuntime, commands, snapsho
         if not SC.Needs or type(SC.Needs.update) ~= "function" then return false, "needs_unavailable" end
         return callSubsystem("needs", actor, function()
             return SC.Needs.update(actor, player, rootRuntime,
-                { expeditionTravel = commands.expeditionMoving == true })
+                { expeditionTravel = commands.expeditionMoving == true,
+                    expeditionMember = commands.expeditionMember == true, commands=commands })
         end)
     elseif candidate.kind == "water_refill" then
         if not SC.Needs or type(SC.Needs.refill) ~= "function" then
@@ -2227,7 +2260,7 @@ local function delegate(candidate, actor, player, rootRuntime, commands, snapsho
         end
         return callSubsystem("water-refill", actor, function()
             return SC.Needs.refill(actor, player, rootRuntime,
-                candidate.detail and candidate.detail.mode or "nearby")
+                candidate.detail and candidate.detail.mode or "nearby",{commands=commands})
         end)
     elseif candidate.kind == "base_work" then
         if not SC.BaseWork or type(SC.BaseWork.update) ~= "function" then
@@ -2295,11 +2328,16 @@ local function delegate(candidate, actor, player, rootRuntime, commands, snapsho
             return SC.FactionBehavior.update(actor, player, rootRuntime, candidate.detail)
         end)
     elseif candidate.kind == "follow" then
+        local boarding = type(candidate.detail) == "table" and candidate.detail.mode == "board_vehicle"
+        if boarding and SC.Combat and type(SC.Combat.disengage) == "function" then
+            local released, why = SC.Combat.disengage(actor,rootRuntime,"player_boarding")
+            if released ~= true then return false, why or "combat_withdrawal_pending" end
+        end
         if type(candidate.detail) == "table" and candidate.detail.mode == "seek_care"
             and SC.Medical and type(SC.Medical.requestHelp) == "function" then
             pcall(SC.Medical.requestHelp, actor, player)
         end
-        return callSubsystem("navigation", actor, function() return doFollow(actor, player, rootRuntime, commands, snapshot) end)
+        return callSubsystem("navigation", actor, function() return doFollow(actor, player, rootRuntime, commands, snapshot, boarding) end)
     elseif candidate.kind == "tactical" then
         return callSubsystem("navigation", actor, function() return doTactical(actor, player, rootRuntime, commands, snapshot, state) end)
     elseif candidate.kind == "retreat" then
@@ -2806,6 +2844,12 @@ end
 
 local function ownerNeedsImmediatePreemption(owner, snapshot, assessment, needs, commands,
         policyEmergency, actor, player)
+    if not policyEmergency and withdrawingToPlayerVehicle(actor,player,commands,snapshot,assessment,needs) then
+        if owner == "combat" then return true end
+        -- Continue the exact door approach/seat transaction despite distant
+        -- combat pressure. Fresh contact or urgent care still interrupts above.
+        if owner == "vehicle" then return false end
+    end
     if owner == "drive" then
         -- Foot combat contacts do not transfer control from a seated driver.
         -- Medical, needs and explicit control emergencies still park the car;
@@ -3267,6 +3311,12 @@ function Decision.update(actor, player, runtime, roundTimestamp)
     if SC.Needs and type(SC.Needs.assess) == "function" then
         local ok, value = pcall(SC.Needs.assess, actor, rootRuntime)
         if ok and type(value) == "table" then needs = value end
+    end
+    if SC.Needs and type(SC.Needs.routineAllowed)=="function"
+        and type(SC.Needs.pauseRoutine)=="function"
+        and not SC.Needs.routineAllowed(actor,player,commands,current) then
+        utility.safeSubsystem("needs-travel-pause",actor,SC.Needs.pauseRoutine,
+            actor,"leader_moving",needs)
     end
     if not assessment.alive or assessment.health <= 0 or assessment.terminalKnox then
         if SC.VehicleHotwire and type(SC.VehicleHotwire.cancel) == "function" then

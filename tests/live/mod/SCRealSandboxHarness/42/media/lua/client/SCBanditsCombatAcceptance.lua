@@ -99,6 +99,18 @@ local function observeFirearms(f)
 end
 local function finish(H, current, check, result, setPhase, okay, detail)
     local f = H.banditsAcceptance
+    if f and f.combatAt and f.actor and H.config.companion_firearms_probe=="true"
+        and H.config.engine_sound=="true" then
+        local sounds=tonumber(call(f.actor,"getCompanionGunshotSounds")) or 0
+        local soundName=call(f.actor,"getCompanionGunshotSoundName")
+        local soundOkay=check("lf_native_gunshot_sound",sounds>0 and sounds==(f.liveRoundsSpent or 0)
+            and f.soundPlaying==true and soundName==f.gun:getSwingSound(),
+            "native shots="..tostring(f.liveRoundsSpent).." reports="..sounds.." playing="..tostring(f.soundPlaying)
+                .." sound="..tostring(soundName).." handle="..tostring(call(f.actor,"getCompanionGunshotSoundHandle"))
+                .." animation_events="..tostring(call(f.actor,"getCompanionSwingSoundEvents"))
+                .." failure="..tostring(call(f.actor,"getCompanionSwingSoundFailure")))
+        okay=okay and soundOkay
+    end
     if f and f.primary then
         local isolated = check("combat_primary_isolation_final", samePlayers(f.primary), "native slots/owner/identity unchanged")
         okay = okay and isolated
@@ -270,6 +282,10 @@ function Probe.step(H, current, check, result, setPhase)
         local gun, failure = equip(actor)
         if not gun then finish(H, current, check, result, setPhase, false, tostring(failure)) return end
         f.gun, f.lastAmmo = gun, gun:getCurrentAmmoCount()
+        if regular and H.config.engine_sound=="true" then
+            f.lastLiveRounds=f.lastAmmo+(gun:haveChamber() and gun:isRoundChambered() and 1 or 0)
+            f.liveRoundsSpent=0
+        end
         SC.InventoryIndex.touch(actor)
         for _, command in ipairs({ { "stay", nil }, { "set_scavenge", false },
             { "set_weapon_priority", "firearm" }, { "set_combat_doctrine", H.config.bandits_combat_doctrine or "weapons_free" } }) do
@@ -399,6 +415,16 @@ function Probe.step(H, current, check, result, setPhase)
         if f.failure then finish(H, current, check, result, setPhase, false, f.failure) return end
         local status = SC.BanditsAdapter.status()
         local ammo = f.gun:getCurrentAmmoCount()
+        if regular and H.config.engine_sound=="true" then
+            local liveRounds=ammo+(f.gun:haveChamber() and f.gun:isRoundChambered() and 1 or 0)
+            if liveRounds<f.lastLiveRounds then f.liveRoundsSpent=f.liveRoundsSpent+f.lastLiveRounds-liveRounds end
+            f.lastLiveRounds=liveRounds
+            local soundName=call(f.actor,"getCompanionGunshotSoundName")
+            local handle=tonumber(call(f.actor,"getCompanionGunshotSoundHandle")) or 0
+            if handle>0 and soundName and call(call(f.actor,"getEmitter"),"isPlaying",soundName)==true then
+                f.soundPlaying=true
+            end
+        end
         if ammo < f.lastAmmo then f.lfRounds = f.lfRounds + f.lastAmmo - ammo end
         f.lastAmmo = ammo
         local living = 0

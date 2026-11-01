@@ -1,0 +1,64 @@
+Living Fellows — withdraw from combat to board the player's car
+2026-11-01; working changes on living_fellows/0.26.88
+Runtime: Project Zomboid 42.21.0, single player.
+
+Problem
+A following companion could retain an aggressive combat target inside a
+building after the player entered a car. Combat priority and its current action
+ownership prevented the ordinary passenger-door approach from being selected.
+
+Behaviour
+Following/regrouping companions with Ride with player enabled treat the player's
+vehicle entry as a tactical withdrawal. They release the old engagement and run
+to an assigned passenger door, including when that door is less than eight tiles
+away. Existing native swing ownership finishes before withdrawal; no pending
+strike is force-cleared or replayed. Contact danger, encirclement and urgent
+personal care retain precedence. Distant/indoor threats cannot cancel a live
+boarding transaction. Moving cars still require a safe stop before boarding.
+
+The handoff clears only the withdrawing actor's claims, route, passive aim and
+published combat state. It preserves an opponent's independent target. Repeated
+boarding pulses do not stop the new approach. A native aim target surviving a
+cancelled Lua owner is also reconciled. Exact seat assignments, real passenger
+doors and native seat verification remain required; no virtual seats or rescue
+teleports are introduced. Explicit Stay, ride opt-out, expeditions and separately
+assigned follow cars retain their own policies. No save migration or idle scan.
+
+Automated checks
+- Decision arbitration: 180 checks passed, covering aggressive target hysteresis,
+  nearby/distant human threats, contact defence, medical/needs exceptions, opt-out,
+  player exit, other explicit orders, existing combat/boarding owners, running
+  approach, native boarding dispatch and refusal to enter a moving car.
+- Combat coordination regressions cover committed swings, rejected stops, route
+  and target release, unaffected opponent state, repeated withdrawal, and orphaned
+  native aim cleanup.
+- Full gameplay regression suite passed, including ownership, persistence,
+  vehicle and combat regressions plus 922 static gameplay assertions.
+- Full project gate passed 29/29 stages in 110 seconds, including the previous
+  stamina/moodle controls, combat, navigation, both NPC adapters and packaging.
+  Log: C:/ZOMBOID/outputs/boarding-withdrawal-02688/project-gate.log.
+
+Live acceptance — disposable cloned save, Living Fellows alone
+SC-Harness-20261101-220643-ce18fb3f:
+- Discovered a real closed house window beside an outdoor car patch.
+- A recruited follower naturally acquired the real zombie inside through ordinary
+  perception/combat; no fabricated threat snapshot or forced target was used.
+- After the player entered a real stationary vanilla car, the companion dropped
+  the indoor target, ran (observed native isRunning), traversed the route and
+  occupied passenger seat 1 after 4,324 ms. The zombie was still alive indoors.
+- Native seat proof passed. No companion teleport or forced companion seating.
+
+SC-Harness-20261101-221306-8b2c4df7:
+- Repeated with the orphaned-aim hardening and a ten-second settled observation.
+- Passenger seat 1 occupied after 4,153 ms; target released and native running
+  observed. The zombie was alive indoors when boarding completed.
+- Both occupants remained in the car for ten seconds of native updates/rendering.
+- Live summary: 14 passes, zero failures.
+- Screenshot retained in that run's cache/Screenshots folder.
+
+Run directories are under build/live-sandbox-runs/. Original saves, installed mod
+files and the user's normal mod preset were not changed. Headless logs are at
+C:/ZOMBOID/outputs/boarding-withdrawal-02688/.
+
+The previous companion stamina/moodle isolation changes remain included in the
+working tree and are documented separately in validation-stamina-isolation.txt.

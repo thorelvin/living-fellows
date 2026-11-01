@@ -34,6 +34,236 @@ public final class SCIsoCompanionControlTest {
         if (!value) throw new AssertionError(message);
     }
 
+    private static void testGunshotSound(SCNativeCompanion actor) throws Exception {
+        var gun = new HandWeapon("Base", "Sound control", "SoundControl", "Base.SoundControl");
+        var type = HandWeapon.class;
+        var scriptType = Class.forName("zombie.scripting.objects.Item");
+        var script = scriptType.getConstructor().newInstance();
+        scriptType.getMethod("setWeaponCategories", java.util.Set.class).invoke(script, java.util.Set.of());
+        type.getMethod("setWeaponCategories", java.util.Set.class).invoke(gun, java.util.Set.of());
+        type.getMethod("setScriptItem", scriptType).invoke(gun, script);
+        type.getField("isAimedFirearm").setBoolean(gun, true);
+        type.getMethod("setRanged", boolean.class).invoke(gun, true);
+        type.getMethod("setHaveChamber", boolean.class).invoke(gun, true);
+        type.getMethod("setMaxAmmo", int.class).invoke(gun, 6);
+        type.getMethod("setRoundChambered", boolean.class).invoke(gun, true);
+        type.getMethod("setCurrentAmmoCount", int.class).invoke(gun, 4);
+        type.getMethod("setSwingSound", String.class).invoke(gun, "M9Shoot");
+        var before = SCFirearmShot.capture(gun);
+        require(before.liveRounds() == 5, "gunshot evidence omitted the loaded chamber");
+        type.getMethod("setCurrentAmmoCount", int.class).invoke(gun, 3);
+        var after = SCFirearmShot.capture(gun);
+        require(SCFirearmShot.fired(before, after, true, false), "a native magazine round did not count as a shot");
+        require(!SCFirearmShot.fired(before, before, true, false), "an unchanged magazine produced a bang");
+        require(!SCFirearmShot.fired(before, after, false, false), "a failed collision produced a bang");
+        require(!SCFirearmShot.fired(null, after, true, false), "missing shot evidence produced a bang");
+        require(!SCFirearmShot.fired(before, new SCFirearmShot.Snapshot(new Object(), 3, false), true, false),
+                "a different weapon borrowed this shot's sound");
+        require(!SCFirearmShot.fired(new SCFirearmShot.Snapshot(gun, 5, true), after, true, false),
+                "an already jammed firearm produced a bang");
+        require(SCFirearmShot.fired(before, new SCFirearmShot.Snapshot(gun, 4, true), true, false),
+                "a feeding jam after firing muted the fired round");
+        type.getMethod("setCurrentAmmoCount", int.class).invoke(gun, 0);
+        var last = SCFirearmShot.capture(gun);
+        type.getMethod("setRoundChambered", boolean.class).invoke(gun, false);
+        var empty = SCFirearmShot.capture(gun);
+        require(SCFirearmShot.fired(last, empty, true, false), "the last chambered round was silent");
+        require(!SCFirearmShot.fired(empty, empty, true, false), "a dry fire produced a bang");
+        require(SCFirearmShot.fired(empty, empty, true, true), "unlimited-ammo firing was silent");
+        type.getMethod("setCurrentAmmoCount", int.class).invoke(gun, 6);
+        type.getMethod("setRoundChambered", boolean.class).invoke(gun, true);
+        var pump = SCFirearmShot.capture(gun);
+        type.getMethod("setRoundChambered", boolean.class).invoke(gun, false);
+        require(SCFirearmShot.fired(pump, SCFirearmShot.capture(gun), true, false),
+                "a pump-action chamber did not count until the magazine changed");
+        type.getMethod("setHaveChamber", boolean.class).invoke(gun, false);
+        var manual = scriptType.getDeclaredField("manuallyRemoveSpentRounds");
+        manual.setAccessible(true);manual.setBoolean(script, true);
+        type.getMethod("setSpentRoundCount", int.class).invoke(gun, 2);
+        var revolver = SCFirearmShot.capture(gun);
+        type.getMethod("setSpentRoundCount", int.class).invoke(gun, 3);
+        require(revolver.liveRounds() == 4 && SCFirearmShot.fired(revolver, SCFirearmShot.capture(gun), true, false),
+                "retained spent cartridges hid a revolver shot");
+
+        // FMOD is intentionally unavailable in this headless VM. Verify native
+        // dispatch and its latch here; live acceptance checks real playing IDs.
+        actor.setVariable("PlayedSwingSound", false);
+        long prior = actor.getCompanionSwingSounds();
+        actor.driveCompanionGunshotSoundForTests(gun, revolver);
+        long handle = actor.getCompanionGunshotSoundHandle();
+        require(actor.getCompanionSwingSounds() == prior + 1
+                && "M9Shoot".equals(actor.getCompanionGunshotSoundName()),
+                "a confirmed shot did not reach the native ranged emitter: sounds="
+                        + actor.getCompanionGunshotSounds() + " prior=" + prior + " handle=" + handle
+                        + " name=" + actor.getCompanionGunshotSoundName()
+                        + " failure=" + actor.getCompanionSwingSoundFailure());
+        actor.driveCompanionGunshotSoundForTests(gun, revolver);
+        require(actor.getCompanionSwingSounds() == prior + 1, "duplicate animation layers stacked gunshots");
+        actor.setVariable("PlayedSwingSound", false);
+        var next = SCFirearmShot.capture(gun);
+        type.getMethod("setSpentRoundCount", int.class).invoke(gun, 4);
+        type.getMethod("setSwingSound", String.class).invoke(gun, "Mod.CustomGunshot");
+        actor.driveCompanionGunshotSoundForTests(gun, next);
+        require(actor.getCompanionSwingSounds() == prior + 2
+                && "Mod.CustomGunshot".equals(actor.getCompanionGunshotSoundName()),
+                "the next shot or a modded weapon's configured sound was lost");
+        require(((Number) type.getMethod("getCurrentAmmoCount").invoke(gun)).intValue() == 6
+                && ((Number) type.getMethod("getSpentRoundCount").invoke(gun)).intValue() == 4,
+                "sound playback altered ammunition");
+        actor.setVariable("PlayedSwingSound", false);
+        System.out.println("GUNSHOT_SOUND_PASS magazine=true chamber=true pump=true revolver=true dry=true jam=true unlimited=true duplicate=true native_dispatch=true custom=true");
+    }
+
+    private static void testStaminaIsolation(IsoPlayer primary,
+            SCNativeCompanion first, SCNativeCompanion second) throws Exception {
+        IsoPlayer[] actors = { primary, first, second };
+        var stat = zombie.characters.CharacterStat.ENDURANCE;
+        var fatigue = zombie.characters.CharacterStat.FATIGUE;
+        float[] saved = new float[actors.length], savedFatigue = new float[actors.length];
+        for (int i = 0; i < actors.length; i++) {
+            saved[i] = actors[i].getStats().get(stat);
+            savedFatigue[i] = actors[i].getStats().get(fatigue);
+            for (int j = 0; j < i; j++) {
+                require(actors[i].getStats() != actors[j].getStats(),
+                        "player and companion share native Stats ownership");
+            }
+        }
+        Class<?> scriptType = Class.forName("zombie.scripting.objects.Item");
+        var scriptItem = scriptType.getConstructor().newInstance();
+        var categories = java.util.Collections.singleton(Class.forName("zombie.scripting.objects.WeaponCategory")
+                .getField("BLUNT").get(null));
+        scriptType.getMethod("setActualWeight",float.class).invoke(scriptItem,3f);
+        scriptType.getMethod("setWeaponCategories",java.util.Set.class)
+                .invoke(scriptItem,categories);
+        var weapon = new HandWeapon("Base", "Stamina control", "StaminaControl", "Base.StaminaControl");
+        HandWeapon.class.getMethod("setWeaponCategories",java.util.Set.class)
+                .invoke(weapon,categories);
+        HandWeapon.class.getMethod("setScriptItem",scriptType).invoke(weapon,scriptItem);
+        HandWeapon.class.getMethod("setActualWeight",float.class).invoke(weapon,3f);
+        HandWeapon.class.getMethod("setUseEndurance",boolean.class).invoke(weapon,true);
+        HandWeapon.class.getMethod("setEnduranceMod",float.class).invoke(weapon,1f);
+        Class<?> combatType = Class.forName("zombie.CombatManager");
+        Class<?> characterType = Class.forName("zombie.characters.IsoGameCharacter");
+        var combat = combatType.getMethod("getInstance").invoke(null);
+        var swingCost = combatType.getMethod("processWeaponEndurance",characterType,HandWeapon.class);
+        var hitCost = combatType.getMethod("applyMeleeEnduranceLoss",characterType,characterType,HandWeapon.class,float.class);
+        try {
+            // Exercise vanilla's swing cost in both directions. The primary
+            // remains the singleton while each non-local companion attacks.
+            for (int attacker = 0; attacker < actors.length; attacker++) {
+                for (int i = 0; i < actors.length; i++) {
+                    actors[i].getStats().set(stat, 0.7f + i * 0.05f);
+                    actors[i].getStats().set(fatigue, 0.1f + i * 0.1f);
+                }
+                swingCost.invoke(combat,actors[attacker],weapon);
+                float afterSwing = actors[attacker].getStats().get(stat);
+                require((Boolean) invoke(weapon,"isMelee"), "stamina hit fixture is not a native melee weapon");
+                hitCost.invoke(combat,actors[attacker],actors[(attacker + 1) % actors.length],weapon,1f);
+                require(actors[attacker].getStats().get(stat) < afterSwing,
+                        "native hit did not charge its attacking actor's stamina");
+                for (int i = 0; i < actors.length; i++) {
+                    float baseline = 0.7f + i * 0.05f;
+                    float actual = actors[i].getStats().get(stat);
+                    require(i == attacker ? actual < baseline : actual == baseline,
+                            "native swing charged the wrong stamina owner: attacker="
+                                    + attacker + " stats=" + i);
+                    require(actors[i].getStats().get(fatigue) == 0.1f + i * 0.1f,
+                            "swing changed another stat or another actor's tiredness");
+                }
+                require(IsoPlayer.getInstance() == primary,
+                        "stamina accounting changed the main-player singleton");
+            }
+        } finally {
+            for (int i = 0; i < actors.length; i++) {
+                actors[i].getStats().set(stat, saved[i]);
+                actors[i].getStats().set(fatigue, savedFatigue[i]);
+            }
+        }
+        System.out.println("STAMINA_ISOLATION_PASS actors=3 native_swing_costs=3 native_hit_costs=3");
+    }
+
+    private static void testMoodleFeedbackIsolation(IsoPlayer primary,
+            SCNativeCompanion first, SCNativeCompanion second) throws Exception {
+        Class<?> uiType = zombie.ui.MoodlesUI.class;
+        var instance = uiType.getDeclaredField("instance");
+        var states = uiType.getDeclaredField("moodleUiState");
+        var oscillation = Class.forName("zombie.ui.MoodlesUI$MoodleUIData")
+                .getDeclaredField("oscillationLevel");
+        instance.setAccessible(true);
+        states.setAccessible(true);
+        oscillation.setAccessible(true);
+        var savedInstance = zombie.ui.MoodlesUI.getInstance();
+        var nativeUis = (zombie.ui.MoodlesUI[]) zombie.ui.UIManager.class.getField("MoodleUI").get(null);
+        var savedUis = nativeUis.clone();
+        var setCharacter = uiType.getMethod("setCharacter",Class.forName("zombie.characters.IsoGameCharacter"));
+        var slots = IsoPlayer.players.clone();
+        int count = IsoPlayer.numPlayers;
+        Class<?> moodleType = Class.forName("zombie.scripting.objects.MoodleType");
+        var moodle = moodleType.getField("ENDURANCE").get(null);
+        var wiggle = uiType.getMethod("wiggle",moodleType);
+        try {
+            var mainUi = new zombie.ui.MoodlesUI();
+            setCharacter.invoke(mainUi,primary);
+            nativeUis[0]=mainUi;
+            nativeUis[1]=null;
+            nativeUis[3]=mainUi; // Foreign UI in the reserved index.
+            Object mainState = ((java.util.Map<?,?>) states.get(mainUi)).get(moodle);
+            oscillation.setFloat(mainState,.37f);
+            try (var outer = SCCompanionMoodleFeedback.open(first)) {
+                var sink = zombie.ui.MoodlesUI.getInstance();
+                require(sink != mainUi, "offscreen NPC selected the player's moodle HUD");
+                wiggle.invoke(sink,moodle);
+                require(oscillation.getFloat(mainState) == .37f,
+                        "exhausted companion shook the main player's endurance moodle");
+                try {
+                    try (var inner = SCCompanionMoodleFeedback.open(second)) {
+                        wiggle.invoke(zombie.ui.MoodlesUI.getInstance(),moodle);
+                        throw new IllegalStateException("nested collision failure");
+                    }
+                } catch (IllegalStateException expected) {
+                    require(zombie.ui.MoodlesUI.getInstance() == sink,
+                            "nested failure lost the outer NPC feedback scope");
+                }
+            }
+            require(zombie.ui.MoodlesUI.getInstance() == mainUi
+                            && oscillation.getFloat(mainState) == .37f,
+                    "NPC collision scope did not restore exact primary feedback");
+            var companionUi = new zombie.ui.MoodlesUI();
+            setCharacter.invoke(companionUi,first);
+            first.markCoopLeaderForProbe();
+            nativeUis[1]=companionUi;
+            instance.set(null,mainUi);
+            try (var feedback = SCCompanionMoodleFeedback.open(first)) {
+                require(zombie.ui.MoodlesUI.getInstance() == companionUi,
+                        "joined NPC feedback did not select its own HUD");
+                wiggle.invoke(zombie.ui.MoodlesUI.getInstance(),moodle);
+            }
+            Object companionState = ((java.util.Map<?,?>) states.get(companionUi)).get(moodle);
+            require(oscillation.getFloat(companionState) == 1f
+                            && oscillation.getFloat(mainState) == .37f,
+                    "joined NPC feedback leaked into the primary viewport");
+            wiggle.invoke(zombie.ui.MoodlesUI.getInstance(),moodle);
+            require(oscillation.getFloat(mainState) == 1f,
+                    "NPC isolation suppressed the real player's own feedback");
+            first.unmarkCoopLeaderForProbe();
+            var completed = SCCompanionMoodleFeedback.open(first);
+            completed.close();
+            try (var next = SCCompanionMoodleFeedback.open(second)) {
+                completed.close();
+                require(zombie.ui.MoodlesUI.getInstance() != mainUi,
+                        "a repeated close invalidated another actor's active feedback scope");
+            }
+            require(Arrays.equals(slots,IsoPlayer.players) && count == IsoPlayer.numPlayers
+                            && IsoPlayer.getInstance() == primary,
+                    "moodle feedback scope changed player ownership");
+        } finally {
+            first.unmarkCoopLeaderForProbe();
+            System.arraycopy(savedUis,0,nativeUis,0,savedUis.length);
+            instance.set(null,savedInstance);
+        }
+        System.out.println("MOODLE_FEEDBACK_ISOLATION_PASS offscreen=true secondary=true nested_errors=true player=true");
+    }
+
     private static void testLivingViewHandoff(IsoPlayer primary,
             SCNativeCompanion first, SCNativeCompanion second) throws Exception {
         var field = SCSplitScreenProbe.class.getDeclaredField("leader");
@@ -1911,6 +2141,8 @@ public final class SCIsoCompanionControlTest {
                     "a reflective failure on the hit-sound path was not contained");
         }
 
+        testGunshotSound((SCNativeCompanion) actor);
+
         // Foliage parity. A direct step carries a fixed distance from Lua, so
         // without this factor a companion crossed a hedge at full walking speed
         // while the player has to push through it.
@@ -2011,6 +2243,10 @@ public final class SCIsoCompanionControlTest {
                 "corpse dragging must face against travel on both direct and native paths");
         testRetainedMovementAndPathState((SCNativeCompanion) actor);
         testCompanionBallisticInput((SCNativeCompanion) actor, (IsoPlayer) localPlayer);
+        testStaminaIsolation((IsoPlayer) localPlayer,
+                (SCNativeCompanion) actor, (SCNativeCompanion) secondActor);
+        testMoodleFeedbackIsolation((IsoPlayer) localPlayer,
+                (SCNativeCompanion) actor, (SCNativeCompanion) secondActor);
         testNativeTraversalOwnership((SCNativeCompanion) actor);
         testNativeReactionOwnership((SCNativeCompanion) actor,
                 (zombie.iso.IsoMovingObject) secondActor);

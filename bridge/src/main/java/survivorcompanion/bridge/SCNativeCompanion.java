@@ -125,6 +125,8 @@ public final class SCNativeCompanion extends IsoPlayer {
     private static final Method WEAPON_IMPACT_SOUND = resolveWeaponImpactSound();
     private static final Method WEAPON_IS_RANGED = resolveWeaponIsRanged();
     private static final Method CHARACTER_PLAY_SOUND = resolveCharacterPlaySound();
+    private static final Method RANGED_SHOOT_SOUND = resolvePlayerMethod("playRangedWeaponShootSound", String.class);
+    private static final Method UNLIMITED_AMMO = resolvePlayerMethod("isUnlimitedAmmo");
     private static final Method CHAT_ELEMENT_UPDATE = resolveNoArg(ChatElement.class, "update");
     /** Lazy metadata only: resolving Bullet must not initialize its native
      * state while the bridge itself is loading. No lookups run per aim tick. */
@@ -270,6 +272,9 @@ public final class SCNativeCompanion extends IsoPlayer {
     private volatile String bridgeAimingDelayFailure = "";
     private volatile long bridgeSwingSoundEvents;
     private volatile String bridgeSwingSoundFailure = "";
+    private volatile long bridgeGunshotSounds;
+    private volatile long bridgeGunshotSoundHandle;
+    private volatile String bridgeGunshotSoundName = "";
     private volatile long bridgeHitSounds;
     private volatile long bridgeHitSoundEvents;
     private volatile String bridgeHitSoundFailure = "";
@@ -1355,14 +1360,14 @@ public final class SCNativeCompanion extends IsoPlayer {
     }
 
     /**
-     * Play the weapon's own swing or gunshot sound.
+     * Play the weapon's own swing sound for animations which provide this event.
      *
      * <p>{@code SwipeStatePlayer.OnAnimEvent_PlaySwingSound} returns immediately
      * unless {@code IsoPlayer.isLocalPlayer(character)}, and so does the
      * "Always" variant it delegates to -- so a companion swung and fired in
      * silence. The bullet still made a noise on impact, because that belongs to
-     * the hit, not to the shot, which is exactly how the missing gunshot was
-     * noticed.
+     * the hit. Build 42's firearm animations provide no PlaySwingSound event;
+     * their missing Lua attack-hook sound is handled at the native shot below.
      *
      * <p>This reproduces the stock body rather than reaching into it: prefer
      * the sound the anim event names, fall back to the weapon's swing sound,
@@ -1388,24 +1393,70 @@ public final class SCNativeCompanion extends IsoPlayer {
             if (manager == null) return;
             Object weapon = COMBAT_MANAGER_GET_WEAPON.invoke(manager, this);
             if (weapon == null) return;
-            String sound = null;
-            if (soundId != null && !soundId.isBlank() && WEAPON_SOUND_BY_ID != null) {
-                Object named = WEAPON_SOUND_BY_ID.invoke(weapon, soundId);
-                if (named instanceof String value && !value.isBlank()) sound = value;
-            }
-            if (sound == null && WEAPON_SWING_SOUND != null) {
-                Object swing = WEAPON_SWING_SOUND.invoke(weapon);
-                if (swing instanceof String value && !value.isBlank()) sound = value;
-            }
-            if (sound == null) return;
-            setVariable("PlayedSwingSound", true);
-            CHARACTER_PLAY_SOUND.invoke(this, sound);
-            bridgeSwingSounds++;
+            playCompanionWeaponSound(weapon, soundId, false);
         } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
-            // A missing sound is cosmetic; never let it break the update.
             bridgeSwingSoundFailure = failure.getClass().getSimpleName();
         }
     }
+
+    private void playCompanionWeaponSound(Object weapon, String soundId, boolean gunshot)
+            throws ReflectiveOperationException {
+        if (getVariableBoolean("PlayedSwingSound")) return;
+        String sound = null;
+        if (soundId != null && !soundId.isBlank() && WEAPON_SOUND_BY_ID != null) {
+            Object named = WEAPON_SOUND_BY_ID.invoke(weapon, soundId);
+            if (named instanceof String value && !value.isBlank()) sound = value;
+        }
+        if (sound == null && WEAPON_SWING_SOUND != null) {
+            Object swing = WEAPON_SWING_SOUND.invoke(weapon);
+            if (swing instanceof String value && !value.isBlank()) sound = value;
+        }
+        if (sound == null) return;
+        // Latch before calling: even an emitter failure must not replay a shot.
+        setVariable("PlayedSwingSound", true);
+        boolean ranged = WEAPON_IS_AIMED_FIREARM != null
+                && Boolean.TRUE.equals(WEAPON_IS_AIMED_FIREARM.invoke(weapon));
+        Object handle = (ranged ? RANGED_SHOOT_SOUND : CHARACTER_PLAY_SOUND).invoke(this, sound);
+        bridgeSwingSounds++;
+        if (gunshot) {
+            bridgeGunshotSoundHandle = handle instanceof Number number ? number.longValue() : 0;
+            bridgeGunshotSoundName = sound;
+            if (bridgeGunshotSoundHandle > 0) bridgeGunshotSounds++;
+            else bridgeSwingSoundFailure = "gunshot: no sound handle";
+        }
+    }
+
+    private SCFirearmShot.Snapshot captureCompanionShot(Object weapon) {
+        if (bridgeDisabled || isDead() || isDoShove() || isPerformingShoveAnimation()
+                || getVariableBoolean("RangedWeaponEmpty")) return null;
+        try {
+            return SCFirearmShot.capture(weapon);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            bridgeSwingSoundFailure = "shot snapshot: " + failure.getClass().getSimpleName();
+            return null;
+        }
+    }
+
+    private void driveCompanionGunshotSound(Object weapon, SCFirearmShot.Snapshot before) {
+        if (before == null) return;
+        try {
+            boolean unlimited = UNLIMITED_AMMO != null && Boolean.TRUE.equals(UNLIMITED_AMMO.invoke(this));
+            if (SCFirearmShot.fired(before, SCFirearmShot.capture(weapon), true, unlimited)) {
+                playCompanionWeaponSound(weapon, null, true);
+            }
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            // Cosmetic only. Never replay a native attack to obtain its audio.
+            bridgeSwingSoundFailure = "gunshot: " + failure.getClass().getSimpleName();
+        }
+    }
+
+    void driveCompanionGunshotSoundForTests(Object weapon, SCFirearmShot.Snapshot before) {
+        driveCompanionGunshotSound(weapon, before);
+    }
+
+    public long getCompanionGunshotSounds() { return bridgeGunshotSounds; }
+    public long getCompanionGunshotSoundHandle() { return bridgeGunshotSoundHandle; }
+    public String getCompanionGunshotSoundName() { return bridgeGunshotSoundName; }
 
     /** PlaySwingSound anim events this companion received. */
     public long getCompanionSwingSoundEvents() {
@@ -1509,6 +1560,7 @@ public final class SCNativeCompanion extends IsoPlayer {
             set(SwipeStatePlayer.ATTACKED, true);
             bridgeAttackAttemptSerial++;
             Object[] ballisticInput = null, ballisticScratch = null;
+            SCFirearmShot.Snapshot shotBefore = captureCompanionShot(weapon);
             try {
                 if (WEAPON_IS_AIMED_FIREARM != null
                         && Boolean.TRUE.equals(WEAPON_IS_AIMED_FIREARM.invoke(weapon))) {
@@ -1517,7 +1569,12 @@ public final class SCNativeCompanion extends IsoPlayer {
                     ballisticScratch = selectCompanionBallisticScratch(combatManager, weapon);
                 }
                 inFlight = true;
-                ATTACK_COLLISION_CHECK.invoke(combatManager, this, weapon, swipeState, attackType);
+                // Vanilla reads this actor's penalties but wiggles the global
+                // MoodlesUI singleton. Keep an exhausted NPC's feedback on its
+                // own view (or offscreen), without changing anyone's Stats.
+                try (var feedback = SCCompanionMoodleFeedback.open(this)) {
+                    ATTACK_COLLISION_CHECK.invoke(combatManager, this, weapon, swipeState, attackType);
+                }
             } finally {
                 try {
                     restoreCompanionBallisticScratch(ballisticScratch);
@@ -1530,6 +1587,7 @@ public final class SCNativeCompanion extends IsoPlayer {
                 }
             }
             inFlight = false;
+            driveCompanionGunshotSound(weapon, shotBefore);
             int hitCount = getLastHitCount();
             driveCompanionHitSound(weapon, hitCount);
             boolean targetHit = hitCount > 0 && collisionTarget != null
@@ -3595,6 +3653,14 @@ public final class SCNativeCompanion extends IsoPlayer {
             Method method = IsoGameCharacter.class.getMethod("playSound", String.class);
             method.setAccessible(true);
             return method;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    private static Method resolvePlayerMethod(String name, Class<?>... parameters) {
+        try {
+            return IsoPlayer.class.getMethod(name, parameters);
         } catch (ReflectiveOperationException | RuntimeException failure) {
             return null;
         }

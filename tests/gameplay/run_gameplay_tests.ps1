@@ -233,6 +233,15 @@ try {
             )
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @needsTripFiles
             if ($LASTEXITCODE -ne 0) { throw 'Expedition carried-supply needs regression failed.' }
+            $needsPriorityFiles = @(
+                (Join-Path $SharedRoot 'SCNamespace.lua'),
+                (Join-Path $SharedRoot 'SCSpeechColors.lua'),
+                (Join-Path $ClientRoot 'SCEncounter.lua'),
+                (Join-Path $ClientRoot 'SCNeeds.lua'),
+                (Join-Path $TestRoot 'needs_priority_harness.lua')
+            )
+            & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @needsPriorityFiles
+            if ($LASTEXITCODE -ne 0) { throw 'Needs food preference and travel pause regression failed.' }
             $supplyPolicyFiles = @(
                 (Join-Path $SharedRoot 'SCNamespace.lua'),
                 (Join-Path $SharedRoot 'SCSpeechColors.lua'),

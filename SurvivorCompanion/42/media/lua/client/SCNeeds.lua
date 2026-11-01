@@ -8,9 +8,60 @@ if type(require) == "function" then pcall(require, "SCCleaningSupplies") end
 SC.Needs = SC.Needs or {}
 local Needs = SC.Needs
 local states = setmetatable({}, { __mode = "k" })
+local runtimes = setmetatable({}, { __mode = "k" })
+local stoppedLeaders = setmetatable({}, { __mode = "k" })
 
 local function U()
     return SC.GameplayUtil
+end
+
+local function needsCommands(actor, options)
+    if options and type(options.commands)=="table" then return options.commands end
+    local reader=SC.Commands and (SC.Commands.effective or SC.Commands.peek)
+    if type(reader)=="function" then
+        local okay,value=pcall(reader,actor)
+        if okay and type(value)=="table" then return value end
+    end
+    return {}
+end
+
+-- Follow needs use a longer pause than ordinary idle/formation behaviour.
+-- Anchor displacement accumulates, so slow walking and several followers
+-- sampling the same leader cannot accidentally look like standing still.
+function Needs.routineAllowed(actor,player,commands,current)
+    commands=type(commands)=="table" and commands or needsCommands(actor)
+    if commands.expeditionMoving then return false end
+    if not commands.recruited or (commands.order~="follow" and commands.order~="regroup") then return true end
+    if not player then return false end
+    local moving=select(1,U().call(player,"isMoving"))==true
+    local inVehicle=select(1,U().call(player,"getVehicle"))~=nil
+        or select(1,U().call(actor,"getVehicle"))~=nil
+    local x,y,z=U().position(player)
+    if x==nil or y==nil or moving or inVehicle then stoppedLeaders[player]=nil;return false end
+    current=tonumber(current) or U().nowMs()
+    local record=stoppedLeaders[player]
+    if not record or current<record.since or math.floor(z or 0)~=math.floor(record.z)
+        or (x-record.x)^2+(y-record.y)^2>0.01 then
+        record={x=x,y=y,z=z or 0,since=current};stoppedLeaders[player]=record
+    end
+    return current-record.since>=(tonumber(U().config("needsFollowPauseMs")) or 15000)
+        and U().sameFloor(actor,player)
+        and U().distance(actor,player)<=math.max(3,(tonumber(commands.followDistance) or 3)+2)
+end
+
+local function routineContext(actor,player,options)
+    local commands=needsCommands(actor,options)
+    local allowed=Needs.routineAllowed(actor,player,commands,U().nowMs())
+    if options and options.expeditionTravel then allowed=false end
+    local following=commands.recruited and (commands.order=="follow" or commands.order=="regroup")
+    local scope=following and player and {origin=player,
+        radius=tonumber(U().config("needsFollowSourceRadius")) or 6} or nil
+    return allowed,scope,commands
+end
+
+local function insideScope(object,scope)
+    return not scope or U().sameFloor(scope.origin,object)
+        and U().distance(scope.origin,object)<=scope.radius
 end
 
 local function worldHour()
@@ -448,6 +499,7 @@ local function stateFor(actor, runtime)
     local root = U().actorState(actor, runtime)
     root.needs = root.needs or {}
     states[actor] = root.needs
+    runtimes[actor] = root
     return root.needs
 end
 
@@ -456,8 +508,8 @@ local SEVERITY_NAME = { "noted", "serious", "urgent" }
 
 local function thresholds(kind)
     if kind == "hunger" then
-        return U().config("needsHungerThreshold") or 0.55,
-            U().config("needsHungerSerious") or 0.70,
+        return U().config("needsHungerThreshold") or 0.75,
+            U().config("needsHungerSerious") or 0.80,
             U().config("needsHungerEmergency") or 0.82
     end
     if kind == "thirst" then
@@ -669,7 +721,7 @@ function Needs.assess(actor, runtime)
             actionFinished = true
         end
     end
-    if actionFinished then state.nextRateSampleAt = 0 end
+    if actionFinished then state.nextRateSampleAt = 0;state.routineWork,state.foodPending=nil,nil end
     local sampled = not actionFinished and state.nextRateSampleAt ~= nil
         and type(state.hunger) == "number" and type(state.thirst) == "number"
         and type(state.fatigue) == "number"
@@ -689,10 +741,12 @@ function Needs.assess(actor, runtime)
         hunger = hunger,
         thirst = thirst,
         fatigue = fatigue,
-        hungry = hunger >= (U().config("needsHungerThreshold") or 0.55),
+        hungry = hunger >= (U().config("needsHungerThreshold") or 0.75),
         thirsty = thirst >= (U().config("needsThirstThreshold") or 0.48),
         emergency = hunger >= (U().config("needsHungerEmergency") or 0.82)
             or thirst >= (U().config("needsThirstEmergency") or 0.75),
+        hungerEmergency = hunger >= (U().config("needsHungerEmergency") or 0.82),
+        thirstEmergency = thirst >= (U().config("needsThirstEmergency") or 0.75),
         exhausted = fatigue >= (U().config("needsFatigueEmergency") or 0.82),
         active = active or state.pee ~= nil,
         peeDue = hour ~= nil and peeDueAt ~= nil and hour >= peeDueAt
@@ -739,6 +793,30 @@ local function isSafeFood(item)
     end
     local change, changeOk = U().call(item, "getHungerChange")
     return changeOk and type(change) == "number" and change < -0.001 and not unsafeFood(item)
+end
+
+-- Native metadata, rather than translated names, also covers modded food.
+-- isFresh alone includes indefinitely shelf-stable foods in Build 42.
+function Needs.foodTier(item)
+    if not isSafeFood(item) then return nil end
+    local spice=select(1,U().call(item,"isSpice"))==true
+    local foodType=string.lower(tostring(select(1,U().call(item,"getFoodType")) or ""))
+    if spice or foodType=="insect" or foodType=="worm" or foodType=="vermin"
+        or foodType=="condiment" or foodType=="spice" then return 3 end
+    local offAge=select(1,U().call(item,"getOffAge"))
+    offAge=tonumber(offAge)
+    local fresh=select(1,U().call(item,"isFresh"))==true
+    return fresh and offAge and offAge<1000000000 and 1 or 2
+end
+
+local function hungerEmergency(assessment)
+    return assessment.hungerEmergency==true
+        or (tonumber(assessment.hunger) or 0)>=(U().config("needsHungerEmergency") or 0.82)
+end
+
+local function thirstEmergency(assessment)
+    return assessment.thirstEmergency==true
+        or (tonumber(assessment.thirst) or 0)>=(U().config("needsThirstEmergency") or 0.75)
 end
 
 local function fluidConstant(name)
@@ -795,7 +873,8 @@ local function firstInventoryItem(actor, predicate, preferLightWater)
             local score = 1
             if not preferLightWater and isSafeFood(item) then
                 local change, changeOk = U().call(item, "getHungerChange")
-                score = changeOk and math.abs(tonumber(change) or 0) or 0
+                score = (4-(Needs.foodTier(item) or 3))*1000
+                    + math.min(1,changeOk and math.abs(tonumber(change) or 0) or 0)
             else
                 local fluid, fluidOk = U().call(item, "getFluidContainer")
                 local amount, amountOk
@@ -826,6 +905,7 @@ function Needs.carriedSuppliesAvailable(actor, assessment)
     local eligible = consumableFor(actor, function(item)
         return assessment.thirsty == true and isSafeWaterItem(item)
             or assessment.hungry == true and isSafeFood(item)
+                and (Needs.foodTier(item)~=3 or hungerEmergency(assessment))
     end)
     walkInventory(U().inventory(actor), { remaining = 256 }, function(item)
         if found then return false end
@@ -842,7 +922,7 @@ local function nativeNeedsActive(actor, state)
     if active then return true, kind end
     if type(SC.NativeActions.finishNeeds) == "function" then
         SC.NativeActions.finishNeeds(actor)
-        if kind ~= nil and state then state.nextRateSampleAt = 0 end
+        if kind ~= nil and state then state.nextRateSampleAt = 0;state.routineWork,state.foodPending=nil,nil end
     end
     return false
 end
@@ -1011,14 +1091,14 @@ local function refuseRefill(state, reason)
     return false, reason
 end
 
-local function refillChoices(actor, state, home)
+local function refillChoices(actor, state, home, scope)
     local utility, now = U(), U().nowMs()
     local ax, ay, az = utility.position(actor)
     if ax == nil then return nil, "refill_position_missing" end
     local function addObjects(square, choices)
         utility.squareObjects(square, function(object)
             local retry = state.refillRetryAt and state.refillRetryAt[object] or 0
-            if now >= retry and cleanRefillSource(object) then
+            if now >= retry and cleanRefillSource(object) and insideScope(object,scope) then
                 choices[#choices + 1] = { id = tostring(object), object = object }
             end
         end, 48)
@@ -1139,9 +1219,13 @@ local function refillChoices(actor, state, home)
     return nil, "refill_source_unreachable"
 end
 
-function Needs.refill(actor, player, runtime, mode)
+function Needs.refill(actor, player, runtime, mode, options)
     if not U().isValidActor(actor) then return false, "invalid_actor" end
     local state = stateFor(actor, runtime)
+    local allowed,scope=routineContext(actor,player,options)
+    if not allowed then Needs.pauseRoutine(actor,"leader_moving");return false,"refill_waiting_for_pause" end
+    state.routineWork,state.selectedNeed=true,"refill"
+    if scope then mode="nearby" end
     local root = U().actorState(actor, runtime)
     local snapshot = root.senses and root.senses.current or root.snapshot or {}
     if (snapshot.immediateCount or 0) > 0 or (snapshot.pressure or 0) >= 1.5 then
@@ -1194,8 +1278,8 @@ function Needs.refill(actor, player, runtime, mode)
         return true, "water_refill_complete"
     end
     local source, reason = session.source, nil
-    if not cleanRefillSource(source) then
-        source, reason = refillChoices(actor, state, mode == "home")
+    if not cleanRefillSource(source) or not insideScope(source,scope) then
+        source, reason = refillChoices(actor, state, mode == "home",scope)
         if not source then
             -- Scanning is incremental. Let the normal order run between slices
             -- rather than holding a base worker idle while no source is known.
@@ -1268,12 +1352,13 @@ local function campFloorRoute(actor, destination)
             { workCampOnly = true }) == true
 end
 
-local function findWaterSource(actor, state)
+local function findWaterSource(actor, state, scope)
     local utility = U()
-    local ax, ay, az = utility.position(actor)
+    local ax, ay, az = utility.position(scope and scope.origin or actor)
     if not ax then return nil end
     local radius = math.max(1, math.min(18,
         math.floor(utility.config("needsWaterSourceRadius") or 12)))
+    if scope then radius=math.min(radius,scope.radius) end
     local budget = math.max(1, math.floor(utility.config("needsWaterSquareBudget") or 180))
     if not state.waterCandidateList then
         state.waterScanPhase = ((state.waterScanPhase or 0) + 1) % 4
@@ -1298,7 +1383,7 @@ local function findWaterSource(actor, state)
                                 local retryAt = state.waterRetryAt
                                     and state.waterRetryAt[object] or nil
                                 if (not retryAt or current >= retryAt)
-                                    and validWaterSource(object)
+                                    and validWaterSource(object) and insideScope(object,scope)
                                     and (not crossFloor
                                         or campFloorRoute(actor, square)) then
                                     found[#found + 1] = {
@@ -1335,6 +1420,7 @@ local function findWaterSource(actor, state)
         end
         state.waterCandidateList = nil
     end
+    if scope then return nil end
     local base = SC.BaseLife and type(SC.BaseLife.active) == "function"
         and SC.BaseLife.active() or nil
     if not base or SC.BaseLife.isInside(actor) ~= true then return nil end
@@ -1389,21 +1475,73 @@ local function drinkWorldSource(actor, source, snapshot, state)
     })
 end
 
-local function fetchFromCamp(actor, key, predicate, snapshot)
+local function fetchFromCamp(actor, key, predicate, snapshot, searchOptions)
     if not SC.Encounter or type(SC.Encounter.takePlayerSupply) ~= "function" then
         return false, "camp_storage_unavailable"
     end
-    local status, reason = SC.Encounter.takePlayerSupply(actor, key, predicate, {
-        origin = actor,
-        snapshot = snapshot,
-        moveMode = "walk",
-    })
-    return status == "taken" or status == "in_progress", reason or status
+    local options={origin=actor,snapshot=snapshot,moveMode="walk"}
+    for key,value in pairs(searchOptions or {}) do options[key]=value end
+    local status, reason = SC.Encounter.takePlayerSupply(actor, key, predicate, options)
+    return status == "taken" or status == "in_progress", reason or status,status
+end
+
+local function feed(actor,player,state,assessment,snapshot,scope,options)
+    local emergency=hungerEmergency(assessment)
+    local eligible=consumableFor(actor,function(item)
+        local tier=Needs.foodTier(item)
+        return tier~=nil and (tier<3 or emergency)
+    end)
+    local carried=firstInventoryItem(actor,eligible)
+    local carriedTier=carried and Needs.foodTier(carried)
+    local function consume()
+        local accepted,why=eat(actor,carried,assessment.hunger)
+        if accepted then state.foodTier,state.foodRetryAt=nil,nil end
+        return accepted,why
+    end
+    if carriedTier==1 then return consume() end
+    if not SC.Encounter or type(SC.Encounter.takePlayerSupply)~="function" then
+        if carried then return consume() end
+        return false,"camp_storage_unavailable"
+    end
+    if options.expeditionMember and not emergency then
+        if carried then return consume() end
+        return false,"trip_food_unavailable"
+    end
+    if U().nowMs()<(state.foodRetryAt or 0) then
+        if carried and carriedTier<3 then return consume() end
+        return false,"safe_food_unavailable"
+    end
+    local tier=state.foodTier or 1
+    if carriedTier and carriedTier<=tier then return consume() end
+    local maxTier=emergency and 3 or 2
+    if tier>maxTier then
+        state.foodTier,state.foodRetryAt=nil,U().nowMs()+10000
+        return false,"safe_food_unavailable"
+    end
+    local wanted=consumableFor(actor,function(item) return Needs.foodTier(item)==tier end)
+    local atHome=SC.BaseLife and type(SC.BaseLife.isInside)=="function"
+        and SC.BaseLife.isInside(actor)==true
+    local search={markedOnly=atHome,campFloors=atHome and not scope,
+        revalidatePredicate=true,completeSearch=true,squareBudget=220}
+    if scope then search.origin,search.radius=scope.origin,scope.radius end
+    if not atHome and not scope then search.radius=6 end
+    local fetched,why,status=fetchFromCamp(actor,"needs_food_"..tier,wanted,snapshot,search)
+    if fetched then return true,why end
+    -- Missing and unreachable better food may advance the preference. An
+    -- unfinished scan or a reserved fridge never licenses eating bait.
+    if status=="missing" then
+        state.foodTier=tier+1
+        return true,"finding_preferred_food"
+    end
+    if status=="error" then return true,"finding_reachable_food" end
+    return false,why
 end
 
 function Needs.update(actor, player, runtime, options)
     if not U().isValidActor(actor) then return false, "invalid_actor" end
     local state = stateFor(actor, runtime)
+    options=type(options)=="table" and options or {}
+    local routine,scope=routineContext(actor,player,options)
     local hour = worldHour()
     local peeDueAt = peeSchedule(actor, hour)
     local root = U().actorState(actor, runtime)
@@ -1419,6 +1557,8 @@ function Needs.update(actor, player, runtime, options)
         Needs.cancel(actor, "bathroom_clock_unavailable")
         return false, "bathroom_clock_unavailable"
     end
+    local assessment = Needs.assess(actor, runtime)
+    if not routine then Needs.pauseRoutine(actor,"leader_moving",assessment) end
     local active, kind = nativeNeedsActive(actor, state)
     if active then
         return true, kind == "eat" and "eating"
@@ -1427,8 +1567,12 @@ function Needs.update(actor, player, runtime, options)
     if (snapshot.immediateCount or 0) > 0 or (snapshot.pressure or 0) >= 1.5 then
         return false, "needs_unsafe"
     end
-    local assessment = Needs.assess(actor, runtime)
-    local travelling = type(options) == "table" and options.expeditionTravel == true
+    local travelling = options.expeditionTravel == true or options.expeditionMember == true
+    local function track(accepted,why)
+        if accepted then state.routineWork=not (state.selectedNeed=="thirst"
+            and thirstEmergency(assessment) or state.selectedNeed=="hunger" and hungerEmergency(assessment)) end
+        return accepted,why
+    end
     local function consumable(predicate)
         return consumableFor(actor, predicate)
     end
@@ -1437,29 +1581,32 @@ function Needs.update(actor, player, runtime, options)
     -- Returning here left one that was thirsty and hungry starving beside its
     -- own food whenever no clean water (or no reachable sink) was in range.
     local thirstReason
-    if assessment.thirsty then
+    if assessment.thirsty and (routine or thirstEmergency(assessment))
+        and not (state.foodPending and assessment.hungry and not thirstEmergency(assessment)) then
+        state.selectedNeed="thirst"
         local safeWater = consumable(isSafeWaterItem)
         local water = firstInventoryItem(actor, safeWater, true)
         -- A travelling crew uses its carried drink even while passing a camp
         -- sink. Repeated home-supply routes used to replace its mission route.
-        if travelling and water then return drinkItem(actor, water, assessment.thirst) end
+        if travelling and water then return track(drinkItem(actor, water, assessment.thirst)) end
         -- At camp a nearby tap or well saves carried drinking water. A bottle
         -- remains the immediate choice when the source is farther away.
         local source = state.waterSource
-        if source and not validWaterSource(source) then
+        if source and (not validWaterSource(source) or not insideScope(source,scope)) then
             source, state.waterSource, state.waterOriginSquare = nil, nil, nil
+            state.waterCandidateList=nil
         end
         local current = U().nowMs()
         if not source and current >= (state.nextWaterSearchAt or 0)
             and (not travelling or assessment.emergency) then
             local sourceReason
-            source, sourceReason = findWaterSource(actor, state)
+            source, sourceReason = findWaterSource(actor, state,scope)
             state.waterSource = source
             state.waterOriginSquare = source and U().squareOf(actor) or nil
             state.nextWaterSearchAt = current
                 + (sourceReason == "water_route_pending" and 0 or 3000)
             if sourceReason == "water_route_pending" and not water then
-                return true, "water_route_pending"
+                return track(true, "water_route_pending")
             end
         end
         local nearbyCampSource = source and SC.BaseLife
@@ -1467,44 +1614,71 @@ function Needs.update(actor, player, runtime, options)
             and U().sameFloor(actor, source)
             and U().distance(actor, source) <= 6
         if water and not nearbyCampSource then
-            return drinkItem(actor, water, assessment.thirst)
+            return track(drinkItem(actor, water, assessment.thirst))
         end
         if source and (not travelling or assessment.emergency) then
             local accepted, reason = drinkWorldSource(actor, source, snapshot, state)
-            if accepted == true then return true, reason end
+            if accepted == true then return track(true, reason) end
             thirstReason = reason or "water_source_unreachable"
             state.waterRetryAt = state.waterRetryAt or setmetatable({}, { __mode = "k" })
             state.waterRetryAt[source] = current + 15000
             state.waterSource, state.waterOriginSquare = nil, nil
             state.nextWaterSearchAt = 0
-            if water then return drinkItem(actor, water, assessment.thirst) end
+            if water then return track(drinkItem(actor, water, assessment.thirst)) end
             local fetched, fetchReason = fetchFromCamp(actor,
-                "needs_water", safeWater, snapshot)
-            if fetched then return true, fetchReason end
+                "needs_water", safeWater, snapshot,scope and {origin=scope.origin,radius=scope.radius} or nil)
+            if fetched then return track(true, fetchReason) end
         elseif not travelling or assessment.emergency then
-            local fetched, fetchReason = fetchFromCamp(actor, "needs_water", safeWater, snapshot)
-            if fetched then return true, fetchReason end
+            local fetched, fetchReason = fetchFromCamp(actor, "needs_water", safeWater, snapshot,
+                scope and {origin=scope.origin,radius=scope.radius} or nil)
+            if fetched then return track(true, fetchReason) end
             thirstReason = "clean_water_unavailable"
         end
     end
 
     local foodReason
-    if assessment.hungry then
-        local safeFood = consumable(isSafeFood)
-        local food = firstInventoryItem(actor, safeFood)
-        if food then return eat(actor, food, assessment.hunger) end
-        if travelling and not assessment.emergency then foodReason = "trip_food_unavailable"
-        else
-            local fetched, fetchReason = fetchFromCamp(actor, "needs_food", safeFood, snapshot)
-            if fetched then return true, fetchReason end
-            foodReason = "safe_food_unavailable"
-        end
+    if assessment.hungry and (routine or hungerEmergency(assessment)) then
+        state.selectedNeed="hunger"
+        local handled,why=feed(actor,player,state,assessment,snapshot,scope,options)
+        state.foodPending=handled==true or nil
+        if handled then return track(handled,why) end
+        foodReason=why
+    elseif not assessment.hungry then
+        state.foodTier,state.foodRetryAt,state.foodPending=nil,nil,nil
     end
     if hour and peeDueAt and hour >= peeDueAt
         and select(1, U().call(actor, "getVehicle")) == nil then
         return updatePee(actor, player, state, hour, peeDueAt)
     end
+    state.routineWork=nil
     return false, thirstReason or foodReason or "needs_satisfied"
+end
+
+function Needs.pauseRoutine(actor,reason,assessment)
+    local state=actor and states[actor]
+    if not state or (not state.routineWork and not state.refillSession) or state.pee then return true end
+    if assessment and (state.selectedNeed=="hunger" and hungerEmergency(assessment)
+        or state.selectedNeed=="thirst" and thirstEmergency(assessment)) then return true end
+    local root=runtimes[actor]
+    local decision=root and root.decision
+    local token=SC.ActionSupervisor and type(SC.ActionSupervisor.current)=="function"
+        and SC.ActionSupervisor.current(actor) or nil
+    if token and token.owner~="needs"
+        or not token and decision and decision.current~="needs"
+        and decision.current~="water_refill" and decision.current~="activity" then
+        state.routineWork,state.refillSession,state.foodPending,state.foodTier=nil,nil,nil,nil
+        clearRefillSearch(state)
+        return true
+    end
+    local released,why=Needs.cancel(actor,reason or "leader_moving")
+    if released==true then
+        state.routineWork,state.foodTier,state.foodPending=nil,nil,nil
+        state.waterSource,state.waterCandidateList,state.waterOriginSquare=nil,nil,nil
+        if SC.Navigation and type(SC.Navigation.cancel)=="function" then
+            pcall(SC.Navigation.cancel,actor,reason or "leader_moving")
+        end
+    end
+    return released,why
 end
 
 function Needs.cancel(actor, reason)
@@ -1531,8 +1705,11 @@ function Needs.cancel(actor, reason)
         SC.Encounter.cancelPlayerSupply(actor)
     end
     if SC.NativeActions and type(SC.NativeActions.cancelNeeds) == "function" then
-        return SC.NativeActions.cancelNeeds(actor, reason)
+        local released,why=SC.NativeActions.cancelNeeds(actor, reason)
+        if released==true and state then state.routineWork,state.foodPending=nil,nil end
+        return released,why
     end
+    if state then state.routineWork,state.foodPending=nil,nil end
     return true, reason or "needs_cancelled"
 end
 
@@ -1543,12 +1720,18 @@ end
 function Needs.reset(actor)
     if actor then
         Needs.cancel(actor, "needs_reset")
+        local ownedRuntime=runtimes[actor]
+        if ownedRuntime then ownedRuntime.needs=nil end
+        runtimes[actor]=nil
         states[actor] = nil
         local runtime = U().peekActorState(actor)
         if runtime then runtime.needs = nil end
     else
         for candidate in pairs(states) do Needs.cancel(candidate, "needs_reset") end
         states = setmetatable({}, { __mode = "k" })
+        for _,runtime in pairs(runtimes) do runtime.needs=nil end
+        runtimes=setmetatable({}, {__mode="k"})
+        stoppedLeaders=setmetatable({}, {__mode="k"})
     end
     return true
 end

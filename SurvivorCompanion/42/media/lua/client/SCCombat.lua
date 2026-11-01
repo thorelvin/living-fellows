@@ -5460,9 +5460,7 @@ function Combat.reset(actor)
     end
 end
 
-function Combat.releaseActor(actor)
-    if actor == nil then return false end
-    if SC.CombatSquad then SC.CombatSquad.releaseActor(actor) end
+local function releaseGroundedClaims(actor)
     groundedLaneClaims[actor] = nil
     groundedLaneLoggedAt[actor] = nil
     for target, claim in pairs(groundedLaneClaims) do
@@ -5471,6 +5469,43 @@ function Combat.releaseActor(actor)
             groundedLaneLoggedAt[target] = nil
         end
     end
+end
+
+-- Withdrawal ends only this actor's engagement. Unlike despawn, it must not
+-- erase an opponent's target or interrupt a swing whose native hit is pending.
+function Combat.disengage(actor, runtime, reason)
+    if not actor then return false,"invalid_actor" end
+    if attackInProgress(actor) then return false,"native_attack_in_progress" end
+    local state = states[actor]
+    local utility = U()
+    if not state and select(1,utility.call(actor,"getCompanionAimTarget")) == nil then
+        return true,"not_engaged"
+    end
+    if not utility.stop(actor) then return false,"combat_withdrawal_stop_failed" end
+    if SC.Navigation and type(SC.Navigation.cancel) == "function" then
+        local okay = pcall(SC.Navigation.cancel,actor,reason or "combat_withdrawal")
+        if not okay then return false,"combat_withdrawal_route_failed" end
+    end
+    utility.call(actor,"setCompanionAimTarget",nil)
+    utility.call(actor,"setAimAtFloor",false)
+    utility.call(actor,"setCompanionFloorTarget",nil)
+    if state then clearEngagement(state,actor) else releaseActorClaims(actor) end
+    releaseGroundedClaims(actor)
+    if SC.CombatSquad then SC.CombatSquad.releaseActor(actor) end
+    if SC.NativeActions and type(SC.NativeActions.resetCombatEvents) == "function" then
+        SC.NativeActions.resetCombatEvents(actor)
+    end
+    states[actor] = nil
+    local root = utility.actorState(actor,runtime)
+    for _, key in ipairs({"combatTarget","combatAction","combatRole","combatCohort",
+        "combatOverrun","combatOverrunCause","combatReadiness"}) do root[key] = nil end
+    return true,reason or "combat_withdrawn"
+end
+
+function Combat.releaseActor(actor)
+    if actor == nil then return false end
+    if SC.CombatSquad then SC.CombatSquad.releaseActor(actor) end
+    releaseGroundedClaims(actor)
     if SC.InventoryIndex then SC.InventoryIndex.release(actor) end
     local affected = {}
     for owner, state in pairs(states) do

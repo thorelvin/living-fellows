@@ -15913,6 +15913,12 @@ end
 Harness.probeSquadCombat = function(...)
     return externalProbe("SCSquadCombatLiveProbe", ...)
 end
+Harness.probeFollowerBoarding = function(...)
+    return externalProbe("SCFollowerBoardingProbe", ...)
+end
+Harness.probeNeedsPriority = function(...)
+    return externalProbe("SCNeedsPriorityProbe", ...)
+end
 
 Harness.probeHygiene = function(...)
     return externalProbe("SCHygieneProbe", ...)
@@ -16392,6 +16398,10 @@ local function tick()
         Harness.probeMedicalCheck(Harness, current, check, result, setPhase)
     elseif string.sub(tostring(Harness.phase), 1, 17) == "gifted_equipment_" then
         Harness.probeGiftedEquipment(Harness, current, check, result, setPhase)
+    elseif string.sub(tostring(Harness.phase), 1, 16) == "follower_car_ai_" then
+        Harness.probeFollowerBoarding(Harness,current,check,result,setPhase)
+    elseif string.sub(tostring(Harness.phase),1,11)=="needs_food_" then
+        Harness.probeNeedsPriority(Harness,current,check,result,setPhase)
     elseif string.sub(tostring(Harness.phase), 1, 13) == "squad_combat_" then
         Harness.probeSquadCombat(Harness, current, check, result, setPhase)
     elseif Harness.phase == "ui_menu_probe" or Harness.phase == "ui_menu_capture"
@@ -17400,6 +17410,10 @@ local function onGameStart()
         setPhase("view_cutaway_setup", Harness.startedAt)
     elseif Harness.config.follow_road_probe == "true" then
         setPhase("follow_road_prepare", Harness.startedAt)
+    elseif Harness.config.follower_boarding_probe == "true" then
+        setPhase("follower_car_ai_setup",Harness.startedAt)
+    elseif Harness.config.needs_priority_probe == "true" then
+        setPhase("needs_food_setup",Harness.startedAt)
     elseif Harness.config.squad_combat_probe == "true" then
         setPhase("squad_combat_setup", Harness.startedAt)
     elseif Harness.config.oddball_smoker_probe == "true" then

@@ -827,6 +827,14 @@ function Probe.step(H, current, check, result, setPhase)
         local weapon = call(call(actor, "getInventory"), "AddItem", weaponType)
         if weapon then pcall(function() actor:setPrimaryHandItem(weapon) end) end
         local fatigue = number(H.config.squad_combat_fatigue, 0)
+        local endurance = number(H.config.squad_combat_endurance, 1)
+        local enduranceOk = pcall(function() actor:getStats():set(CharacterStat.ENDURANCE,endurance) end)
+        if not check("squad_combat_endurance",enduranceOk
+            and math.abs(U.characterStatValue(actor,"ENDURANCE",-1)-endurance)<0.001,
+            "actor=" .. tostring(H.squadCombatSpawnIndex) .. " endurance=" .. tostring(endurance)) then
+            H.squadCombatActors[#H.squadCombatActors+1]=actor
+            cleanup(H);setPhase("finish",current);return
+        end
         local statOk = pcall(function() actor:getStats():set(CharacterStat.FATIGUE, fatigue) end)
         local actualFatigue = U.characterStatValue(actor, "FATIGUE", -1)
         if not check("squad_combat_fatigue", statOk and math.abs(actualFatigue - fatigue) < 0.001,

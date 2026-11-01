@@ -1,0 +1,73 @@
+Living Fellows — companion stamina and moodle feedback isolation
+2026-11-01; working changes on living_fellows/0.26.88
+Runtime: installed Project Zomboid 42.21.0, single player.
+
+Report and cause
+The tester clarified that the real player's out-of-breath moodle shakes when a
+companion hits a zombie. This is reproducible with Living Fellows alone.
+
+CombatManager.attackCollisionCheck reads the attacking actor's own endurance,
+tiredness, pain, panic and stress penalties, but its explicit wiggle calls use
+the global MoodlesUI singleton. In solo view, an exhausted NPC therefore shakes
+the real player's HUD. Native stamina deductions already use the explicit actor.
+
+Change
+Scope the moodle singleton only around the companion's synchronous native
+collision check. Select a HUD only when its bound character is that exact actor;
+otherwise select a cached, unregistered HUD which is never updated or rendered.
+Restore the exact previous singleton after normal completion, nested callbacks
+and exceptions. Keep native damage, penalties and stamina costs intact.
+
+The scope leaves Stats, player lists, player counts, camera ownership and
+UIManager's HUD array untouched. The offscreen HUD cache is renewed when the
+primary player changes and does not retain that player strongly. No background
+service or save migration is added.
+
+Automated verification
+- Real game-JAR control: three separate native Stats instances, three native
+  swing costs and three additional native hit costs. Only each attacking actor
+  loses stamina; other actors and all tiredness values remain unchanged.
+- Native moodle control: offscreen isolation, correct secondary HUD selection,
+  rejection of a foreign HUD at the reserved NPC index, nested failure cleanup,
+  idempotent close, and preservation of the real player's own feedback.
+- The modified controls compile against the project's Java 17 API stubs and run
+  against the actual installed game classes.
+- Full project gate: 29/29 stages passed. Detailed output is retained at
+  C:/ZOMBOID/outputs/stamina-isolation-02688/project-gate-final.log (109 seconds).
+
+Live verification — original saves and normal mod preset untouched
+All combat runs used isolated cloned saves, Living Fellows alone, native combat,
+normal zombie acquisition, two crowbar-equipped companions and three zombies.
+Each observed fight lasted 65 real seconds. No stamina refunds or health
+compensation were applied. Independent runs retain normal game randomness.
+
+Healthy control: SC-Harness-20261101-210912-0b7a81b1
+- Both companions survived at 100% health; three zombies killed.
+- Instrumented Stats.set recorded 10 native swing and 9 native hit deductions,
+  all owned by companions; zero primary-player stamina deductions.
+
+Exhausted control before fix: SC-Harness-20261101-213700-de9547bc
+- Previous committed bridge, companions seeded once at 0.45 endurance.
+- 21 native endurance-moodle wiggles reached the PRIMARY HUD.
+- Zero primary-player stamina deductions. Both companions survived at 100%
+  health; two of the three zombies were killed within the observation period.
+
+Exhausted run after fix: SC-Harness-20261101-213957-b75147c6
+- Rebuilt bridge, companions seeded once at 0.45 endurance.
+- All 16 native endurance-moodle wiggles went to the unregistered HUD.
+- Zero primary-HUD wiggles and zero primary-player stamina deductions.
+- Both companions survived at 100% health; all three zombies were killed.
+- Live harness summary: 24 passes, zero failures.
+
+The diagnostic agent and its raw traces are outside the release payload at
+C:/ZOMBOID/outputs/stamina-isolation-02688/. The agent observed native writes
+and feedback calls; it did not alter their results. Run directories and game
+consoles are retained under build/live-sandbox-runs/.
+
+Built payload bridge SHA-256:
+B447C578D947922374619FDD3190D79C281248FF06B0656844E5FEAD2201E404
+
+Separate finding
+SimpleStatus can overlap the secondary actor's bar with the primary actor's
+bar. The tester does not report using it, so its investigation and experimental
+patch are kept outside these changes. It is not the cause established above.

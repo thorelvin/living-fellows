@@ -982,6 +982,15 @@ public final class SCNativeApiSignatureTest {
                 && handWeapon.getMethod("getSwingSound").getReturnType() == String.class
                 && method(character, "playSound", String.class).getReturnType() == long.class,
                 "weapon swing-sound accessors changed shape");
+        require(player.getMethod("playRangedWeaponShootSound", String.class).getReturnType() == long.class
+                && character.getMethod("isUnlimitedAmmo").getReturnType() == boolean.class
+                && handWeapon.getMethod("getCurrentAmmoCount").getReturnType() == int.class
+                && handWeapon.getMethod("haveChamber").getReturnType() == boolean.class
+                && handWeapon.getMethod("isRoundChambered").getReturnType() == boolean.class
+                && handWeapon.getMethod("isManuallyRemoveSpentRounds").getReturnType() == boolean.class
+                && handWeapon.getMethod("getSpentRoundCount").getReturnType() == int.class
+                && handWeapon.getMethod("isJammed").getReturnType() == boolean.class,
+                "native gunshot sound or spent-round evidence accessors changed shape");
 
         // The same gap one step later: the flesh noise belongs to the victim's
         // damage code, so a companion's shovel landed with a squish and no

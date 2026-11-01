@@ -1,0 +1,55 @@
+Companion gunshot audio
+Branch: living_fellows/0.26.88
+Game: Project Zomboid 42.21.0
+
+Cause
+The existing companion sound shim handled PlaySwingSound animation events.
+The installed ranged handgun/rifle animation nodes send AttackCollisionCheck
+with Shot, but no PlaySwingSound event. Vanilla starts firearm audio in
+ISReloadWeaponAction.attackHook, through playRangedWeaponShootSound. Companion
+attacks start through the native DoAttack path, bypassing that Lua input hook.
+Consequently an actual round and bullet impact could occur without its report.
+
+Change
+- Observe native ammunition before and after a completed collision callback.
+  Read the magazine, chamber and retained spent-cartridge counts, including the
+  last chambered round, pump actions and revolvers.
+- For a confirmed firearm shot, play the weapon's configured SwingSound through
+  the companion's native playRangedWeaponShootSound method and positional emitter.
+- Preserve the PlayedSwingSound latch so duplicate animation layers or a modded
+  firing animation cannot add a second report to that shot.
+- Reject missing/stale evidence, a different weapon, an already jammed gun,
+  unchanged ammunition and dry fire. A feeding jam after firing must not mute
+  the round that already fired. Unlimited-ammo shots retain their audio.
+- Audio errors stay cosmetic. Do not replay attacks, modify ammunition, apply
+  damage, change player ownership or add duplicate zombie-attraction events.
+- Rebuild and package the native bridge with the source change.
+
+Automated controls
+SCIsoCompanionControlTest / GUNSHOT_SOUND_PASS:
+magazine, chamber, pump, revolver, dry fire, jams, unlimited ammunition,
+duplicate dispatch, custom configured sound and unchanged ammunition.
+Headless tests verify dispatch/latching; they do not claim audible FMOD output.
+SCNativeApiSignatureTest pins the installed sound and ammunition APIs.
+
+Real-game acceptance
+SC-Harness-20261101-233552-a29bb098: PASS.
+LF alone; cloned LF-Skills5-Test-2026-10-29; source bridge; engine sound enabled.
+A fresh recruited companion used an actual loaded M9 against two ordinary
+zombies for 30 seconds, using production skills, accuracy and combat decisions.
+- 16 native rounds fired; 16 successful gunshot reports.
+- Configured sound M9Shoot; real sound handle 20742912.
+- Native emitter isPlaying(M9Shoot) returned true during combat.
+- PlaySwingSound animation events: 0, directly confirming the original gap.
+- Sound failure diagnostic empty. Native player slots and ownership unchanged.
+- Two native hits observed; companion remained alive. Combat accuracy and damage
+  were not changed as part of this audio fix.
+
+The scene proves an active FMOD gunshot, not a human listening check of the
+physical output device. Pump/revolver edge cases are automated controls; this
+live scenario uses an on-foot M9, not every weapon or passenger configuration.
+
+Full project gate: PASS, 29/29 stages in 110.9 seconds.
+Log: C:/ZOMBOID/outputs/firearm-sound-02688/project-gate-final.log
+Native payload SHA-256:
+9A1BE60BB23857798A43E392878BC8FE00CECC4285CC136326E3A62ADEE5EE5F

@@ -18190,6 +18190,12 @@ SurvivorCompanion.__testDecisionNativeSwingLease()
 SurvivorCompanion.__testDecisionNativeSwingLease = nil
 
 function SurvivorCompanion.__testNeedsAndCamp()
+local function campNeeds(a,p,runtime)
+    return SurvivorCompanion.Needs.update(a,p,runtime,{commands={recruited=true,order="base_duty"}})
+end
+local function campRefill(a,p,runtime,mode)
+    return SurvivorCompanion.Needs.refill(a,p,runtime,mode,{commands={recruited=true,order="base_duty"}})
+end
 local rateActor = actor("sc-needs-rate", 28, 20, {})
 registry[rateActor.id] = rateActor
 rateActor.hunger, rateActor.thirst = 0.40, 0.30
@@ -18278,13 +18284,13 @@ do
         { hunger = 0.40, thirst = 0.20, fatigue = 0.20 })
     clock = clock + 1
     local noted, notedTopic = SurvivorCompanion.Needs.narrate(hungry, quiet, clock,
-        { hunger = 0.56, thirst = 0.20, fatigue = 0.20 })
+        { hunger = 0.76, thirst = 0.20, fatigue = 0.20 })
     clock = clock + 1
     local repeated, repeatedReason = SurvivorCompanion.Needs.narrate(hungry, quiet, clock,
-        { hunger = 0.56, thirst = 0.20, fatigue = 0.20 })
+        { hunger = 0.76, thirst = 0.20, fatigue = 0.20 })
     clock = clock + 1
     local serious, seriousTopic = SurvivorCompanion.Needs.narrate(hungry, quiet, clock,
-        { hunger = 0.72, thirst = 0.20, fatigue = 0.20 })
+        { hunger = 0.81, thirst = 0.20, fatigue = 0.20 })
     check(not baseline and baselineReason == "needs_speech_no_transition"
             and noted and notedTopic == "need.hunger.noted"
             and not repeated and repeatedReason == "needs_speech_no_transition"
@@ -18356,11 +18362,12 @@ local rottenMeal = item("Base.RottenMeal", "Food", { hungerChange = -0.35, rotte
 local poisonedMeal = item("Base.PoisonMeal", "Food", { hungerChange = -0.35, poisonPower = 10 })
 local eater = actor("sc-needs-eat", 30, 20,
     { inventory = inventory({ rottenMeal, poisonedMeal, meal }) })
-eater.hunger = 0.72
+eater.hunger = 0.76
 registry[eater.id] = eater
-check(SurvivorCompanion.Needs.update(eater, player, {
-        snapshot = { threats = {}, threatCount = 0, immediateCount = 0, pressure = 0 },
-    }) and eater.lastIntent and eater.lastIntent.action == "eat_food"
+local eatRuntime={snapshot={threats={},threatCount=0,immediateCount=0,pressure=0}}
+campNeeds(eater,player,eatRuntime)
+check(campNeeds(eater, player, eatRuntime)
+    and eater.lastIntent and eater.lastIntent.action == "eat_food"
     and eater.lastIntent.item == meal,
     "hungry companion selects a safe carried meal through a native eat intent")
 
@@ -18375,15 +18382,15 @@ do
     local dryBottle = item("Base.TaintedBottle", "Item", { fluidContainer = dryFluid })
     local parched = actor("sc-needs-parched", 30, 26,
         { inventory = inventory({ dryBottle, dryMeal }) })
-    parched.hunger, parched.thirst = 0.72, 0.70
+    parched.hunger, parched.thirst = 0.76, 0.70
     registry[parched.id] = parched
     local savedSupply = SurvivorCompanion.Encounter.takePlayerSupply
     SurvivorCompanion.Encounter.takePlayerSupply = function()
-        return "unavailable", "fixture_no_camp_supply"
+        return "missing", "fixture_no_camp_supply"
     end
-    local ate, ateReason = SurvivorCompanion.Needs.update(parched, player, {
-        snapshot = { threats = {}, threatCount = 0, immediateCount = 0, pressure = 0 },
-    })
+    local needsRuntime={snapshot={threats={},threatCount=0,immediateCount=0,pressure=0}}
+    campNeeds(parched,player,needsRuntime)
+    local ate, ateReason = campNeeds(parched,player,needsRuntime)
     SurvivorCompanion.Encounter.takePlayerSupply = savedSupply
     check(ate and parched.lastIntent and parched.lastIntent.action == "eat_food"
             and parched.lastIntent.item == dryMeal,
@@ -18407,7 +18414,7 @@ local drinker = actor("sc-needs-drink", 32, 20,
     { inventory = inventory({ taintedBottle, bottle }) })
 drinker.thirst = 0.68
 registry[drinker.id] = drinker
-check(SurvivorCompanion.Needs.update(drinker, player, {
+check(campNeeds(drinker, player, {
         snapshot = { threats = {}, threatCount = 0, immediateCount = 0, pressure = 0 },
     }) and drinker.lastIntent and drinker.lastIntent.action == "drink_item"
     and drinker.lastIntent.uses >= 1,
@@ -18431,7 +18438,7 @@ SurvivorCompanion.Encounter.takePlayerSupply = function()
     campWaterRequested = true
     return "taken", "fixture_camp_water"
 end
-check(SurvivorCompanion.Needs.update(sourceDrinker, player, {
+check(campNeeds(sourceDrinker, player, {
         snapshot = { threats = {}, threatCount = 0, immediateCount = 0, pressure = 0 },
     }) and sourceDrinker.lastIntent and sourceDrinker.lastIntent.action == "drink_source"
     and sourceDrinker.lastIntent.object == cleanSink,
@@ -18509,36 +18516,39 @@ do
         return nil
     end
     player.moving = true
+    local oldPlayerSquare=player.square
+    player.square=carrier.square
     check(refillCandidate("follow", clock + 100000) == nil,
         "a moving leader keeps followers in formation instead of refilling")
     player.moving = false
     refillCandidate("follow", clock + 100100)
-    check(refillCandidate("follow", clock + 105000) ~= nil
+    check(refillCandidate("follow", clock + 116000) ~= nil
             and refillCandidate("base_duty", clock + 105000) ~= nil,
         "settled followers and base workers schedule an automatic refill")
     check(refillCandidate("stay", clock + 105000) == nil
             and refillCandidate("guard", clock + 105000) == nil,
         "routine refills never pull a Stay or Guard companion off its post")
-    local started = SurvivorCompanion.Needs.refill(carrier, player, safe, "home")
+    player.square=oldPlayerSquare
+    local started = campRefill(carrier, player, safe, "home")
     check(started and carrier.lastIntent
             and carrier.lastIntent.action == "refill_drinking_water"
             and carrier.lastIntent.item == first and carrier.lastIntent.object == source,
         "camp refill uses the original nested bottle and clean sink")
     firstFluid.amount = 1
     carrier.lastIntent = nil
-    started = SurvivorCompanion.Needs.refill(carrier, player, safe, "home")
+    started = campRefill(carrier, player, safe, "home")
     check(started and carrier.lastIntent and carrier.lastIntent.item == second,
         "the same water stop also tops up a second carried bottle")
     secondFluid.amount = 1
     carrier.lastIntent = nil
     inner:Remove(moved)
     local foreign = inventory({ moved })
-    local deferred, deferredReason = SurvivorCompanion.Needs.refill(
+    local deferred, deferredReason = campRefill(
         carrier, player, safe, "home")
     check(deferred and deferredReason == "refill_item_no_longer_carried"
             and carrier.lastIntent == nil and moved.container == foreign,
         "a bottle removed during the walk is never taken back for refilling")
-    local finished = SurvivorCompanion.Needs.refill(carrier, player, safe, "home")
+    local finished = campRefill(carrier, player, safe, "home")
     check(finished and carrier.lastIntent == nil and unsafe.fluidContainer.amount == 0.2
             and fuelFluid.amount == 0 and first.container == inner
             and second.container == inner and moved.container == foreign,
@@ -18596,7 +18606,7 @@ do
         registry[chooser.id]=chooser chooser.thirst=.8 chooser.hunger=0
         local originalInside=SC.BaseLife.isInside SC.BaseLife.isInside=function() return false end
         SC.Needs.assess(chooser,safe)
-        check(SC.Needs.update(chooser,player,safe) and chooser.lastIntent and chooser.lastIntent.item==light,
+        check(campNeeds(chooser,player,safe) and chooser.lastIntent and chooser.lastIntent.item==light,
             "drinking prefers the lighter shell even when the heavier vessel holds less water")
         local audit=SC.Logistics.audit(chooser)
         audit.profile={target={water=1},keep={water=1}}
@@ -18636,7 +18646,7 @@ do
         found = #choices
         return nil, "unreachable"
     end
-    SurvivorCompanion.Needs.update(thirsty, player,
+    campNeeds(thirsty, player,
         { snapshot = { immediateCount = 0, pressure = 0 } })
     check(found >= 9,
         "water scan offers a ninth source for routing when eight nearer sinks fail")
@@ -18683,7 +18693,7 @@ do
         return true, "moving"
     end
     local safe = { snapshot = { immediateCount = 0, pressure = 0 } }
-    local selected, selectedReason = SurvivorCompanion.Needs.update(upstairs, player, safe)
+    local selected, selectedReason = campNeeds(upstairs, player, safe)
     check(selected and waterApproach and #waterApproach.targets > 0
             and waterApproach.intent.workCampOnly == true
             and SurvivorCompanion.Needs.peek(upstairs).waterSource == well,
@@ -18693,7 +18703,7 @@ do
             .. " source=" .. tostring(SurvivorCompanion.Needs.peek(upstairs)
                 and SurvivorCompanion.Needs.peek(upstairs).waterSource))
     upstairs.square = cell:getGridSquare(13, 5, 1)
-    local drank = SurvivorCompanion.Needs.update(upstairs, player, safe)
+    local drank = campNeeds(upstairs, player, safe)
     check(drank and upstairs.lastIntent
             and upstairs.lastIntent.action == "drink_source"
             and upstairs.lastIntent.object == well,
@@ -18729,12 +18739,12 @@ do
         return true, "moving"
     end
     local safe = { snapshot = { immediateCount = 0, pressure = 0 } }
-    SurvivorCompanion.Needs.update(acrossWall, player, safe)
+    campNeeds(acrossWall, player, safe)
     check(approached and acrossWall.lastIntent == nil,
         "a sink across a wall requires a reachable use side, not distance alone")
     acrossWall.square.blocked[sinkSquare] = nil
     sinkSquare.blocked[acrossWall.square] = nil
-    local drank = SurvivorCompanion.Needs.update(acrossWall, player, safe)
+    local drank = campNeeds(acrossWall, player, safe)
     check(drank and acrossWall.lastIntent
             and acrossWall.lastIntent.action == "drink_source"
             and acrossWall.lastIntent.object == sink,
@@ -19552,16 +19562,17 @@ local hungryActor = actor("sc-protected-needs", 3, 4,
     { inventory = inventory({ privateMeal }) })
 hungryActor.hunger = 0.8
 registry[hungryActor.id] = hungryActor
-local consumedPrivate, privateReason = SurvivorCompanion.Needs.update(hungryActor, player, {
-    snapshot = { threats = {}, threatCount = 0, immediateCount = 0, pressure = 0 },
-})
+local privateRuntime={snapshot={threats={},threatCount=0,immediateCount=0,pressure=0}}
+local privateOptions={commands={recruited=true,order="base_duty"}}
+SurvivorCompanion.Needs.update(hungryActor,player,privateRuntime,privateOptions)
+SurvivorCompanion.Needs.update(hungryActor,player,privateRuntime,privateOptions)
+local consumedPrivate,privateReason=SurvivorCompanion.Needs.update(hungryActor,player,privateRuntime,privateOptions)
 check(not consumedPrivate and privateReason == "safe_food_unavailable" and not privateMeal.used,
     "needs automation refuses to consume a marked personal item")
 local normalMeal = item("Base.NormalMeal", "Food", { hungerChange = -0.4 })
 hungryActor.inventory:AddItem(normalMeal)
-check(SurvivorCompanion.Needs.update(hungryActor, player, {
-        snapshot = { threats = {}, threatCount = 0, immediateCount = 0, pressure = 0 },
-    }) and hungryActor.lastIntent.item == normalMeal,
+check(SurvivorCompanion.Needs.update(hungryActor,player,privateRuntime,privateOptions)
+    and hungryActor.lastIntent.item == normalMeal,
     "needs automation still selects an ordinary safe item beside a protected one")
 
 registry[depthActor.id] = nil

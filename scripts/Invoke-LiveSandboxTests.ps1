@@ -224,6 +224,8 @@ param(
     [switch]$GiftedEquipmentProbe,
     # Repeated native squad-versus-zombie survival trials in a cloned save.
     [switch]$SquadCombatProbe,
+    [switch]$FollowerBoardingProbe,
+    [switch]$NeedsPriorityProbe,
     [switch]$SquadCombatFrontOnly,
     [switch]$SquadCombatSingleCase,
     [ValidateRange(1, 6)][int]$SquadCombatCaseIndex = 1,
@@ -236,6 +238,7 @@ param(
     [ValidateSet('Base.Crowbar', 'Base.WoodenMallet', 'Base.Wrench')]
     [string[]]$SquadCombatWeaponTypes = @(),
     [ValidateRange(0.0, 1.0)][double]$SquadCombatFatigue = 0.0,
+    [ValidateRange(0.0, 1.0)][double]$SquadCombatEndurance = 1.0,
     [ValidateSet('inherit', 'on', 'off')][string]$SquadCombatMultiHit = 'inherit',
     [ValidateSet('stay', 'follow')][string]$SquadCombatOrder = 'stay',
     [string]$SquadCombatBackupWeaponType = '',
@@ -959,7 +962,7 @@ if ($SquadCombatRadioLure -and -not $SquadCombatProbe) {
 if ($SquadCombatSingleCase -and -not $SquadCombatProbe) {
     throw '-SquadCombatSingleCase requires -SquadCombatProbe.'
 }
-if ($SquadCombatCompanions -gt 0 -or $SquadCombatZombieCounts.Count -gt 0 -or $SquadCombatNaturalAcquisition -or $SquadCombatPassiveControl -or $SquadCombatWeaponTypes.Count -gt 0 -or $SquadCombatFatigue -gt 0 -or $SquadCombatMultiHit -ne 'inherit' -or $SquadCombatOrder -ne 'stay') {
+if ($SquadCombatCompanions -gt 0 -or $SquadCombatZombieCounts.Count -gt 0 -or $SquadCombatNaturalAcquisition -or $SquadCombatPassiveControl -or $SquadCombatWeaponTypes.Count -gt 0 -or $SquadCombatFatigue -gt 0 -or $SquadCombatEndurance -ne 1 -or $SquadCombatMultiHit -ne 'inherit' -or $SquadCombatOrder -ne 'stay') {
     if (-not $SquadCombatProbe) { throw 'Custom combat scenarios require -SquadCombatProbe.' }
     if (($SquadCombatCompanions -gt 0) -ne ($SquadCombatZombieCounts.Count -gt 0)) {
         throw 'Specify custom companion and zombie counts together.'
@@ -1787,6 +1790,7 @@ $modText = Add-ModEntry $modText 'SCRealSandboxHarness'
     ($runId + [Environment]::NewLine + $GameMode + [Environment]::NewLine), $utf8NoBom)
 
 $config = @(
+    ('engine_sound=' + $EngineSound.IsPresent.ToString().ToLowerInvariant()),
     ('companion_firearms_probe=' + $CompanionFirearmsProbe.IsPresent.ToString().ToLowerInvariant()),
     ('companion_facing_probe=' + $CompanionFacingProbe.IsPresent.ToString().ToLowerInvariant()),
     ('companion_facing_mode=' + $CompanionFacingMode),
@@ -2038,6 +2042,8 @@ $config = @(
     ('companion_transfer_probe=' + $CompanionTransferProbe.IsPresent.ToString().ToLowerInvariant()),
     ('gifted_equipment_probe=' + $GiftedEquipmentProbe.IsPresent.ToString().ToLowerInvariant()),
     ('squad_combat_probe=' + $SquadCombatProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('follower_boarding_probe=' + $FollowerBoardingProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('needs_priority_probe=' + $NeedsPriorityProbe.IsPresent.ToString().ToLowerInvariant()),
     ('squad_combat_front_only=' + $SquadCombatFrontOnly.IsPresent.ToString().ToLowerInvariant()),
     ('squad_combat_single_case=' + $SquadCombatSingleCase.IsPresent.ToString().ToLowerInvariant()),
     ('squad_combat_case_index=' + $SquadCombatCaseIndex),
@@ -2048,6 +2054,7 @@ $config = @(
     ('squad_combat_weapon_type=' + $SquadCombatWeaponType),
     ('squad_combat_weapon_types=' + ($SquadCombatWeaponTypes -join ',')),
     ('squad_combat_fatigue=' + $SquadCombatFatigue.ToString([System.Globalization.CultureInfo]::InvariantCulture)),
+    ('squad_combat_endurance=' + $SquadCombatEndurance.ToString([System.Globalization.CultureInfo]::InvariantCulture)),
     ('squad_combat_multihit=' + $SquadCombatMultiHit),
     ('squad_combat_order=' + $SquadCombatOrder),
     ('squad_combat_backup_weapon_type=' + $SquadCombatBackupWeaponType),
@@ -2157,6 +2164,8 @@ $manifest = [ordered]@{
     woodExpeditionStockEquipment = $WoodExpeditionStockEquipment.IsPresent
     woodExpeditionQuietSite = $WoodExpeditionQuietSite.IsPresent
     squadCombatProbe = $SquadCombatProbe.IsPresent
+    followerBoardingProbe = $FollowerBoardingProbe.IsPresent
+    needsPriorityProbe = $NeedsPriorityProbe.IsPresent
     squadCombatFrontOnly = $SquadCombatFrontOnly.IsPresent
     squadCombatSingleCase = $SquadCombatSingleCase.IsPresent
     squadCombatCaseIndex = $SquadCombatCaseIndex
@@ -2167,6 +2176,7 @@ $manifest = [ordered]@{
     squadCombatWeaponType = $SquadCombatWeaponType
     squadCombatWeaponTypes = $SquadCombatWeaponTypes
     squadCombatFatigue = $SquadCombatFatigue
+    squadCombatEndurance = $SquadCombatEndurance
     squadCombatMultiHit = $SquadCombatMultiHit
     squadCombatOrder = $SquadCombatOrder
     squadCombatBackupWeaponType = $SquadCombatBackupWeaponType

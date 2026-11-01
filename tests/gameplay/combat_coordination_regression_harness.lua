@@ -1114,4 +1114,47 @@ do
     U.nowMs, U.move = priorNow, priorMove
 end
 
+do
+    local actor=character("sc-withdrawal",10.5,10.5)
+    local opponent=character("sc-withdrawal-opponent",12,10.5)
+    SC.Combat.scoreTargets(actor,nil,{threats={}},nil)
+    SC.Combat.scoreTargets(opponent,nil,{threats={}},nil)
+    local own,other=SC.Combat.peek(actor),SC.Combat.peek(opponent)
+    own.active,own.target=true,opponent
+    other.active,other.target=true,actor
+    local swinging,canStop,stops,cancels,resets=false,false,0,0,0
+    function actor:isAttackStarted() return swinging end
+    function actor:setCompanionAimTarget(target) self.aim=target end
+    actor.aim=opponent
+    local oldStop,oldActorState=U.stop,U.actorState
+    local oldNavigation,oldNative,oldSquad=SC.Navigation,SC.NativeActions,SC.CombatSquad
+    local runtime={combatTarget=opponent,combatAction="aim",combatRole="primary"}
+    U.stop=function() stops=stops+1;return canStop end
+    U.actorState=function() return runtime end
+    SC.Navigation={cancel=function(value) check(value==actor,"withdrawal cancels only its own route");cancels=cancels+1 end}
+    SC.NativeActions={resetCombatEvents=function(value) check(value==actor,"withdrawal retires only its own receipts");resets=resets+1 end}
+    SC.CombatSquad=nil
+    swinging=true
+    check(SC.Combat.disengage(actor,runtime)==false and stops==0 and SC.Combat.peek(actor)==own,
+        "boarding cannot abort a committed native swing or discard its pending hit")
+    swinging=false
+    check(SC.Combat.disengage(actor,runtime)==false and SC.Combat.peek(actor)==own,
+        "a rejected physical stop preserves the engagement for a safe retry")
+    canStop=true
+    check(SC.Combat.disengage(actor,runtime)==true and SC.Combat.peek(actor)==nil
+        and actor.aim==nil and runtime.combatTarget==nil and runtime.combatAction==nil,
+        "withdrawal clears the target, aim, route and published combat state")
+    check(SC.Combat.peek(opponent)==other and other.target==actor and other.active,
+        "withdrawal leaves the opponent's independent combat state intact")
+    local priorStops=stops
+    check(SC.Combat.disengage(actor,runtime)==true and stops==priorStops and cancels==1 and resets==1,
+        "later boarding pulses do not repeatedly stop its new vehicle approach")
+    function actor:getCompanionAimTarget() return self.aim end
+    actor.aim=opponent
+    check(SC.Combat.disengage(actor,runtime)==true and actor.aim==nil,
+        "a cancelled owner cannot leave a native aim target behind after its Lua state was retired")
+    U.stop,U.actorState=oldStop,oldActorState
+    SC.Navigation,SC.NativeActions,SC.CombatSquad=oldNavigation,oldNative,oldSquad
+    SC.Combat.reset(actor);SC.Combat.reset(opponent)
+end
 print("COMBAT_COORDINATION_REGRESSION_PASS checks=" .. tostring(checks))

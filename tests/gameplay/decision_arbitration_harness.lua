@@ -615,6 +615,7 @@ for _, mode in ipairs({"overload","cleanup","harvest","gift","weapon","shelving"
 end
 for _,case in ipairs({{},{carried=true},{active=true},{emergency=true},{peeDue=true}}) do
     modules()
+    SC.Needs.routineAllowed=function() return false end
     SC.Needs.carriedSuppliesAvailable=function() return case.carried==true end
     local commands=order("move_to")
     commands.expeditionMember,commands.expeditionMoving,commands.tacticalTarget=true,true,player
@@ -622,12 +623,13 @@ for _,case in ipairs({{},{carried=true},{active=true},{emergency=true},{peeDue=t
     local candidates=D._evaluateForTests(actor,player,quiet(),commands,healthy(),needs,{},clock)
     local admitted=false
     for _,candidate in ipairs(candidates) do if candidate.kind=="needs" then admitted=true end end
-    check(admitted==(case.carried==true or case.active==true or case.emergency==true or case.peeDue==true),
-        "trip permits carried consumption, active actions, emergencies and bathroom breaks")
+    check(admitted==(case.active==true or case.emergency==true or case.peeDue==true),
+        "moving trip defers routine carried consumption and retains active survival/bathroom handling")
 end
 modules()
 SC.Needs.update=function(_,_,_,options)
-    check(options.expeditionTravel==true,"needs receives the mission's travel context")
+    check(options.expeditionTravel==true and type(options.commands)=="table",
+        "needs receives the mission's travel and command context")
     return true,"carried_consumption"
 end
 local tripOrder=order("move_to");tripOrder.expeditionMoving=true
@@ -651,4 +653,116 @@ local settled,settleReason=D.update(departing,player,{snapshot=quiet()},clock)
 check(settled and settleReason=="transfer_committed" and transferUpdates==1
     and D.peek(departing).currentKey=="expedition_transfer_settling",
     "walking departure finishes an inherited exact transfer instead of stranding its owner")
+-- Boarding is an implicit withdrawal order, including from a previously
+-- selected indoor target; doctrine and target hysteresis must not trap it.
+modules()
+local car, playerInCar = {}, true
+function actor:getVehicle() return nil end
+function player:getVehicle() return playerInCar and car or nil end
+local remote = quiet()
+remote.threatCount,remote.closeThreatCount,remote.pressure=3,2,4
+remote.threats={{actor=person("indoor-zombie",6),safeBarrier=true,distanceSq=36}}
+local boardingCommands=order("follow")
+boardingCommands.combatDoctrine="weapons_free"
+local function boardingChoice(snapshot,commands,assessment,needs)
+    local candidates=D._evaluateForTests(actor,player,snapshot or remote,
+        commands or boardingCommands,assessment or healthy(),needs or {},{},clock)
+    return D._selectWithHysteresisForTests({current="combat",currentKey="combat",selectedAt=clock},candidates,clock)
+end
+local chosen=boardingChoice()
+check(chosen and chosen.key=="follow:board_vehicle" and chosen.safetyTier==D.SafetyTier.TACTICAL,
+    "player boarding outranks aggressive distant/indoor combat and its hysteresis")
+for _,mode in ipairs({"contact","surrounded","bleeding","critical","needs","optout","stay","convoy","expedition"}) do
+    local snapshot,commands,assessment,needs=quiet(),order("follow"),healthy(),{}
+    snapshot.threatCount=1;commands.combatDoctrine="weapons_free"
+    if mode=="contact" then snapshot.immediateCount=1
+    elseif mode=="surrounded" then snapshot.encircled=true
+    elseif mode=="bleeding" then assessment.bleedingCount=1
+    elseif mode=="critical" then assessment.critical=true
+    elseif mode=="needs" then needs.emergency=true
+    elseif mode=="optout" then commands.rideWithPlayer=false
+    elseif mode=="stay" then commands.order="stay"
+    elseif mode=="convoy" then commands.followCarSqlId=42
+    elseif mode=="expedition" then commands.expeditionMember=true end
+    local selection=boardingChoice(snapshot,commands,assessment,needs)
+    check(selection and selection.key~="follow:board_vehicle","boarding preserves "..mode.." policy")
+end
+remote.humanThreat={actor=person("distant-bandit",20),visible=true,external="bandits2"}
+check(boardingChoice().key=="follow:board_vehicle","a distant visible gunman cannot prolong an aggressive pursuit")
+remote.humanThreat.actor.x=1
+check(boardingChoice().key~="follow:board_vehicle","a human in striking range retains contact defence")
+remote.humanThreat=nil
+playerInCar=false
+check(boardingChoice().kind=="combat","leaving the car restores ordinary combat selection without a stale withdrawal flag")
+playerInCar=true
+local routeMode,withdrawals,doorReady,seatActions=nil,0,false,0
+SC.Combat.disengage=function() withdrawals=withdrawals+1;return true end
+SC.Vehicle={
+    assignmentFor=function() return {seat=1} end,
+    isStationary=function() return true end,
+    beginBoarding=function() return {supervisorToken={}} end,
+    preflightBoard=function() if doorReady then return {seat=1} end return nil,"companion is not at the passenger door" end,
+    boardingSquares=function() return {{x=4,y=0,z=0}},1 end,
+    failTransaction=function() error("valid boarding must not fail") end,
+}
+SC.Navigation.requestAny=function(_,_,mode) routeMode=mode;return true,"path_searching" end
+local boarded=D._delegateForTests(chosen,actor,player,{},boardingCommands,remote,{})
+check(boarded and routeMode=="run" and withdrawals==1,"withdrawal approaches even a nearby passenger door at a run")
+doorReady=true
+local oldMove=SC.GameplayUtil.move
+SC.GameplayUtil.move=function(_,_,intent)
+    check(intent.action=="board_vehicle" and intent.allowVirtualSeat==false,
+        "withdrawal boards through the real validated passenger-door transaction")
+    seatActions=seatActions+1;return true
+end
+check(D._delegateForTests(chosen,actor,player,{},boardingCommands,remote,{}) and seatActions==1,
+    "the arrived follower advances to physical boarding")
+SC.GameplayUtil.move=oldMove
+SC.Vehicle.isStationary=function() return false,"vehicle is moving" end
+local movingHandled,movingReason=D._delegateForTests(chosen,actor,player,{},boardingCommands,remote,{})
+check(movingHandled and movingReason=="waiting_for_vehicle_to_stop" and seatActions==1,
+    "withdrawal never forces a seat in a moving car")
+SC.Vehicle.isStationary=function() return true end
+Supervisor.reset(actor)
+local combatOwner=assert(Supervisor.begin(actor,{owner="combat",action="aim",priority=Supervisor.Priority.WORK,
+    onCancel=function() return true end,ignoreRetry=true}))
+hold(remote,healthy(),{},boardingCommands)
+check(not Supervisor.isCurrent(combatOwner),"boarding releases a noncommitted combat owner")
+local vehicleOwner=assert(Supervisor.begin(actor,{owner="vehicle",action="board",priority=Supervisor.Priority.WORK,
+    onCancel=function() return true end,ignoreRetry=true}))
+hold(remote,healthy(),{},boardingCommands)
+check(Supervisor.isCurrent(vehicleOwner),"distant pressure cannot cancel the live boarding owner")
+local contact=quiet();contact.threatCount=1;contact.immediateCount=1
+hold(contact,healthy(),{},boardingCommands)
+check(not Supervisor.isCurrent(vehicleOwner),"new contact interrupts boarding for defence")
+Supervisor.reset(actor)
+modules()
+for _,allowed in ipairs({false,true}) do
+    SC.Needs.routineAllowed=function() return allowed end
+    SC.Needs.refillDue=function() return true end
+    local choices=D._evaluateForTests(actor,player,quiet(),order("follow"),healthy(),
+        {hungry=true,hunger=.76},{},clock)
+    local meal,refill=false,false
+    for _,entry in ipairs(choices) do
+        meal=meal or entry.kind=="needs";refill=refill or entry.kind=="water_refill"
+    end
+    check(meal==allowed and refill==allowed,"routine meals and refills share the stopped-leader policy")
+end
+modules()
+local pausedFollower=person("routine-pause-owner",0)
+SC.Commands={effective=function() return order("follow") end}
+SC.ExpeditionPrototype.isMember=function() return false end
+SC.Needs.assess=function() return {active=true,hungry=true,hunger=.76} end
+SC.Needs.routineAllowed=function() return false end
+local paused=0
+SC.Needs.pauseRoutine=function(value)
+    check(value==pausedFollower,"movement cancellation keeps exact actor identity")
+    paused=paused+1;nativePhase="none"
+    return true
+end
+nativePhase,nativeOwner,nativeName="active","needs","eat"
+local pausedRuntime={snapshot=quiet()}
+check(D.update(pausedFollower,player,pausedRuntime,clock) and paused==1
+    and D.peek(pausedFollower).current~="activity",
+    "movement reaches needs cancellation before the native activity ownership gate")
 SC_TEST_REPORT = "DECISION_ARBITRATION_PASS checks=" .. checks .. " kinds=" .. #rows
