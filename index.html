@@ -321,7 +321,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <p class="subtitle">A Complete Guide to Living with the Fellows of Knox County</p>
   <p class="divider">· · · ✚ · · ·</p>
   <p class="edition">Living Fellows — Project Zomboid Build 42.21.0 Edition</p>
-  <p class="version">Release 0.26.84 — First Edition, Twenty-First Printing — You won't die... alone.</p>
+  <p class="version">Release 0.26.87 — First Edition, Twenty-Third Printing — You won't die... alone.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2rem;"><span class="callout-label">Note — </span>
@@ -333,7 +333,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li><a href="#emma"><strong>Ask EMMA.</strong></a> Check supplies, find out who needs care, read the old files or fit a radio and run expeditions from your camp computer.</li>
   <li><a href="#emma-grid"><strong>Restore the power.</strong></a> Connect a computer at a substation, crack its controller from camp and bring the real lights back, for a day or two at a time.</li>
 </ul>
-<p style="margin:0.7rem 0 0;">Updated for <strong>0.26.84</strong>, with <a href="#emma-grid">LARCH/GRID power control</a>, <a href="#ch6_weapons">smarter weapon choices</a>, working <a href="#ch13">barricades</a> and better <a href="#ch9e">beds</a>. Need the essentials? Open the <a href="#appF">quick reference card</a>.</p>
+<p style="margin:0.7rem 0 0;">Updated for <strong>0.26.87</strong>, with <a href="#emma-discovery">EMMA's building scanner</a>, <a href="#ch14b_clean">cleaning mixtures</a>, <a href="#ch13">barricades that reach across furniture</a> and <a href="#emma-grid">LARCH/GRID power control</a>. Need the essentials? Open the <a href="#appF">quick reference card</a>.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2rem;"><span class="callout-label">Note — </span>
@@ -1675,7 +1675,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </table>
 <p>The Base view can show or hide the blueprints.</p>
 
-<p>A barricade worker fetches a hammer, a plank and nails before it walks to the door or window, and keeps them until the job is done. It stands on the window's own tile and prefers a clear side; passable furniture or a bush on either side doesn't stop it. If someone is in the way it tries again shortly. With no materials anywhere in camp the job says so and resumes once you stock them. A window or door that is gone stops pulling workers off other jobs and can be cancelled.</p>
+<p>A barricade worker fetches a hammer, a plank and nails before it walks to the door or window, and keeps them until the job is done. It stands on the window's own tile and prefers a clear side; a bush on either side doesn't stop it. When furniture fills that tile on both sides, say a kitchen counter inside and a garden chair outside, it stands beside the furniture or one tile back and reaches across. If there is nowhere at all to stand, the job says so and tries again every three minutes, so clearing a tile gets it moving. If someone is in the way it tries again shortly. With no materials anywhere in camp the job says so and resumes once you stock them. A window or door that is gone stops pulling workers off other jobs and can be cancelled.</p>
 
 <figure class="plate terminal-shot">
   <a href="assets/lf_photo_barricade.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_photo_barricade.webp" width="1280" height="719" alt="A cutaway of a brick house. Dark planks are nailed across the bedroom window, and the top of a blue helmet shows above the green wall where a worker stands beside it. A television in the living room shows colour bars."></a>
@@ -1709,7 +1709,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 14 -->
 <h2 class="chapter" id="ch14"><img class="ico" src="https://pzwiki.net/w/images/4/45/WoodAxe.png" alt="">Chapter 14: Base Duty and Jobs<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<p>A companion on <strong>base duty</strong> lives at the camp and works for it. Give Stay or Guard inside the camp area, or choose a job in <span class="menu">More → Base</span>, and they are on duty. Residents sort storage, repair gear, craft supplies, keep watch, patrol, maintain barricades, and build queued construction. A guard on shift keeps watch around its post instead of taking general chores.</p>
+<p>A companion on <strong>base duty</strong> lives at the camp and works for it. Give Stay or Guard inside the camp area, or choose a job in <span class="menu">More → Base</span>, and they are on duty. Residents sort storage, repair gear, craft supplies, keep watch, patrol, maintain barricades, and build queued construction. A job assigned to a resident comes before routine shelving, but never before a zombie close by, the camp alarm or a wound that needs dressing. A guard on shift keeps watch around its post instead of taking general chores.</p>
 
 <figure class="plate terminal-shot">
   <a href="assets/lf_photo_work.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_photo_work.webp" width="1280" height="719" alt="Residents moving through a kitchen and dining room in a cutaway house. Above Tess the text reads Shelves are in order. Sanghwa, Jill and Xian are named nearby."></a>
@@ -1852,7 +1852,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>Right-click an eligible car or generator for a one-time order: <span class="menu">Refuel car from base</span>, <span class="menu">Inflate tires from base</span>, <span class="menu">Wash car from base</span>, or <span class="menu">Refuel generator from base</span>. A wash order cleans off any visible blood; routine upkeep waits until there is more of it. A full tank, inflated tires, missing supplies or a target outside camp reach gives a reason. A wash or tire order that can't find its supplies shows what is missing, returns anything it borrowed and tries again every three minutes. If a tool, can, target or worker goes missing during a job, the camp records the problem rather than keeping the item reserved forever.</p>
 
 <h3 id="ch14b_clean">Cleaning a Stain</h3>
-<p>Right-click a stained tile inside the camp and choose <span class="menu">Ask companion to clean this stain</span>. A resident on base duty comes and scrubs it with the game's own cleaning action. It needs a dry towel, sponge, cleaning brush, broom or mop, plus bleach or cleaning liquid: its own, or borrowed from marked camp storage and put back afterwards. When the option is greyed out it says why: no supplies, nobody on duty, no route to the spot from where the cleaner is, or the spot is already clean.</p>
+<p>Right-click a stained tile inside the camp and choose <span class="menu">Ask companion to clean this stain</span>. A resident on base duty comes and scrubs it with the game's own cleaning action. It needs a dry towel, sponge, cleaning brush, broom or mop, plus bleach, cleaning liquid or a prepared mixture: its own, or borrowed from marked camp storage and put back afterwards.</p>
+<p>A cleaner reaches for a stored mixture first. With none about, and a bucket and water to hand, it mixes one kind of cleaner into a bucket at 5%, normally two litres, using tainted water before clean. That batch cleans eight stains on a tenth of a litre of cleaner, where one stain done with the cleaner straight costs a quarter of a litre. Without a bucket or water it uses the cleaner straight and says so. Soap bars don't count, and no companion drinks a mixture, waters a crop or washes a car with one.</p>
+<p>When the option is greyed out it says why: no supplies, nobody on duty, no route to the spot from where the cleaner is, or the spot is already clean.</p>
 
 <h3>Zones, Storage and Maintenance</h3>
 <ul>
@@ -1910,7 +1912,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/b/bd/Rake.png" alt=""></td><td><strong>Hours</strong></td><td>Routine work is daylight only. A remote farm area gets no travel or work at night; a plot inside the camp may still be harvested or emergency-watered.</td></tr>
 </table>
 
-<p>Residents borrow and return exact supplies, and route crops and seeds to marked storage. Mark a <strong>Farming supplies</strong> container for seed, tools, compost, water cans and crop treatments. Farmers comment now and then when preparing ground, sowing, watering, harvesting, treating or losing a crop, or finding the tools unusable. Those remarks never hold up the work.</p>
+<p>Residents borrow and return exact supplies, and route crops and seeds to marked storage. Mark a <strong>Farming supplies</strong> container for seed, tools, compost, water cans and crop treatments. A farmer keeps one watering can of its own and uses it without a trip to the shelf. Dry plots wait for that farmer only while it can do the job: go off duty, leave camp, die or lose the can, and the plots open to the other residents. Farmers comment now and then when preparing ground, sowing, watering, harvesting, treating or losing a crop, or finding the tools unusable. Those remarks never hold up the work.</p>
 
 <!-- CH 15b -->
 <h2 class="chapter" id="ch15b"><img class="ico" src="https://pzwiki.net/w/images/5/54/Pot.png" alt="">Chapter 15b: The Kitchen and the Water<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
@@ -2006,8 +2008,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h2 class="chapter" id="emma">Chapter 16b: EMMA and Camp Computers<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
 <p>There is still someone willing to answer questions at the office. She lives on a desktop, calls herself the <strong>Emergency Management Assistant</strong>, and has rather more confidence in the county's emergency arrangements than the evidence warrants.</p>
-<p>EMMA reads camp records, finds supplies, explains blocked work and helps you ask for medical care or fuel. Add a walkie-talkie and the same computer becomes a radio desk and expedition station. Everything runs <strong>offline</strong>: no internet, account or external AI service is needed.</p>
-<p class="tbl-note">Jump to <a href="#emma-start">getting started</a> · <a href="#emma-questions">questions and requests</a> · <a href="#emma-radio">radio and expeditions</a> · <a href="#emma-grid">restoring the power</a> · <a href="#emma-buildings">building controls</a> · <a href="#emma-files">files and passwords</a> · <a href="#emma-reset">factory reset</a>.</p>
+<p>EMMA reads camp records, finds supplies, explains blocked work and helps you ask for medical care or fuel. Add a walkie-talkie and the same computer becomes a radio desk and, inside your camp, an expedition station. Everything runs <strong>offline</strong>: no internet, account or external AI service is needed.</p>
+<p class="tbl-note">Jump to <a href="#emma-start">getting started</a> · <a href="#emma-questions">questions and requests</a> · <a href="#emma-radio">radio and expeditions</a> · <a href="#emma-grid">restoring the power</a> · <a href="#emma-buildings">building controls</a> · <a href="#emma-discovery">building scanner</a> · <a href="#emma-files">files and passwords</a> · <a href="#emma-reset">factory reset</a>.</p>
 <p class="tbl-note">The screens below were captured in-game. On the website, select a screen image to open it at full size.</p>
 
 <figure class="plate terminal-shot">
@@ -2080,7 +2082,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </ul>
 <p>From a <strong>camp station</strong>, review and launch Scout, Search, Fish or Collect wood missions, request reports, recall the crew and answer route decisions. <strong>Choose destination on map</strong> opens your map and brings the chosen target back to mission review (<a href="#ch17">Chapter 17</a>). <strong>Team / Marcus</strong> also offers taxi booking and status through the usual service.</p>
 <p>The team's radios must be working, equipped, on the same channel and within range. Fresh progress requires a return transmission. During an active mission, EMMA asks before scanning away from the team channel because you could miss a call.</p>
-<p>When radio and grid control are both available, <strong>More services</strong> holds Computer upgrades and Expedition station. Each page keeps its numbered choices visible.</p>
+<p>When radio and grid control are both available, <strong>More services</strong> holds Computer upgrades and Expedition station. The Expedition station only appears on a computer inside the camp. Each page keeps its numbered choices visible.</p>
 
 <h4>Battery Backup and Moving Hardware</h4>
 <p>An optional UPS needs <strong>Electrical 4, a screwdriver, one wire, four scrap and a charged car battery</strong>. A full, healthy battery supplies about six game hours of active computer and radio use; poorer condition reduces that time. It powers this PC, not the building or door motors. Remove it to recharge normally. A computer with a mounted radio keeps listening with the window closed, so on battery alone it runs flat in those same six hours. Without a radio, an idle battery holds its charge until you come back.</p>
@@ -2173,13 +2175,29 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </figure>
 
 <h3 id="emma-buildings">Connect the Building</h3>
-<p>Open <span class="menu">Local services → Connect local controls</span>. The connection needs <strong>Electrical 2, a screwdriver, one wire and two electronics scrap</strong>. Use <strong>Equipment</strong> to find the building's loaded devices; a large building may take another visit to the list while discovery finishes.</p>
+<p>Open <span class="menu">Local services → Building services → Connect local controls</span>. The connection needs <strong>Electrical 2, a screwdriver, one wire and two Scrap Electronics</strong>. Once connected, choose <strong>Discover building</strong> to look for equipment. Opening <strong>Equipment</strong> only shows what you have already found.</p>
 <p>Building security has its <strong>own password</strong>. Recover it or use the matching physical key before issuing protected commands. Unlocking the computer, or carrying one into a bank, does not unlock the building.</p>
 
 <figure class="plate terminal-shot">
   <a href="assets/lf_emma_controls.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_emma_controls.webp" width="1280" height="720" alt="EMMA's in-game Local services page, offering Connect local controls, Authorize building security and Equipment, with numbered keyboard choices."></a>
   <figcaption><span class="plate-no">Screen 13</span> Start with a local connection, then authorize the building and inspect its equipment. Each physical upgrade has its own requirements. <span class="credit">In-game capture: Living Fellows</span></figcaption>
 </figure>
+
+<h4 id="emma-discovery">Discover the Building</h4>
+<p>Choose <span class="menu">Discover building</span>, or ask <code>scan building</code> at a connected computer. The scanner works through the building's loaded levels. Higher Electrical skill speeds it up; a large building takes longer. Nothing is surveyed just because you connected the PC or opened its menu.</p>
+
+<figure class="plate terminal-shot">
+  <a href="assets/lf_emma_building_scan.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_emma_building_scan.webp" width="2560" height="1369" alt="Actual in-game aquamarine LARCH/SCAN screen at Rosewood Fire Department. Discovery is at 7%, with a radar sweep, progress bars for F0, F1 and F2, and a growing list of lights and a locked garage door. More, Floor, Abort scan and Back are numbered controls."></a>
+  <figcaption><span class="plate-no">Screen 14</span> Discovery running at Rosewood fire station. The radar shows equipment on the selected level; the bars show the survey's progress. The list fills as devices are found. Select the image to read the screen at full size. <span class="credit">In-game capture: Living Fellows 0.26.87</span></figcaption>
+</figure>
+
+<ul>
+  <li><strong>Choose a row</strong> by number or mouse. A controllable device opens its usual menu; <strong>Back</strong> returns to the scanner, which keeps working while you inspect the device.</li>
+  <li><strong>More</strong>, <kbd>Page Up</kbd> / <kbd>Page Down</kbd> or the mouse wheel pages through the list. <strong>Floor</strong> changes the radar level when several are available. On a small screen, the list takes priority over the radar.</li>
+  <li><strong>Read-only</strong> finds include fridges and freezers, televisions, radios, computers and the building alarm. They are useful records, not extra remote switches. Doors, lights and other controllable equipment still need their usual authorization and upgrades.</li>
+</ul>
+<p><strong>Closing pauses discovery.</strong> Reopen the computer and choose <strong>Resume discovery</strong> to continue. <strong>Abort scan</strong> ends the pass but keeps the equipment already found; the next scan starts fresh. Your discovered equipment survives a game reload, but a partly finished scan starts again.</p>
+<p>The computer keeps up to <strong>256 controls and another 256 read-only finds</strong>. EMMA reports a full list or areas that were out of range. Unloaded tiles are not proof of an empty building. Finished surveys award a little Electrical XP once per building. Discovery does no work while the terminal is closed.</p>
 
 <table>
   <tr><th>Control</th><th>What to expect</th></tr>
@@ -2199,7 +2217,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <figure class="plate terminal-shot">
   <a href="assets/lf_emma_files.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_emma_files.webp" width="1280" height="720" alt="A real in-game purple Brooks Library terminal, showing the dated Summer reading file and four selectable stories beside the transcript."></a>
-  <figcaption><span class="plate-no">Screen 14</span> A Brooks Library computer's old files. Firm branding and screen colour belong to the machine; its records stay with it when moved. <span class="credit">In-game capture: Living Fellows</span></figcaption>
+  <figcaption><span class="plate-no">Screen 15</span> A Brooks Library computer's old files. Firm branding and screen colour belong to the machine; its records stay with it when moved. <span class="credit">In-game capture: Living Fellows</span></figcaption>
 </figure>
 
 <p><strong>County files and EMMA</strong> holds reference material about the Knox Event, towns, businesses, broadcasts and the assistant herself. Try <code>tell me about West Point</code>, <code>what is KnoxTalk?</code>, <code>what caused the outbreak?</code> or <code>tell me about the empty bus</code>, then <code>tell me more</code>. Outbreak fragments are original, unverified local accounts. Later reports appear when your save reaches their date; theories are not presented as a known cause.</p>
@@ -2505,7 +2523,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 18c -->
 <h2 class="chapter" id="ch18c"><img class="ico" src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Chapter 18c: Strange Folk<span class="stage stage-end">Strangers</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<div class="callout callout-tip"><span class="callout-label">Note — </span>Release 0.26.84 uses native bridge protocol <code>42.21-isocompanion-25</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Release 0.26.86 uses native bridge protocol <code>42.21-isocompanion-27</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
 
 <p>Not every stranger is a household looking for supplies. Sixty-five hand-made characters live in Knox County: a butcher with a back room, a deputy still running her checkpoint, a grandmother guarding a child's bedroom with a broken bottle, a man who smeared himself in the dead so they'd leave him alone. Each one is a one-off with their own rules, voice and ending. They use the same standing, trade, combat, navigation and recruitment rules as other survivors, and their animals are real Build 42 animals with names that survive saves.</p>
 
@@ -2740,7 +2758,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p><span class="menu">More → Support</span> is the first place to look when something is wrong, and the report it copies is the most useful thing to attach to a bug report.</p>
 <table>
   <tr><th>Line</th><th>What a healthy game shows</th></tr>
-  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.84</td></tr>
+  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.86</td></tr>
   <tr><td>Game build / supported build</td><td>42.21.0 on both sides</td></tr>
   <tr><td>Runtime active</td><td>Yes. If not, <strong>Runtime disabled reason</strong> says why.</td></tr>
   <tr><td>Native bridge status, actor provider, bridge protocol</td><td>The bridge is ready, and its protocol matches the expected one. A mismatch means an old or mixed install.</td></tr>
@@ -2783,7 +2801,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <p class="appendix-label">Appendix E</p>
 <h2 class="chapter" id="appE">Picture Credits <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
-<p>Item and moodle icons and Plates 1, 2, 4–10 come from <strong>PZwiki</strong>, the Project Zomboid community wiki (pzwiki.net). The game art shown in them belongs to <strong>The Indie Stone</strong>. The cover banner and Plate 3 are Living Fellows project art. EMMA Screens 1–5 are actual in-game captures of Living Fellows' computer interface, not concept images; any Project Zomboid business marks shown remain The Indie Stone's.</p>
+<p>Item and moodle icons and Plates 1, 2, 4–10 come from <strong>PZwiki</strong>, the Project Zomboid community wiki (pzwiki.net). The game art shown in them belongs to <strong>The Indie Stone</strong>. The cover banner and Plate 3 are Living Fellows project art. EMMA Screens 1–15 are actual in-game captures of Living Fellows' computer interface, not concept images; any Project Zomboid business marks shown remain The Indie Stone's.</p>
 <table>
   <tr><th>Plate</th><th>Subject</th><th>Source file</th></tr>
   <tr><td>1</td><td>Muldraugh from above</td><td class="tbl-item">Muldraugh.png</td></tr>
@@ -2797,7 +2815,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td>9</td><td>Zombies on the road</td><td class="tbl-item">DecomposingGroup.jpg</td></tr>
   <tr><td>10</td><td>Convenience store</td><td class="tbl-item">ConvenienceStore_Muldraugh.png</td></tr>
   <tr><td>Photos 1–10</td><td>Companion panel, right-click menu, boarding, a yard fight, Medical Check, sleep, base layout, a barricade, camp work and a grave. The game's world art in them belongs to The Indie Stone.</td><td>Living Fellows in-game framebuffer captures from a test save, Build 42.21.0</td></tr>
-  <tr><td>Screens 1–14</td><td>EMMA, Larchfield BIOS, LARCH/WAVE, LARCH/GRID, local services and owner files. Screens 4, 8, 9 and 11 also show the game's world; that art belongs to The Indie Stone.</td><td>Living Fellows in-game framebuffer captures, Build 42.21.0</td></tr>
+  <tr><td>Screens 1–15</td><td>EMMA, Larchfield BIOS, LARCH/WAVE, LARCH/GRID, local services, the building scanner and owner files. Screens 4, 8, 9 and 11 also show the game's world; that art belongs to The Indie Stone.</td><td>Living Fellows in-game framebuffer captures, Build 42.21.0</td></tr>
 </table>
 <p class="tbl-note">Living Fellows is an unofficial mod, not affiliated with or endorsed by The Indie Stone.</p>
 
@@ -2959,6 +2977,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>Try <code>who is hurt?</code>, <code>how many nails?</code>, <code>any problems?</code> or <code>what should I do?</code>. Camp records need a PC at home; requests need <span class="k">Y/N</span> confirmation.</p>
 <p><span class="k">Local services → Computer upgrades</span>: mount a two-way radio with Electrical 2, screwdriver, 1 wire and 2 scrap. Ask <code>open radio</code> for scanning, the notebook and team services.</p>
 <p><span class="k">LARCH/GRID</span>: link a substation, crack it from a powered camp PC, energize.</p>
+<p><span class="k">Building services</span>: connect local controls, then <span class="k">Discover building</span>. Closing pauses; <span class="k">Resume discovery</span> continues. Equipment opens saved finds.</p>
 <p class="tbl-note">Ch 16b</p>
 </div>
 
@@ -2978,7 +2997,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CARD END -->
 
 <div class="page-footer">
-  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.84 &nbsp;·&nbsp; First Edition, Twenty-First Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
+  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.87 &nbsp;·&nbsp; First Edition, Twenty-Third Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
 </div>
 <script>
 (function () {
