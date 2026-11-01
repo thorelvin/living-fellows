@@ -74,3 +74,58 @@ native supplies and is not a camp-wide unattended routing benchmark.
 
 This request covers a Git commit and branch push; it does not install locally
 or upload the Steam Workshop item.
+
+## Review fixes, 1 November 2026
+
+A review of the record above found the following before any upload, so the
+version stays 0.26.86. The bridge's code did not change, but the protocol moves
+to `42.21-isocompanion-27` because the 0.26.85 and first 0.26.86 bridges share
+protocol 26 and differ in behaviour: a stale copy would otherwise load silently.
+Its manifest also read 0.26.85.
+
+| Problem | Fix |
+| --- | --- |
+| Assigned work (78) and cleaning with borrowed supplies (86) carried none of the danger checks `settlement` has. A worker kept working with a zombie inside 4.5 tiles (combat 72) and ignored the camp alarm (64-70) until something was in attack reach. The record above says combat kept its priority; its tests only tried a zombie already attacking. | Both now need a quiet camp and no alarm. Assigned work moves to 76, above routine shelving (74) and below the lowest rescue (78). |
+| A worker lost while mixing left the old batch on the job with no receipts. The next worker failed it with `cleaning_loan_missing` every time, and `auditCleaning` queues nothing while a cleaning job is open, so automatic cleaning stopped for the whole camp until the player cancelled. | Recovery forgets the batch, and a batch nobody holds a receipt for is planned again, which also frees a save already stuck. |
+| A water job named for the farmer carrying the can could outlive that farmer. Nobody else may claim a named job and `openJobAt` refuses a second job on the plot, so those crops stayed dry until the farmer came back. | The farm audit reopens the job if that farmer leaves duty or camp, changes role, dies or loses the can. |
+| Removing the passable-furniture path left a window with furniture on both sides unboardable. Its controlled pass deleted the bench from the clone. `canStand()` accepts solid-transparent furniture beside a window, so it proved nothing. | The worker stands beside the furniture or one tile back and reaches across, on the same side. `ISBarricadeAction` has no reach limit, the stock `AdjacentFreeTileFinder.FindWindowOrDoor` falls back to neighbouring tiles the same way, and `IsoBarricade.GetBarricadeForCharacter` reads the side from the worker's row or column. Full-height furniture and walls are still refused, and the readable pause remains when no tile qualifies. |
+| A work order scores 62, below routine shelving at 74. A barricade worker with the job in hand shelved logs, pasta and a pillow for minutes. This, not indoor routing, was the "shuffling around 12031-12032,6746" and the "no plank by five minutes" recorded above and in the [base job record](validation-base-job-latency-0.26.85.md). | Routine shelving no longer interrupts a work order, as it already could not interrupt Stay or Guard. Real overload still does. |
+
+Local paths in the 0.26.85 records were replaced with placeholders.
+
+Each fix has a regression test, and each was reverted in turn to confirm its test
+fails (14 controls, all red, files restored by hash).
+
+Live evidence uses clones of the Rising save at the reported window 12034,6748,
+with the counter inside and the outdoor seat left in place (the base job record
+calls it a bench; the screenshots show a white garden chair). The save moved on
+since the runs above: Sanghwa is now on infection watch and takes no jobs, so the
+probe picks a free resident instead, here Xian. The probe no longer expects the
+window to block.
+
+| Run | Source | Result |
+| --- | --- | --- |
+| `SC-Harness-20261101-091547-a2184be3` | Unfixed 0.26.86, natural (worker Sanghwa, who takes no jobs) | No plank in five minutes. First water 27.9 s. |
+| `SC-Harness-20261101-090010-17c77e65` | Reach only, natural | First plank 246.8 s, after the shelving trips. |
+| `SC-Harness-20261101-090906-80feed87` | All fixes, natural | **First plank 13.8 s**, from the kitchen tile 12034,6746 behind the counter, all four planks on, no furniture moved. First water 107.5 s. |
+| `SC-Harness-20261101-085247-f600b7f1` | Reach only, staged | First plank 245.3 s from the same tile, all four within about 20 s of it. |
+
+Engine screenshots from the natural and staged runs show the worker behind the
+counter at the window, with the chair still outside. The planks are on the inside
+face, so they do not show from the outdoor camera.
+
+These are not a clean probe pass. `latency_burial_progress` still fails in all of
+them, unfixed 0.26.86 included: Jill is tired in this save and sleeps through the
+run, so no burial is attempted. First water is slower in the fixed runs, most
+likely because Xian is now boarding the window instead of being free to water,
+and Tess rests first; that difference was not isolated. The worker did not walk
+outdoors, so the outside reach tile is covered by regression tests only.
+
+Still open: routine shelving also outranks a camp alarm at contact level (74
+against 70) for a resident with surplus to shelve. That predates this release.
+
+`scripts/Test-Project.ps1 -Jobs 6` passes **29/29 stages** in 142 seconds
+(`PROJECT_TEST_PASS`). The protocol-27 bridge has SHA-256
+`fcf624cb4220d6806229e504a46e93a37a6d128d76f6cdcccd7e5e942568ac4c`; the live runs
+above use it through an isolated source bridge, except the unfixed baseline. Not
+installed locally or uploaded to the Workshop as part of this work.

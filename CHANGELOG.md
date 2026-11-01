@@ -11,9 +11,17 @@
   water only. Cleaner mixtures cannot enter drinking or other water jobs.
 - Strengthens bed exits beside low tables, trying verified alternate floor
   positions while preserving the companion, inventory and furniture.
-- Farmers retain and use their own watering can. Assigned camp work takes
-  priority over optional shelving, precise interaction distances are respected,
-  and obstructed barricade work positions pause with a readable retry reason.
+- Farmers retain and use their own watering can. A watering job named for that
+  farmer reopens to the others if the farmer leaves duty or camp, dies or loses
+  the can. Assigned camp work takes priority over optional shelving, but not
+  over a nearby zombie, the camp alarm or a wound to dress. Precise interaction
+  distances are respected.
+- With furniture on both sides of a window or door, a barricade worker stands
+  beside it or one tile back and reaches across. If there is nowhere to stand,
+  the job pauses with a readable reason and retries. Routine shelving no longer
+  takes a worker off a barricade or other work order.
+- A worker lost while mixing no longer leaves a cleaning job that can never
+  finish and that stops automatic cleaning for the whole camp.
 - EMMA's expedition station is available only through Local services on a camp
   computer. Stale menus and map callbacks recheck the computer's location.
 - Retains native aim during tactical movement, bounds forward-turn waits and
@@ -23,8 +31,9 @@
   had five of six companions survive and seven of nine zombies killed, with
   rapid target/movement handoffs still present. Automated passes do not certify
   this as clean live combat acceptance.
-- Ships the rebuilt bridge; protocol remains `42.21-isocompanion-26` for
-  Project Zomboid 42.21.0. Keep its matching Lua and native payload together.
+- Ships the rebuilt bridge with protocol `42.21-isocompanion-27` for Project
+  Zomboid 42.21.0, so a 0.26.85 bridge is refused. Install its matching Lua and
+  bridge together.
 - See the [validation record](docs/validation-release-0.26.86.md) for completed
   cleaning, bed-exit and doorway checks, mixed combat results and remaining
   natural indoor routing limits.

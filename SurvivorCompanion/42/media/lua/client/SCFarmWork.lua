@@ -882,10 +882,34 @@ local function recoverPending(limit)
     if SC.BaseLife and SC.BaseLife.farmRecoveryCursor then SC.BaseLife.farmRecoveryCursor(cursor) end
 end
 
+-- A water job names the farmer carrying the can. Nobody else may claim a job
+-- with a name on it and the plot cannot queue another, so reopen the job once
+-- that farmer has left duty, left camp, died or lost the can.
+local function reopenCarriedWaterJobs(base)
+    local able = {}
+    for _, job in ipairs(base.jobs or {}) do
+        local id = job.assignedId
+        if job.type == "farm" and id ~= nil
+            and (job.state == "pending" or job.state == "blocked") then
+            if able[id] == nil then
+                local resident = SC.BaseLife.resident(id)
+                local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(id)
+                local actor = record and record.actor
+                able[id] = resident ~= nil and resident.role == "farmer" and resident.duty == true
+                    and actor ~= nil and not U().isDead(actor)
+                    and SC.BaseLife.isInside(actor) == true
+                    and FarmWork.carriedWaterContainer(actor) ~= nil
+            end
+            if able[id] == false then job.assignedId = nil end
+        end
+    end
+end
+
 function FarmWork.audit(base)
     base = base or (SC.BaseLife and SC.BaseLife.active())
     if not base then return false, "base_missing" end
     recoverPending(math.max(1, math.floor(config("farmRecoveryPerPulse", 4))))
+    reopenCarriedWaterJobs(base)
     local farmZones = zones()
     if #farmZones == 0 then return false, "farm_zone_missing" end
     local budget = math.max(1, math.floor(config("farmScanSquaresPerSlice", 16)))

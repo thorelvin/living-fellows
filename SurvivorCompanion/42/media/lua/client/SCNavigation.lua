@@ -1105,7 +1105,17 @@ end
 
 -- Barricades are attached to a window/door edge. The worker must stand on the
 -- selected edge square, not merely within the usual interaction radius across
--- the wall. Automatic maintenance can choose either clear side.
+-- the wall. Automatic maintenance can choose either clear side. The third
+-- result names the side, for a caller that wants to stay on it.
+--
+-- Low furniture can fill the edge square on both sides, as a kitchen counter
+-- and a garden chair do at one front window we know of. Routes cannot enter those tiles
+-- (canStand() accepts anything beside a window, so it proves nothing), but
+-- nobody needs to: ISBarricadeAction has no reach limit, and the stock
+-- AdjacentFreeTileFinder.FindWindowOrDoor falls back to neighbouring tiles the
+-- same way. The worker stands beside the furniture, or one tile back from it,
+-- and reaches across. Native boarding picks its side from the worker's row or
+-- column (IsoBarricade.GetBarricadeForCharacter), and these keep that row.
 function Navigation.barricadeWorkSquare(actor, object, objectSquare, side, intent)
     local utility = U()
     local x, y, z = utility.position(objectSquare)
@@ -1115,23 +1125,58 @@ function Navigation.barricadeWorkSquare(actor, object, objectSquare, side, inten
     local opposite = known and utility.gridSquare(x + (north and 0 or -1),
         y + (north and -1 or 0), z) or nil
     local candidates = {}
-    if side ~= "opposite" and same then candidates[#candidates + 1] = same end
-    if side ~= "same" and opposite then candidates[#candidates + 1] = opposite end
+    if side ~= "opposite" and same then candidates[#candidates + 1] = { square = same, side = "same" } end
+    if side ~= "same" and opposite then candidates[#candidates + 1] = { square = opposite, side = "opposite" } end
     if #candidates == 0 then return nil, "work_side_unloaded" end
-    local best, bestDistance, busy
-    for _, square in ipairs(candidates) do
-        local clear, reason = Navigation.standingSquareClear(actor, square)
-        local admitted = type(intent) ~= "table" or intent.workCampOnly ~= true
+    local function admittedHere(square)
+        return type(intent) ~= "table" or intent.workCampOnly ~= true
             or Navigation._workSquareAdmitted(square, intent)
+    end
+    local best, bestDistance, bestSide, busy
+    for _, candidate in ipairs(candidates) do
+        local clear, reason = Navigation.standingSquareClear(actor, candidate.square)
+        local admitted = admittedHere(candidate.square)
         if admitted and reason == "occupied" then busy = true end
         if clear and admitted then
-            local distance = utility.distance(actor, square)
+            local distance = utility.distance(actor, candidate.square)
             if distance ~= nil and (bestDistance == nil or distance < bestDistance) then
-                best, bestDistance = square, distance
+                best, bestDistance, bestSide = candidate.square, distance, candidate.side
+            end
+        end
+        candidate.lowFurniture = reason == "furniture" or reason == "static_blocker"
+            and select(2, utility.squareStaticBlocker(candidate.square)) == "solid_transparent"
+    end
+    if best ~= nil then return best, nil, bestSide end
+    if busy then return nil, "work_side_busy" end
+    for _, candidate in ipairs(candidates) do
+        if candidate.lowFurniture then
+            local ax, ay = utility.position(candidate.square)
+            local back = candidate.side == "same" and 1 or -1
+            local reachable = {
+                { ax + (north and -1 or 0), ay + (north and 0 or -1), 0 },
+                { ax + (north and 1 or 0), ay + (north and 0 or 1), 0 },
+                { ax + (north and 0 or back), ay + (north and back or 0), 1 },
+            }
+            for _, point in ipairs(reachable) do
+                local square = utility.gridSquare(point[1], point[2], z)
+                -- isBlockedTo reads walls, windows and doors, not the furniture.
+                local walled, wallKnown
+                if square then walled, wallKnown = utility.call(candidate.square, "isBlockedTo", square) end
+                if wallKnown and walled == false and admittedHere(square) then
+                    local clear, reason = Navigation.standingSquareClear(actor, square)
+                    if reason == "occupied" then busy = true end
+                    local distance = clear and utility.distance(actor, square)
+                    -- The tile one back is a longer reach: only take it when
+                    -- the tiles beside the furniture are no nearer by a step.
+                    distance = distance and distance + point[3]
+                    if distance and (bestDistance == nil or distance < bestDistance) then
+                        best, bestDistance, bestSide = square, distance, candidate.side
+                    end
+                end
             end
         end
     end
-    if best ~= nil then return best end
+    if best ~= nil then return best, nil, bestSide end
     -- Use the same furniture admission as topology/pathfinding. canStand()
     -- alone accepts benches and counters that the retained route cannot enter,
     -- leaving a worker searching until the entire job times out.

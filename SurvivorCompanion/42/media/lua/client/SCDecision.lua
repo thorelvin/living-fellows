@@ -733,11 +733,14 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         -- Bag, clothing and packing chores wait for a following leader to
         -- settle, like idle work; being overloaded does not.
         -- Routine shelving under the Strength limit is upkeep, like a water
-        -- refill: it never walks a Stay or Guard companion off its post, and
-        -- never starts for an expedition member, whose mission owns them.
+        -- refill: it never walks a Stay or Guard companion off its post, never
+        -- starts for an expedition member, whose mission owns them, and never
+        -- takes a worker off a work order, which scores below it (a barricade
+        -- worker shelved logs and pasta for minutes with its job in hand).
         local shelvingBarred = commands.expeditionMember == true
             or commands.recruited
-                and (commands.order == "stay" or commands.order == "guard")
+                and (commands.order == "stay" or commands.order == "guard"
+                    or commands.order == "work")
         local routineShelving = ok and type(load) == "table"
             and type(load.surplus) == "table" and load.surplus.shelveOnly == true
         if ok and load and load.shouldManage and commands.temporaryStay ~= true
@@ -841,18 +844,25 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
             if not bleeding then
                 -- Finish verified deposits and borrowed-tool returns before
                 -- ordinary surplus sorting can reclaim this resident forever.
-                local settlement = not selfMedicalNeed and threatCount == 0 and immediate == 0
+                local quietHere = not selfMedicalNeed and threatCount == 0 and immediate == 0
                     and humanThreat == nil
+                local settlement = quietHere
                     and SC.Production and type(SC.Production.settlementFor) == "function"
                     and SC.Production.settlementFor(actor) or nil
-                local priorityWork = SC.BaseLife and SC.BaseLife.priorityWorkFor
+                -- These two only lift work above routine upkeep (logistics 74).
+                -- A zombie that is close but not yet attacking scores 72 and an
+                -- alarm 64-70, so neither may apply while either is about. At 76
+                -- a resident with an assigned job still stops to dress a wound
+                -- (rescue starts at 78).
+                local priorityWork = quietHere and not alarm
+                    and SC.BaseLife and SC.BaseLife.priorityWorkFor
                     and SC.BaseLife.priorityWorkFor(U().idOf(actor))
-                local cleaningSettlement = SC.BaseWork and SC.BaseWork.cleaningSettlement
+                local cleaningSettlement = quietHere and not alarm
+                    and SC.BaseWork and SC.BaseWork.cleaningSettlement
                     and SC.BaseWork.cleaningSettlement(actor)
                 -- Exact borrowed supplies must finish/return before optional
-                -- loadout searches. Real overload, medical needs and danger
-                -- retain their higher scores and normal cancellation paths.
-                add("base_work", (settlement or cleaningSettlement) and 86 or priorityWork and 78 or 58, false)
+                -- loadout searches.
+                add("base_work", (settlement or cleaningSettlement) and 86 or priorityWork and 76 or 58, false)
             end
         end
         if threatCount == 0 and not bleeding and SC.ExpeditionPrototype then
@@ -1593,7 +1603,8 @@ local function doWork(actor, player, commands, snapshot, state)
         end
         local requestedSide = commands.workTarget.barricadeSide
             or state.workApproachSide
-        interactionSquare, sideReason = SC.Navigation.barricadeWorkSquare(
+        local workSide
+        interactionSquare, sideReason, workSide = SC.Navigation.barricadeWorkSquare(
             actor, object, targetSquare, requestedSide, {
                 workCampOnly = commands.workTarget.baseJobId ~= nil,
                 workReach = commands.workTarget.baseJobId ~= nil,
@@ -1601,15 +1612,14 @@ local function doWork(actor, player, commands, snapshot, state)
         if not interactionSquare and state.workApproachSide
             and commands.workTarget.barricadeSide == nil then
             state.workApproachSide = nil
-            interactionSquare, sideReason = SC.Navigation.barricadeWorkSquare(
+            interactionSquare, sideReason, workSide = SC.Navigation.barricadeWorkSquare(
                 actor, object, targetSquare, nil, {
                     workCampOnly = commands.workTarget.baseJobId ~= nil,
                     workReach = commands.workTarget.baseJobId ~= nil,
                 })
         end
         if interactionSquare and commands.workTarget.barricadeSide == nil then
-            state.workApproachSide = utility.sameSquare(interactionSquare, targetSquare)
-                and "same" or "opposite"
+            state.workApproachSide = workSide
         end
     else
         interactionSquare = targetSquare
@@ -1658,19 +1668,19 @@ local function doWork(actor, player, commands, snapshot, state)
             end
         end
     end
-    local wrongRemovalSide = (commands.workTarget.kind == "remove_barricade"
-        or commands.workTarget.kind == "barricade")
+    -- Boarding needs the exact tile. Without this the route calls half a tile
+    -- from its centre arrived: on the tile's edge, which is the next square,
+    -- so the side check above sends the worker here again until it times out.
+    -- The tile is the whole test: reaching across furniture can leave a worker
+    -- anywhere on it further than the usual radius from the window.
+    local exactTile = commands.workTarget.kind == "remove_barricade"
+        or commands.workTarget.kind == "barricade"
+    local offWorkTile = exactTile
         and utility.squareKey(utility.squareOf(actor)) ~= utility.squareKey(interactionSquare)
-    if utility.distance(actor, object) > 1.75 or wrongRemovalSide then
+    if offWorkTile or not exactTile and utility.distance(actor, object) > 1.75 then
         if not SC.Navigation or type(SC.Navigation.request) ~= "function" then
             return finishWork(actor, player, state, "work_navigation_unavailable")
         end
-        -- Boarding needs the exact tile. Without this the route calls half a tile
-        -- from its centre arrived: on the tile's edge, which is the next square,
-        -- so the side check above sends the worker here again until it times out.
-        -- Anywhere on the tile will do, since passable furniture can fill its centre.
-        local exactTile = commands.workTarget.kind == "remove_barricade"
-            or commands.workTarget.kind == "barricade"
         return SC.Navigation.request(actor, interactionSquare, commandMoveMode(commands, player), {
             action = "approach_interaction",
             targetSquare = interactionSquare,

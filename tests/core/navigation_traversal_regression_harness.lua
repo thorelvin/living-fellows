@@ -231,6 +231,107 @@ do
         "a solid tile is still refused")
     U.gridSquare, U.loadedSquare = oldGridSquare, oldLoadedSquare
 end
+-- Low furniture on both edge squares: stand beside it or one tile back and
+-- reach across, on the side the native action will read from that row.
+do
+    local tiles = {}
+    local function tile(x, y)
+        local value = square(x, y)
+        value.walls = {}
+        function value:isBlockedTo(other) return self.walls[other] == true end
+        tiles[x .. ":" .. y] = value
+        return value
+    end
+    local function furnish(value)
+        local bench = { __class = "IsoObject" }
+        function bench:getSurfaceOffset() return 16 end
+        value.objects[#value.objects + 1] = bench
+        return bench
+    end
+    local function clearFurniture(value) value.objects = {} end
+    for x = 88, 92 do for y = 87, 92 do tile(x, y) end end
+    local oldGridSquare, oldLoadedSquare = U.gridSquare, U.loadedSquare
+    U.gridSquare = function(x, y) return tiles[x .. ":" .. y] end
+    U.loadedSquare = function(value) return value end
+    local worker = actor()
+    local function near(x, y)
+        worker.x, worker.y = x + 0.5, y + 0.5
+        worker.square = tiles[x .. ":" .. y]
+    end
+    local north = {}
+    function north:getNorth() return true end
+    local front, inside = tiles["90:90"], tiles["90:89"]
+    local beside, otherBeside, back = tiles["91:90"], tiles["89:90"], tiles["90:91"]
+    local behind = tiles["90:88"]
+    -- The counter runs the length of the inside wall, as at the reported window.
+    for x = 89, 91 do furnish(tiles[x .. ":89"]) end
+    furnish(front)
+    near(92, 90)
+    local spot, why, side = N.barricadeWorkSquare(worker, north, front)
+    check(spot == beside and why == nil and side == "same",
+        "furniture on both edge squares sends the worker beside it")
+    near(88, 90)
+    spot, why, side = N.barricadeWorkSquare(worker, north, front)
+    check(spot == otherBeside and side == "same", "the nearer tile beside the furniture wins")
+    near(90, 87)
+    spot, why, side = N.barricadeWorkSquare(worker, north, front)
+    check(spot == behind and side == "opposite",
+        "a worker indoors reaches across the counter instead of going round")
+    spot, why, side = N.barricadeWorkSquare(worker, north, front, "same")
+    check((spot == beside or spot == otherBeside) and side == "same",
+        "an explicit same-side order never reaches from the opposite row")
+    near(90, 87)
+    spot, why, side = N.barricadeWorkSquare(worker, north, front, "opposite")
+    check(spot == behind and side == "opposite", "an explicit opposite-side order keeps that row")
+    near(90, 92)
+    spot = N.barricadeWorkSquare(worker, north, front, "same")
+    check(spot == beside or spot == otherBeside,
+        "the tile one back only wins when it is more than a step nearer")
+    furnish(beside) furnish(otherBeside)
+    spot, why, side = N.barricadeWorkSquare(worker, north, front, "same")
+    check(spot == back and side == "same", "the tile one back serves when nothing beside is clear")
+    clearFurniture(beside) clearFurniture(otherBeside)
+    front.walls[beside], front.walls[otherBeside], front.walls[back] = true, true, true
+    spot, why = N.barricadeWorkSquare(worker, north, front, "same")
+    check(spot == nil and why == "work_side_blocked", "nobody reaches through a wall")
+    front.walls[beside], front.walls[otherBeside], front.walls[back] = nil, nil, nil
+    near(92, 92)
+    local bystander = actor()
+    bystander.square = beside
+    beside.moving[1], otherBeside.moving[1], back.moving[1] = bystander, bystander, bystander
+    spot, why = N.barricadeWorkSquare(worker, north, front, "same")
+    check(spot == nil and why == "work_side_busy", "people in every reach tile means wait, not give up")
+    beside.moving[1], otherBeside.moving[1], back.moving[1] = nil, nil, nil
+    local oldAdmitted = N._workSquareAdmitted
+    N._workSquareAdmitted = function(value) return value == back end
+    spot = N.barricadeWorkSquare(worker, north, front, "same", { workCampOnly = true })
+    check(spot == back, "camp work only takes a reach tile inside the work area")
+    N._workSquareAdmitted = oldAdmitted
+    function front:isSolid() return true end
+    clearFurniture(front)
+    spot, why = N.barricadeWorkSquare(worker, north, front, "same")
+    check(spot == nil and why == "work_side_blocked", "nobody reaches over full-height furniture")
+    front.isSolid = nil
+    function front:isSolidTrans() return true end
+    spot = N.barricadeWorkSquare(worker, north, front, "same")
+    check(spot == beside or spot == otherBeside,
+        "a kitchen counter reports solid-transparent and is still reached across")
+    front.isSolidTrans = nil
+    spot, why, side = N.barricadeWorkSquare(worker, north, front)
+    check(spot == front and side == "same", "a clear edge square is still the first choice")
+    -- A window in a west wall: the row rule runs along X instead.
+    local west = {}
+    function west:getNorth() return false end
+    local eastTile, westTile = tiles["90:90"], tiles["89:90"]
+    clearFurniture(tiles["89:89"]) clearFurniture(tiles["90:89"]) clearFurniture(tiles["91:89"])
+    furnish(eastTile) furnish(westTile)
+    near(92, 92)
+    spot, why, side = N.barricadeWorkSquare(worker, west, eastTile, "same")
+    check(spot == tiles["90:91"] and side == "same", "a west window reaches from along its own wall")
+    spot, why, side = N.barricadeWorkSquare(worker, west, eastTile, "opposite")
+    check(spot == tiles["89:91"] and side == "opposite", "the far side keeps the far column")
+    U.gridSquare, U.loadedSquare = oldGridSquare, oldLoadedSquare
+end
 local provider = { directNative = true }
 do
     local escaping = actor()

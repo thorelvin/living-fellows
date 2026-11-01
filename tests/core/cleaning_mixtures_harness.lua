@@ -391,6 +391,51 @@ do
         "retirement leaves the exact bucket and contents on the actor for native corpse ownership")
     for _, marker in pairs(C.MARKERS) do check(mix.modData[marker] == nil, "death cannot leave a live cleaning reservation") end
 end
+-- A worker lost part way through a batch takes the exact vessels with it. The
+-- reopened job must plan afresh, or it fails forever and auditCleaning, which
+-- waits for any open cleaning job, stops cleaning the whole camp.
+for _, viaRecovery in ipairs({ true, false }) do
+    local ctx = scene(2)
+    local concentrate = vessel("Base.Bleach", { Bleach = 1 }, 1)
+    local bucket = vessel("Base.BucketEmpty", {}, 10)
+    local donor = vessel("Base.BucketWood", { Water = 3 }, 10)
+    for _, item in ipairs({ concentrate, bucket, donor }) do ctx.storageObject.container:AddItem(item) end
+    plan(ctx)
+    local job = queue(ctx)
+    native.partial = 0.5
+    for _ = 1, 60 do
+        SC_TEST_CLOCK = SC_TEST_CLOCK + 100
+        SC.BaseWork.update(ctx.actor, nil, {})
+        local prep = job.target.cleanPreparation
+        if prep and prep.stage == "water" and prep.nativePending == true then break end
+    end
+    check(job.target.cleanPreparation and job.target.cleanPreparation.nativePending == true,
+        "the fixture loses its worker in the middle of a pour")
+    native.pending = nil
+    local gone, survivor = SC.GameplayUtil.idOf(ctx.actor), ctx.actors[2]
+    check(SC.BaseFuel.prepareActorRetirement(ctx.actor), "the lost worker's markers are released")
+    if viaRecovery then
+        local oldUnregistered = SC.BaseWork.workerUnregistered
+        SC.BaseWork.workerUnregistered = function(id) return id == gone end
+        check(SC.BaseWork.reconcileExpiredJob(job, gone), "the expired lease settles")
+        SC.BaseWork.workerUnregistered = oldUnregistered
+        check(job.target.cleanPreparation == nil, "recovery forgets the lost batch with its receipts")
+    else
+        -- A save already caught in this state, from before the recovery fix.
+        job.target.cleanLoans, job.assignedId = nil, nil
+    end
+    job.state, job.reservedBy, job.leaseUntil = "pending", nil, 0
+    local replacement = vessel("Base.BucketEmpty", { Water = 1.9, Bleach = 0.1 }, 10)
+    local spareTool = F.item("Base.Mop")
+    function spareTool:hasTag(tag) return tag == ItemTag.CLEAN_STAINS end
+    function spareTool:isBroken() return false end
+    ctx.storageObject.container:AddItem(replacement)
+    ctx.storageObject.container:AddItem(spareTool)
+    ctx.actor = survivor
+    C.reset()
+    local completed, why = run(ctx, job)
+    check(completed, "the survivor finishes the reopened job from fresh supplies: " .. tostring(why))
+end
 do
     local ctx = scene()
     local concentrate = vessel("Base.Bleach", { Bleach = 1 }, 1)

@@ -134,8 +134,8 @@ Installed vanilla source SHA256 fingerprints:
 
 ```powershell
 & ./scripts/Invoke-LiveSandboxTests.ps1 `
-  -ProjectRoot C:/ZOMBOID/work/grid `
-  -SeedSave C:/ZOMBOID/work/grid/build/live-sandbox-runs/SC-Harness-20261031-213036-485701ec/cache/Saves/Rising/SC-Harness-20261031-213036-485701ec `
+  -ProjectRoot <worktree> `
+  -SeedSave <worktree>/build/live-sandbox-runs/SC-Harness-20261031-213036-485701ec/cache/Saves/Rising/SC-Harness-20261031-213036-485701ec `
   -GameMode Rising -LivingFellowsOnly -CleaningMixturesProbe `
   -EngineSound -NoSteam -IsolatedSourceBridge -HiddenWindow -TimeoutSeconds 1500
 ```

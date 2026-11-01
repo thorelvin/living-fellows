@@ -193,19 +193,51 @@ end
 
 -- Assigned priority work beats optional packing/shelving. Actual overload,
 -- urgent needs and combat keep their established precedence.
-for _, mode in ipairs({ "routine", "overload", "medicine", "combat" }) do
+local alarmScores = { respond = 70, stand_to = 64, shake = 66, watch = 66 }
+for _, mode in ipairs({ "routine", "overload", "medicine", "combat", "close", "crowded",
+    "respond", "stand_to", "shake", "watch", "rescue" }) do
     modules()
     local snapshot, assessment, needs, commands = quiet(), healthy(), {}, order("base_duty")
     SC.BaseLife.priorityWorkFor = function() return { id = "assigned", priority = 5 } end
-    SC.Logistics.status = function() return { shouldManage = true, overloaded = mode == "overload" } end
+    SC.Logistics.status = function()
+        return { shouldManage = alarmScores[mode] == nil, overloaded = mode == "overload" }
+    end
     if mode == "medicine" then assessment.health, assessment.bleedingCount = 35, 2 end
     if mode == "combat" then snapshot.immediateCount, snapshot.threatCount = 1, 1 end
+    if mode == "close" then snapshot.threatCount, snapshot.closeThreatCount = 1, 1 end
+    if mode == "crowded" then snapshot.threatCount, snapshot.closeThreatCount, snapshot.pressure = 3, 3, 1 end
+    if alarmScores[mode] then
+        SC.BaseAlert = { directiveFor = function() return { mode = mode, score = alarmScores[mode] } end }
+    end
+    if mode == "rescue" then
+        -- The player has one undressed wound: the lowest rescue there is.
+        SC.Medical.assess = function()
+            return { alive = true, health = 90, bleedingCount = 0, openWounds = 1 }
+        end
+    end
     local candidates = D._evaluateForTests(actor, player, snapshot, commands, assessment, needs, {}, clock)
     local selected = D._selectWithHysteresisForTests({}, candidates, clock)
     local wanted = mode == "routine" and "base_work" or mode == "overload" and "logistics"
-        or mode == "medicine" and "medical" or "combat"
+        or (mode == "medicine" or mode == "rescue") and "medical"
+        or alarmScores[mode] and "base_alert" or "combat"
     check(selected and selected.kind == wanted,
         "priority work preserves " .. mode .. " arbitration: " .. tostring(selected and selected.kind))
+    SC.BaseAlert = nil
+end
+
+-- A work order scores below routine shelving, so shelving must stand aside:
+-- a barricade worker otherwise shelves its surplus with the job in hand.
+for _, mode in ipairs({ "shelving", "overload", "weapon" }) do
+    modules()
+    SC.Logistics.status = function()
+        return { shouldManage = true, overloaded = mode == "overload", weaponReady = mode == "weapon",
+            surplus = mode == "shelving" and { shelveOnly = true } or nil }
+    end
+    local candidates = D._evaluateForTests(actor, player, quiet(), order("work"), healthy(), {}, {}, clock)
+    local selected = D._selectWithHysteresisForTests({}, candidates, clock)
+    local wanted = mode == "shelving" and "tactical" or "logistics"
+    check(selected and selected.kind == wanted,
+        "a work order against " .. mode .. " selects " .. wanted .. ": " .. tostring(selected and selected.kind))
 end
 
 modules()
@@ -383,25 +415,30 @@ modules()
 
 -- Borrowed cleaning supplies must settle before optional loadout searches;
 -- true overload, injuries, threats and a new player order still preempt them.
-for _, mode in ipairs({ "routine", "weapon", "overload", "danger", "medical", "follow" }) do
+for _, mode in ipairs({ "routine", "weapon", "overload", "danger", "close", "alarm", "medical", "follow" }) do
     modules()
     SC.BaseWork.cleaningSettlement = function() return true end
     local snapshot, assessment = quiet(), healthy()
     local commands = order(mode == "follow" and "follow" or "base_duty")
     if mode == "danger" then snapshot.threatCount, snapshot.immediateCount = 1, 1 end
+    if mode == "close" then snapshot.threatCount, snapshot.closeThreatCount = 1, 1 end
+    if mode == "alarm" then
+        SC.BaseAlert = { directiveFor = function() return { mode = "respond", score = 70 } end }
+    end
     if mode == "medical" then assessment.bleedingCount = 1 end
     SC.Logistics.status = function()
-        return { shouldManage = mode ~= "follow", overloaded = mode == "overload",
+        return { shouldManage = mode ~= "follow" and mode ~= "alarm", overloaded = mode == "overload",
             weaponReady = mode == "weapon" }
     end
     local candidates = D._evaluateForTests(actor, player, snapshot, commands,
         assessment, {}, {}, clock)
     local selected = D._selectWithHysteresisForTests({}, candidates, clock)
     local expected = (mode == "routine" or mode == "weapon") and "base_work"
-        or mode == "overload" and "logistics" or mode == "danger" and "combat"
-        or mode == "medical" and "medical" or "follow"
+        or mode == "overload" and "logistics" or (mode == "danger" or mode == "close") and "combat"
+        or mode == "alarm" and "base_alert" or mode == "medical" and "medical" or "follow"
     check(selected and selected.kind == expected,
-        "cleaning settlement arbitration respects " .. mode)
+        "cleaning settlement arbitration respects " .. mode .. ": " .. tostring(selected and selected.kind))
+    SC.BaseAlert = nil
 end
 modules()
 

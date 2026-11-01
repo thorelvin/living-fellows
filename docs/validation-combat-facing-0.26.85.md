@@ -8,8 +8,8 @@ Results below preserve the earlier targeting-only investigation.
 
 The latest normal session on this PC is **October 31, 2026, 22:29–23:44**,
 Project Zomboid 42.21.0, installed LF **0.26.84**. Sources:
-`C:/Users/thore/Zomboid/console.txt` and
-`C:/Users/thore/Zomboid/Logs/2026-10-31_22-29_DebugLog.txt`.
+`<Zomboid folder>/console.txt` and
+`<Zomboid folder>/Logs/2026-10-31_22-29_DebugLog.txt`.
 The isolated harness sessions below do not overwrite those files.
 
 - Neither file records a gameplay exception. The errors are startup font,

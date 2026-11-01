@@ -928,4 +928,38 @@ check(handled == false and reason == "farm_supply_missing" and #F.receipts == 0
         and #actor.inventory.items == 0,
     "a missing carried tool is never recreated or converted into a storage loan")
 
+-- A job named for the can's carrier must not outlast that farmer's ability to
+-- do it. Nobody else may claim a named job and the plot cannot queue another.
+for _, case in ipairs({
+    { name = "stays", keeps = true, change = function() end },
+    { name = "leaves duty", change = function(_, resident) resident.duty = false end },
+    { name = "changes role", change = function(_, resident) resident.role = "guard" end },
+    { name = "leaves camp", change = function(farmer) farmer.x = 200 end },
+    { name = "dies", change = function(farmer) function farmer:isDead() return true end end },
+    { name = "loses the can", change = function(farmer, _, item) farmer.inventory:Remove(item) end },
+    { name = "is gone from the registry", change = function(farmer) F.actors[farmer.id] = nil end },
+}) do
+    fresh()
+    actor = F.actor("carried-" .. case.name, 0, 1)
+    plant = F.plant({ waterLvl = 20, waterNeeded = 60, harvestable = false })
+    F.square(1, 1, plant)
+    carriedCan = can(9910, 8)
+    actor.inventory:AddItem(carriedCan)
+    local resident = { role = "farmer", duty = true }
+    originalResidents, originalDuty = SC.BaseLife.resident, SC.BaseLife.dutyResidentIds
+    SC.BaseLife.resident = function(id) return id == actor.id and resident or nil end
+    SC.BaseLife.dutyResidentIds = function() return { actor.id } end
+    carriedQueued, carriedJob = FarmWork.audit(F.base)
+    check(carriedQueued == true and carriedJob.assignedId == actor.id,
+        "the fixture starts with a job named for the carrier: " .. case.name)
+    case.change(actor, resident, carriedCan)
+    FarmWork.audit(F.base)
+    if case.keeps then
+        check(carriedJob.assignedId == actor.id, "a farmer who can still do it keeps the named job")
+    else
+        check(carriedJob.assignedId == nil, "the named water job reopens when its farmer " .. case.name)
+    end
+    SC.BaseLife.resident, SC.BaseLife.dutyResidentIds = originalResidents, originalDuty
+end
+
 print("FARMING_LIFECYCLE_PASS checks=" .. tostring(checks))

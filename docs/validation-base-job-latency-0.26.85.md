@@ -131,8 +131,8 @@ Use `scripts/Invoke-LiveSandboxTests.ps1` with the source clone and these common
 options:
 
 ```powershell
--ProjectRoot C:/ZOMBOID/work/grid `
--SeedSave C:/Users/thore/Zomboid/Saves/Rising/LF-Skills5-Test-2026-10-29 `
+-ProjectRoot <worktree> `
+-SeedSave <Zomboid folder>/Saves/Rising/LF-Skills5-Test-2026-10-29 `
 -GameMode Rising -LivingFellowsOnly -BaseJobLatencyProbe `
 -BaseJobLatencyClearWindow -EngineSound -NoSteam -IsolatedSourceBridge `
 -HiddenWindow -TimeoutSeconds 510

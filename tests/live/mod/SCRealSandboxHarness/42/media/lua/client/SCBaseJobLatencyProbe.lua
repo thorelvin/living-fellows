@@ -137,7 +137,9 @@ local function setup(H, SC, current, check, result, setPhase)
     H.baseJobLatency = fixture
     fixture.farmer = named.Tess or rows[1]
     fixture.keeper = named.Jill or rows[2]
-    fixture.maintainer = named.Sanghwa or rows[3]
+    -- A resident on infection watch takes no jobs, and the save moves on as it is played.
+    local function free(record) return record and not SC.BaseLife.restriction(record.id) and record or nil end
+    fixture.maintainer = free(named.Sanghwa) or free(named.Xian) or rows[3]
     local selected = { [fixture.farmer.id] = "farmer", [fixture.keeper.id] = "corpsekeeper",
         [fixture.maintainer.id] = "maintainer" }
     -- Use the same public cancellation/assignment paths as player orders. Do
@@ -426,7 +428,22 @@ function Probe.step(H, current, check, result, setPhase)
     local planks = f.window and boardCount(f.window) or 0
     if planks > (f.windowBefore or 0) and not f.plankAt then
         f.plankAt = elapsed
-        result("PASS", "latency_front_window_first_plank", "afterMs=" .. elapsed .. " boards=" .. planks)
+        local worker = f.maintainer.actor
+        result("PASS", "latency_front_window_first_plank", "afterMs=" .. elapsed .. " boards=" .. planks
+            .. " worker=" .. at(worker) .. " tile=" .. at(call(worker, "getCurrentSquare"))
+            .. " sameSide=" .. tostring(call(call(f.window, "getBarricadeOnSameSquare"), "getNumPlanks"))
+            .. " oppositeSide=" .. tostring(call(call(f.window, "getBarricadeOnOppositeSquare"), "getNumPlanks")))
+        -- The furniture stays in the clone, so the worker cannot be on either edge tile.
+        local tile = call(worker, "getCurrentSquare")
+        if H.config.base_job_latency_clear_window ~= "true" then
+            check("latency_front_window_reached_across", tile and not SC.GameplayUtil.squareOccupyingObject(tile)
+                and SC.GameplayUtil.isSquareFree(tile), "tile=" .. at(tile))
+        end
+    end
+    -- A frame of the next plank going up, to judge how the reach looks.
+    if f.plankAt and not f.windowShot and elapsed >= f.plankAt + 3000 then
+        f.windowShot = true
+        pcall(function() getCore():TakeFullScreenshot(tostring(H.config.run_id) .. "-front-window") end)
     end
     local corpses = tonumber((call(f.grave, "getModData") or {}).corpses) or 0
     if corpses > 0 and not f.buriedAt then
@@ -466,9 +483,8 @@ function Probe.step(H, current, check, result, setPhase)
     if elapsed >= 45000 and H.config.base_job_latency_clear_window == "true" and not f.benchCleared then
         f.benchCleared = true
         local job = f.windowJob and SC.BaseLife.job(f.windowJob.id)
-        check("latency_front_window_explained", job and job.state == "blocked"
-            and job.blocker == "work_side_blocked", "state=" .. tostring(job and job.state)
-                .. " reason=" .. tostring(job and job.blocker) .. " beforeAnyLayoutChange=true")
+        emit("front_window_before_clearing", "state=" .. tostring(job and job.state)
+            .. " reason=" .. tostring(job and job.blocker))
         local square = call(f.window, "getSquare")
         local bench
         if square then SC.GameplayUtil.squareObjects(square, function(object)
@@ -482,8 +498,10 @@ function Probe.step(H, current, check, result, setPhase)
             square:RecalcAllWithNeighbours(true)
             check("latency_front_window_bench_control", call(bench, "getObjectIndex") == -1,
                 "onlyOneInventorylessBenchRemoved=true sourceSaveUntouched=true")
-            local retried, reason = SC.BaseLife.retryJob(job.id)
-            check("latency_front_window_retry", retried == true, tostring(reason))
+            if job and job.state == "blocked" then
+                local retried, reason = SC.BaseLife.retryJob(job.id)
+                check("latency_front_window_retry", retried == true, tostring(reason))
+            end
         else result("FAIL", "latency_front_window_bench_control", "reported bench missing") end
     end
     local deadline = math.max(30000, math.min(600000,

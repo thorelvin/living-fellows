@@ -1052,6 +1052,12 @@ end
 local function prepareCleaningMixture(actor, state, job)
     local C, prep = SC.CleaningSupplies, job.target.cleanPreparation
     if not C then return true end
+    -- A batch nobody holds a receipt for describes nothing: its worker is gone
+    -- or its selection never finished. Plan again instead of failing forever.
+    if prep and not (cleaningReceipt(job, "tool") or cleaningReceipt(job, "liquid")
+        or cleaningReceipt(job, "concentrate") or cleaningReceipt(job, "water")) then
+        job.target.cleanPreparation, job.target.cleanLoans, prep = nil, nil, nil
+    end
     if not prep then
         if job.target.cleanLoans then return true end -- Older saves finish their existing loans.
         local plan, why = C.plan(actor, job)
@@ -3395,7 +3401,7 @@ function BaseWork.reconcileExpiredJob(job, ownerId)
             or job.target.cleanLoans.concentrate or job.target.cleanLoans.water) then
         if not BaseWork.workerUnregistered(ownerId) then
             return false, "expired_cleaning_loan_pending" end
-        job.target.cleanLoans, job.assignedId = nil, nil
+        job.target.cleanLoans, job.target.cleanPreparation, job.assignedId = nil, nil, nil
     end
     if (job.type == "refuel_vehicle" or job.type == "generator_service" or job.type == "refuel_generator"
         or job.type == "inflate_tires" or job.type == "wash_vehicle")
